@@ -1124,3 +1124,41 @@ class TestDeckSplitBeforeTheVote:
         assert src.index("_deck_is_road(layout") < src.index(
             "_demote(shape, ROLE_GROUNDSIDE_PAVEMENT"), (
             "the deck guard must run before the groundside demotion")
+
+
+class TestSplitAtMint:
+    """RULINGS 2026-08-30m: the deck's ground is ROAD FROM THE MOMENT IT
+    IS MINTED.  So the strip becomes its own shape at the mint, while
+    every piece is still road-family and no airside role is in play —
+    not only before the scorer, by which time the strip is inside a lot
+    the scorer votes on whole (LEMD: 1,133 of 5,134 m², 0.22)."""
+
+    def test_the_pipeline_splits_right_after_stamping(self):
+        import inspect
+        from auto_patch import pipeline
+        src = inspect.getsource(pipeline)
+        i_stamp = src.index("_n_deck_pieces = _deck.stamp_shapes(layout)")
+        i_split = src.index("_deck.split_shapes_at_deck(layout, icao)",
+                            i_stamp)
+        assert i_split - i_stamp < 800, (
+            "the mint-time split must sit with the stamp, not drift")
+
+    def test_the_scorer_still_splits_too(self):
+        """Belt and braces: a lot formed AFTER the mint (a merge) still
+        gets split before the vote."""
+        import inspect
+        from auto_patch import pavement_scoring as ps
+        assert "split_shapes_at_deck(layout, icao)" in inspect.getsource(
+            ps.enact_classify)
+
+    def test_the_split_is_idempotent(self):
+        """Running it twice must not re-cut what it already cut."""
+        layout = _make()
+        deck.publish_candidates(layout)
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout.shapes = [BuiltShape(
+            polygon=_rect(-60.0, 200.0, -20.0, 20.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[604.0] * 4)]
+        assert deck.split_shapes_at_deck(layout) == 1
+        assert deck.split_shapes_at_deck(layout) == 0

@@ -4114,6 +4114,14 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # tunnel-ramp cut, its clearance annulus and the covered-span
         # suppression all pass them by.
         _n_deck_pieces = _deck.stamp_shapes(layout)
+        # §2 + RULINGS 2026-08-30m: the deck's ground is ROAD FROM THE
+        # MOMENT IT IS MINTED, so its strip becomes its own shape HERE,
+        # while every piece is still road-family and no airside role is
+        # in play.  Splitting only before the scorer was too late: by
+        # then the strip is inside a lot the scorer votes on whole
+        # (LEMD: 1,133 of 5,134 m², 0.22).  This is the single-site form
+        # the consumer-census law prefers (RULINGS 2026-08-30l (a)).
+        _deck.split_shapes_at_deck(layout, icao)
         if _n_deck_pieces:
             UI.vprint(1,
                 f"  [bridge-deck] §2: {_n_deck_pieces} minted road "

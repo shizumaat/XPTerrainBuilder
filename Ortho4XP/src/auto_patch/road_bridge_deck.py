@@ -891,6 +891,10 @@ def split_shapes_at_deck(layout, icao: str = "") -> int:
     """
     u = terrain_deck_union(layout)
     if u is None:
+        UI.vprint(1,
+            "  [bridge-deck] split: NO terrain-deck union at this pass — "
+            "either no candidate survived §1/§2 or every span is "
+            "object-governed; nothing to split.")
         return 0
     from .elevation import _resample_node_altitudes_nn
     from .groundside import _ring_and_altitudes
@@ -944,6 +948,46 @@ def split_shapes_at_deck(layout, icao: str = "") -> int:
             continue
         out.extend(made)
         n_split += 1
+    # ALWAYS SAY WHAT WAS THERE.  Round 8 returned 0 in silence and cost
+    # a whole round to explain; the census law (RULINGS 2026-08-30l) is
+    # about knowing every consumer, and a pass that finds nothing must
+    # say what it looked at.
+    _touch = []
+    for s2 in (getattr(layout, "shapes", None) or ()):
+        p2 = getattr(s2, "polygon", None)
+        if p2 is None or p2.is_empty:
+            continue
+        try:
+            share = float(p2.intersection(u).area)
+        except Exception:                                # pragma: no cover
+            continue
+        if share < 1.0:
+            continue
+        _touch.append((share, float(p2.area),
+                       str(getattr(s2, "role", "") or ""),
+                       str(getattr(s2, "ref", "") or "")))
+    _touch.sort(reverse=True)
+    UI.vprint(1,
+        f"  [bridge-deck] split census: {len(_touch)} shape(s) meet the "
+        f"deck union; {n_split} split.  " + "; ".join(
+            f"{r or '-'}/{f or '-'} {sh:,.0f} of {a:,.0f} m² "
+            f"({sh / a:.2f})" for sh, a, r, f in _touch[:6]))
+    # §3/30m INVARIANT REPORT: the deck's ground must never wear an
+    # AIRSIDE role (owner 2026-08-30m).  Airside is king, so this pass
+    # never carves one — it NAMES it, so the upstream pass that minted
+    # the role is fixed there and not worked around here.
+    _AIRSIDE = ("apron", "junction", "runway", "runway_crossing",
+                "primary_parallel", "secondary_parallel", "stub",
+                "cross_connector")
+    _bad = [(sh, a, r, f) for sh, a, r, f in _touch
+            if r in _AIRSIDE and sh >= DECK_PIECE_MIN_FRACTION * a]
+    for sh, a, r, f in _bad:
+        UI.vprint(1,
+            f"  [bridge-deck] 30m VIOLATION: a shape {sh / a:.0%} inside "
+            f"the deck carries the AIRSIDE role {r!r} (ref {f or '-'}, "
+            f"{a:,.0f} m²).  The deck's ground is road by §2 from mint; "
+            f"the upstream pass that re-roled it is the defect.  Airside "
+            f"is king: nothing here carves or re-roles it.")
     if n_split:
         layout.shapes = out
         UI.vprint(1,

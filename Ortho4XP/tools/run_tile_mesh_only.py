@@ -106,8 +106,22 @@ if __name__ == "__main__":
         applied = apply_xplane_install_paths()
         print("X-Plane install paths applied:", sorted(applied))
     print("engine cache redirects:", _CACHE_REDIRECTS)
-    tile = CFG.Tile(latitude, longitude, "")
-    tile.read_from_config()
+    # THE TILE FRAME, through the SHARED resolver (RULINGS 2026-08-31d):
+    # the per-tile cfg is provisioned and recorded exactly as
+    # ``build_airport.py --tile`` records it, and a tile with none runs
+    # on the user's GLOBAL settings rather than refusing.  This entry
+    # runs steps 1-2 only, which need no imagery provider at all, so a
+    # frame with no provider is simply NOTED here — the geometry (and
+    # the levelled-roads sidecar step 1 writes) is exactly what this
+    # entry exists to produce.
+    from build_airport import resolve_tile_frame
+    tile, cfg_provenance, imagery = resolve_tile_frame(
+        latitude, longitude, "")
+    print("per-tile cfg:", cfg_provenance.get("action"),
+          cfg_provenance.get("cfg"))
+    if not imagery["ok"]:
+        print("imagery frame:", imagery["reason"],
+              "- steps 1-2 need no provider, continuing")
     print("build directory:", tile.build_dir)
 
     # Nothing is authorised: this entry has no --refresh-data of its own.

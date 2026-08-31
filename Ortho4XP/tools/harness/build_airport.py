@@ -51,10 +51,22 @@ measurement in this repo, and every one of them exits 0 without the check:
    per-tile cfg uses global defaults; 2026-08-12b's substance kept: one
    canonical source, ritual-provisioned, never hand-seeded, recorded).
    Nothing is SYNTHESIZED either way — a made-up provider and ZL build a
-   tile nobody asked for and exit 0, so where the globals have nothing to
-   give (``default_website`` is excluded from the global config by
-   construction) the provider check below still refuses, naming the
-   derivation.
+   tile nobody asked for and exit 0.  And where the globals have nothing
+   to give (``default_website`` is excluded from the global config by
+   construction, because production supplies the provider per BUILD from
+   the app's job), the entry NO LONGER REFUSES: owner ruling
+   2026-08-31d makes the per-tile cfg OPTIONAL — the tile runs on the
+   user's global settings, the IMAGERY half (steps 3 masks + 4 tile)
+   stands down by name, and the GEOMETRY half (steps 1 vector + 2 mesh,
+   with the levelled-roads sidecar) builds, because that is the surface
+   every lane measures.  ``imagery_capability`` is the ONE place that
+   decision is made and ``resolve_tile_frame`` the ONE frame resolver;
+   ``tools/run_tile_mesh_only.py`` imports both, so the two tile entries
+   cannot provision from two sources or refuse on two conditions.  The
+   build's own record says which halves ran (``frame["imagery"]``,
+   ``frame["tile_steps_run"]``), so a geometry-only tile can never read
+   as a full one.  (Before 31d this refusal made the SPJC ``-13-078``
+   tile — an owner acceptance site — unbuildable in every lane.)
 4. **A tile build with no CIFP.**  ``run_auto_patch_generation`` only calls
    the generator when it can resolve a CIFP directory; the dev config
    ships ``cifp_data_path`` EMPTY, so a whole-tile build there produces a
@@ -926,6 +938,95 @@ DERIVED_CFG_HEADER = """\
 """
 
 
+def imagery_capability(tile, cfg_provenance) -> dict:
+    """CAN THIS TILE'S FRAME BUILD IMAGERY? — the ONE implementation, and
+    the ONE place RULINGS 2026-08-31d is expressed.
+
+    THE RULING: *a tile entry finding no per-tile cfg DEFAULTS TO THE
+    USER'S GLOBAL SETTINGS (Ortho4XP.cfg) — it does not refuse.  Refusal
+    is reserved for a global config that itself lacks the required key.*
+
+    What "required" means is per STEP, and that is the whole content of
+    this function.  ``default_website`` is required by the IMAGERY half
+    of a tile build (masks + textures) and by nothing else:
+    ``O4_Cfg_Vars.cfg_global_tile_vars`` excludes ``default_website`` /
+    ``default_zl`` / ``zone_list`` from the global config BY
+    CONSTRUCTION, because production supplies them per BUILD from the
+    app's job — so a lane tile that has no canonical per-tile cfg has no
+    provider ANYWHERE, and the ruling says that must cost it the
+    textures, not the tile.  The geometry half (vector + mesh) is the
+    surface every lane measures and it needs no provider at all.
+
+    Before 31d this raised ``SystemExit`` and the SPJC ``-13-078`` tile —
+    an owner acceptance site — was unbuildable in every lane.  Nothing is
+    synthesised here: a provider is never invented (that is the input
+    the 2026-08-12b ruling forbids), it is simply reported ABSENT, in the
+    build's own record (``result["imagery"]``, ``frame["imagery"]``), so
+    a reader can never mistake a geometry-only tile for a full one.
+
+    Returns ``{"ok", "reason", "note", "default_website", "default_zl",
+    "cfg_action"}``.
+    """
+    site = str(getattr(tile, "default_website", "") or "")
+    zl = getattr(tile, "default_zl", None)
+    action = (cfg_provenance or {}).get("action", "unknown")
+    if site:
+        return {"ok": True, "reason": "provider resolved",
+                "note": (f"imagery frame OK: provider {site!r} zl={zl} "
+                         f"(per-tile cfg {action})"),
+                "default_website": site, "default_zl": zl,
+                "cfg_action": action}
+    if action == "derived-from-global-defaults":
+        why = ("this tile has NO canonical per-tile cfg, so it runs on "
+               f"the user's GLOBAL config "
+               f"({(cfg_provenance or {}).get('global_source')}) per "
+               "owner ruling 2026-08-31d — and the global config carries "
+               "no default_website / default_zl / zone_list AT ALL "
+               "(O4_Cfg_Vars.cfg_global_tile_vars excludes them: "
+               "production supplies the provider per BUILD from the "
+               "app's job)")
+    else:
+        why = (f"the per-tile cfg this build ran on ({action}, "
+               f"{(cfg_provenance or {}).get('cfg')}) carries no "
+               f"default_website")
+    return {
+        "ok": False, "reason": why,
+        "note": ("IMAGERY STANDS DOWN (owner ruling 2026-08-31d, a tile "
+                 "entry does not refuse for a missing per-tile cfg): "
+                 f"{why}.  The GEOMETRY half builds — steps 1 vector + "
+                 "2 mesh, the surface every lane measures, and the "
+                 "levelled-roads sidecar with it — and steps 3 masks + "
+                 "4 tile are SKIPPED, recorded in this build's own "
+                 "result and frame.  No provider is invented (owner "
+                 "ruling 2026-08-12b): to build textures for this tile, "
+                 "give it a canonical per-tile cfg in the main tree."),
+        "default_website": "", "default_zl": zl, "cfg_action": action}
+
+
+def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None):
+    """``(tile, cfg_provenance, imagery)`` — THE tile frame, for BOTH tile
+    entries (``--tile`` here and ``tools/run_tile_mesh_only.py``).
+
+    One implementation, because two arrangements of "which cfg is this
+    tile running on, and what can that frame build" is exactly the
+    census-wrapper defect at one remove: the two entries would provision
+    from different sources and refuse on different conditions, and no
+    reader of either build's record could tell.
+    """
+    import O4_Config_Utils as _CFG
+    import O4_File_Names as _FNAMES
+
+    custom_build_dir = _FNAMES.normalize_custom_build_dir(lat, lon,
+                                                          build_dir)
+    tile = _CFG.Tile(lat, lon, custom_build_dir)
+    # PROVISION BEFORE THE READ: ``read_from_config`` falls back to the
+    # global config in silence, and which cfg a tile ran on is a frame
+    # fact that has to be recorded, not inferred.
+    cfg_provenance = provision_tile_cfg(lat, lon, tile.build_dir, prog)
+    tile.read_from_config()
+    return tile, cfg_provenance, imagery_capability(tile, cfg_provenance)
+
+
 def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
                        source_root=None) -> dict:
     """Provision the lane build dir's per-tile cfg from the canonical
@@ -934,11 +1035,12 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     OWNER RULING 2026-08-12b — "LANE INPUTS ARE PROVISIONED BY THE RITUAL,
     NEVER HAND-SEEDED".  A fresh lane build dir has no
     ``Ortho4XP_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to
-    the GLOBAL config, which by construction carries no ``default_website``
-    — and the tile build refuses with "EMPTY default_website".  On
-    2026-08-12 two lanes each improvised a different cfg source to get
-    past it, which is the census-wrapper defect re-emerging: the
-    inconsistency, not the copy, is the harm.
+    the GLOBAL config, which by construction carries no provider — and
+    the tile build used to refuse there (superseded by RULINGS
+    2026-08-31d: the imagery half stands down instead, see
+    :func:`imagery_capability`).  On 2026-08-12 two lanes each improvised
+    a different cfg source to get past it, which is the census-wrapper
+    defect re-emerging: the inconsistency, not the copy, is the harm.
 
     Four outcomes, all recorded:
 
@@ -1775,63 +1877,30 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
     paths = apply_xplane_install_paths()
     prog.note(f"X-Plane install paths applied: {sorted(paths)}")
 
-    custom_build_dir = FNAMES.normalize_custom_build_dir(lat, lon, build_dir)
-    tile = CFG.Tile(lat, lon, custom_build_dir)
-    # THE INPUT, PROVISIONED (owner ruling 2026-08-12b) — before the read,
-    # because ``read_from_config`` silently falls back to the global config
-    # when the per-tile cfg is absent, and the global config carries no
-    # provider at all.  Recorded on the build, never hand-seeded.
-    cfg_provenance = provision_tile_cfg(lat, lon, tile.build_dir, prog)
-    tile.read_from_config()
+    # THE INPUT, PROVISIONED (owner ruling 2026-08-12b) and the frame's
+    # capability resolved — ONE implementation, shared with
+    # ``tools/run_tile_mesh_only.py`` (RULINGS 2026-08-31d).
+    tile, cfg_provenance, imagery = resolve_tile_frame(
+        lat, lon, build_dir, prog)
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
               f"auto_patch={tile.auto_patch} "
               f"modify_custom_airports={tile.modify_custom_airports}")
-    if not tile.default_website:
-        if cfg_provenance["action"] == "derived-from-global-defaults":
-            # The 2026-08-14 amendment removed the missing-cfg refusal, and
-            # this is where its LIMIT shows: default_website / default_zl /
-            # zone_list are excluded from the global config BY CONSTRUCTION
-            # (O4_Cfg_Vars.cfg_global_tile_vars), because production
-            # supplies them per BUILD from the app's job.  "Global
-            # defaults" therefore has no provider to give, and picking one
-            # here would be the synthesized input both rulings forbid.
-            raise SystemExit(
-                "REFUSING: tile config resolves to an EMPTY "
-                "default_website — step 4 would produce provider-less "
-                "texture names.\n"
-                f"  This tile has NO canonical per-tile cfg, so its cfg "
-                f"was DERIVED from the global defaults "
-                f"({cfg_provenance['global_source']}, sha256 "
-                f"{cfg_provenance['global_sha256'][:12]}) per owner ruling "
-                f"2026-08-14 — and the global config carries no "
-                f"default_website / default_zl / zone_list AT ALL: "
-                f"O4_Cfg_Vars.cfg_global_tile_vars excludes those three by "
-                f"construction, because production supplies them per BUILD "
-                f"from the app's job (o4_driver job['provider'] / "
-                f"job['zl']).\n"
-                "  So the derivation got the tile past the missing-cfg "
-                "refusal and stopped HERE, at the one setting global "
-                "defaults cannot supply.  Fix, at the canonical source and "
-                "never lane-side: build the tile once in the main tree (or "
-                "copy its cfg there from the app's own build), so every "
-                "lane provisions the SAME provider and ZL — owner ruling "
-                "2026-08-12b.")
-        raise SystemExit(
-            "REFUSING: tile config resolves to an EMPTY default_website — "
-            "step 4 would produce provider-less texture names.  The "
-            f"per-tile cfg this build ran on was {cfg_provenance['action']} "
-            f"({cfg_provenance['cfg']}, canonical source "
-            f"{cfg_provenance['canonical_source']}): it carries no "
-            f"provider, so the canonical source needs fixing at ITS "
-            f"location — never patched lane-side (owner ruling "
-            f"2026-08-12b).")
-
+    if not imagery["ok"]:
+        # RULINGS 2026-08-31d: A TILE ENTRY DOES NOT REFUSE FOR A MISSING
+        # PER-TILE CFG.  It takes the user's GLOBAL settings and builds
+        # what those settings can build; refusal is reserved for a global
+        # config that itself lacks a key the step being run REQUIRES.
+        # The provider is required by the IMAGERY half only (masks +
+        # textures), so that half stands down, by name, and the geometry
+        # half — the surface every lane measures — builds.
+        prog.note(imagery["note"])
+        UI.vprint(1, f"  [harness] {imagery['note']}")
     timings = {}
-    for name, step in (("1 vector", VMAP.build_poly_file),
-                       ("2 mesh", MESH.build_mesh),
-                       ("3 masks", MASK.build_masks),
-                       ("4 tile", TILE.build_tile)):
+    steps = [("1 vector", VMAP.build_poly_file), ("2 mesh", MESH.build_mesh)]
+    if imagery["ok"]:
+        steps += [("3 masks", MASK.build_masks), ("4 tile", TILE.build_tile)]
+    for name, step in steps:
         prog.note(f"step {name} START")
         t0 = time.time()
         step(tile)
@@ -1841,6 +1910,8 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
             raise SystemExit(f"step {name} raised the red flag — stopping")
     return {"tile": [lat, lon], "build_dir": tile.build_dir,
             "step_seconds": timings, "xplane_paths": paths,
+            "steps_run": [n for n, _ in steps],
+            "imagery": imagery,
             "tile_cfg_provenance": cfg_provenance}
 
 
@@ -2310,6 +2381,12 @@ def main(argv=None) -> int:
     # two lanes that hand-seeded two different sources on 2026-08-12 left
     # nothing in either frame to compare).
     frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")
+    # WHICH HALVES OF THE TILE THIS BUILD ACTUALLY RAN (RULINGS
+    # 2026-08-31d): a frame with no imagery provider builds the
+    # geometry and stands the textures down, so the record has to
+    # say so — a geometry-only tile must never read as a full one.
+    frame["imagery"] = result.get("imagery")
+    frame["tile_steps_run"] = result.get("steps_run")
     # THE SOLVE MODEL, re-resolved now that a ``--tile`` run's per-tile cfg
     # has been provisioned (it did not exist when the pre-build record was
     # taken, and precedence puts it above the global cfg).  On the patch

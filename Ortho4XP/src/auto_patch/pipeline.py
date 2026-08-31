@@ -906,7 +906,17 @@ def _road_contact_scope(layout, pav_union, to_m):
 
     ``None`` when there is no pavement and no tagged way — the caller
     then mints as before (unit fixtures with no airfield).
+
+    DERIVED ONCE PER BUILD and memoised on the layout: BOTH minters of
+    road-family pavement read this ONE region (the OSM/1206 mint at the
+    service-network build, and ``groundside.carve_narrow_service_strips``
+    on the truck-route feed — RULINGS 31d finding A).  A second
+    derivation is a second ownership boundary, which is the defect class
+    the census-wrapper precedent names.
     """
+    cached = getattr(layout, "_road_contact_scope_cache", None)
+    if cached is not None:
+        return cached[0]
     from .config import SERVICE_ROAD_PAVEMENT_NEAR_M as _NEAR
     parts = []
     if pav_union is not None and not pav_union.is_empty:
@@ -935,13 +945,19 @@ def _road_contact_scope(layout, pav_union, to_m):
                 parts.append(unary_union(spans).buffer(float(_NEAR)))
             except _GEOM_EXC:                              # pragma: no cover
                 pass
-    if not parts:
-        return None
+    scope = None
+    if parts:
+        try:
+            scope = parts[0] if len(parts) == 1 else unary_union(parts)
+            if scope.is_empty:
+                scope = None
+        except _GEOM_EXC:                                  # pragma: no cover
+            scope = None
     try:
-        scope = parts[0] if len(parts) == 1 else unary_union(parts)
-        return None if scope.is_empty else scope
-    except _GEOM_EXC:                                      # pragma: no cover
-        return None
+        layout._road_contact_scope_cache = (scope,)
+    except Exception:                                      # pragma: no cover
+        pass
+    return scope
 
 
 def gap_spine_stand_down_solve(*, layout, icao, solve, rebuild):
@@ -3989,8 +4005,26 @@ def build_airport_pavement(icao: str, xplane_root: str,
     _n_strip = 0
     if os.environ.get("O4_SERVICE_STRIP_CARVE", "1") == "1":
         from .groundside import carve_narrow_service_strips
+        # THE FEED IS CLIPPED TO THE CONTACT SCOPE (RULINGS 31d finding
+        # A): this pass is the road family's SECOND minter and it was
+        # carving general road pavement — 1,325 ref-less
+        # service_junction rings beyond 25 m of airside at HECA, the
+        # very ground the core owns under 31b.  Same region as the mint,
+        # derived once (``_road_contact_scope`` memoises on the layout).
+        _carve_own: dict = {}
         _n_strip = carve_narrow_service_strips(
-            layout, pav_union, terminal_union)
+            layout, pav_union, terminal_union,
+            contact_scope=_road_contact_scope(layout, pav_union, to_m),
+            ownership_out=_carve_own)
+        layout._road_ownership_carve = _carve_own
+        if _carve_own.get("carve_released_to_core_m"):
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: truck-route carve feed CLIPPED "
+                f"to the contact scope — "
+                f"{_carve_own['carve_kept_m']:.0f} m carved, "
+                f"{_carve_own['carve_released_to_core_m']:.0f} m of "
+                f"{_carve_own['carve_offered_m']:.0f} m RELEASED to the "
+                f"core (RULINGS 31d finding A).")
         if _n_strip:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: carved {_n_strip} narrow "
@@ -4176,6 +4210,22 @@ def build_airport_pavement(icao: str, xplane_root: str,
             covered_span=_covered_span.mask_of(layout),
             contact_scope=_scope, ownership_out=_own)
         _own["near_m"] = float(SERVICE_ROAD_PAVEMENT_NEAR_M)
+        # ONE DECLARED MIGRATION, however many passes mint road pavement
+        # (RULINGS 31d finding A).  The truck-route carve ran earlier in
+        # this build and released its own far corridor metres; they are
+        # part of the population leaving the patch, so they join the
+        # count the census reads rather than living in a second key
+        # nobody totals.
+        _carve = dict(getattr(layout, "_road_ownership_carve", None) or {})
+        if _carve:
+            _own.update(_carve)
+            _own["offered_m"] = round(
+                _own["offered_m"] + _carve.get("carve_offered_m", 0.0), 2)
+            _own["kept_m"] = round(
+                _own["kept_m"] + _carve.get("carve_kept_m", 0.0), 2)
+            _own["released_to_core_m"] = round(
+                _own["released_to_core_m"]
+                + _carve.get("carve_released_to_core_m", 0.0), 2)
         layout._road_ownership = _own
         UI.vprint(1,
             f"  [pav-builder] {icao}: road OWNERSHIP — "
@@ -6849,6 +6899,14 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
     # abuts (CYXY: 0.6 m² lot∩road — zero-tolerance
     # test_no_self_overlap).  The pass is idempotent and keeps touching
     # service edges (share-svc), so a clean layout is unchanged.
+    # Bound before the guarded block so a later reader (the road
+    # transition re-profile after the conformance passes) can never hit
+    # an unbound name on the path where the DEM load itself raised.
+    _dem_last = None
+    _tl = (current_tile_lat if current_tile_lat is not None
+           else int(math.floor(layout.anchor[0])))
+    _tn = (current_tile_lon if current_tile_lon is not None
+           else int(math.floor(layout.anchor[1])))
     if compute_elevations:
         try:
             from .groundside import _separate_groundside_from_airside
@@ -7259,12 +7317,27 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # projection then moves again.  With the LATE call retired this is
         # the point immediately after the pipeline's only projection, so
         # the requirement is met by the same ordering it always was.
-        # THE FREE-ROAD PROFILE RE-SOLVE RAN HERE — RETIRED with the pass
-        # (RULINGS 31b, spec §3.1).  Its replacement needs no second
-        # call: the transition profiler runs INSIDE the final grade
-        # projection, at the writeback seam, so it already reads the
-        # projected surface rather than re-imposing itself on it.
         _post_projection_conformance_passes()
+        # ── THE TRANSITION PROFILER IS THE LAST ROAD-FAMILY WRITER ────
+        # (owner RULINGS 31d, Batch 2b finding B.)  The writeback-seam
+        # call inside ``final_grade_projection`` is the spec's home for
+        # the pinned-transition law and it stays — but ``who_wrote --at``
+        # measured the conformance family writing road values AFTER it
+        # (a ``service_junction`` at 30.11236,31.40595 went 98.33 →
+        # 100.47, +2.14 m, at ``pipeline:_post_projection_conformance_
+        # passes``), so the profile a road emitted with was not the one
+        # the law wrote.  The pass is a CLAMP INTO ITS PINS' ENVELOPE over
+        # a terrain base: re-running it where nothing moved re-writes the
+        # same numbers (idempotent by construction), and where something
+        # did move it restores the contact profile.  It never writes a
+        # frozen vertex, so airside is untouched here as everywhere.
+        try:
+            from .road_transition import solve_road_transitions as _rt2
+            _rt2(layout, icao, dem=_dem_last, tile_lat=_tl, tile_lon=_tn)
+        except Exception as _rt2_exc:                      # pragma: no cover
+            UI.vprint(1, f"  [pav-builder] WARN: {icao}: road transition "
+                         f"re-profile after the conformance passes failed "
+                         f"({_rt2_exc!r}).")
         _rod_ckpt(layout, "20_post_projection_conformance")
 
         # SPINE CROWN v2 (user ruling 2026-07-07, part 30): the crown is

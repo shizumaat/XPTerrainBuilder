@@ -112,11 +112,13 @@ def _rect(x0, y0, x1, y1):
 
 
 class _Shape:
-    def __init__(self, polygon, role, alts=None):
+    def __init__(self, polygon, role, alts=None, ref=""):
         self.polygon = polygon
         self.role = role
+        self.ref = ref
         self.node_altitudes = alts
         self.station_cap_vector = None
+        self.source_axis = None
 
 
 def _layout(shapes):
@@ -322,3 +324,99 @@ def test_the_profiler_is_installed_at_the_writeback_seam():
     i_wb = src.rindex("_writeback(layout, elev, b2i)")
     i_call = src.index("solve_road_transitions(layout")
     assert i_reseat < i_wb < i_call
+
+
+# ── BATCH 2b (RULINGS 31d) ──────────────────────────────────────────────
+
+def test_the_carve_feed_is_clipped_to_the_SAME_contact_scope():
+    """FINDING A, RULED.  ``carve_narrow_service_strips`` is the road
+    family's SECOND minter: with only the mint clipped it still carved
+    1,325 ref-less ``service_junction`` rings (511,207 m²) beyond 25 m of
+    airside at HECA — the general road pavement RULINGS 31b hands to the
+    core.  A far truck route now mints nothing and says so; a route in
+    contact still carves."""
+    from auto_patch.groundside import carve_narrow_service_strips
+
+    apron = _Shape(_rect(0.0, 0.0, 60.0, 60.0), ROLE_APRON, [10.0] * 4)
+    # a NARROW face the carve can cut, 600 m away from the apron
+    far_face = _Shape(_rect(600.0, 0.0, 620.0, 200.0), ROLE_APRON,
+                      [10.0] * 4)
+    pav = geometry.MultiPolygon([apron.polygon, far_face.polygon])
+    route = types.SimpleNamespace(
+        line=geometry.LineString([(610.0, 5.0), (610.0, 195.0)]))
+    lay = _layout([apron, far_face])
+    lay.apt_service_centerlines = [route]
+    scope = apron.polygon.buffer(float(SERVICE_ROAD_PAVEMENT_NEAR_M))
+
+    own: dict = {}
+    n = carve_narrow_service_strips(lay, pav, contact_scope=scope,
+                                    ownership_out=own)
+    assert n == 0, "a truck route 600 m from any pavement is the core's"
+    assert own["carve_released_to_core_m"] > 150.0
+    assert own["carve_kept_m"] == 0.0
+    assert own["carve_scoped"] is True
+
+    # …and the SAME route inside the scope still carves (the pass is
+    # scoped, not disabled).
+    near = types.SimpleNamespace(
+        line=geometry.LineString([(610.0, 5.0), (610.0, 195.0)]))
+    lay2 = _layout([apron, far_face])
+    lay2.apt_service_centerlines = [near]
+    own2: dict = {}
+    n2 = carve_narrow_service_strips(
+        lay2, pav, contact_scope=far_face.polygon.buffer(30.0),
+        ownership_out=own2)
+    assert n2 > 0, "a route in contact scope must still carve"
+    assert own2["carve_kept_m"] > 150.0
+
+
+def test_the_unscoped_carve_is_unchanged():
+    """``contact_scope=None`` carves every route — the fixture path."""
+    from auto_patch.groundside import carve_narrow_service_strips
+    face = _Shape(_rect(600.0, 0.0, 620.0, 200.0), ROLE_APRON, [10.0] * 4)
+    route = types.SimpleNamespace(
+        line=geometry.LineString([(610.0, 5.0), (610.0, 195.0)]))
+    lay = _layout([face])
+    lay.apt_service_centerlines = [route]
+    assert carve_narrow_service_strips(lay, face.polygon) > 0
+
+
+def test_both_minters_read_ONE_derivation_of_the_scope():
+    """One region, derived once and memoised on the layout: two
+    derivations are two ownership boundaries."""
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    # the def plus exactly TWO call sites: the mint and the carve
+    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 3
+    assert src.count("def _road_contact_scope(") == 1
+    assert "_road_contact_scope_cache" in src
+    # the carve's far metres join the ONE declared migration
+    assert "carve_released_to_core_m" in src
+    assert '_own["released_to_core_m"] = round(' in src
+
+
+def test_the_profiler_is_the_LAST_road_family_writer():
+    """FINDING B, RULED.  ``who_wrote --at`` measured the conformance
+    family moving a road value +2.14 m AFTER the writeback-seam call, so
+    the profile a road emitted with was not the one the law wrote.  The
+    profiler now re-runs after those passes; it is a clamp into its pins'
+    envelope over a terrain base, so the second run is idempotent where
+    nothing moved."""
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    i_conf = src.index("        _post_projection_conformance_passes()")
+    i_rt = src.index("_rt2(layout, icao, dem=_dem_last")
+    assert i_conf < i_rt, "the re-profile runs AFTER the conformance passes"
+    # …and the writeback-seam call (the spec's own home) still stands.
+    solve = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
+             / "route_profile" / "solve.py").read_text()
+    assert "solve_road_transitions(layout" in solve
+
+
+def test_the_transition_profile_is_idempotent():
+    """The property the re-run rests on: applying the law to its own
+    output changes nothing."""
+    s = [0.0, 10.0, 20.0, 25.0]
+    base = [100.0, 100.4, 100.9, 101.2]
+    pins = {0: 100.5}
+    once, _ = RT.transition_profile(s, base, pins, CAP)
+    twice, _ = RT.transition_profile(s, list(once), pins, CAP)
+    assert twice == pytest.approx(once)

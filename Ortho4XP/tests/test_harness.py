@@ -1321,11 +1321,18 @@ def test_provisioning_INTO_the_canonical_location_copies_nothing(build_mod,
 def test_the_tile_path_PROVISIONS_before_it_READS_the_config(build_mod):
     """SOURCE twin on the ORDER, which is the whole mechanism:
     ``read_from_config`` silently falls back to the global config, so a
-    provision AFTER it would record a source the build never used."""
-    src = inspect.getsource(build_mod.build_tile)
+    provision AFTER it would record a source the build never used.  The
+    order now lives in ``resolve_tile_frame`` — the ONE frame resolver
+    both tile entries call (RULINGS 2026-08-31d) — and ``build_tile``
+    reaches it through that function, not by arranging it again."""
+    src = inspect.getsource(build_mod.resolve_tile_frame)
     assert src.index("provision_tile_cfg(") < src.index("read_from_config()"), (
         "provision the input BEFORE the engine reads it")
-    assert "tile_cfg_provenance" in src, "and hand it back for the frame"
+    tile_src = inspect.getsource(build_mod.build_tile)
+    assert "resolve_tile_frame(" in tile_src
+    assert "provision_tile_cfg(" not in tile_src, (
+        "one resolver, not a second arrangement of the same two calls")
+    assert "tile_cfg_provenance" in tile_src, "and hand it back for the frame"
     whole = Path(inspect.getfile(build_mod)).read_text()
     assert 'frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")' \
         in whole, ("the provenance reaches frame.json — an unrecorded "
@@ -6597,3 +6604,80 @@ def test_both_terrace_twins_take_the_flags(cg):
             fn.__name__)
     src = inspect.getsource(cg.run_checks)
     assert src.count("carried_flags=terrace_carried") == 2
+
+
+# ── RULINGS 2026-08-31d: PER-TILE CONFIGS ARE OPTIONAL ──────────────────
+#
+# "A tile entry finding no per-tile cfg DEFAULTS TO THE USER'S GLOBAL
+# SETTINGS — it does not refuse.  Refusal is reserved for a global config
+# that itself lacks the required key."  What "required" means is per STEP:
+# ``default_website`` is required by the imagery half and by nothing else,
+# so a frame without one builds the GEOMETRY (the surface every lane
+# measures) and stands the textures down BY NAME.  Before this, the SPJC
+# -13-078 tile — an owner acceptance site — was unbuildable in every lane.
+
+class _FakeTile:
+    def __init__(self, site="", zl=16):
+        self.default_website = site
+        self.default_zl = zl
+
+
+def test_a_resolved_provider_builds_the_whole_tile(build_mod):
+    cap = build_mod.imagery_capability(_FakeTile("Arc"),
+                                       {"action": "provisioned"})
+    assert cap["ok"] and cap["default_website"] == "Arc"
+
+
+def test_no_provider_anywhere_STANDS_IMAGERY_DOWN_and_does_not_refuse(
+        build_mod):
+    """The 31d case: no per-tile cfg, so the tile runs on the user's
+    global settings — which carry no provider BY CONSTRUCTION."""
+    cap = build_mod.imagery_capability(
+        _FakeTile(""), {"action": "derived-from-global-defaults",
+                        "global_source": "/x/Ortho4XP.cfg"})
+    assert cap["ok"] is False
+    assert "global" in cap["reason"]
+    assert "STANDS DOWN" in cap["note"] and "2026-08-31d" in cap["note"]
+    # …and it is a NOTE, not an exit: nothing in the resolver raises.
+    assert isinstance(cap, dict)
+
+
+def test_a_provider_is_never_INVENTED(build_mod):
+    """Owner ruling 2026-08-12b survives 31d: the entry reports the
+    provider ABSENT, it does not pick one."""
+    cap = build_mod.imagery_capability(_FakeTile(""), {"action": "x"})
+    assert cap["default_website"] == ""
+    src = inspect.getsource(build_mod.imagery_capability)
+    for invented in ("BI", "Arc", "GO2", "USA2"):
+        assert f'"{invented}"' not in src, invented
+
+
+def test_the_geometry_half_runs_and_the_imagery_half_is_skipped(build_mod):
+    """The step list is scoped by the capability, and the build RECORDS
+    which halves ran — a geometry-only tile must never read as a full
+    one."""
+    src = inspect.getsource(build_mod)
+    assert 'steps = [("1 vector"' in src and 'if imagery["ok"]:' in src
+    assert '"steps_run": [n for n, _ in steps]' in src
+    assert 'frame["imagery"] = result.get("imagery")' in src
+    assert 'frame["tile_steps_run"] = result.get("steps_run")' in src
+
+
+def test_the_old_provider_REFUSAL_is_gone(build_mod):
+    """Deleted, not gated (29f) — the refusal 31d overturns is not in the
+    source at all."""
+    src = inspect.getsource(build_mod)
+    assert "EMPTY default_website" not in src
+
+
+def test_BOTH_tile_entries_share_ONE_frame_resolver(build_mod):
+    """Two arrangements of "which cfg is this tile on, and what can it
+    build" is the census-wrapper defect at one remove."""
+    from pathlib import Path as _P
+    assert callable(build_mod.resolve_tile_frame)
+    entry = (_P(build_mod.__file__).resolve().parents[1]
+             / "run_tile_mesh_only.py").read_text()
+    assert "from build_airport import resolve_tile_frame" in entry
+    assert "resolve_tile_frame(" in entry
+    # the mesh-only entry runs steps 1-2, which need no provider at all
+    assert "steps 1-2 need no provider, continuing" in entry

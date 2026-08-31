@@ -3875,6 +3875,8 @@ def carve_narrow_service_strips(
         min_run_m: float = 12.0,
         mouth_extension_m: float = 2.5,
         min_piece_m2: float = 25.0,
+        contact_scope=None,
+        ownership_out: dict | None = None,
         ) -> int:
     """Carve NARROW ground-truck-route strips out of apron/junction faces
     as ``ROLE_SERVICE_JUNCTION`` corridors CENTERED on the truck spine
@@ -3905,21 +3907,74 @@ def carve_narrow_service_strips(
     while these faces ride the v14.1 service SPINES (longitudinal 5 %
     along the route).
 
+    ── THE FEED IS CLIPPED TO THE CONTACT SCOPE (owner RULINGS 31d,
+    Batch 2b finding A; spec linear-transport-redesign-spec.md §3.3) ──
+    ``contact_scope`` is the region auto_patch still owns of the road
+    family — the SAME geometry ``pipeline._road_contact_scope`` hands
+    the mint, derived ONCE per build.  MEASURED at HECA on the Batch-2
+    arm: with only the MINT clipped, this pass still carved 1,325
+    ref-less ``service_junction`` rings (511,207 m²) MORE than 25 m from
+    any airside pavement — a second minter of exactly the general road
+    pavement RULINGS 31b hands to the core, contradicting the ownership
+    model at the same airport the shrink was measured on.  The trim is
+    on the FEED and at one site, never per consumer (RULINGS 30l
+    corollary (a)).  ``None`` carves every route, which is the fixture
+    path and any caller with no airfield to be near.
+
+    ``ownership_out`` receives the declared migration in the mint's own
+    spelling (``offered_m`` / ``kept_m`` / ``released_to_core_m``), which
+    ``pipeline`` folds into the ``road_ownership`` sidecar so the census
+    population leaving the patch is ONE declared number however many
+    passes mint it.
+
     Returns the number of carved service pieces added.
     """
     from shapely.ops import substring
     service_lines = getattr(layout, "apt_service_centerlines", None) or []
     if not service_lines or pav_union is None or pav_union.is_empty:
         return 0
+    scope = (contact_scope
+             if contact_scope is not None
+             and not getattr(contact_scope, "is_empty", True) else None)
+    offered_m = kept_m = 0.0
+    feed_lines = []
+    for centerline in service_lines:
+        line = getattr(centerline, "line", None)
+        if line is None or line.is_empty or line.length < min_run_m:
+            continue
+        if scope is None:
+            feed_lines.append(line)
+            continue
+        offered_m += float(line.length)
+        try:
+            clipped = line.intersection(scope)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        for piece in ([clipped] if clipped.geom_type == "LineString"
+                      else list(getattr(clipped, "geoms", ()))):
+            if piece.geom_type != "LineString" or piece.is_empty:
+                continue
+            if piece.length < min_run_m:
+                continue      # too short to carry a run — the core's
+            feed_lines.append(piece)
+            kept_m += float(piece.length)
+    if ownership_out is not None:
+        ownership_out.update({
+            "carve_offered_m": round(offered_m, 2),
+            "carve_kept_m": round(kept_m, 2),
+            "carve_released_to_core_m": round(max(offered_m - kept_m, 0.0),
+                                              2),
+            "carve_routes": len(service_lines),
+            "carve_scoped": scope is not None,
+        })
+    if not feed_lines:
+        return 0
 
     def _contiguous_width(line, arc, probe=60.0):
         return _svc_contiguous_width(line, arc, pav_union, probe=probe)
 
     corridors = []
-    for centerline in service_lines:
-        line = getattr(centerline, "line", None)
-        if line is None or line.is_empty or line.length < min_run_m:
-            continue
+    for line in feed_lines:
         n_stations = max(2, int(line.length / sample_step_m) + 1)
         arcs = [line.length * k / (n_stations - 1)
                 for k in range(n_stations)]

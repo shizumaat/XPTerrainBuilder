@@ -324,6 +324,50 @@ def test_sidecar_carries_every_station_and_its_two_altitudes(tmp_path):
     assert doc["summary"]["stations"] == n
 
 
+def test_sidecar_precision_cannot_manufacture_an_over_cap_grade(tmp_path):
+    """THE ROUNDING TWIN (Batch-2 residual fix).
+
+    ``refine_way`` KEEPS every original vertex, so a dense OSM way puts
+    consecutive stations decimetres apart — and a station VALUE rounded
+    coarsely then reads as a grade the clamp never wrote.  At 3 dp the
+    Batch-1 LEMD sidecar carried 11,267 steps over the 8 % cap (worst
+    8.103 %) on a cap-Lipschitz profile.  The sidecar's own numbers must
+    price the law they publish: terrain exactly AT the cap round-trips
+    through the file still at the cap.
+    """
+    from shapely import geometry
+
+    VECT.scalx = math.cos(math.radians(0.5))
+    dlat = GEO.m_to_lat
+    # 40 vertices ~1.13 m apart (the dense-way case), terrain climbing at
+    # EXACTLY the cap: the clamp is the identity here, so every step the
+    # sidecar spells must read the cap and never a hair above it.
+    line = geometry.LineString([(0.0, i * 1.13 * dlat) for i in range(40)])
+
+    def alt_vec(pts):
+        pts = numpy.asarray(pts, dtype=float)
+        return CAP * pts[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(geometry.MultiLineString([line]),
+                                  alt_vec, CAP, 4.0, station_m=STATION_M)
+    tile = types.SimpleNamespace(lat=40, lon=-4,
+                                 build_dir=str(tmp_path / "dense"))
+    doc = json.loads(Path(VM.write_levelled_roads_sidecar(tile, lev))
+                     .read_text())
+    (way,) = doc["ways"]
+    s = way["s_m"]
+    z = way["alt"]
+    d = way["dem_alt"]
+    assert 1.0 < (s[1] - s[0]) < 1.3          # the dense spacing is real
+    worst = max(abs(z[k + 1] - z[k]) / (s[k + 1] - s[k])
+                for k in range(len(s) - 1))
+    worst_dem = max(abs(d[k + 1] - d[k]) / (s[k + 1] - s[k])
+                    for k in range(len(s) - 1))
+    # 1e-6 of grade = 1e-4 pp: below any threshold the instrument prices.
+    assert worst <= CAP + 1e-6, worst
+    assert worst_dem <= CAP + 1e-6, worst_dem
+
+
 def test_sidecar_failure_is_not_fatal(tmp_path):
     from shapely import geometry
 

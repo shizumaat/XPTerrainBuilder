@@ -1386,6 +1386,21 @@ class Levelled_Roads:
         Parallel arrays per way, not a dict per station: the tile-wide
         banked network runs to 10^5 stations and a station object each
         would make the instrument's own input the build's biggest file.
+
+        PRECISION IS A LAW QUESTION HERE, NOT A FILE-SIZE ONE (Batch-2
+        residual fix).  The instrument reads a GRADE — ``Δz / Δs``
+        between consecutive stations — and ``refine_way`` KEEPS every
+        original OSM vertex, so consecutive stations are often decimetres
+        apart, not the 20 m the spacing bound suggests.  At the 3 dp this
+        wrote first, a 1 mm quantum over a 1.16 m step is 0.086 % of
+        manufactured grade: MEASURED on the Batch-1 LEMD sidecar, 11,267
+        of 355,018 steps read OVER the 8 % cap (worst 8.103 %) purely
+        from the rounding, against a clamp whose output is cap-Lipschitz
+        by construction.  An instrument that reports the law broken where
+        the code holds it is the blindness class this sidecar exists to
+        close, so the stations, the terrain and the value carry 6 dp —
+        micrometres, ~4 % more bytes, and a manufactured grade below
+        1e-4 pp at every spacing this network contains.
         """
         ways = []
         for i, w in enumerate(self.ways):
@@ -1403,9 +1418,9 @@ class Levelled_Roads:
                                    else 0.0, 4),
                 "lat": [round(float(lat + p[1]), 7) for p in w["points"]],
                 "lon": [round(float(lon + p[0]), 7) for p in w["points"]],
-                "s_m": [round(float(v), 2) for v in w["s_m"]],
-                "dem_alt": [round(float(v), 3) for v in w["dem"]],
-                "alt": [round(float(v), 3) for v in w["alt"]],
+                "s_m": [round(float(v), 6) for v in w["s_m"]],
+                "dem_alt": [round(float(v), 6) for v in w["dem"]],
+                "alt": [round(float(v), 6) for v in w["alt"]],
             })
         return {
             "version": 1,

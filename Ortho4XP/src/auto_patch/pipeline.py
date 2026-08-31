@@ -6899,14 +6899,6 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
     # abuts (CYXY: 0.6 m² lot∩road — zero-tolerance
     # test_no_self_overlap).  The pass is idempotent and keeps touching
     # service edges (share-svc), so a clean layout is unchanged.
-    # Bound before the guarded block so a later reader (the road
-    # transition re-profile after the conformance passes) can never hit
-    # an unbound name on the path where the DEM load itself raised.
-    _dem_last = None
-    _tl = (current_tile_lat if current_tile_lat is not None
-           else int(math.floor(layout.anchor[0])))
-    _tn = (current_tile_lon if current_tile_lon is not None
-           else int(math.floor(layout.anchor[1])))
     if compute_elevations:
         try:
             from .groundside import _separate_groundside_from_airside
@@ -7318,26 +7310,38 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # the point immediately after the pipeline's only projection, so
         # the requirement is met by the same ordering it always was.
         _post_projection_conformance_passes()
-        # ── THE TRANSITION PROFILER IS THE LAST ROAD-FAMILY WRITER ────
-        # (owner RULINGS 31d, Batch 2b finding B.)  The writeback-seam
-        # call inside ``final_grade_projection`` is the spec's home for
-        # the pinned-transition law and it stays — but ``who_wrote --at``
-        # measured the conformance family writing road values AFTER it
-        # (a ``service_junction`` at 30.11236,31.40595 went 98.33 →
-        # 100.47, +2.14 m, at ``pipeline:_post_projection_conformance_
-        # passes``), so the profile a road emitted with was not the one
-        # the law wrote.  The pass is a CLAMP INTO ITS PINS' ENVELOPE over
-        # a terrain base: re-running it where nothing moved re-writes the
-        # same numbers (idempotent by construction), and where something
-        # did move it restores the contact profile.  It never writes a
-        # frozen vertex, so airside is untouched here as everywhere.
-        try:
-            from .road_transition import solve_road_transitions as _rt2
-            _rt2(layout, icao, dem=_dem_last, tile_lat=_tl, tile_lon=_tn)
-        except Exception as _rt2_exc:                      # pragma: no cover
-            UI.vprint(1, f"  [pav-builder] WARN: {icao}: road transition "
-                         f"re-profile after the conformance passes failed "
-                         f"({_rt2_exc!r}).")
+        # THE FREE-ROAD PROFILE RE-SOLVE RAN HERE — RETIRED with the
+        # pass (RULINGS 31b, spec §3.1); its replacement runs INSIDE
+        # the final grade projection, at the writeback seam.
+        #
+        # THE PROFILER DOES NOT GET THE LAST WORD — REFUTED AND
+        # REVERTED (spec author, Batch 2c, on Batch 2b's own
+        # measurement).  A second, idempotent ``solve_road_transitions``
+        # call ran HERE so the pinned-transition law would be the build's
+        # last road-family writer (RULINGS 31d finding B).  who_wrote
+        # confirmed the ordering — no road-family write frame after it —
+        # and the census priced it: HECA 6,403 -> 7,496 ADJUDICATED
+        # (+1,093) against the Batch-2 arm on one tree, and every row of
+        # it road-family or its welded groundside
+        # (service_junction|service_junction +581,
+        # groundside_pavement|groundside_pavement +426, within_shape
+        # +669, road_cross_section +234, transverse +173) with airside
+        # EXACTLY unchanged (airside_no_step / apron|apron /
+        # junction|junction all +0).
+        #
+        # THE MECHANISM, and it is a law conflict rather than a bug: the
+        # conformance family is what reconciles a road ring LATERALLY,
+        # and re-imposing a LONGITUDINAL transition profile after it
+        # re-breaks that reconciliation — ``road_cross_section`` is
+        # defined only over road-family rings and it is the family that
+        # moved.  It is the same class the retired free-road pass's
+        # key-exemption round measured (+187 law-true rows at CYXY,
+        # "every one service_junction": one value per STATION is true of
+        # a road ring and false of a junction blob).  RULED: conformance
+        # keeps the last word, the writeback-seam call inside
+        # ``final_grade_projection`` stands alone, and the isolated
+        # post-profiler road moves finding B named are accepted as
+        # lateral reconciliation doing its lawful job.
         _rod_ckpt(layout, "20_post_projection_conformance")
 
         # SPINE CROWN v2 (user ruling 2026-07-07, part 30): the crown is

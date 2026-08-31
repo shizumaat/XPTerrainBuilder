@@ -394,26 +394,57 @@ def test_both_minters_read_ONE_derivation_of_the_scope():
     assert '_own["released_to_core_m"] = round(' in src
 
 
-def test_the_profiler_is_the_LAST_road_family_writer():
-    """FINDING B, RULED.  ``who_wrote --at`` measured the conformance
-    family moving a road value +2.14 m AFTER the writeback-seam call, so
-    the profile a road emitted with was not the one the law wrote.  The
-    profiler now re-runs after those passes; it is a clamp into its pins'
-    envelope over a terrain base, so the second run is idempotent where
-    nothing moved."""
+def test_the_profiler_does_NOT_get_the_last_word_REFUTED():
+    """THE REFUTATION RECORD (Batch 2c; this twin used to assert the
+    opposite and is kept as the ledger of why it does not).
+
+    Finding B was real — ``who_wrote --at`` measured the conformance
+    family moving a road value 98.33 → 100.47 (+2.14 m) AFTER the
+    writeback-seam call — and Batch 2b acted on it: a second, idempotent
+    ``solve_road_transitions`` ran after
+    ``_post_projection_conformance_passes`` so the pinned-transition law
+    would be the build's last road-family writer.  who_wrote confirmed
+    the ordering (no road-family write frame after it) and THE CENSUS
+    REFUTED THE ARRANGEMENT: HECA 6,403 → 7,496 ADJUDICATED (+1,093) on
+    one tree against the Batch-2 arm — within_shape +669,
+    road_cross_section +234, transverse +173, by pair-role
+    ``service_junction|service_junction`` +581 and
+    ``groundside_pavement|groundside_pavement`` +426, with airside
+    EXACTLY unchanged (``airside_no_step`` / ``apron|apron`` /
+    ``junction|junction`` all +0).
+
+    The mechanism is a LAW CONFLICT: the conformance family reconciles a
+    road ring LATERALLY, and re-imposing a LONGITUDINAL profile after it
+    re-breaks that — ``road_cross_section`` is defined only over
+    road-family rings and it is the family that moved.  Same class as
+    the retired free-road pass's key exemption (+187 law-true rows at
+    CYXY, every one a ``service_junction``: one value per STATION is
+    true of a road ring, false of a junction blob).
+
+    RULED (spec author): conformance keeps the last word, the
+    writeback-seam call stands ALONE, and the isolated post-profiler
+    road moves are lateral reconciliation doing its lawful job.
+    """
     src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
-    i_conf = src.index("        _post_projection_conformance_passes()")
-    i_rt = src.index("_rt2(layout, icao, dem=_dem_last")
-    assert i_conf < i_rt, "the re-profile runs AFTER the conformance passes"
+    assert "_rt2(layout, icao" not in src, "the second call is DELETED (29f)"
+    assert "solve_road_transitions(layout" not in src, (
+        "the pipeline does not CALL the profiler at all — its ONE call "
+        "site is the solver's writeback seam (the two mentions left in "
+        "this file are the retirement note and this refutation record)")
+    # the refutation is recorded where the call was
+    assert "THE PROFILER DOES NOT GET THE LAST WORD" in src
+    assert "6,403 -> 7,496" in src and "+1,093" in src
     # …and the writeback-seam call (the spec's own home) still stands.
     solve = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
              / "route_profile" / "solve.py").read_text()
-    assert "solve_road_transitions(layout" in solve
+    assert solve.count("solve_road_transitions(layout") == 1
 
 
 def test_the_transition_profile_is_idempotent():
-    """The property the re-run rests on: applying the law to its own
-    output changes nothing."""
+    """A property of the law worth pinning on its own: applying it to its
+    own output changes nothing.  It was the premise of the refuted
+    second call above — idempotence made the re-run SAFE, and the census
+    showed safe was not the same as free."""
     s = [0.0, 10.0, 20.0, 25.0]
     base = [100.0, 100.4, 100.9, 101.2]
     pins = {0: 100.5}

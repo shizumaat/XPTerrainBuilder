@@ -180,3 +180,29 @@ worsened beyond the DECLARED ownership migration; conformance
 instrument green on both patch and levelled-roads populations;
 basin/ramp invariants held; perf delta vs committed baselines quoted.
 Below-bar = STOP with residual. Sim read between every batch.
+
+## §5-SUPPLEMENT (Batch 3b, spec author 2026-08-31 — closes the two
+## gaps Batch 3's measurement exposed; census #31 is REFUTED as scoped)
+
+1. ONE RAMP SURFACE PER CORRIDOR, AT THE SOURCE. The retired
+   stand-down was doing double duty as the SYNTHETIC ramp
+   de-duplicator (measured: ramps 22 → 95 without it). The law
+   "one ramp surface descending the corridor centre" is enforced AT
+   THE EMITTER: consecutive ramp strips along one corridor chain
+   merge into ONE surface per descending run before emission — never
+   a post-pass re-creating the stand-down.
+2. WALLS FOLLOW THEIR RAMP, PRODUCTIVELY. Census #27/#28 said REWIRE
+   and the lane retired instead (owned deviation): the claim-waller's
+   population (17/39 walls, 20/48 feet at the OTHH control) must be
+   REPLACED, not deleted — every merged ramp corridor side gets
+   exactly one wall+foot derived from the ramp's own geometry through
+   the existing wall-band machinery. The canonical-mouth bar (one
+   wall+foot per side) is the acceptance.
+3. NODE-BOOK EXCLUSION SCOPE. The seam-probe-4 area clause fires
+   wherever a cut is published (LEMD: 467 airside nodes moved with a
+   byte-identical tunnel population). Membership narrows to:
+   BELOW-GRADE ROLE (tunnel_ramp / tunnel_trench / basin families)
+   AND (node-in-cut OR area-in-cut ≥ 2 m²) — the exclusion's purpose
+   is bore-depth values not travelling outward, which roles capture
+   without geometric spillover onto at-grade ground. The off-arm in
+   flight adjudicates the clause attribution first.

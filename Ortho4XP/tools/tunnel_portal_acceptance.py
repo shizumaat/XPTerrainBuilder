@@ -168,6 +168,19 @@ class Thresholds:
     adjudicated_delta_max: Optional[float] = None
     actionable_sites_max: Optional[int] = None
     pad_flat_tol_m: float = 0.005
+    #: THE CANONICAL MOUTH (RULINGS 2026-08-30).  How close a ramp must
+    #: come to a mouth plate to be "reaching the mouth line", and how far
+    #: around a mouth its own wall band / end cap is looked for.
+    mouth_reach_m: float = 1.0
+    mouth_radius_m: float = 25.0
+    #: Two tunnel road surfaces sharing at least this much ground are a
+    #: DUPLICATE corridor — the class R14-1's claim minted beside the
+    #: synthetic ramp.  The claim's own "cover, do not graze" floor.
+    dup_overlap_m2: float = 2.0
+    #: A wall/foot piece smaller than this is a FRAGMENT, not a wall.
+    wall_fragment_m2: float = 1.0
+    #: arm the canonical bar (0 non-canonical mouths); otherwise REPORT
+    mouth_canonical: bool = False
     #: A bore surface answers a mouth only where it is BELOW GRADE by
     #: this much — it must carry a bore, not merely be a tunnel piece.
     claimed_bore_max_m: float = 0.0
@@ -570,6 +583,191 @@ def _check_bore_corridor_walls(patch: Patch, thr: Thresholds
                   f"(min {cc[0]:.0%}, max {cc[-1]:.0%}); "
                   f"{len(ramps)} tunnel_ramp(s) measured the "
                   f"same way: median {_median(sc):.0%}")]
+
+
+def _mouth_axis(mouth_poly, ramp_geoms):
+    """``(cx, cy, ax, ay)`` — the mouth's centroid and the CORRIDOR
+    direction there: the unit vector from the nearest ramp's centroid to
+    the mouth's.  ``None`` when no ramp answers this mouth, which is
+    itself a canonical failure the caller reports.
+
+    The axis is what makes "one wall per SIDE" measurable: a wall's side
+    is the sign of the cross product of the axis with the offset from
+    the mouth centroid to the wall's.  No new geometric notion of a
+    corridor is invented here — the ramp IS the corridor.
+    """
+    c = mouth_poly.centroid
+    best = None
+    for _wid, g in ramp_geoms:
+        try:
+            d = g.distance(mouth_poly)
+        except Exception:                                # pragma: no cover
+            continue
+        if best is None or d < best[0]:
+            best = (d, g)
+    if best is None:
+        return None
+    rc = best[1].centroid
+    ax, ay = c.x - rc.x, c.y - rc.y
+    n = math.hypot(ax, ay)
+    if n <= 1e-9:
+        return None
+    return (c.x, c.y, ax / n, ay / n)
+
+
+def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
+    """THE CANONICAL TUNNEL MOUTH, enumerated (RULINGS 2026-08-30).
+
+        At a tunnel mouth the emitted set is exactly: ONE ramp surface
+        descending the corridor centre to the mouth line, ONE retaining
+        wall (wall + foot) per side, ONE straight end cap.  The ramp
+        reaches the mouth line.  No second road shape may share the
+        corridor.  Nested wall rings and wall fragments are defects.
+
+    Six counts per mouth, all from the emitted patch and all through the
+    instrument's own parser: the ramps reaching it, the walls and feet
+    per SIDE, the end caps, the DUPLICATE corridor surfaces (two tunnel
+    road surfaces overlapping — the class the retired ``tunnel_road``
+    claim minted), and the NESTED/FRAGMENT wall pieces.
+
+    Added 2026-08-31 for the redesign's Batch-3 acceptance, EXTENDING
+    this instrument rather than forking a second one (RULINGS
+    ``7e90032``): the site profile, the parser and the identity spelling
+    stay single-sourced, and the mouth population is the same
+    ``ref == "tunnel_mouth"`` set the R10-2 walling finding uses.
+
+    With no ``--mouth-canonical`` it REPORTS (SKIPPED) — the full
+    inventory is printed either way, because "quote every mouth" is the
+    acceptance, not a single number.
+    """
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    def _poly(w):
+        pts = patch.pts(w)
+        if len(pts) < 4:
+            return None
+        try:
+            g = Polygon(pts)
+            if not g.is_valid:
+                g = g.buffer(0)
+            return None if g.is_empty else g
+        except Exception:                                # pragma: no cover
+            return None
+
+    mouths = [(w.wid, _poly(w)) for w in patch.ref_ways("tunnel_mouth")]
+    mouths = [(wid, g) for wid, g in mouths if g is not None]
+    if not mouths:
+        return [Check("mouth_inventory", SKIP, None, None,
+                      "no tunnel_mouth piece in this patch")]
+    mouth_wids = {wid for wid, _g in mouths}
+    ramps = [(w.wid, _poly(w)) for w in patch.role_ways("tunnel_ramp")
+             if w.wid not in mouth_wids]
+    ramps = [(wid, g) for wid, g in ramps if g is not None]
+    walls = [(w.wid, _poly(w)) for w in patch.ref_ways("tunnel_wall")]
+    feet = [(w.wid, _poly(w))
+            for w in patch.ref_ways("tunnel_wall_foot")]
+    caps = [(w.wid, _poly(w)) for w in patch.ref_ways("tunnel_cap")]
+    walls = [(wid, g) for wid, g in walls if g is not None]
+    feet = [(wid, g) for wid, g in feet if g is not None]
+    caps = [(wid, g) for wid, g in caps if g is not None]
+    # every tunnel ROAD surface, for the duplicate test
+    corridor = list(ramps) + list(mouths)
+    for w in patch.ref_ways("tunnel_corridor"):
+        g = _poly(w)
+        if g is not None:
+            corridor.append((w.wid, g))
+
+    def _near(items, poly, radius):
+        out = []
+        for wid, g in items:
+            try:
+                if g.distance(poly) <= radius:
+                    out.append((wid, g))
+            except Exception:                            # pragma: no cover
+                continue
+        return out
+
+    def _sides(items, axis):
+        cx, cy, ax, ay = axis
+        left, right = [], []
+        for wid, g in items:
+            c = g.centroid
+            cross = ax * (c.y - cy) - ay * (c.x - cx)
+            (left if cross >= 0.0 else right).append(wid)
+        return left, right
+
+    lines: List[str] = []
+    bad = 0
+    totals = Counter()
+    for wid, mg in sorted(mouths, key=lambda t: str(t[0])):
+        near_ramps = _near(ramps, mg, thr.mouth_reach_m)
+        near_walls = _near(walls, mg, thr.mouth_radius_m)
+        near_feet = _near(feet, mg, thr.mouth_radius_m)
+        near_caps = _near(caps, mg, thr.mouth_radius_m)
+        near_corr = _near(corridor, mg, thr.mouth_radius_m)
+        axis = _mouth_axis(mg, near_ramps or ramps)
+        if axis is None:
+            wl = wr = fl = fr = None
+        else:
+            _l, _r = _sides(near_walls, axis)
+            wl, wr = len(_l), len(_r)
+            _l, _r = _sides(near_feet, axis)
+            fl, fr = len(_l), len(_r)
+        # DUPLICATE CORRIDOR SURFACES: two tunnel road surfaces sharing
+        # ground.  This is the class R14-1's claim minted beside the
+        # synthetic ramp and the stand-down existed to remove.
+        dup = 0
+        for i in range(len(near_corr)):
+            for j in range(i + 1, len(near_corr)):
+                try:
+                    if near_corr[i][1].intersection(
+                            near_corr[j][1]).area >= thr.dup_overlap_m2:
+                        dup += 1
+                except Exception:                        # pragma: no cover
+                    continue
+        # NESTED / FRAGMENT WALL PIECES: a wall ring inside another, or a
+        # piece too small to be a wall at all.
+        band = near_walls + near_feet
+        nested = 0
+        for i in range(len(band)):
+            for j in range(len(band)):
+                if i == j:
+                    continue
+                try:
+                    if band[j][1].covers(band[i][1]):
+                        nested += 1
+                        break
+                except Exception:                        # pragma: no cover
+                    continue
+        frag = sum(1 for _w, g in band if g.area < thr.wall_fragment_m2)
+        canonical = (len(near_ramps) == 1 and wl == 1 and wr == 1
+                     and fl == 1 and fr == 1 and len(near_caps) == 1
+                     and dup == 0 and nested == 0 and frag == 0)
+        if not canonical:
+            bad += 1
+        totals["mouths"] += 1
+        totals["ramps"] += len(near_ramps)
+        totals["walls"] += len(near_walls)
+        totals["feet"] += len(near_feet)
+        totals["caps"] += len(near_caps)
+        totals["duplicate_corridor_surfaces"] += dup
+        totals["nested_wall_pieces"] += nested
+        totals["wall_fragments"] += frag
+        lines.append(
+            f"    mouth {wid}: ramp={len(near_ramps)} "
+            f"wall L/R={wl}/{wr} foot L/R={fl}/{fr} "
+            f"cap={len(near_caps)} dup={dup} nested={nested} "
+            f"frag={frag}  {'CANONICAL' if canonical else 'NOT CANONICAL'}")
+    bar = 0 if thr.mouth_canonical else None
+    verdict = SKIP if bar is None else (PASS if bad == 0 else FAIL)
+    head = (f"{totals['mouths']} tunnel mouth(s), {bad} NOT canonical "
+            f"(law: 1 ramp reaching the mouth, 1 wall + 1 foot per side, "
+            f"1 end cap, 0 duplicate corridor surfaces, 0 nested/fragment "
+            f"walls) — totals: " +
+            ", ".join(f"{k}={v}" for k, v in sorted(totals.items())))
+    return [Check("mouth_inventory", verdict, bad, bar,
+                  "\n           ".join([head] + lines))]
 
 
 def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
@@ -1160,6 +1358,7 @@ def run_acceptance(patch_path, control_path=None, *,
     checks += _check_covered_span(patch, profile, bores, thr)
     checks += _check_covered_span(patch, profile, bores)
     checks += _check_isolated_road_rects(patch, thr)
+    checks += _check_mouth_inventory(patch, thr)
     checks += _check_bore_corridor_walls(patch, thr)
     checks += _check_ramp_wall_gap(patch, thr)
     checks += _check_wall_top_flat(patch, thr)
@@ -1227,6 +1426,15 @@ def build_parser() -> argparse.ArgumentParser:
                           ("wall-band-span-m", 2.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     p.add_argument("--datum-min-samples", type=int, default=8)
+    for name, default in (("mouth-reach-m", 1.0),
+                          ("mouth-radius-m", 25.0),
+                          ("dup-overlap-m2", 2.0),
+                          ("wall-fragment-m2", 1.0)):
+        p.add_argument(f"--{name}", type=float, default=default)
+    p.add_argument("--mouth-canonical", action="store_true",
+                   help="RULINGS 2026-08-30: FAIL unless EVERY tunnel "
+                        "mouth is canonical (default: report the full "
+                        "inventory, verdict SKIPPED)")
     p.add_argument("--claim-wall-cover-min", type=float, default=None,
                    help="§T6.1 bar: median face coverage of the "
                         "below-grade bore surfaces (0-1)")
@@ -1278,7 +1486,12 @@ def main(argv=None) -> int:
         isolated_rects_max=args.isolated_rects_max,
         corridor_width_max_m=args.corridor_width_max_m,
         wall_band_span_m=args.wall_band_span_m,
-        wall_top_delta_max=args.wall_top_delta_max)
+        wall_top_delta_max=args.wall_top_delta_max,
+        mouth_reach_m=args.mouth_reach_m,
+        mouth_radius_m=args.mouth_radius_m,
+        dup_overlap_m2=args.dup_overlap_m2,
+        wall_fragment_m2=args.wall_fragment_m2,
+        mouth_canonical=bool(args.mouth_canonical))
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

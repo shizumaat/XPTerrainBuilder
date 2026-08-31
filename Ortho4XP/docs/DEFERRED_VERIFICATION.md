@@ -5184,3 +5184,31 @@ both owner ramp probes CONTAINED.
   fires on contact-stub outer ends, which the profiler then re-levels;
   its zero-fire measurement and the `corridor_axis_coverage --free-ends`
   re-read belong to Batch 4.
+
+- 2026-08-31 lane/ltbatch2 Batch 2b (RULINGS 31d): ran the covering
+  files once (test_road_transition 28, test_harness 280,
+  test_free_road_scoping, test_service_corridor_round,
+  test_membership_round, test_road_grade_clamp, test_road_path_metric —
+  457 pass) plus ONE HECA arm (control: the Batch-2 arm in the artifact
+  ledger), one SPJC tile through the now-unblocked entry, and one
+  who_wrote authorship build.  UNPAID / OWED: (a) the TRUE producer of
+  HECA's 1,325 ref-less far `service_junction` rings is still
+  unidentified — the ruled carve-feed clip measured a NO-OP there
+  (0.0 m released of 20,240.29 m over 24 routes; every apt.dat 1206
+  truck route lies inside the 25 m contact scope), which REFUTES the
+  Batch-2 attribution to `carve_narrow_service_strips`; naming it needs
+  `who_wrote.py --footprint LAT,LON` at a far ring (one build), the
+  instrument that answers "which pass put pavement over this spot at
+  all"; (b) the SPJC way-702 core-side read is STILL not full-frame —
+  the tile now builds (31d) but the run REFUSED to report on two
+  swallowed shared-repo writes (`Elevation_data/-20-080/
+  S13W078_airport_insets/index.json` and the bathymetry band's
+  `index.json.part`), a DEM-cache act and not a cfg one; the numbers
+  reproduce identically through two independent entries but stay
+  labelled DEGRADED, and closing them needs an owner-authorised
+  `--refresh-data dem` or an engine fix suppressing the warm-pass index
+  rewrite; (c) the five-airport sweep is still unpaid and now matters
+  more — 2b's ordering change is measured at HECA only; (d) no full
+  suite; (e) the geometry-only tile path is exercised at SPJC -13-078
+  only (no airport with a provider was re-run to prove the full path is
+  byte-identical, though the capability gate is twinned headlessly).

@@ -136,3 +136,19 @@ the bridge = `BRIDGE_ROAD_CLEARANCE_M` (5.1 m). Site exemplar:
   the chord may lift a sagging road, never cut lawful terrain-
   following, clamped into the cap envelope) or the pass's self-pin
   model; plus weldoff/bandoff arms.
+
+## Baseline correction (2026-08-31, owner-prompted) — THE REAL SLOWDOWN
+
+The committed baselines (tools/build_time_baselines.json, 2026-08-13,
+d787464): HECA auto-patch 347 s (solve 230, emit 73). Today's clean
+exclusive builds: 1,766–2,218 s — a 5–6x ACCUMULATED regression since
+Aug 13 (solve ~5x, emit ~10x), matching the owner's ~20-min-whole-tile
+memory. Task B's "merges exonerated" holds only WITHIN Aug 30; its
+anchor was already 6x drifted. Failure mode: every comparison anchored
+to the previous build, never the committed baseline — the sliding
+window ate the tripwire. LAW FIX (extends 31a): the app-ledger
+tripwire and every timing claim anchor to tools/build_time_baselines
+.json, never to the prior build; the linear-transport redesign carries
+an explicit performance budget (direction: back toward the committed
+baseline; the ≤60 s hard-law budget remains the ship-gate target) and
+the final-profiling round bisects the Aug-13→Aug-30 accretion.

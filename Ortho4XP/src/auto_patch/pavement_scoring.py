@@ -2541,7 +2541,7 @@ _ENACT_ROLES = (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_ROAD,
 
 
 def _enact_verdict(shape, record, dem_at, law_anchors=None,
-                   anchor_key=None, stats=None) -> bool:
+                   anchor_key=None, stats=None, layout=None) -> bool:
     """Apply one verdict to ``shape``.  Returns True when it moved.
 
     Under ``PAVEMENT_SCORE_PURE`` (the validation default, owner
@@ -2559,6 +2559,20 @@ def _enact_verdict(shape, record, dem_at, law_anchors=None,
     target = record["winner"]
     if target == current:
         return False
+    if target == CLASS_GROUNDSIDE and layout is not None:
+        # §2/§5 (RULINGS 2026-08-30c): "the deck is a piece of the road,
+        # not a new shape class", and §5 gives it the road solve's own
+        # level.  A confirmed terrain deck therefore never takes the
+        # groundside class here — it takes SERVICE and enters the
+        # free-road profile solve.  The split that runs before the vote
+        # is what makes this a per-strip decision rather than a per-lot
+        # one; without it the lot the deck sits in is only ~22 % deck
+        # (LEMD ``shapeID 1853``, 1,133 of 5,134 m²) and no honest
+        # per-shape test could see it.
+        from .pavement_classification import _deck_is_road
+        if _deck_is_road(layout, getattr(shape, "polygon", None)):
+            target = CLASS_SERVICE
+            record["deck_kept_road"] = True
     if target == CLASS_GROUNDSIDE:
         from .pavement_classification import _demote
         if not _demote(shape, ROLE_GROUNDSIDE_PAVEMENT, dem_at,
@@ -2612,6 +2626,18 @@ def enact_classify(layout, icao: str = "", dem=None,
         return summary
     import time as _time
     started = _time.perf_counter()
+    # §2/§5 (RULINGS 2026-08-30c), round-8 instruction: split the ground
+    # a road bridge deck sits on BEFORE the vote, so the deck's strip is
+    # its own candidate and the lot resumes at both deck edges.  The
+    # scorer votes per SHAPE, and the lot carrying a deck is only ~22 %
+    # deck at LEMD — no per-shape test could see it whole.
+    try:
+        from .road_bridge_deck import split_shapes_at_deck
+        split_shapes_at_deck(layout, icao)
+    except Exception as _deck_split_exc:                 # pragma: no cover
+        import O4_UI_Utils as _UI_ds
+        _UI_ds.vprint(1, f"  [bridge-deck] split skipped: "
+                         f"{_deck_split_exc!r}")
 
     def _candidates():
         return [
@@ -2681,7 +2707,7 @@ def enact_classify(layout, icao: str = "", dem=None,
                                                           centroid.y)
         except _GEOM_EXC:
             pass
-        moved = _enact_verdict(shape, record, dem_at,
+        moved = _enact_verdict(shape, record, dem_at, layout=layout,
                                law_anchors=_law_anchors,
                                anchor_key=_anchor_key, stats=_seat_stats)
         record["enacted"] = moved

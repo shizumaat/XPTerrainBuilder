@@ -846,3 +846,110 @@ def records_of(layout) -> list:
     """Sidecar evidence — every candidate with its verdict, the §4
     numbers and the §6 abutment arithmetic."""
     return list(getattr(layout, _RECORDS, None) or ())
+
+
+#: Smallest piece either side of a deck split worth keeping (m²).  Below
+#: this the split would mint a sliver instead of a surface, so the shape
+#: is left whole — the same "do not cut here" instinct
+#: ``bridges._split_host_at_corridor`` encodes with its own two floors.
+DECK_SPLIT_MIN_PART_M2 = 4.0
+
+#: The families a deck split may cut.  Road and landside pavement only:
+#: an AIRSIDE surface is never cut for a deck (airside is king), and a
+#: deck that overlapped one would be a classification defect to report,
+#: not ground to carve.
+_SPLITTABLE_ROLES = ("service_road", "service_junction",
+                     "groundside_pavement")
+
+
+def split_shapes_at_deck(layout, icao: str = "") -> int:
+    """Split every straddling road/landside surface at the deck
+    footprint, so the deck's own strip arrives at the scorer as ITS OWN
+    candidate (RULINGS 2026-08-30c §2/§5, round-8 instruction: "the lot
+    resumes at the deck edges").
+
+    WHY A SPLIT AND NOT A LOWER THRESHOLD.  The scorer votes per SHAPE,
+    and the ground carrying a deck is normally a lot that merely
+    CONTAINS the deck strip — measured at LEMD (build ``lemdr7``):
+    ``shapeID 1853``, 5,134 m² total with 1,133 m² inside the deck, a
+    fraction of 0.2206 against the 0.50 predicate.  Lowering the
+    predicate to catch it would demote real lots; splitting the lot
+    gives the strip its own vote and leaves the remainder exactly the
+    lot it was.  This is the same footprint discipline the claim
+    (round 4) and the ramp cut (round 6) already use — the fourth member
+    of one family.
+
+    THE SEAM.  Both parts are cut from the SAME ring and take
+    nearest-neighbour resampled altitudes from it, so at the moment of
+    the split the two new edges carry identical values — the split
+    itself mints no step.  Any step across a deck edge afterwards is the
+    §5 solve moving the strip, which is what the law asks for and what
+    the census then judges.
+
+    Returns the number of shapes split.  Idempotent in effect: a shape
+    already wholly inside or outside the deck is never cut.
+    """
+    u = terrain_deck_union(layout)
+    if u is None:
+        return 0
+    from .elevation import _resample_node_altitudes_nn
+    from .groundside import _ring_and_altitudes
+    from .layout import BuiltShape
+
+    out: list = []
+    n_split = 0
+    for s in (getattr(layout, "shapes", None) or ()):
+        poly = getattr(s, "polygon", None)
+        role = str(getattr(s, "role", "") or "")
+        if (poly is None or poly.is_empty or poly.geom_type != "Polygon"
+                or role not in _SPLITTABLE_ROLES):
+            out.append(s)
+            continue
+        try:
+            inside = poly.intersection(u)
+            outside = poly.difference(u)
+        except Exception:                                # pragma: no cover
+            out.append(s)
+            continue
+        in_parts = [g for g in getattr(inside, "geoms", [inside])
+                    if g is not None and not g.is_empty
+                    and g.geom_type == "Polygon"
+                    and g.area >= DECK_SPLIT_MIN_PART_M2]
+        out_parts = [g for g in getattr(outside, "geoms", [outside])
+                     if g is not None and not g.is_empty
+                     and g.geom_type == "Polygon"
+                     and g.area >= DECK_SPLIT_MIN_PART_M2]
+        if not in_parts or not out_parts:
+            out.append(s)                # wholly in, wholly out, or slivers
+            continue
+        ring, alts = _ring_and_altitudes(s)
+        if ring is None or not alts:
+            out.append(s)
+            continue
+        open_ring = ring[:-1] if (ring and ring[0] == ring[-1]) else ring
+        made = []
+        for part in in_parts + out_parts:
+            na = _resample_node_altitudes_nn(
+                part, open_ring, list(alts), interior_edge_project=True)
+            if na is None:
+                made = []
+                break
+            made.append(BuiltShape(
+                polygon=part, role=s.role, ref=s.ref, node_altitudes=na,
+                synthesised_road_corridor=getattr(
+                    s, "synthesised_road_corridor", False),
+                road_bridge_deck=getattr(s, "road_bridge_deck", "")))
+        if not made:
+            out.append(s)
+            continue
+        out.extend(made)
+        n_split += 1
+    if n_split:
+        layout.shapes = out
+        UI.vprint(1,
+            f"  [bridge-deck] §2/§5: {n_split} surface(s) split at the "
+            f"road bridge deck before the scorer votes — the deck's strip "
+            f"is its own candidate and the lot resumes at both deck "
+            f"edges.  Both sides take resampled values from the same "
+            f"ring, so the split mints no step of its own.")
+    return n_split

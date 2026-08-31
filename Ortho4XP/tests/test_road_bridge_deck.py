@@ -1001,3 +1001,126 @@ class TestDeckKeepsRoadIdentity:
         assert src.count("_deck_is_road(layout,") == 3
         assert "or _deck_is_road(layout, tail))" in src
         assert "or _deck_is_road(layout, polygon))" in src
+
+
+class TestDeckSplitBeforeTheVote:
+    """ROUND 8: the lot is split at the deck footprint BEFORE the scorer
+    votes, so the deck's strip is its own candidate and the lot resumes
+    at both deck edges.
+
+    WHY NOT A LOWER THRESHOLD.  Measured at LEMD (build ``lemdr7``):
+    ``shapeID 1853`` is 5,134 m² of which 1,133 m² is deck — a fraction
+    of 0.2206 against the 0.50 predicate.  Lowering the predicate would
+    demote real lots; splitting gives the strip its own vote and leaves
+    the remainder exactly the lot it was.
+    """
+
+    def _straddler(self, layout):
+        """Clear the fixture's own road/groundside first — they straddle
+        the deck too and would be split as well (correctly), which would
+        make these counts about the fixture rather than the split."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout.shapes = []
+        s = BuiltShape(
+            polygon=_rect(-60.0, 200.0, -20.0, 20.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[604.0, 604.0, 604.0, 604.0])
+        layout.shapes.append(s)
+        return s
+
+    def test_a_straddling_lot_is_split_into_strip_and_remainder(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._straddler(layout)
+        assert deck.split_shapes_at_deck(layout) == 1
+        made = list(layout.shapes)
+        assert len(made) >= 2, "a strip and at least one remainder"
+        u = deck.terrain_deck_union(layout)
+        strips = [s for s in made
+                  if s.polygon.intersection(u).area
+                  >= 0.5 * s.polygon.area]
+        rests = [s for s in made if s not in strips]
+        assert strips and rests
+        assert deck.is_deck_shape(strips[0], layout), (
+            "the strip must now be a deck to any per-shape test")
+
+    def test_the_lot_resumes_at_both_deck_edges(self):
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes = []
+        # NARROWER than the deck's 14 m corridor, so the deck cuts clean
+        # through and the remainder is one piece each side.  A lot WIDER
+        # than the deck keeps a single wrapping remainder, which is also
+        # "resuming at both edges" - see the split-count twin above.
+        layout.shapes.append(BuiltShape(
+            polygon=_rect(-60.0, 200.0, -5.0, 5.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[604.0] * 4))
+        deck.split_shapes_at_deck(layout)
+        u = deck.terrain_deck_union(layout)
+        rests = [s for s in layout.shapes
+                 if s.polygon.intersection(u).area
+                 < 0.5 * s.polygon.area]
+        assert len(rests) == 2, "one remainder each side of the deck"
+
+    def test_the_split_mints_no_step_of_its_own(self):
+        """Both sides are resampled from the SAME ring, so at the moment
+        of the split the new edges carry identical values."""
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._straddler(layout)
+        deck.split_shapes_at_deck(layout)
+        vals = set()
+        for s in layout.shapes:
+            vals.update(round(float(a), 3)
+                        for a in (s.node_altitudes or []))
+        assert vals == {604.0}, (
+            f"the split itself must mint no step; got {sorted(vals)}")
+
+    def test_a_shape_wholly_inside_or_outside_is_never_cut(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout.shapes = []
+        for poly in (_rect(20.0, 60.0, -5.0, 5.0),        # wholly inside
+                     _rect(-300.0, -250.0, -5.0, 5.0)):   # wholly outside
+            layout.shapes.append(BuiltShape(
+                polygon=poly, role=ROLE_GROUNDSIDE_PAVEMENT,
+                ref="groundside", node_altitudes=[604.0] * 4))
+        assert deck.split_shapes_at_deck(layout) == 0
+
+    def test_airside_is_never_split_for_a_deck(self):
+        """Airside is king: a deck never carves aircraft pavement."""
+        from auto_patch.layout import ROLE_APRON
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes = []
+        layout.shapes.append(BuiltShape(
+            polygon=_rect(-60.0, 200.0, -20.0, 20.0),
+            role=ROLE_APRON, ref="", node_altitudes=[604.0] * 4))
+        assert deck.split_shapes_at_deck(layout) == 0
+
+    def test_with_no_deck_nothing_is_split(self):
+        layout = _make(bridge_tag=None)
+        deck.publish_candidates(layout)
+        self._straddler(layout)
+        assert deck.split_shapes_at_deck(layout) == 0
+
+    def test_the_scorer_splits_before_it_votes(self):
+        import inspect
+        from auto_patch import pavement_scoring as ps
+        src = inspect.getsource(ps.enact_classify)
+        assert "split_shapes_at_deck(layout, icao)" in src
+        assert src.index("split_shapes_at_deck") < src.index(
+            "decide_and_apply"), "the split must precede the vote"
+
+    def test_a_deck_never_takes_the_groundside_class(self):
+        import inspect
+        from auto_patch import pavement_scoring as ps
+        src = inspect.getsource(ps._enact_verdict)
+        assert "_deck_is_road(layout" in src
+        assert "target = CLASS_SERVICE" in src
+        assert src.index("_deck_is_road(layout") < src.index(
+            "_demote(shape, ROLE_GROUNDSIDE_PAVEMENT"), (
+            "the deck guard must run before the groundside demotion")

@@ -147,7 +147,10 @@ class TestTheCanonicalMouthPasses:
         assert c.measured == 0
         assert "1 tunnel mouth site(s), 0 NOT canonical" in c.detail
         assert "ramp=1 plate=1" in c.detail
-        assert "wall L/R=1/1 foot L/R=1/1" in c.detail
+        # per side is a COVERAGE question, not a piece count: the
+        # emitter's canonical form is ONE band wrapping both sides
+        assert "wall L/R=0.86/0.86" in c.detail
+        assert "foot L/R=0.87/0.87" in c.detail
 
     def test_two_independent_mouths_are_both_canonical(self, tpa, tmp_path):
         """The mouth radius must not let one mouth read the other's
@@ -194,9 +197,12 @@ class TestEachDefectClassIsCaught:
         b = _PatchBuilder()
         _canonical_site(b)
         b.rect(-4.0, 0.0, -3.0, 39.0, "retaining_wall", "tunnel_wall")
+        b.rect(-6.0, 0.0, -5.0, 39.0, "retaining_wall", "tunnel_wall")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
         assert c.measured == 1
+        assert "redundant=" in c.detail and "redundant=0" not in (
+            c.detail.split("site ")[1])
 
     def test_a_duplicate_corridor_surface_fails(self, tpa, tmp_path):
         """The class R14-1's claim minted beside the synthetic ramp —

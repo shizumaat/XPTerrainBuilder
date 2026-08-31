@@ -178,6 +178,11 @@ class Thresholds:
     mouth_reach_m: float = 1.0
     #: a corridor surface smaller than this is a FRAGMENT, not a ramp
     corridor_fragment_m2: float = 4.0
+    #: how much of EACH SIDE a wall (and a foot) must retain
+    side_cover_min: float = 0.80
+    #: wall (and foot) pieces one mouth site may carry: ONE band
+    #: wrapping both sides, or one per side
+    band_pieces_max: int = 2
     #: the share of a site's perimeter no band piece may leave open
     #: before its end counts as UNWRAPPED (2026-08-30j read the wrapped
     #: end AS the end cap)
@@ -621,6 +626,11 @@ _CORRIDOR_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor")
 #: The wall BAND: the face and the foot that owns the annulus (§T5).
 _BAND_REFS = ("tunnel_wall", "tunnel_wall_foot")
 
+#: Ramp surfaces a classified OBJECT bridge owns.  They carry
+#: ROLE_TUNNEL_RAMP but the object law governs them (R14-2/A-3's first
+#: exception), so the canonical-mouth law does not reach them.
+_OBJECT_GOVERNED_REFS = ("object_bridge_ramp",)
+
 
 def _principal_axis(poly):
     """The unit vector along a polygon's LONG axis, from its own
@@ -646,6 +656,73 @@ def _principal_axis(poly):
     ax, ay = float(vt[0][0]), float(vt[0][1])
     n = math.hypot(ax, ay)
     return None if n <= 1e-9 else (ax / n, ay / n)
+
+
+def _fmt(v):
+    return "-" if v is None else format(float(v), ".2f")
+
+
+def _side_cover(body, band, ref, centre, axis, caps=()):
+    """``(left, right)`` — the share of each SIDE of ``body``'s boundary
+    that a band piece of ``ref`` answers for.
+
+    THE SIDE IS THE AXIS'S OWN HALF-PLANE.  A corridor's two sides are
+    the two halves its principal axis cuts its boundary into; a piece
+    "retains" a stretch when it stands within :data:`FACE_REACH_M` of
+    it, the same reach ``bore_face_coverage`` uses (one definition, so
+    the two readings cannot become two populations).
+
+    THE END CAP COUNTS TOWARD BOTH SIDES.  A side's half of the boundary
+    includes half of each END, and retaining an end is the CAP's job,
+    not the side wall's (RULINGS 2026-08-30: "ONE retaining wall (wall +
+    foot) per side, ONE straight end cap").  Measuring the side against
+    the side wall ALONE charged it for the ends and read 0.71 on a
+    fixture that is canonical by construction.
+
+    Returns ``(0.0, 0.0)`` when the boundary cannot be split — a
+    measurement that failed, never a pass.
+    """
+    from shapely.ops import unary_union
+    cx, cy = centre
+    ax, ay = axis
+    pieces = [g for _w, r, g in band if r == ref]
+    pieces = pieces + [g for _w, _r, g in caps]
+    try:
+        ring = (body.exterior if body.geom_type == "Polygon"
+                else unary_union([g.exterior for g in body.geoms]))
+        cover = (unary_union(pieces).buffer(FACE_REACH_M)
+                 if pieces else None)
+    except Exception:                                    # pragma: no cover
+        return (0.0, 0.0)
+    out = []
+    for sign in (+1.0, -1.0):
+        try:
+            half = _half_plane(ring.bounds, (cx, cy), (ax, ay), sign)
+            side = ring.intersection(half)
+            total = float(side.length)
+            if total <= 1e-9:
+                out.append(0.0)
+                continue
+            answered = (0.0 if cover is None
+                        else float(side.intersection(cover).length))
+            out.append(max(0.0, min(1.0, answered / total)))
+        except Exception:                                # pragma: no cover
+            out.append(0.0)
+    return (out[0], out[1])
+
+
+def _half_plane(bounds, centre, axis, sign):
+    """A rectangle covering ``bounds`` on one side of the axis line."""
+    from shapely.geometry import Polygon as _P
+    minx, miny, maxx, maxy = bounds
+    span = 2.0 * (abs(maxx - minx) + abs(maxy - miny)) + 100.0
+    cx, cy = centre
+    ax, ay = axis
+    nx, ny = -ay * sign, ax * sign          # outward normal for this side
+    return _P([(cx + ax * span, cy + ay * span),
+               (cx - ax * span, cy - ay * span),
+               (cx - ax * span + nx * span, cy - ay * span + ny * span),
+               (cx + ax * span + nx * span, cy + ay * span + ny * span)])
 
 
 def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
@@ -711,6 +788,13 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
     corridor: list = []
     seen: set = set()
     for w in patch.role_ways("tunnel_ramp"):
+        # THE OBJECT LAW GOVERNS ITS OWN RAMPS.  ``object_bridge_ramp``
+        # rides ROLE_TUNNEL_RAMP but belongs to a classified hard-deck
+        # OBJECT bridge (R14-2/A-3's first exception), not to a portal
+        # walk — the canonical-mouth law does not reach it and counting
+        # it here reported a "mouth" with no ramp and no walls.
+        if (w.ref or "") in _OBJECT_GOVERNED_REFS:
+            continue
         g = _poly(w)
         if g is not None:
             corridor.append((w.wid, w.ref or "", g))
@@ -803,24 +887,22 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
 
         near_band = _near(band)
         near_caps = _near(caps)
-        if axis is None:
-            wl = wr = fl = fr = None
-        else:
+        # ── ONE WALL + FOOT PER SIDE, MEASURED AS COVERAGE ───────────
+        # NOT a piece count.  The emitter's canonical form is ONE
+        # continuous band wrapping both sides and the end (RULINGS
+        # 2026-08-30j accepted "7 -> 2 wall pieces, wrapped ends = end
+        # cap"), so a centroid-side tally of PIECES reads 1/0 for a
+        # U-shaped band that in fact retains both sides.  The law's
+        # question is whether each side IS retained, so each side of the
+        # site's boundary is split by the principal axis and the share
+        # of it a band piece answers is the measurement.
+        wl = wr = fl = fr = None
+        if axis is not None:
             ax, ay = axis
-            wl = wr = fl = fr = 0
-            for wid, ref, g in near_band:
-                gc = g.centroid
-                cross = ax * (gc.y - c.y) - ay * (gc.x - c.x)
-                if ref == "tunnel_wall":
-                    if cross >= 0.0:
-                        wl += 1
-                    else:
-                        wr += 1
-                else:
-                    if cross >= 0.0:
-                        fl += 1
-                    else:
-                        fr += 1
+            wl, wr = _side_cover(body, near_band, "tunnel_wall",
+                                 (c.x, c.y), (ax, ay), near_caps)
+            fl, fr = _side_cover(body, near_band, "tunnel_wall_foot",
+                                 (c.x, c.y), (ax, ay), near_caps)
         # THE END CAP, or the wrapped end 2026-08-30j accepted for it:
         # the share of this site's perimeter no band piece answers.
         try:
@@ -860,10 +942,25 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
                     continue
         frag = sum(1 for _w, _r, g in near_band
                    if g.area < thr.wall_fragment_m2)
+        # REDUNDANT BAND PIECES.  Coverage answers "is each side
+        # retained"; it cannot answer "how many walls are standing
+        # there", and 2026-08-30j's residual — 7 retaining-wall pieces
+        # within 12 m of one mouth where the law says one per side — is
+        # a COUNT defect.  Both canonical forms are allowed: ONE band
+        # wrapping both sides and the end (the emitter's own shape, 1
+        # wall + 1 foot) or one per side (2 + 2).  Beyond that the
+        # pieces are redundant.
+        _n_wall = sum(1 for _w, r, _g in near_band if r == "tunnel_wall")
+        _n_foot = sum(1 for _w, r, _g in near_band
+                      if r == "tunnel_wall_foot")
+        redundant = (max(0, _n_wall - thr.band_pieces_max)
+                     + max(0, _n_foot - thr.band_pieces_max))
+        _bar = thr.side_cover_min
         canonical = (len(ramps) == 1 and len(plates) <= 1 and reach_ok
                      and not others and not frag_corr
-                     and wl == 1 and wr == 1 and fl == 1 and fr == 1
-                     and capped and dup == 0 and nested == 0 and frag == 0)
+                     and wl is not None and min(wl, wr, fl, fr) >= _bar
+                     and capped and dup == 0 and nested == 0
+                     and frag == 0 and redundant == 0)
         if not canonical:
             bad += 1
         totals["sites"] += 1
@@ -878,6 +975,7 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         totals["duplicate_corridor_surfaces"] += dup
         totals["nested_band_pieces"] += nested
         totals["band_fragments"] += frag
+        totals["redundant_band_pieces"] += redundant
         if not canonical:
             totals["sites_not_canonical"] += 1
         lat, lon = _m_to_ll(patch, c.x, c.y)
@@ -887,19 +985,20 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
             f"plate={len(plates)} other={len(others)} "
             f"frag={len(frag_corr)}) "
             f"reach={'-' if reach is None else format(reach, '.2f')} "
-            f"wall L/R={wl}/{wr} "
-            f"foot L/R={fl}/{fr} cap={len(near_caps)} "
+            f"wall L/R={_fmt(wl)}/{_fmt(wr)} "
+            f"foot L/R={_fmt(fl)}/{_fmt(fr)} cap={len(near_caps)} "
             f"open={open_frac:.2f} dup={dup} nested={nested} "
-            f"bandfrag={frag}  "
+            f"bandfrag={frag} redundant={redundant}  "
             f"{'CANONICAL' if canonical else 'NOT CANONICAL'}  "
             f"ways={','.join(wids[:6])}"
             f"{'…' if len(wids) > 6 else ''}")
     bar = 0 if thr.mouth_canonical else None
     verdict = SKIP if bar is None else (PASS if bad == 0 else FAIL)
     head = (f"{totals['sites']} tunnel mouth site(s), {bad} NOT canonical "
-            f"(law: 1 ramp surface, 1 wall + 1 foot per side, an end cap "
-            f"or a wrapped end, 0 duplicate corridor surfaces, 0 nested "
-            f"or fragment pieces) — totals: " +
+            f"(law: 1 ramp surface, each side retained by a wall AND a "
+            f"foot over >= {thr.side_cover_min:.0%} of it, an end cap or "
+            f"a wrapped end, 0 duplicate corridor surfaces, 0 nested, "
+            f"fragment or redundant pieces) — totals: " +
             ", ".join(f"{k}={v}" for k, v in sorted(totals.items())))
     return [Check("mouth_inventory", verdict, bad, bar,
                   "\n           ".join([head] + lines))]
@@ -1561,10 +1660,12 @@ def build_parser() -> argparse.ArgumentParser:
                           ("wall-band-span-m", 2.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     p.add_argument("--datum-min-samples", type=int, default=8)
+    p.add_argument("--band-pieces-max", type=int, default=2)
     for name, default in (("mouth-cluster-m", 25.0),
                           ("mouth-radius-m", 25.0),
                           ("mouth-reach-m", 1.0),
                           ("corridor-fragment-m2", 4.0),
+                          ("side-cover-min", 0.80),
                           ("mouth-open-frac-max", 0.10),
                           ("dup-overlap-m2", 2.0),
                           ("wall-fragment-m2", 1.0)):
@@ -1629,6 +1730,8 @@ def main(argv=None) -> int:
         mouth_radius_m=args.mouth_radius_m,
         mouth_reach_m=args.mouth_reach_m,
         corridor_fragment_m2=args.corridor_fragment_m2,
+        side_cover_min=args.side_cover_min,
+        band_pieces_max=args.band_pieces_max,
         mouth_open_frac_max=args.mouth_open_frac_max,
         dup_overlap_m2=args.dup_overlap_m2,
         wall_fragment_m2=args.wall_fragment_m2,

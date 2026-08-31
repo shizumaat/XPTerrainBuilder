@@ -83,3 +83,28 @@ the bridge = `BRIDGE_ROAD_CLEARANCE_M` (5.1 m). Site exemplar:
   flown span shows road 600.83–603.18 over the 598.45 ramp —
   the 30n-accepted 2.4–4.6 m separation, sub-5.1 by design at this
   site.
+
+## Task B findings (2026-08-31, appended)
+
+* The 62–75 % slowdown decomposes into: (1) FOUR-WAY BUILD CONTENTION
+  ×1.26–1.34 (the lead session's five-airport sweep + a harness HECA
+  build raced the owner's three app tile builds while X-Plane flew —
+  a scheduling failure by the lead, now barred: nothing heavy runs
+  while the owner is building or flying); (2) the ONE-TIME footprint
+  cache-v6/v7 recompute (declared cost; 52 % of OTHH's growth; paid,
+  will not recur); (3) an UNATTRIBUTED ×1.5–1.65 residual on the emit
+  phase of the app builds only — the in-day harness series is flat
+  (LEMD emit 651→622 s across the whole bridge campaign, byte-similar
+  outputs), so the day's merges are exonerated on the harness path.
+* THE ONE CHEAP MEASUREMENT (queued behind Task A's builds): one
+  exclusive foreground LEMD harness build at 605aee75, read
+  phase_seconds emit vs 621.7 s. ≈620 ⇒ environmental/app-path;
+  ≈1,000 ⇒ real phase-6 regression, bisect adjacent_ground/limiter/
+  deck passes.
+* TRIPWIRE REFINEMENT (31a addendum): the app-ledger tripwire
+  subtracts known one-time cache-version costs and checks for
+  concurrent builds before escalating; steady-state de-contended
+  estimates: HECA ~2,120 s, LEMD ~1,738 s, OTHH ~979 s (≈ baseline).
+* Task B independently confirms Task C: the owner's HECA tile was
+  never rebuilt on Aug 30 (no tile_build_times entry; DSF dated
+  Aug 29 23:30).

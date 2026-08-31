@@ -5212,3 +5212,29 @@ both owner ramp probes CONTAINED.
   suite; (e) the geometry-only tile path is exercised at SPJC -13-078
   only (no airport with a provider was re-run to prove the full path is
   byte-identical, though the capability gate is twinned headlessly).
+
+- 2026-08-31 lane/ltbatch2 Batch 2c: two of Batch 2b's owed items are
+  PAID.  (1) THE FAR-RING PRODUCER IS NAMED, by measurement:
+  `who_wrote.py --footprint` at the two largest far ref-less
+  `service_junction` rings (5,292 m² way -10514 and 20,639 m² way
+  -10439, both >25 m from any airside pavement) reports a single BIRTH
+  transition at `pipeline.py:3969 build_airport_pavement` — the
+  CURVE-NATIVE GLOBAL SLICE's face classification, which mints
+  `role=service_junction, ref=""` for every face it reads as
+  `kind == "service"`.  Neither road minter is involved: not
+  `build_service_road_network` (the OSM/1206 mint, Batch 2) and not
+  `carve_narrow_service_strips` (Batch 2b), which is why clipping either
+  feed left the population at 1,603 rings / 511,207 m².  (A third probe
+  point landed inside a `gap_fill_spine` `graded_strip`, not a road
+  ring, and is not part of the population.)  ATTRIBUTION ONLY — no fix,
+  the ruling follows.  (2) THE SPJC -13-078 DEM FRAME IS WARM: owner-
+  authorized `--refresh-data dem --break-stale-lock` (the stale lock was
+  inspected first — holder pid 48588 dead since 2026-08-24, no `.part`
+  or partial files anywhere under `Elevation_data`, and nothing in
+  `-20-080` touched on that date), 0 added / 3 modified files, all
+  inside `S13W078_airport_insets/`, hash-stamped at 14:45:43.  STILL
+  UNPAID from 2b: the five-airport sweep; no full suite; the
+  geometry-only tile path is exercised at SPJC -13-078 only.  NOTED, NOT
+  TOUCHED (outside the authorized scope): two zero-length inset rasters
+  in a different tile, `Elevation_data/+40+000/N46E008_airport_insets/`
+  (`LSZC_italy10m.tif`, `VBMAS_italy10m.tif`).

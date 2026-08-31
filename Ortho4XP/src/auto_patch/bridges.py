@@ -3962,6 +3962,73 @@ def _spelling_edges(layout, origin, perp, half_carriage: float,
     return out
 
 
+#: Below this the merged run's ring is degenerate and the per-quad
+#: fallback keeps today's geometry rather than dropping the ramp.
+_MERGED_RUN_MIN_AREA_M2 = 0.5
+
+
+def _emit_merged_ramp_runs(layout: "PavementLayout", runs: list) -> int:
+    """ONE RAMP SURFACE PER DESCENDING RUN (spec §5-SUPPLEMENT item 1).
+
+    ``runs`` is what the chain loop accumulated: per contiguous run, the
+    ordered stations ``(left_xy, right_xy, elev)`` and the per-segment
+    quads it would otherwise have emitted.
+
+    THE MERGED SURFACE IS NOT A UNION.  It is the strip's own boundary —
+    the left offsets forward, the right offsets back — so the ring is
+    exact, carries one vertex per station per side, and needs no
+    ``buffer(0)`` repair that could round a corner the wall band is
+    about to be offset from.  Altitudes ride per vertex (a multi-segment
+    run is not a sloped RECT and cannot be expressed as one), and both
+    sides of a station share its value because a ramp is laterally level
+    (RULINGS 2026-08-25g, "roads are laterally flat").
+
+    THE FALLBACK IS TODAY'S GEOMETRY.  If a run's merged ring will not
+    make a simple valid polygon — a hairpin chain can self-intersect its
+    own offset — the run's original quads are emitted exactly as before.
+    Dropping the ramp instead would trade a duplicate for a hole.
+
+    Returns the number of surfaces emitted.
+    """
+    n = 0
+    for run in runs or ():
+        st = run.get("st") or []
+        quads = run.get("quads") or []
+        merged = None
+        if len(st) >= 2:
+            ring = [s[0] for s in st] + [s[1] for s in reversed(st)]
+            alts = [s[2] for s in st] + [s[2] for s in reversed(st)]
+            try:
+                cand = Polygon(ring)
+                if (cand.is_valid and not cand.is_empty
+                        and cand.geom_type == "Polygon"
+                        and cand.area > _MERGED_RUN_MIN_AREA_M2
+                        and len(cand.exterior.coords) - 1 == len(ring)):
+                    merged = (cand, alts)
+            except _GEOM_EXC:                            # pragma: no cover
+                merged = None
+        if merged is not None:
+            _poly, _alts = merged
+            layout.shapes.append(BuiltShape(
+                polygon=_poly, role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                node_altitudes=[round(float(a), 2) for a in _alts]))
+            n += 1
+            continue
+        # per-quad fallback — byte-identical to the pre-supplement emit
+        for rp, eh, el in quads:
+            if abs(eh - el) >= _TUNNEL_RAMP_FLAT_QUAD_M:
+                layout.shapes.append(BuiltShape(
+                    polygon=rp, role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                    altitude_high=round(eh, 2),
+                    altitude_low=round(el, 2)))
+            else:
+                layout.shapes.append(BuiltShape(
+                    polygon=rp, role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                    altitude=round(0.5 * (eh + el), 2)))
+            n += 1
+    return n
+
+
 def _emit_portal_cluster(
         cl: list[int], portal_data: list, nodes_m: dict,
         layout: "PavementLayout", exclusion_zones: list,
@@ -4793,6 +4860,36 @@ def _emit_portal_cluster(
             if (e_hi_c - e_lo_c) > maximum_effective_drop:
                 e_hi_c = e_lo_c + maximum_effective_drop
 
+        # ── ONE RAMP SURFACE PER DESCENDING RUN (spec §5-SUPPLEMENT 1) ──
+        # The chain used to emit one QUAD PER SEGMENT and the retired
+        # stand-down culled the duplicates afterwards (measured: 22
+        # surfaces with it, 95 without).  The law — "ONE ramp surface
+        # descending the corridor centre to the mouth line" — is enforced
+        # HERE instead, at the source: consecutive strips of one run are
+        # accumulated and emitted as a SINGLE polygon carrying explicit
+        # per-vertex altitudes.  A post-pass would just be the stand-down
+        # again, which the supplement forbids by name.
+        #
+        # A run BREAKS wherever a segment is skipped (too short, already
+        # paved by the throat, yielded to an object trench, ungeometric),
+        # so what emits is one surface per CONTIGUOUS descending run —
+        # never a merge across a gap the emitter deliberately left.
+        #
+        # It also dissolves ``_TUNNEL_RAMP_FLAT_QUAD_M``'s whole problem
+        # on the merged path: that constant exists because two adjacent
+        # quads offer their SHARED cross-edge nodes values |eh-el|/2
+        # apart, and a merged surface has no shared cross-edges left.
+        _ramp_runs: list = []
+        _cur_run: dict = {"st": [], "quads": []}
+        _prev_seg_i = None
+
+        def _flush_ramp_run():
+            if _cur_run["st"]:
+                _ramp_runs.append({"st": list(_cur_run["st"]),
+                                   "quads": list(_cur_run["quads"])})
+            _cur_run["st"] = []
+            _cur_run["quads"] = []
+
         for i in range(n_c - 1):
             p_a = chain_pts[i]
             p_b = chain_pts[i + 1]
@@ -4943,23 +5040,24 @@ def _emit_portal_cluster(
                     # ``_TUNNEL_RAMP_FLAT_QUAD_M`` keeps the flat
                     # encoding only where the averaging error is AT the
                     # floor.
-                    if abs(eh - el) >= _TUNNEL_RAMP_FLAT_QUAD_M:
-                        layout.shapes.append(BuiltShape(
-                            polygon=rp,
-                            role=ROLE_TUNNEL_RAMP,
-                            ref="tunnel_ramp",
-                            altitude_high=round(eh, 2),
-                            altitude_low=round(el, 2)))
-                    else:
-                        layout.shapes.append(BuiltShape(
-                            polygon=rp,
-                            role=ROLE_TUNNEL_RAMP,
-                            ref="tunnel_ramp",
-                            altitude=round(
-                                0.5 * (eh + el), 2)))
+                    # ACCUMULATE, never append (spec §5-SUPPLEMENT 1).
+                    # ``ra``/``rb`` are the +half side and ``rd``/``rc``
+                    # the -half side, whichever corner order the sloped
+                    # rect chose above; station i carries ``e_a`` and
+                    # station i+1 ``e_b``, and a ramp is laterally level
+                    # so both sides of a station share one value.
+                    if _prev_seg_i != i - 1:
+                        _flush_ramp_run()
+                    if not _cur_run["st"]:
+                        _cur_run["st"].append((ra, rd, float(e_a)))
+                    _cur_run["st"].append((rb, rc, float(e_b)))
+                    _cur_run["quads"].append((rp, eh, el))
+                    _prev_seg_i = i
                     exclusion_zones.append(rp)
             except _GEOM_EXC:
                 pass
+        _flush_ramp_run()
+        _emit_merged_ramp_runs(layout, _ramp_runs)
         return e_hi_c
 
     def _emit_fork_throat(throat_pts, throat_half, e_throat,
@@ -7509,6 +7607,114 @@ def publish_tunnel_open_cut_regions(layout: "PavementLayout",
     return len(_polys)
 
 
+#: A bore surface is walled only where it was actually DUG below the
+#: surface it sits in.  Above this it is an at-grade stretch that happens
+#: to be tunnel-roled — the same discriminator the retired claim waller
+#: used, carried over unchanged.
+_RAMP_WALL_MIN_DIG_M = 0.25
+
+
+def _wall_tunnel_ramp_corridors(layout: "PavementLayout",
+                                exclusion_zones: list,
+                                pre_emit_shape_ids: set,
+                                wall_gap_m: float,
+                                retaining_wall_width_m: float,
+                                dem_at, apt_elev: float) -> int:
+    """EVERY MERGED RAMP CORRIDOR SIDE GETS ONE WALL + ONE FOOT.
+
+    Spec §5-SUPPLEMENT item 2 (spec author 2026-08-31), correcting this
+    lane's owned deviation: census #27/#28 ruled the claim waller
+    REWIRE and Batch 3 RETIRED it instead.  MEASURED at the OTHH
+    control, that deleted a population nothing replaced — 17 of 39
+    ``tunnel_wall`` pieces and 20 of 48 ``tunnel_wall_foot`` pieces
+    stood within 2 m of a claim surface and further than 2 m from ANY
+    synthetic ramp, so they had no other producer; walls fell 39 → 12
+    and feet 48 → 12.
+
+    THE POPULATION IS RE-KEYED, NOT DELETED.  It was ``ref ==
+    tunnel_road`` (the claim verdict); it is now the portal walk's OWN
+    below-grade road surfaces — which, after §5-SUPPLEMENT item 1, is
+    ONE merged surface per descending run.  Everything else is the same
+    construction: :func:`emit_wall_band`, the same §T5 foot, and
+    ``arm_ends=[]`` — "ends wrapped", which is what a mouth needs, as
+    against the cluster band that cuts its far ends OPEN because the
+    road continues at grade there.
+
+    ONE WALL PER SIDE, NOT TWO.  A ramp the cluster band already walled
+    is skipped: ownership is read from the register
+    :func:`emit_wall_band` publishes as it appends
+    (``_WALL_BAND_OWNER_REGISTER``), never re-derived by asking "which
+    ramp is this wall near?" — that re-derivation is what §W1 paid for
+    once and what put 7 wall pieces at one OTHH mouth.
+
+    Returns the number of corridor bodies walled.
+    """
+    _owned: set = set()
+    for _ids, _reach in (getattr(layout, _WALL_BAND_OWNER_REGISTER, None)
+                         or {}).values():
+        _owned.update(_ids or ())
+    _bodies, _sources = [], []
+    for _s in layout.shapes:
+        if id(_s) in pre_emit_shape_ids or id(_s) in _owned:
+            continue
+        if getattr(_s, "role", "") != ROLE_TUNNEL_RAMP:
+            continue
+        if getattr(_s, "ref", "") not in _TUNNEL_PAVEMENT_REFS:
+            continue
+        _poly = getattr(_s, "polygon", None)
+        if (_poly is None or _poly.is_empty
+                or _poly.geom_type != "Polygon"):
+            continue
+        # BELOW GRADE, HERE.  The dig is measured against the surface the
+        # corridor sits in (the DEM / airport elevation), never against
+        # absolute zero — LEMD's 561-617 m field is what makes an
+        # absolute predicate vacuous (§T8.1's lesson, applied).
+        _alts = [float(_a) for _a in (getattr(_s, "node_altitudes", None)
+                                      or ()) if _a is not None]
+        if not _alts:
+            _a0 = getattr(_s, "altitude", None)
+            if _a0 is None:
+                _a0 = getattr(_s, "altitude_low", None)
+            if _a0 is None:
+                continue
+            _alts = [float(_a0)]
+        try:
+            _rp = _poly.representative_point()
+            _ground = dem_at(_rp.x, _rp.y)
+        except _GEOM_EXC:                                # pragma: no cover
+            _ground = None
+        _ground = float(_ground if _ground is not None else apt_elev)
+        if _ground - min(_alts) < _RAMP_WALL_MIN_DIG_M:
+            continue
+        _bodies.append(_poly)
+        _sources.append(_s)
+    if not _bodies:
+        return 0
+    try:
+        _u = unary_union(_bodies)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return 0
+    _parts = [_g for _g in getattr(_u, "geoms", [_u])
+              if _g is not None and not _g.is_empty
+              and _g.geom_type == "Polygon"]
+    if not _parts:
+        return 0
+    _before = len(layout.shapes)
+    emit_wall_band(layout, exclusion_zones, _parts, _sources, [],
+                   wall_gap_m, retaining_wall_width_m, dem_at, apt_elev)
+    _n_pieces = len(layout.shapes) - _before
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] §5-SUPPLEMENT 2 ramp-keyed walls: "
+            f"{len(_parts)} bore corridor bod(y/ies) the cluster band "
+            f"had not walled, walled both sides with wrapped ends "
+            f"({_n_pieces} piece(s)) — a bore surface is walled by the "
+            f"geometry it IS, never by a claim verdict it carries.")
+    except _GEOM_EXC:                                    # pragma: no cover
+        pass
+    return len(_parts)
+
+
 def _emit_tunnel_portals(
         layout: "PavementLayout",
         dem,
@@ -7983,6 +8189,15 @@ def _emit_tunnel_portals(
         portal_data, _facing_pairs, wall_gap_m, layout)
     if _open_cut_regions:
         publish_tunnel_open_cut_regions(layout, _open_cut_regions)
+    # §5-SUPPLEMENT item 2: every merged ramp corridor the cluster band
+    # did not already wall gets its own wall + foot, both sides, ends
+    # wrapped.  Runs after the cluster/corridor emit (every ramp body
+    # exists and the merge has run) and BEFORE finalize, so the R10-2
+    # cuts see these walls exactly as they see the cluster's.
+    _wall_tunnel_ramp_corridors(
+        layout, exclusion_zones, _pre_emit_ids,
+        wall_gap_m, retaining_wall_width_m, _dem_at,
+        float(_airport_elevation_at(0.0, 0.0) or 0.0))
     try:
         _protected_u = unary_union(
             [s.polygon for s in layout.shapes

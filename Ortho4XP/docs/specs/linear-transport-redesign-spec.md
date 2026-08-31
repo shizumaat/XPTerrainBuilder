@@ -149,7 +149,13 @@ on the existing G-TUNNEL-ROAD tag machinery (#42), which KEEPS.
   untouched.
 - Batch 2 — ROADS: §3 (FRP retirement, contact model, ownership
   shrink, guard mirror). Closing: HECA + the SPJC owner site
-  (follow_ratio at way 702's chain ≥0.95, no cutting >2 m).
+  (follow_ratio at way 702's chain ≥0.95, no cutting >2 m) + the
+  HECA missing-road site (owner 31c): the road between
+  30.1123618,31.4059543 and 30.1118258,31.4065064 EMITS (its OSM
+  service way exists; ruled needed for a smooth transition) — under
+  the new ownership it is either a core-levelled road reaching the
+  patch or a contact transition; the seam ruling decides, the site
+  closes either way.
 - Batch 3 — TUNNELS+BRIDGES: §4+§5. Closing: OTHH (three canonical
   mouths, wall count per side = 1) + LEMD (bridge span per 30d/30n).
 - Batch 4 — CLEANUP: retired tests rewritten/deleted (census test

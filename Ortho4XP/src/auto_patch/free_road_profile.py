@@ -77,6 +77,18 @@ __all__ = [
 #: key space (``(round(x, 2), round(y, 2))`` — ``groundside``'s own).
 PROFILE_KEYS_ATTRIBUTE = "_free_road_profile_keys"
 
+
+def _ARM_CHORD_RAISE_ONLY() -> bool:
+    """PHASE-0 ATTRIBUTION ARM (lane/phase0roads, TEMPORARY).
+
+    ``O4_ARM_CHORD_RAISE_ONLY=1`` restores Amendment 3 §2's RAISE-ONLY
+    chord in place of RULING 2's both-ways chord.  Read at CALL TIME (not
+    import time) so a twin can arm it around one call.  Default OFF — the
+    shipped law is unchanged.
+    """
+    import os as _os_arm
+    return _os_arm.environ.get("O4_ARM_CHORD_RAISE_ONLY") == "1"
+
 #: Two pin values closer than this are one datum; further apart, the
 #: disagreement is recorded.  The repo's standing elevation materiality
 #: floor (auto_patch/CLAUDE.md convergence guards).
@@ -261,6 +273,17 @@ def chain_profile(stations_s, values, pins, cap, caps=None):
             continue
         ch = _chord(i)
         v = values[i]
+        if ch is not None and _ARM_CHORD_RAISE_ONLY() and v is not None:
+            # PHASE-0 ATTRIBUTION ARM (lane/phase0roads, TEMPORARY):
+            # ``O4_ARM_CHORD_RAISE_ONLY=1`` restores Amendment 3 §2's
+            # RAISE-ONLY chord in place of RULING 2's both-ways chord —
+            # a bracketed station may be lifted to the chord but never
+            # cut down to it, so a hill between two pins survives.  The
+            # single-clause arm behind the spec's suspect-2 family
+            # (docs/specs/phase0-attribution-spec.md Task A).  A
+            # measurement switch, not a fix; default is the shipped law.
+            target[i] = float(max(float(v), float(ch)))
+            continue
         if ch is not None:
             # RULING 2 — a BRACKETED interior station conforms to the
             # chord in BOTH directions.  It is not clamped into the cap

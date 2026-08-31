@@ -47,13 +47,18 @@ written.
 THE FRAME, printed on every report:
 * A CHAIN is the connected component of road rings joined by SHARED NODE
   IDs, walked along its own longest path (a double-BFS diameter over the
-  ring-adjacency graph), stationed by cumulative RING-CENTROID distance.
-  So the station coordinate is the road's own PATH, never a plan chord —
-  a U-turn is long here however short its chord (the frame
+  ring-adjacency graph).  Its SPINE is that path's ring-centroid
+  polyline, so the station coordinate is the road's own PATH, never a
+  plan chord — a U-turn is long here however short its chord (the frame
   ``free_road_profile`` solves in).
-* A ring's LEVEL is the median of its emitted vertex altitudes and its
-  GROUND is the median DEM under those same vertices, so a crowned or
-  tilted cross-section cannot masquerade as a profile step.
+* THE PROFILE IS BINNED BY VERTEX, not by ring: every road vertex is
+  projected onto the spine and each ``--bin-m`` (default 25 m) of road
+  reports the MEDIAN emitted value and MEDIAN DEM of the vertices in it,
+  at their MEAN station.  A ring is not a granularity — a corridor rect
+  can be one metre or one kilometre long, and its own median would make a
+  kilometre of road a single profile point.  Binning by median also means
+  a crowned or tilted cross-section cannot masquerade as a profile step.
+  Two arms on two bin sizes are not comparable.
 * ``--dem-source airport-inset`` (default) is THE SURFACE PRODUCTION
   GRADES ON.  Two arms on two DEM sources are NOT comparable and the
   missing surface REFUSES rather than substituting the other.
@@ -106,6 +111,11 @@ DEFAULT_SITE_RADIUS_M = 40.0
 #: Discovery defaults: the spec's "longest chains crossing >= 10 m relief".
 DEFAULT_MIN_RELIEF_M = 10.0
 DEFAULT_MIN_SPAN_M = 100.0
+
+#: The profile BIN — a fixed length of ROAD, so one granularity reads
+#: every chain and every arm (a ring is not a granularity: a corridor
+#: rect can be one metre or one kilometre long).
+DEFAULT_BIN_M = 25.0
 
 
 def _open_ring(seq):
@@ -214,25 +224,84 @@ def _longest_path(comp, adj, rings) -> list:
     return path
 
 
-def _chain_read(path_idx, rings) -> dict:
-    """THE reading for one chain — the profile and its numbers."""
-    st = [0.0]
-    for a, b in zip(path_idx, path_idx[1:]):
-        st.append(st[-1] + math.dist(rings[a]["c"], rings[b]["c"]))
-    lev = [rings[i]["level"] for i in path_idx]
-    gnd = [rings[i]["ground"] for i in path_idx]
+def _station_on_spine(spine, cum, p) -> Optional[float]:
+    """The point's arclength station along the chain's SPINE polyline —
+    its projection onto the nearest segment.  Stationing by projection,
+    not by ring index, is what makes a LONG corridor rect (one ring
+    spanning hundreds of metres) carry a profile at all: its own vertices
+    spread along the run instead of collapsing to one centroid."""
+    best_s, best_d = None, None
+    for k in range(len(spine) - 1):
+        ax, ay = spine[k]
+        bx, by = spine[k + 1]
+        vx, vy = bx - ax, by - ay
+        L2 = vx * vx + vy * vy
+        if L2 <= 1e-12:
+            continue
+        t = ((p[0] - ax) * vx + (p[1] - ay) * vy) / L2
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        qx, qy = ax + t * vx, ay + t * vy
+        d = math.hypot(p[0] - qx, p[1] - qy)
+        if best_d is None or d < best_d:
+            best_d, best_s = d, cum[k] + t * math.sqrt(L2)
+    return best_s
+
+
+def _chain_read(path_idx, rings, bin_m: float = DEFAULT_BIN_M) -> dict:
+    """THE reading for one chain — the profile and its numbers.
+
+    THE PROFILE IS BINNED BY VERTEX STATION, not by ring: every road
+    vertex of the chain is projected onto the chain's spine (the ring-
+    centroid polyline walked along the component's longest path) and the
+    profile is the per-bin MEDIAN emitted value and MEDIAN DEM.  A ring's
+    own median would make a kilometre-long corridor rect one station and
+    its profile meaningless; a bin is a fixed length of ROAD, so two arms
+    and two chains are read at one granularity.
+    """
+    spine = [rings[i]["c"] for i in path_idx]
+    cum = [0.0]
+    for a, b in zip(spine, spine[1:]):
+        cum.append(cum[-1] + math.dist(a, b))
 
     dev_v, cut_v, fill_v = [], [], []
+    samples: list = []
     for i in path_idx:
-        for z, d in zip(rings[i]["z"], rings[i]["d"]):
+        for xy, ll, z, d in zip(rings[i]["xy"], rings[i]["ll"],
+                                rings[i]["z"], rings[i]["d"]):
             if z is None or d is None:
                 continue
             dev_v.append(abs(z - d))
             cut_v.append(d - z)
             fill_v.append(z - d)
+            s = _station_on_spine(spine, cum, xy)
+            if s is not None:
+                samples.append((s, z, d, ll))
+
+    bins: dict = {}
+    for s, z, d, ll in samples:
+        k = int(s // bin_m)
+        bins.setdefault(k, []).append((s, z, d, ll))
+    keys = sorted(bins)
+    st, lev, gnd, lls = [], [], [], []
+    for k in keys:
+        rows = bins[k]
+        # THE BIN'S STATION IS ITS MEMBERS' MEAN, not the bin centre: road
+        # vertices are not evenly spaced (a corridor rect contributes four
+        # corners and nothing between), and pricing a grade over the bin
+        # CENTRE would read a step across two half-empty bins as a slope
+        # it never had.
+        st.append(sum(r[0] for r in rows) / len(rows))
+        lev.append(ADR._median([r[1] for r in rows]))
+        gnd.append(ADR._median([r[2] for r in rows]))
+        lls.append(rows[0][3])
+    if len(st) < 2:                                        # pragma: no cover
+        st = [0.0, cum[-1]]
+        lev = [rings[path_idx[0]]["level"], rings[path_idx[-1]]["level"]]
+        gnd = [rings[path_idx[0]]["ground"], rings[path_idx[-1]]["ground"]]
+        lls = [rings[path_idx[0]]["ll"][0], rings[path_idx[-1]]["ll"][0]]
 
     steps = []
-    for k in range(len(path_idx) - 1):
+    for k in range(len(st) - 1):
         ds = st[k + 1] - st[k]
         if ds <= 1e-6:
             continue
@@ -249,11 +318,18 @@ def _chain_read(path_idx, rings) -> dict:
         "wids": [rings[i]["wid"] for i in path_idx],
         "roles": sorted({rings[i]["role"] for i in path_idx}),
         "rings": len(path_idx),
-        "span_m": st[-1],
+        "bin_m": bin_m,
+        "bins": len(st),
+        "span_m": cum[-1],
         "station_m": st,
         "emitted_m": lev,
         "dem_m": gnd,
-        "ll": [rings[i]["ll"][0] for i in path_idx],
+        "ll": [ll for ll in lls],
+        "ring_ll": [rings[i]["ll"][0] for i in path_idx],
+        # Every vertex lat/lon of the chain, for PLACE matching only.
+        # Underscored so ``--json`` never carries it (a site lookup needs
+        # the full population; a report does not).
+        "_vll": [r[3] for r in samples],
         "dem_relief_m": dem_relief,
         "emitted_relief_m": emit_relief,
         "follow_ratio": (emit_relief / dem_relief) if dem_relief > 1e-9 else None,
@@ -291,7 +367,8 @@ def _deepest_ll(path_idx, rings):
 
 
 def read_patch(patch: Path, *, dem_source: str = "airport-inset",
-               dem_at: "Optional[Callable]" = None) -> dict:
+               dem_at: "Optional[Callable]" = None,
+               bin_m: float = DEFAULT_BIN_M) -> dict:
     """THE reading for one patch: every road chain, unranked.
 
     ``dem_at`` (lat, lon) -> metres or None: injected by the twin so the
@@ -332,11 +409,11 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
         p = _longest_path(comp, adj, rings)
         if len(p) < 2:
             continue
-        chains.append(_chain_read(p, rings))
+        chains.append(_chain_read(p, rings, bin_m=bin_m))
     return {
         "patch": str(patch), "dem_source": dem_source,
         "dem_path": dem_path, "dem_origin": dem_origin,
-        "road_rings": len(rings), "chains": chains,
+        "road_rings": len(rings), "chains": chains, "bin_m": bin_m,
         "road_cap_pct": 100.0 * ROAD_CAP,
         "sidecar_anchor": anchor,
     }
@@ -349,7 +426,7 @@ def chain_at_site(read: dict, lat: float, lon: float,
     arm-dependent (``arm_site_read``'s own frame rule)."""
     best, bestd = None, None
     for ch in read["chains"]:
-        for (la, lo) in ch["ll"]:
+        for (la, lo) in (ch.get("_vll") or ch["ll"]):
             d = math.hypot((la - lat) * 111320.0,
                            (lo - lon) * 111320.0 * math.cos(math.radians(lat)))
             if bestd is None or d < bestd:
@@ -446,19 +523,25 @@ def main(argv=None) -> int:
                          "every arm")
     ap.add_argument("--site-radius", type=float,
                     default=DEFAULT_SITE_RADIUS_M)
+    ap.add_argument("--bin-m", type=float, default=DEFAULT_BIN_M,
+                    help="profile bin along the chain (m); two arms on "
+                         "two bin sizes are NOT comparable")
     ap.add_argument("--profile", action="store_true",
                     help="print each arm's station/emitted/DEM profile")
     ap.add_argument("--json", type=Path, default=None)
     a = ap.parse_args(argv)
 
     os.environ.setdefault("O4_SUPPRESS_UI", "1")
-    reads = [read_patch(p, dem_source=a.dem_source) for p in a.patches]
+    reads = [read_patch(p, dem_source=a.dem_source, bin_m=a.bin_m)
+             for p in a.patches]
     base = reads[0]
     print("=== ROAD TERRAIN CONFORMANCE ===")
     print(f"  DEM source: {base['dem_source']}  "
           f"({base.get('dem_origin') or 'n/a'})")
     print("  chain = road rings joined by SHARED NODE IDs, walked along "
-          "the component's longest path; station = ring-centroid arclength")
+          "the component's longest path; every road VERTEX is stationed "
+          f"by projection onto that spine and the profile is the median "
+          f"emitted / median DEM per {base['bin_m']:g} m bin")
     print("  NOT defect counts and never adjudicated — a CONFORMANCE "
           "reading, comparable arm-to-arm on identical options only.")
     for r in reads:
@@ -508,7 +591,14 @@ def main(argv=None) -> int:
         print_site(name, per_arm, base["road_cap_pct"], profile=a.profile)
 
     if a.json:
-        a.json.write_text(json.dumps(reads, indent=2))
+        _dump = [{k: ({kk: vv for kk, vv in c.items()
+                       if not kk.startswith("_")} if isinstance(c, dict) else c)
+                  for k, c in r.items() if k != "chains"}
+                 | {"chains": [{kk: vv for kk, vv in c.items()
+                                if not kk.startswith("_")}
+                               for c in r["chains"]]}
+                 for r in reads]
+        a.json.write_text(json.dumps(_dump, indent=2))
         print(f"\n  wrote {a.json}")
     return 0
 

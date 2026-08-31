@@ -1265,11 +1265,11 @@ def _install_seed_writer_capture(seen, thresh=0.0):
         ``file:line``.  ``readonly=True`` calls (measurement probes)
         are passed straight through untouched — instrumenting a probe
         would attribute the probe;
-      * ``flat_fast_path.apply_seed_pins`` and
-        ``solver_primitives._build_tunnel_road_pins`` — the two pin
-        families that do NOT publish a private index set, captured from
-        their own arguments/returns so the family report is production's
-        own answer.
+      * ``flat_fast_path.apply_seed_pins`` — the pin family that does
+        NOT publish a private index set, captured from its own
+        arguments/returns so the family report is production's own
+        answer.  (The sibling ``tunnel_road_pin`` shim retired with
+        R14-1's claim class — RULINGS 2026-08-31b, census #38.)
 
     Returns the ``restore()`` callable."""
     from auto_patch.elevation_per_surface import solver_primitives as SP
@@ -1277,7 +1277,6 @@ def _install_seed_writer_capture(seen, thresh=0.0):
 
     real_seed = SP._seed_elevations
     real_apply = FFP.apply_seed_pins
-    real_tunnel = SP._build_tunnel_road_pins
     pending: dict = {}
 
     def _apply_shim(layout, plan, nodes, bucket_to_idx, elev, is_hard,
@@ -1287,14 +1286,6 @@ def _install_seed_writer_capture(seen, thresh=0.0):
                          *a, **k)
         pending.setdefault("flat_fast_path", set()).update(
             {i for i, h in enumerate(is_hard) if h} - before)
-        return out
-
-    def _tunnel_shim(layout, bucket_to_idx, elev, is_hard, intern,
-                     *a, **k):
-        out = real_tunnel(layout, bucket_to_idx, elev, is_hard, intern,
-                          *a, **k)
-        pending.setdefault("tunnel_road_pin", set()).update(
-            int(i) for i in (out or {}))
         return out
 
     def _seed_shim(layout, nodes, bucket_to_idx, dem=None, tile_lat=0,
@@ -1340,12 +1331,10 @@ def _install_seed_writer_capture(seen, thresh=0.0):
 
     SP._seed_elevations = _seed_shim
     FFP.apply_seed_pins = _apply_shim
-    SP._build_tunnel_road_pins = _tunnel_shim
 
     def _restore():
         SP._seed_elevations = real_seed
         FFP.apply_seed_pins = real_apply
-        SP._build_tunnel_road_pins = real_tunnel
     return _restore
 
 

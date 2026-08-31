@@ -1217,8 +1217,59 @@ def refine_way(way, max_length):  # max_length assumed in meter
 #: geometry it governs cannot see the step it creates.
 DEFAULT_ROAD_STATION_M = 20.0
 
+#: How far two bridge-deck pins may contradict each other before §6
+#: REFUSES the span.  One emit quantum (0.01 m) is rounding; anything
+#: above it is two abutment values the road cap genuinely cannot both
+#: reach.
+_PIN_FEASIBILITY_TOL_M = 0.01
 
-def cap_lipschitz_profile(stations_s, values, cap):
+
+def cap_lipschitz_pin_envelope(stations_s, cap, pin_idx, pin_val):
+    """``(lower, upper)`` — the tightest cap-Lipschitz corridor that
+    passes EXACTLY through the pins.
+
+        upper(s) = min over pins ( p_k + cap·|s − s_k| )
+        lower(s) = max over pins ( p_k − cap·|s − s_k| )
+
+    At a pinned station ``lower == upper == p``, so a profile clipped
+    into this corridor takes the pin exactly; away from the pins the
+    corridor opens at the cap, which IS "the chain reaches it at
+    ``SERVICE_ROAD_MAX_GRADE`` like any other pinned end" (RULINGS
+    2026-08-30c §5).  ``lower > upper`` anywhere means two pins cannot
+    both be reached at the cap — §6's refusal, detected here rather than
+    guessed at a call site.
+
+    Computed with the same two max-plus / min-plus sweeps the envelope
+    itself uses, so pins cost O(n) and no Python loop over stations.
+    """
+    s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
+    n = len(s)
+    inf = numpy.inf
+    up = numpy.full(n, inf)
+    lo = numpy.full(n, -inf)
+    for i, v in zip(pin_idx, pin_val):
+        i = int(i)
+        if 0 <= i < n:
+            up[i] = min(up[i], float(v))
+            lo[i] = max(lo[i], float(v))
+    cs = float(cap) * s
+    # upper: min-plus distance transform of ``up``
+    a = up - cs
+    numpy.minimum.accumulate(a, out=a)
+    b = (up + cs)[::-1].copy()
+    numpy.minimum.accumulate(b, out=b)
+    upper = numpy.minimum(a + cs, b[::-1] - cs)
+    # lower: max-plus distance transform of ``lo``
+    a = lo + cs
+    numpy.maximum.accumulate(a, out=a)
+    b = (lo - cs)[::-1].copy()
+    numpy.maximum.accumulate(b, out=b)
+    lower = numpy.maximum(a - cs, b[::-1] + cs)
+    return lower, upper
+
+
+def cap_lipschitz_profile(stations_s, values, cap, pin_idx=None,
+                          pin_val=None):
     """THE CLAMP, geometry-free so a twin can state it directly.
 
     ``stations_s`` are ascending arclengths (metres) along ONE way,
@@ -1255,11 +1306,28 @@ def cap_lipschitz_profile(stations_s, values, cap):
     Both envelopes are computed in two vectorised sweeps each (the
     max-plus/min-plus distance transform along the chain), so the pass
     is O(n) in numpy with no Python loop over stations.
+
+    ``pin_idx`` / ``pin_val`` — THE BRIDGE-DECK PIN (redesign spec §4,
+    re-expressing RULINGS 2026-08-30c §5).  A pinned station takes its
+    pin EXACTLY and the profile reaches it at the cap from both sides:
+    the mid-profile above is CLIPPED into
+    :func:`cap_lipschitz_pin_envelope`'s corridor, which is again
+    cap-Lipschitz (a min/max of cap-Lipschitz functions is
+    cap-Lipschitz) and equals the pin at the pin.  Where two pins cannot
+    both be reached at the cap the corridor inverts; that is §6's
+    REFUSAL and this returns the UNPINNED profile — "the misplaced
+    object is the bridge, and a bridge that cannot be built lawfully is
+    not built" — with ``refused=True`` in the second return value.
+
+    Returns the clamped altitudes, or ``(altitudes, report)`` when pins
+    were offered, so the caller can price §6 and the approach grades.
     """
     s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
     z = numpy.asarray(values, dtype=numpy.float64).ravel()
+    _pinned = pin_idx is not None and len(pin_idx) > 0
     if len(z) < 2 or not numpy.isfinite(cap) or cap <= 0:
-        return z.copy()
+        out = z.copy()
+        return (out, {"pins": 0, "refused": False}) if _pinned else out
     cs = float(cap) * s
     # Smallest cap-Lipschitz MAJORANT: max_j (z_j - cap*|s-s_j|).
     fwd = numpy.maximum.accumulate(z + cs) - cs           # over j <= i
@@ -1269,7 +1337,26 @@ def cap_lipschitz_profile(stations_s, values, cap):
     fwd = numpy.minimum.accumulate(z - cs) + cs
     bwd = numpy.minimum.accumulate((z + cs)[::-1])[::-1] - cs
     ceil_ = numpy.minimum(fwd, bwd)
-    return 0.5 * (floor + ceil_)
+    mid = 0.5 * (floor + ceil_)
+    if not _pinned:
+        return mid
+    lower, upper = cap_lipschitz_pin_envelope(s, cap, pin_idx, pin_val)
+    gap = lower - upper
+    worst = float(numpy.nanmax(gap[numpy.isfinite(gap)])) \
+        if numpy.isfinite(gap).any() else 0.0
+    report = {
+        "pins": int(len(pin_idx)),
+        "refused": bool(worst > _PIN_FEASIBILITY_TOL_M),
+        "worst_infeasibility_m": round(max(worst, 0.0), 4),
+    }
+    if report["refused"]:
+        return mid, report
+    out = numpy.minimum(numpy.maximum(mid, lower), upper)
+    report["max_pin_move_m"] = round(
+        float(numpy.abs(out - mid).max()) if len(out) else 0.0, 4)
+    report["max_pin_lift_m"] = round(
+        float(numpy.abs(out - z).max()) if len(out) else 0.0, 4)
+    return out, report
 
 
 def way_arclengths(way):
@@ -1316,6 +1403,22 @@ class Levelled_Roads:
         self.ways = []
         self._tree = None
         self._alts = numpy.zeros(0)
+        #: ``{way index: pin report}`` — the ROAD BRIDGE DECK pins this
+        #: clamp answered (redesign spec §4) and, where the corridor
+        #: inverted, §6's refusal.  Published in the sidecar so a reader
+        #: can re-derive the refusal without the build log (30c §6).
+        self.deck_pins = {}
+
+    def note_deck_pins(self, way_index, report):
+        self.deck_pins[int(way_index)] = dict(report)
+
+    def deck_pin_summary(self):
+        """``(n_ways_pinned, n_pins, n_refused, worst_infeasibility_m)``."""
+        n_pins = sum(int(r.get("pins", 0)) for r in self.deck_pins.values())
+        refused = [r for r in self.deck_pins.values() if r.get("refused")]
+        worst = max((float(r.get("worst_infeasibility_m", 0.0))
+                     for r in self.deck_pins.values()), default=0.0)
+        return len(self.deck_pins), n_pins, len(refused), round(worst, 4)
 
     def add_way(self, points, dem_alt, clamped_alt, s_m):
         self.ways.append({
@@ -1372,12 +1475,17 @@ class Levelled_Roads:
             if len(delta):
                 lift = max(lift, float(delta.max()))
                 cut = max(cut, float((-delta).max()))
+        n_dw, n_dp, n_ref, worst = self.deck_pin_summary()
         return {
             "ways": len(self.ways),
             "stations": n_st,
             "clamped_stations": n_moved,
             "max_lift_m": round(max(lift, 0.0), 4),
             "max_cut_m": round(max(cut, 0.0), 4),
+            "deck_pinned_ways": n_dw,
+            "deck_pinned_stations": n_dp,
+            "deck_pins_refused": n_ref,
+            "deck_pin_worst_infeasibility_m": worst,
         }
 
     def sidecar(self, lat, lon):
@@ -1407,6 +1515,7 @@ class Levelled_Roads:
             delta = w["alt"] - w["dem"]
             ways.append({
                 "index": i,
+                "deck_pins": self.deck_pins.get(i),
                 "stations": len(w["alt"]),
                 "length_m": round(float(w["s_m"][-1]) if len(w["s_m"])
                                   else 0.0, 2),
@@ -1438,18 +1547,38 @@ class Levelled_Roads:
 
 
 def clamp_road_network(road_network, alt_vec, cap, lane_width,
-                       station_m=DEFAULT_ROAD_STATION_M):
+                       station_m=DEFAULT_ROAD_STATION_M, deck_pins=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
     ``alt_vec`` is the tile DEM sampler (an ``(n, 2)`` tile-relative
     array in, ``n`` altitudes out) — the SAME surface ``alt_vec_shift``
     answers from, so a station and the ring vertex that reads it stand
     on one DEM.  Returns a finalized :class:`Levelled_Roads`.
+
+    ``deck_pins`` — ``[(polygon, level_m, way_id)]``, the ROAD BRIDGE
+    DECKS auto_patch confirmed this build (redesign spec §4).  A station
+    inside a deck's footprint is PINNED at that deck's level, so the
+    approaches on either side reach it at the cap instead of draping to
+    terrain and stepping at the abutment.  The polygons are tile-relative
+    ``(lon-offset, lat-offset)``, the frame the stations are already in.
     """
     out = Levelled_Roads(cap, lane_width, station_m)
     geoms = getattr(road_network, "geoms", None)
     if geoms is None:
         geoms = [road_network] if road_network is not None else []
+    decks = list(deck_pins or ())
+    prepared = []
+    if decks:
+        try:
+            from shapely.geometry import Point as _Pt
+            from shapely.prepared import prep as _prep
+            for poly, level, wid in decks:
+                if poly is None or poly.is_empty or level is None:
+                    continue
+                prepared.append((_prep(poly), poly.bounds,
+                                 float(level), wid, _Pt))
+        except Exception:                               # pragma: no cover
+            prepared = []
     for geom in geoms:
         try:
             coords = numpy.array(geom.coords, dtype=numpy.float64)
@@ -1460,8 +1589,23 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         stations = refine_way(coords, station_m)
         s = way_arclengths(stations)
         dem = numpy.asarray(alt_vec(stations), dtype=numpy.float64)
+        pin_idx, pin_val, pin_wid = [], [], []
+        for pre, (bx0, by0, bx1, by1), level, wid, _Pt in prepared:
+            for k, (px, py) in enumerate(stations):
+                if px < bx0 or px > bx1 or py < by0 or py > by1:
+                    continue
+                if pre.covers(_Pt(float(px), float(py))):
+                    pin_idx.append(k)
+                    pin_val.append(level)
+                    pin_wid.append(wid)
         # ONE WAY, ONE CALL: the clamp never sees another way's stations.
-        clamped = cap_lipschitz_profile(s, dem, cap)
+        if pin_idx:
+            clamped, report = cap_lipschitz_profile(
+                s, dem, cap, pin_idx, pin_val)
+            report["deck_ways"] = sorted(set(str(w) for w in pin_wid))
+            out.note_deck_pins(len(out.ways), report)
+        else:
+            clamped = cap_lipschitz_profile(s, dem, cap)
         out.add_way(stations, dem, clamped, s)
     return out.finalize()
 

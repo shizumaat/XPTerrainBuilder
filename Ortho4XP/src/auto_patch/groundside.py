@@ -5236,11 +5236,14 @@ def _tunnel_open_cut_region(layout):
         prepared, bounds = prep(union), union.bounds
     except (_GEOM_EXC, ImportError, ValueError):       # pragma: no cover
         return None, None
+    # The BODY rides with the prepared index: membership below needs an
+    # AREA, and a prepared geometry answers predicates only.
+    _member = (prepared, union)
     try:
-        layout._tunnel_open_cut_prepared_cache = (len(polys), prepared, bounds)
+        layout._tunnel_open_cut_prepared_cache = (len(polys), _member, bounds)
     except (AttributeError, TypeError):                # pragma: no cover
         pass
-    return prepared, bounds
+    return _member, bounds
 
 
 def _report_tunnel_corridor_exclusion(layout, stats) -> None:
@@ -5272,16 +5275,37 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         pass
 
 
-def _ring_touches_open_cut(ring, prepared, bounds) -> bool:
-    """Spec §2 membership: does ANY node of ``ring`` lie inside the
-    tunnel OPEN CUT?
+#: How much of a ring's own AREA must lie in the open cut before the
+#: ring counts as the cut's ground.  This is R14-1's own claim floor
+#: (``bridges._TUNNEL_CLAIM_MIN_OVERLAP_M2``, 2.0 m²) carried over: a
+#: shape had to COVER the alignment, not graze it, to be claimed.
+_OPEN_CUT_MIN_OVERLAP_M2 = 2.0
 
-    ``covers`` — not ``contains`` — because a bore-floor ring's OWN
-    vertices lie exactly ON the cut boundary, and so do the vertices a
-    partner way shares with it.  Per-ring membership is the point: it is
-    what stops a partner way importing a value across the cut boundary
-    through a shared key.
+
+def _ring_touches_open_cut(ring, polygon, member, bounds) -> bool:
+    """Spec §2 membership, RE-KEYED: does ``ring`` belong to the tunnel
+    OPEN CUT?
+
+    SEAM-PROBE 4 (census #51, redesign spec §5.2) — and it changed the
+    test, not only the region.  The old region was R14-1's CLAIM SET,
+    which was the claimed shapes' OWN polygons, so "any node inside"
+    picked out exactly the claimed rings.  The cut is a different region
+    and node membership does not translate: an 8 m corridor crossing a
+    lot leaves every one of that lot's perimeter nodes outside the cut.
+    MEASURED (lane/tunnelfix, OTHH): the cut covers ZERO of the bore
+    ring's 34 nodes where the claim covered 2 — a straight re-key would
+    have made the exclusion evaporate, which is the failure census #51
+    names by name.
+
+    So membership is the claim's own membership, expressed against the
+    cut: a node inside (the weld case, ``covers`` not ``contains``
+    because shared vertices sit exactly ON the boundary), OR at least
+    ``_OPEN_CUT_MIN_OVERLAP_M2`` of the ring's area inside (the claim's
+    own "cover the alignment, do not graze it" floor).  Per-ring
+    membership is the point: it is what stops a partner way importing a
+    value across the cut boundary through a shared key.
     """
+    prepared, body = member
     minx, miny, maxx, maxy = bounds
     for (x, y) in ring:
         if x < minx or x > maxx or y < miny or y > maxy:
@@ -5291,7 +5315,14 @@ def _ring_touches_open_cut(ring, prepared, bounds) -> bool:
                 return True
         except _GEOM_EXC:                              # pragma: no cover
             return False
-    return False
+    if polygon is None or polygon.is_empty:
+        return False
+    try:
+        if not prepared.intersects(polygon):
+            return False
+        return polygon.intersection(body).area >= _OPEN_CUT_MIN_OVERLAP_M2
+    except _GEOM_EXC:                                  # pragma: no cover
+        return False
 
 
 def _chord_limit_cap_for_role(role: str) -> float:
@@ -5669,7 +5700,7 @@ def _grade_limit_groundside_chords(
         if any(a is None for a in alts):
             continue
         if _cut_prep is not None and _ring_touches_open_cut(
-                ring, _cut_prep, _cut_bounds):
+                ring, s.polygon, _cut_prep, _cut_bounds):
             # THE TUNNEL-CORRIDOR EXCLUSION (spec §2).  This ring carries
             # a bore's below-grade geometry — its authority is the portal
             # walk, not this clamp.  It is excluded from the unified node

@@ -29,7 +29,7 @@ USAGE
     ... --mouth-max-m 15 --site-max-m 60 --needle-spread-m 8 \
         --drift-max 10 --retreat-wall-max 5 --over-cap-ramp-max 2 \
         --adjudicated-delta-max -24 --actionable-sites-max 82 \
-        --claim-cover-min 4 --claim-wall-cover-min 0.8
+        --claim-wall-cover-min 0.8
 
     # an airport with no shipped profile supplies its own sites
     ... --site "A=25.271935,51.6022729" --site "B1=25.2758817,51.6139664"
@@ -168,12 +168,8 @@ class Thresholds:
     adjudicated_delta_max: Optional[float] = None
     actionable_sites_max: Optional[int] = None
     pad_flat_tol_m: float = 0.005
-    #: minimum in-claim node count for the site's below-grade ring; None
-    #: makes ``claim_names_the_bore`` a REPORT (SKIPPED), which is how
-    #: the attribution arms read it
-    claim_cover_min: Optional[int] = None
-    #: A claimed corridor answers a mouth only where it is BELOW GRADE by
-    #: this much — it must carry a bore, not merely be claimed.
+    #: A bore surface answers a mouth only where it is BELOW GRADE by
+    #: this much — it must carry a bore, not merely be a tunnel piece.
     claimed_bore_max_m: float = 0.0
     #: §T8.1 covered-span datum.  How far outside the corridor the LOCAL
     #: grade is sampled, how many samples the median needs before it is
@@ -368,14 +364,14 @@ def _face_union(patch: Patch):
         return None
 
 
-def claimed_corridor_face_coverage(patch: Patch, way, faces) -> float:
+def bore_face_coverage(patch: Patch, way, faces) -> float:
     """Fraction of ``way``'s perimeter that a face piece answers for.
 
-    §T6/§2.3's acceptance number: measured before, claimed corridors
-    carried 0-48 % against the synthetic path's 82 %.  One definition,
-    used by both the ``site_reach`` admission and the coverage table, so
-    the two can never be different populations (memory
-    ``two-instruments-one-assumed-population``).
+    §T6/§2.3's acceptance number, RE-KEYED to ramp/mouth geometry
+    (redesign spec §5.4, census #40) now that the ``tunnel_road`` claim
+    class is retired.  One definition, used by both the ``site_reach``
+    admission and the coverage table, so the two can never be different
+    populations (memory ``two-instruments-one-assumed-population``).
     """
     from shapely.geometry import Polygon
     pts = patch.pts(way)
@@ -397,16 +393,17 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
     """BORE GEOMETRY within reach of every named site, and a vertex of it
     within ``mouth_max_m`` of the mouth (the first site).
 
-    "Bore geometry" is a ``tunnel_ramp`` surface OR A BELOW-GRADE CLAIMED
-    CORRIDOR (``ref=tunnel_road``), because R14-1's law is "the paved
-    area IS the corridor": where mapped road pavement covers a mouth's
-    approach it is re-profiled to carry the bore and the synthetic ramp
-    is stood down as duplicate geometry.  Measured 2026-08-25 on the
-    mapped-mouth arm of the tunnel round: the corridor emitted at
-    -0.90 m as a claimed road and this check read 727.6 m — the mouth
-    was answered, and the instrument was looking for the wrong object.  A claimed surface counts only where
-    it is actually BELOW GRADE (it carries a bore, not an at-grade
-    approach that happens to be claimed).
+    "Bore geometry" is the portal walk's OWN emitted road surface — a
+    ``tunnel_ramp`` shape or a ``tunnel_mouth`` piece (both carry
+    ``ROLE_TUNNEL_RAMP``).  RE-KEYED (redesign spec §5.4, census #40):
+    the check used to admit a BELOW-GRADE CLAIMED CORRIDOR
+    (``ref=tunnel_road``) as well, because R14-1's law was "the paved
+    area IS the corridor".  That claim class is retired (RULINGS
+    2026-08-31b) and mapped road pavement is never re-profiled in place,
+    so the only object that can answer a mouth is the ramp reaching it —
+    which is the canonical-mouth law (RULINGS 2026-08-30) stated as a
+    measurement.  Re-keyed IN THE SAME BATCH as the retirement so this
+    battery cannot silently go SKIP against a patch with no claims left.
     """
     from shapely.geometry import LineString, Point
     if not profile.sites:
@@ -420,28 +417,26 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
     n_ramp = len(geoms)
     faces = _face_union(patch)
     n_faceless = 0
-    for w in patch.ref_ways("tunnel_road"):
-        pts = patch.pts(w)
-        elevs = [e for e in (w.elevs or ()) if e is not None]
-        if not (len(pts) >= 2 and elevs
-                and min(elevs) < thr.claimed_bore_max_m):
+    for w in patch.ref_ways("tunnel_mouth"):
+        if any(w.wid == _wid for _wid, _g in geoms):
             continue
-        # §T6.3: A FACELESS BELOW-GRADE CLAIMED CORRIDOR IS NOT BORE
-        # GEOMETRY.  A surface may be claimed and dug and still be a
-        # hole in the ground with no wall — the owner's ground read of
-        # exactly that ring (RULINGS 2026-08-28c item 3: "no ramp, no
-        # walls").  The instrument accepted it and reported the mouth
-        # answered, so the defect could not be seen from the table.
-        if claimed_corridor_face_coverage(patch, w, faces) <= 0.0:
+        pts = patch.pts(w)
+        if len(pts) < 2:
+            continue
+        # §T6.3, unchanged in kind: A FACELESS BELOW-GRADE SURFACE IS
+        # NOT BORE GEOMETRY.  A surface may be dug and still be a hole in
+        # the ground with no wall — the owner's ground read of exactly
+        # that ring (RULINGS 2026-08-28c item 3: "no ramp, no walls").
+        if bore_face_coverage(patch, w, faces) <= 0.0:
             n_faceless += 1
             continue
         geoms.append((w.wid, LineString(pts)))
-    n_claim = len(geoms) - n_ramp
+    n_mouth = len(geoms) - n_ramp
     if not geoms:
         return [Check("site_reach", FAIL, 0, len(profile.sites),
                       "the patch emitted no tunnel_ramp geometry at all"
-                      + (f" ({n_faceless} below-grade claimed "
-                         f"corridor(s) REJECTED: no face)"
+                      + (f" ({n_faceless} tunnel_mouth piece(s) "
+                         f"REJECTED: no face)"
                          if n_faceless else ""))]
     checks: List[Check] = []
     worst_name, worst_d = None, -1.0
@@ -455,7 +450,7 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
         round(worst_d, 1), thr.site_max_m,
         f"worst site {worst_name!r} at {worst_d:.1f} m over "
         f"{len(profile.sites)} site(s) — bore geometry: {n_ramp} "
-        f"tunnel_ramp + {n_claim} below-grade claimed corridor(s) with a "
+        f"tunnel_ramp + {n_mouth} tunnel_mouth piece(s) with a "
         f"face ({n_faceless} faceless one(s) rejected)"))
     mouth = next(iter(profile.sites.items()))
     mp = Point(patch.ll_to_m(*mouth[1]))
@@ -464,8 +459,7 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
     checks.append(Check(
         "mouth_vertex_reach", PASS if vd <= thr.mouth_max_m else FAIL,
         round(vd, 1), thr.mouth_max_m,
-        f"nearest BORE VERTEX to {mouth[0]!r} (ramp or claimed "
-        f"corridor)"))
+        f"nearest BORE VERTEX to {mouth[0]!r} (ramp or mouth)"))
     return checks
 
 
@@ -539,30 +533,30 @@ def _check_covered_span(patch: Patch, profile: Profile, bores,
                   + ", ".join(detail))]
 
 
-def _check_claimed_corridor_walls(patch: Patch, thr: Thresholds
-                                  ) -> List[Check]:
-    """§T6.1 / portal-corridor-claim §2.3: a claimed corridor walls
-    itself exactly as the synthetic path does.
+def _check_bore_corridor_walls(patch: Patch, thr: Thresholds
+                               ) -> List[Check]:
+    """A BELOW-GRADE BORE SURFACE WALLS ITSELF, both sides.
 
-    The number is the MEDIAN face coverage of the below-grade claimed
-    corridors, against the synthetic path's own measured class (82 %).
-    Reported beside the synthetic ramps' coverage measured the SAME way,
-    because "as the synthetic path does" is a comparison and a single
-    number cannot make it.
+    RE-KEYED (redesign spec §5.4, census #40).  The check measured the
+    MEDIAN face coverage of R14-1's below-grade CLAIMED corridors against
+    the synthetic path's own measured class (82 %); with the claim class
+    retired (RULINGS 2026-08-31b) that population is empty and the check
+    would report SKIP forever — the silent-skip failure the redesign's
+    §5.4 exists to prevent.  The population is now the portal walk's own
+    below-grade surfaces (``tunnel_ramp`` + ``tunnel_mouth``), which is
+    the canonical-mouth law's own subject: no ramp, no walls.
     """
     faces = _face_union(patch)
-    claimed = [w for w in patch.ref_ways("tunnel_road")
-               if any(e is not None and e < thr.claimed_bore_max_m
-                      for e in (w.elevs or ()))]
-    synth = patch.role_ways("tunnel_ramp")
-    if not claimed:
-        return [Check("claimed_corridor_walls", SKIP, None,
+    bore = [w for w in patch.role_ways("tunnel_ramp")
+            if any(e is not None and e < thr.claimed_bore_max_m
+                   for e in (w.elevs or ()))]
+    ramps = patch.role_ways("tunnel_ramp")
+    if not bore:
+        return [Check("bore_corridor_walls", SKIP, None,
                       thr.claim_wall_cover_min,
-                      "no below-grade claimed corridor in this patch")]
-    cc = sorted(claimed_corridor_face_coverage(patch, w, faces)
-                for w in claimed)
-    sc = sorted(claimed_corridor_face_coverage(patch, w, faces)
-                for w in synth)
+                      "no below-grade bore surface in this patch")]
+    cc = sorted(bore_face_coverage(patch, w, faces) for w in bore)
+    sc = sorted(bore_face_coverage(patch, w, faces) for w in ramps)
 
     def _median(xs):
         return xs[len(xs) // 2] if xs else 0.0
@@ -570,11 +564,11 @@ def _check_claimed_corridor_walls(patch: Patch, thr: Thresholds
     med = _median(cc)
     bar = thr.claim_wall_cover_min
     verdict = SKIP if bar is None else (PASS if med >= bar else FAIL)
-    return [Check("claimed_corridor_walls", verdict, round(med, 3), bar,
-                  f"{len(claimed)} below-grade claimed corridor(s): "
+    return [Check("bore_corridor_walls", verdict, round(med, 3), bar,
+                  f"{len(bore)} below-grade bore surface(s): "
                   f"median face coverage {med:.0%} "
                   f"(min {cc[0]:.0%}, max {cc[-1]:.0%}); "
-                  f"{len(synth)} synthetic tunnel_ramp(s) measured the "
+                  f"{len(ramps)} tunnel_ramp(s) measured the "
                   f"same way: median {_median(sc):.0%}")]
 
 
@@ -1039,105 +1033,6 @@ def _check_retreat_walls(patch: Patch, thr: Thresholds) -> List[Check]:
                   f"of a tunnel_ramp ring")]
 
 
-def _check_claim_names_the_bore(patch: Patch, profile: Profile,
-                                thr: Thresholds) -> List[Check]:
-    """DOES R14-1'S CLAIM ACTUALLY NAME THE BORE'S BELOW-GRADE RING, and
-    which of that ring's welded partners does it name?
-
-    The question every claim-scoped rule in
-    ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md`` rests on,
-    and it was answered by a lane scratchpad three times in one day
-    (2026-08-25, the option-A and Amendment-4 arms) before landing here
-    on the promote-on-reuse rule (RULINGS ``7e90032``) — extended into
-    THIS instrument rather than forked into a second one, so the site
-    profile, the parser and the identity spelling stay single-sourced.
-
-    The claim set is read where it is legible offline: the emitted
-    ``tunnel_road`` surfaces (``bridges.TUNNEL_ROAD_REF``) ARE R14-1's
-    re-profiled claim, so nothing here re-derives a cut zone.  The welds
-    are exact 11-decimal coordinate matches — ``Patch.spell``, the
-    canonical identity join, never a proximity join.
-
-    MEASURED is the in-claim node count of the site's below-grade
-    groundside ring; the detail lists its welded partners with theirs.
-    With no ``--claim-cover-min`` it REPORTS (SKIPPED) — it is an
-    attribution instrument, and the numbers it produced are why the
-    claim-scoped designs were refuted: 14 of the bore ring's welds were
-    partners at ZERO claim coverage against 3 claimed, and the bore ring
-    itself read 0-2 of its 33 nodes inside the claim.
-    """
-    from shapely.geometry import Point, Polygon
-    from shapely.ops import unary_union
-    from shapely.prepared import prep
-    if not profile.sites:
-        return [Check("claim_names_the_bore", SKIP, None,
-                      thr.claim_cover_min,
-                      "no sites: pass --profile or --site NAME=LAT,LON")]
-    claims = []
-    for w in patch.ref_ways("tunnel_road"):
-        pts = patch.pts(w)
-        if len(pts) < 4:
-            continue
-        poly = Polygon(pts)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if not poly.is_empty:
-            claims.append(poly)
-    if not claims:
-        return [Check("claim_names_the_bore", SKIP, None,
-                      thr.claim_cover_min,
-                      "no tunnel_road claim surface in the patch")]
-    prepared = prep(unary_union(claims))
-
-    def covered(w) -> Tuple[int, int]:
-        pts = patch.pts(w)
-        return (sum(1 for p in pts if prepared.covers(Point(p))), len(pts))
-
-    lines: List[str] = []
-    worst: Optional[int] = None
-    for name, (lat, lon) in profile.sites.items():
-        here = patch.ll_to_m(lat, lon)
-        best = None
-        for w in patch.role_ways("groundside_pavement"):
-            pts = patch.pts(w)
-            if not pts:
-                continue
-            d = min(math.hypot(x - here[0], y - here[1]) for x, y in pts)
-            if d > thr.site_max_m:
-                continue
-            lows = [e for e in w.elevs if e is not None and e < 0.0]
-            if not lows or (best is not None and len(lows) <= best[1]):
-                continue
-            best = (w, len(lows))
-        if best is None:
-            lines.append(f"{name}: no below-grade groundside ring within "
-                         f"{thr.site_max_m:.0f} m")
-            continue
-        w = best[0]
-        n_in, n_all = covered(w)
-        worst = n_in if worst is None else min(worst, n_in)
-        lines.append(f"{name}: ring {w.wid} {n_in}/{n_all} node(s) in the "
-                     f"claim ({best[1]} below grade)")
-        spell = {s: 1 for s in patch.coordset(w)}
-        partners: Dict[str, int] = defaultdict(int)
-        for w2 in patch.ways:
-            if w2.wid == w.wid:
-                continue
-            for s in patch.coordset(w2):
-                if s in spell:
-                    partners[w2.wid] += 1
-        for wid, cnt in sorted(partners.items(), key=lambda kv: -kv[1]):
-            w2 = patch.by_wid[wid]
-            p_in, p_all = covered(w2)
-            lines.append(f"    weld x{cnt} {wid} role={w2.role} "
-                         f"ref={w2.ref} claim {p_in}/{p_all}"
-                         + ("  <-- IN CLAIM" if p_in else ""))
-    verdict = (SKIP if thr.claim_cover_min is None or worst is None
-               else (PASS if worst >= thr.claim_cover_min else FAIL))
-    return [Check("claim_names_the_bore", verdict, worst,
-                  thr.claim_cover_min, "\n           ".join(lines))]
-
-
 # ── row-level checks: every count comes from the census ────────────
 def _census_rows(osm: Path, census, cg, want_sites: bool = True) -> dict:
     """``census_one``'s own itemised rows + report for one patch.  The
@@ -1265,7 +1160,7 @@ def run_acceptance(patch_path, control_path=None, *,
     checks += _check_covered_span(patch, profile, bores, thr)
     checks += _check_covered_span(patch, profile, bores)
     checks += _check_isolated_road_rects(patch, thr)
-    checks += _check_claimed_corridor_walls(patch, thr)
+    checks += _check_bore_corridor_walls(patch, thr)
     checks += _check_ramp_wall_gap(patch, thr)
     checks += _check_wall_top_flat(patch, thr)
     checks += _check_no_low_connector(patch)
@@ -1274,7 +1169,6 @@ def run_acceptance(patch_path, control_path=None, *,
     checks += _check_subgrade(patch, control, profile)
     checks += _check_geometry_drift(patch, control, thr)
     checks += _check_retreat_walls(patch, thr)
-    checks += _check_claim_names_the_bore(patch, profile, thr)
 
     mine = _census_rows(Path(patch_path), census, cg)
     theirs = (_census_rows(Path(control_path), census, cg)
@@ -1335,9 +1229,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--datum-min-samples", type=int, default=8)
     p.add_argument("--claim-wall-cover-min", type=float, default=None,
                    help="§T6.1 bar: median face coverage of the "
-                        "below-grade claimed corridors (0-1)")
+                        "below-grade bore surfaces (0-1)")
     for name in ("drift-max", "retreat-wall-max", "over-cap-ramp-max",
-                 "actionable-sites-max", "claim-cover-min",
+                 "actionable-sites-max",
                  "isolated-rects-max"):
         p.add_argument(f"--{name}", type=int, default=None)
     p.add_argument("--adjudicated-delta-max", type=float, default=None)
@@ -1374,7 +1268,6 @@ def main(argv=None) -> int:
         over_cap_ramp_max=args.over_cap_ramp_max,
         adjudicated_delta_max=args.adjudicated_delta_max,
         actionable_sites_max=args.actionable_sites_max,
-        claim_cover_min=args.claim_cover_min,
         claimed_bore_max_m=args.claimed_bore_max_m,
         datum_ring_m=args.datum_ring_m,
         datum_min_samples=args.datum_min_samples,

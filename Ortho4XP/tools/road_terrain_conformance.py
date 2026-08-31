@@ -378,7 +378,8 @@ def _deepest_ll(path_idx, rings):
 
 def read_patch(patch: Path, *, dem_source: str = "airport-inset",
                dem_at: "Optional[Callable]" = None,
-               bin_m: float = DEFAULT_BIN_M) -> dict:
+               bin_m: float = DEFAULT_BIN_M,
+               icao: "Optional[str]" = None) -> dict:
     """THE reading for one patch: every road chain, unranked.
 
     ``dem_at`` (lat, lon) -> metres or None: injected by the twin so the
@@ -401,7 +402,11 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
     dem_path = dem_origin = None
     if dem_at is None:
         tile_lat, tile_lon = ADR._tile_of(nodes)
-        icao = patch.name.split("_")[0].upper()
+        # The inset cache is keyed by ICAO.  A harness arm is named for
+        # its ARM (``p0_frpoff.osm``), not its airport, so the name is a
+        # default and ``--icao`` is the override — never a guess that
+        # silently reads the wrong airport's surface.
+        icao = (icao or patch.name.split("_")[0]).upper()
         dem, dem_path, dem_origin = ADR._load_dem(
             tile_lat, tile_lon, icao, dem_source)
         if dem is None:
@@ -535,6 +540,11 @@ def main(argv=None) -> int:
                          "every arm")
     ap.add_argument("--site-radius", type=float,
                     default=DEFAULT_SITE_RADIUS_M)
+    ap.add_argument("--icao", default=None,
+                    help="the airport whose inset surface to read "
+                         "(default: the patch filename's first token — "
+                         "a harness arm is named for its ARM, not its "
+                         "airport)")
     ap.add_argument("--bin-m", type=float, default=DEFAULT_BIN_M,
                     help="profile bin along the chain (m); two arms on "
                          "two bin sizes are NOT comparable")
@@ -544,7 +554,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     os.environ.setdefault("O4_SUPPRESS_UI", "1")
-    reads = [read_patch(p, dem_source=a.dem_source, bin_m=a.bin_m)
+    reads = [read_patch(p, dem_source=a.dem_source, bin_m=a.bin_m,
+                        icao=a.icao)
              for p in a.patches]
     base = reads[0]
     print("=== ROAD TERRAIN CONFORMANCE ===")

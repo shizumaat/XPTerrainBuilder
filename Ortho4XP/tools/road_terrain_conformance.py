@@ -436,12 +436,34 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
             return ADR._dem_at(_d, lat, lon, _tl, _tn)
 
     rings = _road_rings(patch, dem_at, ll_to_m, nodes, ways)
+    # THE COMPOSITION-FREE READING, over every road-family VERTEX of the
+    # patch.  Chains are arm-dependent (emit decimation drops collinear
+    # vertices, so a flattened road fuses differently), and two arms'
+    # chain tables are therefore not the same population; this one is —
+    # it asks only "how far is the road from the ground under it".
+    _dev, _cut = [], []
+    for r in rings:
+        for z, d in zip(r["z"], r["d"]):
+            if z is None or d is None:
+                continue
+            _dev.append(abs(z - d))
+            if d > z:
+                _cut.append(d - z)
+    verts = {
+        "road_vertices": len(_dev),
+        "dev_median_m": ADR._median(_dev) if _dev else None,
+        "dev_p95_m": ADR._pct(_dev, 95.0) if _dev else None,
+        "cut_over_5m": sum(1 for c in _cut if c > 5.0),
+        "cut_over_10m": sum(1 for c in _cut if c > 10.0),
+        "cut_over_20m": sum(1 for c in _cut if c > 20.0),
+        "cut_worst_m": max(_cut) if _cut else None,
+    }
     chains = []
     for comp, adj in _components(rings):
         p = _longest_path(comp, adj, rings)
         chains.append(_chain_read(p, rings, bin_m=bin_m))
     return {
-        "patch": str(patch), "dem_source": dem_source,
+        "patch": str(patch), "dem_source": dem_source, "vertices": verts,
         "dem_path": dem_path, "dem_origin": dem_origin,
         "road_rings": len(rings), "chains": chains, "bin_m": bin_m,
         "road_cap_pct": 100.0 * ROAD_CAP,
@@ -583,8 +605,15 @@ def main(argv=None) -> int:
     print("  NOT defect counts and never adjudicated — a CONFORMANCE "
           "reading, comparable arm-to-arm on identical options only.")
     for r in reads:
+        v = r["vertices"]
         print(f"    arm: {Path(r['patch']).name}  "
               f"road_rings={r['road_rings']} chains={len(r['chains'])}")
+        print(f"      ALL {v['road_vertices']} ROAD VERTICES (the "
+              f"composition-free reading): |emitted-DEM| median "
+              f"{_f(v['dev_median_m'], 6, 3)} m, p95 {_f(v['dev_p95_m'], 6, 3)}"
+              f" m; cutting deeper than 5/10/20 m: {v['cut_over_5m']}/"
+              f"{v['cut_over_10m']}/{v['cut_over_20m']}; worst "
+              f"{_f(v['cut_worst_m'], 6, 2)} m")
 
     if a.rank:
         for r in reads:

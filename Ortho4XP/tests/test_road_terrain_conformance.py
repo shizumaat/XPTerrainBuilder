@@ -239,3 +239,18 @@ def test_a_lone_ring_is_still_a_chain(tmp_path):
     la = LAT0 + 0.5 * (30.0 / _M_PER_DEG)
     found, dist = RTC.chain_at_site(r, la, LON0)
     assert found is not None and dist < 30.0
+
+
+def test_vertex_reading_is_composition_free(tmp_path):
+    """The whole-patch vertex reading answers the one question two arms
+    can always be compared on — how far is the road from the ground —
+    without depending on how the rings happened to fuse into chains."""
+    ra = _read(_patch(tmp_path, "VA.osm", _levels_following()))
+    rb = _read(_patch(tmp_path, "VB.osm", _levels_flat()))
+    va, vb = ra["vertices"], rb["vertices"]
+    assert va["road_vertices"] == vb["road_vertices"] > 0
+    assert va["dev_median_m"] < 1.5
+    assert vb["dev_median_m"] > 4.0
+    assert va["cut_over_5m"] == 0
+    assert vb["cut_over_5m"] > 0
+    assert vb["cut_worst_m"] == pytest.approx(10.5, abs=0.6)

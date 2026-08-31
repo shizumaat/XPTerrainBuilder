@@ -654,33 +654,46 @@ class TestTheRoadFamilyIsChordLimited:
     def test_a_below_grade_ring_inside_a_tunnel_cut_keeps_its_values(self):
         """§4 EXTENSION (spec
         ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``, the
-        2026-08-25 owner-ordered fix).
+        2026-08-25 owner-ordered fix) — NARROWED, and the narrowing is
+        what this twin now states.
 
-        The role exemption above is the WRONG AXIS on its own: OTHH's
-        site-1 bore floor is a ``groundside_pavement`` ring, not a
-        ``tunnel_ramp``, and the unified node book handed it the
-        surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
-        floor).  The exemption that matters is by AUTHORITY — any ring
-        belonging to the portal walk's OWN OPEN CUT
-        (``layout.tunnel_open_cut_polys``) leaves this book entirely,
-        keeping its values and minting no shared key.
+        THE ORIGINAL DEFECT: OTHH's site-1 bore floor was a
+        ``groundside_pavement`` ring, not a ``tunnel_ramp``, and the
+        unified node book handed it the surrounding road's at-grade
+        bench (+2.28/+2.96 against a −1.1 m floor).  The exemption was
+        therefore keyed on AUTHORITY — any ring inside the portal walk's
+        own open cut left this book, whatever its role.
 
-        RE-KEYED (RULINGS 2026-08-31b, redesign spec §5.2, census #51):
-        the region used to be R14-1's claim set, which retired with the
-        claim class.  Full battery of twins, including the seam-probe-4
-        membership record: ``tests/test_tunnel_corridor_exclusion.py``.
+        WHY THAT IS NOW THE WRONG BAR (redesign spec §5-SUPPLEMENT item
+        3, 2026-08-31).  Keyed on geometry alone it fired wherever a cut
+        was published and swept in AT-GRADE ground carrying no bore
+        depth: 467 solve-owned airside nodes moved at LEMD, and the
+        ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0`` arm reproduced
+        merged main's LEMD patch byte for byte, naming the clause the
+        sole author.  Membership is now BELOW-GRADE ROLE **and**
+        geometry.
+
+        AND THE ORIGINAL SCENE CANNOT ARISE.  A groundside ring carried
+        a bore profile only because R14-1's claim re-profiled it, and
+        that claim class is retired (RULINGS 2026-08-31b).  So the ring
+        below is chord-limited normally — which is this pass's own job —
+        and the exemption's population is the role set, disjoint from
+        this pass's.  Full battery, including the seam-probe-4
+        membership record and the inertness measurement:
+        ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
         floor = _dem_lot(0, 0, 40, 10, z=-1.1)
         road = _svc(40, 0, 60, 10, z=2.3, role="service_junction")
         layout = _layout([floor, road])
         layout.tunnel_open_cut_polys = [floor.polygon]
-        before = list(floor.node_altitudes)
-        assert gs._grade_limit_groundside_chords(layout) == 0
-        assert list(floor.node_altitudes) == before
-        assert layout._chord_limit_stats["nodes"] == 0
+        assert gs._grade_limit_groundside_chords(layout) == 2, (
+            "a pavement-roled ring in a cut is ordinary chord-limiter "
+            "work now — the geometry-only exemption was the spillover")
         assert (layout._chord_limit_stats["tunnel_corridor_excluded_rings"]
-                == 2)
+                == 0)
+        assert set(gs._OPEN_CUT_BELOW_GRADE_ROLES).isdisjoint(
+            gs._CHORD_LIMIT_ROLES)
 
 
 class TestTheCorridorChainIsOneLawObject:

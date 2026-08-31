@@ -45,6 +45,7 @@ from .layout import (
     ROLE_BUILDING,
     ROLE_RETAINING_WALL,
     ROLE_TUNNEL_RAMP,
+    ROLE_TUNNEL_TRENCH,
     SHARED_VERTEX_TOL_M,
     authority_rank,
 )
@@ -5275,6 +5276,27 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         pass
 
 
+#: THE BELOW-GRADE ROLES the exclusion may reach (spec §5-SUPPLEMENT
+#: item 3).  The exclusion's purpose is bore-depth values not travelling
+#: OUTWARD; a ring that is not itself below-grade geometry carries no
+#: bore depth to travel, so sweeping it in is pure spillover.
+#:
+#: MEASURED, and this clause is why it exists: with membership keyed on
+#: geometry alone the clause fired wherever a cut was published, and at
+#: LEMD — whose tunnel population, decks and basin are byte-identical
+#: between the arm and merged main — it moved 467 solve-owned airside
+#: nodes (worst 0.23 m).  The ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0``
+#: arm reproduced merged main's LEMD patch BYTE FOR BYTE
+#: (body_sha 2bc2bd88f961), which names this clause the sole author.
+#:
+#: NOTE FOR THE CLEANUP BATCH: with R14-1's claim retired, no ring
+#: carrying a pavement role carries bore depth any more, so this set and
+#: ``_CHORD_LIMIT_ROLES`` are DISJOINT and the exclusion is inert by
+#: construction.  ``tunnel_corridor_excluded_rings`` measures that zero
+#: rather than assuming it — the §6 Batch-4 "dormant passes measured
+#: zero-fire then deleted" path.
+_OPEN_CUT_BELOW_GRADE_ROLES = (ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH)
+
 #: How much of a ring's own AREA must lie in the open cut before the
 #: ring counts as the cut's ground.  This is R14-1's own claim floor
 #: (``bridges._TUNNEL_CLAIM_MIN_OVERLAP_M2``, 2.0 m²) carried over: a
@@ -5282,9 +5304,16 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
 _OPEN_CUT_MIN_OVERLAP_M2 = 2.0
 
 
-def _ring_touches_open_cut(ring, polygon, member, bounds) -> bool:
+def _ring_touches_open_cut(ring, polygon, member, bounds,
+                           role: str = "") -> bool:
     """Spec §2 membership, RE-KEYED: does ``ring`` belong to the tunnel
     OPEN CUT?
+
+    TWO CLAUSES, AND THE ROLE ONE COMES FIRST (spec §5-SUPPLEMENT item
+    3): the ring must carry a BELOW-GRADE ROLE *and* meet the cut
+    geometrically.  Geometry alone swept in at-grade ground that carries
+    no bore depth at all — 467 solve-owned airside nodes at LEMD, where
+    the off-arm reproduced merged main byte for byte.
 
     SEAM-PROBE 4 (census #51, redesign spec §5.2) — and it changed the
     test, not only the region.  The old region was R14-1's CLAIM SET,
@@ -5305,6 +5334,8 @@ def _ring_touches_open_cut(ring, polygon, member, bounds) -> bool:
     membership is the point: it is what stops a partner way importing a
     value across the cut boundary through a shared key.
     """
+    if role not in _OPEN_CUT_BELOW_GRADE_ROLES:
+        return False
     prepared, body = member
     minx, miny, maxx, maxy = bounds
     for (x, y) in ring:
@@ -5700,7 +5731,7 @@ def _grade_limit_groundside_chords(
         if any(a is None for a in alts):
             continue
         if _cut_prep is not None and _ring_touches_open_cut(
-                ring, s.polygon, _cut_prep, _cut_bounds):
+                ring, s.polygon, _cut_prep, _cut_bounds, role):
             # THE TUNNEL-CORRIDOR EXCLUSION (spec §2).  This ring carries
             # a bore's below-grade geometry — its authority is the portal
             # walk, not this clamp.  It is excluded from the unified node

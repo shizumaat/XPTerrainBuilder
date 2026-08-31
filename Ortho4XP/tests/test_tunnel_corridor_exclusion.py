@@ -29,15 +29,35 @@ two regions are measured different, so the MEMBERSHIP TEST moved with
 the region — see :class:`TestSeamProbe4NodeOnlyMembershipWouldEvaporate`,
 which is this file's record of seam probe 4.
 
-The twins the spec names:
+WHAT §5-SUPPLEMENT ITEM 3 THEN NARROWED, and this is the current law.
+Keyed on GEOMETRY ALONE the clause fired wherever a cut was published
+and swept in at-grade ground that carries no bore depth at all: at LEMD
+— whose tunnel population, decks and basin are byte-identical between
+the Batch-3 arm and merged main — it moved 467 solve-owned airside
+nodes, worst 0.23 m.  The ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0``
+arm then reproduced merged main's LEMD patch BYTE FOR BYTE
+(``body_sha 2bc2bd88f961``), naming this clause the sole author.
+Membership is now BELOW-GRADE ROLE **and** (node-in-cut OR ≥ 2 m²
+in-cut).
 
-(a) a groundside ring inside the open cut welded to a road ring —
-    exclusion ON, the ring's below-grade values survive the clamp and no
-    shared key is minted; OFF reproduces the capture;
+AND THE CONSEQUENCE, WHICH THIS FILE MEASURES RATHER THAN ASSUMES: with
+R14-1's claim retired, no ring carrying a PAVEMENT role carries bore
+depth any more, so ``_OPEN_CUT_BELOW_GRADE_ROLES`` and
+``_CHORD_LIMIT_ROLES`` are DISJOINT and the exclusion is inert inside
+the pass.  The original defect — a bore FLOOR shipping as
+``groundside_pavement`` — cannot arise, because the claim that made a
+groundside ring carry a bore profile is gone.  That is a zero to
+measure, not a law to keep: see
+:class:`TestTheExclusionIsNowInertAndMeasuredSo`.
+
+The twins:
+
+(a) the PREDICATE: a below-grade-roled ring meeting the cut is a member;
+    a groundside/road ring meeting the same cut is NOT (the spillover
+    item 3 removed);
 (b) a road ring OUTSIDE any cut still takes the limiter's precedence
     (the ``cce9da6f`` purpose, unregressed);
-(c) retreat-wall derivation: with the restored ramp the retreat faces
-    emit — and with the capture they do not (spec §3);
+(c) the exclusion is INERT in the pass, and the count says so;
 (d) flag off → the pre-fix result, exactly;
 (e) SEAM PROBE 4 — the membership test itself.
 """
@@ -116,73 +136,59 @@ def _bore_scene(cut=True):
 # (a) the exclusion itself
 # ═════════════════════════════════════════════════════════════════════
 
-class TestABoreFloorInTheOpenCutIsExcludedFromTheNodeBook:
-    """Spec §2 — the ring keeps its own solved values and contributes NO
-    key to the shared space."""
+class TestTheMembershipPredicate:
+    """§5-SUPPLEMENT item 3 — BELOW-GRADE ROLE **and** geometry."""
 
-    def test_off_reproduces_the_capture(self, monkeypatch):
-        """The pre-fix world, on purpose: the road's bench value wins at
-        the weld and drags the bore floor up out of its cut."""
-        monkeypatch.setenv(FLAG, "0")
-        lay, floor, road = self._scene()
-        gs._grade_limit_groundside_chords(lay)
-        after = _alts(floor)
-        assert max(after) > FLOOR_Z + 0.5, (
-            f"the capture did not reproduce: floor {after} — this twin's "
-            f"OFF arm must show the defect the fix removes")
+    def _cut(self):
+        lay = _layout([], cut_polys=[_rect(0, 0, 40, 10)])
+        member, bounds = gs._tunnel_open_cut_region(lay)
+        assert member is not None
+        return member, bounds
 
-    def test_on_the_below_grade_values_survive(self, monkeypatch):
-        """The ruled behaviour: the portal walk owns the bore floor, so
-        the clamp may not touch a single one of its vertices."""
-        monkeypatch.setenv(FLAG, "1")
-        lay, floor, road = self._scene()
-        before = _alts(floor)
-        gs._grade_limit_groundside_chords(lay)
-        assert _alts(floor) == before == [FLOOR_Z] * len(before), (
-            "the bore floor moved — its authority is the portal walk")
+    def test_a_below_grade_roled_ring_in_the_cut_is_a_member(self):
+        """The exclusion's whole purpose: bore-depth values must not
+        travel outward through a shared key."""
+        member, bounds = self._cut()
+        body = _rect(0, 0, 40, 10)
+        ring = list(body.exterior.coords)[:-1]
+        for role in gs._OPEN_CUT_BELOW_GRADE_ROLES:
+            assert gs._ring_touches_open_cut(
+                ring, body, member, bounds, role), role
 
-    def test_on_the_excluded_ring_mints_no_shared_key(self, monkeypatch):
-        """"…and contributes no keys to the shared space" — the second
-        half of §2, and the half that stops a partner way importing a
-        value ACROSS the cut boundary."""
-        monkeypatch.setenv(FLAG, "1")
-        lay, floor, road = self._scene()
-        gs._grade_limit_groundside_chords(lay)
-        stats = lay._chord_limit_stats
-        assert stats["nodes"] == 0, (
-            f"the excluded rings still minted {stats['nodes']} node "
-            f"key(s) in the unified book")
-        assert ROLE_GROUNDSIDE_PAVEMENT not in (stats["rings"] or {})
+    def test_a_groundside_ring_in_the_SAME_cut_is_NOT_a_member(self):
+        """The spillover item 3 removed.  Geometry alone made this ring
+        a member; it carries no bore depth, so sweeping it in moved
+        at-grade airside for nothing (467 nodes at LEMD)."""
+        member, bounds = self._cut()
+        body = _rect(0, 0, 40, 10)
+        ring = list(body.exterior.coords)[:-1]
+        assert not gs._ring_touches_open_cut(
+            ring, body, member, bounds, ROLE_GROUNDSIDE_PAVEMENT)
+        assert not gs._ring_touches_open_cut(
+            ring, body, member, bounds, ROLE_SERVICE_JUNCTION)
 
-    def test_the_partner_road_ring_is_excluded_too(self, monkeypatch):
-        """Membership is ANY node inside the cut (``covers``, so a node
-        exactly ON the boundary counts — a welded vertex sits there), and
-        exclusion is per RING — so the road welded to the cut boundary
-        leaves the book as well.  That is the mechanism: a shared key is
-        exactly how a value crosses the boundary, so neither side may
-        mint one."""
-        monkeypatch.setenv(FLAG, "1")
-        lay, floor, road = self._scene()
-        before = _alts(road)
-        gs._grade_limit_groundside_chords(lay)
-        stats = lay._chord_limit_stats
-        assert stats["tunnel_corridor_excluded_rings"] == 2
-        assert stats["tunnel_corridor_excluded_by_role"] == {
-            ROLE_GROUNDSIDE_PAVEMENT: 1, ROLE_SERVICE_JUNCTION: 1}
-        assert _alts(road) == before
+    def test_a_below_grade_ring_OUTSIDE_the_cut_is_not_a_member(self):
+        """The role clause admits; it does not replace the geometry."""
+        member, bounds = self._cut()
+        away = _rect(500, 0, 540, 10)
+        ring = list(away.exterior.coords)[:-1]
+        assert not gs._ring_touches_open_cut(
+            ring, away, member, bounds, ROLE_TUNNEL_RAMP)
 
-    def test_no_cut_means_no_exclusion(self, monkeypatch):
+    def test_the_role_clause_comes_first(self):
+        """A role that is not below grade short-circuits before any
+        geometry is touched — the clause order IS the fix."""
+        member, bounds = self._cut()
+        body = _rect(0, 0, 40, 10)
+        ring = list(body.exterior.coords)[:-1]
+        assert gs._ring_touches_open_cut(
+            ring, body, member, bounds, "") is False
+
+    def test_no_cut_means_no_region_at_all(self):
         """No second notion of "inside the cut": with nothing published
-        by the portal walk the pass is exactly the pre-fix pass."""
-        monkeypatch.setenv(FLAG, "1")
-        lay, floor, road = self._scene(cut=False)
-        gs._grade_limit_groundside_chords(lay)
-        assert lay._chord_limit_stats["tunnel_corridor_excluded_rings"] == 0
-        assert max(_alts(floor)) > FLOOR_Z + 0.5
-
-    @staticmethod
-    def _scene(cut=True):
-        return _bore_scene(cut=cut)
+        by the portal walk there is no region to ask about."""
+        lay = _layout([], cut_polys=None)
+        assert gs._tunnel_open_cut_region(lay) == (None, None)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -227,7 +233,9 @@ class TestARoadOutsideAnyCutKeepsTheLimiter:
         stats = lay._chord_limit_stats
         assert stats["shared_road_lot_nodes"] == 2, (
             "the road↔lot weld left the unified book")
-        assert stats["tunnel_corridor_excluded_rings"] == 1
+        # …and NOTHING is excluded: the scene's bore ring wears a
+        # pavement role, which §5-SUPPLEMENT item 3 no longer sweeps in.
+        assert stats["tunnel_corridor_excluded_rings"] == 0
         # one value per shared node, both rings
         shared = {}
         for shape in (road, lot):
@@ -247,72 +255,50 @@ def _dist(shape, i, j):
 
 
 # ═════════════════════════════════════════════════════════════════════
-# (c) the retreat faces come back (spec §3)
+# (c) the exclusion is INERT in the pass — measured, not assumed
 # ═════════════════════════════════════════════════════════════════════
 
-class TestTheRetreatWallsFollowTheRestoredRamp:
-    """Spec §3 — ``authority_retreat_wall`` emission is VERIFIED
-    downstream of the exclusion.
+class TestTheExclusionIsNowInertAndMeasuredSo:
+    """The §6 Batch-4 "dormant passes measured zero-fire then deleted"
+    path, entered honestly.
 
-    The faces are derived from the below-grade geometry retreating from
-    a higher-precedence claimant: they exist only while the two
-    claimants DISAGREE at the shared node.  The capture erased the
-    disagreement (the clamp wrote one value into both rings), which is
-    why 9 of OTHH site-1's 10 faces stopped being emitted.  Walls are
-    lawful here because this is a CARVE STRUCTURE (owner 2026-08-07:
-    "walls are lawful ONLY at tunnel/bridge carve structures").
+    The exclusion protected a ring that carried BORE DEPTH while wearing
+    a PAVEMENT role — which only R14-1's claim could produce.  With the
+    claim retired the two role sets are disjoint, so the pass can no
+    longer fire.  The retreat-wall twin that used to live here rested on
+    exactly that scene (a ``groundside_pavement`` bore floor) and is
+    removed with it rather than rewritten around a shape the emitter
+    cannot make.
     """
 
-    def _bore_layout(self, cut=True):
-        lay = PavementLayout(icao="KFAKE", anchor=(25.27, 51.60))
-        lay.canonical_points = CanonicalPointRegistry(
-            tol_m=SHARED_VERTEX_TOL_M)
-        # the at-grade road, welded to the middle of the floor's top edge
-        # (a mid-ring contested vertex — a ring CORNER can only retreat
-        # along its diagonal, which the emitter refuses)
-        lay.shapes.append(_shape(_rect(100, 0, 140, 40),
-                                 ROLE_SERVICE_JUNCTION, BENCH_Z))
-        floor = BuiltShape(
-            polygon=Polygon([(0, 0), (0, -200), (400, -200), (400, 0),
-                             (140, 0), (100, 0)]),
-            role=ROLE_GROUNDSIDE_PAVEMENT, ref="bore_floor",
-            node_altitudes=[FLOOR_Z] * 7)
-        lay.shapes.append(floor)
-        # THE CARVE STRUCTURE — the portal the wall is lawful at.
-        lay.shapes.append(_shape(_rect(110, 2, 130, 12),
-                                 ROLE_TUNNEL_RAMP, BENCH_Z - 6.0))
-        if cut:
-            lay.tunnel_open_cut_polys = [floor.polygon]
-        return lay, floor
+    def test_the_two_role_sets_are_disjoint(self):
+        assert set(gs._OPEN_CUT_BELOW_GRADE_ROLES).isdisjoint(
+            gs._CHORD_LIMIT_ROLES), (
+            "a below-grade role entering the chord limiter's own role "
+            "set would make this exclusion live again — and would need "
+            "its own measurement before it did")
 
-    @staticmethod
-    def _walls(lay):
-        return [s for s in lay.shapes
-                if (getattr(s, "ref", "") or "") == "authority_retreat_wall"]
-
-    def test_on_the_faces_emit(self, monkeypatch):
-        from auto_patch import adjacent_ground as AG
+    def test_a_bore_beside_a_road_now_excludes_NOTHING(self, monkeypatch):
+        """The original site-1 scene, replayed: the count is zero and
+        the limiter simply does its job on both rings."""
         monkeypatch.setenv(FLAG, "1")
-        lay, floor = self._bore_layout()
+        lay, floor, road = _bore_scene(cut=True)
         gs._grade_limit_groundside_chords(lay)
-        assert _alts(floor) == [FLOOR_Z] * 7
-        assert AG.emit_authority_retreat_walls(lay) > 0
-        assert self._walls(lay), (
-            "the bore's retreat faces did not emit even though the ramp "
-            "values survived — spec §3 is not satisfied")
+        stats = lay._chord_limit_stats
+        assert stats["tunnel_corridor_excluded_rings"] == 0
+        assert stats["tunnel_corridor_excluded_by_role"] == {}
 
-    def test_off_the_faces_vanish_exactly_as_measured_at_othh(
+    def test_and_the_pass_is_byte_equal_with_the_flag_OFF(
             self, monkeypatch):
-        """The defect's other half, pinned so it cannot come back
-        silently: with the capture the two claimants AGREE at the weld,
-        so there is nothing to retreat from and no face is minted."""
-        from auto_patch import adjacent_ground as AG
+        """Inert means inert: ON and OFF must produce the same values.
+        This is the LEMD byte-identity result in the small."""
+        monkeypatch.setenv(FLAG, "1")
+        lay_on, floor_on, _r = _bore_scene(cut=True)
+        gs._grade_limit_groundside_chords(lay_on)
         monkeypatch.setenv(FLAG, "0")
-        lay, floor = self._bore_layout()
-        gs._grade_limit_groundside_chords(lay)
-        assert max(_alts(floor)) > FLOOR_Z + 0.5
-        AG.emit_authority_retreat_walls(lay)
-        assert not self._walls(lay)
+        lay_off, floor_off, _r2 = _bore_scene(cut=True)
+        gs._grade_limit_groundside_chords(lay_off)
+        assert _alts(floor_on) == _alts(floor_off)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -342,11 +328,29 @@ class TestTheFlagOffIsTodaysBehaviour:
             "tunnel_corridor_excluded_rings"] == 0)
 
     def test_the_flag_defaults_ON(self, monkeypatch):
-        """Default ON (spec §5): the production build carries the fix."""
+        """Default ON (spec §5): the production build carries the fix.
+
+        What "the fix" DOES is now the narrowed membership, so the
+        default is asserted where it is still observable — the predicate
+        answers, and the region is read — rather than through a pass the
+        role clause has made inert.  The pass-level default is covered
+        by the ON/OFF byte-equality twin above.
+        """
         monkeypatch.delenv(FLAG, raising=False)
-        lay, floor, road = _bore_scene()
-        gs._grade_limit_groundside_chords(lay)
-        assert _alts(floor) == [FLOOR_Z] * 5
+        lay = _layout([], cut_polys=[_rect(0, 0, 40, 10)])
+        member, bounds = gs._tunnel_open_cut_region(lay)
+        assert member is not None, (
+            "the flag defaults OFF — the production build would not "
+            "read the published cut at all")
+        body = _rect(0, 0, 40, 10)
+        ring = list(body.exterior.coords)[:-1]
+        assert gs._ring_touches_open_cut(
+            ring, body, member, bounds, ROLE_TUNNEL_RAMP)
+
+    def test_the_flag_off_publishes_no_region(self, monkeypatch):
+        monkeypatch.setenv(FLAG, "0")
+        lay = _layout([], cut_polys=[_rect(0, 0, 40, 10)])
+        assert gs._tunnel_open_cut_region(lay) == (None, None)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -380,6 +384,11 @@ class TestSeamProbe4NodeOnlyMembershipWouldEvaporate:
     #: whole scene in y.
     CUT = staticmethod(lambda: _rect(40, -10, 48, 60))
 
+    #: the geometry clause is what these twins measure, so they hand the
+    #: predicate a BELOW-GRADE role and vary only the geometry; the role
+    #: clause has its own class above.
+    ROLE = ROLE_TUNNEL_RAMP
+
     def _member(self, cut_poly):
         lay = _layout([], cut_polys=[cut_poly])
         member, bounds = gs._tunnel_open_cut_region(lay)
@@ -411,7 +420,7 @@ class TestSeamProbe4NodeOnlyMembershipWouldEvaporate:
         lot = _rect(0, 0, 100, 50)
         ring = list(lot.exterior.coords)[:-1]
         member, bounds = self._member(self.CUT())
-        assert gs._ring_touches_open_cut(ring, lot, member, bounds), (
+        assert gs._ring_touches_open_cut(ring, lot, member, bounds, self.ROLE), (
             "the crossed lot is not a member — the exclusion evaporated, "
             "which is the failure census #51 names")
 
@@ -428,7 +437,7 @@ class TestSeamProbe4NodeOnlyMembershipWouldEvaporate:
         assert overlap == pytest.approx(1.6, abs=1e-6)
         assert overlap < gs._OPEN_CUT_MIN_OVERLAP_M2
         assert self._nodes_inside(ring, member) == 0
-        assert not gs._ring_touches_open_cut(ring, graze, member, bounds)
+        assert not gs._ring_touches_open_cut(ring, graze, member, bounds, self.ROLE)
 
     def test_the_floor_is_r14_1s_own_claim_floor(self):
         """The bar is CARRIED OVER, not invented here: R14-1 required a
@@ -444,7 +453,7 @@ class TestSeamProbe4NodeOnlyMembershipWouldEvaporate:
         assert self._nodes_inside(ring, member) == 2
         assert welded.intersection(self.CUT()).area == pytest.approx(
             0.0, abs=1e-9), "this twin must prove the NODE clause alone"
-        assert gs._ring_touches_open_cut(ring, welded, member, bounds)
+        assert gs._ring_touches_open_cut(ring, welded, member, bounds, self.ROLE)
 
     def test_a_ring_clear_of_the_cut_is_never_a_member(self):
         far = _rect(500, 500, 600, 600)

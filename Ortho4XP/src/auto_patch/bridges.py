@@ -6978,12 +6978,6 @@ def _finalize_tunnel_emission(
         _post_gate_u = _tunnel_ramp_pavement_cut(
             layout, airside_gate_union, pre_emit_shape_ids, ramp_way_ids,
             clearance_m=ramp_cut_clearance_m)
-        # §W1: the CLAIM variant of ruling 4's cut — a claimed corridor
-        # never cuts its host, so the walls §2.3 just minted for it are
-        # judged against a union that still contains the pavement they
-        # are the visible structure of.  Adjudication only; the covered-
-        # span mask holds genuinely roofed stretches back.
-        #
         # §W1's CLAIM variant of ruling 4's cut is RETIRED with the claim
         # class (redesign spec §5.1): it existed because a claimed
         # corridor lowered its host WITHOUT cutting it, so the claim's

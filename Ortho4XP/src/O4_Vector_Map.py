@@ -1657,6 +1657,14 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         if UI.red_flag:
             return 0
         UI.vprint(1, "      Encoding it.")
+        # NOTE the two granularities (census #112, ruled by spec §2.4).
+        # The CLAMP stations are <= 20 m — fine enough for the
+        # instrument to outresolve emit_decimate's 60 m chords — while
+        # ``refine=100`` still samples the ring's authored altitudes
+        # every <= 100 m, so what EMITS is a subsample of the clamped
+        # profile.  The spec rules the station spacing only; changing
+        # ``refine`` changes the mesh's vertex count tile-wide and is
+        # not this batch's to make.
         vector_map.encode_MultiPolygon(
             road_area, alt_vec_shift, "INTERP_ALT", check=True, refine=100
         )

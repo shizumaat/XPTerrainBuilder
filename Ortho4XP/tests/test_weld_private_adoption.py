@@ -23,11 +23,13 @@ No airport build, no X-Plane install.
 """
 from __future__ import annotations
 
+import pytest
 from shapely.geometry import Polygon
 
 from auto_patch.canonical_points import CanonicalPointRegistry
 from auto_patch.conformance import (
     FINAL_WELD_TOL_M,
+    _repair_keeps_the_no_overlap_invariant,
     enforce_conformance,
     repair_emit_quantized_rings,
 )
@@ -36,6 +38,7 @@ from auto_patch.layout import (
     ONEDGE_SNAP_TOL_M,
     PavementLayout,
     ROLE_JUNCTION,
+    ROLE_SERVICE_ROAD,
     SHARED_VERTEX_TOL_M,
 )
 
@@ -144,3 +147,83 @@ def test_quantized_ring_repair():
     assert len(spike.node_altitudes) == len(new_ring) + 1
     # Idempotent: a second call finds nothing.
     assert repair_emit_quantized_rings(layout) == 0
+
+
+# ── THE REPAIR MAY NOT MINT AN OVERLAP (2026-09-01, CYXY) ─────────────
+# ``buffer(0)`` untwists a bowtie, and the untwisted ring can cover
+# ground the ring-as-written did not — after
+# ``elevation._drop_overlap_against_fixed_shapes``, the only pass that
+# polices overlap, has already run.  Measured at CYXY with
+# ``who_wrote --footprint``: service_junction #145 grew back over
+# service_road #142 (0.1878 m²) at exactly this call.  The repair now
+# finishes under the SAME priority tiers the overlap pass uses.
+
+def _spike_junction() -> BuiltShape:
+    """A ring valid at full precision, self-intersecting at 11 dp."""
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0),
+            (6.0, 10.0), (5.0, 20.0), (6.0 - 1e-7, 10.0),
+            (0.0, 10.0)]
+    return BuiltShape(polygon=Polygon(ring), role=ROLE_JUNCTION,
+                      node_altitudes=[1.0] * 7)
+
+
+def test_quantized_repair_yields_to_a_higher_priority_shape():
+    """The repaired residue is clipped back out of a service_road rect
+    (tier 2) it would otherwise cover — zero overlap, and the repair
+    still happens."""
+    spike = _spike_junction()
+    road = BuiltShape(
+        polygon=Polygon([(8.0, 2.0), (12.0, 2.0), (12.0, 6.0), (8.0, 6.0)]),
+        role=ROLE_SERVICE_ROAD, node_altitudes=[1.0] * 4)
+    layout = _make_layout(spike, road)
+    # The fixture must be meaningful: the ring covers road ground.
+    assert spike.polygon.intersection(road.polygon).area > 1.0
+    assert repair_emit_quantized_rings(layout) == 1
+    assert spike.polygon.is_valid and not spike.polygon.is_empty
+    assert spike.polygon.intersection(road.polygon).area == 0.0, (
+        "the quantized-ring repair left the residue overlapping a "
+        "higher-priority shape (the CYXY 0.1878 m² class)")
+    # The altitude list stays aligned with the re-derived ring.
+    new_ring = list(spike.polygon.exterior.coords)[:-1]
+    assert spike.node_altitudes is not None
+    assert len(spike.node_altitudes) == len(new_ring) + 1
+
+
+def test_quantized_repair_ignores_a_same_tier_neighbour():
+    """Only STRICTLY higher priority clips — a same-tier junction is left
+    to the overlap pass's own same-tier rule, exactly as before."""
+    spike = _spike_junction()
+    peer = BuiltShape(
+        polygon=Polygon([(8.0, 2.0), (12.0, 2.0), (12.0, 6.0), (8.0, 6.0)]),
+        role=ROLE_JUNCTION, node_altitudes=[1.0] * 4)
+    layout = _make_layout(spike, peer)
+    assert repair_emit_quantized_rings(layout) == 1
+    assert spike.polygon.intersection(peer.polygon).area > 1.0
+
+
+def test_no_overlap_invariant_helper():
+    from shapely.geometry import Polygon as P
+    junc = BuiltShape(polygon=P([(0, 0), (10, 0), (10, 10), (0, 10)]),
+                      role=ROLE_JUNCTION)
+    road = BuiltShape(polygon=P([(8, 2), (12, 2), (12, 6), (8, 6)]),
+                      role=ROLE_SERVICE_ROAD)
+    peer = BuiltShape(polygon=P([(2, 2), (6, 2), (6, 6), (2, 6)]),
+                      role=ROLE_JUNCTION)
+    layout = _make_layout(junc, road, peer)
+    # higher priority -> clipped out; same tier -> left alone entirely
+    out = _repair_keeps_the_no_overlap_invariant(layout, junc, junc.polygon)
+    assert out is not None
+    assert out.intersection(road.polygon).area == 0.0
+    assert out.intersection(peer.polygon).area == pytest.approx(16.0)
+    # nothing left -> None (caller leaves the ring alone)
+    small = BuiltShape(polygon=P([(8.5, 3), (9.5, 3), (9.5, 5), (8.5, 5)]),
+                       role=ROLE_JUNCTION)
+    layout2 = _make_layout(small, road)
+    assert _repair_keeps_the_no_overlap_invariant(
+        layout2, small, small.polygon) is None
+    # a tier-0 shape yields to nobody
+    rwy = BuiltShape(polygon=P([(0, 0), (10, 0), (10, 10), (0, 10)]),
+                     role="runway")
+    layout3 = _make_layout(rwy, road)
+    assert _repair_keeps_the_no_overlap_invariant(
+        layout3, rwy, rwy.polygon) is rwy.polygon

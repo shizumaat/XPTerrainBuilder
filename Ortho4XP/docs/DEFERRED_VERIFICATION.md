@@ -5273,3 +5273,38 @@ both owner ramp probes CONTAINED.
   25.2761220,51.6134683 (face 97% emitted; the residual is a 0.93 m
   crotch that cannot hold two 1.6 m bands at all). The second needs a
   ruling, not code.
+- 2026-08-31 lane/ltbatch3 round 3g — THE TWO WALL-BAND RESIDUALS ARE
+  NAMED, and they are DIFFERENT mechanisms.  One instrumented arm
+  (`lt3g_probe`, sha d2abdc2583b9 — byte-identical to `lt3f2_othh_arm`,
+  so the probe reproduces the closing arm exactly).
+  (a) THE MERGED SITE'S FOOT (25.2761183,51.6134359, 154.0 of 193.8 m²)
+      IS LAWFUL, NOT A REMOVAL.  The named-removal instrument
+      (`log_tunnel_piece_removal`, mandatory and ungated, logging every
+      piece a post-emit pass removes OR CLIPS) fires ONCE in the whole
+      build, on an unrelated graze-clip.  0.0 m² of the 40.9 m² gap lies
+      on tunnel pavement, so R10-2 is not the cause either.  The gap
+      sits 27.3 m from the ramp's FAR end against 112.1 m from its near
+      end, and a full-width opening on this 53.6 m-wide dual carriageway
+      removes ~32.2 m² of foot — the balance being the mitred corners.
+      It is `emit_wall_band`'s OWN arm-end opening: "the band is cut
+      OPEN at each arm's far (surface) end, because at the far end the
+      road continues at grade and the crossing walls it off".  NOT A
+      DEFECT.  What is wrong is the INSTRUMENT: per-side coverage
+      charges the arm for an end the emitter opens by law.  Not adjusted
+      here — moving a bar in the round that parks, with no build budget
+      to verify it, is the fitting this batch has refused throughout.
+  (b) THE FORK'S INNER FACE (25.2537652,51.6032373, wall 0.41 on one
+      arm) IS CLIPPED BY R10-2, and that is a RULE COLLISION, not a bug.
+      Of each arm's missing inner face, 32-57 % lies ON TUNNEL PAVEMENT
+      (arm -12200: 20.2 of 63.4 m²; -12201: 32.2 of 56.8; -12202: 6.5 of
+      15.3; -12203: 7.8 of 14.8), so "a cover piece may never sit ON
+      tunnel pavement" (R10-2) removes it.  §5-SUPPLEMENT-2 asks the
+      pinch to carry ONE SHARED wall+foot, and in a gap narrower than
+      two bands that structure necessarily encroaches on a carriageway.
+      Exempting wall-band pieces from R10-2 would put a retaining wall
+      inside a roadway; NOT implemented — this needs an owner ruling on
+      which law yields, and it is the batch's last open question.
+      Note the R10-2 clip is AGGREGATE-logged ("clipped 19 tunnel
+      wall/roof/cap piece(s)"), which is why the per-piece instrument
+      showed nothing: the same aggregate-logging blindness that
+      instrument was created to end, still present on this path.

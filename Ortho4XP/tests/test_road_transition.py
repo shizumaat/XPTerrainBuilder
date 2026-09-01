@@ -660,3 +660,27 @@ def test_the_declaration_reaches_the_sidecar_from_the_new_home():
     assert "layout._road_ownership = _own_all" in pipe
     src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text()
     assert '"faces_reclassified_m2"' in src
+
+
+def test_a_split_piece_of_a_slice_born_face_still_releases(monkeypatch):
+    """RULING 2 OF ROUND 4: the producer marker survives the
+    re-partition.  The apron neck-split re-mints pieces at
+    ``pipeline.py`` (``_BS(polygon=..., role=..., ref=...)``); without
+    the flag a piece of a slice-born road face was invisible to the 31j
+    release and survived as far ref-less road pavement — measured at
+    30.1142768,31.3895971, whose 20,639.4 m2 slice face WAS released
+    while its 3,316.1 m2 piece was not."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+
+    apron = _RelShape(_rect(0.0, 0.0, 200.0, 200.0), ROLE_APRON)
+    piece = _RelShape(_rect(800.0, 0.0, 850.0, 100.0),
+                      ROLE_SERVICE_JUNCTION, slice_face=True)
+    lay = _rel_layout([apron, piece], monkeypatch)
+    assert release_far_road_shapes(lay, dem=None, tile_lat=30,
+                                   tile_lon=31) == 1
+    assert piece.role == ROLE_GROUNDSIDE_PAVEMENT
+    # and the re-mint CARRIES the flag, so the piece above can exist
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    assert 'slice_face=getattr(_s, "slice_face", False)' in src, (
+        "the neck-split re-mint must carry the producer marker")

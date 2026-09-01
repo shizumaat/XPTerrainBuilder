@@ -4711,9 +4711,76 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
                      f"({face_poly.area:.0f} < {GAP_FILL_MIN_AREA_M2:.0f} "
                      f"m2) centroid=({_c.x:.0f},{_c.y:.0f}) — skipped.")
         return 0
-    layout.shapes.append(BuiltShape(
-        polygon=face_poly, role=ROLE_GRADED_STRIP, ref=_GAP_FILL_REF,
-        node_altitudes=alts + [alts[0]]))
+    # ── THE ANNULUS CLASS (spec-author ruling 2026-08-31, Batch 4a
+    #    round 4) ────────────────────────────────────────────────────
+    # Re-attaching the parent holes above fixes the SHAPELY geometry and
+    # not the EMITTED one: ``to_osm`` writes a way's EXTERIOR RING only
+    # (the patch dialect has no multipolygon — 0 relations), so an
+    # annular residual still ships as a hull that RE-COVERS the gap
+    # parents it was carved around.  Measured at HECA (Batch 4a round 2):
+    # one gap face of 100,139 m2 standing on 61,912 m2 of BUILDING
+    # footprint, with two of its seams torn against neighbouring strips.
+    # This is the same class round 6c hit on lots and the roads-annulus
+    # note records; the ruling is that a residual needing a multipolygon
+    # must emit as its TRUE residual, in simple parts, never as a hull.
+    #
+    # ``groundside._open_polygon_holes`` is the campaign's existing
+    # implementation of exactly this (SPJC building #31 inside groundside
+    # #455): a thin mitre corridor from each hole to the nearest exterior
+    # edge, so the void stays real in the emitted exterior ring too.  ONE
+    # implementation, imported (lazily — ``groundside`` imports gap_fill's
+    # tunnel-blocker sets, so the module-level edge would be a cycle).
+    # A face with no holes takes the untouched path and is byte-identical.
+    _faces = [(face_poly, new_ring, alts)]
+    if list(face_poly.interiors):
+        from .groundside import _open_polygon_holes as _open_holes
+        _known = {_key(x, y): a for (x, y), a in zip(new_ring, alts)}
+
+        def _alt_at(_x, _y):
+            """The value of a vertex the hole-opening introduced: the
+            ring's own if it is one of them, else the SAME fallback chain
+            the ring vertices above took (nearest pavement, then the
+            conforming edge), else the face's first value."""
+            _k = _key(_x, _y)
+            if _k in _known:
+                return _known[_k]
+            _e = _nearest_pav_alt(airside, _x, _y, max_distance_m=5.0)
+            if _e is None:
+                _e, _ = _conform_edge_value(_conform_idx, _x, _y)
+            if _e is None:
+                _e = min(_known.values(), key=lambda _v: abs(_v - alts[0])) \
+                    if _known else alts[0]
+            return float(_e)
+
+        _parts = [q for q in _open_holes(face_poly)
+                  if q is not None and not q.is_empty
+                  and q.geom_type == "Polygon"
+                  and q.area >= GAP_FILL_MIN_AREA_M2]
+        if _parts:
+            _faces = []
+            for _q in _parts:
+                _r = list(_q.exterior.coords)
+                if _r and _r[0] == _r[-1]:
+                    _r = _r[:-1]
+                if len(_r) < 3:
+                    continue
+                _faces.append((_q, _r, [_alt_at(_x, _y) for _x, _y in _r]))
+            _c = face_poly.centroid
+            UI.vprint(1,
+                f"  [gap-fill] ANNULAR residual opened — "
+                f"{len(list(face_poly.interiors))} gap-parent hole(s) in a "
+                f"{face_poly.area:.0f} m2 face at ({_c.x:.0f},{_c.y:.0f}) "
+                f"emitted as {len(_faces)} simple part(s) "
+                f"({sum(_q.area for _q, _, _ in _faces):.0f} m2); the "
+                f"exterior ring no longer re-covers its parents "
+                f"(Batch 4a round 4).")
+        if not _faces:
+            return 0
+    for _fp, _fr, _fa in _faces:
+        layout.shapes.append(BuiltShape(
+            polygon=_fp, role=ROLE_GRADED_STRIP, ref=_GAP_FILL_REF,
+            node_altitudes=_fa + [_fa[0]]))
+    face_poly, new_ring, alts = _faces[0]
     # Spine ways to emit: the full spine as today, or — when interior
     # rings emitted (round-8) — the ring-core TRIMMED sub-chains from
     # the builder (a full-length spine would cross the closed loops at

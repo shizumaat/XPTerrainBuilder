@@ -5050,7 +5050,18 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                             _p, _reeval_centerlines, _RECLASS_CAP_M)
                         if _piece_role != _R_APRON:
                             _n_piece_promoted += 1
-                    _ns = _BS(polygon=_p, role=_piece_role, ref=_s.ref)
+                    # THE PRODUCER MARKER SURVIVES THE RE-PARTITION
+                    # (spec-author ruling 2026-08-31, Batch 4a round 4).
+                    # A piece of a slice-born face is still slice-born:
+                    # measured with ``who_wrote.py --footprint`` at the
+                    # largest residual far ring (30.1142768,31.3895971),
+                    # whose slice face (20,639.4 m2, born at the slice
+                    # emit) WAS released as 31j rules while its 3,316.1
+                    # m2 split piece — re-minted here without the flag —
+                    # survived as ref-less road pavement.  Carried
+                    # exactly as ``reclassified_from_junction`` is.
+                    _ns = _BS(polygon=_p, role=_piece_role, ref=_s.ref,
+                              slice_face=getattr(_s, "slice_face", False))
                     _new_shapes.append(_ns)
             if _split_count:
                 layout.shapes = _new_shapes

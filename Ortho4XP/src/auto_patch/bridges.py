@@ -5590,48 +5590,56 @@ def _emit_portal_cluster(
     # per-segment / cap / throat walls entirely.
     if TUNNEL_FORK_THROAT:
         try:
-            if _arm_bodies:
-                # ── A TRUE FORK IS WALLED PER ARM (§5-SUPPLEMENT-2) ──
-                # One band per arm, each subtracting the bands its
-                # siblings already occupy.  The throat's own body is
-                # walled first so the arms' bands meet it rather than
-                # crossing it, and the V's pinch collapses to ONE shared
-                # wall because the second arm's inner band is
-                # already occupied there.
-                # ── ARMS FIRST, THROAT LAST, AND THE ORDER IS THE
-                # MECHANISM.  Walling the throat first lets ITS band
-                # claim the ground each arm's INNER band needs, and the
-                # arms — which subtract what is already emitted — then
-                # come up short.  MEASURED on a synthetic Y (shared
-                # throat + two diverging arms), three orderings:
-                #     throat -> A -> B : open 0.27, arm feet 0.52 / 0.52
-                #     A -> B -> throat : open 0.08, arm feet 0.92 / 0.92
-                #     A -> throat -> B : open 0.08, arm feet 0.92 / 0.92
-                # and the throat-first numbers reproduce what the field
-                # arm measured at the confirmed fork (open 0.32, foot
-                # 0.34/0.31).  The arms own their corridors; the throat
-                # takes what is left, which is the V's cap.
-                # ── THE PINCH SHARED WALL STANDS DOWN (RULINGS
-                # 2026-09-01a, decision A).  R10-2 keeps FULL FORCE: a
-                # cover piece may never sit on tunnel pavement, and in a
-                # gap narrower than two bands the shared structure would
-                # have to.  So the V goes UNWALLED AT THE PINCH — and it
-                # yields at the SEED, never by emit-then-clip: each arm's
-                # band is denied the ground its SIBLINGS' pavement
-                # occupies, so the piece is never generated there.
-                # Emitting it and letting R10-2 clip it back produced the
-                # same absence plus fragments (measured: redundant=1 and
-                # 32-57 % of each arm's missing inner face lying on
-                # sibling pavement).  Outer faces and feet are untouched
-                # and complete; inner faces still emit wherever they fit
-                # OFF pavement.
-                _all_ramp_polys = [bp for bods, _s2, _a2 in _arm_bodies
-                                   for bp in bods]
+            # ── PER-BODY WALLING (RULINGS 2026-09-01j) ───────────────
+            # EVERY ramp body of a MULTI-BODY cluster is walled as its
+            # own corridor.  The union band applies only to a
+            # SINGLE-body cluster — and a 31h-merged dual carriageway
+            # IS one body, so it still takes the union path.
+            #
+            # WHAT THIS CORRECTS.  §5-SUPPLEMENT-2 filled the per-arm
+            # register from ``arm_specs`` — the arms DOWNSTREAM of the
+            # divergence point — so any other ramp body of the cluster
+            # got only the union band, whose outward offset traces the
+            # OUTER HULL and cannot produce a concave inner face.
+            # MEASURED at the OTHH fork 25.2537652,51.6032373: the log
+            # read "2 arm(s) walled as their own corridors" at a site
+            # carrying FOUR ramp bodies, and the 142.8 m body was left
+            # with 66.7 m of its side unanswered — 51.4 m of it on FREE
+            # GROUND.  Calling this same emitter on that same body
+            # offline returned a COMPLETE band (11 % unanswered, 0.0 m
+            # free ground, matching the pre-retirement control) both
+            # with and without the sibling bands excluded: the geometry
+            # was always emittable, the body simply never got its call.
+            #
+            # ORDERING AND COMPOSITION ARE UNCHANGED.  Arms first, the
+            # remaining bodies after (the order IS a mechanism —
+            # measured on a synthetic Y, throat-first starves the arms'
+            # inner bands: 0.52/0.52 against 0.92/0.92), each body
+            # subtracting the bands already emitted AND its siblings'
+            # pavement.  The pinch therefore still stands down AT THE
+            # SEED (RULINGS 2026-09-01a A): a band is never generated on
+            # ground a sibling's pavement occupies, so R10-2 keeps full
+            # force and the V goes unwalled at the pinch only.
+            _cluster_ramps = [
+                s for s in layout.shapes[_cl_start_idx:]
+                if getattr(s, 'ref', '') == 'tunnel_ramp'
+                and s.polygon is not None and not s.polygon.is_empty]
+            _cluster_polys = [s.polygon for s in _cluster_ramps]
+            # The arms keep their own sources and arm-END openings; any
+            # body the register never saw is walled with WRAPPED ends
+            # (no ``arm_ends``), which is what a body with no declared
+            # far end needs.
+            _armed_polys = [bp for _bods, _s2, _a2 in _arm_bodies
+                            for bp in _bods]
+            _plan = [(_bods, _srcs, _aends)
+                     for _bods, _srcs, _aends in _arm_bodies if _bods]
+            for _s in _cluster_ramps:
+                if not any(_s.polygon is bp for bp in _armed_polys):
+                    _plan.append(([_s.polygon], _cluster_ramps, []))
+            if len(_cluster_polys) >= 2 and _plan:
                 _done: list = []
-                for _bods, _srcs, _aends in _arm_bodies:
-                    if not _bods:
-                        continue
-                    _sibling = [g for g in _all_ramp_polys
+                for _bods, _srcs, _aends in _plan:
+                    _sibling = [g for g in _cluster_polys
                                 if not any(g is bp for bp in _bods)]
                     _n0 = len(layout.shapes)
                     emit_wall_band(
@@ -5643,43 +5651,25 @@ def _emit_portal_cluster(
                         s.polygon for s in layout.shapes[_n0:]
                         if getattr(s, 'ref', '') in _WALL_BAND_REFS
                         and s.polygon is not None)
-                _arm_polys = [bp for bods, _src, _ae in _arm_bodies
-                              for bp in bods]
-                _throat_b = [
-                    s.polygon for s in layout.shapes[_cl_start_idx:]
-                    if getattr(s, 'ref', '') == 'tunnel_ramp'
-                    and s.polygon is not None
-                    and not s.polygon.is_empty
-                    and not any(s.polygon is bp for bp in _arm_polys)]
-                if _throat_b:
-                    emit_wall_band(
-                        layout, exclusion_zones, _throat_b,
-                        [s for s in layout.shapes[_cl_start_idx:]
-                         if getattr(s, 'ref', '') == 'tunnel_ramp'],
-                        [], wall_gap_m, retaining_wall_width_m,
-                        dem_at, apt_elev,
-                        exclude=list(_done) + _all_ramp_polys)
                 UI.vprint(1,
-                    f"  [pav-builder] §5-SUPPLEMENT-2 fork walls: "
-                    f"{len(_arm_bodies)} arm(s) walled as their own "
-                    f"corridors (inner AND outer faces per arm); the V's "
-                    f"pinch collapses to ONE shared wall where the "
-                    f"inner bands meet.")
+                    f"  [pav-builder] PER-BODY walls (2026-09-01j): "
+                    f"{len(_plan)} of {len(_cluster_polys)} cluster ramp "
+                    f"bod(y/ies) walled as their own corridors (inner AND "
+                    f"outer faces per body), of which "
+                    f"{len(_arm_bodies)} divergence arm(s); the V's pinch "
+                    f"stands down at the seed.")
             else:
-                _ramps_b = [
-                    s.polygon for s in layout.shapes[_cl_start_idx:]
-                    if getattr(s, 'ref', '') == 'tunnel_ramp'
-                    and s.polygon is not None
-                    and not s.polygon.is_empty]
-                _ru = unary_union(_ramps_b) if _ramps_b else None
+                # SINGLE-BODY CLUSTER — the union band, unchanged.  A
+                # 31h-merged dual carriageway arrives here as ONE body
+                # and keeps the shape it has always had.
+                _ru = unary_union(_cluster_polys) if _cluster_polys else None
                 _ru_polys = [g for g in getattr(_ru, 'geoms', [_ru] if _ru
                                                 else [])
                              if g.geom_type == 'Polygon'
                              and not g.is_empty]
                 emit_wall_band(
                     layout, exclusion_zones, _ru_polys,
-                    [s for s in layout.shapes[_cl_start_idx:]
-                     if getattr(s, 'ref', '') == 'tunnel_ramp'],
+                    _cluster_ramps,
                     _cl_arm_ends, wall_gap_m, retaining_wall_width_m,
                     dem_at, apt_elev)
         except _GEOM_EXC:

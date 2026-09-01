@@ -31,7 +31,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from auto_patch import bridges
@@ -173,13 +173,20 @@ class TestTheWiring:
         assert "exclude" in src
         assert "_emitted_band: list = [g for g in (exclude or ())" in src
 
-    def test_a_fork_walls_per_arm_and_a_merged_run_does_not(self):
-        """Two paths, and the fork one is taken only when arms exist."""
+    def test_a_multi_body_cluster_walls_per_body_and_a_single_one_does_not(
+            self):
+        """RULINGS 2026-09-01j: EVERY ramp body of a multi-body cluster
+        is walled as its own corridor; the union band is kept for the
+        SINGLE-body cluster only (a 31h-merged dual carriageway is one
+        body and still takes it)."""
         src = inspect.getsource(bridges._emit_portal_cluster)
-        assert "if _arm_bodies:" in src, "no per-arm branch"
-        assert "for _bods, _srcs, _aends in _arm_bodies:" in src
-        # …and the single-union path survives for the merged case
-        assert "_ru_polys" in src.split("if _arm_bodies:")[1]
+        assert "_cluster_ramps = [" in src, "no per-body register"
+        assert "if len(_cluster_polys) >= 2 and _plan:" in src, (
+            "the per-body path is not gated on a MULTI-body cluster")
+        assert "for _bods, _srcs, _aends in _plan:" in src
+        # …and the single-union path survives for the single-body case
+        assert "_ru_polys" in src.split(
+            "if len(_cluster_polys) >= 2 and _plan:")[1]
 
     def test_arm_bodies_is_empty_when_the_cluster_does_not_fork(self):
         """A dual carriageway merged by 31h is UNTOUCHED: it never
@@ -192,6 +199,50 @@ class TestTheWiring:
             "the register must be declared before the no-fork branch and "
             "filled only in the fork branch")
 
+
+class TestEveryBodyOfAMultiBodyClusterIsWalled:
+    """RULINGS 2026-09-01j — PER-BODY WALLING.
+
+    The measured defect: only divergence ARMS entered the walling
+    register, so any other ramp body of a multi-body cluster got just
+    the union band, whose outward offset traces the OUTER HULL and can
+    never produce a concave inner face.  At the OTHH fork the log read
+    "2 arm(s)" at a site with FOUR ramp bodies, and the 142.8 m body was
+    left 66.7 m unanswered — 51.4 m of it on FREE GROUND — while the
+    same emitter, called on that same body offline, returned a complete
+    band.  The geometry was always emittable; the body never got a call.
+    """
+
+    def test_a_non_arm_body_gets_its_own_inner_faces(self):
+        """A body walled as its own corridor is retained on BOTH sides —
+        the union band's hull cannot do this for a concave side."""
+        body = Polygon([(0, 0), (8, 0), (8, 60), (0, 60)])
+        lay = _layout()
+        s = _ramp(body)
+        lay.shapes.append(s)
+        n0 = len(lay.shapes)
+        bridges.emit_wall_band(lay, [], [body], [s], [], G0, G1,
+                               _dem, APT)
+        band = unary_union([p.polygon for p in lay.shapes[n0:]
+                            if p.role == ROLE_RETAINING_WALL])
+        for flank in (Polygon([(-2, 10), (0, 10), (0, 50), (-2, 50)]),
+                      Polygon([(8, 10), (10, 10), (10, 50), (8, 50)])):
+            assert band.intersects(flank), (
+                "a body walled as its own corridor must be retained on "
+                "both of its sides")
+
+    # NO SYNTHETIC HULL-vs-PER-BODY TWIN, AND THAT IS DELIBERATE.
+    # One was written and DELETED: on a synthetic Y the union band
+    # already answers 0.958 of an arm's ring under the acceptance
+    # instrument's own 2.5 m reach, because the arms sit close enough
+    # that the band on the far side of the V still counts.  The scene
+    # did not reproduce the defect, and reshaping it until the
+    # assertion held would be fitting a scene to a bar — the class this
+    # batch has refused throughout.  The hull's inability to produce a
+    # concave inner face is evidenced where it was MEASURED: the OTHH
+    # fork's 142.8 m body, 51.4 m of free-ground side under the union
+    # band against a complete band when the body gets its own call
+    # (docs/DEFERRED_VERIFICATION.md, round 3k).
 
 class TestTheWallingOrderIsTheMechanism:
     """THE ORDER WAS A SYMPTOM; THE ARC-DROP WAS THE MECHANISM.
@@ -315,10 +366,17 @@ class TestTheWallingOrderIsTheMechanism:
                 f"arm {k} lacks {miss.difference(sib).area:.1f} m² of "
                 f"band on ground no sibling occupies")
 
-    def test_the_emitter_walls_arms_before_the_throat(self):
+    def test_the_emitter_walls_arms_before_the_other_bodies(self):
+        """Arms first, every other body after — the order IS a
+        mechanism (throat-first starves the arms' inner bands: measured
+        0.52/0.52 against 0.92/0.92 on the synthetic Y).  Under
+        2026-09-01j the plan is SEEDED from the arm register and the
+        remaining cluster bodies are appended to it, which is that
+        ordering expressed as one list."""
         src = inspect.getsource(bridges._emit_portal_cluster)
-        seg = src[src.index("if _arm_bodies:"):]
-        i_arms = seg.index("for _bods, _srcs, _aends in _arm_bodies:")
-        i_throat = seg.index("_throat_b = [")
-        assert i_arms < i_throat, (
-            "the throat must be walled LAST — see the measured orderings")
+        i_seed = src.index("_plan = [(_bods, _srcs, _aends)")
+        i_rest = src.index("_plan.append(([_s.polygon], _cluster_ramps, []))")
+        i_run = src.index("for _bods, _srcs, _aends in _plan:")
+        assert i_seed < i_rest < i_run, (
+            "the arms must seed the plan before the other bodies are "
+            "appended, and the plan must be built before it is walked")

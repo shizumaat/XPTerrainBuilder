@@ -1052,6 +1052,23 @@ def test_at_the_shipped_default_the_host_stage_separates_the_two_families(
     which used to produce no candidate at all — is now a candidate and
     is STAGE_B.  The tag, not the gate, is what keeps groundside from
     authoring airside.  The OFF arm is kept as the named fallback.
+
+    MERGE-RESOLUTION REPAIR (beta hardening H6 item 3, 2026-09-01).  This
+    twin went red at the Batch-4a merge (``ba77eb58``) and the red was the
+    MERGE's, not the law's.  ``lane/ltbatch4a`` branched before the owner
+    flipped the gate ON (RULINGS 2026-08-14), so its copy of this file
+    still carried the predecessor ``test_at_the_shipped_default_every_gap
+    _host_is_airside`` — gate asserted FALSE, groundside rim pocket
+    asserted 0.  The conflict resolution kept main's post-08-14 NAME,
+    DOCSTRING and gate-is-ON assertion and 4a's PRE-08-14 tail, which is
+    a test asserting the gate ships ON and then asserting the verdict it
+    only has when it ships OFF.  The measurement that settles it: T1
+    above (``test_a_wholly_groundside_rim_pocket_is_hosted_by_stage_b``)
+    builds the IDENTICAL fixture, asserts 1 / STAGE_B and PASSES, as do
+    T2, T2b and T3; ``config.GAP_FILL_RIM_POCKETS_ENABLED`` defaults to
+    ``1``; and the build prints ``rim-pocket stage census: 1 pocket(s),
+    ALL stage B``.  Restored to main's form, OFF arm included — the
+    separation, not the inertness, is what T4 is for.
     """
     assert GF.GAP_FILL_RIM_POCKETS_ENABLED is True, (
         "the rim-pocket gate must ship ON (owner ruling 2026-08-14)")
@@ -1062,7 +1079,14 @@ def test_at_the_shipped_default_the_host_stage_separates_the_two_families(
     gs, _ = _rim_pocket_layout_roles(
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
-    assert GF.construct_gap_fill_presolve(gs) == 0
+    assert GF.construct_gap_fill_presolve(gs) == 1
+    assert [e["host_stage"] for e in gs.gap_fill_presolve] == [_ST_B]
+
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+    off, _ = _rim_pocket_layout_roles(
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
+    assert GF.construct_gap_fill_presolve(off) == 0
 
 
 # ── THE ANNULUS CLASS (spec-author ruling 2026-08-31, Batch 4a r4) ────

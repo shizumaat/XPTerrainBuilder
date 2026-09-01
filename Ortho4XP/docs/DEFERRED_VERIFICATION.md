@@ -5238,3 +5238,38 @@ both owner ramp probes CONTAINED.
   TOUCHED (outside the authorized scope): two zero-length inset rasters
   in a different tile, `Elevation_data/+40+000/N46E008_airport_insets/`
   (`LSZC_italy10m.tif`, `VBMAS_italy10m.tif`).
+- 2026-08-31 lane/ltbatch3 (linear-transport Batch 3 + spec §5-SUPPLEMENT
+  3b/3c/3d — tunnels §5 + bridges §4). PARKED as STOP-AND-WAIT, never
+  merged; the owner adjudicates the repartition question on return.
+  RAN: the tunnel/bridge/basin blast radius only (728 twins across 19
+  files), OTHH x3 and LEMD x5 patch builds through the harness entry,
+  who_wrote on four real ramp vertices, censuses on the closing arms,
+  airside_value_delta both airports, and the seam-probe-4 + granularity
+  demonstrations. SKIPPED, and each is a real hole:
+  (a) NO FULL SUITE — only the blast radius was run, so any consumer of
+      the retired claim class outside the tunnel/bridge/basin files is
+      unverified;
+  (b) THE §4 DECK PIN HAS NEVER RUN ON REAL DATA. `road_bridge_deck_pins`
+      -> `O4_Vector_Map.include_roads`' clamp is the TILE path, and every
+      build here was `--patch-only`. The pin, its §6 refusal and the
+      levelled-roads sidecar's `deck_pins` block are proven by twins
+      (tests/test_road_bridge_deck_clamp_pin.py, 16) and by nothing else;
+  (c) THE OSM CROSSING CLASSIFIER IS UNEXERCISED IN PRODUCTION. It is
+      wired into `road_bridge_deck.publish_candidates` and twinned
+      (tests/test_osm_crossing_level.py, 13), but neither OTHH nor LEMD
+      produced a shared-node rejection, so the wiring has never fired on
+      real feed data;
+  (d) NO FIVE-AIRPORT SWEEP — HECA / SPJC / SPLP / CYXY were never built
+      under this tree, and the claim retirement touches passes they use;
+  (e) NO PERF MEASUREMENT against tools/build_time_baselines.json, which
+      §6 Batch 4 requires and which the 5-6x accretion makes material;
+  (f) the who_wrote authorship read was taken on the 3b tree, before the
+      3c/3d wall-gate and deck-read changes;
+  (g) OTHH's census/airside numbers are from the 3c arm and LEMD's from
+      the 3d arm — no single tree carries both airports' final numbers.
+  KNOWN-OPEN DEFECT, measured and NOT fixed: the fork inner-face residual
+  at OTHH 25.2537652,51.6032373 (219.5 m2 of 509.2 m2 wall face missing,
+  only 7.4 m2 occupied, and NOT predominantly in the crotch) and
+  25.2761220,51.6134683 (face 97% emitted; the residual is a 0.93 m
+  crotch that cannot hold two 1.6 m bands at all). The second needs a
+  ruling, not code.

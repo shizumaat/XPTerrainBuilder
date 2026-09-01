@@ -6619,9 +6619,13 @@ GAP_FILL_RIM_POCKETS_ENABLED = (
 # "OTHH -639 ADJUDICATED"; S3 dossier §6, lane S4).  `O4_RIM_PRESOLVE_ABSORB`
 # used to withhold rim-pocket spine vertices from the one solve.  It was
 # measured INERT IN PRODUCTION: `gap_fill._rim_pocket_polys` returns []
-# when GAP_FILL_RIM_POCKETS_ENABLED is false (the shipped default), so
-# `rim_ids` is empty and the branch never ran — the 29→9 OTHH airside
-# claim behind it was never shipped.  It is also the wrong SHAPE of
+# when GAP_FILL_RIM_POCKETS_ENABLED is false — which it was at the time
+# of the retirement (the 2026-08-12b park; the gate has shipped ON since
+# the 2026-08-14 flip above) — so `rim_ids` was empty and the branch
+# never ran; the 29→9 OTHH airside claim behind it was never shipped.
+# The retirement does NOT rest on that inertness: under staging a
+# construct's admission rides on its STAGE TAG, and rim-pocket spines are
+# unconditionally STAGE B.  It is also the wrong SHAPE of
 # boundary: a per-construct opt-out of one groundside family from the one
 # solve is exactly the ad-hoc form the staged partition
 # (`solve_stage.py`) replaces.  Under staging, a construct's admission is

@@ -1695,6 +1695,151 @@ OWNER QUESTIONS raised this wave (all HELD pending the owner; nothing improvised
 * **APRON CHORD TARGETS ARE THE NEAREST VISIBLE ANCHOR — PAD OR CENTERLINE, WHICHEVER IS CLOSER (owner 2026-08-25, amends A4.1(i) and the 2026-08-21d strict-chord clause).** An apron ring vertex's strict chord is measured to the NEAREST VISIBLE anchor across APRON-ONLY pavement, where the anchor set is BOTH the building pads and the taxiway centerline nodes — whichever is closer wins. This supersedes vertex→nearest-spine-node-with-pad-intercept: the pad is a first-class chord target, not merely an interceptor when it happens to lie in the path. Visibility is priced across apron pavement only (a chord may not cross non-apron pavement or gaps). BUILDING FRONTAGE CHORDS ARE UNCHANGED: pad→centerline frontage chords keep their existing rules (2026-08-08 / 2026-08-21d) and caps. Consequence: the chord population near pads becomes LOCAL (vertices price against the pad they stand beside instead of a distant spine node), which is the population the 2026-08-25 pad-seat measurement showed the frontage-subset consistency interval was inconsistent with.
 * **DEM IS LAST PRIORITY — PAVEMENT NEVER DRAPES; CUT/RAISE STRAIGHT PLANES BETWEEN ANCHORS (owner 2026-08-25, strengthens 2026-08-24c).** The pavement surface between anchors (centerline profiles, seated pads) is the straight-plane/taut interpolation, cutting into hills and raised over hollows as needed. DEM participates ONLY as the lowest-priority tiebreaker: where the law leaves a choice (a seat interval, an unanchored region), anchor-consistency and plane-flatness are preferred over DEM proximity, and raw DEM authority appears only where no anchor reaches at all. This demotes the standing "DEM chooses WHERE within the lawful range" canon to LAST choice: the range is chosen from anchors first.
 
+## 2026-08-25b — ROAD↔APRON EDGE CONFORMANCE + the band seal's scope (owner)
+
+> **RECONSTRUCTED 2026-09-01 (beta hardening, H2).** This heading was
+> MISSING: `2026-08-25b` is cited 28 times across `src/`, `tools/` and
+> `tests/` but had no entry here, so every citation dangled. The text
+> below is reconstructed from the implementation and its twins — not from
+> memory — and the code is authoritative where they disagree. Evidence
+> and measured numbers: `docs/specs/road-band-seal-scope-spec.md` (also
+> reconstructed in the same commit, from the same sources).
+
+* **A ROAD SHARING AN EDGE WITH AN APRON CONFORMS TO THE STRICTEST GRADE — it becomes part of the apron (owner 2026-08-25).** Contact is CANONICAL IDENTITY, never proximity: two rings share an edge exactly when they share an ordered pair of consecutive node ids (either orientation), which is what `layout.to_osm`'s 11-decimal node dedup makes an identity fact about the emitted graph. Rings that merely come CLOSE are the NEAR-MISS class — reported separately (`tools/band_clamp_attrib.py --contact-rings --near-miss-m`), never folded in; that class is a separate owner call.
+
+* **AMENDMENT 1 — CONFORMANCE IS PRICING, NEVER POPULATION.** Attempt 1 read "becomes part of the apron" as ABSORPTION and it was measured wrong: HECA airside 1,735 → 1,948 and SPJC 175 → 178, adding +53,530 m² of new apron and new 6 m apron|junction steps at ways -12160 / -12167 — the airside-contamination direction "airside is king" forbids. So an edge-sharing ring CONFORMS to the apron's law and does not BECOME the apron: it is stamped `apron_contact`, carries the apron cap end to end, seeds from the apron datum, and keeps its role, its geometry and its groundside-family rows. No absorption, no mouth cut, no reclassification. Gate `O4_ROAD_APRON_EDGE_CONFORM`, default ON. The owner's sentence — "five ring roads touching one apron are one apron-grade surface" — is delivered as GRADE.
+
+* **THE BAND SEAL SEALS ONLY WHAT THE BAND LEGISLATES (owner-approved option (a), same session).** `seal_pavement_to_band` is the pipeline's last elevation author (R17-1(b)), and the band of record is the AIRCRAFT-reachability band: the road family is absent from its propagation domain, its leg-cost grid never paints the road cap, and an off-mask road point is priced at `APRON_MAX_GRADE` × offset with a hard 30 m horizon. Clamping a road to that interval applied a law the road is not under, as the LAST author. MEASURED at HECA: 110 band-clamp records, 92 of them road-family, every floor-side road clamp inside the 30 m off-net radius and none outside it; the owner's site 30.102344, 31.3951157 shipped as a +5.05 m step. The seal's scope is now derived from `raster_reach_band.band_domain_roles()` — ONE source, twinned against a second hand-written copy — and the road family keeps its own authorities (mouth-fed `groundside_reach_band` seating, the road chord limiter at the road cap). Gate `O4_SEAL_AIRSIDE_ONLY`, default ON.
+
+* **Later scoping, recorded here so the chain reads in order:** 2026-08-26b item 2 widened the contact term from the apron to EVERY airside neighbour (spec `road-airside-crossing-conformance-spec.md` §1.1); 2026-08-28e made contact a VALUE law that no longer folds into the cap for a road meeting airside only at a FACE (such a road keeps its free-road class beyond the contact).
+
+> **The rest of the lettered family is reconstructed below** (`c`–`h`,
+> 2026-09-01, H2 round 3). The `a` heading is the dated
+> `## 2026-08-25` entry above (apron chord anchor targets + DEM-last).
+
+## 2026-08-25c — EAT RECOGNITION SCOPING v2: an end-around taxiway is a ROUTED WRAP, and its pin only CUTS (owner)
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), four independent sources:**
+> spec `docs/specs/eat-recognition-scoping-spec.md` (present); the twin
+> `tests/test_eat_recognition_scoping.py` (its header carries the
+> measured basis and enumerates the clauses); `STATUS.md` block
+> `20260825b` ("EAT recognition v2 (RULINGS 25c/d: routed wrap +
+> vacuous bound + 600 m cap + cut-only pin — LEMD builds, zero pins,
+> KCLT byte-identical)"); and the implementation
+> (`solver_primitives`, `grade_law`, `route_profile/solve.py`,
+> `clearance.py`, `config.py`). Code and spec are authoritative.
+
+* **MEASURED BASIS (LEMD +40-004, 2026-08-25).** 149 EAT pins over 10 crossing segments 1.0–4.6 km beyond the 14R / 36R ends, owning plain apron and junction rings, the 36R pins 59–66 m ABOVE the adjacent DEM-seeded pavement. All 12 contradictory final-band anchor pairs were EAT-pin vs EAT-pin, the phase-A harmonic split an empty polytope at 2,291 nodes, and the build died on the final-band inversion assert. **The owner rules LEMD HAS NO EATs.** Real ones cross at 439–482 m (KCLT).
+
+* **THE RULING, three clauses.** What changes is WHICH pavement is recognised as an end-around taxiway; the anchor-rect MECHANISM of 2026-07-27 (corridor rect, `end_elev + eat_pavement_ceiling(D_mid)`, region table, contradiction guard) is UNTOUCHED. (1) **Routed wrap** — recognition needs a genuine crossing centreline whose route binds on BOTH sides; an apron ring in the corridor with no through-centreline gets no rect, and a crossing binding on one side only (a dead-end spur) gets no rect, priced at the guard site on the law graph. (2) **The vacuous-surface far bound** `D_clear = setback + tail/slope` — not a tunable, but the distance at which the regulation surface stops saying anything. (3) **The pin only CUTS**: a wrap whose regulation sits ABOVE the reference everywhere has its rect refused whole, out loud.
+
+* Gate OFF restores the 2026-07-27 recognition exactly.
+
+## 2026-08-25d — NOTHING IS RECOGNISED AS AN EAT BEYOND 600 m (owner; amends 25c)
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), three independent sources:**
+> the twin `tests/test_eat_recognition_scoping.py` (which states the
+> amendment and its reasoning explicitly, and twins the cap at (d2));
+> the constant `EAT_MAX_CROSSING_DIST_M` in `config.py` with
+> `solver_primitives`' reading of it; and `STATUS.md` block `20260825b`.
+
+* 25c's three clauses ALL PASSED LEMD's 14R wrap at D = 1066 m — a taxi centreline genuinely crosses the extended centreline there, inside the 1280 m vacuous bound, and the regulation value genuinely cuts — so it was the one rect left standing of the original ten. **The owner rules that is not an end-around taxiway but the airport's own taxi network crossing a projected line.**
+
+* **`EAT_MAX_CROSSING_DIST_M` = 600 m**, set from the measured feature (real EATs cross at 439–482 m at KCLT), and it is a SEPARATE, explicitly named bound: where both apply, the STRICTER of `D_clear` (25c) and the 600 m recognition cap governs.
+
+* Result at the ship: LEMD builds with ZERO EAT pins; KCLT byte-identical.
+
+## 2026-08-25e — THE PORTAL CORRIDOR IS CLAIMED, AND EVERY REMOVER NAMES WHAT IT DELETES (owner, option (a))
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), four independent sources:**
+> spec `docs/specs/portal-corridor-claim-spec.md` (present, and headed
+> "implements RULINGS 2026-08-25e — the mouth-D fix"); `STATUS.md`
+> block `20260825b`; the implementation across `bridges.py` and
+> `object_terrain_assembly.py`; and the **2026-08-30 canonical-mouth
+> entry below, which quotes this ruling verbatim** ("the
+> strips-plus-remainder composite that 2026-08-25e declared 'by design
+> — explain, don't fix'").
+
+* **THE EVIDENCE (2026-08-25 tunnel attribution, class 2).** OTHH mouth D (25.2789456, 51.5994543; ways `-6785`/`-6786`) is ADMITTED and EMITTED, then every piece is removed by three AGGREGATE-logging passes (covered-stretch drop, graze-clip, R14-1 stand-down). Four of eight OTHH portal clusters lose every ramp this way, and **no remover names what it deletes** — `tunnel_portal_acceptance` fails the mouth at 806.1 m and cannot see more, because absence is all there is to see.
+
+* **§1 THE INSTRUMENT COMES FIRST, MANDATORY AND UNGATED.** Every post-emit tunnel-piece remover logs ONE line PER PIECE removed, carrying the piece's identity (`ref`, way id, lat/lon, coverage, cluster). Aggregate counts may remain as summaries; the per-piece lines are the law, and the summary count must equal the line count.
+
+* **§2 THE CORRIDOR CLAIM — option (a).** Where a mapped mouth's outward approach corridor lands on pavement the walk can neither cut nor claim (the mouth-D class), the ramp **CLAIMS the corridor FOOTPRINT** rather than cutting it: the claim fields RIDE the shape, a drift audit checks them, and the claimed footprint is the only thing taken — never the host's profile. Landed with a bore-depth stand-down guard. Measured: OTHH mouth D emits at −0.90 m, where before there was 727.6 m of nothing.
+
+* **THE ROLE-COMPOSITE DISPOSITION: "by design — explain, don't fix."** A `tunnel_road`-ref strip inside a host `service_road` wrap is a composite the ruling declined to change. **SUPERSEDED for the service-road family by 2026-08-30** (the corridor claim takes such a host WHOLE); `groundside_pavement` hosts keep this behaviour.
+
+## 2026-08-25f — A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR (owner, the building8 disposition)
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), five independent sources:**
+> `config.py` (`BASIN_PAD_COVERAGE_MIN` and its ruling block, carrying
+> the owner's own words); the `BuiltShape` field documentation in
+> `layout.py`; `tests/test_object_basin_trench.py::TestBasinPadFloor
+> Seating` (which records the amendment chain); `STATUS.md` blocks
+> `20260825b` (the docket, owner-pending) and `20260825c` (the
+> disposition, "authority clip — no pad severing/seating; building8+18
+> unmoved"); and the 2026-08-26 entry below, which extends it.
+> **Its spec, `docs/specs/basin-pad-floor-seating-spec.md`, is itself
+> MISSING** — see the standing note at the end of this family.
+
+* **THE EVIDENCE (LEMD, the basinpool round's finding 1).** The basin is confined to the owner's bbox (12,251 m², floor 584.5 m, 8.53 m below surrounding grade) but NO terrain cut emitted: the pack's own `building8` pad (way `-10008`, 33,447 m², flat at 600.28 m) covers 100 % of the facility, the floor pan is differenced against every earlier-born shape, and nothing survived. R13's pit cut only ever cut PAVEMENT, never a pad.
+
+* **THE RULING.** Owner, on LEMD's real sunken tower circle: *"building8 should be below apron grade."* A building pad whose footprint lies within a basin facility's footprint (by `BASIN_PAD_COVERAGE_MIN` of the PAD's own area) is BELOW the surrounding grade: its flat level is the facility's DECLARED FLOOR — not the surrounding grade, not a route-reachability envelope — and the basin cut emits THROUGH it (the facility floor is never differenced away against such a pad). A declared pad is left alone by `relevel_pads_to_host_pavement`: a pad in a pit must NOT adopt its host's grade. Default ON.
+
+* **AMENDED THREE TIMES, and amendment 3 is the landed law** (owner 2026-08-25): *"a simple 7 m deep cutout for the whole area should work without having to sever the buildings."* **NO SEVERING, NO SEATING** — the pad keeps its authored grade, geometry, welds and identity everywhere, and only its FLATTENING AUTHORITY yields inside the facility; the floor plates and the R2 wall band are born THROUGH it and own the interior. **Then extended by 2026-08-26** (below): inside a below-grade region the trench is SENIOR to every pad/building authority, and the yield covers the WHOLE derived region.
+
+> **ONE SUB-QUESTION LEFT OPEN BY THE SOURCES.** `config.py` §1 still
+> states the rule as the pad *seating* at the facility floor, while the
+> twin records amendment 3 as *no seating* — flattening-authority yield
+> only. Both are live in the tree (the `BuiltShape` field is written
+> pre-solve and read by the seat producers). The reconstruction reports
+> the tension rather than resolving it; which of the two the owner
+> intends as the standing form needs one line from the owner.
+
+## 2026-08-25g — ROADS ARE LATERALLY FLAT: THE CROSS-SECTION LIMIT IS LAW (owner)
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), four independent sources:**
+> `config.py`'s ruling block (which quotes the ruling's title and gives
+> the measured failure); `groundside.py` + `grade_law.pair_is_transverse`
+> + `grade_graph.shape_constraints` (the one implementation, imported
+> not copied); `STATUS.md` block `20260825c` ("ROADS — cross-section
+> law (25g, transverse road pairs at the cross-section limit; owner
+> site worst lateral 7.68 % → 2.11 %)"); and `tools/band_clamp_attrib.py`,
+> which quotes the ruling to explain its `--road-profile` mode.
+> **Its spec, `docs/specs/road-surface-quality-spec.md`, is MISSING.**
+
+* **THE DEFECT, MEASURED.** This resolves the KAFW N-1 open question of 2026-08-20. The road cap was already generation-binding through the anisotropic bake, and it did NOT hold: the validator's allowance is `max(baked, cap_l · dist)` — "never TIGHTER than the flat cap" — so the 8 % LONGITUDINAL cap always won and **a road pair could tilt 2–8 % across its own width with nothing to price it** (164 rows at KAFW, 254 at KDFW).
+
+* **THE RULING.** A road's CROSS-SECTION carries its own limit, and that limit is law — for the census AND the solve, which are one law and land together. The classifier that says which pairs are the cross-section is the angle between the pair's own axis and the ROAD RING's long axis, with **45° as the partition, not a tuning knob**: it is the angle at which a pair stops being more along the road than across it, so the classification is exhaustive and no pair falls between the two laws. `grade_law.pair_is_transverse` is its ONE implementation; a second 45° test anywhere would be two laws over two populations.
+
+* Gate `O4_ROAD_CROSS_SECTION_LAW`, default ON — ONE kill switch for the whole reading; OFF restores the pre-ruling frame exactly (every pair prices at its longitudinal cap, the `road_cross_section` census family reads zero). Measured at the owner's site: worst lateral 7.68 % → 2.11 %.
+
+## 2026-08-25h — A TRUCK ROUTE ALONG OR THROUGH AN APRON IS A SPINE AT THE APRON'S CAP (owner)
+
+> **RECONSTRUCTED 2026-09-01 (H2 round 3), four independent sources:**
+> `config.py`'s ruling block (carrying the owner's sentence);
+> `groundside.apron_spine_subsegments` (whose docstring quotes the
+> ruling and the spec's own words); `STATUS.md` block `20260825c`
+> (with the measured result); and the §3.2 alternation instrument in
+> `pipeline.py` + `tools/check_grade.py`.
+> **Its spec, `docs/specs/service-road-apron-spine-spec.md`, is MISSING.**
+
+* **THE RULING, in the owner's words:** *"A truck route along/through an apron is a SPINE at the apron's cap — like a taxiway, but 1 %."* A service-road centreline segment running INSIDE an apron or ALONG an apron edge is an apron-spine segment.
+
+* **THE GAP IT CLOSES.** Free-road scoping (2026-07-27 + R7a) cuts a service centreline where it stops being a free road and feeds only the FREE stretches to the slice; the apron-contact stretches were supposed to "grade with the apron" but **were dropped ENTIRELY**, so those roads reached the grade graph with NO CENTRELINE AT ALL. With nothing anchoring them, the apron chain and the road family solved the same welded stations independently — the alternating apron-vs-service sawtooth at the owner's back-edge ripple sites.
+
+* **THE RECOGNITION SET IS THE COMPLEMENT of the free-road predicate** — it takes the free-road walk's own answer and subtracts it, never a third contact test ("reuse their predicates"). Segmentation comes free: the same centreline yields apron-spine pieces inside contact and free-road pieces outside it, because the free-road walk already cut it at those stations. Gate `O4_SERVICE_APRON_SPINE`, default ON.
+
+* **§3.2 THE ALTERNATION INSTRUMENT, report-first.** Adjacent stations along a shared apron/road edge whose AUTHORSHIP alternates by more than `EDGE_ALTERNATION_TOL_M` (0.25 m) are counted on the FINAL surface, after every writer, and published through the sidecar so the census can surface it. It gates nothing. Measured at the ship: HECA airside 2,177 → 918 on the post-lattice frame, alternation class 0.
+
+> **STANDING DOC DEBT FOR THIS FAMILY (flagged 2026-09-01, H2).** Three
+> specs these entries cite do not exist and never did:
+> `basin-pad-floor-seating-spec.md` (25f), `road-surface-quality-spec.md`
+> (25g) and `service-road-apron-spine-spec.md` (25h). The law is live in
+> the code and its twins in every case; only the spec is missing, exactly
+> as `road-band-seal-scope-spec.md` was for 25b. They are named here so
+> the citations resolve to *something*, and left unwritten because
+> reconstructing them is its own sourcing pass.
+
 ## 2026-08-26 — Owner rulings (LEMD T4S basin, measured against the pack's own shipped mesh patch)
 
 Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-010/+40-004/LEMD.patch.osm` — the pack's own Ortho4XP patch. Its T4S pit: one 87-vertex ring, 27,612 m², rim exactly at the pack's flat 594.625 datum, floor at exactly datum −18.0, vertical walls (paired nodes ~0.5 m apart). The pack's deepest genuine below-grade solid in the family is −7.09 m — the −18 floor is a ~10.9 m overcut to a round number, occluded by the object shell.
@@ -1865,3 +2010,7 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 ## 2026-09-01c — Owner ruling: THE WALL FOOT RETIRES
 
 * The §T5 foot is not useful or necessary and RETIRES (machinery deleted per 29f). THE MODEL: the tunnel ramp is the corridor floor; a 0.5 m gap; then the wall band whose INNER AND OUTER edges both carry the SAME flat corridor-top elevation. Nothing bridges the gap — the mesher's own triangulation between the ramp edge and the wall's inner edge IS the steep face. Consequences by construction: wall_top_flat trivially satisfied (both edges one value); no floor value in any wall band; the unowned-annulus concern is void at 0.5 m (the triangulated gap is the face). `wall_gap_m` = 0.5. Supersedes §T5 (28c item 1's gap intent is kept — the gap remains — the FOOT shape does not). The two unattributed foot-gap residuals (31k/2026-09-01b) are MOOT. Per 30l: consumer census of `tunnel_wall_foot` readers (census roles, mouth inventory, twins, wall machinery) BEFORE the edit.
+
+* **2026-09-01d (owner):** ruling C EXTENDS TO PAD EDGES — the merge-and-weld covers the pad↔apron boundary: ground revealed by the smaller closing radius grades smoothly to the pad seat. Closes both the freed-ground strip class (HECA +4/+4) and the LEMD pad-edge class (+102) in one mechanism.
+
+* **2026-09-01e (owner):** `wall_gap_m` = **0.6 m** — off the weld tolerance (the 0.5 collision with `CONFORMANCE_TOL_M` re-created sim item-9's broken ramp; 2026-09-01c's 0.5 is amended); designed standoffs must never sit ON an interning/welding tolerance. BETA GATE = GREEN-EXCEPT-ACCEPTANCE: every suite green except the declared absolute-zero acceptance module, which stays honestly red as the campaign metric; release notes say so.

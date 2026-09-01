@@ -3871,6 +3871,26 @@ def test_the_dsf_dump_cache_is_not_the_shared_repo_during_tests(build_mod):
         f"junk directories there")
 
 
+def test_the_osm_clip_store_is_not_the_shared_repo_during_tests(build_mod):
+    """THE THIRD REDIRECT, asserted live inside a running test.
+
+    The leak this closes is the osmium-tool SUBPROCESS's clip tmp file
+    (``_regional_extracts/clips/<clip>-part0.osm.pbf.tmp-<pid>-<tid>``),
+    which no Python-level guard can intercept: eight of them, 11.3 MB
+    each, were sitting in the shared corpus when this landed, and the
+    newest was written inside a full suite whose session detector then
+    errored on all eighteen workers.  See the conftest fixture for the
+    full mechanism.
+    """
+    import O4_OSM_Extracts as EXTRACTS
+    store = Path(EXTRACTS.STORE_DIRECTORY).resolve()
+    repo = Path(build_mod.DATA_REPO).resolve()
+    assert repo not in store.parents and store != repo, (
+        f"the OSM regional-extract store points into the shared data "
+        f"repo ({store}) while tests run — the osmium subprocess writes "
+        f"its clip tmp file there and no Python guard can see it")
+
+
 def test_the_airport_mod_cache_root_honours_its_env_override(
         tmp_path, monkeypatch):
     """KNOWN-ANSWER TWIN for the accessor (spec §8.2 R-b), all four states.

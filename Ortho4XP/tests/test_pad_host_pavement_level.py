@@ -848,19 +848,52 @@ def test_the_pad_law_re_asserts_after_the_late_projection():
     Asserted on the pipeline's source, in ``test_r17_band_clamp_last_
     author``'s own idiom: an ordering that holds "currently, by luck" is
     exactly what this pins.
+
+    STALE SOURCE-SHAPE FIXTURE, REPAIRED — twice over, and the LAW is
+    unchanged.  (1) The twin read
+    ``inspect.getsource(PIPE.build_airport_pavement)``, but the solve-and-
+    emit tail was extracted into ``PIPE.solve_and_finalize`` (which
+    ``build_airport_pavement`` now calls), so the source it searched no
+    longer contained any of these passes.  (2) It split on the literal
+    ``"_late_fgp(layout, icao"`` — a SECOND, late projection call that has
+    since been consolidated away; there is exactly one
+    ``final_grade_projection`` call today.  Together those made the split
+    raise ``IndexError`` rather than fail an assertion: the twin had
+    stopped measuring, instead of reporting something that changed.
+
+    The ordering it exists to pin still holds, and is asserted here
+    against the surviving spellings — projection -> pad-host re-level ->
+    band seal — each required to appear exactly once, so this cannot
+    silently stop measuring again.
     """
     import inspect
     from auto_patch import pipeline as PIPE
 
-    source = inspect.getsource(PIPE.build_airport_pavement)
-    after_late = source.split("_late_fgp(layout, icao", 1)[1]
-    assert "relevel_pads_to_host_pavement as _relevel_late" in after_late, (
-        "no pad-host re-level after the late projection — the projection "
+    source = inspect.getsource(PIPE.solve_and_finalize)
+    marks = {
+        "projection": "final_grade_projection(layout, icao",
+        "relevel": "_relevel_late(layout)",
+        "seal": "_seal_band(layout, icao)",
+    }
+    for _name, _token in marks.items():
+        assert source.count(_token) == 1, (
+            f"the {_name} step is spelled {source.count(_token)} time(s) in "
+            f"solve_and_finalize — re-point this twin and re-check the "
+            f"ORDER, which is the law it guards")
+    at = {_name: source.index(_token) for _name, _token in marks.items()}
+
+    assert "relevel_pads_to_host_pavement as _relevel_late" in \
+        source[at["projection"]:], (
+        "no pad-host re-level after the projection — the projection "
         "is the last author of the pad value again")
+    assert at["projection"] < at["relevel"], (
+        "the pad-host law no longer re-asserts AFTER the projection — HECA "
+        "building114's 85.59 gets re-stamped 88.5 again")
     # ...and it is still BEFORE the seal (the R17 guard asserts the
     # complement: nothing after the seal).
-    before_seal = source.split("_seal_band(layout, icao)", 1)[0]
-    assert "_relevel_late(layout)" in before_seal
+    assert at["relevel"] < at["seal"], (
+        "the pad-host re-level runs after the band seal — the seal must "
+        "remain the pipeline's last elevation author (R17-1(b))")
 
 
 # ═════════════════════════════════════════════════════════════════════

@@ -737,24 +737,46 @@ def test_a_through_channel_is_not_a_rim_pocket(monkeypatch):
     assert layout.shapes == before
 
 
-def test_the_rim_pocket_default_state_is_a_noop():
-    """THE DEFAULT STATE (ruling 2026-08-12b, after the HECA closing
-    read): the gate ships OFF, so a rim pocket is byte-identical to the
-    pre-ruling behaviour with no env set at all.
+def test_the_rim_pocket_default_state_is_on_and_stage_b(monkeypatch):
+    """THE DEFAULT STATE — SUPERSEDED PREMISE, REWRITTEN.
 
-    HECA is why: at the post-solve-only default the arm minted 1,330 new
-    airside within_shape rows of which 1,238 sit OFF-FACE (median 63 m,
-    worst 140-207 m out at up to 11.31 m apron|apron) -- a third channel
-    moving airside pavement, ~30x the OTHH absorption class the
-    post-solve-only posture closed.  The detector, the width law and that
-    posture stay landed and twinned; the staged-solve round owns the
-    attribution and the re-enable."""
-    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
-        "the rim-pocket gate must ship OFF")
+    This twin used to be ``test_the_rim_pocket_default_state_is_a_noop``
+    and pinned ruling 2026-08-12b's PARK: the gate ships OFF because the
+    post-solve-only arm minted 1,330 new airside ``within_shape`` rows of
+    which 1,238 sat OFF-FACE (median 63 m, worst 11.31 m apron|apron) —
+    groundside authoring airside through a third channel.
+
+    That channel was ATTRIBUTED and closed, and the owner ruled the gate
+    DEFAULT ON on 2026-08-14 closing the staged-solve S4/s4rim2 arc
+    (config.py ``GAP_FILL_RIM_POCKETS_ENABLED``; RULINGS 2026-08-14
+    "RIM-POCKET SPINES ARE UNCONDITIONALLY STAGE B").  The fix was not
+    the gate: it is (a) the stage partition, which stamps every
+    rim-pocket spine STAGE B so an airside rim arm is READ as immutable
+    boundary and never written, and (b) the enclosure-host stamp
+    replacing the false "enclosed gap of the airside union" premise.
+    Measured at the flip: the knoll grades, HECA law-true 7221->7139,
+    OTHH airside unchanged.
+
+    So the guard this twin owes is no longer "nothing happens" but "the
+    pocket is built AND it cannot write airside": at the shipped default
+    the pocket constructs, emits, and carries STAGE B.  The OFF arm is
+    kept below as the named fallback, still a byte-identical no-op.
+    """
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is True, (
+        "the rim-pocket gate must ship ON (owner ruling 2026-08-14)")
     layout, _ = _rim_pocket_layout()
-    before = list(layout.shapes)
-    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
-    assert layout.shapes == before
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B, (
+        "a rim-pocket spine that is not stage B is the 2026-08-12b "
+        "off-face airside channel, re-opened")
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 1
+    assert len(_faces(layout)) == 1
+
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+    off, _ = _rim_pocket_layout()
+    before = list(off.shapes)
+    assert emit_gap_fill_spines(off, None, 0, 0) == 0
+    assert off.shapes == before
 
 
 def test_every_gap_pass_sees_the_same_candidates(monkeypatch):
@@ -778,19 +800,28 @@ def test_every_gap_pass_sees_the_same_candidates(monkeypatch):
             f"three passes would disagree about the rim pockets")
 
 
-def test_the_absorption_gate_is_retired_and_its_removal_is_inert():
+def test_the_absorption_gate_is_retired_and_the_stage_tag_replaced_it(
+        monkeypatch):
     """THE GATE RETIREMENT (owner ruling 2026-08-13, RULINGS "OTHH -639
-    ADJUDICATED"; S3 dossier §6) AND ITS INERTNESS TWIN.
+    ADJUDICATED"; S3 dossier §6) AND THE TWIN THE REMOVAL OWES.
 
     ``O4_RIM_PRESOLVE_ABSORB`` withheld rim-pocket spine vertices from
-    the one solve.  It never ran in production — pockets ship OFF, so
-    ``_rim_pocket_polys`` returns [] and ``rim_ids`` is empty — and
-    which constructs a stage may move is the STAGE TAG's job now, never
-    a per-construct flag.
+    the one solve.  Which constructs a stage may move is the STAGE TAG's
+    job now, never a per-construct flag.
 
-    Two halves, and the second is the twin the removal owes: the symbol
-    is GONE from both modules, and with pockets OFF the retired branch's
-    subject does not exist, so the construction is unchanged."""
+    SUPERSEDED PREMISE, REWRITTEN: as
+    ``test_the_absorption_gate_is_retired_and_its_removal_is_inert`` the
+    second half proved the removal harmless by INERTNESS — "pockets ship
+    OFF, so ``rim_ids`` is empty and the branch had no subject".  The
+    owner flipped the gate DEFAULT ON on 2026-08-14 (RULINGS
+    "RIM-POCKET SPINES ARE UNCONDITIONALLY STAGE B", closing the
+    staged-solve S4/s4rim2 arc), so the subject now EXISTS at the
+    shipped default and inertness can no longer carry the argument.
+    The removal's real warrant is the replacement: the construct is
+    admitted and its solve admission rides on ``host_stage``, which is
+    what this twin asserts.  The OFF arm keeps the original inertness
+    assertion where it is still true.
+    """
     import inspect
     from auto_patch import config as _cfg
     assert not hasattr(_cfg, "RIM_PRESOLVE_ABSORB"), (
@@ -803,19 +834,34 @@ def test_the_absorption_gate_is_retired_and_its_removal_is_inert():
         if not ln.lstrip().startswith("#"))     # the note may name it
     assert "RIM_PRESOLVE_ABSORB" not in _code, (
         "the retired gate's branch is still in the pre-solve construction")
-    # INERT WHILE POCKETS ARE OFF: the branch's whole subject (``rim_ids``)
-    # is empty at the shipped default, so nothing it used to do happens.
-    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
-        "the rim-pocket gate must ship OFF")
+    # THE REPLACEMENT, at the shipped default: the subject the retired
+    # flag used to withhold is present, is constructed like any other
+    # gap, and is held out of the airside pass by its STAGE TAG alone.
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is True, (
+        "the rim-pocket gate must ship ON (owner ruling 2026-08-14)")
     layout, _ = _rim_pocket_layout()
     airside = GF._airside_shapes(layout)
-    assert GF._rim_pocket_polys(layout, airside) == []
+    assert len(GF._rim_pocket_polys(layout, airside)) == 1
     _cands, rim_ids = GF._gap_candidate_polys(layout, airside)
-    assert rim_ids == set(), (
+    assert len(rim_ids) == 1
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B, (
+        "nothing withholds the rim-pocket spine but the stage tag — and "
+        "it is not withholding it")
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 1
+
+    # THE NAMED FALLBACK, unchanged: with pockets OFF the retired
+    # branch's whole subject is gone, so its removal is a no-op there.
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+    off, _ = _rim_pocket_layout()
+    off_airside = GF._airside_shapes(off)
+    assert GF._rim_pocket_polys(off, off_airside) == []
+    _cands, off_rim_ids = GF._gap_candidate_polys(off, off_airside)
+    assert off_rim_ids == set(), (
         "pockets OFF must leave the retired branch no subject at all")
-    assert GF.construct_gap_fill_presolve(layout) == 0
-    assert not getattr(layout, "gap_fill_presolve", None)
-    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert GF.construct_gap_fill_presolve(off) == 0
+    assert not getattr(off, "gap_fill_presolve", None)
+    assert emit_gap_fill_spines(off, None, 0, 0) == 0
 
 
 def test_a_rim_pocket_spine_is_constructed_when_pockets_are_on(monkeypatch):
@@ -965,14 +1011,25 @@ def test_a_pad_on_the_rim_does_not_make_the_host_airside(monkeypatch):
         "the generic node fold is what this host rule must not be")
 
 
-def test_at_the_shipped_default_every_gap_host_is_airside():
-    """T4, INERTNESS.  Rim pockets ship OFF, so the only candidates are
-    the enclosed interior rings of the airside union — airside-hosted by
-    construction, with no geometry test — and the tag is STAGE_A
-    everywhere, exactly as before S1d.  The groundside-rim geometry
-    produces no candidate at all."""
-    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
-        "the rim-pocket gate must ship OFF")
+def test_at_the_shipped_default_the_host_stage_separates_the_two_families(
+        monkeypatch):
+    """T4 — SUPERSEDED PREMISE, REWRITTEN.
+
+    As ``test_at_the_shipped_default_every_gap_host_is_airside`` this
+    twin read T4 as INERTNESS: pockets shipped OFF (ruling 2026-08-12b),
+    so the only candidates were enclosed interior rings of the airside
+    union and STAGE_A was the only tag anyone could see.  The owner
+    flipped the gate DEFAULT ON on 2026-08-14 (RULINGS "RIM-POCKET
+    SPINES ARE UNCONDITIONALLY STAGE B"), so at the shipped default BOTH
+    families are live and T4's real content is the SEPARATION: an
+    enclosed gap of the airside union stays STAGE_A (airside-hosted by
+    construction, no geometry test), while a groundside-rim pocket —
+    which used to produce no candidate at all — is now a candidate and
+    is STAGE_B.  The tag, not the gate, is what keeps groundside from
+    authoring airside.  The OFF arm is kept as the named fallback.
+    """
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is True, (
+        "the rim-pocket gate must ship ON (owner ruling 2026-08-14)")
     layout, _ = _frame_layout(30.0)
     assert GF.construct_gap_fill_presolve(layout) >= 1
     assert [e["host_stage"] for e in layout.gap_fill_presolve] == \
@@ -980,4 +1037,11 @@ def test_at_the_shipped_default_every_gap_host_is_airside():
     gs, _ = _rim_pocket_layout_roles(
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
-    assert GF.construct_gap_fill_presolve(gs) == 0
+    assert GF.construct_gap_fill_presolve(gs) == 1
+    assert [e["host_stage"] for e in gs.gap_fill_presolve] == [_ST_B]
+
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+    off, _ = _rim_pocket_layout_roles(
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
+    assert GF.construct_gap_fill_presolve(off) == 0

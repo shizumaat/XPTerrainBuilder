@@ -508,12 +508,22 @@ def test_the_solve_ingests_the_family_at_BOTH_edge_set_sites():
     reason (its own comment records the miss), in the one pass that frees
     the most nodes.  A law family that binds at one site and not the
     other is half-landed, so both sites are asserted here rather than
-    left to a reviewer's memory."""
+    left to a reviewer's memory.
+
+    STALE SOURCE-SHAPE FIXTURE, REPAIRED.  The law is intact — solve.py
+    still builds ``u_edges`` at exactly two sites and both still ingest the
+    family — but this twin matched ``r"^    u_edges = \\["``, pinning FOUR
+    SPACES of indentation.  The solve-side site is now nested one level
+    deeper (8 spaces), so the regex found ONE site and the twin failed with
+    ``1 == 2``: an indentation change, not a missing ingest.  Matching
+    leading whitespace instead keeps the assertion about the LAW rather
+    than about the block structure the law happens to sit in.
+    """
     import re
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "src" / "auto_patch"
            / "elevation_per_surface" / "route_profile" / "solve.py").read_text()
-    builds = [m.start() for m in re.finditer(r"^    u_edges = \[", src,
+    builds = [m.start() for m in re.finditer(r"^\s*u_edges = \[", src,
                                              re.M)]
     ingests = [m.start() for m in
                re.finditer(r"lateral_xsection_law_edges", src)]

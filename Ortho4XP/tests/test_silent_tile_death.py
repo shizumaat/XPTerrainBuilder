@@ -24,17 +24,24 @@ The twins below pin every leg of the closure:
     patches it wrote are byte-for-byte what it wrote.
 """
 import json
+import multiprocessing
 import os
 import signal
 import sys
+from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "src"))
+# ``src`` is already on sys.path (tests/conftest.py puts it there before any
+# test module is imported).  A second insert here would push a DUPLICATE
+# entry to position 0 at COLLECTION time, ahead of whatever the previously
+# collected module put there — a session-wide global reordered by which
+# file pytest happened to import last.  It is not this file's to reorder.
 
 from auto_patch import driver as DRIVER          # noqa: E402
 import O4_UI_Utils as UI                          # noqa: E402
+
+HARNESS = Path(__file__).resolve().parents[1] / "tools" / "harness"
 
 
 # ── fixtures ────────────────────────────────────────────────────────────
@@ -80,10 +87,66 @@ def _run(tasks, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _serial(monkeypatch):
-    """Serial path by default — the parallel twin opts back in."""
-    monkeypatch.setattr(DRIVER, "_cfg_parallel_override", None, raising=False)
+    """Serial path by default — the parallel twin opts back in.
+
+    Also restores ``driver._WORKER_DEM``: ``_run_build_tasks`` publishes the
+    tile DEM on that module global for the serial path, and a test's fake
+    tile must not still be sitting there for the next test in the session.
+    """
     from auto_patch import config as CFG
     monkeypatch.setattr(CFG, "PARALLEL_AIRPORTS", False, raising=False)
+    monkeypatch.setattr(DRIVER, "_WORKER_DEM",
+                        getattr(DRIVER, "_WORKER_DEM", None), raising=False)
+
+
+@pytest.fixture
+def the_shared_repo_is_untouched():
+    """Attribute any SUBPROCESS write to the shared data repo to THIS test.
+
+    THE BLIND SPOT THIS COVERS.  conftest's per-test
+    ``SharedRepoWriteGuard`` is a PYTHON-level guard in the pytest
+    process: it cannot see a write made by a child process.  The only
+    thing that does is the session-scoped detector — which reports at
+    SESSION TEARDOWN, so its failure lands as an ERROR on whatever test
+    happened to run last in the session (in a combined run with
+    ``tests/test_harness.py``, that is its final test), naming a file
+    that had nothing to do with it.
+
+    ``test_killed_worker_is_named_and_fatal`` is the one test in the
+    suite that starts real engine subprocesses (a spawn ProcessPool whose
+    children import the engine before dying), so it is the one test that
+    can produce that misattribution.  It carries its own before/after
+    snapshot — the harness's single implementation, not a copy — and
+    fails HERE, named, in a ~1 s window instead of a whole session's.
+    """
+    if str(HARNESS) not in sys.path:
+        sys.path.insert(0, str(HARNESS))
+    try:
+        import shared_repo_guard as GUARD
+    except Exception as exc:                            # pragma: no cover
+        pytest.skip(f"shared-repo guard unavailable: {exc!r}")
+    if not os.path.isdir(GUARD.DATA_REPO):
+        yield
+        return
+    before = GUARD.shared_repo_snapshot()
+    yield
+    changes = GUARD.snapshot_diff(before, GUARD.shared_repo_snapshot())
+    touched = [(path, GUARD.scope_of(path))
+               for kind in ("added", "modified", "removed")
+               for path in changes[kind]]
+    # ``.lock`` coordination churn is the one ruled-lawful class
+    # (library-index allowance withdrawn for the suite).
+    touched = [(p, s) for p, s in touched if not p.endswith(".lock")]
+    assert not touched, (
+        "this test's CHILD PROCESSES wrote into the shared data repo "
+        f"{GUARD.DATA_REPO} — invisible to conftest's per-test Python "
+        "guard, and otherwise reported only at session teardown as an "
+        "ERROR on an unrelated test:\n"
+        + "\n".join(f"  [{scope or 'unscoped'}] {path}"
+                    for path, scope in touched[:20])
+        + "\nFIX: the child inherits os.environ — redirect the writing "
+          "cache root there (O4_DSF_CACHE_DIR / O4_AIRPORT_MOD_CACHE_DIR "
+          "are already redirected session-wide by conftest).")
 
 
 @pytest.fixture
@@ -119,7 +182,8 @@ def _sigkill_self():
 
 
 def test_killed_worker_is_named_and_fatal(tmp_path, monkeypatch,
-                                          captured_events):
+                                          captured_events,
+                                          the_shared_repo_is_untouched):
     from auto_patch import config as CFG
     monkeypatch.setattr(CFG, "PARALLEL_AIRPORTS", True, raising=False)
     monkeypatch.setattr(CFG, "parallel_airports_worker_count",
@@ -143,6 +207,13 @@ def test_killed_worker_is_named_and_fatal(tmp_path, monkeypatch,
         raised.value.failures
     assert {icao for icao, _stage, _error in captured_events} == named
     assert not os.path.exists(tasks[0]["auto_patch_file"])
+    # NOTHING SPAWNED SURVIVES THIS TEST.  The pool's children were killed
+    # and its Manager was shut down inside ``_run_build_tasks``; a live
+    # child here would keep running — and keep being able to write —
+    # inside every test that follows it in the session.
+    # ``active_children()`` also reaps, so it is the join as well as the
+    # assertion.
+    assert multiprocessing.active_children() == []
 
 
 # ── 2. the patch-write failure ──────────────────────────────────────────

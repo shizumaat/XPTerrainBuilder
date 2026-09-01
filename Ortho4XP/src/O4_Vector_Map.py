@@ -1017,8 +1017,27 @@ def build_poly_file(tile):
         return 0
 
     # Airports
-    (apt_array, apt_area, patches_area, graded_area) = include_airports(
-        vector_map, tile)
+    try:
+        (apt_array, apt_area, patches_area, graded_area) = include_airports(
+            vector_map, tile)
+    except AUTOPATCH.AutoPatchBuildFailure as auto_patch_failure:
+        # THE SILENT TILE-DEATH CLASS, CLOSED (H1; docs/POSTMORTEM-
+        # 20260831.md Task C).  An airport that did not produce its patch
+        # is FATAL to the tile: continuing would mesh whatever stale
+        # patch is on disk and finish with exit 0 — which is exactly what
+        # shipped Aug-29 geometry to the owner as the Aug-30 build.  The
+        # airport, stage and cause are already on the engine log and on
+        # the JSONL protocol (one ``AutoPatchFailed`` event each); step 1
+        # reports failure, so the session emits ``BuildDone(ok=False)``
+        # and every entry point that checks the step's return value
+        # exits nonzero.
+        UI.lvprint(0, "ERROR: " + str(auto_patch_failure))
+        UI.lvprint(
+            0,
+            "   The tile build is ABORTED — no mesh is built on a patch "
+            "set this build did not write.")
+        UI.exit_message_and_bottom_line("")
+        return 0
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )

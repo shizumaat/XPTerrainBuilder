@@ -219,6 +219,7 @@ def _build_cached(icao: str, compute_elevations: bool,
     NOTE: callers treat the returned layout as READ-ONLY — it is shared
     across every test for that airport.  Do not mutate it in place.
     """
+    arm_lane_local_derived_caches()
     from auto_patch.pipeline import build_airport_pavement
     if tile_lat is not None and tile_lon is not None:
         from auto_patch.elevation import _load_airport_dem
@@ -541,6 +542,57 @@ def mirror_tree_as_overlay(source_root: str, overlay_root: str) -> dict:
     the shared corpus."""
     return _harness_build_module().mirror_tree_as_overlay(
         source_root, overlay_root)
+
+
+def arm_lane_local_derived_caches() -> bool:
+    """Arm the DERIVED-cache redirects when NOTHING else has.
+
+    THE HOLE THIS CLOSES (measured 2026-09-01, lane hard5).  The overlay
+    and the per-test write guard below are pytest FIXTURES, so they arm
+    for ``pytest`` and for ``tools/harness/build_airport.py`` (which arms
+    its own) — and for NOTHING ELSE.  A plain
+    ``venv/bin/python probe.py`` that does ``import conftest;
+    cached_airport_layout("SPLP", ...)`` — the attribution-probe idiom
+    this repo runs constantly — therefore built against the SHARED
+    ``Airport_mod_cache`` and wrote
+    ``Airport_mod_cache/SPLP Test/o4_object_footprints_-13-078.cache``
+    into it at 11:59:51, flagging two other lanes' concurrent arms
+    CONTAMINATED.  Nothing was wrong with the redirect; it simply was
+    not armed on that path.
+
+    So the arming moves to the ONE place every layout build goes through
+    (``_build_cached``).  Under pytest and under the harness the env is
+    already set and this is a no-op — the fixtures below stay the
+    authority for their own sessions; there is one mirror implementation
+    (the harness's) and this adds no second copy of it.  Returns True
+    when THIS call armed the redirects.
+    """
+    global _LANE_AIRPORT_MOD_CACHE_DIR
+    if os.environ.get("O4_AIRPORT_MOD_CACHE_DIR"):
+        return False                     # a fixture / the harness owns it
+    import tempfile
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] derived-cache redirect unavailable: {exc!r} — "
+              f"this build may write the SHARED corpus; run it through "
+              f"tools/harness/build_airport.py instead")
+        return False
+    root = tempfile.mkdtemp(prefix="o4_lane_derived_caches_")
+    overlay = os.path.join(root, "airport_mod_cache")
+    os.makedirs(overlay, exist_ok=True)
+    mirror_tree_as_overlay(
+        os.path.join(harness.DATA_REPO, "Airport_mod_cache"), overlay)
+    os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = overlay
+    _LANE_AIRPORT_MOD_CACHE_DIR = overlay
+    if not os.environ.get("O4_DSF_CACHE_DIR"):
+        dsf = os.path.join(root, "dsf_cache")
+        os.makedirs(dsf, exist_ok=True)
+        os.environ["O4_DSF_CACHE_DIR"] = dsf
+    print(f"[conftest] ARMED lane-local derived-cache redirects for an "
+          f"out-of-pytest build (no fixture, no harness): "
+          f"O4_AIRPORT_MOD_CACHE_DIR={overlay}")
+    return True
 
 
 @pytest.fixture(scope="session", autouse=True)

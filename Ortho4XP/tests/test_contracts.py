@@ -271,22 +271,59 @@ def test_obj8_reader_signature(name, expected_parameters):
 # obj8_partition (amendment A1)
 # ---------------------------------------------------------------------------
 
+#: ``(name, frozen_call_signature, declared_optional_extensions)``.
+#:
+#: STALE-FIXTURE REPAIR (beta hardening, H2).  This twin used to compare
+#: ``list(inspect.signature(fn).parameters)`` against one flat list, so
+#: commit 6045e6b6 ("perf P3 lane G: object partition -7.3 s CPU at HECA,
+#: byte-identical to the frozen 1.0.245 baseline") turned it red by
+#: adding ``vertex_array`` / ``part_geometries`` to ``contact_graph`` —
+#: two KEYWORD-ONLY parameters with defaults, which let a caller hand in
+#: derivations it already holds.  Amendment A1's contract is the CALL
+#: SIGNATURE, and a keyword-only default extends it without changing it:
+#: every existing call site is unaffected, and the lane's own acceptance
+#: was byte-identity.
+#:
+#: So the guard is kept and sharpened rather than loosened.  The frozen
+#: list is now exactly the REQUIRED (positional-or-keyword) parameters —
+#: reorder, rename, add or remove one and this still fails — and any
+#: optional keyword-only extension must be DECLARED here, so a new one
+#: cannot arrive unnoticed either.
 OBJ8_PARTITION_SIGNATURES = [
-    ("weld_parts", ["vertices", "triangles"]),
-    ("contact_graph", ["vertices", "parts", "epsilon_metres"]),
-    ("connected_structures", ["part_count", "contact_edges"]),
+    ("weld_parts", ["vertices", "triangles"], []),
+    ("contact_graph", ["vertices", "parts", "epsilon_metres"],
+     ["vertex_array", "part_geometries"]),
+    ("connected_structures", ["part_count", "contact_edges"], []),
 ]
 
 
 @pytest.mark.parametrize(
-    "name, expected_parameters",
+    "name, expected_parameters, expected_optional",
     OBJ8_PARTITION_SIGNATURES,
-    ids=[name for name, _ in OBJ8_PARTITION_SIGNATURES],
+    ids=[name for name, _, _ in OBJ8_PARTITION_SIGNATURES],
 )
-def test_obj8_partition_signature(name, expected_parameters):
-    assert _parameter_names(getattr(obj8_partition, name)) == (
-        expected_parameters
-    )
+def test_obj8_partition_signature(name, expected_parameters,
+                                  expected_optional):
+    parameters = inspect.signature(
+        getattr(obj8_partition, name)).parameters
+    required = [
+        pname for pname, p in parameters.items()
+        if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and p.default is inspect.Parameter.empty
+    ]
+    assert required == expected_parameters
+    optional = [pname for pname, p in parameters.items()
+                if pname not in required]
+    assert optional == expected_optional, (
+        f"{name} grew an undeclared optional parameter — an extension is "
+        f"lawful, an undeclared one is not")
+    for pname in optional:
+        p = parameters[pname]
+        assert p.kind is inspect.Parameter.KEYWORD_ONLY, (
+            f"{name}'s {pname} is not keyword-only — that CHANGES the "
+            f"frozen A1 call signature, it does not extend it")
+        assert p.default is not inspect.Parameter.empty, (
+            f"{name}'s {pname} has no default — existing call sites break")
 
 
 def test_superseded_grouping_not_ported():

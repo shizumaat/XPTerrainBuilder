@@ -1976,8 +1976,10 @@ def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
     the ``.anchor_bak`` originals): one pool, ~220 structures at the
     epsilon-0.25 knee, equal per-structure deltas across all eight
     resources (shared anchor), zero skips.  Pinned to the legacy
-    per-structure law: this mesh state carries two over-span
-    structures, so gate-ON legitimately cuts/seats them and the
+    per-structure law: this mesh state carries several over-span
+    structures (six, on the mesh built 2026-08-28 — see the
+    stale-fixture note at the span bar below), so gate-ON
+    legitimately cuts/seats them and the
     equal-delta invariant this test asserts no longer applies (the
     cluster law has its own suite).  Pinned to the legacy always-bake
     law too (``DSF_OBJECT_BAKE_MIN_DELTA_M`` = 0): this pool carries
@@ -2047,10 +2049,30 @@ def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
     )
     assert decision.skipped == []
     # Rigid-seat limit (lead ruling 2026-07-17): a handful of KCLT's
-    # chained terminal structures span 3.5-4.2 m of terrain and are now
-    # left at authored elevations rather than baked to a median offset
-    # with metre-class residuals; every skip must carry exactly that
-    # reason, and everything else still bakes.
+    # chained terminal structures span more terrain than one rigid
+    # vertical offset can seat, and are left at authored elevations
+    # rather than baked to a median offset with metre-class residuals;
+    # every skip must carry exactly that reason, and everything else
+    # still bakes.
+    #
+    # STALE-FIXTURE REPAIR (beta hardening, H2).  The bar was the literal
+    # ``<= 5``, and the note beside it read "3.5-4.2 m".  Both were
+    # pinned to the terrain artifact this fixture samples — the BUILT
+    # mesh at ``KCLT_MESH_PATH`` — which was rebuilt on 2026-08-28, after
+    # which the class is 6 structures spanning 3.2, 3.9, 4.3, 4.7, 5.6
+    # and 13.0 m.  ATTRIBUTED, not assumed: the probe was re-run under
+    # ``d77d4acb`` (this file's last edit, i.e. after the footprint /
+    # pad-ring work) and under ``8d1e47dc`` (before it) against the same
+    # mesh, and both produce 220 structures and the SAME six skips with
+    # the SAME spans to 0.1 m.  No code in that window moved this number;
+    # the terrain under the fixture did.
+    #
+    # So the count bar is replaced by the two things it was standing in
+    # for, neither of which a mesh rebuild can invalidate: every skip is
+    # LAWFUL (its span really does exceed the config limit, read from
+    # config rather than spelled here — which the count bar never
+    # checked), and the class stays a MINORITY of the pool, so a bake
+    # that started refusing wholesale still fails here.
     span_skipped_structures = [
         structure for structure in decision.structures
         if structure.skip_reason is not None
@@ -2059,7 +2081,19 @@ def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
         "rigid-seat limit" in structure.skip_reason
         for structure in span_skipped_structures
     )
-    assert 0 < len(span_skipped_structures) <= 5
+    for structure in span_skipped_structures:
+        assert (
+            structure.ground_span_metres
+            > _cfg.DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M
+        ), (
+            f"a structure skipped for the rigid-seat limit spans only "
+            f"{structure.ground_span_metres:.2f} m"
+        )
+    assert span_skipped_structures
+    assert len(span_skipped_structures) <= 0.05 * len(decision.structures), (
+        f"{len(span_skipped_structures)} of {len(decision.structures)} "
+        f"structures refused the bake — that is no longer a handful"
+    )
     baked_structures = [
         structure for structure in decision.structures
         if structure.skip_reason is None

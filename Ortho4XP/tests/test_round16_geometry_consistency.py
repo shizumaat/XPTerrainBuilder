@@ -375,55 +375,95 @@ def _ring_open(polygon):
 
 
 def test_r16_2b_the_wall_inner_edge_is_the_pavement_boundary():
-    """No unowned strip: the wall polygon TOUCHES the cut floor (gap
+    """No unowned strip: the wall STRUCTURE touches the cut floor (gap
     0 m), and at least two of its vertices sit ON the floor's own
     boundary — the canonical join the emitter's vertex interning then
     welds into one node id.
 
-    THIS EMITTER IS OUT OF §T5's SCOPE (spec Amendment 1, ruling 1): the
-    facing-corridor waller keeps its prior shared-node weld until its
-    foot geometry is designed, so R16-2b's original frame is the live
-    law here and this twin is its original text.
+    SUPERSEDED PREMISE, REWRITTEN: this twin used to assert
+    ``_corridor_feet(layout) == []`` because spec Amendment 1 ruling 1
+    scoped §T5 to the PERIMETER band and left the facing-corridor waller
+    on its prior single-band shared-node weld.  Amendment 2 attributed
+    the 3 SPJC foot∩face pairs to the perimeter band's own post-solve
+    conformance weld (``bridges.reclip_wall_feet_against_faces``) and
+    §T5 was extended to EVERY waller with the gate default-ON
+    (2026-08-29, lane/tunneldockets; the shipped state RULINGS
+    2026-08-31k reports as "walls/feet 16/16").  So the piece that
+    spells the floor's boundary is now the FOOT, and R16-2b's law —
+    the structure's inner boundary IS the ramp's outer boundary — is
+    asserted where it now lives.  The FACE standing off by ``wall_gap``
+    is RULINGS 2026-08-28c item 1 ("there must be a small gap").
 
-    Mutation-checked: with the wall standing ``wall_gap_m`` outboard
-    this reads a 0.60 m strip of ground no shape owns.
+    Mutation-checked: with the foot deleted (``O4_RAMP_WALL_FOOT=0``)
+    the structure reads a 0.60 m strip of ground no shape owns.
     """
     layout, floor, walls = _corridor_scene()
-    assert _corridor_feet(layout) == [], (
-        "the facing-corridor emitter grew a foot — §T5 is scoped to the "
-        "PERIMETER BAND this round (Amendment 1)")
-    for wall in walls:
-        assert wall.polygon.distance(floor.polygon) == pytest.approx(
+    feet = _corridor_feet(layout)
+    assert len(feet) == len(walls) == 2, (
+        f"{len(feet)} foot / {len(walls)} face piece(s) — the corridor "
+        f"waller must emit both under §T5 (Amendment 2)")
+    for foot in feet:
+        assert foot.polygon.distance(floor.polygon) == pytest.approx(
             0.0, abs=1e-9), (
-            f"a {wall.polygon.distance(floor.polygon):.3f} m strip "
-            f"between the ramp and its wall is owned by nothing")
-        on_edge = [v for v in _ring_open(wall.polygon)
+            f"a {foot.polygon.distance(floor.polygon):.3f} m strip "
+            f"between the corridor and its wall foot is owned by nothing")
+        on_edge = [v for v in _ring_open(foot.polygon)
                    if floor.polygon.exterior.distance(Point(v)) <= 1e-9]
         assert len(on_edge) >= 2, (
-            f"the wall face does not spell the floor's boundary: "
-            f"{_ring_open(wall.polygon)}")
+            f"the wall foot does not spell the floor's boundary: "
+            f"{_ring_open(foot.polygon)}")
+    foot_u = unary_union([f.polygon for f in feet])
+    for wall in walls:
+        assert wall.polygon.distance(floor.polygon) >= _WALL_GAP_M - 0.01, (
+            f"the rising face stands only "
+            f"{wall.polygon.distance(floor.polygon):.3f} m off the "
+            f"corridor — RULINGS 2026-08-28c item 1")
+        assert not [v for v in _ring_open(wall.polygon)
+                    if floor.polygon.exterior.distance(Point(v)) <= 1e-9], (
+            "the rising face is welded to the corridor floor")
+        # face ∪ foot leaves nothing between: the whole gap is the foot's.
+        assert wall.polygon.distance(foot_u) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_r16_2b_the_inner_edge_carries_the_ramps_values():
-    """One node, one value: every vertex the wall shares with the cut
-    floor carries the FLOOR's profile there (210.0 at the W1 station,
-    212.0 at W2), and the crest keeps ambient."""
-    _layout, floor, walls = _corridor_scene(floor_a=210.0, floor_b=212.0)
+    """One node, one value: every vertex the wall STRUCTURE shares with
+    the cut floor carries the FLOOR's profile there (210.0 at the W1
+    station, 212.0 at W2), and the crest keeps ambient.
+
+    SUPERSEDED PREMISE, REWRITTEN: under Amendment 1 the single
+    ``tunnel_wall`` band carried both (floor on its inner pair, crest on
+    its outer).  §T5 reaching this emitter (Amendment 2, gate default-ON
+    2026-08-29; RULINGS 2026-08-31k) split that band, so the FLOOR is
+    now the FOOT's — a flat shelf, one value per station across its
+    whole width, per §F1 — and the FACE carries the crest on BOTH edges.
+    R16-2b's law is unchanged and is asserted over the structure.
+    """
+    layout, floor, walls = _corridor_scene(floor_a=210.0, floor_b=212.0)
+    feet = _corridor_feet(layout)
+    assert feet, "no foot — see the sibling twin"
     shared = 0
+    for foot in feet:
+        ring = _ring_open(foot.polygon)
+        alts = list(foot.node_altitudes)[:len(ring)]
+        for (vx, vy), value in zip(ring, alts):
+            # §F1: the shelf is FLAT across its width, so the outer pair
+            # repeats its station's floor value — every foot vertex reads
+            # the floor profile at its own station.
+            expect = 210.0 + 2.0 * (vx / 56.0)
+            assert value == pytest.approx(expect, abs=0.01), (
+                f"foot vertex at x={vx:.1f} carries {value}, the floor "
+                f"carries {expect}")
+            if floor.polygon.exterior.distance(Point((vx, vy))) <= 1e-9:
+                shared += 1
+    assert shared >= 4, shared
     for wall in walls:
         ring = _ring_open(wall.polygon)
         alts = list(wall.node_altitudes)[:len(ring)]
         for (vx, vy), value in zip(ring, alts):
-            if floor.polygon.exterior.distance(Point((vx, vy))) <= 1e-9:
-                expect = 210.0 + 2.0 * (vx / 56.0)
-                assert value == pytest.approx(expect, abs=0.01), (
-                    f"wall vertex on the floor edge at x={vx:.1f} "
-                    f"carries {value}, the floor carries {expect}")
-                shared += 1
-            else:
-                assert value == pytest.approx(_AMBIENT_M, abs=0.11), (
-                    f"a crest vertex took {value}")
-    assert shared >= 4, shared
+            assert floor.polygon.exterior.distance(Point((vx, vy))) > 1e-9, (
+                f"a face vertex at ({vx:.1f}, {vy:.1f}) sits on the floor")
+            assert value == pytest.approx(_AMBIENT_M, abs=0.11), (
+                f"a crest vertex took {value}")
 
 
 # ── §T5: THE RAMP-WALL FOOT, at the PERIMETER BAND (its whole scope) ──
@@ -437,9 +477,11 @@ _T5_RAMP = Polygon([(0.0, 0.0), (60.0, 0.0), (60.0, 12.0), (0.0, 12.0)])
 def _band_scene(ramp_alt=210.0):
     """One ramp body, walled by the perimeter band with ends WRAPPED.
 
-    Reads whatever ``O4_RAMP_WALL_FOOT`` currently says — the twins below
-    set it explicitly, because the SHIPPED default is OFF (spec
-    Amendment 2 ruling 2, the defined fallback).
+    Reads whatever ``O4_RAMP_WALL_FOOT`` currently says.  The SHIPPED
+    default is ON (``bridges.ramp_wall_foot_enabled``, default-ON since
+    2026-08-29 when the face-inflation was attributed to the post-solve
+    conformance weld); the flag-ON twins below still set it explicitly so
+    they keep testing the arm they name, and the fallback twin sets "0".
     """
     layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
     ramp = BuiltShape(polygon=_T5_RAMP, role=bridges.ROLE_TUNNEL_RAMP,
@@ -564,14 +606,29 @@ def test_t5_the_foot_and_face_never_overlap(monkeypatch):
                 f"{foot.polygon.intersection(face.polygon).area:.4f} m²")
 
 
-def test_t5_the_shipped_default_is_the_plain_g0_standoff():
-    """THE SHIPPED CONTRACT (spec Amendment 2 ruling 2, the defined
-    fallback).  No flag set: no foot, and the band STANDS OFF the ramp by
-    ``wall_gap`` — so the owner's measured sim breakage (item 9: the ramp
-    welded to the wall, 84 shared node ids at 0.0000 m) is fixed, and the
-    older unowned-annulus defect returns as the accepted lesser defect."""
+def test_t5_the_shipped_default_is_the_foot_and_face():
+    """THE SHIPPED CONTRACT.
+
+    SUPERSEDED PREMISE, REWRITTEN: this twin was written as
+    ``test_t5_the_shipped_default_is_the_plain_g0_standoff`` and pinned
+    spec Amendment 2 ruling 2's *fallback* as the shipped state — foot
+    OFF, unowned annulus accepted as the lesser defect — because the 3
+    SPJC foot∩face pairs had not been root-caused.  They were, on
+    2026-08-29 (lane/tunneldockets): the partition is disjoint AT EMIT
+    (0.0000 m² measured for all 6 SPJC pieces) and it is
+    ``conformance.enforce_conformance``'s post-solve T-vertex weld that
+    bows a face inboard over its foot, which
+    ``bridges.reclip_wall_feet_against_faces`` now settles LAST-WORD.
+    The gate went default-ON with that attribution; RULINGS 2026-08-31k
+    reports the shipped state as "walls/feet 16/16".
+
+    So: no flag set ⇒ the foot SHIPS, the face still stands ``wall_gap``
+    off the ramp and shares NOT ONE vertex with it (RULINGS 2026-08-28c
+    item 1 / the owner's item 9: 84 shared node ids at 0.0000 m), and the
+    foot is the piece that touches the ramp.
+    """
     _layout, ramp, feet, faces = _band_scene()
-    assert feet == [], "the foot ships by default — the fallback is OFF"
+    assert feet, "the foot does NOT ship by default — the gate flipped OFF"
     assert faces
     ring = ramp.polygon.exterior
     for face in faces:
@@ -581,22 +638,48 @@ def test_t5_the_shipped_default_is_the_plain_g0_standoff():
         assert not [v for v in _ring_open(face.polygon)
                     if ring.distance(Point(v)) <= 1e-9], (
             "the shipped band still WELDS to the ramp — item 9 unfixed")
+    for foot in feet:
+        assert foot.polygon.distance(ramp.polygon) == pytest.approx(
+            0.0, abs=1e-9)
 
 
-def test_t5_the_accepted_lesser_defect_is_the_unowned_annulus():
-    """Named, not hidden: with the fallback shipped, the ``wall_gap``
-    annulus is owned by NOTHING (R16-2b's defect, returned).  This twin
-    exists so the accepted cost is a measured, asserted fact rather than
-    a sentence in a ledger — and so the follow-up docket has its
-    before-number."""
+def test_t5_the_shipped_default_owns_the_annulus_and_off_does_not(
+        monkeypatch):
+    """Named, not hidden — BOTH arms measured in one place.
+
+    SUPERSEDED PREMISE, REWRITTEN: as
+    ``test_t5_the_accepted_lesser_defect_is_the_unowned_annulus`` this
+    twin asserted the unowned annulus was what SHIPPED.  With the gate
+    default-ON (2026-08-29 attribution; RULINGS 2026-08-31k) the shipped
+    arm OWNS the annulus and the unowned strip is what the explicitly
+    selected fallback (``O4_RAMP_WALL_FOOT=0``) buys.  Keeping both
+    numbers asserted is the point of the original twin: the fallback's
+    cost stays a measured fact, and the shipped arm cannot silently
+    regress back onto it.
+    """
+    def _unowned(ramp, pieces):
+        covered = unary_union([ramp.polygon] + [p.polygon for p in pieces])
+        annulus = ramp.polygon.buffer(_WALL_GAP_M).difference(ramp.polygon)
+        return annulus.difference(covered).area
+
     _layout, ramp, feet, faces = _band_scene()
-    assert feet == []
-    covered = unary_union([ramp.polygon] + [f.polygon for f in faces])
-    annulus = ramp.polygon.buffer(_WALL_GAP_M).difference(ramp.polygon)
-    unowned = annulus.difference(covered).area
-    assert unowned > 1.0, (
-        f"only {unowned:.2f} m² unowned — if the annulus is covered, the "
-        f"fallback is no longer the fallback and this twin is stale")
+    assert feet
+    # THE SLIT KNIFE is the whole allowance (see
+    # ``test_t5_the_foot_owns_the_annulus_r16_2b_re_measured``): each band
+    # is cut open by a 0.02 m radial kerf so ``to_osm`` need not carry an
+    # interior ring.  Measured 0.026 m² for this 60x12 m ramp.
+    shipped = _unowned(ramp, feet + faces)
+    assert shipped <= 0.05, (
+        f"{shipped:.3f} m² between the ramp and its wall is owned by "
+        f"nothing at the SHIPPED default — far beyond the 0.02 m kerf")
+
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
+    _layout, ramp, feet, faces = _band_scene()
+    assert feet == [], "the fallback still emits a foot"
+    fallback = _unowned(ramp, faces)
+    assert fallback > 1.0, (
+        f"only {fallback:.2f} m² unowned with the foot OFF — if the "
+        f"fallback also covers the annulus this twin is stale")
 
 
 

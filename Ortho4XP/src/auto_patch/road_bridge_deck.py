@@ -585,9 +585,9 @@ def _shape_top_within(shape, region, fallback):
     from the cut (deep) to open ground (at grade), and the question is
     about the ground under the piece".  Same question, other sign.
 
-    The fallback is the conservative direction: a sliver of a shape
-    crossing the corridor between two of its vertices keeps today's
-    answer rather than inventing a lower one.
+    A shape crossing the corridor with NO vertex inside is the normal
+    case for a merged run, not an edge case, so that is INTERPOLATED
+    onto the clipped part rather than fallen back on — see below.
     """
     alts = [a for a in (getattr(shape, "node_altitudes", None) or ())
             if a is not None]
@@ -603,9 +603,34 @@ def _shape_top_within(shape, region, fallback):
         from shapely.geometry import Point
         here = [float(a) for (x, y), a in zip(ring, alts)
                 if region.covers(Point(x, y))]
+        if here:
+            return max(here)
+        # NO VERTEX INSIDE — and on a merged run that is the NORMAL
+        # case, not an edge case: a run's stations stand tens of metres
+        # apart and a deck corridor is a dozen metres wide, so the ramp
+        # crosses BETWEEN two stations.  Falling back to the global top
+        # here is what left the LEMD clearance at -2.94 m after the
+        # per-footprint read landed: the fallback fired every time.
+        # INTERPOLATE instead, onto the clipped part, through the
+        # module's own carrier — the same edge-projecting resampler
+        # every other tunnel clip uses, never a second convention.
+        part = poly.intersection(region)
+        if part.is_empty:
+            return fallback
+        from .elevation import _resample_node_altitudes_nn
+        best = None
+        for geom in getattr(part, "geoms", [part]):
+            if geom.geom_type != "Polygon" or geom.is_empty:
+                continue
+            vals = _resample_node_altitudes_nn(
+                geom, list(ring), list(alts), interior_edge_project=True)
+            if not vals:
+                continue
+            local = max(float(v) for v in vals if v is not None)
+            best = local if best is None else max(best, local)
+        return fallback if best is None else best
     except Exception:                                    # pragma: no cover
         return fallback
-    return max(here) if here else fallback
 
 
 def _below_grade_shapes(layout):

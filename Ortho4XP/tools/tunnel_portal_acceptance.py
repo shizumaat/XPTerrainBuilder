@@ -668,7 +668,7 @@ def _fmt(v):
     return "-" if v is None else format(float(v), ".2f")
 
 
-def _side_cover(body, band, ref, centre, axis, caps=()):
+def _side_cover(body, band, ref, centre, axis, caps=(), internal=None):
     """``(left, right)`` — the share of each SIDE of ``body``'s boundary
     that a band piece of ``ref`` answers for.
 
@@ -685,6 +685,12 @@ def _side_cover(body, band, ref, centre, axis, caps=()):
     the side wall ALONE charged it for the ends and read 0.71 on a
     fixture that is canonical by construction.
 
+    ``internal`` is the other corridor surfaces of the same site.  Where
+    two of them MEET there is no exposed side to retain — an arm's joint
+    with its fork throat is inside the corridor — so that stretch leaves
+    the denominator.  Charging an arm for its own internal joint read
+    0.69 on a fixture canonical by construction.
+
     Returns ``(0.0, 0.0)`` when the boundary cannot be split — a
     measurement that failed, never a pass.
     """
@@ -696,6 +702,8 @@ def _side_cover(body, band, ref, centre, axis, caps=()):
     try:
         ring = (body.exterior if body.geom_type == "Polygon"
                 else unary_union([g.exterior for g in body.geoms]))
+        if internal is not None and not internal.is_empty:
+            ring = ring.difference(internal.buffer(0.05))
         cover = (unary_union(pieces).buffer(FACE_REACH_M)
                  if pieces else None)
     except Exception:                                    # pragma: no cover
@@ -909,6 +917,10 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         body = unary_union([g for _w, _r, g in members])
         area = float(body.area)
         wids = sorted(str(w) for w, _r, _g in members)
+        # THE ARMS: the descending surfaces.  A flat piece is a fork
+        # THROAT plate, which has no sides of its own.
+        _arms = [m for m in members
+                 if _surface_spread(patch, m[0]) > thr.throat_flat_m]
         ramps = [m for m in members if m[1] == "tunnel_ramp"]
         plates = [m for m in members if m[1] == "tunnel_mouth"]
         others = [m for m in members
@@ -945,7 +957,16 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
 
         near_band = _near(band)
         near_caps = _near(caps)
-        # ── ONE WALL + FOOT PER SIDE, MEASURED AS COVERAGE ───────────
+        # ── ONE WALL + FOOT PER SIDE, MEASURED AS COVERAGE, PER ARM ──
+        # A FORK IS A Y, AND A Y HAS NO TWO SIDES.  Splitting the whole
+        # site body by one principal axis is meaningless where the
+        # corridor branches: measured on the closing arm, a fork read
+        # 0.60/0.60 as a whole while its arms read 0.07/0.89, 0.60/0.83
+        # and 0.24/0.68 — the inner CROTCH side of each arm carries a
+        # complete foot and almost no face.  The law is per corridor
+        # SIDE, and a fork has one corridor per ARM, so each descending
+        # surface is measured against its OWN axis and the site takes
+        # the worst arm.  A throat plate is flat and has no sides.
         # NOT a piece count.  The emitter's canonical form is ONE
         # continuous band wrapping both sides and the end (RULINGS
         # 2026-08-30j accepted "7 -> 2 wall pieces, wrapped ends = end
@@ -955,12 +976,26 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         # site's boundary is split by the principal axis and the share
         # of it a band piece answers is the measurement.
         wl = wr = fl = fr = None
-        if axis is not None:
-            ax, ay = axis
-            wl, wr = _side_cover(body, near_band, "tunnel_wall",
-                                 (c.x, c.y), (ax, ay), near_caps)
-            fl, fr = _side_cover(body, near_band, "tunnel_wall_foot",
-                                 (c.x, c.y), (ax, ay), near_caps)
+        _measured = _arms or ([(None, None, body)] if axis else [])
+        for _awid, _aref, _ag in _measured:
+            _aax = _principal_axis(_ag) if _awid is not None else axis
+            if _aax is None:
+                continue
+            _ac = _ag.centroid
+            _others = [g for _w2, _r2, g in members if g is not _ag]
+            try:
+                _int = unary_union(_others) if _others else None
+            except Exception:                            # pragma: no cover
+                _int = None
+            _w = _side_cover(_ag, near_band, "tunnel_wall",
+                             (_ac.x, _ac.y), _aax, near_caps, _int)
+            _f = _side_cover(_ag, near_band, "tunnel_wall_foot",
+                             (_ac.x, _ac.y), _aax, near_caps, _int)
+            if wl is None:
+                wl, wr, fl, fr = _w[0], _w[1], _f[0], _f[1]
+            else:
+                wl, wr = min(wl, _w[0]), min(wr, _w[1])
+                fl, fr = min(fl, _f[0]), min(fr, _f[1])
         # THE END CAP, or the wrapped end 2026-08-30j accepted for it:
         # the share of this site's perimeter no band piece answers.
         try:
@@ -1013,8 +1048,12 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         _n_wall = sum(1 for _w, r, _g in near_band if r == "tunnel_wall")
         _n_foot = sum(1 for _w, r, _g in near_band
                       if r == "tunnel_wall_foot")
-        redundant = (max(0, _n_wall - thr.band_pieces_max)
-                     + max(0, _n_foot - thr.band_pieces_max))
+        # …and the allowance scales with the number of CORRIDORS: a Y
+        # has one band per arm, so a 2-arm fork may carry twice what a
+        # straight run may.
+        _allow = thr.band_pieces_max * max(1, len(_arms))
+        redundant = (max(0, _n_wall - _allow)
+                     + max(0, _n_foot - _allow))
         _bar = thr.side_cover_min
         canonical = (unmerged == 0 and len(plates) <= 1 and reach_ok
                      and not others and not frag_corr

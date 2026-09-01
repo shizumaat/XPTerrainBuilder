@@ -157,10 +157,11 @@ class TestTheCanonicalMouthPasses:
         assert c.measured == 0
         assert "1 tunnel mouth site(s), 0 NOT canonical" in c.detail
         assert "ramp=1 plate=1" in c.detail
-        # per side is a COVERAGE question, not a piece count: the
-        # emitter's canonical form is ONE band wrapping both sides
-        assert "wall L/R=0.86/0.86" in c.detail
-        assert "foot L/R=0.87/0.87" in c.detail
+        # per side is a COVERAGE question measured PER ARM, not a piece
+        # count: the emitter's canonical form is ONE band wrapping both
+        # sides, and an arm's joint with its plate is not a side
+        assert "wall L/R=0.81/0.81" in c.detail
+        assert "foot L/R=0.82/0.82" in c.detail
 
     def test_two_independent_mouths_are_both_canonical(self, tpa, tmp_path):
         """The mouth radius must not let one mouth read the other's

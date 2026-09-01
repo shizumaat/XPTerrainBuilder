@@ -1,4 +1,34 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260901a — AWAY-PERIOD CAMPAIGN CLOSED; RETURN PACKAGE READY.
+# READ FIRST: docs/SIM-GUIDE-20260901.md (per-site guide + the FOUR
+# owner decisions) + RULINGS 31a-31m.
+# APPS in dist.nosync/: XPTerrainBuilder-1.0.272-roads-only.app
+#   (main: Batches 1+2) and XPTerrainBuilder.app 1.0.273
+#   (staging/return: + tunnels/bridges rework, face ownership,
+#   annulus fix, building isthmus split). A/B by swapping apps and
+#   rebuilding a tile.
+# MERGED ON MAIN: Batches 1+2 (core clamp roads, contact model, FRP
+#   retired) — sim-adjudicated good (31c) + roads redesign complete.
+# PARKED (unmerged, integrated in staging/return only): lane/ltbatch3
+#   (tunnels/bridges, 8-9/10 mouths canonical, 31k), lane/ltbatch4a
+#   (face ownership -98.4% far rings, annulus closed, 31l),
+#   lane/bldround (building100 isthmus split, 31m). Merge on owner
+#   sign-off after sim.
+# SWEEP (staging, adjudicated): SPJC 1051= SPLP 83= CYXY 176(-23)
+#   HECA 3774(-41%) KCLT 3036(-35%, zero KCLT-specific work).
+# PERF (exclusive, vs committed d787464 baselines): Batch 2 clawed
+#   back 64-73% of the accretion; HECA x2.48, SPJC BELOW baseline;
+#   residual scales with road/tunnel population (bisect list in
+#   DEFERRED). All airports over the 60s ship-gate budget still.
+# OWNER DECISIONS WAITING (evidence in RULINGS): (1) fork pinch wall
+#   vs R10-2; (2) BUILDING_OUTLINE_FILL_R 110m closing radius;
+#   (3) freed-ground strip meets: terrace or weld; (4) merge
+#   sign-offs for the three parked lanes.
+# PROCESS: postmortem laws 31a (sim gate, anchored tripwire,
+#   redesign threshold) + 30l consumer census are in CLAUDE.md;
+#   ledger hash fix means ALL pre-08-31 keys stale (miss = re-run).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260830b — SIM-READ MEGA-ROUND CLOSED (all lanes merged; owner
 # adjudicated ~20 rulings live, RULINGS 29g..30n).
 # MERGED TO MAIN this session: chip sweep (4 single-graph reds green);

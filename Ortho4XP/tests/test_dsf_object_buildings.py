@@ -533,6 +533,126 @@ class TestStructureFootprintParts:
             pytest.approx(400.0, abs=5.0))
 
 
+# ── a slender member does not join two buildings (owner 2026-08-31c) ──
+# HECA building100: two buildings 11.1 m apart, welded into ONE 28,389 m²
+# part through a 3.5 m² isthmus — a flat plate at y = 3.00 m and a 0.3 m
+# wide member rising from grade to 5.81 m.  The twins below encode the
+# law (a plan isthmus thinner than FOOTPRINT_CONNECTOR_NECK_M does not
+# join) AND the formulation it replaces (vertical-structure evidence in
+# the connector, which the site refutes).
+
+def _two_boxes_plus(extra_vertices, extra_triangles):
+    """The two-box structure with an extra member spanning the gap."""
+    base = len(TWO_BOX_VERTICES)
+    vertices = list(TWO_BOX_VERTICES) + list(extra_vertices)
+    triangles = list(TWO_BOX_TRIANGLES) + [
+        tuple(base + index for index in triangle)
+        for triangle in extra_triangles]
+    geometry = make_geometry(vertices, triangles)
+    structure = make_structure({"a.obj": triangles}, {"a.obj": 0.0})
+    return structure, {"a.obj": geometry}, [make_placement("a.obj")]
+
+
+def _span_plate(height, half_width):
+    """A plate at ``height`` bridging x = 20…40 at z = 10 ± half_width."""
+    low, high = 10.0 - half_width, 10.0 + half_width
+    return ([(20.0, height, low), (40.0, height, low),
+             (40.0, height, high), (20.0, height, high)],
+            [(0, 1, 2), (0, 2, 3)])
+
+
+def _parts_of(structure, geometry, placements):
+    hull_ring = object_footprints.structure_ring(
+        structure, geometry, placements)
+    parts, source = object_footprints.structure_footprint_parts(
+        structure, geometry, placements, hull_ring)
+    return parts, source
+
+
+class TestSlenderConnectorSplit:
+    def test_an_elevated_catwalk_does_not_join_two_buildings(
+            self, fake_projection):
+        # The measured HECA joiner: a 0.4 m wide plate at y = 3, no
+        # ground contact, bridging two 400 m² buildings 20 m apart.
+        vertices, triangles = _span_plate(3.0, 0.2)
+        parts, source = _parts_of(*_two_boxes_plus(vertices, triangles))
+        assert source == "structure"
+        assert len(parts) == 2
+        areas = sorted(Polygon(ring_to_local_metres(part)).area
+                       for part in parts)
+        assert areas == pytest.approx([400.0, 400.0], abs=5.0)
+
+    def test_a_ground_REACHING_slender_member_still_does_not_join(
+            self, fake_projection):
+        # THE REFUTATION the site measured: the joiner reaches the
+        # ground (grade to 5 m here, −0.02 to 5.81 m at HECA), so a
+        # "no vertical-structure evidence" test would keep the two
+        # buildings welded.  Width, not height, is the discriminant.
+        low_vertices, low_triangles = _span_plate(0.0, 0.15)
+        high_vertices, high_triangles = _span_plate(5.0, 0.15)
+        vertices = low_vertices + high_vertices
+        triangles = list(low_triangles) + [
+            tuple(4 + index for index in triangle)
+            for triangle in high_triangles]
+        parts, source = _parts_of(*_two_boxes_plus(vertices, triangles))
+        assert source == "structure"
+        assert len(parts) == 2
+        areas = sorted(Polygon(ring_to_local_metres(part)).area
+                       for part in parts)
+        assert areas == pytest.approx([400.0, 400.0], abs=5.0)
+
+    def test_a_wide_link_keeps_a_two_wing_building_whole(
+            self, fake_projection):
+        # A genuine two-wing building: the wings are joined by a 6 m
+        # wide link block, wider than the neck width, so the structure
+        # stays ONE footprint — wings, link and all.
+        vertices, triangles = _span_plate(8.0, 3.0)
+        parts, source = _parts_of(*_two_boxes_plus(vertices, triangles))
+        assert source == "structure"
+        assert len(parts) == 1
+        assert Polygon(ring_to_local_metres(parts[0])).area == (
+            pytest.approx(920.0, abs=10.0))
+
+    def test_a_part_with_no_isthmus_is_the_same_object(self):
+        # The no-op invariant: the split is a detector, so a part it has
+        # nothing to say about is passed through UNTOUCHED — not
+        # re-projected, not re-buffered, not simplified.
+        square = Polygon([(0.0, 0.0), (0.0, 0.001), (0.001, 0.001),
+                          (0.001, 0.0)])
+        refined = object_footprints._split_slender_connectors([square])
+        assert len(refined) == 1
+        assert refined[0] is square
+
+    def test_a_broken_part_is_kept_whole(self, monkeypatch):
+        # Any geometry failure keeps the part: the split may shrink a
+        # footprint, never delete one.
+        square = Polygon([(0.0, 0.0), (0.0, 0.001), (0.001, 0.001),
+                          (0.001, 0.0)])
+
+        def explode(_part, _radius):
+            raise ValueError("synthetic GEOS failure")
+
+        monkeypatch.setattr(object_footprints, "_split_one_part", explode)
+        assert object_footprints._split_slender_connectors(
+            [square]) == [square]
+
+    def test_a_sub_lobe_bump_is_not_a_second_building(self,
+                                                     fake_projection):
+        # A 4 m² bump hanging off a building on a 1 m neck is boundary
+        # detail (FOOTPRINT_MIN_LOBE_AREA_M2), not a second pad — and
+        # its area stays with the building it hangs off.
+        vertices = [(20.0, 0.0, 9.5), (22.0, 0.0, 9.5),
+                    (22.0, 0.0, 11.5), (20.0, 0.0, 11.5)]
+        triangles = [(0, 1, 2), (0, 2, 3)]
+        parts, source = _parts_of(*_two_boxes_plus(vertices, triangles))
+        assert source == "structure"
+        # Two boxes (still disjoint from each other) — the bump joined
+        # the first box, it did not become a third part.
+        assert len(parts) == 2
+        assert max(Polygon(ring_to_local_metres(part)).area
+                   for part in parts) == pytest.approx(404.0, abs=5.0)
+
+
 # ── tier (b): read_dsf_object_buildings plumbing ─────────────────────
 
 def _write_fake_dsf(tmp_path, body):

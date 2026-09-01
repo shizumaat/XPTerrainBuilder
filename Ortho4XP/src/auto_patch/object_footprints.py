@@ -1291,6 +1291,147 @@ def structure_ring(
 FOOTPRINT_MIN_PART_AREA_M2 = 1.0
 
 
+# ── A SLENDER MEMBER DOES NOT JOIN TWO BUILDINGS ─────────────────────
+# (owner ruling 2026-08-31c, HECA sim read: "building100 is covering 2
+# buildings" — the disjoint-structure split under-splits some clusters.)
+#
+# The silhouette above is a PLAN UNION, so two buildings become one part
+# whenever ANY member of the structure spans the ground between them.
+# MEASURED at the HECA site (structure #82 of the pack's 817, the part
+# emitted as building100): the part is 28,389 m² over 312 x 331 m and is
+# two buildings — 18,749 m² and 9,637 m², whose own silhouettes stand
+# 11.1 m apart — joined through a single 3.5 m² isthmus.  Two members
+# cross that gap: a flat plate at y = 3.00 m (``metal_strip_2.obj``, 58 m²
+# of the 62 m² neck, no ground contact) and a 0.3 m-wide, ~15 m-long
+# slender member rising from grade to 5.81 m (``metal_dark.obj``, 8 m²
+# in the isthmus) — a catwalk / duct / pipe run between the two roofs.
+#
+# THE VERTICAL-EVIDENCE FORMULATION IS REFUTED BY THAT MEASUREMENT (kept
+# here because it is the obvious next idea): "a connector carrying no
+# vertical-structure evidence does not join" would NOT split this site —
+# the slender member reaches the ground (min y = −0.02, rise 5.81 m) and
+# so votes to keep the two buildings welded.  What separates it from a
+# building is not its height but its WIDTH.
+#
+# THE LAW: a plan isthmus narrower than :data:`FOOTPRINT_CONNECTOR_NECK_M`
+# does not join two footprint parts.  A building's own body is never that
+# thin — anything that narrow is a catwalk, pipe run, canopy lip, railing
+# or duct — while a genuine two-wing building's link block is metres wide
+# and keeps its two wings in ONE part.  Measured pack-wide at HECA: 11 of
+# ~1,000 parts split, 74 m² of connector dropped in total, and the verdict
+# is flat across a 1–4 m sweep of the threshold (10–14 parts).
+#
+# The test runs on the EMITTED PART, the single derivation site (RULINGS
+# 2026-08-30l corollary (a)) — downstream is untouched, and a part with
+# no narrow isthmus is returned as the SAME object, so the overwhelming
+# majority of structures are bit-identical.
+
+#: Plan width at or below which a connecting isthmus is a slender member,
+#: not a building body.  Half of it is the opening radius.
+FOOTPRINT_CONNECTOR_NECK_M = 2.0
+
+#: A lobe below this area is boundary noise (a bay window, an arc facet
+#: of the union), never a building the split should mint a pad for.
+FOOTPRINT_MIN_LOBE_AREA_M2 = 25.0
+
+
+def _metric_frame(latitude_degrees: float):
+    """``(to_metres, to_lonlat)`` for a local equirectangular frame — the
+    buffers below are widths in METRES, and a degree of longitude at
+    HECA is 96 km, not 111 km."""
+    longitude_scale = 111320.0 * math.cos(math.radians(latitude_degrees))
+    if longitude_scale <= 0.0:  # pragma: no cover - polar degenerate
+        longitude_scale = 1.0
+
+    def to_metres(coordinates):
+        return [(longitude * longitude_scale, latitude * 111320.0)
+                for longitude, latitude in coordinates]
+
+    def to_lonlat(coordinates):
+        return [(x / longitude_scale, y / 111320.0) for x, y in coordinates]
+
+    return to_metres, to_lonlat
+
+
+def _polygon_components(geometry) -> list[Polygon]:
+    """The polygon components of a possibly-multi geometry."""
+    if geometry is None or geometry.is_empty:
+        return []
+    if geometry.geom_type == "Polygon":
+        return [geometry]
+    return [piece for piece in getattr(geometry, "geoms", ())
+            if piece.geom_type == "Polygon" and not piece.is_empty]
+
+
+def _split_slender_connectors(parts: list[Polygon]) -> list[Polygon]:
+    """Split each part at any isthmus narrower than
+    :data:`FOOTPRINT_CONNECTOR_NECK_M`, dropping the connector.
+
+    A part with no such isthmus is passed through UNCHANGED — the same
+    object, not a re-projected copy — so this pass is a no-op for the
+    structures it has nothing to say about.  Any geometry failure also
+    returns the part unchanged: the split may shrink a footprint, never
+    delete one.
+    """
+    radius = FOOTPRINT_CONNECTOR_NECK_M / 2.0
+    out: list[Polygon] = []
+    for part in parts:
+        try:
+            refined = _split_one_part(part, radius)
+        except (ValueError, _GEOS_EXCEPTION):
+            refined = None
+        out.extend(refined if refined else [part])
+    out.sort(key=lambda geometry: (-geometry.area, geometry.bounds))
+    return out
+
+
+def _split_one_part(part: Polygon, radius: float) -> list[Polygon] | None:
+    """``None`` when ``part`` has no qualifying isthmus (keep it as is);
+    otherwise the lobes, each carrying the fringe that belongs to it."""
+    to_metres, to_lonlat = _metric_frame(part.centroid.y)
+    part_metres = Polygon(to_metres(part.exterior.coords))
+    if not part_metres.is_valid:
+        part_metres = part_metres.buffer(0)
+        if part_metres.geom_type != "Polygon" or part_metres.is_empty:
+            return None
+    # THE OPENING: erode by half the neck width.  What survives are the
+    # bodies; an isthmus thinner than the neck width disappears with it.
+    lobes = [component
+             for component in _polygon_components(part_metres.buffer(-radius))
+             if component.area >= FOOTPRINT_MIN_LOBE_AREA_M2]
+    if len(lobes) < 2:
+        return None
+    lobes.sort(key=lambda geometry: (-geometry.area, geometry.bounds))
+    # Grow each body back INSIDE the original part, so a lobe keeps its
+    # own true boundary (the opening is a detector here, not a shaper).
+    bodies = []
+    for lobe in lobes:
+        body = lobe.buffer(radius).intersection(part_metres)
+        bodies.extend(_polygon_components(body))
+    if len(bodies) < 2:
+        return None
+    fringe = _polygon_components(part_metres.difference(unary_union(bodies)))
+    # A fringe piece touching ONE body is that body's own boundary detail
+    # (a canopy lip, a stair, an arc facet) and stays with it; a piece
+    # touching several is the connector, and is dropped with the join.
+    grouped: list[list[Polygon]] = [[body] for body in bodies]
+    for piece in fringe:
+        touching = [index for index, body in enumerate(bodies)
+                    if body.distance(piece) <= 1e-9]
+        if len(touching) == 1:
+            grouped[touching[0]].append(piece)
+    refined: list[Polygon] = []
+    for group in grouped:
+        merged = unary_union(group) if len(group) > 1 else group[0]
+        for component in _polygon_components(merged):
+            ring = Polygon(to_lonlat(component.exterior.coords))
+            if ring.is_valid and not ring.is_empty:
+                refined.append(ring)
+    if len(refined) < 2:
+        return None
+    return refined
+
+
 def structure_footprint_parts(
     structure: Structure,
     geometry_by_resource: dict[str, ObjectGeometry],
@@ -1299,7 +1440,9 @@ def structure_footprint_parts(
 ) -> tuple[list[list[tuple[float, float]]], str]:
     """The footprint a QUALIFYING structure contributes: one unclosed
     ``(longitude, latitude)`` ring per disjoint part of its own solid
-    geometry, largest first.
+    geometry, largest first.  Two bodies welded only by a member thinner
+    than :data:`FOOTPRINT_CONNECTOR_NECK_M` are NOT one part
+    (:func:`_split_slender_connectors`, owner 2026-08-31c).
 
     ``hull_ring`` is the ring :func:`structure_ring` returned for the
     same structure — the FALLBACK.  Degenerate geometry (no projectable
@@ -1349,7 +1492,12 @@ def structure_footprint_parts(
                 triangle_corner_points.append(tuple(corner_points))
 
     rings: list[list[tuple[float, float]]] = []
-    for part in _triangle_union_parts(triangle_corner_points):
+    # A slender member does not join two buildings (2026-08-31c): the
+    # union above welds a part wherever ANY member spans the ground
+    # between two bodies, so the emitted part is opened at its isthmuses
+    # before it becomes a footprint.
+    for part in _split_slender_connectors(
+            _triangle_union_parts(triangle_corner_points)):
         if _footprint_area_square_metres(part) < FOOTPRINT_MIN_PART_AREA_M2:
             continue
         ring = [(float(longitude), float(latitude))

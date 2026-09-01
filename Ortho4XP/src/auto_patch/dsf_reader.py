@@ -1198,7 +1198,12 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # hull.  A v6 sidecar holds the hulls (building79's five buildings and
 # the apron between them as ONE 100,886 m² pad), so it must not be
 # served here.
-_OBJECT_FOOTPRINT_CACHE_VERSION = 7
+#
+# 7 -> 8 (owner 2026-08-31c, "building100 is covering 2 buildings"): a
+# part welded only by a member thinner than
+# ``object_footprints.FOOTPRINT_CONNECTOR_NECK_M`` is now split at that
+# isthmus, so a v7 sidecar holds the under-split parts.
+_OBJECT_FOOTPRINT_CACHE_VERSION = 8
 
 # Ring roles for the OBJ8 structure footprint reader (R18-2).  The role
 # carries the VERTICAL half of the building-evidence verdict; the

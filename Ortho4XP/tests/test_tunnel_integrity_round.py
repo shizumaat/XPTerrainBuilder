@@ -713,15 +713,30 @@ class TestTheWallFootIsGone:
         assert "tunnel_wall_foot" not in \
             verification._MIDEDGE_EXCLUDE_REFS
 
-    def test_the_gap_ships_at_half_a_metre(self):
-        """``wall_gap_m`` = 0.5 (the ruling's own number), and it is
-        exactly the emit's vertex-bucket size — which still cannot
-        intern the ramp edge with the band's inner edge, because
-        ``vertex_bucket`` is ``round(x / 0.5)`` and two points 0.5 m
-        apart differ by exactly one bucket."""
+    def test_the_gap_stands_off_every_snapping_tolerance(self):
+        """RULINGS 2026-09-01e: ``wall_gap_m`` = 0.6, and the LAW is that
+        a designed standoff never sits ON an interning/welding
+        tolerance.
+
+        2026-09-01c's 0.5 sat on BOTH ``SHARED_VERTEX_TOL_M`` and
+        ``CONFORMANCE_TOL_M``.  The emit-time bucket tolerated it
+        (``round(x / 0.5)`` separates points exactly 0.5 m apart) but
+        the post-solve T-weld did not — it welds at ``<= tol``, so every
+        ramp vertex was inserted into the band's inner ring:
+        ``ramp_wall_gap`` measured 14 at 0.6 and 74 at 0.5 on the OTHH
+        arms.  This twin pins the standoff STRICTLY GREATER than every
+        tolerance that can snap two rings together, so the collision
+        cannot come back by someone re-reading the amended ruling.
+        """
         import inspect
+        from auto_patch.conformance import CONFORMANCE_TOL_M
         from auto_patch.layout import SHARED_VERTEX_TOL_M, vertex_bucket
         sig = inspect.signature(bridges._emit_tunnel_portals)
-        assert sig.parameters["wall_gap_m"].default == 0.5
-        assert SHARED_VERTEX_TOL_M == 0.5
-        assert vertex_bucket(0.0, 0.0) != vertex_bucket(0.5, 0.0)
+        gap = sig.parameters["wall_gap_m"].default
+        assert gap == 0.6
+        for name, tol in (("SHARED_VERTEX_TOL_M", SHARED_VERTEX_TOL_M),
+                          ("CONFORMANCE_TOL_M", CONFORMANCE_TOL_M)):
+            assert gap > tol, (
+                f"the {gap} m standoff sits on/inside {name} ({tol} m) — "
+                f"the 2026-09-01e collision, back again")
+        assert vertex_bucket(0.0, 0.0) != vertex_bucket(gap, 0.0)

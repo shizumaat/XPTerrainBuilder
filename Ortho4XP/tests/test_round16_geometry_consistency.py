@@ -283,7 +283,7 @@ def test_r16_2a_one_anchor_per_body_still():
 
 # ── R16-2b: the wall face is owned geometry ─────────────────────────
 
-_WALL_GAP_M = 0.5
+_WALL_GAP_M = 0.6
 _WALL_W_M = 1.0
 
 

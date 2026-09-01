@@ -39,7 +39,7 @@ from auto_patch.layout import (BuiltShape, PavementLayout,
                                ROLE_RETAINING_WALL, ROLE_TUNNEL_RAMP)
 
 APT = 4.0
-G0, G1 = 0.5, 1.0          # wall gap (2026-09-01c), wall width
+G0, G1 = 0.6, 1.0          # wall gap (2026-09-01e), wall width
 
 
 def _dem(x, y):

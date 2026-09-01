@@ -7785,20 +7785,30 @@ def _emit_tunnel_portals(
         arm_max_length_m: float = 500.0,
         carriageway_width_m: float = TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M,
         retaining_wall_width_m: float = 1.0,
-        # THE GAP (RULINGS 2026-09-01c): 0.5 m of ground that NO shape
-        # owns, between the ramp (the corridor floor) and the wall
-        # band's inner edge.  The mesher's own triangulation across it
-        # IS the steep face; nothing bridges it.
+        # THE GAP (RULINGS 2026-09-01c, amended by 2026-09-01e): ground
+        # that NO shape owns, between the ramp (the corridor floor) and
+        # the wall band's inner edge.  The mesher's own triangulation
+        # across it IS the steep face; nothing bridges it.
         #
-        # WHY THE RAMP AND THE WALL STILL DO NOT SHARE A NODE at exactly
-        # the emit's vertex-bucket size: ``layout.vertex_bucket`` is
-        # ``round(x / SHARED_VERTEX_TOL_M)`` with the tolerance 0.5 m,
-        # so two points EXACTLY 0.5 m apart differ by exactly one bucket
-        # in IEEE-754 and cannot intern together.  (Sharing the vertex
-        # would emit one node with two altitudes — the ramp sits at
-        # apt_elev − tunnel_depth, the wall at apt_elev — and render as
+        # WHY 0.6 AND NOT 0.5 — A DESIGNED STANDOFF MUST NEVER SIT *ON*
+        # AN INTERNING/WELDING TOLERANCE (the owner's principle, 01e).
+        # 2026-09-01c first set this to 0.5, which is exactly
+        # ``SHARED_VERTEX_TOL_M`` AND exactly ``CONFORMANCE_TOL_M``.
+        # The emit-time bucket survived that (``vertex_bucket`` is
+        # ``round(x / 0.5)``, so points 0.5 m apart differ by one bucket
+        # in IEEE-754) — but the POST-SOLVE T-VERTEX WELD did not: it
+        # treats a node within ``CONFORMANCE_TOL_M`` of a foreign edge
+        # as lying ON it, so every ramp vertex was inserted into the
+        # band's inner ring, dragging the wall onto the road.  MEASURED
+        # on the OTHH closing arms: ``ramp_wall_gap`` 14 (gap 0.6) → 74
+        # (gap 0.5), with every shared node at EXACTLY 0.000 m from the
+        # ramp ring while the rest of the band stood at the design
+        # offset.  That is owner sim item 9's broken ramp, re-created by
+        # a standoff sitting on the tolerance.  (Sharing the vertex
+        # emits one node with two altitudes — the ramp at
+        # apt_elev − tunnel_depth, the wall at apt_elev — and renders as
         # a vertical glitch, user 2026-05-03.)
-        wall_gap_m: float = 0.5,
+        wall_gap_m: float = 0.6,
         # Divided-highway carriageways with two parallel ways
         # cluster into a single combined entrance.  User 2026-05-03:
         # one entrance per end of the tunnel, not one per

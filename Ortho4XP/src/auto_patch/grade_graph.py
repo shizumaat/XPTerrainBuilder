@@ -1480,7 +1480,28 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                               # so the solver, the validator and the sidecar
                               # mirror cannot disagree about which pieces are
                               # the apron's spine.
-                              is_apron_spine=(rkey[0] == "apron_spine")))
+                              #
+                              # THE KEY SPACE IS NOT UNIFORMLY TAGGED, so
+                              # this read must not assume a tuple: the
+                              # taxi/route path mints a BARE int
+                              # (``rkey = id(rline)``, line ~1210) whenever
+                              # a piece carries a ``route_line``, while the
+                              # fallback and the two service paths mint
+                              # ``("self"|"corridor"|"apron_spine", id(...))``.
+                              # Subscripting the int raised ``TypeError:
+                              # 'int' object is not subscriptable`` and took
+                              # the whole context build down — 15+ standing
+                              # suite reds, every one of them a crash rather
+                              # than a wrong verdict.  Only the tagged form
+                              # can be an apron spine, so the type test IS
+                              # the class test; the key space itself is left
+                              # alone because every other consumer
+                              # (``verification`` line ~3920, the sidecar
+                              # mirror) uses ``rkey`` only as a dict key,
+                              # where int and tuple are equally valid and
+                              # never collide.
+                              is_apron_spine=(isinstance(rkey, tuple)
+                                              and rkey[0] == "apron_spine")))
         if _is_svc:
             _svc_len_m += sum(math.hypot(b[0] - a[0], b[1] - a[1])
                               for (a, b) in zip(pts, pts[1:]))

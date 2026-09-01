@@ -103,25 +103,77 @@ def lateral_on(monkeypatch):
 
 
 class TestLateralContiguityEmitter:
-    def test_ring_roads_touching_one_apron_become_one_surface(self, lateral_on):
+    def test_ring_roads_touching_one_apron_are_one_apron_GRADE_surface(
+            self, lateral_on, monkeypatch):
         """Owner: "five ring roads touching one apron are one apron-grade
         surface" — every road shares a flank with the apron along its whole
-        length, so every one of them is absorbed and ONE shape remains."""
-        apron = BuiltShape(polygon=_rect(0, 0, 100, 100), role="apron")
-        roads = [
-            BuiltShape(polygon=_rect(-10, 0, 0, 100), role="service_road"),
-            BuiltShape(polygon=_rect(100, 0, 110, 100), role="service_road"),
-            BuiltShape(polygon=_rect(0, -10, 100, 0), role="service_road"),
-            BuiltShape(polygon=_rect(0, 100, 100, 110), role="service_road"),
-        ]
-        layout = _layout([apron] + roads)
+        length, so every one of them takes the APRON's cap end to end.
+
+        SUPERSEDED PREMISE, REWRITTEN.  This twin was
+        ``test_ring_roads_touching_one_apron_become_one_surface`` and read
+        the ruling as a POPULATION claim: absorb all four rings, one shape
+        remains.  RULINGS 2026-08-25b as amended (spec
+        ``road-band-seal-scope-spec.md`` Amendment 1) rules the opposite
+        half: a ring that SHARES AN EDGE with an apron CONFORMS to the
+        apron's law, it does not become the apron.  The attribution is in
+        ``groundside.apply_lateral_contiguity_law`` — routing these rings
+        into clause (4) was measured and MOVED AIRSIDE THE WRONG WAY
+        (HECA airside 1,735 → 1,948, +53,530 m² of new apron with new 6 m
+        apron|junction steps at ways -12160/-12167; SPJC 175 → 178), the
+        contamination direction "airside is king" forbids.
+
+        So the owner's sentence is now delivered as GRADE, which is what
+        it says: the rings survive as road-family population, each
+        stamped ``apron_contact`` and carrying the apron cap.  The
+        pre-ruling absorption is kept below under its own gate, so this
+        twin still pins BOTH laws and the summary counters that can never
+        both count the same ring.
+        """
+        from auto_patch import config as _cfg
+
+        def _scene():
+            apron = BuiltShape(polygon=_rect(0, 0, 100, 100), role="apron")
+            roads = [
+                BuiltShape(polygon=_rect(-10, 0, 0, 100), role="service_road"),
+                BuiltShape(polygon=_rect(100, 0, 110, 100),
+                           role="service_road"),
+                BuiltShape(polygon=_rect(0, -10, 100, 0), role="service_road"),
+                BuiltShape(polygon=_rect(0, 100, 100, 110),
+                           role="service_road"),
+            ]
+            return _layout([apron] + roads)
+
+        layout = _scene()
         summary = lateral_on.apply_lateral_contiguity_law(layout, "TEST")
         assert summary["roads"] == 4
-        assert summary["absorbed"] == 4
-        assert [s.role for s in layout.shapes] == ["apron"]
-        merged = layout.shapes[0].polygon
+        assert summary["apron_contact"] == 4
+        assert summary["capped"] == 4
+        assert summary["absorbed"] == 0, (
+            "edge conformance is PRICING, never population — an absorbed "
+            "apron-contact ring is the +53,530 m² airside contamination")
+        # the population is unchanged: one apron, four roads, no cut
+        assert [s.role for s in layout.shapes] == \
+            ["apron"] + ["service_road"] * 4
+        assert summary["cut"] == 0
+        # …and every ring carries the APRON's cap end to end — "one
+        # apron-grade surface", read as grade.
+        for road in layout.shapes[1:]:
+            assert road.apron_contact is True
+            assert road.lateral_cap == _cfg.ROLE_GRADE_LIMITS["apron"]
+
+        # THE PRE-RULING LAW, still exactly reachable under its gate
+        # (``O4_ROAD_APRON_EDGE_CONFORM=0``; ``_edge_conformance_on``
+        # reads the config attribute at CALL time, so setting it here is
+        # the same switch without a module reload).
+        monkeypatch.setattr(_cfg, "ROAD_APRON_EDGE_CONFORMANCE", False)
+        pre = _scene()
+        pre_summary = lateral_on.apply_lateral_contiguity_law(pre, "TEST")
+        assert pre_summary["apron_contact"] == 0
+        assert pre_summary["absorbed"] == 4
+        assert [s.role for s in pre.shapes] == ["apron"]
         # one surface, and it is the union (100×100 + four 10×100 strips)
-        assert merged.area == pytest.approx(100 * 100 + 4 * 10 * 100, rel=1e-6)
+        assert pre.shapes[0].polygon.area == pytest.approx(
+            100 * 100 + 4 * 10 * 100, rel=1e-6)
 
     def test_two_aprons_and_a_connector_keep_the_free_middle(self, lateral_on):
         """Owner: "two aprons joined by a road: only the free between-segment

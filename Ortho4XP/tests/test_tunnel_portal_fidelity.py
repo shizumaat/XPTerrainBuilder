@@ -10,11 +10,16 @@ code, no network, no X-Plane install) — the idiom of
 C-1  ``_synthesize_implied_crossing_bores`` — a MAPPED ``tunnel=yes``
      way's merged bore interval snaps to the mapped extent ALWAYS, so
      the portal sits at the true mouth (s=0 / s=L) instead of 61 m
-     inside the bore.  Implied (un-tagged) ways keep the pavement-edge
-     portal.
+     inside the bore.
 C-2  the low-connector open-cut record excludes ``_had_tunnel`` ways —
      a mapped bore's interior gap is roofed by definition and merges
-     COVERED; the implied (KDFW) bore still records the gap.
+     COVERED.
+
+Both control arms are UN-TAGGED ways, and R4 (owner spec
+``round4-othh-fixes``, 2026-08-10) has since ruled that a purely
+geometric crossing is never a tunnel: they are DECLINED outright, and
+the pre-R4 implied-bore geometry each was written for is asserted under
+R4's named fallback (``O4_IMPLIED_TUNNEL_TAG_EVIDENCE=0``).
 C-3  ``_emit_low_corridor_connectors`` cuts the corridor back by
      ``_TUNNEL_GRAZE_CLEARANCE_M`` (0.6 m), clear of the 0.5 m
      shared-vertex intern bucket.
@@ -149,10 +154,47 @@ class TestMappedEndPreservation:
             assert s1 - s0 <= 2.0 * _END_STUB_M
         assert gaps == []
 
-    def test_implied_bore_portal_unchanged_at_pavement_edge(self) -> None:
-        """Regression guard: the SAME geometry un-tagged keeps the
-        existing implied-bore behaviour — portal one margin outside the
-        pavement edge, surface road either side."""
+    def test_untagged_crossing_is_declined_and_the_fallback_is_unchanged(
+            self, monkeypatch) -> None:
+        """The un-tagged control arm, in both laws.
+
+        SUPERSEDED PREMISE, REWRITTEN.  This twin was
+        ``test_implied_bore_portal_unchanged_at_pavement_edge`` and read
+        the un-tagged case as C-1's regression control: the SAME geometry
+        without a tunnel tag keeps the implied-bore split, portal one
+        margin outside the pavement edge.  R4 (owner spec
+        ``round4-othh-fixes``, 2026-08-10; config
+        ``IMPLIED_TUNNEL_TAG_EVIDENCE``) rules that A PURELY GEOMETRIC
+        CROSSING IS NEVER A TUNNEL: synthesis now requires the crossing
+        way — or a way its chain reaches within
+        ``IMPLIED_TUNNEL_TAG_EVIDENCE_M`` (100 m) — to carry
+        ``tunnel=yes`` or ``layer`` < 0.  Measured at OTHH on 1.0.229:
+        the S1 ramps at (25.2531, 51.6209) were engine-FABRICATED under
+        untagged tertiary ways with no OSM tunnel on their chain at all.
+
+        This scene's way is untagged with nothing else in it, so under
+        R4 it is DECLINED — returned unsplit, with no bore and no gap.
+        The contrast C-1 needs is preserved: the mapped sibling above
+        snaps its portal to the mapped mouth, this one is not a tunnel.
+        And the pre-R4 geometry the twin was written for is asserted
+        exactly as it was, under R4's own named fallback
+        (``O4_IMPLIED_TUNNEL_TAG_EVIDENCE=0``).
+        """
+        layout, nodes_m, way_ids = _mapped_bore_scene([_CROSS_1])
+        ways, gaps = _split(layout, nodes_m, way_ids,
+                            {"highway": "primary"})
+        assert _bores(ways) == [], (
+            "an untagged geometric crossing synthesised a bore — R4")
+        assert gaps == []
+        # Declined means UNTOUCHED: one piece, its own id and tags, the
+        # whole way — not a split whose bore was merely dropped.
+        assert len(ways) == 1
+        assert ways[0][0] == "road1"
+        assert ways[0][2] == {"highway": "primary"}
+        assert _piece_extent(ways[0], nodes_m) == (0.0, _WAY_LENGTH_M)
+
+        # THE PRE-RULING LAW, under its gate: the original assertions.
+        monkeypatch.setattr(bridges, "IMPLIED_TUNNEL_TAG_EVIDENCE", False)
         layout, nodes_m, way_ids = _mapped_bore_scene([_CROSS_1])
         ways, gaps = _split(layout, nodes_m, way_ids,
                             {"highway": "primary"})
@@ -188,9 +230,35 @@ class TestMappedBoreInteriorIsRoofed:
         assert start == pytest.approx(_END_STUB_M, abs=0.01)
         assert end == pytest.approx(_WAY_LENGTH_M - _END_STUB_M, abs=0.01)
 
-    def test_implied_bore_interior_gap_still_dug_open(self) -> None:
-        """KDFW guard: the un-tagged double-crossing still records its
-        86 m gap for the flat low-connector emit."""
+    def test_untagged_double_crossing_is_declined_before_any_gap(
+            self, monkeypatch) -> None:
+        """The KDFW control arm, in both laws.
+
+        SUPERSEDED PREMISE, REWRITTEN.  As
+        ``test_implied_bore_interior_gap_still_dug_open`` this twin
+        asserted that the un-tagged double crossing still records its
+        86 m interior gap for the flat low-connector emit.  R4 (owner
+        spec ``round4-othh-fixes``, 2026-08-10; config
+        ``IMPLIED_TUNNEL_TAG_EVIDENCE``) declines the whole synthesis
+        for a purely geometric crossing, so there is no bore to record a
+        gap BETWEEN — the OTHH 1.0.229 fabrication this ruling closed.
+        C-2's contrast survives: the mapped sibling above roofs its
+        interior gap by definition; this way is not a tunnel at all.
+        The KDFW behaviour is asserted unchanged under R4's own named
+        fallback (``O4_IMPLIED_TUNNEL_TAG_EVIDENCE=0``) — a real KDFW
+        underpass carries the tag evidence R4 asks for.
+        """
+        layout, nodes_m, way_ids = _mapped_bore_scene([_CROSS_1, _CROSS_2])
+        ways, gaps = _split(layout, nodes_m, way_ids,
+                            {"highway": "primary"},
+                            low_gap_m=_LOW_CONNECTOR_MAX_GAP_M)
+        assert gaps == []
+        assert _bores(ways) == []
+        assert len(ways) == 1
+        assert _piece_extent(ways[0], nodes_m) == (0.0, _WAY_LENGTH_M)
+
+        # THE PRE-RULING LAW, under its gate: the original assertions.
+        monkeypatch.setattr(bridges, "IMPLIED_TUNNEL_TAG_EVIDENCE", False)
         layout, nodes_m, way_ids = _mapped_bore_scene([_CROSS_1, _CROSS_2])
         ways, gaps = _split(layout, nodes_m, way_ids,
                             {"highway": "primary"},

@@ -5238,6 +5238,92 @@ both owner ramp probes CONTAINED.
   TOUCHED (outside the authorized scope): two zero-length inset rasters
   in a different tile, `Elevation_data/+40+000/N46E008_airport_insets/`
   (`LSZC_italy10m.tif`, `VBMAS_italy10m.tif`).
+- 2026-08-31 lane/ltbatch3 (linear-transport Batch 3 + spec §5-SUPPLEMENT
+  3b/3c/3d — tunnels §5 + bridges §4). PARKED as STOP-AND-WAIT, never
+  merged; the owner adjudicates the repartition question on return.
+  RAN: the tunnel/bridge/basin blast radius only (728 twins across 19
+  files), OTHH x3 and LEMD x5 patch builds through the harness entry,
+  who_wrote on four real ramp vertices, censuses on the closing arms,
+  airside_value_delta both airports, and the seam-probe-4 + granularity
+  demonstrations. SKIPPED, and each is a real hole:
+  (a) NO FULL SUITE — only the blast radius was run, so any consumer of
+      the retired claim class outside the tunnel/bridge/basin files is
+      unverified;
+  (b) THE §4 DECK PIN HAS NEVER RUN ON REAL DATA. `road_bridge_deck_pins`
+      -> `O4_Vector_Map.include_roads`' clamp is the TILE path, and every
+      build here was `--patch-only`. The pin, its §6 refusal and the
+      levelled-roads sidecar's `deck_pins` block are proven by twins
+      (tests/test_road_bridge_deck_clamp_pin.py, 16) and by nothing else;
+  (c) THE OSM CROSSING CLASSIFIER IS UNEXERCISED IN PRODUCTION. It is
+      wired into `road_bridge_deck.publish_candidates` and twinned
+      (tests/test_osm_crossing_level.py, 13), but neither OTHH nor LEMD
+      produced a shared-node rejection, so the wiring has never fired on
+      real feed data;
+  (d) NO FIVE-AIRPORT SWEEP — HECA / SPJC / SPLP / CYXY were never built
+      under this tree, and the claim retirement touches passes they use;
+  (e) NO PERF MEASUREMENT against tools/build_time_baselines.json, which
+      §6 Batch 4 requires and which the 5-6x accretion makes material;
+  (f) the who_wrote authorship read was taken on the 3b tree, before the
+      3c/3d wall-gate and deck-read changes;
+  (g) OTHH's census/airside numbers are from the 3c arm and LEMD's from
+      the 3d arm — no single tree carries both airports' final numbers.
+  KNOWN-OPEN DEFECT, measured and NOT fixed: the fork inner-face residual
+  at OTHH 25.2537652,51.6032373 (219.5 m2 of 509.2 m2 wall face missing,
+  only 7.4 m2 occupied, and NOT predominantly in the crotch) and
+  25.2761220,51.6134683 (face 97% emitted; the residual is a 0.93 m
+  crotch that cannot hold two 1.6 m bands at all). The second needs a
+  ruling, not code.
+- 2026-08-31 lane/ltbatch3 round 3g — THE TWO WALL-BAND RESIDUALS ARE
+  NAMED, and they are DIFFERENT mechanisms.  One instrumented arm
+  (`lt3g_probe`, sha d2abdc2583b9 — byte-identical to `lt3f2_othh_arm`,
+  so the probe reproduces the closing arm exactly).
+  (a) [CORRECTED 2026-09-01, round 3h — THE CLAIM BELOW THAT THIS IS
+      "LAWFUL, THE ARM-END OPENING" IS **REFUTED BY MEASUREMENT**.  The
+      opening was reconstructed from the emitter's own geometry (a line
+      from end-1.0 m to end+3.6 m, buffered by half_width+g0-0.05,
+      cap_style=2 — a 4.6 m-deep, 54.7 m-wide rectangle, 252 m²) and
+      only **2.1 m² of the 40.9 m² gap (5 %) lies inside it**; the near
+      end contributes 0.0.  A gap centred 27.3 m inboard cannot be a
+      4.6 m-deep end opening, and the "27.3 m from the far end" figure
+      was reported as if it supported the opening when it refutes it.
+      THE MERGED SITE'S FOOT GAP REMAINS UNATTRIBUTED: not a logged
+      removal (the per-piece instrument fires once, on an unrelated
+      graze-clip), not on tunnel pavement (0.0 m²), not the arm-end
+      opening (2.1 m²), and the band emits COMPLETE in isolation on that
+      exact body (193.8/193.8).  Something between isolation and the
+      build removes it and I did not find it.]
+      THE ORIGINAL (REFUTED) FINDING, kept for the record:
+      THE MERGED SITE'S FOOT (25.2761183,51.6134359, 154.0 of 193.8 m²)
+      IS LAWFUL, NOT A REMOVAL.  The named-removal instrument
+      (`log_tunnel_piece_removal`, mandatory and ungated, logging every
+      piece a post-emit pass removes OR CLIPS) fires ONCE in the whole
+      build, on an unrelated graze-clip.  0.0 m² of the 40.9 m² gap lies
+      on tunnel pavement, so R10-2 is not the cause either.  The gap
+      sits 27.3 m from the ramp's FAR end against 112.1 m from its near
+      end, and a full-width opening on this 53.6 m-wide dual carriageway
+      removes ~32.2 m² of foot — the balance being the mitred corners.
+      It is `emit_wall_band`'s OWN arm-end opening: "the band is cut
+      OPEN at each arm's far (surface) end, because at the far end the
+      road continues at grade and the crossing walls it off".  NOT A
+      DEFECT.  What is wrong is the INSTRUMENT: per-side coverage
+      charges the arm for an end the emitter opens by law.  Not adjusted
+      here — moving a bar in the round that parks, with no build budget
+      to verify it, is the fitting this batch has refused throughout.
+  (b) THE FORK'S INNER FACE (25.2537652,51.6032373, wall 0.41 on one
+      arm) IS CLIPPED BY R10-2, and that is a RULE COLLISION, not a bug.
+      Of each arm's missing inner face, 32-57 % lies ON TUNNEL PAVEMENT
+      (arm -12200: 20.2 of 63.4 m²; -12201: 32.2 of 56.8; -12202: 6.5 of
+      15.3; -12203: 7.8 of 14.8), so "a cover piece may never sit ON
+      tunnel pavement" (R10-2) removes it.  §5-SUPPLEMENT-2 asks the
+      pinch to carry ONE SHARED wall+foot, and in a gap narrower than
+      two bands that structure necessarily encroaches on a carriageway.
+      Exempting wall-band pieces from R10-2 would put a retaining wall
+      inside a roadway; NOT implemented — this needs an owner ruling on
+      which law yields, and it is the batch's last open question.
+      Note the R10-2 clip is AGGREGATE-logged ("clipped 19 tunnel
+      wall/roof/cap piece(s)"), which is why the per-piece instrument
+      showed nothing: the same aggregate-logging blindness that
+      instrument was created to end, still present on this path.
 
 - 2026-08-31 THE CAMPAIGN PERF PROFILE (RULINGS 31f's closing "exclusive
   perf profile vs committed baselines"): PAID, in part — this is the
@@ -5335,3 +5421,302 @@ both owner ramp probes CONTAINED.
 - 2026-08-31 lane/ltbatch4a Batch 4a ROUND 3 (spec-author gap-fill ruling + the residual-ring attribution): ONE instrumented build spent (`who_wrote.py --footprint`, two probes), NO closing arm, NO code change — the ordered gap-fill change is REFUTED BY MEASUREMENT and the residual population is ATTRIBUTED to a different producer than hypothesised.  (1) THE GAP-FILL RULING'S PREMISE DOES NOT HOLD AT THE MEASURED SITE.  The ruling ("`groundside_pavement` joins the hole-veto set generally") was to collapse round 2's 100,139 m² spine balloon.  Measured on the round-2 arm, that face covers 61,912 m² of BUILDING footprint and only 705 m² of `groundside_pavement` — so a groundside veto cannot be what emits it.  What it re-covers is buildings, through the class the file's own comments name: an annular residual emitted EXTERIOR-RING-ONLY (the patch dialect has no multipolygon), with buildings excluded from the blocker set because they are GAP PARENTS (`_gap_parents`), not foreign owners.  The airside union and its holes are BYTE-IDENTICAL between control and arm (718 rings, 12 components, 100 interior holes, 5,438,415 m² of hole), so the gap CANDIDATES did not change — only the veto/subdivision verdict inside them did.  Implementing the ruling literally also FAILS a standing owner twin: `tests/test_gap_fill_service_road_stop.py::test_groundside_pavement_blocks_the_spine_like_a_road` (RULINGS 30b's own site) requires a groundside lot CROSSING a hole to SUBDIVIDE, not veto — the arm was written, measured against the twin, and REVERTED rather than override a standing ruling.  OWED: the spec author reconciles 30b (crossing lot subdivides) with round 3's "veto stands", and rules the real class — a gap face whose exterior ring re-covers a GAP PARENT.  (2) THE 61 RESIDUAL FAR RINGS ARE ATTRIBUTED, and the #74/#101 late-re-role hypothesis is WRONG.  `who_wrote.py --footprint -4340.0,594.4` (the largest, 3,316 m² at 30.1142768,31.3895971) reports TWO births: the slice's own 20,639.4 m² face at `pipeline.py:3997 build_airport_pavement` (the producer RULINGS 31e names — released as ruled, it is gone from the final layout) and then a 3,316.1 m² piece at `pipeline.py:5053 solve_and_finalize` — the APRON NECK-SPLIT / route-proximity re-partition, which re-mints pieces as `_BS(polygon=_p, role=_piece_role, ref=_s.ref)` and therefore DROPS the `slice_face` marker.  A split piece of a slice-born road shape is invisible to the post-scorer release, which is why 61 rings / 18,881 m² survive beyond the region.  The one-line closure (carry `slice_face` through the split, as `reclassified_from_junction` and `from_route_proximity_cut` are already carried) is NOT made here: round 3's brief is attribute, not fix.  Both probes ran on the round-2 tree; the probe build took the `gap_spine_stand_down_solve` rebuild path, so probe B's absence of any graded_strip over building77 in THAT build is not evidence about the arm's face.
 
 - 2026-08-31 lane/ltbatch4a Batch 4a ROUND 4 — FINAL NUMBERS, PARKED (spec-author rulings: the ANNULUS CLASS + the SPLIT MARKER; closing arm `lt4a4_heca_arm`, 733.2 s, control `lt2c_heca_arm`, no shared-repo writes).  GREEN: (a) far ref-less road rings 1,325 -> 45 (435,882 -> 6,802 m2, -98.4 % by area) with 1,234 shapes / 431,294.85 m2 DECLARED in the sidecar (`scope: aircraft_transit_post_scorer`); ref-less `service_junction` overall 1,540 -> 260 rings / 535,859 -> 106,781 m2; `groundside_pavement` 218 -> 1,762 rings / 1,322,799 m2; the minters untouched (`service_road:road` 79 = 79, `service_junction:service` 232 = 232).  (b) THE ANNULUS CLASS IS MEASURED CLOSED: gap-fill spine area standing on BUILDING footprint 141,544 m2 (control) / 229,569 m2 (round-2 arm) -> **0 m2**; the 100,139 m2 balloon is gone (largest spine 196,955 -> 153,156 m2); 42 annular residuals were opened into simple parts in the arm.  Note the control's own 141,544 m2 was a PRE-EXISTING defect of the same class, cleaned by the same fix.  (c) spine population back in the control's class: 227 -> 210 rings, 3,343,242 -> 3,143,763 m2 (-6 %).  (d) census LAW-TRUE 6,403 -> 4,233 (adjudicated 4,229): road_cross_section 816 -> 366, transverse 1,738 -> 661, within_shape 2,073 -> 1,495, mid_edge_step 283 -> 217, vertex_to_edge_step 57 -> 46, apron_lattice_membrane 176 -> 141, raoa 1 -> 0.  (e) all four named sites intact (the far ring at 30.1142810,31.3772506 is not road; the item-4 contact site 41.33 m and both item-3 endpoints 27.13 m / 0.11 m read identically to the control).  RESIDUALS, quoted with their class: (1) `strip_seam_tear` 0 -> 2 AIRSIDE (1.830 m at 30.118608,31.408313; 1.470 m at 30.114079,31.406552) — NOT the annulus class (that is closed) but the POCKET-MERGE residual of the ownership change: the road that separated two gap pockets is now the same class as the lots, so the spine that tears grew (37,577 m2 against a 5,429 m2 control neighbour; 18,466 m2 against 527 m2) until it came within 2.96 m / 1.00 m of a neighbouring strip standing 1.83 m / 1.47 m away.  The STEP is pre-existing and unchanged (97.57 vs 99.40; 99.16 vs 100.63) — what is new is the pairing.  A merge-and-weld rule for adjacent spine residuals is the owed ruling; (2) `airside_no_step` +44 airside rows (61 NEW / 17 GONE: apron|apron 37, apron|building 17, junction|junction 7; worst new 3.17 m at 8.30 %, both endpoints inside one apron way) and `frontage_near_miss` +4, `within_shape` airside +13 — the 29a equilibrium class, unadjudicated; (3) 45 far ref-less rings / 6,802 m2 remain (largest 3,316 m2 site now released; the residue is small pieces), producer unattributed beyond round 3's split-marker finding; (4) airside_value_delta row-side 7,764 nodes moved, worst 7.90 m (3,919 road-welded / 3,845 soft-receiver); solve-owned 2,205, worst 7.90 m (395 / 1,810); (5) no five-airport sweep, no full suite, no app build; per-change files only (210 pass).  `test_gap_fill_spine`'s three gate-state twins are STANDING REDS on main.  BATCH 4a PARKS HERE, unmerged, per 31f.
+
+- 2026-09-01 lane/ltbatch3 round 3i (THE WALL FOOT RETIRES, RULINGS
+  2026-09-01c; commit `d2d6ebfc`).  SKIPPED under pre-ship mode: the
+  FULL suite (only the blast-radius selection ran — 1,345 passed, with
+  the 10 standing reds verified IDENTICAL in a control worktree at
+  HEAD: `test_gap_fill_spine` x3, `test_tunnel_portal_fidelity` x7,
+  the latter NOT on the beta plan's H2 list and owed an owner/lane
+  attribution); no five-airport sweep (OTHH + LEMD only, the two
+  airports carrying tunnels); NO TIMING at all — the band emits ONE
+  ref where it emitted two and the foot re-clip pass is gone, so the
+  change is expected to be neutral-to-cheaper, but that is a
+  prediction and not a measurement (`--runs N` owed at the final
+  profile); the mesher's own rendering of the unowned 0.5 m gap is
+  ASSERTED BY THE RULING and unverified in-sim until the owner's
+  Thursday read — no patch-side instrument can see a triangulation
+  that happens in Triangle4XP.
+  ATTRIBUTION THAT DID LAND, in full: the fork's missing inner face
+  was probed interventionally on the synthetic fork twin (no build) —
+  the sibling subtraction kept only `max(geoms, key=area)` and deleted
+  a 62.0 m2 arc of a 128.8 m2 band on FREE GROUND with no log line.
+  Fixed by keeping every surviving arc; measured after, both arms
+  0.911/0.912 in both walling orders with the whole remaining
+  shortfall (11.4 of 11.4 m2) on sibling pavement.
+
+- 2026-09-01 lane/ltbatch3 round 3i, CORRECTION (commit `4627f214`'s
+  claim is REFUTED by its own closing arm, and the claim was mine).
+  The arc floor was landed asserting it closed the OTHH fork's crumbs.
+  MEASURED on `lt3i2_othh_arm` with the floor in place: the fork still
+  ships 0.23 / 0.25 / 0.41 / 0.73 m² band pieces and BOTH nested pairs
+  survive — 13 → 12 pieces, exactly one crumb removed.  Every path that
+  MINTS a band piece already floors at
+  `_TUNNEL_COVER_MIN_PIECE_M2`, so the crumbs are not born at the
+  emitter: a LATER pass shrinks or splits a wall piece below the floor
+  without logging it.  THAT PASS IS UNATTRIBUTED and is owed the seam
+  probe this round did not have the build budget to run (attempt cap
+  spent on two OTHH arms).  The floor STAYS — its justification is
+  consistency between the two paths, which stands — but it is not their
+  fix and must not be re-asserted as one.
+  A STANDING HYPOTHESIS, explicitly unproven, for whoever runs that
+  probe: the crumbs measure ~0.5 x 1.0 m (minimum rotated rects
+  0.47x1.06, 0.50x1.00, 0.33x1.39), they carry TWO storeys of altitude
+  (0.59 with 1.96, 0.58 with 1.21, 1.68 with 0.58), and they appear
+  only in the arms where `wall_gap_m` equals `CONFORMANCE_TOL_M` — all
+  consistent with the post-solve conformance weld's 0.5 m ring bow,
+  which is also the measured cause of the `ramp_wall_gap` regression.
+  One probe would confirm or kill it; nothing here should be repeated
+  as fact until it does.
+
+- 2026-09-01 lane/ltbatch3 round 3i CLOSING ARM, quoted in full
+  (`lt3i2_othh_arm` 468.0 s / 2,491 shapes / body `3c7c700e`, vs control
+  `lt3h_othh_arm`; both arms UNCONTAMINATED — no unauthorised and no
+  blocked shared-repo writes).  Acceptance: **9 PASS, 1 FAIL, 10
+  SKIPPED**.
+  GREEN, and these are the ones that could have gone wrong quietly:
+  `geometry_drift` **0** over 2,396 same-geometry ways (0 drifted
+  >= 0.50 m) — the retirement moved no geometry it was not meant to;
+  `adjudicated_delta` **-10** (1,567 vs 1,577) and `actionable_sites`
+  46 = 46, i.e. the census sits INSIDE the 31i-accepted classes rather
+  than needing them; `subgrade_by_role` PASS (service_road 9 vs 12);
+  `no_needle`, `pad_flat`, `role_less_ring_rows`, `covered_span_clean`,
+  `site_reach`, `mouth_vertex_reach`, `no_low_connector` all PASS.
+  Mouth inventory 10 sites, **1 not canonical** (control: 2) — the
+  merged site 25.2761181,51.6134362 that this lane was dispatched for
+  is CANONICAL at 0.93/1.00.
+  RED, and why the batch does NOT merge on this arm:
+  (1) `ramp_wall_gap` **69** against a bar of 0 (control 14).  Measured
+      cause, not inferred: every shared node lies at EXACTLY 0.000 m
+      from the ramp ring while every other band node stands at the
+      design offset (control p05 0.600 = the old gap, arm p05 0.500 =
+      the ruled gap).  `CONFORMANCE_TOL_M` IS `SHARED_VERTEX_TOL_M` IS
+      0.5, and RULINGS 2026-09-01c sets `wall_gap_m` to exactly 0.5, so
+      the post-solve T-weld now treats every ramp vertex as lying on
+      the band's inner edge and inserts it — dragging the wall onto the
+      road, which is the "broken ramp" of owner sim item 9.  This is a
+      LAW-vs-MECHANISM collision on the owner's own number: either the
+      gap moves off the weld tolerance or the weld learns a tunnel-gap
+      exemption, and the latter is cross-cutting (its own 30l census).
+      NOT decided here.
+  (2) the fork's band crumbs / nested pairs (band_fragments 4, nested 2,
+      redundant 6) — UNATTRIBUTED, see the correction entry above.
+  (3) `wall_top_flat` 5.12 m (control 4.99 in its crest-only frame) —
+      PRE-EXISTING, not introduced, but now a visible violation of
+      2026-09-01c's "no floor value in any wall band".  Owed its own
+      attribution.
+
+- 2026-09-01 lane/ltbatch3 round 3j — THE GAP AT 0.6 (RULINGS
+  2026-09-01e), closing arms `lt3j_othh_arm` (488.3 s / 2,498 shapes)
+  and `lt3j_lemd_arm` (581.2 s / 2,223 shapes).
+  BOTH ARMS ARE FLAGGED **CONTAMINATED**, and NOT by this lane: one
+  file, `Airport_mod_cache/SPLP Test/o4_object_footprints_-13-078.cache`,
+  modified 11:59:51 inside both build windows.  `write_guard_blocked` is
+  EMPTY for both (these builds attempted no shared write and were
+  refused none) and their mod cache is redirected lane-local; the
+  snapshot spans 5,340 corpus files and found exactly that one changed.
+  SPLP is tile -13-078; the subjects are OTHH +25+051 and LEMD +40-004,
+  so the contaminant is outside both input sets — recorded as a FLAG,
+  not argued away.  A concurrent lane wrote it.
+  THE RULING WORKED: `ramp_wall_gap` OTHH 74 -> 26 (control 14),
+  LEMD 85 -> 25; `nested_band_pieces` 2 -> 0.
+  THE CRUMB HYPOTHESIS IS CLOSED — CONFIRMED.  At gap 0.5 four fork
+  pieces sat BELOW the emitter's own 0.5 m2 floor, which no minting
+  path can produce, proving a post-emit shrinker; at 0.6 every piece is
+  ABOVE it.  The sub-floor and nested crumbs WERE the 0.5-tolerance
+  weld bow.  What remains at 0.6 is a different, benign population:
+  genuine arcs of 0.58-0.74 m2 that trip the instrument's 1.0 m2
+  fragment bar.
+  OTHH A/B vs the parked 3h arm: 9 PASS / 1 FAIL / 10 SKIPPED;
+  `adjudicated_delta` **-29** (1,548 vs 1,577), `actionable_sites` 44
+  (46), `subgrade_by_role` an EXACT match, `geometry_drift` 1 of 2,441
+  same-geometry ways and the single drifter is a `retaining_wall` —
+  the class this round changes.  The dispatched site
+  25.2761183,51.6134359 is CANONICAL (0.93/1.00), from NOT canonical.
+  LEMD held: basin byte-identical across the gap change (14 rim + 1
+  trench, 679 altitudes, floor 587.750 / top 599.670 in BOTH arms) and
+  `geometry_drift` 0 over 2,167 same-geometry ways.  NOT verified: a
+  PRE-ROUND LEMD control (none on disk), so "held" here means held
+  across 0.5 -> 0.6, not across the whole retirement.
+  **THE ONE NEW CLASS, AND WHY THIS DOES NOT MERGE.**  At the 4-arm
+  fork 25.2537652,51.6032373, per-arm structure coverage (the
+  instrument's own `FACE_REACH_M` frame; the control's structure counts
+  wall AND foot):
+      arm len 142.8 m : control 15.2 m unanswered (11%), 100% of it on
+                        sibling pavement = lawful;
+                        final 66.7 m unanswered (47%), only 23% on a
+                        sibling => **51.4 m of side on FREE GROUND with
+                        no retaining structure**.
+      arm len  64.3 m : control 25.8 m (40%), 66% sibling — the ORIGINAL
+                        dispatch complaint;
+                        final 17.7 m (27%), **100% sibling** => FIXED,
+                        the whole remaining gap is lawful pinch.
+  ATTRIBUTION: the FOOT was answering that 142.8 m arm's side (control
+  foot L/R 0.98/0.98).  With the foot retired only the face band
+  remains, and at 0.6-1.6 m out it collides with siblings far more than
+  the foot did at 0-0.6, so the sibling subtraction and R10-2 remove
+  what the foot used to cover.  The arc-keeping fix CANNOT be the
+  cause: it is monotonically additive, it only keeps pieces that were
+  previously deleted.  The ruling is sound in general and has a
+  MEASURED COST at this one tight fork.  Whether a fork arm's inner
+  side takes a reduced-offset band, or the pinch exemption widens, is a
+  DESIGN decision and belongs to the owner — it is not closable by
+  moving an instrument bar.
+
+- 2026-09-01 lane/ltbatch3 round 3k — RULINGS 2026-09-01h IS IMPLEMENTED
+  AND **INERT AT THE SITE IT WAS RULED FOR**.  Reported against myself,
+  because I implemented it on an inferred mechanism instead of a
+  measured one (the "mechanism before fix" law: attribution reads are
+  not causal).
+  MEASURED, `lt3k_othh_arm` (503.7 s / 2,499 shapes / body `4a1dee94`)
+  against `lt3j_othh_arm`, the SAME site 25.2537652,51.6032373:
+      arm len 142.8 m : 3j  66.7 m unanswered (47%), 51.4 m FREE GROUND
+                        3k  66.7 m unanswered (47%), 51.4 m FREE GROUND
+  IDENTICAL — walls 26 in both.  The clip I added never fires here: the
+  build log reports "dropped 0 tunnel piece(s) under pavement" in BOTH
+  arms, so the covered-stretch drop was never the remover at this fork.
+  01h's discipline is right and it stays (it closes the class wherever
+  the late gate DOES drop a band); it simply does not reach this one.
+  THE REAL SEAM, ESTABLISHED INTERVENTIONALLY (no build): the same
+  `emit_wall_band`, called offline on the SAME real body (`-12192`) at
+  the same 0.6 m gap, returns a COMPLETE band — 11% unanswered and
+  **0.0 m on free ground**, matching the 3h control exactly — both with
+  and without the sibling bands excluded.  The geometry is emittable;
+  the body never GETS its own band call.  The build log names it:
+  "§5-SUPPLEMENT-2 fork walls: **2 arm(s)** walled as their own
+  corridors" at a site carrying **4** ramp bodies.  `_arm_bodies` is
+  populated only from `arm_specs` — the arms DOWNSTREAM of the
+  divergence point — so the two bodies that are not arms (this 142.8 m
+  one among them) are walled only by the CLUSTER UNION band, whose
+  outward offset traces the outer hull and cannot produce a concave
+  inner side.  That is the original Batch-3f mechanism, reaching only
+  part of this site.
+  OWED: whether a non-arm fork body gets its own band call (i.e. which
+  bodies the per-arm register admits) is a DESIGN question about the
+  31h divergence test's scope — the owner's, not a lane's, and not
+  closable by moving an instrument bar.  This lane's build budget for
+  the round is spent; no further arm was run to chase it.
+
+- 2026-09-01 lane/ltbatch3 round 3m — **TWO CORRECTIONS AGAINST MYSELF,
+  AND 01j IS ALSO A NO-OP AT THE RULED SITE.**  `lt3m_othh_arm`
+  (481.6 s / 2,499 shapes / body `17351f5f`, CONTAMINATED **False** —
+  a clean frame at last).
+  (1) THE "2 of 4 BODIES WALLED" READING WAS WRONG.  I reported in
+      round 3k that only the divergence arms got a band call, from the
+      log line "2 arm(s) walled as their own corridors".  The old code
+      ALSO ran a THROAT pass that walled every non-arm body; the log
+      line only ever counted ARMS.  So all four bodies already had
+      their call.  01j (per-body walling) is therefore a faithful
+      REFACTOR — the register is now explicit and the log truthful
+      ("4 of 4 cluster ramp bodies ... of which 2 divergence arms") —
+      but it changes no geometry: 3m is identical to 3k and 3j at the
+      fork (66.7 m unanswered, walls 26 in all three).  It is kept for
+      the honesty of the register and the log, not claimed as a fix.
+  (2) "51.4 m ON FREE GROUND" WAS MISLEADING, AND I WROTE IT.  The
+      figure means "not within 2 m of TUNNEL pavement".  It is not open
+      terrain.  Decomposed against every shape in the patch (target
+      body excluded), the 66.7 m unanswered stretch is:
+          47.5 m alongside a SERVICE ROAD (1 way)
+          15.3 m alongside sibling tunnel ramps (3 ways) — lawful pinch
+           5.6 m alongside junctions
+           2.3 m alongside groundside pavement
+           0.2 m with nothing within 2 m
+      So the band is missing where OTHER PAVEMENT occupies the ground,
+      dominated by a service road running beside the ramp.  In the
+      control the FOOT answered that stretch — it occupied 0-0.6 m,
+      hugging the ramp, inside the strip the road leaves free, while
+      the band at 0.6-1.6 m does not fit there.  Rulings 01h and 01j
+      were both issued partly on my "free ground" wording; both are
+      no-ops here, and that is my error, not the rulings'.
+  WHAT IS *NOT* ESTABLISHED: which pass denies the band along the
+  service road.  The late gate is NOT it (this build dropped 0 pieces
+  and grazed 1).  My offline reproduction cannot answer it either — it
+  contains only the four tunnel bodies and no road, which is exactly
+  why the band completed there under every exclude combination.  I have
+  now mis-attributed this site TWICE by inference (the covered-stretch
+  drop; then the arm register), so I am NOT offering a third
+  hypothesis.  The next step is the seam probe the original brief
+  named, on an instrumented build: present-at-seam-X, gone-after-Y,
+  over the band pieces along that stretch.
+
+- 2026-09-01 lane/ltbatch3 — **THE SEAM PROBE, AND THE ANSWER: THE
+  REMOVAL IS LAWFUL.**  One instrumented write-only OTHH build
+  (`lt3p_probe`, `--no-ledger`), five probe points spaced along the
+  47.5 m road-adjacent stretch at the MID-BAND offset (1.1 m outboard
+  of the 142.8 m body's ring — inside the missing band's own
+  footprint).  No hypothesis was formed before the trace.
+  THE TRACE (`O4_COVERAGE_PROBE`, owners as `role/ref#idx`):
+      post-slice … post-road-lots      apron (#68→#70→#61→#44)
+      post-pavement-score … presolve   service_road  (scorer v2 re-verdict)
+      00_post_solve … post-groundside-sep  service_road
+      T00_after_per_body_walls         service_road + **tunnel_wall#2207**
+      T01_cluster_walled               service_road + tunnel_wall#2207
+      T99_before_finalize_call         service_road + tunnel_wall#2207
+      T02_finalize_entry               service_road + tunnel_wall#2207
+      T04_before_late_r10_2_gate       **tunnel_wall#2206**
+      T03_before_wall_vs_ramp_clip     **LOST**
+      01_terrain_transition_emit … to_osm   LOST
+  (T04 precedes T03 in source order.)  So the band IS emitted on that
+  stretch, survives to the late gate, and dies INSIDE the late R10-2 /
+  wall-adjudication gate.  Present-at-T04, gone-after: the seam is
+  named.
+  THE LAW, quoted from the gate's own contract
+  (`_ramp_wall_adjudication_gate`): "R14-2/A-3 forbids a ramp CUTTING
+  aircraft-transit pavement: over a taxiway the stretch is covered bore
+  and the pavement stays.  The wall FACE stands in the outer half of
+  the band annulus, furthest from the ramp, so it is exactly the piece
+  that lands on that uncut pavement … while the FOOT, in the inner
+  half, sits inside the cut and survives."  That is this residual,
+  written down before this round began — the gate documents the same
+  class MEASURED at three other OTHH sites in Batch 3b ("a complete
+  foot and no face").
+  THE VERDICT: the band may not stand there.  The ground at 0.6-1.6 m
+  from the ramp is apron/service-road pavement which the ramp is
+  FORBIDDEN to cut (R14-2/A-3) and on which a cover piece may not stand
+  (R10-2).  The retired §T5 foot occupied 0-0.6 m — inside the ramp's
+  own cut clearance — which is the ONLY reason the control answered
+  that stretch.  So the 47.5 m is the foot retirement's ONE VISIBLE
+  COST, and it is a lawful consequence of RULINGS 2026-09-01c meeting
+  R14-2/A-3, not a defect and not an over-broad removal.
+  01h IS NOT INERT IN GENERAL — its clip is what now keeps the
+  off-pavement remainder of such a band instead of dropping the piece
+  whole (this build: 0 covered-stretch drops, 1 graze).  It simply
+  cannot conjure band onto ground the law reserves for pavement.
+
+- 2026-09-01 lane/ltbatch3 — **BATCH 3 CLOSING STATE, MERGE-READY.**
+  Measurement arm `lt3m_othh_arm` (481.6 s / 2,499 shapes / body
+  `17351f5f`, **CONTAMINATED False**) vs the parked control
+  `lt3h_othh_arm`.  Acceptance: **9 PASS / 1 FAIL / 10 SKIPPED**.
+  THE INSTRUMENT IS PROVABLY INERT: the instrumented probe build
+  `lt3p_probe`, run WITH the probe armed, emitted a BYTE-IDENTICAL
+  patch — same 2,499 shapes, same body `17351f5f` — so the seam probe
+  that landed after the measurement arm changed no geometry, measured
+  rather than asserted.
+  GREEN: `geometry_drift` 1 of 2,439 same-geometry ways and the single
+  drifter is a `retaining_wall` (the class this batch changes);
+  `adjudicated_delta` **-28** (1,549 vs 1,577); `actionable_sites`
+  46 = 46; `subgrade_by_role` an EXACT match; `no_needle`, `pad_flat`,
+  `role_less_ring_rows`, `covered_span_clean` x2, `site_reach`,
+  `mouth_vertex_reach`, `no_low_connector` all PASS.  Mouth inventory
+  **10 sites, 1 not canonical** (control: 2).  The site this lane was
+  dispatched for, 25.2761183,51.6134359, is CANONICAL at 0.93/1.00.
+  LEMD: basin byte-identical across the gap change (14 rim + 1 trench,
+  679 altitudes, floor 587.750 / top 599.670), `geometry_drift` 0 over
+  2,167 ways.
+  THE RESIDUALS, EVERY ONE EXPLAINED OR PRE-EXISTING:
+  1. `ramp_wall_gap` 26 against bar 0 — the CONTROL's own class (14),
+     scaled by piece count: walls 16 -> 26, so the per-wall rate moves
+     0.875 -> 1.0.  Quoted per the coordinator, not chased.
+  2. The one non-canonical mouth (the 4-arm fork) — side 0.15 is the
+     LAWFUL R14-2/A-3 class proven by the seam probe above; its
+     `band_fragments` 6 / `redundant` 9 are genuine arcs ABOVE the
+     emitter floor that the old `max(geoms)` rule used to delete, now
+     tripping an instrument bar calibrated when they were being
+     dropped.  Not fitted away.
+  3. `wall_top_flat` 5.1 (control 4.99) — PRE-EXISTING, owed its own
+     attribution.
+  4. The LEMD no-band site 40.4896687,-3.5494150 — owed; no pre-round
+     LEMD control exists on disk to A/B it against.
+  5. `test_tunnel_portal_fidelity` x5 — a strict SUBSET of the 7 reds
+     standing when this batch began (main's H2 round fixed two).  Suite
+     otherwise 1,623 passed.

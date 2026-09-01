@@ -11,12 +11,20 @@ R16-1  ONE BOUNDARY, ONE SPELLING.  The chain-consistent needle removal
 R16-2a THE ANCHOR IS THE PORTAL.  Per below-grade body the transition
        law anchors at the body's DEEPEST station, not at whichever
        station happens to lie nearest a governed ring vertex.
-R16-2b THE WALL FACE IS OWNED GEOMETRY.  A tunnel wall's inner boundary
-       IS the ramp's outer boundary (node identity, not proximity) and
-       carries the ramp's values there, so no unowned strip is left for
-       the mesh to drape at DEM/Z0.
-R16-3  ONE FLOOR PER CONNECTED CLAIMED PLATE.  Adjacent claimed plates
-       of one connected level surface share the joint depth.
+R16-2b SUPERSEDED by RULINGS 2026-09-01c.  It required a tunnel wall's
+       inner boundary to BE the ramp's outer boundary, so no unowned
+       strip was left for the mesh to drape.  The owner has ruled the
+       gap itself to be the steep face: ramp, then 0.5 m owned by
+       NOTHING, then a band whose two edges carry one corridor-top
+       value.  The twins below assert THAT model (and the §T5 foot that
+       stood in the gap is retired with it).
+R16-3  RETIRED.  "ONE FLOOR PER CONNECTED CLAIMED PLATE" was a law of
+       R14-1's tunnel-road CLAIM CLASS (which plates a claim levels
+       together).  The class retires under RULINGS 2026-08-31b
+       (``docs/specs/linear-transport-redesign-spec.md`` §5.1, census
+       #23), and R16-3 with it — mapped road pavement over a cut is now
+       core road ground above a covered stretch, or severed by the cut.
+       Its three twins are deleted; nothing replaces them here.
 
 Every assertion is made in the frame the law is measured in: R16-1 on
 the EMITTED patch (canonical interning, the validity repair and the
@@ -181,14 +189,16 @@ def test_r16_1_a_real_corner_is_never_deformed():
         "a real corner was deformed by the chain-consistent removal")
 
 
-# ── R16-3: one floor per connected claimed plate ────────────────────
+# ── portal fixtures shared by R16-2a / R16-2b / §T5 ─────────────────
+#
+# R16-3 ("ONE FLOOR PER CONNECTED CLAIMED PLATE") lived here.  It was a
+# law OF R14-1's claim class — which plates a claim levels together —
+# and it retired with that class (RULINGS 2026-08-31b, redesign spec
+# §5.1, census #23).  Its three twins are deleted; the portal-row helper
+# below is kept because the surviving R16-2a/R16-2b/§T5 twins use it.
 
 _CLAIM_ANCHOR = (35.215, -80.944)
 _AMBIENT_M = 219.8
-#: KCLT's triangle in miniature: two ADJACENT claimed plates whose own
-#: regions carry floors 0.11 m apart — the measured 210.87 / 210.98.
-_FLOOR_DEEP = 210.87
-_FLOOR_SHALLOW = 210.98
 
 
 def _portal_row(way_id, station, outward, mouth_grade, carriage_w=10.0):
@@ -198,69 +208,6 @@ def _portal_row(way_id, station, outward, mouth_grade, carriage_w=10.0):
     return ("n" + way_id, way_id, [station, outward], "service",
             _AMBIENT_M, _AMBIENT_M, False, carriage_w, False,
             mouth_grade, [], None, None)
-
-
-def _two_plate_scene(separate=False):
-    """Two facing pairs 40 m apart, each covered by its own road plate.
-
-    ``separate=False`` puts the plates edge to edge — ONE connected
-    level surface.  ``separate=True`` leaves a 6 m gap between them:
-    two surfaces, and the law must NOT join their floors.
-    """
-    layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
-    y_split = 12.0 if not separate else 12.0
-    plate_a = box(-6.0, -12.0, 62.0, y_split)
-    plate_b = box(-6.0, y_split + (6.0 if separate else 0.0), 62.0, 46.0)
-    for poly in (plate_a, plate_b):
-        layout.shapes.append(BuiltShape(
-            polygon=poly, role=ROLE_SERVICE_JUNCTION, ref="",
-            node_altitudes=[_AMBIENT_M] * 5))
-    rows = [_portal_row("W1", (0.0, 0.0), (56.0, 0.0), _FLOOR_DEEP),
-            _portal_row("W2", (56.0, 0.0), (0.0, 0.0), _FLOOR_DEEP),
-            _portal_row("W3", (0.0, 40.0), (56.0, 40.0), _FLOOR_SHALLOW),
-            _portal_row("W4", (56.0, 40.0), (0.0, 40.0), _FLOOR_SHALLOW)]
-    return layout, rows, [(0, 1), (2, 3)]
-
-
-def test_r16_3_connected_claimed_plates_share_the_joint_depth():
-    """Both plates of ONE level surface take the JOINT depth — the
-    minimum of the members' own floors — so the level-plate bullet
-    (spread <= 0.10 m) holds across the whole surface.
-
-    Mutation-checked: with each plate taking its own region's floor
-    this reads a 0.11 m spread (KCLT's 210.87 / 210.98).
-    """
-    layout, rows, pairs = _two_plate_scene()
-    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert n == 2, f"both plates must be claimed, got {n}"
-    values = [v for shape in layout.shapes for v in shape.node_altitudes]
-    assert max(values) - min(values) <= 0.10, (
-        f"level-plate spread {max(values) - min(values):.3f} m across "
-        f"two adjacent claimed plates")
-    assert min(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
-    assert max(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
-
-
-def test_r16_3_disconnected_plates_keep_their_own_floors():
-    """The control: the law is per CONNECTED plate.  Two level surfaces
-    that do not touch answer with their own depths — joining them would
-    sink pavement no bore runs under."""
-    layout, rows, pairs = _two_plate_scene(separate=True)
-    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert n == 2
-    floors = sorted(round(min(s.node_altitudes), 2) for s in layout.shapes)
-    assert floors == [round(_FLOOR_DEEP, 2), round(_FLOOR_SHALLOW, 2)], (
-        f"disconnected surfaces were joined: {floors}")
-
-
-def test_r16_3_the_claim_still_never_raises_a_vertex():
-    """R14 behaviour, unchanged: the joint depth can only DIG.  A plate
-    already below the joint floor keeps its own value."""
-    layout, rows, pairs = _two_plate_scene()
-    layout.shapes[1].node_altitudes = [_FLOOR_DEEP - 3.0] * 5
-    bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert min(layout.shapes[1].node_altitudes) == pytest.approx(
-        _FLOOR_DEEP - 3.0, abs=1e-6)
 
 
 # ── R16-2a: the anchor is the portal (the DEEPEST station) ──────────
@@ -357,16 +304,10 @@ def _corridor_scene(floor_a=210.87, floor_b=210.87):
 
 
 def _corridor_feet(layout):
-    return [s for s in layout.shapes
-            if s.ref == bridges.TUNNEL_WALL_FOOT_REF]
-
-
-def _wall_structure(layout):
-    """Every piece of the wall STRUCTURE — face and foot alike.  §T5's
-    "the annulus is owned by the wall" is a claim about this set, not
-    about the ``tunnel_wall`` ref alone."""
-    return [s for s in layout.shapes
-            if s.ref in bridges._WALL_BAND_REFS]
+    """The §T5 FOOT population — EMPTY since it retired (2026-09-01c).
+    Kept as a probe: it reads the shipped ref literal, so a foot
+    re-appearing under any emitter fails the twins that call it."""
+    return [s for s in layout.shapes if s.ref == "tunnel_wall_foot"]
 
 
 def _ring_open(polygon):
@@ -374,115 +315,68 @@ def _ring_open(polygon):
     return ring[:-1] if ring and ring[0] == ring[-1] else ring
 
 
-def test_r16_2b_the_wall_inner_edge_is_the_pavement_boundary():
-    """No unowned strip: the wall STRUCTURE touches the cut floor (gap
-    0 m), and at least two of its vertices sit ON the floor's own
-    boundary — the canonical join the emitter's vertex interning then
-    welds into one node id.
+def test_the_corridor_wall_stands_off_the_floor_and_shares_no_node():
+    """RULINGS 2026-09-01c: the wall band stands ``wall_gap_m`` off the
+    corridor floor and shares NOT ONE vertex with it.
 
-    SUPERSEDED PREMISE, REWRITTEN: this twin used to assert
-    ``_corridor_feet(layout) == []`` because spec Amendment 1 ruling 1
-    scoped §T5 to the PERIMETER band and left the facing-corridor waller
-    on its prior single-band shared-node weld.  Amendment 2 attributed
-    the 3 SPJC foot∩face pairs to the perimeter band's own post-solve
-    conformance weld (``bridges.reclip_wall_feet_against_faces``) and
-    §T5 was extended to EVERY waller with the gate default-ON
-    (2026-08-29, lane/tunneldockets; the shipped state RULINGS
-    2026-08-31k reports as "walls/feet 16/16").  So the piece that
-    spells the floor's boundary is now the FOOT, and R16-2b's law —
-    the structure's inner boundary IS the ramp's outer boundary — is
-    asserted where it now lives.  The FACE standing off by ``wall_gap``
-    is RULINGS 2026-08-28c item 1 ("there must be a small gap").
+    This SUPERSEDES R16-2b's original frame for this emitter (which
+    required the band's inner edge to BE the floor boundary, so that no
+    ground was unowned).  The owner has ruled the gap itself to be the
+    steep face: the mesher triangulates floor-edge to wall-inner-edge,
+    and nothing may weld across it.  Measured before, at OTHH: this
+    emitter contributed 32 shared ramp/wall node ids.
 
-    Mutation-checked: with the foot deleted (``O4_RAMP_WALL_FOOT=0``)
-    the structure reads a 0.60 m strip of ground no shape owns.
+    Mutation-checked: start the band at ``_half`` again and the shared
+    count returns.
     """
     layout, floor, walls = _corridor_scene()
-    feet = _corridor_feet(layout)
-    assert len(feet) == len(walls) == 2, (
-        f"{len(feet)} foot / {len(walls)} face piece(s) — the corridor "
-        f"waller must emit both under §T5 (Amendment 2)")
-    for foot in feet:
-        assert foot.polygon.distance(floor.polygon) == pytest.approx(
-            0.0, abs=1e-9), (
-            f"a {foot.polygon.distance(floor.polygon):.3f} m strip "
-            f"between the corridor and its wall foot is owned by nothing")
-        on_edge = [v for v in _ring_open(foot.polygon)
-                   if floor.polygon.exterior.distance(Point(v)) <= 1e-9]
-        assert len(on_edge) >= 2, (
-            f"the wall foot does not spell the floor's boundary: "
-            f"{_ring_open(foot.polygon)}")
-    foot_u = unary_union([f.polygon for f in feet])
+    assert _corridor_feet(layout) == [], (
+        "a wall FOOT was emitted — the §T5 foot retired (2026-09-01c)")
     for wall in walls:
         assert wall.polygon.distance(floor.polygon) >= _WALL_GAP_M - 0.01, (
-            f"the rising face stands only "
+            f"the wall stands only "
             f"{wall.polygon.distance(floor.polygon):.3f} m off the "
-            f"corridor — RULINGS 2026-08-28c item 1")
-        assert not [v for v in _ring_open(wall.polygon)
-                    if floor.polygon.exterior.distance(Point(v)) <= 1e-9], (
-            "the rising face is welded to the corridor floor")
-        # face ∪ foot leaves nothing between: the whole gap is the foot's.
-        assert wall.polygon.distance(foot_u) == pytest.approx(0.0, abs=1e-9)
+            f"floor — the gap the mesher triangulates is gone")
+        on_edge = [v for v in _ring_open(wall.polygon)
+                   if floor.polygon.exterior.distance(Point(v)) <= 1e-9]
+        assert not on_edge, (
+            f"the wall is welded to the corridor floor at {on_edge}")
 
 
-def test_r16_2b_the_inner_edge_carries_the_ramps_values():
-    """One node, one value: every vertex the wall STRUCTURE shares with
-    the cut floor carries the FLOOR's profile there (210.0 at the W1
-    station, 212.0 at W2), and the crest keeps ambient.
+def test_the_corridor_wall_carries_one_crest_value_per_station():
+    """BOTH EDGES, ONE VALUE (RULINGS 2026-09-01c).  No band vertex
+    carries a floor value any more: at each station the inner and the
+    outer vertex read the SAME crest sample, so the wall top cannot
+    twist and the band cannot lean.
 
-    SUPERSEDED PREMISE, REWRITTEN: under Amendment 1 the single
-    ``tunnel_wall`` band carried both (floor on its inner pair, crest on
-    its outer).  §T5 reaching this emitter (Amendment 2, gate default-ON
-    2026-08-29; RULINGS 2026-08-31k) split that band, so the FLOOR is
-    now the FOOT's — a flat shelf, one value per station across its
-    whole width, per §F1 — and the FACE carries the crest on BOTH edges.
-    R16-2b's law is unchanged and is asserted over the structure.
+    The ring is ``[inner@a, inner@b, outer@b, outer@a]``, so the station
+    pairs are (0, 3) and (1, 2).
     """
-    layout, floor, walls = _corridor_scene(floor_a=210.0, floor_b=212.0)
-    feet = _corridor_feet(layout)
-    assert feet, "no foot — see the sibling twin"
-    shared = 0
-    for foot in feet:
-        ring = _ring_open(foot.polygon)
-        alts = list(foot.node_altitudes)[:len(ring)]
-        for (vx, vy), value in zip(ring, alts):
-            # §F1: the shelf is FLAT across its width, so the outer pair
-            # repeats its station's floor value — every foot vertex reads
-            # the floor profile at its own station.
-            expect = 210.0 + 2.0 * (vx / 56.0)
-            assert value == pytest.approx(expect, abs=0.01), (
-                f"foot vertex at x={vx:.1f} carries {value}, the floor "
-                f"carries {expect}")
-            if floor.polygon.exterior.distance(Point((vx, vy))) <= 1e-9:
-                shared += 1
-    assert shared >= 4, shared
+    _layout, floor, walls = _corridor_scene(floor_a=210.0, floor_b=212.0)
+    assert walls
     for wall in walls:
         ring = _ring_open(wall.polygon)
         alts = list(wall.node_altitudes)[:len(ring)]
-        for (vx, vy), value in zip(ring, alts):
-            assert floor.polygon.exterior.distance(Point((vx, vy))) > 1e-9, (
-                f"a face vertex at ({vx:.1f}, {vy:.1f}) sits on the floor")
+        assert len(alts) == 4, alts
+        assert alts[0] == pytest.approx(alts[3], abs=1e-9), alts
+        assert alts[1] == pytest.approx(alts[2], abs=1e-9), alts
+        for value in alts:
             assert value == pytest.approx(_AMBIENT_M, abs=0.11), (
-                f"a crest vertex took {value}")
+                f"a band vertex took {value} — the floor's value leaked "
+                f"into the band (210.0/212.0 are the floor's)")
 
 
-# ── §T5: THE RAMP-WALL FOOT, at the PERIMETER BAND (its whole scope) ──
-# Driven through ``bridges.emit_wall_band`` directly — the one waller the
-# law applies to this round, and the same function ``_emit_portal_cluster``
-# calls with a cluster's ramp union.
+# ── THE WALL BAND, at the PERIMETER emitter (RULINGS 2026-09-01c) ─────
+# Driven through ``bridges.emit_wall_band`` directly — the same function
+# ``_emit_portal_cluster`` calls with a cluster's ramp union.  THE MODEL:
+# ramp = corridor floor; a ``wall_gap_m`` gap owned by NOTHING; then one
+# band whose inner AND outer edges carry the corridor-top value.
 
 _T5_RAMP = Polygon([(0.0, 0.0), (60.0, 0.0), (60.0, 12.0), (0.0, 12.0)])
 
 
 def _band_scene(ramp_alt=210.0):
-    """One ramp body, walled by the perimeter band with ends WRAPPED.
-
-    Reads whatever ``O4_RAMP_WALL_FOOT`` currently says.  The SHIPPED
-    default is ON (``bridges.ramp_wall_foot_enabled``, default-ON since
-    2026-08-29 when the face-inflation was attributed to the post-solve
-    conformance weld); the flag-ON twins below still set it explicitly so
-    they keep testing the arm they name, and the fallback twin sets "0".
-    """
+    """One ramp body, walled by the perimeter band with ends WRAPPED."""
     layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
     ramp = BuiltShape(polygon=_T5_RAMP, role=bridges.ROLE_TUNNEL_RAMP,
                       ref="tunnel_ramp",
@@ -492,195 +386,127 @@ def _band_scene(ramp_alt=210.0):
     bridges.emit_wall_band(layout, zones, [_T5_RAMP], [ramp], [],
                            _WALL_GAP_M, _WALL_W_M,
                            lambda x, y: _AMBIENT_M, _AMBIENT_M)
-    feet = [s for s in layout.shapes
-            if s.ref == bridges.TUNNEL_WALL_FOOT_REF]
     faces = [s for s in layout.shapes if s.ref == "tunnel_wall"]
-    return layout, ramp, feet, faces
+    return layout, ramp, faces
 
 
-def test_t5_the_perimeter_band_emits_a_foot_and_a_face(monkeypatch):
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, _ramp, feet, faces = _band_scene()
-    assert feet and faces, (
-        f"{len(feet)} foot / {len(faces)} face piece(s) — the perimeter "
-        f"band must emit both")
+def test_the_band_emits_one_ref_and_no_foot():
+    """THE FOOT IS GONE — no ref, no shape, no flag.  A band piece is a
+    ``tunnel_wall`` and nothing else."""
+    layout, _ramp, faces = _band_scene()
+    assert faces, "the perimeter band emitted nothing"
+    refs = {s.ref for s in layout.shapes
+            if s.role == bridges.ROLE_RETAINING_WALL}
+    assert refs == {"tunnel_wall"}, refs
+    assert not hasattr(bridges, "TUNNEL_WALL_FOOT_REF")
+    assert not hasattr(bridges, "ramp_wall_foot_enabled")
+    assert not hasattr(bridges, "reclip_wall_feet_against_faces")
 
 
-def test_t5_the_face_stands_off_the_ramp_and_shares_no_node(monkeypatch):
-    """RULINGS 2026-08-28c item 1: "there must be a small gap".  The
-    rising ``tunnel_wall`` stands ``wall_gap`` (0.6 m) off the road
-    surface and shares NOT ONE vertex with it — measured before on OTHH:
-    84 node ids shared over 22 pairs at 0.0000 m."""
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, ramp, _feet, faces = _band_scene()
+def test_the_band_stands_off_the_ramp_and_shares_no_node():
+    """RULINGS 2026-08-28c item 1, kept by 2026-09-01c: "there must be a
+    small gap".  The band stands ``wall_gap`` off the road surface and
+    shares NOT ONE vertex with it — measured before on OTHH: 84 node ids
+    shared over 22 pairs at 0.0000 m."""
+    _layout, ramp, faces = _band_scene()
     ring = ramp.polygon.exterior
     for face in faces:
         assert face.polygon.distance(ramp.polygon) >= _WALL_GAP_M - 0.01, (
-            f"the face stands {face.polygon.distance(ramp.polygon):.3f} m "
+            f"the band stands {face.polygon.distance(ramp.polygon):.3f} m "
             f"off the ramp")
         shared = [v for v in _ring_open(face.polygon)
                   if ring.distance(Point(v)) <= 1e-9]
         assert not shared, (
-            f"the face is welded to the ramp at {shared} — the defect "
+            f"the band is welded to the ramp at {shared} — the defect "
             f"the owner read in the sim as a broken ramp")
 
 
-def test_t5_the_foot_owns_the_annulus_r16_2b_re_measured(monkeypatch):
-    """R16-2b under §T5's composition: face ∪ foot ∪ ramp leaves no
-    unowned ground in the ``wall_gap + width`` annulus.
-
-    Mutation-checked: delete the foot band and this reads a 0.60 m strip
-    of ground no shape owns — the exact defect R16-2b was minted for.
-    """
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, ramp, feet, faces = _band_scene()
-    assert feet
-    covered = unary_union([ramp.polygon]
-                          + [s.polygon for s in feet + faces])
+def test_the_gap_is_unowned_by_design():
+    """THE MESHER'S TRIANGULATION IS THE FACE (RULINGS 2026-09-01c).
+    R16-2b required the ``wall_gap`` annulus to be owned; the owner has
+    superseded that.  This twin asserts the RULED state — the annulus is
+    covered by NOTHING — so a future shape that quietly re-fills it
+    fails here rather than shipping unnoticed."""
+    _layout, ramp, faces = _band_scene()
+    covered = unary_union([ramp.polygon] + [f.polygon for f in faces])
     annulus = ramp.polygon.buffer(_WALL_GAP_M).difference(ramp.polygon)
     unowned = annulus.difference(covered).area
-    # THE SLIT KNIFE is the whole allowance and it PREDATES §T5: the
-    # band is a ring, and to_osm drops interior rings, so each band is
-    # cut open by a 0.02 m radial knife (``_knife``, buffer 0.02).  That
-    # kerf is unowned in every arm this emitter has ever had — measured
-    # here at 0.026 m² for a 60x12 m ramp.  The bar is the kerf, not a
-    # tolerance on the law: a foot that failed to cover the annulus
-    # would read in whole square metres.
-    assert unowned <= 0.05, (
-        f"{unowned:.3f} m² between the ramp and its wall is owned by "
-        f"nothing — far beyond the 0.02 m slit kerf")
-    for foot in feet:
-        assert foot.polygon.distance(ramp.polygon) == pytest.approx(
-            0.0, abs=1e-9)
+    assert unowned > 0.9 * annulus.area, (
+        f"only {unowned:.2f} of {annulus.area:.2f} m² of the gap is "
+        f"unowned — something is bridging the gap the mesher must "
+        f"triangulate")
 
 
-def test_t5_the_foot_is_flat_at_the_ramp_edge_elevation(monkeypatch):
-    """The shelf has no rise across its own width: every foot vertex
-    carries the ramp-edge value, which is what lets the face rise from
-    the shelf's OUTER edge alone."""
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, _ramp, feet, _faces = _band_scene(ramp_alt=210.0)
-    assert feet
-    for foot in feet:
-        vals = [v for v in (foot.node_altitudes or ()) if v is not None]
-        assert vals
-        assert max(vals) - min(vals) <= 0.11, (
-            f"the shelf rises {max(vals) - min(vals):.2f} m across its "
-            f"own width — it is not flat")
-        assert vals[0] == pytest.approx(210.0, abs=0.11)
+def test_the_band_carries_one_value_per_station_across_its_width():
+    """BOTH EDGES, ONE VALUE (RULINGS 2026-09-01c) — the same frame the
+    acceptance instrument's ``wall_top_flat`` reads.
 
-
-def test_t5_the_articulation_chain_is_ramp_then_foot_then_face(monkeypatch):
-    """THE MESH ARTICULATION THE OWNER ASKED FOR, as one assertion:
-    the face shares ZERO vertices with the ramp, reaches it ONLY THROUGH
-    the foot, and the foot is the shape touching the ramp at 0 m."""
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, ramp, feet, faces = _band_scene()
-    assert feet
-    ring = ramp.polygon.exterior
-    foot_u = unary_union([f.polygon for f in feet])
-    for face in faces:
-        for v in _ring_open(face.polygon):
-            p = Point(v)
-            assert ring.distance(p) > 1e-9, (
-                f"a face vertex at {v} sits ON the ramp — welded again")
-            if ring.distance(p) <= _WALL_GAP_M + 1e-6:
-                assert foot_u.covers(p) or \
-                    foot_u.boundary.distance(p) <= 1e-6, (
-                    f"a face vertex at {v} reaches into the wall gap "
-                    f"without standing on the foot — unowned ground")
-    assert foot_u.distance(ramp.polygon) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_t5_the_foot_and_face_never_overlap(monkeypatch):
-    """``test_no_self_overlap`` has ZERO tolerance and no per-airport
-    exceptions; the two bands are built from independently mitre-joined
-    buffers, which do not nest exactly at a sharp corner."""
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-    _layout, _ramp, feet, faces = _band_scene()
-    for foot in feet:
-        for face in faces:
-            assert foot.polygon.intersection(face.polygon).area \
-                == pytest.approx(0.0, abs=1e-9), (
-                f"foot ∩ face = "
-                f"{foot.polygon.intersection(face.polygon).area:.4f} m²")
-
-
-def test_t5_the_shipped_default_is_the_foot_and_face():
-    """THE SHIPPED CONTRACT.
-
-    SUPERSEDED PREMISE, REWRITTEN: this twin was written as
-    ``test_t5_the_shipped_default_is_the_plain_g0_standoff`` and pinned
-    spec Amendment 2 ruling 2's *fallback* as the shipped state — foot
-    OFF, unowned annulus accepted as the lesser defect — because the 3
-    SPJC foot∩face pairs had not been root-caused.  They were, on
-    2026-08-29 (lane/tunneldockets): the partition is disjoint AT EMIT
-    (0.0000 m² measured for all 6 SPJC pieces) and it is
-    ``conformance.enforce_conformance``'s post-solve T-vertex weld that
-    bows a face inboard over its foot, which
-    ``bridges.reclip_wall_feet_against_faces`` now settles LAST-WORD.
-    The gate went default-ON with that attribution; RULINGS 2026-08-31k
-    reports the shipped state as "walls/feet 16/16".
-
-    So: no flag set ⇒ the foot SHIPS, the face still stands ``wall_gap``
-    off the ramp and shares NOT ONE vertex with it (RULINGS 2026-08-28c
-    item 1 / the owner's item 9: 84 shared node ids at 0.0000 m), and the
-    foot is the piece that touches the ramp.
+    The band is ``_WALL_W_M`` across and its stations stand metres
+    apart, so two of its own vertices closer than that in PLAN are
+    ACROSS the band, not along its run.  Every such pair must carry ONE
+    value: the crest is sampled once per station and both vertices read
+    it.  (The crest still DESCENDS along the run under the transition
+    law — §F1 — which is why this is a cross-band frame and not a
+    flat-band one.)
     """
-    _layout, ramp, feet, faces = _band_scene()
-    assert feet, "the foot does NOT ship by default — the gate flipped OFF"
+    _layout, _ramp, faces = _band_scene(ramp_alt=210.0)
     assert faces
-    ring = ramp.polygon.exterior
+    span = _WALL_W_M + 0.5
+    pairs = 0
+    worst = 0.0
     for face in faces:
-        assert face.polygon.distance(ramp.polygon) >= _WALL_GAP_M - 0.01, (
-            f"the shipped band stands only "
-            f"{face.polygon.distance(ramp.polygon):.3f} m off the ramp")
-        assert not [v for v in _ring_open(face.polygon)
-                    if ring.distance(Point(v)) <= 1e-9], (
-            "the shipped band still WELDS to the ramp — item 9 unfixed")
-    for foot in feet:
-        assert foot.polygon.distance(ramp.polygon) == pytest.approx(
-            0.0, abs=1e-9)
+        ring = _ring_open(face.polygon)
+        alts = list(face.node_altitudes)[:len(ring)]
+        for i in range(len(ring)):
+            for j in range(i + 1, len(ring)):
+                if math.hypot(ring[i][0] - ring[j][0],
+                              ring[i][1] - ring[j][1]) > span:
+                    continue
+                pairs += 1
+                worst = max(worst, abs(float(alts[i]) - float(alts[j])))
+    assert pairs, "no cross-band pair — the frame read nothing"
+    assert worst <= 0.11, (
+        f"worst cross-band delta {worst:.2f} m over {pairs} pair(s) — "
+        f"the band is leaning, not standing on one crest value")
 
 
-def test_t5_the_shipped_default_owns_the_annulus_and_off_does_not(
-        monkeypatch):
-    """Named, not hidden — BOTH arms measured in one place.
+def test_no_band_vertex_carries_the_ramps_floor_value():
+    """NO FLOOR VALUE IN ANY WALL BAND (RULINGS 2026-09-01c).  The band
+    no longer touches the road, so the old R16-2b inner-edge overwrite
+    (and §T5's flat foot shelf) are gone: the band's own crest profile
+    is its ONLY altitude source.
 
-    SUPERSEDED PREMISE, REWRITTEN: as
-    ``test_t5_the_accepted_lesser_defect_is_the_unowned_annulus`` this
-    twin asserted the unowned annulus was what SHIPPED.  With the gate
-    default-ON (2026-08-29 attribution; RULINGS 2026-08-31k) the shipped
-    arm OWNS the annulus and the unowned strip is what the explicitly
-    selected fallback (``O4_RAMP_WALL_FOOT=0``) buys.  Keeping both
-    numbers asserted is the point of the original twin: the fallback's
-    cost stays a measured fact, and the shipped arm cannot silently
-    regress back onto it.
+    Mutation-checked: restore the ramp-value overwrite and the band's
+    inner edge reads 210.0 at every station instead of at the portal
+    alone.
     """
-    def _unowned(ramp, pieces):
-        covered = unary_union([ramp.polygon] + [p.polygon for p in pieces])
-        annulus = ramp.polygon.buffer(_WALL_GAP_M).difference(ramp.polygon)
-        return annulus.difference(covered).area
+    _layout, _ramp, faces = _band_scene(ramp_alt=210.0)
+    at_floor = 0
+    total = 0
+    for face in faces:
+        for v in (face.node_altitudes or ()):
+            if v is None:
+                continue
+            total += 1
+            if abs(float(v) - 210.0) <= 0.05:
+                at_floor += 1
+    assert total
+    # The transition law legitimately brings the crest DOWN to meet the
+    # road at the portal, so a handful of stations read the floor value;
+    # an inner EDGE carrying it would be half the vertices.
+    assert at_floor <= 0.25 * total, (
+        f"{at_floor} of {total} band vertices sit at the ramp's floor "
+        f"value — the inner edge is carrying the road again")
 
-    _layout, ramp, feet, faces = _band_scene()
-    assert feet
-    # THE SLIT KNIFE is the whole allowance (see
-    # ``test_t5_the_foot_owns_the_annulus_r16_2b_re_measured``): each band
-    # is cut open by a 0.02 m radial kerf so ``to_osm`` need not carry an
-    # interior ring.  Measured 0.026 m² for this 60x12 m ramp.
-    shipped = _unowned(ramp, feet + faces)
-    assert shipped <= 0.05, (
-        f"{shipped:.3f} m² between the ramp and its wall is owned by "
-        f"nothing at the SHIPPED default — far beyond the 0.02 m kerf")
 
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
-    _layout, ramp, feet, faces = _band_scene()
-    assert feet == [], "the fallback still emits a foot"
-    fallback = _unowned(ramp, faces)
-    assert fallback > 1.0, (
-        f"only {fallback:.2f} m² unowned with the foot OFF — if the "
-        f"fallback also covers the annulus this twin is stale")
-
+def test_the_band_never_overlaps_itself():
+    """``test_no_self_overlap`` has ZERO tolerance and no per-airport
+    exceptions."""
+    _layout, _ramp, faces = _band_scene()
+    for i in range(len(faces)):
+        for j in range(i + 1, len(faces)):
+            assert faces[i].polygon.intersection(
+                faces[j].polygon).area == pytest.approx(0.0, abs=1e-9)
 
 
 def test_r16_2b_the_crest_stays_where_it_was():

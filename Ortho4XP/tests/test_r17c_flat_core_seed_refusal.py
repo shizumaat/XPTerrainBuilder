@@ -168,7 +168,7 @@ class TestWhatItMustNotTouch:
         scopes its reach to that body.  Membership is the family's own
         enumeration, never a value test."""
         plate = geometry.box(1450.0, 1450.0, 1550.0, 1550.0)
-        layout, G = _vhhh_shape(shapes=[_Shape("tunnel_road", plate,
+        layout, G = _vhhh_shape(shapes=[_Shape("tunnel_ramp", plate,
                                                role="tunnel_ramp")])
         assert flat_core_below_grade_seed_refusals(
             layout, G, BF._hard_truth_spine_seeds(layout, G)) == {}

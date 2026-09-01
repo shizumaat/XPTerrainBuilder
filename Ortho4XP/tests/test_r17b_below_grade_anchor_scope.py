@@ -3,9 +3,8 @@
 THE DEFECT (measured at VHHH, 2026-08-11).  ``spine_value_fields`` seeds
 its value fields from ``G.runway_anchor`` UNION the on-spine HARD TRUTH
 the solve published (the BAND-SEED COMPLETENESS law).  That hard-truth
-set is every node ``_seed_elevations`` hardened — which includes the
-R14-1 CLAIMED TUNNEL-ROAD plate, pinned at its BORE profile
-(``solver_primitives._build_tunnel_road_pins``).  A bore floor is metres
+set is every node ``_seed_elevations`` hardened — which includes a
+TUNNEL RAMP body standing at its BORE profile.  A bore floor is metres
 below grade; the ceiling field is a MIN over anchors; and a min never
 forgets.  One below-grade seed therefore drags the ceiling down along
 every route it can reach.  At VHHH (flat site, Z0 7.315) the junction
@@ -17,6 +16,15 @@ THE LAW.  A below-grade anchor contributes to the band ONLY for nodes
 inside its own below-grade BODY.  Everywhere else the band comes from
 surface-lawful anchors.  Inside the body the anchor still governs, so a
 tunnel keeps its own lawful band (KCLT's round-10 tunnel table).
+
+RE-KEYED, LAW UNCHANGED (RULINGS 2026-08-31b, redesign spec §5).  The
+below-grade plate in these fixtures used to be R14-1's CLAIMED
+``tunnel_road`` pavement, pinned by
+``solver_primitives._build_tunnel_road_pins``.  That claim class and its
+pin family are retired; the below-grade body is now the portal walk's
+own ``tunnel_ramp`` (``ROLE_TUNNEL_RAMP``, ref ``tunnel_ramp``, in
+``BELOW_GRADE_REFS``).  R17b-1 itself — a below-grade anchor governs
+only its own body — is untouched, and so is every assertion here.
 
 Headless: synthetic geometry, production's own functions.
 """
@@ -59,7 +67,7 @@ class _Layout:
         self.anchor = (0.0, 0.0)
 
 
-#: The bore value the claimed plate is pinned at — VHHH's class.
+#: The bore value the ramp body stands at — VHHH's class.
 BORE_M = -13.05
 #: The surface runway anchor's value (VHHH's Z0 neighbourhood).
 SURFACE_M = 7.01
@@ -72,12 +80,12 @@ def _plate(x0, y0, x1, y1):
 
 
 def _vhhh_shape(with_plate=True):
-    """Three spine nodes in a line, the far one inside a claimed plate.
+    """Three spine nodes in a line, the far one inside a ramp body.
 
     * node 0 — a SURFACE runway anchor at 7.01 (the solve's own value);
     * node 1 — a free surface node one budget away;
-    * node 2 — a HARD claimed tunnel-road node at the bore depth, two
-      budgets away, standing inside a ``tunnel_road`` plate.
+    * node 2 — a HARD below-grade node at the bore depth, two budgets
+      away, standing inside a ``tunnel_ramp`` body.
 
     Both anchors are seeds: node 0 through ``runway_anchor``, node 2
     through the published hard truth, exactly as production seeds them.
@@ -90,7 +98,8 @@ def _vhhh_shape(with_plate=True):
            pos=pos)
     shapes = []
     if with_plate:
-        shapes.append(_Shape("tunnel_road", _plate(15.0, -5.0, 25.0, 5.0),
+        shapes.append(_Shape("tunnel_ramp", _plate(15.0, -5.0, 25.0, 5.0),
+                             role="tunnel_ramp",
                              node_altitudes=[BORE_M] * 4))
     layout = _Layout(shapes)
     # The hard-truth map is keyed by canonical point; a registry-less
@@ -138,16 +147,17 @@ class TestTheFamilyIsOneEnumeration:
 
 
 class TestTheAnchorIsClassifiedByMEMBERSHIP:
-    def test_the_claimed_plate_anchor_is_below_grade(self):
+    def test_the_ramp_body_anchor_is_below_grade(self):
         layout, G = _vhhh_shape()
         bodies = below_grade_anchor_bodies(layout, G, {0: SURFACE_M,
                                                        2: BORE_M})
         assert set(bodies) == {2}
 
     def test_a_ring_vertex_ON_the_boundary_is_INSIDE(self):
-        """The plate's own vertices are where its pin sits — boundary
+        """The body's own vertices are where its seeds sit — boundary
         membership is the point, not an edge case."""
-        layout = _Layout([_Shape("tunnel_road", _plate(0, 0, 10, 10))])
+        layout = _Layout([_Shape("tunnel_ramp", _plate(0, 0, 10, 10),
+                                 role="tunnel_ramp")])
         G = _G({}, {}, {7: (0.0, 0.0)})
         assert set(below_grade_anchor_bodies(layout, G, {7: BORE_M})) == {7}
 

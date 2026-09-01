@@ -2678,38 +2678,16 @@ _CARVE_STRUCTURE_ROLES = frozenset((
     ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH,
     ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY,
 ))
-#: §T5 + spec Amendment 1 ruling 2: the FOOT's membership of the carve
-#: register is the ATTRIBUTION VARIABLE for the +358 groundside effect
-#: measured at OTHH.  ``O4_FOOT_IN_CARVE_REGISTERS=0`` takes it out of
-#: this register and out of ``gap_fill._TUNNEL_BLOCKER_REFS``, one
-#: variable, same tree — which is the only way to answer "is the
-#: registration the mechanism".  Default ON (the Fable-approved
-#: condition 1: registered with every wall consumer).
-import os as _os_t5
-
-
-def _foot_in_carve_registers() -> bool:
-    return _os_t5.environ.get("O4_FOOT_IN_CARVE_REGISTERS", "1") == "1"
-
-
-_CARVE_STRUCTURE_REFS_BASE = frozenset((
+#: The REFS a carve structure spells itself with.  Read with
+#: ``_CARVE_STRUCTURE_ROLES`` above; ``gap_fill._TUNNEL_BLOCKER_REFS``
+#: is the same wall population one consumer over.
+_CARVE_STRUCTURE_REFS = frozenset((
     "tunnel_wall", "tunnel_portal", "bridge_abutment",
 ))
+# (``tunnel_wall_foot`` and its call-time env switch stood here; the
+# §T5 foot retired with RULINGS 2026-09-01c and the band is one ref.)
 
 
-class _CarveStructureRefs(frozenset):
-    """Membership answers the env at CALL TIME, so the attribution arm
-    needs no module reload (memory: env reads inside the accessor are
-    what make a redirect un-un-doable)."""
-
-    def __contains__(self, item):
-        if item == "tunnel_wall_foot":
-            return _foot_in_carve_registers()
-        return frozenset.__contains__(self, item)
-
-
-_CARVE_STRUCTURE_REFS = _CarveStructureRefs(
-    _CARVE_STRUCTURE_REFS_BASE | {"tunnel_wall_foot"})
 # The feather run is ``spread / cap`` with this much margin, so the
 # emitted transition lands strictly INSIDE its cap rather than exactly
 # on it (emit quantisation would otherwise flag the law's own remedy).
@@ -3450,10 +3428,15 @@ def claim_edge_profile_index(layout):
 
     THE REGION IS PUBLISHED, NEVER RE-DERIVED (spec
     ``tunnel-corridor-node-book-exclusion-spec.md`` §2 / AMENDMENT 5):
-    ``tunnel_open_cut_polys`` is the portal walk's own plan-space extent
-    and ``tunnel_open_cut_claim_polys`` is R14-1's claim set.  A second
-    geometric notion of "inside the cut" computed here would be the very
-    spec violation those publishers exist to prevent.
+    ``tunnel_open_cut_polys`` is the portal walk's own plan-space extent.
+    A second geometric notion of "inside the cut" computed here would be
+    the very spec violation that publisher exists to prevent.
+
+    THE CLAIM HALF IS GONE (redesign spec §5.2, census #50).  This index
+    used to union the cut extent with ``tunnel_open_cut_claim_polys``,
+    R14-1's claim set; that class is retired (RULINGS 2026-08-31b) and
+    the CUT HALF STANDS ALONE — which is the half that answers "where
+    does the bore's ground lie", the question this seniority asks.
 
     THE CORRIDOR RINGS are the rings that DESCEND through that region —
     a ring whose in-cut values spread by at least
@@ -3470,8 +3453,6 @@ def claim_edge_profile_index(layout):
     index = None
     try:
         _rp = list(getattr(layout, "tunnel_open_cut_polys", None) or [])
-        _rp.extend(
-            getattr(layout, "tunnel_open_cut_claim_polys", None) or [])
         _rp = [p for p in _rp
                if p is not None and not getattr(p, "is_empty", True)]
         if _rp:

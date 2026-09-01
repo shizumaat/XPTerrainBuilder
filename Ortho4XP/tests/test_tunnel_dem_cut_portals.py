@@ -210,13 +210,29 @@ def _shapes_with_ref(layout: PavementLayout, ref: str) -> list[BuiltShape]:
 
 
 def _sloped_tunnel_ramps(layout: PavementLayout) -> list[BuiltShape]:
-    """Sloped ramp pieces: ``ref == "tunnel_ramp"`` carrying the
-    ``altitude_high``/``altitude_low`` pair (the synthetic-ramp signature
-    the DEM-cut mode replaces)."""
-    return [s for s in layout.shapes
-            if getattr(s, "ref", "") == "tunnel_ramp"
-            and s.altitude_high is not None
-            and s.altitude_low is not None]
+    """Synthetic ramp surfaces: ``ref == "tunnel_ramp"`` carrying a
+    DESCENDING PROFILE — the signature the DEM-cut mode replaces.
+
+    TWO ENCODINGS, one signature (spec §5-SUPPLEMENT item 1,
+    2026-08-31).  A single-segment run is still an ``altitude_high`` /
+    ``altitude_low`` sloped rect; a MERGED multi-segment run carries
+    explicit ``node_altitudes`` that SPREAD instead.  What these twins
+    distinguish is the synthetic ramp path from the DEM-cut plate mode,
+    and a plate is FLAT — so the signature is "carries a spread", in
+    whichever encoding.
+    """
+    out = []
+    for s in layout.shapes:
+        if getattr(s, "ref", "") != "tunnel_ramp":
+            continue
+        if s.altitude_high is not None and s.altitude_low is not None:
+            out.append(s)
+            continue
+        vals = [float(a) for a in (getattr(s, "node_altitudes", None)
+                                   or ()) if a is not None]
+        if vals and (max(vals) - min(vals)) > 1e-9:
+            out.append(s)
+    return out
 
 
 class TestDemCutPortalMode:

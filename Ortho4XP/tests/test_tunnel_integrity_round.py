@@ -676,92 +676,111 @@ class TestSiteModeGainsTheBoreInputs:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# §T5 — THE FOOT REACHES EVERY WALL EMITTER, AND THE PARTITION HOLDS
-# AFTER THE WELD (docket closed 2026-08-29, lane/tunneldockets)
+# §T5 IS RETIRED — THE WALL FOOT NO LONGER EXISTS (RULINGS 2026-09-01c)
 # ═════════════════════════════════════════════════════════════════════
-class TestWallFootReclipAfterTheWeld:
-    """The post-solve conformance weld carries the DONOR's coordinate,
-    never the projection onto the receiving edge, so a welded
-    ``tunnel_wall`` FACE bows inboard by up to ``CONFORMANCE_TOL_M`` —
-    measured at SPJC as ~1.4 m² per face, back over its own foot, which
-    is what kept ``O4_RAMP_WALL_FOOT`` OFF.  Foot and face are ONE
-    partition, so the annulus re-establishes itself as WHAT THE FACE
-    DOES NOT OCCUPY.
+class TestTheWallFootIsGone:
+    """The §T5 foot — a flat shelf owning the annulus between the ramp
+    and the wall face — retired by owner ruling.  The model is now:
+    ramp (the corridor floor), a 0.5 m gap owned by NOTHING, then the
+    band, both of whose edges carry the corridor-top value.
+
+    What stood here was ``TestWallFootReclipAfterTheWeld``: six twins
+    for the last-word re-clip that re-established the foot/face
+    partition after the post-solve conformance weld bowed a face inboard
+    over its own foot.  With no partition there is nothing to
+    re-establish, and per 29f a retired mechanism is DELETED rather than
+    kept gated — so these twins assert the machinery's ABSENCE instead,
+    which is what stops it drifting back in.
     """
 
-    @staticmethod
-    def _bowed_pair():
-        """A foot and a face overlapping exactly as a weld leaves them:
-        the face's inner edge pushed 0.4 m into the 0.6 m shelf."""
-        foot = BuiltShape(
-            polygon=_rect(0.0, 0.0, 20.0, 0.6),
-            role=ROLE_RETAINING_WALL, ref=bridges.TUNNEL_WALL_FOOT_REF,
-            node_altitudes=[3.0, 3.0, 3.0, 3.0, 3.0])
-        face = BuiltShape(
-            polygon=_rect(0.0, 0.2, 20.0, 1.6),
+    def test_the_ref_the_flag_and_the_pass_are_all_gone(self):
+        for name in ("TUNNEL_WALL_FOOT_REF", "ramp_wall_foot_enabled",
+                     "reclip_wall_feet_against_faces",
+                     "_RAMP_WALL_FOOT_ENV"):
+            assert not hasattr(bridges, name), (
+                f"bridges.{name} is back — the §T5 foot machinery was "
+                f"retired by RULINGS 2026-09-01c")
+
+    def test_the_band_is_one_ref(self):
+        assert bridges._WALL_BAND_REFS == ("tunnel_wall",)
+        assert "tunnel_wall_foot" not in bridges._TUNNEL_COVER_REFS
+
+    def test_no_consumer_still_registers_the_foot(self):
+        from auto_patch import adjacent_ground, gap_fill, verification
+        assert "tunnel_wall_foot" not in \
+            adjacent_ground._CARVE_STRUCTURE_REFS
+        assert "tunnel_wall_foot" not in gap_fill._TUNNEL_BLOCKER_REFS
+        assert "tunnel_wall_foot" not in \
+            verification._MIDEDGE_EXCLUDE_REFS
+
+    def test_a_band_crossing_sibling_pavement_keeps_its_remainder(self):
+        """RULINGS 2026-09-01h: the sibling/R10-2 subtraction CLIPS the
+        wall band to its free-ground remainder — it never removes a
+        piece whose free-ground part is substantial.
+
+        A band stretch crossing a sibling's pavement is cut into TWO
+        free-ground arcs.  Both must survive: keeping only the larger
+        is the deletion this ruling closes, and dropping the whole
+        piece because the overlap passes half its area is the same
+        deletion one step worse.  MEASURED cost of the old rule at the
+        OTHH 4-arm fork: the 142.8 m arm lost 51.4 m of side on FREE
+        GROUND with no retaining structure.
+        """
+        band = BuiltShape(
+            polygon=_rect(0.0, 0.0, 40.0, 1.0),
             role=ROLE_RETAINING_WALL, ref="tunnel_wall",
-            node_altitudes=[3.0, 3.0, 8.0, 8.0, 3.0])
-        return foot, face
+            node_altitudes=[5.0, 5.0, 5.0, 5.0, 5.0])
+        # a sibling's pavement across the middle, taking MORE than half
+        # the band's area — the old covered-stretch drop's trigger
+        sibling = _rect(9.0, -5.0, 31.0, 6.0)
+        assert sibling.intersection(band.polygon).area > \
+            0.5 * band.polygon.area, "the scene must trip the old drop"
+        parts = bridges._tunnel_cover_pieces(band, sibling)
+        assert len(parts) == 2, (
+            f"the band kept {len(parts)} remainder(s); both free-ground "
+            f"arcs must survive")
+        for pc in parts:
+            assert pc.polygon.area >= bridges._TUNNEL_COVER_MIN_PIECE_M2
+            assert not pc.polygon.intersects(sibling.buffer(-1e-9)), (
+                "a remainder still stands on the sibling's pavement")
+            assert pc.node_altitudes, "a remainder lost its profile"
 
-    def test_the_foot_yields_and_the_overlap_goes(self, monkeypatch):
-        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-        foot, face = self._bowed_pair()
-        lay = _layout([foot, face])
-        before = foot.polygon.intersection(face.polygon).area
-        assert before > 1.0, "the scene did not reproduce the weld bow"
-        n = bridges.reclip_wall_feet_against_faces(lay)
-        assert n == 1, f"expected one foot clipped, got {n}"
-        assert foot.polygon.intersection(face.polygon).area == \
-            pytest.approx(0.0, abs=1e-9)
+    def test_the_late_gate_clips_the_band_before_it_can_drop_it(self):
+        """The band's clip branch must PRECEDE the covered-stretch drop
+        in the late R10-2 gate — otherwise a band whose overlap passes
+        half its area is deleted before the clip is ever reached."""
+        import inspect
+        src = inspect.getsource(bridges._finalize_tunnel_emission)
+        i_clip = src.index("if _ref9 in _WALL_BAND_REFS:")
+        i_drop = src.index(
+            "if not _graze_clip or _ov >= 0.5 * s9.polygon.area:")
+        assert i_clip < i_drop, (
+            "the covered-stretch drop can reach the wall band again")
 
-    def test_the_face_is_not_touched(self, monkeypatch):
-        """The weld is doing its job — the FACE keeps exactly the
-        geometry the weld left it."""
-        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-        foot, face = self._bowed_pair()
-        lay = _layout([foot, face])
-        face_wkt = face.polygon.wkt
-        bridges.reclip_wall_feet_against_faces(lay)
-        assert face.polygon.wkt == face_wkt
+    def test_the_gap_stands_off_every_snapping_tolerance(self):
+        """RULINGS 2026-09-01e: ``wall_gap_m`` = 0.6, and the LAW is that
+        a designed standoff never sits ON an interning/welding
+        tolerance.
 
-    def test_the_shelf_still_reaches_the_ramp_edge(self, monkeypatch):
-        """R16-2b: what the foot exists for is that NOTHING between the
-        ramp edge and the face is unowned.  The clip may only take back
-        what the face occupies."""
-        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-        foot, face = self._bowed_pair()
-        lay = _layout([foot, face])
-        bridges.reclip_wall_feet_against_faces(lay)
-        from shapely.geometry import Point
-        assert foot.polygon.buffer(1e-9).contains(Point(10.0, 0.05))
-        assert foot.polygon.union(face.polygon).buffer(1e-9).contains(
-            Point(10.0, 0.4))
-
-    def test_off_is_a_no_op(self, monkeypatch):
-        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
-        foot, face = self._bowed_pair()
-        lay = _layout([foot, face])
-        wkt = foot.polygon.wkt
-        assert bridges.reclip_wall_feet_against_faces(lay) == 0
-        assert foot.polygon.wkt == wkt
-
-    def test_a_clean_partition_is_untouched(self, monkeypatch):
-        """Idempotent: the pass clips nothing when the weld moved
-        nothing, so a lane that never welds is byte-identical."""
-        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
-        foot = BuiltShape(
-            polygon=_rect(0.0, 0.0, 20.0, 0.6),
-            role=ROLE_RETAINING_WALL, ref=bridges.TUNNEL_WALL_FOOT_REF,
-            node_altitudes=[3.0] * 5)
-        face = BuiltShape(
-            polygon=_rect(0.0, 0.6, 20.0, 1.6),
-            role=ROLE_RETAINING_WALL, ref="tunnel_wall",
-            node_altitudes=[3.0, 3.0, 8.0, 8.0, 3.0])
-        lay = _layout([foot, face])
-        wkt = foot.polygon.wkt
-        assert bridges.reclip_wall_feet_against_faces(lay) == 0
-        assert foot.polygon.wkt == wkt
-
-    def test_ships_default_on(self, monkeypatch):
-        monkeypatch.delenv("O4_RAMP_WALL_FOOT", raising=False)
-        assert bridges.ramp_wall_foot_enabled() is True
+        2026-09-01c's 0.5 sat on BOTH ``SHARED_VERTEX_TOL_M`` and
+        ``CONFORMANCE_TOL_M``.  The emit-time bucket tolerated it
+        (``round(x / 0.5)`` separates points exactly 0.5 m apart) but
+        the post-solve T-weld did not — it welds at ``<= tol``, so every
+        ramp vertex was inserted into the band's inner ring:
+        ``ramp_wall_gap`` measured 14 at 0.6 and 74 at 0.5 on the OTHH
+        arms.  This twin pins the standoff STRICTLY GREATER than every
+        tolerance that can snap two rings together, so the collision
+        cannot come back by someone re-reading the amended ruling.
+        """
+        import inspect
+        from auto_patch.conformance import CONFORMANCE_TOL_M
+        from auto_patch.layout import SHARED_VERTEX_TOL_M, vertex_bucket
+        sig = inspect.signature(bridges._emit_tunnel_portals)
+        gap = sig.parameters["wall_gap_m"].default
+        assert gap == 0.6
+        for name, tol in (("SHARED_VERTEX_TOL_M", SHARED_VERTEX_TOL_M),
+                          ("CONFORMANCE_TOL_M", CONFORMANCE_TOL_M)):
+            assert gap > tol, (
+                f"the {gap} m standoff sits on/inside {name} ({tol} m) — "
+                f"the 2026-09-01e collision, back again")
+        assert vertex_bucket(0.0, 0.0) != vertex_bucket(gap, 0.0)

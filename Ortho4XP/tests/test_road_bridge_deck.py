@@ -486,24 +486,20 @@ class TestDeckIsNotClaimable:
     deck and graded it 601.67 -> 600.2 m eastward across the span, met
     the 601.36-606.6 m east receiver as a 5.13 m step at 17.4 %, and
     minted 220 groundside ``within_shape`` rows.
+
+    30f §3's third clause is now SATISFIED BY CONSTRUCTION (RULINGS
+    2026-08-31b, redesign spec §5.1): the claim class is retired
+    outright, so no pass re-profiles mapped road pavement toward bore
+    depth and there is no gate left to refuse at.  The twin that asserted
+    the ``_is_deck_claim`` gate's presence in the claim pass is deleted
+    with the pass; what survives — and is what actually protected the
+    deck — is the deck's own recognition, below, which every tunnel
+    consumer keys on.
     """
 
-    def test_the_claim_predicate_refuses_a_deck(self):
-        """``_claimable`` is R14-1's own gate — both of its passes read
-        it, so refusing there is refusing the whole claim."""
-        import inspect
-        from auto_patch import bridges
-        src = inspect.getsource(bridges._claim_road_surfaces_as_corridor) \
-            if hasattr(bridges, "_claim_road_surfaces_as_corridor") else ""
-        if not src:
-            # the claim lives in the portal-emit path; find it by its law tag
-            src = inspect.getsource(bridges)
-        assert "§3 THIRD CLAUSE (RULINGS 2026-08-30f)" in src
-        assert "_is_deck_claim(shape, layout)" in src
-
-    def test_a_deck_piece_is_recognised_by_the_claim_gate(self):
-        """The gate asks ``is_deck_shape(shape, layout)``, so it sees a
-        re-roled deck too — the claim runs after the groundside pass."""
+    def test_a_deck_piece_is_recognised_even_when_re_roled(self):
+        """``is_deck_shape(shape, layout)`` sees a re-roled deck too —
+        the tunnel passes run after the groundside pass."""
         from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
         layout = _make()
         deck.publish_candidates(layout)
@@ -657,36 +653,26 @@ class TestClaimFootprintStopsAtTheDeck:
         assert remainder.area < region.area
 
 
-# ── RULINGS 2026-08-30i — round 3 ───────────────────────────────────
+# ── RULINGS 2026-08-30i — round 3 (claim half superseded by 31b) ────
 class TestDeckSeversTheCorridorSurface:
-    """COVERED-STRETCH CLIP SCOPE EXTENDED: "a terrain deck's footprint
-    severs the tunnel corridor's OWN road surface, claimed and synthetic,
-    exactly as it severs the ramp; the corridor resumes at both deck
-    edges."
+    """COVERED-STRETCH CLIP SCOPE: "a terrain deck's footprint severs the
+    tunnel corridor's OWN road surface … exactly as it severs the ramp;
+    the corridor resumes at both deck edges."
 
-    MEASURED at LEMD round 2 (build ``lemdr2b``): with ``tunnel_road``
-    outside the clip's ref set, the corridor surfaced across stations
-    12.3-66.9 m of the owner's 84.2 m span at 600.18-601.60 m, under a
-    deck at 604.49 m — the ramp beneath it was correctly severed, but the
-    corridor's own road surface was not.
+    MEASURED at LEMD round 2 (build ``lemdr2b``): the corridor surfaced
+    across stations 12.3-66.9 m of the owner's 84.2 m span at
+    600.18-601.60 m, under a deck at 604.49 m.
+
+    THE CLAIM HALF OF 30i IS SUPERSEDED (RULINGS 2026-08-31b, redesign
+    spec §5.1, census #30).  30i added ``TUNNEL_ROAD_REF`` to the clip's
+    ref set so a deck would also sever the CLAIMED road surface; that
+    class is retired — mapped road pavement over a cut is core road
+    ground above a covered stretch, never a claimed corridor — so there
+    is no claimed surface left to sever, and the two twins that pinned
+    that membership are deleted.  What the deck severs is the portal
+    walk's OWN geometry (``tunnel_ramp`` / ``tunnel_mouth`` /
+    ``tunnel_corridor``), which the twins below assert unchanged.
     """
-
-    def test_tunnel_road_is_in_the_clip_ref_set(self):
-        import inspect
-        from auto_patch import bridges
-        src = inspect.getsource(bridges)
-        assert '"tunnel_mouth", TUNNEL_ROAD_REF)' in src, (
-            "TUNNEL_ROAD_REF must join the covered-stretch clip's refs")
-        assert "RULINGS 2026-08-30i" in src
-
-    def test_tunnel_road_takes_the_ruling_4_branch(self):
-        """Being in ``_TUNNEL_PAVEMENT_REFS`` is what routes it to the
-        clip against ``protected_union`` — the SAME path the ramp takes,
-        which is what "exactly as it severs the ramp" means."""
-        from auto_patch.bridges import (_TUNNEL_PAVEMENT_REFS,
-                                        TUNNEL_ROAD_REF)
-        assert TUNNEL_ROAD_REF in _TUNNEL_PAVEMENT_REFS
-        assert "tunnel_ramp" in _TUNNEL_PAVEMENT_REFS
 
     def test_the_deck_footprint_is_what_does_the_severing(self):
         """The deck reaches the clip through the protected union, so the
@@ -749,14 +735,30 @@ class TestMintTimeTrim:
         assert "THE DECK TRIM" in src
         assert "terrain_deck_union" in src
 
-    def test_both_claim_paths_read_the_trimmed_extent(self):
-        """The R14-1 claim AND the portal-corridor strip claim: both call
-        sites arm the trim, so neither can displace the deck's ground."""
+    def test_EVERY_call_site_reads_the_trimmed_extent(self):
+        """The trim cannot be bypassed: no caller may ask for the extent
+        without the layout, because the layout is what arms the trim.
+
+        This used to count the TWO claim call sites (R14-1's claim and
+        the portal-corridor strip claim).  Both retired with the claim
+        class (RULINGS 2026-08-31b, redesign spec §5.1); the surviving
+        caller is the open-cut PUBLICATION, re-homed into
+        ``_emit_tunnel_portals`` (census #47).  Asserting over every call
+        site rather than a fixed count is the stronger form — a new
+        caller that forgot the layout fails here.
+        """
         import inspect
+        import re
         from auto_patch import bridges
         src = inspect.getsource(bridges)
-        assert src.count(
-            "portal_data, facing_pairs, wall_gap_m, layout)") == 2
+        calls = re.findall(
+            r"(?<!def )(?<!publish)_tunnel_open_cut_regions\(\s*([^)]*)\)",
+            src)
+        assert calls, "the extent helper has no caller at all"
+        for args in calls:
+            assert "layout" in args, (
+                f"a call site asks for the extent without the layout, so "
+                f"the deck trim is bypassed there: {args!r}")
 
     def test_omitting_the_layout_is_byte_identical(self):
         """Every airport without a deck must see the pre-law extent."""

@@ -328,18 +328,43 @@ def _install_scene(monkeypatch, *, climb_rate: float,
 
 
 def _east_ramps(layout: PavementLayout) -> list[BuiltShape]:
-    """Sloped ramp pieces of the EAST portal cluster (x > 0)."""
+    """Ramp surfaces of the EAST portal cluster (x > 0) that carry a
+    PROFILE.
+
+    TWO ENCODINGS, one law (spec §5-SUPPLEMENT item 1, 2026-08-31).  A
+    single-segment run is still a sloped RECT (``altitude_high`` /
+    ``altitude_low``); a MERGED multi-segment run cannot be — it carries
+    explicit ``node_altitudes`` instead.  This helper selects on
+    "carries a profile", so the run-length and grade laws below are
+    measured on whichever encoding the emitter chose.  Selecting on the
+    rect fields alone made every one of these twins read 0.0.
+    """
     out = []
     for s in layout.shapes:
         if getattr(s, "ref", "") != "tunnel_ramp":
             continue
-        if s.altitude_high is None and s.altitude_low is None:
+        if (s.altitude_high is None and s.altitude_low is None
+                and not (getattr(s, "node_altitudes", None) or ())):
             continue
         if s.polygon is None or s.polygon.is_empty:
             continue
         if s.polygon.centroid.x > 0.0:
             out.append(s)
     return out
+
+
+def _ramp_top(s: BuiltShape) -> float:
+    """The highest value a ramp surface carries, in either encoding."""
+    if s.altitude_high is not None:
+        return float(s.altitude_high)
+    return max(float(a) for a in s.node_altitudes if a is not None)
+
+
+def _ramp_bottom(s: BuiltShape) -> float:
+    """The lowest value a ramp surface carries, in either encoding."""
+    if s.altitude_low is not None:
+        return float(s.altitude_low)
+    return min(float(a) for a in s.node_altitudes if a is not None)
 
 
 def _east_ramp_reach_m(layout: PavementLayout) -> float:
@@ -352,7 +377,7 @@ def _east_ramp_reach_m(layout: PavementLayout) -> float:
 
 
 def _east_ramp_top_m(layout: PavementLayout) -> float:
-    return max(float(s.altitude_high) for s in _east_ramps(layout))
+    return max(_ramp_top(s) for s in _east_ramps(layout))
 
 
 class TestRunReachesGrade:
@@ -515,7 +540,7 @@ class TestOneDatum:
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         ramps = _east_ramps(layout)
         assert ramps
-        bottom = min(float(s.altitude_low) for s in ramps)
+        bottom = min(_ramp_bottom(s) for s in ramps)
         clearance_floor = GROUND_M - float(config.BRIDGE_ROAD_CLEARANCE_M)
         legacy = (RIBBON_SURFACE_M + 3.0) - TUNNEL_DEPTH_DEFAULT_M
         assert bottom == pytest.approx(clearance_floor, abs=0.15), bottom

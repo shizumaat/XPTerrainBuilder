@@ -35,7 +35,10 @@ BRANCHES = {
     "object_bridge_deck_pin",
     "runway_end_skirt_pin",
     "eat_anchor_rect_pin",
-    "claimed_tunnel_road_pin",
+    # ``claimed_tunnel_road_pin`` retired with R14-1's claim class and
+    # ``solver_primitives._build_tunnel_road_pins`` (RULINGS 2026-08-31b,
+    # redesign spec §5.1, census #37) — the seeding pass no longer has
+    # that branch to stamp.
     "flat_fast_path_born_at_z0",
     "warm_start_shape_constant_fill",
     "warm_start_shape_high_low",

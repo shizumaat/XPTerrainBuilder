@@ -1443,6 +1443,63 @@ def include_airports(vector_map, tile):
 LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"
 
 
+def road_bridge_deck_pins(tile):
+    """``[(polygon, level_m, way_id)]`` — the ROAD BRIDGE DECKS
+    auto_patch confirmed for this tile, in the tile-relative
+    ``(lon − tile.lon, lat − tile.lat)`` frame.
+
+    RULINGS 2026-08-30c §5, RE-EXPRESSED (redesign spec §4).  The deck's
+    value used to be "a PIN in the free-road profile solve"; that pass
+    is retired (RULINGS 2026-08-31b) and general roads are the CORE's,
+    so the pin is a CLAMPED-STATION OVERRIDE here.  Its function is not
+    to move the deck — per 2026-08-30d the deck sits at the road solve's
+    own level and the structure beneath holds bore datum — but to make
+    the APPROACHES reach it at the road cap, and to let the clamp price
+    §6's refusal when the two abutment values cannot both be reached.
+
+    The records are read from the patch sidecars auto_patch already
+    writes (``<patch>.axes.json`` → ``road_bridge_decks``).  ONE
+    AUTHORITY: nothing here re-derives a deck or its level.
+    """
+    import json
+
+    pins = []
+    try:
+        patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+        if not os.path.isdir(patch_dir):
+            return pins
+        for name in sorted(os.listdir(patch_dir)):
+            if not name.endswith(".patch.osm.axes.json"):
+                continue
+            try:
+                with open(os.path.join(patch_dir, name), "r",
+                          encoding="utf-8") as handle:
+                    data = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            for rec in (data.get("road_bridge_decks") or []):
+                if rec.get("verdict") != "confirmed_terrain":
+                    continue
+                level = rec.get("deck_pin_m")
+                ring = rec.get("corridor_ll") or []
+                if level is None or len(ring) < 4:
+                    continue
+                try:
+                    poly = geometry.Polygon(
+                        [(float(lon) - tile.lon, float(lat) - tile.lat)
+                         for lat, lon in ring])
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                except (TypeError, ValueError):
+                    continue
+                if poly.is_empty:
+                    continue
+                pins.append((poly, float(level), rec.get("way_id")))
+    except Exception:                                    # pragma: no cover
+        return []
+    return pins
+
+
 def levelled_roads_sidecar_path(build_dir):
     """Path of a tile's levelled-roads sidecar (one spelling, shared with
     ``tools/road_terrain_conformance.py --levelled-roads``)."""
@@ -1642,11 +1699,16 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         # roads that merely share a ring.  A way's profile is its own.
         UI.vprint(1, "    * Clamping road profiles to the grade limit.")
         timer = time.time()
+        # THE BRIDGE-DECK PINS (spec §4): auto_patch has already run
+        # (``include_airports`` above), so the decks it confirmed this
+        # build are on disk beside its patches.
+        _deck_pins = road_bridge_deck_pins(tile)
         levelled["roads"] = VECT.clamp_road_network(
             road_network_banked,
             tile.dem.alt_vec,
             getattr(tile, "road_grade_limit", ROAD_GRADE_CAP_DEFAULT),
             tile.lane_width,
+            deck_pins=_deck_pins,
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -1658,6 +1720,18 @@ def include_roads(vector_map, tile, apt_array, apt_area):
                 _clamp_report["clamped_stations"],
                 _clamp_report["max_lift_m"], _clamp_report["max_cut_m"]),
         )
+        if _deck_pins:
+            UI.vprint(
+                1,
+                "      %d road bridge deck(s): %d station(s) on %d way(s) "
+                "PINNED at deck level, %d span(s) REFUSED (§6; worst "
+                "infeasibility %.2f m)." % (
+                    len(_deck_pins),
+                    _clamp_report["deck_pinned_stations"],
+                    _clamp_report["deck_pinned_ways"],
+                    _clamp_report["deck_pins_refused"],
+                    _clamp_report["deck_pin_worst_infeasibility_m"]),
+            )
         write_levelled_roads_sidecar(tile, levelled["roads"])
         if UI.red_flag:
             return 0

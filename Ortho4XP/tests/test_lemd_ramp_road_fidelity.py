@@ -50,14 +50,12 @@ def _band_scene(monkeypatch, station_law: str):
     arm.  The §T5 foot is PINNED OFF here — not left to the default,
     which shipped ON on 2026-08-29: this scene measures the CREST-ONLY
     band (both edges of the band are the wall TOP), which is the
-    configuration §F1's law is stated in and the one the owner read in
-    the sim at 1.0.265.  With the foot ON the band is a PARTITION and
-    the face legitimately carries the rise from the foot's top to the
-    crest, so a cross-band delta there is the wall's HEIGHT, not a
-    twist — a different measurement, twinned separately below.
+    configuration §F1's law is stated in, the one the owner read in the
+    sim at 1.0.265 — and, since RULINGS 2026-09-01c retired the §T5
+    foot, the only configuration the emitter has: the band stands off
+    the road and carries one corridor-top value per station.
     """
     monkeypatch.setenv("O4_WALL_TOP_STATION", station_law)
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
     layout = PavementLayout(icao="ZZZZ", anchor=_ANCHOR)
     ramp = BuiltShape(polygon=_RAMP, role=bridges.ROLE_TUNNEL_RAMP,
                       ref="tunnel_ramp",

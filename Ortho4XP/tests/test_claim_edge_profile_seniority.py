@@ -1,6 +1,18 @@
-"""§W2 — THE CLAIM EDGE TAKES THE CORRIDOR PROFILE (the humps).
+"""§W2 — THE OPEN-CUT EDGE TAKES THE CORRIDOR PROFILE (the humps).
 
-Spec ``docs/specs/claimed-corridor-wall-survival-spec.md`` §W2.
+Spec ``docs/specs/claimed-corridor-wall-survival-spec.md`` §W2, RE-KEYED
+by ``docs/specs/linear-transport-redesign-spec.md`` §5.2 (census row
+#50) under RULINGS 2026-08-31b.
+
+WHAT THE RE-KEY CHANGED — the REGION, not the law.  The index used to
+union the portal walk's published open cut WITH R14-1's claim set
+(``tunnel_open_cut_claim_polys``).  That class is retired; the CUT HALF
+STANDS ALONE, and it is the half that answers "where does the bore's
+ground lie" — the question this seniority asks.  The §W2 law, the
+measurement below and every assertion in this file are unchanged; only
+the answer to "which region" moved.  (The name
+``claim_edge_profile_index`` is the src's, kept so this twin names its
+subject.)
 
 MEASURED (OTHH, app 1.0.264, owner site 25.25591,51.6086926).  The
 corridor's descent is lawful (~4.5 % against a 5 % cap), but the emitted
@@ -13,8 +25,8 @@ vacated positions, those positions lie on the descending corridor's own
 edge, and the emit's nid-level weld then references them from the
 corridor ring.  A car driving the ramp climbs 3 m and drops 3 m again.
 
-THE LAW: between a claim's mouths the corridor profile is SENIOR on the
-claim boundary — a crossing grade-level authority takes the corridor's
+THE LAW: between a tunnel's mouths the corridor profile is SENIOR on the
+open cut's boundary — a crossing grade-level authority takes the corridor's
 interpolated altitude at the shared node.  The face still emits (the
 ``tunnel-corridor-node-book-exclusion-spec`` §3 population is
 untouched); only the level it retreats FROM changes.
@@ -143,7 +155,7 @@ def test_the_corridor_profile_is_senior_on_its_own_edge(monkeypatch):
 
 
 def test_it_can_only_lower(monkeypatch):
-    """The claim can only DIG, and so can its seniority: a corridor
+    """The cut can only DIG, and so can its seniority: a corridor
     value ABOVE the crossing authority's level is never adopted."""
     monkeypatch.delenv(FLAG, raising=False)
     lay, junction, host, pin = _scene()
@@ -169,12 +181,29 @@ def test_a_flat_ring_in_the_cut_publishes_no_seniority():
 
 
 def test_no_published_cut_means_no_index(monkeypatch):
-    """No claim published ⇒ no index ⇒ the pass is byte-identical.  The
+    """No cut published ⇒ no index ⇒ the pass is byte-identical.  The
     region is READ, never derived (one authority)."""
     monkeypatch.delenv(FLAG, raising=False)
     lay, junction, host, pin = _scene()
     del lay.tunnel_open_cut_polys
     assert AG.claim_edge_profile_index(lay) is None
+
+
+def test_the_index_reads_the_CUT_only_never_the_retired_claim_half(
+        monkeypatch):
+    """Census #50 / redesign spec §5.2: the union lost its claim half.
+    A layout publishing ONLY the retired ``tunnel_open_cut_claim_polys``
+    builds no index — the attribute is dead, not silently still read."""
+    monkeypatch.delenv(FLAG, raising=False)
+    lay, junction, host, pin = _scene()
+    cut = lay.tunnel_open_cut_polys
+    del lay.tunnel_open_cut_polys
+    lay.tunnel_open_cut_claim_polys = cut       # the retired attribute
+    assert AG.claim_edge_profile_index(lay) is None
+    # …and the same polygons published as the CUT do build one, so the
+    # twin above cannot pass because the scene stopped descending.
+    lay2, _j, _h, _p = _scene()
+    assert AG.claim_edge_profile_index(lay2) is not None
 
 
 def test_gate_off_builds_no_index(monkeypatch):

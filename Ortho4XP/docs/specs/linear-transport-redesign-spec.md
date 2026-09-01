@@ -130,7 +130,7 @@ on the existing G-TUNNEL-ROAD tag machinery (#42), which KEEPS.
    region publication re-homes out of the claim pass (#47, #49);
    claim-edge seniority reads the cut half only (#50).
 3. The canonical mouth (30 ruling) stands: one ramp to the mouth
-   line, one wall+foot per side, one end cap. Where mapped road
+   line, one wall band per side, one end cap. Where mapped road
    pavement lies over the cut, it is now CORE road ground above a
    covered stretch (the deck model, §4) or severed by the open cut —
    never re-profiled in place.
@@ -195,9 +195,9 @@ Below-bar = STOP with residual. Sim read between every batch.
    and the lane retired instead (owned deviation): the claim-waller's
    population (17/39 walls, 20/48 feet at the OTHH control) must be
    REPLACED, not deleted — every merged ramp corridor side gets
-   exactly one wall+foot derived from the ramp's own geometry through
+   exactly one wall band derived from the ramp's own geometry through
    the existing wall-band machinery. The canonical-mouth bar (one
-   wall+foot per side) is the acceptance.
+   wall band per side) is the acceptance.
 3. NODE-BOOK EXCLUSION SCOPE. The seam-probe-4 area clause fires
    wherever a cut is published (LEMD: 467 airside nodes moved with a
    byte-identical tunnel population). Membership narrows to:
@@ -215,7 +215,7 @@ arm is its own corridor for the wall machinery — the existing band
 emitter runs on the arm's own body, yielding inner AND outer faces
 per arm naturally (no special inner-face path). Where the two arms'
 INNER bands overlap near the throat (the V's pinch, the 31g class),
-they collapse to ONE SHARED wall+foot along the bisector — a shared
+they collapse to ONE SHARED wall along the bisector — a shared
 structure is the physical answer in a gap narrower than two bands.
 The throat plate caps the V as today. Acceptance: the confirmed fork
 at 25.2537652,51.6032373 reads wall/foot ≥0.9 per side on BOTH arms'

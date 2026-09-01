@@ -4205,9 +4205,6 @@ _MIDEDGE_AIRSIDE_ROLES = frozenset({
 _MIDEDGE_EXCLUDE_REFS = frozenset({
     "object_bridge_corridor", "object_bridge_causeway",
     "object_bridge_deck_weld", "object_bridge_approach", "tunnel_wall",
-    # §T5: the wall's FOOT is the same designed vertical storey as the
-    # face it carries — one structure, two refs.
-    "tunnel_wall_foot",
     "tunnel_ramp", "object_tunnel_portal_collar",
     "object_tunnel_portal_crown", "object_tunnel_portal_mouth",
 })

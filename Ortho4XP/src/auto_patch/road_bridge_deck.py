@@ -46,14 +46,25 @@ cannot check the law against the code:
   INSTRUMENT here: :func:`confirm_and_sever` records the cover the
   emitted ramp actually leaves under the deck and says whether the
   premise holds.  Nothing in this module moves a deck or a ramp.
-* **§5 The approaches** — unchanged, and now the only thing that sets the
-  deck's height: the deck sits at the ROAD SOLVE's own level, so the
-  chain simply solves through it at ``SERVICE_ROAD_MAX_GRADE``.  There
-  is no deck pin.
-* **§6 Refusal, loudly** — retained for a deck that carries an
-  INDEPENDENT value to reach.  A terrain deck carries none (it IS the
-  road solve), so §6 cannot fire in the no-object case; see the round
-  report's deviation delta.
+* **§5 The approaches** — the deck sits at the ROAD SOLVE's own level and
+  the chain reaches it at ``SERVICE_ROAD_MAX_GRADE``.  RE-EXPRESSED
+  (redesign spec §4, RULINGS 2026-08-31b): the pass §5 named — the
+  free-road profile solve — is retired and general roads belong to the
+  CORE, so the deck's value is published here as ``deck_pin_m`` +
+  ``corridor_ll`` and consumed as a CLAMPED-STATION OVERRIDE by
+  ``O4_Vector_Map.include_roads``' longitudinal clamp.  The pinned value
+  is ``max(road-solve level, structure beneath + BRIDGE_ROAD_CLEARANCE_M)``
+  — per 2026-08-30d the structure holds bore datum, so the floor is
+  normally slack and the pin IS the road's own level.
+* **§6 Refusal, loudly** — priced in that same clamp pass: two pins the
+  road cap cannot both reach invert the pin corridor, and the span is
+  refused with the pre-law profile left standing and the arithmetic in
+  the levelled-roads sidecar.
+* **THE §4 CROSSING CLASSIFIER** — :func:`publish_candidates` orders every
+  candidate crossing through :mod:`auto_patch.osm_crossing_level`: a
+  bridge-tagged way that SHARES AN OSM NODE with the below-grade way it
+  crosses meets it AT GRADE and is not a span (owner policy, post-mortem
+  2026-08-31).
 
 WHY CANDIDACY IS PREDICTED AND THEN CONFIRMED.  §1 asks whether the span
 crosses a structure THIS BUILD EMITTED, and the tunnel pass emits long
@@ -131,7 +142,14 @@ def _extended(points, arm_m: float):
 
 
 def _predicted_extent(layout):
-    """Union of where the tunnel pass CAN put a below-grade structure.
+    """``(extent, below_grade_ways)`` — the union of where the tunnel
+    pass CAN put a below-grade structure, and the below-grade ways
+    themselves as ``{way_id: (node_refs, tags)}``.
+
+    The node refs ride out with the extent because the §4 crossing
+    classifier asks rule 1 ("a shared node is a junction") about exactly
+    these ways, and asking it costs nothing here and a second feed parse
+    anywhere else.
 
     Reads the memoised tunnel road network (``bridges._load_tunnel_road_
     network``) — the same ONE load the covered-span mask uses, so
@@ -149,6 +167,7 @@ def _predicted_extent(layout):
         nodes_r, ways_r, _big, _ntags = _load_tunnel_road_network(layout)
         to_m, _ = _local_meter_projections(layout.anchor)
         bodies = []
+        below_grade_ways: dict = {}
         for _wid, nrefs, tags in ways_r:
             # A BELOW-GRADE WAY, not merely a tunnelABLE one.
             # ``_tunnelable`` is a highway/railway CLASS test — at LEMD
@@ -177,14 +196,17 @@ def _predicted_extent(layout):
                         half, cap_style=2, join_style=2))
             except Exception:                            # pragma: no cover
                 continue
+            below_grade_ways[_wid] = (list(nrefs), dict(tags or {}))
         if not bodies:
-            return None
+            return None, {}
         extent = unary_union(bodies)
-        return None if extent.is_empty else extent
+        if extent.is_empty:
+            return None, {}
+        return extent, below_grade_ways
     except Exception as exc:                             # pragma: no cover
         UI.vprint(1, f"  [bridge-deck] prediction NOT derived ({exc!r}) — "
                      f"§1 candidacy is INACTIVE this build.")
-        return None
+        return None, {}
 
 
 def publish_candidates(layout, touches_pavement=None) -> list:
@@ -210,12 +232,15 @@ def publish_candidates(layout, touches_pavement=None) -> list:
     if existing is not None:
         return existing
     records: list = []
+    _same_level_dropped = 0
     try:
         from shapely.geometry import LineString
 
         from .bridges import _local_meter_projections
+        from .osm_crossing_level import spans_over as _spans_over
         net = getattr(layout, "airport_road_network", None)
-        extent = _predicted_extent(layout) if net is not None else None
+        extent, below_grade_ways = (
+            _predicted_extent(layout) if net is not None else (None, {}))
         if net is not None and extent is not None:
             to_m, _ = _local_meter_projections(layout.anchor)
             lines: dict = {}
@@ -254,6 +279,30 @@ def publish_candidates(layout, touches_pavement=None) -> list:
                     continue
                 if not line.intersects(extent):
                     continue          # §1: no structure can be beneath
+                # ── THE OSM-LEVEL CROSSING CLASSIFIER (spec §4) ──────
+                # RULE 1: A SHARED NODE IS A JUNCTION.  A bridge-tagged
+                # way that shares an OSM node with the below-grade way
+                # beneath it meets that way AT GRADE — the owner's
+                # policy, verbatim: "shared nodes = same-level
+                # intersection (our road feed preserves these — measured
+                # bridge=yes layer=1 at the LEMD crossing)".  A motorway
+                # carries its bridge tag for a kilometre and still has
+                # at-grade slip junctions inside it; without rule 1 the
+                # junction reads as a span and a deck goes over a road
+                # the driver turns onto.  Identity, never proximity.
+                _beneath = [
+                    _bwid
+                    for _bwid, (_bnrefs, _btags) in below_grade_ways.items()
+                    if not _spans_over(tags, nrefs, _btags, _bnrefs)]
+                if _beneath:
+                    _same_level_dropped += 1
+                    UI.vprint(2,
+                        f"  [bridge-deck] §4 crossing classifier: bridge "
+                        f"way {wid} does not pass OVER below-grade way "
+                        f"{_beneath[0]} (shared node ⇒ same-level "
+                        f"intersection) — not a span, not a deck "
+                        f"candidate.")
+                    continue
                 if touches_pavement is not None and not (
                         set(nrefs) & admitted_nodes):
                     continue          # §2: it completes no admitted chain
@@ -275,6 +324,13 @@ def publish_candidates(layout, touches_pavement=None) -> list:
                      f"({exc!r}) — the law is INACTIVE this build.")
         records = []
     setattr(layout, _CANDIDATES, records)
+    if _same_level_dropped:
+        UI.vprint(1,
+            f"  [bridge-deck] §4 crossing classifier: "
+            f"{_same_level_dropped} bridge-tagged way(s) share an OSM "
+            f"node with the below-grade way they cross — SAME LEVEL, an "
+            f"at-grade junction, never a span (owner policy, "
+            f"post-mortem 2026-08-31).")
     if records:
         UI.vprint(1,
             f"  [bridge-deck] §1: {len(records)} mapped road bridge(s) "
@@ -304,6 +360,29 @@ def note_bridge_evidence_only(layout, way_id, touched_pavement: bool):
     for r in candidates_of(layout):
         if r["way_id"] == wid:
             r["bridge_evidence_only"] = not bool(touched_pavement)
+
+
+def _corridor_lat_lon(layout, corridor):
+    """A deck corridor's exterior ring as ``[[lat, lon], …]``.
+
+    The CORE reads the deck pin (redesign spec §4) and the core's frame
+    is the tile's, not the layout's local metres.  One conversion, at
+    publication, through the layout's OWN projection pair — never a
+    second projection built at the reader.
+    """
+    try:
+        from .bridges import _local_meter_projections
+        _to_m, from_m = _local_meter_projections(layout.anchor)
+        ring = getattr(corridor, "exterior", None)
+        if ring is None:
+            return []
+        out = []
+        for x, y in ring.coords:
+            lat, lon = from_m(float(x), float(y))
+            out.append([round(float(lat), 9), round(float(lon), 9)])
+        return out
+    except Exception:                                    # pragma: no cover
+        return []
 
 
 def _corridor(record):
@@ -483,6 +562,84 @@ def _shape_top(shape):
     return max(vals) if vals else None
 
 
+def _shape_top_within(shape, region, fallback):
+    """The highest value ``shape`` carries INSIDE ``region`` — the
+    LOCAL top — falling back to ``fallback`` (its global top) when the
+    shape has no vertex in there.
+
+    WHY THIS EXISTS, MEASURED (Batch 3b closing arm, LEMD).  §1 asks a
+    LOCAL question: "how high is the structure BENEATH THIS SPAN".  It
+    used to be answered with the shape's GLOBAL maximum, which was
+    locally accurate only because the portal chain emitted one short
+    QUAD per segment — spreads of 0.24-0.72 m at the LEMD control, so
+    the global max was the local one by accident.  §5-SUPPLEMENT item 1
+    merges each descending run into ONE surface, and the merged runs
+    spread up to 8.00 m (way -11627: 598.50 at bore datum, 606.50 at
+    its far end).  The global max then reported 606.49 m of structure
+    under a deck whose own ground is 603.55 m, and the deck's clearance
+    read -2.94 m where the ramp beneath the span is in fact at bore
+    datum and the true clearance is 5.10 m.
+
+    THE PATTERN IS THE RETIRED CLAIM CODE'S OWN: "the depth at THIS
+    footprint, not the shape's global minimum — a claimed lot can run
+    from the cut (deep) to open ground (at grade), and the question is
+    about the ground under the piece".  Same question, other sign.
+
+    A shape crossing the corridor with NO vertex inside is the normal
+    case for a merged run, not an edge case.  It is answered by the
+    GOVERNING VERTICES of the edges that cross — never by interpolating
+    across a vertex the law defined — see below.
+    """
+    alts = [a for a in (getattr(shape, "node_altitudes", None) or ())
+            if a is not None]
+    poly = getattr(shape, "polygon", None)
+    if not alts or poly is None:
+        return fallback
+    try:
+        ring = list(poly.exterior.coords)
+        if ring and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(alts) != len(ring):
+            return fallback
+        from shapely.geometry import Point
+        here = [float(a) for (x, y), a in zip(ring, alts)
+                if region.covers(Point(x, y))]
+        if here:
+            return max(here)
+        # NO VERTEX INSIDE — and on a merged run that is the NORMAL
+        # case, not an edge case: a run's stations stand tens of metres
+        # apart and a deck corridor is a dozen metres wide, so the ramp
+        # crosses BETWEEN two stations.  Falling back to the global top
+        # here is what left the LEMD clearance at -2.94 m.
+        #
+        # THE GOVERNING VERTEX, NOT AN INTERPOLATION.  The value that
+        # governs a stretch between two stations is the one the law's
+        # own encoding gave it: before the merge that stretch WAS a
+        # sloped rect and ``_shape_top`` returned its ``altitude_high``
+        # = max(z_k, z_k+1).  So the local top is the max over the
+        # EDGES that cross the corridor, of their two endpoint values —
+        # which reproduces the pre-merge answer exactly where the
+        # stretch is level (under a deck the cut holds bore datum, per
+        # RULINGS 2026-08-30f, so both endpoints carry it).  Measured:
+        # interpolating instead read 598.50 against the control's
+        # 598.45 and cost the -2192 span its 5.1 m premise by 0.05 m.
+        from shapely.geometry import LineString
+        best = None
+        n = len(ring)
+        for k in range(n):
+            a, b = ring[k], ring[(k + 1) % n]
+            try:
+                if not region.intersects(LineString([a, b])):
+                    continue
+            except Exception:                            # pragma: no cover
+                continue
+            edge_top = max(float(alts[k]), float(alts[(k + 1) % n]))
+            best = edge_top if best is None else max(best, edge_top)
+        return fallback if best is None else best
+    except Exception:                                    # pragma: no cover
+        return fallback
+
+
 def _below_grade_shapes(layout):
     out = []
     for s in getattr(layout, "shapes", None) or ():
@@ -644,7 +801,13 @@ def confirm_and_sever(layout, icao: str = ""):
         for poly, top, s in beneath_all:
             try:
                 if poly.intersection(corr).area >= 0.5:
-                    beneath.append((top, s))
+                    # THE TOP UNDER THIS SPAN, not the shape's global
+                    # maximum — see :func:`_shape_top_within`.  A merged
+                    # ramp run spans its whole descending length, so its
+                    # far end is metres above the stretch the deck
+                    # actually crosses.
+                    beneath.append(
+                        (_shape_top_within(s, corr, top), s))
             except Exception:                            # pragma: no cover
                 continue
         if not beneath:
@@ -702,6 +865,23 @@ def confirm_and_sever(layout, icao: str = ""):
             bool(r["clearance_measured_m"] is not None
                  and r["clearance_measured_m"]
                  >= float(BRIDGE_ROAD_CLEARANCE_M)))
+        # ── §5 RE-EXPRESSED: THE CLAMP-LEVEL PIN (redesign spec §4) ──
+        # 30c §5 said "the deck's value is a PIN in the free-road profile
+        # solve"; that pass is retired (31b) and general roads are the
+        # CORE's, so the pin is published HERE and consumed by the core's
+        # longitudinal clamp (``O4_Vector_Map.include_roads``).  The
+        # pinned value is 30d's own arithmetic: the road solve's level,
+        # floored at the structure beneath + BRIDGE_ROAD_CLEARANCE_M.
+        # Per 30d the structure holds bore datum, so the floor is
+        # normally slack and the pin IS the road's own level — its
+        # function is the §6 refusal test and the approach-grade check,
+        # both of which the clamp pass prices.  Published in LAT/LON,
+        # because the reader is the core and its frame is the tile's.
+        r["deck_pin_m"] = (
+            round(max(float(deck_level),
+                      float(top) + float(BRIDGE_ROAD_CLEARANCE_M)), 3)
+            if deck_level is not None else None)
+        r["corridor_ll"] = _corridor_lat_lon(layout, corr)
         sever.append(corr)
         UI.vprint(1,
             f"  [bridge-deck] {r['way_id']} CONFIRMED TERRAIN (§1 + "

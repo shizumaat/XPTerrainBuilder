@@ -45,6 +45,7 @@ from .layout import (
     ROLE_BUILDING,
     ROLE_RETAINING_WALL,
     ROLE_TUNNEL_RAMP,
+    ROLE_TUNNEL_TRENCH,
     SHARED_VERTEX_TOL_M,
     authority_rank,
 )
@@ -118,37 +119,43 @@ def dem_world_label(dem) -> str:
     return f"{type(dem).__name__}:{src if src else '?'}"
 
 
-def claimed_tunnel_corridor(shape) -> bool:
-    """Is this shape a CLAIMED TUNNEL CORRIDOR — pavement R14-1
-    re-profiled to carry a bore ("the paved area IS the corridor")?
+#: The tunnel's OWN emitted road surfaces, by ref.  ``tunnel_mouth``
+#: carries ``ROLE_TUNNEL_RAMP`` and is road surface exactly like
+#: ``tunnel_ramp`` (``bridges._TUNNEL_PAVEMENT_REFS``, one spelling).
+_TUNNEL_RAMP_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor")
 
-    Spec ``docs/specs/portal-corridor-claim-spec.md`` AMENDMENT 2, and
-    the reason it is a predicate rather than a pass: the claim verdict
-    RIDES THE SHAPE (``layout.TUNNEL_ROAD_REF``), so every downstream
-    re-derivation can recognise it and leave its authored field alone.
-    No re-stamping pass exists or may be added — a field that has to be
-    restored after the fact is a field that was already lost.
 
-    MEASURED (OTHH mouth D, 2026-08-25): R14-1 lowered the claimant to
-    -0.92 m and marked it; the post-solve groundside/service law seats
-    then re-seated it onto the surrounding law and it shipped FLAT at
-    3.96 m, so the corridor the stand-down had lawfully trusted was
-    never written and the mouth emitted no bore geometry at all.  The
-    seats are not wrong in general — they exist to rescue rings still on
-    their pre-solve DEM seed — but a claimed corridor is not on a seed:
-    its field is authored by the portal walk, which outranks them.
+def is_tunnel_ramp_surface(shape) -> bool:
+    """Is this shape a TUNNEL RAMP surface — the portal walk's own
+    below-grade road geometry (ramp, mouth, corridor)?
+
+    REWIRED BY ROLE/GEOMETRY (redesign spec §5.2, census rows #33/#34).
+    The predicate used to ask whether a shape carried R14-1's
+    ``tunnel_road`` CLAIM ref; that class is retired (RULINGS
+    2026-08-31b) and mapped road pavement is never re-profiled in place,
+    so the only surfaces whose field the portal walk authors are the
+    ramp/mouth pieces the walk itself emitted.  Asking by ROLE is also
+    the axis that cannot be lost: a ref can be dropped by a rebuild, and
+    ``ROLE_TUNNEL_RAMP`` is what every other tunnel consumer keys on.
+
+    WHY THE PREDICATE EXISTS AT ALL (unchanged): the post-solve
+    groundside/service law seats re-seat rings still sitting on their
+    pre-solve DEM seed.  A ramp is not on a seed — its field is authored
+    by the portal walk, which outranks them — so the seats must leave it
+    alone.  MEASURED (OTHH mouth D, 2026-08-25): a below-grade corridor
+    at -0.92 m re-seated onto the surrounding law and shipped FLAT at
+    3.96 m, emitting no bore geometry at all.
     """
-    from .layout import TUNNEL_ROAD_REF
-    return getattr(shape, "ref", "") == TUNNEL_ROAD_REF
+    return (getattr(shape, "role", "") == ROLE_TUNNEL_RAMP
+            or getattr(shape, "ref", "") in _TUNNEL_RAMP_REFS)
 
 
-def _carry_claimed_corridor(source, part):
-    """A rebuilt PIECE of a claimed corridor, carrying the verdict and
-    the authored profile — or ``None`` when the profile cannot be
-    carried (in which case the caller does what it always did).
+def _carry_tunnel_ramp_profile(source, part):
+    """A rebuilt PIECE of a tunnel ramp surface, carrying the authored
+    profile — or ``None`` when the profile cannot be carried (in which
+    case the caller does what it always did).
 
-    Spec ``portal-corridor-claim-spec.md`` AMENDMENT 2 §1: no
-    re-stamping pass; the fields ride the shape through the rebuild
+    No re-stamping pass; the fields ride the shape through the rebuild
     itself.  The altitudes come from the module's OWN carrier
     (``elevation._resample_node_altitudes_nn``, edge-interpolated), the
     same one every other tunnel clip uses — never a second convention.
@@ -168,16 +175,6 @@ def _carry_claimed_corridor(source, part):
     _new = BuiltShape(polygon=part, role=getattr(source, "role", ""),
                       ref=getattr(source, "ref", ""), node_altitudes=na)
     setattr(_new, _LAW_SEATED_ATTR, True)
-    # THE VERIFICATION RIDES TOO.  ``bridges.audit_tunnel_claim_drift``
-    # reads the claim depth off the shape, so a rebuilt piece that
-    # dropped the attribute would be INVISIBLE to the audit — an
-    # instrument hole that reads as "no drift".  Carry it with the field.
-    _claim = getattr(source, "_tunnel_claim_depth", None)
-    if _claim is not None:
-        try:
-            setattr(_new, "_tunnel_claim_depth", _claim)
-        except (AttributeError, TypeError):            # pragma: no cover
-            pass
     return _new
 
 
@@ -363,13 +360,13 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None, pinned=None):
 #: Shape ``ref``s whose emitted surface is CUT BELOW the surrounding
 #: ground — the transition law's sources.  A ramp dives by law; whatever
 #: stands beside it may not answer with a raw DEM sample.
-# ``tunnel_road`` (R14-1/A-1) is mapped road pavement the tunnel
-# system CLAIMED and re-profiled to the bore profile: it is below
-# grade and it is what the surrounding surface must grade toward, so
-# it belongs in this set exactly like an emitted ramp.  The claimed
-# shape keeps its own ROLE — and therefore its authority rank — so
-# nothing here is a new authority class.
-BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench", "tunnel_road")
+# R14-1/A-1 added ``tunnel_road`` — mapped road pavement the tunnel
+# system CLAIMED and re-profiled to the bore profile.  That claim class
+# is RETIRED (RULINGS 2026-08-31b, redesign spec §5.2, census #35): road
+# pavement over a cut is core road ground above a covered stretch, or it
+# is severed by the cut, and either way it is not a below-grade source.
+# The ramp and the trench — geometry this build dug — keep the law.
+BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench")
 
 #: Roles whose plates take the transition law where they fall inside a
 #: below-grade surface's reach.  Retaining-wall crest bands are in here
@@ -1537,12 +1534,12 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
     for s in layout.shapes:
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
-        if claimed_tunnel_corridor(s):
+        if is_tunnel_ramp_surface(s):
             # AMENDMENT 2: the portal walk authored this ring's field.
             # This pass rescues rings still on their pre-solve DEM seed;
             # a claimed corridor is not on a seed, and re-seating it onto
             # the surrounding law is what buried OTHH mouth D.
-            _skip("claimed_tunnel_corridor")
+            _skip("tunnel_ramp_surface")
             continue
         stats["candidates"] = stats.get("candidates", 0) + 1
         poly = getattr(s, "polygon", None)
@@ -1805,11 +1802,11 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
         for s in layout.shapes:
             if getattr(s, "role", "") != role:
                 continue
-            if claimed_tunnel_corridor(s):
+            if is_tunnel_ramp_surface(s):
                 # AMENDMENT 2, same rule on the service side: a claimed
                 # corridor's field is the portal walk's, not this seat's.
-                skips["claimed_tunnel_corridor"] = skips.get(
-                    "claimed_tunnel_corridor", 0) + 1
+                skips["tunnel_ramp_surface"] = skips.get(
+                    "tunnel_ramp_surface", 0) + 1
                 continue
             poly = getattr(s, "polygon", None)
             if poly is None or poly.is_empty or poly.geom_type != "Polygon":
@@ -5198,28 +5195,37 @@ _CHORD_LIMIT_ROLES = (ROLE_GROUNDSIDE_PAVEMENT,
 _TUNNEL_CORRIDOR_EXCLUSION_ENV = "O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION"
 
 
-def _tunnel_corridor_claim(layout):
-    """``(prepared_claim, bounds)`` for THE tunnel open-cut claim set, or
+def _tunnel_open_cut_region(layout):
+    """``(prepared_cut, bounds)`` for THE tunnel OPEN CUT, or
     ``(None, None)`` when there is nothing to exclude.
 
-    ONE AUTHORITY (spec §2).  The claim set is R14-1's own — the road
-    surfaces ``bridges._claim_road_pavement`` re-profiled as the tunnel
-    corridor and published verbatim on ``layout.tunnel_open_cut_claim_
-    polys`` (the same list that stands the synthetic rectangles down, and
-    the same computation behind the build log's "claimed N road
-    surface(s) as the tunnel corridor").  Nothing here re-derives a zone:
-    a second geometric notion of "inside the cut" is what the spec
-    forbids, so no claim ⇒ no exclusion.
+    ONE AUTHORITY (spec §2), RE-KEYED (redesign spec §5.2, census #51).
+    The region used to be R14-1's CLAIM SET — the road surfaces the claim
+    re-profiled — which answered "which pavement did the cut capture".
+    That class is retired (RULINGS 2026-08-31b) and the question was
+    always the wrong one: the two regions are measured different
+    (``bridges``' own note — OTHH's descending bore FLOOR is a
+    ``groundside_pavement`` ring BESIDE the claimed roads, 0-2 of its 33
+    nodes inside the claim, so the claim-keyed rule reached two vertices
+    of the nine that needed protecting).
+
+    The region is now ``layout.tunnel_open_cut_polys`` — the portal
+    walk's OWN plan-space extent, published by
+    ``bridges.publish_tunnel_open_cut_regions`` from
+    ``_tunnel_open_cut_regions``' records.  A ring with a node inside the
+    cut carries the bore's ground and its authority is the portal walk,
+    not this clamp.  Nothing here re-derives a zone: a second geometric
+    notion of "inside the cut" is what the spec forbids.
 
     ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0`` restores the pre-fix
     behaviour byte-for-byte (spec §5) for attribution arms.
     """
     if _os.environ.get(_TUNNEL_CORRIDOR_EXCLUSION_ENV, "1") != "1":
         return None, None
-    polys = getattr(layout, "tunnel_open_cut_claim_polys", None)
+    polys = getattr(layout, "tunnel_open_cut_polys", None)
     if not polys:
         return None, None
-    cached = getattr(layout, "_tunnel_claim_prepared_cache", None)
+    cached = getattr(layout, "_tunnel_open_cut_prepared_cache", None)
     if cached is not None and cached[0] == len(polys):
         return cached[1], cached[2]
     try:
@@ -5231,18 +5237,21 @@ def _tunnel_corridor_claim(layout):
         prepared, bounds = prep(union), union.bounds
     except (_GEOM_EXC, ImportError, ValueError):       # pragma: no cover
         return None, None
+    # The BODY rides with the prepared index: membership below needs an
+    # AREA, and a prepared geometry answers predicates only.
+    _member = (prepared, union)
     try:
-        layout._tunnel_claim_prepared_cache = (len(polys), prepared, bounds)
+        layout._tunnel_open_cut_prepared_cache = (len(polys), _member, bounds)
     except (AttributeError, TypeError):                # pragma: no cover
         pass
-    return prepared, bounds
+    return _member, bounds
 
 
 def _report_tunnel_corridor_exclusion(layout, stats) -> None:
-    """Say out loud what the claim owns — once per changed count.
+    """Say out loud what the open cut owns — once per changed count.
 
     The pass runs three times (finalize, then two idempotent pipeline
-    re-limits) and the claim only exists from the second onward, so the
+    re-limits) and the cut only exists from the second onward, so the
     report lives HERE rather than at one call site: one implementation,
     every caller, no silent exclusion.
     """
@@ -5267,16 +5276,67 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         pass
 
 
-def _ring_touches_tunnel_claim(ring, prepared, bounds) -> bool:
-    """Spec §2 membership: does ANY node of ``ring`` lie inside the
-    tunnel open-cut claim set?
+#: THE BELOW-GRADE ROLES the exclusion may reach (spec §5-SUPPLEMENT
+#: item 3).  The exclusion's purpose is bore-depth values not travelling
+#: OUTWARD; a ring that is not itself below-grade geometry carries no
+#: bore depth to travel, so sweeping it in is pure spillover.
+#:
+#: MEASURED, and this clause is why it exists: with membership keyed on
+#: geometry alone the clause fired wherever a cut was published, and at
+#: LEMD — whose tunnel population, decks and basin are byte-identical
+#: between the arm and merged main — it moved 467 solve-owned airside
+#: nodes (worst 0.23 m).  The ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0``
+#: arm reproduced merged main's LEMD patch BYTE FOR BYTE
+#: (body_sha 2bc2bd88f961), which names this clause the sole author.
+#:
+#: NOTE FOR THE CLEANUP BATCH: with R14-1's claim retired, no ring
+#: carrying a pavement role carries bore depth any more, so this set and
+#: ``_CHORD_LIMIT_ROLES`` are DISJOINT and the exclusion is inert by
+#: construction.  ``tunnel_corridor_excluded_rings`` measures that zero
+#: rather than assuming it — the §6 Batch-4 "dormant passes measured
+#: zero-fire then deleted" path.
+_OPEN_CUT_BELOW_GRADE_ROLES = (ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH)
 
-    ``covers`` — not ``contains`` — because a claimed shape's OWN ring
-    vertices lie exactly ON the claim boundary, and so do the vertices a
-    partner way shares with it.  Per-ring membership is the point: it is
-    what stops a partner way importing a value across the cut boundary
-    through a shared key.
+#: How much of a ring's own AREA must lie in the open cut before the
+#: ring counts as the cut's ground.  This is R14-1's own claim floor
+#: (``bridges._TUNNEL_CLAIM_MIN_OVERLAP_M2``, 2.0 m²) carried over: a
+#: shape had to COVER the alignment, not graze it, to be claimed.
+_OPEN_CUT_MIN_OVERLAP_M2 = 2.0
+
+
+def _ring_touches_open_cut(ring, polygon, member, bounds,
+                           role: str = "") -> bool:
+    """Spec §2 membership, RE-KEYED: does ``ring`` belong to the tunnel
+    OPEN CUT?
+
+    TWO CLAUSES, AND THE ROLE ONE COMES FIRST (spec §5-SUPPLEMENT item
+    3): the ring must carry a BELOW-GRADE ROLE *and* meet the cut
+    geometrically.  Geometry alone swept in at-grade ground that carries
+    no bore depth at all — 467 solve-owned airside nodes at LEMD, where
+    the off-arm reproduced merged main byte for byte.
+
+    SEAM-PROBE 4 (census #51, redesign spec §5.2) — and it changed the
+    test, not only the region.  The old region was R14-1's CLAIM SET,
+    which was the claimed shapes' OWN polygons, so "any node inside"
+    picked out exactly the claimed rings.  The cut is a different region
+    and node membership does not translate: an 8 m corridor crossing a
+    lot leaves every one of that lot's perimeter nodes outside the cut.
+    MEASURED (lane/tunnelfix, OTHH): the cut covers ZERO of the bore
+    ring's 34 nodes where the claim covered 2 — a straight re-key would
+    have made the exclusion evaporate, which is the failure census #51
+    names by name.
+
+    So membership is the claim's own membership, expressed against the
+    cut: a node inside (the weld case, ``covers`` not ``contains``
+    because shared vertices sit exactly ON the boundary), OR at least
+    ``_OPEN_CUT_MIN_OVERLAP_M2`` of the ring's area inside (the claim's
+    own "cover the alignment, do not graze it" floor).  Per-ring
+    membership is the point: it is what stops a partner way importing a
+    value across the cut boundary through a shared key.
     """
+    if role not in _OPEN_CUT_BELOW_GRADE_ROLES:
+        return False
+    prepared, body = member
     minx, miny, maxx, maxy = bounds
     for (x, y) in ring:
         if x < minx or x > maxx or y < miny or y > maxy:
@@ -5286,7 +5346,14 @@ def _ring_touches_tunnel_claim(ring, prepared, bounds) -> bool:
                 return True
         except _GEOM_EXC:                              # pragma: no cover
             return False
-    return False
+    if polygon is None or polygon.is_empty:
+        return False
+    try:
+        if not prepared.intersects(polygon):
+            return False
+        return polygon.intersection(body).area >= _OPEN_CUT_MIN_OVERLAP_M2
+    except _GEOM_EXC:                                  # pragma: no cover
+        return False
 
 
 def _chord_limit_cap_for_role(role: str) -> float:
@@ -5555,7 +5622,7 @@ def _grade_limit_groundside_chords(
         "tunnel_corridor_excluded_rings": 0,
         "tunnel_corridor_excluded_by_role": {},
     }
-    _claim_prep, _claim_bounds = _tunnel_corridor_claim(layout)
+    _cut_prep, _cut_bounds = _tunnel_open_cut_region(layout)
     # THE WELDS ARE NOT PINNED HERE, and that is MEASURED, not assumed.
     # Holding them (``law_anchor_values`` keyed to this pass's 2-decimal
     # node key) is the literal reading of R7c's "[weld − cap·d,
@@ -5663,8 +5730,8 @@ def _grade_limit_groundside_chords(
             continue
         if any(a is None for a in alts):
             continue
-        if _claim_prep is not None and _ring_touches_tunnel_claim(
-                ring, _claim_prep, _claim_bounds):
+        if _cut_prep is not None and _ring_touches_open_cut(
+                ring, s.polygon, _cut_prep, _cut_bounds, role):
             # THE TUNNEL-CORRIDOR EXCLUSION (spec §2).  This ring carries
             # a bore's below-grade geometry — its authority is the portal
             # walk, not this clamp.  It is excluded from the unified node
@@ -7139,7 +7206,7 @@ def _merge_touching_groundside(
           # "groundside", which drops both the claim verdict and the
           # authored bore profile (measured, unit probe).  Its
           # neighbours still merge around it.
-          and not claimed_tunnel_corridor(s)]
+          and not is_tunnel_ramp_surface(s)]
     if len(gs) < 2:
         return 0
     polys = [s.polygon for s in gs]
@@ -7456,7 +7523,7 @@ def _separate_groundside_from_airside(
             # simplified at emit, and re-simplifying would move the
             # boundary back across the clearance gap.  The mitre-buffered
             # clip above already yields clean straight edges.
-            if claimed_tunnel_corridor(s):
+            if is_tunnel_ramp_surface(s):
                 # AMENDMENT 2 — THE FIELDS RIDE THE SHAPE.  The clearance
                 # clip is a real invariant (groundside shares no node with
                 # airside), so a claimed corridor IS clipped — but the
@@ -7466,7 +7533,7 @@ def _separate_groundside_from_airside(
                 # carrier.  Re-following the DEM here is what shipped OTHH
                 # mouth D's claimant FLAT at 3.96 m with ref "groundside"
                 # after R14-1 had lowered it to -0.92 m.
-                _rebuilt = _carry_claimed_corridor(s, part)
+                _rebuilt = _carry_tunnel_ramp_profile(s, part)
                 if _rebuilt is not None:
                     kept.append(_rebuilt)
                     changed = True
@@ -7558,7 +7625,7 @@ def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
     old_ring = list(ys.polygon.exterior.coords)
     old_alts = list(ys.node_altitudes or [])
     ys.polygon = new_poly
-    if claimed_tunnel_corridor(ys) and old_alts:
+    if is_tunnel_ramp_surface(ys) and old_alts:
         # AMENDMENT 2, THE SERVICE CHAIN.  The nearest-vertex carry below
         # is right for a flat-ish service ring welded along its contact —
         # and wrong for a CLAIMED CORRIDOR, whose ring runs from bore
@@ -7742,7 +7809,7 @@ def _deconflict_service_overlaps_once(
                 # a 100 %-area self-overlap.  Drop the redundant yielder: the
                 # kept shape already covers its footprint at the same role, so
                 # removing it loses no coverage and kills the overlap.
-                if claimed_tunnel_corridor(ys):
+                if is_tunnel_ramp_surface(ys):
                     # …EXCEPT a claimed corridor (AMENDMENT 2).  "The kept
                     # shape already covers its footprint at the same role"
                     # is true of the FOOTPRINT and false of the SURFACE:

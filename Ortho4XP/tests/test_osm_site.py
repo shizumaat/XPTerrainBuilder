@@ -547,10 +547,15 @@ class TestContainment:
 def _tiling_pair_file(tmp_path) -> Path:
     """Two rings that TILE — 0 m² overlap, a long shared edge.
 
-    OTHH item 1 in miniature: service_road -10051 and tunnel_road
-    -12306 carry ONE corridor, and `--at` reports them as two ordinary
-    neighbours.  Only the shared-boundary length tells them apart from
-    a genuine pair of adjacent surfaces.
+    OTHH item 1 in miniature: service_road -10051 and the corridor's own
+    surface -12306 carry ONE corridor, and `--at` reports them as two
+    ordinary neighbours.  Only the shared-boundary length tells them
+    apart from a genuine pair of adjacent surfaces.
+
+    (When measured, -12306 wore R14-1's ``tunnel_road`` claim ref; that
+    class is retired — RULINGS 2026-08-31b — and the corridor's surface
+    is the portal walk's own ``tunnel_ramp``.  The ref is inert fixture
+    data here: ``relate_rings`` answers geometrically and reads no ref.)
     """
     import math
     lat, lon = _CENTRE
@@ -565,7 +570,7 @@ def _tiling_pair_file(tmp_path) -> Path:
     path = tmp_path / "tiling.osm"
     path.write_text(_ring_patch([
         ("-10051", "service_road", "", left),
-        ("-12306", "service_road", "tunnel_road", right),
+        ("-12306", "service_road", "tunnel_ramp", right),
     ]))
     return path
 

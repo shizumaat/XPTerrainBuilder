@@ -5675,3 +5675,41 @@ both owner ramp probes CONTAINED.
   off-pavement remainder of such a band instead of dropping the piece
   whole (this build: 0 covered-stretch drops, 1 graze).  It simply
   cannot conjure band onto ground the law reserves for pavement.
+
+- 2026-09-01 lane/ltbatch3 — **BATCH 3 CLOSING STATE, MERGE-READY.**
+  Measurement arm `lt3m_othh_arm` (481.6 s / 2,499 shapes / body
+  `17351f5f`, **CONTAMINATED False**) vs the parked control
+  `lt3h_othh_arm`.  Acceptance: **9 PASS / 1 FAIL / 10 SKIPPED**.
+  THE INSTRUMENT IS PROVABLY INERT: the instrumented probe build
+  `lt3p_probe`, run WITH the probe armed, emitted a BYTE-IDENTICAL
+  patch — same 2,499 shapes, same body `17351f5f` — so the seam probe
+  that landed after the measurement arm changed no geometry, measured
+  rather than asserted.
+  GREEN: `geometry_drift` 1 of 2,439 same-geometry ways and the single
+  drifter is a `retaining_wall` (the class this batch changes);
+  `adjudicated_delta` **-28** (1,549 vs 1,577); `actionable_sites`
+  46 = 46; `subgrade_by_role` an EXACT match; `no_needle`, `pad_flat`,
+  `role_less_ring_rows`, `covered_span_clean` x2, `site_reach`,
+  `mouth_vertex_reach`, `no_low_connector` all PASS.  Mouth inventory
+  **10 sites, 1 not canonical** (control: 2).  The site this lane was
+  dispatched for, 25.2761183,51.6134359, is CANONICAL at 0.93/1.00.
+  LEMD: basin byte-identical across the gap change (14 rim + 1 trench,
+  679 altitudes, floor 587.750 / top 599.670), `geometry_drift` 0 over
+  2,167 ways.
+  THE RESIDUALS, EVERY ONE EXPLAINED OR PRE-EXISTING:
+  1. `ramp_wall_gap` 26 against bar 0 — the CONTROL's own class (14),
+     scaled by piece count: walls 16 -> 26, so the per-wall rate moves
+     0.875 -> 1.0.  Quoted per the coordinator, not chased.
+  2. The one non-canonical mouth (the 4-arm fork) — side 0.15 is the
+     LAWFUL R14-2/A-3 class proven by the seam probe above; its
+     `band_fragments` 6 / `redundant` 9 are genuine arcs ABOVE the
+     emitter floor that the old `max(geoms)` rule used to delete, now
+     tripping an instrument bar calibrated when they were being
+     dropped.  Not fitted away.
+  3. `wall_top_flat` 5.1 (control 4.99) — PRE-EXISTING, owed its own
+     attribution.
+  4. The LEMD no-band site 40.4896687,-3.5494150 — owed; no pre-round
+     LEMD control exists on disk to A/B it against.
+  5. `test_tunnel_portal_fidelity` x5 — a strict SUBSET of the 7 reds
+     standing when this batch began (main's H2 round fixed two).  Suite
+     otherwise 1,623 passed.

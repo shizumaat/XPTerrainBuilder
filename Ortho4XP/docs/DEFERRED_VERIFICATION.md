@@ -5555,3 +5555,37 @@ both owner ramp probes CONTAINED.
   side takes a reduced-offset band, or the pinch exemption widens, is a
   DESIGN decision and belongs to the owner — it is not closable by
   moving an instrument bar.
+
+- 2026-09-01 lane/ltbatch3 round 3k — RULINGS 2026-09-01h IS IMPLEMENTED
+  AND **INERT AT THE SITE IT WAS RULED FOR**.  Reported against myself,
+  because I implemented it on an inferred mechanism instead of a
+  measured one (the "mechanism before fix" law: attribution reads are
+  not causal).
+  MEASURED, `lt3k_othh_arm` (503.7 s / 2,499 shapes / body `4a1dee94`)
+  against `lt3j_othh_arm`, the SAME site 25.2537652,51.6032373:
+      arm len 142.8 m : 3j  66.7 m unanswered (47%), 51.4 m FREE GROUND
+                        3k  66.7 m unanswered (47%), 51.4 m FREE GROUND
+  IDENTICAL — walls 26 in both.  The clip I added never fires here: the
+  build log reports "dropped 0 tunnel piece(s) under pavement" in BOTH
+  arms, so the covered-stretch drop was never the remover at this fork.
+  01h's discipline is right and it stays (it closes the class wherever
+  the late gate DOES drop a band); it simply does not reach this one.
+  THE REAL SEAM, ESTABLISHED INTERVENTIONALLY (no build): the same
+  `emit_wall_band`, called offline on the SAME real body (`-12192`) at
+  the same 0.6 m gap, returns a COMPLETE band — 11% unanswered and
+  **0.0 m on free ground**, matching the 3h control exactly — both with
+  and without the sibling bands excluded.  The geometry is emittable;
+  the body never GETS its own band call.  The build log names it:
+  "§5-SUPPLEMENT-2 fork walls: **2 arm(s)** walled as their own
+  corridors" at a site carrying **4** ramp bodies.  `_arm_bodies` is
+  populated only from `arm_specs` — the arms DOWNSTREAM of the
+  divergence point — so the two bodies that are not arms (this 142.8 m
+  one among them) are walled only by the CLUSTER UNION band, whose
+  outward offset traces the outer hull and cannot produce a concave
+  inner side.  That is the original Batch-3f mechanism, reaching only
+  part of this site.
+  OWED: whether a non-arm fork body gets its own band call (i.e. which
+  bodies the per-arm register admits) is a DESIGN question about the
+  31h divergence test's scope — the owner's, not a lane's, and not
+  closable by moving an instrument bar.  This lane's build budget for
+  the round is spent; no further arm was run to chase it.

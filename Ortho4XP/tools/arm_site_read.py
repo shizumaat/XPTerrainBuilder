@@ -61,7 +61,17 @@ THE FRAMES, both stated on the report:
   site radius selects rows NEAR THE PAIR, not rows whose shape touches the
   site;
 * seats join by the building's ``ref`` tag across the two arms — way ids and
-  shapeIDs are arm-dependent and are never joined on.
+  shapeIDs are arm-dependent and are never joined on.  ``building{N}`` is an
+  ORDINAL identifier (``terminals.building_pad_accounting`` reads the N back
+  out), so an arm that ADDS OR DROPS a pad RENUMBERS every later one and the
+  ref join then reports the renumbering as seat motion.  Measured 2026-08-31
+  on the buildings-round arms, whose pad count moved 175 -> 176: the ref join
+  reported 85 of 174 pads moved, median 2.72 m, max 33.65 m — where the pads
+  in question had not moved at all, ``building175``'s seat simply answered to
+  ``building176``.  The tool DETECTS that (a common ref whose centroid is more
+  than ``--seat-radius`` away is a renumbering, not a move) and says so;
+  ``--seat-join location`` pairs pads by centroid instead, which is the join
+  a pad-population change has to be measured under.
 """
 from __future__ import annotations
 
@@ -181,19 +191,88 @@ def _seats(cg, patch) -> dict:
     return out
 
 
-def seat_moves(cg, ctl_patch, arm_patch, *, floor_m: float = 0.01) -> dict:
-    """Building pad seats that moved between the two arms, joined by ``ref``."""
+#: A pad answering to the same ref more than this far from where it stood is
+#: a RENUMBERING, not a move (a pad's own reseat does not teleport it).  Also
+#: the default pairing radius of the location join.
+SEAT_JOIN_RADIUS_M = 15.0
+
+
+def _seat_separation_m(a, b) -> float:
+    """Metres between two ``_seats`` entries' centroids (None-safe)."""
+    if None in (a[1], a[2], b[1], b[2]):
+        return float("inf")
+    mean_latitude = math.radians((a[1] + b[1]) / 2.0)
+    return math.hypot((a[2] - b[2]) * 111320.0 * math.cos(mean_latitude),
+                      (a[1] - b[1]) * 111320.0)
+
+
+def seat_moves(cg, ctl_patch, arm_patch, *, floor_m: float = 0.01,
+               join: str = "ref",
+               radius_m: float = SEAT_JOIN_RADIUS_M) -> dict:
+    """Building pad seats that moved between the two arms.
+
+    ``join="ref"`` (default) pairs pads by the ``ref`` tag, and REPORTS the
+    refs whose pad is more than ``radius_m`` from where it stood — the
+    renumbering signature of an arm that added or dropped a pad, under which
+    the ref join measures the renumbering rather than the seats.
+    ``join="location"`` pairs each control pad with the nearest unused arm
+    pad within ``radius_m`` (closest pair first, each pad used once), which
+    is the join that survives a pad-population change; pads with no partner
+    are reported as added / dropped, never as a move.
+    """
     ctl, arm = _seats(cg, ctl_patch), _seats(cg, arm_patch)
-    common = sorted(set(ctl) & set(arm))
-    moved = [{"ref": r, "ctl_m": ctl[r][0], "arm_m": arm[r][0],
-              "delta_m": round(arm[r][0] - ctl[r][0], 3),
-              "lat": arm[r][1], "lon": arm[r][2]}
-             for r in common if abs(arm[r][0] - ctl[r][0]) > floor_m]
+    pairs: list[tuple[str, str]] = []
+    renumbered: list[dict] = []
+    unmatched_ctl: list[str] = []
+    unmatched_arm: list[str] = []
+    if join == "ref":
+        for ref in sorted(set(ctl) & set(arm)):
+            pairs.append((ref, ref))
+            separation = _seat_separation_m(ctl[ref], arm[ref])
+            if separation > radius_m:
+                renumbered.append({"ref": ref,
+                                   "separation_m": round(separation, 1)})
+        unmatched_ctl = sorted(set(ctl) - set(arm))
+        unmatched_arm = sorted(set(arm) - set(ctl))
+    elif join == "location":
+        candidates = []
+        for control_ref, control_seat in ctl.items():
+            for arm_ref, arm_seat in arm.items():
+                separation = _seat_separation_m(control_seat, arm_seat)
+                if separation <= radius_m:
+                    candidates.append((separation, control_ref, arm_ref))
+        candidates.sort()
+        used_control: set = set()
+        used_arm: set = set()
+        for _separation, control_ref, arm_ref in candidates:
+            if control_ref in used_control or arm_ref in used_arm:
+                continue
+            used_control.add(control_ref)
+            used_arm.add(arm_ref)
+            pairs.append((control_ref, arm_ref))
+        unmatched_ctl = sorted(set(ctl) - used_control)
+        unmatched_arm = sorted(set(arm) - used_arm)
+    else:
+        raise ValueError(f"unknown seat join {join!r} (ref | location)")
+    moved = [{"ref": (control_ref if control_ref == arm_ref
+                      else f"{control_ref}->{arm_ref}"),
+              "ctl_m": ctl[control_ref][0], "arm_m": arm[arm_ref][0],
+              "delta_m": round(arm[arm_ref][0] - ctl[control_ref][0], 3),
+              "lat": arm[arm_ref][1], "lon": arm[arm_ref][2]}
+             for control_ref, arm_ref in pairs
+             if abs(arm[arm_ref][0] - ctl[control_ref][0]) > floor_m]
     moved.sort(key=lambda d: -abs(d["delta_m"]))
     mags = sorted(abs(m["delta_m"]) for m in moved)
     return {
-        "pads_joined": len(common),
+        "join": join,
+        "radius_m": radius_m,
+        "pads_joined": len(pairs),
         "pads_moved": len(moved),
+        "pads_ctl": len(ctl),
+        "pads_arm": len(arm),
+        "unmatched_ctl": unmatched_ctl,
+        "unmatched_arm": unmatched_arm,
+        "renumbered": renumbered,
         "floor_m": floor_m,
         "median_abs_delta_m": (mags[len(mags) // 2] if mags else 0.0),
         "max_abs_delta_m": (mags[-1] if mags else 0.0),
@@ -647,6 +726,14 @@ def main(argv=None) -> int:
     ap.add_argument("--rows", nargs=2, metavar=("CTL.rows.json",
                                                 "ARM.rows.json"))
     ap.add_argument("--seats", action="store_true")
+    ap.add_argument("--seat-join", choices=("ref", "location"), default="ref",
+                    help="how pads pair across the two arms: by ref tag "
+                         "(default) or by centroid, the join that survives a "
+                         "pad-population change (ordinal refs RENUMBER)")
+    ap.add_argument("--seat-radius", type=float, default=SEAT_JOIN_RADIUS_M,
+                    help="metres: the location join's pairing radius, and "
+                         "the distance beyond which a same-ref pad is "
+                         "reported as RENUMBERED rather than moved")
     ap.add_argument("--welds", action="store_true",
                     help="per site, the road↔airside seam-weld table "
                          "(shared nodes, max seam |Δalt|, walls)")
@@ -693,7 +780,9 @@ def main(argv=None) -> int:
     print(f"=== arm site read\n  control {args.control}\n  arm     {args.arm}")
     print(f"  frame: rows are located by the CENSUS's own row lat/lon (a "
           f"within-shape pair's position, which for a long chord is far from "
-          f"either endpoint); seats join by building ref, never by way id")
+          f"either endpoint); seats join by "
+          f"{'building CENTROID' if args.seat_join == 'location' else 'building ref'}"
+          f", never by way id")
     if args.rows:
         try:
             ctl_rows, arm_rows = (load_rows(args.rows[0]),
@@ -840,11 +929,26 @@ def main(argv=None) -> int:
                           f"{row['alt_behind']}")
     if args.seats:
         cg = _check_grade()
-        out["seats"] = seat_moves(cg, args.control, args.arm)
+        out["seats"] = seat_moves(cg, args.control, args.arm,
+                                  join=args.seat_join,
+                                  radius_m=args.seat_radius)
         s = out["seats"]
-        print(f"  PAD SEATS: {s['pads_moved']} of {s['pads_joined']} moved "
-              f"> {s['floor_m']} m; median |Δ| {s['median_abs_delta_m']:.2f} m,"
-              f" max {s['max_abs_delta_m']:.2f} m")
+        print(f"  PAD SEATS ({s['join']} join, {s['pads_ctl']} ctl / "
+              f"{s['pads_arm']} arm pads): {s['pads_moved']} of "
+              f"{s['pads_joined']} moved > {s['floor_m']} m; median |Δ| "
+              f"{s['median_abs_delta_m']:.2f} m, max "
+              f"{s['max_abs_delta_m']:.2f} m")
+        if s["renumbered"]:
+            print(f"      REF JOIN UNSAFE: {len(s['renumbered'])} ref(s) name "
+                  f"a pad more than {s['radius_m']:.0f} m from where they did "
+                  f"(worst {max(r['separation_m'] for r in s['renumbered']):.0f}"
+                  " m) — the pad population was RENUMBERED, so these Δ are the "
+                  "renumbering, not seat motion.  Re-run with "
+                  "--seat-join location.")
+        if s["unmatched_ctl"] or s["unmatched_arm"]:
+            print(f"      unpaired: {len(s['unmatched_ctl'])} control-only, "
+                  f"{len(s['unmatched_arm'])} arm-only pad(s) — reported, "
+                  "never counted as a move")
         for m in s["worst"][:5]:
             print(f"      {m['ref']:16s} {m['ctl_m']:8.2f} → {m['arm_m']:8.2f}"
                   f"  Δ{m['delta_m']:+.2f} m")

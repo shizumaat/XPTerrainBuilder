@@ -221,6 +221,89 @@ class TestArmSiteRead:
         # accident).
         assert ASR.seat_moves(cg, ctl, arm, floor_m=1.0)["pads_moved"] == 0
 
+    # ── the RENUMBERING trap (2026-08-31, the buildings round) ────────
+    # ``building{N}`` is an ORDINAL: an arm that adds or drops a pad
+    # renumbers every later one, and the ref join then reads the
+    # renumbering as seat motion (measured at HECA: 85 of 174 pads
+    # "moved", max 33.65 m, where the location join says 28 and 2.32 m).
+
+    def _two_pad_patch(self, tmp_path, name, pads):
+        """``pads`` = [(ref, east_offset_m, alt), ...] — one square pad each."""
+        lines = ["<?xml version='1.0' encoding='UTF-8'?>",
+                 "<osm version='0.6'>"]
+        node_id = -1
+        way_id = -100
+        for ref, east_m, alt in pads:
+            corner_ids = []
+            for d_lat, d_east in ((0.0, 0.0), (1e-4, 0.0), (1e-4, 20.0),
+                                  (0.0, 20.0)):
+                lines.append(
+                    f"  <node id='{node_id}' lat='{LAT0 + d_lat}' "
+                    f"lon='{_east(east_m + d_east)}'>")
+                lines.append(f"    <tag k='alt_abs' v='{alt}'/>")
+                lines.append("  </node>")
+                corner_ids.append(node_id)
+                node_id -= 1
+            lines.append(f"  <way id='{way_id}'>")
+            for corner in corner_ids + [corner_ids[0]]:
+                lines.append(f"    <nd ref='{corner}'/>")
+            lines.append("    <tag k='aeroway' v='building'/>")
+            lines.append("    <tag k='role' v='building'/>")
+            lines.append(f"    <tag k='ref' v='{ref}'/>")
+            lines.append("  </way>")
+            way_id -= 1
+        lines.append("</osm>")
+        path = tmp_path / name
+        path.write_text("\n".join(lines) + "\n")
+        return path
+
+    def test_a_renumbered_population_is_named_not_reported_as_motion(
+            self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._two_pad_patch(tmp_path, "ctl.osm", [
+            ("building1", 0.0, 80.0), ("building2", 400.0, 90.0)])
+        # the arm gained a pad AHEAD of them, so both refs slide by one
+        arm = self._two_pad_patch(tmp_path, "arm.osm", [
+            ("building1", 800.0, 70.0), ("building2", 0.0, 80.0),
+            ("building3", 400.0, 90.0)])
+        by_ref = ASR.seat_moves(cg, ctl, arm)
+        assert by_ref["pads_moved"] == 2          # the renumbering, not motion
+        assert len(by_ref["renumbered"]) == 2     # ...and it SAYS so
+        by_place = ASR.seat_moves(cg, ctl, arm, join="location")
+        assert by_place["pads_moved"] == 0        # nothing moved, and it knows
+        assert by_place["renumbered"] == []
+        assert by_place["unmatched_arm"] == ["building1"]   # the added pad
+        assert by_place["unmatched_ctl"] == []
+
+    def test_the_location_join_still_sees_a_real_move(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._two_pad_patch(tmp_path, "ctl.osm",
+                                  [("building1", 0.0, 80.0)])
+        arm = self._two_pad_patch(tmp_path, "arm.osm",
+                                  [("building7", 0.0, 81.25)])
+        res = ASR.seat_moves(cg, ctl, arm, join="location")
+        assert res["pads_moved"] == 1
+        assert res["worst"][0]["ref"] == "building1->building7"
+        assert res["worst"][0]["delta_m"] == pytest.approx(1.25, abs=0.001)
+
+    def test_a_pad_beyond_the_radius_is_unpaired_never_a_move(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._two_pad_patch(tmp_path, "ctl.osm",
+                                  [("building1", 0.0, 80.0)])
+        arm = self._two_pad_patch(tmp_path, "arm.osm",
+                                  [("building1", 500.0, 95.0)])
+        res = ASR.seat_moves(cg, ctl, arm, join="location")
+        assert res["pads_moved"] == 0
+        assert res["unmatched_ctl"] == ["building1"]
+        assert res["unmatched_arm"] == ["building1"]
+
+    def test_an_unknown_join_is_refused(self, tmp_path):
+        cg = ASR._check_grade()
+        patch = self._two_pad_patch(tmp_path, "p.osm",
+                                    [("building1", 0.0, 80.0)])
+        with pytest.raises(ValueError):
+            ASR.seat_moves(cg, patch, patch, join="nearest-name")
+
     def test_the_cli_json_is_the_library_result(self, tmp_path, capsys):
         rows_c = _rows_dump(tmp_path, "c.rows.json", [_row(LAT0, LON0, de=1.0)])
         rows_a = _rows_dump(tmp_path, "a.rows.json",

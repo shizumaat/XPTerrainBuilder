@@ -6675,7 +6675,8 @@ def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
         UI.vprint(1,
             f"  [pav-builder] tunnel ramps cut {n_cut} pavement shape(s) "
             f"they surface through (ruling 4 — the ramp wins), with a "
-            f"{clearance_m:.1f} m clearance annulus the wall band owns.")
+            f"{clearance_m:.1f} m clearance annulus holding the unowned "
+            f"gap and the wall band that stands beyond it.")
     except _GEOM_EXC:
         pass
     try:

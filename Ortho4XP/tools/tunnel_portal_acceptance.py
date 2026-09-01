@@ -183,6 +183,12 @@ class Thresholds:
     #: wall (and foot) pieces one mouth site may carry: ONE band
     #: wrapping both sides, or one per side
     band_pieces_max: int = 2
+    #: two TOUCHING descending surfaces whose principal axes are within
+    #: this are collinear pieces of ONE run; beyond it they are a fork's
+    #: diverging arms
+    bearing_tol_deg: float = 20.0
+    #: a corridor surface flatter than this is a fork THROAT plate
+    throat_flat_m: float = 0.10
     #: the share of a site's perimeter no band piece may leave open
     #: before its end counts as UNWRAPPED (2026-08-30j read the wrapped
     #: end AS the end cap)
@@ -725,6 +731,58 @@ def _half_plane(bounds, centre, axis, sign):
                (cx + ax * span + nx * span, cy + ay * span + ny * span)])
 
 
+def _surface_spread(patch, wid):
+    """The vertical spread a corridor surface carries (0.0 when flat)."""
+    w = patch.by_wid.get(wid)
+    vals = [float(e) for e in (getattr(w, "elevs", None) or ())
+            if e is not None]
+    return (max(vals) - min(vals)) if vals else 0.0
+
+
+def _unmerged_pairs(members, patch, bearing_tol_deg, flat_tol_m):
+    """Corridor surfaces at one site that SHOULD have been one surface.
+
+    §5-SUPPLEMENT item 1 merges consecutive strips of a descending run
+    at the emitter, so a site with several surfaces is either a run the
+    emitter deliberately broke or a FORK — a shared bore, a flat throat
+    plate and N diverging arms (``bridges._emit_fork_throat``, the Y a
+    tunnel makes under a taxiway fan).  Both are lawful; a run left in
+    tiles is not.
+
+    THE DISCRIMINATOR IS BEARING.  Two surfaces are unmerged when they
+    TOUCH and both DESCEND and their principal axes are within
+    ``bearing_tol_deg`` — collinear pieces of one run.  A fork's arms
+    diverge (measured on the shipped tunnel profile's own closing arm:
+    6.97 m and 0.93 m apart, and turning), and a throat plate is FLAT
+    (spread <= ``flat_tol_m``; measured 0.00 and 0.03 m), so neither
+    trips it.
+    """
+    out = 0
+    axes = {}
+    for wid, _ref, g in members:
+        axes[wid] = _principal_axis(g)
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            wid_a, _ra, ga = members[i]
+            wid_b, _rb, gb = members[j]
+            if (_surface_spread(patch, wid_a) <= flat_tol_m
+                    or _surface_spread(patch, wid_b) <= flat_tol_m):
+                continue                      # a throat plate is flat
+            try:
+                if ga.distance(gb) > 0.05:
+                    continue                  # not touching: not one run
+            except Exception:                 # pragma: no cover
+                continue
+            aa, ab = axes.get(wid_a), axes.get(wid_b)
+            if aa is None or ab is None:
+                continue
+            dot = abs(aa[0] * ab[0] + aa[1] * ab[1])
+            ang = math.degrees(math.acos(max(0.0, min(1.0, dot))))
+            if ang <= bearing_tol_deg:
+                out += 1
+    return out
+
+
 def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
     """THE CANONICAL TUNNEL MOUTH, enumerated (RULINGS 2026-08-30).
 
@@ -950,13 +1008,15 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         # wrapping both sides and the end (the emitter's own shape, 1
         # wall + 1 foot) or one per side (2 + 2).  Beyond that the
         # pieces are redundant.
+        unmerged = _unmerged_pairs(members, patch, thr.bearing_tol_deg,
+                                   thr.throat_flat_m)
         _n_wall = sum(1 for _w, r, _g in near_band if r == "tunnel_wall")
         _n_foot = sum(1 for _w, r, _g in near_band
                       if r == "tunnel_wall_foot")
         redundant = (max(0, _n_wall - thr.band_pieces_max)
                      + max(0, _n_foot - thr.band_pieces_max))
         _bar = thr.side_cover_min
-        canonical = (len(ramps) == 1 and len(plates) <= 1 and reach_ok
+        canonical = (unmerged == 0 and len(plates) <= 1 and reach_ok
                      and not others and not frag_corr
                      and wl is not None and min(wl, wr, fl, fr) >= _bar
                      and capped and dup == 0 and nested == 0
@@ -976,6 +1036,7 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         totals["nested_band_pieces"] += nested
         totals["band_fragments"] += frag
         totals["redundant_band_pieces"] += redundant
+        totals["unmerged_run_pairs"] += unmerged
         if not canonical:
             totals["sites_not_canonical"] += 1
         lat, lon = _m_to_ll(patch, c.x, c.y)
@@ -988,14 +1049,15 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
             f"wall L/R={_fmt(wl)}/{_fmt(wr)} "
             f"foot L/R={_fmt(fl)}/{_fmt(fr)} cap={len(near_caps)} "
             f"open={open_frac:.2f} dup={dup} nested={nested} "
-            f"bandfrag={frag} redundant={redundant}  "
+            f"bandfrag={frag} redundant={redundant} "
+            f"unmerged={unmerged}  "
             f"{'CANONICAL' if canonical else 'NOT CANONICAL'}  "
             f"ways={','.join(wids[:6])}"
             f"{'…' if len(wids) > 6 else ''}")
     bar = 0 if thr.mouth_canonical else None
     verdict = SKIP if bar is None else (PASS if bad == 0 else FAIL)
     head = (f"{totals['sites']} tunnel mouth site(s), {bad} NOT canonical "
-            f"(law: 1 ramp surface, each side retained by a wall AND a "
+            f"(law: no UNMERGED run pair, each side retained by a wall AND a "
             f"foot over >= {thr.side_cover_min:.0%} of it, an end cap or "
             f"a wrapped end, 0 duplicate corridor surfaces, 0 nested, "
             f"fragment or redundant pieces) — totals: " +
@@ -1666,6 +1728,8 @@ def build_parser() -> argparse.ArgumentParser:
                           ("mouth-reach-m", 1.0),
                           ("corridor-fragment-m2", 4.0),
                           ("side-cover-min", 0.80),
+                          ("bearing-tol-deg", 20.0),
+                          ("throat-flat-m", 0.10),
                           ("mouth-open-frac-max", 0.10),
                           ("dup-overlap-m2", 2.0),
                           ("wall-fragment-m2", 1.0)):
@@ -1731,6 +1795,8 @@ def main(argv=None) -> int:
         mouth_reach_m=args.mouth_reach_m,
         corridor_fragment_m2=args.corridor_fragment_m2,
         side_cover_min=args.side_cover_min,
+        bearing_tol_deg=args.bearing_tol_deg,
+        throat_flat_m=args.throat_flat_m,
         band_pieces_max=args.band_pieces_max,
         mouth_open_frac_max=args.mouth_open_frac_max,
         dup_overlap_m2=args.dup_overlap_m2,

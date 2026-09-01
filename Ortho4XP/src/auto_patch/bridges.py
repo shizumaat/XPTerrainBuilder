@@ -6742,6 +6742,94 @@ def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
     return None if post.is_empty else post
 
 
+def _ramp_wall_adjudication_gate(layout: "PavementLayout", post_gate_u,
+                                 pre_emit_shape_ids: set,
+                                 clearance_m: float):
+    """A WALL FOLLOWS ITS RAMP — the adjudication half of census #28.
+
+    Spec §5-SUPPLEMENT item 2 completed.  Ruling 4 gives the wall/roof
+    adjudication a POST-CUT pavement union so a wall is never dropped
+    for overlapping pavement its own ramp removed.  But R14-2/A-3
+    forbids a ramp CUTTING aircraft-transit pavement: over a taxiway the
+    stretch is covered bore and the pavement stays.  The wall FACE
+    stands in the outer half of the band annulus, furthest from the
+    ramp, so it is exactly the piece that lands on that uncut pavement
+    and drops whole at the "mostly covered" test — while the FOOT, in
+    the inner half, sits inside the cut and survives.
+
+    MEASURED (Batch 3b closing arm, OTHH).  Three sites came out with a
+    complete foot and no face: 25.2559606,51.6086966 (face 0.09/0.06 of
+    each side against a foot at 0.92/0.98), 25.2696837,51.6055684
+    (0.00/0.00 against 1.00/1.00) and 25.2726115,51.6130299
+    (0.12/0.12 against 1.00/1.00).  The band annulus at each holds the
+    foot and nothing else — 168 m² of 452, 88.8 of 241, 183.4 of 529 —
+    so the face was DROPPED, not clipped: no pavement shape occupies
+    the ground it should stand on.  The same scene through a synthetic
+    portal emit, with no surrounding pavement, keeps a 639.9 m² face
+    against a 374.0 m² foot, which is what names the adjudication and
+    not the band emitter.
+
+    THIS IS THE RETIRED §W1 GATE, RE-KEYED.  Its population was ``ref ==
+    TUNNEL_ROAD_REF`` — the claim verdict — and Batch 3 retired it with
+    the claim.  Census #27/#28 ruled REWIRE for BOTH halves; Batch 3b
+    replaced the waller and left the gate deleted, which is why the
+    walls came back as feet alone.  The population is now the portal
+    walk's OWN emitted ramp bodies.
+
+    ADJUDICATION ONLY: the host's geometry is never touched, and the
+    covered-span mask still holds a genuinely roofed stretch back — a
+    bore under a terminal has no visible structure and its walls still
+    drop.
+    """
+    if post_gate_u is None:
+        return post_gate_u
+    _bodies = [s.polygon for s in layout.shapes
+               if id(s) not in pre_emit_shape_ids
+               and getattr(s, "role", "") == ROLE_TUNNEL_RAMP
+               and getattr(s, "ref", "") in _TUNNEL_PAVEMENT_REFS
+               and s.polygon is not None and not s.polygon.is_empty]
+    if not _bodies:
+        return post_gate_u
+    try:
+        _relief = unary_union(_bodies)
+        if clearance_m > 0.0:
+            _relief = _relief.buffer(clearance_m, join_style=2)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return post_gate_u
+    if _relief is None or _relief.is_empty:
+        return post_gate_u
+    _covered = 0.0
+    try:
+        from . import covered_span as _covered_span
+        _mask = _covered_span.mask_of(layout)
+    except Exception:                                    # pragma: no cover
+        _mask = None
+    if _mask is not None:
+        try:
+            _covered = _relief.intersection(_mask).area
+            _relief = _relief.difference(_mask)
+        except _GEOM_EXC:                                # pragma: no cover
+            return post_gate_u
+        if _relief is None or _relief.is_empty:
+            return post_gate_u
+    try:
+        _gate = post_gate_u.difference(_relief)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return post_gate_u
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] ramp wall gate: {len(_bodies)} emitted ramp "
+            f"bod(y/ies) + the {clearance_m:.1f} m band annulus "
+            f"({_relief.area:.0f} m²) subtracted from the wall/roof "
+            f"adjudication union only ({post_gate_u.area:.0f} → "
+            f"{0.0 if _gate is None or _gate.is_empty else _gate.area:.0f}"
+            f" m²; {_covered:.0f} m² held back by the covered-span mask) "
+            f"— a wall follows its RAMP.  No host geometry is touched.")
+    except _GEOM_EXC:                                    # pragma: no cover
+        pass
+    return None if (_gate is None or _gate.is_empty) else _gate
+
+
 def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
                                    new_poly):
     """Per-vertex altitudes for a clipped ``altitude_high/low`` rect.
@@ -7076,14 +7164,16 @@ def _finalize_tunnel_emission(
         _post_gate_u = _tunnel_ramp_pavement_cut(
             layout, airside_gate_union, pre_emit_shape_ids, ramp_way_ids,
             clearance_m=ramp_cut_clearance_m)
-        # §W1's CLAIM variant of ruling 4's cut is RETIRED with the claim
-        # class (redesign spec §5.1): it existed because a claimed
-        # corridor lowered its host WITHOUT cutting it, so the claim's
-        # own walls were judged against pavement they were the visible
-        # structure of.  No claim, no un-cut host — the ruling-4 pavement
-        # cut above is the whole relief, exactly as in the pre-claim
-        # model.
-        _wall_gate_u = _post_gate_u
+        # §W1's CLAIM variant of ruling 4's cut retired with the claim
+        # class, and its POPULATION is re-keyed rather than deleted
+        # (census #28, spec §5-SUPPLEMENT item 2): a ramp may not cut
+        # aircraft-transit pavement (R14-2/A-3), so the wall FACE — the
+        # outer half of the band — lands on uncut pavement and drops
+        # whole while the FOOT survives inside the cut.  Measured at
+        # three OTHH mouths: a complete foot and no face.
+        _wall_gate_u = _ramp_wall_adjudication_gate(
+            layout, _post_gate_u, pre_emit_shape_ids,
+            ramp_cut_clearance_m)
         _gate_bufs: dict[int, object] = {}
         _kept9 = []
         _n_clip = 0

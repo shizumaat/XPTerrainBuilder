@@ -562,6 +562,52 @@ def _shape_top(shape):
     return max(vals) if vals else None
 
 
+def _shape_top_within(shape, region, fallback):
+    """The highest value ``shape`` carries INSIDE ``region`` — the
+    LOCAL top — falling back to ``fallback`` (its global top) when the
+    shape has no vertex in there.
+
+    WHY THIS EXISTS, MEASURED (Batch 3b closing arm, LEMD).  §1 asks a
+    LOCAL question: "how high is the structure BENEATH THIS SPAN".  It
+    used to be answered with the shape's GLOBAL maximum, which was
+    locally accurate only because the portal chain emitted one short
+    QUAD per segment — spreads of 0.24-0.72 m at the LEMD control, so
+    the global max was the local one by accident.  §5-SUPPLEMENT item 1
+    merges each descending run into ONE surface, and the merged runs
+    spread up to 8.00 m (way -11627: 598.50 at bore datum, 606.50 at
+    its far end).  The global max then reported 606.49 m of structure
+    under a deck whose own ground is 603.55 m, and the deck's clearance
+    read -2.94 m where the ramp beneath the span is in fact at bore
+    datum and the true clearance is 5.10 m.
+
+    THE PATTERN IS THE RETIRED CLAIM CODE'S OWN: "the depth at THIS
+    footprint, not the shape's global minimum — a claimed lot can run
+    from the cut (deep) to open ground (at grade), and the question is
+    about the ground under the piece".  Same question, other sign.
+
+    The fallback is the conservative direction: a sliver of a shape
+    crossing the corridor between two of its vertices keeps today's
+    answer rather than inventing a lower one.
+    """
+    alts = [a for a in (getattr(shape, "node_altitudes", None) or ())
+            if a is not None]
+    poly = getattr(shape, "polygon", None)
+    if not alts or poly is None:
+        return fallback
+    try:
+        ring = list(poly.exterior.coords)
+        if ring and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(alts) != len(ring):
+            return fallback
+        from shapely.geometry import Point
+        here = [float(a) for (x, y), a in zip(ring, alts)
+                if region.covers(Point(x, y))]
+    except Exception:                                    # pragma: no cover
+        return fallback
+    return max(here) if here else fallback
+
+
 def _below_grade_shapes(layout):
     out = []
     for s in getattr(layout, "shapes", None) or ():
@@ -723,7 +769,13 @@ def confirm_and_sever(layout, icao: str = ""):
         for poly, top, s in beneath_all:
             try:
                 if poly.intersection(corr).area >= 0.5:
-                    beneath.append((top, s))
+                    # THE TOP UNDER THIS SPAN, not the shape's global
+                    # maximum — see :func:`_shape_top_within`.  A merged
+                    # ramp run spans its whole descending length, so its
+                    # far end is metres above the stretch the deck
+                    # actually crosses.
+                    beneath.append(
+                        (_shape_top_within(s, corr, top), s))
             except Exception:                            # pragma: no cover
                 continue
         if not beneath:

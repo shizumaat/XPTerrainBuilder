@@ -75,15 +75,23 @@ class _PatchBuilder:
         self._nid = 0
         self._wid = 0
 
-    def rect(self, x0, y0, x1, y1, role, ref, alt=-2.0):
+    def rect(self, x0, y0, x1, y1, role, ref, alt=-2.0, alt_hi=None):
+        pts = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+        return self.quad(pts, role, ref, alt=alt, alt_hi=alt_hi)
+
+    def quad(self, pts, role, ref, alt=-2.0, alt_hi=None):
+        """A 4-corner surface.  ``alt_hi`` grades the far edge, so a
+        surface can DESCEND (the fork twins need that)."""
         self._wid += 1
         nids = []
-        for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        _z = [alt, alt, alt if alt_hi is None else alt_hi,
+              alt if alt_hi is None else alt_hi]
+        for _k, (x, y) in enumerate(pts):
             self._nid += 1
             la, lo = _ll(x, y)
             self.nodes.append(
                 f"<node id='-{self._nid}' lat='{la:.11f}' "
-                f"lon='{lo:.11f}'><tag k='alt_abs' v='{alt}'/></node>")
+                f"lon='{lo:.11f}'><tag k='alt_abs' v='{_z[_k]}'/></node>")
             nids.append(self._nid)
         refs = "".join(f"<nd ref='-{n}'/>" for n in nids)
         self.ways.append(
@@ -110,7 +118,9 @@ def _canonical_site(b: _PatchBuilder, x0=0.0):
     #   cap    ---------------- 40
     #   mouth  [ 34 .. 39 ]   x 0..20
     #   ramp   [  0 .. 34 ]   x 0..20
-    b.rect(x0 + 0.0, 0.0, x0 + 20.0, 34.0, "tunnel_ramp", "tunnel_ramp")
+    # the ramp DESCENDS (a flat surface is a throat plate, not a run)
+    b.rect(x0 + 0.0, 0.0, x0 + 20.0, 34.0, "tunnel_ramp", "tunnel_ramp",
+           alt=-2.0, alt_hi=1.0)
     b.rect(x0 + 0.0, 34.0, x0 + 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
     # walls: one per side, standing clear of the corridor
     b.rect(x0 - 2.0, 0.0, x0 - 1.0, 39.0, "retaining_wall", "tunnel_wall")
@@ -182,14 +192,43 @@ class TestEachDefectClassIsCaught:
         assert c.verdict == tpa.FAIL
         assert "reach=4.00" in c.detail
 
-    def test_two_ramps_at_one_mouth_fail(self, tpa, tmp_path):
-        """'ONE ramp surface' — the dual-adjacent-ramps class of the
-        2026-08-28c item-2 site."""
+    def test_an_unmerged_run_pair_fails(self, tpa, tmp_path):
+        """'ONE ramp surface descending the corridor centre' — measured
+        as: no two TOUCHING, DESCENDING surfaces share a bearing.  That
+        is the class §5-SUPPLEMENT item 1 merges at the emitter (OTHH
+        before it: 95 surfaces, 53 unmerged pairs; after: 16 and 0)."""
         b = _PatchBuilder()
         _canonical_site(b)
-        b.rect(-6.0, 0.0, 0.0, 34.5, "tunnel_ramp", "tunnel_ramp")
+        # a second strip continuing the SAME run: collinear with the
+        # ramp, touching it, and descending — exactly a tile the merge
+        # should have absorbed
+        b.rect(0.0, -40.0, 20.0, 0.0, "tunnel_ramp", "tunnel_ramp",
+               alt=-3.0, alt_hi=-1.1)
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
+        assert "unmerged=1" in c.detail
+
+    def test_a_FORK_is_lawful_and_not_an_unmerged_run(
+            self, tpa, tmp_path):
+        """A shared bore, a FLAT throat plate and two DIVERGING arms is
+        what ``bridges._emit_fork_throat`` makes, and it is lawful.
+        MEASURED at OTHH 25.2537652,51.6032373: one 1,037 m² run to
+        0.60 m, a 182.7 m² plate of spread 0.03 m, and two symmetric
+        499.3 m² arms 6.97 m apart — 4 surfaces, 0 unmerged pairs."""
+        b = _PatchBuilder()
+        # the shared descending run
+        b.rect(0.0, 0.0, 20.0, 34.0, "tunnel_ramp", "tunnel_ramp",
+               alt=-1.1, alt_hi=0.6)
+        # the FLAT throat plate at the fork point
+        b.rect(0.0, 34.0, 20.0, 39.0, "tunnel_ramp", "tunnel_ramp",
+               alt=0.6, alt_hi=0.6)
+        # two arms diverging away from the run's bearing
+        b.quad([(0.0, 39.0), (9.0, 39.0), (-8.0, 62.0), (-19.0, 58.0)],
+               "tunnel_ramp", "tunnel_ramp", alt=0.6, alt_hi=3.4)
+        b.quad([(11.0, 39.0), (20.0, 39.0), (39.0, 58.0), (28.0, 62.0)],
+               "tunnel_ramp", "tunnel_ramp", alt=0.6, alt_hi=3.4)
+        c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
+        assert "unmerged=0" in c.detail, c.detail
 
     def test_a_second_wall_on_one_side_fails(self, tpa, tmp_path):
         """The 2026-08-30j residual class: 7 wall pieces where the law

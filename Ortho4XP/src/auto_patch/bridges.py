@@ -5729,27 +5729,20 @@ def _emit_portal_cluster(
                 # crossing it, and the V's pinch collapses to ONE shared
                 # wall+foot because the second arm's inner band is
                 # already occupied there.
+                # ── ARMS FIRST, THROAT LAST, AND THE ORDER IS THE
+                # MECHANISM.  Walling the throat first lets ITS band
+                # claim the ground each arm's INNER band needs, and the
+                # arms — which subtract what is already emitted — then
+                # come up short.  MEASURED on a synthetic Y (shared
+                # throat + two diverging arms), three orderings:
+                #     throat -> A -> B : open 0.27, arm feet 0.52 / 0.52
+                #     A -> B -> throat : open 0.08, arm feet 0.92 / 0.92
+                #     A -> throat -> B : open 0.08, arm feet 0.92 / 0.92
+                # and the throat-first numbers reproduce what the field
+                # arm measured at the confirmed fork (open 0.32, foot
+                # 0.34/0.31).  The arms own their corridors; the throat
+                # takes what is left, which is the V's cap.
                 _done: list = []
-                _throat_b = [
-                    s.polygon for s in layout.shapes[_cl_start_idx:]
-                    if getattr(s, 'ref', '') == 'tunnel_ramp'
-                    and s.polygon is not None
-                    and not s.polygon.is_empty
-                    and not any(s.polygon is bp
-                                for bods, _src, _ae in _arm_bodies
-                                for bp in bods)]
-                if _throat_b:
-                    _n0 = len(layout.shapes)
-                    emit_wall_band(
-                        layout, exclusion_zones, _throat_b,
-                        [s for s in layout.shapes[_cl_start_idx:]
-                         if getattr(s, 'ref', '') == 'tunnel_ramp'],
-                        [], wall_gap_m, retaining_wall_width_m,
-                        dem_at, apt_elev, exclude=list(_done))
-                    _done.extend(
-                        s.polygon for s in layout.shapes[_n0:]
-                        if getattr(s, 'ref', '') in _WALL_BAND_REFS
-                        and s.polygon is not None)
                 for _bods, _srcs, _aends in _arm_bodies:
                     if not _bods:
                         continue
@@ -5762,6 +5755,21 @@ def _emit_portal_cluster(
                         s.polygon for s in layout.shapes[_n0:]
                         if getattr(s, 'ref', '') in _WALL_BAND_REFS
                         and s.polygon is not None)
+                _arm_polys = [bp for bods, _src, _ae in _arm_bodies
+                              for bp in bods]
+                _throat_b = [
+                    s.polygon for s in layout.shapes[_cl_start_idx:]
+                    if getattr(s, 'ref', '') == 'tunnel_ramp'
+                    and s.polygon is not None
+                    and not s.polygon.is_empty
+                    and not any(s.polygon is bp for bp in _arm_polys)]
+                if _throat_b:
+                    emit_wall_band(
+                        layout, exclusion_zones, _throat_b,
+                        [s for s in layout.shapes[_cl_start_idx:]
+                         if getattr(s, 'ref', '') == 'tunnel_ramp'],
+                        [], wall_gap_m, retaining_wall_width_m,
+                        dem_at, apt_elev, exclude=list(_done))
                 UI.vprint(1,
                     f"  [pav-builder] §5-SUPPLEMENT-2 fork walls: "
                     f"{len(_arm_bodies)} arm(s) walled as their own "

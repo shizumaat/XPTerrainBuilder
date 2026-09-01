@@ -183,3 +183,70 @@ class TestTheWiring:
         assert i_decl < i_else < i_fill, (
             "the register must be declared before the no-fork branch and "
             "filled only in the fork branch")
+
+
+class TestTheWallingOrderIsTheMechanism:
+    """ARMS FIRST, THROAT LAST — measured, not chosen.
+
+    Walling the throat first lets ITS band claim the ground each arm's
+    INNER band needs; the arms, which subtract what is already emitted,
+    then come up short.  MEASURED on this Y at unit scale:
+
+        throat -> A -> B : open 0.27, arm feet 0.52 / 0.52
+        A -> B -> throat : open 0.08, arm feet 0.92 / 0.92
+
+    and the throat-first numbers are the ones the field arm produced at
+    the confirmed fork 25.2537652,51.6032373 (open 0.32, foot
+    0.34/0.31), which is what identifies the ordering as the cause.
+    """
+
+    THROAT = Polygon([(0, 0), (20, 0), (20, 30), (0, 30)])
+    ARM_A = Polygon([(0, 30), (9, 30), (-6, 80), (-16, 76)])
+    ARM_B = Polygon([(11, 30), (20, 30), (36, 76), (26, 80)])
+
+    def _wall(self, order):
+        lay = _layout()
+        bodies = {"throat": self.THROAT, "A": self.ARM_A, "B": self.ARM_B}
+        shapes = {k: _ramp(v) for k, v in bodies.items()}
+        for s in shapes.values():
+            lay.shapes.append(s)
+        done = []
+        for key in order:
+            n0 = len(lay.shapes)
+            bridges.emit_wall_band(lay, [], [bodies[key]], [shapes[key]],
+                                   [], G0, G1, _dem, APT,
+                                   exclude=list(done))
+            done.extend(s.polygon for s in lay.shapes[n0:]
+                        if s.role == ROLE_RETAINING_WALL)
+        feet = [s.polygon for s in lay.shapes
+                if s.ref == "tunnel_wall_foot"]
+        out = []
+        for k in ("A", "B"):
+            want = bodies[k].buffer(G0, join_style=2,
+                                    mitre_limit=2.0).difference(bodies[k])
+            got = unary_union(feet).intersection(want) if feet else None
+            out.append((got.area / want.area) if got else 0.0)
+        return out
+
+    def test_arms_first_retains_each_arm(self):
+        a, b = self._wall(["A", "B", "throat"])
+        assert min(a, b) >= 0.9, (
+            f"arm feet {a:.2f}/{b:.2f} — the spec's bar is >= 0.9 per "
+            f"side on both arms")
+
+    def test_throat_first_is_the_measured_regression(self):
+        """The ordering this replaces, kept as the twin that names the
+        cause — so a future reorder cannot silently reintroduce it."""
+        a, b = self._wall(["throat", "A", "B"])
+        assert max(a, b) < 0.7, (
+            f"arm feet {a:.2f}/{b:.2f} — throat-first is supposed to "
+            f"starve the arms; if it no longer does, this twin's "
+            f"attribution is stale and the ordering rule needs re-deriving")
+
+    def test_the_emitter_walls_arms_before_the_throat(self):
+        src = inspect.getsource(bridges._emit_portal_cluster)
+        seg = src[src.index("if _arm_bodies:"):]
+        i_arms = seg.index("for _bods, _srcs, _aends in _arm_bodies:")
+        i_throat = seg.index("_throat_b = [")
+        assert i_arms < i_throat, (
+            "the throat must be walled LAST — see the measured orderings")

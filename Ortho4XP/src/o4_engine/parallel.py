@@ -557,6 +557,10 @@ _FORWARDED_EVENT_TYPES = (
     "BuildDone",
     "AutoPatchBegin",
     "AutoPatchProgress",
+    # H1: the per-airport failure DIAGNOSIS must survive the child→parent
+    # hop, or a parallel run degrades back to the silent class this event
+    # exists to close (docs/POSTMORTEM-20260831.md Task C).
+    "AutoPatchFailed",
     "Log",
 )
 

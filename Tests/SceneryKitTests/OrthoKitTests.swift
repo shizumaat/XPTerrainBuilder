@@ -211,6 +211,22 @@ import Foundation
         #expect(event(#"{"event":"BrandNewThing","x":1}"#) == .unknown(event: "BrandNewThing"))
     }
 
+    /// H1 (Ortho4XP/docs/POSTMORTEM-20260831.md Task C): the per-airport
+    /// auto-patch failure must reach the app. The event name is matched as a
+    /// string literal against `class AutoPatchFailed` in the engine's
+    /// events.py — this twin fails if either side is renamed.
+    @Test func protocolAutoPatchFailedParsing() throws {
+        let failed = event(#"{"event":"AutoPatchFailed","airport":"HECA","stage":"manifest","error":"build reported success but wrote no HECA_auto.patch.osm","lat":30,"lon":31,"seq":7,"ts":6.0}"#)
+        #expect(failed == .autoPatchFailed(
+            airport: "HECA", stage: "manifest",
+            error: "build reported success but wrote no HECA_auto.patch.osm",
+            lat: 30, lon: 31))
+        // The tile's own terminal event still follows, naming the airport.
+        let done = event(#"{"event":"BuildDone","lat":30,"lon":31,"ok":false,"error":"auto-patch failed for HECA (manifest): wrote no patch","seq":8,"ts":7.0}"#)
+        #expect(done == .buildDone(lat: 30, lon: 31, ok: false,
+                                   error: "auto-patch failed for HECA (manifest): wrote no patch"))
+    }
+
     @Test func protocolScanBatchParsing() throws {
         let batch = event(#"{"event":"ScanBatch","built":[[47,11,{"lat":47,"lon":11,"build_dir":"/t/zOrtho4XP_+47+011","dir_name":"zOrtho4XP_+47+011","dsf_present":true,"provider":"BI","zl":17,"has_zones":true,"custom_dem":"","mesh_date":1000.5,"imagery_date":null,"size_bytes":null}]],"installed":[[47,11],[48,11]],"seq":1,"ts":1.0}"#)
         guard case .scanBatch(let built, let installed) = batch else {

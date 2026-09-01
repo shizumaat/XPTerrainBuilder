@@ -5238,3 +5238,93 @@ both owner ramp probes CONTAINED.
   TOUCHED (outside the authorized scope): two zero-length inset rasters
   in a different tile, `Elevation_data/+40+000/N46E008_airport_insets/`
   (`LSZC_italy10m.tif`, `VBMAS_italy10m.tif`).
+
+- 2026-08-31 THE CAMPAIGN PERF PROFILE (RULINGS 31f's closing "exclusive
+  perf profile vs committed baselines"): PAID, in part — this is the
+  campaign's clean perf read, and it CLOSES the measurement half of the
+  31f condition.  Machine EXCLUSIVE (a `ps` sweep for build_airport /
+  census / pytest / run-one before every launch, zero hits; all four
+  sweeps re-checked quiet afterwards); every build foreground-equivalent
+  at `nice 0` (verified live on both the `check_build_time.py` parent
+  and its `--run-one` child during the SPJC sweep — the harness's
+  background mode is not a zsh job-control `&`, so BGNICE never
+  applies); no `run_with_ledger.py` wrapping (the law); two runs per
+  airport, medians quoted; tree `3af5c124` with two version-string
+  files dirty (`O4_Version.py`, `Sources/.../VERSION` — no code path).
+  ALL FIGURES ANCHOR TO `tools/build_time_baselines.json` (d787464,
+  2026-08-13), never to a prior build (the 31a-addendum anchor law).
+
+  MEASURED (median of 2; run-to-run spread in brackets — 0.3-2.3 %,
+  far inside the +-25 % noise floor, itself evidence the machine was
+  quiet):
+
+    HECA  859.38 s  [858.0 / 860.8]   baseline 347.19   x2.48  +512.19
+      solve   479.64 (230.23, x2.08, +249.41)
+      emit    324.13 ( 72.73, x4.46, +251.40)
+      rects    51.53 ( 39.46, x1.31,  +12.07)
+      load/assemble/taxiways 0.07 / 1.58 / 2.50 — all at or under baseline
+    OTHH  473.62 s  [474.6 / 472.7]   baseline 262.91   x1.80  +210.71
+      solve   284.44 (141.45, x2.01, +142.99)
+      emit    138.75 ( 76.78, x1.81,  +61.97)
+      rects    48.62 ( 42.88, x1.13,   +5.74)
+    SPJC  163.07 s  [162.8 / 163.3]   baseline 210.33   x0.78   -47.26
+      solve   111.55 (153.56, x0.73,  -42.01)
+      emit     47.45 ( 50.31, x0.94,   -2.86)
+      assemble  0.69 (  4.21,          -3.52)
+      rects     3.01 (  1.83, x1.64,   +1.18)  <- SPJC's ONLY regression
+    LEMD  548.17 s  [554.6 / 541.8]   NO COMMITTED BASELINE — the checker
+      refuses to grade it (exit 2).  Phases: solve 347.00, emit 171.78,
+      rects 23.77, assemble 3.31, taxiways 2.32, load 0.17.  OWED: LEMD
+      is a campaign airport with no anchor; record one with
+      `--update-baselines` at the ship gate (a baseline recorded at
+      today's 5-6x-drifted tree would enshrine the regression, so this
+      is deliberately NOT done here).
+
+  DECOMPOSITION OF THE ACCRETION (feeds the final-profiling round's
+  bisect list).  Pre-Batch-2 HECA sat at 2,172.4 s (lane/ltbatch2's own
+  control, single run under four-way contention) inside the post-mortem's
+  1,766-2,218 s clean-exclusive band, i.e. an Aug-13 -> Aug-30 accretion
+  of +1,419 to +1,871 s.  Today's remainder is +512.19 s, so THE BATCH-2
+  RETIREMENTS (`free_road_profile` chord/self-pin + the ownership shrink)
+  CLAWED BACK ~907-1,359 s = 64-73 % OF THE ACCRETION; 27-36 % remains.
+  The pre-numbers are single contended runs, so the claw-back fraction is
+  a range, not a point estimate.
+  WHERE THE REMAINDER LIVES: at HECA it splits almost exactly in half —
+  emit +251.40 (49 %) and solve +249.41 (49 %), rects +12.07 (2 %); at
+  OTHH it is solve-led — solve +142.99 (68 %), emit +61.97 (29 %), rects
+  +5.74 (3 %).  Worst single multiple in the campaign: HECA EMIT x4.46.
+  THE BISECT SIGNAL: SPJC — few roads, no tunnels — is BELOW its Aug-13
+  baseline on every phase but rects (total x0.78, emit x0.94, solve
+  x0.73), while HECA and OTHH carry x1.8-x4.5.  The residual accretion is
+  therefore NOT a global per-shape cost on the solve/emit paths; it scales
+  with the road/tunnel shape population.  Bisect Aug-13 -> Aug-30 against
+  population-scaled emit passes (tunnel/bridge emitters, wall bands,
+  gap-fill spine, decimation) and the solve's road-family constraint
+  population — not against a flat emit-path constant.
+
+  HARD-LAW BUDGET STATUS (<= 60 s per-airport auto-patch, cold, excluding
+  downloads): ALL FOUR OVER, by HECA x14.3, LEMD x9.1, OTHH x7.9, SPJC
+  x2.7.  SPJC's SOLVE PHASE ALONE (111.55 s) is x1.9 the whole-airport
+  budget.  The checker returns FAIL for HECA (4 unapproved regressions),
+  OTHH (4) and SPJC (1: rects +1.18 s, a >=1 % regression on an
+  already-over-budget subject) — no owner approvals exist in
+  `tools/build_time_approvals.json` and none are sought here; per CLAUDE.md
+  item 6 the remedy is the Fable 5 whole-pipeline optimization review in
+  the final-design profiling round, which is where these budgets are
+  adjudicated (2026-08-04 suspension).
+
+  DIRECTIONAL ONLY — NOT A TIMING CLAIM (single runs, parked trees, each
+  lane's own report already labels them so): Batch 4a's HECA arms ran
+  783.6 s (round 1), 764.0 s (round 2) and 733.2 s (round 4) against
+  control `lt2c_heca_arm` 878.9 s; against today's clean main median that
+  is -11 % to -15 %.  Batch 3's OTHH arms ran 483.9 / 491.4 / 483.1 /
+  486.1 s (recorded phase-time ledger, 18:27-19:05) — Batch 3's own entry
+  records NO perf measurement (its item (e)) — i.e. +2 to +4 % against
+  today's main median, indistinguishable from noise.  Read as the parked
+  batches' EXPECTED contribution: Batch 4a directionally reduces HECA,
+  Batch 3 is directionally free at OTHH.  Neither may be quoted as a
+  measurement; both need a `--runs N` re-measure if they merge.
+  STILL UNPAID: the five-airport sweep's remaining subjects (CYXY, SPLP,
+  HEAZ — baselined and untouched today) and the whole-tile <= 300 s
+  budget, which has no qualifying store record at all (`tiles` in the
+  baselines file is empty).

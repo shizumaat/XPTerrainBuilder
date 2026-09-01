@@ -5461,3 +5461,40 @@ both owner ramp probes CONTAINED.
   which is also the measured cause of the `ramp_wall_gap` regression.
   One probe would confirm or kill it; nothing here should be repeated
   as fact until it does.
+
+- 2026-09-01 lane/ltbatch3 round 3i CLOSING ARM, quoted in full
+  (`lt3i2_othh_arm` 468.0 s / 2,491 shapes / body `3c7c700e`, vs control
+  `lt3h_othh_arm`; both arms UNCONTAMINATED — no unauthorised and no
+  blocked shared-repo writes).  Acceptance: **9 PASS, 1 FAIL, 10
+  SKIPPED**.
+  GREEN, and these are the ones that could have gone wrong quietly:
+  `geometry_drift` **0** over 2,396 same-geometry ways (0 drifted
+  >= 0.50 m) — the retirement moved no geometry it was not meant to;
+  `adjudicated_delta` **-10** (1,567 vs 1,577) and `actionable_sites`
+  46 = 46, i.e. the census sits INSIDE the 31i-accepted classes rather
+  than needing them; `subgrade_by_role` PASS (service_road 9 vs 12);
+  `no_needle`, `pad_flat`, `role_less_ring_rows`, `covered_span_clean`,
+  `site_reach`, `mouth_vertex_reach`, `no_low_connector` all PASS.
+  Mouth inventory 10 sites, **1 not canonical** (control: 2) — the
+  merged site 25.2761181,51.6134362 that this lane was dispatched for
+  is CANONICAL at 0.93/1.00.
+  RED, and why the batch does NOT merge on this arm:
+  (1) `ramp_wall_gap` **69** against a bar of 0 (control 14).  Measured
+      cause, not inferred: every shared node lies at EXACTLY 0.000 m
+      from the ramp ring while every other band node stands at the
+      design offset (control p05 0.600 = the old gap, arm p05 0.500 =
+      the ruled gap).  `CONFORMANCE_TOL_M` IS `SHARED_VERTEX_TOL_M` IS
+      0.5, and RULINGS 2026-09-01c sets `wall_gap_m` to exactly 0.5, so
+      the post-solve T-weld now treats every ramp vertex as lying on
+      the band's inner edge and inserts it — dragging the wall onto the
+      road, which is the "broken ramp" of owner sim item 9.  This is a
+      LAW-vs-MECHANISM collision on the owner's own number: either the
+      gap moves off the weld tolerance or the weld learns a tunnel-gap
+      exemption, and the latter is cross-cutting (its own 30l census).
+      NOT decided here.
+  (2) the fork's band crumbs / nested pairs (band_fragments 4, nested 2,
+      redundant 6) — UNATTRIBUTED, see the correction entry above.
+  (3) `wall_top_flat` 5.12 m (control 4.99 in its crest-only frame) —
+      PRE-EXISTING, not introduced, but now a visible violation of
+      2026-09-01c's "no floor value in any wall band".  Owed its own
+      attribution.

@@ -5589,3 +5589,45 @@ both owner ramp probes CONTAINED.
   31h divergence test's scope — the owner's, not a lane's, and not
   closable by moving an instrument bar.  This lane's build budget for
   the round is spent; no further arm was run to chase it.
+
+- 2026-09-01 lane/ltbatch3 round 3m — **TWO CORRECTIONS AGAINST MYSELF,
+  AND 01j IS ALSO A NO-OP AT THE RULED SITE.**  `lt3m_othh_arm`
+  (481.6 s / 2,499 shapes / body `17351f5f`, CONTAMINATED **False** —
+  a clean frame at last).
+  (1) THE "2 of 4 BODIES WALLED" READING WAS WRONG.  I reported in
+      round 3k that only the divergence arms got a band call, from the
+      log line "2 arm(s) walled as their own corridors".  The old code
+      ALSO ran a THROAT pass that walled every non-arm body; the log
+      line only ever counted ARMS.  So all four bodies already had
+      their call.  01j (per-body walling) is therefore a faithful
+      REFACTOR — the register is now explicit and the log truthful
+      ("4 of 4 cluster ramp bodies ... of which 2 divergence arms") —
+      but it changes no geometry: 3m is identical to 3k and 3j at the
+      fork (66.7 m unanswered, walls 26 in all three).  It is kept for
+      the honesty of the register and the log, not claimed as a fix.
+  (2) "51.4 m ON FREE GROUND" WAS MISLEADING, AND I WROTE IT.  The
+      figure means "not within 2 m of TUNNEL pavement".  It is not open
+      terrain.  Decomposed against every shape in the patch (target
+      body excluded), the 66.7 m unanswered stretch is:
+          47.5 m alongside a SERVICE ROAD (1 way)
+          15.3 m alongside sibling tunnel ramps (3 ways) — lawful pinch
+           5.6 m alongside junctions
+           2.3 m alongside groundside pavement
+           0.2 m with nothing within 2 m
+      So the band is missing where OTHER PAVEMENT occupies the ground,
+      dominated by a service road running beside the ramp.  In the
+      control the FOOT answered that stretch — it occupied 0-0.6 m,
+      hugging the ramp, inside the strip the road leaves free, while
+      the band at 0.6-1.6 m does not fit there.  Rulings 01h and 01j
+      were both issued partly on my "free ground" wording; both are
+      no-ops here, and that is my error, not the rulings'.
+  WHAT IS *NOT* ESTABLISHED: which pass denies the band along the
+  service road.  The late gate is NOT it (this build dropped 0 pieces
+  and grazed 1).  My offline reproduction cannot answer it either — it
+  contains only the four tunnel bodies and no road, which is exactly
+  why the band completed there under every exclude combination.  I have
+  now mis-attributed this site TWICE by inference (the covered-stretch
+  drop; then the arm register), so I am NOT offering a third
+  hypothesis.  The next step is the seam probe the original brief
+  named, on an instrumented build: present-at-seam-X, gone-after-Y,
+  over the band pieces along that stretch.

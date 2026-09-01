@@ -385,8 +385,11 @@ def test_both_minters_read_ONE_derivation_of_the_scope():
     """One region, derived once and memoised on the layout: two
     derivations are two ownership boundaries."""
     src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
-    # the def plus exactly TWO call sites: the mint and the carve
-    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 3
+    # the def plus exactly THREE call sites: the mint, the carve, and
+    # (Batch 4a, RULINGS 31e) the slice's own face classification — the
+    # PRODUCER of the far road-family population.  All three read the one
+    # memoised derivation.
+    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 4
     assert src.count("def _road_contact_scope(") == 1
     assert "_road_contact_scope_cache" in src
     # the carve's far metres join the ONE declared migration
@@ -451,3 +454,233 @@ def test_the_transition_profile_is_idempotent():
     once, _ = RT.transition_profile(s, base, pins, CAP)
     twice, _ = RT.transition_profile(s, list(once), pins, CAP)
     assert twice == pytest.approx(once)
+
+
+# ── BATCH 4a: THE FACE-OWNERSHIP RELEASE (RULINGS 31e author, 31j region) ──
+
+def _slice_face_fixture():
+    """The real slice path, on synthetic ground: ``build_global_slice_faces``
+    cuts the pavement into the faces whose ownership 31j rules."""
+    from auto_patch.pavement.global_slice import build_global_slice_faces
+    apron = _rect(0.0, 0.0, 200.0, 200.0)
+    near = _rect(210.0, 60.0, 250.0, 100.0)     # 10 m off the apron edge
+    far = _rect(800.0, 0.0, 900.0, 100.0)       # 600 m off it
+    pav = geometry.MultiPolygon([apron, near, far])
+    faces = build_global_slice_faces(
+        pav, [geometry.LineString([(0.0, 100.0), (200.0, 100.0)])],
+        keyholes=False)
+    by_x = {round(f.polygon.representative_point().x, -2): f
+            for f in faces}
+    return apron, faces, by_x
+
+
+class _RelShape:
+    """A layout shape as the release pass sees it after ``enact_classify``."""
+
+    def __init__(self, polygon, role, *, slice_face=False, ref=""):
+        self.polygon = polygon
+        self.role = role
+        self.ref = ref
+        self.slice_face = slice_face
+        self.released_to_core = False
+        self.node_altitudes = None
+        self.altitude = self.altitude_high = self.altitude_low = None
+        self.source_axis = None
+
+
+def _rel_layout(shapes, monkeypatch):
+    """A layout plus the two seams the pass reads through: the groundside
+    DEM sampler and the law-seat helpers, stubbed at their own module so
+    the twin exercises the REAL selection and re-role, not a re-spelling
+    of them."""
+    from auto_patch import groundside as GS
+    lay = types.SimpleNamespace(shapes=list(shapes), runway_union=None)
+    monkeypatch.setattr(GS, "_dem_sampler",
+                        lambda *a, **k: (lambda x, y: 100.0))
+    monkeypatch.setattr(GS, "law_anchor_values", lambda *a, **k: {})
+    monkeypatch.setattr(GS, "law_anchor_key", lambda *a, **k: None)
+    monkeypatch.setattr(GS, "_law_seat_stats", lambda *a, **k: {})
+    monkeypatch.setattr(
+        GS, "_dem_follow_polygon",
+        lambda p, dem_at, step, **k: (p, [100.0] * (len(p.exterior.coords))))
+    return lay
+
+
+def test_a_far_road_shape_releases_and_an_in_scope_one_does_not(monkeypatch):
+    """RULINGS 31j, both directions in one fixture: beyond the AIRCRAFT-
+    TRANSIT airside union + 25 m a slice-born road shape is not auto_patch
+    road pavement; inside it, nothing changes."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+
+    apron = _RelShape(_rect(0.0, 0.0, 200.0, 200.0), ROLE_APRON)
+    near = _RelShape(_rect(210.0, 60.0, 250.0, 100.0),
+                     ROLE_SERVICE_JUNCTION, slice_face=True)
+    far = _RelShape(_rect(800.0, 0.0, 900.0, 100.0),
+                    ROLE_SERVICE_JUNCTION, slice_face=True)
+    lay = _rel_layout([apron, near, far], monkeypatch)
+    own: dict = {}
+    n = release_far_road_shapes(lay, dem=None, tile_lat=30, tile_lon=31,
+                                ownership_out=own)
+
+    assert n == 1
+    assert far.role == ROLE_GROUNDSIDE_PAVEMENT and far.released_to_core
+    assert far.ref == "groundside"
+    assert near.role == ROLE_SERVICE_JUNCTION and not near.released_to_core
+    assert apron.role == ROLE_APRON, "airside is never touched"
+    assert own["faces_reclassified"] == 1
+    assert own["faces_reclassified_m2"] == pytest.approx(10000.0)
+    assert own["faces_scoped"] is True
+    assert own["scope"] == "aircraft_transit_post_scorer"
+
+
+def test_the_region_is_AIRCRAFT_TRANSIT_never_pav_union(monkeypatch):
+    """THE 31j DISTINCTION.  A far LOT (groundside after the scorer) is
+    pavement — it is in `pav_union`, which is why the pre-31j region was
+    vacuous — but it is not aircraft transit, so a road shape beside it
+    is still released."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import (ROLE_GROUNDSIDE_PAVEMENT,
+                                   ROLE_SERVICE_JUNCTION as _SVC)
+
+    apron = _RelShape(_rect(0.0, 0.0, 200.0, 200.0), ROLE_APRON)
+    lot = _RelShape(_rect(700.0, 0.0, 900.0, 200.0),
+                    ROLE_GROUNDSIDE_PAVEMENT)
+    road = _RelShape(_rect(905.0, 60.0, 940.0, 100.0), _SVC, slice_face=True)
+    lay = _rel_layout([apron, lot, road], monkeypatch)
+    assert release_far_road_shapes(lay, dem=None, tile_lat=30,
+                                   tile_lon=31) == 1
+    assert road.role == ROLE_GROUNDSIDE_PAVEMENT
+
+
+def test_only_the_PRODUCERs_own_shapes_are_judged(monkeypatch):
+    """The population is the slice's: a MINTED contact stub (ref-carrying,
+    not slice-born) is the minters' business and their own scope's — this
+    pass must not re-judge it."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import ROLE_SERVICE_ROAD
+
+    apron = _RelShape(_rect(0.0, 0.0, 200.0, 200.0), ROLE_APRON)
+    minted = _RelShape(_rect(800.0, 0.0, 900.0, 100.0), ROLE_SERVICE_ROAD,
+                       ref="road")
+    lay = _rel_layout([apron, minted], monkeypatch)
+    assert release_far_road_shapes(lay, dem=None, tile_lat=30,
+                                   tile_lon=31) == 0
+    assert minted.role == ROLE_SERVICE_ROAD
+
+
+def test_no_aircraft_transit_releases_nothing(monkeypatch):
+    """An airport with no aircraft pavement at all (unit fixtures) has no
+    region — the pass releases nothing rather than everything."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import ROLE_SERVICE_JUNCTION as _SVC
+
+    road = _RelShape(_rect(800.0, 0.0, 900.0, 100.0), _SVC, slice_face=True)
+    lay = _rel_layout([road], monkeypatch)
+    own: dict = {}
+    assert release_far_road_shapes(lay, dem=None, tile_lat=30, tile_lon=31,
+                                   ownership_out=own) == 0
+    assert own["faces_scoped"] is False
+    assert road.role == _SVC
+
+
+def test_the_release_RE_ROLES_IN_PLACE_and_never_re_emits():
+    """WHY IN PLACE (round-1 measurement).  Routing the released ground
+    through ``layout._groundside_polys`` runs the pool emitter's
+    clip/de-conflict path, which RE-DERIVES geometry: at HECA it moved
+    the gap-fill spines (13,279 -> 20,037 m2 on one) until two
+    graded_strip spines came within 3.15 m carrying a 1.58 m step — the
+    three new airside `strip_seam_tear` rows.  Identity preservation is
+    the fix, so it is pinned."""
+    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text()
+    body = src.split("def release_far_road_shapes(")[1].split(
+        "\ndef ")[0]
+    # the CODE, not the docstring that explains why the pool is avoided
+    body = body.split('"""')[2]
+    assert "_groundside_polys" not in body, (
+        "the released shape keeps its ring and its identity; it is never "
+        "re-emitted through the pool")
+    assert "s.polygon, s.node_altitudes = built" in body
+    assert "_dem_follow_polygon(" in body, "one sampler, one law seat"
+    assert "simplify_tol=0.0" in body, (
+        "the slice's own conformant ring is never simplified: moving its "
+        "boundary breaks the welds it shares with its neighbours")
+    # and the pipeline calls it at the RULED seam
+    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    head, _, tail = pipe.partition("enact_classify(layout, icao=icao")
+    assert "release_far_road_shapes(" in tail, "after enact_classify"
+    assert "release_far_road_shapes(" not in head
+    assert tail.index("release_far_road_shapes(") < tail.index(
+        "per_surface_solve(layout"), "and BEFORE the solve"
+
+
+def test_the_RULED_pav_union_scope_is_VACUOUS_over_faces_REFUTATION():
+    """THE REFUTATION RECORD (Batch 4a round 1, ratified by RULINGS 31j).
+    31e ruled the shrink "beyond ``_road_contact_scope``".  That
+    instrument cannot express "beyond" over slice FACES: its (a) term is
+    ``pav_union`` grown by 25 m, and every face is a piece of
+    ``pav_union`` by construction, so the scope COVERS every face it
+    would be asked about.  The same fact explains 31d finding A's
+    measured carve no-op.  Pinned so it is never re-derived."""
+    from auto_patch.pipeline import _road_contact_scope
+    from shapely.ops import unary_union
+
+    _apron, faces, _by_x = _slice_face_fixture()
+    pav_union = unary_union([f.polygon for f in faces])   # what was cut
+    scope = _road_contact_scope(types.SimpleNamespace(), pav_union,
+                                lambda lon, lat: (lon, lat))
+    assert scope is not None
+    for f in faces:
+        assert scope.covers(f.polygon), (
+            "a scope seeded with the pavement the faces were cut from "
+            "can never place a face outside itself")
+
+
+def test_both_minters_read_ONE_derivation_of_the_scope():
+    """One region, derived once and memoised on the layout: two
+    derivations are two ownership boundaries.  (The FACE region is a
+    different question with its own single derivation — RULINGS 31j,
+    ``groundside.release_far_road_shapes`` — and does not read this one.)"""
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    # the def plus exactly TWO call sites: the mint and the carve
+    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 3
+    assert src.count("def _road_contact_scope(") == 1
+    assert "_road_contact_scope_cache" in src
+    # the carve's far metres join the ONE declared migration
+    assert "carve_released_to_core_m" in src
+    assert '_own["released_to_core_m"] = round(' in src
+
+
+def test_the_declaration_reaches_the_sidecar_from_the_new_home():
+    """Spec §3.4 / census #90's outbound twin: the released AREA joins the
+    minters' released METRES in the ONE ``road_ownership`` dict, now
+    written from the post-scorer seam."""
+    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    assert "_own_all.update(_face_own)" in pipe
+    assert "layout._road_ownership = _own_all" in pipe
+    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text()
+    assert '"faces_reclassified_m2"' in src
+
+
+def test_a_split_piece_of_a_slice_born_face_still_releases(monkeypatch):
+    """RULING 2 OF ROUND 4: the producer marker survives the
+    re-partition.  The apron neck-split re-mints pieces at
+    ``pipeline.py`` (``_BS(polygon=..., role=..., ref=...)``); without
+    the flag a piece of a slice-born road face was invisible to the 31j
+    release and survived as far ref-less road pavement — measured at
+    30.1142768,31.3895971, whose 20,639.4 m2 slice face WAS released
+    while its 3,316.1 m2 piece was not."""
+    from auto_patch.groundside import release_far_road_shapes
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+
+    apron = _RelShape(_rect(0.0, 0.0, 200.0, 200.0), ROLE_APRON)
+    piece = _RelShape(_rect(800.0, 0.0, 850.0, 100.0),
+                      ROLE_SERVICE_JUNCTION, slice_face=True)
+    lay = _rel_layout([apron, piece], monkeypatch)
+    assert release_far_road_shapes(lay, dem=None, tile_lat=30,
+                                   tile_lon=31) == 1
+    assert piece.role == ROLE_GROUNDSIDE_PAVEMENT
+    # and the re-mint CARRIES the flag, so the piece above can exist
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    assert 'slice_face=getattr(_s, "slice_face", False)' in src, (
+        "the neck-split re-mint must carry the producer marker")

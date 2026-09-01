@@ -703,6 +703,20 @@ class BuiltShape:
     # treatment.  Born-apron shapes never carry the flag, so genuine stand
     # aprons are never promoted.
     reclassified_from_junction: bool = False
+    # Born as a CURVE-NATIVE GLOBAL SLICE FACE (pipeline's slice emit).
+    # THE PRODUCER'S OWN POPULATION: RULINGS 31e named the slice's
+    # ``kind == "service"`` classification the author of the far
+    # road-family population, and 31j judges its ownership POST-SCORER —
+    # so the release pass (``groundside.release_far_road_shapes``) has to
+    # find, after ``enact_classify`` has re-roled a thousand shapes,
+    # exactly the shapes the slice minted.  A ref cannot say it (a face
+    # is emitted ref-less and the scorer does not touch refs); this flag
+    # can, and it survives ``dataclasses.replace``.
+    slice_face: bool = False
+    # Set by ``release_far_road_shapes`` on a shape whose ROAD identity
+    # left for the core's ``include_roads`` while its ground stayed:
+    # evidence for the ownership declaration, never a law input.
+    released_to_core: bool = False
     # Set on pieces minted by the apron route-proximity CUT (pipeline,
     # user 2026-07-06 50 m ruling).  A cut piece is a deliberate
     # re-partition of ALREADY-KEPT pavement — a near-band fragment can

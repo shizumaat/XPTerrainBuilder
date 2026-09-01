@@ -32,7 +32,20 @@ per RULINGS ``7e90032`` (second use).
 
     venv/bin/python tools/role_overlap_read.py PATCH.osm [PATCH.osm ...]
         --over ROLE[:REF] --on ROLE[:REF][,ROLE[:REF]...]
-        [--min-area M2] [--top N] [--json OUT.json]
+        [--pad M] [--beyond] [--site LAT,LON] [--min-area M2] [--top N]
+        [--json OUT.json]
+
+THE SAME READ AT ARM'S LENGTH (``--pad`` / ``--beyond``, Batch 4a).  An
+OWNERSHIP question is an overlap question against a GROWN region: RULINGS
+31b leaves auto_patch the road family "within
+``SERVICE_ROAD_PAVEMENT_NEAR_M`` of aircraft pavement", so the far
+population is this same sweep against the ON union buffered by ``--pad``,
+reported as its COMPLEMENT — the OVER ways that do not reach it, totalled
+and split by ref (a ref-less ring is slice-born; a ref names its minter).
+``--site LAT,LON`` answers a named place in the OVER class's own terms.
+Measured basis (Batch 4a, merged-main HECA control ``lt2c_heca_arm``):
+``service_junction`` beyond 25 m of the airside roles = 1,526 of 1,777
+rings / 473,248 m², of which 1,325 ref-less / 435,882 m².
 
 Run from ``Ortho4XP/``.  Several patches are reported separately — that
 is the arm-vs-arm read.  An overlap under ``--min-area`` (default
@@ -67,7 +80,8 @@ def _selector(spec: str):
 
 
 def read(path, *, over: str, on: str,
-         min_area_m2: float = DEFAULT_MIN_AREA_M2):
+         min_area_m2: float = DEFAULT_MIN_AREA_M2,
+         pad_m: float = 0.0, beyond: bool = False, sites=()):
     """``{...}`` for one emitted patch — the OVER class's stack on the
     ON class.
 
@@ -120,6 +134,78 @@ def read(path, *, over: str, on: str,
                 on_ways.append((w, p))
 
     on_union = (unary_union([p for _w, p in on_ways]) if on_ways else None)
+    # ── THE PADDED FRAME AND ITS COMPLEMENT (``--pad`` / ``--beyond``) ──
+    # An OWNERSHIP question is the same read at arm's length: "how much of
+    # this class lies FURTHER THAN M METRES from that one".  RULINGS
+    # 31b states auto_patch's remaining road ownership exactly that way
+    # (within SERVICE_ROAD_PAVEMENT_NEAR_M of aircraft pavement), so the
+    # far population is this tool's own overlap read against the ON union
+    # GROWN by ``--pad``, reported as the ways that do NOT reach it.
+    on_padded = on_union
+    if on_union is not None and float(pad_m) > 0.0:
+        try:
+            on_padded = on_union.buffer(float(pad_m))
+        except Exception:                                 # pragma: no cover
+            on_padded = on_union
+    beyond_rows, beyond_by_ref, site_rows = [], {}, []
+    if beyond:
+        for w, p in over_ways:
+            try:
+                near = (on_padded is not None
+                        and p.intersects(on_padded))
+            except Exception:                             # pragma: no cover
+                near = True
+            if near:
+                continue
+            lls = [nodes[n] for n in w.nids if n in nodes]
+            lat = sum(x[0] for x in lls) / len(lls) if lls else None
+            lon = sum(x[1] for x in lls) / len(lls) if lls else None
+            key = w.ref or "(none)"
+            agg = beyond_by_ref.setdefault(key, {"ways": 0, "area_m2": 0.0})
+            agg["ways"] += 1
+            agg["area_m2"] += p.area
+            beyond_rows.append({"way": w.wid,
+                                "shapeID": w.tags.get("shapeID"),
+                                "ref": w.ref,
+                                "own_area_m2": round(p.area, 1),
+                                "lat": round(lat, 7) if lat else None,
+                                "lon": round(lon, 7) if lon else None})
+        beyond_rows.sort(key=lambda r: -r["own_area_m2"])
+        for agg in beyond_by_ref.values():
+            agg["area_m2"] = round(agg["area_m2"], 1)
+    # ── SITES: the named place, answered in the OVER class's own terms ──
+    for (slat, slon) in sites:
+        from shapely.geometry import Point
+        pt = Point(*to_m(float(slat), float(slon)))
+        hit = None
+        for w, p in over_ways:
+            try:
+                if p.covers(pt):
+                    hit = (w, p)
+                    break
+            except Exception:                             # pragma: no cover
+                continue
+        d_on = None
+        if on_union is not None:
+            try:
+                d_on = round(float(pt.distance(on_union)), 2)
+            except Exception:                             # pragma: no cover
+                d_on = None
+        row = {"lat": float(slat), "lon": float(slon),
+               "dist_to_on_m": d_on,
+               "in_over_class": hit is not None}
+        if hit is not None:
+            w, p = hit
+            row.update({"way": w.wid, "ref": w.ref,
+                        "shapeID": w.tags.get("shapeID"),
+                        "own_area_m2": round(p.area, 1)})
+            if on_union is not None:
+                try:
+                    row["ring_dist_to_on_m"] = round(
+                        float(p.distance(on_union)), 2)
+                except Exception:                         # pragma: no cover
+                    pass
+        site_rows.append(row)
     rows = []
     total = 0.0
     for w, p in over_ways:
@@ -153,13 +239,43 @@ def read(path, *, over: str, on: str,
     rows.sort(key=lambda r: -r["over_area_m2"])
     return {"patch": str(path), "anchor": list(anchor),
             "over": over, "on": on, "min_area_m2": float(min_area_m2),
+            "pad_m": float(pad_m),
             "over_ways": len(over_ways), "on_ways": len(on_ways),
+            "over_area_m2": round(sum(p.area for _w, p in over_ways), 1),
             "stacked": len(rows), "area_m2": round(total, 1),
+            "beyond": bool(beyond),
+            "beyond_ways": len(beyond_rows),
+            "beyond_area_m2": round(
+                sum(r["own_area_m2"] for r in beyond_rows), 1),
+            "beyond_by_ref": beyond_by_ref,
+            "beyond_rows": beyond_rows,
+            "sites": site_rows,
             "rows": rows}
 
 
 def _report(res: dict, top: int) -> None:
     print(f"=== {res['patch']}")
+    if res.get("beyond"):
+        print(f"  {res['over']} BEYOND {res['pad_m']:g} m of {res['on']}: "
+              f"{res['beyond_ways']} of {res['over_ways']} way(s), "
+              f"{res['beyond_area_m2']:,.0f} m2 of "
+              f"{res['over_area_m2']:,.0f} m2")
+        for ref, agg in sorted(res["beyond_by_ref"].items(),
+                               key=lambda kv: -kv[1]["area_m2"]):
+            print(f"    ref {ref:>16}  {agg['ways']:5d} way(s)  "
+                  f"{agg['area_m2']:12,.0f} m2")
+        for r in res["beyond_rows"][:top]:
+            print(f"    way {r['way']:>8} ref {str(r['ref'] or ''):>10}  "
+                  f"{r['own_area_m2']:10,.0f} m2  at {r['lat']},{r['lon']}")
+    for s in res.get("sites", ()):
+        where = (f"way {s['way']} ref '{s.get('ref')}' "
+                 f"({s['own_area_m2']:,.0f} m2, ring "
+                 f"{s.get('ring_dist_to_on_m')} m from the ON class)"
+                 if s["in_over_class"] else "NOT in the OVER class")
+        print(f"  site {s['lat']},{s['lon']}: {where}; the POINT is "
+              f"{s['dist_to_on_m']} m from the ON class")
+    if res.get("beyond"):
+        return
     print(f"  {res['over']} over {res['on']}: {res['stacked']} of "
           f"{res['over_ways']} way(s) stand on {res['on_ways']} way(s), "
           f"{res['area_m2']:.0f} m2 total "
@@ -183,12 +299,27 @@ def main(argv=None) -> int:
     ap.add_argument("--on", required=True,
                     help="the class STOOD ON, comma list of ROLE[:REF]")
     ap.add_argument("--min-area", type=float, default=DEFAULT_MIN_AREA_M2)
+    ap.add_argument("--pad", type=float, default=0.0,
+                    help="grow the ON union by M metres before reading "
+                         "(the OWNERSHIP frame: RULINGS 31b's contact "
+                         "scope is SERVICE_ROAD_PAVEMENT_NEAR_M of "
+                         "aircraft pavement)")
+    ap.add_argument("--beyond", action="store_true",
+                    help="report the COMPLEMENT: the OVER ways that do "
+                         "NOT reach the (padded) ON union, totalled and "
+                         "split by ref — the far-population read")
+    ap.add_argument("--site", action="append", default=[],
+                    metavar="LAT,LON",
+                    help="a named place: which OVER way covers it (if "
+                         "any) and how far it is from the ON class")
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--json")
     a = ap.parse_args(argv)
+    sites = [tuple(float(v) for v in s.split(",")) for s in a.site]
     out = []
     for f in a.files:
-        res = read(f, over=a.over, on=a.on, min_area_m2=a.min_area)
+        res = read(f, over=a.over, on=a.on, min_area_m2=a.min_area,
+                   pad_m=a.pad, beyond=a.beyond, sites=sites)
         _report(res, a.top)
         out.append(res)
     if a.json:

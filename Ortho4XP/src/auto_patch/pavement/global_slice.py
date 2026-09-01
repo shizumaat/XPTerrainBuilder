@@ -77,6 +77,13 @@ class SliceFace:
     # groundside law; the cut edge between the two is an authored class
     # boundary and does not conduct airside evidence across itself.
     class_side: str = ""
+    # OWNERSHIP (RULINGS 31j) IS NOT DECIDED HERE.  A face's road-vs-lot
+    # ownership is judged POST-SCORER, on the emitted shape, against the
+    # aircraft-transit airside union — ``groundside.release_far_road_shapes``
+    # — because this stage's ``kind`` is pre-scorer and the only region
+    # available here (``pav_union`` + 25 m) contains every face by
+    # construction.  The emit marks its shapes ``slice_face=True``; that
+    # is the whole of this stage's part in it.
 
 
 # A single-centerline face wider than this (mean width = area / shared-edge

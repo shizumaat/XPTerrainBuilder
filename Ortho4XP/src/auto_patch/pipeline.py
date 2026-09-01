@@ -3948,6 +3948,34 @@ def build_airport_pavement(icao: str, xplane_root: str,
         min_piece_m2=CLASS_BOUNDARY_MIN_PIECE_M2)
     _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
     _cn_gs_pool = 0
+    # THE PRODUCER'S POPULATION IS MARKED HERE, RULED LATER (RULINGS 31j).
+    # The slice's `kind == "service"` classification is the author of the
+    # far road-family population — measured, not reasoned: `who_wrote.py
+    # --footprint` at HECA's two largest far ref-less rings (5,292 m2 way
+    # -10514, 20,639 m2 way -10439) reports a single BIRTH at this emit
+    # (Batch 2c; neither road minter is involved, which is why clipping
+    # BOTH their feeds left the population where it was).  But the
+    # OWNERSHIP question cannot be answered here:
+    #
+    #  * `_road_contact_scope` is VACUOUS over faces — its (a) term is
+    #    `pav_union` grown by 25 m and every slice face is a piece of
+    #    `pav_union` by construction (`build_global_slice_faces` keeps a
+    #    face only when `pav.contains(face.representative_point())`), so
+    #    "beyond the scope" is the empty set.  `pav_union` is EVERY
+    #    pavement polygon the patch reconstructs, lots and service yards
+    #    included; it is not "aircraft pavement".  (Same fact, same
+    #    measurement: RULINGS 31d finding A's carve clip is a no-op at
+    #    HECA because the 1206 truck routes run ON the mapped pavement.)
+    #  * and the slice's OWN kinds are PRE-SCORER: scorer v2 later
+    #    re-classes ~1,057 of 2,396 shapes at HECA (SERVICE->GROUNDSIDE
+    #    557, APRON->GROUNDSIDE 80), so a region built from these kinds
+    #    counts far lot faces as airside (measured: the 53 % arm).
+    #
+    # RULINGS 31j therefore judges the region POST-SCORER, against the
+    # AIRCRAFT-TRANSIT airside union + SERVICE_ROAD_PAVEMENT_NEAR_M, and
+    # the release runs after `enact_classify`, before the solve
+    # (`groundside.release_far_road_shapes`).  All this emit owes that
+    # pass is the identity of the shapes it minted: `slice_face=True`.
     for _f in _cn_faces:
         if _f.class_side == "groundside":
             # THE GROUNDSIDE SIDE IS NOT AN AIRSIDE SHAPE.  It joins the
@@ -3967,7 +3995,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         else:
             _role = ROLE_JUNCTION
         layout.shapes.append(BuiltShape(
-            polygon=_f.polygon, role=_role, ref="", source_axis=_f.axis))
+            polygon=_f.polygon, role=_role, ref="", source_axis=_f.axis,
+            slice_face=True))
     UI.vprint(1, f"  [pav-builder] {icao}: curve-native global slice — "
               f"{len(_cn_faces)} face(s) from {len(_cn_all)} centerline(s) "
               f"({_cn_roles['corridor']} corridor / "
@@ -5021,7 +5050,18 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                             _p, _reeval_centerlines, _RECLASS_CAP_M)
                         if _piece_role != _R_APRON:
                             _n_piece_promoted += 1
-                    _ns = _BS(polygon=_p, role=_piece_role, ref=_s.ref)
+                    # THE PRODUCER MARKER SURVIVES THE RE-PARTITION
+                    # (spec-author ruling 2026-08-31, Batch 4a round 4).
+                    # A piece of a slice-born face is still slice-born:
+                    # measured with ``who_wrote.py --footprint`` at the
+                    # largest residual far ring (30.1142768,31.3895971),
+                    # whose slice face (20,639.4 m2, born at the slice
+                    # emit) WAS released as 31j rules while its 3,316.1
+                    # m2 split piece — re-minted here without the flag —
+                    # survived as ref-less road pavement.  Carried
+                    # exactly as ``reclassified_from_junction`` is.
+                    _ns = _BS(polygon=_p, role=_piece_role, ref=_s.ref,
+                              slice_face=getattr(_s, "slice_face", False))
                     _new_shapes.append(_ns)
             if _split_count:
                 layout.shapes = _new_shapes
@@ -5241,6 +5281,41 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                            tile_lat=tile_lat, tile_lon=tile_lon,
                            xplane_root=xplane_root)
             _covp(layout, "post-pavement-score")
+
+        # ── THE FACE-OWNERSHIP RELEASE (RULINGS 2026-08-31j) ──────────
+        # HERE, and only here, is the question answerable: the roles are
+        # the scorer's FINAL ones, so "the aircraft-transit airside
+        # union" is a real region, and the solve has not run, so a shape
+        # that leaves the road family takes the LOT LAW from the start
+        # rather than being re-valued afterwards.  A slice-born road
+        # shape beyond that union + SERVICE_ROAD_PAVEMENT_NEAR_M is not
+        # auto_patch road pavement (31b: the core's include_roads owns
+        # the course, levelled ABOVE this ground); it is re-roled IN
+        # PLACE — same ring, same identity — and DEM-seated by the
+        # groundside pool emitter's own sampler.  The square metres are
+        # DECLARED in the ONE ``road_ownership`` sidecar dict (spec
+        # §3.4) beside the minters' metres, so census shrinkage is
+        # provably the shrink and never a silent drop.
+        from .groundside import release_far_road_shapes
+        _face_own: dict = {}
+        _n_rel = release_far_road_shapes(
+            layout, dem=dem, tile_lat=tile_lat, tile_lon=tile_lon,
+            ownership_out=_face_own)
+        if _face_own:
+            _own_all = dict(getattr(layout, "_road_ownership", None) or {})
+            _own_all.update(_face_own)
+            layout._road_ownership = _own_all
+        if _n_rel:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: face OWNERSHIP (post-scorer, "
+                f"RULINGS 31j) — {_n_rel} slice-born road shape(s) / "
+                f"{_face_own.get('faces_reclassified_m2', 0.0):,.0f} m2 "
+                f"lie BEYOND the aircraft-transit airside union + "
+                f"{SERVICE_ROAD_PAVEMENT_NEAR_M:g} m and are NOT auto_patch "
+                f"road pavement: re-roled IN PLACE to groundside_pavement "
+                f"— the ground stays, the ROAD identity goes to the core's "
+                f"include_roads.")
+            _covp(layout, "post-face-ownership")
 
         # (user 2026-06-03) Fold small apron fragments fully enclosed by apron/
         # terminal into their larger neighbour BEFORE the solve — the fragment's

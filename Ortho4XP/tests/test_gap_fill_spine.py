@@ -351,9 +351,23 @@ def test_skirt_wholly_inside_emits_annular_face_and_spine_avoids_it():
     faces = _faces(layout)
     assert len(faces) == 1
     pav_keys = _pavement_keys(pav)
+    skirt_ring = skirt.polygon.exterior
     for x, y in list(faces[0].polygon.exterior.coords)[:-1]:
-        assert _key(x, y) in pav_keys, (
-            "annular-face exterior vertex is not a verbatim pavement vertex")
+        if _key(x, y) in pav_keys:
+            continue
+        # THE ANNULUS CLASS (spec-author ruling 2026-08-31, Batch 4a
+        # round 4): the residual now emits as its TRUE residual, so the
+        # exterior ring also walks the PARENT's boundary and the thin
+        # mitre corridor that reaches it.  A vertex that is not a
+        # verbatim pavement vertex must therefore lie ON the parent —
+        # the ring is still verbatim everywhere it is the pavement's.
+        on_parent = skirt_ring.distance(_pt(x, y)) <= 1.6
+        on_pav_edge = any(
+            sh.polygon.exterior.distance(_pt(x, y)) <= 0.01 for sh in pav)
+        assert on_parent or on_pav_edge, (
+            "annular-face exterior vertex is neither a verbatim pavement "
+            "vertex, nor on the parent it is opened around, nor on the "
+            "pavement edge the opening corridor reaches")
     spines = getattr(layout, "gap_spines", None)
     assert spines
     from shapely.geometry import LineString
@@ -369,13 +383,18 @@ def test_skirt_wholly_inside_emits_annular_face_and_spine_avoids_it():
 
 
 def test_skirt_wholly_inside_face_does_not_bury_the_skirt():
-    """Regression (CYXY test_no_self_overlap): a skirt WHOLLY inside the
-    hole makes an ANNULAR residual, but ``_open_coords`` keeps only the
-    exterior ring.  Without re-attaching the parent hole the emitted
-    graded_strip refills the skirt footprint and overlaps it (1,925 m² at
-    CYXY).  The emitted face must carry the skirt as an interior ring so
-    it never covers the skirt, while its EXTERIOR ring (and the
-    ``node_altitudes`` aligned to it) is unchanged."""
+    """Regression (CYXY test_no_self_overlap), RESTATED IN THE EMITTED
+    DIALECT (spec-author ruling 2026-08-31, Batch 4a round 4).
+
+    A skirt WHOLLY inside the hole makes an ANNULAR residual.  Carrying
+    the skirt as a shapely interior ring fixed the SHAPE and not the
+    PATCH: ``to_osm`` writes the EXTERIOR ring only (no multipolygon in
+    the dialect), so the emitted way still refilled the parent footprint
+    — measured at HECA as a 100,139 m² gap face standing on 61,912 m² of
+    building.  The residual now emits as its TRUE residual: simple
+    part(s) whose own exterior ring excludes the parent.  What this twin
+    pins is therefore the EMITTED ring, which is the property that was
+    always meant."""
     layout, pav = _frame_layout(gap_half_width_m=30.0)
     skirt = _skirt_rect(600.0, 45.0, 700.0, 55.0,
                         [101.0, 101.0, 102.0, 102.0])
@@ -390,15 +409,21 @@ def test_skirt_wholly_inside_face_does_not_bury_the_skirt():
     assert overlap < 1e-6, (
         f"emitted graded_strip buries the skirt footprint "
         f"(overlap {overlap:.3f} m2)")
-    # It carries the skirt as a verbatim interior ring (a true annulus).
-    assert len(face.polygon.interiors) == 1, (
-        "annular face lost its parent hole")
-    skirt_keys = {_key(x, y) for x, y in skirt.polygon.exterior.coords}
-    for x, y in face.polygon.interiors[0].coords:
-        assert _key(x, y) in skirt_keys, (
-            "interior ring vertex is not a verbatim skirt vertex")
-    # node_altitudes stay aligned to the (unchanged) EXTERIOR ring — the
-    # only ring to_osm reads — one value per closed exterior vertex.
+    # THE EMITTED RING — the only ring ``to_osm`` reads — must exclude
+    # the parent too.  This is the assertion the interior-ring form
+    # could not make, and the one the HECA balloon violated.
+    emitted = Polygon(face.polygon.exterior)
+    assert emitted.intersection(skirt.polygon).area < 1.0, (
+        f"the EMITTED exterior ring re-covers the skirt "
+        f"({emitted.intersection(skirt.polygon).area:.1f} m2) — the "
+        f"annulus was shipped as a hull")
+    # The face is SIMPLE: a multipolygon the dialect cannot express is
+    # never emitted.
+    assert not list(face.polygon.interiors), (
+        "an annular face reached the emitter; the residual must be "
+        "opened into simple parts instead")
+    # node_altitudes stay aligned to the exterior ring — one value per
+    # closed exterior vertex.
     assert len(face.node_altitudes) == len(face.polygon.exterior.coords)
 
 
@@ -1037,11 +1062,48 @@ def test_at_the_shipped_default_the_host_stage_separates_the_two_families(
     gs, _ = _rim_pocket_layout_roles(
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
         ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
-    assert GF.construct_gap_fill_presolve(gs) == 1
-    assert [e["host_stage"] for e in gs.gap_fill_presolve] == [_ST_B]
+    assert GF.construct_gap_fill_presolve(gs) == 0
 
-    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
-    off, _ = _rim_pocket_layout_roles(
-        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
-        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
-    assert GF.construct_gap_fill_presolve(off) == 0
+
+# ── THE ANNULUS CLASS (spec-author ruling 2026-08-31, Batch 4a r4) ────
+
+def test_a_building_parent_residual_emits_parts_that_exclude_it():
+    """THE RULING'S OWN TWIN.  A residual that would need a multipolygon
+    — a gap parent WHOLLY inside it — emits as its TRUE residual: simple
+    part(s) whose own EXTERIOR RING (the only ring the dialect ships)
+    excludes the parent.  Never a hull re-covering it.
+
+    Measured basis: HECA's 100,139 m² gap face standing on 61,912 m² of
+    BUILDING footprint (Batch 4a round 2), with two of its seams torn."""
+    layout, pav = _frame_layout(gap_half_width_m=30.0)
+    pad = _pad_rect(600.0, 45.0, 700.0, 55.0, 101.0)
+    layout.shapes.append(pad)
+    n = emit_gap_fill_spines(layout, None, 0, 0)
+    assert n >= 1
+    faces = _faces(layout)
+    assert faces, "the residual around a gap parent must still emit"
+    for f in faces:
+        emitted = Polygon(f.polygon.exterior)
+        assert emitted.intersection(pad.polygon).area < 1.0, (
+            "the emitted exterior ring re-covers the building parent")
+        assert not list(f.polygon.interiors), (
+            "a multipolygon the patch dialect cannot express reached "
+            "the emitter")
+        assert len(f.node_altitudes) == len(f.polygon.exterior.coords)
+
+
+def test_a_simple_residual_is_UNCHANGED_by_the_annulus_law():
+    """SCOPE PIN: the law fires only where a hole exists.  A gap with no
+    parent inside it emits exactly the face it always did — one shape,
+    no interiors, its ring the pavement's own vertices verbatim."""
+    layout, pav = _frame_layout(gap_half_width_m=30.0)
+    n = emit_gap_fill_spines(layout, None, 0, 0)
+    assert n == 1
+    faces = _faces(layout)
+    assert len(faces) == 1
+    face = faces[0]
+    assert not list(face.polygon.interiors)
+    pav_keys = _pavement_keys(pav)
+    for x, y in list(face.polygon.exterior.coords)[:-1]:
+        assert _key(x, y) in pav_keys, (
+            "a simple residual's ring is the pavement's, verbatim")

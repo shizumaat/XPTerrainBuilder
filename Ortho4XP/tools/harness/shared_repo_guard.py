@@ -740,6 +740,170 @@ class SharedRepoWriteGuard:
         return False
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE WINDOW-ATTRIBUTION INSTRUMENT (2026-09-01, beta hardening H6 item 6)
+# ══════════════════════════════════════════════════════════════════════
+# THE MEASURED DEFECT, flagged independently by three lanes.  The audit
+# below diffs the WHOLE shared repo across the build's wall-clock window
+# and attributes every delta in it to THIS build.  A window is not an
+# author: builds run concurrently by ruling ("Builds parallel when not
+# timing"), an authorised ``--refresh-data`` in lane B lands inside lane
+# A's window, and the owner's own app writes the corpus while a suite
+# runs.  The library-index allowance above is the same defect solved once
+# for one file — the nidrepair 2026-08-07 frames each reported
+# ``write_guard_blocked: []`` and each named the same modified sidecar
+# neither of them wrote.  Nothing generalised it.
+#
+# THE INSTRUMENT.  A delta is still NAMED, always — nothing is dropped —
+# but it is labelled EXTERNAL-CANDIDATE instead of CONTAMINATED when BOTH
+# hold:
+#
+#   1. the build's own guard blocked NOTHING (``write_guard_blocked`` is
+#      empty).  A guard-blocked write says this build's code did try to
+#      write the corpus and was stopped; anything that then appears is
+#      this build's business and CONTAMINATES, whatever it names.  This
+#      is deliberately a WHOLE-RUN veto and not a per-path one: the guard
+#      records the path it blocked, but a build that swallowed one
+#      refusal is not a build whose remaining writes can be trusted to
+#      name themselves.
+#   2. the path is provably OUTSIDE this build's INPUT SET — it names a
+#      TILE, and not one of the tiles this build reads (see
+#      :class:`BuildInputScope`).
+#
+# EXTERNAL-CANDIDATE, never EXTERNAL: the audit cannot prove another
+# process wrote it, only that this build had no reason to.  It is a
+# weaker claim and it is labelled as one.  Everything else — an in-scope
+# path, an unscopable path, any path at all when the guard blocked
+# something, and every delta when the caller names no input set —
+# CONTAMINATES exactly as before.  The default is unchanged strictness:
+# an entry that passes no ``input_scope`` gets the old behaviour to the
+# letter.
+
+#: A tile named in the ``+DD+DDD`` spelling (``O4_File_Names.short_latlon``
+#: — ``OSM_data/+30+030/+30+031/…``, ``Masks/+30+030/+30+031/…``,
+#: ``Airport_mod_cache/<pack>/+35-081.dsf.<hash>.text``,
+#: ``Default_DSF_cache/<hash>/+50+010.dsf.tmp.text``).  Bounded by a
+#: non-digit on both sides so a longer number never yields a phantom tile.
+_TILE_SHORT_RE = re.compile(r"(?<![0-9])([+-][0-9]{2})([+-][0-9]{3})(?![0-9])")
+
+#: The same tile in the SRTM spelling (``Elevation_data/+30+030/
+#: N30E031.hgt``, ``N30E031_airport_insets/…``).
+_TILE_STEM_RE = re.compile(r"(?<![A-Za-z0-9])([NS])([0-9]{2})([EW])([0-9]{3})"
+                           r"(?![0-9])")
+
+
+def tiles_named_in(relpath) -> set:
+    """Every ``(lat, lon)`` tile this shared-repo path names, in either
+    spelling.  Empty when the path names no tile at all.
+
+    Path-shape only — the same predicate for a repo-relative audit path
+    and for an absolute one, and it never touches the filesystem.  Both
+    spellings are read because the corpus uses both: the DEM tree is
+    ``N30E031.hgt`` and everything else is ``+30+031``, and a scoping
+    rule that knew only one of them would call half the corpus unscopable
+    and quietly keep contaminating on it.
+    """
+    rel = str(relpath)
+    out = set()
+    for a, b in _TILE_SHORT_RE.findall(rel):
+        out.add((int(a), int(b)))
+    for ns, la, ew, lo in _TILE_STEM_RE.findall(rel):
+        lat = int(la) * (-1 if ns == "S" else 1)
+        lon = int(lo) * (-1 if ew == "W" else 1)
+        out.add((lat, lon))
+    return out
+
+
+def airports_named_in(relpath):
+    """The ICAO a per-airport shared-repo artifact names, or ``None``.
+
+    Today that is exactly the road-feed sidecar
+    (``OSM_data/_airport_road_feed/<ICAO>_road_feed.cache``) — the KCLT
+    precedent's own artifact class, and the one the write guard caught
+    live at CYXY and SPLP.  It carries no tile in its name, so without
+    this it would be unscopable and every concurrent lane's feed would
+    contaminate every other lane.
+    """
+    m = re.fullmatch(r"OSM_data/_airport_road_feed/([A-Z0-9]{3,4})_road_feed"
+                     r"\.cache", str(relpath))
+    return m.group(1) if m else None
+
+
+class BuildInputScope:
+    """WHICH shared-repo paths THIS build could have had a reason to touch.
+
+    Constructed from what the harness already knows about a run — its
+    tile(s) and its airport(s) — and used by
+    :func:`report_unauthorised_writes` to separate a delta this build
+    could plausibly have authored from one that merely landed in its
+    window.
+
+    THE NEIGHBOURS ARE IN SCOPE.  A build reads past its own tile at the
+    seams (DEM insets, mask rasters, the tile_cut at integer boundaries),
+    so the eight neighbours of every tile in scope are IN SCOPE too.
+    That is the conservative direction on purpose: a wrongly-in-scope
+    path stays CONTAMINATED, which costs a re-run, while a wrongly-out-of
+    -scope path would downgrade a real corpus mutation, which costs the
+    campaign.  Every widening of this class must go the same way.
+
+    AN UNSCOPABLE PATH IS IN SCOPE.  A path naming neither a tile nor an
+    airport (``Geotiffs/…``, ``OSM_data/_regional_extracts/…``) cannot be
+    proven outside the input set, so it is not.  "Not provably external"
+    is the whole predicate — the instrument downgrades only what it can
+    positively exclude.
+    """
+
+    def __init__(self, tiles=(), icaos=(), *, label=""):
+        self.tiles = {(int(la), int(lo)) for la, lo in tiles or ()}
+        self.icaos = {str(i).upper() for i in icaos or () if i}
+        self.label = label
+        self._with_neighbours = {
+            (la + dla, lo + dlo)
+            for la, lo in self.tiles
+            for dla in (-1, 0, 1) for dlo in (-1, 0, 1)}
+
+    def __bool__(self) -> bool:
+        """False when the scope names nothing — an empty scope can exclude
+        nothing, and must never be mistaken for one that excludes all."""
+        return bool(self.tiles or self.icaos)
+
+    def covers(self, relpath) -> bool:
+        """True when this build could have had a reason to touch the path.
+
+        The negation is the EXTERNAL-CANDIDATE test, so read it that way:
+        a path is external only when it POSITIVELY names something this
+        build does not read.
+        """
+        rel = str(relpath)
+        icao = airports_named_in(rel)
+        if icao is not None:
+            return icao in self.icaos
+        named = tiles_named_in(rel)
+        if not named:
+            return True                     # unscopable ⇒ not excludable
+        return bool(named & self._with_neighbours)
+
+    def record(self) -> dict:
+        """The scope as it rides in ``<tag>.frame.json``, so a later reader
+        can re-derive every EXTERNAL-CANDIDATE verdict this run made."""
+        return {
+            "label": self.label,
+            "tiles": sorted(map(list, self.tiles)),
+            "tiles_with_neighbours": sorted(map(list, self._with_neighbours)),
+            "icaos": sorted(self.icaos),
+        }
+
+
+def contaminating_writes(offenders) -> list:
+    """The subset of an audit's offenders that CONTAMINATES the run.
+
+    ONE reading of the label, shared by the frame stamp, the refusal and
+    the twins — a second copy of ``not o["external_candidate"]`` anywhere
+    is the census-wrapper shape.
+    """
+    return [o for o in offenders if not o.get("external_candidate")]
+
+
 class _PrintNotes:
     """The ``prog=None`` note sink.
 
@@ -757,7 +921,8 @@ class _PrintNotes:
 
 
 def report_unauthorised_writes(changes: dict, requested: set,
-                               prog=None) -> list:
+                               prog=None, *, blocked=(),
+                               input_scope=None) -> list:
     """Every shared-repo write this build made outside an authorised scope.
 
     THE BACKSTOP.  :class:`SharedRepoWriteGuard` refuses these at the call
@@ -781,8 +946,24 @@ def report_unauthorised_writes(changes: dict, requested: set,
     X-Plane install had changed — usually not this one.  That
     cross-attribution is why every harness build on 2026-08-07 reported a
     side effect on a file none of them wrote.
+
+    WINDOW ATTRIBUTION (2026-09-01, H6 item 6).  ``input_scope`` — a
+    :class:`BuildInputScope` — generalises that one-file allowance into a
+    label the audit can apply to any delta: an offender the caller's own
+    guard did not block, on a path the build's input set positively
+    excludes, is returned with ``external_candidate=True`` and REPORTED
+    UNDER ITS OWN HEADING rather than as this build's contamination.  It
+    is still in the returned list and still in the frame — the audit
+    NAMES every delta, always; only the attribution changes.  Callers
+    passing no ``input_scope`` (and every caller that passes an EMPTY
+    one) get the pre-2026-09-01 behaviour to the letter: every offender
+    contaminates.  Read the split with :func:`contaminating_writes`.
     """
     prog = _PrintNotes if prog is None else prog
+    # A guard that blocked something is a whole-run veto on the label:
+    # this build's code DID reach for the corpus, so nothing appearing in
+    # its window may be handed to a hypothetical other process.
+    may_externalise = bool(input_scope) and not list(blocked or ())
     offenders, lock_churn, index_churn = [], [], []
     for kind in ("added", "modified", "removed"):
         for rel in changes[kind]:
@@ -795,7 +976,9 @@ def report_unauthorised_writes(changes: dict, requested: set,
             scope = scope_of(rel)
             if scope in requested:
                 continue
-            offenders.append({"path": rel, "kind": kind, "scope": scope})
+            external = may_externalise and not input_scope.covers(rel)
+            offenders.append({"path": rel, "kind": kind, "scope": scope,
+                              "external_candidate": external})
     for lc in lock_churn:
         prog.note(f"   lock churn (coordination state, NOT corpus data): "
                   f"{lc['kind']} {lc['path']} — a lock file outliving the "
@@ -806,21 +989,43 @@ def report_unauthorised_writes(changes: dict, requested: set,
                   f"process refreshed the shared install-index sidecar "
                   f"after the X-Plane install's scenery_packs.ini / "
                   f"library.txt changed")
-    if not offenders:
+    external = [o for o in offenders if o["external_candidate"]]
+    mine = contaminating_writes(offenders)
+
+    # THE EXTERNAL-CANDIDATE HEADING — printed whenever there is one, and
+    # printed BEFORE the verdict, because a reader who sees "UNCHANGED"
+    # under a list of paths must be able to see why the paths are there.
+    for o in external:
+        prog.note(f"   external-candidate delta (NAMED, not attributed to "
+                  f"this build): {o['kind']} {o['path']} — outside this "
+                  f"build's input set {input_scope.record()['tiles'] or ''}"
+                  f"{sorted(input_scope.icaos) or ''} and this build's write "
+                  f"guard blocked nothing.  Another process in this window "
+                  f"is the likely author; this run is NOT flagged "
+                  f"CONTAMINATED on it.")
+    if external:
+        prog.note(f"   {len(external)} external-candidate path(s): the "
+                  f"window is not the author (2026-09-01, H6 item 6).  If "
+                  f"you need certainty, re-run with no concurrent lane.")
+
+    if not mine:
         prog.note("shared repo UNCHANGED by this build (full-surface "
                   "before/after snapshot) — no side-effect mutation"
                   + (f"; {len(lock_churn)} lock file(s) left behind, which "
                      f"are not corpus data" if lock_churn else "")
                   + (f"; {len(index_churn)} library-index sidecar "
                      f"refresh(es), which are derived cache"
-                     if index_churn else ""))
+                     if index_churn else "")
+                  + (f"; {len(external)} EXTERNAL-CANDIDATE delta(s) named "
+                     f"above, outside this build's input set"
+                     if external else ""))
         return offenders
     prog.note(f"!! SHARED-REPO SIDE EFFECT: this build wrote "
-              f"{len(offenders)} path(s) NOBODY authorised — owner ruling "
+              f"{len(mine)} path(s) NOBODY authorised — owner ruling "
               f"e9daef5 forbids exactly this.  The run is CONTAMINATED: "
               f"every lane's next build reads the changed corpus.")
     by_scope: dict = {}
-    for o in offenders:
+    for o in mine:
         by_scope.setdefault(o["scope"] or "<outside every scope>",
                             []).append(o)
     for scope, items in sorted(by_scope.items(), key=lambda kv: str(kv[0])):
@@ -829,7 +1034,7 @@ def report_unauthorised_writes(changes: dict, requested: set,
         if scope in {s for s, _p, _w in REFRESH_SCOPES}:
             prog.note(f"      {scope_description(scope)}")
     prog.note(f"   Re-run with --refresh-data "
-              f"{','.join(sorted({str(o['scope']) for o in offenders}))} "
+              f"{','.join(sorted({str(o['scope']) for o in mine}))} "
               f"to make this an EXPLICIT, locked, hash-stamped refresh.")
     return offenders
 
@@ -871,7 +1076,13 @@ def require_no_unauthorised_writes(offenders, *, entry: str) -> None:
 
     ``entry`` names the run in the message ("mesh-only", "tile profile")
     so the refusal says which tool must be re-run under what.
+
+    An EXTERNAL-CANDIDATE offender (2026-09-01, H6 item 6) does not
+    refuse: it is named by the report above and attributed to nobody.
+    Read through :func:`contaminating_writes`, the one place that label
+    is interpreted.
     """
+    offenders = contaminating_writes(offenders)
     if not offenders:
         return
     raise SystemExit(

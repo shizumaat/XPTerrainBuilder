@@ -3168,6 +3168,158 @@ def test_library_index_churn_in_the_after_snapshot_is_not_CONTAMINATION(
         "the allowance covers ONE derived file, not its whole scope")
 
 
+# ── THE WINDOW-ATTRIBUTION INSTRUMENT (2026-09-01, H6 item 6) ────────
+#
+# The audit diffs the WHOLE shared repo across a build's wall-clock
+# window and used to attribute every delta in it to that build.  A window
+# is not an author: builds run concurrently by ruling, and the
+# library-index allowance was this same defect solved once for one file.
+# These twins pin the generalised label: NAMED always, CONTAMINATED only
+# when the build's own input set cannot exclude it.
+
+_H6_OTHER_TILE = "Elevation_data/+40+000/N40E003_airport_insets/LEMD.tif"
+_H6_MY_TILE = "Elevation_data/+30+030/N30E031.hgt"
+
+
+def test_a_delta_outside_the_input_set_is_named_but_NOT_contamination(
+        build_mod):
+    """THE MEASURED CLASS, generalised.  A HECA build (tile +30+031) sees
+    a LEMD inset appear in its window.  It cannot have written it — the
+    path names a tile HECA does not read and its own guard blocked
+    nothing — so it is NAMED as an external candidate and the run is not
+    flagged CONTAMINATED on it."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    scope = build_mod.BuildInputScope(tiles=[(30, 31)], icaos=["HECA"])
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [_H6_OTHER_TILE], "modified": [], "removed": []},
+        set(), prog, blocked=[], input_scope=scope)
+    assert [o["path"] for o in offenders] == [_H6_OTHER_TILE], (
+        "the delta must still be NAMED — nothing is dropped")
+    assert offenders[0]["external_candidate"] is True
+    assert build_mod.contaminating_writes(offenders) == []
+    blob = "\n".join(notes)
+    assert "external-candidate" in blob
+    assert "SHARED-REPO SIDE EFFECT" not in blob, (
+        "the CONTAMINATED verdict line must not be printed")
+    assert "UNCHANGED" in blob, (
+        "a run whose only deltas are external candidates reports its own "
+        "corpus untouched")
+
+
+def test_a_delta_INSIDE_the_input_set_still_CONTAMINATES(build_mod):
+    """The other half, and the one that keeps the law: the KCLT road-feed
+    precedent's own artifact class, at the build's own airport."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    scope = build_mod.BuildInputScope(tiles=[(35, -81)], icaos=["KCLT"])
+    mine = "OSM_data/_airport_road_feed/KCLT_road_feed.cache"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [mine], "modified": [], "removed": []},
+        set(), prog, blocked=[], input_scope=scope)
+    assert offenders[0]["external_candidate"] is False
+    assert build_mod.contaminating_writes(offenders) == offenders
+    assert "CONTAMINATED" in "\n".join(notes)
+
+
+def test_a_GUARD_BLOCKED_run_externalises_NOTHING(build_mod):
+    """THE WHOLE-RUN VETO.  A build whose guard blocked a write did reach
+    for the corpus; nothing appearing in its window may then be handed to
+    a hypothetical other process, however far away the path is."""
+    prog = types.SimpleNamespace(note=lambda m: None)
+    scope = build_mod.BuildInputScope(tiles=[(30, 31)], icaos=["HECA"])
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [_H6_OTHER_TILE], "modified": [], "removed": []},
+        set(), prog, blocked=[{"path": _H6_MY_TILE, "scope": "dem"}],
+        input_scope=scope)
+    assert offenders[0]["external_candidate"] is False
+    assert build_mod.contaminating_writes(offenders) == offenders
+
+
+def test_no_input_scope_keeps_the_old_whole_window_strictness(build_mod):
+    """THE DEFAULT IS UNCHANGED.  Every entry that passes no scope — and
+    an EMPTY scope, which can exclude nothing — gets the pre-2026-09-01
+    behaviour to the letter."""
+    prog = types.SimpleNamespace(note=lambda m: None)
+    changes = {"added": [_H6_OTHER_TILE], "modified": [], "removed": []}
+    for scope in (None, build_mod.BuildInputScope()):
+        offenders = build_mod.report_unauthorised_writes(
+            changes, set(), prog, input_scope=scope)
+        assert build_mod.contaminating_writes(offenders) == offenders, (
+            "an absent or empty input set must not downgrade anything")
+
+
+def test_an_UNSCOPABLE_path_is_never_external(build_mod):
+    """"Not provably external" IS the predicate.  A path naming neither a
+    tile nor an airport cannot be excluded, so it is not."""
+    scope = build_mod.BuildInputScope(tiles=[(30, 31)], icaos=["HECA"])
+    for rel in ("Geotiffs/user_supplied.tif",
+                "OSM_data/_regional_extracts/egypt-latest.osm.pbf"):
+        assert build_mod.tiles_named_in(rel) == set()
+        assert scope.covers(rel), f"{rel} must not be externalised"
+
+
+def test_both_tile_spellings_are_read_and_the_NEIGHBOURS_are_in_scope(
+        build_mod):
+    """The corpus uses two spellings — ``N30E031.hgt`` in the DEM tree and
+    ``+30+031`` everywhere else — and a build reads past its own tile at
+    the seams.  A scoping rule that knew one spelling would call half the
+    corpus unscopable; one that knew no neighbours would externalise a
+    real seam write."""
+    assert build_mod.tiles_named_in(_H6_MY_TILE) == {(30, 30), (30, 31)}
+    assert build_mod.tiles_named_in(
+        "Masks/+30+030/+30+031/6704_9648.png") == {(30, 30), (30, 31)}
+    assert build_mod.tiles_named_in(
+        "Airport_mod_cache/Nimbus/+35-081.dsf.8828b7db.text") == {(35, -81)}
+    assert build_mod.tiles_named_in(
+        "Elevation_data/-20-080/S13W078_airport_insets/SPJC.tif") == {
+            (-20, -80), (-13, -78)}
+    scope = build_mod.BuildInputScope(tiles=[(30, 31)])
+    assert scope.covers("Elevation_data/+30+030/N31E032.hgt"), (
+        "a NEIGHBOUR tile is in scope — the seam passes read it")
+    assert not scope.covers("Elevation_data/+40+000/N40E003.hgt")
+
+
+def test_the_airport_scoping_reads_the_road_feed_by_ICAO(build_mod):
+    """The road feed carries no tile in its name; without the ICAO rule it
+    would be unscopable and every concurrent lane's feed would contaminate
+    every other lane — which is exactly what the guard caught live at CYXY
+    and SPLP."""
+    assert build_mod.airports_named_in(
+        "OSM_data/_airport_road_feed/CYXY_road_feed.cache") == "CYXY"
+    assert build_mod.airports_named_in(_H6_MY_TILE) is None
+    scope = build_mod.BuildInputScope(tiles=[(35, -81)], icaos=["KCLT"])
+    assert scope.covers("OSM_data/_airport_road_feed/KCLT_road_feed.cache")
+    assert not scope.covers(
+        "OSM_data/_airport_road_feed/CYXY_road_feed.cache")
+
+
+def test_the_refusal_reads_the_label_through_the_ONE_helper(build_mod):
+    """``require_no_unauthorised_writes`` must not carry its own reading of
+    the label — a second copy of ``not o['external_candidate']`` is the
+    census-wrapper shape."""
+    external = [{"path": _H6_OTHER_TILE, "kind": "added", "scope": "dem",
+                 "external_candidate": True}]
+    build_mod.require_no_unauthorised_writes(external, entry="mesh-only")
+    mine = [dict(external[0], external_candidate=False)]
+    with pytest.raises(SystemExit):
+        build_mod.require_no_unauthorised_writes(mine, entry="mesh-only")
+    src = (HARNESS / "shared_repo_guard.py").read_text()
+    assert src.count("external_candidate\")") <= 2, (
+        "the label must be interpreted in contaminating_writes and the "
+        "report, nowhere else")
+
+
+def test_the_build_entry_stamps_the_scope_and_the_split_into_the_frame():
+    """A verdict a later reader cannot re-derive is not evidence."""
+    src = (HARNESS / "build_airport.py").read_text()
+    assert 'frame["build_input_scope"]' in src
+    assert 'frame["external_candidate_writes"]' in src
+    assert 'frame["contaminated"] = bool(contaminating_writes(offenders))' \
+        in src, "the CONTAMINATED verdict must read the ONE helper"
+    assert "input_scope=input_scope" in src and "blocked=guard.blocked" in src
+
+
 # ── the swallowed-degradation refusals ───────────────────────────────
 
 def test_a_swallowed_write_block_REFUSES_and_names_write_and_hatches(

@@ -247,6 +247,8 @@ from shared_repo_guard import (                          # noqa: E402,F401
     SharedRepoWriteBlocked, SharedRepoWriteGuard,
     report_unauthorised_writes, _DEGRADED_OPTIONS,
     require_no_swallowed_write_block, mirror_tree_as_overlay,
+    BuildInputScope, contaminating_writes, tiles_named_in, airports_named_in,
+    require_no_unauthorised_writes,
 )
 
 #: The owner's production app config — the one the shipped app runs with.
@@ -2288,6 +2290,19 @@ def main(argv=None) -> int:
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
               f"{len(SHARED_DATA_DIRS)} data dir(s)")
 
+    # THE BUILD'S INPUT SET (2026-09-01, H6 item 6): what this run has a
+    # reason to touch, so the audit below can tell a delta this build
+    # could have authored from one that merely landed in its window.  The
+    # harness already knows both halves — the anchor tile it resolved and
+    # the airport(s) it names — so nothing new is derived here.  A run
+    # whose tile did not resolve names no tile, the scope is empty, and
+    # the audit keeps its old whole-window strictness.
+    input_scope = BuildInputScope(
+        tiles=[(lat, lon)] if lat is not None and lon is not None else (),
+        icaos=[args.icao] + list(warm_insets or ()),
+        label=f"{args.icao}{' --tile' if args.tile else ''}")
+    prog.note(f"build input set: {input_scope.record()}")
+
     guard = SharedRepoWriteGuard(requested, root,
                                  enabled=not args.allow_shared_repo_writes)
     if guard.enabled:
@@ -2341,7 +2356,9 @@ def main(argv=None) -> int:
         # half-way through a download has still mutated the shared repo,
         # and that is precisely when nobody would think to look.
         changes = snapshot_diff(before, shared_repo_snapshot())
-        offenders = report_unauthorised_writes(changes, requested, prog)
+        offenders = report_unauthorised_writes(changes, requested, prog,
+                                               blocked=guard.blocked,
+                                               input_scope=input_scope)
         for sc in sorted(requested):
             in_scope = {k: [r for r in v if scope_of(r) == sc]
                         for k, v in changes.items()}
@@ -2364,8 +2381,15 @@ def main(argv=None) -> int:
             lk.release()
 
     frame["shared_repo_writes"] = changes
+    # EVERY delta is still named here; the CONTAMINATED verdict reads only
+    # the ones this build's input set could not exclude (2026-09-01, H6
+    # item 6 — the window is not the author).  ``build_input_scope`` rides
+    # beside them so a later reader can re-derive every verdict.
     frame["unauthorised_writes"] = offenders
-    frame["contaminated"] = bool(offenders)
+    frame["external_candidate_writes"] = [o for o in offenders
+                                          if o.get("external_candidate")]
+    frame["build_input_scope"] = input_scope.record()
+    frame["contaminated"] = bool(contaminating_writes(offenders))
     frame["write_guard_armed"] = guard.enabled
     frame["write_guard_blocked"] = guard.blocked
     frame["write_guard_lock_churn"] = guard.lock_churn
@@ -2422,8 +2446,20 @@ def main(argv=None) -> int:
     # CONTAMINATED (serving it later would spread a corpus mutation into
     # every arm that hits the key).
     if ledger_key and not args.tile:
+        # THE STORE GATE READS EVERY DELTA, external candidates included
+        # (2026-09-01, H6 item 6).  The CONTAMINATED verdict is about
+        # whether THIS build's numbers are trustworthy; the store gate is
+        # about whether this run's CORPUS STAMP still describes the corpus
+        # a later hit would be served against.  A delta outside this
+        # build's input set leaves the first question alone and moves the
+        # second, so the deliberately stricter of the two governs here.
         why_not = ("an authorised --refresh-data run" if requested
-                   else "the run was flagged CONTAMINATED" if frame["contaminated"]
+                   else "the run was flagged CONTAMINATED"
+                   if frame["contaminated"]
+                   else "the shared repo changed inside this run's window "
+                        "(external-candidate delta): the corpus stamp no "
+                        "longer describes the corpus a later hit would read"
+                   if offenders
                    else None)
         if why_not:
             prog.note(f"artifact ledger: NOT stored — {why_not}")

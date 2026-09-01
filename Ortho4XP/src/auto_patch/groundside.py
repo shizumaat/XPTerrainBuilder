@@ -6579,6 +6579,127 @@ def _emit_groundside_pavement_dem(
     return n_emitted
 
 
+def release_far_road_shapes(layout, *, dem, tile_lat, tile_lon,
+                            near_m=None, densify_step_m: float = 15.0,
+                            ownership_out=None) -> int:
+    """THE FACE-OWNERSHIP REGION, POST-SCORER (owner/spec-author ruling
+    RULINGS 2026-08-31j; spec ``linear-transport-redesign-spec.md`` §3.3).
+
+    RULINGS 31e named the curve-native slice's ``kind == "service"`` face
+    classification as the author of the far road-family population and
+    ruled the ownership shrink there.  Batch 4a measured its instrument
+    VACUOUS: ``pipeline._road_contact_scope``'s (a) term is ``pav_union``
+    grown by 25 m, and every slice face is a piece of ``pav_union`` by
+    construction, so "beyond the contact scope" was the empty set.  31j
+    rules the region instead:
+
+        AIRCRAFT-TRANSIT AIRSIDE UNION + ``SERVICE_ROAD_PAVEMENT_NEAR_M``,
+        judged POST-SCORER — never ``pav_union``.
+
+    The transit union is ``enclaves.ENCLAVE_AIRSIDE_ROLES`` — "airside
+    pavement a vehicle cannot cross without being on the airfield", the
+    campaign's existing definition of aircraft transit, pinned equal to
+    ``clearance._AIRSIDE_PAVEMENT_ROLES`` and ``pavement_scoring.
+    _CHAIN_ROLES`` by ``tests/test_enclave_region.py``.  POST-SCORER
+    matters and is measured: scorer v2 re-classes ~1,057 of 2,396 shapes
+    at HECA (SERVICE→GROUNDSIDE 557, APRON→GROUNDSIDE 80), so a region
+    built from the slice's PRE-scorer kinds counts far lot faces as
+    airside and keeps the road population it was meant to release (the
+    53 % arm, Batch 4a round 1).
+
+    THE POPULATION is the PRODUCER's: shapes born as slice faces
+    (``BuiltShape.slice_face``) that still carry a road-family role after
+    ``enact_classify``.  A shape beyond the region is not auto_patch road
+    pavement — the core's ``include_roads`` owns the course, levelled
+    ABOVE this ground — so it takes the LOT CLASS.
+
+    IDENTITY IS PRESERVED: the shape is RE-ROLED IN PLACE and seated by
+    the groundside pool emitter's own ``_dem_follow_polygon`` (one
+    sampler, one law seat, no second spelling).  It is never re-emitted
+    through ``layout._groundside_polys``: re-emission runs the pool's
+    clip/de-conflict path, which re-derives geometry and moved the
+    gap-fill spines enough to open two graded_strip seam tears at HECA
+    (round 1's three new airside rows, attributed to exactly that churn).
+
+    Returns the number of shapes released; ``ownership_out`` receives the
+    DECLARATION the sidecar publishes (spec §3.4).
+    """
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    from .grade_law import ROAD_ROLES
+    from .config import SERVICE_ROAD_PAVEMENT_NEAR_M
+    near = float(SERVICE_ROAD_PAVEMENT_NEAR_M if near_m is None else near_m)
+    if ownership_out is not None:
+        ownership_out.update({"faces_reclassified": 0,
+                              "faces_reclassified_m2": 0.0,
+                              "faces_scoped": False,
+                              "scope": "aircraft_transit_post_scorer"})
+    candidates = [s for s in layout.shapes
+                  if getattr(s, "slice_face", False)
+                  and s.role in ROAD_ROLES
+                  and s.polygon is not None and not s.polygon.is_empty]
+    if not candidates:
+        return 0
+    transit = [s.polygon for s in layout.shapes
+               if s.role in ENCLAVE_AIRSIDE_ROLES
+               and s.polygon is not None and not s.polygon.is_empty]
+    rwy = getattr(layout, "runway_union", None)
+    if rwy is not None and not rwy.is_empty:
+        transit.append(rwy)
+    if not transit:
+        return 0                      # no aircraft transit: release nothing
+    try:
+        scope = unary_union(transit).buffer(near)
+        from shapely.prepared import prep as _prep
+        scope_prep = _prep(scope)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return 0
+    if ownership_out is not None:
+        ownership_out["faces_scoped"] = True
+    _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "release_far_road_shapes")
+    n_rel = 0
+    area = 0.0
+    for s in candidates:
+        try:
+            if scope_prep.intersects(s.polygon):
+                continue                       # the transition: KEEP
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        own_area = float(s.polygon.area)
+        _seat_out: dict = {}
+        # ``simplify_tol=0``: IDENTITY PRESERVATION.  The pool emitter
+        # simplifies because its input is a clipped capture with
+        # sub-metre clip edges; this ring is the slice's OWN conformant
+        # face, sharing vertices with the neighbours it was cut from, and
+        # moving its boundary by up to GROUNDSIDE_SIMPLIFY_TOL_M would
+        # break those welds — the geometry-churn class round 1 measured
+        # (re-derived rings moved the gap-fill spines into two seam
+        # tears).  Densify + DEM seed + the law seat, nothing else.
+        built = _dem_follow_polygon(s.polygon, _dem_at, densify_step_m,
+                                    simplify_tol=0.0,
+                                    law_anchors=_law_anchors,
+                                    anchor_key=_anchor_key, stats=_stats,
+                                    seat_out=_seat_out)
+        if built is None:
+            continue                 # unbuildable ring: it stays as it is
+        s.polygon, s.node_altitudes = built
+        s.role = ROLE_GROUNDSIDE_PAVEMENT
+        s.ref = "groundside"
+        s.source_axis = None
+        s.altitude = s.altitude_high = s.altitude_low = None
+        setattr(s, _LAW_SEATED_ATTR, bool(_seat_out.get("law_seated")))
+        s.released_to_core = True
+        n_rel += 1
+        area += own_area
+    if ownership_out is not None:
+        ownership_out.update({"faces_reclassified": n_rel,
+                              "faces_reclassified_m2": round(area, 2),
+                              "near_m": near})
+    return n_rel
+
+
 def _reclassify_groundside_orphan_junctions(
         layout: "PavementLayout",
         dem,

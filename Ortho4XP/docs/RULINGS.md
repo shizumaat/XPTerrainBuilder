@@ -1695,6 +1695,34 @@ OWNER QUESTIONS raised this wave (all HELD pending the owner; nothing improvised
 * **APRON CHORD TARGETS ARE THE NEAREST VISIBLE ANCHOR — PAD OR CENTERLINE, WHICHEVER IS CLOSER (owner 2026-08-25, amends A4.1(i) and the 2026-08-21d strict-chord clause).** An apron ring vertex's strict chord is measured to the NEAREST VISIBLE anchor across APRON-ONLY pavement, where the anchor set is BOTH the building pads and the taxiway centerline nodes — whichever is closer wins. This supersedes vertex→nearest-spine-node-with-pad-intercept: the pad is a first-class chord target, not merely an interceptor when it happens to lie in the path. Visibility is priced across apron pavement only (a chord may not cross non-apron pavement or gaps). BUILDING FRONTAGE CHORDS ARE UNCHANGED: pad→centerline frontage chords keep their existing rules (2026-08-08 / 2026-08-21d) and caps. Consequence: the chord population near pads becomes LOCAL (vertices price against the pad they stand beside instead of a distant spine node), which is the population the 2026-08-25 pad-seat measurement showed the frontage-subset consistency interval was inconsistent with.
 * **DEM IS LAST PRIORITY — PAVEMENT NEVER DRAPES; CUT/RAISE STRAIGHT PLANES BETWEEN ANCHORS (owner 2026-08-25, strengthens 2026-08-24c).** The pavement surface between anchors (centerline profiles, seated pads) is the straight-plane/taut interpolation, cutting into hills and raised over hollows as needed. DEM participates ONLY as the lowest-priority tiebreaker: where the law leaves a choice (a seat interval, an unanchored region), anchor-consistency and plane-flatness are preferred over DEM proximity, and raw DEM authority appears only where no anchor reaches at all. This demotes the standing "DEM chooses WHERE within the lawful range" canon to LAST choice: the range is chosen from anchors first.
 
+## 2026-08-25b — ROAD↔APRON EDGE CONFORMANCE + the band seal's scope (owner)
+
+> **RECONSTRUCTED 2026-09-01 (beta hardening, H2).** This heading was
+> MISSING: `2026-08-25b` is cited 28 times across `src/`, `tools/` and
+> `tests/` but had no entry here, so every citation dangled. The text
+> below is reconstructed from the implementation and its twins — not from
+> memory — and the code is authoritative where they disagree. Evidence
+> and measured numbers: `docs/specs/road-band-seal-scope-spec.md` (also
+> reconstructed in the same commit, from the same sources).
+
+* **A ROAD SHARING AN EDGE WITH AN APRON CONFORMS TO THE STRICTEST GRADE — it becomes part of the apron (owner 2026-08-25).** Contact is CANONICAL IDENTITY, never proximity: two rings share an edge exactly when they share an ordered pair of consecutive node ids (either orientation), which is what `layout.to_osm`'s 11-decimal node dedup makes an identity fact about the emitted graph. Rings that merely come CLOSE are the NEAR-MISS class — reported separately (`tools/band_clamp_attrib.py --contact-rings --near-miss-m`), never folded in; that class is a separate owner call.
+
+* **AMENDMENT 1 — CONFORMANCE IS PRICING, NEVER POPULATION.** Attempt 1 read "becomes part of the apron" as ABSORPTION and it was measured wrong: HECA airside 1,735 → 1,948 and SPJC 175 → 178, adding +53,530 m² of new apron and new 6 m apron|junction steps at ways -12160 / -12167 — the airside-contamination direction "airside is king" forbids. So an edge-sharing ring CONFORMS to the apron's law and does not BECOME the apron: it is stamped `apron_contact`, carries the apron cap end to end, seeds from the apron datum, and keeps its role, its geometry and its groundside-family rows. No absorption, no mouth cut, no reclassification. Gate `O4_ROAD_APRON_EDGE_CONFORM`, default ON. The owner's sentence — "five ring roads touching one apron are one apron-grade surface" — is delivered as GRADE.
+
+* **THE BAND SEAL SEALS ONLY WHAT THE BAND LEGISLATES (owner-approved option (a), same session).** `seal_pavement_to_band` is the pipeline's last elevation author (R17-1(b)), and the band of record is the AIRCRAFT-reachability band: the road family is absent from its propagation domain, its leg-cost grid never paints the road cap, and an off-mask road point is priced at `APRON_MAX_GRADE` × offset with a hard 30 m horizon. Clamping a road to that interval applied a law the road is not under, as the LAST author. MEASURED at HECA: 110 band-clamp records, 92 of them road-family, every floor-side road clamp inside the 30 m off-net radius and none outside it; the owner's site 30.102344, 31.3951157 shipped as a +5.05 m step. The seal's scope is now derived from `raster_reach_band.band_domain_roles()` — ONE source, twinned against a second hand-written copy — and the road family keeps its own authorities (mouth-fed `groundside_reach_band` seating, the road chord limiter at the road cap). Gate `O4_SEAL_AIRSIDE_ONLY`, default ON.
+
+* **Later scoping, recorded here so the chain reads in order:** 2026-08-26b item 2 widened the contact term from the apron to EVERY airside neighbour (spec `road-airside-crossing-conformance-spec.md` §1.1); 2026-08-28e made contact a VALUE law that no longer folds into the cap for a road meeting airside only at a FACE (such a road keeps its free-road class beyond the contact).
+
+> **OWED, NOT RECONSTRUCTED (flagged 2026-09-01, H2).** `2026-08-25b` was
+> not the only missing heading — the whole lettered 2026-08-25 family is
+> cited but unrecorded: `c` (16 citations), `d` (8), `e` (23), `f` (10),
+> `g` (35), `h` (15). Only `b` is reconstructed above, because only `b`
+> had five independent citing files carrying consistent quotable text and
+> measured numbers. The other six are NOT written here rather than
+> guessed: RULINGS is owner canon, and inferring an owner ruling from
+> code comments alone is exactly the fabrication this file must not
+> contain. They need an owner or spec-author pass.
+
 ## 2026-08-26 — Owner rulings (LEMD T4S basin, measured against the pack's own shipped mesh patch)
 
 Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-010/+40-004/LEMD.patch.osm` — the pack's own Ortho4XP patch. Its T4S pit: one 87-vertex ring, 27,612 m², rim exactly at the pack's flat 594.625 datum, floor at exactly datum −18.0, vertical walls (paired nodes ~0.5 m apart). The pack's deepest genuine below-grade solid in the family is −7.09 m — the −18 floor is a ~10.9 m overcut to a round number, occluded by the object shell.

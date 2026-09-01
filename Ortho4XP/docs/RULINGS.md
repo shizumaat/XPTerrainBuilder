@@ -2025,3 +2025,9 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * **2026-09-01j (spec author, corrects 01h's scope):** 01h's clip was inert at the ruled site (implemented against a read mechanism — the covered-stretch drop never fired there; the clip stays for where it does). The real seam, measured offline: only divergence ARMS enter the per-arm walling register, so other ramp bodies of a multi-body fork cluster get only the union band (outer hull — no concave inner face possible). RULED: PER-BODY WALLING — every ramp body of a multi-body cluster is walled as its own corridor (the sibling-exclusion + pinch machinery already composes them); the union band applies only to single-body clusters (a 31h-merged dual carriageway is one body). One closing arm.
 
 * **2026-09-01k (owner sign-off):** Batch 4a MERGED for the beta — the two strip_seam_tear pairings (pre-existing steps newly paired by released ground) quoted for the Thursday sim read; census 6,403→4,233, phantom road rings −98.4%, annulus class closed generally.
+
+## 2026-09-01l — Owner ruling: ZERO AIRSIDE FOR THE BETA
+
+* THE BETA BAR IS ZERO AIRSIDE LAW VIOLATIONS. Groundside rows may stand (quoted); airside must be clean.
+* HECA RUNWAYS ARE A REGRESSION, NOT AN ACCEPTED RED: they solved within grade previously, and NOTHING is allowed to pull a runway past its caps. The 05C/23C rows (2.40/2.33/2.12 % vs 1.50 %) are root-caused and fixed — the "deliberately red acceptance module" framing must never absorb a runway regression.
+* Method: bisect with the runway-profile probe as predicate (the H5 pattern that named the SPLP minter), then fix at the attributed site; the remaining airside population is triaged into named mechanism classes for rapid rounds Wednesday.

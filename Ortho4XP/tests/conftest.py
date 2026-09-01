@@ -583,6 +583,73 @@ def _airport_mod_cache_is_a_lane_local_overlay(tmp_path_factory):
             os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = previous_env
 
 
+#: Where the session mirrored the shared OSM regional-extract store to.
+#: Module level for the same reason as the two caches above: the twins
+#: read it.
+_LANE_OSM_EXTRACT_STORE_DIR = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _osm_regional_extract_store_is_a_lane_local_overlay(tmp_path_factory):
+    """THE THIRD OVERLAY: no test may author the shared OSM clip store.
+
+    THE MEASURED LEAK (attributed 2026-09-01, hard4 lane).  Eight
+    orphaned ``clip_-012-0078_69d512e41ade-part0.osm.pbf.tmp-<pid>-<tid>
+    .osm.pbf`` files sit in
+    ``<repo>/OSM_data/_regional_extracts/clips`` — 11.3 MB each, one per
+    run that touched SPJC's region, the newest stamped 08:40:49 inside
+    the 08:37:40-08:59:05 window of the 2026-09-01 full suite whose
+    session detector errored on ALL EIGHTEEN xdist workers.
+
+    HOW IT GETS PAST EVERYTHING.  ``O4_OSM_Extracts._cut_clip`` hands the
+    part paths to ``O4_OSM_Extract_Filter.cut_clip_parts_with_osmium``,
+    which writes ``<part>.tmp-<pid>-<tid>.osm.pbf`` beside the part and
+    then renames it into place.  The writer is the osmium-tool
+    SUBPROCESS, so the per-test ``SharedRepoWriteGuard`` — a Python-level
+    guard — never sees the bytes land; only the Python ``os.replace``
+    is refused, and ``_clip_for_query``'s broad ``except Exception``
+    swallows that refusal ("Clipped OSM cache unavailable … filtering the
+    full extracts") and the build carries on.  So the clip never
+    completes, the cache key never serves, and every later run re-cuts
+    and re-orphans another 11.3 MB.  Exactly the blind spot the session
+    detector's own message names: "written by a SUBPROCESS or a C
+    extension".
+
+    THE SHAPE OF THE FIX is the mod cache's, for the same reasons: a
+    COPY-ON-WRITE read-through overlay keeps the warm clips and region
+    extracts readable (a cold store would make every OSM query re-cut
+    for real) while every write — the subprocess's tmp file included —
+    lands lane-local.  ``STORE_DIRECTORY`` is module-level and
+    documented mutable for exactly this ("Module-level and mutable so
+    tests monkeypatch it at a tmp_path"), and ``_store_path`` reads it
+    at CALL time, so the assignment reaches every path in the module.
+    Nothing reloads ``O4_OSM_Extracts``, and its store is derived from
+    ``FNAMES.OSM_dir`` at ITS OWN import, so the data-root reloads in
+    ``tests/test_data_root.py`` cannot recompute it out from under us
+    the way they did the DSF dump cache.
+    """
+    global _LANE_OSM_EXTRACT_STORE_DIR
+    try:
+        harness = _harness_build_module()
+        import O4_OSM_Extracts as EXTRACTS
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] extract-store overlay unavailable: {exc!r}")
+        yield
+        return
+    shared = EXTRACTS.STORE_DIRECTORY
+    overlay = str(tmp_path_factory.mktemp("osm_regional_extracts"))
+    if os.path.isdir(shared):
+        mirror_tree_as_overlay(shared, overlay)
+    previous = EXTRACTS.STORE_DIRECTORY
+    EXTRACTS.STORE_DIRECTORY = overlay
+    _LANE_OSM_EXTRACT_STORE_DIR = overlay
+    try:
+        yield
+    finally:
+        _LANE_OSM_EXTRACT_STORE_DIR = None
+        EXTRACTS.STORE_DIRECTORY = previous
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _the_shared_data_repo_survives_the_suite():
     """THE DETECTOR: fail the session if a test wrote into the shared repo.

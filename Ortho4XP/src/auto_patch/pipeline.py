@@ -83,6 +83,13 @@ def _rod_ckpt(layout, name: str) -> None:
     """
     _rod_carry_checkpoint(layout, name)
     _road_piece_checkpoint(layout, name)
+    # THE COVERAGE PROBE RUNS AT THE POST-SOLVE SEAMS TOO.  It was
+    # sprinkled only at the pre-solve/feature seams, so a point lost
+    # AFTER the solve — which is where every tunnel clip and re-clip
+    # lives — had no trace at all.  Same instrument, same env gate
+    # (``O4_COVERAGE_PROBE``), no-op without it.
+    from .geom_guard import probe_points_only as _covp_seam
+    _covp_seam(layout, name)
     if getattr(layout, "_string_mover_ledger", None) is not None:
         from .elevation_per_surface.route_profile.solve import (
             mover_stage_boundary as _mover_stage_boundary)

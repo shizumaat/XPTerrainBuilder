@@ -610,6 +610,18 @@ def coverage_probe(layout, tag: str) -> None:
     (``pipeline._rod_ckpt`` carries it across the post-solve half).
     """
     _road_piece_checkpoint(layout, tag)
+    probe_points_only(layout, tag)
+
+
+def probe_points_only(layout, tag: str) -> None:
+    """The POINT half of :func:`coverage_probe`, without the road-piece
+    ledger checkpoint.
+
+    ``pipeline._rod_ckpt`` already checkpoints the ledger at each
+    post-solve seam, so it calls THIS — running the full
+    ``coverage_probe`` there would record every post-solve seam in the
+    ledger TWICE and corrupt the very census it exists to keep.
+    """
     spec = os.environ.get("O4_COVERAGE_PROBE")
     if not spec:
         return
@@ -620,14 +632,25 @@ def coverage_probe(layout, tag: str) -> None:
         _ROLES = ("apron", "junction", "service_junction", "service_road",
                   "building", "groundside_pavement", "runway",
                   "runway_crossing", "terminal", "stub", "primary_parallel",
-                  "secondary_parallel", "cross_connector")
+                  "secondary_parallel", "cross_connector",
+                  # THE TUNNEL STRUCTURE JOINS THE PROBE (2026-09-01).
+                  # The probe's whole purpose is "who owns this POINT,
+                  # and at which seam did it stop owning it" — and the
+                  # wall band was invisible to it, so the one question
+                  # this campaign kept asking about the band could not
+                  # be answered by the one instrument built to answer
+                  # it.  ``retaining_wall`` carries the band; the
+                  # tunnel road surfaces come with it so a point lost
+                  # to the ROAD is distinguishable from a point lost to
+                  # nothing.
+                  "retaining_wall", "tunnel_ramp")
         out = []
         for part in spec.split(";"):
             la, lo = (float(v) for v in part.split(","))
             x, y = to_m(lo, la)
             pt = Point(x, y)
             owners = [
-                f"{s.role}#{i}"
+                f"{s.role}/{getattr(s, 'ref', '') or '-'}#{i}"
                 for i, s in enumerate(layout.shapes)
                 if s.role in _ROLES and s.polygon is not None
                 and not s.polygon.is_empty and s.polygon.contains(pt)]

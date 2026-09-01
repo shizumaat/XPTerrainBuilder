@@ -5631,3 +5631,47 @@ both owner ramp probes CONTAINED.
   hypothesis.  The next step is the seam probe the original brief
   named, on an instrumented build: present-at-seam-X, gone-after-Y,
   over the band pieces along that stretch.
+
+- 2026-09-01 lane/ltbatch3 — **THE SEAM PROBE, AND THE ANSWER: THE
+  REMOVAL IS LAWFUL.**  One instrumented write-only OTHH build
+  (`lt3p_probe`, `--no-ledger`), five probe points spaced along the
+  47.5 m road-adjacent stretch at the MID-BAND offset (1.1 m outboard
+  of the 142.8 m body's ring — inside the missing band's own
+  footprint).  No hypothesis was formed before the trace.
+  THE TRACE (`O4_COVERAGE_PROBE`, owners as `role/ref#idx`):
+      post-slice … post-road-lots      apron (#68→#70→#61→#44)
+      post-pavement-score … presolve   service_road  (scorer v2 re-verdict)
+      00_post_solve … post-groundside-sep  service_road
+      T00_after_per_body_walls         service_road + **tunnel_wall#2207**
+      T01_cluster_walled               service_road + tunnel_wall#2207
+      T99_before_finalize_call         service_road + tunnel_wall#2207
+      T02_finalize_entry               service_road + tunnel_wall#2207
+      T04_before_late_r10_2_gate       **tunnel_wall#2206**
+      T03_before_wall_vs_ramp_clip     **LOST**
+      01_terrain_transition_emit … to_osm   LOST
+  (T04 precedes T03 in source order.)  So the band IS emitted on that
+  stretch, survives to the late gate, and dies INSIDE the late R10-2 /
+  wall-adjudication gate.  Present-at-T04, gone-after: the seam is
+  named.
+  THE LAW, quoted from the gate's own contract
+  (`_ramp_wall_adjudication_gate`): "R14-2/A-3 forbids a ramp CUTTING
+  aircraft-transit pavement: over a taxiway the stretch is covered bore
+  and the pavement stays.  The wall FACE stands in the outer half of
+  the band annulus, furthest from the ramp, so it is exactly the piece
+  that lands on that uncut pavement … while the FOOT, in the inner
+  half, sits inside the cut and survives."  That is this residual,
+  written down before this round began — the gate documents the same
+  class MEASURED at three other OTHH sites in Batch 3b ("a complete
+  foot and no face").
+  THE VERDICT: the band may not stand there.  The ground at 0.6-1.6 m
+  from the ramp is apron/service-road pavement which the ramp is
+  FORBIDDEN to cut (R14-2/A-3) and on which a cover piece may not stand
+  (R10-2).  The retired §T5 foot occupied 0-0.6 m — inside the ramp's
+  own cut clearance — which is the ONLY reason the control answered
+  that stretch.  So the 47.5 m is the foot retirement's ONE VISIBLE
+  COST, and it is a lawful consequence of RULINGS 2026-09-01c meeting
+  R14-2/A-3, not a defect and not an over-broad removal.
+  01h IS NOT INERT IN GENERAL — its clip is what now keeps the
+  off-pavement remainder of such a band instead of dropping the piece
+  whole (this build: 0 covered-stretch drops, 1 graze).  It simply
+  cannot conjure band onto ground the law reserves for pavement.

@@ -3630,6 +3630,21 @@ _TUNNEL_COVER_MIN_PIECE_M2 = 0.5
 _TUNNEL_PAVEMENT_CUT_REFS = ("tunnel_ramp", "tunnel_corridor")
 
 
+def _tunnel_seam_probe(layout, tag: str) -> None:
+    """One named seam INSIDE the tunnel emission, for the coverage probe.
+
+    The probe was sprinkled at the pipeline's own seams, but the wall
+    band is born, clipped and gated entirely WITHIN this module — so a
+    band piece that vanished between its emit and the pipeline's next
+    seam had no trace.  Write-only, env-gated, never raises.
+    """
+    try:
+        from .geom_guard import probe_points_only
+        probe_points_only(layout, tag)
+    except Exception:                                  # pragma: no cover
+        pass
+
+
 def _tunnel_pavement_union(layout: "PavementLayout"):
     """Union of every ``tunnel_ramp``/``tunnel_mouth`` polygon emitted so
     far, or ``None`` — the surface R10-2 forbids any cover piece to
@@ -5651,6 +5666,7 @@ def _emit_portal_cluster(
                         s.polygon for s in layout.shapes[_n0:]
                         if getattr(s, 'ref', '') in _WALL_BAND_REFS
                         and s.polygon is not None)
+                _tunnel_seam_probe(layout, 'T00_after_per_body_walls')
                 UI.vprint(1,
                     f"  [pav-builder] PER-BODY walls (2026-09-01j): "
                     f"{len(_plan)} of {len(_cluster_polys)} cluster ramp "
@@ -5674,6 +5690,7 @@ def _emit_portal_cluster(
                     dem_at, apt_elev)
         except _GEOM_EXC:
             pass
+    _tunnel_seam_probe(layout, 'T01_cluster_walled')
     return 1
 
 
@@ -7017,6 +7034,7 @@ def _finalize_tunnel_emission(
     ``wall_gap_m + retaining_wall_width_m``, the perimeter wall band's
     own geometry — see :func:`_tunnel_ramp_pavement_cut`.
     """
+    _tunnel_seam_probe(layout, 'T02_finalize_entry')
     # Boundary coordination: clip every ROLE_BOUNDARY shape so
     # it doesn't overlap the actual tunnel-polygon footprint.
     # The boundary ribbon is built by line-buffering the apt.dat
@@ -7137,6 +7155,7 @@ def _finalize_tunnel_emission(
             ramp_cut_clearance_m)
         _gate_bufs: dict[int, object] = {}
         _kept9 = []
+        _tunnel_seam_probe(layout, 'T04_before_late_r10_2_gate')
         _n_clip = 0
         _n_graze = 0
         for _k9, s9 in enumerate(layout.shapes):
@@ -7342,6 +7361,7 @@ def _finalize_tunnel_emission(
                        else "."))
             except _GEOM_EXC:
                 pass
+    _tunnel_seam_probe(layout, 'T03_before_wall_vs_ramp_clip')
     # WALL-vs-RAMP CLIP (user 2026-06-12, LMML): a retaining wall / cap
     # is flat at apt_elev and must never sit ON TOP of a tunnel ROAD
     # ramp surface.  Where two portal walks of one tunnel reach past
@@ -8368,6 +8388,7 @@ def _emit_tunnel_portals(
                 f"(§6).")
     except Exception as _deck_exc:                       # pragma: no cover
         UI.vprint(1, f"  [bridge-deck] adjudication skipped: {_deck_exc!r}")
+    _tunnel_seam_probe(layout, 'T99_before_finalize_call')
     return _finalize_tunnel_emission(
         layout, exclusion_zones, boundary_clearance_m,
         _airside_gate_u, _pre_emit_ids, n_emitted,

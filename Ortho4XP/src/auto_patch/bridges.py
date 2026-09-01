@@ -288,6 +288,28 @@ _TUNNEL_WALK_DEVIATION_TOL_M = 0.25
 # floor is the second line of defence, not the first.)
 _TUNNEL_WALK_MIN_SEGMENT_M = (
     _TUNNEL_ALT_EMIT_STEP_M / TUNNEL_RAMP_GRADE_SAFETY_MARGIN)
+#: DUAL CARRIAGEWAYS ARE ONE RAMP (RULINGS 2026-08-31h, owner).
+#:
+#:   "A tunnel approach whose carriageways hold CONSTANT SEPARATION for
+#:   the whole approach and to the mouth emits ONE ramp surface spanning
+#:   both (no fork, no inner faces — outer walls only).  A FORK exists
+#:   only where road/rail ways actually DIVERGE (separation grows).  The
+#:   divergence test is the separation profile along the arms."
+#:
+#: The pre-ruling test was an ABSOLUTE one — spread > cluster_span +
+#: margin — which a wide-but-parallel pair trips without ever diverging.
+#: The ruling makes GROWTH the discriminator, so the separation PROFILE
+#: is what decides: how much wider the arms are at their widest than at
+#: the mouth.
+#:
+#: THE BAR IS SET ABOVE THE MEASURED WOBBLE.  The sustain spec records
+#: OTHH's A-site twin carriageways drifting 8.3-9.8 m over 150 m and
+#: crossing their absolute threshold on a 1.2 m relative splay — noise,
+#: not divergence.  5 m clears that and is about one carriageway width,
+#: below which two ways are still a PAIRED carriageway rather than two
+#: roads going different places.  An emitter invariant, not a user knob.
+TUNNEL_FORK_MIN_GROWTH_M = 5.0
+
 # FORK SUSTAIN (spec ``docs/specs/tunnel-fork-sustain-spec.md`` §2, owner
 # 2026-08-07).  Fraction of the probe stations FROM the divergence
 # crossing to the end of the probe window at which the member spread must
@@ -5288,6 +5310,26 @@ def _emit_portal_cluster(
                 if s_div is None and spread > _div_thresh:
                     s_div = s
                 s += _div_step
+            # ── 2026-08-31h: DOES THE SEPARATION ACTUALLY GROW? ─────
+            # Checked BEFORE the sustain test, because it is the senior
+            # question: a pair that never widens is a dual carriageway
+            # however far apart it runs, and the sustain test cannot see
+            # that (a constant 12 m separation holds above a 11.5 m
+            # threshold at every station and reads as a sustained fork).
+            if s_div is not None and _spreads:
+                _sp0 = _spreads[0][1]
+                _growth = max(_sp for _st, _sp in _spreads) - _sp0
+                if _growth < TUNNEL_FORK_MIN_GROWTH_M:
+                    UI.vprint(1,
+                        f"  [tunnel-fork] cluster at "
+                        f"({walk_pts[0][0]:.0f},{walk_pts[0][1]:.0f}): "
+                        f"separation {_sp0:.2f} m at the mouth, widest "
+                        f"{_sp0 + _growth:.2f} m — grows {_growth:.2f} m "
+                        f"against the {TUNNEL_FORK_MIN_GROWTH_M:.1f} m "
+                        f"bar, so these are DUAL CARRIAGEWAYS at constant "
+                        f"separation, not a fork (RULINGS 2026-08-31h): "
+                        f"ONE ramp spanning both, outer walls only.")
+                    s_div = None
             if s_div is not None:
                 _after = [_sp for (_st, _sp) in _spreads if _st >= s_div]
                 _held = sum(1 for _sp in _after if _sp > _div_thresh)

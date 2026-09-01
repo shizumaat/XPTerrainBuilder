@@ -100,7 +100,32 @@ def make_tile(dem):
         airport_elevation_inset_feather_m=FEATHER_M)
 
 
-def flat_dem(value=0.0, n=GRID_N):
+#: The LAND base a detector twin's synthetic raster sits at.
+#:
+#: NOT 0.0.  S2a — THE SEA-BAND EXCLUSION (``flat_site.dem_relief``, lead
+#: ruling 2026-08-09, commit f9e995ed) drops every in-extent sample at or
+#: below ``FLAT_SITE_SEA_BAND_MAX_M`` (0.0 m) once ``Z0`` reaches
+#: ``FLAT_SITE_SEA_BAND_MIN_Z0_M`` (1.0 m): at a site the CIFP says is
+#: metres above the sea, zeros are sea surface or void fill, and a plane
+#: regressed through them measures the shoreline.  A constant-ZERO raster
+#: is therefore 100 % sea to the detector — ``n = 0``, relief unknown,
+#: verdict ``no_data`` — which is the law working, not a defect.
+#:
+#: These twins were authored on a branch forked BEFORE S2a landed (they
+#: arrive whole at ee856d20 and have never been edited since) and went
+#: red at the 2026-08-10 merge 577913f2 that brought the two laws
+#: together.  The frame they measure in is what is stale, so the raster
+#: moves onto land and every assertion below is kept verbatim.
+LAND_BASE_M = 1.0
+
+
+def flat_dem(value=LAND_BASE_M, n=GRID_N):
+    """A constant raster — by default on LAND (see :data:`LAND_BASE_M`).
+
+    Callers that care about the base value itself (the feather twins ramp
+    to it) pass it explicitly; callers that only need "flat ground under
+    the airport" take the default and stay inside S2a.
+    """
     return FakeDEM(constant=value, n=n)
 
 
@@ -241,7 +266,7 @@ def test_water_row_in_and_beyond_the_feather_ring_is_unchanged():
 # ──────────────────────────────────────────────────────────────────────
 def test_flat_candidate_yields_one_substitution_at_z0(monkeypatch):
     wire_airport(monkeypatch)
-    tile = make_tile(flat_dem(0.0))
+    tile = make_tile(flat_dem())
 
     got = substitutions(tile)
 
@@ -264,7 +289,7 @@ def test_gate_off_substitutes_nothing_and_leaves_the_raster_identical(
     """``O4_FLAT_SITE_MODE=0`` restores pre-change behaviour (spec §3.1)."""
     wire_airport(monkeypatch)
     monkeypatch.setattr(config, "FLAT_SITE_MODE", False)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
     before = sha(dem.alt_dem)
 
@@ -292,7 +317,7 @@ def test_not_flat_substitutes_nothing_and_leaves_the_raster_identical(
 def test_lidar_credible_substitutes_nothing(monkeypatch):
     """A metre-credible DEM is trustworthy — the normal path already works."""
     wire_airport(monkeypatch)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     dem.airport_inset_provenance = [
         {"icao": "TEST", "provider": "LIDAR", "native_resolution_m": 1.0}]
     tile = make_tile(dem)
@@ -307,7 +332,7 @@ def test_lidar_credible_substitutes_nothing(monkeypatch):
 
 def test_no_cifp_is_no_data_and_substitutes_nothing(monkeypatch):
     wire_airport(monkeypatch, thresholds=[])
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
     before = sha(dem.alt_dem)
 
@@ -319,7 +344,7 @@ def test_no_cifp_is_no_data_and_substitutes_nothing(monkeypatch):
 def test_threshold_spread_beyond_the_cap_substitutes_nothing(monkeypatch):
     wire_airport(monkeypatch,
                  thresholds=[0.0, config.FLAT_SITE_THRESHOLD_SPREAD_M + 1.0])
-    tile = make_tile(flat_dem(0.0))
+    tile = make_tile(flat_dem())
 
     assert substitutions(tile) == []
 
@@ -356,7 +381,7 @@ def test_flat_declared_substitutes_exactly_like_flat_candidate(monkeypatch):
 def test_an_unknown_future_verdict_takes_the_normal_path(monkeypatch):
     """An allow-list, not a deny-list: unknown ⇒ real DEM, never a crash."""
     wire_airport(monkeypatch)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
     before = sha(dem.alt_dem)
     real_classify = flat_site.classify_site
@@ -377,7 +402,7 @@ def test_multi_airport_tile_substitutes_only_its_flat_candidates(monkeypatch):
         "AAAA": FLAT_THRESHOLDS,
         "BBBB": [0.0, config.FLAT_SITE_THRESHOLD_SPREAD_M + 10.0],
     })
-    tile = make_tile(flat_dem(0.0))
+    tile = make_tile(flat_dem())
 
     got = substitutions(tile, icaos=("AAAA", "BBBB"))
 
@@ -397,7 +422,7 @@ def test_spread_within_the_cap_places_z0_at_the_cifp_mean(monkeypatch):
     thresholds = [12.0, 14.0]
     original = list(thresholds)
     wire_airport(monkeypatch, thresholds=thresholds)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
 
     got = substitutions(tile)
@@ -433,7 +458,7 @@ def test_a_warm_cache_shaped_dem_is_substituted_with_no_bake_at_all(
     at ALL and the extent must still come out constant at Z0.
     """
     wire_airport(monkeypatch)
-    dem = flat_dem(0.0)                      # a raster already "loaded"
+    dem = flat_dem()                      # a raster already "loaded"
     dem.airport_inset_provenance = []        # the bake ran and baked none
     tile = make_tile(dem)
 
@@ -466,7 +491,7 @@ def test_the_builds_own_xplane_root_is_used_when_the_caller_passes_none(
     monkeypatch.setattr(flat_site_mode, "_BUILD_XPLANE_ROOT", None)
     monkeypatch.setattr(flat_site_mode, "_resolve_xplane_root",
                         flat_site_mode._resolve_xplane_root)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
 
     # No root anywhere: the mode must decline, loudly and harmlessly.
@@ -495,7 +520,7 @@ def test_the_bake_does_not_carry_the_substitution(monkeypatch):
     conditional on the inset feature again.
     """
     wire_airport(monkeypatch)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
     tile.airport_elevation_insets = False        # the bake's own gate
     before = sha(dem.alt_dem)
@@ -511,7 +536,7 @@ def test_the_bake_does_not_carry_the_substitution(monkeypatch):
 # ──────────────────────────────────────────────────────────────────────
 def test_overlay_stamps_synthetic_flat_site_provenance(monkeypatch):
     wire_airport(monkeypatch)
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     tile = make_tile(dem)
 
     INSETS.overlay_flat_site_insets(tile, {"TEST": {"key_type": "icao"}})
@@ -533,7 +558,7 @@ def test_overlay_stamps_synthetic_flat_site_provenance(monkeypatch):
 
 
 def test_provenance_selects_this_airports_entry_on_a_multi_airport_dem():
-    dem = flat_dem(0.0)
+    dem = flat_dem()
     dem.synthetic_flat_site_provenance = [
         {"icao": "AAAA", "kind": "synthetic_flat_site", "z0_m": 1.0},
         {"icao": "BBBB", "kind": "synthetic_flat_site", "z0_m": 2.0},
@@ -547,7 +572,7 @@ def test_provenance_selects_this_airports_entry_on_a_multi_airport_dem():
 
 def test_provenance_without_a_substitution_reads_exactly_as_before():
     """The real-DEM frame is unchanged: a None key, and the old label."""
-    dem = flat_dem(0.0)
+    dem = flat_dem()
 
     meta = provenance.dem_provenance_from_dem(dem, icao="TEST")
 

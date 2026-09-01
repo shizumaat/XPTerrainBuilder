@@ -206,3 +206,23 @@ Below-bar = STOP with residual. Sim read between every batch.
    is bore-depth values not travelling outward, which roles capture
    without geometric spillover onto at-grade ground. The off-arm in
    flight adjudicates the clause attribution first.
+
+## §5-SUPPLEMENT-2 (Batch 3f, spec author 2026-08-31 — fork walls)
+
+A TRUE fork (31h divergence test: separation growth > TUNNEL_FORK_MIN
+_GROWTH_M) is walled PER ARM: downstream of the divergence point each
+arm is its own corridor for the wall machinery — the existing band
+emitter runs on the arm's own body, yielding inner AND outer faces
+per arm naturally (no special inner-face path). Where the two arms'
+INNER bands overlap near the throat (the V's pinch, the 31g class),
+they collapse to ONE SHARED wall+foot along the bisector — a shared
+structure is the physical answer in a gap narrower than two bands.
+The throat plate caps the V as today. Acceptance: the confirmed fork
+at 25.2537652,51.6032373 reads wall/foot ≥0.9 per side on BOTH arms'
+inner and outer faces (or the shared-bisector wall where pinched);
+no band collisions; the canonical bar per mouth site becomes, for a
+fork site: one ramp per arm + per-arm walls with the shared-pinch
+rule + one throat cap.
+Also Batch 3f: ATTRIBUTE the 21% foot shortfall at the merged site
+25.2761183,51.6134359 (154.0/193.8 m², gap not wall-occupied) before
+fixing — measured mechanism, then the fix, per standing law.

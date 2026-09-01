@@ -5498,3 +5498,60 @@ both owner ramp probes CONTAINED.
       PRE-EXISTING, not introduced, but now a visible violation of
       2026-09-01c's "no floor value in any wall band".  Owed its own
       attribution.
+
+- 2026-09-01 lane/ltbatch3 round 3j — THE GAP AT 0.6 (RULINGS
+  2026-09-01e), closing arms `lt3j_othh_arm` (488.3 s / 2,498 shapes)
+  and `lt3j_lemd_arm` (581.2 s / 2,223 shapes).
+  BOTH ARMS ARE FLAGGED **CONTAMINATED**, and NOT by this lane: one
+  file, `Airport_mod_cache/SPLP Test/o4_object_footprints_-13-078.cache`,
+  modified 11:59:51 inside both build windows.  `write_guard_blocked` is
+  EMPTY for both (these builds attempted no shared write and were
+  refused none) and their mod cache is redirected lane-local; the
+  snapshot spans 5,340 corpus files and found exactly that one changed.
+  SPLP is tile -13-078; the subjects are OTHH +25+051 and LEMD +40-004,
+  so the contaminant is outside both input sets — recorded as a FLAG,
+  not argued away.  A concurrent lane wrote it.
+  THE RULING WORKED: `ramp_wall_gap` OTHH 74 -> 26 (control 14),
+  LEMD 85 -> 25; `nested_band_pieces` 2 -> 0.
+  THE CRUMB HYPOTHESIS IS CLOSED — CONFIRMED.  At gap 0.5 four fork
+  pieces sat BELOW the emitter's own 0.5 m2 floor, which no minting
+  path can produce, proving a post-emit shrinker; at 0.6 every piece is
+  ABOVE it.  The sub-floor and nested crumbs WERE the 0.5-tolerance
+  weld bow.  What remains at 0.6 is a different, benign population:
+  genuine arcs of 0.58-0.74 m2 that trip the instrument's 1.0 m2
+  fragment bar.
+  OTHH A/B vs the parked 3h arm: 9 PASS / 1 FAIL / 10 SKIPPED;
+  `adjudicated_delta` **-29** (1,548 vs 1,577), `actionable_sites` 44
+  (46), `subgrade_by_role` an EXACT match, `geometry_drift` 1 of 2,441
+  same-geometry ways and the single drifter is a `retaining_wall` —
+  the class this round changes.  The dispatched site
+  25.2761183,51.6134359 is CANONICAL (0.93/1.00), from NOT canonical.
+  LEMD held: basin byte-identical across the gap change (14 rim + 1
+  trench, 679 altitudes, floor 587.750 / top 599.670 in BOTH arms) and
+  `geometry_drift` 0 over 2,167 same-geometry ways.  NOT verified: a
+  PRE-ROUND LEMD control (none on disk), so "held" here means held
+  across 0.5 -> 0.6, not across the whole retirement.
+  **THE ONE NEW CLASS, AND WHY THIS DOES NOT MERGE.**  At the 4-arm
+  fork 25.2537652,51.6032373, per-arm structure coverage (the
+  instrument's own `FACE_REACH_M` frame; the control's structure counts
+  wall AND foot):
+      arm len 142.8 m : control 15.2 m unanswered (11%), 100% of it on
+                        sibling pavement = lawful;
+                        final 66.7 m unanswered (47%), only 23% on a
+                        sibling => **51.4 m of side on FREE GROUND with
+                        no retaining structure**.
+      arm len  64.3 m : control 25.8 m (40%), 66% sibling — the ORIGINAL
+                        dispatch complaint;
+                        final 17.7 m (27%), **100% sibling** => FIXED,
+                        the whole remaining gap is lawful pinch.
+  ATTRIBUTION: the FOOT was answering that 142.8 m arm's side (control
+  foot L/R 0.98/0.98).  With the foot retired only the face band
+  remains, and at 0.6-1.6 m out it collides with siblings far more than
+  the foot did at 0-0.6, so the sibling subtraction and R10-2 remove
+  what the foot used to cover.  The arc-keeping fix CANNOT be the
+  cause: it is monotonically additive, it only keeps pieces that were
+  previously deleted.  The ruling is sound in general and has a
+  MEASURED COST at this one tight fork.  Whether a fork arm's inner
+  side takes a reduced-offset band, or the pinch exemption widens, is a
+  DESIGN decision and belongs to the owner — it is not closable by
+  moving an instrument bar.

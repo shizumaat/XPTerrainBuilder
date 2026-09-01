@@ -7207,6 +7207,62 @@ def _finalize_tunnel_emission(
             if _ov <= 0.25:
                 _kept9.append(s9)
                 continue
+            # ── RULINGS 2026-09-01h: THE WALL BAND IS CLIPPED, NEVER
+            # DROPPED ────────────────────────────────────────────────
+            # The band yields the ground it may not stand on and KEEPS
+            # its free-ground remainder — every arc >= the emitter
+            # floor, not just the largest.  The two rules below are
+            # what this replaces, and both DELETE free ground: the
+            # covered-stretch drop takes the WHOLE piece once half of
+            # it overlaps, and the graze path then keeps only
+            # ``max(geoms, key=area)`` of what survives.
+            #
+            # MEASURED, at the OTHH 4-arm fork 25.2537652,51.6032373:
+            # the 142.8 m arm's side went from 15.2 m unanswered (all
+            # of it lawfully on sibling pavement) to 66.7 m, of which
+            # 51.4 m stood on FREE GROUND with no retaining structure
+            # at all — because the band crossing a sibling's pavement
+            # was dropped whole instead of clipped back to the part
+            # that stands on open ground.
+            #
+            # This is the SAME footprint discipline as the emitter's
+            # own sibling subtraction, one level up, and it is
+            # ``_tunnel_cover_pieces``'s own contract ("keeping only
+            # the largest is a DELETION") applied where the late gate
+            # had its own opinion.  The pinch still stands down at the
+            # seed (2026-09-01a A): ground a sibling's pavement
+            # occupies is never walled — it is simply not free ground.
+            if _ref9 in _WALL_BAND_REFS:
+                _gate_buf = _gate_bufs.get(id(_gate9))
+                if _gate_buf is None:
+                    try:
+                        _gate_buf = _gate9.buffer(
+                            _TUNNEL_GRAZE_CLEARANCE_M)
+                    except _GEOM_EXC:                  # pragma: no cover
+                        _gate_buf = _gate9
+                    _gate_bufs[id(_gate9)] = _gate_buf
+                _parts9h = _tunnel_cover_pieces(s9, _gate_buf)
+                if not _parts9h:
+                    _n_clip += 1
+                    log_tunnel_piece_removal(
+                        layout, s9,
+                        "wall band: no free-ground remainder above the "
+                        "emitter floor", index=_k9,
+                        coverage=_ov / max(1e-9, s9.polygon.area),
+                        verdict=_covering_shapes(
+                            layout, s9, pre_emit_shape_ids))
+                    continue
+                _head9h = _parts9h[0]
+                s9.polygon = _head9h.polygon
+                s9.altitude = _head9h.altitude
+                s9.altitude_high = _head9h.altitude_high
+                s9.altitude_low = _head9h.altitude_low
+                s9.node_altitudes = _head9h.node_altitudes
+                _kept9.append(s9)
+                for _extra9h in _parts9h[1:]:
+                    _kept9.append(_extra9h)
+                _n_graze += 1
+                continue
             if not _graze_clip or _ov >= 0.5 * s9.polygon.area:
                 _n_clip += 1    # covered stretch — no visible structure
                 log_tunnel_piece_removal(
@@ -8456,7 +8512,14 @@ def _emit_taxi_bridges(
         tile_lat: int,
         tile_lon: int,
         retaining_wall_width_m: float = 1.0,
-        wall_gap_m: float = 0.5,
+        # 0.6, not 0.5 — RULINGS 2026-09-01e applied here too: a
+        # designed standoff must never sit ON an interning/welding
+        # tolerance, and 0.5 is exactly ``SHARED_VERTEX_TOL_M`` AND
+        # ``CONFORMANCE_TOL_M``.  These two emitters kept 0.5 through
+        # the portal waller's own move to 0.6 and are the standing
+        # candidates for the OTHH control's pre-existing
+        # ``ramp_wall_gap`` 14.
+        wall_gap_m: float = 0.6,
         boundary_clearance_m: float = 1.0,
         scenery_has_bridge_objects: bool = False,
         ) -> int:
@@ -14506,7 +14569,14 @@ def _emit_through_airport_depressed_roads(
         arm_max_length_m: float = 500.0,
         road_width_m: float = 22.0,
         retaining_wall_width_m: float = 1.0,
-        wall_gap_m: float = 0.5,
+        # 0.6, not 0.5 — RULINGS 2026-09-01e applied here too: a
+        # designed standoff must never sit ON an interning/welding
+        # tolerance, and 0.5 is exactly ``SHARED_VERTEX_TOL_M`` AND
+        # ``CONFORMANCE_TOL_M``.  These two emitters kept 0.5 through
+        # the portal waller's own move to 0.6 and are the standing
+        # candidates for the OTHH control's pre-existing
+        # ``ramp_wall_gap`` 14.
+        wall_gap_m: float = 0.6,
         boundary_clearance_m: float = 1.0,
         ) -> tuple[int, set]:
     """For each public road that ENTERS the airport boundary

@@ -713,6 +713,50 @@ class TestTheWallFootIsGone:
         assert "tunnel_wall_foot" not in \
             verification._MIDEDGE_EXCLUDE_REFS
 
+    def test_a_band_crossing_sibling_pavement_keeps_its_remainder(self):
+        """RULINGS 2026-09-01h: the sibling/R10-2 subtraction CLIPS the
+        wall band to its free-ground remainder — it never removes a
+        piece whose free-ground part is substantial.
+
+        A band stretch crossing a sibling's pavement is cut into TWO
+        free-ground arcs.  Both must survive: keeping only the larger
+        is the deletion this ruling closes, and dropping the whole
+        piece because the overlap passes half its area is the same
+        deletion one step worse.  MEASURED cost of the old rule at the
+        OTHH 4-arm fork: the 142.8 m arm lost 51.4 m of side on FREE
+        GROUND with no retaining structure.
+        """
+        band = BuiltShape(
+            polygon=_rect(0.0, 0.0, 40.0, 1.0),
+            role=ROLE_RETAINING_WALL, ref="tunnel_wall",
+            node_altitudes=[5.0, 5.0, 5.0, 5.0, 5.0])
+        # a sibling's pavement across the middle, taking MORE than half
+        # the band's area — the old covered-stretch drop's trigger
+        sibling = _rect(9.0, -5.0, 31.0, 6.0)
+        assert sibling.intersection(band.polygon).area > \
+            0.5 * band.polygon.area, "the scene must trip the old drop"
+        parts = bridges._tunnel_cover_pieces(band, sibling)
+        assert len(parts) == 2, (
+            f"the band kept {len(parts)} remainder(s); both free-ground "
+            f"arcs must survive")
+        for pc in parts:
+            assert pc.polygon.area >= bridges._TUNNEL_COVER_MIN_PIECE_M2
+            assert not pc.polygon.intersects(sibling.buffer(-1e-9)), (
+                "a remainder still stands on the sibling's pavement")
+            assert pc.node_altitudes, "a remainder lost its profile"
+
+    def test_the_late_gate_clips_the_band_before_it_can_drop_it(self):
+        """The band's clip branch must PRECEDE the covered-stretch drop
+        in the late R10-2 gate — otherwise a band whose overlap passes
+        half its area is deleted before the clip is ever reached."""
+        import inspect
+        src = inspect.getsource(bridges._finalize_tunnel_emission)
+        i_clip = src.index("if _ref9 in _WALL_BAND_REFS:")
+        i_drop = src.index(
+            "if not _graze_clip or _ov >= 0.5 * s9.polygon.area:")
+        assert i_clip < i_drop, (
+            "the covered-stretch drop can reach the wall band again")
+
     def test_the_gap_stands_off_every_snapping_tolerance(self):
         """RULINGS 2026-09-01e: ``wall_gap_m`` = 0.6, and the LAW is that
         a designed standoff never sits ON an interning/welding

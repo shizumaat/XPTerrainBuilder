@@ -9,8 +9,10 @@ Spec ``docs/specs/linear-transport-redesign-spec.md`` §5-SUPPLEMENT-2
     yielding inner AND outer faces per arm naturally (no special
     inner-face path).  Where the two arms' INNER bands overlap near the
     throat (the V's pinch, the 31g class), they collapse to ONE SHARED
-    wall+foot along the bisector — a shared structure is the physical
-    answer in a gap narrower than two bands.
+    wall along the bisector — a shared structure is the physical answer
+    in a gap narrower than two bands.  (RULINGS 2026-09-01a A then stood
+    the pinch wall DOWN at the seed, and 2026-09-01c retired the §T5
+    foot: the band is one ref, standing off the road.)
 
 WHY IT COULD NOT WORK BEFORE.  The cluster band was emitted ONCE on the
 UNION of every ramp in the cluster.  A union's outward offset traces its
@@ -37,7 +39,7 @@ from auto_patch.layout import (BuiltShape, PavementLayout,
                                ROLE_RETAINING_WALL, ROLE_TUNNEL_RAMP)
 
 APT = 4.0
-G0, G1 = 0.6, 1.0          # wall gap, wall width
+G0, G1 = 0.5, 1.0          # wall gap (2026-09-01c), wall width
 
 
 def _dem(x, y):
@@ -76,24 +78,31 @@ class TestAnArmWalledOnItsOwnBodyGetsBothFaces:
         bridges.emit_wall_band(lay, [], [arm], [s], [], G0, G1,
                                _dem, APT)
         face = _wall(lay, "tunnel_wall")
-        foot = _wall(lay, "tunnel_wall_foot")
-        assert face is not None and foot is not None
+        assert face is not None
         # both sides: the band reaches ground on the -x and +x flanks
         assert face.intersects(Polygon([(-2, 10), (0, 10), (0, 50),
                                         (-2, 50)]))
         assert face.intersects(Polygon([(8, 10), (10, 10), (10, 50),
                                         (8, 50)]))
 
-    def test_the_foot_annulus_is_complete_on_a_clean_body(self):
+    def test_the_band_is_complete_on_a_clean_body(self):
+        """The band occupies its whole ``G0``..``G0+G1`` annulus (the
+        0.02 m slit kerf is the only allowance) — and NOT the gap
+        inboard of it, which the mesher triangulates (2026-09-01c)."""
         lay = _layout()
         arm = Polygon([(0, 0), (8, 0), (8, 60), (0, 60)])
         s = _ramp(arm)
         lay.shapes.append(s)
         bridges.emit_wall_band(lay, [], [arm], [s], [], G0, G1,
                                _dem, APT)
-        want = arm.buffer(G0, join_style=2, mitre_limit=2.0).difference(arm)
-        got = _wall(lay, "tunnel_wall_foot")
+        inner = arm.buffer(G0, join_style=2, mitre_limit=2.0)
+        want = arm.buffer(G0 + G1, join_style=2,
+                          mitre_limit=2.0).difference(inner)
+        got = _wall(lay, "tunnel_wall")
         assert got.area == pytest.approx(want.area, rel=0.02)
+        assert got.intersection(inner.difference(arm)).area \
+            == pytest.approx(0.0, abs=0.01), (
+            "the band reaches into the gap the mesher must triangulate")
 
 
 class TestThePinchCollapsesToOneSharedStructure:
@@ -132,7 +141,7 @@ class TestThePinchCollapsesToOneSharedStructure:
             "the fixture must actually pinch, or it tests nothing")
 
     def test_with_the_exclude_exactly_one_structure_survives(self):
-        """RULINGS 31g's answer: ONE shared wall+foot in the pinch."""
+        """RULINGS 31g's answer: ONE shared wall in the pinch."""
         lay = self._wall_pair(gap=1.0, use_exclude=True)
         pieces = [s.polygon for s in _band(lay)]
         overlap = 0.0
@@ -185,25 +194,31 @@ class TestTheWiring:
 
 
 class TestTheWallingOrderIsTheMechanism:
-    """ARMS FIRST, THROAT LAST — measured, not chosen.
+    """THE ORDER WAS A SYMPTOM; THE ARC-DROP WAS THE MECHANISM.
 
-    Walling the throat first lets ITS band claim the ground each arm's
-    INNER band needs; the arms, which subtract what is already emitted,
-    then come up short.  MEASURED on this Y at unit scale:
+    Batch 3f read walling order as the cause: walling the throat first
+    let ITS band claim the ground each arm's INNER band needed, and the
+    arms — which subtract what is already emitted — came up short
+    (throat-first 0.52/0.52 against arms-first 0.92/0.92 on the §T5
+    foot, matching the field fork at 25.2537652,51.6032373).
 
-        throat -> A -> B : open 0.27, arm feet 0.52 / 0.52
-        A -> B -> throat : open 0.08, arm feet 0.92 / 0.92
-
-    and the throat-first numbers are the ones the field arm produced at
-    the confirmed fork 25.2537652,51.6032373 (open 0.32, foot
-    0.34/0.31), which is what identifies the ordering as the cause.
+    RE-MEASURED under the retired foot (RULINGS 2026-09-01c), the real
+    mechanism showed itself one layer down: the sibling subtraction cuts
+    a later arm's already-slit C-ring into TWO arcs and the emitter kept
+    only the larger, deleting 62.0 m² of a 128.8 m² band ON FREE GROUND
+    with no log line naming the remover.  Keeping every surviving arc —
+    what the R10-2 clip beside it always did — puts BOTH orders at
+    0.91/0.91 and leaves a shortfall that is entirely sibling pavement.
+    The emitter still walls arms before the throat (it is the shape it
+    ships and the twin below pins it), but the ordering no longer
+    carries the result.
     """
 
     THROAT = Polygon([(0, 0), (20, 0), (20, 30), (0, 30)])
     ARM_A = Polygon([(0, 30), (9, 30), (-6, 80), (-16, 76)])
     ARM_B = Polygon([(11, 30), (20, 30), (36, 76), (26, 80)])
 
-    def _wall(self, order):
+    def _walled(self, order):
         lay = _layout()
         bodies = {"throat": self.THROAT, "A": self.ARM_A, "B": self.ARM_B}
         shapes = {k: _ramp(v) for k, v in bodies.items()}
@@ -217,30 +232,58 @@ class TestTheWallingOrderIsTheMechanism:
                                    exclude=list(done))
             done.extend(s.polygon for s in lay.shapes[n0:]
                         if s.role == ROLE_RETAINING_WALL)
-        feet = [s.polygon for s in lay.shapes
-                if s.ref == "tunnel_wall_foot"]
+        return lay
+
+    def _wall(self, order):
+        lay = self._walled(order)
+        bodies = {"throat": self.THROAT, "A": self.ARM_A, "B": self.ARM_B}
+        band = [s.polygon for s in lay.shapes
+                if s.ref == "tunnel_wall"]
         out = []
         for k in ("A", "B"):
-            want = bodies[k].buffer(G0, join_style=2,
-                                    mitre_limit=2.0).difference(bodies[k])
-            got = unary_union(feet).intersection(want) if feet else None
+            inner = bodies[k].buffer(G0, join_style=2, mitre_limit=2.0)
+            want = bodies[k].buffer(G0 + G1, join_style=2,
+                                    mitre_limit=2.0).difference(inner)
+            got = unary_union(band).intersection(want) if band else None
             out.append((got.area / want.area) if got else 0.0)
         return out
 
-    def test_arms_first_retains_each_arm(self):
-        a, b = self._wall(["A", "B", "throat"])
-        assert min(a, b) >= 0.9, (
-            f"arm feet {a:.2f}/{b:.2f} — the spec's bar is >= 0.9 per "
-            f"side on both arms")
+    def test_every_arm_is_retained_whatever_the_order(self):
+        """THE ORDERING WAS A SYMPTOM, AND THE CAUSE IS FIXED.
 
-    def test_throat_first_is_the_measured_regression(self):
-        """The ordering this replaces, kept as the twin that names the
-        cause — so a future reorder cannot silently reintroduce it."""
-        a, b = self._wall(["throat", "A", "B"])
-        assert max(a, b) < 0.7, (
-            f"arm feet {a:.2f}/{b:.2f} — throat-first is supposed to "
-            f"starve the arms; if it no longer does, this twin's "
-            f"attribution is stale and the ordering rule needs re-deriving")
+        The sibling subtraction (``exclude``) cuts a later arm's
+        already-slit C-ring into two arcs, and it used to keep only
+        ``max(geoms, key=area)`` — deleting the other arc in silence.
+        MEASURED here before the fix: arm B kept 65.8 of a 128.8 m²
+        band and lost 62.0 m² on FREE GROUND, which is the fork's
+        missing inner face.  Keeping EVERY surviving arc (what the
+        R10-2 clip beside it already did) takes both arms to 0.91 in
+        BOTH orders, and the whole remaining shortfall — 11.4 of
+        11.4 m² — lies on sibling PAVEMENT, where R10-2 forbids a band.
+        """
+        for order in (["A", "B", "throat"], ["throat", "A", "B"]):
+            a, b = self._wall(order)
+            assert min(a, b) >= 0.9, (
+                f"{order}: arm band {a:.2f}/{b:.2f} — an arm lost band "
+                f"on free ground")
+
+    def test_the_shortfall_that_remains_is_sibling_pavement(self):
+        """What a band may NOT stand on: R10-2 keeps full force, and
+        ruling 2026-09-01a A leaves the fork's V unwalled at the pinch.
+        Every square metre an arm lacks must be on a sibling."""
+        lay = self._walled(["A", "B", "throat"])
+        band = unary_union([s.polygon for s in lay.shapes
+                            if s.ref == "tunnel_wall"])
+        bodies = {"throat": self.THROAT, "A": self.ARM_A, "B": self.ARM_B}
+        for k in ("A", "B"):
+            inner = bodies[k].buffer(G0, join_style=2, mitre_limit=2.0)
+            want = bodies[k].buffer(G0 + G1, join_style=2,
+                                    mitre_limit=2.0).difference(inner)
+            miss = want.difference(band)
+            sib = unary_union([bodies[o] for o in bodies if o != k])
+            assert miss.difference(sib).area <= 0.5, (
+                f"arm {k} lacks {miss.difference(sib).area:.1f} m² of "
+                f"band on ground no sibling occupies")
 
     def test_the_emitter_walls_arms_before_the_throat(self):
         src = inspect.getsource(bridges._emit_portal_cluster)

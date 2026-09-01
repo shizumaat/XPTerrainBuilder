@@ -6,11 +6,11 @@ Spec ``docs/specs/linear-transport-redesign-spec.md`` §5-SUPPLEMENT item
     Census #27/#28 said REWIRE and the lane retired instead: the
     claim-waller's population (17/39 walls, 20/48 feet at the OTHH
     control) must be REPLACED, not deleted — every merged ramp corridor
-    side gets exactly one wall+foot derived from the ramp's own geometry
+    side gets exactly one wall band derived from the ramp's own geometry
     through the existing wall-band machinery.
 
 THE MEASUREMENT THAT ORDERED IT.  On the OTHH control, 17 of 39
-``tunnel_wall`` and 20 of 48 ``tunnel_wall_foot`` pieces stood within
+``tunnel_wall`` band pieces stood within
 2 m of a claim surface and MORE than 2 m from any synthetic ramp — the
 claim waller's own output, with no other producer.  Retiring it took
 walls 39 → 12 and feet 48 → 12, leaving mouths unwalled.
@@ -63,9 +63,9 @@ class TestABelowGradeRampGetsItsWall:
         band = _wall_pieces(lay)
         assert band, "a dug bore corridor must be walled"
         refs = {s.ref for s in band}
-        assert "tunnel_wall" in refs and "tunnel_wall_foot" in refs, (
-            "the §T5 FOOT owns the annulus — walling without it "
-            "reopens R16-2b")
+        assert refs == {"tunnel_wall"}, (
+            f"the band is ONE ref since the §T5 foot retired "
+            f"(RULINGS 2026-09-01c): {refs}")
 
     def test_a_tunnel_mouth_piece_counts_as_bore_geometry(self):
         """The population is the portal walk's own road surfaces, by

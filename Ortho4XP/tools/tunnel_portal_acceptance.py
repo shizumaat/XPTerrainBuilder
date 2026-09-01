@@ -368,13 +368,13 @@ def _bore_lines(profile: Profile, osm_data_dir: Optional[Path], to_m):
 # ──────────────────────────────────────────────────────────────────
 # The checks
 # ──────────────────────────────────────────────────────────────────
-#: The refs that ARE a bore's face — the perimeter band (rising face and
-#: its §T5 foot), the roof and the cap.  A claimed corridor is bore
-#: geometry only if one of these stands along it.
-FACE_REFS = ("tunnel_wall", "tunnel_wall_foot", "tunnel_roof",
-             "tunnel_cap")
+#: The refs that ARE a bore's face — the perimeter wall band, the roof
+#: and the cap.  A claimed corridor is bore geometry only if one of
+#: these stands along it.  (The §T5 foot was a fourth member until it
+#: retired — RULINGS 2026-09-01c.)
+FACE_REFS = ("tunnel_wall", "tunnel_roof", "tunnel_cap")
 #: How near a face must stand to a corridor edge to answer for it — the
-#: emitter's own graze clearance plus the wall gap the §T5 foot occupies.
+#: emitter's own graze clearance plus the unowned wall gap.
 FACE_REACH_M = 2.5
 
 
@@ -635,8 +635,9 @@ def _m_to_ll(patch: Patch, x: float, y: float):
 #: The tunnel's OWN emitted road surfaces, by ref — one spelling, shared
 #: with ``bridges._TUNNEL_PAVEMENT_REFS``.
 _CORRIDOR_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor")
-#: The wall BAND: the face and the foot that owns the annulus (§T5).
-_BAND_REFS = ("tunnel_wall", "tunnel_wall_foot")
+#: The wall BAND.  One ref since the §T5 foot retired (2026-09-01c):
+#: the band stands off the road across a gap NO shape owns.
+_BAND_REFS = ("tunnel_wall",)
 
 #: Ramp surfaces a classified OBJECT bridge owns.  They carry
 #: ROLE_TUNNEL_RAMP but the object law governs them (R14-2/A-3's first
@@ -695,24 +696,16 @@ def _side_cover(body, band, ref, centre, axis, caps=(), internal=None,
     ``internal`` is the other corridor surfaces of the same site, and
     ``pinch_reach`` how far a band would have to stand off them.  TWO
     stretches leave the denominator, both because no band may lawfully
-    occupy them:
+    occupy them.  (A third — an "ARM END" exclusion for the opening
+    ``emit_wall_band`` cuts at each arm's far end — was written, then
+    REVERTED and RETRACTED by its author: RULINGS 2026-09-01b measured
+    only 2.1 of the 40.9 m2 it was supposed to explain inside the
+    reconstructed opening.  It is not reintroduced.)
 
     * the JOINT — where two of the site's surfaces meet there is no
       exposed side to retain (an arm's joint with its fork throat is
       inside the corridor).  Charging an arm for its own joint read 0.69
       on a fixture canonical by construction;
-    * the ARM END — ``emit_wall_band`` cuts its band OPEN at each arm's
-      far (surface) end, by law: "at the far end the road continues at
-      grade and the crossing walls it off".  MEASURED on the shipped
-      tunnel profile's own merged dual-carriageway site: the 40.9 m2 the
-      foot "lacks" sits 27.3 m from the far end of a 53.6 m-wide
-      carriageway against 112.1 m from the near end, and a full-width
-      opening removes ~32.2 m2 of foot — the balance being mitred
-      corners.  Nothing removed it (the
-      per-piece removal instrument fires ONCE in the whole build, on an
-      unrelated graze-clip) and 0.0 m2 of it lies on tunnel pavement.
-      Charging a side for an end the emitter opens BY DESIGN measures
-      the emitter against something it must not do;
     * the PINCH — RULINGS 2026-09-01a decision A: the fork-pinch shared
       wall STANDS DOWN and R10-2 keeps full force, so the V goes
       UNWALLED at the pinch.  A stretch whose band would have to sit on
@@ -849,8 +842,9 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
 
     PER SITE, all from the emitted patch through this instrument's own
     parser: the corridor SURFACES standing there (canonical 1, plus at
-    most one mouth plate), the ``tunnel_wall`` and ``tunnel_wall_foot``
-    pieces per SIDE of the site's own principal axis (canonical 1 each),
+    most one mouth plate), the ``tunnel_wall`` band pieces per SIDE of
+    the site's own principal axis (canonical 1 each; the §T5 foot was a
+    second per-side column until it retired — RULINGS 2026-09-01c),
     the END CAP — a ``tunnel_cap`` way, or the wrapped end the 30j merge
     accepted in its place, measured as the fraction of the site's
     perimeter NO band piece answers — the DUPLICATE corridor surfaces
@@ -989,13 +983,13 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
 
         near_band = _near(band)
         near_caps = _near(caps)
-        # ── ONE WALL + FOOT PER SIDE, MEASURED AS COVERAGE, PER ARM ──
+        # ── ONE WALL BAND PER SIDE, MEASURED AS COVERAGE, PER ARM ────
         # A FORK IS A Y, AND A Y HAS NO TWO SIDES.  Splitting the whole
         # site body by one principal axis is meaningless where the
         # corridor branches: measured on the closing arm, a fork read
         # 0.60/0.60 as a whole while its arms read 0.07/0.89, 0.60/0.83
-        # and 0.24/0.68 — the inner CROTCH side of each arm carries a
-        # complete foot and almost no face.  The law is per corridor
+        # and 0.24/0.68 — the inner CROTCH side of each arm was the
+        # short side.  The law is per corridor
         # SIDE, and a fork has one corridor per ARM, so each descending
         # surface is measured against its OWN axis and the site takes
         # the worst arm.  A throat plate is flat and has no sides.
@@ -1007,7 +1001,7 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         # question is whether each side IS retained, so each side of the
         # site's boundary is split by the principal axis and the share
         # of it a band piece answers is the measurement.
-        wl = wr = fl = fr = None
+        wl = wr = None
         _measured = _arms or ([(None, None, body)] if axis else [])
         for _awid, _aref, _ag in _measured:
             _aax = _principal_axis(_ag) if _awid is not None else axis
@@ -1032,14 +1026,10 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
             _w = _side_cover(_ag, near_band, "tunnel_wall",
                              (_ac.x, _ac.y), _aax, near_caps, _int,
                              thr.pinch_reach_m, _pinch)
-            _f = _side_cover(_ag, near_band, "tunnel_wall_foot",
-                             (_ac.x, _ac.y), _aax, near_caps, _int,
-                             thr.pinch_reach_m, _pinch)
             if wl is None:
-                wl, wr, fl, fr = _w[0], _w[1], _f[0], _f[1]
+                wl, wr = _w[0], _w[1]
             else:
                 wl, wr = min(wl, _w[0]), min(wr, _w[1])
-                fl, fr = min(fl, _f[0]), min(fr, _f[1])
         # THE END CAP, or the wrapped end 2026-08-30j accepted for it:
         # the share of this site's perimeter no band piece answers.
         try:
@@ -1090,18 +1080,15 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         unmerged = _unmerged_pairs(members, patch, thr.bearing_tol_deg,
                                    thr.throat_flat_m)
         _n_wall = sum(1 for _w, r, _g in near_band if r == "tunnel_wall")
-        _n_foot = sum(1 for _w, r, _g in near_band
-                      if r == "tunnel_wall_foot")
         # …and the allowance scales with the number of CORRIDORS: a Y
         # has one band per arm, so a 2-arm fork may carry twice what a
         # straight run may.
         _allow = thr.band_pieces_max * max(1, len(_arms))
-        redundant = (max(0, _n_wall - _allow)
-                     + max(0, _n_foot - _allow))
+        redundant = max(0, _n_wall - _allow)
         _bar = thr.side_cover_min
         canonical = (unmerged == 0 and len(plates) <= 1 and reach_ok
                      and not others and not frag_corr
-                     and wl is not None and min(wl, wr, fl, fr) >= _bar
+                     and wl is not None and min(wl, wr) >= _bar
                      and capped and dup == 0 and nested == 0
                      and frag == 0 and redundant == 0)
         if not canonical:
@@ -1112,8 +1099,6 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
         totals["corridor_fragments"] += len(frag_corr)
         totals["walls"] += sum(1 for _w, r, _g in near_band
                                if r == "tunnel_wall")
-        totals["feet"] += sum(1 for _w, r, _g in near_band
-                              if r == "tunnel_wall_foot")
         totals["caps"] += len(near_caps)
         totals["duplicate_corridor_surfaces"] += dup
         totals["nested_band_pieces"] += nested
@@ -1129,8 +1114,7 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
             f"plate={len(plates)} other={len(others)} "
             f"frag={len(frag_corr)}) "
             f"reach={'-' if reach is None else format(reach, '.2f')} "
-            f"wall L/R={_fmt(wl)}/{_fmt(wr)} "
-            f"foot L/R={_fmt(fl)}/{_fmt(fr)} cap={len(near_caps)} "
+            f"wall L/R={_fmt(wl)}/{_fmt(wr)} cap={len(near_caps)} "
             f"open={open_frac:.2f} dup={dup} nested={nested} "
             f"bandfrag={frag} redundant={redundant} "
             f"unmerged={unmerged}  "
@@ -1140,8 +1124,8 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
     bar = 0 if thr.mouth_canonical else None
     verdict = SKIP if bar is None else (PASS if bad == 0 else FAIL)
     head = (f"{totals['sites']} tunnel mouth site(s), {bad} NOT canonical "
-            f"(law: no UNMERGED run pair, each side retained by a wall AND a "
-            f"foot over >= {thr.side_cover_min:.0%} of it, an end cap or "
+            f"(law: no UNMERGED run pair, each side retained by the "
+            f"WALL BAND over >= {thr.side_cover_min:.0%} of it, an end cap or "
             f"a wrapped end, 0 duplicate corridor surfaces, 0 nested, "
             f"fragment or redundant pieces) — totals: " +
             ", ".join(f"{k}={v}" for k, v in sorted(totals.items())))
@@ -1150,13 +1134,18 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
 
 
 def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
-    """§T5 / RULINGS 2026-08-28c item 1: the ramp is not welded to the
-    rising wall, and the annulus between them is still OWNED.
+    """THE RAMP IS NOT WELDED TO THE WALL (RULINGS 2026-08-28c item 1,
+    kept by 2026-09-01c) — and the gap between them is UNOWNED by
+    design.
 
-    Two numbers, because the law has two halves and fixing one by
-    breaking the other is exactly what R16-2b and this ruling each
-    guard.  Measured before the round: 84 shared node ids over 22 pairs
-    at 0.0000 m, and every wall band's inner ring on the ramp boundary.
+    Two numbers, and only the FIRST is a bar.  Measured before the §T5
+    round: 84 shared node ids over 22 pairs at 0.0000 m.  The second,
+    ``ramp_wall_annulus_owned``, was R16-2b's law ("no shape may leave
+    the annulus unowned"); the owner SUPERSEDED it on 2026-09-01c — the
+    ramp is the corridor floor, a 0.5 m gap follows, and the mesher's
+    triangulation across that gap IS the steep face.  It is kept as a
+    REPORT so the population stays visible and both arms read the same
+    way; it is no longer a defect verdict.
     """
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
@@ -1175,18 +1164,12 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
                     f"node ids shared between {len(ramps)} tunnel_ramp "
                     f"and {len(walls)} tunnel_wall way(s) — the weld the "
                     f"owner read as a broken ramp")]
-    # …and the annulus is still owned: no ramp edge faces open ground
-    # inside the wall gap.  The FOOT is what owns it after §T5.
-    # THE OWNER IS THE WALL STRUCTURE, in either arm.  Measuring the
-    # annulus against the FOOT alone makes this check SKIP on a
-    # pre-§T5 patch, and a check that cannot read the control arm
-    # cannot tell a regression from a pre-existing condition — the
-    # question "did §T5 unown anything" is only answerable if both arms
-    # are measured the same way.  Before §T5 the rising wall owned the
-    # annulus; after it, the foot does; the LAW is that SOMETHING in the
-    # wall structure does.
-    feet = (patch.ref_ways("tunnel_wall_foot")
-            + patch.ref_ways("tunnel_wall"))
+    # …and HOW MUCH of the annulus the wall structure covers, reported
+    # against the same structure in every arm (a check that cannot read
+    # the control arm cannot tell a regression from a pre-existing
+    # condition).  Under 2026-09-01c the expected reading is "unowned"
+    # everywhere: that is the model, not a defect.
+    feet = patch.ref_ways("tunnel_wall")
     def _polys(ways):
         out = []
         for w in ways:
@@ -1215,11 +1198,11 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
     except Exception:                                    # pragma: no cover
         return checks
     checks.append(Check(
-        "ramp_wall_annulus_owned", PASS if unowned == 0 else FAIL,
-        unowned, 0,
+        "ramp_wall_annulus_owned", SKIP, unowned, None,
         f"of {len(rp)} ramp(s), those whose {thr.wall_gap_m:g} m "
-        f"annulus is mostly unowned by the wall STRUCTURE "
-        f"(R16-2b, measurable in both arms)"))
+        f"annulus is mostly unowned by the wall STRUCTURE — REPORT "
+        f"only: R16-2b was SUPERSEDED by RULINGS 2026-09-01c (the "
+        f"unowned gap IS the face, triangulated by the mesher)"))
     return checks
 
 
@@ -1241,36 +1224,21 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
     this REPORTS rather than adjudicating, which is how the attribution
     arms read it.
     """
-    walls = patch.ref_ways("tunnel_wall") + patch.ref_ways(
-        "tunnel_wall_foot")
+    walls = patch.ref_ways("tunnel_wall")
     if not walls:
         return [Check("wall_top_flat", SKIP, None, thr.wall_top_delta_max,
                       "no wall band in this patch")]
     span = float(thr.wall_band_span_m)
-    # ── THE FRAME IS THE CREST RING (ruling 2026-08-29) ──────────────
-    # THIS MEASURES TWIST, NOT HEIGHT.  Before §T5 shipped its foot the
-    # whole band WAS the wall top, so every vertex pair across it was a
-    # cross-band pair and the reading was unambiguous.  With the foot
-    # the band is a PARTITION: the ``tunnel_wall_foot`` shelf sits at
-    # ramp level and the ``tunnel_wall`` face legitimately RISES from
-    # the shelf's top to the crest, so a face-inner-vs-face-outer pair
-    # is the wall's HEIGHT and reporting it as a twist made the §F1 bar
-    # unsatisfiable at the same time as R16-2b's owned annulus.
-    #
-    # The crest members are the band vertices the SHELF does not carry:
-    # foot and face share their common boundary node-for-node (one
-    # boolean partition of one polygon), so a face vertex whose
-    # canonical spelling a ``tunnel_wall_foot`` way also carries is the
-    # face's INNER edge — the foot's top — and belongs to the shelf, not
-    # to the crest.  A patch with NO foot way has an empty shelf set and
-    # reads EXACTLY as it did before this frame existed, which is what
-    # keeps every pre-§T5 number comparable.
-    shelf = set()
-    for w in patch.ref_ways("tunnel_wall_foot"):
-        for nid in w.nids:
-            if nid in patch.nodes:
-                shelf.add(patch.spell(nid))
-    n_shelf_excluded = 0
+    # ── EVERY BAND NODE IS A CREST NODE (RULINGS 2026-09-01c) ────────
+    # The band used to be a PARTITION — a ``tunnel_wall_foot`` shelf at
+    # ramp level plus a ``tunnel_wall`` face rising from it — so a
+    # face-inner-vs-face-outer pair was the wall's HEIGHT, not a twist,
+    # and the frame had to exclude the shelf's top nodes.  The foot has
+    # retired: the band stands off the road entirely and BOTH its edges
+    # carry the same corridor-top value, one DEM sample per station.
+    # So the frame is the whole band again, exactly as it read before
+    # §T5 — which is what keeps every pre-§T5 number comparable — and
+    # the check is satisfied by construction rather than by tolerance.
     worst = 0.0
     worst_at = None
     pairs = 0
@@ -1291,10 +1259,6 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
             if key in seen:
                 continue
             seen.add(key)
-            if key in shelf and w.ref != "tunnel_wall_foot":
-                # the face's inner edge — the SHELF's top, not the crest
-                n_shelf_excluded += 1
-                continue
             rows.append((patch.ll_to_m(*patch.nodes[nid]), elev))
         for i in range(len(rows)):
             (ax, ay), ae = rows[i]
@@ -1314,14 +1278,10 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
                                 round(float(be), 2))
     if not pairs:
         return [Check("wall_top_flat", SKIP, None, bar,
-                      f"no cross-band CREST pair within {span:g} m — "
-                      f"nothing to measure ({n_shelf_excluded} shelf "
-                      f"node(s) excluded)")]
-    detail = (f"CREST-ONLY frame: {pairs} cross-band pair(s) over "
-              f"{len(walls)} band way(s), {n_shelf_excluded} shelf "
-              f"node(s) excluded ({len(shelf)} shelf node id(s) from "
-              f"{len(patch.ref_ways('tunnel_wall_foot'))} tunnel_wall_"
-              f"foot way(s))"
+                      f"no cross-band pair within {span:g} m — "
+                      f"nothing to measure")]
+    detail = (f"WHOLE-BAND frame: {pairs} cross-band pair(s) over "
+              f"{len(walls)} band way(s)"
               + (f"; worst on way {worst_at[0]}: "
                  f"{worst_at[1]} vs {worst_at[2]}" if worst_at else ""))
     if bar is None:

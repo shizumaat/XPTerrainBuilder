@@ -2678,38 +2678,16 @@ _CARVE_STRUCTURE_ROLES = frozenset((
     ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH,
     ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY,
 ))
-#: §T5 + spec Amendment 1 ruling 2: the FOOT's membership of the carve
-#: register is the ATTRIBUTION VARIABLE for the +358 groundside effect
-#: measured at OTHH.  ``O4_FOOT_IN_CARVE_REGISTERS=0`` takes it out of
-#: this register and out of ``gap_fill._TUNNEL_BLOCKER_REFS``, one
-#: variable, same tree — which is the only way to answer "is the
-#: registration the mechanism".  Default ON (the Fable-approved
-#: condition 1: registered with every wall consumer).
-import os as _os_t5
-
-
-def _foot_in_carve_registers() -> bool:
-    return _os_t5.environ.get("O4_FOOT_IN_CARVE_REGISTERS", "1") == "1"
-
-
-_CARVE_STRUCTURE_REFS_BASE = frozenset((
+#: The REFS a carve structure spells itself with.  Read with
+#: ``_CARVE_STRUCTURE_ROLES`` above; ``gap_fill._TUNNEL_BLOCKER_REFS``
+#: is the same wall population one consumer over.
+_CARVE_STRUCTURE_REFS = frozenset((
     "tunnel_wall", "tunnel_portal", "bridge_abutment",
 ))
+# (``tunnel_wall_foot`` and its call-time env switch stood here; the
+# §T5 foot retired with RULINGS 2026-09-01c and the band is one ref.)
 
 
-class _CarveStructureRefs(frozenset):
-    """Membership answers the env at CALL TIME, so the attribution arm
-    needs no module reload (memory: env reads inside the accessor are
-    what make a redirect un-un-doable)."""
-
-    def __contains__(self, item):
-        if item == "tunnel_wall_foot":
-            return _foot_in_carve_registers()
-        return frozenset.__contains__(self, item)
-
-
-_CARVE_STRUCTURE_REFS = _CarveStructureRefs(
-    _CARVE_STRUCTURE_REFS_BASE | {"tunnel_wall_foot"})
 # The feather run is ``spread / cap`` with this much margin, so the
 # emitted transition lands strictly INSIDE its cap rather than exactly
 # on it (emit quantisation would otherwise flag the law's own remedy).

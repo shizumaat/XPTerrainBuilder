@@ -14,7 +14,7 @@ WHAT A MOUTH SITE IS, AND WHY IT IS NOT A ``tunnel_mouth`` WAY.  The
 first cut of this check keyed its population on ``ref == "tunnel_mouth"``
 and MEASURED ZERO on the very airport it adjudicates: the OTHH control
 patch (merged main ``127eec15``, 2,600 shapes) carries 22 ``tunnel_ramp``
-surfaces, 39 ``tunnel_wall`` and 48 ``tunnel_wall_foot`` pieces and NOT
+surfaces, 39 ``tunnel_wall`` band pieces and NOT
 ONE ``tunnel_mouth`` or ``tunnel_cap`` way — the 2026-08-30j merge note
 says so in words ("wrapped ends = end cap").  A check whose population is
 empty where it adjudicates is the silent-SKIP failure, so a MOUTH SITE is
@@ -125,11 +125,6 @@ def _canonical_site(b: _PatchBuilder, x0=0.0):
     # walls: one per side, standing clear of the corridor
     b.rect(x0 - 2.0, 0.0, x0 - 1.0, 39.0, "retaining_wall", "tunnel_wall")
     b.rect(x0 + 21.0, 0.0, x0 + 22.0, 39.0, "retaining_wall", "tunnel_wall")
-    # feet: the annulus between ramp edge and wall face, one per side
-    b.rect(x0 - 1.0, 0.0, x0 - 0.4, 39.0, "retaining_wall",
-           "tunnel_wall_foot")
-    b.rect(x0 + 20.4, 0.0, x0 + 21.0, 39.0, "retaining_wall",
-           "tunnel_wall_foot")
     # one straight end cap across the mouth line
     b.rect(x0 - 2.0, 39.0, x0 + 22.0, 40.0, "retaining_wall", "tunnel_cap")
 
@@ -148,7 +143,7 @@ def _inventory(tpa, tmp_path, builder, **thr_kw):
 
 class TestTheCanonicalMouthPasses:
 
-    def test_one_ramp_one_wall_and_foot_per_side_one_cap(
+    def test_one_ramp_one_band_per_side_one_cap(
             self, tpa, tmp_path):
         b = _PatchBuilder()
         _canonical_site(b)
@@ -165,7 +160,9 @@ class TestTheCanonicalMouthPasses:
         # R10-2 pinch exemption (RULINGS 2026-09-01a A) does not apply
         # here — it is scoped to sibling ARMS of a fork.
         assert "wall L/R=0.81/0.81" in c.detail
-        assert "foot L/R=0.82/0.82" in c.detail
+        assert "foot L/R" not in c.detail, (
+            "the §T5 foot columns retired with the foot "
+            "(RULINGS 2026-09-01c)")
 
     def test_two_independent_mouths_are_both_canonical(self, tpa, tmp_path):
         """The mouth radius must not let one mouth read the other's
@@ -190,8 +187,6 @@ class TestEachDefectClassIsCaught:
         b.rect(0.0, 34.0, 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
         b.rect(-2.0, 0.0, -1.0, 39.0, "retaining_wall", "tunnel_wall")
         b.rect(21.0, 0.0, 22.0, 39.0, "retaining_wall", "tunnel_wall")
-        b.rect(-1.0, 0.0, -0.4, 39.0, "retaining_wall", "tunnel_wall_foot")
-        b.rect(20.4, 0.0, 21.0, 39.0, "retaining_wall", "tunnel_wall_foot")
         b.rect(-2.0, 39.0, 22.0, 40.0, "retaining_wall", "tunnel_cap")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
@@ -280,8 +275,6 @@ class TestEachDefectClassIsCaught:
         b.rect(0.0, 34.0, 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
         b.rect(-2.0, 0.0, -1.0, 39.0, "retaining_wall", "tunnel_wall")
         b.rect(21.0, 0.0, 22.0, 39.0, "retaining_wall", "tunnel_wall")
-        b.rect(-1.0, 0.0, -0.4, 39.0, "retaining_wall", "tunnel_wall_foot")
-        b.rect(20.4, 0.0, 21.0, 39.0, "retaining_wall", "tunnel_wall_foot")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
         assert "cap=0" in c.detail

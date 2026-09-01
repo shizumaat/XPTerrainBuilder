@@ -508,44 +508,41 @@ class TestWallTopFlat:
         got = self._run(tpa, patch, wall_top_delta_max=0.01)
         assert got["wall_top_flat"].verdict == tpa.SKIP
 
-    # ── THE CREST-ONLY FRAME (ruling 2026-08-29) ─────────────────────
+    # ── THE WHOLE-BAND FRAME (RULINGS 2026-09-01c) ───────────────────
 
-    def test_the_shelf_top_is_not_a_twist(self, tpa, tmp_path):
-        """THIS CHECK MEASURES TWIST, NOT HEIGHT.
+    def test_a_shelf_patch_is_read_as_one_band(self, tpa, tmp_path):
+        """THE FOOT RETIRED, AND WITH IT THE CREST-ONLY FRAME.
 
-        With §T5's foot the band is a PARTITION: the ``tunnel_wall_foot``
-        shelf sits at ramp level and the ``tunnel_wall`` face RISES from
-        the shelf's top to the crest.  The face's inner edge is the
-        shelf's top — a shared node of the partition — so pairing it
-        against the crest reports the wall's HEIGHT and makes the §F1
-        bar unsatisfiable at the same time as R16-2b's owned annulus.
-        The crest members are the band vertices the shelf does not
-        carry.
+        While §T5 shipped, the band was a PARTITION — a
+        ``tunnel_wall_foot`` shelf at ramp level plus a ``tunnel_wall``
+        face rising from it — so a face-inner-vs-face-outer pair was the
+        wall's HEIGHT, not a twist, and the frame had to exclude the
+        shelf's top nodes.  The band now stands off the road with both
+        edges at one crest value, so the frame is the whole band again
+        and the shelf ways of an OLD patch are simply not band ways.
         """
         patch = _wall_band_patch(tmp_path, "shelf.osm", 605.0, 610.6,
                                  with_foot=True)
         got = self._run(tpa, patch)["wall_top_flat"]
-        assert "CREST-ONLY" in got.detail
-        # the 5.6 m face height is EXCLUDED, and what is left is the
-        # crest against itself: one value, one station.
-        assert got.measured == pytest.approx(0.0, abs=1e-9), got.detail
+        assert "WHOLE-BAND" in got.detail
+        # The old face's own 5.6 m rise is exactly what this frame now
+        # reports: an inner edge at ramp level IS a leaning band under
+        # the new law.
+        assert got.measured == pytest.approx(5.6, abs=0.001), got.detail
 
-    def test_a_twist_is_still_caught_with_a_shelf_present(self, tpa,
-                                                          tmp_path):
-        """The frame excludes the shelf, never the defect: a crest that
-        genuinely disagrees with itself across the band still reads."""
-        patch = _wall_band_patch(tmp_path, "shelftwist.osm", 605.0,
-                                 610.6, with_foot=True, crest_twist=0.4)
+    def test_a_twist_is_caught(self, tpa, tmp_path):
+        patch = _wall_band_patch(tmp_path, "twist.osm", 610.6,
+                                 610.6, crest_twist=0.4)
         got = self._run(tpa, patch)["wall_top_flat"]
         assert got.measured == pytest.approx(0.4, abs=0.001), got.detail
 
-    def test_no_foot_reads_exactly_as_before(self, tpa, tmp_path):
-        """A patch with NO ``tunnel_wall_foot`` has an empty shelf set,
-        so every pre-§T5 number stays comparable."""
-        patch = _wall_band_patch(tmp_path, "nofoot.osm", 609.8, 610.6)
+    def test_a_band_at_one_value_reads_zero(self, tpa, tmp_path):
+        """THE SHIPPED FORM (2026-09-01c): both edges one value per
+        station — satisfied by construction, so the instrument reads
+        0.00 rather than a tolerance."""
+        patch = _wall_band_patch(tmp_path, "flat.osm", 610.6, 610.6)
         got = self._run(tpa, patch)["wall_top_flat"]
-        assert got.measured == pytest.approx(0.8, abs=0.001)
-        assert "0 shelf node(s) excluded" in got.detail
+        assert got.measured == pytest.approx(0.0, abs=1e-9), got.detail
 
     def test_the_cli_carries_the_flag_into_the_thresholds(self, tpa):
         args = tpa.build_parser().parse_args(

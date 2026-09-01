@@ -385,8 +385,11 @@ def test_both_minters_read_ONE_derivation_of_the_scope():
     """One region, derived once and memoised on the layout: two
     derivations are two ownership boundaries."""
     src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
-    # the def plus exactly TWO call sites: the mint and the carve
-    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 3
+    # the def plus exactly THREE call sites: the mint, the carve, and
+    # (Batch 4a, RULINGS 31e) the slice's own face classification — the
+    # PRODUCER of the far road-family population.  All three read the one
+    # memoised derivation.
+    assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 4
     assert src.count("def _road_contact_scope(") == 1
     assert "_road_contact_scope_cache" in src
     # the carve's far metres join the ONE declared migration
@@ -451,3 +454,159 @@ def test_the_transition_profile_is_idempotent():
     once, _ = RT.transition_profile(s, base, pins, CAP)
     twice, _ = RT.transition_profile(s, list(once), pins, CAP)
     assert twice == pytest.approx(once)
+
+
+# ── BATCH 4a: THE OWNERSHIP SHRINK AT THE PRODUCER (RULINGS 31b/31e) ───
+
+def _service_face_fixture():
+    """The real slice path, on synthetic ground.
+
+    ``build_global_slice_faces`` cuts the pavement, ``_road_contact_scope``
+    derives the ONE ownership region, ``release_far_service_faces`` rules
+    each face.  Only the ``kind == "service"`` tag is set by the fixture —
+    that is the pipeline's own one-line rule (a face whose only
+    centerlines are truck routes is road territory), and it is what
+    RULINGS 31e names as the far population's author.
+    """
+    from auto_patch.pavement.global_slice import build_global_slice_faces
+    # aircraft pavement at the origin; a truck-route face SHARING its edge
+    # (inside the 25 m transition) and another 600 m away (the core's).
+    apron = _rect(0.0, 0.0, 200.0, 200.0)
+    near = _rect(210.0, 60.0, 250.0, 100.0)     # 10 m off the apron edge
+    far = _rect(800.0, 0.0, 900.0, 100.0)       # 600 m off it
+    pav = geometry.MultiPolygon([apron, near, far])
+    faces = build_global_slice_faces(
+        pav, [geometry.LineString([(0.0, 100.0), (200.0, 100.0)])],
+        keyholes=False)
+    by_x = {round(f.polygon.representative_point().x, -2): f
+            for f in faces}
+    return apron, faces, by_x
+
+
+def test_a_far_service_face_releases_and_an_in_scope_one_does_not():
+    """THE SHRINK, both directions in one fixture (spec §3.3): beyond the
+    contact scope a service-classed face is not auto_patch road pavement;
+    inside it, nothing changes."""
+    from auto_patch.pavement.global_slice import release_far_service_faces
+    from auto_patch.pipeline import _road_contact_scope
+
+    apron, faces, by_x = _service_face_fixture()
+    near = by_x[200.0]                      # the 210-250 m strip
+    far = by_x[800.0]                       # the 800-900 m lot
+    for f in (near, far):
+        f.kind = "service"
+    lay = types.SimpleNamespace()
+    scope = _road_contact_scope(lay, apron, lambda lon, lat: (lon, lat))
+    assert scope is not None
+
+    stats = release_far_service_faces(faces, scope)
+
+    assert far.released_to_core is True, (
+        "a service face 600 m from any aircraft pavement is the core's "
+        "road — auto_patch keeps the ground, not the road identity")
+    assert near.released_to_core is False, (
+        "a face inside the 25 m transition is UNCHANGED — the shrink "
+        "stops at the contact scope, it does not empty the family")
+    assert far.axis is None
+    assert stats["faces_reclassified"] == 1
+    assert stats["faces_reclassified_m2"] == pytest.approx(
+        far.polygon.area, rel=1e-6)
+    assert stats["faces_scoped"] is True
+
+
+def test_no_scope_releases_nothing():
+    """``contact_scope`` is None at a fixture with no airfield — those
+    builds stay byte-identical."""
+    from auto_patch.pavement.global_slice import release_far_service_faces
+    _apron, faces, by_x = _service_face_fixture()
+    by_x[800.0].kind = "service"
+    stats = release_far_service_faces(faces, None)
+    assert stats["faces_reclassified"] == 0
+    assert stats["faces_scoped"] is False
+    assert all(not f.released_to_core for f in faces)
+
+
+def test_the_class_change_groundside_side_is_left_alone():
+    """The two laws do not double-count: a face the class-change cut
+    already sent groundside is not the road family's to release."""
+    from auto_patch.pavement.global_slice import release_far_service_faces
+    apron, faces, by_x = _service_face_fixture()
+    far = by_x[800.0]
+    far.kind = "service"
+    far.class_side = "groundside"
+    stats = release_far_service_faces(
+        faces, apron.buffer(float(SERVICE_ROAD_PAVEMENT_NEAR_M)))
+    assert stats["faces_reclassified"] == 0
+    assert far.released_to_core is False
+
+
+def test_the_released_face_is_POOLED_not_emitted_and_is_DECLARED():
+    """Nothing is deleted and nothing is silent: the pipeline pools the
+    released face with the groundside pavement (lot law, DEM-following)
+    and folds its area into the ONE ``road_ownership`` declaration the
+    census reads (spec §3.4, census #90's outbound twin)."""
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    assert "release_far_service_faces(" in src
+    assert "if _f.released_to_core:" in src
+    # pooled, never appended as a road-family shape
+    body = src.split("if _f.released_to_core:")[1].split("continue")[0]
+    assert "layout._groundside_polys.append(_f.polygon)" in body
+    assert "BuiltShape" not in body
+    # and DECLARED, outside the mint's own guard
+    assert "layout._road_ownership_slice = dict(_svc_own)" in src
+    assert '_own_all.update(_slice_own)' in src
+
+
+def test_the_RULED_scope_is_VACUOUS_over_slice_faces_REFUTATION():
+    """THE REFUTATION RECORD (Batch 4a).  RULINGS 31e names the slice's
+    ``kind == "service"`` classification as the far population's author
+    and rules the shrink there — "beyond ``_road_contact_scope``".  That
+    instrument cannot express "beyond" over FACES: its (a) term is
+    ``pav_union`` grown by 25 m, and every slice face is a piece of
+    ``pav_union`` by construction, so the scope contains 100 % of them.
+    The same fact explains 31d finding A's measured carve no-op.  This
+    twin pins the vacuity so the next reader does not re-derive it."""
+    from auto_patch.pavement.global_slice import release_far_service_faces
+    from auto_patch.pipeline import _road_contact_scope
+    from shapely.ops import unary_union
+
+    _apron, faces, by_x = _service_face_fixture()
+    by_x[800.0].kind = "service"
+    # pav_union is what the slice CUT — i.e. it covers every face
+    pav_union = unary_union([f.polygon for f in faces])
+    scope = _road_contact_scope(types.SimpleNamespace(), pav_union,
+                                lambda lon, lat: (lon, lat))
+    stats = release_far_service_faces(faces, scope)
+    assert stats["faces_reclassified"] == 0, (
+        "a scope seeded with the pavement the faces were cut from can "
+        "never place a face outside itself")
+
+
+def test_the_MOVEMENT_scope_isolates_the_far_face():
+    """The round's experiment knob (``O4_SLICE_FACE_OWNERSHIP=movement``):
+    stated over the faces the build emits as AIRSIDE plus the runway
+    union, "beyond 25 m" is a real region — the far lot leaves, the
+    transition face stays."""
+    from auto_patch.pavement.global_slice import (airside_face_scope,
+                                                  release_far_service_faces)
+    _apron, faces, by_x = _service_face_fixture()
+    near, far = by_x[200.0], by_x[800.0]
+    for f in (near, far):
+        f.kind = "service"
+    # the two halves of the apron (x < 200) are the airside faces here
+    scope = airside_face_scope(faces, None,
+                               float(SERVICE_ROAD_PAVEMENT_NEAR_M))
+    assert scope is not None
+    stats = release_far_service_faces(faces, scope)
+    assert far.released_to_core is True
+    assert near.released_to_core is False
+    assert stats["faces_reclassified"] == 1
+
+
+def test_the_ownership_knob_defaults_to_the_ruled_instrument():
+    """Default OFF: an unratified second ownership boundary is a KNOB,
+    never a default (build-economy law — a round's experiment knob)."""
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    assert 'os.environ.get("O4_SLICE_FACE_OWNERSHIP") == "movement"' in src
+    assert "_svc_scope_geom = _road_contact_scope(layout, pav_union, to_m)" \
+        in src

@@ -77,6 +77,13 @@ class SliceFace:
     # groundside law; the cut edge between the two is an authored class
     # boundary and does not conduct airside evidence across itself.
     class_side: str = ""
+    # OWNERSHIP SHRINK (RULINGS 31b/31e; spec linear-transport-redesign
+    # §3.3): set by :func:`release_far_service_faces` on a service-classed
+    # face lying BEYOND the road contact scope.  The face is still patch
+    # GROUND — only its ROAD identity leaves, to the core's include_roads
+    # — so the caller pools it with the groundside pavement instead of
+    # emitting a road-family shape.
+    released_to_core: bool = False
 
 
 # A single-centerline face wider than this (mean width = area / shared-edge
@@ -574,6 +581,109 @@ def build_global_slice_faces(
                 face.centerline_ids.append(ci)
 
     return faces
+
+
+def airside_face_scope(faces: list[SliceFace], runway_union, near_m: float):
+    """THE SLICE'S OWN READING OF "WITHIN ``near_m`` OF AIRSIDE PAVEMENT".
+
+    WHY THIS EXISTS, MEASURED (Batch 4a).  ``pipeline._road_contact_scope``
+    states RULINGS 31b's transition region as ``pav_union`` grown by
+    ``SERVICE_ROAD_PAVEMENT_NEAR_M``, and ``pav_union`` is EVERY pavement
+    polygon the patch reconstructs — apt.dat row-110 rings, the pack's DSF
+    sheets, border strips — parking lots and service yards included.  Every
+    slice face is a piece of that union by construction
+    (:func:`build_global_slice_faces` keeps a face only when
+    ``pav.contains(face.representative_point())``), so "a face beyond the
+    contact scope" is the EMPTY SET: the scope contains 100 % of the faces
+    it would be asked about.  That is also why RULINGS 31d finding A's
+    carve-feed clip measured a no-op at HECA — the apt.dat 1206 truck
+    routes run ON the mapped pavement, so they too are always "within
+    25 m of pavement".
+
+    Stated over the faces instead, "airside pavement" is the pavement
+    AIRCRAFT MOVE ON: every face this build emits as an airside shape
+    (corridor / junction / apron — the class-change cut's groundside side
+    excluded) plus the runway union.  A service-classed face within
+    ``near_m`` of THAT is a transition; one beyond it is a road course
+    over ground the patch keeps as a lot.
+
+    Returns the buffered union, or ``None`` when this slice has no airside
+    face at all (nothing to be near — release nothing).
+    """
+    parts = [f.polygon for f in faces
+             if f.kind != "service" and f.class_side != "groundside"
+             and f.polygon is not None and not f.polygon.is_empty]
+    if runway_union is not None and not runway_union.is_empty:
+        parts.append(runway_union)
+    if not parts:
+        return None
+    try:
+        scope = unary_union(parts).buffer(float(near_m))
+    except Exception:                                     # pragma: no cover
+        return None
+    return None if scope.is_empty else scope
+
+
+def release_far_service_faces(faces: list[SliceFace], contact_scope
+                              ) -> dict:
+    """THE OWNERSHIP SHRINK AT THE PRODUCER (RULINGS 31b/31e; spec
+    ``docs/specs/linear-transport-redesign-spec.md`` §3.3).
+
+    The slice reads a face as ``kind == "service"`` from the CENTERLINE
+    NETWORK — a face whose only centerlines are truck routes is road
+    territory — and it reads it long before any road minter runs.  That
+    verdict is about the ROAD, never about who owns the ground under it.
+    Under 31b the core's ``include_roads`` owns every road course beyond
+    the contact scope, so a service-classed face out there is NOT
+    auto_patch road pavement; it is the far road-family population
+    RULINGS 31e names (HECA: 1,603 ref-less rings / 511,207 m², measured
+    to be born here by ``who_wrote.py --footprint``, Batch 2c).
+
+    The ground does not move and nothing is deleted: the face is flagged
+    ``released_to_core`` and the caller pools it with the groundside
+    pavement (DEM-following, groundside terrace law — the lot class),
+    because the road is core-levelled ABOVE it.  Only the ROAD IDENTITY
+    leaves, and the square metres that leave are DECLARED (spec §3.4).
+
+    ``contact_scope`` is ``pipeline._road_contact_scope``'s ONE
+    derivation — the same region the OSM/1206 mint and the truck-route
+    carve read.  ``None`` (no pavement, no tagged way: unit fixtures with
+    no airfield) releases nothing, so those builds are byte-identical.
+
+    Mutates ``faces`` in place; returns the stats dict the caller logs
+    and declares.
+    """
+    stats = {"faces_reclassified": 0, "faces_reclassified_m2": 0.0,
+             "faces_scoped": False}
+    if contact_scope is None or getattr(contact_scope, "is_empty", True):
+        return stats
+    try:
+        from shapely.prepared import prep as _prep
+        scope_prep = _prep(contact_scope)
+    except Exception:                                     # pragma: no cover
+        return stats
+    stats["faces_scoped"] = True
+    for face in faces:
+        # The class-change cut's groundside side is already out of the
+        # road family; only a face this build would EMIT as road is in
+        # question here.
+        if face.kind != "service" or face.class_side == "groundside":
+            continue
+        try:
+            if scope_prep.intersects(face.polygon):
+                continue                      # the transition: KEEP
+        except Exception:                                 # pragma: no cover
+            continue
+        face.released_to_core = True
+        face.axis = None
+        stats["faces_reclassified"] += 1
+        try:
+            stats["faces_reclassified_m2"] += float(face.polygon.area)
+        except Exception:                                 # pragma: no cover
+            pass
+    stats["faces_reclassified_m2"] = round(
+        stats["faces_reclassified_m2"], 2)
+    return stats
 
 
 def split_faces_at_class_change(faces: list[SliceFace],

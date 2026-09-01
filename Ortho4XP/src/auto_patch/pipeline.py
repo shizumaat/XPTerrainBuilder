@@ -3948,7 +3948,73 @@ def build_airport_pavement(icao: str, xplane_root: str,
         min_piece_m2=CLASS_BOUNDARY_MIN_PIECE_M2)
     _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
     _cn_gs_pool = 0
+    # ── THE OWNERSHIP SHRINK AT THE PRODUCER (spec §3.3, RULINGS 31b/31e)
+    # THIS is the author of the far road-family population — measured, not
+    # reasoned: `who_wrote.py --footprint` at HECA's two largest far
+    # ref-less rings (5,292 m2 way -10514, 20,639 m2 way -10439) reports a
+    # single BIRTH here (Batch 2c; neither road minter is involved, which
+    # is why clipping BOTH their feeds left the population at 1,603 rings
+    # / 511,207 m2).  The slice reads a face as `kind == "service"` from
+    # the CENTERLINE NETWORK — truck routes and nothing else — long before
+    # any road minter runs, and that verdict is about the ROAD, not about
+    # who owns the ground under it.  Under 31b the core's `include_roads`
+    # owns every road course beyond the contact scope; a service-classed
+    # face out there is therefore NOT auto_patch road pavement.  It is
+    # still patch GROUND: only the ROAD IDENTITY leaves (the road is
+    # core-levelled above it), so the face takes the lot class through the
+    # same groundside pool the class-change cut below already feeds —
+    # DEM-following, groundside terrace law.  Nothing is deleted; the
+    # square metres are DECLARED in the `road_ownership` sidecar (spec
+    # §3.4) so the census shrinkage is provably the shrink.
+    #
+    # WHICH REGION IS "BEYOND"?  THE RULED INSTRUMENT IS VACUOUS HERE, and
+    # that is this batch's finding, provable without a build:
+    # `_road_contact_scope`'s (a) term is `pav_union` grown by 25 m, and
+    # EVERY slice face is a piece of `pav_union` by construction
+    # (`build_global_slice_faces` keeps a face only when
+    # `pav.contains(face.representative_point())`).  The scope therefore
+    # contains 100 % of the faces it would be asked about and releases
+    # nothing — the same reason RULINGS 31d finding A's carve clip
+    # measured a no-op at HECA (the 1206 truck routes run ON the mapped
+    # pavement).  `pav_union` is EVERY pavement polygon the patch
+    # reconstructs, lots and service yards included; it is not "aircraft
+    # pavement".
+    #
+    # `O4_SLICE_FACE_OWNERSHIP=movement` is THIS ROUND'S EXPERIMENT KNOB
+    # (default off = the ruled instrument = inert): it reads the region in
+    # the slice's own vocabulary — the faces this build emits as AIRSIDE
+    # (corridor/junction/apron) plus the runway union, grown by the same
+    # one constant.  A SECOND ownership boundary beside
+    # `_road_contact_scope`, which is exactly why it is a knob and not a
+    # default: the spec author rules whether the two collapse into one
+    # (the minters' region is about a road COURSE, this one about the
+    # GROUND under it).
+    from .pavement.global_slice import (release_far_service_faces,
+                                        airside_face_scope)
+    _svc_any = any(_f.kind == "service" and _f.class_side != "groundside"
+                   for _f in _cn_faces)
+    if not _svc_any:
+        _svc_scope_geom = None
+    elif os.environ.get("O4_SLICE_FACE_OWNERSHIP") == "movement":
+        _svc_scope_geom = airside_face_scope(
+            _cn_faces, layout.runway_union,
+            float(SERVICE_ROAD_PAVEMENT_NEAR_M))
+    else:
+        _svc_scope_geom = _road_contact_scope(layout, pav_union, to_m)
+    _svc_own = release_far_service_faces(_cn_faces, _svc_scope_geom)
+    _svc_own["scope"] = (
+        "movement" if os.environ.get("O4_SLICE_FACE_OWNERSHIP") == "movement"
+        else "road_contact_scope")
     for _f in _cn_faces:
+        if _f.released_to_core:
+            # BEYOND THE CONTACT SCOPE — the core's road, this patch's
+            # ground.  Into the SAME groundside pool, counted separately
+            # from the class-change cut's pieces so neither declaration
+            # hides the other.
+            if getattr(layout, "_groundside_polys", None) is None:
+                layout._groundside_polys = []
+            layout._groundside_polys.append(_f.polygon)
+            continue
         if _f.class_side == "groundside":
             # THE GROUNDSIDE SIDE IS NOT AN AIRSIDE SHAPE.  It joins the
             # pool the groundside emitter builds from, which is consumed
@@ -3974,6 +4040,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
               f"{_cn_roles['junction']} junction / {_cn_roles['apron']} apron / "
               f"{_cn_roles['service']} service; "
               f"rects/junction-emit/spine bypassed).")
+    # THE DECLARATION (spec §3.4): the road-family population LEAVING the
+    # patch is a number, published on the layout here and folded into the
+    # ONE ``road_ownership`` sidecar dict beside the minters' metres, so a
+    # census shrinkage is readable as the shrink and never a silent drop.
+    layout._road_ownership_slice = dict(_svc_own)
+    if _svc_own["faces_reclassified"]:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: slice face OWNERSHIP — "
+            f"{_svc_own['faces_reclassified']} service-classed face(s) / "
+            f"{_svc_own['faces_reclassified_m2']:,.0f} m2 lie BEYOND the "
+            f"{SERVICE_ROAD_PAVEMENT_NEAR_M:g} m contact scope and are NOT "
+            f"auto_patch road pavement (RULINGS 31b/31e): re-classed to "
+            f"groundside_pavement — the ground stays, the ROAD identity "
+            f"goes to the core's include_roads.")
     if _cn_class_stats and _cn_class_stats["faces_cut"]:
         UI.vprint(1,
             f"  [pav-builder] {icao}: class-change boundary cut — "
@@ -4267,6 +4347,15 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"rect(s) + {len(_svc_junctions)} service_junction(s) "
                 f"(ground-vehicle network minted off aircraft pavement, "
                 f"cap SERVICE_ROAD_MAX_GRADE).")
+    # ONE DECLARED MIGRATION, ONE DICT (spec §3.4).  The slice's outbound
+    # AREA joins the minters' outbound METRES here — outside the
+    # ``_service_lines`` guard, because a slice that released far faces
+    # must declare them even at an airport whose road mint never runs.
+    _slice_own = dict(getattr(layout, "_road_ownership_slice", None) or {})
+    if _slice_own:
+        _own_all = dict(getattr(layout, "_road_ownership", None) or {})
+        _own_all.update(_slice_own)
+        layout._road_ownership = _own_all
     # §T4's LEFT ENDPOINT: what the minter actually made.  Every later
     # seam's delta is measured from HERE, so "40 rects vanished between
     # the minter and emit" becomes a named pass instead of a difference

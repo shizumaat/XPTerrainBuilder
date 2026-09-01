@@ -144,7 +144,10 @@ def test_it_prices_no_law(tmp_path):
     r = ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
     assert set(r) == {"patch", "anchor", "over", "on", "min_area_m2",
-                      "over_ways", "on_ways", "stacked", "area_m2", "rows"}
+                      "pad_m", "over_ways", "on_ways", "over_area_m2",
+                      "stacked", "area_m2", "beyond", "beyond_ways",
+                      "beyond_area_m2", "beyond_by_ref", "beyond_rows",
+                      "sites", "rows"}
     for k in ("rows", "violations", "families", "grade"):
         assert k not in set(r) - {"rows"}
 
@@ -155,6 +158,48 @@ def test_a_patch_with_no_sidecar_is_refused(tmp_path):
         ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
     assert "sidecar" in str(ei.value)
+
+
+def test_beyond_reports_the_complement_at_arms_length(tmp_path):
+    """``--pad``/``--beyond`` (Batch 4a): the OWNERSHIP read — how much
+    of the OVER class lies FURTHER than M metres from the ON class.  The
+    near ring reaches the padded union and is not far; the far one is,
+    and its area is totalled under its own ref."""
+    near = ({"role": "service_junction", "ref": "", "shapeID": "10"},
+            _square(10.0, cx=70.0))              # 20 x 20 m, 10 m away
+    far = ({"role": "service_junction", "ref": "", "shapeID": "11"},
+           _square(10.0, cx=600.0))              # 570 m away
+    p = _patch(tmp_path, "f.osm", [_STRIP, near, far])
+    res = ROR.read(p, over="service_junction", on="graded_strip",
+                   pad_m=25.0, beyond=True)
+    assert res["over_ways"] == 2
+    assert res["beyond_ways"] == 1
+    assert res["beyond_rows"][0]["shapeID"] == "11"
+    assert res["beyond_by_ref"]["(none)"]["ways"] == 1
+    assert res["beyond_area_m2"] == pytest.approx(400.0, rel=0.02)
+    # the SAME read with no pad puts both beyond (nothing overlaps)
+    res0 = ROR.read(p, over="service_junction", on="graded_strip",
+                    beyond=True)
+    assert res0["beyond_ways"] == 2
+
+
+def test_a_site_is_answered_in_the_over_classs_own_terms(tmp_path):
+    """``--site LAT,LON``: which OVER way covers the named place, and how
+    far that place is from the ON class — the acceptance read for a
+    ruling stated at a coordinate."""
+    far = ({"role": "service_junction", "ref": "", "shapeID": "11"},
+           _square(10.0, cx=600.0))
+    p = _patch(tmp_path, "g.osm", [_STRIP, far])
+    res = ROR.read(p, over="service_junction", on="graded_strip",
+                   pad_m=25.0, beyond=True, sites=[_ll(600.0, 0.0)])
+    site = res["sites"][0]
+    assert site["in_over_class"] is True
+    assert site["shapeID"] == "11"
+    assert site["dist_to_on_m"] == pytest.approx(550.0, rel=0.02)
+    # a place in NO over way says so rather than guessing a nearest one
+    res2 = ROR.read(p, over="service_junction", on="graded_strip",
+                    pad_m=25.0, beyond=True, sites=[_ll(0.0, 0.0)])
+    assert res2["sites"][0]["in_over_class"] is False
 
 
 def test_the_tool_is_in_the_index():

@@ -30,7 +30,8 @@ import O4_UI_Utils as UI
 
 from .events import (
     AirportIndexReady,
-    AutoPatchBegin, AutoPatchProgress, BuildDone, EngineEvent, EngineHello,
+    AutoPatchBegin, AutoPatchFailed, AutoPatchProgress, BuildDone,
+    EngineEvent, EngineHello,
     ImageryDownloadsDone,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
@@ -543,6 +544,9 @@ class EngineSession:
         self._current_step = None          # (tile, key, base, width)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
+        # H1: per-airport failure records for the tile currently building,
+        # drained into its BuildDone.error.
+        self._autopatch_failures: list = []
         self._eta: Optional[_EtaTracker] = None
         self._eta_last_emit = 0.0
         # Per-tile cancellation (docs/specs/parallel-tile-builds.md §3.4):
@@ -996,6 +1000,7 @@ class EngineSession:
             self._active_tile = (lat, lon)
             step_seconds = {}
             autopatch_airports = 0
+            self._autopatch_failures = []      # per-tile (H1)
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
@@ -1044,6 +1049,14 @@ class EngineSession:
                         break
                     if result == 0:
                         failed_step_keys.append(key)
+                        # STOP THE TILE AT THE FIRST FAILED STEP (H1).
+                        # Running mesh/masks/imagery on top of a failed
+                        # step 1 is how the 2026-08-30 incident SHIPPED:
+                        # the vector step lost an airport's patch and the
+                        # remaining steps happily meshed and packed the
+                        # STALE patch already on disk.  A tile whose
+                        # inputs this build did not produce is not built.
+                        break
                 if UI.red_flag:
                     if self._eta:
                         self._eta.tile_terminal((lat, lon))
@@ -1069,9 +1082,14 @@ class EngineSession:
                         self._eta.tile_terminal((lat, lon))
                     self._emit(TileState(lat=lat, lon=lon, state="error",
                                          label="failed"))
+                    # H1: when the failure was a named per-airport
+                    # auto-patch death, say WHICH airport and why — the
+                    # generic step wording is what left the owner with no
+                    # signal at all on 2026-08-30.
                     self._emit(BuildDone(
                         lat=lat, lon=lon, ok=False,
-                        error=failed_steps_error_text(failed_step_keys)))
+                        error=(self._take_autopatch_failure_text()
+                               or failed_steps_error_text(failed_step_keys))))
                 else:
                     done += 1
                     self._emit(TileState(lat=lat, lon=lon, state="done",
@@ -1237,6 +1255,36 @@ class EngineSession:
             eta_total_seconds=eta_total_seconds,
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
+
+    def autopatch_failed(self, airport, stage, error):
+        """One airport's build failed — emit the DIAGNOSIS and remember it.
+
+        H1 (docs/POSTMORTEM-20260831.md Task C).  The tile step returns
+        failure right after this, so the record is read once by
+        :meth:`_take_autopatch_failure_text` to make the tile's
+        ``BuildDone.error`` name the airport instead of the generic
+        "the vector data step failed".
+        """
+        record = {"airport": str(airport or "?"), "stage": str(stage or "?"),
+                  "error": str(error or "")}
+        self._autopatch_failures.append(record)
+        tile = self._current_step[0] if self._current_step else (0, 0)
+        self._emit(AutoPatchFailed(
+            airport=record["airport"], stage=record["stage"],
+            error=record["error"], lat=tile[0], lon=tile[1]))
+
+    def _take_autopatch_failure_text(self):
+        """The accumulated per-airport failure sentence, cleared as read.
+
+        ``None`` when no airport failed — the caller then falls back to
+        the step-level wording.
+        """
+        failures, self._autopatch_failures = self._autopatch_failures, []
+        if not failures:
+            return None
+        return "auto-patch failed for " + "; ".join(
+            "%s (%s): %s" % (f["airport"], f["stage"], f["error"])
+            for f in failures)
 
     def _render_autopatch(self):
         if self._current_step is None:

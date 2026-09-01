@@ -677,6 +677,15 @@ final class BuildModel: ObservableObject {
                 percent: indeterminate ? previous : percent), to: coord)
         case .autoPatchBegin, .autoPatchProgress:
             break // folded into StepProgress labels by the session
+        case .autoPatchFailed(let airport, let stage, let error, let lat, let lon):
+            // H1: name the airport in the console the moment it dies. The
+            // tile's buildDone(ok: false) follows and repeats it, but the
+            // user watching the build sees it here first — the silent
+            // 2026-08-30 death showed nothing at all.
+            let coord = TileCoord(lat: lat, lon: lon)
+            console.append(
+                "*** Tile \(coord.key): airport \(airport) failed at the "
+                + "\(stage) stage — \(error)")
         case .buildDone(let lat, let lon, let ok, let error):
             let coord = TileCoord(lat: lat, lon: lon)
             if ok {

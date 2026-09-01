@@ -26,6 +26,48 @@ _DRIVER_EXC = (OSError, ValueError, TypeError, KeyError,
                IndexError, RuntimeError,
                GEOSException, TopologicalError)
 
+
+class AutoPatchBuildFailure(RuntimeError):
+    """One or more airports in this tile did not produce a patch.
+
+    THE SILENT TILE-DEATH CLASS (H1, docs/POSTMORTEM-20260831.md Task C):
+    on 2026-08-30 an app tile build of +30+031 lost a worker between
+    ``build_airport_pavement``'s phase-time write and ``layout.to_osm``.
+    The failure was LOGGED and then dropped — ``generate_auto_patches``
+    returned normally, ``run_auto_patch_generation`` discarded its
+    return value, the tile step meshed the STALE patch already on disk
+    and exited 0.  The owner flew Aug-29 geometry believing it was the
+    day's build.
+
+    A per-airport failure is therefore FATAL to the tile build,
+    ungated.  ``failures`` is the ordered list of
+    ``{"icao", "stage", "error"}`` records that caused it; ``stage`` is
+    one of ``build`` / ``write`` / ``worker`` / ``missing`` /
+    ``manifest``.
+    """
+
+    def __init__(self, failures: list):
+        self.failures = list(failures)
+        super().__init__(describe_auto_patch_failures(self.failures))
+
+
+def describe_auto_patch_failures(failures: list) -> str:
+    """One line naming every failed airport, its stage and its cause.
+
+    THE named error text: it goes to the engine log, to the tile step's
+    ``BuildDone.error`` and to each ``AutoPatchFailed`` protocol event.
+    """
+    parts = []
+    for failure in failures:
+        parts.append("{} ({}): {}".format(
+            failure.get("icao") or "?",
+            failure.get("stage") or "?",
+            failure.get("error") or "no further detail"))
+    if not parts:
+        return "auto-patch failed"
+    return ("auto-patch FAILED for {} airport(s) — ".format(len(parts))
+            + "; ".join(parts))
+
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 from .cifp_reader import (
@@ -757,7 +799,12 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
     ``auto_patched`` in task order for stable output."""
     if not tasks:
         return
+    import time as _time
     from . import config as _cfg
+    # The manifest verification's freshness datum (H1).  Filesystem mtimes
+    # have ~1 s granularity on some filesystems, so back it off a second:
+    # the check must never call a patch this pass DID write "stale".
+    _pass_started_at = _time.time() - 1.0
     dem = getattr(tile, "dem", None)
     # Truncate the shared verify debug log once per build pass.
     try:
@@ -830,7 +877,16 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             with _cf.ProcessPoolExecutor(
                     max_workers=n, mp_context=ctx,
                     initializer=_init_worker, initargs=(dem, pq)) as ex:
-                futs = [ex.submit(_build_write_verify_one, t) for t in tasks]
+                # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A
+                # hard worker death (SIGKILL / OOM / segfault) escapes
+                # Python, so ``_build_write_verify_one``'s own catch never
+                # runs and the result carries no icao — and a result with
+                # ``icao: None`` drops straight out of the ``by_icao`` map
+                # below, leaving the airport to be reported as an
+                # anonymous "missing".  Submitting through a fut→icao map
+                # keeps the attribution: the airport that died is named.
+                futs = {ex.submit(_build_write_verify_one, t): t["icao"]
+                        for t in tasks}
                 pending = set(futs)
                 while pending:
                     done, pending = _cf.wait(
@@ -841,19 +897,31 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                         try:
                             r = fut.result()
                         except Exception as _e:         # a worker died hard
-                            r = {"icao": None, "ok": False,
+                            r = {"icao": futs.get(fut), "ok": False,
                                  "stage": "worker", "error": str(_e)}
                         results.append(r)
                         _report_terminal(r)
                 _drain_progress()                        # flush trailing events
         except Exception as _e:      # pool/manager setup failed → serial fallback
-            UI.lvprint(0, "   Auto-patch: parallel build unavailable (",
-                       str(_e), ") — falling back to serial.")
-            results = []
-            for t in tasks:
-                r = _build_write_verify_one(t)
-                results.append(r)
-                _report_terminal(r)
+            if results:
+                # NOT a setup failure: the pool broke (or its shutdown
+                # raised) AFTER results were collected.  Re-running the
+                # whole tile serially here would silently rebuild airports
+                # that already wrote their patch — and, worse, would
+                # DISCARD the failure records that are the whole point of
+                # this pass.  Keep what we have; the verification below
+                # judges it.
+                UI.lvprint(0, "   Auto-patch: parallel pool ended abnormally"
+                           " (", str(_e), ") — keeping the",
+                           len(results), "collected result(s).")
+            else:
+                UI.lvprint(0, "   Auto-patch: parallel build unavailable (",
+                           str(_e), ") — falling back to serial.")
+                results = []
+                for t in tasks:
+                    r = _build_write_verify_one(t)
+                    results.append(r)
+                    _report_terminal(r)
         finally:
             if mgr is not None:
                 try:
@@ -869,6 +937,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
 
     # Process results in TASK order (stable logs / auto_patched ordering).
     by_icao = {r.get("icao"): r for r in results if r.get("icao")}
+    failures: list[dict] = []
     for t in tasks:
         r = by_icao.get(t["icao"]) or {"icao": t["icao"], "ok": False,
                                        "stage": "missing", "error": "no result"}
@@ -896,6 +965,9 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                             icao, stage, _trace))
                 except OSError:
                     pass
+            failures.append({"icao": icao, "stage": stage,
+                             "error": str(r.get("error")
+                                          or "no further detail")})
             continue
         UI.vprint(1, "   Auto-patch: Generated", icao,
                   "(" + r["summary"] + ")")
@@ -934,6 +1006,52 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # in-run from the pad frame and this build's own solved patch, so
         # there is nothing to remember: ``object_pad_records`` travel back
         # on the result for the log and the verifier and stop there.
+
+    # ── THE MANIFEST VERIFICATION (H1) ──────────────────────────────────
+    # Every airport in ``tasks`` was collected BECAUSE it needs a rebuild,
+    # so a completed pass owes exactly one artefact pair per task: the
+    # ``*_auto.patch.osm`` and its ``.axes.json`` sidecar.  This is the
+    # EXACT mismatch of the 2026-08-30 incident — ``build_airport_pavement``
+    # recorded its phase times in ``~/.ortho4xp/auto_patch_build_times``
+    # and the patch write never ran — and it is checked against the DISK,
+    # not against the results, so it holds even when the result itself was
+    # lost (dead worker, broken pool, a future that never resolved).  A
+    # patch that is present but STALE (predating this pass) counts as
+    # absent: that is precisely the file the owner flew.
+    for t in tasks:
+        icao = t["icao"]
+        if any(f["icao"] == icao for f in failures):
+            continue                     # already named by its own stage
+        patch_path = t["auto_patch_file"]
+        sidecar_path = patch_path + ".axes.json"
+        missing = [p for p in (patch_path, sidecar_path)
+                   if not os.path.isfile(p)]
+        if missing:
+            failures.append({
+                "icao": icao, "stage": "manifest",
+                "error": "build reported success but wrote no "
+                         + ", ".join(os.path.basename(p) for p in missing)})
+            continue
+        try:
+            stale = os.path.getmtime(patch_path) < _pass_started_at
+        except OSError:
+            stale = False
+        if stale:
+            failures.append({
+                "icao": icao, "stage": "manifest",
+                "error": "build reported success but {} was not rewritten "
+                         "(stale patch left on disk)".format(
+                             os.path.basename(patch_path))})
+
+    if failures:
+        # NAMED, on the engine log and on the JSONL protocol — one
+        # ``AutoPatchFailed`` event per airport (never a bare print; the
+        # app's client matches the event name as a string literal).
+        for f in failures:
+            UI.lvprint(0, "   Auto-patch: FAILED", f["icao"],
+                       "(" + f["stage"] + "):", f["error"])
+            UI.auto_patch_failed(f["icao"], f["stage"], f["error"])
+        raise AutoPatchBuildFailure(failures)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1310,11 +1428,14 @@ def generate_auto_patches(tile, cifp_path: str,
     # workers inherit it; it never overrides an ``O4_SOLVE_MODEL`` the
     # caller already set (an A/B arm's pin outranks a tile's cfg).
     import O4_Solve_Model as _SM
-    with _SM.tile_scope(tile) as _scope:
-        UI.vprint(1, "   Auto-patch: solve model", _scope.model)
-        _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
-
-    UI.verbosity = _saved_verbosity
+    try:
+        with _SM.tile_scope(tile) as _scope:
+            UI.vprint(1, "   Auto-patch: solve model", _scope.model)
+            _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
+    finally:
+        # ``_run_build_tasks`` now RAISES on a failed airport (H1); the
+        # caller's verbosity must be restored on that path too.
+        UI.verbosity = _saved_verbosity
 
     if auto_patched:
         UI.vprint(

@@ -158,6 +158,17 @@ public enum O4Event: Sendable, Equatable {
     case autoPatchBegin(airports: [String], lat: Int, lon: Int)
     case autoPatchProgress(airport: String, done: Double, total: Double, label: String,
                            status: String, etaTotalSeconds: Double?, lat: Int, lon: Int)
+    /// One airport's auto-patch build FAILED and the tile build is aborting
+    /// (engine `AutoPatchFailed`). Distinct from `autoPatchProgress(status:
+    /// "fail")`, which is only that airport's row state: this carries the
+    /// diagnosis — which airport, which `stage` (`build`/`write`/`worker`/
+    /// `missing`/`manifest`) and the cause. A `buildDone(ok: false)` for the
+    /// tile follows, its `error` naming the same airports.
+    ///
+    /// Added for H1 (Ortho4XP/docs/POSTMORTEM-20260831.md Task C): before it
+    /// a per-airport death reached only the engine console, the tile finished
+    /// with exit 0 and the previous build's scenery flew.
+    case autoPatchFailed(airport: String, stage: String, error: String, lat: Int, lon: Int)
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String)
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
@@ -245,6 +256,14 @@ public enum O4Event: Sendable, Equatable {
                                       total: double("total"), label: string("label"),
                                       status: string("status"), etaTotalSeconds: eta,
                                       lat: int("lat"), lon: int("lon"))
+        // The event name is matched here as a STRING LITERAL and never
+        // appears in Python source: it is `class AutoPatchFailed` in
+        // Ortho4XP/src/o4_engine/events.py. Renaming either side breaks the
+        // other silently (see CLAUDE.md, "Cross-language wire protocol").
+        case "AutoPatchFailed":
+            return .autoPatchFailed(airport: string("airport"), stage: string("stage"),
+                                    error: string("error"),
+                                    lat: int("lat"), lon: int("lon"))
         case "BuildDone":
             return .buildDone(lat: int("lat"), lon: int("lon"),
                               ok: bool("ok"), error: string("error"))

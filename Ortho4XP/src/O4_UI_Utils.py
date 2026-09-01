@@ -121,6 +121,35 @@ def auto_patch_progress(icao, done, total, label, status="run",
 
 
 ################################################################################
+def auto_patch_failed(icao, stage, error):
+    """One airport's auto-patch build FAILED — the tile build is doomed.
+
+    Distinct from ``auto_patch_progress(status="fail")``, which is the
+    cosmetic row state: this is the DIAGNOSIS (which airport, which
+    stage, what went wrong) that the front end shows the user and the
+    JSONL protocol carries as an ``AutoPatchFailed`` event.  ``stage`` is
+    ``build`` / ``write`` / ``worker`` / ``missing`` / ``manifest``.
+
+    Added for H1 (docs/POSTMORTEM-20260831.md Task C): before it, a
+    per-airport death reached the console log and nothing else, the tile
+    step exited 0 and stale scenery flew.  No-op without an engine
+    session and never raises — the fatality is carried by the exception
+    the driver raises, not by this notification.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.autopatch_failed(icao, stage, error)
+        except Exception:
+            pass
+        return
+    if gui:
+        try:
+            gui.autopatch_failed(icao, stage, error)
+        except Exception:
+            pass
+
+
+################################################################################
 def imagery_downloads_done(lat, lon, downloaded=0, failed=0):
     """The imagery step's DOWNLOAD queue drained for this tile: only the
     local DDS conversion tail remains.

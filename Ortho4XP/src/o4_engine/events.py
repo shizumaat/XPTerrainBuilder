@@ -38,7 +38,13 @@ from typing import Optional
 # apt.dat parser for every front end, so a front end asks for the
 # Global Airports index instead of parsing its own
 # (docs/specs/airport-index-engine-command-spec.md).
-PROTOCOL_VERSION = "1.6"
+# 1.7 (2026-09-01, additive): AutoPatchFailed — the per-airport
+# auto-patch failure DIAGNOSIS (airport, stage, cause).  A tile build
+# that loses an airport's patch is fatal and says which airport and why;
+# before it the death was console-only and the tile exited 0 with the
+# previous build's scenery still installed (H1,
+# docs/POSTMORTEM-20260831.md Task C).
+PROTOCOL_VERSION = "1.7"
 
 
 @dataclass(frozen=True)
@@ -158,6 +164,38 @@ class AutoPatchProgress(EngineEvent):
     label: str = ""
     status: str = "run"
     eta_total_seconds: Optional[float] = None
+    lat: int = 0
+    lon: int = 0
+
+
+@dataclass(frozen=True)
+class AutoPatchFailed(EngineEvent):
+    """One airport's auto-patch build FAILED — the tile build is aborting.
+
+    The DIAGNOSIS event, distinct from ``AutoPatchProgress(status="fail")``
+    (which is only that airport's row state): it names the airport, the
+    ``stage`` it died at (``build`` / ``write`` / ``worker`` / ``missing``
+    / ``manifest``) and the cause, so the app can tell the user WHICH
+    airport broke WHY instead of showing a red row and a generic
+    "the vector data step failed".
+
+    H1 (docs/POSTMORTEM-20260831.md Task C): before this event, a
+    per-airport death reached the engine console log and nothing else —
+    the tile step finished with exit 0 and the previous build's scenery
+    flew.  The tile's own ``BuildDone(ok=False)`` still follows; this is
+    the detail that makes it actionable.
+
+    Additive to the protocol — unknown event names are dropped by the
+    Python re-assembler (``parallel._rebuild_event``) and reported as
+    ``.unknown`` by the Swift client
+    (``Sources/SceneryKit/OrthoEngineClient.swift``, which matches this
+    class name as a STRING LITERAL: renaming the class breaks the app
+    silently).
+    """
+
+    airport: str = ""
+    stage: str = ""
+    error: str = ""
     lat: int = 0
     lon: int = 0
 

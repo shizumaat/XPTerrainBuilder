@@ -5375,6 +5375,8 @@ def _emit_portal_cluster(
             if s_div is not None and (probe_max - s_div) < 10.0:
                 s_div = None     # fork too close to the end
 
+    #: §5-SUPPLEMENT-2: per-arm bodies of a TRUE fork, empty otherwise.
+    _arm_bodies: list = []
     if s_div is None:
         _emit_chain(walk_pts, combined_half,
                     elev_low, elev_high, True)
@@ -5501,8 +5503,22 @@ def _emit_portal_cluster(
         if TUNNEL_FORK_THROAT and len(arm_specs) >= 2:
             _emit_fork_throat(throat, combined_half, e_div,
                               arm_specs)
+        # §5-SUPPLEMENT-2: a TRUE fork is walled PER ARM, so each arm's
+        # own emitted bodies are recorded as it is built.  Downstream of
+        # the divergence point an arm IS its own corridor, and the band
+        # emitter run on that body yields its inner AND outer faces
+        # naturally — no special inner-face path.
         for branch, half_k, far_k in arm_specs:
+            _n_before_arm = len(layout.shapes)
             _emit_chain(branch, half_k, e_div, far_k, False)
+            _arm_bodies.append(
+                ([s9.polygon for s9 in layout.shapes[_n_before_arm:]
+                  if getattr(s9, "ref", "") == "tunnel_ramp"
+                  and s9.polygon is not None and not s9.polygon.is_empty],
+                 [s9 for s9 in layout.shapes[_n_before_arm:]
+                  if getattr(s9, "ref", "") == "tunnel_ramp"],
+                 [(branch[-1], branch[-2], half_k)]
+                 if len(branch) >= 2 else []))
             if len(branch) >= 2:
                 _cl_arm_ends.append((branch[-1], branch[-2], half_k))
         # WALL OPENINGS: a diverging branch must cross the
@@ -5705,22 +5721,70 @@ def _emit_portal_cluster(
     # per-segment / cap / throat walls entirely.
     if TUNNEL_FORK_THROAT:
         try:
-            _ramps_b = [
-                s.polygon for s in layout.shapes[_cl_start_idx:]
-                if getattr(s, 'ref', '') == 'tunnel_ramp'
-                and s.polygon is not None
-                and not s.polygon.is_empty]
-            _ru = unary_union(_ramps_b) if _ramps_b else None
-            _ru_polys = [g for g in getattr(_ru, 'geoms', [_ru] if _ru
-                                            else [])
-                         if g.geom_type == 'Polygon'
-                         and not g.is_empty]
-            emit_wall_band(
-                layout, exclusion_zones, _ru_polys,
-                [s for s in layout.shapes[_cl_start_idx:]
-                 if getattr(s, 'ref', '') == 'tunnel_ramp'],
-                _cl_arm_ends, wall_gap_m, retaining_wall_width_m,
-                dem_at, apt_elev)
+            if _arm_bodies:
+                # ── A TRUE FORK IS WALLED PER ARM (§5-SUPPLEMENT-2) ──
+                # One band per arm, each subtracting the bands its
+                # siblings already occupy.  The throat's own body is
+                # walled first so the arms' bands meet it rather than
+                # crossing it, and the V's pinch collapses to ONE shared
+                # wall+foot because the second arm's inner band is
+                # already occupied there.
+                _done: list = []
+                _throat_b = [
+                    s.polygon for s in layout.shapes[_cl_start_idx:]
+                    if getattr(s, 'ref', '') == 'tunnel_ramp'
+                    and s.polygon is not None
+                    and not s.polygon.is_empty
+                    and not any(s.polygon is bp
+                                for bods, _src, _ae in _arm_bodies
+                                for bp in bods)]
+                if _throat_b:
+                    _n0 = len(layout.shapes)
+                    emit_wall_band(
+                        layout, exclusion_zones, _throat_b,
+                        [s for s in layout.shapes[_cl_start_idx:]
+                         if getattr(s, 'ref', '') == 'tunnel_ramp'],
+                        [], wall_gap_m, retaining_wall_width_m,
+                        dem_at, apt_elev, exclude=list(_done))
+                    _done.extend(
+                        s.polygon for s in layout.shapes[_n0:]
+                        if getattr(s, 'ref', '') in _WALL_BAND_REFS
+                        and s.polygon is not None)
+                for _bods, _srcs, _aends in _arm_bodies:
+                    if not _bods:
+                        continue
+                    _n0 = len(layout.shapes)
+                    emit_wall_band(
+                        layout, exclusion_zones, _bods, _srcs, _aends,
+                        wall_gap_m, retaining_wall_width_m,
+                        dem_at, apt_elev, exclude=list(_done))
+                    _done.extend(
+                        s.polygon for s in layout.shapes[_n0:]
+                        if getattr(s, 'ref', '') in _WALL_BAND_REFS
+                        and s.polygon is not None)
+                UI.vprint(1,
+                    f"  [pav-builder] §5-SUPPLEMENT-2 fork walls: "
+                    f"{len(_arm_bodies)} arm(s) walled as their own "
+                    f"corridors (inner AND outer faces per arm); the V's "
+                    f"pinch collapses to ONE shared wall+foot where the "
+                    f"inner bands meet.")
+            else:
+                _ramps_b = [
+                    s.polygon for s in layout.shapes[_cl_start_idx:]
+                    if getattr(s, 'ref', '') == 'tunnel_ramp'
+                    and s.polygon is not None
+                    and not s.polygon.is_empty]
+                _ru = unary_union(_ramps_b) if _ramps_b else None
+                _ru_polys = [g for g in getattr(_ru, 'geoms', [_ru] if _ru
+                                                else [])
+                             if g.geom_type == 'Polygon'
+                             and not g.is_empty]
+                emit_wall_band(
+                    layout, exclusion_zones, _ru_polys,
+                    [s for s in layout.shapes[_cl_start_idx:]
+                     if getattr(s, 'ref', '') == 'tunnel_ramp'],
+                    _cl_arm_ends, wall_gap_m, retaining_wall_width_m,
+                    dem_at, apt_elev)
         except _GEOM_EXC:
             pass
     return 1
@@ -5816,7 +5880,7 @@ def wall_band_owners(layout: "PavementLayout") -> dict:
 def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                    bodies: list, sources: list, arm_ends: list,
                    wall_gap_m: float, retaining_wall_width_m: float,
-                   dem_at, apt_elev: float) -> None:
+                   dem_at, apt_elev: float, exclude=None) -> None:
     """THE PERIMETER WALL BAND — one construction, every caller.
 
     ``bodies`` are the below-grade surfaces to wall (a cluster's ramp
@@ -5926,7 +5990,15 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
     #: subtracts what the structure already occupies, and — this is the
     #: ordering Amendment 2 names — the ring and the node_altitudes are
     #: derived AFTER that subtraction, from the final geometry.
-    _emitted_band: list = []
+    # ``exclude`` seeds the already-emitted set, which is how the
+    # §5-SUPPLEMENT-2 PINCH rule is expressed: walling a fork ARM BY ARM,
+    # each later arm subtracts the bands its siblings already occupy, so
+    # where two inner bands would overlap at the V's pinch exactly ONE
+    # shared wall+foot survives — along the bisector by construction,
+    # because that is where the overlap lies.  A shared structure is the
+    # physical answer in a gap narrower than two bands (RULINGS 31g).
+    _emitted_band: list = [g for g in (exclude or ())
+                           if g is not None and not g.is_empty]
     #: §F1 (LEMD fidelity spec law 1): the crest profile of the body this
     #: band is currently walling.  Rebound once per ``_ru_polys`` entry
     #: below; ``None`` when the law is OFF or the profile degenerates, and

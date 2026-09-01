@@ -46,22 +46,45 @@ class TestTheLocalTop:
         top = RBD._shape_top_within(s, _corridor(306.0, 320.0), 606.5)
         assert top > 605.0
 
-    def test_a_corridor_BETWEEN_two_stations_interpolates(self):
+    def test_a_corridor_BETWEEN_two_stations_takes_the_governing_vertex(
+            self):
         """THE NORMAL CASE for a merged run: stations stand 40 m apart
         and a deck corridor is ~14 m wide, so the ramp crosses with NO
         vertex inside.  Falling back to the global top there is what
-        left the LEMD clearance at -2.94 m."""
+        left the LEMD clearance at -2.94 m.
+
+        The answer is the GOVERNING vertex, not an interpolation: the
+        stretch between stations k and k+1 was a sloped RECT before the
+        merge and its top was max(z_k, z_k+1).  Interpolating instead
+        read 598.50 against the control's 598.45 and cost the -2192 span
+        its 5.1 m premise by 0.05 m."""
         s = _merged_run()
         corr = _corridor(50.0, 64.0)          # strictly between y=40,80
-        ring = [pt for pt in s.polygon.exterior.coords]
         from shapely.geometry import Point
+        ring = list(s.polygon.exterior.coords)
         assert not any(corr.covers(Point(x, y)) for x, y in ring), (
             "the fixture must have NO vertex inside the corridor")
         top = RBD._shape_top_within(s, corr, 606.5)
-        assert top == pytest.approx(599.9, abs=0.6), (
-            f"read {top}: it fell back to the global maximum instead of "
-            f"interpolating onto the clipped part")
+        # stations at y=40 (599.5) and y=80 (600.5) bound the crossing
+        assert top == pytest.approx(600.5, abs=0.01), (
+            f"read {top}: not the governing vertex value")
         assert top < 604.0
+
+    def test_a_LEVEL_stretch_reads_its_own_datum_exactly(self):
+        """Under a deck the cut holds BORE DATUM (RULINGS 2026-08-30f),
+        so both bounding stations carry it and the governing-vertex read
+        reproduces the pre-merge answer EXACTLY — which is what returns
+        the -2192 span to its 5.1 m premise."""
+        st = [(k * 40.0, 598.45) for k in range(4)]
+        left = [(20.0, y) for y, _z in st]
+        right = [(0.0, y) for y, _z in st]
+        s = BuiltShape(
+            polygon=Polygon(left + right[::-1]),
+            role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+            node_altitudes=[z for _y, z in st] + [z for _y, z in
+                                                  reversed(st)])
+        top = RBD._shape_top_within(s, _corridor(50.0, 64.0), 999.0)
+        assert top == pytest.approx(598.45, abs=0.001)
 
     def test_a_shape_that_misses_the_corridor_keeps_the_fallback(self):
         s = _merged_run()

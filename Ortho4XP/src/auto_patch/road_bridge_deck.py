@@ -586,8 +586,9 @@ def _shape_top_within(shape, region, fallback):
     about the ground under the piece".  Same question, other sign.
 
     A shape crossing the corridor with NO vertex inside is the normal
-    case for a merged run, not an edge case, so that is INTERPOLATED
-    onto the clipped part rather than fallen back on — see below.
+    case for a merged run, not an edge case.  It is answered by the
+    GOVERNING VERTICES of the edges that cross — never by interpolating
+    across a vertex the law defined — see below.
     """
     alts = [a for a in (getattr(shape, "node_altitudes", None) or ())
             if a is not None]
@@ -609,25 +610,31 @@ def _shape_top_within(shape, region, fallback):
         # case, not an edge case: a run's stations stand tens of metres
         # apart and a deck corridor is a dozen metres wide, so the ramp
         # crosses BETWEEN two stations.  Falling back to the global top
-        # here is what left the LEMD clearance at -2.94 m after the
-        # per-footprint read landed: the fallback fired every time.
-        # INTERPOLATE instead, onto the clipped part, through the
-        # module's own carrier — the same edge-projecting resampler
-        # every other tunnel clip uses, never a second convention.
-        part = poly.intersection(region)
-        if part.is_empty:
-            return fallback
-        from .elevation import _resample_node_altitudes_nn
+        # here is what left the LEMD clearance at -2.94 m.
+        #
+        # THE GOVERNING VERTEX, NOT AN INTERPOLATION.  The value that
+        # governs a stretch between two stations is the one the law's
+        # own encoding gave it: before the merge that stretch WAS a
+        # sloped rect and ``_shape_top`` returned its ``altitude_high``
+        # = max(z_k, z_k+1).  So the local top is the max over the
+        # EDGES that cross the corridor, of their two endpoint values —
+        # which reproduces the pre-merge answer exactly where the
+        # stretch is level (under a deck the cut holds bore datum, per
+        # RULINGS 2026-08-30f, so both endpoints carry it).  Measured:
+        # interpolating instead read 598.50 against the control's
+        # 598.45 and cost the -2192 span its 5.1 m premise by 0.05 m.
+        from shapely.geometry import LineString
         best = None
-        for geom in getattr(part, "geoms", [part]):
-            if geom.geom_type != "Polygon" or geom.is_empty:
+        n = len(ring)
+        for k in range(n):
+            a, b = ring[k], ring[(k + 1) % n]
+            try:
+                if not region.intersects(LineString([a, b])):
+                    continue
+            except Exception:                            # pragma: no cover
                 continue
-            vals = _resample_node_altitudes_nn(
-                geom, list(ring), list(alts), interior_edge_project=True)
-            if not vals:
-                continue
-            local = max(float(v) for v in vals if v is not None)
-            best = local if best is None else max(best, local)
+            edge_top = max(float(alts[k]), float(alts[(k + 1) % n]))
+            best = edge_top if best is None else max(best, edge_top)
         return fallback if best is None else best
     except Exception:                                    # pragma: no cover
         return fallback

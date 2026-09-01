@@ -6071,6 +6071,19 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             # keeps EVERY surviving arc for exactly this reason; the two
             # now agree, and an arc the siblings genuinely cover in full
             # is LOGGED rather than dropped in silence.
+            #
+            # AN ARC IS A PIECE OF BAND OR IT IS A CRUMB.  The floor is
+            # ``_TUNNEL_COVER_MIN_PIECE_M2`` — the SAME constant the
+            # R10-2 clip below already uses to answer the identical
+            # question ("is this survivor worth shipping"), so the two
+            # paths agree on what a piece is instead of holding two
+            # opinions.  MEASURED at the OTHH fork before this floor
+            # existed: keeping everything down to 0.05 m² shipped five
+            # crumbs (0.23/0.25/0.25/0.41/0.73 m²) beside the real band,
+            # two of them lying INSIDE another band piece — the mitre
+            # residue a difference leaves at a sharp corner, which the
+            # old ``max()`` rule hid by keeping one piece and the arc
+            # fix must not ship in its place.
             _base = _wp0
             if _emitted_band:
                 try:
@@ -6079,9 +6092,11 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                     continue
             _parts: list = []
             for _g in getattr(_base, 'geoms', [_base]):
-                if (_g is not None and not _g.is_empty
-                        and _g.geom_type == 'Polygon' and _g.area >= 0.05):
-                    _parts.append((_g, "tunnel_wall"))
+                if (_g is None or _g.is_empty
+                        or _g.geom_type != 'Polygon'
+                        or _g.area < _TUNNEL_COVER_MIN_PIECE_M2):
+                    continue
+                _parts.append((_g, "tunnel_wall"))
             if not _parts:
                 if _emitted_band:
                     log_tunnel_piece_removal(

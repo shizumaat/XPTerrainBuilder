@@ -267,6 +267,32 @@ class TestTheWallingOrderIsTheMechanism:
                 f"{order}: arm band {a:.2f}/{b:.2f} — an arm lost band "
                 f"on free ground")
 
+    def test_no_arc_crumb_ships_and_none_nests(self):
+        """THE ARC FIX MUST NOT SHIP MITRE RESIDUE.
+
+        Keeping every surviving arc is what recovered the fork's inner
+        face, but a difference at a sharp mitred corner also leaves
+        crumbs.  MEASURED at the OTHH fork with no floor: five pieces of
+        0.23-0.73 m2 beside the real band, TWO of them lying inside
+        another band piece.  The floor is
+        ``_TUNNEL_COVER_MIN_PIECE_M2`` — the constant the R10-2 clip
+        already uses for the same question, so the two paths hold ONE
+        opinion of what a piece is.
+        """
+        lay = self._walled(["A", "B", "throat"])
+        band = [s.polygon for s in lay.shapes if s.ref == "tunnel_wall"]
+        assert band
+        floor = bridges._TUNNEL_COVER_MIN_PIECE_M2
+        assert min(p.area for p in band) >= floor, (
+            f"a crumb below {floor} m2 shipped: "
+            f"{sorted(round(p.area, 2) for p in band)}")
+        for i, a in enumerate(band):
+            for j, b in enumerate(band):
+                if i != j:
+                    assert not b.covers(a), (
+                        f"band piece {i} ({a.area:.2f} m2) is nested "
+                        f"inside piece {j} ({b.area:.2f} m2)")
+
     def test_the_shortfall_that_remains_is_sibling_pavement(self):
         """What a band may NOT stand on: R10-2 keeps full force, and
         ruling 2026-09-01a A leaves the fork's V unwalled at the pinch.

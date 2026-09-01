@@ -4252,6 +4252,16 @@ def _sample_node_dem(layout, nodes, dem, tile_lat, tile_lon):
 #     become a material row).
 WRITEBACK_BAND_CLAMP_MATERIALITY_M = 0.01
 
+#: THE RUNWAY PROFILE PRESERVE (RULINGS 2026-09-01l, lane H7).  Every
+#: runway ring vertex emits its own runway's persisted profile minus the
+#: emit crown drop — see :func:`_runway_law_line_corners` for the
+#: measurement that named it.  Default ON (it is the ruling);
+#: ``O4_RUNWAY_WRITEBACK_PRESERVE=0`` restores the pre-fix stamp for an
+#: A/B arm.
+RUNWAY_WRITEBACK_PRESERVE = (
+    _os.environ.get("O4_RUNWAY_WRITEBACK_PRESERVE", "1") == "1")
+
+
 def _carried_band_closure(layout):
     """THE band the solve carried, as a ``band(x, y)`` closure, or ``None``.
 
@@ -4709,6 +4719,7 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
     if band is None:
         band = _carried_band_closure(layout)
     clamp_findings: list = []
+    preserve_findings: list = []
     n_terms = n_rects = n_juncs = 0
     for s in layout.shapes:
         if s.role not in PAVEMENT_ROLES:
@@ -4867,6 +4878,8 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
             # altitudes (the only runway shapes that reach here have
             # node_altitudes pre-set; the skip-guard above filters
             # the CIFP-only altitude_high/low ones).
+            corner_elevs = _runway_law_line_corners(
+                layout, s, coords_open, corner_elevs, preserve_findings)
             alts = [round(float(e), 2) for e in corner_elevs]
             if ring_closed:
                 alts.append(alts[0])
@@ -4876,7 +4889,141 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
             s.altitude_low = None
             n_rects += 1
     _record_band_clamp_findings(layout, clamp_findings)
+    _record_runway_preserve_findings(layout, preserve_findings)
     return n_terms, n_rects, n_juncs
+
+
+#: A restamp under this is the convergence guards' own noise (the same
+#: 0.01 m floor :data:`WRITEBACK_BAND_CLAMP_MATERIALITY_M` quotes) and is
+#: applied silently; anything above it is a value the SOLVE moved a
+#: runway ring vertex to and is REPORTED by name.
+RUNWAY_PRESERVE_MATERIALITY_M = 0.01
+
+
+def _runway_law_line_corners(layout, shape, coords_open, corner_elevs,
+                             findings):
+    """THE RUNWAY PROFILE PRESERVE, at the writeback every runway ring
+    stamp goes through.
+
+    A runway ring vertex emits its OWN runway's persisted longitudinal
+    profile, minus the crown drop the emit transform applies there —
+    never a value the solve settled the node to.  Owner ruling RULINGS
+    2026-09-01l: "NOTHING is allowed to pull a runway past its caps."
+
+    THE MEASUREMENT (HECA 05C/23C, lane H7, 2026-09-01; five instrumented
+    builds).  The runway's persisted profile ends the build LAWFUL — ZERO
+    segments over the 1.25 % ICAO code-4 cap — and 265 of 267 ring
+    vertices emit that profile to within 5 mm.  TWO do not: at
+    30.11693,31.42056 and 30.11357,31.41731 — the only two ring vertices
+    whose node is shared with BOTH a junction and an apron (three ring
+    vertices interned to one node) — the emitted value is 110.46 / 106.55
+    against a law line of 109.69 / 106.07, i.e. +0.77 / +0.48 m.  Those
+    two vertices ARE the airport's whole runway longitudinal red: 2.40 %
+    and 2.12 % across the first, 2.33 % across the second.
+
+    WHERE THE VALUE MOVES, measured by canonical key inside single passes
+    (an index join across the solve's and the projection's node spaces is
+    the canonical-identity trap and gave a wrong answer first):
+
+      * the SOLVE's seeding hands the node over HARD at the pre-flex law
+        value (114.62), branch ``runway_cifp_profile``, and the shape's
+        ``node_altitudes`` are perfectly aligned with its ring — 0 of 267
+        off the law line;
+      * the runway FLEX lowers 05C/23C by ~4.6 m (HECA's documented
+        CIFP-vs-taxi-network data tension) and the node LEAVES the flex
+        hook ON the flexed law line, 109.69, still ``base_hard``;
+      * by the SOLVE's writeback it reads 110.46.  So a base_hard runway
+        node moves between the flex hook and the writeback, at exactly
+        the nodes a junction and an apron co-own.
+
+    ``final_grade_projection`` already answers this class for ITS OWN
+    writeback — it snapshots the runway altitude fields and restores them
+    verbatim afterwards (``_rwy_alt_snapshot``, ``route_profile/solve.py``,
+    "the ONLY corruption is the aliased writeback").  The SOLVE's
+    writeback had no such preserve, and the projection's preserve then
+    faithfully restores whatever this one stamped.  This closes that hole
+    at the ONE site both writebacks share, so no pass can miss it.
+
+    WHY THE PROFILE AND NOT A SNAPSHOT: the solve's writeback legitimately
+    applies the crown transform to the runway ring (measured: 206 of 208
+    moved vertices moved by exactly the crown drop), so restoring
+    pre-writeback values verbatim would emit the runway one crown drop
+    high.  The profile minus the emit crown IS what those 206 vertices
+    received; taking it for all of them changes nothing there and fixes
+    the two.
+
+    Byte-inert without a persisted profile for the ref (no
+    ``_runway_redistributed_profiles`` entry ⇒ the corner values are
+    returned unchanged), and inert per vertex under
+    :data:`RUNWAY_PRESERVE_MATERIALITY_M`.
+    ``O4_RUNWAY_WRITEBACK_PRESERVE=0`` restores the pre-fix stamp.
+    """
+    if not RUNWAY_WRITEBACK_PRESERVE:
+        return corner_elevs
+    profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
+    p = profiles.get(str(getattr(shape, "ref", "") or ""))
+    if not p or not coords_open:
+        return corner_elevs
+    try:
+        ax_a = p["axis_a"]
+        dx, dy = p["axis_d"]
+        len2 = float(p["axis_len2"])
+        fr, el = p["fractions"], p["elevs"]
+    except (KeyError, TypeError, ValueError):              # pragma: no cover
+        return corner_elevs
+    if len2 <= 0.0 or not fr or not el:
+        return corner_elevs
+    from auto_patch.runway_redistribute import _interp_profile
+    from auto_patch.crown import crown_drop_at
+    out = None
+    for i, (x, y) in enumerate(coords_open):
+        fx, fy = float(x), float(y)
+        t = ((fx - ax_a[0]) * dx + (fy - ax_a[1]) * dy) / len2
+        law = _interp_profile(fr, el, t)
+        if law is None:                                    # pragma: no cover
+            continue
+        expected = float(law) - crown_drop_at(layout, fx, fy)
+        delta = expected - float(corner_elevs[i])
+        if abs(delta) <= RUNWAY_PRESERVE_MATERIALITY_M:
+            continue
+        if out is None:
+            out = list(corner_elevs)
+        out[i] = expected
+        findings.append((
+            str(getattr(shape, "ref", "") or ""),
+            round(fx, 2), round(fy, 2), round(float(delta), 4),
+            round(float(t), 6)))
+    return corner_elevs if out is None else out
+
+
+def _record_runway_preserve_findings(layout, findings) -> None:
+    """Publish every runway ring vertex the preserve had to restamp, and
+    say so ONCE, loudly.
+
+    A restamp is never routine: it names a place where the solve moved a
+    runway off its own law line, which is the pull RULINGS 2026-09-01l
+    forbids.  Silence here would hide the very thing the preserve exists
+    to keep visible."""
+    if not findings:
+        return
+    try:
+        prev = list(getattr(layout, "_runway_profile_preserve_restamps",
+                            None) or [])
+        prev.extend(findings)
+        layout._runway_profile_preserve_restamps = prev
+    except AttributeError:                                 # pragma: no cover
+        pass
+    worst = max(abs(f[3]) for f in findings)
+    msg = (f"  [pav-builder] RUNWAY PROFILE PRESERVE: restamped "
+           f"{len(findings)} runway ring vertex value(s) onto their own "
+           f"law line (worst {worst:.3f} m) — the solve had moved them "
+           f"off it (RULINGS 2026-09-01l: nothing may pull a runway past "
+           f"its caps)")
+    try:
+        import O4_UI_Utils as _UI_rp
+        _UI_rp.vprint(1, msg)
+    except ImportError:                                    # pragma: no cover
+        print(msg)
 
 
 def _read_corner_elevs(coords_open, elev, bucket_to_idx, layout=None):

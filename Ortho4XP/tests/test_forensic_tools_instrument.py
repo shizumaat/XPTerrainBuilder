@@ -227,12 +227,29 @@ def test_the_node_space_token_is_a_fact_two_reports_can_be_compared_on(trr):
     assert trr._nodespace(None) == "none"
 
 
+# SUPERSEDED PREMISE, REWRITTEN (the three twins below).  They called
+# ``trr._edge_budget`` / ``trr._walk_to_anchor`` — PRIVATE COPIES that
+# used to live in ``tools/trace_reach_route.py``.  Spec
+# ``docs/specs/pad-binding-routes-spec.md`` §1.1 retired those copies: the
+# engine now PUBLISHES pad binding routes with the same walk this tool
+# reports, as ``building_feasibility.walk_to_anchor`` /
+# ``.spine_edge_budget``, and one implementation is what stops the tool
+# and the engine drifting into separate opinions about which route bound a
+# node.  The tool re-exports them lazily (PEP 562 ``__getattr__`` over
+# ``_ENGINE_WALK_NAMES``) so ``--from-sidecar`` need not pull the solver in
+# at all (§2.1).
+#
+# The known answers are unchanged — only the names are.  Reaching them
+# through ``trr`` deliberately keeps testing the TOOL's surface, and the
+# identity twin below pins that the tool's name and the engine's name are
+# one object, which is the property the retirement was for.
+
 def test_the_edge_budget_is_read_never_re_derived(trr):
     """KNOWN ANSWER: hop 0→1 is priced 1.0; a pair with no edge is None,
     not 0.0 — a missing edge and a free edge are different findings."""
     g = _G()
-    assert trr._edge_budget(g, 0, 1) == 1.0
-    assert trr._edge_budget(g, 0, 3) is None
+    assert trr.spine_edge_budget(g, 0, 1) == 1.0
+    assert trr.spine_edge_budget(g, 0, 3) is None
 
 
 def test_the_walk_replays_the_recorded_route_and_reports_completeness(trr):
@@ -242,7 +259,7 @@ def test_the_walk_replays_the_recorded_route_and_reports_completeness(trr):
     reconciles: rec[v] + edge == rec[u] exactly."""
     g = _G()
     prov = {0: (0, 0.0), 1: (0, 1.0), 2: (0, 2.0), 3: (0, 3.0)}
-    path, complete = trr._walk_to_anchor(g, prov, 3, 0)
+    path, complete = trr.walk_to_anchor(g, prov, 3, 0)
     assert path == [0, 1, 2, 3]
     assert complete is True
 
@@ -253,9 +270,27 @@ def test_a_route_that_does_not_reconcile_is_INCOMPLETE_not_invented(trr):
     second metric quietly invent a path."""
     g = _G()
     prov = {0: (0, 0.0), 1: (0, 1.0), 2: (0, 9.0), 3: (0, 3.0)}
-    path, complete = trr._walk_to_anchor(g, prov, 3, 0)
+    path, complete = trr.walk_to_anchor(g, prov, 3, 0)
     assert complete is False
     assert path[0] == 3, "an incomplete walk returns what it reached"
+
+
+def test_the_tools_walk_IS_the_engines_walk_not_a_copy(trr):
+    """THE RETIREMENT'S WHOLE POINT, asserted as identity.
+
+    ``pad-binding-routes-spec.md`` §1.1 removed the tool's private walk so
+    the forensic report and the engine's published binding routes cannot
+    disagree.  Object identity is the only assertion that actually pins
+    that: a re-forked copy would still pass every known-answer twin above
+    while drifting from production the moment either side changed.
+    """
+    from auto_patch.elevation_per_surface import building_feasibility
+    assert trr.walk_to_anchor is building_feasibility.walk_to_anchor
+    assert trr.spine_edge_budget is building_feasibility.spine_edge_budget
+    # …and the retired private names are GONE, not shadowing the re-export.
+    for retired in ("_walk_to_anchor", "_edge_budget"):
+        with pytest.raises(AttributeError):
+            getattr(trr, retired)
 
 
 def test_the_budget_agreement_contract_is_a_named_constant(trr):

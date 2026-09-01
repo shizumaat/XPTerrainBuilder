@@ -236,16 +236,39 @@ def test_the_shared_wall_site_predicate_is_evaluated_once():
 
 def test_the_pass_order_is_unchanged_by_the_law():
     """THE ORDERING RULING: wall-AWARE healer, NOT reordered wall passes.
-    The reconcile unit's order in the pipeline is heal -> pinch-heal ->
-    stacked walls, and the v4 gate must not appear in that ordering."""
+    The reconcile unit's order is heal -> pinch-heal -> stacked walls, and
+    the v4 gate must not appear in that ordering.
+
+    STALE SOURCE-SHAPE FIXTURE, REPAIRED.  This twin read
+    ``inspect.getsource(pipeline.build_airport_pavement)``, where the three
+    passes used to be spelled inline.  ``67440c7d`` (2026-07-31,
+    "Below-grade cutouts W1") EXTRACTED them into a named nested unit,
+    ``_strip_reconcile_passes`` inside ``pipeline.solve_and_finalize``, so
+    ``build_airport_pavement``'s source stopped containing any of the three
+    names and the ordering list silently went EMPTY — ``[] == [...]`` is
+    the failure, i.e. the twin had stopped measuring anything at all rather
+    than measuring something that changed.
+
+    The refactor made "the reconcile unit" an actual unit, which is what
+    the ruling always called it, so the twin now reads THAT unit — and
+    asserts it exists by name first, so this can never silently degrade to
+    an empty list again.
+    """
     from auto_patch import pipeline
-    src = inspect.getsource(pipeline.build_airport_pavement)
+    outer = inspect.getsource(pipeline.solve_and_finalize)
+    assert "def _strip_reconcile_passes(" in outer, (
+        "the strip reconcile unit is gone or renamed — re-point this twin "
+        "at wherever the three passes now live, and check the ORDER there")
+    # The unit's own body: from its def to the next line at the same indent.
+    body = outer.split("def _strip_reconcile_passes(", 1)[1]
+    src = body.split("\n    def ", 1)[0]
     order = [name for name in (
         "blend_cross_strip_seam_steps", "_heal_emitted_band_tears",
         "emit_stacked_conflict_walls") if name in src]
     assert order == ["blend_cross_strip_seam_steps",
                      "_heal_emitted_band_tears",
-                     "emit_stacked_conflict_walls"]
+                     "emit_stacked_conflict_walls"], (
+        "the reconcile unit no longer runs all three passes")
     positions = [src.index(name) for name in order]
     assert positions == sorted(positions), (
         "the strip reconcile unit's internal order changed — the "

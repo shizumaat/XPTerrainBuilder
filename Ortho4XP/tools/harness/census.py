@@ -180,8 +180,10 @@ another test's entry would be asserting on a serve rather than a census.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import math
 import os
@@ -230,7 +232,35 @@ def load_check_grade():
 #: Bump when the STORED SHAPE changes (a new field in the entry, a new key
 #: component, a different dump layout).  It is IN the key, so a bump is a
 #: clean global miss rather than a stale entry read with new eyes.
-CENSUS_CACHE_FORMAT = 1
+#:
+#: 2 — the entry carries ``notes``: the stdout the COMPUTATION emits (see
+#: :data:`CACHE_NOTES_DOC`).  Format-1 entries have no notes and would
+#: serve a report stripped of its own caveats, so the bump retires them.
+CENSUS_CACHE_FORMAT = 2
+
+# ── WHY THE COMPUTATION'S STDOUT IS PART OF THE CACHED ARTIFACT ───────
+#
+# ``census_one`` does not only return a report — running it makes
+# ``check_grade`` PRINT the caveats that qualify the numbers it is about
+# to hand back, e.g.
+#
+#     [check_grade] lateral_contiguity: no sidecar 'station_caps' —
+#     pricing every station at the WAY-level o4_grade_law_cap
+#     (pre-Amendment-9 frame).  A road solved per-station will
+#     over-report here.
+#
+# A cache HIT does not call ``census_one``, so before this was fixed the
+# served run silently DROPPED those lines — and dropped them in the worst
+# direction: the reader saw the over-reported numbers without the sentence
+# saying they over-report.  That is the census-wrapper defect class the
+# root ``CLAUDE.md`` keeps its precedent for, arrived at from the other
+# side: not a wrapper that omits a law family, but a cache that omits the
+# frame the family was priced in.
+#
+# So the notes are captured on a MISS, emitted verbatim (the fresh run
+# stays byte-unchanged), stored beside the report, and replayed on a HIT
+# directly after the marker — which is what makes "a served census is the
+# fresh census plus exactly one line" true rather than nearly true.
 
 #: Lane-local override for the cache root.  The default lives under
 #: ``Ortho4XP/tmp/`` — already gitignored, and a lane PRODUCT, which is why
@@ -394,13 +424,18 @@ def cache_load(key: str) -> Optional[dict]:
 
 
 def cache_store(key: str, payload: dict, report: dict,
-                dumps: dict) -> Optional[Path]:
+                dumps: dict, notes: str = "") -> Optional[Path]:
     """Store one census.  Returns the entry path, or ``None`` if it could
     not be stored (reported on stderr — stdout is the instrument's output
     and must stay byte-identical whether or not a cache exists).
 
     ``dumps`` maps ``"rows_json"`` / ``"sites_json"`` to the TEXT
     ``census_one`` just wrote, so a hit can re-write those files too.
+
+    ``notes`` is the stdout the COMPUTATION emitted — the caveats
+    ``check_grade`` prints about the frame it priced this report in.  A hit
+    replays it verbatim; see the format-2 note at
+    :data:`CENSUS_CACHE_FORMAT`.
 
     THE ROUND-TRIP IS VERIFIED BEFORE IT IS STORED: the report is re-parsed
     from the bytes about to be written and compared with the report in
@@ -415,6 +450,7 @@ def cache_store(key: str, payload: dict, report: dict,
         "key_payload": payload,
         "stored_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "report": report,
+        "notes": notes,
         "rows_json": dumps.get("rows_json"),
         "sites_json": dumps.get("sites_json"),
     }
@@ -2270,14 +2306,25 @@ def main(argv=None) -> int:
                     out.parent.mkdir(parents=True, exist_ok=True)
                     out.write_text(stored)
             print(cache_hit_line(entry))
+            # THE COMPUTATION'S OWN CAVEATS, replayed in the position the
+            # fresh run prints them (before the report) so a served census
+            # differs from a fresh one by the marker line and nothing else.
+            sys.stdout.write(entry.get("notes") or "")
         else:
+            # Capture what the COMPUTATION prints so it can be stored and
+            # replayed on a hit.  Emitted verbatim in ``finally`` — the
+            # fresh run's stdout is byte-unchanged, including when
+            # ``census_one`` raises the refusal below.
+            _notes_buf = io.StringIO()
             try:
-                rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
-                                 want_zone_split=args.zone_split,
-                                 band_edges=band_edges, frame=args.frame,
-                                 rows_out=rows_out, want_sites=args.sites,
-                                 site_visibility_m=args.site_visibility,
-                                 sites_out=sites_out)
+                with contextlib.redirect_stdout(_notes_buf):
+                    rep = census_one(osm, cg, want_bare=args.bare,
+                                     top=args.top,
+                                     want_zone_split=args.zone_split,
+                                     band_edges=band_edges, frame=args.frame,
+                                     rows_out=rows_out, want_sites=args.sites,
+                                     site_visibility_m=args.site_visibility,
+                                     sites_out=sites_out)
             except FileNotFoundError as exc:
                 raise SystemExit(
                     f"REFUSING: {exc}\n"
@@ -2286,6 +2333,8 @@ def main(argv=None) -> int:
                     f"actionable at KCLT).  If you only want that number for "
                     f"the record, run tools/check_grade.py directly — it says "
                     f"so in its own output.") from None
+            finally:
+                sys.stdout.write(_notes_buf.getvalue())
             if key is not None:
                 # The dump TEXT is read back from what ``census_one`` just
                 # wrote rather than re-serialised here: a second serialiser
@@ -2299,7 +2348,8 @@ def main(argv=None) -> int:
                             dumps[name] = out.read_text()
                         except OSError:            # pragma: no cover
                             dumps[name] = None
-                cache_store(key, payload, rep, dumps)
+                cache_store(key, payload, rep, dumps,
+                            notes=_notes_buf.getvalue())
         reports.append(rep)
         if not args.quiet:
             print_report(rep, args.top)

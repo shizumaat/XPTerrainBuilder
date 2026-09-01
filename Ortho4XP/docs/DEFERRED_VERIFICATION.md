@@ -5414,3 +5414,26 @@ both owner ramp probes CONTAINED.
   HEAZ — baselined and untouched today) and the whole-tile <= 300 s
   budget, which has no qualifying store record at all (`tiles` in the
   baselines file is empty).
+
+- 2026-09-01 lane/ltbatch3 round 3i (THE WALL FOOT RETIRES, RULINGS
+  2026-09-01c; commit `d2d6ebfc`).  SKIPPED under pre-ship mode: the
+  FULL suite (only the blast-radius selection ran — 1,345 passed, with
+  the 10 standing reds verified IDENTICAL in a control worktree at
+  HEAD: `test_gap_fill_spine` x3, `test_tunnel_portal_fidelity` x7,
+  the latter NOT on the beta plan's H2 list and owed an owner/lane
+  attribution); no five-airport sweep (OTHH + LEMD only, the two
+  airports carrying tunnels); NO TIMING at all — the band emits ONE
+  ref where it emitted two and the foot re-clip pass is gone, so the
+  change is expected to be neutral-to-cheaper, but that is a
+  prediction and not a measurement (`--runs N` owed at the final
+  profile); the mesher's own rendering of the unowned 0.5 m gap is
+  ASSERTED BY THE RULING and unverified in-sim until the owner's
+  Thursday read — no patch-side instrument can see a triangulation
+  that happens in Triangle4XP.
+  ATTRIBUTION THAT DID LAND, in full: the fork's missing inner face
+  was probed interventionally on the synthetic fork twin (no build) —
+  the sibling subtraction kept only `max(geoms, key=area)` and deleted
+  a 62.0 m2 arc of a 128.8 m2 band on FREE GROUND with no log line.
+  Fixed by keeping every surviving arc; measured after, both arms
+  0.911/0.912 in both walling orders with the whole remaining
+  shortfall (11.4 of 11.4 m2) on sibling pavement.

@@ -5437,3 +5437,27 @@ both owner ramp probes CONTAINED.
   Fixed by keeping every surviving arc; measured after, both arms
   0.911/0.912 in both walling orders with the whole remaining
   shortfall (11.4 of 11.4 m2) on sibling pavement.
+
+- 2026-09-01 lane/ltbatch3 round 3i, CORRECTION (commit `4627f214`'s
+  claim is REFUTED by its own closing arm, and the claim was mine).
+  The arc floor was landed asserting it closed the OTHH fork's crumbs.
+  MEASURED on `lt3i2_othh_arm` with the floor in place: the fork still
+  ships 0.23 / 0.25 / 0.41 / 0.73 m² band pieces and BOTH nested pairs
+  survive — 13 → 12 pieces, exactly one crumb removed.  Every path that
+  MINTS a band piece already floors at
+  `_TUNNEL_COVER_MIN_PIECE_M2`, so the crumbs are not born at the
+  emitter: a LATER pass shrinks or splits a wall piece below the floor
+  without logging it.  THAT PASS IS UNATTRIBUTED and is owed the seam
+  probe this round did not have the build budget to run (attempt cap
+  spent on two OTHH arms).  The floor STAYS — its justification is
+  consistency between the two paths, which stands — but it is not their
+  fix and must not be re-asserted as one.
+  A STANDING HYPOTHESIS, explicitly unproven, for whoever runs that
+  probe: the crumbs measure ~0.5 x 1.0 m (minimum rotated rects
+  0.47x1.06, 0.50x1.00, 0.33x1.39), they carry TWO storeys of altitude
+  (0.59 with 1.96, 0.58 with 1.21, 1.68 with 0.58), and they appear
+  only in the arms where `wall_gap_m` equals `CONFORMANCE_TOL_M` — all
+  consistent with the post-solve conformance weld's 0.5 m ring bow,
+  which is also the measured cause of the `ramp_wall_gap` regression.
+  One probe would confirm or kill it; nothing here should be repeated
+  as fact until it does.

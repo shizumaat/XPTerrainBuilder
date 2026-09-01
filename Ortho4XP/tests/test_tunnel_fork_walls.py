@@ -268,16 +268,20 @@ class TestTheWallingOrderIsTheMechanism:
                 f"on free ground")
 
     def test_no_arc_crumb_ships_and_none_nests(self):
-        """THE ARC FIX MUST NOT SHIP MITRE RESIDUE.
+        """THE ARC FIX MUST NOT SHIP MITRE RESIDUE *AT THE EMITTER*.
 
         Keeping every surviving arc is what recovered the fork's inner
         face, but a difference at a sharp mitred corner also leaves
-        crumbs.  MEASURED at the OTHH fork with no floor: five pieces of
-        0.23-0.73 m2 beside the real band, TWO of them lying inside
-        another band piece.  The floor is
+        crumbs, so the arc list is floored at
         ``_TUNNEL_COVER_MIN_PIECE_M2`` — the constant the R10-2 clip
         already uses for the same question, so the two paths hold ONE
         opinion of what a piece is.
+
+        SCOPE, MEASURED (2026-09-01): this twin governs the EMITTER's
+        own output and nothing downstream.  The OTHH fork still ships
+        0.23-0.73 m² crumbs and two nested pairs AFTER this floor, so
+        those are made by a later, unattributed pass — this twin must
+        not be read as covering them.
         """
         lay = self._walled(["A", "B", "throat"])
         band = [s.polygon for s in lay.shapes if s.ref == "tunnel_wall"]

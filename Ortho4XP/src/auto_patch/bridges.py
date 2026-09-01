@@ -6076,14 +6076,23 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             # ``_TUNNEL_COVER_MIN_PIECE_M2`` — the SAME constant the
             # R10-2 clip below already uses to answer the identical
             # question ("is this survivor worth shipping"), so the two
-            # paths agree on what a piece is instead of holding two
-            # opinions.  MEASURED at the OTHH fork before this floor
-            # existed: keeping everything down to 0.05 m² shipped five
-            # crumbs (0.23/0.25/0.25/0.41/0.73 m²) beside the real band,
-            # two of them lying INSIDE another band piece — the mitre
-            # residue a difference leaves at a sharp corner, which the
-            # old ``max()`` rule hid by keeping one piece and the arc
-            # fix must not ship in its place.
+            # paths hold ONE opinion of what a piece is.  That
+            # consistency is its whole justification.
+            #
+            # WHAT IT DOES *NOT* DO — CORRECTED 2026-09-01, and the
+            # original claim is kept visible because it was mine.  This
+            # floor was landed asserting it closed the OTHH fork's
+            # crumbs (0.23/0.25/0.25/0.41/0.73 m², two of them nested
+            # inside another band piece).  THE CLOSING ARM REFUTES THAT:
+            # with the floor in place the fork still ships
+            # 0.23/0.25/0.41/0.73 and BOTH nested pairs survive
+            # (13 → 12 pieces; exactly one crumb went).  The crumbs are
+            # therefore NOT born here — every path that mints a band
+            # piece already floors at this constant — so a LATER pass
+            # shrinks or splits a piece below it, unlogged, and that
+            # pass is UNATTRIBUTED.  Do not re-assert this floor as
+            # their fix; the seam probe that would name them is the
+            # owed work (see docs/DEFERRED_VERIFICATION.md).
             _base = _wp0
             if _emitted_band:
                 try:

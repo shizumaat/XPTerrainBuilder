@@ -5742,15 +5742,34 @@ def _emit_portal_cluster(
                 # arm measured at the confirmed fork (open 0.32, foot
                 # 0.34/0.31).  The arms own their corridors; the throat
                 # takes what is left, which is the V's cap.
+                # ── THE PINCH SHARED WALL STANDS DOWN (RULINGS
+                # 2026-09-01a, decision A).  R10-2 keeps FULL FORCE: a
+                # cover piece may never sit on tunnel pavement, and in a
+                # gap narrower than two bands the shared structure would
+                # have to.  So the V goes UNWALLED AT THE PINCH — and it
+                # yields at the SEED, never by emit-then-clip: each arm's
+                # band is denied the ground its SIBLINGS' pavement
+                # occupies, so the piece is never generated there.
+                # Emitting it and letting R10-2 clip it back produced the
+                # same absence plus fragments (measured: redundant=1 and
+                # 32-57 % of each arm's missing inner face lying on
+                # sibling pavement).  Outer faces and feet are untouched
+                # and complete; inner faces still emit wherever they fit
+                # OFF pavement.
+                _all_ramp_polys = [bp for bods, _s2, _a2 in _arm_bodies
+                                   for bp in bods]
                 _done: list = []
                 for _bods, _srcs, _aends in _arm_bodies:
                     if not _bods:
                         continue
+                    _sibling = [g for g in _all_ramp_polys
+                                if not any(g is bp for bp in _bods)]
                     _n0 = len(layout.shapes)
                     emit_wall_band(
                         layout, exclusion_zones, _bods, _srcs, _aends,
                         wall_gap_m, retaining_wall_width_m,
-                        dem_at, apt_elev, exclude=list(_done))
+                        dem_at, apt_elev,
+                        exclude=list(_done) + _sibling)
                     _done.extend(
                         s.polygon for s in layout.shapes[_n0:]
                         if getattr(s, 'ref', '') in _WALL_BAND_REFS
@@ -5769,7 +5788,8 @@ def _emit_portal_cluster(
                         [s for s in layout.shapes[_cl_start_idx:]
                          if getattr(s, 'ref', '') == 'tunnel_ramp'],
                         [], wall_gap_m, retaining_wall_width_m,
-                        dem_at, apt_elev, exclude=list(_done))
+                        dem_at, apt_elev,
+                        exclude=list(_done) + _all_ramp_polys)
                 UI.vprint(1,
                     f"  [pav-builder] §5-SUPPLEMENT-2 fork walls: "
                     f"{len(_arm_bodies)} arm(s) walled as their own "

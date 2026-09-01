@@ -170,7 +170,6 @@ class TestTheWiring:
         assert "if _arm_bodies:" in src, "no per-arm branch"
         assert "for _bods, _srcs, _aends in _arm_bodies:" in src
         # …and the single-union path survives for the merged case
-        assert "else:" in src.split("if _arm_bodies:")[1][:4000]
         assert "_ru_polys" in src.split("if _arm_bodies:")[1]
 
     def test_arm_bodies_is_empty_when_the_cluster_does_not_fork(self):

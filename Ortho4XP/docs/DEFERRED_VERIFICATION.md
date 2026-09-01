@@ -5277,7 +5277,23 @@ both owner ramp probes CONTAINED.
   NAMED, and they are DIFFERENT mechanisms.  One instrumented arm
   (`lt3g_probe`, sha d2abdc2583b9 — byte-identical to `lt3f2_othh_arm`,
   so the probe reproduces the closing arm exactly).
-  (a) THE MERGED SITE'S FOOT (25.2761183,51.6134359, 154.0 of 193.8 m²)
+  (a) [CORRECTED 2026-09-01, round 3h — THE CLAIM BELOW THAT THIS IS
+      "LAWFUL, THE ARM-END OPENING" IS **REFUTED BY MEASUREMENT**.  The
+      opening was reconstructed from the emitter's own geometry (a line
+      from end-1.0 m to end+3.6 m, buffered by half_width+g0-0.05,
+      cap_style=2 — a 4.6 m-deep, 54.7 m-wide rectangle, 252 m²) and
+      only **2.1 m² of the 40.9 m² gap (5 %) lies inside it**; the near
+      end contributes 0.0.  A gap centred 27.3 m inboard cannot be a
+      4.6 m-deep end opening, and the "27.3 m from the far end" figure
+      was reported as if it supported the opening when it refutes it.
+      THE MERGED SITE'S FOOT GAP REMAINS UNATTRIBUTED: not a logged
+      removal (the per-piece instrument fires once, on an unrelated
+      graze-clip), not on tunnel pavement (0.0 m²), not the arm-end
+      opening (2.1 m²), and the band emits COMPLETE in isolation on that
+      exact body (193.8/193.8).  Something between isolation and the
+      build removes it and I did not find it.]
+      THE ORIGINAL (REFUTED) FINDING, kept for the record:
+      THE MERGED SITE'S FOOT (25.2761183,51.6134359, 154.0 of 193.8 m²)
       IS LAWFUL, NOT A REMOVAL.  The named-removal instrument
       (`log_tunnel_piece_removal`, mandatory and ungated, logging every
       piece a post-emit pass removes OR CLIPS) fires ONCE in the whole

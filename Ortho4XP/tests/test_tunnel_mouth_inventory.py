@@ -160,6 +160,10 @@ class TestTheCanonicalMouthPasses:
         # per side is a COVERAGE question measured PER ARM, not a piece
         # count: the emitter's canonical form is ONE band wrapping both
         # sides, and an arm's joint with its plate is not a side
+        # per side is COVERAGE measured PER ARM, with the joint removed
+        # from the denominator.  A merged site is NOT a pinch, so the
+        # R10-2 pinch exemption (RULINGS 2026-09-01a A) does not apply
+        # here — it is scoped to sibling ARMS of a fork.
         assert "wall L/R=0.81/0.81" in c.detail
         assert "foot L/R=0.82/0.82" in c.detail
 

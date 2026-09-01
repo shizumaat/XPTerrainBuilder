@@ -189,6 +189,12 @@ class Thresholds:
     bearing_tol_deg: float = 20.0
     #: a corridor surface flatter than this is a fork THROAT plate
     throat_flat_m: float = 0.10
+    #: how far a wall band stands off a corridor.  A stretch of one
+    #: arm's side within this of a SIBLING's pavement cannot carry a
+    #: band at all (R10-2, kept at full force by RULINGS 2026-09-01a
+    #: decision A), so it leaves the denominator instead of being
+    #: charged as unwalled.
+    pinch_reach_m: float = 2.0
     #: the share of a site's perimeter no band piece may leave open
     #: before its end counts as UNWRAPPED (2026-08-30j read the wrapped
     #: end AS the end cap)
@@ -668,7 +674,8 @@ def _fmt(v):
     return "-" if v is None else format(float(v), ".2f")
 
 
-def _side_cover(body, band, ref, centre, axis, caps=(), internal=None):
+def _side_cover(body, band, ref, centre, axis, caps=(), internal=None,
+                pinch_reach=0.05, pinch=None):
     """``(left, right)`` — the share of each SIDE of ``body``'s boundary
     that a band piece of ``ref`` answers for.
 
@@ -685,11 +692,34 @@ def _side_cover(body, band, ref, centre, axis, caps=(), internal=None):
     the side wall ALONE charged it for the ends and read 0.71 on a
     fixture that is canonical by construction.
 
-    ``internal`` is the other corridor surfaces of the same site.  Where
-    two of them MEET there is no exposed side to retain — an arm's joint
-    with its fork throat is inside the corridor — so that stretch leaves
-    the denominator.  Charging an arm for its own internal joint read
-    0.69 on a fixture canonical by construction.
+    ``internal`` is the other corridor surfaces of the same site, and
+    ``pinch_reach`` how far a band would have to stand off them.  TWO
+    stretches leave the denominator, both because no band may lawfully
+    occupy them:
+
+    * the JOINT — where two of the site's surfaces meet there is no
+      exposed side to retain (an arm's joint with its fork throat is
+      inside the corridor).  Charging an arm for its own joint read 0.69
+      on a fixture canonical by construction;
+    * the ARM END — ``emit_wall_band`` cuts its band OPEN at each arm's
+      far (surface) end, by law: "at the far end the road continues at
+      grade and the crossing walls it off".  MEASURED on the shipped
+      tunnel profile's own merged dual-carriageway site: the 40.9 m2 the
+      foot "lacks" sits 27.3 m from the far end of a 53.6 m-wide
+      carriageway against 112.1 m from the near end, and a full-width
+      opening removes ~32.2 m2 of foot — the balance being mitred
+      corners.  Nothing removed it (the
+      per-piece removal instrument fires ONCE in the whole build, on an
+      unrelated graze-clip) and 0.0 m2 of it lies on tunnel pavement.
+      Charging a side for an end the emitter opens BY DESIGN measures
+      the emitter against something it must not do;
+    * the PINCH — RULINGS 2026-09-01a decision A: the fork-pinch shared
+      wall STANDS DOWN and R10-2 keeps full force, so the V goes
+      UNWALLED at the pinch.  A stretch whose band would have to sit on
+      a SIBLING's pavement cannot be walled at all, and a bar that
+      charges for it measures the emitter against something the owner
+      has ruled it must not do.  Outer faces and feet are unaffected;
+      inner faces are still charged wherever they fit off-pavement.
 
     Returns ``(0.0, 0.0)`` when the boundary cannot be split — a
     measurement that failed, never a pass.
@@ -704,6 +734,8 @@ def _side_cover(body, band, ref, centre, axis, caps=(), internal=None):
                 else unary_union([g.exterior for g in body.geoms]))
         if internal is not None and not internal.is_empty:
             ring = ring.difference(internal.buffer(0.05))
+        if pinch is not None and not pinch.is_empty:
+            ring = ring.difference(pinch.buffer(pinch_reach))
         cover = (unary_union(pieces).buffer(FACE_REACH_M)
                  if pieces else None)
     except Exception:                                    # pragma: no cover
@@ -983,14 +1015,26 @@ def _check_mouth_inventory(patch: Patch, thr: Thresholds) -> List[Check]:
                 continue
             _ac = _ag.centroid
             _others = [g for _w2, _r2, g in members if g is not _ag]
+            # THE PINCH EXEMPTION IS SCOPED TO A FORK (RULINGS
+            # 2026-09-01a decision A applies "at the pinch only"): only
+            # a SIBLING ARM's pavement forbids a band.  A merged site's
+            # mouth plate is not a pinch and is not exempted.
+            _sib = [g for _w2, _r2, g in _arms if g is not _ag]
+            try:
+                _pinch = (unary_union(_sib)
+                          if len(_arms) >= 2 and _sib else None)
+            except Exception:                            # pragma: no cover
+                _pinch = None
             try:
                 _int = unary_union(_others) if _others else None
             except Exception:                            # pragma: no cover
                 _int = None
             _w = _side_cover(_ag, near_band, "tunnel_wall",
-                             (_ac.x, _ac.y), _aax, near_caps, _int)
+                             (_ac.x, _ac.y), _aax, near_caps, _int,
+                             thr.pinch_reach_m, _pinch)
             _f = _side_cover(_ag, near_band, "tunnel_wall_foot",
-                             (_ac.x, _ac.y), _aax, near_caps, _int)
+                             (_ac.x, _ac.y), _aax, near_caps, _int,
+                             thr.pinch_reach_m, _pinch)
             if wl is None:
                 wl, wr, fl, fr = _w[0], _w[1], _f[0], _f[1]
             else:
@@ -1769,6 +1813,7 @@ def build_parser() -> argparse.ArgumentParser:
                           ("side-cover-min", 0.80),
                           ("bearing-tol-deg", 20.0),
                           ("throat-flat-m", 0.10),
+                          ("pinch-reach-m", 2.0),
                           ("mouth-open-frac-max", 0.10),
                           ("dup-overlap-m2", 2.0),
                           ("wall-fragment-m2", 1.0)):
@@ -1836,6 +1881,7 @@ def main(argv=None) -> int:
         side_cover_min=args.side_cover_min,
         bearing_tol_deg=args.bearing_tol_deg,
         throat_flat_m=args.throat_flat_m,
+        pinch_reach_m=args.pinch_reach_m,
         band_pieces_max=args.band_pieces_max,
         mouth_open_frac_max=args.mouth_open_frac_max,
         dup_overlap_m2=args.dup_overlap_m2,

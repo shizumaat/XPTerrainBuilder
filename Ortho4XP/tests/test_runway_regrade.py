@@ -224,3 +224,81 @@ def test_joint_solve_holds_end_zone_grade_when_feasible():
         if fr[i] < 0.25 or fr[i + 1] > 0.75:
             g = (elevs[i + 1] - elevs[i]) / ((fr[i + 1] - fr[i]) * phys)
             assert abs(g) <= RUNWAY_END_GRADE + 1e-4
+
+
+# ── THE INFEASIBLE-INTERVAL PLACEMENT (2026-09-01, SPLP 02/20) ────────
+# ``faa_hard_cap_pass`` used to midpoint a sample whose two neighbour
+# reach-bands are DISJOINT: ``(lo + hi) / 2``, a midpoint in ELEVATION
+# that ignores the two segment lengths and therefore dumps the whole
+# unavoidable excess into whichever segment is shorter.  The law's answer
+# to an unsatisfiable cap is the one ``faa_envelope_clamp`` already gives
+# — put the sample on the LINE between its neighbours, so the excess is
+# spread evenly.  The numbers below are SPLP 02/20's own geometry.
+
+def test_balanced_infeasible_elevation_is_the_line_at_equal_caps():
+    """Equal caps ⇒ the balanced value is the linear interpolation, so
+    both segments carry the SAME grade (the minimax placement)."""
+    from auto_patch.pavement.runway_segments import (
+        balanced_infeasible_elevation)
+    e_hi, d_hi, cap = 59.254, 45.1, 0.0125       # the HIGH neighbour
+    e_lo, d_lo = 55.271, 229.3                   # the LOW neighbour
+    e = balanced_infeasible_elevation((e_hi, d_hi, cap), (e_lo, d_lo, cap))
+    assert e is not None
+    g_lo = (e - e_lo) / d_lo
+    g_hi = (e_hi - e) / d_hi
+    assert abs(g_lo - g_hi) < 1e-9, (g_lo, g_hi)
+    # ...and it IS the chord: the sample sits on the line.
+    chord = e_lo + (e_hi - e_lo) * d_lo / (d_lo + d_hi)
+    assert abs(e - chord) < 1e-9
+    # The old bound midpoint concentrated the excess (1.83% vs 1.45%).
+    lo = e_hi - cap * d_hi
+    hi = e_lo + cap * d_lo
+    assert lo > hi, "this fixture must be infeasible"
+    old = 0.5 * (lo + hi)
+    assert (e_hi - old) / d_hi > 0.017
+    assert max(g_lo, g_hi) < 0.015
+
+
+def test_balanced_infeasible_elevation_equalises_excess_over_own_cap():
+    """Different caps (an end-zone segment against a main one) ⇒ what is
+    equalised is each segment's excess over ITS OWN cap, not the raw
+    grade."""
+    from auto_patch.pavement.runway_segments import (
+        balanced_infeasible_elevation)
+    e_hi, d_hi, cap_hi = 20.0, 100.0, 0.008      # end-zone side
+    e_lo, d_lo, cap_lo = 0.0, 400.0, 0.0125      # main side
+    e = balanced_infeasible_elevation((e_hi, d_hi, cap_hi),
+                                      (e_lo, d_lo, cap_lo))
+    assert e is not None
+    exc_lo = (e - e_lo) / d_lo - cap_lo
+    exc_hi = (e_hi - e) / d_hi - cap_hi
+    assert exc_lo > 0 and exc_hi > 0
+    assert abs(exc_lo - exc_hi) < 1e-9, (exc_lo, exc_hi)
+
+
+def test_balanced_infeasible_elevation_refuses_a_one_sided_sample():
+    from auto_patch.pavement.runway_segments import (
+        balanced_infeasible_elevation)
+    side = (10.0, 50.0, 0.0125)
+    assert balanced_infeasible_elevation(side, side) is None
+    assert balanced_infeasible_elevation(side, None) is None
+    assert balanced_infeasible_elevation(None, side) is None
+    assert balanced_infeasible_elevation(side, (10.0, 0.0, 0.0125)) is None
+
+
+def test_hard_cap_pass_spreads_an_infeasible_interval():
+    """The pass itself: one free sample between two anchors whose chord is
+    already over cap, with wildly unequal segment lengths.  Neither
+    segment may end up steeper than the chord."""
+    from auto_patch.pavement.runway_segments import faa_hard_cap_pass
+    phys = 1000.0
+    fr = [0.0, 0.8, 1.0]                 # 800 m then 200 m
+    elevs = [0.0, 8.0, 20.0]             # chord 2.0% over 1000 m
+    anchored = [True, False, True]
+    faa_hard_cap_pass(fr, elevs, anchored, phys, grade_cap=0.0125)
+    g_left = (elevs[1] - elevs[0]) / 800.0
+    g_right = (elevs[2] - elevs[1]) / 200.0
+    chord = 20.0 / 1000.0
+    assert g_left <= chord + 1e-9
+    assert g_right <= chord + 1e-9
+    assert abs(g_left - g_right) < 1e-9

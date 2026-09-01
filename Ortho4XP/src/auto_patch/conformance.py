@@ -1252,6 +1252,60 @@ def enforce_conformance(layout: "PavementLayout",
     return shapes_modified, vertices_inserted
 
 
+def _repair_keeps_the_no_overlap_invariant(layout, shape, repaired):
+    """The buffer(0) repair, RE-CLIPPED against every strictly higher-
+    priority shape it now covers.  Returns the polygon to keep, or
+    ``None`` when nothing survives (caller then leaves the ring alone).
+
+    WHY (CYXY service_junction #145 ∩ service_road #142, 0.1878 m²,
+    attributed 2026-09-01 with ``who_wrote --footprint``).  A ring that
+    self-intersects in the quantized frame is a BOWTIE: the twisted lobe
+    is not covered by the ring-as-written (winding rule), so
+    ``_drop_overlap_against_fixed_shapes`` — which ran earlier and DID
+    remove this exact overlap — sees no overlap there.  ``buffer(0)``
+    then untwists it, and the repaired ring covers ground the pre-repair
+    ring did not: the overlap is minted by the repair, after the only
+    pass that polices it.  This is not a tolerance — the repair simply
+    finishes the job under the SAME priority tiers
+    ``_drop_overlap_against_fixed_shapes`` uses (``_OVERLAP_TIER``, one
+    table for both), so a repaired residue yields to fixed geometry
+    exactly as an unrepaired one does.  On a shape that gained no
+    overlap it is a no-op."""
+    tb = _tier(getattr(shape, "role", None))
+    if tb <= 0:
+        return repaired
+    minx, miny, maxx, maxy = repaired.bounds
+    out = repaired
+    for other in layout.shapes:
+        if other is shape:
+            continue
+        op = getattr(other, "polygon", None)
+        if op is None or op.is_empty:
+            continue
+        if _tier(getattr(other, "role", None)) >= tb:
+            continue
+        obounds = op.bounds
+        if (obounds[0] > maxx or obounds[2] < minx
+                or obounds[1] > maxy or obounds[3] < miny):
+            continue
+        try:
+            if not out.intersects(op):
+                continue
+            if out.intersection(op).area <= 0.0:
+                continue
+            out = out.difference(op)
+        except Exception:
+            return None
+        if out.is_empty:
+            return None
+        if out.geom_type == "MultiPolygon":
+            out = max(out.geoms, key=lambda g: g.area)
+        if out.geom_type != "Polygon" or not out.is_valid:
+            return None
+        minx, miny, maxx, maxy = out.bounds
+    return out
+
+
 def repair_emit_quantized_rings(layout: "PavementLayout") -> int:
     """Pre-projection twin of the emit-time quantized-validity repair
     (``layout.to_osm``: "repaired invalid polygon at emit (buffer(0) ...
@@ -1328,6 +1382,26 @@ def repair_emit_quantized_rings(layout: "PavementLayout") -> int:
                 continue
         except Exception:
             continue
+        # THE REPAIR MAY NOT MINT AN OVERLAP (see
+        # ``_repair_keeps_the_no_overlap_invariant``).  Untwisting a
+        # bowtie can put pavement over a higher-priority neighbour the
+        # overlap pass already cleared; clip it back here, and if nothing
+        # survives leave the ring alone for the emit-time guard.
+        clipped = _repair_keeps_the_no_overlap_invariant(
+            layout, s, new_poly)
+        if clipped is None:
+            continue
+        if clipped is not new_poly:
+            new_poly = clipped
+            ring_at = {}
+            for _k, (_rx, _ry) in enumerate(ring):
+                ring_at.setdefault((round(_rx, 9), round(_ry, 9)), _k)
+            new_ring_m = [(x, y)
+                          for x, y in list(new_poly.exterior.coords)[:-1]]
+            kept_idx = [ring_at.get((round(x, 9), round(y, 9)))
+                        for x, y in new_ring_m]
+            if len(new_ring_m) < 3:
+                continue
         # Carry per-vertex altitudes the way the emit repair does:
         # surviving vertices keep theirs, new self-touch vertices take
         # the nearest pre-repair vertex's value.  The projection reprices

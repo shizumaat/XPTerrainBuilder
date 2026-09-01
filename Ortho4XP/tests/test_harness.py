@@ -6701,3 +6701,63 @@ def test_BOTH_tile_entries_share_ONE_frame_resolver(build_mod):
     assert "resolve_tile_frame(" in entry
     # the mesh-only entry runs steps 1-2, which need no provider at all
     assert "steps 1-2 need no provider, continuing" in entry
+
+
+# ── THE OUT-OF-PYTEST BUILD PATH (2026-09-01, lane hard5) ─────────────
+# The mod-cache overlay and the per-test write guard are pytest FIXTURES.
+# A plain ``venv/bin/python probe.py`` doing ``import conftest;
+# cached_airport_layout(...)`` — the attribution-probe idiom — armed
+# NEITHER, built against the SHARED ``Airport_mod_cache`` and wrote
+# ``Airport_mod_cache/SPLP Test/o4_object_footprints_-13-078.cache``
+# into it, flagging two other lanes' concurrent arms CONTAMINATED.
+# ``conftest.arm_lane_local_derived_caches`` closes it AT THE ONE SITE
+# every layout build passes through.
+
+def test_every_layout_build_arms_the_derived_cache_redirect():
+    """``_build_cached`` — the single ``build_airport_pavement`` call site
+    the whole suite and every probe share — arms the redirect first."""
+    conftest = _conftest()
+    src = inspect.getsource(conftest._build_cached)
+    assert "arm_lane_local_derived_caches()" in src, (
+        "the arming left the one path every out-of-pytest probe takes — "
+        "that is exactly how the shared Airport_mod_cache got written")
+    # ...and it runs BEFORE the builder is even imported (the engine
+    # resolves its cache roots at import/call time).
+    assert (src.index("arm_lane_local_derived_caches()")
+            < src.index("from auto_patch.pipeline import")), (
+        "arming after the import/build is arming after the write")
+
+
+def test_arming_yields_to_a_fixture_or_the_harness(monkeypatch):
+    """When something already owns the redirect (the session fixture, or
+    ``build_airport.py``'s own), arming is a NO-OP — one authority."""
+    conftest = _conftest()
+    monkeypatch.setenv("O4_AIRPORT_MOD_CACHE_DIR", "/somewhere/lane/local")
+    assert conftest.arm_lane_local_derived_caches() is False
+    assert os.environ["O4_AIRPORT_MOD_CACHE_DIR"] == "/somewhere/lane/local"
+
+
+def test_arming_redirects_off_the_shared_corpus(monkeypatch, build_mod):
+    """With nothing armed, the redirect lands OUTSIDE the shared data
+    repo and the overlay is seeded from it (warm reads, lane-local
+    writes) — the fixture's own guarantee, on the probe path."""
+    conftest = _conftest()
+    monkeypatch.delenv("O4_AIRPORT_MOD_CACHE_DIR", raising=False)
+    monkeypatch.delenv("O4_DSF_CACHE_DIR", raising=False)
+    monkeypatch.setattr(conftest, "_LANE_AIRPORT_MOD_CACHE_DIR", None,
+                        raising=False)
+    assert conftest.arm_lane_local_derived_caches() is True
+    overlay = os.environ["O4_AIRPORT_MOD_CACHE_DIR"]
+    dsf = os.environ["O4_DSF_CACHE_DIR"]
+    repo = os.path.realpath(build_mod.DATA_REPO)
+    for path in (overlay, dsf):
+        assert not os.path.realpath(path).startswith(repo + os.sep), (
+            f"{path} is INSIDE the shared data repo — the redirect "
+            f"redirects nothing")
+        assert os.path.isdir(path)
+    # Seeded from the shared root, so reads stay warm.
+    shared = os.path.join(build_mod.DATA_REPO, "Airport_mod_cache")
+    if os.path.isdir(shared):
+        assert len(os.listdir(overlay)) == len(os.listdir(shared))
+    # Idempotent once armed.
+    assert conftest.arm_lane_local_derived_caches() is False

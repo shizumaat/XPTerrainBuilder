@@ -199,6 +199,7 @@ __all__ = [
     "RUNWAY_MARGIN",
     "RUNWAY_SEGMENT_LENGTH",
     "canonical_runway_desig",
+    "balanced_infeasible_elevation",
     "faa_envelope_clamp",
     "faa_hard_cap_pass",
     "faa_rate_of_change_pass",
@@ -355,6 +356,47 @@ def faa_envelope_clamp(fractions, elevs, anchored, phys_dist,
                                     + u * (elevs[right_j] - elevs[left_j]))
 
 
+def balanced_infeasible_elevation(hi_side, lo_side):
+    """The elevation that EQUALISES the grade excess on both sides of a
+    sample whose two neighbour reach-bands are DISJOINT (infeasible).
+
+    ``hi_side`` is the neighbour demanding the sample be HIGH (the one that
+    set ``lo``) and ``lo_side`` the neighbour demanding it be LOW (the one
+    that set ``hi``); each is ``(elev, seg_len_m, cap)``.  Returns ``None``
+    when the two do not describe a genuine two-sided conflict.
+
+    WHY THIS AND NOT THE BOUND MIDPOINT (the minting site, 2026-09-01).
+    A sample between two hard anchors whose CHORD is already over cap
+    cannot satisfy both neighbours; the law's own answer to an
+    unsatisfiable cap is the one ``faa_envelope_clamp`` already gives ten
+    lines above — put the sample on the LINE between them, so the
+    unavoidable excess is spread evenly instead of dumped into whichever
+    segment happens to be shortest.  ``(lo + hi) / 2`` is a midpoint in
+    ELEVATION and ignores the segment lengths entirely: at SPLP 02/20 it
+    put a sample 229.3 m from its left neighbour and 45.1 m from its right
+    at 1.377 % / 1.834 % where the balanced value grades 1.45 % / 1.44 %
+    — under the 1.5 % reader cap on both sides, from the same infeasible
+    interval.  (Attributed 2026-09-01: the interval went infeasible when
+    the cycle-4 anchor law, merge 7786ff0e, seated taxi-join stations at
+    zero DEM band; the concentration, not the deficit, was the defect.)
+
+    With equal caps this is exactly the linear interpolation between the
+    two neighbours; the ``cap`` terms bias it only where the two segments
+    are judged under DIFFERENT caps (an end-zone segment against a main
+    one), so that the EXCESS OVER EACH SEGMENT'S OWN CAP is what is
+    equalised — never the raw grade."""
+    if hi_side is None or lo_side is None or hi_side is lo_side:
+        return None
+    e_h, d_h, cap_h = hi_side
+    e_l, d_l, cap_l = lo_side
+    if d_h <= 0.0 or d_l <= 0.0:
+        return None
+    w = 1.0 / d_h + 1.0 / d_l
+    if w <= 0.0:
+        return None
+    return (e_h / d_h + e_l / d_l - cap_h + cap_l) / w
+
+
 def faa_hard_cap_pass(fractions, elevs, anchored, phys_dist,
                        grade_cap=MAX_RUNWAY_GRADE,
                        max_iters=GRADE_RELAX_ITERATIONS,
@@ -383,6 +425,11 @@ def faa_hard_cap_pass(fractions, elevs, anchored, phys_dist,
                 continue
             lo = float("-inf")
             hi = float("inf")
+            # The neighbour each bound came from, so an INFEASIBLE sample
+            # can be balanced against the two segments' real lengths
+            # rather than midpointed between two elevations.
+            lo_side = None
+            hi_side = None
             for nidx in (idx - 1, idx + 1):
                 if nidx < 0 or nidx >= n:
                     continue
@@ -394,12 +441,24 @@ def faa_hard_cap_pass(fractions, elevs, anchored, phys_dist,
                     end_grade_cap, end_fraction,
                     threshold_strict_cap, threshold_strict_fraction)
                 max_rise = seg * cap
-                lo = max(lo, elevs[nidx] - max_rise)
-                hi = min(hi, elevs[nidx] + max_rise)
+                if elevs[nidx] - max_rise > lo:
+                    lo = elevs[nidx] - max_rise
+                    lo_side = (elevs[nidx], seg, cap)
+                if elevs[nidx] + max_rise < hi:
+                    hi = elevs[nidx] + max_rise
+                    hi_side = (elevs[nidx], seg, cap)
             if lo == float("-inf") and hi == float("inf"):
                 continue
-            new_e = ((lo + hi) / 2.0 if lo > hi
-                     else min(max(elevs[idx], lo), hi))
+            if lo > hi:
+                # DISJOINT reach bands: no value satisfies both caps.
+                # Spread the unavoidable excess evenly (see
+                # ``balanced_infeasible_elevation``) — the bound midpoint
+                # concentrated it in the shorter segment.
+                new_e = balanced_infeasible_elevation(lo_side, hi_side)
+                if new_e is None:
+                    new_e = (lo + hi) / 2.0
+            else:
+                new_e = min(max(elevs[idx], lo), hi)
             if abs(new_e - elevs[idx]) > 0.001:
                 elevs[idx] = new_e
                 changed = True

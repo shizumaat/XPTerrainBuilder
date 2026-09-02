@@ -61,3 +61,21 @@ ledger; per-change tests once but the FULL SUITE runs Day 3; nothing
 merges below bar; every deviation stops for Fable review; heartbeats;
 verify artifacts before measuring; no branch switches in trees with
 running builds; sweeps in worktrees.
+
+## SCHEDULE REBASELINE (owner 2026-09-01, 17:40 PT): beta candidate due THURSDAY 12:00 PT
+
+- Tue night: airside lanes air2/air3/air4 (the 468) + the parked pad law's
+  post-beta prep. Reports Wed 09:00 PT.
+- Wed AM: adjudicate + merge airside lanes; second-wave airside classes
+  (apron|apron within_shape 303, apron|apron no_step 167, apron|building
+  121) dispatched with the freed capacity — these were "document for beta"
+  under the old schedule and are now attemptable.
+- **Wed 20:00 PT — HARD CODE FREEZE.** Nothing merges after it; lanes
+  still running park with their ledgers.
+- Wed 20:00 → Thu 06:00: full suite (green-except-acceptance), five-airport
+  sweep, exclusive perf profile + LEMD baseline record, worktree/ledger
+  hygiene — all on the frozen tree, overnight.
+- Thu 06:00-09:00: beta candidate app build (engine freeze + app + embedded
+  verification), sim guide rewrite with every owner site and the day's
+  numbers, release checklist staged per the alpha-1 recipe.
+- Thu 09:00-12:00: buffer. Owner tests at 12:00 with the candidate in hand.

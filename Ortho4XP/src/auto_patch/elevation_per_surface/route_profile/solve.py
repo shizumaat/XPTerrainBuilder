@@ -8345,6 +8345,32 @@ def _projection_airside_freeze_on() -> bool:
     return bool(getattr(_cfg, "PROJECTION_AIRSIDE_FREEZE", True))
 
 
+def _solve_law_hold_filter(members, carried, elev, tol):
+    """S1 (gate ``O4_FGP_SOLVE_LAW``): split a re-derived hard-hold
+    membership against the SOLVE-STATED values (spec
+    ``fgp-single-authority-spec.md`` §S1; census
+    ``fgp-s1-consumer-census.md`` R2).
+
+    A hold whose node the solve valued and whose current seed sits more
+    than ``tol`` off that value would pin a post-solve mutation as
+    immovable truth — a hard source minted IN CONTRADICTION with a
+    solve-stated value, which is exactly what the spec forbids.  Such a
+    hold STANDS DOWN: the seed is kept, only the membership is
+    released, and the projection re-solves the node under law.  A node
+    the solve never valued, or one still at its solve-stated value,
+    keeps its hold.  Returns ``(kept_set, n_released)``.
+    """
+    kept: set = set()
+    released = 0
+    for i in members:
+        sv = carried.get(i) if carried else None
+        if sv is not None and abs(elev[i] - sv) > tol:
+            released += 1
+        else:
+            kept.add(i)
+    return kept, released
+
+
 def final_grade_projection(layout, icao: str = "", dem=None,
                            tile_lat: int = 0, tile_lon: int = 0, *,
                            recapture_snapshot: bool = True) -> None:
@@ -8698,6 +8724,63 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 icao, _tr_report))
     except Exception as _tr_exc:                          # pragma: no cover
         _fp_law_counts["transverse_no_step"] = f"FAILED {_tr_exc!r}"
+    # ── S1 · FGP CONSUMES THE SOLVE'S LAW (spec fgp-single-authority
+    # §S1; consumer census docs/specs/fgp-s1-consumer-census.md) ──────
+    # Gate ``O4_FGP_SOLVE_LAW=1`` (default OFF — every branch below and
+    # at the R2/R3 sites is byte-inert with the gate unset).  The
+    # solve's published membrane (lattice + spine stations) and IMPOSED
+    # airside no-step pairs join THIS pass's main law — the same two
+    # publications pass 2 (``membrane_conform``) already resolves: one
+    # publication, one more consumer, never a second enumeration.
+    _fgp_law = _os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1"
+    # THE MEMBRANE HALF IS S3-GATED (measured 2026-09-01, lane fgp1):
+    # the emitted membrane carriers are minted at the solve writeback
+    # and never refreshed (RULINGS 2026-09-01q), so joining the
+    # membrane family here moves apron rings against STALE carriers —
+    # HECA census apron_lattice_membrane 108 -> 245 and within_shape
+    # +207 apron rows on the first S1 arm.  It joins only when the S3
+    # carrier refresh lands and flips this flag with it.
+    _fgp_law_mem = _fgp_law and _os.environ.get(
+        "O4_FGP_SOLVE_LAW_MEMBRANE", "0") == "1"
+    _fp_law_released: dict = {}
+    # Held so the late block (after ``hard`` is final) can drop the
+    # all-hard pairs from the SAME list objects these entries carry.
+    # ``None`` when the resolver failed or published nothing.
+    _sl_mem_entry = None
+    _sl_ns_entry = None
+    if _fgp_law:
+        from auto_patch.solve_stage import (STAGE_A as _STAGE_A_SL,
+                                            STAGE_KEY as _STAGE_KEY_SL)
+        from auto_patch import airside_no_step as _ANS_SL
+        from auto_patch.layout import GROUNDSIDE_ROLES as _GS_ROLES_SL
+        if _fgp_law_mem:
+            try:
+                _mem_pairs = _ANS_SL._resolve_published_ll_pairs(
+                    layout, b2i, n,
+                    getattr(layout, "_apron_lattice_edges_ll", None) or ())
+                if _mem_pairs:
+                    _sl_mem_entry = {
+                        "edges": [tuple(_p) for _p in _mem_pairs],
+                        _STAGE_KEY_SL: _STAGE_A_SL,
+                        "family": "apron:apron_lattice"}
+                    joint.append(_sl_mem_entry)
+                _fp_law_counts["solve_law_membrane"] = len(_mem_pairs)
+            except Exception as _sl_exc:              # pragma: no cover
+                _fp_law_counts["solve_law_membrane"] = f"FAILED {_sl_exc!r}"
+        try:
+            _ns_car_sl, _ns_lost_sl = _ANS_SL._resolve_carried_pairs(
+                layout, b2i, n)
+            _ns_imp_sl = [(_a, _b, _bud)
+                          for (_a, _b, _bud, _imp) in _ns_car_sl if _imp]
+            if _ns_imp_sl:
+                _sl_ns_entry = {"edges": _ns_imp_sl,
+                                _STAGE_KEY_SL: _STAGE_A_SL,
+                                "family": "airside_no_step"}
+                joint.append(_sl_ns_entry)
+            _fp_law_counts["solve_law_no_step"] = len(_ns_imp_sl)
+            _fp_law_counts["solve_law_no_step_lost"] = _ns_lost_sl
+        except Exception as _sl_exc:                  # pragma: no cover
+            _fp_law_counts["solve_law_no_step"] = f"FAILED {_sl_exc!r}"
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
@@ -8765,7 +8848,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # and resolved by ``view_*``, never re-derived).  Membership only.
     _fp_free_ends = _store_of(layout).view_keyset("svc_free_end", b2i, n)
     if _fp_free_ends:
-        hard |= _fp_free_ends
+        if _fgp_law:
+            # S1/R2: a contradicted hold stands down (spec §S1) — the
+            # seed is kept, the membership is released, the projection
+            # re-solves the node under law.  The store register is NOT
+            # touched (census row 14).
+            _keep_sl, _rel_sl = _solve_law_hold_filter(
+                _fp_free_ends, _carried_solved, elev, _IDEMPOTENCE_TOL_M)
+            hard |= _keep_sl
+            _fp_law_released["svc_free_end"] = _rel_sl
+        else:
+            hard |= _fp_free_ends
     # ── CORRIDOR MOUTH SEATS: RE-DERIVED HERE, THEN HELD ──────────────
     # (owner law 2026-08-15 + the timing adjudication on this lane's
     # attempt-2 measurement.)  THE SEAT IS RE-TAKEN BEFORE IT IS FROZEN.
@@ -8807,7 +8900,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # crosses as a keyset artifact through the one resolver.
     _fp_profile = _store_of(layout).view_keyset("svc_profile", b2i, n)
     if _fp_profile:
-        hard |= _fp_profile
+        if _fgp_law:
+            # S1/R2, same rule and same reporting as the free-end tie.
+            _keep_sl, _rel_sl = _solve_law_hold_filter(
+                _fp_profile, _carried_solved, elev, _IDEMPOTENCE_TOL_M)
+            hard |= _keep_sl
+            _fp_law_released["svc_profile"] = _rel_sl
+        else:
+            hard |= _fp_profile
     # ── W3 · THE SEEDER RECORD (flag ``O4_FABRIC_W3_FGP_HARD_CAT``,
     # default ON; fabric-phase-b-spec.md W3) ──────────────────────────
     # "9,838 unattributed hard nodes is itself a defect."  This pass
@@ -9052,6 +9152,24 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     continue
                 feature_value = _best[1]
                 _wkey = _best[2]
+            # ── S1/R2 (gate O4_FGP_SOLVE_LAW): a GROUNDSIDE-family
+            # weld may not harden IN CONTRADICTION with a solve-stated
+            # value (spec §S1 — the gs_weld entry-contradiction class).
+            # Released as TORN: the seed is kept and the projection
+            # re-solves the node lawfully.  Scope is the groundside
+            # role registry only; every other weld family keeps the
+            # agreement gate below unchanged.
+            if _fgp_law:
+                _sv_sl = (_carried_solved.get(i)
+                          if _carried_solved else None)
+                if (_sv_sl is not None
+                        and abs(elev[i] - _sv_sl) > _IDEMPOTENCE_TOL_M
+                        and (feat_role_by_key.get(_wkey) or "")
+                        in _GS_ROLES_SL):
+                    torn_feature_weld.add(i)
+                    _fp_law_released["gs_weld"] = (
+                        _fp_law_released.get("gs_weld", 0) + 1)
+                    continue
             # crown transform: elev is in z′ space here — lift the
             # feature's z value by the node's crown drop before comparing.
             if (feature_value is None
@@ -9468,6 +9586,85 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             pass
 
     _stage("hard")
+    # ── S1/R3 · MEMBRANE INTERIOR SEEDS FROM THE SOLVE'S CARRIERS ────
+    # (gate O4_FGP_SOLVE_LAW; census R3.)  Values are READ from
+    # ``apron_lattice_emit`` / ``apron_spine_station_emit`` — the
+    # carriers are S3's surface and are NOT refreshed here — so the
+    # free lattice/station nodes enter at the solve's own membrane
+    # state instead of raw DEM, and the joined membrane law prices the
+    # solve's state at entry.  Hard nodes and runway nodes are never
+    # touched.
+    if _fgp_law:
+        _sl_seeded = 0
+        # Seeding rides the SAME S3 sub-gate as the membrane join: the
+        # carriers it reads are the stale ones, so entering the apron
+        # at their values is the other half of the same regression.
+        if _fgp_law_mem:
+            _cps_sl = layout.canonical_points
+            for _car_sl in (list(getattr(layout, "apron_lattice_emit",
+                                         None) or ())
+                            + list(getattr(layout,
+                                           "apron_spine_station_emit",
+                                           None) or ())):
+                try:
+                    _pts_ll_sl, _alts_sl = _car_sl
+                except (TypeError, ValueError):        # pragma: no cover
+                    continue
+                for (_la_sl, _lo_sl), _al_sl in zip(_pts_ll_sl,
+                                                    _alts_sl):
+                    try:
+                        _x_sl, _y_sl = layout.ll_to_m(float(_la_sl),
+                                                      float(_lo_sl))
+                    except Exception:                  # pragma: no cover
+                        continue
+                    _i_sl = b2i.get(_cps_sl.get_or_add(float(_x_sl),
+                                                       float(_y_sl)))
+                    if (_i_sl is None or _i_sl >= n or _i_sl in hard
+                            or _i_sl in runway_idx):
+                        continue
+                    _z_sl = float(_al_sl) + _crown_of.get(_i_sl, 0.0)
+                    if abs(elev[_i_sl] - _z_sl) > 1e-9:
+                        elev[_i_sl] = _z_sl
+                        _sl_seeded += 1
+        # A transect row whose EVERY endpoint is hard binds no free
+        # variable — it can only price FGP-only law against
+        # solve-stated values (the entry 'transverse' contradiction
+        # class).  Dropped under the gate, counted; the joint entry
+        # holds this same list object, so the slice assignment reaches
+        # both the certificate and the projection.
+        _sl_hyper_dropped = 0
+        if _hyper_fp:
+            _keep_h_sl = [_r for _r in _hyper_fp
+                          if not all(int(_k) in hard for _k in _r[0])]
+            _sl_hyper_dropped = len(_hyper_fp) - len(_keep_h_sl)
+            _hyper_fp[:] = _keep_h_sl
+        # A joined solve-law pair whose BOTH endpoints are hard binds
+        # no free variable either — same class as the all-hard transect
+        # rows above: it can only price a contradiction against
+        # solve-stated values FGP may not re-author.  Only IMPOSABLE
+        # pairs stay joined; the census and pass 2 still price the
+        # residual population in full.
+        _sl_pairs_dropped = 0
+        for _sl_entry in (_sl_mem_entry, _sl_ns_entry):
+            if not _sl_entry:
+                continue
+            _sl_edges = _sl_entry.get("edges") or []
+            _keep_e_sl = [_e for _e in _sl_edges
+                          if not (_e[0] in hard and _e[1] in hard)]
+            _sl_pairs_dropped += len(_sl_edges) - len(_keep_e_sl)
+            _sl_edges[:] = _keep_e_sl
+        import O4_UI_Utils as _UI_sl
+        _UI_sl.vprint(1,
+            f"  [fgp-solve-law] {icao}: gate ON — membrane "
+            f"{_fp_law_counts.get('solve_law_membrane', 0)} pair(s) + "
+            f"no-step {_fp_law_counts.get('solve_law_no_step', 0)} "
+            f"imposed pair(s) joined into the main law; holds stood "
+            f"down {_fp_law_released or {}} (contradicted vs "
+            f"solve-stated values, tol {_IDEMPOTENCE_TOL_M} m); "
+            f"{_sl_seeded} membrane node(s) seeded from the solve's "
+            f"carriers; {_sl_hyper_dropped} all-hard transect row(s) "
+            f"dropped; {_sl_pairs_dropped} all-hard joined pair(s) "
+            f"dropped")
     # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE, round-6 site-4):
     # this pass hardens the road's DEM-following adjacent-ground welds into a
     # wide staircase, so the reach envelope can falsely call a service-road

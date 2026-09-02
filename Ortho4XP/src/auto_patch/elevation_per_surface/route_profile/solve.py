@@ -8733,6 +8733,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # publications pass 2 (``membrane_conform``) already resolves: one
     # publication, one more consumer, never a second enumeration.
     _fgp_law = _os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1"
+    # THE MEMBRANE HALF IS S3-GATED (measured 2026-09-01, lane fgp1):
+    # the emitted membrane carriers are minted at the solve writeback
+    # and never refreshed (RULINGS 2026-09-01q), so joining the
+    # membrane family here moves apron rings against STALE carriers —
+    # HECA census apron_lattice_membrane 108 -> 245 and within_shape
+    # +207 apron rows on the first S1 arm.  It joins only when the S3
+    # carrier refresh lands and flips this flag with it.
+    _fgp_law_mem = _fgp_law and _os.environ.get(
+        "O4_FGP_SOLVE_LAW_MEMBRANE", "0") == "1"
     _fp_law_released: dict = {}
     # Held so the late block (after ``hard`` is final) can drop the
     # all-hard pairs from the SAME list objects these entries carry.
@@ -8744,19 +8753,20 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                             STAGE_KEY as _STAGE_KEY_SL)
         from auto_patch import airside_no_step as _ANS_SL
         from auto_patch.layout import GROUNDSIDE_ROLES as _GS_ROLES_SL
-        try:
-            _mem_pairs = _ANS_SL._resolve_published_ll_pairs(
-                layout, b2i, n,
-                getattr(layout, "_apron_lattice_edges_ll", None) or ())
-            if _mem_pairs:
-                _sl_mem_entry = {
-                    "edges": [tuple(_p) for _p in _mem_pairs],
-                    _STAGE_KEY_SL: _STAGE_A_SL,
-                    "family": "apron:apron_lattice"}
-                joint.append(_sl_mem_entry)
-            _fp_law_counts["solve_law_membrane"] = len(_mem_pairs)
-        except Exception as _sl_exc:                  # pragma: no cover
-            _fp_law_counts["solve_law_membrane"] = f"FAILED {_sl_exc!r}"
+        if _fgp_law_mem:
+            try:
+                _mem_pairs = _ANS_SL._resolve_published_ll_pairs(
+                    layout, b2i, n,
+                    getattr(layout, "_apron_lattice_edges_ll", None) or ())
+                if _mem_pairs:
+                    _sl_mem_entry = {
+                        "edges": [tuple(_p) for _p in _mem_pairs],
+                        _STAGE_KEY_SL: _STAGE_A_SL,
+                        "family": "apron:apron_lattice"}
+                    joint.append(_sl_mem_entry)
+                _fp_law_counts["solve_law_membrane"] = len(_mem_pairs)
+            except Exception as _sl_exc:              # pragma: no cover
+                _fp_law_counts["solve_law_membrane"] = f"FAILED {_sl_exc!r}"
         try:
             _ns_car_sl, _ns_lost_sl = _ANS_SL._resolve_carried_pairs(
                 layout, b2i, n)
@@ -9586,31 +9596,36 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # touched.
     if _fgp_law:
         _sl_seeded = 0
-        _cps_sl = layout.canonical_points
-        for _car_sl in (list(getattr(layout, "apron_lattice_emit",
-                                     None) or ())
-                        + list(getattr(layout,
-                                       "apron_spine_station_emit",
-                                       None) or ())):
-            try:
-                _pts_ll_sl, _alts_sl = _car_sl
-            except (TypeError, ValueError):            # pragma: no cover
-                continue
-            for (_la_sl, _lo_sl), _al_sl in zip(_pts_ll_sl, _alts_sl):
+        # Seeding rides the SAME S3 sub-gate as the membrane join: the
+        # carriers it reads are the stale ones, so entering the apron
+        # at their values is the other half of the same regression.
+        if _fgp_law_mem:
+            _cps_sl = layout.canonical_points
+            for _car_sl in (list(getattr(layout, "apron_lattice_emit",
+                                         None) or ())
+                            + list(getattr(layout,
+                                           "apron_spine_station_emit",
+                                           None) or ())):
                 try:
-                    _x_sl, _y_sl = layout.ll_to_m(float(_la_sl),
-                                                  float(_lo_sl))
-                except Exception:                      # pragma: no cover
+                    _pts_ll_sl, _alts_sl = _car_sl
+                except (TypeError, ValueError):        # pragma: no cover
                     continue
-                _i_sl = b2i.get(_cps_sl.get_or_add(float(_x_sl),
-                                                   float(_y_sl)))
-                if (_i_sl is None or _i_sl >= n or _i_sl in hard
-                        or _i_sl in runway_idx):
-                    continue
-                _z_sl = float(_al_sl) + _crown_of.get(_i_sl, 0.0)
-                if abs(elev[_i_sl] - _z_sl) > 1e-9:
-                    elev[_i_sl] = _z_sl
-                    _sl_seeded += 1
+                for (_la_sl, _lo_sl), _al_sl in zip(_pts_ll_sl,
+                                                    _alts_sl):
+                    try:
+                        _x_sl, _y_sl = layout.ll_to_m(float(_la_sl),
+                                                      float(_lo_sl))
+                    except Exception:                  # pragma: no cover
+                        continue
+                    _i_sl = b2i.get(_cps_sl.get_or_add(float(_x_sl),
+                                                       float(_y_sl)))
+                    if (_i_sl is None or _i_sl >= n or _i_sl in hard
+                            or _i_sl in runway_idx):
+                        continue
+                    _z_sl = float(_al_sl) + _crown_of.get(_i_sl, 0.0)
+                    if abs(elev[_i_sl] - _z_sl) > 1e-9:
+                        elev[_i_sl] = _z_sl
+                        _sl_seeded += 1
         # A transect row whose EVERY endpoint is hard binds no free
         # variable — it can only price FGP-only law against
         # solve-stated values (the entry 'transverse' contradiction

@@ -66,3 +66,19 @@ def test_gate_name_present_in_solve_source():
     src = _SOLVE_PY.read_text()
     assert src.count("O4_FGP_SOLVE_LAW") >= 1
     assert '_os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1"' in src
+
+
+def test_membrane_sub_gate_present_and_defaults_off():
+    """The membrane half rides its own S3 sub-gate, default OFF.
+
+    Measured 2026-09-01 (lane fgp1): the emitted membrane carriers are
+    never refreshed after the solve writeback, so joining the membrane
+    family moved apron rings against STALE carriers (HECA
+    ``apron_lattice_membrane`` 108 -> 245, within_shape +207 apron
+    rows).  It joins only when the S3 carrier refresh lands.
+    """
+    src = _SOLVE_PY.read_text()
+    assert src.count("O4_FGP_SOLVE_LAW_MEMBRANE") >= 1
+    assert '"O4_FGP_SOLVE_LAW_MEMBRANE", "0") == "1"' in src
+    # ... and it is an AND with the main gate, never independent of it.
+    assert "_fgp_law_mem = _fgp_law and _os.environ.get(" in src

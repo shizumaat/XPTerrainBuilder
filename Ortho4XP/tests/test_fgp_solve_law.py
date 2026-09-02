@@ -48,6 +48,19 @@ def test_gate_default_off(monkeypatch):
     assert (_os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1") is True
 
 
+def test_joined_entry_edge_list_is_mutated_in_place():
+    """The all-hard pair drop relies on slice assignment reaching the
+    SAME list object the joint entry holds — pinned here so a future
+    edit that rebinds ``edges`` instead of slicing it fails loudly."""
+    entry = {"edges": [(0, 1, 0.1), (2, 3, 0.2)], "family": "x"}
+    joint = [entry]
+    hard = {0, 1}
+    edges = entry.get("edges") or []
+    edges[:] = [e for e in edges if not (e[0] in hard and e[1] in hard)]
+    assert entry["edges"] == [(2, 3, 0.2)]
+    assert joint[0]["edges"] == [(2, 3, 0.2)]
+
+
 def test_gate_name_present_in_solve_source():
     """The gate is read in ``solve.py`` under exactly that name."""
     src = _SOLVE_PY.read_text()

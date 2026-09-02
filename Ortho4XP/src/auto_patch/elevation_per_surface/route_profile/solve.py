@@ -8734,6 +8734,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # publication, one more consumer, never a second enumeration.
     _fgp_law = _os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1"
     _fp_law_released: dict = {}
+    # Held so the late block (after ``hard`` is final) can drop the
+    # all-hard pairs from the SAME list objects these entries carry.
+    # ``None`` when the resolver failed or published nothing.
+    _sl_mem_entry = None
+    _sl_ns_entry = None
     if _fgp_law:
         from auto_patch.solve_stage import (STAGE_A as _STAGE_A_SL,
                                             STAGE_KEY as _STAGE_KEY_SL)
@@ -8744,9 +8749,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 layout, b2i, n,
                 getattr(layout, "_apron_lattice_edges_ll", None) or ())
             if _mem_pairs:
-                joint.append({"edges": [tuple(_p) for _p in _mem_pairs],
-                              _STAGE_KEY_SL: _STAGE_A_SL,
-                              "family": "apron:apron_lattice"})
+                _sl_mem_entry = {
+                    "edges": [tuple(_p) for _p in _mem_pairs],
+                    _STAGE_KEY_SL: _STAGE_A_SL,
+                    "family": "apron:apron_lattice"}
+                joint.append(_sl_mem_entry)
             _fp_law_counts["solve_law_membrane"] = len(_mem_pairs)
         except Exception as _sl_exc:                  # pragma: no cover
             _fp_law_counts["solve_law_membrane"] = f"FAILED {_sl_exc!r}"
@@ -8756,9 +8763,10 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             _ns_imp_sl = [(_a, _b, _bud)
                           for (_a, _b, _bud, _imp) in _ns_car_sl if _imp]
             if _ns_imp_sl:
-                joint.append({"edges": _ns_imp_sl,
-                              _STAGE_KEY_SL: _STAGE_A_SL,
-                              "family": "airside_no_step"})
+                _sl_ns_entry = {"edges": _ns_imp_sl,
+                                _STAGE_KEY_SL: _STAGE_A_SL,
+                                "family": "airside_no_step"}
+                joint.append(_sl_ns_entry)
             _fp_law_counts["solve_law_no_step"] = len(_ns_imp_sl)
             _fp_law_counts["solve_law_no_step_lost"] = _ns_lost_sl
         except Exception as _sl_exc:                  # pragma: no cover
@@ -9615,6 +9623,21 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                           if not all(int(_k) in hard for _k in _r[0])]
             _sl_hyper_dropped = len(_hyper_fp) - len(_keep_h_sl)
             _hyper_fp[:] = _keep_h_sl
+        # A joined solve-law pair whose BOTH endpoints are hard binds
+        # no free variable either — same class as the all-hard transect
+        # rows above: it can only price a contradiction against
+        # solve-stated values FGP may not re-author.  Only IMPOSABLE
+        # pairs stay joined; the census and pass 2 still price the
+        # residual population in full.
+        _sl_pairs_dropped = 0
+        for _sl_entry in (_sl_mem_entry, _sl_ns_entry):
+            if not _sl_entry:
+                continue
+            _sl_edges = _sl_entry.get("edges") or []
+            _keep_e_sl = [_e for _e in _sl_edges
+                          if not (_e[0] in hard and _e[1] in hard)]
+            _sl_pairs_dropped += len(_sl_edges) - len(_keep_e_sl)
+            _sl_edges[:] = _keep_e_sl
         import O4_UI_Utils as _UI_sl
         _UI_sl.vprint(1,
             f"  [fgp-solve-law] {icao}: gate ON — membrane "
@@ -9625,6 +9648,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             f"solve-stated values, tol {_IDEMPOTENCE_TOL_M} m); "
             f"{_sl_seeded} membrane node(s) seeded from the solve's "
             f"carriers; {_sl_hyper_dropped} all-hard transect row(s) "
+            f"dropped; {_sl_pairs_dropped} all-hard joined pair(s) "
             f"dropped")
     # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE, round-6 site-4):
     # this pass hardens the road's DEM-following adjacent-ground welds into a

@@ -4422,18 +4422,6 @@ def solve_route_profile(layout, icao: str,
         # and take their own map).  Taken here, beside the edge list it is
         # derived from, and handed to both consumers in this scope.
         _u_family_of = G.family_by_pair()
-        # ── SERVICE-PIN MUTUAL CONSISTENCY (AIRSIDE ZERO air6, mint-site
-        # fix) ────────────────────────────────────────────────────────────
-        # HERE, at the first point the whole law graph and the three
-        # service pin registers coexist, and BEFORE any projection that
-        # would tally their contradictions as permanent both-hard residue:
-        # release the junior pin of every both-held pair whose held values
-        # already violate the law edge joining them.  See the function's
-        # docstring for the measured anatomy and the seniority rule.
-        _demote_contradicted_service_pins(
-            layout, icao, elev, n,
-            list(shape_constraints) + [{"edges": u_edges}],
-            bucket_to_idx)
         # THE UNIFIED GRAPH'S OWN MINT-TIME STAGES (staged-solve S1b).  Taken
         # beside the family axis it parallels, once, and handed to every
         # projection below through ``_u_entries``.  Before S1b the whole
@@ -4651,6 +4639,20 @@ def solve_route_profile(layout, icao: str,
         _svc_moved = apply_service_road_dem_follow(
             layout, bucket_to_idx, elev, dem_elev, SERVICE_ROAD_MAX_GRADE,
             anchor_extra=_gs_hard)
+        # ── SERVICE-PIN MUTUAL CONSISTENCY (AIRSIDE ZERO air6, mint-site
+        # fix) ────────────────────────────────────────────────────────────
+        # HERE, one statement after the DEM-follow pass that mints ALL
+        # THREE service pin registers (mouth seats, free-end DEM ties, the
+        # held whole-run profiles), and BEFORE the yield-hard assembly and
+        # every projection that would tally their contradictions as
+        # permanent both-hard residue: release the junior pin of every
+        # both-held law pair whose held values already violate the edge.
+        # See the function's docstring for the measured anatomy and the
+        # seniority rule.
+        _demote_contradicted_service_pins(
+            layout, icao, elev, n,
+            list(shape_constraints) + [{"edges": u_edges}],
+            bucket_to_idx)
         if (_nrl or _svc_moved) and _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
                   f"groundside piece(s); pinned {len(_gs_hard)} route node(s); "

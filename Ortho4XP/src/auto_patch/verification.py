@@ -158,8 +158,37 @@ def _import_check_grade():
 
 # ── Geometry invariants ─────────────────────────────────────────────
 def check_self_overlap(layout):
-    """Invariant A1: no two emitted pavement polygons may overlap.
+    """Invariant A1: no two EMITTED pavement polygons may overlap.
     Returns ``[(area_m2, idx_a, idx_b, "lat,lon"), …]`` largest first.
+
+    EMIT-FRAME RESOLUTION (spawner ruling, lane ovfix 2026-09-01):
+    the instrument measures the EMITTED frame because that is what
+    this invariant legislates — the same class as the ratified
+    quantization allowance (RULINGS 2026-09-01m): an instrument
+    corrected to its own stated law, not a widened bar.  Each ring is
+    resolved READ-ONLY through ``layout.canonical_points`` — the same
+    registry ``to_osm`` interns every vertex through — before
+    intersecting, so a near-miss ribbon the emit-time weld closes
+    exactly (SPJC building17 ∩ building62: 7.5351 m² pre-weld, a
+    ~0.133 m ribbon over a 56.72 m shared boundary that reads
+    overlap 0.0 / shared_edge 56.72 m in the emitted patch) is
+    measured as the tiling pair it emits as.  Read-only per the
+    registry's probe-spec §1x (``get``, never ``get_or_add``): an
+    instrument that interns anything moves the emitted surface.  An
+    unclaimed vertex keeps its own coordinates — at emit it would
+    claim its bucket and stay put, so the frames agree; a genuine
+    pre-AND-post-weld double-cover survives the resolution and still
+    fails.
+
+    THE CORRECTED FRAME CUTS BOTH WAYS (measured 2026-09-02, lane
+    ovfix): the weld that closes near-miss ribbons also MINTS real
+    emitted overlaps the pre-emit frame never saw — SPJC 13 pairs
+    (5.13 m² total, worst junction ∩ junction 1.33 m²), CYXY 2 pairs
+    (0.59 m²), every visible pair independently confirmed by
+    intersecting the emitted patch's own rings at the same lat/lon.
+    Those are genuine A1 defects in the emitted surface, not
+    instrument noise; they were invisible before precisely because the
+    old read measured the frame A1 does not legislate.
 
     Noise floor 0.1 m²: the post-solve feature conformance welds seam
     nodes by inserting a neighbour's exact vertex, which detours a
@@ -168,9 +197,32 @@ def check_self_overlap(layout):
     nothing at the .11f OSM emit precision — they cannot reach the
     mesh — so flagging them is pure noise."""
     from shapely.strtree import STRtree
+    from .canonical_points import snap_polygon_parts_through_registry
     NOISE_M2 = 0.1
-    polys = [(i, s.polygon) for i, s in enumerate(layout.shapes)
+    registry = getattr(layout, "canonical_points", None)
+
+    def _emit_frame(p):
+        """``p`` at the canonical coordinates ``to_osm`` emits it at
+        (identity when the layout carries no registry).  A degenerate
+        resolution falls back to the raw ring — the instrument may
+        over-report there, never hide."""
+        if registry is None:
+            return p
+        parts = snap_polygon_parts_through_registry(
+            p, registry, readonly=True)
+        if not parts:
+            return p
+        if len(parts) == 1:
+            return parts[0]
+        from shapely.ops import unary_union
+        u = unary_union(parts)
+        return p if u.is_empty else u
+
+    polys = [(i, _emit_frame(s.polygon))
+             for i, s in enumerate(layout.shapes)
              if s.polygon is not None and not s.polygon.is_empty]
+    polys = [(i, p) for i, p in polys
+             if p is not None and not p.is_empty]
     if len(polys) < 2:
         return []
     tree = STRtree([p for _, p in polys])

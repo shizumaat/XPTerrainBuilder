@@ -184,28 +184,29 @@ class CanonicalPointRegistry:
 def snap_polygon_through_registry(
         poly: Polygon | None,
         registry: CanonicalPointRegistry | None,
+        *,
+        readonly: bool = False,
 ) -> Polygon | None:
     """Route every vertex of ``poly``'s exterior + interior rings
     through ``registry.get_or_add`` so drift introduced by
     ``buffer(0)`` / ``unary_union`` / ``simplify`` resolves to
     canonical (x, y) coordinates shared with adjacent shapes.
 
+    ``readonly=True`` resolves through ``registry.get`` instead — the
+    query a MEASUREMENT INSTRUMENT must use (probe-spec §1x: an
+    instrument that interns anything moves the emitted surface).  A
+    vertex whose bucket is unclaimed keeps its own coordinates,
+    exactly what ``get_or_add`` would have returned for it at emit.
+
     Returns the snapped polygon (a new ``Polygon`` if any vertex
     moved, the input otherwise), or ``None`` if the snap produces
     a degenerate shape.  If either input is ``None`` / empty, the
     input is returned unchanged.
     """
-    if registry is None or poly is None or poly.is_empty:
+    parts = snap_polygon_parts_through_registry(
+        poly, registry, readonly=readonly)
+    if poly is None or poly.is_empty:
         return poly
-
-    def _snap_ring(coords):
-        snapped = []
-        for x, y in coords:
-            cp = registry.get_or_add(float(x), float(y))
-            snapped.append(cp)
-        return snapped
-
-    parts = snap_polygon_parts_through_registry(poly, registry)
     if not parts:
         return None
     return max(parts, key=lambda g: g.area)
@@ -214,6 +215,8 @@ def snap_polygon_through_registry(
 def snap_polygon_parts_through_registry(
         poly: Polygon | None,
         registry: CanonicalPointRegistry | None,
+        *,
+        readonly: bool = False,
 ) -> list:
     """Parts-preserving variant of ``snap_polygon_through_registry``:
     when the snap pinches the ring into a self-intersection and the
@@ -223,14 +226,25 @@ def snap_polygon_parts_through_registry(
     junction piece vanished this way, leaving taxi rect ends in
     mid-air over covered source pavement).  Returns ``[poly]``
     unchanged when there is nothing to snap, ``[]`` when the snap
-    degenerates."""
+    degenerates.
+
+    ``readonly=True``: see :func:`snap_polygon_through_registry` —
+    resolve via ``registry.get`` (never inserts), unclaimed vertices
+    keep their own coordinates."""
     if registry is None or poly is None or poly.is_empty:
         return [] if poly is None or poly.is_empty else [poly]
+
+    if readonly:
+        def _lookup(x: float, y: float) -> tuple[float, float]:
+            cp = registry.get(x, y)
+            return cp if cp is not None else (x, y)
+    else:
+        _lookup = registry.get_or_add
 
     def _snap_ring(coords):
         snapped = []
         for x, y in coords:
-            cp = registry.get_or_add(float(x), float(y))
+            cp = _lookup(float(x), float(y))
             snapped.append(cp)
         return snapped
 

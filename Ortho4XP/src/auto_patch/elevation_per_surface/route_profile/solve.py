@@ -4207,6 +4207,37 @@ def solve_route_profile(layout, icao: str,
             if _psc_report["units"]:
                 _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
 
+        # ── SEAT NO-STEP CLAMP (airside-zero round, owner ruling
+        # RULINGS 2026-09-01m item 3; docstring on the reader) ────────
+        # SAME SLOT as the two mechanisms above and for the same
+        # recorded reason: the senior values the seat must stand within
+        # budget of (runway profile, corridor spine, apron stations —
+        # all phase-A output, all CONSTANT downstream) exist only after
+        # ``_solve_spine_profile`` + the station valuation, and the
+        # membrane must anchor on the CLAMPED seat, so this runs before
+        # the scaffold seed reads ``building_seats``.  The constraints
+        # are the no-step law's own published tier-1/2↔3 IMPOSED pairs
+        # (``layout._nostep_seat_cons``, minted in this solve's node
+        # space at the edge build above); movement is junior-side only,
+        # inside the pad's own band box.  Tier-1/2 values are read,
+        # never written.
+        if _psc.seat_no_step_clamp_enabled():
+            _snc_cons = getattr(layout, "_nostep_seat_cons", None)
+            if _snc_cons:
+                _snc_stamped = {i for i, _lv in building_seats.items()
+                                if i < n and _lv is not None
+                                and i in u_spine_adj
+                                and i not in _seam_pin_idx}
+                _snc_settled = (set(runway_nodes) | set(u_spine_nodes)
+                                | set(_station_idx))
+                _snc_report = _psc.apply_seat_no_step_clamp(
+                    layout, elev, building_seats, n,
+                    stamped=_snc_stamped, yield_idx=_seat_yield_idx,
+                    senior_cons=_snc_cons, settled=_snc_settled)
+                if _snc_report["units_constrained"]:
+                    _UI_env.vprint(1, _psc.format_no_step_report(
+                        icao, _snc_report))
+
         # (The sloping-rect flat-end stamp that lived here was RETIRED by
         # spec §10.2 — the global slice emits no rect roles and no end
         # caps; role census across all fixtures measured zero.)

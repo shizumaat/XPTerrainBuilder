@@ -358,3 +358,137 @@ def test_materiality_floor_is_not_iterated_on():
                                          stamped={10, 11})
     assert rep["narrowed"] == 1 and rep["moved"] == 0
     assert seats[10] == pytest.approx(101.0)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SEAT NO-STEP CLAMP (airside-zero round, RULINGS 2026-09-01m item 3)
+# ═════════════════════════════════════════════════════════════════════
+#
+# The junior-side-only enforcement of the tier 1/2 <-> 3 no-step pairs:
+# pass 1 discards the imposed edges (no-step spec Amendment 2) and pass
+# 2 frees only tier 4, so the SEAT's own narrowing slot is the one
+# lawful mover.  Twinned dispositions: clamp-in-interval, kept-on-
+# contradiction, kept-outside-box (never the ruling-§5 descent),
+# unsettled-partner skip, flag default.
+
+def _clamp_unit(level, lo, hi):
+    return _unit([], level=level, lo=lo, hi=hi)
+
+
+def test_no_step_clamp_moves_the_seat_and_only_the_seat():
+    """The seat clamps into ``box ∩ [senior ± budget]`` with the minimal
+    move; every unit node takes the one flat level; the SENIOR value is
+    read, never written (spec §1.3 — one-sided against a constant)."""
+    elev = [0.0] * 20
+    elev[3] = 68.5
+    elev[10] = elev[11] = 70.0
+    layout = _Layout([_clamp_unit(70.0, 63.0, 71.0)])
+    boxes = _seed_boxes(layout, ("k10", "k11"), 63.0, 71.0)
+    seats = {10: 70.0, 11: 70.0}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.5)]}, settled={3})
+    assert rep["moved"] == 1 and rep["units_constrained"] == 1
+    assert seats[10] == pytest.approx(69.0)
+    assert seats[11] == pytest.approx(69.0)
+    assert elev[10] == pytest.approx(69.0)
+    assert elev[11] == pytest.approx(69.0)
+    assert elev[3] == pytest.approx(68.5), "the senior moved — ladder inverted"
+    # the recorded yield box narrows to the lawful interval
+    blo, bhi = boxes["k10"]
+    assert blo == pytest.approx(68.0) and bhi == pytest.approx(69.0)
+
+
+def test_no_step_clamp_contradictory_seniors_keep_the_seat():
+    """Two seniors whose values differ by more than the summed budgets
+    admit NO flat level: the seat is KEPT and the contradiction named —
+    the split-level-seat trigger's disposition (RULINGS 2026-08-04),
+    never a silent pick between two authorities."""
+    elev = [0.0] * 20
+    elev[3], elev[4] = 100.0, 98.0
+    elev[10] = elev[11] = 99.5
+    layout = _Layout([_clamp_unit(99.5, 90.0, 110.0)])
+    seats = {10: 99.5, 11: 99.5}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.2)], 11: [(4, 0.2)]}, settled={3, 4})
+    assert rep["kept_contradiction"] == 1 and rep["moved"] == 0
+    assert seats[10] == pytest.approx(99.5)
+    assert elev[10] == pytest.approx(99.5)
+    row = rep["contradictions"][0]
+    assert row["inversion_m"] == pytest.approx(1.6)
+
+
+def test_no_step_clamp_outside_the_box_keeps_the_seat():
+    """A compliant level exists but lies outside the pad's own band box:
+    the junior may move only WITHIN ITS OWN CAPS (owner 2026-09-01m item
+    3), so the seat is KEPT with the residual named — deliberately NOT
+    ``narrow_seat``'s ruling-§5 descent onto the interval edge."""
+    elev = [0.0] * 20
+    elev[3] = 81.98
+    elev[10] = elev[11] = 80.30
+    layout = _Layout([_clamp_unit(80.30, 80.06, 81.41)])
+    seats = {10: 80.30, 11: 80.30}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.33)]}, settled={3})
+    assert rep["kept_outside_box"] == 1 and rep["moved"] == 0
+    assert seats[10] == pytest.approx(80.30)
+    row = rep["outside_box"][0]
+    assert row["residual_m"] == pytest.approx(0.24, abs=1e-6)
+
+
+def test_no_step_clamp_skips_partners_unsettled_at_the_slot():
+    """A junction ring vertex is a FREE variable at the slot — pricing a
+    seat against its seed is the residual-against-DEM trap.  Partners
+    outside ``settled`` are skipped and counted; with none left the unit
+    is unconstrained and untouched."""
+    elev = [0.0] * 20
+    elev[3] = 68.5
+    layout = _Layout([_clamp_unit(70.0, 63.0, 71.0)])
+    seats = {10: 70.0, 11: 70.0}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.5)]}, settled=set())
+    assert rep["unsolved_partners"] == 1
+    assert rep["units_constrained"] == 0 and rep["moved"] == 0
+    assert seats[10] == pytest.approx(70.0)
+
+
+def test_no_step_clamp_materiality_floor():
+    """A sub-centimetre clamp is not applied as a move."""
+    elev = [0.0] * 20
+    elev[3] = 70.0
+    layout = _Layout([_clamp_unit(70.005, 63.0, 71.0)])
+    seats = {10: 70.005, 11: 70.005}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.0)]}, settled={3})
+    assert rep["moved"] == 0
+    assert seats[10] == pytest.approx(70.005)
+
+
+def test_no_step_clamp_flag_default_on_and_zero_disables(monkeypatch):
+    """Default ON (the airside-zero adjudication knob); ``"0"`` disables
+    and the provenance reader follows it."""
+    monkeypatch.delenv(psc.ENV_FLAG_NO_STEP_CLAMP, raising=False)
+    monkeypatch.delenv(psc.ENV_FLAG, raising=False)
+    monkeypatch.delenv(psc.ENV_FLAG_DEM_LAST, raising=False)
+    assert psc.seat_no_step_clamp_enabled() is True
+    assert psc.seat_provenance_wanted() is True
+    monkeypatch.setenv(psc.ENV_FLAG_NO_STEP_CLAMP, "0")
+    assert psc.seat_no_step_clamp_enabled() is False
+    assert psc.seat_provenance_wanted() is False
+
+
+def test_no_step_clamp_report_line_names_the_moved_pad():
+    elev = [0.0] * 20
+    elev[3] = 68.5
+    layout = _Layout([_clamp_unit(70.0, 63.0, 71.0)])
+    seats = {10: 70.0, 11: 70.0}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.5)]}, settled={3})
+    line = psc.format_no_step_report("TEST", rep)
+    assert "building70" in line and "seat-no-step-clamp" in line
+    assert layout._seat_no_step_clamp_report is rep

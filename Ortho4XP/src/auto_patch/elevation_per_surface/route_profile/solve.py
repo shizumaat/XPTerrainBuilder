@@ -4233,7 +4233,11 @@ def solve_route_profile(layout, icao: str,
                 _snc_report = _psc.apply_seat_no_step_clamp(
                     layout, elev, building_seats, n,
                     stamped=_snc_stamped, yield_idx=_seat_yield_idx,
-                    senior_cons=_snc_cons, settled=_snc_settled)
+                    senior_cons=_snc_cons, settled=_snc_settled,
+                    # A basin pad floor is DECLARED terrain (RULINGS
+                    # 2026-08-25f) — never clamped toward a station.
+                    excluded=set(getattr(layout, "_basin_pad_seat_idx",
+                                         None) or ()))
                 if _snc_report["units_constrained"]:
                     _UI_env.vprint(1, _psc.format_no_step_report(
                         icao, _snc_report))

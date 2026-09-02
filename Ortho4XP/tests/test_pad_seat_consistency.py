@@ -492,3 +492,18 @@ def test_no_step_clamp_report_line_names_the_moved_pad():
     line = psc.format_no_step_report("TEST", rep)
     assert "building70" in line and "seat-no-step-clamp" in line
     assert layout._seat_no_step_clamp_report is rep
+
+
+def test_no_step_clamp_never_touches_a_declared_basin_floor():
+    """A basin pad floor is DECLARED terrain (RULINGS 2026-08-25f) — a
+    unit carrying one is skipped whole, never clamped toward a
+    station."""
+    elev = [0.0] * 20
+    elev[3] = 68.5
+    layout = _Layout([_clamp_unit(70.0, 63.0, 71.0)])
+    seats = {10: 70.0, 11: 70.0}
+    rep = psc.apply_seat_no_step_clamp(
+        layout, elev, seats, len(elev), stamped={10, 11},
+        senior_cons={10: [(3, 0.5)]}, settled={3}, excluded={11})
+    assert rep.get("excluded_units") == 1 and rep["moved"] == 0
+    assert seats[10] == pytest.approx(70.0)

@@ -737,7 +737,7 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
 def apply_seat_no_step_clamp(layout, elev, building_seats, n, *,
                              stamped=(), yield_idx=(),
                              senior_cons=None,
-                             settled=()) -> Dict[str, Any]:
+                             settled=(), excluded=()) -> Dict[str, Any]:
     """Clamp each pad seat into the interval its IMPOSED no-step senior
     partners admit — junior-side-only enforcement of the tier 2↔3 (and
     1↔3) pairs pass 1 discards and pass 2 cannot reach (see
@@ -751,6 +751,10 @@ def apply_seat_no_step_clamp(layout, elev, building_seats, n, *,
     slot (runway profile, corridor spine, apron stations).  A partner
     outside it still holds a seed and is SKIPPED, counted in
     ``unsolved_partners``.
+    ``excluded`` — seat nodes whose level is DECLARED terrain, never a
+    band choice (the basin pad floors, RULINGS 2026-08-25f): a unit
+    touching one is skipped whole — clamping a declared floor toward a
+    station is the erasure that ruling reverses.
 
     Three dispositions per constrained unit, none silent:
 
@@ -790,8 +794,12 @@ def apply_seat_no_step_clamp(layout, elev, building_seats, n, *,
     stamped = set(stamped)
     yield_idx = set(yield_idx)
     settled = set(settled)
+    excluded = set(excluded)
     for u in prov:
         nodes = [int(i) for i in (u.get("nodes") or ())]
+        if excluded and any(i in excluded for i in nodes):
+            report["excluded_units"] = report.get("excluded_units", 0) + 1
+            continue
         lo, hi = -_INF, _INF
         used = 0
         binding_lo = binding_hi = None

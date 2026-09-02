@@ -4228,8 +4228,22 @@ def solve_route_profile(layout, icao: str,
                                 if i < n and _lv is not None
                                 and i in u_spine_adj
                                 and i not in _seam_pin_idx}
-                _snc_settled = (set(runway_nodes) | set(u_spine_nodes)
-                                | set(_station_idx))
+                # THE SETTLED SET IS THE DOWNSTREAM CONSTANTS, NOT THE
+                # PHASE-A OUTPUT (attempt-2 correction, measured on the
+                # first arm): 4,760 of HECA's 4,837 frozen spine nodes
+                # enter the downstream projections FREE (yield-hard
+                # membership, the spine-freeze round), so a plain
+                # ``u_spine_nodes`` value at this slot is TRANSIENT —
+                # one merged pad unit clamped −3.21 m against a spine
+                # value that later rose ~2.5 m, and the membrane around
+                # it minted +103 ``apron_lattice_membrane`` rows.  The
+                # values that ARE constant from here to emit: the
+                # runway profile, the apron stations (base_hard,
+                # kept out of the yield set — Amendment 1 ruling 1) and
+                # the PRESERVED spine nodes (runway/CIFP/seat/seam
+                # law).  Everything else is skipped and counted.
+                _snc_settled = (set(runway_nodes) | set(_station_idx)
+                                | set(_spine_preserved))
                 _snc_report = _psc.apply_seat_no_step_clamp(
                     layout, elev, building_seats, n,
                     stamped=_snc_stamped, yield_idx=_seat_yield_idx,

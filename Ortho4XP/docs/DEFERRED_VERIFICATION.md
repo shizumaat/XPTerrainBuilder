@@ -5721,3 +5721,18 @@ both owner ramp probes CONTAINED.
   5. `test_tunnel_portal_fidelity` x5 — a strict SUBSET of the 7 reds
      standing when this batch began (main's H2 round fixed two).  Suite
      otherwise 1,623 passed.
+
+### 2026-09-01 — lane/air4, seat no-step clamp (airside-zero round, owner 01m item 3)
+
+Per BUILD ECONOMY 29e/f: ONE representative airport (HECA — the owner's
+site and the class's whole population) built as the closing arm; the
+SPJC/CYXY/five-airport sweep is DEFERRED to the merged-batch app-build
+sweep.  Skipped per pre-ship: full-suite run (the three direct test
+files ran once, 99 twins green: test_pad_seat_consistency 28,
+test_airside_no_step 54, test_dem_last_seat_bias 17); no OFF-arm
+byte-identity build (the OFF contract is a reader-level twin —
+`O4_SEAT_NO_STEP_CLAMP=0` makes the clamp branch-inert and
+`seat_provenance_wanted` was re-pinned to the three-gate reality).
+Owed to the sweep: SPJC/CYXY seat-clamp populations (both airports have
+pads; the clamp will fire wherever a seat carries settled senior
+no-step partners).

@@ -4422,6 +4422,18 @@ def solve_route_profile(layout, icao: str,
         # and take their own map).  Taken here, beside the edge list it is
         # derived from, and handed to both consumers in this scope.
         _u_family_of = G.family_by_pair()
+        # ── SERVICE-PIN MUTUAL CONSISTENCY (AIRSIDE ZERO air6, mint-site
+        # fix) ────────────────────────────────────────────────────────────
+        # HERE, at the first point the whole law graph and the three
+        # service pin registers coexist, and BEFORE any projection that
+        # would tally their contradictions as permanent both-hard residue:
+        # release the junior pin of every both-held pair whose held values
+        # already violate the law edge joining them.  See the function's
+        # docstring for the measured anatomy and the seniority rule.
+        _demote_contradicted_service_pins(
+            layout, icao, elev, n,
+            list(shape_constraints) + [{"edges": u_edges}],
+            bucket_to_idx)
         # THE UNIFIED GRAPH'S OWN MINT-TIME STAGES (staged-solve S1b).  Taken
         # beside the family axis it parallels, once, and handed to every
         # projection below through ``_u_entries``.  Before S1b the whole
@@ -6159,10 +6171,18 @@ def solve_route_profile(layout, icao: str,
     # item 1) while byte-identity ceremony is retired.
     _solve_exit_joint = list(shape_constraints) + _unified_entries(
         u_edges, _u_pair_stage, "solve/exit_certificate")
+    # AIRSIDE ZERO air6 anatomy channel (env-gated, report-only): dump
+    # every both-hard law edge of the SOLVE EXIT certificate with its
+    # endpoints' pin sources — the honest split of ``excluded_both_hard``
+    # into contradictory vs both-pinned-but-lawful.
+    _bh_dump_prefix = _os.environ.get("O4_BOTH_HARD_DUMP")
+    _bh_coll = ({"rows": [], "n_both_hard": 0, "n_edges": 0}
+                if _bh_dump_prefix else None)
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
-                                   family_of=_u_family_of),
+                                   family_of=_u_family_of,
+                                   both_hard_out=_bh_coll),
         # THE FRAME (binding point 3): the SOLVE's node space, and the
         # uncrowned z′ frame the law lives in — this reading is taken
         # before the crown drop below, which is an EMIT transform.  The
@@ -6170,6 +6190,27 @@ def solve_route_profile(layout, icao: str,
         # smaller) node space, so the reader can see at a glance that
         # the three numbers are not comparable.
         n_nodes=n, crown_space="uncrowned z'")
+    if _bh_coll is not None:
+        _dump_both_hard(
+            _bh_dump_prefix, "solve_exit", icao, _bh_coll, nodes, elev, n,
+            layout,
+            # The solve's own hard-anchor classifier output first (the
+            # cycle-7 fixed axis: rwy_join / rwy_flexed / seed_rwy_seam /
+            # seat_on_spine / seam_spine_anchor ...), then the yield-hard
+            # registers, most specific first — the very sets that joined
+            # ``yield_hard`` above.
+            label_map=_hard_cat,
+            label_sets=[
+                ("svc_free_end",
+                 getattr(layout, "_svc_free_end_idx", None) or ()),
+                ("svc_mouth_seat",
+                 getattr(layout, "_svc_mouth_prox_idx", None) or ()),
+                ("svc_profile",
+                 getattr(layout, "_svc_profile_idx", None) or ()),
+                ("tile_seam",
+                 getattr(layout, "_seam_pin_idx", None) or ()),
+                ("building_seat", building_seats),
+                ("runway_node", runway_nodes)])
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -7379,7 +7420,7 @@ def post_solve_mutation_set(carried, elev, n, tol):
 
 
 def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
-                               family_of=None):
+                               family_of=None, both_hard_out=None):
     """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
 
     The ingestion round's own reader (spec
@@ -7407,6 +7448,14 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
     Pure measurement: reads ``elev``, writes nothing — the map is a
     LOOKUP, so the constraint set and its edge order are untouched.
     Returns ``{family: (n_over, worst_excess_m, n_both_hard)}``.
+
+    ``both_hard_out`` — AIRSIDE ZERO air6 anatomy channel (report-only).
+    A dict ``{"rows": [], "n_both_hard": 0, "n_edges": 0}``: every edge
+    is counted, every BOTH-HARD edge is counted (lawful or not — the
+    denominator the stall report's ``excluded_both_hard`` needs), and
+    every both-hard OVER-CAP edge appends a row naming family, nodes,
+    budget and excess — the genuinely-contradictory subset, per edge.
+    ``None`` (every existing caller) changes nothing.
     """
     out: dict = {}
     for entry in joint:
@@ -7423,6 +7472,12 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
             if a >= n or b >= n:
                 continue
             d = elev[a] - elev[b]
+            _is_bh = False
+            if both_hard_out is not None:
+                both_hard_out["n_edges"] += 1
+                _is_bh = a in hard and b in hard
+                if _is_bh:
+                    both_hard_out["n_both_hard"] += 1
             if len(e) >= 4:
                 lo, hi = e[2], e[3]
                 excess = 0.0
@@ -7431,6 +7486,7 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                 elif hi is not None and d > hi:
                     excess = d - hi
             else:
+                lo = hi = None
                 excess = abs(d) - float(e[2])
             if excess <= tol:
                 continue
@@ -7443,6 +7499,19 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                 row[1] = excess
             if a in hard and b in hard:
                 row[2] += 1
+                if both_hard_out is not None:
+                    _fam_row = fam_entry
+                    if per_edge is not None:
+                        key = (a, b) if a <= b else (b, a)
+                        _fam_row = per_edge.get(key, fam_entry)
+                    both_hard_out["rows"].append({
+                        "family": str(_fam_row), "a": int(a), "b": int(b),
+                        "dz": round(float(d), 4),
+                        "budget": (None if len(e) >= 4
+                                   else round(float(e[2]), 4)),
+                        "lo": (None if lo is None else round(float(lo), 4)),
+                        "hi": (None if hi is None else round(float(hi), 4)),
+                        "excess_m": round(float(excess), 4)})
         # ── THE WEIGHTED TRANSECT ROWS (spec §7) ─────────────────────
         # A hyper row is not an edge and this loop's ``e[0]``/``e[1]``
         # would read its weight vector as a node index, so it is counted
@@ -7456,6 +7525,12 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
             idx4, w4, b_h = row_h[0], row_h[1], row_h[2]
             if any(int(k) >= n for k in idx4):
                 continue
+            _h_bh = False
+            if both_hard_out is not None:
+                both_hard_out["n_edges"] += 1
+                _h_bh = all(int(k) in hard for k in idx4)
+                if _h_bh:
+                    both_hard_out["n_both_hard"] += 1
             val = sum(float(w) * elev[int(k)] for w, k in zip(w4, idx4))
             excess = val - float(b_h)
             if excess <= tol:
@@ -7467,6 +7542,13 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                 row[1] = excess
             if all(int(k) in hard for k in idx4):
                 row[2] += 1
+                if both_hard_out is not None:
+                    both_hard_out["rows"].append({
+                        "family": "transverse",
+                        "idx4": [int(k) for k in idx4],
+                        "w4": [round(float(w), 4) for w in w4],
+                        "budget": round(float(b_h), 4),
+                        "excess_m": round(float(excess), 4)})
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -7571,6 +7653,222 @@ def _pin_source_map(sources, n):
             if 0 <= k < n:
                 out.setdefault(k, label)
     return out
+
+
+def _demote_contradicted_service_pins(layout, icao, elev, n, joint, b2i,
+                                      tol=None):
+    """AIRSIDE ZERO air6 mint-site fix (2026-09-01): release the JUNIOR
+    endpoint of every law edge whose endpoints are BOTH held by the
+    service pin registers and whose HELD VALUES already violate the edge.
+
+    THE MEASUREMENT THIS ANSWERS (instrumented replay of the HECA control
+    body ``e916085b``, both-hard dump 2026-09-01): of 245,241 both-hard
+    law edges at the solve exit, 759 are over cap — and every material
+    one is a SERVICE-register pair: ``svc_free_end``x``svc_free_end``
+    384, ``svc_profile``x``svc_profile`` 266, free-end x profile 106,
+    mouth-involved 3; worst 6.17 m over a 0.32 m budget (a corridor
+    terminus whose raw-DEM tie sits 6.5 m under its own held profile).
+    Airside carried exactly ONE both-hard over-cap pair, at 0.003 m —
+    sub-materiality.  So the hard set's genuine contradictions are minted
+    entirely by three service registers pinning values (raw DEM samples,
+    solved run profiles) that never agreed with each other under the law
+    edges that join them.
+
+    THE LAW THIS APPLIES: a pin that contradicts the law is itself the
+    defect (anchor-placement law), and DEM is a SEED, never an authority
+    (RULINGS 2026-08-05) — a free-end tie holding a raw DEM sample
+    against a sibling pin it cannot lawfully meet is DEM acting as an
+    authority.  The demotion releases MEMBERSHIP ONLY, exactly the
+    ``gs_pin`` demotion precedent ("a groundside weld is not truth — it
+    is a value groundside ASSERTS onto the route"): the node keeps its
+    seeded value and every law edge it carries — the projections may now
+    drain the excess lawfully instead of tallying it forever.  Nothing
+    airside is touched: every demotable node is service-register-held,
+    and airside values are read-only to the service family by standing
+    law (airside is king).
+
+    SENIORITY, most senior first: MOUTH SEAT (an airside surface's own
+    value — owner law 2026-08-15) > HELD PROFILE (a solved law object) >
+    FREE-END DEM TIE (a DEM seed target).  The junior endpoint of each
+    contradicted pair is demoted; equal rank demotes the higher node
+    index (deterministic, order-free).  Only MATERIAL contradictions
+    (excess > ``PROJECTION_MATERIALITY_M``) demote — a sub-floor
+    residual is PASS-with-residual, never iterated on.
+
+    Applied to the LAYOUT REGISTERS and the STORE KEYSETS in one place —
+    the single derivation seam every consumer resolves through (the
+    solve's ``yield_hard`` re-adds read the attrs; the final pass's
+    holds read the keysets) — so no downstream pass re-hardens a demoted
+    node.  Gate ``O4_SVC_PIN_DEMOTION=0`` restores the previous arm
+    byte-identically (A/B channel for the adjudicating build; remove
+    after adjudication).
+
+    Returns the report dict (also stored as
+    ``layout._svc_pin_demotion_report``).
+    """
+    from auto_patch.config import PROJECTION_MATERIALITY_M as _PM
+    if tol is None:
+        tol = _PM
+    report = {"pairs": 0, "worst_excess_m": 0.0,
+              "demoted": {"svc_free_end": 0, "svc_mouth": 0,
+                          "svc_profile": 0}}
+    layout._svc_pin_demotion_report = report
+    if _os.environ.get("O4_SVC_PIN_DEMOTION", "1") == "0":
+        report["gated_off"] = True
+        return report
+    _fe = set(getattr(layout, "_svc_free_end_idx", None) or ())
+    _mo = set(getattr(layout, "_svc_mouth_prox_idx", None) or ())
+    _pr = set(getattr(layout, "_svc_profile_idx", None) or ())
+    # rank: higher = more senior.  First-wins on overlap, most senior
+    # first, so a node two registers claim is judged at its senior rank.
+    rank: dict = {}
+    for _r, _s in ((3, _mo), (2, _pr), (1, _fe)):
+        for _i in _s:
+            if isinstance(_i, int) and 0 <= _i < n:
+                rank.setdefault(_i, _r)
+    if not rank:
+        return report
+    demoted: set = set()
+    worst = 0.0
+    n_pairs = 0
+    for entry in joint:
+        for e in entry.get("edges") or ():
+            a, b = e[0], e[1]
+            ra = rank.get(a)
+            if ra is None:
+                continue
+            rb = rank.get(b)
+            if rb is None:
+                continue
+            if a >= n or b >= n:
+                continue
+            d = elev[a] - elev[b]
+            if len(e) >= 4:
+                lo, hi = e[2], e[3]
+                excess = 0.0
+                if lo is not None and d < lo:
+                    excess = lo - d
+                elif hi is not None and d > hi:
+                    excess = d - hi
+            else:
+                if e[2] is None:
+                    continue
+                excess = abs(d) - float(e[2])
+            if excess <= tol:
+                continue
+            n_pairs += 1
+            if excess > worst:
+                worst = excess
+            if ra < rb:
+                demoted.add(a)
+            elif rb < ra:
+                demoted.add(b)
+            else:
+                demoted.add(max(a, b))
+    report["pairs"] = n_pairs
+    report["worst_excess_m"] = round(worst, 4)
+    if not demoted:
+        return report
+    # ── APPLY, at the single derivation seam ──────────────────────────
+    for _attr, _name in (("_svc_free_end_idx", "svc_free_end"),
+                         ("_svc_mouth_prox_idx", "svc_mouth"),
+                         ("_svc_profile_idx", "svc_profile")):
+        _cur = getattr(layout, _attr, None)
+        if not _cur:
+            continue
+        _hit = set(_cur) & demoted
+        if not _hit:
+            continue
+        report["demoted"][_name] = len(_hit)
+        setattr(layout, _attr, set(_cur) - _hit)
+        # The store keyset is the SAME membership one node space later
+        # (the final pass resolves it through ``view_keyset``): filter
+        # the canonical keys that resolve to a demoted index.
+        try:
+            _st = _store_of(layout)
+            _raw = _st.raw(_name)
+            if _raw:
+                _keep = {k for k in _raw if b2i.get(k) not in _hit}
+                if len(_keep) != len(_raw):
+                    _st.mint(_name, "keyset", _keep, replace=True)
+        except Exception:                              # pragma: no cover
+            pass
+    try:
+        import O4_UI_Utils as _UI_dm
+        _UI_dm.vprint(1,
+            f"  [svc-pin-demotion] {icao}: {sum(report['demoted'].values())}"
+            f" service pin(s) RELEASED (membership only, values kept as"
+            f" seeds) on {n_pairs} contradicted both-held law pair(s),"
+            f" worst excess {worst:.3f} m — free_end"
+            f" {report['demoted']['svc_free_end']}, profile"
+            f" {report['demoted']['svc_profile']}, mouth"
+            f" {report['demoted']['svc_mouth']}.  A pin contradicting the"
+            f" law is the defect at its mint (anchor-placement law); the"
+            f" law edges stay, the projections drain the excess.")
+    except Exception:                                  # pragma: no cover
+        pass
+    return report
+
+
+def _dump_both_hard(path_prefix, tag, icao, coll, nodes, elev, n,
+                    layout, label_map=None, label_sets=None):
+    """AIRSIDE ZERO air6: write the both-hard anatomy JSON (report-only).
+
+    ``coll`` is :func:`projection_law_certificate`'s ``both_hard_out``.
+    Each over-cap both-hard row gains its endpoints' PIN-SOURCE labels —
+    ``label_map`` (a per-node class dict, e.g. the solve's hard-anchor
+    classifier output) consulted first, then ``label_sets`` (ordered
+    ``(label, node-set)`` — the ``_pin_source_map`` idiom, most specific
+    first), else ``hard_other`` — plus lat/lon and the solved values.
+    Never raises into the build: a dump failure is a WARN, the surface
+    is untouched (nothing here writes ``elev`` or the layout).
+    """
+    import O4_UI_Utils as _UI_bh
+    import json as _json
+    try:
+        src = _pin_source_map(label_sets or (), n)
+        def _lab(i):
+            if label_map is not None:
+                v = label_map.get(i)
+                if v:
+                    return v
+            return src.get(i, "hard_other")
+        def _ll(i):
+            try:
+                la, lo = layout.m_to_ll(nodes[i][0], nodes[i][1])
+                return [round(float(la), 7), round(float(lo), 7)]
+            except Exception:
+                return None
+        rows = []
+        for r in coll.get("rows") or ():
+            r = dict(r)
+            if "idx4" in r:
+                r["pins"] = [_lab(k) for k in r["idx4"]]
+                r["ll"] = [_ll(k) for k in r["idx4"]]
+                r["z"] = [round(float(elev[k]), 3) for k in r["idx4"]]
+            else:
+                a, b = r["a"], r["b"]
+                r["pin_a"], r["pin_b"] = _lab(a), _lab(b)
+                r["ll_a"], r["ll_b"] = _ll(a), _ll(b)
+                r["z_a"] = round(float(elev[a]), 3)
+                r["z_b"] = round(float(elev[b]), 3)
+            rows.append(r)
+        out = {"icao": icao, "tag": tag, "n_nodes": int(n),
+               "n_edges": int(coll.get("n_edges", 0)),
+               "n_both_hard": int(coll.get("n_both_hard", 0)),
+               "n_both_hard_over_cap": len(rows),
+               "rows": rows}
+        p = f"{path_prefix}.{tag}.json"
+        with open(p, "w") as f:
+            _json.dump(out, f)
+        _UI_bh.vprint(1, f"  [both-hard-dump] {icao} {tag}: "
+                         f"{len(rows)} over-cap of "
+                         f"{out['n_both_hard']} both-hard of "
+                         f"{out['n_edges']} law edge(s) -> {p}")
+    except Exception as _e:                            # pragma: no cover
+        _UI_bh.vprint(1, f"  [both-hard-dump] {icao} {tag} FAILED "
+                         f"({type(_e).__name__}: {_e}) — report-only, "
+                         f"build continues")
 
 
 def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
@@ -9257,14 +9555,37 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # ``family_of``: this pass's OWN graph, so the catch-all splits by the
     # constructor that minted each edge (cycle-5 fix 4).
     _fp_family_of = G.family_by_pair()
+    # AIRSIDE ZERO air6 anatomy channel (env-gated, report-only) — the
+    # final pass's rebuilt node space, same dump shape as the solve exit.
+    _bh_dump_prefix_fp = _os.environ.get("O4_BOTH_HARD_DUMP")
+    _bh_coll_fp = ({"rows": [], "n_both_hard": 0, "n_edges": 0}
+                   if _bh_dump_prefix_fp else None)
     _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
                             projection_law_certificate(
                                 joint, elev, n, hard,
-                                family_of=_fp_family_of),
+                                family_of=_fp_family_of,
+                                both_hard_out=_bh_coll_fp),
                             # THIS pass's REBUILT node space (not the
                             # solve's), read in the z′ = z + crown frame
                             # lifted at entry above.
                             n_nodes=n, crown_space="uncrowned z'")
+    if _bh_coll_fp is not None:
+        _dump_both_hard(
+            _bh_dump_prefix_fp, f"final{_ml_pass or 1}_entry", icao,
+            _bh_coll_fp, nodes, elev, n, layout,
+            # The final pass's own provenance axis, the SAME documented
+            # order as ``_fcat_fp`` (runway_node, pad, tile_seam, gs_weld,
+            # terrain_pin, feature_weld, service_ring, spine) so a class
+            # name never means two things in two reports.
+            label_sets=[
+                ("runway_node", runway_idx or ()),
+                ("pad", pad_nodes),
+                ("tile_seam", _tile_seam_idx),
+                ("gs_weld", _gs_weld_idx),
+                ("terrain_pin", terrain_hard or ()),
+                ("feature_weld", torn_feature_weld or ()),
+                ("service_ring", _svc_couple_nodes),
+                ("spine", G.spine_nodes())])
     # ── AIRSIDE-VALUE AUDIT ACROSS THIS PASS (road-chord-limiter lane,
     # lead ruling 2026-08-20) ──────────────────────────────────────────
     # AIRSIDE IS KING: a post-solve GROUNDSIDE/ROAD mutation may move

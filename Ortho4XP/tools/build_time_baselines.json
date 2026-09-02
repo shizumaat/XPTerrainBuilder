@@ -98,6 +98,20 @@
     "Solving elevations (FAA grade compliance)": 246.93,
     "Emitting terrain features & finalizing": 67.72
    }
+  },
+  "LEMD": {
+   "recorded_at": "2026-09-02",
+   "git_commit": "c7df22db",
+   "git_dirty_file_count": 0,
+   "total_seconds": 573.91,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.18,
+    "Assembling pavement & runway shoulders": 3.44,
+    "Building taxiways & terminals": 2.47,
+    "Building taxi rects, junctions & service roads": 25.09,
+    "Solving elevations (FAA grade compliance)": 356.92,
+    "Emitting terrain features & finalizing": 185.99
+   }
   }
  },
  "tiles": {}

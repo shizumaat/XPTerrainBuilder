@@ -7,6 +7,171 @@ hardening round before the first official release: full suite,
 battery A/B + censuses, timing profile, absolute-zero acceptance.
 A change the sim verdict kills may strike its lines instead.
 
+- 2026-09-02 BETA PERF PROFILE (the week's exclusive re-profile; closes the 08-31 profile's owed subjects and records the LEMD baseline).  Machine EXCLUSIVE (ps sweeps for build_airport/census/pytest/run-one before every launch, all clean, timestamps 00:52–03:15; zero competing processes throughout); every worker verified live at **nice 0** (four separate ps -o nice reads on the `--run-one` children, all 0, 100% CPU); NO ledger wrapping; tree CLEAN at `c7df22db` (git_dirty_file_count 0 — the 08-31 profile's version-file dirt is gone); two clean runs per subject, checker medians quoted.  ALL FIGURES ANCHOR TO `tools/build_time_baselines.json` @ d787464 2026-08-13 (the POSTMORTEM-20260831 anchor law); the SECOND column compares the 2026-08-31 exclusive profile (tree 3af5c124) — that comparison is THIS WEEK'S DELTA and the beta's perf claim.
+
+  MEASUREMENT HYGIENE (the sidecar trap, live again): the footprint pack
+  sidecar goes STALE on the first build after any build that re-edits the
+  pack (the y-bake is in the fingerprint), so it fires on ALTERNATE runs
+  and books its recompute into phase 2 — OTHH +428 s (!), KCLT +16 s
+  (plus an object-bridge reclassify), SPJC +18 s, CYXY +0.1 s, LEMD
+  +23 s.  Every contaminated run was DISCARDED and the subject re-run
+  with warm sidecars (OTHH/SPJC/KCLT: fresh 2-run set, spreads
+  0.2–0.8%; LEMD: one deliberate warm-up build absorbed the recompute
+  before the recorded pair).  A `--runs 2` median can silently carry a
+  ~8–430 s one-time recompute; grep the run log for STALE before
+  quoting any pair.
+
+  MEASURED (median of 2 clean runs [r1 / r2], vs committed baseline and vs the 08-31 profile):
+
+    HECA  756.70 s  [753.8 / 759.6]   baseline 347.19  x2.18  |  08-31: 859.38  WEEK -102.68 (-11.9%)
+      solve  388.71 (base 230.23 x1.69 | 08-31 479.64  -90.93, -19.0%)
+      emit   312.23 (base  72.73 x4.29 | 08-31 324.13  -11.90,  -3.7%)
+      rects   51.65 (base  39.46 x1.31 | 08-31  51.53   +0.12)
+      load 0.07 / assemble 1.60 / taxiways 2.50 — at or under baseline
+    OTHH  433.99 s  [432.8 / 435.2]   baseline 262.91  x1.65  |  08-31: 473.62  WEEK -39.63 (-8.4%)
+      solve  263.22 (base 141.45 x1.86 | 08-31 284.44  -21.22,  -7.5%)
+      emit   120.29 (base  76.78 x1.57 | 08-31 138.75  -18.46, -13.3%)
+      rects   48.72 (base  42.88 x1.14 | 08-31  48.62   +0.10)
+    SPJC  166.87 s  [167.5 / 166.2]   baseline 210.33  x0.79  |  08-31: 163.07  WEEK +3.80 (+2.3%)
+      solve  113.62 (base 153.56 x0.74 | 08-31 111.55   +2.07, +1.9%)
+      emit    49.35 (base  50.31 x0.98 | 08-31  47.45   +1.90, +4.0%)
+      rects    3.09 (base   1.83 x1.69 | 08-31   3.01   +0.08)
+      assemble 0.42 (08-31 0.69 — improved)
+    LEMD  573.91 s  [574.8 / 573.0]   BASELINE RECORDED TODAY (see below)  |  08-31: 548.17 (ungraded)  WEEK +25.74 (+4.7%)
+      solve  356.92 (08-31 347.00  +9.92, +2.9%)
+      emit   185.99 (08-31 171.78 +14.21, +8.3%)
+      rects   25.09 (08-31  23.77  +1.32, +5.6%)
+      assemble 3.44 / taxiways 2.47 / load 0.18 (08-31: 3.31 / 2.32 / 0.17)
+    CYXY   41.43 s  [41.5 / 41.4]    baseline  34.88  x1.19  |  no 08-31 point (owed subject, now paid)
+      solve 30.80 (x1.14), emit 9.18 (x1.38), rects 0.73, assemble 0.53
+    SPLP    9.52 s  [9.6 / 9.5]      baseline   8.43  x1.13  |  no 08-31 point (owed, now paid)
+      solve 6.85 (x1.13), emit 1.56 (under), rects 0.66 (base 0.23)
+    KCLT  499.68 s  [499.3 / 500.1]  baseline 334.20  x1.50  |  no 08-31 profile point (owed, now paid)
+      solve 298.08 (x1.21), emit 183.91 (x2.72), rects 14.53 (x1.54), assemble 0.85
+      (directional bracket only: 08-31 ledger rows 547.6 / 511.5, single
+      runs, another lane's builds — today is flat-to-down, NOT a claim)
+
+  THE WEEK'S DELTA (08-31 -> today = the beta's perf claim): **no phase
+  at any 08-31-anchored subject grew >=10%** — the week's merges NET
+  IMPROVED the profile: HECA -102.7 s (solve -19% — direction and size
+  consistent with Batch 4a's ownership shrink + annulus fix, whose
+  parked arms read -11 to -15% directionally; measured whole-airport
+  -11.9% after merge), OTHH -39.6 s (emit -13.3% — the wall-foot
+  retirement + tunnel rework live exactly there), SPJC +3.8 s and LEMD
+  +25.7 s (statements below).
+
+  THE TWO NEW PASSES, PRICED (task-3 requirement):
+  * **98b emit-frame re-clip** (b1b11d31, merged 00:45:43 — NEW un-gated
+    pass in the emit phase): priced by the phase-time ledger straddling
+    the merge boundary, same night, same machine, 4 commits apart (2 of
+    them docs, 1 the test-side instrument): HECA emit 321.7 -> 311.5/312.9,
+    OTHH emit 124.5 -> 119.8/119.9, SPJC emit 48.4–52.2 -> 49.0/49.2,
+    KCLT emit 182.8 -> 184.0/183.6.  Flat-to-DOWN everywhere; worst
+    single read +1.2 s (KCLT) is inside that subject's own same-tree
+    run spread (182.8–191.9 across 08-31/09-02 rows) and cannot be
+    certified as the pass's cost without a matched arm.  Verdict: below
+    this profile's noise floor, <=~1 s bound; no 0.6 s item-6 trigger
+    certified against it.
+  * **Pass-2 LP** (O4_PASS2_CONFORM_EXT, 01q): its own report prices it
+    at ~0.09 s at HECA — under the 0.6 s trigger.
+  * FGP S1+S2+S3 (01v) merged ALL GATES OFF with gate-off byte-identity
+    proven (body e916085b677a = control) — zero build-time cost by
+    construction.
+
+  CLAUDE.MD ITEM-6 STATEMENTS (>=1% of the 60 s budget = 0.6 s, growth
+  since 08-31; the per-change evaluations remain SUSPENDED per the
+  2026-08-04 ruling, so these are recorded for the final-design
+  profiling round, not adjudicated here):
+  * SPJC +3.80 s (solve +2.07, emit +1.90): both deltas sit inside
+    SPJC's own same-tree clean-run band from this night (emit 49.0–52.2
+    across six clean builds; the post-98b emits are the LOWEST of the
+    night), so no single merge is certifiable as the payer; candidates
+    span the whole week's set (runway preserve — priced by its own
+    entry as one interpolation per runway ring vertex, tripwire-only;
+    tunnel rework; ownership shrink; 98b <=~1 s).
+  * LEMD +25.74 s (emit +14.21, solve +9.92, rects +1.32): the only
+    week-over-week growth outside a noise band.  Unattributed at merge
+    granularity — LEMD is the bridge/crossing exemplar and the tunnel
+    rework + wall-foot retirement + 98b all live in its emit phase; the
+    final profiling round owns the bisect (the 08-31 profile's
+    population-scaled-emit signal points the same way).
+  * vs the COMMITTED baseline the checker returns FAIL — HECA 4, OTHH 4,
+    SPJC 1 (rects +1.26 s while over budget), CYXY 2 (solve +3.76,
+    emit +2.53), SPLP 1 (solve +0.81), KCLT 4 unapproved regressions —
+    all campaign-accumulated (pre-dating this week per the 08-31
+    profile and KCLT's 08-31 ledger rows); no approvals sought here;
+    remedy = the Fable 5 whole-pipeline review in the final profiling
+    round, where the budgets are adjudicated.
+
+  HARD-LAW BUDGET STATUS (<=60 s per-airport, cold, excl. downloads):
+  CYXY 41.43 PASS (x0.69) and SPLP 9.52 PASS (x0.16) — the only two
+  under budget; SPJC x2.78, OTHH x7.23, KCLT x8.33, LEMD x9.57, HECA
+  x12.61 OVER.
+
+  **LEMD BASELINE RECORDED — SAYING IT LOUDLY:** `tools/build_time_baselines.json`
+  now carries airport:LEMD (573.91 s total + per-phase, git provenance
+  c7df22db, dirty count 0) via `--run --runs 2 --update-baselines LEMD`,
+  exactly the condition the 08-31 lane set when it withheld the record
+  on a drifted tree: the tree is the BETA CANDIDATE, clean, exclusive,
+  and both recorded runs are sidecar-warm (a deliberate discarded
+  warm-up build absorbed the footprint recompute first).  This baseline
+  ENSHRINES an over-budget number (x9.6) as the regression anchor — that
+  is its purpose (catch drift from the beta), not an approval; the
+  60 s budget still fails LEMD and is adjudicated at the final
+  profiling round.
+
+  WHOLE-TILE <=300 s BUDGET — STILL NO QUALIFYING RECORD; measured
+  evidence recorded instead:
+  * WHY NO COMMITTED TILE BASELINE IS POSSIBLE TODAY (tooling fact,
+    established by code read): the checker's tile path reads
+    `~/.ortho4xp/tile_build_times`, whose ONLY writer is the app's
+    o4_engine session (`_record_tile_build`); the app's current
+    stepwise mode writes ONE RECORD PER STEP, and
+    `check_build_time.newest_tile_measurement` sums only the NEWEST
+    record — a stepwise app build can never qualify as a whole-tile
+    total, and no CLI entry (harness `--tile`, `run_tile_build.py`,
+    `profile_tile_build.py`) writes the store at all.  A committed
+    tile baseline needs either a non-stepwise engine-session build or
+    a checker/store extension (extend-don't-fork; owed to the final
+    profiling round).
+  * ATTEMPT 1, CYXY +60-136 (the cheaper tile; its Aug-30 stepwise
+    records sum ~167 s): REFUSED by the harness — shared-repo incident
+    below; no number quoted.
+  * ATTEMPT 2, LEMD +40-004 (tile-scoped data fully warm): harness
+    geometry-only frame (owner 2026-08-31d — no canonical per-tile
+    cfg, so steps 3 masks + 4 imagery lawfully SKIPPED, no provider
+    invented): **step 1 vector 666.7 s, wall 667.1 s, rc=0, zero
+    shared-repo writes** (auto-patch LEMD + LETO inside step 1).
+    STEP 1 ALONE IS x2.2 THE 300 s BUDGET on the beta candidate — the
+    provisional tile budget is unmeetable while LEMD's own airport
+    patch is ~574 s; revising the provisional figure vs paying the
+    optimization is the owner's call at the final profiling round.
+    DEFECT FOUND IN PASSING: the mesh step errored ("Could not find
+    .../Data+40-004.node"), was reported "DONE 0.0s", and the run
+    exited rc=0 — the 2026-08-30 silent-step-failure class; task chip
+    spawned for its own attribution round (skip-vs-failure both
+    wrong as "DONE").
+  * Directional only: the owner's +40-004 stepwise app records (Aug 31,
+    contended frame) sum ~2,555 s.
+
+  SHARED-REPO INCIDENT, REPORTED (owner action needed): the first tile
+  attempt (CYXY +60-136) was REFUSED by the harness — the guard blocked
+  a dem-scope write (`Elevation_data/+60-140/N60W136_airport_insets/index.json`)
+  that the engine swallowed, AND the vector step ADDED
+  `OSM_data/+60-140/+60-136/+60-136_airport_small_roads.osm.bz2`
+  (115,891 B, 03:16) to the shared corpus unauthorised — the run is
+  recorded CONTAMINATED and no number from it is quoted.  This is the
+  IDENTICAL class the owner post-hoc blessed at +40-004 on 08-31
+  (refresh ledger: "deterministic local derivation, no download;
+  bless-not-remove; cold tiles take --refresh-data osm_layers
+  explicitly").  The file is left in place for the same owner
+  bless-or-remove ruling; nothing here deletes or blesses it.
+
+  NOT PAID / OWED: (a) HEAZ (baselined, not in this profile's ordered
+  set — still unmeasured since 08-13); (b) the tile-baseline tooling
+  gap and the budgets adjudication (final profiling round); (c) the
+  LEMD emit bisect named above; (d) the mesh-step silent-failure
+  attribution (chip).
 - 2026-09-01 lane/hard7 (RUNWAY PROFILE PRESERVE at the solve's writeback, a4c54724; RULINGS 2026-09-01l): ran the DIRECTLY-COVERING files only — test_runway_profile_preserve (9, new), test_round9_writeback_band_frame, test_r17_band_clamp_last_author, test_runway_regrade (56 together), test_seam_dem_anchor + test_final_band_inversion (31), and the ruling's own gate through the ledger: test_pavement_grade::test_runway_longitudinal_grade (all 5 airports) + ::test_runway_seam_dem_steps_are_reported = 6 PASSED (890 s). **NOT run:** the blast sweep for solver_primitives.py (48 files selected by `blast.py --tests-for`; 61 importers), any full suite, and the battery beyond HECA + CYXY. **Measured, matched arms on one tree (O4_RUNWAY_WRITEBACK_PRESERVE 1 vs 0):** HECA arm 827ea66a6b39 vs control 7128d90282a4 — check_runway_profile 3 grade violations -> 0 (2.40/2.33/2.12 % against the 1.25 % ICAO code-4 cap, all gone); census law-true 4272 -> 4282 (+10), airside_for_acceptance 1839 -> 1851 (+12); row join: 60 GONE including the defect's own census row (within_shape runway|runway 2.4016 %/1.5 % @30.11683,31.42043) and airside_no_step runway|runway 4.5184 %, 70 NEW of which ZERO touch a runway role (61 junction|junction airside_no_step, grade-excess p50 0.015 pp / p95 0.544 pp — the 29a equilibrium-shift class re-partitioned on the moved surface). CYXY arm 6af51e4b92cb vs control d63e0d3401b7 (16 vertices restamped, worst 0.218 m): census 188 -> 186, airside 102 -> 100, ADJUDICATED 176 -> 179 (+1 within_shape, +1 airside_no_step, +1 strip_arc; 5 out-of-scope runway_crown rows gone). **UNPAID and OWED:** (a) the +12 HECA airside / +3 CYXY adjudicated rows are an honest residual, not a fix — the junction and apron that share those two runway nodes cannot reach the runway's law line under their own caps, which is the same CIFP-vs-taxi-network tension the 2026-08-15 band findings named, and it needs its own round; (b) SPJC / SPLP / KCLT / OTHH / LEMD never rebuilt under this change; (c) no build-time measurement (the preserve is one profile interpolation per runway ring vertex, ~270 per runway per writeback; tripwire only).
 - 2026-08-09 lane/padrings (footprint-hugging pad rings, spec §2.5): skipped blast-radius suites, OTHH acceptance build, full offline-replay report.
 - 2026-08-09 lane/basinseat (basin §2.2 rim-flush reseat): skipped blast-radius suites, clearance/threshold regression test completeness, all builds; in-sim only.

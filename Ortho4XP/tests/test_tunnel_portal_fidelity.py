@@ -631,11 +631,22 @@ class TestRampInternalCornerAgreement:
         assert len(ramps) >= 4, "the cluster did not fork"
 
     def test_shared_cross_edge_nodes_carry_one_value(self) -> None:
+        """REWRITTEN against §5-SUPPLEMENT item 1 (spec ``cd25f56c``;
+        canonical-mouth ruling 2026-08-30 "ONE ramp surface descending
+        the corridor centre"; accepted RULINGS 2026-08-31i).  The old
+        bar (``n_shared >= 8``) counted the quad chain's INTERNAL
+        cross-edges — the very seams the supplement dissolved by
+        emitting each contiguous run as ONE surface.  The shared
+        corners that remain are exactly the three real handoffs (bore
+        surface → throat, throat → each arm, 2 corners each), and the
+        agreement law is unchanged: ONE value per shared node, before
+        ``to_osm`` shape-order precedence can pick a winner."""
         ramps = _refs(self._emit(), "tunnel_ramp")
         n_shared, worst = _shared_corner_spread(ramps)
-        assert n_shared >= 8, (
+        assert n_shared >= 6, (
             f"only {n_shared} shared corners — the scene stopped "
-            f"exercising the bore/throat/arm handoff")
+            f"exercising the bore/throat/arm handoff (three handoffs x "
+            f"two corners each)")
         assert worst <= 0.01, (
             f"adjacent ramp pieces disagree by {worst:.3f} m at a shared "
             f"cross-edge node; ``to_osm`` shape order would decide which "
@@ -645,16 +656,29 @@ class TestRampInternalCornerAgreement:
     def test_the_throat_landing_joins_both_the_bore_and_the_arms(
             self) -> None:
         """The specific handoff: the throat's flat landing IS the bore's
-        realized top AND both arms' start."""
+        realized top AND both arms' start.
+
+        REWRITTEN against §5-SUPPLEMENT item 1 (spec ``cd25f56c``;
+        canonical-mouth ruling 2026-08-30; accepted RULINGS
+        2026-08-31i): the bore run and the arms are no longer chains of
+        sloped ``altitude_high``/``altitude_low`` quads but ONE
+        node_altitudes surface per contiguous run, so the seating is
+        read from the surfaces' own per-vertex values — the bore
+        surface's realized top and each arm's lowest station."""
         ramps = _refs(self._emit(), "tunnel_ramp")
         throats = [s for s in ramps
                    if s.node_altitudes and len(set(s.node_altitudes)) == 1]
         assert len(throats) == 1
         landing = throats[0].node_altitudes[0]
-        quads = [s for s in ramps if s.altitude_high is not None]
-        assert landing in {s.altitude_high for s in quads}, (
+        sloped = [s for s in ramps
+                  if s.node_altitudes and len(set(s.node_altitudes)) > 1]
+        assert len(sloped) >= 3, (
+            "the cluster lost its bore surface or an arm — nothing "
+            "left to hand off through the throat")
+        assert landing in {max(s.node_altitudes) for s in sloped}, (
             "the throat is not seated on the elevation the bore reached")
-        assert sum(1 for s in quads if s.altitude_low == landing) >= 2, (
+        assert sum(1 for s in sloped
+                   if min(s.node_altitudes) == landing) >= 2, (
             "the arms did not start from the throat's landing")
 
     def test_the_flat_quad_encoding_cannot_disagree_beyond_the_floor(
@@ -747,18 +771,40 @@ class TestRampNeverCrossesABuildingPadEdge:
             self, capsys) -> None:
         """The overlap is COVERED BORE, not emitted — and the drop is
         loud, so a mis-identified building is visible as a data-quality
-        case instead of a silent hole in the ramp."""
+        case instead of a silent hole in the ramp.
+
+        FIXTURE UPDATED for §5-SUPPLEMENT item 1 (spec ``cd25f56c``;
+        canonical-mouth ruling 2026-08-30; accepted RULINGS
+        2026-08-31i): a contiguous run now emits as ONE surface, so the
+        old scene's partly-covered walk no longer produces a chain quad
+        wholly under the pad — the one surface is CLIPPED at the pad
+        edge instead (the sibling tests pin that).  The drop path B-1
+        guards fires when the WHOLE surface lies under the pad, so
+        that is the scene here: the pad covers the entire walk."""
         UI.verbosity = 1
-        layout, pad, _z = self._scene(self._PAD_BOX)
+        full_pad = box(-30.0, -40.0, 200.0, 40.0)
+        layout, pad, zones = self._scene(full_pad)
         out = capsys.readouterr().out
         assert "-917" in out, "the source way is not named in the drop log"
         assert "shapeID 0" in out, "the building pad is not named"
         assert "DROPPED whole" in out
-        # The ramp reaches the pad but never past it.
-        ramps = _refs(layout, "tunnel_ramp")
-        assert max(r.polygon.bounds[2] for r in ramps) \
-            == pytest.approx(90.0 - bridges._TUNNEL_GRAZE_CLEARANCE_M,
-                             abs=0.05)
+        # Nothing of the open ramp is emitted — the whole run is
+        # covered bore — and the walls follow their ramp out.
+        assert _refs(layout, "tunnel_ramp") == []
+        # The pad itself is neither cut nor buried.
+        assert layout.shapes[0] is pad
+        assert pad.polygon.equals(full_pad)
+        assert pad.node_altitudes == [_APT_ELEV] * 5
+        # The exclusion-zone register followed the drop: no stale ramp
+        # footprint survives to carve the boundary ribbon under the pad.
+        assert [z for z in zones if z.intersects(pad.polygon)] == []
+        # …and the partly-covered control scene still names the CLIP.
+        _l2, _p2, _z2 = self._scene(self._PAD_BOX)
+        out2 = capsys.readouterr().out
+        assert "-917" in out2
+        assert "clipped" in out2
+        assert _refs(_l2, "tunnel_ramp"), (
+            "the partly-covered walk should clip, not drop")
 
     def test_the_clipped_ramp_keeps_its_profile_and_never_stretches_it(
             self) -> None:
@@ -806,8 +852,9 @@ class TestRampNeverCrossesABuildingPadEdge:
         ramp_zones = [z for z in zones if z.intersects(pad.polygon)]
         # Only the perimeter wall band may still touch the pad (it is
         # clipped off it by the pavement-overlap clip in finalize).
-        # §T5: that band is now TWO refs — the rising face and its foot —
-        # so the register the zone must belong to is the wall STRUCTURE.
+        # The band is ONE ref again — the §T5 foot RETIRED (RULINGS
+        # 2026-09-01c) — so ``_WALL_BAND_REFS`` is the register the
+        # zone must belong to.
         band = [w for w in layout.shapes
                 if getattr(w, "ref", "") in bridges._WALL_BAND_REFS
                 and w.polygon is not None and not w.polygon.is_empty]

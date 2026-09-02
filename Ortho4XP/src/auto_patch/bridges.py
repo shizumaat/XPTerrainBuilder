@@ -3873,12 +3873,21 @@ def _spelling_edges(layout, origin, perp, half_carriage: float,
 _MERGED_RUN_MIN_AREA_M2 = 0.5
 
 
-def _emit_merged_ramp_runs(layout: "PavementLayout", runs: list) -> int:
+def _emit_merged_ramp_runs(layout: "PavementLayout", runs: list,
+                           exclusion_zones: list | None = None) -> int:
     """ONE RAMP SURFACE PER DESCENDING RUN (spec §5-SUPPLEMENT item 1).
 
     ``runs`` is what the chain loop accumulated: per contiguous run, the
     ordered stations ``(left_xy, right_xy, elev)`` and the per-segment
     quads it would otherwise have emitted.
+
+    ``exclusion_zones`` receives ONE entry per emitted shape, and it is
+    the shape's OWN polygon object — downstream passes (the B-1 building
+    pad clip's ``_ez_replace``, keyed by ``id()``) rely on that identity
+    to keep the register following the clipped ramp.  The per-quad
+    appends the pre-supplement loop did are exactly what broke when the
+    shape became a merged surface: the register held four stale quad
+    footprints no clip could ever replace.
 
     THE MERGED SURFACE IS NOT A UNION.  It is the strip's own boundary —
     the left offsets forward, the right offsets back — so the ring is
@@ -3918,6 +3927,8 @@ def _emit_merged_ramp_runs(layout: "PavementLayout", runs: list) -> int:
             layout.shapes.append(BuiltShape(
                 polygon=_poly, role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
                 node_altitudes=[round(float(a), 2) for a in _alts]))
+            if exclusion_zones is not None:
+                exclusion_zones.append(_poly)
             n += 1
             continue
         # per-quad fallback — byte-identical to the pre-supplement emit
@@ -3931,6 +3942,8 @@ def _emit_merged_ramp_runs(layout: "PavementLayout", runs: list) -> int:
                 layout.shapes.append(BuiltShape(
                     polygon=rp, role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
                     altitude=round(0.5 * (eh + el), 2)))
+            if exclusion_zones is not None:
+                exclusion_zones.append(rp)
             n += 1
     return n
 
@@ -4959,11 +4972,21 @@ def _emit_portal_cluster(
                     _cur_run["st"].append((rb, rc, float(e_b)))
                     _cur_run["quads"].append((rp, eh, el))
                     _prev_seg_i = i
-                    exclusion_zones.append(rp)
+                    # The exclusion-zone entry is appended by
+                    # ``_emit_merged_ramp_runs`` — for a merged run it
+                    # must be THE EMITTED SURFACE'S OWN polygon object,
+                    # not the per-quad footprints.  Appending ``rp``
+                    # here left the four pre-merge quads in the register
+                    # while the shape carried a NEW merged polygon, so
+                    # the B-1 pad clip's id-keyed zone replacement
+                    # silently no-opped and stale footprints kept
+                    # covering ground the clipped ramp no longer
+                    # occupies (measured on the pad-clip twin,
+                    # lane/hard8 2026-09-01).
             except _GEOM_EXC:
                 pass
         _flush_ramp_run()
-        _emit_merged_ramp_runs(layout, _ramp_runs)
+        _emit_merged_ramp_runs(layout, _ramp_runs, exclusion_zones)
         return e_hi_c
 
     def _emit_fork_throat(throat_pts, throat_half, e_throat,
@@ -5555,6 +5578,27 @@ def _emit_portal_cluster(
                     _dropped9.add(_i9)
                     _ez_replace[id(_s9.polygon)] = None
                     continue
+                # THE CLIP'S OWN CONTRACT: a surviving ORIGINAL vertex
+                # keeps the EXACT altitude the unclipped piece planned
+                # there.  The resample helper quantises every output to
+                # 0.1 m (``round(..., 1)``) — tolerable for NEW cut
+                # vertices, but at a kept vertex it moved the planned
+                # mouth value 92.02 → 92.0 (measured, lane/hard8
+                # 2026-09-01): a 2.1 cm invented step, above the 0.01 m
+                # materiality floor, on a vertex the clip never touched.
+                _exact9 = {
+                    (round(_px9, 6), round(_py9, 6)): _a9
+                    for (_px9, _py9), _a9
+                    in zip(_or9, _s9.node_altitudes)}
+                try:
+                    _nr9 = list(_keep9.exterior.coords)
+                except _GEOM_EXC:
+                    _nr9 = []
+                for _vi9 in range(min(len(_nr9), len(_res9))):
+                    _hit9 = _exact9.get((round(_nr9[_vi9][0], 6),
+                                         round(_nr9[_vi9][1], 6)))
+                    if _hit9 is not None:
+                        _res9[_vi9] = _hit9
                 _s9.node_altitudes = _res9
             elif (_s9.altitude_high is not None
                     and _s9.altitude_low is not None):

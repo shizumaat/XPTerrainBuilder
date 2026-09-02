@@ -66,6 +66,21 @@ def log(monkeypatch):
     return out
 
 
+@pytest.fixture(scope="module")
+def cg_tool():
+    """The census tool's own module (``tools/check_grade.py``), loaded the
+    way ``tests/test_harness.py`` loads it — for the one-authority twins
+    that assert the engine's certificate constants ARE the census's."""
+    import importlib.util
+    p = os.path.join(_ROOT, "tools", "check_grade.py")
+    spec = importlib.util.spec_from_file_location(
+        "air7_twin_check_grade", p)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["air7_twin_check_grade"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 1 — THE UNATTRIBUTED HARDENING CHANNEL
 # ═══════════════════════════════════════════════════════════════════════
@@ -574,3 +589,201 @@ class TestCifpAgreesWithTheAnchorEnvelope:
         budget = RR._lawful_ramp_budget(0.05, 0.0, _AXIS, as_solved)
         assert hi_b < 100.0 + budget - 1e-9, (
             "an as-solved-priced envelope would be wider")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TASK 6 — THE AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS 2026-09-01l/r)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# THE DECISION INSTRUMENT for the owner's zero-airside beta bar.  The
+# JOINT certificate cannot answer "is airside lawful?" — it counts
+# groundside service-pin contradictions and lawful-by-ruling groundside
+# excess as failure — so these twins pin the scoped verdict to known
+# answers: the row-side partition (an edge is out of scope only when
+# every endpoint is a groundside receiver; mixed counts AGAINST
+# airside), and check_grade's own quantization allowance, IMPORTED.
+
+def _air_lines(log):
+    return [ln for ln in log if "[airside-certificate]" in ln]
+
+
+class TestAirsideScopedCertificate:
+
+    def _run(self, joint, elev, n, hard, recv, family_of=None):
+        air: dict = {}
+        cert = SOLVE.projection_law_certificate(
+            joint, elev, n, hard, family_of=family_of,
+            airside_out=air, receiver_nodes=recv)
+        return cert, air
+
+    def test_airside_clean_groundside_dirty_certifies_airside_only(self):
+        """The HECA configuration in miniature: a groundside service
+        contradiction (excess 1.5 m) beside a lawful apron edge.  The
+        JOINT fails; the AIRSIDE scope certifies."""
+        joint = [{"family": "service_road:-", "edges": [(0, 1, 0.5)]},
+                 {"family": "apron:-", "edges": [(2, 3, 0.5)]}]
+        elev = [0.0, 2.0, 10.0, 10.4]
+        cert, air = self._run(joint, elev, 4, {0, 1}, recv={0, 1})
+        # joint fails (the lawful apron family reports present-and-zero)
+        assert cert == {"service_road:-": (1, 1.5, 1),
+                        "apron:-": (0, 0.0, 0)}
+        assert air["certified"] is True
+        assert air["n_over"] == 0
+        assert air["n_edges_scoped"] == 1                # the apron edge
+        assert air["partition"] == "node-receivers"
+
+    def test_a_genuine_airside_violation_fails_both(self):
+        joint = [{"family": "apron:-", "edges": [(0, 1, 0.5)]}]
+        cert, air = self._run(joint, [0.0, 2.0], 2, {0, 1}, recv=set())
+        assert cert == {"apron:-": (1, 1.5, 1)}
+        assert air["certified"] is False
+        assert air["n_over"] == 1 and air["n_both_hard_over"] == 1
+        # residual is beyond cap AND quant: 1.5 − 0.03
+        assert air["worst_excess_m"] == pytest.approx(1.47)
+        assert air["families"]["apron:-"][0] == 1
+        assert air["rows"][0]["idx"] == [0, 1]
+
+    def test_quant_allowance_is_check_grades_base(self):
+        """An apron edge 0.02 m over cap: the JOINT counts it (tol is
+        1e-3) — the AIRSIDE verdict grants the ratified sub-quantization
+        envelope (RULINGS 2026-09-01m) and certifies."""
+        joint = [{"family": "apron:-", "edges": [(0, 1, 0.5)]}]
+        cert, air = self._run(joint, [0.0, 0.52], 2, set(), recv=set())
+        assert cert["apron:-"][0] == 1                   # joint: over
+        assert air["certified"] is True                  # within quant
+
+    def test_quant_allowance_weld_hub_is_the_junction_family(self):
+        """0.08 m over cap: inside the 0.1 m weld-hub envelope for a
+        junction-family edge, beyond the 0.03 m base for an apron."""
+        j_junc = [{"family": "unified:junction", "edges": [(0, 1, 0.5)]}]
+        j_apr = [{"family": "apron:-", "edges": [(0, 1, 0.5)]}]
+        _, air_j = self._run(j_junc, [0.0, 0.58], 2, set(), recv=set())
+        _, air_a = self._run(j_apr, [0.0, 0.58], 2, set(), recv=set())
+        assert air_j["certified"] is True
+        assert air_a["certified"] is False
+
+    def test_the_allowance_is_imported_not_respelled(self, cg_tool):
+        """BINDING: the certificate's constants ARE check_grade's —
+        asserted against the census tool's own module objects, and the
+        weld-hub set against ``grade_law.JUNCTION_ROLES`` (one
+        authority; the literal in check_grade is the no-engine fallback
+        only)."""
+        from auto_patch.config import (ELEV_ROUNDING_NOISE_M,
+                                       SLOPED_QUAD_ROUNDING_NOISE_M)
+        from auto_patch.grade_law import JUNCTION_ROLES
+        assert cg_tool.ELEV_ROUNDING_NOISE_M == ELEV_ROUNDING_NOISE_M
+        assert (cg_tool.SLOPED_QUAD_ROUNDING_NOISE_M
+                == SLOPED_QUAD_ROUNDING_NOISE_M)
+        assert cg_tool._WELD_HUB_ROLES == frozenset(JUNCTION_ROLES)
+        # and the row-side registry is one set, both readers:
+        from auto_patch.layout import GROUNDSIDE_ROLES
+        assert cg_tool._GROUNDSIDE_ROLES == set(GROUNDSIDE_ROLES)
+
+    def test_a_mixed_edge_counts_against_airside(self):
+        """A groundside-family edge touching a non-receiver node (a
+        service-road mouth on an apron seat) is the MIXED row —
+        in scope, counted against airside, and reported apart."""
+        joint = [{"family": "service_road:-", "edges": [(0, 1, 0.5)]}]
+        _, air = self._run(joint, [0.0, 2.0], 2, {0, 1}, recv={0})
+        assert air["certified"] is False
+        assert air["n_over"] == 1 and air["n_over_mixed"] == 1
+        # …and with BOTH endpoints receivers the same edge is out of
+        # scope: pure groundside is the owner's to quote, not to fail.
+        _, air2 = self._run(joint, [0.0, 2.0], 2, {0, 1}, recv={0, 1})
+        assert air2["certified"] is True
+        assert air2["n_edges_scoped"] == 0
+
+    def test_no_receiver_partition_degrades_to_family_roles(self):
+        joint = [{"family": "service_road:-", "edges": [(0, 1, 0.5)]},
+                 {"family": "apron:-", "edges": [(2, 3, 0.5)]}]
+        elev = [0.0, 2.0, 10.0, 10.4]
+        _, air = self._run(joint, elev, 4, set(), recv=None)
+        assert air["partition"] == "family-roles"
+        assert air["n_edges_scoped"] == 1                # apron only
+        assert air["certified"] is True
+
+    def test_a_transverse_hyper_row_is_airside(self):
+        """The transect law is the apron's own: a hyper row is scoped
+        AIRSIDE unless every node is a receiver."""
+        entry = {"family": "?", "edges": [],
+                 "hyper": [((0, 1, 2, 3), (1.0, -1.0, 1.0, -1.0), 0.5)]}
+        elev = [2.0, 0.0, 0.0, 0.0]                      # val 2.0 > 0.5
+        _, air = self._run([entry], elev, 4, {0, 1, 2, 3}, recv=set())
+        assert air["certified"] is False
+        assert air["families"]["transverse"][0] == 1
+        assert air["n_both_hard_over"] == 1
+        _, air2 = self._run([entry], elev, 4, set(), recv={0, 1, 2, 3})
+        assert air2["n_edges_scoped"] == 0
+
+    def test_both_verdicts_print_beside_each_other(self, log):
+        """Nothing hidden: the joint line prints exactly as before, the
+        airside line beside it, with the frame stamps."""
+        joint = [{"family": "service_road:-", "edges": [(0, 1, 0.5)]}]
+        air: dict = {}
+        cert = SOLVE.projection_law_certificate(
+            joint, [0.0, 2.0], 2, {0, 1}, airside_out=air,
+            receiver_nodes={0, 1})
+        SOLVE._report_law_certificate("TEST", "SOLVE EXIT", cert,
+                                      n_nodes=2, airside=air)
+        assert "over_cap=1" in _cert_lines(log)[0]
+        a = _air_lines(log)[0]
+        assert "CERTIFIED-AIRSIDE" in a
+        assert "partition node-receivers" in a
+        assert "node space n=2" in a
+
+    def test_the_residual_list_prints_when_not_certified(self, log):
+        joint = [{"family": "apron:-", "edges": [(0, 1, 0.5)]}]
+        air: dict = {}
+        cert = SOLVE.projection_law_certificate(
+            joint, [0.0, 2.0], 2, {0, 1}, airside_out=air,
+            receiver_nodes=set())
+        SOLVE._report_law_certificate("TEST", "final#1 EXIT", cert,
+                                      n_nodes=2, airside=air)
+        a = _air_lines(log)[0]
+        assert "NOT CERTIFIED" in a and "1 residual(s)" in a
+        assert any("apron:-" in ln for ln in log if "worst" in ln)
+
+    def test_publication_last_exit_reading_wins(self, log):
+        """``verdict`` is the decision-grade reading: solve_exit first,
+        overwritten by each final EXIT; entries never write it."""
+        from types import SimpleNamespace
+        layout = SimpleNamespace(m_to_ll=lambda x, y: (30.0, 31.0))
+        ok = {"certified": True, "n_edges_scoped": 5, "n_over": 0,
+              "n_over_mixed": 0, "n_both_hard_over": 0,
+              "worst_excess_m": 0.0, "families": {}, "rows": [],
+              "partition": "node-receivers"}
+        bad = dict(ok, certified=False, n_over=2, worst_excess_m=1.25,
+                   families={"apron:-": [2, 1.25, 1]},
+                   rows=[{"family": "apron:-", "idx": [0, 1],
+                          "excess_m": 1.25, "quant_m": 0.03,
+                          "both_hard": True, "mixed": False}])
+        nodes = [(0.0, 0.0), (1.0, 0.0)]
+        SOLVE._publish_airside_certificate(layout, "solve_exit", ok,
+                                           nodes=nodes, n_nodes=2)
+        SOLVE._publish_airside_certificate(layout, "final1_entry", bad,
+                                           nodes=nodes, n_nodes=2)
+        rec = layout._airside_certificate
+        assert rec["verdict"]["reading"] == "solve_exit"
+        assert rec["verdict"]["certified"] is True
+        SOLVE._publish_airside_certificate(layout, "final1_exit", bad,
+                                           nodes=nodes, n_nodes=2)
+        rec = layout._airside_certificate
+        assert rec["verdict"] == {"reading": "final1_exit",
+                                  "certified": False, "n_over": 2,
+                                  "worst_excess_m": 1.25}
+        assert set(rec["readings"]) == {"solve_exit", "final1_entry",
+                                        "final1_exit"}
+        assert rec["law"] == SOLVE.AIRSIDE_CERTIFICATE_LAW
+        # rows are decorated with lat/lon so a residual names its site
+        row = rec["readings"]["final1_exit"]["rows"][0]
+        assert row["ll"] == [[30.0, 31.0], [30.0, 31.0]]
+
+    def test_existing_callers_are_unchanged(self):
+        """``airside_out=None`` (every pre-existing caller) is the
+        identical computation — same return, no side channel."""
+        joint = [{"family": "service_road:-", "edges": [(0, 1, 0.5)]}]
+        assert (SOLVE.projection_law_certificate(joint, [0.0, 2.0], 2,
+                                                 {0, 1})
+                == SOLVE.projection_law_certificate(
+                    joint, [0.0, 2.0], 2, {0, 1}, airside_out=None,
+                    receiver_nodes=None))

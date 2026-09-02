@@ -3551,6 +3551,11 @@ def solve_route_profile(layout, icao: str,
         _summary = _cc.summary
         _fairing_moved_keys = _cc.fairing_moved_keys
         _scoped_gate = _cc.scoped_gate
+        # The constructive core's own receiver partition, for the
+        # airside-scoped exit certificate (air7); ``None`` on an older
+        # core ⇒ the certificate degrades to family-role scoping and
+        # stamps ``partition`` accordingly.
+        _solve_receivers = getattr(_cc, "receivers", None)
     else:
         # ── LIVING-BAND INSTRUMENT + CONSTRUCTIVE WARM START (owner
         # ruling 2026-08-15, post in-sim A/B: ITERATIVE IS THE
@@ -6186,18 +6191,27 @@ def solve_route_profile(layout, icao: str,
     _bh_dump_prefix = _os.environ.get("O4_BOTH_HARD_DUMP")
     _bh_coll = ({"rows": [], "n_both_hard": 0, "n_edges": 0}
                 if _bh_dump_prefix else None)
+    # THE AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS 2026-09-01l/r):
+    # always-on, report-only, published beside the joint reading.  The
+    # receiver partition is the solve's own (``_solve_receivers``, the
+    # same set every projection of this solve partitioned on).
+    _air_coll: dict = {}
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
                                    family_of=_u_family_of,
-                                   both_hard_out=_bh_coll),
+                                   both_hard_out=_bh_coll,
+                                   airside_out=_air_coll,
+                                   receiver_nodes=_solve_receivers),
         # THE FRAME (binding point 3): the SOLVE's node space, and the
         # uncrowned z′ frame the law lives in — this reading is taken
         # before the crown drop below, which is an EMIT transform.  The
         # final passes' ENTRY/EXIT readings stamp their OWN (rebuilt,
         # smaller) node space, so the reader can see at a glance that
         # the three numbers are not comparable.
-        n_nodes=n, crown_space="uncrowned z'")
+        n_nodes=n, crown_space="uncrowned z'", airside=_air_coll)
+    _publish_airside_certificate(layout, "solve_exit", _air_coll,
+                                 nodes=nodes, n_nodes=n)
     if _bh_coll is not None:
         _dump_both_hard(
             _bh_dump_prefix, "solve_exit", icao, _bh_coll, nodes, elev, n,
@@ -7427,8 +7441,28 @@ def post_solve_mutation_set(carried, elev, n, tol):
     return untouched, n_new, moved
 
 
+def _certificate_family_role(family):
+    """The ROLE token of a certificate family tag.
+
+    The certificate's two family spellings both carry exactly one role:
+    ``role:ref`` for a shape entry (``_entry_family_tag``) and
+    ``unified:role[:spine]`` for a unified-graph edge
+    (``grade_graph.edge_family_name`` — ONE speller, so this parse cannot
+    drift from the mint).  ``transverse`` (the hyper rows) and any
+    unresolvable tag return ``None`` — sided AIRSIDE by the callers, the
+    conservative side under airside-is-king."""
+    if not family:
+        return None
+    f = str(family)
+    if f.startswith("unified:"):
+        f = f[len("unified:"):]
+    role = f.split(":", 1)[0]
+    return role or None
+
+
 def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
-                               family_of=None, both_hard_out=None):
+                               family_of=None, both_hard_out=None,
+                               airside_out=None, receiver_nodes=None):
     """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
 
     The ingestion round's own reader (spec
@@ -7464,7 +7498,101 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
     every both-hard OVER-CAP edge appends a row naming family, nodes,
     budget and excess — the genuinely-contradictory subset, per edge.
     ``None`` (every existing caller) changes nothing.
+
+    ``airside_out`` / ``receiver_nodes`` — AIRSIDE ZERO air7: THE
+    AIRSIDE-SCOPED CERTIFICATE, the decision-grade instrument for the
+    owner's zero-airside bar (RULINGS 2026-09-01l; named as this
+    instrument by 2026-09-01r).  Report-only, like everything here.
+    ``airside_out`` is a dict this call fills; ``receiver_nodes`` is the
+    projection partition's own RECEIVER set
+    (:func:`_receiver_nodes_from_roles` — ``layout.GROUNDSIDE_ROLES``,
+    the SAME registry ``check_grade.row_side`` reads, so there is no
+    second role list).  The scoping is the census's own row-side
+    partition applied per law edge:
+
+    * an edge BOTH of whose endpoints are receivers (every role
+      groundside) is GROUNDSIDE — out of scope;
+    * an edge whose family role is groundside but which touches a
+      non-receiver node is the certificate's MIXED row — IN scope,
+      because a mixed row counts AGAINST airside for acceptance
+      (``check_grade.row_side``: "airside is king");
+    * everything else — airside families, ``transverse`` hyper rows,
+      unresolvable tags — is AIRSIDE, the conservative side.
+
+    With ``receiver_nodes=None`` (a solve that never built the
+    partition, e.g. the parked constructive core) the scoping degrades
+    to the family-role axis alone and says so in ``partition``.
+
+    An in-scope edge is a RESIDUAL iff its excess exceeds the same
+    sub-quantization envelope the census's corrected instrument grants
+    (RULINGS 2026-09-01m): ``check_grade._pair_quant_noise_m``'s
+    constants IMPORTED, never re-spelled — ``ELEV_ROUNDING_NOISE_M``
+    base, ``SLOPED_QUAD_ROUNDING_NOISE_M`` on the junction-family weld
+    hubs (``grade_law.JUNCTION_ROLES``).  CERTIFIED-AIRSIDE iff the
+    residual population is empty; when it is not, ``families`` IS the
+    remaining airside work, by family.  ``None`` (every existing
+    caller) changes nothing.
     """
+    air = airside_out
+    if air is not None:
+        from auto_patch.layout import GROUNDSIDE_ROLES as _GS_ROLES
+        from auto_patch.config import (
+            ELEV_ROUNDING_NOISE_M as _Q_BASE,
+            SLOPED_QUAD_ROUNDING_NOISE_M as _Q_HUB)
+        from auto_patch.grade_law import JUNCTION_ROLES as _J_ROLES
+        air.setdefault("n_edges_scoped", 0)
+        air.setdefault("n_over", 0)
+        air.setdefault("n_over_mixed", 0)
+        air.setdefault("n_both_hard_over", 0)
+        air.setdefault("worst_excess_m", 0.0)
+        air.setdefault("families", {})
+        air.setdefault("rows", [])
+        air["partition"] = ("node-receivers" if receiver_nodes is not None
+                           else "family-roles")
+        _air_memo: dict = {}
+
+        def _air_axis(fam):
+            """(family_is_groundside, quant_allowance_m), memoized."""
+            t = _air_memo.get(fam)
+            if t is None:
+                role = _certificate_family_role(fam)
+                t = (role in _GS_ROLES,
+                     _Q_HUB if role in _J_ROLES else _Q_BASE)
+                _air_memo[fam] = t
+            return t
+
+        def _air_over(fam, idxs, excess, is_bh):
+            """Accumulate one IN-SCOPE over-cap edge on the airside axis.
+
+            Called only for edges already past the joint ``tol`` test —
+            the scoping test and the denominator are inline in the edge
+            loops (one membership test per edge), so the airside axis
+            adds no per-lawful-edge function call."""
+            fam_gs, quant = _air_axis(fam)
+            resid = excess - quant
+            if resid <= tol:
+                return
+            air["n_over"] += 1
+            mixed = fam_gs
+            if mixed:
+                air["n_over_mixed"] += 1
+            if is_bh:
+                air["n_both_hard_over"] += 1
+            if resid > air["worst_excess_m"]:
+                air["worst_excess_m"] = resid
+            frow = air["families"].setdefault(str(fam), [0, 0.0, 0])
+            frow[0] += 1
+            if resid > frow[1]:
+                frow[1] = resid
+            if is_bh:
+                frow[2] += 1
+            rows = air["rows"]
+            if len(rows) < 200:
+                rows.append({
+                    "family": str(fam), "idx": [int(k) for k in idxs],
+                    "excess_m": round(float(resid), 4),
+                    "quant_m": quant, "both_hard": bool(is_bh),
+                    "mixed": bool(mixed)})
     out: dict = {}
     for entry in joint:
         fam_entry = entry.get("family")
@@ -7496,8 +7624,29 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
             else:
                 lo = hi = None
                 excess = abs(d) - float(e[2])
+            # ── AIRSIDE AXIS, SCOPING + DENOMINATOR (air7) ────────────
+            # One membership test per edge; the residual work runs only
+            # for edges already past the joint ``tol`` test below.
+            _air_in = False
+            if air is not None:
+                if receiver_nodes is not None:
+                    _air_in = not (a in receiver_nodes
+                                   and b in receiver_nodes)
+                elif per_edge is not None:
+                    _k_air = (a, b) if a <= b else (b, a)
+                    _air_in = not _air_axis(
+                        per_edge.get(_k_air, fam_entry))[0]
+                else:
+                    _air_in = not _air_axis(fam_entry)[0]
+                if _air_in:
+                    air["n_edges_scoped"] += 1
             if excess <= tol:
                 continue
+            if _air_in:
+                _k_air = (a, b) if a <= b else (b, a)
+                _air_over((per_edge.get(_k_air, fam_entry)
+                           if per_edge is not None else fam_entry),
+                          (a, b), excess, a in hard and b in hard)
             if per_edge is not None:
                 key = (a, b) if a <= b else (b, a)
                 row = out.setdefault(per_edge.get(key, fam_entry),
@@ -7541,8 +7690,21 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                     both_hard_out["n_both_hard"] += 1
             val = sum(float(w) * elev[int(k)] for w, k in zip(w4, idx4))
             excess = val - float(b_h)
+            # AIRSIDE AXIS (air7): a transect is groundside only when
+            # EVERY node is a receiver; with no partition it is airside
+            # (the transverse law is the apron's own).
+            _air_in_h = False
+            if air is not None:
+                _air_in_h = (not all(int(k) in receiver_nodes
+                                     for k in idx4)
+                             if receiver_nodes is not None else True)
+                if _air_in_h:
+                    air["n_edges_scoped"] += 1
             if excess <= tol:
                 continue
+            if _air_in_h:
+                _air_over("transverse", [int(k) for k in idx4], excess,
+                          all(int(k) in hard for k in idx4))
             fam_h = "transverse"
             row = out.setdefault(fam_h, [0, 0.0, 0])
             row[0] += 1
@@ -7557,6 +7719,16 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                         "w4": [round(float(w), 4) for w in w4],
                         "budget": round(float(b_h), 4),
                         "excess_m": round(float(excess), 4)})
+    if air is not None:
+        # THE VERDICT (RULINGS 2026-09-01l): zero residuals in the
+        # airside-scoped population = CERTIFIED-AIRSIDE.  This is a
+        # verdict the law layer DOES make — the owner's own beta bar —
+        # unlike the joint over_cap count, whose verdict word was
+        # removed (see ``_report_law_certificate``) because it asserted
+        # a bar nobody had set.
+        air["rows"].sort(key=lambda r: -r["excess_m"])
+        del air["rows"][20:]
+        air["certified"] = air["n_over"] == 0
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -7890,8 +8062,90 @@ def _dump_both_hard(path_prefix, tag, icao, coll, nodes, elev, n,
                          f"build continues")
 
 
+#: The self-describing law text the sidecar record carries — one speller,
+#: asserted verbatim by the instrument twin so the published definition
+#: cannot drift from the code that computes it (air7, RULINGS 2026-09-01l/r).
+AIRSIDE_CERTIFICATE_LAW = (
+    "CERTIFIED-AIRSIDE iff every airside-scoped law edge (row-side "
+    "partition: an edge is out of scope only when every endpoint is a "
+    "groundside receiver, layout.GROUNDSIDE_ROLES; mixed counts against "
+    "airside) is within its cap plus check_grade's quantization "
+    "allowance (ELEV_ROUNDING_NOISE_M base / SLOPED_QUAD_ROUNDING_NOISE_M "
+    "on grade_law.JUNCTION_ROLES) at the stamped reading")
+
+
+def _publish_airside_certificate(layout, tag, air, nodes=None,
+                                 n_nodes=None):
+    """Publish one airside-scoped certificate reading into the build's
+    own record (air7; RULINGS 2026-09-01l/r).
+
+    Write-only, never read back by the solve.  The record lands on
+    ``layout._airside_certificate`` and ships in the emitted patch's
+    ``.axes.json`` sidecar under ``airside_certificate`` (an EVIDENCE
+    key — ``check_grade.SIDECAR_EVIDENCE_KEYS``), so the census and the
+    beta claim cite the build's own verdict instead of re-deriving one.
+
+    ``readings`` accumulates every reading of the run; ``verdict`` is
+    the DECISION-GRADE one — the LAST ``*_exit`` reading published
+    (final#last EXIT on a full build), the closest law reading to the
+    emitted surface.  Frame honesty: it still precedes the airside
+    membrane conform (which only closes no-step edges) and emit
+    quantization, which is exactly what the quant allowance prices.
+    Never raises into the build: a publication failure is a WARN.
+    """
+    import O4_UI_Utils as _UI_ac
+    if air is None:
+        return
+    try:
+        rows = []
+        for r in (air.get("rows") or ())[:10]:
+            r = dict(r)
+            if nodes is not None and layout is not None:
+                try:
+                    r["ll"] = [
+                        [round(float(v), 7) for v in
+                         layout.m_to_ll(nodes[k][0], nodes[k][1])]
+                        for k in r["idx"]]
+                except Exception:
+                    pass
+            rows.append(r)
+        entry = {
+            "certified": bool(air.get("certified")),
+            "n_edges_scoped": int(air.get("n_edges_scoped", 0)),
+            "n_over": int(air.get("n_over", 0)),
+            "n_over_mixed": int(air.get("n_over_mixed", 0)),
+            "n_both_hard_over": int(air.get("n_both_hard_over", 0)),
+            "worst_excess_m": round(float(air.get("worst_excess_m",
+                                                  0.0)), 4),
+            "families": {k: [int(v[0]), round(float(v[1]), 4), int(v[2])]
+                         for k, v in sorted(
+                             (air.get("families") or {}).items(),
+                             key=lambda kv: -kv[1][0])},
+            "partition": air.get("partition"),
+            "n_nodes": (None if n_nodes is None else int(n_nodes)),
+            "rows": rows,
+        }
+        rec = getattr(layout, "_airside_certificate", None)
+        if rec is None:
+            rec = {"law": AIRSIDE_CERTIFICATE_LAW, "readings": {}}
+            layout._airside_certificate = rec
+        rec["readings"][str(tag)] = entry
+        if str(tag).endswith("_exit"):
+            # Last exit reading wins: solve_exit first, then each final
+            # pass's EXIT in order — the final#last EXIT is the verdict
+            # the beta claim quotes.
+            rec["verdict"] = {"reading": str(tag),
+                              "certified": entry["certified"],
+                              "n_over": entry["n_over"],
+                              "worst_excess_m": entry["worst_excess_m"]}
+    except Exception as _e:                            # pragma: no cover
+        _UI_ac.vprint(1, f"  [airside-certificate] {tag} publication "
+                         f"FAILED ({type(_e).__name__}: {_e}) — "
+                         f"report-only, build continues")
+
+
 def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
-                            crown_space="uncrowned z'"):
+                            crown_space="uncrowned z'", airside=None):
     """Print a :func:`projection_law_certificate` result, worst first.
 
     FRAME STAMPS (RULINGS 2026-08-06 "Instrument truth is law", binding
@@ -7945,6 +8199,38 @@ def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
             continue
         say(f"      {n_over:8d}  worst {worst:8.3f} m  both-hard {n_bh:6d}"
             f"  {fam}")
+    # ── THE AIRSIDE-SCOPED VERDICT, BESIDE THE JOINT (air7; RULINGS
+    # 2026-09-01l/r).  BOTH readings print every run: the joint line
+    # above hides nothing, and this one answers the one question the
+    # beta ships against — "is airside lawful?" — which the joint
+    # number structurally cannot (it counts groundside service-pin
+    # contradictions and lawful-by-ruling groundside excess as
+    # failure).  The verdict word here is the owner's own bar, so
+    # binding point 2's objection (a verdict nobody set) does not
+    # apply to this line.
+    if airside is not None:
+        _a_n = airside.get("n_over", 0)
+        _a_den = airside.get("n_edges_scoped", 0)
+        _a_part = airside.get("partition", "?")
+        if airside.get("certified"):
+            say(f"  [airside-certificate] {icao} {label}: "
+                f"CERTIFIED-AIRSIDE — 0 residual(s) in "
+                f"{_a_den} airside-scoped law edge(s) "
+                f"(quant allowance granted; partition {_a_part}) "
+                f"[node space n={_space}; crown space {crown_space}]")
+        else:
+            say(f"  [airside-certificate] {icao} {label}: NOT CERTIFIED "
+                f"— {_a_n} residual(s) of {_a_den} airside-scoped law "
+                f"edge(s) (worst {airside.get('worst_excess_m', 0.0):.3f} m "
+                f"beyond cap+quant; {airside.get('n_over_mixed', 0)} mixed; "
+                f"{airside.get('n_both_hard_over', 0)} both-hard; "
+                f"partition {_a_part}) "
+                f"[node space n={_space}; crown space {crown_space}]")
+            _a_rows = sorted((airside.get("families") or {}).items(),
+                             key=lambda kv: -kv[1][0])
+            for fam, (n_over, worst, n_bh) in _a_rows[:top]:
+                say(f"      {n_over:8d}  worst {worst:8.3f} m  "
+                    f"both-hard {n_bh:6d}  {fam}")
 
 
 def compose_rod_chains(chains, resolve, want_drop_records=False):
@@ -9579,15 +9865,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _bh_dump_prefix_fp = _os.environ.get("O4_BOTH_HARD_DUMP")
     _bh_coll_fp = ({"rows": [], "n_both_hard": 0, "n_edges": 0}
                    if _bh_dump_prefix_fp else None)
+    # AIRSIDE-SCOPED CERTIFICATE, this pass's ENTRY (air7): the same
+    # receiver partition this pass projects on (``_fp_receivers``).
+    _air_coll_fp: dict = {}
     _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
                             projection_law_certificate(
                                 joint, elev, n, hard,
                                 family_of=_fp_family_of,
-                                both_hard_out=_bh_coll_fp),
+                                both_hard_out=_bh_coll_fp,
+                                airside_out=_air_coll_fp,
+                                receiver_nodes=_fp_receivers),
                             # THIS pass's REBUILT node space (not the
                             # solve's), read in the z′ = z + crown frame
                             # lifted at entry above.
-                            n_nodes=n, crown_space="uncrowned z'")
+                            n_nodes=n, crown_space="uncrowned z'",
+                            airside=_air_coll_fp)
+    _publish_airside_certificate(layout, f"final{_ml_pass or 1}_entry",
+                                 _air_coll_fp, nodes=nodes, n_nodes=n)
     if _bh_coll_fp is not None:
         _dump_both_hard(
             _bh_dump_prefix_fp, f"final{_ml_pass or 1}_entry", icao,
@@ -10132,14 +10426,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # ── THE LAW CERTIFICATE, EXIT: what this pass could not close, by
     # family.  Paired with the ENTRY reading above it separates "the
     # projection minted this" from "the projection inherited this".
+    # AIRSIDE-SCOPED CERTIFICATE, EXIT (air7): the decision-grade
+    # reading — the last law reading of the pass, published into the
+    # sidecar as the run's verdict (last final EXIT wins).
+    _air_coll_fx: dict = {}
     _report_law_certificate(icao, f"final#{_ml_pass or 1} EXIT",
                             projection_law_certificate(
                                 joint, elev, n, hard,
-                                family_of=_fp_family_of),
+                                family_of=_fp_family_of,
+                                airside_out=_air_coll_fx,
+                                receiver_nodes=_fp_receivers),
                             # Same pass, same node space as its ENTRY
                             # reading above — still BEFORE the crown
                             # transform back, so still uncrowned z′.
-                            n_nodes=n, crown_space="uncrowned z'")
+                            n_nodes=n, crown_space="uncrowned z'",
+                            airside=_air_coll_fx)
+    _publish_airside_certificate(layout, f"final{_ml_pass or 1}_exit",
+                                 _air_coll_fx, nodes=nodes, n_nodes=n)
     # ── THE A1/A2 SPLIT AND THE PIN DOCKET (spec section 4) ───────────
     # A1's both-hard residue is the honest pin-contradiction number: an
     # edge both of whose endpoints are immovable cannot be projected, so

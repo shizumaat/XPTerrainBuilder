@@ -5746,3 +5746,13 @@ seat↔senior pairs price a value constant at any pre-emit slot, so the
 clamp redistributes rather than closes.  The mechanism was then DELETED
 per 29f (spawner ruling) — full measured record in RULINGS 2026-09-01o;
 nothing is owed to the sweep.
+
+## 2026-09-01 air7 — airside-scoped certificate (lane/air7, 8f40bde0)
+
+Skipped per pre-ship mode: the full pytest suite (ran only the direct
+covers, once — `test_solve_certificate_instrument.py` 36 pass incl. the
+11 new airside twins, `test_harness.py` + `test_projection_law_ingestion.py`
++ `test_transverse_hyper.py` 314 pass).  Byte-inertness proven on
+CYXY + HECA arm-vs-control body hashes (see the lane report); SPJC
+built with the instrument only (no control arm — the instrument is the
+same pure-measurement code path proven inert at the other two).

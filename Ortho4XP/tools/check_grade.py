@@ -1397,7 +1397,17 @@ class ShapePairConstraint:
     transverse_road: bool = False
 
 
-_WELD_HUB_ROLES = frozenset({"junction", "service_junction"})
+# ONE AUTHORITY (air7): the junction-family weld hubs are
+# ``grade_law.JUNCTION_ROLES`` — the same set the engine's airside-scoped
+# certificate (``solve.projection_law_certificate``) reads for its
+# quantization allowance, so the two readers cannot drift.  The literal
+# is the no-engine fallback only (the CLI-on-a-bare-patch case), and the
+# certificate instrument twin asserts the two agree.
+try:                                                   # pragma: no cover
+    from auto_patch.grade_law import JUNCTION_ROLES as _LAW_JUNCTION_ROLES
+    _WELD_HUB_ROLES = frozenset(_LAW_JUNCTION_ROLES)
+except Exception:                                      # pragma: no cover
+    _WELD_HUB_ROLES = frozenset({"junction", "service_junction"})
 
 
 def _pair_quant_noise_m(way: "Way") -> float:
@@ -6943,6 +6953,18 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # so an emitted patch answers "which route bound this pad?" without a
     # rebuild (``tools/trace_reach_route.py --from-sidecar``).
     "pad_binding_routes",
+    # THE AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS 2026-09-01l/r): the
+    # build's OWN law-graph verdict on the owner's zero-airside beta bar
+    # — CERTIFIED-AIRSIDE iff every airside-scoped law edge (row-side
+    # partition; mixed counts against airside) was within cap plus the
+    # ratified quantization allowance at the run's last exit reading.
+    # EVIDENCE, deliberately: the census's own families adjudicate the
+    # EMITTED surface; this is the solve's constraint-graph reading,
+    # taken in a different population (law edges, not emitted pairs), so
+    # counting it as a family would be two instruments over one claim.
+    # The census prints it beside its counts so the beta claim can cite
+    # both numbers from one artifact.
+    "airside_certificate",
 )
 
 
@@ -7135,6 +7157,24 @@ def sidecar_evidence(osm_path) -> dict:
                          or (r.get("binding") or {}).get("at_floor"))),
                 "pack_groups_declared": rec.get("pack_groups_declared"),
             }
+            continue
+        if k == "airside_certificate":
+            # SUMMARISED HERE, printed by the census: the decision-grade
+            # verdict plus each reading's headline numbers.  Never
+            # collapsed to "<N entries>" — the beta bar is adjudicated on
+            # exactly this record, so the verdict has to survive into
+            # every report that mentions the key.  ``{}`` (the solve
+            # never took a reading) passes through as ``{}`` so a
+            # geometry-only patch is distinguishable from a pre-law one.
+            rec = v if isinstance(v, dict) else {}
+            out[k] = {"verdict": rec.get("verdict"),
+                      "readings": {
+                          t: {kk: r.get(kk) for kk in
+                              ("certified", "n_edges_scoped", "n_over",
+                               "n_over_mixed", "n_both_hard_over",
+                               "worst_excess_m", "partition")}
+                          for t, r in (rec.get("readings") or {}).items()
+                          if isinstance(r, dict)}}
             continue
         if k == "site_class":
             # ALREADY a flat record of scalars (four signals + verdict),

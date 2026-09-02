@@ -35,6 +35,7 @@ from auto_patch.elevation import (
 from auto_patch.config import (
     taxi_grade_cap_for_letter, TAXI_MAX_GRADE_NARROW,
     FLATNESS_CERTIFICATE_RATE_FACTOR,
+    POST_SOLVE_IDEMPOTENCE_TOL_M,
     RECT_CROSS_FLATNESS_TOLERANCE_M)
 from auto_patch.layout import (
     REF_RUNWAY_END_RESA, REF_RUNWAY_END_SKIRT,
@@ -4319,8 +4320,93 @@ def _carried_band_closure(layout):
     return band
 
 
+#: S2 sub-gate (spec ``fgp-single-authority-spec.md`` §S2, round
+#: ``lane/fgpall``): the band clamp YIELDS TO THE SOLVE.  Active only
+#: with the S1 parent gate ``O4_FGP_SOLVE_LAW`` also ``1``; both default
+#: OFF (byte-inert: :func:`_solve_stated_closure` returns ``None`` and
+#: every clamp site behaves exactly as before).
+FGP_SOLVE_LAW_CLAMP_FLAG = "O4_FGP_SOLVE_LAW_CLAMP"
+
+
+def _solve_stated_closure(layout):
+    """S2: the clamp's resolver for THE SOLVE-STATED VALUE at a point.
+
+    ``solved(x, y) -> value | None`` in EMITTED (uncrowned) space — the
+    ``solved_values`` store artifact exactly as the solve's own
+    writeback stamped it (minted at ``solve_route_profile``'s carried-
+    law block, keyed by canonical point).  Same resolver idiom as
+    :func:`_carried_band_closure`: resolve, never rebuild.
+
+    Returns ``None`` (and no clamp site changes behaviour) when the S2
+    gate is off, the parent S1 gate is off, the layout has no carried
+    solve, or the registry is absent.  The measured basis for the gate:
+    RULINGS 2026-09-01p/r — the writeback band clamp acting as a SECOND
+    AUTHOR over values the solve had already stated lawfully (air5's
+    +8.05 m worst mover IS the clamp lifting to a contradicted held
+    profile value; 827 solve-stated vertices moved with no author).
+    """
+    if _os.environ.get("O4_FGP_SOLVE_LAW", "0") != "1":
+        return None
+    if _os.environ.get(FGP_SOLVE_LAW_CLAMP_FLAG, "0") != "1":
+        return None
+    raw = None
+    try:
+        from auto_patch.elevation_per_surface.node_space import store_of
+        raw = store_of(layout).raw("solved_values")
+    except Exception:                                      # pragma: no cover
+        raw = None
+    reg = getattr(layout, "canonical_points", None) if raw else None
+    if not raw or reg is None:
+        return None
+
+    def solved(x, y):
+        try:
+            cp = reg.find_nearest(x, y, reg.tol_m)
+        except Exception:                                  # pragma: no cover
+            return None
+        if cp is None:
+            return None
+        return raw.get(cp)
+
+    return solved
+
+
+def _record_band_clamp_yields(layout, yields) -> None:
+    """S2: say — and keep — what the clamp DECLINED to move.
+
+    A yield is the named-writer discipline's other half: the clamp
+    found a value outside its band interval but the value is THE
+    SOLVE'S OWN STATEMENT (within ``POST_SOLVE_IDEMPOTENCE_TOL_M`` of
+    ``solved_values``), so under the one-authority law the band — a
+    solve-derived instrument — may not overrule the solve it derives
+    from.  Kept on ``layout.band_clamp_yields`` (appended, both
+    writeback passes + the seal), and summarised in the log so a yield
+    is evidence, never silence.
+    """
+    try:
+        existing = list(getattr(layout, "band_clamp_yields", None) or [])
+        existing.extend(yields)
+        layout.band_clamp_yields = existing
+    except AttributeError:                                 # pragma: no cover
+        return
+    if not yields:
+        return
+    worst = max(yields, key=lambda y: abs(float(y[3])))
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(
+            1,
+            f"  [writeback-band] S2: the clamp YIELDED to the solve on "
+            f"{len(yields)} value(s) (solve-stated, band interval "
+            f"disagrees); worst declined move {float(worst[3]):+.2f} m "
+            f"on {worst[1]}/{worst[2]} at ({worst[5]:.0f}, "
+            f"{worst[6]:.0f}).")
+    except Exception:                                      # pragma: no cover
+        pass
+
+
 def _clamp_corner_elevs_to_band(layout, coords_open, corner_elevs, band,
-                                shape, findings):
+                                shape, findings, solved=None, yields=None):
     """Clamp one shape's corner elevations into their reach band.
 
     Returns the (possibly new) corner list.  Every material clamp appends
@@ -4364,11 +4450,32 @@ def _clamp_corner_elevs_to_band(layout, coords_open, corner_elevs, band,
             clamped, side = float(ceiling_m), "ceil"
         if side is None:
             continue
+        # ── S2 · THE CLAMP YIELDS TO THE SOLVE (spec
+        # ``fgp-single-authority-spec.md`` §S2; gates O4_FGP_SOLVE_LAW +
+        # O4_FGP_SOLVE_LAW_CLAMP, both default OFF ⇒ ``solved`` is
+        # ``None`` here and nothing below changes) ─────────────────────
+        # A value within idempotence tolerance of the SOLVE'S OWN
+        # STATEMENT is lawful by the solve's certificate; a band
+        # interval disagreeing with it is the derived instrument's
+        # defect, and clamping would make this pass the second author
+        # the architecture forbids (RULINGS 2026-09-01p/r).  The clamp
+        # stands down and the declined move is a counted, sited record.
+        sv = solved(px, py) if solved is not None else None
+        if (sv is not None
+                and abs(value_f - float(sv)) <= POST_SOLVE_IDEMPOTENCE_TOL_M):
+            if yields is not None:
+                yields.append((
+                    "band_clamp_yield", getattr(shape, "role", ""),
+                    getattr(shape, "ref", "") or "",
+                    round((clamped - crown_m) - value_f, 4), side,
+                    round(px, 2), round(py, 2),
+                    round(float(sv), 3)))
+            continue
         if out is None:
             out = list(corner_elevs)
         stamped = clamped - crown_m
         out[i] = stamped
-        findings.append((
+        _finding = (
             "band_clamp", getattr(shape, "role", ""),
             getattr(shape, "ref", "") or "",
             round(stamped - value_f, 4), side,
@@ -4381,7 +4488,17 @@ def _clamp_corner_elevs_to_band(layout, coords_open, corner_elevs, band,
             (None if floor_m is None else round(float(floor_m), 3)),
             (None if ceiling_m is None else round(float(ceiling_m), 3)),
             round(profile_v, 3),
-        ))
+        )
+        if solved is not None:
+            # S2's authority record (named-writer discipline): this move
+            # was a GENUINE band enforcement — the clamped-from value was
+            # not the solve's statement (field 10 carries the solve-stated
+            # value; ``None`` = the solve never stated one here), so the
+            # displacement census can attribute the move instead of
+            # reading it as an unauthored second write.
+            _finding = _finding + (
+                None if sv is None else round(float(sv), 3),)
+        findings.append(_finding)
     return out if out is not None else corner_elevs
 
 
@@ -4565,6 +4682,11 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
     if band is None:
         band = band_of_record(layout)
     findings: list = []
+    seal_yields: list = []
+    # S2 (gates O4_FGP_SOLVE_LAW + O4_FGP_SOLVE_LAW_CLAMP, default OFF
+    # ⇒ ``None`` and byte-identical): ONE clamp, one yield rule — the
+    # seal defers to solve-stated values exactly as the writeback does.
+    solved = _solve_stated_closure(layout)
     n_shapes = 0
     scope = seal_role_scope()
     if band is not None:
@@ -4576,7 +4698,8 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
                 continue
             before = list(vals)
             out = _clamp_corner_elevs_to_band(
-                layout, ring, vals, band, s, findings)
+                layout, ring, vals, band, s, findings,
+                solved=solved, yields=seal_yields)
             if out is before or list(out) == before:
                 continue
             n_shapes += 1
@@ -4624,6 +4747,7 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
                 s.altitude = round(float(
                     max(out, key=lambda v: abs(v - before[0]))), 2)
     _record_band_clamp_findings(layout, findings)
+    _record_band_clamp_yields(layout, seal_yields)
     try:
         import O4_UI_Utils as _UI
         if band is None:
@@ -4718,7 +4842,12 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
     )
     if band is None:
         band = _carried_band_closure(layout)
+    # S2 (gates O4_FGP_SOLVE_LAW + O4_FGP_SOLVE_LAW_CLAMP, default OFF
+    # ⇒ ``None`` and byte-identical): the clamp yields to solve-stated
+    # values — see :func:`_solve_stated_closure`.
+    solved = _solve_stated_closure(layout)
     clamp_findings: list = []
+    clamp_yields: list = []
     preserve_findings: list = []
     n_terms = n_rects = n_juncs = 0
     for s in layout.shapes:
@@ -4790,7 +4919,8 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
         # of scope by design (CIFP-hard, band-checker-exempt).
         if band is not None and s.role != ROLE_RUNWAY:
             corner_elevs = _clamp_corner_elevs_to_band(
-                layout, coords_open, corner_elevs, band, s, clamp_findings)
+                layout, coords_open, corner_elevs, band, s, clamp_findings,
+                solved=solved, yields=clamp_yields)
         if s.role == ROLE_BUILDING and _role_grade(ROLE_BUILDING) <= 0.0:
             # Terminal is FLAT (the default: TERMINAL_MAX_GRADE = 0, a terminal
             # sits on one floor altitude — per user 2026-05-18).  The flat
@@ -4889,6 +5019,7 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
             s.altitude_low = None
             n_rects += 1
     _record_band_clamp_findings(layout, clamp_findings)
+    _record_band_clamp_yields(layout, clamp_yields)
     _record_runway_preserve_findings(layout, preserve_findings)
     return n_terms, n_rects, n_juncs
 

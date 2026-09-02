@@ -8371,6 +8371,58 @@ def _solve_law_hold_filter(members, carried, elev, tol):
     return kept, released
 
 
+def _refresh_membrane_carriers(layout, b2i, elev, n):
+    """S3 (gate ``O4_FGP_SOLVE_LAW`` + ``O4_FGP_SOLVE_LAW_CARRIERS``):
+    THE CARRIERS TELL THE TRUTH (spec ``fgp-single-authority-spec.md``
+    §S3).
+
+    ``apron_lattice_emit`` / ``apron_spine_station_emit`` are minted at
+    the SOLVE writeback and never refreshed, so pass-2 / projection
+    movement never reaches them — the stale emit MASKS interior drift
+    (RULINGS 2026-09-01q: refreshing them ALONE exploded HECA airside
+    1,075 → 2,120, which is why this lands only in the S1+S2+S3
+    configuration).  Called AFTER pass 2 (``membrane_conform``) and
+    before ``_writeback``, in EMITTED space (the crown transform back
+    has run), matching the frame the carriers were minted in.
+
+    Values are refreshed IN PLACE on the existing polylines — geometry
+    and topology are the mint's; only the altitudes update — so every
+    downstream consumer (``to_osm``'s valued-node triples, the census's
+    ``apron_lattice_membrane`` family) reads the surface that actually
+    emits.  A point that no longer resolves in this pass's node space
+    keeps its minted value and is counted stale.  Returns
+    ``(n_refreshed, n_stale)``.
+    """
+    cps = getattr(layout, "canonical_points", None)
+    if cps is None:
+        return 0, 0
+    refreshed = stale = 0
+    for car in (list(getattr(layout, "apron_lattice_emit", None) or ())
+                + list(getattr(layout, "apron_spine_station_emit", None)
+                       or ())):
+        try:
+            pts_ll, alts = car
+        except (TypeError, ValueError):                    # pragma: no cover
+            continue
+        if not isinstance(alts, list):                     # pragma: no cover
+            continue
+        for j, (la, lo) in enumerate(pts_ll):
+            try:
+                x, y = layout.ll_to_m(float(la), float(lo))
+                i = b2i.get(cps.get_or_add(float(x), float(y)))
+            except Exception:                              # pragma: no cover
+                stale += 1
+                continue
+            if i is None or i >= n:
+                stale += 1
+                continue
+            nv = float(elev[i])
+            if abs(float(alts[j]) - nv) > 1e-9:
+                alts[j] = nv
+                refreshed += 1
+    return refreshed, stale
+
+
 def final_grade_projection(layout, icao: str = "", dem=None,
                            tile_lat: int = 0, tile_lon: int = 0, *,
                            recapture_snapshot: bool = True) -> None:
@@ -10696,6 +10748,31 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _UI_mcx.vprint(1, f"  [membrane-conform] {icao}: PASS 2 FAILED "
                           f"({type(_mc_exc).__name__}: {_mc_exc}) — the "
                           f"surface is pass 1's, unconformed")
+    # ── S3 · THE CARRIERS TELL THE TRUTH (spec fgp-single-authority
+    # §S3; gates O4_FGP_SOLVE_LAW + O4_FGP_SOLVE_LAW_CARRIERS, both
+    # default OFF ⇒ byte-inert) ───────────────────────────────────────
+    # AFTER pass 2, before the writeback: the emitted membrane carriers
+    # refresh to the surface this pass actually publishes.  Measured
+    # law for the slot: doing this WITHOUT S1+S2 holding is the 01q
+    # explosion (stale emit was masking interior drift to 15.7 m); it
+    # lands only in the one S1+S2+S3 configuration.
+    if _fgp_law and _os.environ.get(
+            "O4_FGP_SOLVE_LAW_CARRIERS", "0") == "1":
+        try:
+            _car_ref_sl, _car_stale_sl = _refresh_membrane_carriers(
+                layout, b2i, elev, n)
+            import O4_UI_Utils as _UI_car
+            _UI_car.vprint(1,
+                f"  [fgp-solve-law] {icao}: S3 carriers refreshed after "
+                f"pass 2 — {_car_ref_sl} altitude(s) updated to the "
+                f"final surface, {_car_stale_sl} point(s) unresolved "
+                f"(minted value kept)")
+        except Exception as _car_exc:                     # pragma: no cover
+            import O4_UI_Utils as _UI_carx
+            _UI_carx.vprint(1,
+                f"  [fgp-solve-law] {icao}: S3 carrier refresh FAILED "
+                f"({type(_car_exc).__name__}: {_car_exc}) — carriers "
+                f"stay at the solve's minted values")
     _writeback(layout, elev, b2i)
     # Restore the runway profile the aliased writeback may have re-stamped
     # (see the RUNWAY PROFILE PRESERVE snapshot above): both runs.

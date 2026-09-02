@@ -5744,5 +5744,5 @@ gated **OFF** after the two-arm attempt-cap miss — arm 1
 `apron_lattice_membrane` +79/+103, `transverse` +14/+16): only 6 of 323
 seat↔senior pairs price a value constant at any pre-emit slot, so the
 clamp redistributes rather than closes.  The mechanism was then DELETED
-per 29f (spawner ruling) — full measured record in RULINGS 2026-09-01n;
+per 29f (spawner ruling) — full measured record in RULINGS 2026-09-01o;
 nothing is owed to the sweep.

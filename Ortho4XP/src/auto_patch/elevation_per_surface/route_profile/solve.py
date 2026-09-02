@@ -4208,7 +4208,7 @@ def solve_route_profile(layout, icao: str,
                 _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
 
         # (The SEAT NO-STEP CLAMP that ran here was DELETED per 29f —
-        # refutation entry RULINGS 2026-09-01n (air4): junior-side seat
+        # refutation entry RULINGS 2026-09-01o (air4): junior-side seat
         # conformance at any pre-final-projection slot redistributes the
         # tier 1/2<->3 no-step class instead of closing it; only 6 of 323
         # seat<->senior pairs price a slot-constant value.)

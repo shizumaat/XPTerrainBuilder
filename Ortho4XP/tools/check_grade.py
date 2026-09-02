@@ -3448,14 +3448,33 @@ def _check_published_law_edges(
         n_checked += 1
         za, zb = pts[ka][2], pts[kb][2]
         dz = abs(zb - za)
+        wa = way_of.get(pts[ka][3])
+        wb = way_of.get(pts[kb][3])
+        # ── THE EMIT QUANTIZATION ENVELOPE (air1 attribution,
+        # 2026-09-01) ────────────────────────────────────────────────
+        # The published budget is a FULL-PRECISION number, but the
+        # values priced here are the EMITTED ones — ``alt_abs`` at 2 dp
+        # (``layout.py`` ``:.2f``) plus the junction-family weld
+        # micro-steps.  Every sibling pair reader already grants that
+        # envelope (``_pair_grade_allowance`` adds
+        # ``_pair_quant_noise_m``; ``_check_plane_gradient`` adds
+        # ``ELEV_ROUNDING_NOISE_M``; the rate readers use
+        # ``_rate_reader_blind_spot``) — this reader priced the same
+        # encoding with ZERO allowance, so a pair the solve landed
+        # EXACTLY at budget minted a row about half the time purely
+        # from the 0.01 m emit lattice (measured HECA 2026-09-01:
+        # 540 of 969 capped ``airside_no_step`` rows within 0.01 m of
+        # budget, p50 excess 5 mm).  ONE authority for the envelope:
+        # the same ``_pair_quant_noise_m`` the within-shape law uses,
+        # taken at the worse-encoded endpoint.
+        noise = max((_pair_quant_noise_m(w) for w in (wa, wb)
+                     if w is not None), default=ELEV_ROUNDING_NOISE_M)
         excess = dz - budget
-        if excess <= 0.0:
+        if excess <= noise:
             continue
         dist = math.hypot(bx - ax, by - ay)
         grade = (100.0 * dz / dist) if dist > 1e-9 else 0.0
         cap = (100.0 * budget / dist) if dist > 1e-9 else None
-        wa = way_of.get(pts[ka][3])
-        wb = way_of.get(pts[kb][3])
         v = Violation(
             grade_pct=grade,
             excess_pct=(100.0 * excess / dist) if dist > 1e-9 else 0.0,

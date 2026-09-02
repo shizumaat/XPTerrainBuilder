@@ -595,6 +595,49 @@ def test_a_published_edge_over_budget_mints_exactly_one_row():
     assert rows[0].de_m == pytest.approx(1.5, abs=1e-6)
 
 
+def test_a_sub_quantization_excess_mints_no_row():
+    """The emit-quantization envelope (air1 attribution 2026-09-01).
+
+    ``alt_abs`` emits at 2 dp, so a pair the solve landed EXACTLY at its
+    budget re-reads up to 0.01 m over from rounding alone — and the
+    junction-family weld hubs carry the same decimetre envelope the
+    within-shape reader already grants (``_pair_quant_noise_m``).  The
+    published-edge reader prices the SAME encoding, so it grants the
+    SAME envelope: excess at or below ``_pair_quant_noise_m`` of the
+    worse-encoded endpoint way is rounding, not a step.  Over the
+    envelope still mints exactly one row (the sibling test above).
+    """
+    import check_grade as cg
+    import inspect
+
+    src = inspect.getsource(cg._check_published_law_edges)
+    assert "_pair_quant_noise_m" in src, (
+        "the published-edge reader must price the emit encoding with "
+        "the same envelope authority as the within-shape reader")
+
+    def _ll_to_m(lat, lon):
+        return ((lon - 31.40) * 96_000.0, (lat - 30.12) * 111_320.0)
+
+    nodes = {"a": (30.12, 31.40), "b": (30.12, 31.40 + 40.0 / 96_000.0)}
+    # apron encoding: envelope = ELEV_ROUNDING_NOISE_M (0.03).  Budget
+    # 0.60, emitted |dz| 0.62 — 0.02 over, inside the envelope: NO row.
+    w = cg.Way(wid="w", role="apron", ref="", aeroway="",
+               nids=["a", "b"], elevs=[100.00, 100.62], tags={})
+    recs = [{"a": [30.12, 31.40],
+             "b": [30.12, 31.40 + 40.0 / 96_000.0],
+             "budget_m": 0.6, "provenance": "airside_no_step"}]
+    rows, n_checked, n_unmatched = cg._check_airside_no_step(
+        recs, [w], [], nodes, _ll_to_m)
+    assert n_checked == 1 and n_unmatched == 0
+    assert rows == [], "a sub-envelope excess is emit rounding, not a step"
+    # …and one full centimetre PAST the envelope is a real row.
+    w2 = cg.Way(wid="w", role="apron", ref="", aeroway="",
+                nids=["a", "b"], elevs=[100.00, 100.64], tags={})
+    rows2, _n, _u = cg._check_airside_no_step(
+        recs, [w2], [], nodes, _ll_to_m)
+    assert len(rows2) == 1
+
+
 def test_the_sidecar_key_is_published_unconditionally():
     import check_grade as cg
     src = Path(_ROOT / "src" / "auto_patch" / "layout.py").read_text()

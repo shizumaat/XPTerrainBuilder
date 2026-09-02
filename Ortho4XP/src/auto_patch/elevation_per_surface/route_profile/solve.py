@@ -4207,54 +4207,11 @@ def solve_route_profile(layout, icao: str,
             if _psc_report["units"]:
                 _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
 
-        # ── SEAT NO-STEP CLAMP (airside-zero round, owner ruling
-        # RULINGS 2026-09-01m item 3; docstring on the reader) ────────
-        # SAME SLOT as the two mechanisms above and for the same
-        # recorded reason: the senior values the seat must stand within
-        # budget of (runway profile, corridor spine, apron stations —
-        # all phase-A output, all CONSTANT downstream) exist only after
-        # ``_solve_spine_profile`` + the station valuation, and the
-        # membrane must anchor on the CLAMPED seat, so this runs before
-        # the scaffold seed reads ``building_seats``.  The constraints
-        # are the no-step law's own published tier-1/2↔3 IMPOSED pairs
-        # (``layout._nostep_seat_cons``, minted in this solve's node
-        # space at the edge build above); movement is junior-side only,
-        # inside the pad's own band box.  Tier-1/2 values are read,
-        # never written.
-        if _psc.seat_no_step_clamp_enabled():
-            _snc_cons = getattr(layout, "_nostep_seat_cons", None)
-            if _snc_cons:
-                _snc_stamped = {i for i, _lv in building_seats.items()
-                                if i < n and _lv is not None
-                                and i in u_spine_adj
-                                and i not in _seam_pin_idx}
-                # THE SETTLED SET IS THE DOWNSTREAM CONSTANTS, NOT THE
-                # PHASE-A OUTPUT (attempt-2 correction, measured on the
-                # first arm): 4,760 of HECA's 4,837 frozen spine nodes
-                # enter the downstream projections FREE (yield-hard
-                # membership, the spine-freeze round), so a plain
-                # ``u_spine_nodes`` value at this slot is TRANSIENT —
-                # one merged pad unit clamped −3.21 m against a spine
-                # value that later rose ~2.5 m, and the membrane around
-                # it minted +103 ``apron_lattice_membrane`` rows.  The
-                # values that ARE constant from here to emit: the
-                # runway profile, the apron stations (base_hard,
-                # kept out of the yield set — Amendment 1 ruling 1) and
-                # the PRESERVED spine nodes (runway/CIFP/seat/seam
-                # law).  Everything else is skipped and counted.
-                _snc_settled = (set(runway_nodes) | set(_station_idx)
-                                | set(_spine_preserved))
-                _snc_report = _psc.apply_seat_no_step_clamp(
-                    layout, elev, building_seats, n,
-                    stamped=_snc_stamped, yield_idx=_seat_yield_idx,
-                    senior_cons=_snc_cons, settled=_snc_settled,
-                    # A basin pad floor is DECLARED terrain (RULINGS
-                    # 2026-08-25f) — never clamped toward a station.
-                    excluded=set(getattr(layout, "_basin_pad_seat_idx",
-                                         None) or ()))
-                if _snc_report["units_constrained"]:
-                    _UI_env.vprint(1, _psc.format_no_step_report(
-                        icao, _snc_report))
+        # (The SEAT NO-STEP CLAMP that ran here was DELETED per 29f —
+        # refutation entry RULINGS 2026-09-01n (air4): junior-side seat
+        # conformance at any pre-final-projection slot redistributes the
+        # tier 1/2<->3 no-step class instead of closing it; only 6 of 323
+        # seat<->senior pairs price a slot-constant value.)
 
         # (The sloping-rect flat-end stamp that lived here was RETIRED by
         # spec §10.2 — the global slice emits no rect roles and no end

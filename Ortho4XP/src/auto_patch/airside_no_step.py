@@ -811,24 +811,12 @@ def build_airside_no_step_constraints(
     tier_of = tier_of or {}
     if not rows:
         layout._airside_no_step_pairs_m = []
-        layout._nostep_seat_cons = {}
         return [], set(), [], report
 
     by_role: dict = {}
     edge_records: list = []
     senior_idx: set = set()
     _carry: list = []
-    # ── THE SEAT'S OWN NO-STEP CONSTRAINTS (airside-zero round, owner
-    # ruling RULINGS 2026-09-01m item 3) ─────────────────────────────
-    # ``{seat_node_idx: [(senior_node_idx, budget_m), …]}`` over the
-    # IMPOSED cross-tier pairs whose junior end is a TIER-3 seat and
-    # whose senior end is tier 1/2.  Pass 1 discards these edges (spec
-    # Amendment 2) and pass 2 holds tier 3 constant, so they were
-    # enforced nowhere; the seat's own narrowing slot
-    # (``pad_seat_consistency.apply_seat_no_step_clamp``) consumes this
-    # map ONE statement later in the same solve — same node space,
-    # never persisted (the rod-key lesson).
-    _seat_cons: dict = {}
     for (a, b, ia, ib, d, budget, role, cls) in rows:
         (xa, ya), (xb, yb) = coords[a], coords[b]
         ta = int(tier_of.get(ia, TIER_FREE))
@@ -849,10 +837,6 @@ def build_airside_no_step_constraints(
         elif ta != tb:
             report["cross_tier"] += 1
             senior_idx.add(ia if ta < tb else ib)
-            if TIER_SEAT in (ta, tb) and min(ta, tb) < TIER_SEAT:
-                _j, _s = (ia, ib) if ta == TIER_SEAT else (ib, ia)
-                _seat_cons.setdefault(int(_j), []).append(
-                    (int(_s), float(budget)))
         # The pair CLASS was decided by the law at enumeration time, from
         # the very ``PairContext`` ``classify_pair`` judged; it rides in
         # the row rather than being re-derived here (ONE enumeration).
@@ -886,7 +870,6 @@ def build_airside_no_step_constraints(
         (float(coords[a][0]), float(coords[a][1]),
          float(coords[b][0]), float(coords[b][1]), float(bud), bool(imp))
         for (a, b, bud, imp) in _carry]
-    layout._nostep_seat_cons = _seat_cons
     sc_out: list = []
     for role, edges in sorted(by_role.items()):
         if not edges:

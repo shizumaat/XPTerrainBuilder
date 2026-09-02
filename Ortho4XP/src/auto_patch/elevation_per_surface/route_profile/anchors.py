@@ -1851,13 +1851,8 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # interval from the §1 anchor neighbourhood, so a pad with no
         # frontage record is still a candidate there (and is reported as
         # unanchored if no §1 chord reaches it either).
-        from .pad_seat_consistency import (dem_last_seat_bias_enabled,
-                                           seat_no_step_clamp_enabled)
-        # …and the seat no-step clamp sources its interval from the
-        # no-step law's own published pairs, so a recordless pad is a
-        # candidate there too.
-        _keep_recordless = (dem_last_seat_bias_enabled()
-                            or seat_no_step_clamp_enabled())
+        from .pad_seat_consistency import dem_last_seat_bias_enabled
+        _keep_recordless = dem_last_seat_bias_enabled()
         _units_prov = [u for u in _units_prov
                        if u["nodes"] and (u["records"] or _keep_recordless)]
         setattr(layout, "_pad_seat_consistency_units", _units_prov)

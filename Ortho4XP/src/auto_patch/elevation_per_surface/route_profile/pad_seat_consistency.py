@@ -117,82 +117,25 @@ def dem_last_seat_bias_enabled() -> bool:
     return os.environ.get(ENV_FLAG_DEM_LAST, "0") != "0"
 
 
-ENV_FLAG_NO_STEP_CLAMP = "O4_SEAT_NO_STEP_CLAMP"
-
-
-def seat_no_step_clamp_enabled() -> bool:
-    """THE reader for :data:`ENV_FLAG_NO_STEP_CLAMP` (default **OFF**
-    after the 2026-09-01 two-arm attempt-cap miss below; only an
-    explicit ``O4_SEAT_NO_STEP_CLAMP=1`` turns the mechanism on).
-
-    THE MISS (both arms law-true ``airside_for_acceptance`` vs control
-    HECA 1,073 @ 000f1ca1, corrected instrument): arm 1
-    (``HECA_20260901T190348``, settled = runway+spine+stations) 1,176 —
-    a merged pad unit clamped −3.21 m against a TRANSIENT spine value
-    (4,760 of 4,837 frozen spine nodes yield downstream) and the
-    membrane minted +103 ``apron_lattice_membrane`` rows; arm 2
-    (``HECA_20260901T192519``, settled = runway+stations+preserved
-    only) 1,154 — ``airside_no_step`` −18 but lattice +79 / transverse
-    +14: only 6 of 323 seat↔senior pairs price against a value that is
-    CONSTANT at any pre-emit slot, so clamping to the settled subset
-    REDISTRIBUTES the violation onto the pairs whose senior lands
-    elsewhere, and the membrane pays for every seat move.  The measured
-    finding, recorded for the owner's ruling: the tier-2 surface has no
-    constant value before the final projection, so JUNIOR-SIDE
-    conformance at solve time cannot close the tier 1/2↔3 class — the
-    remaining lawful channels are phase-A profile-law ingestion (the
-    air2 surface), a post-projection tier-3 conform (dissolves
-    Amendment 2's tier-3 constancy — the owner's trade to rule on), or
-    split-level pads (HELD) for the flat-pad-spans-lawful-relief
-    subset.  Attempt cap 2 reached; STOP per RULINGS 2026-09-01m
-    item 3.
-
-    THE MECHANISM (airside-zero round, owner ruling RULINGS 2026-09-01m
-    item 3 — enforcement for the structurally-unenforced tier 2↔3
-    no-step pairs).  A pad seat is tier 3 of the airside no-step
-    seniority ladder: pass 1 never imposes the law's edges (spec
-    Amendment 2 — that is what makes pass 1 the flag-off arm by
-    construction) and pass 2 frees only tier 4, so a seat↔senior pair
-    was ENFORCED NOWHERE.  The junior side of such a pair is the SEAT,
-    and the seat's own authority already has a post-phase-A narrowing
-    slot (this module).  The clamp moves ONLY the seat, ONLY within the
-    pad's own band box, against ONLY the SETTLED seniors (runway
-    profile, corridor spine, apron stations — constants at the slot),
-    with the exact budgets the no-step law published for those very
-    pairs.  A junction ring vertex is still a free variable at this
-    slot, so partners outside the settled set are skipped and counted —
-    pricing a seat against a DEM seed is the residual-against-DEM trap
-    the §2 docstring below names.
-
-    WHAT THIS IS NOT: the REFUTED v4 (seat := corridor value — the
-    clamp never leaves the band box), the 2026-08-25 seat-bias
-    mechanisms (no DEM-residual objective, no band-metric chords), and
-    NOT the DEM-last §2 anchor-neighbourhood population (whose recorded
-    open question — pad-kind anchors are circular — this dodges by
-    construction: every partner here is tier 1/2, never another pad).
-
-    Senior byte-identity: tier-1/2 values are READ, never written — the
-    movement is one-sided junior conformance, which is the ladder's own
-    statement (spec §1.3).  With the flag unset the clamp is inert and
-    the build is byte-identical to the pre-mechanism tree.  The
-    mechanism, the report and the twins stay intact behind the flag —
-    the same disposition as its two siblings above.
-    """
-    return os.environ.get(ENV_FLAG_NO_STEP_CLAMP, "0") != "0"
+# (The SEAT NO-STEP CLAMP that lived here was DELETED per 29f after its
+# two-arm attempt-cap miss — refutation entry RULINGS 2026-09-01n
+# (air4): junior-side seat conformance at any pre-final-projection slot
+# REDISTRIBUTES the tier 1/2<->3 no-step class instead of closing it,
+# because only 6 of 323 seat<->senior pairs price a value that is
+# constant before emit.  Do not re-propose a solve-slot seat clamp
+# against no-step seniors without answering that entry.)
 
 
 def seat_provenance_wanted() -> bool:
     """Whether the per-unit seat provenance must be CAPTURED at seat time.
 
-    ONE reader for all three mechanisms: the frontage-subset version
-    (its own flag, default OFF), the §2 DEM-last bias (default OFF) and
-    the seat no-step clamp (default ON) all consume the unit's node set
-    and its band box, and the capture is the only place any of them can
-    get it.  With all gates off nothing is captured and the build is
-    byte-identical to the pre-spec one.
+    ONE reader for both mechanisms: the frontage-subset version (its own
+    flag, default OFF) and the §2 DEM-last bias both consume the unit's
+    node set and its band box, and the capture is the only place either
+    can get them.  With both gates off nothing is captured and the build
+    is byte-identical to the pre-spec one.
     """
-    return (pad_seat_consistency_enabled() or dem_last_seat_bias_enabled()
-            or seat_no_step_clamp_enabled())
+    return pad_seat_consistency_enabled() or dem_last_seat_bias_enabled()
 
 
 def pad_seat_consistency_enabled() -> bool:
@@ -757,175 +700,6 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
             {k: v for k, v in report.items()
              if k not in ("moves", "empties")})
     return report
-
-
-def apply_seat_no_step_clamp(layout, elev, building_seats, n, *,
-                             stamped=(), yield_idx=(),
-                             senior_cons=None,
-                             settled=(), excluded=()) -> Dict[str, Any]:
-    """Clamp each pad seat into the interval its IMPOSED no-step senior
-    partners admit — junior-side-only enforcement of the tier 2↔3 (and
-    1↔3) pairs pass 1 discards and pass 2 cannot reach (see
-    :func:`seat_no_step_clamp_enabled`).
-
-    ``senior_cons`` — ``{seat_node_idx: [(senior_node_idx, budget_m),
-    …]}``, built by ``airside_no_step.build_airside_no_step_constraints``
-    in THIS solve's node space and consumed in the same solve (never
-    persisted — the rod-key lesson).
-    ``settled`` — the node set whose ``elev`` is phase-A OUTPUT at the
-    slot (runway profile, corridor spine, apron stations).  A partner
-    outside it still holds a seed and is SKIPPED, counted in
-    ``unsolved_partners``.
-    ``excluded`` — seat nodes whose level is DECLARED terrain, never a
-    band choice (the basin pad floors, RULINGS 2026-08-25f): a unit
-    touching one is skipped whole — clamping a declared floor toward a
-    station is the erasure that ruling reverses.
-
-    Three dispositions per constrained unit, none silent:
-
-      * NON-EMPTY ``box ∩ ⋂ᵢ[senior_i ± budget_i]`` — the seat clamps
-        into it (minimal move; the band-chosen seat stays the authority
-        inside the interval).
-      * PARTNERS CONTRADICT (``⋂ᵢ`` itself empty) — the seniors
-        disagree by more than the summed budgets, so NO flat level
-        closes the pairs: the seat is KEPT and the contradiction named
-        (the split-level-seat trigger's disposition, RULINGS
-        2026-08-04; the disagreement itself is a profile-law docket).
-      * OUTSIDE THE BOX (``⋂ᵢ`` lawful but disjoint from the pad's own
-        band box) — the compliant level is not feasibility-reachable
-        for this pad: the seat is KEPT and the residual named.
-        DELIBERATELY NOT ``narrow_seat``'s ruling-§5 descent: this
-        mechanism may move the junior only WITHIN ITS OWN CAPS (owner
-        ruling 2026-09-01m item 3), never spend the feasibility box.
-    """
-    report: Dict[str, Any] = {
-        "on": True, "units": 0, "units_constrained": 0, "moved": 0,
-        "kept_contradiction": 0, "kept_outside_box": 0,
-        "unsolved_partners": 0, "partners": 0,
-        "worst_move_m": 0.0, "moves": [], "contradictions": [],
-        "outside_box": [],
-    }
-    prov = getattr(layout, "_pad_seat_consistency_units", None) or []
-    report["units"] = len(prov)
-    cons_map = senior_cons or {}
-    if not prov or not cons_map:
-        setattr(layout, "_seat_no_step_clamp_report", report)
-        return report
-    from auto_patch.elevation_per_surface.node_space import store_of
-    try:
-        boxes = store_of(layout).raw("seat_boxes")
-    except Exception:                                      # pragma: no cover
-        boxes = None
-    stamped = set(stamped)
-    yield_idx = set(yield_idx)
-    settled = set(settled)
-    excluded = set(excluded)
-    for u in prov:
-        nodes = [int(i) for i in (u.get("nodes") or ())]
-        if excluded and any(i in excluded for i in nodes):
-            report["excluded_units"] = report.get("excluded_units", 0) + 1
-            continue
-        lo, hi = -_INF, _INF
-        used = 0
-        binding_lo = binding_hi = None
-        for i in nodes:
-            for (s, budget) in cons_map.get(i, ()):
-                try:
-                    si = int(s)
-                    b = float(budget)
-                except (TypeError, ValueError):            # pragma: no cover
-                    continue
-                if not (0 <= si < n) or si >= len(elev):   # pragma: no cover
-                    continue
-                if si not in settled:
-                    report["unsolved_partners"] += 1
-                    continue
-                v = float(elev[si])
-                if not math.isfinite(v) or b < 0:          # pragma: no cover
-                    continue
-                used += 1
-                if v - b > lo:
-                    lo, binding_lo = v - b, (si, v, b)
-                if v + b < hi:
-                    hi, binding_hi = v + b, (si, v, b)
-        if not used:
-            continue
-        report["units_constrained"] += 1
-        report["partners"] += used
-        level = float(u["level"])
-        box_lo = min(float(u["lo"]), level)
-        box_hi = max(float(u["hi"]), level)
-        row = {
-            "ref": u.get("ref", "?"),
-            "seat_was_m": level,
-            "cons_floor_m": float(lo),
-            "cons_ceiling_m": float(hi),
-            "box_lo_m": box_lo,
-            "box_hi_m": box_hi,
-            "partners": used,
-            "floor_partner": binding_lo,
-            "ceil_partner": binding_hi,
-            "nodes": len(nodes),
-            "yield_hard": any(i in yield_idx for i in nodes),
-        }
-        if lo > hi:
-            row["inversion_m"] = float(lo - hi)
-            report["kept_contradiction"] += 1
-            report["contradictions"].append(row)
-            continue
-        nlo, nhi = max(box_lo, lo), min(box_hi, hi)
-        if nlo > nhi:
-            row["residual_m"] = float(nlo - nhi)
-            report["kept_outside_box"] += 1
-            report["outside_box"].append(row)
-            continue
-        new = min(max(level, nlo), nhi)
-        row["seat_now_m"] = float(new)
-        row["move_m"] = float(new) - level
-        if abs(row["move_m"]) <= MATERIALITY_M:
-            continue
-        for i in nodes:
-            if i < n:
-                building_seats[i] = float(new)
-                if i in stamped and i < len(elev):
-                    elev[i] = float(new)
-        if boxes is not None:
-            for k in (u.get("keys") or ()):
-                _narrow_box(boxes, k, nlo, nhi, new)
-        u["seat_final_m"] = float(new)
-        report["moved"] += 1
-        report["moves"].append(row)
-        report["worst_move_m"] = max(report["worst_move_m"],
-                                     abs(row["move_m"]))
-    report["moves"].sort(key=lambda r: -abs(r["move_m"]))
-    report["contradictions"].sort(key=lambda r: -r["inversion_m"])
-    report["outside_box"].sort(key=lambda r: -r["residual_m"])
-    setattr(layout, "_seat_no_step_clamp_report", report)
-    return report
-
-
-def format_no_step_report(icao: str, report: Mapping[str, Any],
-                          limit: int = 12) -> str:
-    """One line per moved pad + the summary line."""
-    lines: List[str] = []
-    for r in list(report.get("moves") or ())[:limit]:
-        lines.append(
-            f"    {r['ref']}: seat {r['seat_was_m']:.2f} -> "
-            f"{r['seat_now_m']:.2f} ({r['move_m']:+.2f} m) into "
-            f"[{max(r['box_lo_m'], r['cons_floor_m']):.2f}, "
-            f"{min(r['box_hi_m'], r['cons_ceiling_m']):.2f}] "
-            f"({r['partners']} senior partner(s))")
-    lines.append(
-        f"  [seat-no-step-clamp] {icao}: {report['units_constrained']} of "
-        f"{report['units']} pad unit(s) carry settled senior no-step "
-        f"partner(s) ({report['partners']} pair(s), "
-        f"{report['unsolved_partners']} partner(s) unsettled at the slot "
-        f"— skipped); {report['moved']} seat(s) clamped "
-        f"(worst {report['worst_move_m']:.2f} m), "
-        f"{report['kept_contradiction']} kept on contradictory seniors "
-        f"(profile-law docket), {report['kept_outside_box']} kept outside "
-        f"the pad's own band box (junior cannot lawfully reach)")
-    return "\n".join(lines)
 
 
 def format_report(icao: str, report: Mapping[str, Any],

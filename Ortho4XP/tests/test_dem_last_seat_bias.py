@@ -204,13 +204,10 @@ def test_an_anchor_outside_the_node_list_is_never_invented():
 
 def test_flag_off_is_byte_identical_to_section_one_only(monkeypatch):
     """Twin (c).  With ``O4_DEM_LAST_SEAT_BIAS=0`` and the frontage-subset
-    flag off (its default), neither §1/§2 mechanism runs.  Since the
-    airside-zero round (RULINGS 2026-09-01m item 3) the provenance
-    reader also serves the default-ON seat no-step clamp, so capture
-    only stops when all THREE gates are off."""
+    flag off (its default), NOTHING is captured and nothing runs — the
+    build is §1-only."""
     monkeypatch.setenv(psc.ENV_FLAG_DEM_LAST, "0")
     monkeypatch.delenv(psc.ENV_FLAG, raising=False)
-    monkeypatch.setenv(psc.ENV_FLAG_NO_STEP_CLAMP, "0")
     assert psc.dem_last_seat_bias_enabled() is False
     assert psc.pad_seat_consistency_enabled() is False
     assert psc.seat_provenance_wanted() is False
@@ -228,14 +225,9 @@ def test_both_defaults_are_off_and_the_two_flags_stay_separate(monkeypatch):
     1,735; SPJC 440 against 175) — the same disposition the frontage-
     subset version got, and for the same reason.  An unset environment
     must therefore leave BOTH mechanisms off and capture nothing, which is
-    §1-only; and turning one on must never turn the other on.
-
-    (Airside-zero round, RULINGS 2026-09-01m item 3: the default-ON seat
-    no-step clamp also wants the provenance, so the all-off capture
-    assertion now pins all three gates.)"""
+    §1-only; and turning one on must never turn the other on."""
     monkeypatch.delenv(psc.ENV_FLAG_DEM_LAST, raising=False)
     monkeypatch.delenv(psc.ENV_FLAG, raising=False)
-    monkeypatch.setenv(psc.ENV_FLAG_NO_STEP_CLAMP, "0")
     assert psc.dem_last_seat_bias_enabled() is False
     assert psc.pad_seat_consistency_enabled() is False
     assert psc.seat_provenance_wanted() is False

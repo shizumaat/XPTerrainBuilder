@@ -7561,7 +7561,8 @@ def _separate_groundside_from_airside(
     return n_clipped
 
 
-def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
+def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25,
+                            keep_interiors: bool = False):
     """Clip shape ``ys`` so it yields its overlap with ``kept_polygon``:
     snap-then-difference (the contact chain passes exactly through the
     kept vertices), largest surviving part, kept-vertex projections
@@ -7572,6 +7573,14 @@ def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
     only ever SHRINKS ``ys``, so the clip cannot sweep an edge across a
     third shape — the non-converging-rounds fallback in
     ``_deconflict_service_overlaps``.
+
+    ``keep_interiors=True`` carries the surviving part's interior rings
+    into the rebuilt polygon (the emit-frame overlap re-clip's callers
+    clip donut-shaped graded strips — dropping a hole would put the
+    strip back OVER the pavement standing in it).  Interior vertices
+    emit unvalued (``to_osm`` interns holes with no altitude claim), so
+    the ``node_altitudes`` carry below is unaffected.  Default False is
+    byte-identical to the historical behaviour.
 
     Returns the new ``Polygon`` (``ys`` already mutated), or ``None``
     when nothing survives — the yielder lies (essentially) wholly
@@ -7594,7 +7603,16 @@ def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
     new_ring = list(new_poly.exterior.coords)
     if new_ring and new_ring[0] == new_ring[-1]:
         new_ring = new_ring[:-1]
-    kept_ring = list(kept_polygon.exterior.coords)
+    if kept_polygon.geom_type != "Polygon":
+        # A MultiPolygon kept geometry (the emit-frame re-clip's union
+        # resolution) has no ``.exterior``; project against its largest
+        # part — the difference above already used the full geometry.
+        kept_polygon = max(
+            (g for g in getattr(kept_polygon, "geoms", ())
+             if g.geom_type == "Polygon"),
+            key=lambda g: g.area, default=None)
+    kept_ring = (list(kept_polygon.exterior.coords)
+                 if kept_polygon is not None else [])
     inserts = []          # (segment index, u along segment, point)
     for (kx, ky) in kept_ring:
         if any(math.hypot(kx - nx, ky - ny) <= 0.02
@@ -7618,8 +7636,10 @@ def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
             inserts.append(best[1:])
     for (t, u, pt) in sorted(inserts, key=lambda e: (-e[0], -e[1])):
         new_ring.insert(t + 1, pt)
+    _holes = ([list(r.coords) for r in new_poly.interiors]
+              if keep_interiors else None)
     try:
-        new_poly = Polygon(new_ring)
+        new_poly = Polygon(new_ring, _holes)
     except _GEOM_EXC:
         pass
     old_ring = list(ys.polygon.exterior.coords)

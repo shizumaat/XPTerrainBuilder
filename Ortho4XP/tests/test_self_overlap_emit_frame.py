@@ -148,3 +148,113 @@ def test_no_registry_reads_the_raw_frame():
     layout = _Layout([_shape(_A_RING), _shape(_B_RIBBON_RING)], None)
     pairs = check_self_overlap(layout)
     assert len(pairs) == 1 and pairs[0][0] > 5.0
+
+
+# ── the EMIT-FRAME RE-CLIP twins (lane weldov, attribution round on
+# RULINGS 2026-09-01w's reveal) ──────────────────────────────────────
+#
+# The corrected instrument revealed weld-MINTED double-covers: a ring
+# vertex parked exactly ON its neighbour's edge whose 0.5 m bucket is
+# claimed by a canonical point OFF that edge emits at the claimant's
+# coordinate, bowing the ring into the neighbour (SPJC 13 pairs /
+# 5.13 m², CYXY 2 / 0.59 m², every pair raw-overlap 0.000000 m²).
+# ``conformance.reclip_emit_frame_overlaps`` is the recorded last-word
+# re-clip for exactly this class: the ring that GAINED area is
+# re-clipped against its neighbour in the frame the weld produces.
+# Twins: a weld that would bow a ring into its neighbour re-clips and
+# the pair stops overlapping; a lawful shared edge is untouched; a
+# never-yield (runway-family) ring is never mutated.
+
+from auto_patch.conformance import reclip_emit_frame_overlaps  # noqa: E402
+
+
+def _tiling_pair(role_a="junction", role_b="junction",
+                 mid_vertex_on="B", attractor=None):
+    """A (0..30 × 0..60) and B (30..60 × 0..60) tile along x=30.  One
+    of them carries a mid-edge vertex at (30, 30) on the shared edge —
+    the conformance-inserted, non-canonical vertex class.  A's corners
+    (and B's shared ones) are registered canonical; ``attractor``, when
+    given, is registered after them (the zone-node / triangulation-
+    lookup pollution class the attribution round measured)."""
+    a_ring = [(0.0, 0.0), (30.0, 0.0), (30.0, 60.0), (0.0, 60.0)]
+    b_ring = [(30.0, 0.0), (60.0, 0.0), (60.0, 60.0), (30.0, 60.0)]
+    if mid_vertex_on == "B":
+        b_ring = [(30.0, 0.0), (60.0, 0.0), (60.0, 60.0), (30.0, 60.0),
+                  (30.0, 30.0)]
+    else:
+        a_ring = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (30.0, 60.0),
+                  (0.0, 60.0)]
+        # keep the mid vertex non-canonical: register corners only.
+    registry = CanonicalPointRegistry(tol_m=SHARED_VERTEX_TOL_M)
+    for x, y in [(0.0, 0.0), (30.0, 0.0), (30.0, 60.0), (0.0, 60.0)]:
+        registry.get_or_add(x, y)
+    if attractor is not None:
+        registry.get_or_add(*attractor)
+    sa = BuiltShape(polygon=Polygon(a_ring + [a_ring[0]]), role=role_a,
+                    ref="")
+    sb = BuiltShape(polygon=Polygon(b_ring + [b_ring[0]]), role=role_b,
+                    ref="")
+    return _Layout([sa, sb], registry)
+
+
+def test_a_weld_bow_is_reclipped_and_the_pair_stops_overlapping():
+    """B's on-edge vertex (30, 30) resolves to the attractor
+    (29.7, 30) INSIDE A — the emit frame reads a ~9 m² bow.  The
+    re-clip makes B yield the gained area; the pair stops overlapping
+    and A (which gained nothing) is untouched."""
+    layout = _tiling_pair(attractor=(29.7, 30.0))
+    before = check_self_overlap(layout)
+    assert before and before[0][0] > 5.0, (
+        f"fixture no longer reproduces the weld-minted bow: {before}")
+    a_coords_before = list(layout.shapes[0].polygon.exterior.coords)
+    n = reclip_emit_frame_overlaps(layout, "TEST")
+    assert n == 1, f"expected exactly one yielding shape, got {n}"
+    after = check_self_overlap(layout)
+    assert after == [], (
+        f"re-clip left emit-frame overlap pairs standing: {after}")
+    assert list(layout.shapes[0].polygon.exterior.coords) == \
+        a_coords_before, "the non-gaining neighbour was mutated"
+    assert abs(layout.shapes[1].polygon.area - 1800.0) < 0.5, (
+        f"yielder area {layout.shapes[1].polygon.area:.2f} — the clip "
+        f"took more than the welded bow")
+
+
+def test_a_lawful_shared_edge_is_untouched():
+    """No attractor: the pair tiles exactly in both frames.  The
+    re-clip must do nothing — not one coordinate moves."""
+    layout = _tiling_pair(attractor=None)
+    coords_before = [list(s.polygon.exterior.coords)
+                     for s in layout.shapes]
+    n = reclip_emit_frame_overlaps(layout, "TEST")
+    assert n == 0, "re-clip acted on a lawful shared edge"
+    assert [list(s.polygon.exterior.coords)
+            for s in layout.shapes] == coords_before, (
+        "a lawful shared edge was mutated")
+
+
+def test_the_weld_closed_ribbon_pair_stays_closed():
+    """The 2026-09-01w ribbon fixture (tiles only after the weld) has
+    no emit-frame overlap — the re-clip must not touch it."""
+    layout = _ribbon_layout()
+    coords_before = [list(s.polygon.exterior.coords)
+                     for s in layout.shapes]
+    assert reclip_emit_frame_overlaps(layout, "TEST") == 0
+    assert [list(s.polygon.exterior.coords)
+            for s in layout.shapes] == coords_before
+
+
+def test_a_runway_never_yields_the_neighbour_does():
+    """The runway's own on-edge vertex is pulled INTO its neighbour by
+    an attractor — the runway is never-yield, so the NEIGHBOUR yields
+    the overlap and the runway ring is byte-untouched."""
+    layout = _tiling_pair(role_a="runway", role_b="junction",
+                          mid_vertex_on="A", attractor=(30.3, 30.0))
+    before = check_self_overlap(layout)
+    assert before and before[0][0] > 5.0, (
+        f"fixture no longer reproduces the runway-bow class: {before}")
+    rwy_before = list(layout.shapes[0].polygon.exterior.coords)
+    n = reclip_emit_frame_overlaps(layout, "TEST")
+    assert n == 1
+    assert check_self_overlap(layout) == []
+    assert list(layout.shapes[0].polygon.exterior.coords) == rwy_before, (
+        "the runway ring was mutated — never-yield violated")

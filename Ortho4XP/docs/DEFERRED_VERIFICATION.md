@@ -5756,3 +5756,18 @@ covers, once — `test_solve_certificate_instrument.py` 36 pass incl. the
 CYXY + HECA arm-vs-control body hashes (see the lane report); SPJC
 built with the instrument only (no control arm — the instrument is the
 same pure-measurement code path proven inert at the other two).
+
+## 2026-09-02 weldov — emit-frame overlap re-clip (lane/weldov)
+
+Skipped per pre-ship mode: the full pytest suite (ran only the direct
+covers, once — `test_self_overlap_emit_frame.py` 9 pass incl. the 4 new
+re-clip twins, `test_conformance.py` 14 pass, plus the two closing
+harness arms below).  KCLT and HECA carry the same weld-minted
+double-cover class (RULINGS 2026-09-01w: indicative patch-ring counts
+46 / 371, hole-covering outer rings inflate) — the re-clip runs for
+them by construction (it is a pipeline pass, not per-airport), but
+their closing arms are deferred to the next five-airport sweep at
+app-build time; their [emit-reclip] log lines + census A/B are owed
+there.  `keep_interiors` default-False path in
+`groundside._clip_shape_yielding_to` is argument-identical for all
+pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).

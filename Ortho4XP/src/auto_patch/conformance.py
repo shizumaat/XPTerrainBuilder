@@ -34,8 +34,14 @@ from .layout import (
     PavementLayout,
     REF_RUNWAY_END_RESA,
     REF_RUNWAY_END_SKIRT,
+    ROLE_BRIDGE_CAUSEWAY,
+    ROLE_BRIDGE_TRENCH,
     ROLE_OLS_CUT,
+    ROLE_RUNWAY,
     ROLE_RUNWAY_CLEARANCE,
+    ROLE_RUNWAY_CROSSING,
+    ROLE_TUNNEL_RAMP,
+    ROLE_TUNNEL_TRENCH,
     SHARED_VERTEX_TOL_M,
     VERTEX_ALT_MERGE_TOL_M,
     corner_alts_from_high_low,
@@ -46,6 +52,7 @@ __all__ = [
     "enforce_conformance",
     "repair_emit_quantized_rings",
     "planarize_airside",
+    "reclip_emit_frame_overlaps",
     "weld_candidate_pairs",
     "FINAL_WELD_TOL_M",
     "weld_node_identity_tol",
@@ -1913,3 +1920,190 @@ def densify_long_edges(layout, roles, max_edge_m: float = 60.0) -> int:
         if new_alts is not None:
             s.node_altitudes = new_alts + [new_alts[0]]
     return inserted
+
+
+# ── EMIT-FRAME OVERLAP RE-CLIP (lane weldov, RULINGS 2026-09-01w) ────
+#
+# THE CLASS.  ``layout.to_osm`` interns every ring vertex through the
+# shared ``CanonicalPointRegistry`` (``get_or_add`` @ 0.5 m), so a
+# vertex whose bucket is already claimed EMITS AT THE CLAIMANT'S
+# COORDINATE.  Conformance parks feature/strip vertices exactly ON a
+# neighbour's edge; when such a vertex's bucket is claimed by a nearby
+# canonical point OFF that edge, the emitted ring bows across the
+# neighbour and mints a double-cover the pre-emit frame never had
+# (invariant A1).  Measured 2026-09-02 (attribution round, RULINGS
+# 2026-09-01w): SPJC 13 pairs / 5.13 m², CYXY 2 / 0.59 m², every pair
+# raw-overlap 0.000000 m².  Winning-coordinate classes, by pair count:
+#   1. adjacent-ground ZONE-NODE attractors — the solve's
+#      ``_build_node_list`` interns band zone-row grid points into the
+#      SHARED registry (solver_primitives.py ``get_or_add``), minting
+#      canonical points that are no emitted ring's vertex (9/15 pairs,
+#      all graded_strip ∩ graded_strip);
+#   2. triangulation LOOKUP interning — ``_vertex_elev_anchored``
+#      calls ``get_or_add`` as a QUERY, registering 2-dp quantized
+#      triangulation vertices as attractors (probe-spec §1x violated
+#      by a pipeline pass; 4/15, all junction ∩ junction);
+#   3. genuine neighbour-corner donors — the known T-vertex
+#      donor-coordinate bow ("wall weld" class; 2-3/15).
+# Retiring channels 1-2 is a cross-cutting weld/solver change (the
+# zone-node identity is load-bearing for the writeback); THIS pass is
+# the recorded scoped remedy — the last-word re-clip precedent
+# (building-pad re-clip, bridge re-clip §T5 lineage): the ring that
+# gained area it did not have pre-weld is re-clipped against its
+# neighbour, IN THE FRAME THE WELD PRODUCES.
+
+#: Roles the re-clip must never mutate: the runway family and the
+#: law-evidence corridor/deck surfaces (senior byte-identity).
+_RECLIP_NEVER_YIELD = frozenset({
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_RUNWAY_CLEARANCE,
+    ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY, ROLE_TUNNEL_TRENCH,
+    ROLE_TUNNEL_RAMP,
+})
+
+#: Geometry exceptions the re-clip treats as "skip and report" (the
+#: same set ``canonical_points`` guards its snaps with).
+from .canonical_points import _GEOM_EXC as _RECLIP_GEOM_EXC  # noqa: E402
+
+
+def reclip_emit_frame_overlaps(layout: "PavementLayout", icao: str = "",
+                               max_sweeps: int = 4) -> int:
+    """Last-word EMIT-FRAME overlap re-clip.  Detection is
+    ``verification.check_self_overlap`` itself (the shared emit-frame
+    instrument — one detector, no census-wrapper fork); for each pair
+    the YIELDER is the ring that GAINED area into its neighbour during
+    the weld (largest gain; never a ``_RECLIP_NEVER_YIELD`` role; tie →
+    the junior, higher-index shape per creation-order seniority).  The
+    yielder's ring is first resolved to its emitted coordinates
+    (read-only through the registry — identical to what ``to_osm``
+    would emit for it), then clipped against the neighbour's resolved
+    ring via ``groundside._clip_shape_yielding_to`` (``snap_tol=0`` —
+    shrink-only, cannot sweep an edge across a third shape;
+    ``keep_interiors=True`` — a donut strip keeps its hole), and every
+    final ring vertex whose bucket would still move it is pinned with
+    ``registry.add_exact`` so the emit interning keeps the clip
+    verbatim.  A lawful shared edge (no emit-frame overlap) is never
+    touched.  Iterates to a fixed point (≤ ``max_sweeps``); any
+    residual pair is reported loudly, never hidden.  Returns the
+    number of shapes clipped/dropped.
+    """
+    registry = getattr(layout, "canonical_points", None)
+    if registry is None:
+        return 0
+    from .verification import check_self_overlap, emit_frame_polygon
+    from .groundside import _clip_shape_yielding_to
+
+    def _resolved(p):
+        # THE instrument's own frame (one resolution, shared with
+        # ``check_self_overlap`` — a private variant here would let
+        # the pass repair a frame the instrument does not read).
+        return emit_frame_polygon(p, registry)
+
+    def _largest_polygon(g):
+        if g is None or g.is_empty:
+            return None
+        if g.geom_type == "Polygon":
+            return g
+        return max((q for q in getattr(g, "geoms", ())
+                    if q.geom_type == "Polygon" and not q.is_empty),
+                   key=lambda q: q.area, default=None)
+
+    def _pin_ring(poly):
+        """Register every ring vertex whose bucket would move it, as
+        its OWN canonical entry (distance 0 wins every later lookup),
+        so ``to_osm`` emits the clipped ring verbatim."""
+        try:
+            rings = [poly.exterior] + list(poly.interiors)
+        except _RECLIP_GEOM_EXC:
+            return
+        for r in rings:
+            for x, y in list(r.coords)[:-1]:
+                cp = registry.get(float(x), float(y))
+                if cp is None or cp != (float(x), float(y)):
+                    registry.add_exact(float(x), float(y))
+
+    n_acted = 0
+    for _sweep in range(max_sweeps):
+        pairs = check_self_overlap(layout)
+        if not pairs:
+            break
+        drop_ids: set = set()
+        acted_this_sweep = 0
+        for area, ia, ib, loc in pairs:
+            sa, sb = layout.shapes[ia], layout.shapes[ib]
+            if id(sa) in drop_ids or id(sb) in drop_ids:
+                continue
+            res_a, res_b = _resolved(sa.polygon), _resolved(sb.polygon)
+            if (res_a is None or res_a.is_empty
+                    or res_b is None or res_b.is_empty):
+                UI.vprint(1, f"  [emit-reclip] {icao}: pair "
+                             f"{sa.role}[#{ia}] ∩ {sb.role}[#{ib}] @ "
+                             f"{loc} — degenerate emit-frame "
+                             f"resolution, SKIPPED (reported, not "
+                             f"hidden).")
+                continue
+            try:
+                gain_a = (res_a.difference(sa.polygon)
+                          .intersection(res_b).area)
+                gain_b = (res_b.difference(sb.polygon)
+                          .intersection(res_a).area)
+            except _RECLIP_GEOM_EXC:
+                gain_a = gain_b = 0.0
+            elig = [t for t in ((gain_a, ia, sa, res_a, res_b),
+                                (gain_b, ib, sb, res_b, res_a))
+                    if t[2].role not in _RECLIP_NEVER_YIELD]
+            if not elig:
+                UI.vprint(1, f"  [emit-reclip] {icao}: pair "
+                             f"{sa.role}[#{ia}] ∩ {sb.role}[#{ib}] @ "
+                             f"{loc} ({area:.4f} m²) — both roles are "
+                             f"never-yield, SKIPPED (reported, not "
+                             f"hidden).")
+                continue
+            # largest gain yields; tie → junior (higher index) yields.
+            elig.sort(key=lambda t: (t[0], t[1]))
+            gain_y, iy, ys, res_y, res_kept = elig[-1]
+            # Adopt the emitted coordinates for the yielder first: the
+            # overlap only EXISTS in that frame, and the clip below
+            # must cut the ring that actually ships.  1:1 vertex count
+            # keeps ``node_altitudes`` aligned; the clip's own
+            # nearest-vertex carry covers any renoding.  The frame's
+            # raw-ring fallback / MultiPolygon union coerce to the
+            # largest Polygon part — ``BuiltShape.polygon`` is a
+            # Polygon and the clip needs one.
+            res_y_poly = _largest_polygon(res_y)
+            if res_y_poly is None:
+                UI.vprint(1, f"  [emit-reclip] {icao}: yielder "
+                             f"{ys.role}[#{iy}] @ {loc} resolves to no "
+                             f"polygon — SKIPPED (reported, not "
+                             f"hidden).")
+                continue
+            ys.polygon = res_y_poly
+            new_poly = _clip_shape_yielding_to(
+                ys, res_kept, snap_tol=0.0, keep_interiors=True)
+            if new_poly is None:
+                drop_ids.add(id(ys))
+                UI.vprint(1, f"  [emit-reclip] {icao}: {ys.role}"
+                             f"[#{iy}] lies wholly inside its welded "
+                             f"neighbour @ {loc} — DROPPED "
+                             f"({area:.4f} m² pair).")
+            else:
+                _pin_ring(new_poly)
+                UI.vprint(1, f"  [emit-reclip] {icao}: re-clipped "
+                             f"{ys.role}[#{iy}] against its welded "
+                             f"neighbour @ {loc} (pair {area:.4f} m², "
+                             f"yielder gained {gain_y:.4f} m²).")
+            acted_this_sweep += 1
+            n_acted += 1
+        if drop_ids:
+            layout.shapes = [s for s in layout.shapes
+                             if id(s) not in drop_ids]
+        if not acted_this_sweep:
+            break
+    if n_acted:
+        residual = check_self_overlap(layout)
+        if residual:
+            worst = residual[0]
+            UI.vprint(1, f"  [emit-reclip] {icao}: RESIDUAL — "
+                         f"{len(residual)} emit-frame overlap pair(s) "
+                         f"survive the re-clip (worst {worst[0]:.4f} m² "
+                         f"@ {worst[3]}); reported, not hidden.")
+    return n_acted

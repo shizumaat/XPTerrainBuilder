@@ -157,6 +157,32 @@ def _import_check_grade():
 
 
 # ── Geometry invariants ─────────────────────────────────────────────
+def emit_frame_polygon(p, registry):
+    """``p`` at the canonical coordinates ``to_osm`` emits it at
+    (identity when ``registry`` is None).  A degenerate resolution
+    falls back to the raw ring — the instrument may over-report there,
+    never hide.  READ-ONLY (probe-spec §1x: ``get``, never
+    ``get_or_add``).
+
+    THE ONE EMIT FRAME (lane weldov): ``check_self_overlap`` and
+    ``conformance.reclip_emit_frame_overlaps`` both resolve through
+    THIS function, so the pass repairs exactly the frame the
+    instrument reads — two private resolutions drifting apart is the
+    census-wrapper defect (owner ruling ``e9daef5``)."""
+    if registry is None:
+        return p
+    from .canonical_points import snap_polygon_parts_through_registry
+    parts = snap_polygon_parts_through_registry(
+        p, registry, readonly=True)
+    if not parts:
+        return p
+    if len(parts) == 1:
+        return parts[0]
+    from shapely.ops import unary_union
+    u = unary_union(parts)
+    return p if u.is_empty else u
+
+
 def check_self_overlap(layout):
     """Invariant A1: no two EMITTED pavement polygons may overlap.
     Returns ``[(area_m2, idx_a, idx_b, "lat,lon"), …]`` largest first.
@@ -197,26 +223,11 @@ def check_self_overlap(layout):
     nothing at the .11f OSM emit precision — they cannot reach the
     mesh — so flagging them is pure noise."""
     from shapely.strtree import STRtree
-    from .canonical_points import snap_polygon_parts_through_registry
     NOISE_M2 = 0.1
     registry = getattr(layout, "canonical_points", None)
 
     def _emit_frame(p):
-        """``p`` at the canonical coordinates ``to_osm`` emits it at
-        (identity when the layout carries no registry).  A degenerate
-        resolution falls back to the raw ring — the instrument may
-        over-report there, never hide."""
-        if registry is None:
-            return p
-        parts = snap_polygon_parts_through_registry(
-            p, registry, readonly=True)
-        if not parts:
-            return p
-        if len(parts) == 1:
-            return parts[0]
-        from shapely.ops import unary_union
-        u = unary_union(parts)
-        return p if u.is_empty else u
+        return emit_frame_polygon(p, registry)
 
     polys = [(i, _emit_frame(s.polygon))
              for i, s in enumerate(layout.shapes)

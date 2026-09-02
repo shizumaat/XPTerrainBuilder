@@ -8320,6 +8320,30 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                      f"FAILED ({_cs_exc!r}) — NOT applied this build.")
     _road_piece_checkpoint(layout, "98_covered_span_suppression")
 
+    # LAST-WORD EMIT-FRAME OVERLAP RE-CLIP (lane weldov, RULINGS
+    # 2026-09-01w attribution round): ``to_osm``'s 0.5 m interning
+    # relocates non-canonical on-edge vertices onto nearby canonical
+    # attractors, bowing rings into their neighbours and minting
+    # double-covers the pre-emit frame never had (invariant A1 —
+    # SPJC 13 pairs / 5.13 m², CYXY 2 / 0.59 m², every pair raw-overlap
+    # zero).  The ring that gained area is re-clipped against its
+    # neighbour IN THE EMITTED FRAME and the clip is pinned in the
+    # registry; a lawful shared edge is untouched.  Runs last — after
+    # every pass that inserts or moves ring vertices — so nothing can
+    # re-bow what it repairs.  See
+    # ``conformance.reclip_emit_frame_overlaps``.
+    try:
+        from .conformance import reclip_emit_frame_overlaps as _efr
+        _n_reclip = _efr(layout, icao)
+        if _n_reclip:
+            UI.vprint(1, f"  [pav-builder] {icao}: emit-frame overlap "
+                         f"re-clip — {_n_reclip} shape(s) yielded.")
+    except Exception as _reclip_exc:                   # pragma: no cover
+        UI.vprint(1, f"  [emit-reclip] {icao}: FAILED "
+                     f"({_reclip_exc!r}) — emitted double-covers NOT "
+                     f"repaired this build.")
+    _road_piece_checkpoint(layout, "98b_emit_frame_reclip")
+
     # §T4's RIGHT ENDPOINT + the block.  This is the last state before
     # ``layout.to_osm``; the ledger prints one block naming every seam
     # that moved a road-corridor / tunnel piece count.

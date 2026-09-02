@@ -1252,3 +1252,4 @@ def test_H1_1_a_lattice_to_lattice_edge_is_NOT_coverage():
     mem = set(idx)
     got = [r for r in rows if (r[2] in mem) != (r[3] in mem)]
     assert len(got) >= 2, "no membrane<->ring edge was minted"
+

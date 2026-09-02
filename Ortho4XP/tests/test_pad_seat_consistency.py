@@ -358,3 +358,4 @@ def test_materiality_floor_is_not_iterated_on():
                                          stamped={10, 11})
     assert rep["narrowed"] == 1 and rep["moved"] == 0
     assert seats[10] == pytest.approx(101.0)
+

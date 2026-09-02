@@ -117,6 +117,15 @@ def dem_last_seat_bias_enabled() -> bool:
     return os.environ.get(ENV_FLAG_DEM_LAST, "0") != "0"
 
 
+# (The SEAT NO-STEP CLAMP that lived here was DELETED per 29f after its
+# two-arm attempt-cap miss — refutation entry RULINGS 2026-09-01o
+# (air4): junior-side seat conformance at any pre-final-projection slot
+# REDISTRIBUTES the tier 1/2<->3 no-step class instead of closing it,
+# because only 6 of 323 seat<->senior pairs price a value that is
+# constant before emit.  Do not re-propose a solve-slot seat clamp
+# against no-step seniors without answering that entry.)
+
+
 def seat_provenance_wanted() -> bool:
     """Whether the per-unit seat provenance must be CAPTURED at seat time.
 

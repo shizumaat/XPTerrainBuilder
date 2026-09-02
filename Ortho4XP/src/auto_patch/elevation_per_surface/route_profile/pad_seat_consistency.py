@@ -121,8 +121,31 @@ ENV_FLAG_NO_STEP_CLAMP = "O4_SEAT_NO_STEP_CLAMP"
 
 
 def seat_no_step_clamp_enabled() -> bool:
-    """THE reader for :data:`ENV_FLAG_NO_STEP_CLAMP` (default **ON**;
-    ``"0"`` disables — the airside-zero adjudication knob).
+    """THE reader for :data:`ENV_FLAG_NO_STEP_CLAMP` (default **OFF**
+    after the 2026-09-01 two-arm attempt-cap miss below; only an
+    explicit ``O4_SEAT_NO_STEP_CLAMP=1`` turns the mechanism on).
+
+    THE MISS (both arms law-true ``airside_for_acceptance`` vs control
+    HECA 1,073 @ 000f1ca1, corrected instrument): arm 1
+    (``HECA_20260901T190348``, settled = runway+spine+stations) 1,176 —
+    a merged pad unit clamped −3.21 m against a TRANSIENT spine value
+    (4,760 of 4,837 frozen spine nodes yield downstream) and the
+    membrane minted +103 ``apron_lattice_membrane`` rows; arm 2
+    (``HECA_20260901T192519``, settled = runway+stations+preserved
+    only) 1,154 — ``airside_no_step`` −18 but lattice +79 / transverse
+    +14: only 6 of 323 seat↔senior pairs price against a value that is
+    CONSTANT at any pre-emit slot, so clamping to the settled subset
+    REDISTRIBUTES the violation onto the pairs whose senior lands
+    elsewhere, and the membrane pays for every seat move.  The measured
+    finding, recorded for the owner's ruling: the tier-2 surface has no
+    constant value before the final projection, so JUNIOR-SIDE
+    conformance at solve time cannot close the tier 1/2↔3 class — the
+    remaining lawful channels are phase-A profile-law ingestion (the
+    air2 surface), a post-projection tier-3 conform (dissolves
+    Amendment 2's tier-3 constancy — the owner's trade to rule on), or
+    split-level pads (HELD) for the flat-pad-spans-lawful-relief
+    subset.  Attempt cap 2 reached; STOP per RULINGS 2026-09-01m
+    item 3.
 
     THE MECHANISM (airside-zero round, owner ruling RULINGS 2026-09-01m
     item 3 — enforcement for the structurally-unenforced tier 2↔3
@@ -150,10 +173,12 @@ def seat_no_step_clamp_enabled() -> bool:
 
     Senior byte-identity: tier-1/2 values are READ, never written — the
     movement is one-sided junior conformance, which is the ladder's own
-    statement (spec §1.3).  With the flag ``"0"`` the clamp is inert and
-    the build is byte-identical to the pre-mechanism tree.
+    statement (spec §1.3).  With the flag unset the clamp is inert and
+    the build is byte-identical to the pre-mechanism tree.  The
+    mechanism, the report and the twins stay intact behind the flag —
+    the same disposition as its two siblings above.
     """
-    return os.environ.get(ENV_FLAG_NO_STEP_CLAMP, "1") != "0"
+    return os.environ.get(ENV_FLAG_NO_STEP_CLAMP, "0") != "0"
 
 
 def seat_provenance_wanted() -> bool:

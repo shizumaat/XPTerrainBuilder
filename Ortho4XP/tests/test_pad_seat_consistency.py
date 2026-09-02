@@ -468,17 +468,18 @@ def test_no_step_clamp_materiality_floor():
     assert seats[10] == pytest.approx(70.005)
 
 
-def test_no_step_clamp_flag_default_on_and_zero_disables(monkeypatch):
-    """Default ON (the airside-zero adjudication knob); ``"0"`` disables
-    and the provenance reader follows it."""
+def test_no_step_clamp_flag_default_off_and_one_enables(monkeypatch):
+    """Default OFF since the 2026-09-01 two-arm attempt-cap miss (see
+    the reader's docstring); ``"1"`` enables, and the provenance reader
+    follows it."""
     monkeypatch.delenv(psc.ENV_FLAG_NO_STEP_CLAMP, raising=False)
     monkeypatch.delenv(psc.ENV_FLAG, raising=False)
     monkeypatch.delenv(psc.ENV_FLAG_DEM_LAST, raising=False)
-    assert psc.seat_no_step_clamp_enabled() is True
-    assert psc.seat_provenance_wanted() is True
-    monkeypatch.setenv(psc.ENV_FLAG_NO_STEP_CLAMP, "0")
     assert psc.seat_no_step_clamp_enabled() is False
     assert psc.seat_provenance_wanted() is False
+    monkeypatch.setenv(psc.ENV_FLAG_NO_STEP_CLAMP, "1")
+    assert psc.seat_no_step_clamp_enabled() is True
+    assert psc.seat_provenance_wanted() is True
 
 
 def test_no_step_clamp_report_line_names_the_moved_pad():

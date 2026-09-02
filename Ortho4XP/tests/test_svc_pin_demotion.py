@@ -25,7 +25,11 @@ class _FakeLayout:
     pass
 
 
+import os as _os
+
+
 def _mk(free_end=(), mouth=(), profile=(), keysets=None):
+    _os.environ["O4_SVC_PIN_DEMOTION"] = "1"
     lay = _FakeLayout()
     lay._svc_free_end_idx = set(free_end)
     lay._svc_mouth_prox_idx = set(mouth)
@@ -94,10 +98,12 @@ def test_interval_edges_and_non_register_nodes_ignored():
     assert lay._svc_profile_idx == {1}
 
 
-def test_gate_off_is_a_noop(monkeypatch):
-    monkeypatch.setenv("O4_SVC_PIN_DEMOTION", "0")
+def test_default_is_off_stop_and_wait(monkeypatch):
+    # STOP-AND-WAIT (arm 3, 2026-09-01): default byte-inert; the
+    # adjudication arm turns it on explicitly.
     b2i = {}
     lay = _mk(free_end=[1], profile=[2])
+    monkeypatch.delenv("O4_SVC_PIN_DEMOTION", raising=False)
     elev = [0.0, 100.0, 110.0]
     joint = [{"edges": [(1, 2, 0.10)]}]
     rep = _demote_contradicted_service_pins(lay, "TEST", elev, 3, joint, b2i)

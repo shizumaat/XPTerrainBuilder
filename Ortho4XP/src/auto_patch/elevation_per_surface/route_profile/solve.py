@@ -7714,8 +7714,19 @@ def _demote_contradicted_service_pins(layout, icao, elev, n, joint, b2i,
     report = {"pairs": 0, "worst_excess_m": 0.0,
               "demoted": {"svc_free_end": 0, "svc_mouth": 0,
                           "svc_profile": 0}}
+    # DEFAULT OFF (STOP-AND-WAIT, 2026-09-01 arm 3): the demotion is
+    # mechanically correct — direct both-hard contradictions 759 → 185 at
+    # the solve exit, FGP hard pins 5,522 → 5,190 — but the closing arm
+    # measured HECA airside 1,075 → 1,102 (+29 NEW rows, worst a 6.72 m
+    # apron within-shape pair at 30.124354,31.413707 with NO airside law
+    # change): releasing groundside service pins moved EMITTED airside
+    # values through a shared-vertex channel (the emit-consensus /
+    # apron-contact identity class), which is an airside-is-king breach
+    # this lane may not trade for the contradiction cleanup.  Below bar
+    # = never merge ON (RULINGS 31f).  The interventional record lives
+    # in the lane report; flip to "1" only for an adjudication arm.
     layout._svc_pin_demotion_report = report
-    if _os.environ.get("O4_SVC_PIN_DEMOTION", "1") == "0":
+    if _os.environ.get("O4_SVC_PIN_DEMOTION", "0") != "1":
         report["gated_off"] = True
         return report
     _fe = set(getattr(layout, "_svc_free_end_idx", None) or ())

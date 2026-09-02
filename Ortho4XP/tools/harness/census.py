@@ -1725,6 +1725,35 @@ def print_report(rep: dict, top: int) -> None:
           f"basin_facilities={ev.get('basin_facility_count')} "
           f"triangle_plane_unresolved="
           f"{ev.get('triangle_plane_unresolved')}")
+    # ── THE BUILD'S OWN AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS
+    # 2026-09-01l/r) — the solve's law-graph verdict on the zero-airside
+    # beta bar, printed beside the census's emitted-surface counts so
+    # the beta claim can cite both from one run.  A DIFFERENT
+    # INSTRUMENT over a DIFFERENT population (law edges at the run's
+    # exit readings vs emitted node pairs): the two agreeing is
+    # corroboration, the two disagreeing is a finding, and neither
+    # replaces the other.  Absent key = the patch predates the
+    # instrument; ``{}`` = a geometry-only build (no reading taken).
+    _ac = ev.get("airside_certificate")
+    if isinstance(_ac, dict) and _ac.get("verdict"):
+        _v = _ac["verdict"]
+        _word = ("CERTIFIED-AIRSIDE" if _v.get("certified")
+                 else "NOT CERTIFIED")
+        print(f"  airside certificate (build's own law-graph verdict, "
+              f"reading {_v.get('reading')}): {_word} — "
+              f"residuals={_v.get('n_over')} "
+              f"worst={_v.get('worst_excess_m')} m beyond cap+quant")
+        for _t, _r in sorted((_ac.get("readings") or {}).items()):
+            print(f"    {_t}: "
+                  f"{'certified' if _r.get('certified') else 'NOT'} "
+                  f"over={_r.get('n_over')} "
+                  f"(mixed {_r.get('n_over_mixed')}, "
+                  f"both-hard {_r.get('n_both_hard_over')}) of "
+                  f"{_r.get('n_edges_scoped')} scoped edge(s); "
+                  f"partition {_r.get('partition')}")
+    elif isinstance(_ac, dict):
+        print("  airside certificate: no reading taken "
+              "(geometry-only build)")
     # THE CENSUS'S OWN BLIND SPOT, printed beside its counts (spec
     # docs/specs/heca-apron-round2-spec.md §2).  Every family table below
     # prices PAIRS OF EMITTED NODES: an apron interior with no nodes

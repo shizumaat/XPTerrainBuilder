@@ -1055,4 +1055,7 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
         frozen=set(), spine_phase_a=None, spine_preserved=set(),
         spine_yield_idx=set(), mover=None, string_pins=None,
         summary={}, fairing_moved_keys=None, scoped_gate=False,
-        svc_moved=_svc_moved)
+        svc_moved=_svc_moved,
+        # The projection partition's receiver set, for the airside-scoped
+        # exit certificate (air7; RULINGS 2026-09-01l/r).
+        receivers=receivers)

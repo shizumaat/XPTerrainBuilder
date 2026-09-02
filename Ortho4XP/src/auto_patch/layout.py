@@ -4202,6 +4202,23 @@ class PavementLayout:
             "pad_binding_routes": (
                 getattr(self, "_pad_binding_routes", None)
                 or {"nodespace": None, "records": []}),
+            # THE AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS
+            # 2026-09-01l/r): the build's OWN answer to the beta's one
+            # question — "is airside lawful?" — published where the
+            # census and the beta claim can cite it instead of
+            # re-deriving one.  ``readings`` carries every law reading
+            # of the run (solve exit + each final pass's entry/exit);
+            # ``verdict`` is the decision-grade one, the LAST exit
+            # reading (final#last EXIT on a full build).  EVIDENCE, not
+            # a law family: the census's own families adjudicate the
+            # emitted surface; this is the solve's law-graph verdict
+            # with the row-side partition and check_grade's quantization
+            # allowance applied (definition self-described in ``law``).
+            # ``{}`` says the solve never took a reading (a
+            # geometry-only build); an ABSENT key says the patch
+            # predates the instrument.
+            "airside_certificate": (
+                getattr(self, "_airside_certificate", None) or {}),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

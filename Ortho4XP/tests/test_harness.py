@@ -6087,3 +6087,95 @@ def test_an_explicit_tag_refuses_rather_than_overwrites(
     with pytest.raises(SystemExit) as exc:
         build_mod.claim_tag(tmp_path, "HECA", "oldtag")
     assert "oldtag.osm" in str(exc.value)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §3b THE TILE STEP LOOP NEVER LIES (silent-step-failure class: LEMD
+#     +40-004, 2026-09-02 — a mesh step whose .node input was never
+#     written printed its ERROR, was reported "DONE 0.0s", and the run
+#     exited 0)
+# ══════════════════════════════════════════════════════════════════════
+
+class _StepProg:
+    def __init__(self):
+        self.notes = []
+
+    def note(self, msg):
+        self.notes.append(msg)
+
+
+def _fresh_flags():
+    import O4_UI_Utils as UI
+    UI.red_flag = False
+    UI.is_working = False
+    return UI
+
+
+def test_a_step_returning_0_stops_the_tile_at_that_step(build_mod):
+    """Ortho4XP step functions signal failure ONLY by ``return 0`` after
+    printing their ERROR — never by exception, never by red_flag.  The
+    runner must stop the tile there (engine H1 parity): no DONE note, no
+    later step, rc != 0."""
+    _fresh_flags()
+    prog = _StepProg()
+    ran = []
+    plan = (("1 vector", lambda t: ran.append("vector") or 1),
+            ("2 mesh", lambda t: 0),
+            ("3 masks", lambda t: ran.append("masks") or 1))
+    with pytest.raises(SystemExit) as exc:
+        build_mod.run_tile_steps(object(), plan, prog)
+    assert "2 mesh" in str(exc.value) and "FAILED" in str(exc.value)
+    assert ran == ["vector"], "the failed step must be the LAST to run"
+    assert not any("2 mesh DONE" in n for n in prog.notes), \
+        "a failed step must never be reported DONE"
+
+
+def test_the_masks_convention_a_bare_return_is_success(build_mod):
+    """``build_masks``' normal exit is a bare ``return`` (None): the
+    failure predicate is ``result == 0`` exactly, never falsiness."""
+    _fresh_flags()
+    prog = _StepProg()
+    plan = (("1 vector", lambda t: 1),
+            ("3 masks", lambda t: None),
+            ("4 tile", lambda t: 1))
+    timings, skipped = build_mod.run_tile_steps(object(), plan, prog)
+    assert sorted(timings) == ["1 vector", "3 masks", "4 tile"]
+    assert skipped == {}
+    assert sum("DONE" in n for n in prog.notes) == 3
+
+
+def test_a_red_flagged_step_is_a_cancellation_not_a_failure(build_mod,
+                                                            monkeypatch):
+    """A red-flagged step also returns 0 — the engine session reports
+    that as stopped, not failed, and so does the runner."""
+    UI = _fresh_flags()
+    monkeypatch.setattr(UI, "red_flag", False)
+
+    def cancelled(tile):
+        UI.red_flag = True
+        return 0
+
+    with pytest.raises(SystemExit) as exc:
+        build_mod.run_tile_steps(object(), (("2 mesh", cancelled),),
+                                 _StepProg())
+    assert "red flag" in str(exc.value)
+    assert "FAILED" not in str(exc.value)
+
+
+def test_a_declared_skip_is_recorded_and_never_run(build_mod):
+    """An INAPPLICABLE step (mesh in a geometry-only tile frame) is an
+    explicit recorded skip — the step function is never called, so it
+    can never run into its own missing-input failure."""
+    _fresh_flags()
+    prog = _StepProg()
+    ran = []
+    plan = (("1 vector", lambda t: ran.append("vector") or 1),
+            ("2 mesh", lambda t: ran.append("mesh") or 0),
+            ("3 masks", lambda t: ran.append("masks") or 1))
+    reason = "geometry-only frame: step 1 emits no mesh inputs"
+    timings, skipped = build_mod.run_tile_steps(
+        object(), plan, prog, skip_steps={"2 mesh": reason})
+    assert ran == ["vector", "masks"]
+    assert skipped == {"2 mesh": reason}
+    assert "2 mesh" not in timings
+    assert any("2 mesh SKIPPED" in n for n in prog.notes)

@@ -36,9 +36,10 @@
 #   O4_AIRSIDE_CERT_DUMP. R1.2 lane/r1solve IN FLIGHT: arm A hold-
 #   release-only (≤646 service rows predicted), arm B solve-side
 #   membrane_conform certify; ≤3 HECA builds, gates default-OFF.
-# NEXT: app rebuild with the wall fix (owner sim read of OTHH +25+051,
-#   sites 25.2715296,51.6022683 / 25.2556192,51.6080938); merge R1.2 on
-#   its report; five-airport sweep at the app build (29f).
+# APP 1.0.276 / engine 1.50.1719 BUILT (b6f264d2; embedded==dist, fixes
+#   verified inside the PYZ). NEXT: owner rebuilds +25+051 and sim-reads
+#   OTHH sites 25.2715296,51.6022683 / 25.2556192,51.6080938; merge R1.2
+#   on its report; five-airport sweep at the app build (29f).
 # ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # 20260903a — BETA ABORT ROOT-CAUSED + FIXED; app 1.0.275 / engine

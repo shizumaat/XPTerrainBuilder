@@ -931,3 +931,82 @@ def test_manual_patch_still_wins_over_a_stale_auto_patch(
     assert auto_patched == []
     assert stale.read_text() == before
     assert [p.calls for p in providers] == [0, 0, 0]
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Not buildable is not a failure (2026-09-03 beta regression)
+# ──────────────────────────────────────────────────────────────────────
+def test_no_apt_dat_airport_is_skipped_not_fatal(
+        tmp_path, monkeypatch, fresh_env):
+    """A CIFP airport no enabled apt.dat defines is SKIPPED, never queued.
+
+    Pre-H1 the pipeline raised "No apt.dat found" per airport and the tile
+    continued.  Under H1 (c1c5cccb) that raise became a ``build``-stage
+    ``AutoPatchBuildFailure`` and aborted all three of the owner's
+    2026-09-03 beta tiles (HECP / OTBT / LECU+LECV).  The gate now decides
+    in the main process, before the airport is in ``tasks``: no
+    exception, no ``AutoPatchFailed`` event, nothing built, nothing owed.
+    """
+    import O4_UI_Utils as UI
+    events = []
+    monkeypatch.setattr(UI, "auto_patch_failed",
+                        lambda icao, stage, error: events.append(icao))
+    lines = []
+    monkeypatch.setattr(UI, "lvprint",
+                        lambda level, *parts: lines.append(" ".join(
+                            str(p) for p in parts)))
+
+    auto_patched, providers = _drive_generate(tmp_path, monkeypatch, None)
+
+    assert auto_patched == []
+    assert events == []
+    # The lazy OSM extraction is never paid for an airport that will not
+    # be built.
+    assert [p.calls for p in providers] == [0, 0, 0]
+    assert any("KFAK" in line and "no apt.dat" in line for line in lines)
+    assert not (tmp_path / "Patches" / "KFAK_auto.patch.osm").exists()
+
+
+def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
+        tmp_path, monkeypatch, fresh_env):
+    """The tile keeps building its other airports (HECA beside HECP)."""
+    import auto_patch.pipeline as pipeline
+    import auto_patch.verification as verification
+    apt = _make_apt_dat(tmp_path)
+    tile = types.SimpleNamespace(lat=40.0, lon=-100.0, dem=None)
+    patch_dir = tmp_path / "Patches"
+    patch_dir.mkdir(exist_ok=True)
+    rwy = {"lat": 40.1, "lon": -100.2}
+    monkeypatch.setattr(driver.FNAMES, "patch_dir",
+                        lambda lat, lon: str(patch_dir))
+    monkeypatch.setattr(driver, "discover_cifp_airports",
+                        lambda path: {"KFAK": "a.dat", "KNON": "b.dat"})
+    monkeypatch.setattr(driver, "parse_cifp_file",
+                        lambda path: {"04": rwy, "22": rwy})
+    monkeypatch.setattr(driver, "airport_in_tile",
+                        lambda runways, lat, lon: True)
+    monkeypatch.setattr(driver, "pair_runways",
+                        lambda runways: [("04", rwy, "22", rwy)])
+    monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
+                        lambda path: "xp_root")
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda xp_root, icao: str(apt) if icao == "KFAK" else None)
+
+    def _build(icao, xp_root, **kw):
+        built = PavementLayout(icao=icao, anchor=(40.0, -100.0),
+                               apt_dat_path=str(apt))
+        built.dsf_sources_read = []
+        built.dsf_tiles_scanned = []
+        return built
+
+    monkeypatch.setattr(pipeline, "build_airport_pavement", _build)
+    monkeypatch.setattr(verification, "verify_and_log",
+                        lambda layout, icao, **kw: None)
+    auto_patched = driver.generate_auto_patches(
+        tile, str(tmp_path), taxiway_data={}, building_data={},
+        road_data=None, mode="All")
+
+    assert auto_patched == ["KFAK"]
+    assert (patch_dir / "KFAK_auto.patch.osm").exists()
+    assert not (patch_dir / "KNON_auto.patch.osm").exists()

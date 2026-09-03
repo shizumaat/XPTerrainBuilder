@@ -1177,6 +1177,9 @@ def generate_auto_patches(tile, cifp_path: str,
     # output matches the eager-path chatter exactly.  All-current tiles
     # never invoke them.
     _inputs_resolved = False
+    # Airports CIFP lists that no enabled apt.dat defines — skipped, not
+    # failed (see the gate below); surfaced on the tile's build summary.
+    skipped_no_apt_dat: list[str] = []
 
     def _resolve_lazy_inputs():
         nonlocal taxiway_data, building_data, road_data, _inputs_resolved
@@ -1274,6 +1277,27 @@ def generate_auto_patches(tile, cifp_path: str,
             reused.append(icao)
             continue
 
+        # NOT BUILDABLE IS NOT A FAILURE.  CIFP lists airports the
+        # install has no apt.dat for (HECP, OTBT, LECU/LECV on 2026-09-03:
+        # heliports and fields absent from every enabled pack).  Before H1
+        # the pipeline raised "No apt.dat found" per airport and the tile
+        # carried on; under H1 that same raise is a ``build``-stage failure
+        # and ABORTED all three of the owner's beta tiles after 8–14 min of
+        # patch work each.  H1 defends a patch this build OWED and did not
+        # write; an airport with no apt.dat owes nothing — it is decided
+        # HERE, in the main process, before it is queued, so it is never in
+        # ``tasks`` and the manifest never expects its patch.  Logged at
+        # level 0 so the skip is visible in every build log.
+        from .osm_load import _pick_best_apt_dat_against_osm
+        apt_dat_selected = _pick_best_apt_dat_against_osm(xp_root, icao)
+        if apt_dat_selected is None:
+            UI.lvprint(
+                0, "   Auto-patch:", icao,
+                "has no apt.dat in this X-Plane install (CIFP lists it; "
+                "no enabled scenery pack defines it) — skipped, not built.")
+            skipped_no_apt_dat.append(icao)
+            continue
+
         # This airport WILL be rebuilt — now (and only now) pay for the
         # tile-level OSM extraction if it was deferred.
         _resolve_lazy_inputs()
@@ -1285,10 +1309,8 @@ def generate_auto_patches(tile, cifp_path: str,
         # not receive.  The DSF half is filled in by the build itself (what it
         # actually read) and merged at emit time.  Only rebuilt airports pay
         # for it, including the one extra apt.dat selection.
-        from .osm_load import _pick_best_apt_dat_against_osm
         freshness_stamps = _freshness_stamps_now(
-            tile, xp_root, icao,
-            _pick_best_apt_dat_against_osm(xp_root, icao), filepath)
+            tile, xp_root, icao, apt_dat_selected, filepath)
 
         # Build runway pair data for elevation interpolation (shared by
         # taxiway and building patch generation)
@@ -1451,6 +1473,12 @@ def generate_auto_patches(tile, cifp_path: str,
                 len(reused)
             ),
         )
+    if skipped_no_apt_dat:
+        UI.vprint(
+            0,
+            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat in "
+            "this install: {}.".format(len(skipped_no_apt_dat),
+                                       ", ".join(skipped_no_apt_dat)))
     if not auto_patched and not reused:
         UI.vprint(2, "   Auto-patch: No airports with CIFP data in this tile.")
 

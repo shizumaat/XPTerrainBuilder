@@ -1,4 +1,46 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260903b — OWNER SIM READ (OTHH tunnels) RULED + FIXED + MERGED;
+#   +40-004 abort ATTRIBUTED (teardown wedge, hardened); ZERO-AIRSIDE
+#   R1.1 MERGED, R1.2 IN FLIGHT. Main = 7c0513cf..dd025e05 (+ R1.2).
+# TUNNEL WALLS (RULINGS 2026-09-03b, spec tunnel-wall-crest-dem-spec.md,
+#   merged 7c0513cf lane/wallcrest): the crest is the DEM all round the
+#   ramp (5.1 m above the mouth node by construction); the R5 transition
+#   law that graded it DOWN to the ramp is DELETED at both derivation
+#   sites (bridges._CrestProfile emit + finalize apply_below_grade_
+#   transition — retaining_wall out of TRANSITION_ROLES; walled ramps
+#   no longer below-grade sources); service-road hosts taken WHOLE
+#   alongside the run (partition at the far-end line, no tolerance);
+#   finalize.deconflict_road_features clip now NN-resamples (was
+#   nulling wall lists, masked by the re-grade). OTHH closing build
+#   e936a0cb6ab2: owner wall node −1.10 → 4.00 vs ramp −1.12; ribbon
+#   −10051 GONE; census 1,620 → 1,528 (airside 1,202 = 1,202,
+#   groundside 282 → 190); acceptance actionable_sites 32 → 17.
+#   OWED: SW fork-crumb class (ramp_wall_gap 23 = 23, wall_top_flat
+#   3.45 on a 0.47 m² crumb, mouth 25.2537652,51.6032373 non-canonical
+#   before and after); owner eyeball of L4 removal service_road #48
+#   (1,157 m², SW fork). osm_site prints alt=[None,None] for flat
+#   way-level walls — display, not loss.
+# +40-004 (RULINGS 2026-09-03c, merged 0fabfce7 lane/tilewedge): NOT a
+#   failure line — the tile child finished LEMD (13:58:32) then never
+#   ran the results loop; owner's Stop labelled it failed. 3 harness
+#   rebuilds rc=0 (not reproduced). Hardened: bounded pool/Manager
+#   teardown naming stragglers, cancelling child = "stopped", step
+#   tracebacks logged. Chip filed: per-tile Stop never escalates SIGTERM.
+# ZERO-AIRSIDE R1: R1.1 attribution MERGED 7de9f88b (docs/specs/r1-
+#   attribution-20260903.md): HECA 2,167 = 803 inherited from the solve
+#   exit / 716 FGP rebuilt graph / 648 FGP projection; 1,361 rows have an
+#   endpoint RE-SEEDED pre-FGP (decimate_emit_nodes 1,205, _quant_pre
+#   316, emit_terrain_transition 300, _grade_limit_gs_chords 205,
+#   _enf_pre 101) — a channel the plan lacks; S1+S2+S3 ON grows apron
+#   690 → 1,073. New instruments: who_wrote --cert-attrib/--vertex-dump,
+#   O4_AIRSIDE_CERT_DUMP. R1.2 lane/r1solve IN FLIGHT: arm A hold-
+#   release-only (≤646 service rows predicted), arm B solve-side
+#   membrane_conform certify; ≤3 HECA builds, gates default-OFF.
+# NEXT: app rebuild with the wall fix (owner sim read of OTHH +25+051,
+#   sites 25.2715296,51.6022683 / 25.2556192,51.6080938); merge R1.2 on
+#   its report; five-airport sweep at the app build (29f).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260903a — BETA ABORT ROOT-CAUSED + FIXED; app 1.0.275 / engine
 #   1.50.1718 (embedded==dist). PLAN TO ZERO AIRSIDE written:
 #   docs/specs/zero-airside-plan-20260903.md (READ THAT NEXT).

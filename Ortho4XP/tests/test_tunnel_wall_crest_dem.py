@@ -416,3 +416,34 @@ def test_l4_no_tolerance_constant_in_the_partition():
                 if float(v) != 0.0]              # ``> 0.0`` is a sign test
     assert literals == [], literals
     assert "_M2" not in body and "TOL" not in body
+
+
+# ── L2, the writer the census found ──────────────────────────────────
+
+def test_l2_deconflict_clip_carries_the_wall_profile():
+    """``finalize.deconflict_road_features`` clips a wall piece an apron
+    partly covers.  It used to assign the clipped ring and keep the OLD
+    ``node_altitudes`` — misaligned, so the emit dropped every value
+    (OTHH closing arm: 8 of 27 wall ways with no altitude).  The
+    transition pass masked it by re-deriving the list; with the wall
+    out of ``TRANSITION_ROLES`` the clip itself must carry the crest."""
+    from auto_patch import finalize
+    layout = PavementLayout(icao="ZZZZ", anchor=_ANCHOR)
+    apron = BuiltShape(polygon=box(40.0, -5.0, 60.0, 5.0), role="apron",
+                       ref="apron", altitude=4.0)
+    ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 1.0), (0.0, 1.0)]
+    wall = BuiltShape(polygon=Polygon(ring), role=ROLE_RETAINING_WALL,
+                      ref="tunnel_wall",
+                      node_altitudes=[4.0, 4.6, 4.6, 4.0, 4.0])
+    layout.shapes.extend([apron, wall])
+    finalize.deconflict_road_features(layout, "ZZZZ")
+    walls = [s for s in layout.shapes if s.role == ROLE_RETAINING_WALL]
+    assert len(walls) == 2, [w.polygon.bounds for w in walls]
+    for w in walls:
+        n_open = len(list(w.polygon.exterior.coords)) - 1
+        assert w.node_altitudes is not None
+        assert len(w.node_altitudes) in (n_open, n_open + 1), (
+            f"clip left {len(w.node_altitudes)} value(s) on a "
+            f"{n_open}-vertex ring")
+        assert min(w.node_altitudes) >= 4.0 - 1e-9
+        assert max(w.node_altitudes) <= 4.6 + 1e-9

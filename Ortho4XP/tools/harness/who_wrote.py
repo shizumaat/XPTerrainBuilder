@@ -464,9 +464,17 @@ def _pipeline_line(site):
     global _PIPE_RE
     if _PIPE_RE is None:
         import re
-        _PIPE_RE = re.compile(r"pipeline\.py:(\d+):solve_and_finalize")
-    m = _PIPE_RE.search(site or "")
-    return int(m.group(1)) if m else None
+        _PIPE_RE = re.compile(r"pipeline\.py:(\d+):(\w+)")
+    best = None
+    for m in _PIPE_RE.finditer(site or ""):
+        line, fn = int(m.group(1)), m.group(2)
+        if fn == "solve_and_finalize":
+            return line
+        # A nested helper (``_post_projection_conformance_passes``) is
+        # defined beside its call site, so the OUTERMOST pipeline frame
+        # in a chain the depth cut short still orders the write.
+        best = line if best is None else max(best, line)
+    return best
 
 
 def stage_of_site(site):

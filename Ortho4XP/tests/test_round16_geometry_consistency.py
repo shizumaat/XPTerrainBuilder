@@ -11,6 +11,12 @@ R16-1  ONE BOUNDARY, ONE SPELLING.  The chain-consistent needle removal
 R16-2a THE ANCHOR IS THE PORTAL.  Per below-grade body the transition
        law anchors at the body's DEEPEST station, not at whichever
        station happens to lie nearest a governed ring vertex.
+       SCOPED by the owner 2026-09-03 (tunnel-wall-crest-dem-spec):
+       the law governs groundside PLATES beside UNWALLED ramps.  The
+       wall crest itself never converges on the ramp (it is the DEM at
+       its station, the portal included) and a WALLED ramp is not a
+       source at all; the twins below run on a bare plate ring and
+       stand as that plate law.
 R16-2b SUPERSEDED by RULINGS 2026-09-01c.  It required a tunnel wall's
        inner boundary to BE the ramp's outer boundary, so no unowned
        strip was left for the mesh to drape.  The owner has ruled the

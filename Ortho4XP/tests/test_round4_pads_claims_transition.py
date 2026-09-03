@@ -264,53 +264,46 @@ def _densified_band(y_inner=10.6, y_outer=11.6, length_m=600.0, step=10.0):
 
 def _inner_crest(shape, x_target, y_inner=10.6):
     ring = list(shape.polygon.exterior.coords)[:-1]
-    alts = shape.node_altitudes[:len(ring)]
+    alts = (shape.node_altitudes[:len(ring)] if shape.node_altitudes
+            else [shape.altitude] * len(ring))
     for (x, y), altitude in zip(ring, alts):
         if abs(x - x_target) < 0.01 and abs(y - y_inner) < 0.01:
             return altitude
     raise AssertionError(f"no inner-band vertex at x={x_target}")
 
 
-def test_the_wall_crest_stands_at_grade_and_converges_at_the_portal():
-    """THE R5 LAW as ruled (lead 2026-08-10).  The crest is the
-    SURROUNDING SURFACE AUTHORITY along the ramp's whole length — the
-    wall FACE, not the crest, spans the drop — and it descends only
-    within the cap-limited run of the portal, converging on the ramp
-    there.  The witness is the pre-regression Aug-8 state: a crest at
-    surrounding grade (2.90–5.00 m) against a ramp already diving."""
+def test_the_wall_crest_stands_at_grade_everywhere_portal_included():
+    """THE CREST IS THE CLIFF TOP (owner 2026-09-03, tunnel-wall-crest-
+    dem-spec L1/L2 — superseding lead ruling 2026-08-10 R5 for wall
+    crest bands).  The crest is the surrounding surface ALL THE WAY
+    ROUND the ramp, the portal included: the wall carries the whole
+    drop, and ``apply_below_grade_transition`` moves 0 wall shapes.
+    The previous twin asserted convergence on the ramp at the portal
+    (−4.02 within the cap-limited run); that profile is the defect the
+    owner read at OTHH (wall −1.10 beside ramp −1.12 under a 4.0 DEM)."""
     ramps = _diving_ramp_chain()
     band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
                   altitude=4.0)
     layout = _Layout(ramps + [band])
-    assert groundside.apply_below_grade_transition(layout) == 1
+    assert groundside.apply_below_grade_transition(layout) == 0
 
-    # Mid-ramp the ramp is already at grade-8.02/2; the crest is NOT.
-    assert _inner_crest(band, 300.0) == pytest.approx(4.0, abs=1e-6)
-    assert _inner_crest(band, 100.0) == pytest.approx(4.0, abs=1e-6)
-    # At the portal the crest converges on the ramp.
-    assert _inner_crest(band, 600.0) == pytest.approx(-4.02, abs=0.1)
-    # And the descent is confined to the CAP-LIMITED RUN of the portal:
-    # 8.02 m of rise at GROUNDSIDE_MAX_GRADE, so every vertex further
-    # back along the ring than that still stands at surrounding grade.
-    cap_run = 8.02 / groundside.GROUNDSIDE_MAX_GRADE
-    outside = 600.0 - 10.0 * math.ceil((cap_run + 10.0) / 10.0)
-    assert outside > 0.0
-    assert _inner_crest(band, outside) == pytest.approx(4.0, abs=1e-6)
-    # ... while a vertex INSIDE the run has left it.
-    assert _inner_crest(band, 600.0 - 10.0) < 4.0 - 0.1
+    for x in (100.0, 300.0, 590.0, 600.0):
+        assert _inner_crest(band, x) == pytest.approx(4.0, abs=1e-9), x
+    assert band.node_altitudes is None and band.altitude == 4.0
 
 
 def test_the_crest_does_not_hug_the_ramp():
-    """The mirror-image collapse this law forbids: measuring the run
-    across the horizontal GAP would put the crest ~0.05 m above the ramp
-    the whole way down (a 0.6-1.6 m gap at the 4 % cap), which is terrain
-    hugging the ramp instead of standing beside it."""
+    """The mirror-image collapse: a crest measured across the horizontal
+    GAP would sit ~0.05 m above the ramp the whole way down.  With the
+    crest the DEM everywhere this can no longer happen anywhere on the
+    band, the portal included."""
     ramps = _diving_ramp_chain()
     band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
                   altitude=4.0)
     groundside.apply_below_grade_transition(_Layout(ramps + [band]))
     ramp_at_mid = 4.0 - 8.02 / 2.0
     assert _inner_crest(band, 300.0) - ramp_at_mid > 3.0
+    assert _inner_crest(band, 600.0) - (-4.02) > 3.0
 
 
 def _flat_site_layout():
@@ -329,7 +322,10 @@ def _flat_site_layout():
 
 def test_a_flat_plate_beside_a_ramp_takes_the_transition_law():
     """S7's defect: the plate lost its per-node profile, went flat at
-    3.96 and met the ramp with a 5.62 m step at 2.6 m spacing."""
+    3.96 and met the ramp with a 5.62 m step at 2.6 m spacing.
+
+    UNWALLED ramp: round-4 R5 stands.  The walled-ramp twin (L3, the
+    plate stands at the crest) is ``test_tunnel_wall_crest_dem.py``."""
     layout, _ramps, plate = _flat_site_layout()
     assert groundside.apply_below_grade_transition(layout) == 1
     alts = plate.node_altitudes

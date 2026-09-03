@@ -6210,29 +6210,32 @@ def solve_route_profile(layout, icao: str,
         # smaller) node space, so the reader can see at a glance that
         # the three numbers are not comparable.
         n_nodes=n, crown_space="uncrowned z'", airside=_air_coll)
+    # The solve's own hard-anchor classifier output first (the
+    # cycle-7 fixed axis: rwy_join / rwy_flexed / seed_rwy_seam /
+    # seat_on_spine / seam_spine_anchor ...), then the yield-hard
+    # registers, most specific first — the very sets that joined
+    # ``yield_hard`` above.  ONE list, shared by the both-hard dump and
+    # the airside-certificate dump so a pin label means one thing.
+    _solve_exit_label_sets = [
+        ("svc_free_end",
+         getattr(layout, "_svc_free_end_idx", None) or ()),
+        ("svc_mouth_seat",
+         getattr(layout, "_svc_mouth_prox_idx", None) or ()),
+        ("svc_profile",
+         getattr(layout, "_svc_profile_idx", None) or ()),
+        ("tile_seam",
+         getattr(layout, "_seam_pin_idx", None) or ()),
+        ("building_seat", building_seats),
+        ("runway_node", runway_nodes)]
     _publish_airside_certificate(layout, "solve_exit", _air_coll,
-                                 nodes=nodes, n_nodes=n)
+                                 nodes=nodes, n_nodes=n,
+                                 label_sets=_solve_exit_label_sets,
+                                 label_map=_hard_cat)
     if _bh_coll is not None:
         _dump_both_hard(
             _bh_dump_prefix, "solve_exit", icao, _bh_coll, nodes, elev, n,
-            layout,
-            # The solve's own hard-anchor classifier output first (the
-            # cycle-7 fixed axis: rwy_join / rwy_flexed / seed_rwy_seam /
-            # seat_on_spine / seam_spine_anchor ...), then the yield-hard
-            # registers, most specific first — the very sets that joined
-            # ``yield_hard`` above.
-            label_map=_hard_cat,
-            label_sets=[
-                ("svc_free_end",
-                 getattr(layout, "_svc_free_end_idx", None) or ()),
-                ("svc_mouth_seat",
-                 getattr(layout, "_svc_mouth_prox_idx", None) or ()),
-                ("svc_profile",
-                 getattr(layout, "_svc_profile_idx", None) or ()),
-                ("tile_seam",
-                 getattr(layout, "_seam_pin_idx", None) or ()),
-                ("building_seat", building_seats),
-                ("runway_node", runway_nodes)])
+            layout, label_map=_hard_cat,
+            label_sets=_solve_exit_label_sets)
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -7550,6 +7553,12 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
         air["partition"] = ("node-receivers" if receiver_nodes is not None
                            else "family-roles")
         _air_memo: dict = {}
+        # R1 attribution instrument (env-gated, report-only): with
+        # ``O4_AIRSIDE_CERT_DUMP`` set EVERY residual row is kept (not the
+        # worst 200) and carries its endpoints' hard flags and values, so
+        # ``_publish_airside_certificate`` can write the full population
+        # for the family/stage attribution (zero-airside plan R1.1).
+        _air_keep_all = bool(_os.environ.get("O4_AIRSIDE_CERT_DUMP"))
 
         def _air_axis(fam):
             """(family_is_groundside, quant_allowance_m), memoized."""
@@ -7587,12 +7596,16 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
             if is_bh:
                 frow[2] += 1
             rows = air["rows"]
-            if len(rows) < 200:
-                rows.append({
+            if len(rows) < 200 or _air_keep_all:
+                _r = {
                     "family": str(fam), "idx": [int(k) for k in idxs],
                     "excess_m": round(float(resid), 4),
                     "quant_m": quant, "both_hard": bool(is_bh),
-                    "mixed": bool(mixed)})
+                    "mixed": bool(mixed)}
+                if _air_keep_all:
+                    _r["hard"] = [bool(k in hard) for k in idxs]
+                    _r["z"] = [round(float(elev[k]), 4) for k in idxs]
+                rows.append(_r)
     out: dict = {}
     for entry in joint:
         fam_entry = entry.get("family")
@@ -7727,7 +7740,8 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
         # removed (see ``_report_law_certificate``) because it asserted
         # a bar nobody had set.
         air["rows"].sort(key=lambda r: -r["excess_m"])
-        del air["rows"][20:]
+        if not _air_keep_all:
+            del air["rows"][20:]
         air["certified"] = air["n_over"] == 0
     return {k: tuple(v) for k, v in out.items()}
 
@@ -8074,8 +8088,65 @@ AIRSIDE_CERTIFICATE_LAW = (
     "on grade_law.JUNCTION_ROLES) at the stamped reading")
 
 
+def _dump_airside_certificate(path_prefix, tag, layout, air, entry,
+                              nodes, label_sets=None, label_map=None):
+    """R1 attribution instrument (``O4_AIRSIDE_CERT_DUMP=<prefix>``):
+    write EVERY airside-scoped residual row of one certificate reading
+    to ``<prefix>.<tag>.airside_cert.json`` — family, node indices,
+    excess, both-hard / mixed flags, per-endpoint hard flag, value,
+    plan coordinate (layout metres, the frame ``who_wrote`` keys on)
+    and lat/lon, and the endpoints' PIN SOURCES (the same ordered label
+    sets ``_dump_both_hard`` names).  Report-only: reads ``air`` and
+    ``nodes``, writes nothing into the build; a failure is a WARN."""
+    import O4_UI_Utils as _UI_ad
+    import json as _json
+    try:
+        n = len(nodes) if nodes is not None else 0
+        if callable(label_sets):
+            # Lazy: the final pass's spine set is only worth building
+            # when this dump actually runs.
+            label_sets = label_sets()
+        src = _pin_source_map(label_sets or (), n)
+
+        def _lab(i):
+            if label_map is not None:
+                v = label_map.get(i)
+                if v:
+                    return v
+            return src.get(i)
+
+        rows = []
+        for r in air.get("rows") or ():
+            r = dict(r)
+            idxs = r.get("idx") or ()
+            if nodes is not None:
+                r["xy"] = [[round(float(nodes[k][0]), 3),
+                            round(float(nodes[k][1]), 3)] for k in idxs]
+                try:
+                    r["ll"] = [[round(float(v), 7) for v in
+                                layout.m_to_ll(nodes[k][0], nodes[k][1])]
+                               for k in idxs]
+                except Exception:
+                    pass
+            r["pins"] = [_lab(k) for k in idxs]
+            rows.append(r)
+        out = {k: v for k, v in entry.items() if k != "rows"}
+        out.update({"tag": str(tag), "icao": getattr(layout, "icao", None),
+                    "n_rows": len(rows), "rows": rows})
+        p = f"{path_prefix}.{tag}.airside_cert.json"
+        with open(p, "w") as f:
+            _json.dump(out, f)
+        _UI_ad.vprint(1, f"  [airside-cert-dump] {tag}: {len(rows)} "
+                         f"residual row(s) of {entry.get('n_over')} -> {p}")
+    except Exception as _e:                            # pragma: no cover
+        _UI_ad.vprint(1, f"  [airside-cert-dump] {tag} FAILED "
+                         f"({type(_e).__name__}: {_e}) — report-only, "
+                         f"build continues")
+
+
 def _publish_airside_certificate(layout, tag, air, nodes=None,
-                                 n_nodes=None):
+                                 n_nodes=None, label_sets=None,
+                                 label_map=None):
     """Publish one airside-scoped certificate reading into the build's
     own record (air7; RULINGS 2026-09-01l/r).
 
@@ -8125,6 +8196,14 @@ def _publish_airside_certificate(layout, tag, air, nodes=None,
             "n_nodes": (None if n_nodes is None else int(n_nodes)),
             "rows": rows,
         }
+        _dump_prefix = _os.environ.get("O4_AIRSIDE_CERT_DUMP")
+        if _dump_prefix:
+            _dump_airside_certificate(_dump_prefix, tag, layout, air, entry,
+                                      nodes, label_sets=label_sets,
+                                      label_map=label_map)
+            # The full population is on disk; keep the in-memory record
+            # the size every other reader expects.
+            del air["rows"][20:]
         rec = getattr(layout, "_airside_certificate", None)
         if rec is None:
             rec = {"law": AIRSIDE_CERTIFICATE_LAW, "readings": {}}
@@ -10129,25 +10208,28 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             # lifted at entry above.
                             n_nodes=n, crown_space="uncrowned z'",
                             airside=_air_coll_fp)
+    # The final pass's own provenance axis, the SAME documented
+    # order as ``_fcat_fp`` (runway_node, pad, tile_seam, gs_weld,
+    # terrain_pin, feature_weld, service_ring, spine) so a class
+    # name never means two things in two reports.  ONE list, shared by
+    # the both-hard dump and both airside-certificate dumps (entry+exit).
+    _fp_label_sets = lambda: [
+        ("runway_node", runway_idx or ()),
+        ("pad", pad_nodes),
+        ("tile_seam", _tile_seam_idx),
+        ("gs_weld", _gs_weld_idx),
+        ("terrain_pin", terrain_hard or ()),
+        ("feature_weld", torn_feature_weld or ()),
+        ("service_ring", _svc_couple_nodes),
+        ("spine", G.spine_nodes())]
     _publish_airside_certificate(layout, f"final{_ml_pass or 1}_entry",
-                                 _air_coll_fp, nodes=nodes, n_nodes=n)
+                                 _air_coll_fp, nodes=nodes, n_nodes=n,
+                                 label_sets=_fp_label_sets)
     if _bh_coll_fp is not None:
         _dump_both_hard(
             _bh_dump_prefix_fp, f"final{_ml_pass or 1}_entry", icao,
             _bh_coll_fp, nodes, elev, n, layout,
-            # The final pass's own provenance axis, the SAME documented
-            # order as ``_fcat_fp`` (runway_node, pad, tile_seam, gs_weld,
-            # terrain_pin, feature_weld, service_ring, spine) so a class
-            # name never means two things in two reports.
-            label_sets=[
-                ("runway_node", runway_idx or ()),
-                ("pad", pad_nodes),
-                ("tile_seam", _tile_seam_idx),
-                ("gs_weld", _gs_weld_idx),
-                ("terrain_pin", terrain_hard or ()),
-                ("feature_weld", torn_feature_weld or ()),
-                ("service_ring", _svc_couple_nodes),
-                ("spine", G.spine_nodes())])
+            label_sets=_fp_label_sets())
     # ── AIRSIDE-VALUE AUDIT ACROSS THIS PASS (road-chord-limiter lane,
     # lead ruling 2026-08-20) ──────────────────────────────────────────
     # AIRSIDE IS KING: a post-solve GROUNDSIDE/ROAD mutation may move
@@ -10691,7 +10773,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             n_nodes=n, crown_space="uncrowned z'",
                             airside=_air_coll_fx)
     _publish_airside_certificate(layout, f"final{_ml_pass or 1}_exit",
-                                 _air_coll_fx, nodes=nodes, n_nodes=n)
+                                 _air_coll_fx, nodes=nodes, n_nodes=n,
+                                 label_sets=_fp_label_sets)
     # ── THE A1/A2 SPLIT AND THE PIN DOCKET (spec section 4) ───────────
     # A1's both-hard residue is the honest pin-contradiction number: an
     # edge both of whose endpoints are immovable cannot be projected, so

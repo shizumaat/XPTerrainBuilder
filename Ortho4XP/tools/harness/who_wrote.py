@@ -441,7 +441,7 @@ class AuthorshipProbe:
 
     def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05,
                  authors=(), author_tol=0.01, solve_site=_SOLVE_SITE,
-                 dump_moves=False):
+                 dump_moves=False, track_vertices=False):
         self.cls = shape_cls
         self.dem_m = dem_m
         self.roles = set(roles or ())
@@ -476,6 +476,19 @@ class AuthorshipProbe:
         #: index sat EXACTLY on the constant DEM} — the vertex-granular
         #: version of the DEM-authorship census, which is per SHAPE.
         self.dem_origin_site: dict = {}
+        #: ``--vertex-dump``: THE VERTEX HISTORY — for EVERY vertex the
+        #: build ever wrote, the ordered list of writes that CHANGED its
+        #: value (beyond ``author_tol``), keyed by (role, ref, plan
+        #: coordinate) so it survives the ``dataclasses.replace`` re-
+        #: minting that gives one ring a new instance id.  This is the
+        #: "last solver stage that wrote each endpoint" axis the R1
+        #: attribution table groups on (zero-airside plan R1.1).
+        self.track_vertices = bool(track_vertices)
+        self.vhist: dict = {}
+        self._vprev: dict = {}
+        self._vring: dict = {}
+        self._sites: dict = {}
+        self.site_list: list = []
         self._step = 0
         self._saved = None
 
@@ -509,6 +522,8 @@ class AuthorshipProbe:
                     dorg[k] = site
         if self.authors:
             self._record_author(shape, role, values, site)
+        if self.track_vertices and values is not None and site is not None:
+            self._record_vertices(shape, role, values, site)
         if not self.at or not values:
             return
         poly = getattr(shape, "polygon", None)
@@ -602,6 +617,93 @@ class AuthorshipProbe:
             self.author_worst.sort(key=lambda r: -r[0])
             del self.author_worst[_WORST_KEEP:]
         self._prev[sid] = list(vals)
+
+    # ── the vertex history (``--vertex-dump``) ────────────────────────
+    def _record_vertices(self, shape, role, values, site):
+        """Append this write to the history of every vertex it CHANGED.
+
+        A vertex is keyed by ``(role, ref, x, y)`` with the plan
+        coordinate rounded to 1 mm, read from the shape's ring at the
+        time of the write (cached per instance and ring length).  A
+        write is a change when the value differs from the instance's
+        previous value by more than ``author_tol``; the first write of a
+        NEW instance (``dataclasses.replace``) that repeats the key's
+        last recorded value is a carry, not a change.  In-place list
+        mutation (``shape.node_altitudes[k] = v``) never reaches the
+        property setter and is invisible here, as it is to every other
+        report of this probe.
+        """
+        sid = id(shape)
+        n = len(values)
+        ring = self._vring.get(sid)
+        if ring is None or len(ring) != n:
+            poly = getattr(shape, "polygon", None)
+            ring = (list(poly.exterior.coords)
+                    if (poly is not None and not poly.is_empty
+                        and poly.geom_type == "Polygon") else [])
+            self._vring[sid] = ring
+        prev = self._vprev.get(sid)
+        sidx = self._sites.get(site)
+        if sidx is None:
+            sidx = len(self.site_list)
+            self._sites[site] = sidx
+            self.site_list.append(site)
+        ref = getattr(shape, "ref", "") or ""
+        tol = self.author_tol
+        vh = self.vhist
+        for k in range(min(n, len(ring))):
+            v = values[k]
+            if v is None:
+                continue
+            v = float(v)
+            p = prev[k] if (prev is not None and k < len(prev)) else None
+            if p is not None and abs(v - p) <= tol:
+                continue
+            x, y = ring[k]
+            key = (role, ref, round(x, 3), round(y, 3))
+            h = vh.get(key)
+            if h is None:
+                h = []
+                vh[key] = h
+            elif p is None and abs(h[-1][1] - v) <= tol:
+                continue
+            h.append((sidx, round(v, 4)))
+        self._vprev[sid] = [None if v is None else float(v) for v in values]
+
+    def write_vertex_dump(self, path):
+        """``--vertex-dump``: one JSONL record per vertex key.
+
+        ``meta`` first (the site table — records carry site INDICES into
+        it — the materiality floor and the solve reference site), then
+        one ``vertex`` record per key: role, ref, plan coordinate, the
+        ordered ``hist`` of ``[site_index, value]`` changes, the
+        ``final`` value, the ``solved`` value (the value at the last
+        change whose site contains ``solve_site``; ``None`` when the
+        solve never wrote it) and ``last_site`` (index).
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        solve_hits = [self.solve_site in st for st in self.site_list]
+        n = 0
+        with path.open("w") as fh:
+            fh.write(json.dumps({
+                "kind": "meta", "sites": self.site_list,
+                "tol_m": self.author_tol, "solve_site": self.solve_site,
+                "n_vertices": len(self.vhist)}) + "\n")
+            for (role, ref, x, y), hist in self.vhist.items():
+                solved = None
+                for (si, v) in hist:
+                    if solve_hits[si]:
+                        solved = v
+                fh.write(json.dumps({
+                    "kind": "vertex", "role": role, "ref": ref,
+                    "x": x, "y": y, "hist": [[si, v] for si, v in hist],
+                    "final": hist[-1][1] if hist else None,
+                    "solved": solved,
+                    "last_site": hist[-1][0] if hist else None}) + "\n")
+                n += 1
+        return {"vertices": n, "sites": len(self.site_list),
+                "path": str(path)}
 
     def author_report(self):
         """``(table_rows, totals)`` for the displacement census."""
@@ -985,6 +1087,16 @@ def main(argv=None) -> int:
                          "report keeps only the worst 40 rows, which cannot "
                          "answer whether a moved vertex is one some other "
                          "writer seeded.")
+    ap.add_argument("--vertex-dump", type=Path, default=None,
+                    metavar="PATH",
+                    help="THE VERTEX HISTORY: write, for EVERY vertex the "
+                         "build wrote, the ordered list of writes that "
+                         "CHANGED its value (site + value), keyed by "
+                         "(role, ref, plan coordinate), as JSONL.  The "
+                         "axis the R1 attribution joins the airside "
+                         "certificate's residual endpoints on (which "
+                         "solver stage last wrote each endpoint).  Uses "
+                         "--author-tol as its change floor.")
     ap.add_argument("--footprint", action="append", default=[],
                     metavar="X,Y",
                     help="FOOTPRINT history: metre-frame coordinate whose "
@@ -1041,10 +1153,11 @@ def main(argv=None) -> int:
         ap.error("give an ICAO (to build) or --emitted-patch (to read a "
                  "patch an earlier build wrote)")
     if (args.dem is None and not args.at and not args.author
-            and not args.footprint):
+            and not args.footprint and not args.vertex_dump):
         ap.error("give --dem (authorship census), --at X,Y (node history), "
                  "--author SITE (displacement census), --footprint X,Y "
-                 "(footprint history), or any combination")
+                 "(footprint history), --vertex-dump PATH (vertex "
+                 "history), or any combination")
 
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):
@@ -1062,7 +1175,8 @@ def main(argv=None) -> int:
     probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
                             authors=args.author,
                             author_tol=args.author_tol,
-                            dump_moves=bool(args.author_dump)).install()
+                            dump_moves=bool(args.author_dump),
+                            track_vertices=bool(args.vertex_dump)).install()
     fprobe = FootprintProbe(BuiltShape, fp_at).install() if fp_at else None
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
@@ -1174,6 +1288,12 @@ def main(argv=None) -> int:
         for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
             print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
                   f"{before} -> {after}   at ({x},{y})")
+    if args.vertex_dump:
+        vinfo = probe.write_vertex_dump(args.vertex_dump)
+        report["vertex_dump"] = vinfo
+        print(f"\n  [harness] per-vertex history dump -> {vinfo['path']} "
+              f"({vinfo['vertices']} vertices, {vinfo['sites']} distinct "
+              f"write sites)")
     if args.author_dump:
         info = probe.write_move_dump(layout, args.author_dump)
         report["author_dump"] = info

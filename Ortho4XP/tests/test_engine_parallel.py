@@ -556,3 +556,40 @@ def test_in_process_global_cancel_stops_run(monkeypatch, tmp_path):
 
     assert run_done.cancelled is True
     assert not collector.tile_events(11, 21)
+
+
+def test_child_exiting_during_cancel_is_reported_stopped(stub_worker,
+                                                          tmp_path):
+    """A child whose process EXITS while its cancel is in flight (lat 65:
+    the stub ``os._exit(0)``s on the cancel flag with no terminal event —
+    the SIGTERM-escalated real child) is the user's Stop, not a crash:
+    the tile is labelled ``stopped`` (never ``failed``), no failing
+    ``BuildDone`` is synthesized, the run's error count stays 0 and the
+    other tile completes.  (2026-09-03: the wedged +40-004 child's Stop
+    surfaced as "build worker exited unexpectedly".)"""
+    from o4_engine import parallel as _parallel
+    session = EngineSession()
+    collector = Collector(session)
+    tiles = [(65, 1), (10, 20)]
+    assert _start_parallel(session, tiles, slots=2) is True
+    assert _wait_for(
+        lambda: any(isinstance(e, EV.StepProgress) and e.lat == 65
+                    for e in collector.events))
+    assert session.cancel_tile(65, 1) is True
+    run_done = collector.wait_run_done()
+
+    dying = collector.tile_events(65, 1)
+    assert any(isinstance(e, EV.TileState) and e.label == "stopped"
+               for e in dying), dying
+    assert not any(isinstance(e, EV.TileState) and e.state == "error"
+                   for e in dying), dying
+    assert not any(isinstance(e, EV.BuildDone) for e in dying), dying
+
+    other = collector.tile_events(10, 20)
+    assert any(isinstance(e, EV.TileState) and e.state == "done"
+               for e in other)
+    assert (run_done.done_count, run_done.error_count,
+            run_done.cancelled) == (1, 0, False)
+    # The Swift client keys the event off the wire name of the class.
+    assert EV.TileState.__name__ == "TileState"
+    assert _parallel.CANCEL_ESCALATE_SECONDS > 0   # the escalation path exists

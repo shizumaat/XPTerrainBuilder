@@ -30,6 +30,9 @@ Tile-coordinate scripts (switch on ``lat``):
 * ``lat == 62`` — a crashing worker: emit one progress line then
   ``os._exit(1)`` mid-build (no ``RunDone`` — the parent synthesizes the
   failure from the unexpected exit).
+* ``lat == 65`` — a sleeper that DIES on cancel: on the cancel flag it
+  ``os._exit(0)``s with no terminal event (the SIGTERM-escalated real
+  child), so the parent must label the tile stopped itself.
 * ``lat == 63`` — an AUTO-PATCH tile: its ``vector`` step fetches
   briefly, emits ``AutoPatchBegin``, then BURNS PROCESSOR for
   ``STUB_WORKER_SOLVE_SECONDS`` (default 0.6) before reporting the
@@ -195,6 +198,8 @@ def _run_one_build(message):
         _failing_tile(lat, lon, step_key)
     elif lat == 62:
         _crashing_tile(lat, lon, step_key)
+    elif lat == 65:
+        _dying_on_cancel_tile(lat, lon, step_key)
     elif lat == 63 and step_key == "vector":
         _auto_patch_tile(lat, lon, step_key)
     elif lat == 64 and step_key == "imagery":
@@ -236,6 +241,27 @@ def _sleeper_tile(lat, lon, step_key="vector"):
             return
         time.sleep(_SLEEPER_POLL)
     # Never cancelled: finish the happy way.
+    _tile_state(lat, lon, "done", percent=100.0)
+    time.sleep(_TERMINAL_PAUSE)
+    _build_done(lat, lon, True)
+    time.sleep(_TERMINAL_PAUSE)
+
+
+def _dying_on_cancel_tile(lat, lon, step_key="vector"):
+    """A sleeper whose cancel ends the PROCESS, not the step: on the
+    cancel flag it exits 0 with no ``TileState``/``RunDone`` — what a
+    real child does when the escalation's SIGTERM reaches its transport
+    (``jsonl._stop_session_and_exit_process`` → ``os._exit(0)``) while
+    the step never polled its red flag.  Never cancelled: happy path."""
+    _step(lat, lon, step_key, 0.0)
+    time.sleep(_STEP_PAUSE)
+    _step(lat, lon, step_key, 30.0)
+    deadline = time.time() + _SLEEPER_SECONDS
+    while time.time() < deadline:
+        if _cancel_flag.is_set():
+            sys.stdout.flush()
+            os._exit(0)
+        time.sleep(_SLEEPER_POLL)
     _tile_state(lat, lon, "done", percent=100.0)
     time.sleep(_TERMINAL_PAUSE)
     _build_done(lat, lon, True)

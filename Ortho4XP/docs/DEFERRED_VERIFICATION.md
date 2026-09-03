@@ -5938,3 +5938,18 @@ there.  `keep_interiors` default-False path in
 pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
 
 - 2026-09-03 harness tile step loop honours THE STEP CONTRACT (`tools/harness/build_airport.py` `run_tile_steps`: a step's `result == 0` return is a hard stop at that step, engine `_build_worker` parity; declared skips recorded as `steps_skipped` in result+frame — the LEMD +40-004 2026-09-02 "mesh DONE 0.0s, rc 0 with no `Data+40-004.node`" class): verified by the 4 new twins in `tests/test_harness.py` §3b, run once (whole file: identical fail/error set to the pre-change tree on this container, +4 passed). NOT run (PRE-SHIP MODE, and this container has no data corpus): the reproducing `build_airport.py LEMD --tile 40 -4 --no-ledger` tile build — the fix's behaviour on a REAL failed mesh step is proven at unit level only; the owner's rerun should now stop at the first failed step with rc != 0 and name it. OPEN (attribution, not this change): WHY step 1 emitted no `.node` in the 2026-08-31d geometry-only tile frame — that frame's wiring is unpushed (this tree still refuses `--geometry-only` with `--tile`), so mechanism (1) is judged there: if the frame lawfully skips mesh-input emission, its wiring must declare `skip_steps={"2 mesh": ...}` (and downstream steps) rather than let the mesh step run; if not, the vector step regressed and the new loop now stops the tile at step 1.
+
+- 2026-09-03 lane/tilewedge (43dc716d): bounded auto-patch pool teardown
+  (`driver._teardown_pool` / `_shutdown_manager`), cancelled child →
+  "stopped" (`parallel._on_child_exit`), step tracebacks →
+  `UI.logprint` (`session.py`).  RUN ONCE: the covering files
+  (`test_silent_tile_death.py`, `test_engine_parallel.py`,
+  `test_engine_session.py`, `test_parallel_coordination.py`,
+  `test_engine_jsonl.py`, 95 pass) and the +40-004 tile through
+  `build_airport.py LEMD --tile 40 -4` (rc=0, ~763–776 s).  DEFERRED:
+  the full suite; the in-app Stop-during-wedge path (the JSONL child +
+  SIGTERM escalation) is covered by the stub-worker twin only, not by
+  an app-driven Stop; `swift build` untouched (no Swift change — the
+  wire names `TileState`/`BuildDone` and labels `stopped`/`failed` are
+  unchanged).  The original wedge did NOT reproduce in two harness
+  builds of the same tile (teardown completed both times).

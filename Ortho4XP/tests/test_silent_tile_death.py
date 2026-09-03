@@ -413,3 +413,91 @@ def test_healthy_pass_raises_nothing_and_preserves_its_bytes(
 def test_no_tasks_is_still_a_no_op(tmp_path):
     assert DRIVER._run_build_tasks(
         [], _Tile(), [], str(tmp_path / "verify.log")) is None
+
+
+# ── 7. the pool teardown is BOUNDED ────────────────────────────────────
+
+
+def _wedge_at_exit(_task):
+    """A worker body that returns normally but leaves the PROCESS unable
+    to exit: a non-daemon thread the interpreter's shutdown must join.
+    The class of the 2026-09-03 +40-004 wedge — every result collected,
+    ``shutdown(wait=True)`` never returning."""
+    import threading
+    import time
+    threading.Thread(target=time.sleep, args=(600.0,), daemon=False).start()
+    return {"icao": "KAAA", "ok": True, "worker_pid": os.getpid()}
+
+
+def _block_forever(_task):
+    import time
+    time.sleep(600.0)
+
+
+def test_pool_teardown_with_a_wedged_worker_is_bounded_and_named(
+        monkeypatch, the_shared_repo_is_untouched):
+    """A worker that has returned its result but cannot exit must not
+    hold the tile: ``_teardown_pool`` returns within its deadline, names
+    the straggler's pid and last-known task in the log, and leaves no
+    child alive.  A second worker still RUNNING (never returned) is
+    named by the airport it was still on."""
+    import concurrent.futures as cf
+    import time
+    lines = []
+    monkeypatch.setattr(UI, "lvprint",
+                        lambda _lvl, *a: lines.append(" ".join(map(str, a))))
+    ctx = multiprocessing.get_context("spawn")
+    ex = cf.ProcessPoolExecutor(max_workers=2, mp_context=ctx)
+    fut_done = ex.submit(_wedge_at_exit, None)
+    fut_stuck = ex.submit(_block_forever, None)
+    r = fut_done.result(timeout=60)
+    results = [r]
+    futs = {fut_done: "KAAA", fut_stuck: "KBBB"}
+    pending = {fut_stuck}
+    # Both workers must be up before teardown (the executor spawns lazily).
+    deadline = time.time() + 30
+    while len(ex._processes) < 2 and time.time() < deadline:
+        time.sleep(0.05)
+    procs = list(ex._processes.values())     # the executor clears the map
+    pids = sorted(p.pid for p in procs)
+
+    t0 = time.time()
+    DRIVER._teardown_pool(ex, results, futs, pending, deadline_s=2.0)
+    wall = time.time() - t0
+    # 2 s join deadline + 2 s SIGTERM grace + kill joins: never the
+    # unbounded ``shutdown(wait=True)`` (600 s here).
+    assert wall < 15.0, wall
+    assert not any(p.is_alive() for p in procs)
+    text = "\n".join(lines)
+    assert "did not exit" in text, lines
+    assert str(r["worker_pid"]) in text, lines
+    assert "KAAA" in text and "KBBB" in text, lines
+    stuck_pid = [p for p in pids if p != r["worker_pid"]]
+    assert stuck_pid and str(stuck_pid[0]) in text, lines
+    assert multiprocessing.active_children() == []
+
+
+def test_manager_shutdown_is_bounded(monkeypatch):
+    """A Manager whose ``shutdown`` never returns is terminated on the
+    deadline, with a log line, instead of holding the tile."""
+    import time
+    lines = []
+    monkeypatch.setattr(UI, "lvprint",
+                        lambda _lvl, *a: lines.append(" ".join(map(str, a))))
+    ctx = multiprocessing.get_context("spawn")
+
+    class _WedgedManager:
+        def __init__(self):
+            self._process = ctx.Process(target=time.sleep, args=(600.0,))
+            self._process.start()
+
+        def shutdown(self):
+            time.sleep(600.0)
+
+    mgr = _WedgedManager()
+    t0 = time.time()
+    DRIVER._shutdown_manager(mgr, deadline_s=1.0)
+    assert time.time() - t0 < 10.0
+    assert not mgr._process.is_alive()
+    assert any("progress manager" in ln and str(mgr._process.pid) in ln
+               for ln in lines), lines

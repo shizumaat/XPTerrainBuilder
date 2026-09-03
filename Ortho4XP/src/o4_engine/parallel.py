@@ -1687,12 +1687,28 @@ class ParallelBuildRun:
     def _on_child_exit(self, child):
         """The child's stdout closed: normal retirement or a crash."""
         crashed_tile = None
+        stopped_tile = None
         respawn = False
         with self._lock:
             if child in self._children:
                 self._children.remove(child)
             self._release_step_resources_locked(child)
-            if child.tile is not None and not child.retired:
+            # A child that exits while its cancel is in flight — the
+            # cooperative red flag never answered and the escalation's
+            # SIGTERM took it out through the transport's bounded exit,
+            # or it died on its own after the cancel — was STOPPED by the
+            # user, not failed.  ``retired`` is set by the escalation's
+            # ``terminate()`` itself, so the cancelling test comes first
+            # and does not consult it (2026-09-03: the wedged +40-004
+            # child's Stop was reported as "failed").
+            if child.tile is not None and child.cancelling:
+                stopped_tile = child.tile
+                self._next_step_index.pop(child.tile, None)
+                self._percent_high_water.pop(child.tile, None)
+                self._tile_step_seconds.pop(child.tile, None)
+                child.tile = None
+                respawn = bool(self._queue) and not self._cancel_all
+            elif child.tile is not None and not child.retired:
                 crashed_tile = child.tile
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
@@ -1701,6 +1717,12 @@ class ParallelBuildRun:
                 self._errors += 1
                 respawn = bool(self._queue) and not self._cancel_all
             self._dispatch_locked()
+        if stopped_tile is not None:
+            lat, lon = stopped_tile
+            self._session._emit(TileState(lat=lat, lon=lon, state="queued",
+                                          label="stopped"))
+            print("Build worker for", _short_latlon(stopped_tile),
+                  "exited while being stopped; its tile is marked stopped.")
         if crashed_tile is not None:
             lat, lon = crashed_tile
             self._session._emit(TileState(lat=lat, lon=lon, state="error",

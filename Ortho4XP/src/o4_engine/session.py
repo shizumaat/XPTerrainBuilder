@@ -1117,7 +1117,14 @@ class EngineSession:
                         step_seconds)
             except Exception:
                 import traceback
+                # The traceback goes to the LOG FILE as well as the
+                # console: a worker child's stderr reaches only the front
+                # end's console pane, and a step that dies there leaves no
+                # trace in Ortho4XP.log (2026-09-03, tile +40-004).
+                _trace = traceback.format_exc()
                 traceback.print_exc()
+                UI.logprint("Step failed for tile lat=", lat, ", lon=",
+                            lon, "with an exception:\n" + _trace)
                 errors += 1
                 if self._eta:
                     self._eta.tile_terminal((lat, lon))

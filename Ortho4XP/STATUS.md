@@ -1,4 +1,47 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260902a — BETA CANDIDATE 1.0.274 BUILT (Wed 03:30 PT); owner tests
+#   Thu 12:00 PT. READ FIRST: docs/SIM-GUIDE-20260901.md (top section =
+#   the candidate guide), RULINGS 2026-09-01a..w + 2026-09-02a.
+# APP: dist.nosync/XPTerrainBuilder.app 1.0.274 (engine 1.50.1717,
+#   embedded==dist verified). A/B: XPTerrainBuilder-1.0.272-roads-only.
+# MAIN = the candidate tree. Suite 9,161 pass; red = the 5-airport
+#   ACCEPTANCE MODULE only (owner: green-except-acceptance). Sweep:
+#   HECA 2,838 KCLT 2,174 SPJC 686 CYXY 153 SPLP 35. Perf exclusive:
+#   HECA 756.7 s (−11.9% wk) OTHH 434.0 SPJC 166.9 KCLT 499.7 CYXY 41.4
+#   SPLP 9.5 LEMD 573.9 (baseline RECORDED df02d536).
+# MERGED THIS WEEK: H1 silent-tile-death (6 paths, protocol 1.7 both
+#   sides) · H2/H4/H5/H6/H8 red-zero (17+8+2+5+5 reds; grade_graph crash
+#   + census-cache caveat drop + runway_segments midpoint fixes; 08-25
+#   c-h rulings reconstructed) · H7 HECA RUNWAY REGRESSION (7786ff0e,
+#   writeback preserve; all 5 airports pass longitudinal) · Batch 3
+#   tunnels (foot RETIRED 01c, gap 0.6 01e, per-body walls 01j, clip 01h)
+#   · Batch 4a ownership + annulus · building split (2b616f73) · air1
+#   quantization allowance (01m, moves the metric — STATED) · air6/air7
+#   certificate + both-hard instrument · ovfix emit-frame self-overlap
+#   (01w, REVEALED double-covers) · weldov re-clip (02a) · FGP S1+S2+S3
+#   merged GATE-OFF byte-identical (01v).
+# PARKED (branches, unmerged): lane/bldround (full pad law: close
+#   retired + frontage + contact weld — blocked on the 08-08 relief
+#   class, 01f/01g/01i) · lane/air2 (profile-law ingestion, correct at
+#   CYXY, blocked on FGP) · lane/air3 (pass-2 LP, −31 net, 21 NEW —
+#   OWNER SIGN-OFF) · lane/air4 evidence merged, mechanism deleted.
+# OWNER DECISIONS THURSDAY: (1) air3 sign-off; (2) split-level-seat
+#   UN-HOLD (b168 evidence, 01o); (3) post-beta FGP round scope
+#   (fgp-single-authority-spec.md — root: the solve's exit does not
+#   satisfy the law FGP imposes, 01v); (4) bless-or-remove the
+#   +60-136 airport_small_roads cold-cache write (slipped the H3 guard);
+#   (5) whole-tile 300 s budget unmeetable while LEMD patch = 574 s.
+# CHIPS the owner started (cloud sessions, merge on return): restore
+#   road-band-seal spec (task_8b4cf3da); silent mesh-step rc=0 failure
+#   (task_9165e4dc).
+# OWED: registry-pollution channels (02a, 30l census first); LEMD emit
+#   bisect (+25.7 s wk); HEAZ perf; tile-store CLI writer; 231 lane
+#   branches + worktrees cleanup; three more phantom specs (25f/g/h).
+# LAW THIS WEEK: 31a sim gate/anchored tripwire/redesign threshold;
+#   30l consumer census; 01e standoffs-never-on-a-tolerance; 01l zero
+#   airside; Fable 5.1 medium for lanes (proved: ~1/3 tokens, same rigor).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260901a — AWAY-PERIOD CAMPAIGN CLOSED; RETURN PACKAGE READY.
 # READ FIRST: docs/SIM-GUIDE-20260901.md (per-site guide + the FOUR
 # owner decisions) + RULINGS 31a-31m.

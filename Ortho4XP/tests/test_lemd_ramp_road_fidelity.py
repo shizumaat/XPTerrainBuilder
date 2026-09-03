@@ -161,8 +161,7 @@ def test_f1_the_crest_profile_is_the_bodys_own_station_curve():
     """The unit the law is built on: two points that project to ONE
     station on the walled body read ONE crest value, whatever their own
     DEM samples are."""
-    profile = bridges._CrestProfile(
-        _RAMP, _tilted_dem, _AMBIENT_M, None, 0.05)
+    profile = bridges._CrestProfile(_RAMP, _tilted_dem, _AMBIENT_M)
     assert profile, "the crest profile degenerated on a plain rectangle"
     # Two points on one normal of the ramp's south edge, 1 m apart.
     near = profile.at((30.0, -_WALL_GAP_M))
@@ -525,13 +524,7 @@ def test_f1_low_corridor_one_station_one_value(monkeypatch):
     on the walled body read ONE crest value, whatever their own DEM
     samples are — which is what stops the top rendering as a twisted
     ribbon."""
-    from auto_patch.groundside import (GROUNDSIDE_MAX_GRADE,
-                                       _BelowGradeIndex)
-    ring = _ring_open(_LC_CORRIDOR)
-    idx = _BelowGradeIndex([(_LC_CORRIDOR, ring,
-                             [_AMBIENT_M - _LC_DEPTH_M] * len(ring))])
-    profile = bridges._CrestProfile(_LC_CORRIDOR, _tilted_dem,
-                                    _AMBIENT_M, idx, GROUNDSIDE_MAX_GRADE)
+    profile = bridges._CrestProfile(_LC_CORRIDOR, _tilted_dem, _AMBIENT_M)
     assert profile, "the crest profile degenerated on a plain rectangle"
     near = profile.at((30.0, -_WALL_GAP_M))
     far = profile.at((30.0, -(_WALL_GAP_M + _WALL_W_M)))

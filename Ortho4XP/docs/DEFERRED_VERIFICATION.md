@@ -5953,3 +5953,15 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   wire names `TileState`/`BuildDone` and labels `stopped`/`failed` are
   unchanged).  The original wedge did NOT reproduce in two harness
   builds of the same tile (teardown completed both times).
+- 2026-09-03 lane wallcrest (`docs/specs/tunnel-wall-crest-dem-spec.md`
+  L1-L4, commit 3a43a0b6): ran the blast-listed direct-importer suites of
+  `bridges.py` / `groundside.py` / `finalize.py` plus the new
+  `tests/test_tunnel_wall_crest_dem.py` (573 pass); the full pytest
+  suite and the five-airport sweep are deferred to the merged-batch
+  app build.  Owed there: `_w3_weld` count on `retaining_wall` after L4
+  (the census scout's VERIFY row — a pavement node at a wall key is
+  hard-pinned to the crest via `feat_alt_by_key`), and KCLT/LEMD/HEAZ
+  portal reads (the OTHH closing build is the only real-frame arm).
+  L4 host removals are named by `[tunnel-remove]` lines but do NOT ride
+  `road_piece_ledger` (it tracks `tunnel_*` refs only) — a ledger row
+  for host pieces is owed if the owner wants them ledgered.

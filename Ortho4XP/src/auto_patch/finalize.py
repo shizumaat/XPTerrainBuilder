@@ -49,6 +49,7 @@ from .bridges import (
 )
 from .config import EMIT_BRIDGES_AND_TUNNELS
 from .elevation import (
+    _resample_node_altitudes_nn,
     SHARED_VERTEX_CLUSTER_TOL_M,
     _compute_elevations,
     _drop_overlap_against_fixed_shapes,
@@ -189,12 +190,41 @@ def deconflict_road_features(layout, icao: str = "") -> None:
                             _n_drop += 1
                             continue
                         parts.sort(key=lambda g: -g.area)
+                        # A CLIP CARRIES THE PER-VERTEX PROFILE
+                        # (tunnel-wall-crest-dem-spec L2, 2026-09-03).
+                        # Since §F1 every wall band carries
+                        # ``node_altitudes``; assigning the clipped
+                        # ring while keeping the OLD list left the two
+                        # misaligned, and the emit then dropped every
+                        # value of the piece (measured OTHH: 8 of 27
+                        # wall ways emitted with no altitude at all).
+                        # It was masked while
+                        # ``apply_below_grade_transition`` re-derived
+                        # every wall's list right after this pass; with
+                        # the wall out of the transition roles nothing
+                        # re-aligns it, so the clip resamples here —
+                        # the ``cut_pavement_over_footprint`` pattern.
+                        _old_ring = list(s.polygon.exterior.coords)
+                        if _old_ring and _old_ring[0] == _old_ring[-1]:
+                            _old_ring = _old_ring[:-1]
+                        _old_na = (list(s.node_altitudes)
+                                   if s.node_altitudes else None)
+                        _head_na = (None if _old_na is None else
+                                    _resample_node_altitudes_nn(
+                                        parts[0], _old_ring, _old_na))
                         s.polygon = parts[0]
+                        if _old_na is not None:
+                            s.node_altitudes = _head_na
                         for g in parts[1:]:
+                            _g_na = (None if _old_na is None else
+                                     _resample_node_altitudes_nn(
+                                         g, _old_ring, _old_na))
                             layout.shapes.append(BuiltShape(
                                 polygon=g, role=s.role,
                                 ref=s.ref,
-                                altitude=s.altitude))
+                                altitude=(s.altitude if _g_na is None
+                                          else None),
+                                node_altitudes=_g_na))
                         _n_clip += 1
                 _run_u = (s.polygon if _run_u is None
                           else _run_u.union(s.polygon))

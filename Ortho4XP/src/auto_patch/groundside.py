@@ -369,13 +369,15 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None, pinned=None):
 BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench")
 
 #: Roles whose plates take the transition law where they fall inside a
-#: below-grade surface's reach.  Retaining-wall crest bands are in here
-#: because the band IS the first ring of the transition, not a cliff top.
+#: below-grade surface's reach.  ``ROLE_RETAINING_WALL`` is NOT here
+#: (owner 2026-09-03, ``docs/specs/tunnel-wall-crest-dem-spec.md`` L2):
+#: the wall band is the CLIFF TOP, the discontinuity itself — its crest
+#: is the DEM at its station all the way round the ramp, and no
+#: post-emit pass grades it toward the ramp it retains.
 TRANSITION_ROLES = (
     ROLE_GROUNDSIDE_PAVEMENT,
     ROLE_SERVICE_ROAD,
     ROLE_SERVICE_JUNCTION,
-    ROLE_RETAINING_WALL,
 )
 
 
@@ -411,12 +413,42 @@ def _ring_and_altitudes(shape):
     return ring, [float(flat)] * len(ring)
 
 
+def walled_ramp_ids(layout) -> frozenset:
+    """``id(shape)`` of every below-grade surface a tunnel wall band is
+    REGISTERED against (``bridges.register_wall_band_owners``, published
+    by the emitter that built the band).  Empty when no band exists."""
+    try:
+        from .bridges import wall_band_owners
+    except ImportError:                                # pragma: no cover
+        return frozenset()
+    owned: set = set()
+    for _ids, _reach in (wall_band_owners(layout) or {}).values():
+        owned.update(_ids or ())
+    return frozenset(owned)
+
+
 def below_grade_sources(layout, refs=BELOW_GRADE_REFS) -> list:
     """``[(polygon, ring, alts)]`` for every BELOW-GRADE surface in the
-    layout — the profiles the transition law grades away from."""
+    layout — the profiles the transition law grades away from.
+
+    A WALLED RAMP IS NOT A SOURCE (owner 2026-09-03,
+    ``docs/specs/tunnel-wall-crest-dem-spec.md`` L3).  A ``tunnel_ramp``
+    with a wall band registered against it carries its drop on the
+    wall: the ground outside the wall stands at the crest (the DEM), not
+    on a transition to the ramp.  The filter lives HERE, the single
+    derivation site, so every reader of the sources
+    (:func:`apply_below_grade_transition`, ``flat_fast_path``'s keep-out
+    reach) agrees without a per-consumer veto.  Unwalled shallow ramps
+    (under ``bridges._RAMP_WALL_MIN_DIG_M``, no band) keep round-4 R5;
+    ``tunnel_trench`` bodies are untouched — a trench is never a band
+    owner.
+    """
+    walled = walled_ramp_ids(layout)
     sources = []
     for shape in getattr(layout, "shapes", ()) or ():
         if getattr(shape, "ref", "") not in refs:
+            continue
+        if walled and id(shape) in walled:
             continue
         ring, alts = _ring_and_altitudes(shape)
         if ring is None:

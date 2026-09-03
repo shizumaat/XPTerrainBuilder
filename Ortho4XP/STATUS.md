@@ -1,4 +1,26 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260903a — BETA ABORT ROOT-CAUSED + FIXED; app 1.0.275 / engine
+#   1.50.1718 (embedded==dist). PLAN TO ZERO AIRSIDE written:
+#   docs/specs/zero-airside-plan-20260903.md (READ THAT NEXT).
+# THE ABORT: the 13:24 PT build of +30+031/+25+051/+40-004 on 1.0.274
+#   died in every tile after 8-14 min: H1 (c1c5cccb) made every
+#   build-stage failure fatal and swept in the pre-existing
+#   "No apt.dat found for HECP/OTBT/LECU/LECV" raise (CIFP-listed,
+#   no enabled pack). Pre-H1 that was logged + skipped. FIX 459125a0:
+#   apt.dat selected in the main process before queuing; None = level-0
+#   skip, never in tasks, manifest owes nothing. Twins in
+#   test_auto_patch_freshness.py. First tile build on 1.0.275 rebuilds
+#   every patch (engine stamp moved) — HECA ~14 min.
+# MERGED: chip step-loop rc=0 (run_tile_steps over 31d imagery-optional,
+#   b5f9ba3c; 292 harness tests pass). Chip road-band-seal restore =
+#   SUPERSEDED on main (9ac3441c/184ee9b4), dropped.
+# OWNER DECISIONS (data in the plan §2): OD-3 FGP/solve round scope;
+#   OD-1 air3 sign-off (-31 net, 21 NEW); OD-2 split-level un-hold;
+#   OD-8 pad-law bar vs 08-08 apron relief. OD-4/OD-5 parked to perf.
+# NEXT: owner sim read of 1.0.275 → R1 attribution build (no decision
+#   needed) → R1 solve round per the plan.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260902a — BETA CANDIDATE 1.0.274 BUILT (Wed 03:30 PT); owner tests
 #   Thu 12:00 PT. READ FIRST: docs/SIM-GUIDE-20260901.md (top section =
 #   the candidate guide), RULINGS 2026-09-01a..w + 2026-09-02a.

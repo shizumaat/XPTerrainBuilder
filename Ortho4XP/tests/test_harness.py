@@ -6828,11 +6828,18 @@ def test_the_geometry_half_runs_and_the_imagery_half_is_skipped(build_mod):
     """The step list is scoped by the capability, and the build RECORDS
     which halves ran — a geometry-only tile must never read as a full
     one."""
+    src = inspect.getsource(build_mod.build_tile)
+    # the imagery half is scoped OUT by name, as a recorded skip under
+    # THE STEP CONTRACT (§3b) — never a silently shorter plan
+    assert 'if not imagery["ok"]:' in src
+    assert 'skip_steps.setdefault(name, imagery["note"])' in src
+    assert 'run_tile_steps(tile, plan, prog, skip_steps=skip_steps)' in src
+    assert '"steps_run": [n for n, _ in plan if n in timings]' in src
+    assert '"steps_skipped": skipped' in src
     src = inspect.getsource(build_mod)
-    assert 'steps = [("1 vector"' in src and 'if imagery["ok"]:' in src
-    assert '"steps_run": [n for n, _ in steps]' in src
     assert 'frame["imagery"] = result.get("imagery")' in src
     assert 'frame["tile_steps_run"] = result.get("steps_run")' in src
+    assert 'frame["steps_skipped"] = result.get("steps_skipped")' in src
 
 
 def test_the_old_provider_REFUSAL_is_gone(build_mod):
@@ -6913,3 +6920,160 @@ def test_arming_redirects_off_the_shared_corpus(monkeypatch, build_mod):
         assert len(os.listdir(overlay)) == len(os.listdir(shared))
     # Idempotent once armed.
     assert conftest.arm_lane_local_derived_caches() is False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §3b THE TILE STEP LOOP NEVER LIES (silent-step-failure class: LEMD
+#     +40-004, 2026-09-02 — a mesh step whose .node input was never
+#     written printed its ERROR, was reported "DONE 0.0s", and the run
+#     exited 0)
+# ══════════════════════════════════════════════════════════════════════
+
+class _StepProg:
+    def __init__(self):
+        self.notes = []
+
+    def note(self, msg):
+        self.notes.append(msg)
+
+
+def _fresh_flags():
+    import O4_UI_Utils as UI
+    UI.red_flag = False
+    UI.is_working = False
+    return UI
+
+
+def test_a_step_returning_0_stops_the_tile_at_that_step(build_mod):
+    """Ortho4XP step functions signal failure ONLY by ``return 0`` after
+    printing their ERROR — never by exception, never by red_flag.  The
+    runner must stop the tile there (engine H1 parity): no DONE note, no
+    later step, rc != 0."""
+    _fresh_flags()
+    prog = _StepProg()
+    ran = []
+    plan = (("1 vector", lambda t: ran.append("vector") or 1),
+            ("2 mesh", lambda t: 0),
+            ("3 masks", lambda t: ran.append("masks") or 1))
+    with pytest.raises(SystemExit) as exc:
+        build_mod.run_tile_steps(object(), plan, prog)
+    assert "2 mesh" in str(exc.value) and "FAILED" in str(exc.value)
+    assert ran == ["vector"], "the failed step must be the LAST to run"
+    assert not any("2 mesh DONE" in n for n in prog.notes), \
+        "a failed step must never be reported DONE"
+
+
+def test_the_masks_convention_a_bare_return_is_success(build_mod):
+    """``build_masks``' normal exit is a bare ``return`` (None): the
+    failure predicate is ``result == 0`` exactly, never falsiness."""
+    _fresh_flags()
+    prog = _StepProg()
+    plan = (("1 vector", lambda t: 1),
+            ("3 masks", lambda t: None),
+            ("4 tile", lambda t: 1))
+    timings, skipped = build_mod.run_tile_steps(object(), plan, prog)
+    assert sorted(timings) == ["1 vector", "3 masks", "4 tile"]
+    assert skipped == {}
+    assert sum("DONE" in n for n in prog.notes) == 3
+
+
+def test_a_red_flagged_step_is_a_cancellation_not_a_failure(build_mod,
+                                                            monkeypatch):
+    """A red-flagged step also returns 0 — the engine session reports
+    that as stopped, not failed, and so does the runner."""
+    UI = _fresh_flags()
+    monkeypatch.setattr(UI, "red_flag", False)
+
+    def cancelled(tile):
+        UI.red_flag = True
+        return 0
+
+    with pytest.raises(SystemExit) as exc:
+        build_mod.run_tile_steps(object(), (("2 mesh", cancelled),),
+                                 _StepProg())
+    assert "red flag" in str(exc.value)
+    assert "FAILED" not in str(exc.value)
+
+
+def test_a_declared_skip_is_recorded_and_never_run(build_mod):
+    """An INAPPLICABLE step (mesh in a geometry-only tile frame) is an
+    explicit recorded skip — the step function is never called, so it
+    can never run into its own missing-input failure."""
+    _fresh_flags()
+    prog = _StepProg()
+    ran = []
+    plan = (("1 vector", lambda t: ran.append("vector") or 1),
+            ("2 mesh", lambda t: ran.append("mesh") or 0),
+            ("3 masks", lambda t: ran.append("masks") or 1))
+    reason = "geometry-only frame: step 1 emits no mesh inputs"
+    timings, skipped = build_mod.run_tile_steps(
+        object(), plan, prog, skip_steps={"2 mesh": reason})
+    assert ran == ["vector", "masks"]
+    assert skipped == {"2 mesh": reason}
+    assert "2 mesh" not in timings
+    assert any("2 mesh SKIPPED" in n for n in prog.notes)
+
+
+def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
+        build_mod, monkeypatch, tmp_path):
+    """RULINGS 2026-08-31d meets THE STEP CONTRACT: a frame with no
+    imagery provider stands the imagery half down as an EXPLICIT RECORDED
+    SKIP — ``build_tile`` names steps 3 masks + 4 tile in
+    ``steps_skipped`` with the ruling's note as the reason, their step
+    functions are never called, ``steps_run`` carries only the geometry
+    half, and the result still carries ``imagery`` for the frame."""
+    import sys as _sys
+    _fresh_flags()
+    for m in ("O4_Imagery_Utils", "O4_Vector_Map", "O4_Mesh_Utils",
+              "O4_Mask_Utils", "O4_Tile_Utils"):
+        __import__(m)
+    IMG = _sys.modules["O4_Imagery_Utils"]
+    for init in ("initialize_extents_dict", "initialize_color_filters_dict",
+                 "initialize_providers_dict",
+                 "initialize_combined_providers_dict"):
+        monkeypatch.setattr(IMG, init, lambda: None)
+    ran = []
+    monkeypatch.setattr(_sys.modules["O4_Vector_Map"], "build_poly_file",
+                        lambda t: ran.append("1 vector") or 1)
+    monkeypatch.setattr(_sys.modules["O4_Mesh_Utils"], "build_mesh",
+                        lambda t: ran.append("2 mesh") or 1)
+    monkeypatch.setattr(_sys.modules["O4_Mask_Utils"], "build_masks",
+                        lambda t: ran.append("3 masks"))
+    monkeypatch.setattr(_sys.modules["O4_Tile_Utils"], "build_tile",
+                        lambda t: ran.append("4 tile") or 1)
+    monkeypatch.setattr(build_mod, "apply_xplane_install_paths",
+                        lambda: {})
+
+    class _Tile:
+        build_dir = str(tmp_path)
+        default_website, default_zl = "", 16
+        auto_patch = modify_custom_airports = True
+
+    prov = {"action": "derived-from-global-defaults",
+            "global_source": "/x/Ortho4XP.cfg", "cfg": None}
+    imagery = build_mod.imagery_capability(_Tile(), prov)
+    assert imagery["ok"] is False
+    monkeypatch.setattr(build_mod, "resolve_tile_frame",
+                        lambda lat, lon, bd, prog: (_Tile(), prov, imagery))
+    prog = _StepProg()
+    result = build_mod.build_tile(40, -4, str(tmp_path), prog)
+    assert ran == ["1 vector", "2 mesh"], "the imagery half must NEVER run"
+    assert result["steps_run"] == ["1 vector", "2 mesh"]
+    assert result["steps_skipped"] == {"3 masks": imagery["note"],
+                                       "4 tile": imagery["note"]}
+    assert sorted(result["step_seconds"]) == ["1 vector", "2 mesh"]
+    assert result["imagery"] is imagery
+    assert any("3 masks SKIPPED" in n for n in prog.notes)
+    assert any("4 tile SKIPPED" in n for n in prog.notes)
+    assert not any("3 masks DONE" in n or "4 tile DONE" in n
+                   for n in prog.notes)
+    # ...and a caller's own skip is added to, never overwritten by, the
+    # imagery half.
+    ran.clear()
+    result = build_mod.build_tile(40, -4, str(tmp_path), _StepProg(),
+                                  skip_steps={"2 mesh": "caller's reason"})
+    assert ran == ["1 vector"]
+    assert result["steps_skipped"] == {"2 mesh": "caller's reason",
+                                       "3 masks": imagery["note"],
+                                       "4 tile": imagery["note"]}
+    assert result["steps_run"] == ["1 vector"]

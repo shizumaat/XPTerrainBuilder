@@ -64,9 +64,12 @@ measurement in this repo, and every one of them exits 0 without the check:
    ``tools/run_tile_mesh_only.py`` imports both, so the two tile entries
    cannot provision from two sources or refuse on two conditions.  The
    build's own record says which halves ran (``frame["imagery"]``,
-   ``frame["tile_steps_run"]``), so a geometry-only tile can never read
-   as a full one.  (Before 31d this refusal made the SPJC ``-13-078``
-   tile — an owner acceptance site — unbuildable in every lane.)
+   ``frame["tile_steps_run"]``) and which steps were skipped, with the
+   reason (``frame["steps_skipped"]`` — an explicit recorded skip under
+   ``run_tile_steps``' step contract, never a silently shorter plan), so
+   a geometry-only tile can never read as a full one.  (Before 31d this
+   refusal made the SPJC ``-13-078`` tile — an owner acceptance site —
+   unbuildable in every lane.)
 4. **A tile build with no CIFP.**  ``run_auto_patch_generation`` only calls
    the generator when it can resolve a CIFP directory; the dev config
    ships ``cifp_data_path`` EMPTY, so a whole-tile build there produces a
@@ -1857,7 +1860,73 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     }
 
 
-def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
+def run_tile_steps(tile, plan, prog, skip_steps=None):
+    """Run a tile's release steps under THE STEP CONTRACT — the engine
+    pipeline's own failure convention, which the harness loop used to
+    ignore (the silent-step-failure class, LEMD +40-004 2026-09-02).
+
+    Ortho4XP step functions never raise on their own errors and never set
+    ``red_flag`` for them: they print an ERROR line
+    (``UI.exit_message_and_bottom_line``) and ``return 0``; a normal exit
+    returns 1 (``build_masks``: a bare ``return``, i.e. ``None``).  So the
+    ONLY failure signal is ``result == 0`` — exactly the predicate the
+    engine path checks (``o4_engine/session.py`` ``_build_worker``), and
+    exactly what the old loop discarded: a mesh step whose ``.node`` input
+    was never written printed its ERROR, was reported "DONE 0.0s", every
+    later step failed the same silent way, and the run exited 0 as if the
+    tile had built.  Nothing downstream re-checks — the DONE note and the
+    exit code ARE the measurement, so they must not lie.
+
+    Semantics, mirroring the engine session:
+
+    * ``red_flag`` up after a step (result 0 or not) → cancellation, not
+      failure: the run stops with the red-flag message.
+    * ``result == 0`` without the red flag → THE step failed: stop the
+      tile at the first failed step (H1 parity), ``SystemExit`` naming it
+      — never a DONE note, never rc 0.
+    * a step named in ``skip_steps`` (``{name: reason}``) → an EXPLICIT
+      skip, recorded and never run.  This is the hook for a frame in
+      which a step is INAPPLICABLE (a geometry-only tile frame never
+      emits mesh inputs): declare the skip, never let the step run into
+      its own missing-input failure.  ``build_tile`` passes it for the
+      IMAGERY half (steps 3 masks + 4 tile) when the frame resolves no
+      provider (RULINGS 2026-08-31d, ``imagery_capability``); the
+      geometry-only *airport* frame is a different entry —
+      ``--geometry-only`` with ``--tile`` still refuses at the arg check.
+
+    Returns ``(timings, skipped)``: per-step seconds for the steps that
+    ran, and the recorded skip reasons.
+    """
+    import O4_UI_Utils as UI
+    timings, skipped = {}, {}
+    for name, step in plan:
+        if skip_steps and name in skip_steps:
+            skipped[name] = skip_steps[name]
+            prog.note(f"step {name} SKIPPED — {skip_steps[name]}")
+            continue
+        prog.note(f"step {name} START")
+        t0 = time.time()
+        result = step(tile)
+        dt = round(time.time() - t0, 1)
+        if UI.red_flag:
+            raise SystemExit(f"step {name} raised the red flag — stopping")
+        if result == 0:
+            timings[name] = dt
+            raise SystemExit(
+                f"step {name} FAILED after {dt}s — its build function "
+                f"returned 0 (its ERROR line is above; Ortho4XP steps "
+                f"signal failure by return value, never by exception or "
+                f"red_flag).  Stopping the tile at the first failed step "
+                f"(engine H1 parity).  If this step is INAPPLICABLE in "
+                f"this frame, it must be an explicit recorded skip "
+                f"(``skip_steps``), never an attempted run.")
+        timings[name] = dt
+        prog.note(f"step {name} DONE {dt}s")
+    return timings, skipped
+
+
+def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
+               skip_steps=None) -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``)."""
     sys.path.append(str(ROOT / "src"))
@@ -1898,21 +1967,28 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
         # half — the surface every lane measures — builds.
         prog.note(imagery["note"])
         UI.vprint(1, f"  [harness] {imagery['note']}")
-    timings = {}
-    steps = [("1 vector", VMAP.build_poly_file), ("2 mesh", MESH.build_mesh)]
-    if imagery["ok"]:
-        steps += [("3 masks", MASK.build_masks), ("4 tile", TILE.build_tile)]
-    for name, step in steps:
-        prog.note(f"step {name} START")
-        t0 = time.time()
-        step(tile)
-        timings[name] = round(time.time() - t0, 1)
-        prog.note(f"step {name} DONE {timings[name]}s")
-        if UI.red_flag:
-            raise SystemExit(f"step {name} raised the red flag — stopping")
+        # ...and it stands down as an EXPLICIT RECORDED SKIP under THE
+        # STEP CONTRACT (``run_tile_steps`` ``skip_steps``): steps 3 masks
+        # + 4 tile are named in ``steps_skipped`` with the ruling's note
+        # as the reason — never run into a provider-less failure, never
+        # silently absent from the plan.  A caller's own skips (if any)
+        # take precedence; the imagery half is added, not overwritten.
+        skip_steps = dict(skip_steps or {})
+        for name in ("3 masks", "4 tile"):
+            skip_steps.setdefault(name, imagery["note"])
+    plan = (("1 vector", VMAP.build_poly_file),
+            ("2 mesh", MESH.build_mesh),
+            ("3 masks", MASK.build_masks),
+            ("4 tile", TILE.build_tile))
+    timings, skipped = run_tile_steps(tile, plan, prog, skip_steps=skip_steps)
     return {"tile": [lat, lon], "build_dir": tile.build_dir,
-            "step_seconds": timings, "xplane_paths": paths,
-            "steps_run": [n for n, _ in steps],
+            "step_seconds": timings,
+            # The steps that actually RAN (and completed — a failed step
+            # raised inside ``run_tile_steps``), in plan order: never a
+            # skipped one, so a geometry-only tile can never read as full.
+            "steps_run": [n for n, _ in plan if n in timings],
+            "steps_skipped": skipped,
+            "xplane_paths": paths,
             "imagery": imagery,
             "tile_cfg_provenance": cfg_provenance}
 
@@ -2411,6 +2487,10 @@ def main(argv=None) -> int:
     # say so — a geometry-only tile must never read as a full one.
     frame["imagery"] = result.get("imagery")
     frame["tile_steps_run"] = result.get("steps_run")
+    # ...and the steps it explicitly SKIPPED, each with its reason
+    # (``run_tile_steps`` ``skip_steps`` — a recorded skip, never an
+    # attempted run reported DONE): under 31d the imagery half, by name.
+    frame["steps_skipped"] = result.get("steps_skipped")
     # THE SOLVE MODEL, re-resolved now that a ``--tile`` run's per-tile cfg
     # has been provisioned (it did not exist when the pre-build record was
     # taken, and precedence puts it above the global cfg).  On the patch

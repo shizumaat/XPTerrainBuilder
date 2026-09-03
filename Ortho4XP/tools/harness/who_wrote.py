@@ -435,13 +435,437 @@ def _print_by_writer(rep):
         print(f"              {r['introduced_by']}")
 
 
+# ── CERTIFICATE ATTRIBUTION (NO BUILD): the R1.1 table ────────────────
+#: Pin-source labels that make an endpoint SENIOR (the projection must not
+#: move it under any arm of the solve round): the runway datum, pads /
+#: seats, the tile seam, terrain pins.  Everything else hard is a solve-
+#: minted hold the S1 filter may stand down.
+_SENIOR_PINS = ("runway_node", "pad", "tile_seam", "terrain_pin",
+                "building_seat", "rwy_", "seam_")
+#: Hard sources S1's ``_solve_law_hold_filter`` / the weld-scan release
+#: stand down (fgp-s1-round-ledger.md): a mixed row whose hard endpoint is
+#: one of these is the hold-release-only arm's own population.
+_RELEASABLE_PINS = ("svc_free_end", "svc_profile", "gs_weld",
+                    "service_ring", "feature_weld", "svc_mouth_seat")
+#: Certificate families that exist ONLY in the projection's rebuilt graph
+#: (never at the solve exit): the S1 law-join replaces them.
+_FGP_ONLY_FAMILIES = ("transverse", "junction:transverse_no_step")
+_FGP_MARK = "final_grade_projection"
+#: The pipeline call line of ``final_grade_projection`` — a write whose
+#: chain carries a ``pipeline.py:<line>:solve_and_finalize`` frame with a
+#: larger line is POST-projection.  Read from the chain, never assumed:
+#: the reader takes it from the first FGP site it sees.
+_PIPE_RE = None
+
+
+def _pipeline_line(site):
+    """The ``pipeline.py:<line>:solve_and_finalize`` frame's line in a
+    site chain, or ``None`` when the chain does not reach it."""
+    global _PIPE_RE
+    if _PIPE_RE is None:
+        import re
+        _PIPE_RE = re.compile(r"pipeline\.py:(\d+):(\w+)")
+    best = None
+    for m in _PIPE_RE.finditer(site or ""):
+        line, fn = int(m.group(1)), m.group(2)
+        if fn == "solve_and_finalize":
+            return line
+        # A nested helper (``_post_projection_conformance_passes``) is
+        # defined beside its call site, so the OUTERMOST pipeline frame
+        # in a chain the depth cut short still orders the write.
+        best = line if best is None else max(best, line)
+    return best
+
+
+def stage_of_site(site):
+    """A short STAGE label for a write site chain (innermost frame first).
+
+    ``fgp`` for any write inside ``final_grade_projection``; ``solve@L``
+    for a write inside ``solve_route_profile`` (L = its line: the
+    writeback vs the pass-2 sites); otherwise the innermost frame's
+    function name, or ``pipeline@L`` when that frame is
+    ``solve_and_finalize`` itself (an inline pass; the line names it).
+    """
+    if not site:
+        return "?"
+    inner = site.split(" <- ")[0]
+    parts = inner.split(":")
+    fn = parts[2] if len(parts) >= 3 else inner
+    line = parts[1] if len(parts) >= 3 else "?"
+    if _FGP_MARK in site:
+        return "fgp" if fn == _FGP_MARK else f"fgp/{fn}"
+    if _SOLVE_SITE in site:
+        return f"solve@{line}" if fn == _SOLVE_SITE else f"solve/{fn}"
+    if fn == "solve_and_finalize":
+        return f"pipeline@{line}"
+    return fn
+
+
+def load_vertex_dump(path):
+    """``(sites, index)`` — ``index`` maps a 2-dp plan coordinate to the
+    list of vertex records at it (every role / ref sharing the point)."""
+    sites, index = [], {}
+    with Path(path).open() as fh:
+        for line in fh:
+            r = json.loads(line)
+            if r.get("kind") == "meta":
+                sites = r["sites"]
+                continue
+            if r.get("kind") != "vertex":
+                continue
+            index.setdefault((round(r["x"], 2), round(r["y"], 2)),
+                             []).append(r)
+    return sites, index
+
+
+def _vertex_at(index, x, y):
+    """The vertex records at a plan coordinate, tolerant to 1 cm of
+    rounding on either axis (the dumps round to 3 dp, the join to 2)."""
+    for dx in (0.0, -0.01, 0.01):
+        for dy in (0.0, -0.01, 0.01):
+            h = index.get((round(x + dx, 2), round(y + dy, 2)))
+            if h:
+                return h
+    return []
+
+
+def endpoint_state(recs, sites, fgp_line=None, move_floor=0.1):
+    """What the write stream says about ONE certificate endpoint.
+
+    Over every vertex record at the point (several shapes can share it):
+    the LAST write that changed the value BEFORE the projection (the
+    stage the residual's value was authored by, at the reading), the
+    set of roles at the point, whether the projection moved it by
+    ``move_floor`` or more (and by how much), and the solve's value.
+    Pre-projection = the entries before the first ``fgp`` entry of the
+    history; with no ``fgp`` entry, the entries whose pipeline frame
+    line is <= the projection's (``fgp_line``) when that is readable.
+    """
+    roles = sorted({r["role"] for r in recs})
+    last_stage, last_site_line = "?", -1
+    fgp_moved, fgp_dm, solved = False, 0.0, None
+    for r in recs:
+        hist = r.get("hist") or []
+        pre = []
+        seen_fgp = False
+        for (si, v) in hist:
+            st = sites[si]
+            if _FGP_MARK in st:
+                seen_fgp = True
+                break
+            pre.append((si, v))
+        if not seen_fgp and fgp_line is not None:
+            pre = [(si, v) for (si, v) in hist
+                   if (_pipeline_line(sites[si]) or 0) <= fgp_line]
+        if pre:
+            si, v = pre[-1]
+            # Prefer the CHRONOLOGICALLY latest pre-projection writer
+            # across the shapes at the point: the pipeline frame line
+            # orders inline passes; a deeper chain without one ranks by
+            # its position (0) and only wins when nothing else wrote.
+            pl = _pipeline_line(sites[si]) or 0
+            if pl >= last_site_line:
+                last_site_line = pl
+                last_stage = stage_of_site(sites[si])
+        prev = None
+        for (si, v) in hist:
+            st = sites[si]
+            if _FGP_MARK in st and prev is not None:
+                d = abs(v - prev)
+                if d >= move_floor:
+                    fgp_moved = True
+                    fgp_dm = max(fgp_dm, d)
+            prev = v
+        if r.get("solved") is not None:
+            solved = r["solved"]
+    return {"roles": roles, "last_stage": last_stage,
+            "fgp_moved": fgp_moved, "fgp_dm": round(fgp_dm, 3),
+            "solved": solved}
+
+
+def _family_group(fam):
+    f = str(fam)
+    if f in _FGP_ONLY_FAMILIES or f in ("rod_interval", "unified_graph"):
+        return f
+    if f.startswith("unified:"):
+        f = f[len("unified:"):]
+    return f.split(":", 1)[0] or f
+
+
+def _pair_key(row):
+    pts = tuple(sorted((round(x, 2), round(y, 2)) for x, y in row["xy"]))
+    return pts
+
+
+def disposition(row, ends):
+    """The PREDICTED disposition of one residual row under the R1
+    arms — a mechanical rule over the row's own evidence (pins, hard
+    flags, family, the write stream), stated so the table can be
+    checked against the arms when they run.  Never a verdict."""
+    pins = [p or "" for p in row.get("pins") or []]
+    hard = row.get("hard") or []
+    if row.get("both_hard"):
+        return "pin-infeasible (both hard)"
+    for h, p in zip(hard, pins):
+        if h and any(p.startswith(s) for s in _SENIOR_PINS):
+            return f"senior-protected ({p})"
+    fam = str(row["family"])
+    if fam in _FGP_ONLY_FAMILIES:
+        return "closes:S1 (FGP-only family)"
+    if row.get("mixed"):
+        for h, p in zip(hard, pins):
+            if h and any(p.startswith(s) for s in _RELEASABLE_PINS):
+                return f"closes:S1-hold-release ({p})"
+        if any(hard):
+            return "needs-solve (R6 pin, non-releasable hard)"
+        return "needs-solve (R6 groundside-service, no hard endpoint)"
+    if any(e["fgp_moved"] for e in ends):
+        if row.get("_in_base"):
+            return "needs-solve (inherited from solve exit; FGP moved)"
+        return "closes:S2 (FGP re-authored a solve value)"
+    if row.get("_in_base"):
+        return "needs-solve (inherited from solve exit)"
+    return "closes:S1 (minted by the rebuilt graph)"
+
+
+def attribute_certificate(cert_path, vertex_path, base_paths=(),
+                          move_floor=0.1, top_specimens=3):
+    """THE R1.1 TABLE: every residual row of one certificate reading,
+    grouped by (family group, pair class, last pre-projection writer of
+    each endpoint, FGP moved?), with counts, p50 / max excess, the
+    predicted disposition split, and specimens.
+
+    ``base_paths`` — ``label=PATH`` readings (e.g. ``solve=…solve_exit…``)
+    whose rows are joined on the unordered endpoint pair, so each row
+    says which earlier reading already carried it (inherited) or not
+    (minted).  Returns ``{"rows": [...], "groups": [...], "summary": …}``.
+    """
+    cert = json.loads(Path(cert_path).read_text())
+    sites, index = load_vertex_dump(vertex_path)
+    fgp_line = None
+    for st in sites:
+        if _FGP_MARK in st:
+            fgp_line = _pipeline_line(st)
+            if fgp_line is not None:
+                break
+    bases = {}
+    for spec in base_paths or ():
+        label, _, pth = spec.partition("=")
+        b = json.loads(Path(pth).read_text())
+        bases[label] = {_pair_key(r) for r in b["rows"]}
+    base_label = next(iter(bases), None)
+    rows_out, groups, unjoined = [], {}, 0
+    for r in cert["rows"]:
+        ends = []
+        for (x, y) in r["xy"]:
+            recs = _vertex_at(index, x, y)
+            if not recs:
+                unjoined += 1
+            ends.append(endpoint_state(recs, sites, fgp_line, move_floor))
+        pk = _pair_key(r)
+        member = {lab: (pk in ks) for lab, ks in bases.items()}
+        r2 = dict(r)
+        r2["_in_base"] = bool(member.get(base_label)) if base_label else False
+        disp = disposition(r2, ends)
+        fam_role = _family_group(r["family"])
+        # Endpoint role: the family's own role when the point carries it,
+        # else every role at the point (a weld hub reads as its stack).
+        def _erole(e):
+            if fam_role in e["roles"]:
+                return fam_role
+            return "+".join(e["roles"]) or "?"
+        eroles = sorted(_erole(e) for e in ends)
+        # a hyper row (4 nodes) collapses to its distinct role set
+        pair = "|".join(sorted(set(eroles))) if len(eroles) > 2 \
+            else "|".join(eroles)
+        stages = tuple(e["last_stage"] for e in ends)
+        st_key = "|".join(sorted(set(stages)))
+        moved = any(e["fgp_moved"] for e in ends)
+        key = (fam_role, pair, st_key, moved)
+        g = groups.setdefault(key, {
+            "family": fam_role, "pair": pair, "last_stage": st_key,
+            "fgp_moved": moved, "n": 0, "excess": [], "disp": {},
+            "member": {}, "specimens": []})
+        g["n"] += 1
+        g["excess"].append(float(r["excess_m"]))
+        g["disp"][disp] = g["disp"].get(disp, 0) + 1
+        for lab, m in member.items():
+            g["member"][lab] = g["member"].get(lab, 0) + int(m)
+        g["specimens"].append((float(r["excess_m"]), r.get("ll"),
+                               r.get("idx"), r["family"], disp))
+        rows_out.append({
+            "family": r["family"], "family_group": fam_role, "pair": pair,
+            "excess_m": r["excess_m"], "both_hard": r.get("both_hard"),
+            "mixed": r.get("mixed"), "hard": r.get("hard"),
+            "pins": r.get("pins"), "xy": r["xy"], "ll": r.get("ll"),
+            "idx": r.get("idx"), "ends": ends, "member": member,
+            "disposition": disp})
+    out_groups = []
+    for g in groups.values():
+        ex = sorted(g["excess"])
+        g["p50_m"] = round(ex[len(ex) // 2], 3)
+        g["max_m"] = round(ex[-1], 3)
+        del g["excess"]
+        g["specimens"].sort(key=lambda t: -t[0])
+        g["specimens"] = [{"excess_m": e, "ll": ll, "idx": idx,
+                           "family": f, "disposition": d}
+                          for (e, ll, idx, f, d) in
+                          g["specimens"][:top_specimens]]
+        out_groups.append(g)
+    out_groups.sort(key=lambda g: -g["n"])
+    disp_tot: dict = {}
+    fam_tot: dict = {}
+    for r in rows_out:
+        disp_tot[r["disposition"]] = disp_tot.get(r["disposition"], 0) + 1
+        fam_tot[r["family_group"]] = fam_tot.get(r["family_group"], 0) + 1
+    summary = {
+        "cert": str(cert_path), "reading": cert.get("tag"),
+        "n_rows": len(rows_out), "n_over": cert.get("n_over"),
+        "endpoints_unjoined": unjoined, "fgp_pipeline_line": fgp_line,
+        "move_floor_m": move_floor,
+        "by_disposition": dict(sorted(disp_tot.items(),
+                                      key=lambda kv: -kv[1])),
+        "by_family": dict(sorted(fam_tot.items(), key=lambda kv: -kv[1])),
+        "by_membership": {lab: sum(1 for r in rows_out
+                                   if r["member"].get(lab))
+                          for lab in bases},
+        "rows_with_fgp_moved_endpoint": sum(
+            1 for r in rows_out if any(e["fgp_moved"] for e in r["ends"])),
+    }
+    return {"summary": summary, "groups": out_groups, "rows": rows_out}
+
+
+def attribute_moves(moves_path, vertex_path, cert_rows=None,
+                    author=_FGP_MARK, cls="untouched"):
+    """The 827-class by LAST PRE-PROJECTION WRITER: every ``move`` record
+    of ``author`` in class ``cls`` from an ``--author-dump``, joined to
+    the vertex history at its plan coordinate, grouped by (role, last
+    stage), with the count / p50 / max displacement and how many of the
+    moved vertices are endpoints of a certificate residual row."""
+    sites, index = load_vertex_dump(vertex_path)
+    fgp_line = None
+    for st in sites:
+        if _FGP_MARK in st:
+            fgp_line = _pipeline_line(st)
+            if fgp_line is not None:
+                break
+    resid_pts = set()
+    for r in (cert_rows or ()):
+        for (x, y) in r["xy"]:
+            resid_pts.add((round(x, 2), round(y, 2)))
+    groups: dict = {}
+    n_total = 0
+    with Path(moves_path).open() as fh:
+        for line in fh:
+            m = json.loads(line)
+            if m.get("kind") != "move" or m.get("class") != cls:
+                continue
+            if author not in (m.get("author") or ""):
+                continue
+            n_total += 1
+            x, y = m.get("x"), m.get("y")
+            recs = ([rr for rr in _vertex_at(index, x, y)
+                     if rr["role"] == m["role"]]
+                    if x is not None else [])
+            st = endpoint_state(recs, sites, fgp_line)
+            on_resid = (x is not None
+                        and (round(x, 2), round(y, 2)) in resid_pts)
+            key = (m["role"], st["last_stage"])
+            g = groups.setdefault(key, {"role": m["role"],
+                                        "last_stage": st["last_stage"],
+                                        "n": 0, "d": [], "on_residual": 0,
+                                        "specimens": []})
+            g["n"] += 1
+            d = abs(float(m["after"]) - float(m["before"]))
+            g["d"].append(d)
+            g["on_residual"] += int(on_resid)
+            g["specimens"].append((d, m.get("x"), m.get("y"),
+                                   m.get("ref"), m.get("before"),
+                                   m.get("after")))
+    out = []
+    for g in groups.values():
+        d = sorted(g["d"])
+        g["p50_m"] = round(d[len(d) // 2], 3)
+        g["max_m"] = round(d[-1], 3)
+        del g["d"]
+        g["specimens"].sort(key=lambda t: -t[0])
+        g["specimens"] = [{"d_m": round(a, 3), "x": x, "y": y, "ref": ref,
+                           "before": b, "after": c}
+                          for (a, x, y, ref, b, c) in g["specimens"][:3]]
+        out.append(g)
+    out.sort(key=lambda g: -g["n"])
+    return {"n_moves": n_total, "class": cls, "author": author,
+            "groups": out}
+
+
+def _md_table(headers, rows):
+    out = ["| " + " | ".join(headers) + " |",
+           "|" + "|".join("---" for _ in headers) + "|"]
+    for r in rows:
+        out.append("| " + " | ".join(str(c) for c in r) + " |")
+    return "\n".join(out)
+
+
+def render_attribution_md(cert_attr, moves_attr=None, top=None):
+    """Markdown for the two attribution tables."""
+    s = cert_attr["summary"]
+    lines = [f"### Certificate residual attribution — {s['reading']}",
+             "",
+             f"rows {s['n_rows']} (certificate n_over {s['n_over']}); "
+             f"endpoints unjoined {s['endpoints_unjoined']}; "
+             f"FGP pipeline line {s['fgp_pipeline_line']}; "
+             f"rows with an FGP-moved (>= {s['move_floor_m']} m) endpoint "
+             f"{s['rows_with_fgp_moved_endpoint']}",
+             "",
+             "by family: " + ", ".join(f"{k} {v}" for k, v in
+                                       s["by_family"].items()),
+             "",
+             "by membership in earlier readings: " + ", ".join(
+                 f"{k} {v}" for k, v in s["by_membership"].items()),
+             "",
+             "by predicted disposition: " + "; ".join(
+                 f"{k} {v}" for k, v in s["by_disposition"].items()),
+             ""]
+    rows = []
+    for g in (cert_attr["groups"] if top is None
+              else cert_attr["groups"][:top]):
+        disp = "; ".join(f"{k} {v}" for k, v in
+                         sorted(g["disp"].items(), key=lambda kv: -kv[1]))
+        mem = ", ".join(f"{k} {v}" for k, v in g["member"].items())
+        spec = "; ".join(
+            f"{sp['excess_m']:.2f} m @ " + (
+                ",".join(f"{ll[0]:.6f}/{ll[1]:.6f}" for ll in
+                         (sp['ll'] or [])[:2]) or "?")
+            for sp in g["specimens"][:2])
+        rows.append((g["family"], g["pair"], g["last_stage"],
+                     "yes" if g["fgp_moved"] else "no", g["n"],
+                     g["p50_m"], g["max_m"], mem, disp, spec))
+    lines.append(_md_table(
+        ["family", "pair", "last pre-FGP writer (a|b)", "FGP moved",
+         "n", "p50 m", "max m", "in earlier reading", "predicted disposition",
+         "specimens (excess @ lat/lon)"], rows))
+    if moves_attr:
+        lines += ["", f"### FGP moves, class '{moves_attr['class']}' "
+                      f"({moves_attr['n_moves']} moves) by last "
+                      f"pre-FGP writer", ""]
+        rows = [(g["role"], g["last_stage"], g["n"], g["p50_m"],
+                 g["max_m"], g["on_residual"],
+                 "; ".join(f"{sp['d_m']:.2f} m @ ({sp['x']},{sp['y']}) "
+                           f"{sp['ref']}" for sp in g["specimens"][:2]))
+                for g in moves_attr["groups"]]
+        lines.append(_md_table(
+            ["role", "last pre-FGP writer", "n", "p50 m", "max m",
+             "on a residual row", "specimens"], rows))
+    return "\n".join(lines) + "\n"
+
+
 class AuthorshipProbe:
     """Records every ``node_altitudes`` assignment.  ``install`` swaps the
     dataclass field for a property; ``uninstall`` puts it back."""
 
     def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05,
                  authors=(), author_tol=0.01, solve_site=_SOLVE_SITE,
-                 dump_moves=False):
+                 dump_moves=False, track_vertices=False):
         self.cls = shape_cls
         self.dem_m = dem_m
         self.roles = set(roles or ())
@@ -476,6 +900,19 @@ class AuthorshipProbe:
         #: index sat EXACTLY on the constant DEM} — the vertex-granular
         #: version of the DEM-authorship census, which is per SHAPE.
         self.dem_origin_site: dict = {}
+        #: ``--vertex-dump``: THE VERTEX HISTORY — for EVERY vertex the
+        #: build ever wrote, the ordered list of writes that CHANGED its
+        #: value (beyond ``author_tol``), keyed by (role, ref, plan
+        #: coordinate) so it survives the ``dataclasses.replace`` re-
+        #: minting that gives one ring a new instance id.  This is the
+        #: "last solver stage that wrote each endpoint" axis the R1
+        #: attribution table groups on (zero-airside plan R1.1).
+        self.track_vertices = bool(track_vertices)
+        self.vhist: dict = {}
+        self._vprev: dict = {}
+        self._vring: dict = {}
+        self._sites: dict = {}
+        self.site_list: list = []
         self._step = 0
         self._saved = None
 
@@ -509,6 +946,8 @@ class AuthorshipProbe:
                     dorg[k] = site
         if self.authors:
             self._record_author(shape, role, values, site)
+        if self.track_vertices and values is not None and site is not None:
+            self._record_vertices(shape, role, values, site)
         if not self.at or not values:
             return
         poly = getattr(shape, "polygon", None)
@@ -602,6 +1041,93 @@ class AuthorshipProbe:
             self.author_worst.sort(key=lambda r: -r[0])
             del self.author_worst[_WORST_KEEP:]
         self._prev[sid] = list(vals)
+
+    # ── the vertex history (``--vertex-dump``) ────────────────────────
+    def _record_vertices(self, shape, role, values, site):
+        """Append this write to the history of every vertex it CHANGED.
+
+        A vertex is keyed by ``(role, ref, x, y)`` with the plan
+        coordinate rounded to 1 mm, read from the shape's ring at the
+        time of the write (cached per instance and ring length).  A
+        write is a change when the value differs from the instance's
+        previous value by more than ``author_tol``; the first write of a
+        NEW instance (``dataclasses.replace``) that repeats the key's
+        last recorded value is a carry, not a change.  In-place list
+        mutation (``shape.node_altitudes[k] = v``) never reaches the
+        property setter and is invisible here, as it is to every other
+        report of this probe.
+        """
+        sid = id(shape)
+        n = len(values)
+        ring = self._vring.get(sid)
+        if ring is None or len(ring) != n:
+            poly = getattr(shape, "polygon", None)
+            ring = (list(poly.exterior.coords)
+                    if (poly is not None and not poly.is_empty
+                        and poly.geom_type == "Polygon") else [])
+            self._vring[sid] = ring
+        prev = self._vprev.get(sid)
+        sidx = self._sites.get(site)
+        if sidx is None:
+            sidx = len(self.site_list)
+            self._sites[site] = sidx
+            self.site_list.append(site)
+        ref = getattr(shape, "ref", "") or ""
+        tol = self.author_tol
+        vh = self.vhist
+        for k in range(min(n, len(ring))):
+            v = values[k]
+            if v is None:
+                continue
+            v = float(v)
+            p = prev[k] if (prev is not None and k < len(prev)) else None
+            if p is not None and abs(v - p) <= tol:
+                continue
+            x, y = ring[k]
+            key = (role, ref, round(x, 3), round(y, 3))
+            h = vh.get(key)
+            if h is None:
+                h = []
+                vh[key] = h
+            elif p is None and abs(h[-1][1] - v) <= tol:
+                continue
+            h.append((sidx, round(v, 4)))
+        self._vprev[sid] = [None if v is None else float(v) for v in values]
+
+    def write_vertex_dump(self, path):
+        """``--vertex-dump``: one JSONL record per vertex key.
+
+        ``meta`` first (the site table — records carry site INDICES into
+        it — the materiality floor and the solve reference site), then
+        one ``vertex`` record per key: role, ref, plan coordinate, the
+        ordered ``hist`` of ``[site_index, value]`` changes, the
+        ``final`` value, the ``solved`` value (the value at the last
+        change whose site contains ``solve_site``; ``None`` when the
+        solve never wrote it) and ``last_site`` (index).
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        solve_hits = [self.solve_site in st for st in self.site_list]
+        n = 0
+        with path.open("w") as fh:
+            fh.write(json.dumps({
+                "kind": "meta", "sites": self.site_list,
+                "tol_m": self.author_tol, "solve_site": self.solve_site,
+                "n_vertices": len(self.vhist)}) + "\n")
+            for (role, ref, x, y), hist in self.vhist.items():
+                solved = None
+                for (si, v) in hist:
+                    if solve_hits[si]:
+                        solved = v
+                fh.write(json.dumps({
+                    "kind": "vertex", "role": role, "ref": ref,
+                    "x": x, "y": y, "hist": [[si, v] for si, v in hist],
+                    "final": hist[-1][1] if hist else None,
+                    "solved": solved,
+                    "last_site": hist[-1][0] if hist else None}) + "\n")
+                n += 1
+        return {"vertices": n, "sites": len(self.site_list),
+                "path": str(path)}
 
     def author_report(self):
         """``(table_rows, totals)`` for the displacement census."""
@@ -985,6 +1511,44 @@ def main(argv=None) -> int:
                          "report keeps only the worst 40 rows, which cannot "
                          "answer whether a moved vertex is one some other "
                          "writer seeded.")
+    ap.add_argument("--cert-attrib", default=None, metavar="CERT.json",
+                    help="NO BUILD: THE R1.1 TABLE — attribute every "
+                         "residual row of an airside-certificate dump "
+                         "(``O4_AIRSIDE_CERT_DUMP``) by family, endpoint "
+                         "role pair, the LAST PRE-PROJECTION WRITER of "
+                         "each endpoint (from --vertex-json) and whether "
+                         "the projection moved an endpoint; needs "
+                         "--vertex-json.  Optional --cert-base "
+                         "LABEL=PATH (repeatable) marks rows an earlier "
+                         "reading already carried; --moves-json adds the "
+                         "author-dump's untouched-class moves by last "
+                         "writer.  Writes --attrib-json / --attrib-md.")
+    ap.add_argument("--vertex-json", default=None, metavar="PATH",
+                    help="with --cert-attrib: a --vertex-dump JSONL")
+    ap.add_argument("--cert-base", action="append", default=[],
+                    metavar="LABEL=PATH",
+                    help="with --cert-attrib: an earlier reading's dump, "
+                         "joined on the endpoint pair (first one given "
+                         "is the 'inherited' reference for dispositions)")
+    ap.add_argument("--moves-json", default=None, metavar="PATH",
+                    help="with --cert-attrib: an --author-dump JSONL; its "
+                         "untouched-class projection moves are attributed "
+                         "by last pre-projection writer")
+    ap.add_argument("--attrib-json", type=Path, default=None)
+    ap.add_argument("--attrib-md", type=Path, default=None)
+    ap.add_argument("--move-floor", type=float, default=0.1,
+                    help="with --cert-attrib: an endpoint counts as "
+                         "'FGP moved' at this displacement (default 0.1 m)")
+    ap.add_argument("--vertex-dump", type=Path, default=None,
+                    metavar="PATH",
+                    help="THE VERTEX HISTORY: write, for EVERY vertex the "
+                         "build wrote, the ordered list of writes that "
+                         "CHANGED its value (site + value), keyed by "
+                         "(role, ref, plan coordinate), as JSONL.  The "
+                         "axis the R1 attribution joins the airside "
+                         "certificate's residual endpoints on (which "
+                         "solver stage last wrote each endpoint).  Uses "
+                         "--author-tol as its change floor.")
     ap.add_argument("--footprint", action="append", default=[],
                     metavar="X,Y",
                     help="FOOTPRINT history: metre-frame coordinate whose "
@@ -1007,6 +1571,26 @@ def main(argv=None) -> int:
                          "(allow_degraded_dem_requested).  It authorises no "
                          "write to the shared data repo.")
     args = ap.parse_args(argv)
+    if args.cert_attrib:
+        if not args.vertex_json:
+            ap.error("--cert-attrib needs --vertex-json (a --vertex-dump)")
+        attr = attribute_certificate(args.cert_attrib, args.vertex_json,
+                                     base_paths=args.cert_base,
+                                     move_floor=args.move_floor)
+        mv = None
+        if args.moves_json:
+            mv = attribute_moves(args.moves_json, args.vertex_json,
+                                 cert_rows=attr["rows"])
+        md = render_attribution_md(attr, mv)
+        print(md)
+        if args.attrib_md:
+            Path(args.attrib_md).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.attrib_md).write_text(md)
+        if args.attrib_json:
+            Path(args.attrib_json).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.attrib_json).write_text(json.dumps(
+                {"certificate": attr, "moves": mv}, indent=1))
+        return 0
     if args.emitted_patch:
         # A pure FILE read: no build, no layout, so no build cwd and no
         # ICAO.  It answers the emitted half of the frame question on a
@@ -1041,10 +1625,11 @@ def main(argv=None) -> int:
         ap.error("give an ICAO (to build) or --emitted-patch (to read a "
                  "patch an earlier build wrote)")
     if (args.dem is None and not args.at and not args.author
-            and not args.footprint):
+            and not args.footprint and not args.vertex_dump):
         ap.error("give --dem (authorship census), --at X,Y (node history), "
                  "--author SITE (displacement census), --footprint X,Y "
-                 "(footprint history), or any combination")
+                 "(footprint history), --vertex-dump PATH (vertex "
+                 "history), or any combination")
 
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):
@@ -1062,7 +1647,8 @@ def main(argv=None) -> int:
     probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
                             authors=args.author,
                             author_tol=args.author_tol,
-                            dump_moves=bool(args.author_dump)).install()
+                            dump_moves=bool(args.author_dump),
+                            track_vertices=bool(args.vertex_dump)).install()
     fprobe = FootprintProbe(BuiltShape, fp_at).install() if fp_at else None
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
@@ -1174,6 +1760,12 @@ def main(argv=None) -> int:
         for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
             print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
                   f"{before} -> {after}   at ({x},{y})")
+    if args.vertex_dump:
+        vinfo = probe.write_vertex_dump(args.vertex_dump)
+        report["vertex_dump"] = vinfo
+        print(f"\n  [harness] per-vertex history dump -> {vinfo['path']} "
+              f"({vinfo['vertices']} vertices, {vinfo['sites']} distinct "
+              f"write sites)")
     if args.author_dump:
         info = probe.write_move_dump(layout, args.author_dump)
         report["author_dump"] = info

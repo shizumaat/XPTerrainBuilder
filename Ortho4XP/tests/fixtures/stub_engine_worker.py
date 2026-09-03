@@ -33,6 +33,11 @@ Tile-coordinate scripts (switch on ``lat``):
 * ``lat == 65`` — a sleeper that DIES on cancel: on the cancel flag it
   ``os._exit(0)``s with no terminal event (the SIGTERM-escalated real
   child), so the parent must label the tile stopped itself.
+* ``lat == 66`` — a WEDGED worker: sleeps ``STUB_WORKER_WEDGE_SECONDS``
+  (default 30) and never polls the cancel flag at all — a step stuck in
+  an operation with no cancellation checkpoint.  Only the parent's
+  SIGTERM escalation can end it; the parent must both bound the wait
+  and label the tile stopped.
 * ``lat == 63`` — an AUTO-PATCH tile: its ``vector`` step fetches
   briefly, emits ``AutoPatchBegin``, then BURNS PROCESSOR for
   ``STUB_WORKER_SOLVE_SECONDS`` (default 0.6) before reporting the
@@ -86,6 +91,10 @@ _CONVERT_SECONDS = float(
     os.environ.get("STUB_WORKER_CONVERT_SECONDS", "0.6"))
 _DOWNLOAD_SECONDS = float(
     os.environ.get("STUB_WORKER_DOWNLOAD_SECONDS", "0.15"))
+
+# How long the wedged tile (lat 66) sleeps without ever polling cancel:
+# far past any test's deadline, so only the parent's escalation ends it.
+_WEDGE_SECONDS = float(os.environ.get("STUB_WORKER_WEDGE_SECONDS", "30"))
 
 _cancel_flag = threading.Event()
 _build_queue: "queue.Queue" = queue.Queue()
@@ -200,6 +209,8 @@ def _run_one_build(message):
         _crashing_tile(lat, lon, step_key)
     elif lat == 65:
         _dying_on_cancel_tile(lat, lon, step_key)
+    elif lat == 66:
+        _wedged_tile(lat, lon, step_key)
     elif lat == 63 and step_key == "vector":
         _auto_patch_tile(lat, lon, step_key)
     elif lat == 64 and step_key == "imagery":
@@ -262,6 +273,21 @@ def _dying_on_cancel_tile(lat, lon, step_key="vector"):
             sys.stdout.flush()
             os._exit(0)
         time.sleep(_SLEEPER_POLL)
+    _tile_state(lat, lon, "done", percent=100.0)
+    time.sleep(_TERMINAL_PAUSE)
+    _build_done(lat, lon, True)
+    time.sleep(_TERMINAL_PAUSE)
+
+
+def _wedged_tile(lat, lon, step_key="vector"):
+    """A step that never reaches a cancellation checkpoint: it sleeps
+    the whole wedge without looking at the cancel flag, so a cooperative
+    ``cancel`` does nothing and only the parent's SIGTERM escalation
+    (which this plain process dies to) ends it."""
+    _step(lat, lon, step_key, 0.0)
+    time.sleep(_STEP_PAUSE)
+    _step(lat, lon, step_key, 30.0)
+    time.sleep(_WEDGE_SECONDS)
     _tile_state(lat, lon, "done", percent=100.0)
     time.sleep(_TERMINAL_PAUSE)
     _build_done(lat, lon, True)

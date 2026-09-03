@@ -593,3 +593,40 @@ def test_child_exiting_during_cancel_is_reported_stopped(stub_worker,
     # The Swift client keys the event off the wire name of the class.
     assert EV.TileState.__name__ == "TileState"
     assert _parallel.CANCEL_ESCALATE_SECONDS > 0   # the escalation path exists
+
+
+def test_cancel_tile_escalates_on_wedged_child(stub_worker, tmp_path):
+    """cancel_tile on a child that IGNORES cancel (lat 66: the stub never
+    polls the flag — a step wedged in an operation with no cancellation
+    checkpoint) must be bounded: the same escalation clock cancel_all
+    arms sends SIGTERM after CANCEL_ESCALATE_SECONDS, the child dies, and
+    the tile is reported ``stopped`` (never ``failed``), the other tile
+    completes and the run finishes.  (2026-09-03: only cancel_all
+    escalated, so a per-tile Stop on a wedged child hung the run.)"""
+    stub_worker.setattr(parallel, "CANCEL_ESCALATE_SECONDS", 0.4)
+    session = EngineSession()
+    collector = Collector(session)
+    tiles = [(66, 1), (10, 20)]
+    assert _start_parallel(session, tiles, slots=2) is True
+    assert _wait_for(
+        lambda: any(isinstance(e, EV.StepProgress) and e.lat == 66
+                    for e in collector.events))
+    started = time.time()
+    assert session.cancel_tile(66, 1) is True
+    # The stub wedges for 30 s (STUB_WORKER_WEDGE_SECONDS); only the
+    # escalation can end the run inside this deadline.
+    run_done = collector.wait_run_done(5.0)
+    assert time.time() - started < 5.0
+
+    wedged = collector.tile_events(66, 1)
+    assert any(isinstance(e, EV.TileState) and e.label == "stopped"
+               for e in wedged), wedged
+    assert not any(isinstance(e, EV.TileState) and e.state == "error"
+                   for e in wedged), wedged
+    assert not any(isinstance(e, EV.BuildDone) for e in wedged), wedged
+
+    other = collector.tile_events(10, 20)
+    assert any(isinstance(e, EV.TileState) and e.state == "done"
+               for e in other)
+    assert (run_done.done_count, run_done.error_count,
+            run_done.cancelled) == (1, 0, False)

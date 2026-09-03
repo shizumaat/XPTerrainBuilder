@@ -10,6 +10,22 @@ macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
   build-time law lives there). Python is `Ortho4XP/venv/bin/python`
   (no system python; `venv/bin/pip` is broken — use `python -m pip`).
 
+## Lanes (owner standing 2026-09-03)
+
+The session is the project manager (Fable 5.1, high effort). Work is
+dispatched to subagents that are Fable 5.1 at MODERATE effort, via the
+project definitions in `.claude/agents/`: `lane` (implementation, all
+tools) and `scout` (read-only research). Every `Agent` launch passes
+`model: "fable"` and one of those `subagent_type`s — the PreToolUse hook
+`.claude/hooks/agent_guard.py` refuses anything else (built-in types
+inherit the session's high effort; definitions load at session start).
+Lanes iterate synthetic-first on `repro_cut.py` site extracts and
+`solve_cut.py` stage replays, build ONE representative airport once as
+the closing test, and never run the five-airport sweep (orchestrator,
+once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
+spawner owns the merge. Current plan of record:
+`Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
+
 ## Blast-radius index (check before editing)
 
 Before editing anything under `Ortho4XP/src/` or `Sources/`, run:

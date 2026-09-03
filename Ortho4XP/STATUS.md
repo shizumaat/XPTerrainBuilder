@@ -19,6 +19,11 @@
 #   OD-8 pad-law bar vs 08-08 apron relief. OD-4/OD-5 parked to perf.
 # NEXT: owner sim read of 1.0.275 → R1 attribution build (no decision
 #   needed) → R1 solve round per the plan.
+# LANE PROTOCOL (owner 2026-09-03, f9553e8b): subagents = Fable 5.1
+#   MODERATE effort via .claude/agents/{lane,scout}.md; agent_guard.py
+#   refuses any other model/type; definitions load at SESSION START —
+#   a fresh session is required before dispatching R1. Root CLAUDE.md
+#   "Lanes" section is the brief template's law.
 # ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # 20260902a — BETA CANDIDATE 1.0.274 BUILT (Wed 03:30 PT); owner tests

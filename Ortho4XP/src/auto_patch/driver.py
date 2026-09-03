@@ -782,11 +782,133 @@ def _build_write_verify_one(task: dict) -> dict:
     # process merges them, exactly as the object-anchor worklist is
     # written from the main process only.
     return {"icao": icao, "ok": True, "summary": summary, "build_s": build_s,
+            "worker_pid": os.getpid(),
             "verify_s": _time.time() - t_v, "verify_err": verify_err,
             "verify_log_path": task["verify_log_path"],
             "object_pad_records": list(
                 getattr(layout, "object_pad_records", None) or ()),
             "provenance_log": provenance_log}
+
+
+# Seconds a pool worker gets to exit after its last result was collected,
+# and seconds the progress Manager gets to shut down, before each is
+# terminated by force.  Every result is already in hand at teardown time,
+# so nothing built is lost by killing a straggler — only its exit.
+POOL_TEARDOWN_SECONDS = 20.0
+MANAGER_SHUTDOWN_SECONDS = 10.0
+
+
+def _teardown_pool(ex, results: list, futs: dict, pending, *,
+                   deadline_s: float = POOL_TEARDOWN_SECONDS) -> None:
+    """Bounded teardown of the per-airport ProcessPool.
+
+    ``shutdown(wait=True)`` — what ``with ProcessPoolExecutor`` does on
+    exit — joins each worker process with no deadline.  A worker that
+    has returned its result but cannot finish exiting (a non-daemon
+    thread it never joined, an atexit hook blocked on a lock, a Manager
+    proxy decref against a dead server) holds the whole tile there,
+    with every airport's result already collected and the results loop
+    never reached.  Here the pool is asked to stop WITHOUT waiting, its
+    processes are joined against ``deadline_s`` shared across all of
+    them, and any straggler is terminated (then killed) — each one
+    named by pid and by what it was last known to be doing — so the
+    caller always proceeds to process what it collected.
+    """
+    import time as _time
+    # Read the process map BEFORE shutdown: ``shutdown`` drops the
+    # executor's reference to it (``_processes = None``) whether or not
+    # it waits, and a helper that reads it afterwards joins nothing —
+    # the wedge then merely moves to interpreter exit, where the
+    # executor's management thread is joined and joins the worker.
+    procs = list((getattr(ex, "_processes", None) or {}).values())
+    try:
+        ex.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+    if not procs:
+        return
+    # pid → last-known task: the airport whose result this worker
+    # returned (the result carries the worker's pid), else one of the
+    # airports still without a result.
+    done_by_pid = {}
+    for r in results:
+        _pid = r.get("worker_pid")
+        if _pid is not None:
+            done_by_pid[_pid] = r.get("icao")
+    unfinished = sorted(futs[f] for f in pending if f in futs) \
+        if pending else []
+    t_end = _time.time() + deadline_s
+    stragglers = []
+    for p in procs:
+        p.join(timeout=max(0.0, t_end - _time.time()))
+        if p.is_alive():
+            stragglers.append(p)
+    for p in stragglers:
+        last = done_by_pid.get(p.pid)
+        if last:
+            what = "last completed " + str(last)
+        elif unfinished:
+            what = "no result returned; still unfinished: " + \
+                ", ".join(unfinished)
+        else:
+            what = "no result returned"
+        UI.lvprint(0, "   Auto-patch: worker pid", p.pid, "did not exit",
+                   "within {:.0f}s of the last result ({});".format(
+                       deadline_s, what), "terminating it.")
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    if stragglers:
+        t_kill = _time.time() + 2.0
+        for p in stragglers:
+            p.join(timeout=max(0.0, t_kill - _time.time()))
+            if p.is_alive():
+                UI.lvprint(0, "   Auto-patch: worker pid", p.pid,
+                           "ignored SIGTERM; killing it.")
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+                p.join(timeout=2.0)
+
+
+def _shutdown_manager(mgr, *,
+                      deadline_s: float = MANAGER_SHUTDOWN_SECONDS) -> None:
+    """Shut the progress-queue Manager down on a deadline.
+
+    ``SyncManager.shutdown`` sends the server a shutdown request over a
+    fresh connection and joins its process; a server whose accepter is
+    wedged never answers, and the request blocks the tile.  Run it on a
+    daemon thread, wait ``deadline_s``, then terminate the server
+    process directly (the queue it served is drained by then; nothing
+    it holds is needed)."""
+    import threading as _th
+    t = _th.Thread(target=lambda: _swallow(mgr.shutdown), daemon=True)
+    t.start()
+    t.join(deadline_s)
+    if not t.is_alive():
+        return
+    proc = getattr(mgr, "_process", None)
+    UI.lvprint(0, "   Auto-patch: progress manager (pid",
+               getattr(proc, "pid", "?"), ") did not shut down within",
+               "{:.0f}s; terminating it.".format(deadline_s))
+    if proc is not None:
+        try:
+            proc.terminate()
+            proc.join(timeout=2.0)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=2.0)
+        except Exception:
+            pass
+
+
+def _swallow(fn) -> None:
+    try:
+        fn()
+    except Exception:
+        pass
 
 
 def _run_build_tasks(tasks: list, tile, auto_patched: list,
@@ -874,9 +996,18 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                     UI.auto_patch_progress(_icao, _step, _tot, _lab,
                                            eta_total_s=_eta)
 
-            with _cf.ProcessPoolExecutor(
-                    max_workers=n, mp_context=ctx,
-                    initializer=_init_worker, initargs=(dem, pq)) as ex:
+            # NOT a ``with`` block: ``__exit__`` is ``shutdown(wait=True)``,
+            # an UNBOUNDED join of every worker process.  A worker that
+            # finished its airport but cannot exit (2026-09-03, tile
+            # +40-004: LEMD's patch and sidecar were on disk at 13:58:32 and
+            # the tile never reached the results loop) wedges the tile
+            # forever with every collected result in hand.  The pool is
+            # torn down by ``_teardown_pool`` on a deadline instead.
+            ex = _cf.ProcessPoolExecutor(
+                max_workers=n, mp_context=ctx,
+                initializer=_init_worker, initargs=(dem, pq))
+            futs, pending = {}, set()
+            try:
                 # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A
                 # hard worker death (SIGKILL / OOM / segfault) escapes
                 # Python, so ``_build_write_verify_one``'s own catch never
@@ -902,6 +1033,8 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                         results.append(r)
                         _report_terminal(r)
                 _drain_progress()                        # flush trailing events
+            finally:
+                _teardown_pool(ex, results, futs, pending)
         except Exception as _e:      # pool/manager setup failed → serial fallback
             if results:
                 # NOT a setup failure: the pool broke (or its shutdown
@@ -924,10 +1057,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                     _report_terminal(r)
         finally:
             if mgr is not None:
-                try:
-                    mgr.shutdown()
-                except Exception:
-                    pass
+                _shutdown_manager(mgr)
     else:
         results = []
         for t in tasks:

@@ -327,3 +327,34 @@ def test_legacy_progress_bar_drives_stepprogress_and_eta(monkeypatch,
     etas = [e for e in events if isinstance(e, EV.RunEta)]
     assert etas
     assert any(e.remaining_seconds is not None for e in etas)
+
+
+def test_step_exception_traceback_lands_in_the_log_file(monkeypatch,
+                                                        tmp_path):
+    """A step that RAISES writes its traceback to Ortho4XP.log, not only
+    to the console: a worker child's stderr reaches the front end's
+    console pane alone, and a step dying there left no trace in the log
+    (2026-09-03, tile +40-004).  The tile is still marked failed and the
+    run continues."""
+    import O4_File_Names as FNAMES
+
+    def boom(tile):
+        if tile.lat == 10:
+            raise RuntimeError("deliberate step explosion for the log twin")
+        return 1
+
+    monkeypatch.setattr(FNAMES, "data_path",
+                        lambda rel: str(tmp_path / rel))
+    install_stub_pipeline(monkeypatch, results={"vector": boom})
+    session = EngineSession()
+    events = run_build(session, [(10, 20), (11, 21)], tmp_path)
+
+    first = _tile_events(events, 10, 20)
+    assert any(isinstance(e, EV.BuildDone) and e.ok is False for e in first)
+    second = _tile_events(events, 11, 21)
+    assert any(isinstance(e, EV.BuildDone) and e.ok is True for e in second)
+
+    log = (tmp_path / "Ortho4XP.log").read_text()
+    assert "Traceback (most recent call last)" in log, log
+    assert "deliberate step explosion for the log twin" in log, log
+    assert "lat= 10" in log and "lon= 20" in log, log

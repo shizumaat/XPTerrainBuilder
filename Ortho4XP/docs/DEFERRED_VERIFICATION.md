@@ -5938,3 +5938,16 @@ there.  `keep_interiors` default-False path in
 pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
 
 - 2026-09-03 harness tile step loop honours THE STEP CONTRACT (`tools/harness/build_airport.py` `run_tile_steps`: a step's `result == 0` return is a hard stop at that step, engine `_build_worker` parity; declared skips recorded as `steps_skipped` in result+frame — the LEMD +40-004 2026-09-02 "mesh DONE 0.0s, rc 0 with no `Data+40-004.node`" class): verified by the 4 new twins in `tests/test_harness.py` §3b, run once (whole file: identical fail/error set to the pre-change tree on this container, +4 passed). NOT run (PRE-SHIP MODE, and this container has no data corpus): the reproducing `build_airport.py LEMD --tile 40 -4 --no-ledger` tile build — the fix's behaviour on a REAL failed mesh step is proven at unit level only; the owner's rerun should now stop at the first failed step with rc != 0 and name it. OPEN (attribution, not this change): WHY step 1 emitted no `.node` in the 2026-08-31d geometry-only tile frame — that frame's wiring is unpushed (this tree still refuses `--geometry-only` with `--tile`), so mechanism (1) is judged there: if the frame lawfully skips mesh-input emission, its wiring must declare `skip_steps={"2 mesh": ...}` (and downstream steps) rather than let the mesh step run; if not, the vector step regressed and the new loop now stops the tile at step 1.
+
+- 2026-09-03 lane wallcrest (`docs/specs/tunnel-wall-crest-dem-spec.md`
+  L1-L4, commit 3a43a0b6): ran the blast-listed direct-importer suites of
+  `bridges.py` / `groundside.py` / `finalize.py` plus the new
+  `tests/test_tunnel_wall_crest_dem.py` (573 pass); the full pytest
+  suite and the five-airport sweep are deferred to the merged-batch
+  app build.  Owed there: `_w3_weld` count on `retaining_wall` after L4
+  (the census scout's VERIFY row — a pavement node at a wall key is
+  hard-pinned to the crest via `feat_alt_by_key`), and KCLT/LEMD/HEAZ
+  portal reads (the OTHH closing build is the only real-frame arm).
+  L4 host removals are named by `[tunnel-remove]` lines but do NOT ride
+  `road_piece_ledger` (it tracks `tunnel_*` refs only) — a ledger row
+  for host pieces is owed if the owner wants them ledgered.

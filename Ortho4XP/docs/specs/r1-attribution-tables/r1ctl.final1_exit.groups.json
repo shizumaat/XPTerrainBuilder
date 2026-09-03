@@ -1,0 +1,9922 @@
+{
+ "summary": {
+  "cert": "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1ctl/r1ctl.final1_exit.airside_cert.json",
+  "reading": "final1_exit",
+  "n_rows": 2167,
+  "n_over": 2167,
+  "endpoints_unjoined": 0,
+  "fgp_pipeline_line": 7285,
+  "move_floor_m": 0.1,
+  "by_disposition": {
+   "closes:S1-hold-release (service_ring)": 520,
+   "closes:S2 (FGP re-authored a solve value)": 496,
+   "needs-solve (R6 groundside-service, no hard endpoint)": 487,
+   "closes:S1 (FGP-only family)": 184,
+   "needs-solve (inherited from solve exit)": 146,
+   "closes:S1-hold-release (gs_weld)": 122,
+   "needs-solve (inherited from solve exit; FGP moved)": 86,
+   "closes:S1 (minted by the rebuilt graph)": 62,
+   "senior-protected (terrain_pin)": 48,
+   "senior-protected (runway_node)": 9,
+   "closes:S1-hold-release (feature_weld)": 4,
+   "pin-infeasible (both hard)": 3
+  },
+  "by_family": {
+   "service_junction": 1061,
+   "apron": 690,
+   "transverse": 148,
+   "service_road": 123,
+   "junction": 97,
+   "junction:transverse_no_step": 36,
+   "rod_interval": 10,
+   "unified_graph": 2
+  },
+  "by_membership": {
+   "solve": 803,
+   "entry": 1426
+  },
+  "rows_with_fgp_moved_endpoint": 1827
+ },
+ "groups": [
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 493,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 164,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 291,
+    "closes:S1-hold-release (gs_weld)": 31,
+    "closes:S1-hold-release (feature_weld)": 4,
+    "pin-infeasible (both hard)": 3
+   },
+   "member": {
+    "solve": 169,
+    "entry": 418
+   },
+   "specimens": [
+    {
+     "excess_m": 5.4754,
+     "ll": [
+      [
+       30.1106105,
+       31.395121
+      ],
+      [
+       30.1105867,
+       31.395115
+      ]
+     ],
+     "idx": [
+      7411,
+      4327
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 5.4754,
+     "ll": [
+      [
+       30.1106105,
+       31.395121
+      ],
+      [
+       30.1105867,
+       31.395115
+      ]
+     ],
+     "idx": [
+      7411,
+      4327
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 5.1729,
+     "ll": [
+      [
+       30.1130531,
+       31.3988444
+      ],
+      [
+       30.1130195,
+       31.3987953
+      ]
+     ],
+     "idx": [
+      2610,
+      20469
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 0.754,
+   "max_m": 5.475
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 287,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 279,
+    "needs-solve (inherited from solve exit; FGP moved)": 8
+   },
+   "member": {
+    "solve": 8,
+    "entry": 21
+   },
+   "specimens": [
+    {
+     "excess_m": 2.0402,
+     "ll": [
+      [
+       30.1105345,
+       31.3953708
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ]
+     ],
+     "idx": [
+      4324,
+      4325
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 2.0402,
+     "ll": [
+      [
+       30.1105345,
+       31.3953708
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ]
+     ],
+     "idx": [
+      4324,
+      4325
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 1.8372,
+     "ll": [
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105345,
+       31.3953708
+      ]
+     ],
+     "idx": [
+      4325,
+      4324
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.106,
+   "max_m": 2.04
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "emit_terrain_transition_features|pipeline@7127",
+   "fgp_moved": true,
+   "n": 180,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 58,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 74,
+    "senior-protected (terrain_pin)": 48
+   },
+   "member": {
+    "solve": 89,
+    "entry": 162
+   },
+   "specimens": [
+    {
+     "excess_m": 6.2441,
+     "ll": [
+      [
+       30.1141342,
+       31.3993355
+      ],
+      [
+       30.1144074,
+       31.3994161
+      ]
+     ],
+     "idx": [
+      2560,
+      20490
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 5.9766,
+     "ll": [
+      [
+       30.1141013,
+       31.3992591
+      ],
+      [
+       30.1141816,
+       31.399156
+      ]
+     ],
+     "idx": [
+      2558,
+      20488
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 5.773,
+     "ll": [
+      [
+       30.1141013,
+       31.3992591
+      ],
+      [
+       30.1144074,
+       31.3994161
+      ]
+     ],
+     "idx": [
+      2558,
+      20490
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 1.891,
+   "max_m": 6.244
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "emit_terrain_transition_features|pipeline@7062",
+   "fgp_moved": true,
+   "n": 106,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 63,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 43
+   },
+   "member": {
+    "solve": 64,
+    "entry": 106
+   },
+   "specimens": [
+    {
+     "excess_m": 7.0019,
+     "ll": [
+      [
+       30.1141013,
+       31.3992591
+      ],
+      [
+       30.1141566,
+       31.3991856
+      ]
+     ],
+     "idx": [
+      2558,
+      20451
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 6.9812,
+     "ll": [
+      [
+       30.1141013,
+       31.3992591
+      ],
+      [
+       30.1141579,
+       31.3992006
+      ]
+     ],
+     "idx": [
+      2558,
+      20449
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 6.8519,
+     "ll": [
+      [
+       30.1141459,
+       31.3992822
+      ],
+      [
+       30.1141013,
+       31.3992591
+      ]
+     ],
+     "idx": [
+      20444,
+      2558
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 5.107,
+   "max_m": 7.002
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 104,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 96,
+    "needs-solve (inherited from solve exit; FGP moved)": 8
+   },
+   "member": {
+    "solve": 8,
+    "entry": 14
+   },
+   "specimens": [
+    {
+     "excess_m": 1.1748,
+     "ll": [
+      [
+       30.1106121,
+       31.3956403
+      ],
+      [
+       30.1105948,
+       31.3956307
+      ]
+     ],
+     "idx": [
+      4322,
+      4323
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 1.1748,
+     "ll": [
+      [
+       30.1106121,
+       31.3956403
+      ],
+      [
+       30.1105948,
+       31.3956307
+      ]
+     ],
+     "idx": [
+      4322,
+      4323
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.7649,
+     "ll": [
+      [
+       30.1104968,
+       31.3990617
+      ],
+      [
+       30.1104192,
+       31.3989496
+      ]
+     ],
+     "idx": [
+      5962,
+      2299
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.093,
+   "max_m": 1.175
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 73,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 44,
+    "closes:S1 (minted by the rebuilt graph)": 29
+   },
+   "member": {
+    "solve": 44,
+    "entry": 46
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2753,
+     "ll": [
+      [
+       30.1326431,
+       31.4120154
+      ],
+      [
+       30.1325578,
+       31.4120252
+      ]
+     ],
+     "idx": [
+      2911,
+      2913
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.2753,
+     "ll": [
+      [
+       30.1326431,
+       31.4120154
+      ],
+      [
+       30.1325578,
+       31.4120252
+      ]
+     ],
+     "idx": [
+      2911,
+      2913
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.1979,
+     "ll": [
+      [
+       30.1316594,
+       31.4123909
+      ],
+      [
+       30.1315672,
+       31.41247
+      ]
+     ],
+     "idx": [
+      2251,
+      3011
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.046,
+   "max_m": 0.275
+  },
+  {
+   "family": "junction",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 52,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 34,
+    "closes:S1 (minted by the rebuilt graph)": 14,
+    "senior-protected (runway_node)": 4
+   },
+   "member": {
+    "solve": 34,
+    "entry": 28
+   },
+   "specimens": [
+    {
+     "excess_m": 0.525,
+     "ll": [
+      [
+       30.1357291,
+       31.4105553
+      ],
+      [
+       30.1355748,
+       31.41081
+      ]
+     ],
+     "idx": [
+      714,
+      2725
+     ],
+     "family": "junction:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.525,
+     "ll": [
+      [
+       30.1357291,
+       31.4105553
+      ],
+      [
+       30.1355748,
+       31.41081
+      ]
+     ],
+     "idx": [
+      714,
+      2725
+     ],
+     "family": "unified:junction",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.4469,
+     "ll": [
+      [
+       30.1357785,
+       31.410738
+      ],
+      [
+       30.1357445,
+       31.4107493
+      ]
+     ],
+     "idx": [
+      712,
+      2727
+     ],
+     "family": "junction:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.093,
+   "max_m": 0.525
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 51,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 27,
+    "closes:S1-hold-release (gs_weld)": 17,
+    "closes:S1-hold-release (service_ring)": 7
+   },
+   "member": {
+    "solve": 20,
+    "entry": 44
+   },
+   "specimens": [
+    {
+     "excess_m": 3.4871,
+     "ll": [
+      [
+       30.1243857,
+       31.4066566
+      ],
+      [
+       30.1244484,
+       31.4066348
+      ]
+     ],
+     "idx": [
+      20343,
+      1301
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 3.4563,
+     "ll": [
+      [
+       30.1243533,
+       31.406543
+      ],
+      [
+       30.1244186,
+       31.4065204
+      ]
+     ],
+     "idx": [
+      20344,
+      1302
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 3.4238,
+     "ll": [
+      [
+       30.1243857,
+       31.4066566
+      ],
+      [
+       30.1244186,
+       31.4065204
+      ]
+     ],
+     "idx": [
+      20343,
+      1302
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 1.607,
+   "max_m": 3.487
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 50,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 44,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 2,
+    "closes:S1-hold-release (gs_weld)": 4
+   },
+   "member": {
+    "solve": 31,
+    "entry": 38
+   },
+   "specimens": [
+    {
+     "excess_m": 4.2414,
+     "ll": [
+      [
+       30.1106105,
+       31.395121
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      7411,
+      4326
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 4.2414,
+     "ll": [
+      [
+       30.1106105,
+       31.395121
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      7411,
+      4326
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.1351,
+     "ll": [
+      [
+       30.1105963,
+       31.3951174
+      ],
+      [
+       30.1105731,
+       31.3950846
+      ]
+     ],
+     "idx": [
+      4328,
+      4356
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.334,
+   "max_m": 4.241
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 41,
+   "disp": {
+    "needs-solve (inherited from solve exit; FGP moved)": 33,
+    "closes:S2 (FGP re-authored a solve value)": 8
+   },
+   "member": {
+    "solve": 33,
+    "entry": 33
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3131,
+     "ll": [
+      [
+       30.1300664,
+       31.4121386
+      ],
+      [
+       30.1316594,
+       31.4123909
+      ]
+     ],
+     "idx": [
+      3003,
+      2251
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.3131,
+     "ll": [
+      [
+       30.1300664,
+       31.4121386
+      ],
+      [
+       30.1316594,
+       31.4123909
+      ]
+     ],
+     "idx": [
+      3003,
+      2251
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.3028,
+     "ll": [
+      [
+       30.1291729,
+       31.4124625
+      ],
+      [
+       30.1283754,
+       31.4123572
+      ]
+     ],
+     "idx": [
+      2995,
+      2263
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    }
+   ],
+   "p50_m": 0.147,
+   "max_m": 0.313
+  },
+  {
+   "family": "junction",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 39,
+   "disp": {
+    "needs-solve (inherited from solve exit; FGP moved)": 17,
+    "closes:S2 (FGP re-authored a solve value)": 22
+   },
+   "member": {
+    "solve": 17,
+    "entry": 11
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3493,
+     "ll": [
+      [
+       30.1357538,
+       31.4106467
+      ],
+      [
+       30.1356596,
+       31.4107796
+      ]
+     ],
+     "idx": [
+      713,
+      2726
+     ],
+     "family": "junction:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.3493,
+     "ll": [
+      [
+       30.1357538,
+       31.4106467
+      ],
+      [
+       30.1356596,
+       31.4107796
+      ]
+     ],
+     "idx": [
+      713,
+      2726
+     ],
+     "family": "unified:junction",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.3264,
+     "ll": [
+      [
+       30.1353899,
+       31.4102089
+      ],
+      [
+       30.1357291,
+       31.4105553
+      ]
+     ],
+     "idx": [
+      2748,
+      714
+     ],
+     "family": "junction:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    }
+   ],
+   "p50_m": 0.05,
+   "max_m": 0.349
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": false,
+   "n": 34,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 34
+   },
+   "member": {
+    "solve": 34,
+    "entry": 34
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3042,
+     "ll": [
+      [
+       30.1291476,
+       31.4124717
+      ],
+      [
+       30.1283754,
+       31.4123572
+      ]
+     ],
+     "idx": [
+      2994,
+      2263
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.3042,
+     "ll": [
+      [
+       30.1291476,
+       31.4124717
+      ],
+      [
+       30.1283754,
+       31.4123572
+      ]
+     ],
+     "idx": [
+      2994,
+      2263
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.2458,
+     "ll": [
+      [
+       30.129493,
+       31.4132629
+      ],
+      [
+       30.1291476,
+       31.4124717
+      ]
+     ],
+     "idx": [
+      2262,
+      2994
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.058,
+   "max_m": 0.304
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "solve@6246",
+   "fgp_moved": true,
+   "n": 34,
+   "disp": {
+    "needs-solve (inherited from solve exit; FGP moved)": 10,
+    "closes:S2 (FGP re-authored a solve value)": 24
+   },
+   "member": {
+    "solve": 10,
+    "entry": 6
+   },
+   "specimens": [
+    {
+     "excess_m": 0.274,
+     "ll": [
+      [
+       30.1359115,
+       31.4106909
+      ],
+      [
+       30.1359341,
+       31.410785
+      ]
+     ],
+     "idx": [
+      710,
+      2704
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.274,
+     "ll": [
+      [
+       30.1359115,
+       31.4106909
+      ],
+      [
+       30.1359341,
+       31.410785
+      ]
+     ],
+     "idx": [
+      710,
+      2704
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.2523,
+     "ll": [
+      [
+       30.1358511,
+       31.4107126
+      ],
+      [
+       30.1359341,
+       31.410785
+      ]
+     ],
+     "idx": [
+      711,
+      2704
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    }
+   ],
+   "p50_m": 0.15,
+   "max_m": 0.274
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7241",
+   "fgp_moved": true,
+   "n": 33,
+   "disp": {
+    "needs-solve (inherited from solve exit; FGP moved)": 10,
+    "closes:S2 (FGP re-authored a solve value)": 23
+   },
+   "member": {
+    "solve": 10,
+    "entry": 12
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3435,
+     "ll": [
+      [
+       30.1289742,
+       31.4125345
+      ],
+      [
+       30.1285144,
+       31.4129031
+      ]
+     ],
+     "idx": [
+      2993,
+      2264
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.3435,
+     "ll": [
+      [
+       30.1289742,
+       31.4125345
+      ],
+      [
+       30.1285144,
+       31.4129031
+      ]
+     ],
+     "idx": [
+      2993,
+      2264
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit; FGP moved)"
+    },
+    {
+     "excess_m": 0.1857,
+     "ll": [
+      [
+       30.1274238,
+       31.4156757
+      ],
+      [
+       30.1267477,
+       31.4163203
+      ]
+     ],
+     "idx": [
+      3070,
+      2216
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.036,
+   "max_m": 0.344
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 32,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 21,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 11
+   },
+   "member": {
+    "solve": 18,
+    "entry": 30
+   },
+   "specimens": [
+    {
+     "excess_m": 5.9955,
+     "ll": [
+      [
+       30.1129807,
+       31.3989107
+      ],
+      [
+       30.1129471,
+       31.3988617
+      ]
+     ],
+     "idx": [
+      2609,
+      20468
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 5.9365,
+     "ll": [
+      [
+       30.1130531,
+       31.3988444
+      ],
+      [
+       30.1129471,
+       31.3988617
+      ]
+     ],
+     "idx": [
+      2610,
+      20468
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 5.5742,
+     "ll": [
+      [
+       30.1129807,
+       31.3989107
+      ],
+      [
+       30.1129471,
+       31.3988617
+      ]
+     ],
+     "idx": [
+      2609,
+      20468
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 2.017,
+   "max_m": 5.995
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 30,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 17,
+    "closes:S1-hold-release (service_ring)": 9,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 4
+   },
+   "member": {
+    "solve": 10,
+    "entry": 24
+   },
+   "specimens": [
+    {
+     "excess_m": 2.8408,
+     "ll": [
+      [
+       30.1243594,
+       31.4066872
+      ],
+      [
+       30.1243397,
+       31.4066863
+      ]
+     ],
+     "idx": [
+      20713,
+      1233
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 2.8005,
+     "ll": [
+      [
+       30.1243594,
+       31.4066872
+      ],
+      [
+       30.1243187,
+       31.4066428
+      ]
+     ],
+     "idx": [
+      20713,
+      1232
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 2.7124,
+     "ll": [
+      [
+       30.1243594,
+       31.4066872
+      ],
+      [
+       30.1243442,
+       31.4066956
+      ]
+     ],
+     "idx": [
+      20713,
+      1234
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 0.261,
+   "max_m": 2.841
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "solve@6246",
+   "fgp_moved": false,
+   "n": 24,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 24
+   },
+   "member": {
+    "solve": 24,
+    "entry": 14
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3488,
+     "ll": [
+      [
+       30.1358511,
+       31.4107126
+      ],
+      [
+       30.1358655,
+       31.410777
+      ]
+     ],
+     "idx": [
+      711,
+      4861
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.3488,
+     "ll": [
+      [
+       30.1358511,
+       31.4107126
+      ],
+      [
+       30.1358655,
+       31.410777
+      ]
+     ],
+     "idx": [
+      711,
+      4861
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.3303,
+     "ll": [
+      [
+       30.1358511,
+       31.4107126
+      ],
+      [
+       30.1358683,
+       31.4107836
+      ]
+     ],
+     "idx": [
+      711,
+      2700
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.315,
+   "max_m": 0.349
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127",
+   "fgp_moved": true,
+   "n": 23,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 9,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 14
+   },
+   "member": {
+    "solve": 13,
+    "entry": 20
+   },
+   "specimens": [
+    {
+     "excess_m": 1.304,
+     "ll": [
+      [
+       30.1105835,
+       31.3950689
+      ],
+      [
+       30.1105963,
+       31.3951174
+      ]
+     ],
+     "idx": [
+      4367,
+      4328
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.0647,
+     "ll": [
+      [
+       30.1136644,
+       31.3986504
+      ],
+      [
+       30.1135032,
+       31.3985941
+      ]
+     ],
+     "idx": [
+      20460,
+      2621
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 1.0109,
+     "ll": [
+      [
+       30.1105835,
+       31.3950689
+      ],
+      [
+       30.1105963,
+       31.3951174
+      ]
+     ],
+     "idx": [
+      4367,
+      4328
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.215,
+   "max_m": 1.304
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": false,
+   "n": 22,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 22
+   },
+   "member": {
+    "solve": 22,
+    "entry": 22
+   },
+   "specimens": [
+    {
+     "excess_m": 1.401,
+     "ll": [
+      [
+       30.1210832,
+       31.4159568
+      ],
+      [
+       30.12108,
+       31.4159421
+      ]
+     ],
+     "idx": [
+      126,
+      20722
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.3974,
+     "ll": [
+      [
+       30.1209883,
+       31.4159912
+      ],
+      [
+       30.1209842,
+       31.4159729
+      ]
+     ],
+     "idx": [
+      125,
+      20721
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.3043,
+     "ll": [
+      [
+       30.1210832,
+       31.4159568
+      ],
+      [
+       30.1209842,
+       31.4159729
+      ]
+     ],
+     "idx": [
+      126,
+      20721
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.525,
+   "max_m": 1.401
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 21,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 21
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 1.3952,
+     "ll": [
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4325,
+      4326
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 1.3952,
+     "ll": [
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4325,
+      4326
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 1.3166,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ]
+     ],
+     "idx": [
+      4326,
+      4325
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.202,
+   "max_m": 1.395
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7062|pipeline@7127",
+   "fgp_moved": true,
+   "n": 21,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 21
+   },
+   "member": {
+    "solve": 15,
+    "entry": 21
+   },
+   "specimens": [
+    {
+     "excess_m": 1.2642,
+     "ll": [
+      [
+       30.104671,
+       31.3973462
+      ],
+      [
+       30.1044897,
+       31.3966613
+      ]
+     ],
+     "idx": [
+      6693,
+      3900
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.2295,
+     "ll": [
+      [
+       30.1046515,
+       31.3973519
+      ],
+      [
+       30.1045127,
+       31.3966548
+      ]
+     ],
+     "idx": [
+      19494,
+      3899
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.2261,
+     "ll": [
+      [
+       30.104671,
+       31.3973462
+      ],
+      [
+       30.1045127,
+       31.3966548
+      ]
+     ],
+     "idx": [
+      6693,
+      3899
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.147,
+   "max_m": 1.264
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7241",
+   "fgp_moved": true,
+   "n": 20,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 20
+   },
+   "member": {
+    "solve": 20,
+    "entry": 20
+   },
+   "specimens": [
+    {
+     "excess_m": 1.4046,
+     "ll": [
+      [
+       30.1211781,
+       31.4159225
+      ],
+      [
+       30.1211759,
+       31.4159114
+      ]
+     ],
+     "idx": [
+      127,
+      20723
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.3279,
+     "ll": [
+      [
+       30.1211781,
+       31.4159225
+      ],
+      [
+       30.1211759,
+       31.4159114
+      ]
+     ],
+     "idx": [
+      127,
+      20723
+     ],
+     "family": "service_road:road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.3052,
+     "ll": [
+      [
+       30.121273,
+       31.4158882
+      ],
+      [
+       30.1211759,
+       31.4159114
+      ]
+     ],
+     "idx": [
+      128,
+      20723
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 1.044,
+   "max_m": 1.405
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7270",
+   "fgp_moved": true,
+   "n": 20,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 17,
+    "closes:S1-hold-release (gs_weld)": 3
+   },
+   "member": {
+    "solve": 17,
+    "entry": 20
+   },
+   "specimens": [
+    {
+     "excess_m": 1.0098,
+     "ll": [
+      [
+       30.1105665,
+       31.3950986
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4358,
+      4326
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.0098,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105665,
+       31.3950986
+      ]
+     ],
+     "idx": [
+      4326,
+      4358
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.0098,
+     "ll": [
+      [
+       30.1105665,
+       31.3950986
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4358,
+      4326
+     ],
+     "family": "unified:service_junction:spine",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.549,
+   "max_m": 1.01
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": true,
+   "n": 18,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 18
+   },
+   "member": {
+    "solve": 16,
+    "entry": 18
+   },
+   "specimens": [
+    {
+     "excess_m": 1.3538,
+     "ll": [
+      [
+       30.1208934,
+       31.4160255
+      ],
+      [
+       30.1208883,
+       31.4160036
+      ]
+     ],
+     "idx": [
+      124,
+      20720
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.3035,
+     "ll": [
+      [
+       30.1210832,
+       31.4159568
+      ],
+      [
+       30.1211759,
+       31.4159114
+      ]
+     ],
+     "idx": [
+      126,
+      20723
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.2637,
+     "ll": [
+      [
+       30.1209883,
+       31.4159912
+      ],
+      [
+       30.1208883,
+       31.4160036
+      ]
+     ],
+     "idx": [
+      125,
+      20720
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.933,
+   "max_m": 1.354
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "apron+junction|building+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 17,
+   "disp": {
+    "closes:S1 (FGP-only family)": 17
+   },
+   "member": {
+    "solve": 0,
+    "entry": 15
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1851,
+     "ll": [
+      [
+       30.135979,
+       31.4105061
+      ],
+      [
+       30.1359037,
+       31.4100227
+      ]
+     ],
+     "idx": [
+      718,
+      2751
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1747,
+     "ll": [
+      [
+       30.1361229,
+       31.410456
+      ],
+      [
+       30.1359037,
+       31.4100227
+      ]
+     ],
+     "idx": [
+      723,
+      2751
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1717,
+     "ll": [
+      [
+       30.1360361,
+       31.4104621
+      ],
+      [
+       30.1356981,
+       31.4100972
+      ]
+     ],
+     "idx": [
+      721,
+      2750
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.132,
+   "max_m": 0.185
+  },
+  {
+   "family": "transverse",
+   "pair": "apron|apron+building",
+   "last_stage": "pipeline@7241",
+   "fgp_moved": true,
+   "n": 14,
+   "disp": {
+    "closes:S1 (FGP-only family)": 14
+   },
+   "member": {
+    "solve": 0,
+    "entry": 14
+   },
+   "specimens": [
+    {
+     "excess_m": 1.0425,
+     "ll": [
+      [
+       30.1273139,
+       31.4150756
+      ],
+      [
+       30.127226,
+       31.4145954
+      ],
+      [
+       30.1275436,
+       31.4140186
+      ],
+      [
+       30.1277738,
+       31.4148415
+      ]
+     ],
+     "idx": [
+      3071,
+      3072,
+      399,
+      398
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.0245,
+     "ll": [
+      [
+       30.1273139,
+       31.4150756
+      ],
+      [
+       30.127226,
+       31.4145954
+      ],
+      [
+       30.1275436,
+       31.4140186
+      ],
+      [
+       30.1277738,
+       31.4148415
+      ]
+     ],
+     "idx": [
+      3071,
+      3072,
+      399,
+      398
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.0064,
+     "ll": [
+      [
+       30.1273139,
+       31.4150756
+      ],
+      [
+       30.127226,
+       31.4145954
+      ],
+      [
+       30.1275436,
+       31.4140186
+      ],
+      [
+       30.1277738,
+       31.4148415
+      ]
+     ],
+     "idx": [
+      3071,
+      3072,
+      399,
+      398
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.904,
+   "max_m": 1.042
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7062|solve@6246",
+   "fgp_moved": true,
+   "n": 12,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 9,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 3
+   },
+   "member": {
+    "solve": 2,
+    "entry": 11
+   },
+   "specimens": [
+    {
+     "excess_m": 0.9366,
+     "ll": [
+      [
+       30.1156147,
+       31.4046151
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ]
+     ],
+     "idx": [
+      1372,
+      20401
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.9008,
+     "ll": [
+      [
+       30.1213332,
+       31.3895886
+      ],
+      [
+       30.1212427,
+       31.3896325
+      ]
+     ],
+     "idx": [
+      2427,
+      20682
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.7772,
+     "ll": [
+      [
+       30.1156147,
+       31.4046151
+      ],
+      [
+       30.1157208,
+       31.4046837
+      ]
+     ],
+     "idx": [
+      1372,
+      20399
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.289,
+   "max_m": 0.937
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 12,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 12
+   },
+   "member": {
+    "solve": 3,
+    "entry": 12
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3698,
+     "ll": [
+      [
+       30.1174196,
+       31.3999377
+      ],
+      [
+       30.1173927,
+       31.3999375
+      ]
+     ],
+     "idx": [
+      20511,
+      1602
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.3654,
+     "ll": [
+      [
+       30.1174196,
+       31.3999377
+      ],
+      [
+       30.1173907,
+       31.3999501
+      ]
+     ],
+     "idx": [
+      20511,
+      1603
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.3569,
+     "ll": [
+      [
+       30.1174196,
+       31.3999377
+      ],
+      [
+       30.1173929,
+       31.3999058
+      ]
+     ],
+     "idx": [
+      20511,
+      1601
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 0.16,
+   "max_m": 0.37
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 10,
+   "disp": {
+    "closes:S1 (FGP-only family)": 10
+   },
+   "member": {
+    "solve": 0,
+    "entry": 6
+   },
+   "specimens": [
+    {
+     "excess_m": 1.4183,
+     "ll": [
+      [
+       30.1105628,
+       31.3956129
+      ],
+      [
+       30.1105347,
+       31.3955892
+      ],
+      [
+       30.1105345,
+       31.3953708
+      ],
+      [
+       30.1105948,
+       31.3956307
+      ]
+     ],
+     "idx": [
+      6670,
+      6671,
+      4324,
+      4323
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.3827,
+     "ll": [
+      [
+       30.1105228,
+       31.3955747
+      ],
+      [
+       30.1105166,
+       31.3955634
+      ],
+      [
+       30.1105345,
+       31.3953708
+      ],
+      [
+       30.1105948,
+       31.3956307
+      ]
+     ],
+     "idx": [
+      6672,
+      6673,
+      4324,
+      4323
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.372,
+     "ll": [
+      [
+       30.1105628,
+       31.3956129
+      ],
+      [
+       30.1105347,
+       31.3955892
+      ],
+      [
+       30.1105345,
+       31.3953708
+      ],
+      [
+       30.1105948,
+       31.3956307
+      ]
+     ],
+     "idx": [
+      6670,
+      6671,
+      4324,
+      4323
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 1.187,
+   "max_m": 1.418
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": false,
+   "n": 10,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 6,
+    "closes:S1-hold-release (service_ring)": 4
+   },
+   "member": {
+    "solve": 2,
+    "entry": 10
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3354,
+     "ll": [
+      [
+       30.117429,
+       31.3999061
+      ],
+      [
+       30.1173931,
+       31.3998679
+      ]
+     ],
+     "idx": [
+      20510,
+      1600
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.0721,
+     "ll": [
+      [
+       30.139607,
+       31.4100161
+      ],
+      [
+       30.1401989,
+       31.4098729
+      ]
+     ],
+     "idx": [
+      2827,
+      767
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.0702,
+     "ll": [
+      [
+       30.139607,
+       31.4100161
+      ],
+      [
+       30.1402027,
+       31.4098845
+      ]
+     ],
+     "idx": [
+      2827,
+      766
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.057,
+   "max_m": 0.335
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": false,
+   "n": 10,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 4,
+    "closes:S1 (minted by the rebuilt graph)": 6
+   },
+   "member": {
+    "solve": 4,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3272,
+     "ll": [
+      [
+       30.1281178,
+       31.4130381
+      ],
+      [
+       30.128106,
+       31.4132558
+      ]
+     ],
+     "idx": [
+      2268,
+      3032
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.3272,
+     "ll": [
+      [
+       30.1281178,
+       31.4130381
+      ],
+      [
+       30.128106,
+       31.4132558
+      ]
+     ],
+     "idx": [
+      2268,
+      3032
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.3122,
+     "ll": [
+      [
+       30.1281178,
+       31.4130381
+      ],
+      [
+       30.1281103,
+       31.4132544
+      ]
+     ],
+     "idx": [
+      2268,
+      3031
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.053,
+   "max_m": 0.327
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 10,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 4,
+    "closes:S1 (minted by the rebuilt graph)": 6
+   },
+   "member": {
+    "solve": 4,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1401,
+     "ll": [
+      [
+       30.1281178,
+       31.4130381
+      ],
+      [
+       30.1281684,
+       31.4131536
+      ]
+     ],
+     "idx": [
+      2268,
+      3027
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.1401,
+     "ll": [
+      [
+       30.1281178,
+       31.4130381
+      ],
+      [
+       30.1281684,
+       31.4131536
+      ]
+     ],
+     "idx": [
+      2268,
+      3027
+     ],
+     "family": "unified:apron",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.0287,
+     "ll": [
+      [
+       30.1326942,
+       31.4119079
+      ],
+      [
+       30.1326431,
+       31.4120154
+      ]
+     ],
+     "idx": [
+      2244,
+      2911
+     ],
+     "family": "apron:-",
+     "disposition": "needs-solve (inherited from solve exit)"
+    }
+   ],
+   "p50_m": 0.025,
+   "max_m": 0.14
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 9,
+   "disp": {
+    "closes:S1 (FGP-only family)": 9
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 5.765,
+     "ll": [
+      [
+       30.1106105,
+       31.395121
+      ],
+      [
+       30.1105963,
+       31.3951174
+      ],
+      [
+       30.1106102,
+       31.3950439
+      ],
+      [
+       30.1106323,
+       31.3950345
+      ]
+     ],
+     "idx": [
+      7411,
+      4328,
+      4365,
+      4364
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.6567,
+     "ll": [
+      [
+       30.1109551,
+       31.3982569
+      ],
+      [
+       30.1108995,
+       31.3982368
+      ],
+      [
+       30.1110279,
+       31.3979839
+      ],
+      [
+       30.1110565,
+       31.3979453
+      ]
+     ],
+     "idx": [
+      5947,
+      5946,
+      6591,
+      6592
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.2707,
+     "ll": [
+      [
+       30.110408,
+       31.3993806
+      ],
+      [
+       30.1102786,
+       31.3993336
+      ],
+      [
+       30.1102389,
+       31.3991284
+      ],
+      [
+       30.1104968,
+       31.3990617
+      ]
+     ],
+     "idx": [
+      6024,
+      5465,
+      6025,
+      5962
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.077,
+   "max_m": 5.765
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 9,
+   "disp": {
+    "closes:S1 (FGP-only family)": 9
+   },
+   "member": {
+    "solve": 0,
+    "entry": 9
+   },
+   "specimens": [
+    {
+     "excess_m": 4.3944,
+     "ll": [
+      [
+       30.1131256,
+       31.3987781
+      ],
+      [
+       30.1130531,
+       31.3988444
+      ],
+      [
+       30.1130195,
+       31.3987953
+      ],
+      [
+       30.1131643,
+       31.3986624
+      ]
+     ],
+     "idx": [
+      2611,
+      2610,
+      20469,
+      20470
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 3.5824,
+     "ll": [
+      [
+       30.113198,
+       31.3987117
+      ],
+      [
+       30.1131256,
+       31.3987781
+      ],
+      [
+       30.1130195,
+       31.3987953
+      ],
+      [
+       30.1131643,
+       31.3986624
+      ]
+     ],
+     "idx": [
+      2612,
+      2611,
+      20469,
+      20470
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 3.5113,
+     "ll": [
+      [
+       30.113198,
+       31.3987117
+      ],
+      [
+       30.1131256,
+       31.3987781
+      ],
+      [
+       30.1130195,
+       31.3987953
+      ],
+      [
+       30.1131643,
+       31.3986624
+      ]
+     ],
+     "idx": [
+      2612,
+      2611,
+      20469,
+      20470
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 1.815,
+   "max_m": 4.394
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "emit_terrain_transition_features|pipeline@7127",
+   "fgp_moved": true,
+   "n": 9,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 9
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4296,
+     "ll": [
+      [
+       30.1110228,
+       31.3982812
+      ],
+      [
+       30.1108797,
+       31.3982286
+      ]
+     ],
+     "idx": [
+      5948,
+      5964
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.4296,
+     "ll": [
+      [
+       30.1110228,
+       31.3982812
+      ],
+      [
+       30.1108797,
+       31.3982286
+      ]
+     ],
+     "idx": [
+      5948,
+      5964
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.2994,
+     "ll": [
+      [
+       30.1109551,
+       31.3982569
+      ],
+      [
+       30.1110228,
+       31.3982812
+      ]
+     ],
+     "idx": [
+      5947,
+      5948
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.26,
+   "max_m": 0.43
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "apron+junction|building+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 8,
+   "disp": {
+    "closes:S1 (FGP-only family)": 8
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.5117,
+     "ll": [
+      [
+       30.1357291,
+       31.4105553
+      ],
+      [
+       30.1351845,
+       31.4102835
+      ]
+     ],
+     "idx": [
+      714,
+      2747
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.4483,
+     "ll": [
+      [
+       30.1357538,
+       31.4106467
+      ],
+      [
+       30.1351845,
+       31.4102835
+      ]
+     ],
+     "idx": [
+      713,
+      2747
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.3792,
+     "ll": [
+      [
+       30.1357785,
+       31.410738
+      ],
+      [
+       30.1351845,
+       31.4102835
+      ]
+     ],
+     "idx": [
+      712,
+      2747
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.266,
+   "max_m": 0.512
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 8,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 8
+   },
+   "member": {
+    "solve": 8,
+    "entry": 8
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2329,
+     "ll": [
+      [
+       30.1192517,
+       31.4032294
+      ],
+      [
+       30.1192049,
+       31.4032066
+      ]
+     ],
+     "idx": [
+      10804,
+      1526
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.2241,
+     "ll": [
+      [
+       30.1192517,
+       31.4032294
+      ],
+      [
+       30.1192149,
+       31.4031767
+      ]
+     ],
+     "idx": [
+      10804,
+      1525
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.2237,
+     "ll": [
+      [
+       30.119258,
+       31.4032233
+      ],
+      [
+       30.1192149,
+       31.4031767
+      ]
+     ],
+     "idx": [
+      10805,
+      1525
+     ],
+     "family": "unified:service_road:spine",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.211,
+   "max_m": 0.233
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 8,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 6,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 1,
+    "closes:S1-hold-release (gs_weld)": 1
+   },
+   "member": {
+    "solve": 3,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0979,
+     "ll": [
+      [
+       30.1395864,
+       31.4100225
+      ],
+      [
+       30.1401989,
+       31.4098729
+      ]
+     ],
+     "idx": [
+      2828,
+      767
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.096,
+     "ll": [
+      [
+       30.1395864,
+       31.4100225
+      ],
+      [
+       30.1402027,
+       31.4098845
+      ]
+     ],
+     "idx": [
+      2828,
+      766
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.0721,
+     "ll": [
+      [
+       30.1281684,
+       31.4131536
+      ],
+      [
+       30.1281322,
+       31.4130332
+      ]
+     ],
+     "idx": [
+      3027,
+      2267
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 0.051,
+   "max_m": 0.098
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7127|planarize_airside",
+   "fgp_moved": true,
+   "n": 7,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 6,
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 5
+   },
+   "specimens": [
+    {
+     "excess_m": 0.7026,
+     "ll": [
+      [
+       30.1154352,
+       31.4048709
+      ],
+      [
+       30.1154295,
+       31.4048628
+      ]
+     ],
+     "idx": [
+      20406,
+      1373
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.6325,
+     "ll": [
+      [
+       30.1154352,
+       31.4048709
+      ],
+      [
+       30.1154295,
+       31.4048628
+      ]
+     ],
+     "idx": [
+      20406,
+      1373
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.3779,
+     "ll": [
+      [
+       30.1154839,
+       31.4049413
+      ],
+      [
+       30.1154295,
+       31.4048628
+      ]
+     ],
+     "idx": [
+      20405,
+      1373
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 0.255,
+   "max_m": 0.703
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7062|pipeline@7127",
+   "fgp_moved": false,
+   "n": 7,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 5,
+    "needs-solve (R6 groundside-service, no hard endpoint)": 2
+   },
+   "member": {
+    "solve": 6,
+    "entry": 6
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3919,
+     "ll": [
+      [
+       30.1026764,
+       31.3948503
+      ],
+      [
+       30.1023126,
+       31.394886
+      ]
+     ],
+     "idx": [
+      3982,
+      20107
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.3118,
+     "ll": [
+      [
+       30.1026764,
+       31.3948503
+      ],
+      [
+       30.102441,
+       31.3949704
+      ]
+     ],
+     "idx": [
+      3982,
+      20102
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.2788,
+     "ll": [
+      [
+       30.1026764,
+       31.3948503
+      ],
+      [
+       30.1024142,
+       31.3949812
+      ]
+     ],
+     "idx": [
+      3982,
+      20103
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.273,
+   "max_m": 0.392
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7062|planarize_airside",
+   "fgp_moved": true,
+   "n": 6,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 6
+   },
+   "member": {
+    "solve": 0,
+    "entry": 6
+   },
+   "specimens": [
+    {
+     "excess_m": 0.9982,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ]
+     ],
+     "idx": [
+      1373,
+      20401
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.9982,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ]
+     ],
+     "idx": [
+      1373,
+      20401
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.6418,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1156285,
+       31.4047405
+      ]
+     ],
+     "idx": [
+      1373,
+      20400
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.642,
+   "max_m": 0.998
+  },
+  {
+   "family": "junction",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 6,
+   "disp": {
+    "senior-protected (runway_node)": 4,
+    "closes:S1 (minted by the rebuilt graph)": 2
+   },
+   "member": {
+    "solve": 4,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0246,
+     "ll": [
+      [
+       30.1100646,
+       31.435511
+      ],
+      [
+       30.110057,
+       31.4355643
+      ]
+     ],
+     "idx": [
+      7265,
+      7266
+     ],
+     "family": "junction:-",
+     "disposition": "senior-protected (runway_node)"
+    },
+    {
+     "excess_m": 0.0246,
+     "ll": [
+      [
+       30.1100646,
+       31.435511
+      ],
+      [
+       30.110057,
+       31.4355643
+      ]
+     ],
+     "idx": [
+      7265,
+      7266
+     ],
+     "family": "junction:-",
+     "disposition": "senior-protected (runway_node)"
+    },
+    {
+     "excess_m": 0.0246,
+     "ll": [
+      [
+       30.1100646,
+       31.435511
+      ],
+      [
+       30.110057,
+       31.4355643
+      ]
+     ],
+     "idx": [
+      7265,
+      7266
+     ],
+     "family": "unified:junction",
+     "disposition": "senior-protected (runway_node)"
+    }
+   ],
+   "p50_m": 0.025,
+   "max_m": 0.025
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7241|planarize_airside",
+   "fgp_moved": false,
+   "n": 5,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 5
+   },
+   "member": {
+    "solve": 5,
+    "entry": 5
+   },
+   "specimens": [
+    {
+     "excess_m": 1.1926,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.1209842,
+       31.4159729
+      ]
+     ],
+     "idx": [
+      123,
+      20721
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 1.0823,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.12108,
+       31.4159421
+      ]
+     ],
+     "idx": [
+      123,
+      20722
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.4601,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.1207925,
+       31.4160343
+      ]
+     ],
+     "idx": [
+      123,
+      20719
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.46,
+   "max_m": 1.193
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7108|pipeline@7241",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 4
+   },
+   "member": {
+    "solve": 4,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 3.0583,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1251075,
+       31.4064748
+      ]
+     ],
+     "idx": [
+      5889,
+      5890
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 3.0583,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1251075,
+       31.4064748
+      ]
+     ],
+     "idx": [
+      5889,
+      5890
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 3.0369,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1250828,
+       31.4064838
+      ]
+     ],
+     "idx": [
+      5889,
+      5886
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 3.058,
+   "max_m": 3.058
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7108|pipeline@7127",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 4
+   },
+   "member": {
+    "solve": 4,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 2.1669,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1250404,
+       31.4063265
+      ]
+     ],
+     "idx": [
+      5889,
+      5885
+     ],
+     "family": "unified:service_junction",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 2.1414,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1250404,
+       31.4063265
+      ]
+     ],
+     "idx": [
+      5889,
+      5885
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 1.9805,
+     "ll": [
+      [
+       30.1250984,
+       31.4064394
+      ],
+      [
+       30.1250378,
+       31.4063069
+      ]
+     ],
+     "idx": [
+      5889,
+      5884
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 2.141,
+   "max_m": 2.167
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|building+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1 (FGP-only family)": 4
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 1.3876,
+     "ll": [
+      [
+       30.1219043,
+       31.4173235
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1221677,
+       31.4177978
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ]
+     ],
+     "idx": [
+      3256,
+      3257,
+      183,
+      182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.8655,
+     "ll": [
+      [
+       30.1219043,
+       31.4173235
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1221677,
+       31.4177978
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ]
+     ],
+     "idx": [
+      3256,
+      3257,
+      183,
+      182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1036,
+     "ll": [
+      [
+       30.1335468,
+       31.4125231
+      ],
+      [
+       30.1335039,
+       31.4123642
+      ],
+      [
+       30.1335619,
+       31.4122561
+      ],
+      [
+       30.1336228,
+       31.4124956
+      ]
+     ],
+     "idx": [
+      2969,
+      2967,
+      2225,
+      2224
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.866,
+   "max_m": 1.388
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7241|planarize_airside",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 4
+   },
+   "member": {
+    "solve": 4,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 1.2619,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.1208883,
+       31.4160036
+      ]
+     ],
+     "idx": [
+      123,
+      20720
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.9719,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.1211759,
+       31.4159114
+      ]
+     ],
+     "idx": [
+      123,
+      20723
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.4658,
+     "ll": [
+      [
+       30.1207985,
+       31.4160598
+      ],
+      [
+       30.1208883,
+       31.4160036
+      ]
+     ],
+     "idx": [
+      123,
+      20720
+     ],
+     "family": "service_road:road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.972,
+   "max_m": 1.262
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1 (FGP-only family)": 4
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.8051,
+     "ll": [
+      [
+       30.1220587,
+       31.4175002
+      ],
+      [
+       30.1220814,
+       31.4174906
+      ],
+      [
+       30.1221677,
+       31.4177978
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ]
+     ],
+     "idx": [
+      3264,
+      3265,
+      183,
+      182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0393,
+     "ll": [
+      [
+       30.1082409,
+       31.3877894
+      ],
+      [
+       30.1081863,
+       31.38755
+      ],
+      [
+       30.1082467,
+       31.3876596
+      ],
+      [
+       30.108274,
+       31.3877793
+      ]
+     ],
+     "idx": [
+      20190,
+      20191,
+      2389,
+      2388
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0362,
+     "ll": [
+      [
+       30.1082595,
+       31.3878706
+      ],
+      [
+       30.1082409,
+       31.3877894
+      ],
+      [
+       30.108274,
+       31.3877793
+      ],
+      [
+       30.1083012,
+       31.387899
+      ]
+     ],
+     "idx": [
+      20189,
+      20190,
+      2388,
+      2387
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.039,
+   "max_m": 0.805
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "emit_terrain_transition_features|pipeline@7127",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1 (FGP-only family)": 4
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4896,
+     "ll": [
+      [
+       30.1109551,
+       31.3982569
+      ],
+      [
+       30.1109598,
+       31.3982394
+      ],
+      [
+       30.1110277,
+       31.3982638
+      ],
+      [
+       30.1110228,
+       31.3982812
+      ]
+     ],
+     "idx": [
+      5947,
+      6227,
+      6226,
+      5948
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.4104,
+     "ll": [
+      [
+       30.1109551,
+       31.3982569
+      ],
+      [
+       30.1109598,
+       31.3982394
+      ],
+      [
+       30.1110277,
+       31.3982638
+      ],
+      [
+       30.1110228,
+       31.3982812
+      ]
+     ],
+     "idx": [
+      5947,
+      6227,
+      6226,
+      5948
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.3389,
+     "ll": [
+      [
+       30.1109551,
+       31.3982569
+      ],
+      [
+       30.1109598,
+       31.3982394
+      ],
+      [
+       30.1110277,
+       31.3982638
+      ],
+      [
+       30.1110228,
+       31.3982812
+      ]
+     ],
+     "idx": [
+      5947,
+      6227,
+      6226,
+      5948
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.41,
+   "max_m": 0.49
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7062|solve@6246",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 4
+   },
+   "member": {
+    "solve": 4,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4129,
+     "ll": [
+      [
+       30.1207236,
+       31.4160563
+      ],
+      [
+       30.1207036,
+       31.4160942
+      ]
+     ],
+     "idx": [
+      20717,
+      121
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.4073,
+     "ll": [
+      [
+       30.1207236,
+       31.4160563
+      ],
+      [
+       30.1207649,
+       31.416072
+      ]
+     ],
+     "idx": [
+      20717,
+      122
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.1138,
+     "ll": [
+      [
+       30.1207236,
+       31.4160563
+      ],
+      [
+       30.1207036,
+       31.4160942
+      ]
+     ],
+     "idx": [
+      20717,
+      121
+     ],
+     "family": "service_road:road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.407,
+   "max_m": 0.413
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "building+junction|graded_strip+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S1 (FGP-only family)": 4
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2422,
+     "ll": [
+      [
+       30.1357538,
+       31.4106467
+      ],
+      [
+       30.1354767,
+       31.4108451
+      ]
+     ],
+     "idx": [
+      713,
+      2813
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.2091,
+     "ll": [
+      [
+       30.1357291,
+       31.4105553
+      ],
+      [
+       30.1354767,
+       31.4108451
+      ]
+     ],
+     "idx": [
+      714,
+      2813
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1608,
+     "ll": [
+      [
+       30.1350843,
+       31.4109856
+      ],
+      [
+       30.1352805,
+       31.4109153
+      ]
+     ],
+     "idx": [
+      674,
+      2814
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.209,
+   "max_m": 0.242
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7127|planarize_airside",
+   "fgp_moved": true,
+   "n": 4,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 4
+   },
+   "member": {
+    "solve": 0,
+    "entry": 4
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0742,
+     "ll": [
+      [
+       30.1330343,
+       31.4117836
+      ],
+      [
+       30.1336091,
+       31.4108544
+      ]
+     ],
+     "idx": [
+      2246,
+      2929
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.0742,
+     "ll": [
+      [
+       30.1330343,
+       31.4117836
+      ],
+      [
+       30.1336091,
+       31.4108544
+      ]
+     ],
+     "idx": [
+      2246,
+      2929
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.0661,
+     "ll": [
+      [
+       30.1330343,
+       31.4117836
+      ],
+      [
+       30.1335398,
+       31.4108795
+      ]
+     ],
+     "idx": [
+      2246,
+      2928
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.074,
+   "max_m": 0.074
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+building+service_junction|apron+service_junction|building+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 1.3877,
+     "ll": [
+      [
+       30.1221094,
+       31.4178172
+      ],
+      [
+       30.1220201,
+       31.4178469
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1220804,
+       31.4172606
+      ]
+     ],
+     "idx": [
+      182,
+      181,
+      3257,
+      255
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.8876,
+     "ll": [
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1220804,
+       31.4172606
+      ],
+      [
+       30.1221677,
+       31.4177978
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ]
+     ],
+     "idx": [
+      3257,
+      255,
+      183,
+      182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.8657,
+     "ll": [
+      [
+       30.1221094,
+       31.4178172
+      ],
+      [
+       30.1220201,
+       31.4178469
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1220804,
+       31.4172606
+      ]
+     ],
+     "idx": [
+      182,
+      181,
+      3257,
+      255
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.888,
+   "max_m": 1.388
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 1.1614,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105025,
+       31.3950665
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ]
+     ],
+     "idx": [
+      4326,
+      4325,
+      4350,
+      4351
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.1384,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105025,
+       31.3950665
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ]
+     ],
+     "idx": [
+      4326,
+      4325,
+      4350,
+      4351
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 1.061,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105072,
+       31.3952529
+      ],
+      [
+       30.1105025,
+       31.3950665
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ]
+     ],
+     "idx": [
+      4326,
+      4325,
+      4350,
+      4351
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 1.138,
+   "max_m": 1.161
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|building+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.6282,
+     "ll": [
+      [
+       30.1220814,
+       31.4174906
+      ],
+      [
+       30.1221634,
+       31.4175379
+      ],
+      [
+       30.122227,
+       31.417778
+      ],
+      [
+       30.1221984,
+       31.4177875
+      ]
+     ],
+     "idx": [
+      3265,
+      3266,
+      185,
+      184
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.4022,
+     "ll": [
+      [
+       30.1220814,
+       31.4174906
+      ],
+      [
+       30.1221634,
+       31.4175379
+      ],
+      [
+       30.122227,
+       31.417778
+      ],
+      [
+       30.1221984,
+       31.4177875
+      ]
+     ],
+     "idx": [
+      3265,
+      3266,
+      185,
+      184
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.3946,
+     "ll": [
+      [
+       30.1254082,
+       31.4145908
+      ],
+      [
+       30.1251471,
+       31.4146914
+      ],
+      [
+       30.1251137,
+       31.4145645
+      ],
+      [
+       30.1251855,
+       31.4145382
+      ]
+     ],
+     "idx": [
+      2206,
+      2208,
+      20314,
+      20313
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.402,
+   "max_m": 0.628
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|graded_strip+groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4595,
+     "ll": [
+      [
+       30.1243691,
+       31.4148364
+      ],
+      [
+       30.1242663,
+       31.4148739
+      ],
+      [
+       30.1242301,
+       31.4147786
+      ],
+      [
+       30.1249149,
+       31.4145264
+      ]
+     ],
+     "idx": [
+      4668,
+      4667,
+      3433,
+      4705
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0738,
+     "ll": [
+      [
+       30.124883,
+       31.4146489
+      ],
+      [
+       30.1247711,
+       31.4146897
+      ],
+      [
+       30.1242301,
+       31.4147786
+      ],
+      [
+       30.1249149,
+       31.4145264
+      ]
+     ],
+     "idx": [
+      4673,
+      4672,
+      3433,
+      4705
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0405,
+     "ll": [
+      [
+       30.1244719,
+       31.4147989
+      ],
+      [
+       30.1243691,
+       31.4148364
+      ],
+      [
+       30.1242301,
+       31.4147786
+      ],
+      [
+       30.1249149,
+       31.4145264
+      ]
+     ],
+     "idx": [
+      4669,
+      4668,
+      3433,
+      4705
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.074,
+   "max_m": 0.46
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241|pipeline@7270",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4232,
+     "ll": [
+      [
+       30.1143683,
+       31.4051255
+      ],
+      [
+       30.1139271,
+       31.4045498
+      ],
+      [
+       30.1140643,
+       31.4045521
+      ],
+      [
+       30.1141128,
+       31.4046216
+      ]
+     ],
+     "idx": [
+      1249,
+      1248,
+      5561,
+      5562
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.2163,
+     "ll": [
+      [
+       30.1143683,
+       31.4051255
+      ],
+      [
+       30.1139271,
+       31.4045498
+      ],
+      [
+       30.1141189,
+       31.40463
+      ],
+      [
+       30.1142202,
+       31.4047684
+      ]
+     ],
+     "idx": [
+      1249,
+      1248,
+      5563,
+      5564
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.2118,
+     "ll": [
+      [
+       30.1143683,
+       31.4051255
+      ],
+      [
+       30.1139271,
+       31.4045498
+      ],
+      [
+       30.1141189,
+       31.40463
+      ],
+      [
+       30.1142202,
+       31.4047684
+      ]
+     ],
+     "idx": [
+      1249,
+      1248,
+      5563,
+      5564
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.216,
+   "max_m": 0.423
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241|solve@6246",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3691,
+     "ll": [
+      [
+       30.117429,
+       31.3999061
+      ],
+      [
+       30.1174196,
+       31.3999377
+      ],
+      [
+       30.1173929,
+       31.3999058
+      ],
+      [
+       30.1173931,
+       31.3998679
+      ]
+     ],
+     "idx": [
+      20510,
+      20511,
+      1601,
+      1600
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1329,
+     "ll": [
+      [
+       30.1116425,
+       31.3992999
+      ],
+      [
+       30.1115061,
+       31.3993055
+      ],
+      [
+       30.1115395,
+       31.3992663
+      ],
+      [
+       30.1116387,
+       31.399255
+      ]
+     ],
+     "idx": [
+      20612,
+      20613,
+      2326,
+      2325
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1282,
+     "ll": [
+      [
+       30.1116425,
+       31.3992999
+      ],
+      [
+       30.1115061,
+       31.3993055
+      ],
+      [
+       30.1115395,
+       31.3992663
+      ],
+      [
+       30.1116387,
+       31.399255
+      ]
+     ],
+     "idx": [
+      20612,
+      20613,
+      2326,
+      2325
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.133,
+   "max_m": 0.369
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3281,
+     "ll": [
+      [
+       30.117471,
+       31.3998308
+      ],
+      [
+       30.1174471,
+       31.3998663
+      ],
+      [
+       30.1174083,
+       31.399839
+      ],
+      [
+       30.1174285,
+       31.3998008
+      ]
+     ],
+     "idx": [
+      20508,
+      20509,
+      1599,
+      1598
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1388,
+     "ll": [
+      [
+       30.1175329,
+       31.3997769
+      ],
+      [
+       30.1174999,
+       31.3998007
+      ],
+      [
+       30.1174285,
+       31.3998008
+      ],
+      [
+       30.1174356,
+       31.3997874
+      ]
+     ],
+     "idx": [
+      20506,
+      20507,
+      1598,
+      1597
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1216,
+     "ll": [
+      [
+       30.1175329,
+       31.3997769
+      ],
+      [
+       30.1174999,
+       31.3998007
+      ],
+      [
+       30.1174285,
+       31.3998008
+      ],
+      [
+       30.1174356,
+       31.3997874
+      ]
+     ],
+     "idx": [
+      20506,
+      20507,
+      1598,
+      1597
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.139,
+   "max_m": 0.328
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127|planarize_airside|solve@6246",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3278,
+     "ll": [
+      [
+       30.1218555,
+       31.4176336
+      ],
+      [
+       30.1219769,
+       31.4175871
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ],
+      [
+       30.1220201,
+       31.4178469
+      ]
+     ],
+     "idx": [
+      3250,
+      3251,
+      182,
+      181
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.2466,
+     "ll": [
+      [
+       30.1218555,
+       31.4176336
+      ],
+      [
+       30.1219769,
+       31.4175871
+      ],
+      [
+       30.1220152,
+       31.4178485
+      ],
+      [
+       30.1219308,
+       31.4178766
+      ]
+     ],
+     "idx": [
+      3250,
+      3251,
+      180,
+      179
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.075,
+     "ll": [
+      [
+       30.1218555,
+       31.4176336
+      ],
+      [
+       30.1219769,
+       31.4175871
+      ],
+      [
+       30.1221094,
+       31.4178172
+      ],
+      [
+       30.1220201,
+       31.4178469
+      ]
+     ],
+     "idx": [
+      3250,
+      3251,
+      182,
+      181
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.247,
+   "max_m": 0.328
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 2,
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 2,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1314,
+     "ll": [
+      [
+       30.1356596,
+       31.4107796
+      ],
+      [
+       30.1355748,
+       31.41081
+      ]
+     ],
+     "idx": [
+      2726,
+      2725
+     ],
+     "family": "unified:service_road",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 0.0819,
+     "ll": [
+      [
+       30.1355748,
+       31.41081
+      ],
+      [
+       30.1356596,
+       31.4107796
+      ]
+     ],
+     "idx": [
+      2725,
+      2726
+     ],
+     "family": "unified:service_road",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 0.0031,
+     "ll": [
+      [
+       30.1393554,
+       31.4100867
+      ],
+      [
+       30.1393532,
+       31.4100778
+      ]
+     ],
+     "idx": [
+      2642,
+      2641
+     ],
+     "family": "unified:service_road:spine",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.082,
+   "max_m": 0.131
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1297,
+     "ll": [
+      [
+       30.1116696,
+       31.3992931
+      ],
+      [
+       30.1116387,
+       31.399255
+      ]
+     ],
+     "idx": [
+      20611,
+      2325
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.1065,
+     "ll": [
+      [
+       30.1116425,
+       31.3992999
+      ],
+      [
+       30.1116387,
+       31.399255
+      ]
+     ],
+     "idx": [
+      20612,
+      2325
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    },
+    {
+     "excess_m": 0.0906,
+     "ll": [
+      [
+       30.1116696,
+       31.3992931
+      ],
+      [
+       30.1117376,
+       31.3992437
+      ]
+     ],
+     "idx": [
+      20611,
+      2324
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 0.106,
+   "max_m": 0.13
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.108,
+     "ll": [
+      [
+       30.1116425,
+       31.3992999
+      ],
+      [
+       30.1115061,
+       31.3993055
+      ],
+      [
+       30.1114789,
+       31.3992732
+      ],
+      [
+       30.1115395,
+       31.3992663
+      ]
+     ],
+     "idx": [
+      20612,
+      20613,
+      2327,
+      2326
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0803,
+     "ll": [
+      [
+       30.1114429,
+       31.399308
+      ],
+      [
+       30.1113707,
+       31.3992999
+      ],
+      [
+       30.1113506,
+       31.3992509
+      ],
+      [
+       30.1114481,
+       31.3992678
+      ]
+     ],
+     "idx": [
+      20615,
+      20616,
+      2329,
+      2328
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0521,
+     "ll": [
+      [
+       30.1114429,
+       31.399308
+      ],
+      [
+       30.1113707,
+       31.3992999
+      ],
+      [
+       30.1113506,
+       31.3992509
+      ],
+      [
+       30.1114481,
+       31.3992678
+      ]
+     ],
+     "idx": [
+      20615,
+      20616,
+      2329,
+      2328
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.08,
+   "max_m": 0.108
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+junction|building+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.105,
+     "ll": [
+      [
+       30.1356981,
+       31.4100972
+      ],
+      [
+       30.1359037,
+       31.4100227
+      ],
+      [
+       30.1359056,
+       31.4104916
+      ],
+      [
+       30.1358174,
+       31.4105235
+      ]
+     ],
+     "idx": [
+      2750,
+      2751,
+      716,
+      715
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.041,
+     "ll": [
+      [
+       30.1356981,
+       31.4100972
+      ],
+      [
+       30.1359037,
+       31.4100227
+      ],
+      [
+       30.135979,
+       31.4105061
+      ],
+      [
+       30.1359208,
+       31.4105221
+      ]
+     ],
+     "idx": [
+      2750,
+      2751,
+      718,
+      717
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0186,
+     "ll": [
+      [
+       30.1356981,
+       31.4100972
+      ],
+      [
+       30.1359037,
+       31.4100227
+      ],
+      [
+       30.1360361,
+       31.4104621
+      ],
+      [
+       30.1360212,
+       31.4105205
+      ]
+     ],
+     "idx": [
+      2750,
+      2751,
+      721,
+      720
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.041,
+   "max_m": 0.105
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0527,
+     "ll": [
+      [
+       30.1263245,
+       31.4183772
+      ],
+      [
+       30.1263035,
+       31.4183718
+      ],
+      [
+       30.1262349,
+       31.4182464
+      ],
+      [
+       30.1264098,
+       31.4181863
+      ]
+     ],
+     "idx": [
+      3149,
+      3148,
+      4607,
+      3064
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0397,
+     "ll": [
+      [
+       30.1263035,
+       31.4183718
+      ],
+      [
+       30.1262681,
+       31.4183504
+      ],
+      [
+       30.1262349,
+       31.4182464
+      ],
+      [
+       30.1264098,
+       31.4181863
+      ]
+     ],
+     "idx": [
+      3148,
+      3147,
+      4607,
+      3064
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0143,
+     "ll": [
+      [
+       30.1263035,
+       31.4183718
+      ],
+      [
+       30.1262681,
+       31.4183504
+      ],
+      [
+       30.1262349,
+       31.4182464
+      ],
+      [
+       30.1264098,
+       31.4181863
+      ]
+     ],
+     "idx": [
+      3148,
+      3147,
+      4607,
+      3064
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.04,
+   "max_m": 0.053
+  },
+  {
+   "family": "rod_interval",
+   "pair": "apron+junction|apron+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0467,
+     "ll": [
+      [
+       30.134568,
+       31.4105069
+      ],
+      [
+       30.1346707,
+       31.4104697
+      ]
+     ],
+     "idx": [
+      2744,
+      2745
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.0263,
+     "ll": [
+      [
+       30.1374448,
+       31.4094642
+      ],
+      [
+       30.1376503,
+       31.4093896
+      ]
+     ],
+     "idx": [
+      2758,
+      2759
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.0187,
+     "ll": [
+      [
+       30.1348762,
+       31.4103952
+      ],
+      [
+       30.1351845,
+       31.4102835
+      ]
+     ],
+     "idx": [
+      2746,
+      2747
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.026,
+   "max_m": 0.047
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "solve@6246",
+   "fgp_moved": true,
+   "n": 3,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0453,
+     "ll": [
+      [
+       30.1359159,
+       31.4109488
+      ],
+      [
+       30.1359454,
+       31.4108171
+      ]
+     ],
+     "idx": [
+      2692,
+      2706
+     ],
+     "family": "unified:service_road",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 0.0435,
+     "ll": [
+      [
+       30.1359124,
+       31.4109366
+      ],
+      [
+       30.1359454,
+       31.4108171
+      ]
+     ],
+     "idx": [
+      2693,
+      2706
+     ],
+     "family": "unified:service_road",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 0.0367,
+     "ll": [
+      [
+       30.1359058,
+       31.4109138
+      ],
+      [
+       30.1359454,
+       31.4108171
+      ]
+     ],
+     "idx": [
+      2694,
+      2706
+     ],
+     "family": "unified:service_road",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 0.043,
+   "max_m": 0.045
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1 (FGP-only family)": 3
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0224,
+     "ll": [
+      [
+       30.1340866,
+       31.4106718
+      ],
+      [
+       30.134089,
+       31.4106805
+      ],
+      [
+       30.1339942,
+       31.4107149
+      ],
+      [
+       30.1338529,
+       31.410766
+      ]
+     ],
+     "idx": [
+      18372,
+      2741,
+      2738,
+      2737
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0091,
+     "ll": [
+      [
+       30.1338044,
+       31.4105963
+      ],
+      [
+       30.1338529,
+       31.410766
+      ],
+      [
+       30.1337122,
+       31.4107301
+      ],
+      [
+       30.1337307,
+       31.4106936
+      ]
+     ],
+     "idx": [
+      18405,
+      2737,
+      18410,
+      18411
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0024,
+     "ll": [
+      [
+       30.1338044,
+       31.4105963
+      ],
+      [
+       30.1338529,
+       31.410766
+      ],
+      [
+       30.1337456,
+       31.4106549
+      ],
+      [
+       30.1337565,
+       31.4106145
+      ]
+     ],
+     "idx": [
+      18405,
+      2737,
+      18412,
+      18413
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.009,
+   "max_m": 0.022
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7012|solve@6246",
+   "fgp_moved": false,
+   "n": 3,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 3
+   },
+   "member": {
+    "solve": 3,
+    "entry": 3
+   },
+   "specimens": [
+    {
+     "excess_m": 0.016,
+     "ll": [
+      [
+       30.1178958,
+       31.3947872
+      ],
+      [
+       30.1178696,
+       31.3947898
+      ]
+     ],
+     "idx": [
+      1844,
+      10135
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.0126,
+     "ll": [
+      [
+       30.1178696,
+       31.3947898
+      ],
+      [
+       30.1178969,
+       31.3947774
+      ]
+     ],
+     "idx": [
+      10135,
+      1845
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.0047,
+     "ll": [
+      [
+       30.1178696,
+       31.3947898
+      ],
+      [
+       30.1178984,
+       31.3947642
+      ]
+     ],
+     "idx": [
+      10135,
+      1846
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.013,
+   "max_m": 0.016
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 3.4709,
+     "ll": [
+      [
+       30.1243857,
+       31.4066566
+      ],
+      [
+       30.1243533,
+       31.406543
+      ],
+      [
+       30.1244186,
+       31.4065204
+      ],
+      [
+       30.1244484,
+       31.4066348
+      ]
+     ],
+     "idx": [
+      20343,
+      20344,
+      1302,
+      1301
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.301,
+     "ll": [
+      [
+       30.1213396,
+       31.3897248
+      ],
+      [
+       30.1213816,
+       31.3898131
+      ],
+      [
+       30.1212967,
+       31.389752
+      ],
+      [
+       30.1212644,
+       31.3896805
+      ]
+     ],
+     "idx": [
+      2423,
+      2422,
+      20684,
+      20683
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 3.471,
+   "max_m": 3.471
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|building+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 3.2561,
+     "ll": [
+      [
+       30.1250828,
+       31.4064838
+      ],
+      [
+       30.1250404,
+       31.4063265
+      ],
+      [
+       30.1250842,
+       31.40631
+      ],
+      [
+       30.1251144,
+       31.4064173
+      ]
+     ],
+     "idx": [
+      5886,
+      5885,
+      1319,
+      1318
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 3.1486,
+     "ll": [
+      [
+       30.1250828,
+       31.4064838
+      ],
+      [
+       30.1250404,
+       31.4063265
+      ],
+      [
+       30.1250842,
+       31.40631
+      ],
+      [
+       30.1251144,
+       31.4064173
+      ]
+     ],
+     "idx": [
+      5886,
+      5885,
+      1319,
+      1318
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 3.256,
+   "max_m": 3.256
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|building+graded_strip+service_junction|building+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 3.1351,
+     "ll": [
+      [
+       30.1250378,
+       31.4063069
+      ],
+      [
+       30.1250497,
+       31.4062758
+      ],
+      [
+       30.1250808,
+       31.4062978
+      ],
+      [
+       30.1250842,
+       31.40631
+      ]
+     ],
+     "idx": [
+      5884,
+      5883,
+      1320,
+      1319
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 3.1325,
+     "ll": [
+      [
+       30.1250378,
+       31.4063069
+      ],
+      [
+       30.1250497,
+       31.4062758
+      ],
+      [
+       30.1250808,
+       31.4062978
+      ],
+      [
+       30.1250842,
+       31.40631
+      ]
+     ],
+     "idx": [
+      5884,
+      5883,
+      1320,
+      1319
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 3.135,
+   "max_m": 3.135
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 1.0853,
+     "ll": [
+      [
+       30.1104876,
+       31.3951948
+      ],
+      [
+       30.1104737,
+       31.3951309
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4353,
+      4345,
+      4351,
+      4326
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.9831,
+     "ll": [
+      [
+       30.1104876,
+       31.3951948
+      ],
+      [
+       30.1104737,
+       31.3951309
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4353,
+      4345,
+      4351,
+      4326
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 1.085,
+   "max_m": 1.085
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|planarize_airside",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.9777,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ],
+      [
+       30.1158864,
+       31.4047621
+      ],
+      [
+       30.1155301,
+       31.404992
+      ]
+     ],
+     "idx": [
+      1373,
+      20401,
+      20369,
+      20394
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.653,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ],
+      [
+       30.1158864,
+       31.4047621
+      ],
+      [
+       30.1155301,
+       31.404992
+      ]
+     ],
+     "idx": [
+      1373,
+      20401,
+      20369,
+      20394
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.978,
+   "max_m": 0.978
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7270",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 2
+   },
+   "member": {
+    "solve": 2,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.7157,
+     "ll": [
+      [
+       30.1105835,
+       31.3950689
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4367,
+      4326
+     ],
+     "family": "service_junction:-",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.7157,
+     "ll": [
+      [
+       30.1105835,
+       31.3950689
+      ],
+      [
+       30.1105645,
+       31.3951037
+      ]
+     ],
+     "idx": [
+      4367,
+      4326
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.716,
+   "max_m": 0.716
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.5643,
+     "ll": [
+      [
+       30.1213566,
+       31.3895328
+      ],
+      [
+       30.1213716,
+       31.3895642
+      ],
+      [
+       30.1212321,
+       31.3896089
+      ],
+      [
+       30.1213566,
+       31.3895328
+      ]
+     ],
+     "idx": [
+      20710,
+      2428,
+      20692,
+      20710
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.4086,
+     "ll": [
+      [
+       30.1213566,
+       31.3895328
+      ],
+      [
+       30.1213716,
+       31.3895642
+      ],
+      [
+       30.1212321,
+       31.3896089
+      ],
+      [
+       30.1213566,
+       31.3895328
+      ]
+     ],
+     "idx": [
+      20710,
+      2428,
+      20692,
+      20710
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.564,
+   "max_m": 0.564
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4328,
+     "ll": [
+      [
+       30.1248825,
+       31.4054612
+      ],
+      [
+       30.1248209,
+       31.405483
+      ],
+      [
+       30.1247709,
+       31.4054381
+      ],
+      [
+       30.1248663,
+       31.4054021
+      ]
+     ],
+     "idx": [
+      1365,
+      1364,
+      11211,
+      11212
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1915,
+     "ll": [
+      [
+       30.1359122,
+       31.4118556
+      ],
+      [
+       30.1358901,
+       31.4117802
+      ],
+      [
+       30.1359257,
+       31.4117665
+      ],
+      [
+       30.1359462,
+       31.4118423
+      ]
+     ],
+     "idx": [
+      20868,
+      20870,
+      596,
+      595
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.433,
+   "max_m": 0.433
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 2,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 2
+   },
+   "member": {
+    "solve": 2,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3653,
+     "ll": [
+      [
+       30.1026764,
+       31.3948503
+      ],
+      [
+       30.1022883,
+       31.3949007
+      ]
+     ],
+     "idx": [
+      3982,
+      4000
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.3589,
+     "ll": [
+      [
+       30.1026764,
+       31.3948503
+      ],
+      [
+       30.1023018,
+       31.3949501
+      ]
+     ],
+     "idx": [
+      3982,
+      4001
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.365,
+   "max_m": 0.365
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|building+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3184,
+     "ll": [
+      [
+       30.1143683,
+       31.4051255
+      ],
+      [
+       30.1139271,
+       31.4045498
+      ],
+      [
+       30.1139602,
+       31.4043862
+      ],
+      [
+       30.1140107,
+       31.4044751
+      ]
+     ],
+     "idx": [
+      1249,
+      1248,
+      5555,
+      5556
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0343,
+     "ll": [
+      [
+       30.1143683,
+       31.4051255
+      ],
+      [
+       30.1139271,
+       31.4045498
+      ],
+      [
+       30.114287,
+       31.4048596
+      ],
+      [
+       30.1143359,
+       31.4049264
+      ]
+     ],
+     "idx": [
+      1249,
+      1248,
+      5532,
+      5533
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.318,
+   "max_m": 0.318
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.3,
+     "ll": [
+      [
+       30.1253092,
+       31.4163401
+      ],
+      [
+       30.1252199,
+       31.4163662
+      ],
+      [
+       30.1253744,
+       31.4161957
+      ],
+      [
+       30.1253985,
+       31.416314
+      ]
+     ],
+     "idx": [
+      3240,
+      3239,
+      3191,
+      3190
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.1341,
+     "ll": [
+      [
+       30.1253092,
+       31.4163401
+      ],
+      [
+       30.1252199,
+       31.4163662
+      ],
+      [
+       30.1253744,
+       31.4161957
+      ],
+      [
+       30.1253985,
+       31.416314
+      ]
+     ],
+     "idx": [
+      3240,
+      3239,
+      3191,
+      3190
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.3,
+   "max_m": 0.3
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "emit_terrain_transition_features",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "needs-solve (R6 groundside-service, no hard endpoint)": 2
+   },
+   "member": {
+    "solve": 2,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2984,
+     "ll": [
+      [
+       30.110906,
+       31.3990438
+      ],
+      [
+       30.1109242,
+       31.3988582
+      ]
+     ],
+     "idx": [
+      2339,
+      5950
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    },
+    {
+     "excess_m": 0.2316,
+     "ll": [
+      [
+       30.1109045,
+       31.3990523
+      ],
+      [
+       30.1109242,
+       31.3988582
+      ]
+     ],
+     "idx": [
+      2338,
+      5950
+     ],
+     "family": "service_junction:-",
+     "disposition": "needs-solve (R6 groundside-service, no hard endpoint)"
+    }
+   ],
+   "p50_m": 0.298,
+   "max_m": 0.298
+  },
+  {
+   "family": "transverse",
+   "pair": "building+graded_strip+service_junction|building+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2239,
+     "ll": [
+      [
+       30.1352915,
+       31.4112768
+      ],
+      [
+       30.1353153,
+       31.4112677
+      ],
+      [
+       30.1354143,
+       31.4115037
+      ],
+      [
+       30.1353222,
+       31.4115355
+      ]
+     ],
+     "idx": [
+      666,
+      20316,
+      607,
+      606
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0311,
+     "ll": [
+      [
+       30.1353153,
+       31.4112677
+      ],
+      [
+       30.135343,
+       31.411257
+      ],
+      [
+       30.1354143,
+       31.4115037
+      ],
+      [
+       30.1353222,
+       31.4115355
+      ]
+     ],
+     "idx": [
+      20316,
+      20317,
+      607,
+      606
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.224,
+   "max_m": 0.224
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 2
+   },
+   "member": {
+    "solve": 2,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.176,
+     "ll": [
+      [
+       30.1206961,
+       31.4160647
+      ],
+      [
+       30.1207036,
+       31.4160942
+      ]
+     ],
+     "idx": [
+      11788,
+      121
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.1287,
+     "ll": [
+      [
+       30.1206961,
+       31.4160647
+      ],
+      [
+       30.1207649,
+       31.416072
+      ]
+     ],
+     "idx": [
+      11788,
+      122
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.176,
+   "max_m": 0.176
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1709,
+     "ll": [
+      [
+       30.1328392,
+       31.4118549
+      ],
+      [
+       30.1313925,
+       31.4116579
+      ]
+     ],
+     "idx": [
+      2245,
+      2917
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.1709,
+     "ll": [
+      [
+       30.1328392,
+       31.4118549
+      ],
+      [
+       30.1313925,
+       31.4116579
+      ]
+     ],
+     "idx": [
+      2245,
+      2917
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.171,
+   "max_m": 0.171
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|building+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1697,
+     "ll": [
+      [
+       30.1334828,
+       31.4125454
+      ],
+      [
+       30.1335468,
+       31.4125231
+      ],
+      [
+       30.1336228,
+       31.4124956
+      ],
+      [
+       30.1336347,
+       31.4127024
+      ]
+     ],
+     "idx": [
+      2970,
+      2969,
+      2224,
+      20126
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0491,
+     "ll": [
+      [
+       30.1334828,
+       31.4125454
+      ],
+      [
+       30.1335468,
+       31.4125231
+      ],
+      [
+       30.1336228,
+       31.4124956
+      ],
+      [
+       30.1336347,
+       31.4127024
+      ]
+     ],
+     "idx": [
+      2970,
+      2969,
+      2224,
+      20126
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.17,
+   "max_m": 0.17
+  },
+  {
+   "family": "service_road",
+   "pair": "service_junction|service_road",
+   "last_stage": "pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.156,
+     "ll": [
+      [
+       30.1206894,
+       31.4160676
+      ],
+      [
+       30.1207036,
+       31.4160942
+      ]
+     ],
+     "idx": [
+      11789,
+      121
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    },
+    {
+     "excess_m": 0.1039,
+     "ll": [
+      [
+       30.1206894,
+       31.4160676
+      ],
+      [
+       30.1207649,
+       31.416072
+      ]
+     ],
+     "idx": [
+      11789,
+      122
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.156,
+   "max_m": 0.156
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+building+service_junction|apron+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1536,
+     "ll": [
+      [
+       30.1221,
+       31.4174153
+      ],
+      [
+       30.1220792,
+       31.4174258
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1220804,
+       31.4172606
+      ]
+     ],
+     "idx": [
+      3260,
+      3261,
+      3257,
+      255
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0043,
+     "ll": [
+      [
+       30.1221,
+       31.4174153
+      ],
+      [
+       30.1220792,
+       31.4174258
+      ],
+      [
+       30.1219702,
+       31.4172995
+      ],
+      [
+       30.1220804,
+       31.4172606
+      ]
+     ],
+     "idx": [
+      3260,
+      3261,
+      3257,
+      255
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.154,
+   "max_m": 0.154
+  },
+  {
+   "family": "transverse",
+   "pair": "building+graded_strip+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1292,
+     "ll": [
+      [
+       30.1249656,
+       31.4054302
+      ],
+      [
+       30.1249428,
+       31.4054399
+      ],
+      [
+       30.1249485,
+       31.4053711
+      ],
+      [
+       30.124958,
+       31.4054003
+      ]
+     ],
+     "idx": [
+      11196,
+      1353,
+      11213,
+      11195
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0752,
+     "ll": [
+      [
+       30.1249656,
+       31.4054302
+      ],
+      [
+       30.1249428,
+       31.4054399
+      ],
+      [
+       30.1248663,
+       31.4054021
+      ],
+      [
+       30.1249485,
+       31.4053711
+      ]
+     ],
+     "idx": [
+      11196,
+      1353,
+      11212,
+      11213
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.129,
+   "max_m": 0.129
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "emit_terrain_transition_features|solve@6246",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1288,
+     "ll": [
+      [
+       30.1110228,
+       31.3982812
+      ],
+      [
+       30.1110113,
+       31.3983265
+      ]
+     ],
+     "idx": [
+      5948,
+      5949
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.1288,
+     "ll": [
+      [
+       30.1110228,
+       31.3982812
+      ],
+      [
+       30.1110113,
+       31.3983265
+      ]
+     ],
+     "idx": [
+      5948,
+      5949
+     ],
+     "family": "unified:apron:spine",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.129,
+   "max_m": 0.129
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|graded_strip+groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 2
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0903,
+     "ll": [
+      [
+       30.1349144,
+       31.4114244
+      ],
+      [
+       30.1349996,
+       31.4114344
+      ],
+      [
+       30.135245,
+       31.4122037
+      ],
+      [
+       30.1351501,
+       31.4122358
+      ]
+     ],
+     "idx": [
+      2941,
+      2942,
+      2956,
+      2957
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0091,
+     "ll": [
+      [
+       30.135245,
+       31.4122037
+      ],
+      [
+       30.1351501,
+       31.4122358
+      ],
+      [
+       30.1349144,
+       31.4114244
+      ],
+      [
+       30.1349996,
+       31.4114344
+      ]
+     ],
+     "idx": [
+      2956,
+      2957,
+      2941,
+      2942
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.09,
+   "max_m": 0.09
+  },
+  {
+   "family": "transverse",
+   "pair": "building+graded_strip+service_junction|graded_strip+groundside_pavement+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0782,
+     "ll": [
+      [
+       30.1146041,
+       31.4058437
+      ],
+      [
+       30.1145911,
+       31.405825
+      ],
+      [
+       30.1146383,
+       31.4057934
+      ],
+      [
+       30.1146508,
+       31.4058114
+      ]
+     ],
+     "idx": [
+      20849,
+      20850,
+      20853,
+      1182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0182,
+     "ll": [
+      [
+       30.1146041,
+       31.4058437
+      ],
+      [
+       30.1145911,
+       31.405825
+      ],
+      [
+       30.1146383,
+       31.4057934
+      ],
+      [
+       30.1146508,
+       31.4058114
+      ]
+     ],
+     "idx": [
+      20849,
+      20850,
+      20853,
+      1182
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.078,
+   "max_m": 0.078
+  },
+  {
+   "family": "rod_interval",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 2,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 1,
+    "closes:S1 (minted by the rebuilt graph)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0558,
+     "ll": [
+      [
+       30.1102397,
+       31.4067002
+      ],
+      [
+       30.1102538,
+       31.4067304
+      ]
+     ],
+     "idx": [
+      18893,
+      18892
+     ],
+     "family": "rod_interval",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.0184,
+     "ll": [
+      [
+       30.1383105,
+       31.4078274
+      ],
+      [
+       30.1385132,
+       31.4069793
+      ]
+     ],
+     "idx": [
+      2772,
+      2774
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S1 (minted by the rebuilt graph)"
+    }
+   ],
+   "p50_m": 0.056,
+   "max_m": 0.056
+  },
+  {
+   "family": "rod_interval",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0459,
+     "ll": [
+      [
+       30.12352,
+       31.429239
+      ],
+      [
+       30.1237026,
+       31.4292704
+      ]
+     ],
+     "idx": [
+      12436,
+      12437
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    },
+    {
+     "excess_m": 0.017,
+     "ll": [
+      [
+       30.134005,
+       31.410711
+      ],
+      [
+       30.1338529,
+       31.410766
+      ]
+     ],
+     "idx": [
+      2739,
+      2737
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.046,
+   "max_m": 0.046
+  },
+  {
+   "family": "rod_interval",
+   "pair": "apron+junction|apron+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 2,
+   "disp": {
+    "needs-solve (inherited from solve exit)": 1,
+    "closes:S1 (minted by the rebuilt graph)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0263,
+     "ll": [
+      [
+       30.1369311,
+       31.4096504
+      ],
+      [
+       30.1371366,
+       31.4095759
+      ]
+     ],
+     "idx": [
+      2756,
+      2757
+     ],
+     "family": "rod_interval",
+     "disposition": "needs-solve (inherited from solve exit)"
+    },
+    {
+     "excess_m": 0.0088,
+     "ll": [
+      [
+       30.1337966,
+       31.4107865
+      ],
+      [
+       30.1336066,
+       31.4108454
+      ]
+     ],
+     "idx": [
+      2736,
+      18406
+     ],
+     "family": "rod_interval",
+     "disposition": "closes:S1 (minted by the rebuilt graph)"
+    }
+   ],
+   "p50_m": 0.026,
+   "max_m": 0.026
+  },
+  {
+   "family": "apron",
+   "pair": "apron|apron",
+   "last_stage": "pipeline@7241",
+   "fgp_moved": false,
+   "n": 2,
+   "disp": {
+    "closes:S1 (minted by the rebuilt graph)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0202,
+     "ll": [
+      [
+       30.1264537,
+       31.4181911
+      ],
+      [
+       30.1264036,
+       31.4180097
+      ]
+     ],
+     "idx": [
+      210,
+      3066
+     ],
+     "family": "apron:-",
+     "disposition": "closes:S1 (minted by the rebuilt graph)"
+    },
+    {
+     "excess_m": 0.0202,
+     "ll": [
+      [
+       30.1264537,
+       31.4181911
+      ],
+      [
+       30.1264036,
+       31.4180097
+      ]
+     ],
+     "idx": [
+      210,
+      3066
+     ],
+     "family": "unified:apron",
+     "disposition": "closes:S1 (minted by the rebuilt graph)"
+    }
+   ],
+   "p50_m": 0.02,
+   "max_m": 0.02
+  },
+  {
+   "family": "transverse",
+   "pair": "junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 2,
+   "disp": {
+    "closes:S1 (FGP-only family)": 2
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0131,
+     "ll": [
+      [
+       30.1210225,
+       31.4127115
+      ],
+      [
+       30.1209749,
+       31.41253
+      ],
+      [
+       30.1210298,
+       31.412543
+      ],
+      [
+       30.1210224,
+       31.4125839
+      ]
+     ],
+     "idx": [
+      14255,
+      19296,
+      14437,
+      14436
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    },
+    {
+     "excess_m": 0.0074,
+     "ll": [
+      [
+       30.1210225,
+       31.4127115
+      ],
+      [
+       30.1209749,
+       31.41253
+      ],
+      [
+       30.1210298,
+       31.412543
+      ],
+      [
+       30.1210224,
+       31.4125839
+      ]
+     ],
+     "idx": [
+      14255,
+      19296,
+      14437,
+      14436
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.013,
+   "max_m": 0.013
+  },
+  {
+   "family": "transverse",
+   "pair": "building+graded_strip+service_junction|building+service_junction|graded_strip+groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 5.1826,
+     "ll": [
+      [
+       30.1130531,
+       31.3988444
+      ],
+      [
+       30.1129807,
+       31.3989107
+      ],
+      [
+       30.1129471,
+       31.3988617
+      ],
+      [
+       30.1130195,
+       31.3987953
+      ]
+     ],
+     "idx": [
+      2610,
+      2609,
+      20468,
+      20469
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 5.183,
+   "max_m": 5.183
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 2.5533,
+     "ll": [
+      [
+       30.1104429,
+       31.3951401
+      ],
+      [
+       30.1103524,
+       31.3951671
+      ],
+      [
+       30.1103223,
+       31.3951041
+      ],
+      [
+       30.1104269,
+       31.3950715
+      ]
+     ],
+     "idx": [
+      4346,
+      4347,
+      4317,
+      4348
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 2.553,
+   "max_m": 2.553
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|planarize_airside",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 1.0947,
+     "ll": [
+      [
+       30.1154295,
+       31.4048628
+      ],
+      [
+       30.1155361,
+       31.4047973
+      ],
+      [
+       30.11552,
+       31.4049985
+      ],
+      [
+       30.1154839,
+       31.4049413
+      ]
+     ],
+     "idx": [
+      1373,
+      20401,
+      20393,
+      20405
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 1.095,
+   "max_m": 1.095
+  },
+  {
+   "family": "transverse",
+   "pair": "building+graded_strip+service_junction|building+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.8106,
+     "ll": [
+      [
+       30.1243916,
+       31.4066772
+      ],
+      [
+       30.1243857,
+       31.4066566
+      ],
+      [
+       30.1244484,
+       31.4066348
+      ],
+      [
+       30.124454,
+       31.4066563
+      ]
+     ],
+     "idx": [
+      20342,
+      20343,
+      1301,
+      1300
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.811,
+   "max_m": 0.811
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|pipeline@7270|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.8042,
+     "ll": [
+      [
+       30.1213332,
+       31.3895886
+      ],
+      [
+       30.1213515,
+       31.389627
+      ],
+      [
+       30.1212644,
+       31.3896805
+      ],
+      [
+       30.1212427,
+       31.3896325
+      ]
+     ],
+     "idx": [
+      2427,
+      2426,
+      20683,
+      20682
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.804,
+   "max_m": 0.804
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.7133,
+     "ll": [
+      [
+       30.1105645,
+       31.3951037
+      ],
+      [
+       30.1105432,
+       31.3950909
+      ],
+      [
+       30.1105825,
+       31.395023
+      ],
+      [
+       30.110597,
+       31.3950185
+      ]
+     ],
+     "idx": [
+      4326,
+      4351,
+      4360,
+      4361
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.713,
+   "max_m": 0.713
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.6911,
+     "ll": [
+      [
+       30.1250454,
+       31.4148195
+      ],
+      [
+       30.1250284,
+       31.4147602
+      ],
+      [
+       30.1250987,
+       31.4147652
+      ],
+      [
+       30.1251111,
+       31.4148169
+      ]
+     ],
+     "idx": [
+      4657,
+      7211,
+      318,
+      317
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.691,
+   "max_m": 0.691
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "building+junction|graded_strip+junction+service_road",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.5706,
+     "ll": [
+      [
+       30.1357538,
+       31.4106467
+      ],
+      [
+       30.1355748,
+       31.41081
+      ]
+     ],
+     "idx": [
+      713,
+      2725
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.571,
+   "max_m": 0.571
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4065,
+     "ll": [
+      [
+       30.117429,
+       31.3999061
+      ],
+      [
+       30.1174196,
+       31.3999377
+      ],
+      [
+       30.1173927,
+       31.3999375
+      ],
+      [
+       30.1173929,
+       31.3999058
+      ]
+     ],
+     "idx": [
+      20510,
+      20511,
+      1602,
+      1601
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.406,
+   "max_m": 0.406
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270|solve@6246",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.4003,
+     "ll": [
+      [
+       30.1137363,
+       31.4046119
+      ],
+      [
+       30.1138116,
+       31.4045359
+      ],
+      [
+       30.1138713,
+       31.4045923
+      ],
+      [
+       30.1137938,
+       31.4046694
+      ]
+     ],
+     "idx": [
+      5552,
+      5553,
+      1291,
+      1290
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.4,
+   "max_m": 0.4
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.399,
+     "ll": [
+      [
+       30.1138116,
+       31.4045359
+      ],
+      [
+       30.1138869,
+       31.40446
+      ],
+      [
+       30.1139102,
+       31.4045536
+      ],
+      [
+       30.1138713,
+       31.4045923
+      ]
+     ],
+     "idx": [
+      5553,
+      5554,
+      1292,
+      1291
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.399,
+   "max_m": 0.399
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "building+junction|junction+service_road",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2987,
+     "ll": [
+      [
+       30.1357291,
+       31.4105553
+      ],
+      [
+       30.1357445,
+       31.4107493
+      ]
+     ],
+     "idx": [
+      714,
+      2727
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.299,
+   "max_m": 0.299
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "solve@6246",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2907,
+     "ll": [
+      [
+       30.133638,
+       31.412555
+      ],
+      [
+       30.133736,
+       31.4126664
+      ]
+     ],
+     "idx": [
+      2223,
+      20130
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.291,
+   "max_m": 0.291
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2868,
+     "ll": [
+      [
+       30.1174999,
+       31.3998007
+      ],
+      [
+       30.117471,
+       31.3998308
+      ],
+      [
+       30.1174356,
+       31.3997874
+      ],
+      [
+       30.1174407,
+       31.3997868
+      ]
+     ],
+     "idx": [
+      20507,
+      20508,
+      1597,
+      20527
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.287,
+   "max_m": 0.287
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2529,
+     "ll": [
+      [
+       30.1102786,
+       31.3993336
+      ],
+      [
+       30.1102389,
+       31.3991284
+      ],
+      [
+       30.110513,
+       31.3992163
+      ],
+      [
+       30.1104892,
+       31.3993017
+      ]
+     ],
+     "idx": [
+      5465,
+      6025,
+      6021,
+      6022
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.253,
+   "max_m": 0.253
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7241|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2358,
+     "ll": [
+      [
+       30.120653,
+       31.4161302
+      ],
+      [
+       30.1206373,
+       31.4161647
+      ],
+      [
+       30.1206257,
+       31.4160958
+      ],
+      [
+       30.1206613,
+       31.4160769
+      ]
+     ],
+     "idx": [
+      117,
+      116,
+      11786,
+      11787
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.236,
+   "max_m": 0.236
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|graded_strip+groundside_pavement+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.226,
+     "ll": [
+      [
+       30.1249424,
+       31.4146272
+      ],
+      [
+       30.124883,
+       31.4146489
+      ],
+      [
+       30.1242301,
+       31.4147786
+      ],
+      [
+       30.1249149,
+       31.4145264
+      ]
+     ],
+     "idx": [
+      4674,
+      4673,
+      3433,
+      4705
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.226,
+   "max_m": 0.226
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7241|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2145,
+     "ll": [
+      [
+       30.1206373,
+       31.4161647
+      ],
+      [
+       30.120621,
+       31.4161943
+      ],
+      [
+       30.1205937,
+       31.4161275
+      ],
+      [
+       30.1206257,
+       31.4160958
+      ]
+     ],
+     "idx": [
+      116,
+      11765,
+      11785,
+      11786
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.214,
+   "max_m": 0.214
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7241|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1-hold-release (gs_weld)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.2,
+     "ll": [
+      [
+       30.1272932,
+       31.4011439
+      ],
+      [
+       30.1272864,
+       31.4012254
+      ]
+     ],
+     "idx": [
+      20838,
+      2555
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (gs_weld)"
+    }
+   ],
+   "p50_m": 0.2,
+   "max_m": 0.2
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+building+graded_strip+service_junction|building+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1862,
+     "ll": [
+      [
+       30.1351645,
+       31.4114032
+      ],
+      [
+       30.1352636,
+       31.4113643
+      ],
+      [
+       30.1352521,
+       31.4114846
+      ],
+      [
+       30.1351662,
+       31.4115151
+      ]
+     ],
+     "idx": [
+      4742,
+      4743,
+      604,
+      615
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.186,
+   "max_m": 0.186
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "emit_terrain_transition_features|pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.184,
+     "ll": [
+      [
+       30.1108617,
+       31.3990425
+      ],
+      [
+       30.1108802,
+       31.398947
+      ],
+      [
+       30.110906,
+       31.3990438
+      ],
+      [
+       30.1109045,
+       31.3990523
+      ]
+     ],
+     "idx": [
+      6289,
+      6288,
+      2339,
+      2338
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.184,
+   "max_m": 0.184
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1748,
+     "ll": [
+      [
+       30.1206966,
+       31.4160967
+      ],
+      [
+       30.1206961,
+       31.4160647
+      ]
+     ],
+     "idx": [
+      120,
+      11788
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.175,
+   "max_m": 0.175
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1733,
+     "ll": [
+      [
+       30.1108762,
+       31.3992293
+      ],
+      [
+       30.1108567,
+       31.3991964
+      ],
+      [
+       30.1108843,
+       31.3991699
+      ],
+      [
+       30.1109267,
+       31.3992236
+      ]
+     ],
+     "idx": [
+      6279,
+      6280,
+      2336,
+      6291
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.173,
+   "max_m": 0.173
+  },
+  {
+   "family": "unified_graph",
+   "pair": "apron+building|apron+graded_strip+service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (minted by the rebuilt graph)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1436,
+     "ll": [
+      [
+       30.1253761,
+       31.4161678
+      ],
+      [
+       30.1254464,
+       31.4161911
+      ]
+     ],
+     "idx": [
+      3192,
+      308
+     ],
+     "family": "unified_graph",
+     "disposition": "closes:S1 (minted by the rebuilt graph)"
+    }
+   ],
+   "p50_m": 0.144,
+   "max_m": 0.144
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1427,
+     "ll": [
+      [
+       30.1102816,
+       31.4067699
+      ],
+      [
+       30.1102538,
+       31.4067304
+      ]
+     ],
+     "idx": [
+      18805,
+      18892
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.143,
+   "max_m": 0.143
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+junction|building+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.1178,
+     "ll": [
+      [
+       30.1354927,
+       31.4101718
+      ],
+      [
+       30.1356981,
+       31.4100972
+      ],
+      [
+       30.1358174,
+       31.4105235
+      ],
+      [
+       30.1357291,
+       31.4105553
+      ]
+     ],
+     "idx": [
+      2749,
+      2750,
+      715,
+      714
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.118,
+   "max_m": 0.118
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "pipeline@7062|pipeline@7127|pipeline@7241",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0861,
+     "ll": [
+      [
+       30.1260586,
+       31.4182969
+      ],
+      [
+       30.1260714,
+       31.4182632
+      ],
+      [
+       30.1261137,
+       31.4180904
+      ],
+      [
+       30.1261613,
+       31.4182579
+      ]
+     ],
+     "idx": [
+      3152,
+      3153,
+      3157,
+      3158
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.086,
+   "max_m": 0.086
+  },
+  {
+   "family": "service_road",
+   "pair": "service_road|service_road",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0816,
+     "ll": [
+      [
+       30.1206966,
+       31.4160967
+      ],
+      [
+       30.1207577,
+       31.4160455
+      ]
+     ],
+     "idx": [
+      120,
+      20718
+     ],
+     "family": "unified:service_road",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.082,
+   "max_m": 0.082
+  },
+  {
+   "family": "service_junction",
+   "pair": "service_junction|service_junction",
+   "last_stage": "pipeline@7241|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1-hold-release (service_ring)": 1
+   },
+   "member": {
+    "solve": 1,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0797,
+     "ll": [
+      [
+       30.120621,
+       31.4161943
+      ],
+      [
+       30.1206373,
+       31.4161647
+      ]
+     ],
+     "idx": [
+      11765,
+      116
+     ],
+     "family": "unified:service_junction",
+     "disposition": "closes:S1-hold-release (service_ring)"
+    }
+   ],
+   "p50_m": 0.08,
+   "max_m": 0.08
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|service_junction",
+   "last_stage": "pipeline@7031|pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0737,
+     "ll": [
+      [
+       30.1174787,
+       31.3873448
+      ],
+      [
+       30.1174994,
+       31.3873659
+      ],
+      [
+       30.1173964,
+       31.3874151
+      ],
+      [
+       30.117371,
+       31.3873975
+      ]
+     ],
+     "idx": [
+      4412,
+      4411,
+      9818,
+      7143
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.074,
+   "max_m": 0.074
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0721,
+     "ll": [
+      [
+       30.1143604,
+       31.4049598
+      ],
+      [
+       30.1143359,
+       31.4049264
+      ],
+      [
+       30.1143756,
+       31.4048878
+      ],
+      [
+       30.1144244,
+       31.4049547
+      ]
+     ],
+     "idx": [
+      5534,
+      5533,
+      1389,
+      1388
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.072,
+   "max_m": 0.072
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+graded_strip+service_junction|apron+service_junction|graded_strip+service_junction|service_junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0625,
+     "ll": [
+      [
+       30.104826,
+       31.3965351
+      ],
+      [
+       30.1048184,
+       31.3965163
+      ],
+      [
+       30.104864,
+       31.3964917
+      ],
+      [
+       30.1048709,
+       31.396521
+      ]
+     ],
+     "idx": [
+      6685,
+      3894,
+      3893,
+      6686
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.062,
+   "max_m": 0.062
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0596,
+     "ll": [
+      [
+       30.1102574,
+       31.406738
+      ],
+      [
+       30.1102538,
+       31.4067304
+      ]
+     ],
+     "idx": [
+      18856,
+      18892
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.06,
+   "max_m": 0.06
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "graded_strip+junction|graded_strip+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0432,
+     "ll": [
+      [
+       30.1375646,
+       31.4101236
+      ],
+      [
+       30.1371999,
+       31.4102417
+      ]
+     ],
+     "idx": [
+      2808,
+      2810
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.043,
+   "max_m": 0.043
+  },
+  {
+   "family": "transverse",
+   "pair": "building+groundside_pavement+service_junction|building+service_junction|groundside_pavement+service_junction|service_junction",
+   "last_stage": "pipeline@7127|pipeline@7270",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0418,
+     "ll": [
+      [
+       30.1144337,
+       31.40506
+      ],
+      [
+       30.1143604,
+       31.4049598
+      ],
+      [
+       30.1144244,
+       31.4049547
+      ],
+      [
+       30.114473,
+       31.4050216
+      ]
+     ],
+     "idx": [
+      5535,
+      5534,
+      1388,
+      1387
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.042,
+   "max_m": 0.042
+  },
+  {
+   "family": "rod_interval",
+   "pair": "junction|junction+runway",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "senior-protected (runway_node)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0389,
+     "ll": [
+      [
+       30.123497,
+       31.4292676
+      ],
+      [
+       30.12352,
+       31.429239
+      ]
+     ],
+     "idx": [
+      12045,
+      12436
+     ],
+     "family": "rod_interval",
+     "disposition": "senior-protected (runway_node)"
+    }
+   ],
+   "p50_m": 0.039,
+   "max_m": 0.039
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "building+junction|graded_strip+junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0344,
+     "ll": [
+      [
+       30.1378972,
+       31.4101836
+      ],
+      [
+       30.1377172,
+       31.4100747
+      ]
+     ],
+     "idx": [
+      748,
+      2807
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.034,
+   "max_m": 0.034
+  },
+  {
+   "family": "unified_graph",
+   "pair": "building+graded_strip|graded_strip+junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": true,
+   "n": 1,
+   "disp": {
+    "closes:S2 (FGP re-authored a solve value)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0185,
+     "ll": [
+      [
+       30.1342247,
+       31.4112927
+      ],
+      [
+       30.1340971,
+       31.4113664
+      ]
+     ],
+     "idx": [
+      2734,
+      626
+     ],
+     "family": "unified_graph",
+     "disposition": "closes:S2 (FGP re-authored a solve value)"
+    }
+   ],
+   "p50_m": 0.018,
+   "max_m": 0.018
+  },
+  {
+   "family": "transverse",
+   "pair": "building+service_junction|graded_strip+service_junction",
+   "last_stage": "pipeline@7127|solve@6246",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 1
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0098,
+     "ll": [
+      [
+       30.121954,
+       31.3901162
+      ],
+      [
+       30.121938,
+       31.3901368
+      ],
+      [
+       30.1218576,
+       31.389977
+      ],
+      [
+       30.1218782,
+       31.3899639
+      ]
+     ],
+     "idx": [
+      20697,
+      20695,
+      2409,
+      2408
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.01,
+   "max_m": 0.01
+  },
+  {
+   "family": "junction:transverse_no_step",
+   "pair": "graded_strip+junction|junction",
+   "last_stage": "pipeline@7127",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0095,
+     "ll": [
+      [
+       30.1195274,
+       31.4480607
+      ],
+      [
+       30.1197027,
+       31.4472985
+      ]
+     ],
+     "idx": [
+      17030,
+      17090
+     ],
+     "family": "junction:transverse_no_step",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.009,
+   "max_m": 0.009
+  },
+  {
+   "family": "transverse",
+   "pair": "apron+service_junction|graded_strip+groundside_pavement+service_junction|graded_strip+service_junction|groundside_pavement+service_junction",
+   "last_stage": "pipeline@7127|pipeline@7241",
+   "fgp_moved": false,
+   "n": 1,
+   "disp": {
+    "closes:S1 (FGP-only family)": 1
+   },
+   "member": {
+    "solve": 0,
+    "entry": 0
+   },
+   "specimens": [
+    {
+     "excess_m": 0.0076,
+     "ll": [
+      [
+       30.1172773,
+       31.3874199
+      ],
+      [
+       30.117284,
+       31.3873891
+      ],
+      [
+       30.1173394,
+       31.3874305
+      ],
+      [
+       30.117347,
+       31.3874361
+      ]
+     ],
+     "idx": [
+      7102,
+      7103,
+      7105,
+      7106
+     ],
+     "family": "transverse",
+     "disposition": "closes:S1 (FGP-only family)"
+    }
+   ],
+   "p50_m": 0.008,
+   "max_m": 0.008
+  }
+ ],
+ "moves": {
+  "n_moves": 827,
+  "class": "untouched",
+  "author": "final_grade_projection",
+  "groups": [
+   {
+    "role": "building",
+    "last_stage": "solve@6246",
+    "n": 461,
+    "on_residual": 78,
+    "specimens": [
+     {
+      "d_m": 2.64,
+      "x": -3786.111409313163,
+      "y": 68.79772264460237,
+      "ref": "building167",
+      "before": 103.01,
+      "after": 100.37
+     },
+     {
+      "d_m": 2.64,
+      "x": -3776.3191854785223,
+      "y": 69.34996805297435,
+      "ref": "building167",
+      "before": 103.01,
+      "after": 100.37
+     },
+     {
+      "d_m": 2.64,
+      "x": -3755.072564658511,
+      "y": 104.18104235042753,
+      "ref": "building167",
+      "before": 103.01,
+      "after": 100.37
+     }
+    ],
+    "p50_m": 0.08,
+    "max_m": 2.64
+   },
+   {
+    "role": "apron",
+    "last_stage": "solve@6246",
+    "n": 109,
+    "on_residual": 40,
+    "specimens": [
+     {
+      "d_m": 3.66,
+      "x": -3506.06,
+      "y": 224.6,
+      "ref": "",
+      "before": 103.02,
+      "after": 99.36
+     },
+     {
+      "d_m": 3.58,
+      "x": -3508.0,
+      "y": 218.40833333333333,
+      "ref": "",
+      "before": 103.12,
+      "after": 99.54
+     },
+     {
+      "d_m": 3.58,
+      "x": -3508.0,
+      "y": 218.40833333333333,
+      "ref": "",
+      "before": 103.12,
+      "after": 99.54
+     }
+    ],
+    "p50_m": 0.17,
+    "max_m": 3.66
+   },
+   {
+    "role": "service_road",
+    "last_stage": "solve@6246",
+    "n": 97,
+    "on_residual": 13,
+    "specimens": [
+     {
+      "d_m": 1.233,
+      "x": -3675.7663784663196,
+      "y": -627.791203630187,
+      "ref": "",
+      "before": 102.93,
+      "after": 104.1633
+     },
+     {
+      "d_m": 1.18,
+      "x": -3266.4875384359593,
+      "y": -269.2806749018933,
+      "ref": "",
+      "before": 102.49,
+      "after": 103.6702
+     },
+     {
+      "d_m": 0.916,
+      "x": -4405.62920606052,
+      "y": -130.85031562989676,
+      "ref": "",
+      "before": 96.02,
+      "after": 96.9365
+     }
+    ],
+    "p50_m": 0.06,
+    "max_m": 1.233
+   },
+   {
+    "role": "service_junction",
+    "last_stage": "solve@6246",
+    "n": 44,
+    "on_residual": 7,
+    "specimens": [
+     {
+      "d_m": 2.71,
+      "x": -3798.056666666667,
+      "y": 157.31333333333333,
+      "ref": "",
+      "before": 102.09,
+      "after": 99.38
+     },
+     {
+      "d_m": 2.7,
+      "x": -3803.18,
+      "y": 155.84,
+      "ref": "",
+      "before": 102.03,
+      "after": 99.33
+     },
+     {
+      "d_m": 1.421,
+      "x": -2058.9306243946603,
+      "y": 2433.789985167493,
+      "ref": "",
+      "before": 75.86,
+      "after": 77.2814
+     }
+    ],
+    "p50_m": 0.09,
+    "max_m": 2.71
+   },
+   {
+    "role": "apron",
+    "last_stage": "pipeline@7127",
+    "n": 35,
+    "on_residual": 19,
+    "specimens": [
+     {
+      "d_m": 2.92,
+      "x": -3757.0354857697907,
+      "y": 177.22462416110622,
+      "ref": "",
+      "before": 102.88,
+      "after": 99.96
+     },
+     {
+      "d_m": 2.76,
+      "x": -3749.96322473,
+      "y": 149.66070054,
+      "ref": "",
+      "before": 102.94,
+      "after": 100.18
+     },
+     {
+      "d_m": 2.76,
+      "x": -3749.79131758,
+      "y": 149.09013715,
+      "ref": "",
+      "before": 102.94,
+      "after": 100.18
+     }
+    ],
+    "p50_m": 2.51,
+    "max_m": 2.92
+   },
+   {
+    "role": "service_road",
+    "last_stage": "emit_terrain_transition_features",
+    "n": 23,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.695,
+      "x": -2284.21,
+      "y": 671.06,
+      "ref": "",
+      "before": 103.83,
+      "after": 104.5254
+     },
+     {
+      "d_m": 0.417,
+      "x": -3050.901538013084,
+      "y": 1131.2200173825602,
+      "ref": "road",
+      "before": 88.83,
+      "after": 88.4133
+     },
+     {
+      "d_m": 0.417,
+      "x": -3050.901538013084,
+      "y": 1131.2200173825602,
+      "ref": "road",
+      "before": 88.83,
+      "after": 88.4133
+     }
+    ],
+    "p50_m": 0.386,
+    "max_m": 0.695
+   },
+   {
+    "role": "service_junction",
+    "last_stage": "pipeline@7127",
+    "n": 18,
+    "on_residual": 5,
+    "specimens": [
+     {
+      "d_m": 0.743,
+      "x": -3457.8597274320477,
+      "y": 914.3352791854046,
+      "ref": "",
+      "before": 89.5,
+      "after": 88.7575
+     },
+     {
+      "d_m": 0.66,
+      "x": -3458.92,
+      "y": 913.87,
+      "ref": "",
+      "before": 89.51,
+      "after": 88.8501
+     },
+     {
+      "d_m": 0.293,
+      "x": -3447.64,
+      "y": 918.82,
+      "ref": "",
+      "before": 89.14,
+      "after": 88.8465
+     }
+    ],
+    "p50_m": 0.08,
+    "max_m": 0.743
+   },
+   {
+    "role": "service_road",
+    "last_stage": "pipeline@7062",
+    "n": 12,
+    "on_residual": 7,
+    "specimens": [
+     {
+      "d_m": 2.595,
+      "x": -3603.2784910841033,
+      "y": -479.90115374379025,
+      "ref": "",
+      "before": 105.08,
+      "after": 107.6749
+     },
+     {
+      "d_m": 2.57,
+      "x": -3603.8785810413283,
+      "y": -477.5080682407852,
+      "ref": "",
+      "before": 105.08,
+      "after": 107.6505
+     },
+     {
+      "d_m": 2.084,
+      "x": -3614.72,
+      "y": -474.44,
+      "ref": "",
+      "before": 104.72,
+      "after": 106.8044
+     }
+    ],
+    "p50_m": 1.904,
+    "max_m": 2.595
+   },
+   {
+    "role": "apron",
+    "last_stage": "pipeline@7241",
+    "n": 9,
+    "on_residual": 2,
+    "specimens": [
+     {
+      "d_m": 0.09,
+      "x": -2656.9547352964364,
+      "y": 1471.6047670727623,
+      "ref": "",
+      "before": 88.13,
+      "after": 88.22
+     },
+     {
+      "d_m": 0.09,
+      "x": -2656.9547352964364,
+      "y": 1471.6047670727623,
+      "ref": "",
+      "before": 88.13,
+      "after": 88.22
+     },
+     {
+      "d_m": 0.09,
+      "x": -2530.241310006918,
+      "y": 1448.431207712462,
+      "ref": "",
+      "before": 88.13,
+      "after": 88.22
+     }
+    ],
+    "p50_m": 0.08,
+    "max_m": 0.09
+   },
+   {
+    "role": "junction",
+    "last_stage": "solve@6246",
+    "n": 7,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 2.77,
+      "x": 304.8,
+      "y": 319.28,
+      "ref": "",
+      "before": 134.47,
+      "after": 137.24
+     },
+     {
+      "d_m": 0.77,
+      "x": -1358.280020318451,
+      "y": 889.4310876858902,
+      "ref": "",
+      "before": 110.46,
+      "after": 109.69
+     },
+     {
+      "d_m": 0.74,
+      "x": -1360.04,
+      "y": 891.49,
+      "ref": "",
+      "before": 110.47,
+      "after": 109.73
+     }
+    ],
+    "p50_m": 0.41,
+    "max_m": 2.77
+   },
+   {
+    "role": "junction",
+    "last_stage": "pipeline@7127",
+    "n": 6,
+    "on_residual": 2,
+    "specimens": [
+     {
+      "d_m": 0.04,
+      "x": -2368.02,
+      "y": 3203.74,
+      "ref": "",
+      "before": 65.81,
+      "after": 65.85
+     },
+     {
+      "d_m": 0.04,
+      "x": -2368.02,
+      "y": 3203.74,
+      "ref": "",
+      "before": 65.81,
+      "after": 65.85
+     },
+     {
+      "d_m": 0.03,
+      "x": -3249.5248067264733,
+      "y": -114.98038809539504,
+      "ref": "",
+      "before": 102.69,
+      "after": 102.72
+     }
+    ],
+    "p50_m": 0.03,
+    "max_m": 0.04
+   },
+   {
+    "role": "apron",
+    "last_stage": "planarize_airside",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.1,
+      "x": -2130.1179764018793,
+      "y": 2732.3652599102033,
+      "ref": "",
+      "before": 73.33,
+      "after": 73.23
+     }
+    ],
+    "p50_m": 0.1,
+    "max_m": 0.1
+   },
+   {
+    "role": "apron",
+    "last_stage": "pipeline@7270",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.04,
+      "x": -3308.25,
+      "y": 216.33,
+      "ref": "",
+      "before": 103.49,
+      "after": 103.45
+     }
+    ],
+    "p50_m": 0.04,
+    "max_m": 0.04
+   },
+   {
+    "role": "service_junction",
+    "last_stage": "pipeline@7062",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.028,
+      "x": -4047.38,
+      "y": 43.31,
+      "ref": "",
+      "before": 98.41,
+      "after": 98.3815
+     }
+    ],
+    "p50_m": 0.028,
+    "max_m": 0.028
+   },
+   {
+    "role": "service_road",
+    "last_stage": "pipeline@7031",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.15,
+      "x": -349.2825183284252,
+      "y": -124.96946476998235,
+      "ref": "road",
+      "before": 133.19,
+      "after": 133.0403
+     }
+    ],
+    "p50_m": 0.15,
+    "max_m": 0.15
+   },
+   {
+    "role": "service_junction",
+    "last_stage": "pipeline@7031",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.072,
+      "x": -291.70495199183864,
+      "y": -196.34050784789352,
+      "ref": "service",
+      "before": 136.75,
+      "after": 136.8217
+     }
+    ],
+    "p50_m": 0.072,
+    "max_m": 0.072
+   },
+   {
+    "role": "service_junction",
+    "last_stage": "emit_terrain_transition_features",
+    "n": 1,
+    "on_residual": 0,
+    "specimens": [
+     {
+      "d_m": 0.629,
+      "x": -299.2996814079928,
+      "y": -187.5323398309303,
+      "ref": "service",
+      "before": 136.52,
+      "after": 135.8912
+     }
+    ],
+    "p50_m": 0.629,
+    "max_m": 0.629
+   }
+  ]
+ }
+}

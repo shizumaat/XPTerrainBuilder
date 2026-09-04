@@ -1,4 +1,12 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 ROUTE METRIC MERGED 6e4e8c87 (04r): no-step pairs by ROUTE
+#   distance at the path's caps, reach bands, junction letter; CYXY 156
+#   −4.38 → −1.78 m; HECA 4,285 → 50 airside, 1,598 → 248 s (residual =
+#   1,181 pad↔pavement pairs still chord-priced → RULED through the
+#   contact; lane v2padroute IN FLIGHT, HECA/KCLT closing). App rebuild
+#   → 1.0.281 in progress (M5 + why + route + deck). OWNER OPEN: junction
+#   letter when chains differ (strictest as ruled vs per-stretch); roads
+#   follow terrain vs seek level (CYXY 153).
 # 2026-09-04 (later) — v2 SIM-READ ROUND 2. M5 MERGED (04p: law-ordered
 #   tiered yielding; HECA INFEASIBLE under the chord no-step law → k=1
 #   1,621 s / 4,285 airside). OWNER 04o: feasibility propagates along

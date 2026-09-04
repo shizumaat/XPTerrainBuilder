@@ -97,7 +97,7 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
     ``plane_gradient`` family reads triangles only)."""
     vw = view(planar, law)
     from .roads import road_law_caps
-    law_caps = road_law_caps(planar, law)
+    law_caps = road_law_caps(planar, law, airport)
     rows: list[Row] = []
     for fid, ring in vw.rings.items():
         if len(ring) != 3 or vw.holes[fid]:

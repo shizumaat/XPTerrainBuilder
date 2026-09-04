@@ -5965,3 +5965,4 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   L4 host removals are named by `[tunnel-remove]` lines but do NOT ride
   `road_piece_ledger` (it tracks `tunnel_*` refs only) — a ledger row
   for host pieces is owed if the owner wants them ledgered.
+- 2026-09-04 v2 M3b (lane/v2m3b): CYXY and SPLP NOT re-built / re-censused after the DSF facade cpp-5 control-point fix (`airport/dsf.py::_flatten`) — their pad counts may change (one airport per round, BUILD ECONOMY 29e). Full pytest suite not run (only `tests/auto_patch_v2`, 84 pass, and no v1 test). Solve wall quoted single-run (13.0 s, bar 30 s); the mesh bar was measured 3 runs per arm.

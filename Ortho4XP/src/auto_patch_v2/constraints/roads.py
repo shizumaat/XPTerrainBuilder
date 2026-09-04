@@ -34,16 +34,26 @@ def road_family_roles(law: Law) -> tuple[str, ...]:
     return tuple(family(law, "road_cross_section").roles)
 
 
-def road_law_caps(planar: PlanarMap, law: Law) -> dict[int, float]:
+def road_law_caps(planar: PlanarMap, law: Law, airport: Airport | None = None
+                  ) -> dict[int, float]:
     """Road-family face -> the STRICTEST longitudinal cap of any governed
-    face sharing a ring edge with it, where stricter than its own
-    (LATERAL CONTIGUITY, owner FINAL 2026-08-02 clause 2; RULINGS
-    2026-08-25b): the value the emitter stamps as ``o4_grade_law_cap``
-    and the cap the road's own pairs are bound at.  M2 reads contiguity
-    at the shared edge; the core's per-station road clamp is M3."""
+    face sharing a ring edge with it OR present in any of its stations'
+    laterally-contiguous cross-sections (``contiguity.station_caps``,
+    the census's own walk), where stricter than its own (LATERAL
+    CONTIGUITY, owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
+    2026-08-28 Amendment 2): the value the emitter stamps as
+    ``o4_grade_law_cap`` and the cap the road's own pairs are bound at.
+    Without ``airport`` the strip keep-out (clause 5) is not applied —
+    stricter, never looser."""
     vw = view(planar, law)
     roads = road_family_roles(law)
     out: dict[int, float] = {}
+    from .contiguity import face_station_cap, road_station_caps
+    for fid, sts in road_station_caps(planar, law, airport, vw).items():
+        c = face_station_cap(sts)
+        mc = vw.caps.get(fid)
+        if c is not None and mc is not None and c < mc[0]:
+            out[fid] = c
     for e in planar.edges.values():
         if e.left_face is None or e.right_face is None:
             continue
@@ -66,7 +76,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     stricter class carries that class's cap (``road_law_caps``)."""
     vw = view(planar, law)
     roads = road_family_roles(law)
-    law_caps = road_law_caps(planar, law)
+    law_caps = road_law_caps(planar, law, airport)
     min_deg = law.tables.common.road_transverse_axis_min_deg
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []

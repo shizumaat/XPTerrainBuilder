@@ -56,3 +56,17 @@ strip_edge_noise_m = 0.15  # runway_end_skirt ring edges (skirt_edge_noise_m)
 step_contact_tol_m = 1.0   # a vertex touches a foreign edge within this (_STEP_CONTACT_TOL_M)
 edge_search_m      = 5.0   # step readers look this far for a foreign edge (LAW_TRUE_KNOBS edge_search_m)
 tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-zone (TILE_SEAM_ZONE_M)
+
+[lateral_contiguity]
+# THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
+# 2026-08-28 Amendment 2 "the cap lives at the STATION"; v1
+# auto_patch/lateral_contiguity.py constants): a road-family ring is priced
+# at stations along its own long axis; at each station a perpendicular
+# probe cuts every governed pavement ring, the pieces that TOUCH merge
+# into a run, and the run holding the station takes the STRICTEST class
+# cap present in it.  The emitter publishes the vector (sidecar
+# ``station_caps``) and the census reads it — the fourth reader.
+station_step_m = 5.0    # station spacing along the long axis (STATION_STEP_M); stations sit at interval CENTRES
+probe_m        = 60.0   # the perpendicular probe reaches this far either side (PROBE_M)
+gap_tol_m      = 0.05   # two cut pieces closer than this are ONE run (GAP_TOL_M — emitted-coordinate noise, never a near-miss horizon)
+min_member_m   = 0.5    # a foreign piece shorter than this along the probe is a graze, not a member (MIN_MEMBER_M)

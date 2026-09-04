@@ -161,7 +161,12 @@ def _flatten(points: list[list[str]], cpp: int) -> tuple[LonLat, ...]:
         return ()
     try:
         xy = [(float(p[0]), float(p[1])) for p in points]
-        ctrl = [(float(p[2]), float(p[3])) if cpp >= 4 and len(p) >= 4
+        # the control point is the LAST two columns: a facade point is
+        # ``lon lat [wall] [ctrl_lon ctrl_lat]`` (cpp 2/3/4/5), so at cpp 5
+        # columns 2-3 are ``wall ctrl_lon`` (measured SPJC: one
+        # Cargo_Terminal.fac winding flattened 2,000 km wide and its union
+        # swallowed 128 of 135 pads)
+        ctrl = [(float(p[cpp - 2]), float(p[cpp - 1])) if cpp >= 4 and len(p) >= cpp
                 else None for p in points]
     except ValueError:
         return ()

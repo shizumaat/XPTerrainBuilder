@@ -120,6 +120,28 @@ def test_bezier_flattening_bounds():
     assert len(A._pavement(soft[0], soft[1:], 0).rings[0]) == 3
 
 
+def test_dsf_facade_control_point_is_the_last_two_columns():
+    """A facade winding at cpp 5 is ``lon lat wall ctrl_lon ctrl_lat``:
+    the control point is the LAST two columns, never columns 2-3
+    (measured SPJC M3b: one Cargo_Terminal.fac winding read ``wall``
+    as ``ctrl_lon`` and flattened 2,000 km wide; its union swallowed
+    128 of 135 pads)."""
+    pts5 = [["-77.1203", "-12.0046", "4.0", "-77.1203", "-12.0046"],
+            ["-77.1203", "-12.0047", "4.0", "-77.1203", "-12.0047"],
+            ["-77.1202", "-12.0047", "4.0", "-77.1202", "-12.0047"],
+            ["-77.1202", "-12.0046", "4.0", "-77.1202", "-12.0046"]]
+    ring5 = S._flatten(pts5, 5)
+    assert len(ring5) == 4
+    assert all(-77.2 < lon < -77.0 and -12.1 < lat < -11.9 for lon, lat in ring5)
+    # cpp 3 (lon lat wall) has no control point at all
+    ring3 = S._flatten([p[:3] for p in pts5], 3)
+    assert ring3 == ring5
+    # a real cpp-5 bezier (control off the node) still tessellates
+    bez = [list(p) for p in pts5]
+    bez[0][3], bez[0][4] = "-77.12035", "-12.00465"
+    assert len(S._flatten(bez, 5)) > 4
+
+
 def test_block_sha_is_stable():
     block = A.read_airport_block(str(FIX / "Custom Scenery" / "CYXY Fixture"
                                      / "Earth nav data" / "apt.dat"), "CYXY")

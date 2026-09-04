@@ -173,12 +173,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         paths = write_patch(surf, law, out_dir, pub,
                             {"o4_apt_dat": airport.pack.apt_dat_path,
                              "o4_pack": airport.pack.name},
-                            face_tags(pm, law))
+                            face_tags(pm, law, airport))
         if pm.seam_vertices:
             pieces = write_tile_pieces(surf, law, out_dir, pub,
                                        {"o4_apt_dat": airport.pack.apt_dat_path,
                                         "o4_pack": airport.pack.name},
-                                       face_tags(pm, law))
+                                       face_tags(pm, law, airport))
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"
              f"  patch {paths.bytes_patch} B  sidecar {paths.bytes_sidecar} B", out)
@@ -198,7 +198,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             t = time.perf_counter()
             from ..constraints.roads import road_law_caps
             from ..verify import census
-            vrows = census(surf, law, pub, road_law_caps(pm, law))
+            vrows = census(surf, law, pub, road_law_caps(pm, law, airport))
             wall["verify"] = time.perf_counter() - t
             summary = {k: len(v) for k, v in vrows.items()}
             _say(f"[{icao}] verify {wall['verify']:.2f} s  rows "

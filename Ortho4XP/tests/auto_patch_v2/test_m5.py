@@ -277,3 +277,29 @@ def _cells_of(pm):
         ring = tuple(pm.vertices[v].xy for v in pm.ring_vertices(f.ring))
         yield Cell(f.id, f.role, f.ref, ring, (), f.code_number, f.code_letter, f.side,
                    "pad" if f.role == "building" else f.role, {})
+
+
+def test_verify_prices_the_pad_pairs_by_identity(law, tmp_path):
+    """The round trip with a detached pad: the pad key is published, v2
+    verify reads it (identity join) and reads zero on the solved surface;
+    an endpoint no shape names is priced, never a reader KeyError
+    (measured HECA: the first closing build crashed in verify)."""
+    from auto_patch_v2.emit.graded import graded_surface
+    from auto_patch_v2.pipeline.publication import publication
+    from auto_patch_v2.verify import census
+    from auto_patch_v2.constraints.roads import road_law_caps
+    airport, pm = _airport(law, None)
+    cs, _c, _w = generate(pm, law, airport)
+    sol, _rep = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options())
+    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
+    pub = publication(pm, law, airport, sol.z)
+    assert pub["pad_pavement_no_step_edges"]
+    rows = census(surf, law, pub, road_law_caps(pm, law, airport))
+    assert rows["airside_no_step"] == []
+    # an unknown-role endpoint: the reader still prices it
+    from auto_patch_v2.verify.frame import Patch
+    from auto_patch_v2.verify.no_step import no_step_direct
+    import dataclasses
+    p = Patch.of(surf, law, pub, road_law_caps(pm, law, airport))
+    p = dataclasses.replace(p, shapes=[sh for sh in p.shapes if sh.role != "building"])
+    assert isinstance(no_step_direct(p), list)

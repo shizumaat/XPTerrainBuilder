@@ -55,8 +55,12 @@ def no_step_direct(p: Patch) -> list[Row]:
         if dz - budget <= noise:
             continue
         dist = math.hypot(bx - ax, by - ay)
+        # an endpoint no shape names (measured HECA: a pad pair's endpoint
+        # on a face the graded surface carries without a shape role) is
+        # priced on the airside side, never a KeyError in the reader
+        sides = [p.side(r) for r in (ra, rb) if r != "?"]
         out.append(row("airside_no_step", (ra, rb),
-                       "airside" if p.side(ra) == p.side(rb) == "airside" else "mixed",
+                       "airside" if sides and all(sd == "airside" for sd in sides) else "mixed",
                        dz, 100 * dz / dist if dist > 1e-9 else 0.0,
                        100 * budget / dist if dist > 1e-9 else None, dist,
                        (ax, ay), (bx, by), ka, kb))

@@ -95,7 +95,8 @@ a vertex with no constraint and no DEM is an error at planar-map build.
 | M6 | `emit/` S2 elevation-layer adapter stub + `GradedSurface` spec frozen | — | round-trips CYXY |
 
 Side by side: `Ortho4XP/src/auto_patch_v2/`, selected by
-`build_airport.py --engine v2` and the app's config; v1 keeps shipping.
+`build_airport.py --engine v2` (landed 04g) and the app's config; v1 keeps shipping.
+**Status 2026-09-04g: CYXY / SPLP / SPJC / OTHH / LEMD all 0/0 on the oracle census through the harness; builds 4.3–30.5 s.**
 The five-airport sweep gates each milestone (29f). No milestone starts
 before M0 is ratified.
 

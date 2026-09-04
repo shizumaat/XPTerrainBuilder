@@ -78,8 +78,11 @@
 #   DIAGONAL breakline (LEMD's 142° runways had no profile) → LEMD 2,197
 #   → 14. FIVE-AIRPORT v2 (oracle census): CYXY 1 · SPLP 0 · SPJC 1 (gs)
 #   · OTHH 2 · LEMD 14 (v1: 160/35/686/1,620/—); builds 4.5–27.5 s.
-#   IN FLIGHT: v2basins (OBJ8 basins/decks), v2resid (harness entry,
-#   seam tears, plane_gradient slivers). OWNER 03k still open (→ M5).
+#   BASINS MERGED 14a42f9c (04f); RESIDUALS MERGED (04g): harness
+#   --engine v2 + seam-tear fixes + quantum allowance → FIVE AIRPORTS
+#   0/0 ledgered (CYXY 4.3 s, SPLP 7.3 s, SPJC 12.8, OTHH 28.9, LEMD
+#   30.5). NEXT: owner sim read of v2 patches; M5 HECA/KCLT after 03k;
+#   OBJ8 parse cache; mesh bar --runs 3; app engine selection.
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
 #   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at

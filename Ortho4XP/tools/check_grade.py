@@ -38,6 +38,7 @@ diagnostic.
 from __future__ import annotations
 
 import argparse
+import itertools
 import math
 import os
 import re
@@ -840,9 +841,8 @@ def _check_plane_gradient(ways: List[Way],
         if any(nid in seam_nids for nid in ring_nids):
             continue
         pts: List[Tuple[float, float, float]] = []
-        for k, nid in enumerate(w.nids[:-1] if (len(w.nids) > 1
-                                and w.nids[0] == w.nids[-1])
-                                else w.nids):
+        drops: List[Optional[float]] = []
+        for k, nid in enumerate(ring_nids):
             if nid not in nodes:
                 continue
             lat, lon = nodes[nid]
@@ -850,43 +850,17 @@ def _check_plane_gradient(ways: List[Way],
             e = w.elevs[k]
             if e is None:
                 continue
-            # Crown lift: evaluate the plane in the solver's UNCROWNED
-            # space (see the docstring) — 0 for nodes off the field.
-            pts.append((x, y, e + crown_by_nid.get(nid, 0.0)))
+            pts.append((x, y, e))
+            # ``None`` = UNDECLARED, and an undeclared node is UNKNOWN, NOT
+            # ON THE RIDGE (``grade_law.crown_pair_offset_interval``).
+            drops.append(crown_by_nid.get(nid))
         if len(pts) != 3:
             continue  # only check triangles
-        (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = pts
-        # Plane normal via cross product of two in-plane vectors.
-        ux, uy, uz = x2 - x1, y2 - y1, z2 - z1
-        vx, vy, vz = x3 - x1, y3 - y1, z3 - z1
-        nx = uy * vz - uz * vy
-        ny = uz * vx - ux * vz
-        nz = ux * vy - uy * vx
-        if abs(nz) < 1e-6:
-            continue  # degenerate triangle in xy plane
-        # Plane: nx*X + ny*Y + nz*Z = d; dz/dx = -nx/nz, dz/dy = -ny/nz.
-        gx = -nx / nz
-        gy = -ny / nz
-        grad = math.hypot(gx, gy)
-        # Project vertices along the gradient direction to get the
-        # plane's altitude swing across the triangle.  The
-        # gradient check fires only when the swing exceeds the
-        # grade cap allowance for that swing distance — matching
-        # the within-shape pair check's rounding-noise envelope.
-        gnorm = grad
-        if gnorm < 1e-9:
+        reading = plane_reading(pts, drops, grade_cap,
+                                ELEV_ROUNDING_NOISE_M, PLANE_FIT_QUANTUM_M)
+        if reading is None:
             continue
-        ghx, ghy = gx / gnorm, gy / gnorm
-        proj = [(p[0] * ghx + p[1] * ghy, p[2], p)
-                for p in pts]
-        proj.sort()
-        lo_p, lo_z, lo_pt = proj[0]
-        hi_p, hi_z, hi_pt = proj[-1]
-        dist_along_grad = hi_p - lo_p
-        de_along_grad = abs(hi_z - lo_z)
-        allowance = grade_cap * dist_along_grad + ELEV_ROUNDING_NOISE_M
-        if de_along_grad <= allowance:
-            continue
+        grad, dist_along_grad, de_along_grad, lo_pt, hi_pt, lo_z, hi_z = reading
         out.append(Violation(
             grade_pct=grad * 100,
             excess_pct=(grad - grade_cap) * 100,
@@ -898,6 +872,96 @@ def _check_plane_gradient(ways: List[Way],
             pt_b=(hi_pt[0], hi_pt[1]),
             elev_a=lo_z, elev_b=hi_z))
     return out
+
+
+#: THE EMITTED ELEVATION QUANTUM — ``alt_abs`` is written at 0.01 m, so
+#: every emitted vertex sits within half of this of its solved value.
+PLANE_FIT_QUANTUM_M = 0.01
+
+
+def plane_fit_noise(pts) -> float:
+    """THE PLANE-FIT ROUNDING ENVELOPE, as a GRADIENT (a fraction).
+
+    A plane fitted through three vertices each rounded by up to ``q/2``
+    has its gradient perturbed by up to ``(q/2) · Σ_i 1/h_i`` where
+    ``h_i`` is vertex ``i``'s altitude onto the opposite edge (the
+    barycentric coordinate's gradient magnitude).  For a well-shaped
+    triangle that is a fraction of a millimetre per metre; for an
+    identity-spacing SLIVER (a vertex within 0.5 m of the opposite edge)
+    it is a grade by itself — measured 2026-09-04 on v2's patches: 12 of
+    15 ``plane_gradient`` rows across SPJC/OTHH/LEMD were slivers 0.04–0.5 m
+    high whose SOLVED plane sat at or under the cap (0.82–1.50 %) and
+    whose EMITTED plane read 1.24–4.47 % — the 0.01 m quantum on a
+    sub-metre height.  A flat elevation noise cannot price that (it is a
+    swing, not a tilt), so the envelope scales with the fit's own
+    conditioning.  ``0.0`` for a degenerate triangle (caller skips)."""
+    (x1, y1, _z1), (x2, y2, _z2), (x3, y3, _z3) = pts
+    area2 = abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1))
+    if area2 < 1e-9:
+        return 0.0
+    total = 0.0
+    for (ax, ay), (bx, by) in (((x2, y2), (x3, y3)), ((x1, y1), (x3, y3)),
+                               ((x1, y1), (x2, y2))):
+        edge = math.hypot(bx - ax, by - ay)
+        if edge < 1e-9:
+            return 0.0
+        total += edge / area2            # 1 / h_i  with  h_i = area2 / edge
+    return total
+
+
+def plane_reading(pts, drops, grade_cap: float, noise_m: float,
+                  quantum_m: float):
+    """The plane's over-cap reading, or ``None`` when the triangle is
+    lawful under SOME crown declaration compatible with the field.
+
+    ``pts`` are three ``(x, y, z)``; ``drops`` the per-vertex crown drops
+    as READ FROM THE FIELD — a float when declared, ``None`` when absent.
+    The plane is evaluated in UNCROWNED space ``z' = z + drop`` (the
+    solver's space, part 30).  An UNDECLARED vertex is unknown, not on the
+    ridge: its drop lies anywhere in ``[0, max declared drop]``, so the
+    triangle is judged under both ends of that interval (the plane-check
+    form of ``grade_law.crown_pair_offset_interval``) and is lawful if
+    either reading is — measured 2026-09-04: a taxiway STUB triangle on a
+    crowned runway's edge (two edge vertices declared 0.30 m, the stub's
+    own vertex undeclared) read 15–28 % under the ridge default and 1.3–1.5
+    % raw.  A triangle with NO declared vertex reads raw (byte-identical
+    to the unlifted check).  The allowance is ``cap · dist + noise_m +
+    plane_fit_noise · dist`` (see :func:`plane_fit_noise`).  Returns
+    ``(grad, dist, de, lo_pt, hi_pt, lo_z, hi_z)`` for the LEAST over-cap
+    compatible reading."""
+    known = [d for d in drops if d is not None]
+    top = max(known) if known else 0.0
+    choices = [[float(d)] if d is not None else ([0.0, float(top)] if known else [0.0])
+               for d in drops]
+    fit_noise = plane_fit_noise(pts) * (0.5 * quantum_m)
+    best = None
+    for lift in itertools.product(*choices):
+        lifted = [(x, y, z + dz) for (x, y, z), dz in zip(pts, lift)]
+        (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = lifted
+        ux, uy, uz = x2 - x1, y2 - y1, z2 - z1
+        vx, vy, vz = x3 - x1, y3 - y1, z3 - z1
+        nx = uy * vz - uz * vy
+        ny = uz * vx - ux * vz
+        nz = ux * vy - uy * vx
+        if abs(nz) < 1e-6:
+            return None                    # degenerate in the xy plane
+        gx, gy = -nx / nz, -ny / nz
+        grad = math.hypot(gx, gy)
+        if grad < 1e-9:
+            return None
+        ghx, ghy = gx / grad, gy / grad
+        proj = sorted((q[0] * ghx + q[1] * ghy, q[2], q) for q in lifted)
+        lo_p, lo_z, lo_pt = proj[0]
+        hi_p, hi_z, hi_pt = proj[-1]
+        dist = hi_p - lo_p
+        de = abs(hi_z - lo_z)
+        allowance = grade_cap * dist + noise_m + fit_noise * dist
+        if de <= allowance:
+            return None                    # lawful under this declaration
+        excess = de - allowance
+        if best is None or excess < best[0]:
+            best = (excess, (grad, dist, de, lo_pt, hi_pt, lo_z, hi_z))
+    return None if best is None else best[1]
 
 
 # (The old WITHIN_SHAPE_MAX_PAIR_DIST_M distance cap was removed: the

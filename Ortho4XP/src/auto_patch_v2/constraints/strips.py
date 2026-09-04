@@ -281,6 +281,71 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         seen.add(key)
                         rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
                                            cap * ds + q, src))
+        rows.extend(_end_foot_rows(vw, g, cap, q, src, seen))
+    return rows
+
+
+def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
+                   seen: set[tuple[int, int]]) -> list[Row]:
+    """THE CHORD FORM of the same law, from the runway END EDGE: every
+    strip vertex in an end corridor abeam the runway's width is bound to
+    the interpolation along the end edge over its along-axis distance
+    beyond the end.  The ring-pair form above binds only consecutive
+    ring vertices whose step is along the axis; the 3 m lip ring around
+    an end has none (its vertices step ACROSS), so the lip's outer ring
+    was tied to the runway only through 33 m transverse rows and the DEM
+    pull took it 2.44 m under the runway end centre 3 m away (measured
+    LEMD 18R/36L, the 2026-09-04e seam tear).  A vertex laterally outside
+    the runway's width has no end-edge foot and keeps the transverse
+    rows."""
+    ux, uy = g.unit
+    m = vw.law.tables.emit.identity.min_distinct_spacing_m
+
+    def s_of(p: XY) -> float:
+        return (p[0] - g.axis_a[0]) * ux + (p[1] - g.axis_a[1]) * uy
+
+    end_edges: list[tuple[int, int, int]] = []          # (a, b, end index)
+    for f in vw.faces_of_role(("runway",)):
+        if f.ref != g.ref:
+            continue
+        ring = vw.rings[f.id]
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            sa, sb = s_of(vw.xy[a]), s_of(vw.xy[b])
+            for end, s0 in ((1, 0.0), (2, g.length_m)):
+                if abs(sa - s0) <= m and abs(sb - s0) <= m:
+                    end_edges.append((a, b, end))
+    if not end_edges:
+        return []
+    # a wall vertex carries the crest (the DEM, 2026-09-03b L1) and no
+    # chord from the runway end binds it — the zones stop at the wall
+    walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
+    rows: list[Row] = []
+    for fid, ids, xy in _strip_rings(vw):
+        for k, v in enumerate(ids):
+            if v in vw.pavement_vertices or v in walls:
+                continue
+            x, y = xy[k]
+            for a, b, end in end_edges:
+                if not point_in_rect_ring(x, y, g.rings[end]):
+                    continue
+                (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
+                ex, ey = bx - ax, by - ay
+                l2 = ex * ex + ey * ey
+                if l2 < 1e-9:
+                    continue
+                t = ((x - ax) * ex + (y - ay) * ey) / l2
+                if t < 0.0 or t > 1.0:
+                    continue                    # beside the corner, not abeam
+                s_v = s_of((x, y))
+                beyond = abs(s_v) if end == 1 else s_v - g.length_m
+                key = (min(v, a), max(v, a))
+                if beyond < 1.0 or key in seen:
+                    continue
+                seen.add(key)
+                rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
+                                   -cap * beyond - q, cap * beyond + q, src))
+                break
     return rows
 
 

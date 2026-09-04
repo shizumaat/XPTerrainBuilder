@@ -213,7 +213,8 @@ def artifact_key(tree: str, icao: str, env: dict, corpus: dict,
 
 def build_variant(*, const_dem=None, allow_degraded_dem=False,
                   allow_no_sidecar=False, geometry_only=False,
-                  solve_model=None) -> dict:
+                  solve_model=None, engine=None,
+                  law_tables_sha256=None) -> dict:
     """The request shape that changes the ARTIFACT rather than the corpus.
 
     ``--dem`` is here because a −500 m oracle patch and a real-DEM patch are
@@ -241,10 +242,18 @@ def build_variant(*, const_dem=None, allow_degraded_dem=False,
     — a stale entry re-earned by one rebuild is cheaper than a wrong
     serve.
     """
-    return {"dem": const_dem, "allow_degraded_dem": bool(allow_degraded_dem),
-            "allow_no_sidecar": bool(allow_no_sidecar),
-            "geometry_only": bool(geometry_only),
-            "solve_model": solve_model}
+    variant = {"dem": const_dem, "allow_degraded_dem": bool(allow_degraded_dem),
+               "allow_no_sidecar": bool(allow_no_sidecar),
+               "geometry_only": bool(geometry_only),
+               "solve_model": solve_model}
+    # THE ENGINE (RULINGS 2026-09-03d): a v2 patch and a v1 patch of one
+    # airport at one tree and corpus are two artifacts.  Keyed ONLY when
+    # the engine is not v1, so every v1 key ever stored is unchanged — a
+    # control that exists is never rebuilt (BUILD ECONOMY, CLAUDE.md).
+    if engine and engine != "v1":
+        variant["engine"] = engine
+        variant["law_tables_sha256"] = law_tables_sha256
+    return variant
 
 
 # ══════════════════════════════════════════════════════════════════════

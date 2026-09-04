@@ -23,6 +23,7 @@ tables (``check_grade.iter_shape_grade_constraints`` +
 """
 from __future__ import annotations
 
+import itertools
 import math
 
 from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
@@ -145,36 +146,80 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
 
 
 def plane_gradient(p: Patch) -> list[Row]:
-    """Three-vertex rings: plane gradient vs cap in crown-lifted space."""
+    """Three-vertex rings: plane gradient vs cap in crown-lifted space,
+    the v1 reader's arithmetic exactly (``check_grade.plane_reading``):
+    an UNDECLARED vertex is unknown, not on the ridge (judged under both
+    ends of ``[0, max declared drop]``), and the allowance carries the
+    PLANE-FIT ROUNDING ENVELOPE ``(q/2)·Σ 1/h_i`` — the 0.01 m emit
+    quantum on an identity-spacing sliver is a grade by itself (12 of 15
+    rows across SPJC/OTHH/LEMD, 2026-09-04)."""
     law = p.law
     drops = crown_by_vertex(p)
     noise = law.tables.emit.instrument.rounding_noise_m
+    half_q = 0.5 * law.tables.emit.materiality.elevation_m
     out: list[Row] = []
     for sh in p.shapes:
         cap = p.cap(sh)
         if cap is None or len(sh.ids) != 3:
             continue
-        pts = [(sh.xy[k][0], sh.xy[k][1], sh.z[k] + drops.get(sh.ids[k], 0.0))
-               for k in range(3)]
-        (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = pts
+        pts = [(sh.xy[k][0], sh.xy[k][1], sh.z[k]) for k in range(3)]
+        declared = [drops.get(sh.ids[k]) for k in range(3)]
+        reading = _plane_reading(pts, declared, cap, noise, half_q)
+        if reading is None:
+            continue
+        grad, dist, de, lo_pt, hi_pt = reading
+        out.append(row("plane_gradient", (sh.role, sh.role), p.side(sh.role), de,
+                       100 * grad, 100 * cap, dist if dist > 0.5 else 1.0,
+                       lo_pt[:2], hi_pt[:2], sh.key, sh.key))
+    return out
+
+
+def plane_fit_noise(pts: list[tuple[float, float, float]]) -> float:
+    """``Σ_i 1/h_i`` over the triangle's three altitudes (0 if degenerate):
+    the rounding radius times this bounds the fitted gradient's error."""
+    (x1, y1, _), (x2, y2, _), (x3, y3, _) = pts
+    area2 = abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1))
+    if area2 < 1e-9:
+        return 0.0
+    total = 0.0
+    for (ax, ay), (bx, by) in (((x2, y2), (x3, y3)), ((x1, y1), (x3, y3)),
+                               ((x1, y1), (x2, y2))):
+        edge = math.hypot(bx - ax, by - ay)
+        if edge < 1e-9:
+            return 0.0
+        total += edge / area2
+    return total
+
+
+def _plane_reading(pts, drops, cap: float, noise: float, half_q: float):
+    known = [d for d in drops if d is not None]
+    top = max(known) if known else 0.0
+    choices = [[float(d)] if d is not None else ([0.0, float(top)] if known else [0.0])
+               for d in drops]
+    fit_noise = plane_fit_noise(pts) * half_q
+    best = None
+    for lift in itertools.product(*choices):
+        lifted = [(x, y, z + dz) for (x, y, z), dz in zip(pts, lift)]
+        (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = lifted
         ux, uy, uz = x2 - x1, y2 - y1, z2 - z1
         vx, vy, vz = x3 - x1, y3 - y1, z3 - z1
         nx = uy * vz - uz * vy
         ny = uz * vx - ux * vz
         nz = ux * vy - uy * vx
         if abs(nz) < 1e-6:
-            continue
+            return None
         gx, gy = -nx / nz, -ny / nz
         grad = math.hypot(gx, gy)
         if grad < 1e-9:
-            continue
+            return None
         ghx, ghy = gx / grad, gy / grad
-        proj = sorted((q[0] * ghx + q[1] * ghy, q[2], q) for q in pts)
+        proj = sorted((q[0] * ghx + q[1] * ghy, q[2], q) for q in lifted)
         dist = proj[-1][0] - proj[0][0]
         de = abs(proj[-1][1] - proj[0][1])
-        if de <= cap * dist + noise:
-            continue
-        out.append(row("plane_gradient", (sh.role, sh.role), p.side(sh.role), de,
-                       100 * grad, 100 * cap, dist if dist > 0.5 else 1.0,
-                       proj[0][2][:2], proj[-1][2][:2], sh.key, sh.key))
-    return out
+        allowance = cap * dist + noise + fit_noise * dist
+        if de <= allowance:
+            return None
+        excess = de - allowance
+        if best is None or excess < best[0]:
+            best = (excess, (grad, dist, de, proj[0][2], proj[-1][2]))
+    return None if best is None else best[1]

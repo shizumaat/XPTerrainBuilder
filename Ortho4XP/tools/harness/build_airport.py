@@ -5,7 +5,7 @@
         [--allow-degraded-dem] [--allow-no-sidecar] [--no-ledger]
         [--refresh-data SCOPE[,SCOPE...]] [--break-stale-lock]
         [--allow-private-data] [--base-arm | --from-ledger]
-        [--no-artifact-ledger]
+        [--no-artifact-ledger] [--engine v1|v2]
 
 Run it from ``Ortho4XP/`` (or a lane worktree set up with
 ``tools/harness/lane_worktree.sh``).  Every lane builds through THIS entry;
@@ -1860,6 +1860,131 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     }
 
 
+V2_LAW_DIR = Path("src") / "auto_patch_v2" / "law"
+
+
+def v2_law_tables_digest(root) -> dict:
+    """The v2 law tables this tree solves under, hashed — PROVENANCE for
+    ``frame.json`` and a component of the artifact-ledger variant key: two
+    patches solved under different tables are two artifacts even at one
+    code-tree hash?  No — the tables are IN the tree, so the tree hash
+    already moves with them; the digest is here so a reader of the frame
+    can name WHICH tables without a checkout, and so a ``--law-dir``
+    arm (an alternative table set, ``auto_patch_v2 build --law-dir``) can
+    never be served for the shipped-table arm if that flag is ever wired
+    through this entry.  Sorted ``name + bytes`` over every ``.toml``."""
+    d = Path(root) / V2_LAW_DIR
+    files = sorted(q for q in d.glob("*.toml"))
+    h = hashlib.sha256()
+    for q in files:
+        h.update(q.name.encode()); h.update(b"\0"); h.update(q.read_bytes()); h.update(b"\0")
+    return {"dir": str(d), "files": [q.name for q in files],
+            "sha256": h.hexdigest() if files else None}
+
+
+def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
+                   prog: Progress, allow_no_sidecar: bool = False,
+                   write_guard=None, allow_degraded: bool = False) -> dict:
+    """One airport through ``auto_patch_v2.pipeline.build`` → ``<out>/<tag>.osm``
+    + ``<tag>.osm.axes.json`` — the v2 twin of :func:`build_patch`, under the
+    SAME arming composition, the same swallowed-refusal detectors, the same
+    sidecar guarantee and the same result record (every key ``build_patch``
+    publishes, so ``main``'s frame, result and artifact-ledger code is one
+    path for both engines — extend, never fork, RULINGS ``7e90032``).
+
+    What differs, and is RECORDED: ``engine`` = ``"v2"``; ``law_tables`` =
+    :func:`v2_law_tables_digest`; ``dem_inset_provenance`` is the v2
+    loader's production-frame provenance (``LoadReport.dem_provenance``:
+    the core's composed tile DEM read through the same resolution the
+    mesh drapes on, M3a); ``engine_solve_model`` is ``None`` — v2 has one
+    solver (HiGHS LP) and no v1 mode plumbing, so ``main``'s one-reader
+    check is vacuous for it; ``anchor`` is ``None`` (v2's sidecar register
+    is closed by design, M4 §5).  The v2 pipeline writes
+    ``<ICAO>_auto.patch.osm`` beside ``<ICAO>.graded.json`` and
+    ``<ICAO>.report.json`` into ``<out>/<tag>.v2/``; the patch and sidecar
+    are then MOVED to the harness names (one artifact, two names would be
+    the census-wrapper defect in a smaller costume).  A solve that is not
+    optimal/feasible REFUSES to report — there is no patch, and the IIS
+    is in ``<tag>.v2/<ICAO>.report.json``.
+    """
+    for p in (root / "src", root, root / "tests", root / "tools"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    guard, redirects = arm_shared_repo_protection(
+        root, out_dir, tag, prog, write_guard=write_guard)
+    from auto_patch_v2.planar.__main__ import default_inputs   # noqa: E402
+    from auto_patch_v2.pipeline.build import Config, build     # noqa: E402
+    from auto_patch_v2.law import Law                          # noqa: E402
+    law_tables = v2_law_tables_digest(root)
+    prog.note(f"engine v2: law tables {law_tables['sha256'][:12] if law_tables['sha256'] else None} "
+              f"({len(law_tables['files'])} files under {law_tables['dir']})")
+    inputs = default_inputs(dem_frame="production",
+                            allow_degraded_dem=allow_degraded)
+    law = Law.for_airport(icao)
+    v2_dir = out_dir / f"{tag}.v2"
+    lines: list = []
+    t0 = time.time()
+    with guard:
+        res = build(icao, inputs, v2_dir, Config(), law, out=lines.append)
+    dt = time.time() - t0
+    for ln in lines:
+        prog.note(f"  [v2] {ln}")
+    require_no_swallowed_write_block(guard.blocked,
+                                     allow_degraded=allow_degraded, prog=prog)
+    report_guard_churn(guard, prog)
+    status = res.solution.status.value
+    if status not in ("optimal", "feasible") or res.paths is None:
+        raise SystemExit(
+            f"REFUSING to report this build: the v2 solve for {icao} ended "
+            f"{status!r} ({res.solution.message}); no patch was written.  The "
+            f"IIS, if diagnosed, is in {v2_dir / (icao + '.report.json')}.")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    osm = out_dir / f"{tag}.osm"
+    side = Path(str(osm) + ".axes.json")
+    Path(res.paths.patch).replace(osm)
+    v2_side = Path(res.paths.sidecar)
+    if v2_side.exists():
+        v2_side.replace(side)
+    if not side.exists():
+        msg = (f"NO axes sidecar was written ({side}).  Every census would "
+               f"silently fall back to the context-free frame, which "
+               f"OVERCOUNTS by construction — the numbers would not be "
+               f"defect counts.")
+        if not allow_no_sidecar:
+            raise SystemExit("REFUSING to report this build: " + msg)
+        prog.note("DEGRADED (accepted by flag): " + msg)
+    verify = (res.report.get("verify") or {}).get("by_family")
+    prog.note(f"built {tag} [v2] in {dt:.1f}s  ways={res.paths.ways}  "
+              f"nodes={res.paths.nodes}  status={status}  -> {osm}  "
+              f"sidecar={'OK' if side.exists() else 'MISSING'}  "
+              f"body_sha={body_sha256(osm)[:12]}  v2-verify rows="
+              f"{sum(verify.values()) if verify else 'n/a'}")
+    return {
+        "_layout": None,
+        "icao": icao, "tag": tag, "patch": str(osm), "sidecar": str(side),
+        "engine": "v2",
+        "law_tables": law_tables,
+        "synthetic_dem": None,
+        "geometry_only": False,
+        "engine_solve_model": None,
+        "build_seconds": round(dt, 1), "shapes": res.paths.ways,
+        "body_sha256": body_sha256(osm),
+        "sidecar_present": side.exists(),
+        "write_guard_armed": guard.enabled,
+        "write_guard_blocked": list(guard.blocked),
+        "write_guard_lock_churn": list(guard.lock_churn),
+        "write_guard_library_index_churn": list(guard.library_index_churn),
+        "dem_frame_effective": frame_surface_keys(root),
+        "dem_inset_provenance": dict(res.report.get("load", {}).get("dem_provenance") or {}),
+        "engine_cache_redirects": redirects,
+        "anchor": None,
+        "v2": {"dir": str(v2_dir), "report": str(v2_dir / f"{icao}.report.json"),
+               "status": status, "wall_s": res.wall, "lp": res.lp_size,
+               "verify_by_family": verify, "ruleset": law.ruleset_key,
+               "tiles": sorted(f"{tl:+03d}{tn:+04d}" for (tl, tn) in (res.pieces or {}))},
+    }
+
+
 def run_tile_steps(tile, plan, prog, skip_steps=None):
     """Run a tile's release steps under THE STEP CONTRACT — the engine
     pipeline's own failure convention, which the harness loop used to
@@ -2117,6 +2242,15 @@ def main(argv=None) -> int:
                          "documented mode) for VISUAL INSPECTION — never "
                          "a measurement, never censused; the artifact-"
                          "ledger variant key records it")
+    ap.add_argument("--engine", choices=("v1", "v2"), default="v1",
+                    help="which auto-patch engine builds the patch: v1 "
+                         "(src/auto_patch, the default) or v2 "
+                         "(src/auto_patch_v2.pipeline.build, RULINGS "
+                         "2026-09-03d).  Same refusals, guard, DEM-frame "
+                         "checks, ledger and provenance either way; "
+                         "frame.json records the engine and, for v2, the "
+                         "law-table digest; the artifact-ledger key carries "
+                         "both (a v2 patch is never served for a v1 arm)")
     ap.add_argument("--solve-capture", type=Path, default=None,
                     metavar="DIR",
                     help="also write a SOLVE-STAGE CAPTURE per airport into "
@@ -2125,6 +2259,21 @@ def main(argv=None) -> int:
                          "tools/solve_cut.py --replay without rebuilding "
                          "phases 1-4.  The build itself is unchanged")
     args = ap.parse_args(argv)
+    if args.engine == "v2":
+        # A v1-only flag that quietly did nothing on the v2 path is how a
+        # lane comes to believe it measured something it did not (the
+        # --solve-capture/--tile precedent below).  Each is refused by name.
+        for flag, on in (("--tile", bool(args.tile)),
+                         ("--dem", args.dem is not None),
+                         ("--geometry-only", bool(args.geometry_only)),
+                         ("--solve-capture", args.solve_capture is not None)):
+            if on:
+                raise SystemExit(
+                    f"REFUSING: --engine v2 with {flag} is not wired — v2 "
+                    f"builds the airport patch on the production DEM frame "
+                    f"only (no constant-DEM oracle world, no geometry-only "
+                    f"emit, no v1 solve-stage capture, no tile run).  Build "
+                    f"the patch: build_airport.py {args.icao} --engine v2.")
     if args.geometry_only and args.tile:
         raise SystemExit(
             "REFUSING: --geometry-only with --tile is not wired — "
@@ -2286,6 +2435,18 @@ def main(argv=None) -> int:
     prog.note(f"solve model: {solve['solve_model']} (from {solve['source']}; "
               f"env={solve['env']} global_cfg={solve['global_cfg']})")
 
+    # ── THE ENGINE (RULINGS 2026-09-03d: v2 beside v1) ───────────────
+    # Recorded in the frame and keyed into the artifact ledger BEFORE any
+    # engine code runs, like every other key part: the v2 law tables are
+    # in the tree (the tree hash moves with them) and are named here so a
+    # frame reader can say WHICH tables without a checkout.
+    frame["engine"] = args.engine
+    frame["law_tables"] = (v2_law_tables_digest(root) if args.engine == "v2"
+                           else None)
+    prog.note(f"engine: {args.engine}"
+              + (f" (law tables {frame['law_tables']['sha256'][:12]})"
+                 if frame["law_tables"] and frame["law_tables"]["sha256"] else ""))
+
     snapshot = env_snapshot(root, cfg_diff)
     (out_dir / f"{tag}.env.json").write_text(json.dumps(snapshot, indent=1))
     prog.note(f"env snapshot: HEAD={snapshot['git_head'][:9]} "
@@ -2310,7 +2471,9 @@ def main(argv=None) -> int:
                 allow_degraded_dem=args.allow_degraded_dem,
                 allow_no_sidecar=args.allow_no_sidecar,
                 geometry_only=args.geometry_only,
-                solve_model=solve["solve_model"])}
+                solve_model=solve["solve_model"],
+                engine=args.engine,
+                law_tables_sha256=(frame["law_tables"] or {}).get("sha256"))}
         ledger_key = AL.artifact_key(
             ledger_parts["tree"], args.icao, ledger_parts["env"],
             ledger_parts["corpus"], ledger_parts["variant"])
@@ -2418,6 +2581,11 @@ def main(argv=None) -> int:
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog)
             result["engine_cache_redirects"] = redirects
+        elif args.engine == "v2":
+            result = build_patch_v2(args.icao, root, out_dir, tag, prog,
+                                    allow_no_sidecar=args.allow_no_sidecar,
+                                    write_guard=guard,
+                                    allow_degraded=args.allow_degraded_dem)
         else:
             result = build_patch(args.icao, root, out_dir, tag, prog,
                                  const_dem=args.dem,
@@ -2475,6 +2643,7 @@ def main(argv=None) -> int:
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
+    frame["v2"] = result.get("v2")
     frame["engine_cache_redirects"] = result.get("engine_cache_redirects")
     # WHICH per-tile cfg this build ran on, and where it came from (owner
     # ruling 2026-08-12b: lane inputs are provisioned and RECORDED — the
@@ -2553,7 +2722,7 @@ def main(argv=None) -> int:
                      "env": str(out_dir / f"{tag}.env.json"),
                      "result": str(out_dir / f"{tag}.result.json")},
                     {"tag": tag, "lane": str(root), "icao": args.icao,
-                     "argv": sys.argv[1:],
+                     "argv": sys.argv[1:], "engine": args.engine,
                      "build_seconds": result.get("build_seconds"),
                      "wall_seconds": result.get("wall_seconds"),
                      "body_sha256": result.get("body_sha256"),

@@ -30,11 +30,12 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import zone2_half_width_m, zone_bounds
+from ..law.tables import is_value_role, role_side, zone2_half_width_m, zone_bounds
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
+from .roads import road_family_roles
 from .strips import runway_groups
 
 __all__ = ["zone_bands"]
@@ -98,6 +99,11 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
                 if best is None or d < best[2]:
                     best = (k, t, d)
     return best
+
+
+def _face_class_of(e: tuple) -> tuple[str, int | None, str | None]:
+    """The zone class an edge record keys (``_pavement_edges`` layout)."""
+    return (e[2], e[3], e[4])
 
 
 def _face_class(f) -> tuple[str, int | None, str | None] | None:
@@ -193,8 +199,25 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # OTHH: an IIS of two crest pins and one mandatory-down band row
     wall_vertices = {v for f in vw.faces_of_role(("retaining_wall",))
                      for v in vw.rings[f.id]}
+    # THE BAND BINDS REGARDLESS OF SHAPE OWNERSHIP (owner 2026-08-30,
+    # "taxiway adjacent-ground band cuts groundside": zones 1-2 grade FROM
+    # THE TAXIWAY and a groundside shape boundary is not an exemption).
+    # Only a vertex an AIRSIDE value face touches carries that face's own
+    # law instead of the band, and a ROAD-family vertex keeps the road's
+    # (a road edge-sharing pavement IS that pavement, memory
+    # ``free-road-ruling``; its 1.5 % cap cannot hold the lip's 3 %
+    # mandatory-down — measured CYXY, an IIS of the two rows); a strip
+    # vertex shared with any other groundside value face (a
+    # ``groundside_pavement`` beside the lip) is banded like any other —
+    # measured CYXY: unbanded, it sat on the DEM 2.16 m above the junction
+    # lip 4.3 m away (the 2026-09-04e seam tear).
+    roads = tuple(road_family_roles(law))
+    own_law = {v for f in vw.faces_of_role(tuple(
+        r for r, spec in law.tables.precedence.roles.items()
+        if spec.value and (spec.side == "airside" or r in roads)))
+        for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
     for v, classes in member.items():
-        if v in vw.pavement_vertices or v in wall_vertices:
+        if v in own_law or v in wall_vertices:
             continue
         src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)
@@ -209,15 +232,43 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             k, t, d = near
             half = half_of(edges[k]) or 0.0
             found.append((min(d, half), k, t, d))
+        # THE NEAREST PAVEMENT BY TRUE DISTANCE, its band clamped to its
+        # own half-width — never "the nearest whose corridor holds the
+        # vertex": at the taxi corridor's outer edge the ceiling reference
+        # would otherwise jump from the taxiway's band to the runway's
+        # mandatory-down (measured OTHH: a runway zone-2 vertex 23 m from
+        # a code-F taxiway, 1 m below its neighbour 1.6 m away inside the
+        # 22 m corridor — the 2026-09-04e seam tear).  The pocket rule
+        # (08-01 "takes its level from what it touches") is continuous
+        # only if the reference is the nearest edge, full stop.
+        # ...but only for a vertex INSIDE some corridor: outside every
+        # corridor the ground is zone 3, the DEM, and no pavement reaches
+        # it — measured LEMD: a vertex 3 m off a runway END (no abeam
+        # band) took a taxiway 19 m away as its reference, an IIS against
+        # the end-skirt chord from the runway end.
         for fam, g in by_family.items():
             near = _nearest_edge(vw, v, edges, g, cell, half_of, reach,
                                  lambda k: abeam(v, k))
             if near is not None and all(near[0] != f_[1] for f_ in found):
                 found.append((near[2], near[0], near[1], near[2]))
+        if found:
+            for fam, g in by_family.items():
+                near = _nearest_edge(vw, v, edges, g, cell, lambda e: 1e9,
+                                     reach * 2.0, lambda k: abeam(v, k))
+                if near is not None and all(near[0] != f_[1] for f_ in found):
+                    k, t, d = near
+                    found.append((min(d, half_of(edges[k]) or 0.0), k, t, d))
         if not found:
             continue
         found = [f_ for f_ in found if abeam(v, f_[1])]
-        found.sort()
+        found.sort(key=lambda f_: (f_[3], f_[1]))
+        # a pavement beyond its own corridor contributes ONLY as the
+        # nearest reference; as a farther candidate its floor is void
+        # (measured CYXY: a taxiway 80 m off floored a runway zone-2
+        # vertex above the runway's mandatory-down — an IIS of five rows)
+        found = [f_ for rank, f_ in enumerate(found)
+                 if rank == 0 or f_[3] <= (half_of(edges[f_[1]]) or 0.0)
+                 or any(_face_class_of(edges[f_[1]]) == c for c in classes)]
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl = edges[k]
             role = "runway" if fam == "runway" else "junction"

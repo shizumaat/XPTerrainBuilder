@@ -300,8 +300,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             from shapely.geometry import Polygon as _Poly
             dpoly = _Poly(d.ring)
             reach = tn_law.wall_gap_m + law.tables.emit.identity.min_distinct_spacing_m + 0.5
+            # EVERY deck vertex clears EVERY abutting ramp group (the deck
+            # is a road face solved under its own cap, so its low side is
+            # not its first vertex — measured LEMD: 4.81 m at one edge)
             for s, vs in abut:
                 if any(dpoly.distance(Point(planar.vertices[v].xy)) <= reach for v in vs):
-                    rows.append(Offset(deck_vs[0], vs[0], br_law.clearance_m, src_clear))
+                    for dv in sorted(set(deck_vs)):
+                        rows.append(Offset(dv, vs[0], br_law.clearance_m, src_clear))
     rows.extend(pins.values())
     return rows

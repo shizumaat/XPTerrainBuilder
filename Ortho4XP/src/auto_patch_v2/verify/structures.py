@@ -161,14 +161,31 @@ def _ends(r: Shape) -> list[tuple[tuple[float, float], float]]:
     return out
 
 
-def _mouth_end(r: Shape, others: list[Shape] = ()) -> tuple[tuple[float, float], float]:
-    """The ramp's mouth end: the lower of its two ends (the ramp descends
-    TO the mouth); a piece flat at the datum (the covered stretch before
-    a deck) takes the end no other ramp piece continues from."""
+def _mouth_end(r: Shape, others: list[Shape] = (), walls: list[Shape] = ()
+               ) -> tuple[tuple[float, float], float]:
+    """The ramp's mouth end: the end the wall's END CAP stands across —
+    the end whose centre is nearest a wall edge (the cap at the gap; the
+    open top end sees only the side bands, half a corridor away).  Not
+    the lower end: where the ground beyond a mouth lies below the bore
+    floor the ramp DESCENDS outward (the ±cap cone) and its low end is
+    the top.  With no walls, the lower end; a piece flat at the datum
+    (the covered stretch before a deck) takes the end no other ramp
+    piece continues from."""
     ends = _ends(r)
     if len(ends) < 2:
         return ends[0]
     (pa, za), (pb, zb) = ends
+    if walls:
+        def near(pt):
+            best = 1e9
+            for w in walls:
+                n = len(w.xy)
+                for k in range(n):
+                    best = min(best, _seg_dist(pt[0], pt[1], w.xy[k], w.xy[(k + 1) % n]))
+            return best
+        da, db = near(pa), near(pb)
+        if abs(da - db) > 0.5:
+            return (pa, za) if da < db else (pb, zb)
     if abs(za - zb) > 0.02:
         return (pa, za) if za < zb else (pb, zb)
     da = min((min(_dist(pa, q) for q in o.xy) for o in others), default=1e9)
@@ -208,8 +225,11 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     for i, r in enumerate(ramps_all):
         by_id.setdefault(f"site{find(i)}", []).append(r)
     for tid, ramps in by_id.items():
-        low = min(ramps, key=lambda r: min(r.z))
-        mouth, zmouth = _mouth_end(low, [r for r in ramps if r is not low])
+        # the mouth piece: the one whose cap-side end is nearest a wall
+        cand = [(r, _mouth_end(r, [o for o in ramps if o is not r], walls)) for r in ramps]
+        low, (mouth, zmouth) = min(cand, key=lambda c: min(
+            (_seg_dist(c[1][0][0], c[1][0][1], w.xy[k], w.xy[(k + 1) % len(w.xy)])
+             for w in walls for k in range(len(w.xy))), default=1e9))
         # the END CAP: a wall EDGE within reach of the mouth line's centre
         # (the cap's vertices stand at the corners, its edge crosses the
         # centre); the wall pieces at the mouth are those with an edge
@@ -249,7 +269,9 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
                                                               + (mouth[1] - a[1]) * vy) / l2))
                 best = (d, w.z[k] * (1 - t) + w.z[(k + 1) % n] * t)
         worst = abs(best[1] - want) if best else 0.0
-        if worst > tol + 0.05:
+        # the instrument envelope: the rate readers' quantum (the mouth
+        # centre is a cluster mean; the cap crest is interpolated)
+        if worst > p.law.tables.emit.instrument.coarse_noise_m:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp", "retaining_wall"), "mixed",
                            worst, None, None, None, mouth, mouth, low.key, cap[0][0].key,
                            out_of_scope=f"{tid}: mouth wall {best[1]:.2f} vs ramp mouth "
@@ -259,7 +281,8 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
                            float(len(pieces)), None, None, None, mouth, mouth, low.key, None,
                            out_of_scope=f"{tid}: {len(pieces)} wall pieces at the mouth"))
         at_mouth = [r for r in ramps
-                    if _dist(_mouth_end(r, [o for o in ramps if o is not r])[0], mouth) <= 25.0]
+                    if _dist(_mouth_end(r, [o for o in ramps if o is not r], walls)[0],
+                             mouth) <= 25.0]
         if len(at_mouth) > 1:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp",) * 2, "groundside",
                            float(len(at_mouth)), None, None, None, mouth, mouth, low.key, None,

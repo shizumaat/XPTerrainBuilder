@@ -44,6 +44,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Tuple
@@ -82,6 +83,8 @@ try:
         transverse_cap_for_longitudinal_cap as _transverse_cap_law,
         FAN_RAMP_LAW as _FAN_RAMP_LAW,
         fan_ramp_law_cap as _fan_ramp_law_cap,
+        APRON_MAX_GRADE as _APRON_MAX_GRADE,
+        APRON_EDGE_PORTION_MIN_WIDTH_RATIO as _APRON_EDGE_PORTION_RATIO,
     )
     from auto_patch.layout import SHARED_VERTEX_TOL_M
 except Exception:
@@ -117,6 +120,8 @@ except Exception:
 
     def _fan_ramp_law_cap(law_value):
         return 0.050 if law_value == _FAN_RAMP_LAW else None
+    _APRON_MAX_GRADE = 0.01
+    _APRON_EDGE_PORTION_RATIO = 1.5      # RULINGS 2026-09-04t-2
 
 # ── THE GRADED-STRIP SEAM LAW (spec seam-continuity-v2 §1) ──────
 # ONE home for the STRIP-seam constants and predicates:
@@ -319,6 +324,11 @@ class Way:
     nids: List[str]               # closed ring (first repeats at end)
     elevs: List[Optional[float]]  # one per nid (closed-ring length)
     tags: Dict[str, str]
+    #: CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): for a way stamped
+    #: ``o4_grade_law='apron'`` the LONG runs of its ring shared with an
+    #: apron ring (``mark_apron_edge_portions``), each a frozenset of node
+    #: ids; ``None`` until the marker runs (the whole-body 07-06 reading).
+    apron_portion_runs: Optional[Tuple[FrozenSet[str], ...]] = None
 
 
 def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
@@ -984,6 +994,94 @@ def _lateral_cap_tag(way: "Way") -> Optional[float]:
         return None
 
 
+def _ring_width_m(pts: List[Tuple[float, float]]) -> float:
+    """The ring's WIDTH: the short side of its minimum rotated rectangle
+    (the same reading as ``auto_patch_v2.constraints.apron.face_width``)."""
+    if len(pts) < 3:
+        return 0.0
+    try:
+        from shapely.geometry import Polygon as _Poly
+        poly = _Poly(pts)
+        if poly.area < 1e-6:
+            return 0.0
+        rect = poly.minimum_rotated_rectangle
+        coords = list(rect.exterior.coords)
+    except Exception:
+        return 0.0
+    sides = [math.hypot(coords[k + 1][0] - coords[k][0], coords[k + 1][1] - coords[k][1])
+             for k in range(len(coords) - 1)]
+    sides = [sd for sd in sides if sd > 0.0]
+    return float(min(sides)) if sides else 0.0
+
+
+def mark_apron_edge_portions(ways: List["Way"],
+                             nodes: Dict[str, Tuple[float, float]],
+                             ll_to_m) -> int:
+    """CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2, refining
+    2026-07-06): a junction / road stamped ``o4_grade_law='apron'`` takes
+    the apron cap only on the portion ALONG the apron — the contiguous
+    runs of its ring whose edges are SHARED with an apron ring (same node
+    ids) and whose length is at least ``APRON_EDGE_PORTION_MIN_WIDTH_RATIO``
+    × the way's width; a shorter shared run is a MOUTH (a corridor joining
+    or leaving the apron) and the way keeps its own cap there and
+    everywhere off the run.  Marks every such way (``apron_portion_runs``,
+    possibly empty) and returns how many were marked.  Run ONCE per parse,
+    before any check, so every cap reader sees one reading."""
+    apron_nids: set = set()
+    for w in ways:
+        if law_role(w) == "apron":
+            apron_nids.update(w.nids)
+    n_marked = 0
+    for w in ways:
+        if w.tags.get("o4_grade_law") != "apron" or law_role(w) == "apron":
+            continue
+        ring = w.nids[:-1] if (len(w.nids) > 1 and w.nids[0] == w.nids[-1]) else list(w.nids)
+        ring = [n for n in ring if n in nodes]
+        n = len(ring)
+        w.apron_portion_runs = ()
+        n_marked += 1
+        if n < 2:
+            continue
+        xy = [ll_to_m(*nodes[nid]) for nid in ring]
+        width = _ring_width_m(xy)
+        shared = [ring[i] in apron_nids and ring[(i + 1) % n] in apron_nids
+                  for i in range(n)]
+
+        def _len(i: int) -> float:
+            (ax, ay), (bx, by) = xy[i], xy[(i + 1) % n]
+            return math.hypot(bx - ax, by - ay)
+
+        runs: List[List[str]] = []
+        if all(shared):
+            runs = [list(ring)] if sum(_len(i) for i in range(n)) >= \
+                _APRON_EDGE_PORTION_RATIO * width else []
+        else:
+            start = next(i for i in range(n) if not shared[i])
+            cur: List[str] = []
+            cur_len = 0.0
+            for k in range(1, n + 1):
+                i = (start + k) % n
+                if shared[i]:
+                    if not cur:
+                        cur = [ring[i]]
+                    cur.append(ring[(i + 1) % n])
+                    cur_len += _len(i)
+                elif cur:
+                    if cur_len >= _APRON_EDGE_PORTION_RATIO * width:
+                        runs.append(cur)
+                    cur, cur_len = [], 0.0
+            if cur and cur_len >= _APRON_EDGE_PORTION_RATIO * width:
+                runs.append(cur)
+        w.apron_portion_runs = tuple(frozenset(r) for r in runs)
+    return n_marked
+
+
+def _apron_portion_pair(way: "Way", nid_a: str, nid_b: str) -> bool:
+    """Both endpoints inside ONE long shared-apron run of ``way``."""
+    runs = way.apron_portion_runs
+    return bool(runs) and any(nid_a in r and nid_b in r for r in runs)
+
+
 def _role_grade_limit(way: "Way",
                       default_grade: float) -> Optional[float]:
     """Resolve the within-shape grade limit for a way.
@@ -1007,6 +1105,13 @@ def _role_grade_limit(way: "Way",
     # on exactly those pieces; validate them at that role's cap so both
     # readers apply the same law.
     _law_override = way.tags.get("o4_grade_law")
+    # CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): a way whose shared
+    # apron runs are marked reads its OWN role cap here; the apron cap is
+    # applied per PAIR on the long runs (``_apron_portion_pair``), never to
+    # the whole body.  An unmarked way (a bare cap read before the marker
+    # ran) keeps the 07-06 whole-body reading.
+    if _law_override == "apron" and way.apron_portion_runs is not None:
+        _law_override = None
     # THE FAN-RAMP LAW (owner RULINGS 21f0980): a declared fan-ramp zone
     # piece is apron ground between two adjacent building frontages,
     # clear of every aircraft-movement surface, and holds the ZONE cap.
@@ -1748,7 +1853,8 @@ def _soft_grade_shape(w: "Way", role0: str, pts, pnids):
     return _GG.GradeShape(
         role=role0, ring=[(p[0], p[1]) for p in pts], keys=list(pnids),
         fan_ramp_zone=(w.tags.get("o4_grade_law") == _FAN_RAMP_LAW),
-        adopts_apron_grade=(w.tags.get("o4_grade_law") == "apron"),
+        adopts_apron_grade=(w.tags.get("o4_grade_law") == "apron"
+                            and w.apron_portion_runs is None),
         adopts_taxi_grade=taxi_law,
         adopted_taxi_letter=(w.tags.get("code_letter") if taxi_law else None),
         lateral_cap=_lateral_cap_tag(w))
@@ -2135,6 +2241,18 @@ def iter_shape_grade_constraints(
                 dist=d, cap=capp.flat_cap(),
                 allowance=_pair_grade_allowance(capp, d, w),
                 offset=_off))
+    # CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): a pair inside one
+    # LONG shared-apron run of a marked way holds the apron cap — a
+    # TIGHTENING only (``min``), so every other law the pair already met
+    # (frontage, seam, cross-section) still binds.
+    from auto_patch.grade_law import Allowance as _Allow
+    _apron_allow = _Allow.flat(_APRON_MAX_GRADE)
+    for k, c in enumerate(out):
+        if c.cap > _APRON_MAX_GRADE and _apron_portion_pair(c.way, c.nid_a, c.nid_b):
+            out[k] = dataclasses.replace(
+                c, cap=_APRON_MAX_GRADE,
+                allowance=min(c.allowance,
+                              _pair_grade_allowance(_apron_allow, c.dist, c.way)))
     return out
 
 
@@ -7538,6 +7656,10 @@ def run_checks(
     if family_out is not None:
         family_out["_feature_hosts"] = _feature_hosts
     ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
+    # CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): mark every
+    # apron-adopting way's long shared runs ONCE, before any check, so the
+    # within-shape, cross-shape and step readers price one reading.
+    mark_apron_edge_portions(ways, nodes, ll_to_m)
     vertices, edges = _build_vertex_edge_tables(nodes, ways, ll_to_m)
     max_grade = max_grade_pct / 100.0
     if seam_pins_ll is not None:

@@ -7304,3 +7304,111 @@ def test_main_dispatches_the_v2_engine_through_the_same_frame_and_ledger_path():
     assert 'frame["law_tables"]' in src
     assert "engine=args.engine" in src and "law_tables_sha256=" in src
     assert src.count("AL.store_build(") == 1, "one store, both engines"
+
+
+# ── CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2) ─────────────────────
+# A junction / road stamped ``o4_grade_law='apron'`` takes the apron cap on
+# the portion ALONG the apron (a long shared run) only; a mouth keeps its
+# own cap.  The oracle's reading (``check_grade.mark_apron_edge_portions``)
+# and v2's law table carry ONE value for "long".
+
+def _portion_patch(tmp_path: Path, *, far_grade: float, run_grade: float,
+                   mouth_grade: float, name: str = "PORTION") -> Path:
+    """An apron square (100 m) with a junction ALONG its whole east edge
+    (40 m wide, shared run 100 m >= 1.5 widths: a long edge) and a
+    junction joining its south edge across 20 m (20 m wide, shared 20 m
+    < 1.5 widths: a mouth).  Both junctions are stamped
+    ``o4_grade_law='apron'`` + letter D as v1 stamps them.  ``run_grade``
+    is the grade along the shared run, ``far_grade`` along the long
+    junction's far (off-apron) edge, ``mouth_grade`` along the mouth
+    junction's length."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+
+    def ll(x, y):
+        return (_TWIN_ANCHOR[0] + math.degrees(y / r),
+                _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+
+    nodes: dict = {}
+    order: list = []
+    nid = [0]
+
+    def node(x, y, alt):
+        key = (round(x, 3), round(y, 3))
+        if key not in nodes:
+            nid[0] -= 1
+            lat, lon = ll(x, y)
+            nodes[key] = (str(nid[0]), lat, lon, alt)
+            order.append(key)
+        return nodes[key][0]
+
+    ways = []
+
+    def way(pts_alt, tags):
+        ns = [node(x, y, a) for (x, y, a) in pts_alt]
+        nid[0] -= 1
+        ways.append((str(nid[0]), ns + [ns[0]], tags))
+
+    run_top = run_grade * 100.0
+    # the apron: flat except its east edge, which follows the shared run
+    way([(0, 0, 0.0), (100, 0, 0.0), (100, 100, run_top), (0, 100, 0.0)],
+        {"role": "apron", "shapeID": "A1", "ref": "apron1"})
+    # the long junction: shares (100,0)-(100,100); far edge at far_grade
+    way([(100, 0, 0.0), (140, 0, 0.0), (140, 100, far_grade * 100.0), (100, 100, run_top)],
+        {"role": "junction", "shapeID": "J1", "ref": "pav1", "code_letter": "D",
+         "o4_grade_law": "apron"})
+    # the mouth junction: shares (40,0)-(60,0) only; 80 m long southward
+    way([(40, -80, -mouth_grade * 80.0), (60, -80, -mouth_grade * 80.0), (60, 0, 0.0), (40, 0, 0.0)],
+        {"role": "junction", "shapeID": "J2", "ref": "pav2", "code_letter": "D",
+         "o4_grade_law": "apron"})
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='portion-twin'>"]
+    for key in order:
+        n, lat, lon, alt = nodes[key]
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}))
+    return osm
+
+
+def test_the_apron_cap_binds_the_shared_portion_only_and_a_mouth_keeps_its_own(cg, tmp_path):
+    """04t-2: the long junction's far edge at 1.2 % (over the apron's 1 %,
+    under its own 1.5 %) and the mouth at 1.2 % price NO row; the shared
+    run at 1.2 % prices a junction row at the APRON cap."""
+    fo = _families(cg, _portion_patch(tmp_path, far_grade=0.012, run_grade=0.009,
+                                      mouth_grade=0.012, name="P1"))
+    rows = fo.get("within_shape") or []
+    assert not [v for v in rows if v.way_a.tags.get("role") == "junction"], [
+        (v.way_a.ref, round(v.grade_pct, 2), v.cap_pct) for v in rows]
+    fo2 = _families(cg, _portion_patch(tmp_path, far_grade=0.009, run_grade=0.012,
+                                       mouth_grade=0.009, name="P2"))
+    j = [v for v in (fo2.get("within_shape") or []) if v.way_a.tags.get("role") == "junction"]
+    assert j and {v.cap_pct for v in j} == {1.0} and {v.way_a.ref for v in j} == {"pav1"}
+
+
+def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
+    osm = _portion_patch(tmp_path, far_grade=0.0, run_grade=0.0, mouth_grade=0.0, name="P3")
+    nodes, ways = cg._parse_osm(osm)
+    f = cg._ll_to_m_factory(nodes, anchor=_TWIN_ANCHOR)
+    assert cg.mark_apron_edge_portions(ways, nodes, f) == 2
+    by_ref = {w.ref: w for w in ways}
+    assert len(by_ref["pav1"].apron_portion_runs) == 1 and \
+        len(by_ref["pav1"].apron_portion_runs[0]) == 2
+    assert by_ref["pav2"].apron_portion_runs == ()
+    assert by_ref["apron1"].apron_portion_runs is None
+    # the same value in v2's law table (one law, two readers)
+    from auto_patch.config import APRON_EDGE_PORTION_MIN_WIDTH_RATIO
+    import tomllib
+    emit = tomllib.loads((ROOT / "src" / "auto_patch_v2" / "law" / "emit.toml").read_text())
+    assert emit["within_shape"]["apron_edge_portion_min_width_ratio"] == \
+        APRON_EDGE_PORTION_MIN_WIDTH_RATIO == cg._APRON_EDGE_PORTION_RATIO

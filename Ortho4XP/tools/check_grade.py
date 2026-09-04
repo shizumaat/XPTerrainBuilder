@@ -6723,6 +6723,8 @@ RETIRED_LAWS: Dict[str, dict] = {
 #: register above).  Keyed by the ``out_of_scope`` stamp ``run_checks``
 #: puts on the row.
 OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
+#: The ``out_of_scope`` stamp of a row the last resort relaxed (04x-2).
+RELAXED_OUT_OF_SCOPE = "relaxed_by_04t1"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
     "role_less_host_duplicate":
         "every way of the row is ROLE-LESS ARTICULATION geometry (an "
@@ -6744,6 +6746,19 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "welded to one is on its boundary.  MEASURED and counted in the "
         "family like every other out-of-scope class; only the acceptance "
         "verdict skips it",
+    RELAXED_OUT_OF_SCOPE:
+        "the pair is a row THE LAST RESORT relaxed (RULINGS 2026-09-04t(1): "
+        "where the hard set is infeasible at a site, the junior rows an IIS "
+        "names take the least-total-variance slack) and it holds at its "
+        "RELAXED cap — a chord at cap + excess, a pad on its solved plane, "
+        "a frontage within its metre slack (spawner ruling 04x-2, "
+        "2026-09-04: \"a row relaxed under 04t(1) is LAWFUL last resort: "
+        "the oracle prices its relaxed cap and reports it under the "
+        "heading, never as a violation — an airport with only relaxed "
+        "rows is at zero\").  The population is the SOLVE's own sidecar "
+        "``relaxed_rows`` publication, joined by the emitted node "
+        "identities; a relaxed row over even its relaxed cap stays a "
+        "violation.  Counted in its family, reported under this heading",
     "disconnected_ring":
         "the row lies wholly inside a groundside ring the ONE route graph "
         "does not reach — no route, frontage or weld coupling to the "
@@ -7129,6 +7144,13 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # never ran under, in both directions.
     "basin_facilities": "basin_facilities",
     "ruleset": "ruleset",
+    # THE LAST RESORT's relaxed rows (RULINGS 2026-09-04t(1); spawner
+    # ruling 04x-2, 2026-09-04): the rows v2's IIS-scoped relaxation gave
+    # a slack, with their relaxed caps.  LAW INPUT: a row relaxed under
+    # 04t(1) is a LAWFUL last resort — the census prices it at its
+    # RELAXED cap and reports it under the ``relaxed_by_04t1`` heading,
+    # never as a violation; an airport with only relaxed rows is at zero.
+    "relaxed_rows": "relaxed_rows",
     # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
     # AMENDMENT A1 section 8b).  LAW INPUT, not evidence: the census
     # re-walks the emitted ring and joins these to report priced / bound /
@@ -7398,6 +7420,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
     ctx["ruleset"] = data.get("ruleset") or None
+    ctx["relaxed_rows"] = data.get("relaxed_rows") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
               + (" [exact]" if exact else "")
@@ -7421,6 +7444,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
               + (f", {len(ctx['basin_facilities'])} declared basin "
                  f"facility(ies)" if ctx["basin_facilities"] else "")
               + f", ruleset={ctx['ruleset']!r}"
+              + (f", {len(ctx['relaxed_rows'])} relaxed row(s) [04t(1)]"
+                 if ctx["relaxed_rows"] else "")
               + " — law-true check)")
     return ctx
 
@@ -7702,6 +7727,89 @@ def row_magnitude(row) -> float:
     return 0.0
 
 
+def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> int:
+    """THE RELAXED-CAP PRICING (spawner ruling 04x-2; RULINGS 2026-09-04t(1)).
+
+    ``relaxed_rows`` is the sidecar publication of ``auto_patch_v2.solve.
+    relax`` (``pipeline.build.relaxed_publication``): per relaxed row its
+    ``kind`` (``diff`` — a chord at ``cap_after``; ``linear`` — a metre
+    ``slack_m``; ``pad`` — ONE PLANE of ``slope``) and the lat/lon
+    identities ``ll`` of its vertices.  A census pair row whose two
+    endpoints ARE a relaxed chord's / frontage's vertices, or both lie on
+    one relaxed pad, is re-priced at the relaxed cap: within it the row is
+    stamped ``out_of_scope = RELAXED_OUT_OF_SCOPE`` (reported under the
+    heading, never adjudicated); over it the row stays a violation.  The
+    join is by the emitted node identity (the same 11-dp key the solve
+    published, projected through the census's own ``ll_to_m``) — never a
+    proximity semantic.  Returns the number of rows stamped."""
+    def key(x: float, y: float) -> Tuple[int, int]:
+        return (int(round(x * 1000.0)), int(round(y * 1000.0)))
+
+    pairs: Dict[frozenset, Tuple[str, float, Optional[float]]] = {}
+    pads: List[Tuple[set, float]] = []
+    for rec in relaxed_rows:
+        try:
+            kind = rec["kind"]
+            lls = [key(*ll_to_m(float(a), float(b))) for a, b in rec["ll"]]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if kind == "pad":
+            pads.append((set(lls), float(rec.get("slope") or 0.0)))
+        elif kind == "diff" and len(lls) == 2 and rec.get("cap_after") is not None:
+            # the SOLVE's own metric for the pair (a route pair's d is the
+            # ROUTE distance, 04o/04q-1; the census reads the direct one):
+            # the relaxed budget is cap_after x THAT distance — HECA
+            # 2026-09-05: 0.98 m over 53.5 m direct / 60.3 m route,
+            # relaxed to 1.63 %: lawful at 0.98, a row at 0.87
+            d_rec = rec.get("distance_m")
+            pairs[frozenset(lls)] = ("diff", float(rec["cap_after"]),
+                                     None if d_rec is None else float(d_rec))
+        elif kind == "linear" and len(lls) == 2:
+            pairs[frozenset(lls)] = ("linear", float(rec.get("slack_m") or 0.0), None)
+    if not pairs and not pads:
+        return 0
+    n = 0
+    for v in rows:
+        if v.out_of_scope is not None:
+            continue
+        found = None
+        for pa, pb in ((v.pt_a, v.pt_b),
+                       (ll_to_m(*v.pt_a), ll_to_m(*v.pt_b))):
+            # published-edge families carry lat/lon endpoints, the ring
+            # families metres: try the metre reading first, then the
+            # projected one — a metre pair read as lat/lon lands nowhere
+            ka, kb = key(*pa), key(*pb)
+            if ka == kb:
+                continue
+            hit = pairs.get(frozenset((ka, kb)))
+            if hit is not None:
+                found = hit
+                break
+            for verts, slope in pads:
+                if ka in verts and kb in verts:
+                    found = ("pad", slope, None)
+                    break
+            if found is not None:
+                break
+        if found is None:
+            continue
+        kind, val, d_rec = found
+        dist = float(v.distance_m)
+        de = abs(float(v.de_m))
+        if kind == "diff":
+            lawful = de <= val * (dist if d_rec is None else d_rec) + ELEV_ROUNDING_NOISE_M
+        elif kind == "pad":
+            lawful = de <= val * dist + ELEV_ROUNDING_NOISE_M
+        else:
+            cap = (float(v.cap_pct) / 100.0) if v.cap_pct is not None else \
+                (float(v.grade_pct) - float(v.excess_pct)) / 100.0
+            lawful = de - cap * dist <= val + ELEV_ROUNDING_NOISE_M
+        if lawful:
+            v.out_of_scope = RELAXED_OUT_OF_SCOPE
+            n += 1
+    return n
+
+
 def run_checks(
     osm_path: Path,
     max_grade_pct: float = 1.5,
@@ -7730,6 +7838,7 @@ def run_checks(
     xsection_spans: Optional[list] = None,
     stretches_ll: Optional[list] = None,
     family_out: Optional[dict] = None,
+    relaxed_rows: Optional[list] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -8366,6 +8475,14 @@ def run_checks(
     if disconnected_rings_m:
         _mark_disconnected(within + cross, steps + mid_steps,
                            disconnected_rings_m)
+
+    # ── OUT OF SCOPE: THE LAST RESORT's RELAXED ROWS (04x-2) ─────────
+    if relaxed_rows:
+        n_relaxed_stamped = stamp_relaxed_rows(within + cross, relaxed_rows, ll_to_m)
+        if not quiet:
+            print(f"  ({len(relaxed_rows)} relaxed row(s) in the sidecar [04t(1)]; "
+                  f"{n_relaxed_stamped} census row(s) hold at their relaxed cap "
+                  f"and are reported under {RELAXED_OUT_OF_SCOPE!r})")
 
     # ── OUT OF SCOPE: ONE GEOMETRY, ONE ROW SET ───────────────────────
     # Lead ruling 2026-08-07 ("Role-less feature ways side with their

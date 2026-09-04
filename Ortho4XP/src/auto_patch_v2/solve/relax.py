@@ -85,7 +85,8 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status, Weights
 from .assemble import to_sparse
 from .highs import solve as solve_hard
-from .iis import IISBudgetExceeded, diagnose
+from .iis import (Certificate, IISBudgetExceeded, RowIndex, diagnose, neighbourhood_certificate,
+                  row_vertices)
 from .tiers import row_tier
 
 __all__ = ["RULING", "Relaxed", "RelaxReport", "relaxable", "site_candidates", "stage1",
@@ -503,6 +504,13 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
     st, x, wall = "", None, 0.0
+    nrows = m.A_ub.shape[0] + m.A_eq.shape[0]
+    if be == "qp" and backend is None and nrows > rl.qp_max_rows:
+        # THE SIZE GATE (RULINGS 2026-09-04x(1)): past ``qp_max_rows`` the
+        # QP budget is pure waste — straight to the approximation
+        note = (f"QP skipped: {nrows} rows > [relaxation] qp_max_rows {rl.qp_max_rows}; "
+                f"the piecewise-linear approximation answers")
+        be = "pwl"
     if be == "qp":
         lim = opt.time_limit_s if backend == "qp" else qp_time_limit_s
         st, x, wall = _qp(m, lim)
@@ -624,6 +632,10 @@ class RelaxReport:
     #: the site's candidate rows (every junior row on the IIS's faces)
     candidates: int = 0
     note: str = ""
+    #: how each round's certificate was found: the cached with-envelope
+    #: ray's wall and support, the neighbourhood LPs (hops / rows / wall),
+    #: or ``whole_model`` (the fallback)
+    certificates: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
     #: the SUPPORT: candidates that took an excess (the rows relaxed)
     rows: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
     unrelaxed: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
@@ -703,20 +715,53 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
     quiet = _dc.replace(opt, diagnose_iis=False)
     relaxed_all: list[Relaxed] = []
     unrelaxed: list[Row] = []
+    n = len(pm.vertices)
+    # THE CACHED CERTIFICATE (iis.py module docstring): the WITH-envelope
+    # model, built once, names the site in seconds; each round frees the
+    # rows it relaxed and hot-starts the next ray
+    cached: Certificate | None = None
+    seed: set[int] = set()
+    try:
+        t = time.perf_counter()
+        cached = Certificate(n, cs.rows())
+        sup = cached.ray(max(1.0, deadline - time.perf_counter()))
+        rep.iis_wall_s += time.perf_counter() - t
+        seed = {v for r in (sup or ()) for v in row_vertices(r)}
+        rep.certificates.append({"round": 0, "kind": "cached_envelope", "support": len(sup or ()),
+                                 "seed_vertices": len(seed), "rows": cached.rows,
+                                 "wall_s": round(time.perf_counter() - t, 3)})
+    except ImportError:
+        cached = None
+    except IISBudgetExceeded:
+        cached = None                   # the whole-model path answers below
     cs = envelope_free(cs)          # the rows, never their reach envelope
+    index = RowIndex(cs.rows())
+    excluded: set[int] = set()
     probe = cs
     for rnd in range(1, rl.max_rounds + 1):
         rep.rounds = rnd
         t = time.perf_counter()
+        rows: list[Row] = []
         try:
-            iis = diagnose(pm, probe, weights, opt, deadline=deadline, minimal=False)
+            trace: dict = {}
+            if seed:
+                sup = neighbourhood_certificate(n, index, seed, deadline=deadline,
+                                                exclude=excluded, trace=trace)
+                if sup:
+                    rows = list(sup)
+                    rep.certificates.append({"round": rnd, "kind": "neighbourhood", **trace,
+                                             "support": len(rows)})
+            if not rows:
+                rows = [r for r, _s in diagnose(pm, probe, weights, opt, deadline=deadline,
+                                                minimal=False)]
+                rep.certificates.append({"round": rnd, "kind": "whole_model", **trace,
+                                         "support": len(rows)})
         except IISBudgetExceeded as e:
             rep.iis_wall_s += time.perf_counter() - t
             rep.reason = (f"IIS not found inside the {rl.iis_time_budget_s:.0f} s budget "
                           f"(round {rnd}: {e}); the tier machinery (04i) answers")
             return None, rep, None
         rep.iis_wall_s += time.perf_counter() - t
-        rows = [r for r, _s in iis]
         rep.iis_rows += len(rows)
         if not rows:
             rep.reason = (f"round {rnd}: no IIS found on the set with the relaxed rows "
@@ -745,7 +790,23 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
         rep.approximation = s1.backend == "pwl"
         rep.note = s1.note
         if s1.status == "infeasible":
-            probe = _without(cs, relaxed_all)     # another site: diagnose the rest
+            # another site: the next certificate on the rest — the cached
+            # model freed of this round's rows (hot start) re-seeds it
+            probe = _without(cs, relaxed_all)
+            excluded |= {id(x.row) for x in new}
+            seed |= {v for x in new for v in row_vertices(x.row)}
+            if cached is not None:
+                t = time.perf_counter()
+                cached.free(x.row for x in new)
+                try:
+                    sup = cached.ray(max(1.0, deadline - time.perf_counter()))
+                except IISBudgetExceeded:
+                    sup = None
+                rep.iis_wall_s += time.perf_counter() - t
+                seed |= {v for r in (sup or ()) for v in row_vertices(r)}
+                rep.certificates.append({"round": rnd, "kind": "cached_envelope_reseed",
+                                         "support": len(sup or ()), "seed_vertices": len(seed),
+                                         "wall_s": round(time.perf_counter() - t, 3)})
             continue
         if s1.status != "optimal":
             rep.reason = f"stage 1 ({s1.backend}) ended {s1.status}; the tier machinery answers"

@@ -488,6 +488,7 @@ class Relaxation:
     least-total-variance relaxation's budgets (``solve/relax.py``)."""
 
     iis_time_budget_s: float
+    qp_max_rows: int
     qp_time_budget_s: float
     max_rounds: int
     max_pieces: int
@@ -544,11 +545,20 @@ class RoleGroup:
 
 
 @_dc.dataclass(frozen=True)
+class StructureDatums:
+    """Which structure's datum a vertex shared by two structures keeps
+    (lane v2hecalemd, 2026-09-05): ``Source.inputs`` prefixes, senior first."""
+
+    datum_order: tuple[str, ...]
+
+
+@_dc.dataclass(frozen=True)
 class Precedence:
     """precedence.toml — the total authority order and the role register."""
 
     authority: Authority
     roles: _t.Mapping[str, RoleSpec]
+    structures: StructureDatums
     taxi_family: RoleGroup
     runway_family: RoleGroup
 
@@ -758,6 +768,10 @@ def _check_cross_refs(t: LawTables) -> None:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
+    so = t.precedence.structures.datum_order
+    if len(set(so)) != len(so) or not set(so) <= {"tunnel", "basin"}:
+        raise LawError(f"precedence.structures.datum_order: {so!r} must list "
+                       f"'tunnel' / 'basin' once each")
     for r, spec in t.precedence.roles.items():
         if spec.family not in _ROLE_FAMILIES:
             raise LawError(f"precedence.roles.{r}.family {spec.family!r}")

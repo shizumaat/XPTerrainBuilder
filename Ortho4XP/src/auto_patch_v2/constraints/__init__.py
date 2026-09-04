@@ -78,6 +78,11 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
     rows, n_exempt = seam_exempt(rows, seam_honoured)
     counts["seam_pin_pair_exempt"] = n_exempt
     walls["seam_pin_pair_exempt"] = 0.0
+    # THE SENIOR STRUCTURE'S DATUM (precedence.toml [structures]): a
+    # vertex two structures pin keeps one pin (lane v2hecalemd, LEMD)
+    rows, n_junior = structures.reconcile_datums(rows, law)
+    counts["structure_datum_withdrawn"] = n_junior
+    walls["structure_datum_withdrawn"] = 0.0
     return stack(rows), counts, walls
 
 

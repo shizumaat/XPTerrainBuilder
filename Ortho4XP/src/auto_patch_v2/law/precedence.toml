@@ -65,6 +65,20 @@ bridge_trench       = { family = "none",   side = "airside",    value = false, a
 bridge_causeway     = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 tunnel_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 
+# STRUCTURE DATUMS (RULINGS 2026-09-05d/e, lane v2hecalemd, spawner ruling
+# 2026-09-05: "a structure vertex shared by two structures takes the SENIOR
+# structure's datum").  Where two structure generators pin ONE vertex — a
+# tunnel wall crest (09-03b L1: crest = DEM by station along the wall path)
+# and a basin rim (28c item 3 / 04l: the rim level with the apron, the DEM
+# where bare) — the structure named FIRST here keeps its pin and the other
+# structure's pin on that vertex is withdrawn, never both hard (LEMD basin
+# 22 vs tunnel -5938: two hard pins 5.99 m apart on one vertex were the
+# IIS).  The tunnel is senior: its crest is the bore's own geometry
+# (bore_datum_m above the mouth), a basin rim is the ground's reading.
+# Values are the ``Source.inputs`` prefixes the generators write.
+[structures]
+datum_order = ["tunnel", "basin"]
+
 [taxi_family]
 members = ["primary_parallel", "secondary_parallel", "stub", "cross_connector", "junction"]
 

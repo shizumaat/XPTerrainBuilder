@@ -147,6 +147,13 @@ class PlanarMap:
     structures: tuple[Tunnel, ...] = ()
     #: The basin facilities (M4b, additive): floor + wall faces per record.
     basins: tuple[Basin, ...] = ()
+    #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
+    #: additive): vertex id -> the elevation the objective pulls it to.
+    #: A road-family vertex prefers the CORE's clamped, laterally-levelled
+    #: road profile (``airport/road_profile.py``); every other vertex is
+    #: absent here and keeps ``Vertex.dem_z``.  ``dem_z`` itself stays the
+    #: DEM sample: seams, reports and readers compare against terrain.
+    preferred_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

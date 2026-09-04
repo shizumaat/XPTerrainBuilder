@@ -166,6 +166,19 @@ class ProductionDem:
                                      [t0, t0, t0 + 1, t0 + 1])
         return (min(xs), min(ys), max(xs), max(ys))
 
+    def warm_tiles(self) -> frozenset[tuple[int, int]]:
+        """The 1° tiles already composed (or seeded) — the rasters a
+        caller may sample WITHOUT touching a cold neighbour (the road
+        adapter clips the core's tile-wide OSM ways to these)."""
+        return frozenset(k for k, t in self._tiles.items() if t is not None)
+
+    def tile_of_many(self, xs: np.ndarray, ys: np.ndarray) -> list[tuple[int, int]]:
+        """The 1° tile key of every frame point."""
+        lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
+                                       np.asarray(ys, dtype=np.float64))
+        return list(zip(np.floor(np.asarray(lat)).astype(int).tolist(),
+                        np.floor(np.asarray(lon)).astype(int).tolist()))
+
     def z_many(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
                                        np.asarray(ys, dtype=np.float64))

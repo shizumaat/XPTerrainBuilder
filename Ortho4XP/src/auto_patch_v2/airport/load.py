@@ -85,6 +85,13 @@ class Inputs:
     #: cwd/engine-root contract nor re-point the data root.  The corpus
     #: check (``elevation_root`` IS the core's ``Elevation_dir``) stays.
     core_hosted: bool = False
+    #: THE CORE'S ROAD CLAMP KNOBS (RULINGS 2026-09-04t-4): the tile's
+    #: ``road_grade_limit`` / ``lane_width`` — a hosted build passes the
+    #: tile's own values, the CLI the global cfg's; ``None`` = the law
+    #: defaults (``common.roles.service_road.longitudinal`` /
+    #: ``emit.road_profile.lane_width_m``, the core's own cfg defaults).
+    road_grade_limit: float | None = None
+    lane_width_m: float | None = None
 
 
 @_dc.dataclass

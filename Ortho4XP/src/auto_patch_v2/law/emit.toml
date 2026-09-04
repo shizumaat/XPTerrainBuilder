@@ -79,3 +79,18 @@ station_step_m = 5.0    # station spacing along the long axis (STATION_STEP_M); 
 probe_m        = 60.0   # the perpendicular probe reaches this far either side (PROBE_M)
 gap_tol_m      = 0.05   # two cut pieces closer than this are ONE run (GAP_TOL_M — emitted-coordinate noise, never a near-miss horizon)
 min_member_m   = 0.5    # a foreign piece shorter than this along the probe is a graze, not a member (MIN_MEMBER_M)
+
+[road_profile]
+# THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4; 2026-08-31 "leverage the
+# core"): a road-family face's fit target is the profile Ortho4XP's own
+# road clamp (`O4_Vector_Utils.clamp_road_network`, per way, on the
+# centreline, cap-Lipschitz mid-envelope) gives it, laterally levelled
+# (both kerbs read the centreline, `include_roads.alt_vec_shift`).  These
+# are the CORE's constants mirrored here so the adapter can be law-driven;
+# `test_m3c_roads.py` holds them equal to the core's own values.
+station_m         = 20.0   # clamp station spacing (O4_Vector_Utils.DEFAULT_ROAD_STATION_M)
+lane_width_m      = 4.0    # the core's `lane_width` cfg default; a hosted build passes the tile's own
+answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many lane widths (Levelled_Roads.radius_m)
+# the longitudinal cap is `common.roles.service_road.longitudinal` — ONE
+# constant with the core's `road_grade_limit` default (O4_Cfg_Vars); a
+# hosted build passes the tile's own value.

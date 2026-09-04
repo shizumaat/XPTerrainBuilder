@@ -51,12 +51,22 @@ def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
         cifp_dir = _cfg_value("cifp_data_path") or os.path.join(
             xplane_root, "Custom Data", "CIFP")
     root = Path(data_root) if data_root else ENGINE_DIR
+
+    def _num(key: str) -> float | None:
+        v = _cfg_value(key)
+        try:
+            return float(v) if v else None
+        except ValueError:
+            return None
     return Inputs(xplane_root=xplane_root, cifp_dir=cifp_dir,
                   osm_root=str(root / "OSM_data"),
                   elevation_root=str(root / "Elevation_data"),
                   mod_cache_root=str(root / "Airport_mod_cache"),
                   feather_m=feather_m, dem_frame=dem_frame,
-                  allow_degraded_dem=allow_degraded_dem)
+                  allow_degraded_dem=allow_degraded_dem,
+                  # the core's road clamp knobs, as the tile build reads them
+                  road_grade_limit=_num("road_grade_limit"),
+                  lane_width_m=_num("lane_width"))
 
 
 def add_dem_frame_args(ap: argparse.ArgumentParser) -> None:

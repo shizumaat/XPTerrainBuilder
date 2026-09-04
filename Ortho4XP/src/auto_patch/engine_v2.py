@@ -201,7 +201,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             osm_root=FNAMES.OSM_dir, elevation_root=FNAMES.Elevation_dir,
             mod_cache_root=FNAMES.airport_mod_cache_root(),
             dem_frame="production", production_dem_tiles=seeds,
-            core_hosted=True)
+            core_hosted=True,
+            road_grade_limit=task.get("road_grade_limit"),
+            lane_width_m=task.get("lane_width"))
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)

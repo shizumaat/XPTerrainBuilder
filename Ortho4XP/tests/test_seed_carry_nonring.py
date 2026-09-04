@@ -15,7 +15,8 @@ while the solve had valued it and published that value in
       value the solve published for it (gate ON);
   (b) a node the solve never valued still takes the backfill, and the
       census reports it as such, per class;
-  (c) gate OFF is byte-inert: the same read returns the backfill.
+  (c) with NO carriers published (the pre-solve state) the same read
+      still returns the backfill — the fix is a no-op before the solve.
 """
 import os
 
@@ -75,21 +76,21 @@ def _fixture():
     return layout, stations, lattice, spine
 
 
-def _seed(layout, gate):
-    prev = os.environ.get(SP.SEED_CARRY_NONRING_ENV)
-    if gate:
-        os.environ[SP.SEED_CARRY_NONRING_ENV] = "1"
-    else:
-        os.environ.pop(SP.SEED_CARRY_NONRING_ENV, None)
-    try:
-        nodes, b2i = SP._build_node_list(layout)
-        elev, is_hard, have = SP._seed_elevations(layout, nodes, b2i,
-                                                  readonly=True)
-    finally:
-        if prev is None:
-            os.environ.pop(SP.SEED_CARRY_NONRING_ENV, None)
-        else:
-            os.environ[SP.SEED_CARRY_NONRING_ENV] = prev
+def _strip_carriers(layout):
+    """The pre-solve state: nothing published yet."""
+    layout.apron_spine_station_emit = []
+    layout.apron_lattice_emit = []
+    for e in layout.gap_fill_presolve:
+        e["values"] = None
+    return layout
+
+
+def _seed(layout, gate=True):
+    if not gate:
+        _strip_carriers(layout)
+    nodes, b2i = SP._build_node_list(layout)
+    elev, is_hard, have = SP._seed_elevations(layout, nodes, b2i,
+                                              readonly=True)
     cps = layout.canonical_points
 
     def at(x, y):
@@ -97,9 +98,10 @@ def _seed(layout, gate):
     return at, elev, is_hard
 
 
-def test_gate_off_carries_the_runway_corner_backfill():
-    """(c) the standing (defective) read, so the fix's effect is
-    measured against it and not assumed."""
+def test_no_carriers_means_the_runway_corner_backfill():
+    """(c) the pre-solve read: without a publication there is nothing
+    to carry and the backfill stands — the defect the fix is measured
+    against, reproduced here rather than assumed."""
     layout, stations, lattice, spine = _fixture()
     at, _, _ = _seed(layout, gate=False)
     for (x, y) in stations + lattice + spine:
@@ -130,11 +132,7 @@ def test_gate_on_an_unvalued_node_still_backfills_and_is_reported():
     at, _, _ = _seed(layout, gate=True)
     assert at(*lattice[2]) == pytest.approx(RWY)      # no carrier alt
     assert at(*spine[1]) == pytest.approx(RWY)        # value None
-    os.environ[SP.SEED_CARRY_NONRING_ENV] = "1"
-    try:
-        census = SP.seed_branch_census(layout)
-    finally:
-        os.environ.pop(SP.SEED_CARRY_NONRING_ENV, None)
+    census = SP.seed_branch_census(layout)
     c = census["classes"]
     assert c["station"]["branches"] == {"carrier_warm_start_station": 3}
     assert c["station"]["carrier"]["n_disagree"] == 0
@@ -147,11 +145,26 @@ def test_gate_on_an_unvalued_node_still_backfills_and_is_reported():
     assert not hasattr(layout, "_seed_branch_attrib")
 
 
-def test_census_off_gate_reports_the_defect_it_measures():
+def test_census_without_carriers_reports_the_defect_it_measures():
     layout, *_ = _fixture()
-    census = SP.seed_branch_census(layout)
+    census = SP.seed_branch_census(_strip_carriers(layout))
     c = census["classes"]
     assert c["station"]["branches"] == {"nearest_hard_backfill": 3}
-    assert c["station"]["carrier"]["n_disagree"] == 3
-    assert c["station"]["carrier"]["max_abs_diff_m"] == pytest.approx(
-        RWY - STATION_Z, abs=1e-6)
+    assert c["lattice"]["branches"] == {"nearest_hard_backfill": 3}
+    assert c["gap_spine"]["branches"] == {"nearest_hard_backfill": 2}
+    # no publication -> nothing to agree with; the census says so
+    assert c["station"]["carrier"]["n_points"] == 0
+
+
+def test_census_names_the_phantom_when_carriers_disagree():
+    """The R1.3 measurement itself: a seeded value that is NOT the
+    carrier's is reported per point, with the worst gap."""
+    layout, *_ = _fixture()
+    # publish carriers the seed will NOT match: force the stations onto
+    # a ring value by making them hard-ish via have_initial is not
+    # available here, so instead publish a second, disagreeing carrier.
+    layout.apron_spine_station_emit.append(
+        (layout.apron_spine_station_emit[0][0], [STATION_Z + 5.0] * 3))
+    c = SP.seed_branch_census(layout)["classes"]["station"]["carrier"]
+    assert c["n_points"] == 6 and c["n_disagree"] == 3
+    assert c["max_abs_diff_m"] == pytest.approx(5.0, abs=1e-6)

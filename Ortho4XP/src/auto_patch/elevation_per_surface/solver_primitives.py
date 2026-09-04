@@ -3370,16 +3370,6 @@ SEEDER_PUBLISHED_ATTRS = (
     "_eat_anchor_pin_rect", "_eat_anchor_pin_side",
     "_eat_scope_refused_keys")
 
-#: Gate for the NON-RING CARRIER WARM START (zero-airside R1 step 4,
-#: lane r1backfill 2026-09-03).  Measurement arm only; the merge
-#: candidate is gate-ON with the flag deleted (BUILD ECONOMY 29f).
-SEED_CARRY_NONRING_ENV = "O4_SEED_CARRY_NONRING"
-
-
-def seed_carry_nonring_enabled() -> bool:
-    return _os.environ.get(SEED_CARRY_NONRING_ENV) == "1"
-
-
 def carry_nonring_solved(layout, bucket_to_idx, elev, is_hard,
                          have_initial, intern, mark) -> dict:
     """WARM-START the NON-RING solve variables from the values the solve
@@ -4367,16 +4357,17 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     # A station / lattice / gap-spine variable has no ring altitude; its
     # warm start is the value the solve PUBLISHED for it (see
     # :func:`carry_nonring_solved` — the R1.3 phantom-plateau class).
-    # Before the first solve no carrier exists and this is a no-op; gate
-    # OFF it is byte-inert.
-    if seed_carry_nonring_enabled():
-        _carry_counts = carry_nonring_solved(
-            layout, bucket_to_idx, elev, is_hard, have_initial, _intern,
-            _mark)
-        try:
-            layout._seed_carry_nonring_counts = _carry_counts
-        except AttributeError:                             # pragma: no cover
-            pass
+    # Before the first solve no carrier exists and this is a no-op.
+    # Measured 2026-09-03 (lane r1backfill, HECA replay + build
+    # 40b1f1fec83d vs a62bd5b96447): stations 33/33, lattice 483/484,
+    # gap spines 3,355/3,355 carried; airside law-true 1,113 -> 1,066;
+    # pass-2 max gap 19.64 -> 4.34 m.  Ungated per BUILD ECONOMY 29f.
+    _carry_counts = carry_nonring_solved(
+        layout, bucket_to_idx, elev, is_hard, have_initial, _intern, _mark)
+    try:
+        layout._seed_carry_nonring_counts = _carry_counts
+    except AttributeError:                                 # pragma: no cover
+        pass
 
     # DEM seed for soft nodes that warm-start didn't cover.
     if dem is not None and any(not h for h in have_initial):

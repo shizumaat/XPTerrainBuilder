@@ -6394,8 +6394,7 @@ def solve_route_profile(layout, icao: str,
     # carriers — because the seeder now reads those carriers as the
     # warm start of the non-ring variables (``carry_nonring_solved``);
     # minted before them, ``solved_values`` carried the runway-corner
-    # backfill for 100,109 nodes (R1.3).  Gate off, the seeder reads
-    # none of them and the order is byte-inert.
+    # backfill for 100,109 nodes (R1.3).
     # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
     # "one law, one source") ────────────────────────────────────────
     # Every law input ``final_grade_projection`` needs is captured HERE,

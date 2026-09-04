@@ -1,4 +1,11 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 HECA/LEMD MERGED 8a939da5 (05g): HECA relaxed-optimal, no
+#   demotion, 125 s, 24/17 (14 rim steps + 3 slivers); LEMD hard-feasible
+#   2/0 (walls joined by tunnel ref; datum_order tunnel > basin); oracle
+#   reads relaxed_rows. APP 1.0.283 / engine 1.50.1725 BUILT (owner
+#   rebuilding LEMD + HECA for the sim read). OWNER 05f: relaxed pad slope
+#   ≤ 1 %. LANE v2hecaclose IN FLIGHT: pad_slope_max table value, HECA rim
+#   steps (edge-insert weld), stage-2 warm start, why-test isolation.
 # 2026-09-05 ALL 04t/04u LANES MERGED; APP 1.0.282 / engine 1.50.1724 BUILT.
 #   Seven-airport v2 re-census on main 7ddf3f5b: CYXY 0/0 · SPLP 0/0 ·
 #   SPJC 0/0 · OTHH 0/0 · LEMD FAILS (verify/within.py stretch_pair_caps

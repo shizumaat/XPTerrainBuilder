@@ -13,12 +13,17 @@ macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
 ## Lanes (owner standing 2026-09-03)
 
 The session is the project manager (Fable 5.1, high effort). Work is
-dispatched to subagents that are Fable 5.1 at MODERATE effort, via the
-project definitions in `.claude/agents/`: `lane` (implementation, all
-tools) and `scout` (read-only research). Every `Agent` launch passes
-`model: "fable"` and one of those `subagent_type`s — the PreToolUse hook
-`.claude/hooks/agent_guard.py` refuses anything else (built-in types
-inherit the session's high effort; definitions load at session start).
+dispatched to subagents at MODERATE effort via the project definitions
+in `.claude/agents/`: `lane` (implementation, all tools) and `scout`
+(read-only research). MODEL (owner amendment 2026-09-03 evening, Fable
+limits are finite): lanes and scouts run on **Opus by default**
+(`model: "opus"`); Fable 5.1 (`model: "fable"`) is reserved for briefs
+where the judgement is the deliverable — spec authoring, attribution
+that will become an owner ruling, and review — or when the owner asks.
+Every `Agent` launch passes the model explicitly and one of those
+`subagent_type`s — the PreToolUse hook `.claude/hooks/agent_guard.py`
+refuses anything else (built-in types inherit the session's high
+effort; definitions load at session start).
 Lanes iterate synthetic-first on `repro_cut.py` site extracts and
 `solve_cut.py` stage replays, build ONE representative airport once as
 the closing test, and never run the five-airport sweep (orchestrator,

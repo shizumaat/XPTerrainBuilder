@@ -107,8 +107,11 @@ before M0 is ratified.
 3. **Loaders and classifiers are rewritten**, v1 as the reference only.
 4. **Mesh-apply bar**: tile mesh wall time and constrained-edge count,
    v2 patch vs v1 patch on the same tile — no slower, fewer edges.
-5. **Models**: Fable for all design, specs, reviews; implementation on
-   whatever is most efficient (Opus by default once the guard admits it).
+5. **Models**: Fable for design, specs, reviews AND implementation
+   (owner 2026-09-03h: higher success rate).
+6. **Apron relief (03h)**: pads YIELD — a pad stays connected to its
+   apron and the apron stays within its grade law; the pad is a flat
+   group levelled by its apron contact, never a pin the apron climbs to.
 
 ## 5. The numbers v2 starts from (Appendix B)
 | | SPJC | SPLP | CYXY |

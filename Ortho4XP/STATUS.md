@@ -1,4 +1,13 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 04t LANES: roads MERGED 7d778471 (core clamp profile is v2's
+#   road preference); relaxation MERGED 31e5d126 (dual-ray IIS + quadratic
+#   last resort; HECA optimal, no demotion, 111 s, census 52 → 2 relaxed
+#   + other classes; highspy in venv — verify in the freeze); caps MERGED
+#   598a50d7 (stretches, portions, oracle portion rule; SPJC 0/0, KCLT
+#   airside 0; runway 1.5 % every code). OWNER 04v: v2 EQUAL OR BETTER at
+#   CYXY/SPLP/SPJC. IN FLIGHT: v2round3 (sliver weld, 106, lot 87),
+#   v2junction (04y: junction bodies as triangle planes; CYXY 156 rises).
+#   NEXT: five-airport re-census, app 1.0.282 → HECA/LEMD/OTHH sim read.
 # 2026-09-04 OWNER 04t (four rulings): last resort = least total variance
 #   from law (IIS-scoped, quadratic spread, no terrace); cap by edge
 #   PORTION (mouths keep their cap; only the stretch along an apron takes

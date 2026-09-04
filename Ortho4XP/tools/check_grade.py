@@ -2850,9 +2850,17 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
             if len(idx) < 3:
                 continue
             s = [pts[i][0] * inward[0] + pts[i][1] * inward[1] for i in idx]
+            # lateral station (across the approach): the profile the §3.8.4
+            # rate law reads runs ALONG the approach; two vertices whose
+            # lateral separation exceeds their along separation are
+            # cross-width neighbours, not consecutive profile stations
+            # (M3a adjudication 2026-09-04: every over-cap triple at CYXY
+            # (28/28) and SPLP (6/6) was such a hop; zero along-approach)
+            t_lat = [-pts[i][0] * inward[1] + pts[i][1] * inward[0] for i in idx]
             z = [float(zs[i]) for i in idx]
             order = sorted(range(len(idx)), key=lambda k: s[k])
             s = [s[k] for k in order]
+            t_lat = [t_lat[k] for k in order]
             z = [z[k] for k in order]
             src = [idx[k] for k in order]
             n_stations += max(0, len(s) - 2)
@@ -2860,6 +2868,8 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
                 dp, dn = s[k] - s[k - 1], s[k + 1] - s[k]
                 if dp < 1e-6 or dn < 1e-6:
                     continue
+                if abs(t_lat[k] - t_lat[k - 1]) > dp or abs(t_lat[k + 1] - t_lat[k]) > dn:
+                    continue    # a cross-width hop, not a profile step
                 change = abs((z[k + 1] - z[k]) / dn - (z[k] - z[k - 1]) / dp)
                 allowed = rate * 0.5 * (dp + dn)
                 if change - allowed <= _rate_reader_blind_spot(w, dp, dn):

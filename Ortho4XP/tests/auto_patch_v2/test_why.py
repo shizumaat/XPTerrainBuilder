@@ -19,18 +19,24 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.planar.build import build
+from auto_patch_v2.pipeline import why as pwhy
 from auto_patch_v2.solve import why
 
 
 class _SteepDem:
-    """1 % along the runway, 4 % climbing away from it (y): the apron at
-    y ≈ 100..250 wants 4..10 m above the runway, far more than a 1.5 %
-    stub over 60 m and a 1 % apron can carry."""
+    """Flat along the runway, 6 % climbing away from it (y): the taxiway
+    at y ≈ 92 wants 5.5 m above the runway and the apron at y ≈ 100..250
+    6..15 m, far more than a 1.5 % stub over 60 m can carry — so under
+    the ROUTE law (RULINGS 2026-09-04o: the apron reaches the runway
+    through the stub, never by a chord across the grass) the chain from
+    the apron runs apron → taxiway → stub → runway pin.  (The chord-law
+    fixture had 1 % in x and 4 % in y; with route pairs its apron was
+    held only by its own 1 % to a corner sitting on the DEM.)"""
 
-    provenance = {"synthetic": "plane 1 % in x, 4 % in y"}
+    provenance = {"synthetic": "plane 6 % in y"}
 
     def z(self, x: float, y: float) -> float:
-        return 700.0 + 0.01 * x + 0.04 * max(0.0, y)
+        return 700.0 + 0.06 * max(0.0, y)
 
     def bounds(self):
         return (-5000.0, -5000.0, 5000.0, 5000.0)
@@ -157,13 +163,22 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     assert ceiling > 0.5
     for f, r in singles.items():
         assert r.dz_median <= ceiling + 1e-6, (f, r.dz_median, ceiling)
-    # at least one family, relaxed alone, lets the apron rise materially
-    assert max(r.dz_median for r in singles.values()) > 0.05
+    # under the ROUTE law (RULINGS 2026-09-04o) no single family lifts the
+    # apron: the route pairs are priced over the same path the taxi
+    # centreline / within-shape and apron rows already bound, so each
+    # family alone is redundant with the others (measured: 1e-13 m each);
+    # the travel-path pricing relaxed TOGETHER lifts it materially
+    travel = {"no_step_pairs", "taxi_within_shape", "taxi_centreline",
+              "apron_within_shape", "reach_bands"}
+    rows2 = [r for r in prepared.cs.rows() if why.family_of(r) not in travel]
+    sol2 = solve(prepared.pm, ConstraintSet.from_rows(rows2), prepared.weights)
+    z3 = np.asarray(sol2.z, float)
+    assert float(np.median(z3[verts] - prepared.z[verts])) > 0.05
 
 
 def test_code_letter_evidence_reads_1202_by_geometry(prepared):
     fid = _apron_face(prepared)
-    lines = why.taxi_letters(prepared, fid)
+    lines = pwhy.taxi_letters(prepared, fid)
     assert lines, "the stub's lane runs into the apron"
     joined = "\n".join(lines)
     assert "B1 ['A']" in joined, joined           # the 1202 edge along the stub lane
@@ -177,19 +192,19 @@ def test_family_labels_cover_every_row(prepared):
 
 def test_resolve_faces_by_coordinate_and_by_id(prepared):
     fid = _apron_face(prepared)
-    faces, how = why.resolve_faces(prepared, shape=fid)
+    faces, how = pwhy.resolve_faces(prepared, shape=fid)
     assert faces == [fid] and "face" in how
     _to_xy, to_ll = prepared.airport.frame.transformers()
     lat, lon = to_ll(0.0, 180.0)
-    faces, how = why.resolve_faces(prepared, at=(lat, lon))
+    faces, how = pwhy.resolve_faces(prepared, at=(lat, lon))
     assert faces == [fid], how
-    faces, how = why.resolve_faces(prepared, shape=10_000)
+    faces, how = pwhy.resolve_faces(prepared, shape=10_000)
     assert faces == [] and "no face" in how
 
 
 def test_report_renders_every_section(prepared):
     fid = _apron_face(prepared)
-    text = why.report(prepared, fid, max_relax=2)
+    text = pwhy.report(prepared, fid, max_relax=2)
     for key in ("== face", "binding rows", "chain trace", "relax one family",
                 "code-letter evidence", "terminal"):
         assert key in text, key

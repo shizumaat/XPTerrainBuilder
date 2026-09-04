@@ -1033,7 +1033,15 @@ def _role_grade_limit(way: "Way",
     # §3.9.8.  Mirrors the solver's per-shape cap so the validator and
     # build stay in lockstep.  Patches without the tag (gate off / older
     # builds) fall through to the uniform role cap below.
-    elif role in TAXI_GRADE_WIDTH_ROLES and way.tags.get("code_letter"):
+    # A JUNCTION THAT CARRIES A LETTER is priced at it (RULINGS
+    # 2026-09-04q-2: a route-proximity junction inherits the code letter of
+    # the taxi chain(s) it serves).  v1 never stamps ``code_letter`` on a
+    # junction (``config.TAXI_GRADE_WIDTH_ROLES`` excludes it, and its
+    # solver keeps the tighter rate), so a v1 patch reads exactly as before;
+    # the v2 emitter stamps the inherited letter, and the oracle prices the
+    # cap the solver bound — one law, both readers.
+    elif (role in TAXI_GRADE_WIDTH_ROLES or role == "junction") \
+            and way.tags.get("code_letter"):
         base = taxi_grade_cap_for_letter(way.tags.get("code_letter"))
     elif role in ROLE_GRADE_LIMITS:
         base = ROLE_GRADE_LIMITS[role]
@@ -1726,14 +1734,23 @@ def _soft_grade_shape(w: "Way", role0: str, pts, pnids):
     tag and is judged as before.
     """
     from auto_patch import grade_graph as _GG
+    # A JUNCTION THAT CARRIES A LETTER is priced at it (RULINGS
+    # 2026-09-04q-2: a route-proximity junction inherits the code letter of
+    # the taxi chain(s) it serves; the v2 emitter stamps ``code_letter`` on
+    # the face).  v1 never stamps a letter on a junction (its solver keeps
+    # the tighter rate and ``config.TAXI_GRADE_WIDTH_ROLES`` excludes it),
+    # so a v1 patch still reaches the spine / inherited-cap branch below;
+    # a stamped junction reads its own letter through the ONE cap function
+    # (``grade_graph._body_cap_unbounded``) — the oracle prices the cap the
+    # solver bound.
+    taxi_law = (w.tags.get("o4_grade_law") == "taxi"
+                or (role0 == "junction" and bool(w.tags.get("code_letter"))))
     return _GG.GradeShape(
         role=role0, ring=[(p[0], p[1]) for p in pts], keys=list(pnids),
         fan_ramp_zone=(w.tags.get("o4_grade_law") == _FAN_RAMP_LAW),
         adopts_apron_grade=(w.tags.get("o4_grade_law") == "apron"),
-        adopts_taxi_grade=(w.tags.get("o4_grade_law") == "taxi"),
-        adopted_taxi_letter=(w.tags.get("code_letter")
-                             if w.tags.get("o4_grade_law") == "taxi"
-                             else None),
+        adopts_taxi_grade=taxi_law,
+        adopted_taxi_letter=(w.tags.get("code_letter") if taxi_law else None),
         lateral_cap=_lateral_cap_tag(w))
 
 

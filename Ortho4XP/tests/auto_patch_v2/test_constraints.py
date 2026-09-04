@@ -96,8 +96,9 @@ def synthetic(law):
 # ── generators, one twin each ────────────────────────────────────────────
 
 def test_precedence_derives_tiers_from_the_tables(law):
-    gov = precedence.governed_roles(law)
-    ungov = precedence.ungoverned_roles(law)
+    from auto_patch_v2.law import tables
+    gov = tables.governed_roles(law)
+    ungov = tables.ungoverned_roles(law)
     assert "runway" in gov and "apron" in gov and "building" in gov
     assert "graded_strip" in ungov and "retaining_wall" in ungov
     assert not set(gov) & set(ungov)

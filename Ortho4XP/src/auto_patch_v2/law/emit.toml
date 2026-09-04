@@ -17,8 +17,17 @@ grade                   = 0.0001 # 0.01 pp for grade residuals (same ruling)
 step_m                  = 0.5    # an elevation disagreement at one coordinate ≥ this is a STEP (06-20; LAW_TRUE_KNOBS edge_step_m)
 
 [no_step]
-window_m                = 150.0  # airside no-step direct-distance window (08-27; AIRSIDE_NO_STEP_WINDOW_M)
-k                       = 16     # law edges per airside node, spread over eight sectors (AIRSIDE_NO_STEP_K)
+# RULINGS 2026-09-04o (clarifying 08-27): "feasible elevations propagate out
+# from runway thresholds and have to follow taxi routes ... aircraft can't
+# travel straight across the grass".  A no-step pair is formed ALONG
+# PAVEMENT and priced at the cap of the TRAVEL PATH over the ROUTE distance
+# (04q-1), never a plan chord at the apron's cap; a pair with no pavement
+# path inside the window does not exist.  v1's 150 m / K=16 re-derived as
+# route metres (measured trigger: CYXY apron 156 held 3.4-4.7 m under the
+# lidar by 149.9 m chords to runway vertices while its route is ~250 m).
+metric                  = "route"  # the pair metric: along the taxi network through airside pavement (04o)
+window_m                = 150.0  # airside no-step window, ROUTE metres (08-27 constant, 04o metric; AIRSIDE_NO_STEP_WINDOW_M)
+k                       = 16     # law pairs per airside vertex: its K nearest BY ROUTE DISTANCE (AIRSIDE_NO_STEP_K)
 
 [transect]
 # THE TRANSECT WALK (owner 2026-08-21, spec transverse-hyperplane-solve-spec.md

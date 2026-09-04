@@ -33,6 +33,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("transverse", transverse.transverse),
     ("no_step_pairs", no_step.no_step_pairs),
     ("no_step_rate", no_step.no_step_rate),
+    ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_longitudinal", strips.strip_longitudinal),
     ("strip_arc", strips.strip_arc),

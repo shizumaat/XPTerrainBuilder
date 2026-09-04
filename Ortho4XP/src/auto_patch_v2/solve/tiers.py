@@ -45,19 +45,31 @@ belongs to that face's role — an apron ring edge shared with a taxiway is
 still the APRON's 1 % row and yields with the apron; any other row (a
 no-step pair, a centreline chord, a zone band, a pin) belongs to the most
 JUNIOR of its vertices, a vertex being owned by the most SENIOR surface
-touching it (``precedence.vertex_tier``) — a runway↔taxi pair yields with
+touching it (``model.planar.vertex_tier``) — a runway↔taxi pair yields with
 the taxiway, a strip band with the strip.
+
+THE ROUTE-REACH BANDS (RULINGS 2026-09-04o; ``model.constraints.
+REACH_GENERATOR``): the threshold pins' values carried along the taxi
+routes at the path caps are the envelope the hard rows already imply.
+They ride the HARD solve as variable bounds; ``demote`` WITHDRAWS them —
+an envelope of rows that have yielded is no longer the law's, and held
+against a demoted taxiway it would refuse the very yield the tier order
+grants.  The demoted set is therefore exactly M5's.
+
+Dependency direction (04q-3): this module imports ``law`` and ``model``
+only — the tiers are ``law.tables.tiers``, the ownership view
+``model.planar.vertex_tier``.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
 
-from ..constraints.precedence import tiers, vertex_tier, view
 from ..law import Law
-from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
-                                 Offset, Pin, Row)
-from ..model.planar import PlanarMap
+from ..law.tables import tiers
+from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
+                                 Flat, Linear, Offset, Pin, Row)
+from ..model.planar import PlanarMap, vertex_tier
 from .api import Options, Solution, Status, Weights
 from .highs import solve as solve_hard
 
@@ -68,12 +80,12 @@ __all__ = ["GROUP", "row_tier", "demote", "ladder_ratio", "TierReport",
 GROUP = "law"
 
 
-def row_tier(vw, row: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
+def row_tier(pm: PlanarMap, row: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
     """See the module docstring."""
     for inp in row.source.inputs:
         if inp.startswith("face:"):
             try:
-                return tier_of[vw.pm.faces[int(inp[5:])].role]
+                return tier_of[pm.faces[int(inp[5:])].role]
             except (KeyError, ValueError):
                 break
     if isinstance(row, Pin):
@@ -86,7 +98,7 @@ def row_tier(vw, row: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
         vs = row.group
     else:
         vs = (row.v,)
-    return max((vertex_tier(vw, v, tier_of, lowest) for v in vs), default=lowest)
+    return max((vertex_tier(pm, v, tier_of, lowest) for v in vs), default=lowest)
 
 
 @_dc.dataclass(frozen=True)
@@ -103,9 +115,9 @@ def demote(planar: PlanarMap, law: Law, cs: ConstraintSet, k_min: int = 1
     of a tier ``≥ k_min`` becomes an unbounded preference row in group
     ``law:<rank>:<index>`` (rank 0 = the LOWEST tier); a row that is
     already a preference (seam, end zone, crown) keeps its own group;
-    ``Flat`` and ``Band`` stay; tiers below ``k_min`` stay hard.  Returns
-    the set and ``index -> Demoted`` for the yield report."""
-    vw = view(planar, law)
+    ``Flat`` and ``Band`` stay — except the ROUTE-REACH bands, which are
+    withdrawn (module docstring); tiers below ``k_min`` stay hard.
+    Returns the set and ``index -> Demoted`` for the yield report."""
     tt = tiers(law)
     tier_of = {r: k for k, t in enumerate(tt) for r in t}
     lowest = len(tt) - 1
@@ -114,13 +126,15 @@ def demote(planar: PlanarMap, law: Law, cs: ConstraintSet, k_min: int = 1
     demoted: dict[int, Demoted] = {}
     idx = 0
     for r in cs.rows():
+        if isinstance(r, Band) and r.source.generator == REACH_GENERATOR:
+            continue
         if isinstance(r, (Flat, Band)):
             out.append(r)
             continue
         if isinstance(r, (Diff, Linear)) and r.soft is not None:
             out.append(r)
             continue
-        k = row_tier(vw, r, tier_of, lowest)
+        k = row_tier(planar, r, tier_of, lowest)
         if k < k_min:
             out.append(r)
             continue

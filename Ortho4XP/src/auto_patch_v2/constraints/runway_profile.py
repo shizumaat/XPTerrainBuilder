@@ -45,7 +45,7 @@ from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import View, view
 
-__all__ = ["runway_profile", "runway_crown", "runway_within_shape",
+__all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_within_shape",
            "crown_drops", "ridge_chains"]
 
 GEN = "runway_profile"
@@ -67,6 +67,35 @@ def _runway_code(airport: Airport, ref: str) -> tuple[int | None, str | None]:
         if rw.id == ref:
             return rw.code_number, rw.code_letter
     return None, None
+
+
+def threshold_pins(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, float]:
+    """Vertex -> CIFP threshold elevation: the profile station nearest
+    each threshold (displacement applied) that carries one — THE hard
+    terminals of the airport (RULINGS :511-516), read here by the pin
+    rows and by the route reach (``no_step.reach_bands``)."""
+    vw = view(planar, law)
+    chains = ridge_chains(vw)
+    out: dict[int, float] = {}
+    for rw in airport.runways:
+        chs = chains.get(rw.id)
+        if not chs:
+            continue
+        a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
+        L = rw.length_m
+        ux = (b_xy[0] - a_xy[0]) / L if L > 0 else 0.0
+        uy = (b_xy[1] - a_xy[1]) / L if L > 0 else 0.0
+        all_ids = [v for ch in chs for v in ch]
+        for end in rw.ends:
+            if end.threshold_elev_m is None:
+                continue
+            sign = 1.0 if end is rw.ends[0] else -1.0
+            tx = end.xy[0] + sign * ux * end.displaced_m
+            ty = end.xy[1] + sign * uy * end.displaced_m
+            best = min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
+                       + (vw.xy[v][1] - ty) ** 2)
+            out[best] = float(end.threshold_elev_m)
+    return out
 
 
 def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -39,7 +39,7 @@ from .frame import XY, Key
 from .structures import Basin, Tunnel
 
 __all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline",
-           "PlanarMap", "PlanarError", "validate"]
+           "PlanarMap", "PlanarError", "validate", "vertex_tier"]
 
 
 class EdgeKind(str, enum.Enum):
@@ -148,6 +148,13 @@ class PlanarMap:
     #: The basin facilities (M4b, additive): floor + wall faces per record.
     basins: tuple[Basin, ...] = ()
 
+    def roles_at(self, v: int) -> tuple[str, ...]:
+        """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of
+        every face touching vertex ``v`` (I5 — the record, never a
+        re-derivation); which of them OWNS the value is the law's question
+        (``law.tables.senior_role`` / ``tier_of_roles``)."""
+        return tuple(self.faces[f].role for f in self.vertices[v].incident_faces)
+
     def edges_of_vertex(self) -> dict[int, tuple[int, ...]]:
         """Vertex id -> incident edge ids (derived, not stored)."""
         acc: dict[int, list[int]] = {v: [] for v in self.vertices}
@@ -179,6 +186,20 @@ class PlanarMap:
         if out[-1] == out[0]:
             out.pop()
         return tuple(out)
+
+
+def vertex_tier(pm: PlanarMap, v: int, tier_of: _t.Mapping[str, int],
+                lowest: int) -> int:
+    """The tier a VERTEX belongs to: the most SENIOR (smallest) tier of any
+    face touching it, ``lowest`` where no face does — a shared vertex is
+    owned by its senior surface (``law.tables.tier_of_roles`` over
+    :meth:`PlanarMap.roles_at`)."""
+    best = lowest
+    for r in pm.roles_at(v):
+        k = tier_of[r]
+        if k < best:
+            best = k
+    return best
 
 
 class PlanarError(ValueError):

@@ -68,7 +68,12 @@
 #   ring membrane nodes (stations/lattice) backfilled with the nearest
 #   CIFP runway-corner elevation (116.5 m vs DEM 98) by
 #   _seed_elevations(readonly) → nearest_hard_backfill; 977/1,362 rows.
-#   R1.4 lane r1backfill IN FLIGHT: carried value = the solve's own value.
+#   R1.4 MERGED 754322ac (RULINGS 03f): stations/lattice/gap spines carry
+#   the solve's own values; HECA adjudicated airside 1,094 -> 1,069, CYXY
+#   74 -> 71, runway movers 0, pass-2 max gap 19.64 -> 4.34 m. RESIDUAL =
+#   apron|apron over ~10 m REAL relief (1,058 pass-2 rows; owner: apron
+#   relief charter, plan R4). Zone rows + non-pavement rings still
+#   backfilled (follow-up).
 # APP 1.0.276 / engine 1.50.1719 BUILT (b6f264d2; embedded==dist, fixes
 #   verified inside the PYZ). NEXT: owner rebuilds +25+051 and sim-reads
 #   OTHH sites 25.2715296,51.6022683 / 25.2556192,51.6080938; merge R1.2

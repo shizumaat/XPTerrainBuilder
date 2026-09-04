@@ -251,7 +251,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             wall["rebake_plan"] = time.perf_counter() - t
             rc = rplan.counts
             _say(f"[{icao}] rebake plan {wall['rebake_plan']:.2f} s  units {rc['units']}  "
-                 f"members {rc['members']}  deck members {rc['deck_members']}  "
+                 f"members {rc['members']}  deck members {rc['deck_members']} "
+                 f"(signature {rc.get('signature_decks', 0)} in {rc.get('deck_families', 0)} "
+                 f"deck families)  "
                  f"feet {rc['feet']}  skipped {len(rplan.skipped)} "
                  f"(stock {rc['stock']}, multi-anchor {rc['multi_anchor']}, "
                  f"outside pack {rc['outside_pack']}, msl {rc['msl']}, "

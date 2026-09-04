@@ -1,4 +1,13 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 v2 SIM-READ ROUND 1 (owner at CYXY: "very strong first
+#   result"): classification MERGED 4e2f1491 (04j/04m: pages kept as
+#   strips/lots/open cut at mouths; parking_lot 5 %; OSM road evidence;
+#   runway chain from 1202; shape 230 = apron by ruling, band stops at
+#   the apron page — next pass). CUTOUTS MERGED 461617e2 (04l: OTHH ten
+#   basins by floor witness). REBAKE MERGED b7eac6d7 (04k: restore-before-
+#   read; re-bake measured-only — bridge datum gap → lane v2deck).
+#   IN FLIGHT: v2law2 (04i law-ordered priority, HECA/KCLT), v2deck.
+#   App rebuild from main in progress (→ 1.0.280).
 # APP 1.0.279 / ENGINE 1.50.1721 BUILT (v2 bundled, verified in the PYZ).
 # OWNER RULINGS 04i: priority is the LAW's, terrain never blocks (03k
 #   closed → M5 HECA/KCLT lane v2law2); restore + re-bake every build

@@ -434,6 +434,9 @@ class WithinShape:
     #: this many face-widths long is a LONG EDGE (apron cap along it); a
     #: shorter run is a MOUTH (the face's own cap).
     apron_edge_portion_min_width_ratio: float
+    #: RULINGS 2026-09-04y: roles whose bodies are priced by their triangle
+    #: mesh (ring edges, common-stretch pairs, mesh edges), never all-pairs.
+    junction_mesh_roles: tuple[str, ...]
 
 
 @_dc.dataclass(frozen=True)

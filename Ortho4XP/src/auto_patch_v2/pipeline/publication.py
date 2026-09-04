@@ -10,6 +10,11 @@ vertices' canonical lat/lon identity so the census joins exactly.
   ``constraints.stretches``) as ``[[[lat, lon]…], cL, letter, ref]`` —
   the per-stretch pair law v2 verify re-composes (v1's oracle reads the
   stretch caps through ``axes``);
+* ``mesh_edges``: every junction-mesh face's triangle-mesh edges
+  (RULINGS 2026-09-04y, ``constraints.junction_mesh``) as
+  ``[[lat, lon], [lat, lon]]`` — the v1 oracle's JUNCTION MESH RULE
+  consumes them 1:1 (``MeshEdgesExact``) and v2 verify prices exactly
+  these edges at the nearest-stretch cap;
 * ``crown_drops``: ``[lat, lon, drop]`` per runway-family vertex
   (``constraints.runway_profile.crown_drops``);
 * ``airside_no_step_edges``: ``{a, b, budget_m, dist_m}`` per priced
@@ -44,6 +49,7 @@ from __future__ import annotations
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
+from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops
@@ -104,6 +110,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav)]
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+            "mesh_edges": mesh_edges_ll(planar, law),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
             "seam_pins": [ll[v] for v in pins],

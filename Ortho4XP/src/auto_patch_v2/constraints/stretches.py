@@ -37,6 +37,12 @@ carry the cap of the stretch(es) they belong to; strictest-of-chains
 * A CENTRELINE CHORD (:func:`edge_cap`) holds its stretch's cap, tightened
   by any governed NON-taxi face it bounds (an apron lane is apron,
   RULINGS 2026-09-03j).
+* JUNCTION BODIES (RULINGS 2026-09-04y, ``constraints.junction_mesh``): a
+  junction face's pairs are its common-stretch pairs ONLY
+  (``compose_pairs(common_only=True)``); a chord whose endpoints lie on
+  stretches of DIFFERENT letters is not a law edge and produces no row.
+  The body is priced by its triangle mesh, each mesh edge at the cap of
+  the crossing stretch NEAREST its midpoint (:func:`nearest_line_cap`).
 
 Pure over the planar map and the law; read by ``taxi``, ``transverse``,
 ``routes`` and (through :func:`compose_pairs`) the verify reader.
@@ -53,7 +59,7 @@ from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
-           "compose_pairs"]
+           "compose_pairs", "nearest_line_cap"]
 
 XY = tuple[float, float]
 
@@ -176,13 +182,15 @@ def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
 
 def compose_pairs(xy: _t.Mapping[int, XY], verts: _t.Sequence[int],
                   lines: _t.Sequence[tuple[_t.Sequence[int], float]],
-                  base_cap: float, min_d: float
+                  base_cap: float, min_d: float, common_only: bool = False
                   ) -> list[tuple[int, int, float, float]]:
     """THE PER-STRETCH PAIR LAW over one face (module docstring), pure:
     ``verts`` the face's vertices, ``lines`` the stretches crossing it as
     ``(vertex chain, cap)``, ``base_cap`` the face's own cap.  Returns
     ``(a, b, cap, d)`` for every distinct pair: the looser common
-    stretch's cap when both lie on one, else ``base_cap``."""
+    stretch's cap when both lie on one, else ``base_cap``.  With
+    ``common_only`` (a JUNCTION body, RULINGS 2026-09-04y) only the pairs
+    sharing a stretch are returned — every other chord is no law edge."""
     on: dict[int, list[float]] = {}
     for k, (ch, c) in enumerate(lines):
         for v in ch:
@@ -198,6 +206,7 @@ def compose_pairs(xy: _t.Mapping[int, XY], verts: _t.Sequence[int],
             if d < min_d:
                 continue
             cap = base_cap
+            common: list[float] = []
             if sa:
                 sb = on.get(b)
                 if sb:
@@ -205,12 +214,35 @@ def compose_pairs(xy: _t.Mapping[int, XY], verts: _t.Sequence[int],
                     common = [c for k, c in sa if k in ks]
                     if common:
                         cap = max(base_cap, max(common))
+            if common_only and not common:
+                continue
             out.append((a, b, cap, d))
     return out
 
 
+def nearest_line_cap(p: XY, lines: _t.Sequence[tuple[_t.Sequence[XY], float]],
+                     base_cap: float, tie_m: float = 1e-6) -> float:
+    """THE NEAREST-STRETCH CAP (RULINGS 2026-09-04y): the cap of the line
+    (a stretch's polyline in metres, with its cap) nearest to ``p`` by
+    perpendicular distance; the STRICTEST cap among lines tied within
+    ``tie_m``; ``base_cap`` when there is no line.  Pure — the verify
+    reader and the v1 oracle apply the same rule to the same lines."""
+    best_d = float("inf")
+    best_cap = base_cap
+    for pts, cap in lines:
+        if len(pts) < 2:
+            continue
+        d = project_to_chain(p, pts)[0]
+        if d < best_d - tie_m:
+            best_d, best_cap = d, float(cap)
+        elif abs(d - best_d) <= tie_m:
+            best_cap = min(best_cap, float(cap))
+    return best_cap
+
+
 def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
-              verts: _t.Sequence[int], base_cap: float, min_d: float
+              verts: _t.Sequence[int], base_cap: float, min_d: float,
+              common_only: bool = False
               ) -> list[tuple[int, int, float, float]]:
     """:func:`compose_pairs` for face ``fid`` with its crossing stretches."""
     xy = {v: pm.vertices[v].xy for v in verts}
@@ -220,4 +252,4 @@ def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
         for v in s.vertices:
             xy.setdefault(v, pm.vertices[v].xy)
         lines.append((s.vertices, s.cap_l))
-    return compose_pairs(xy, verts, lines, base_cap, min_d)
+    return compose_pairs(xy, verts, lines, base_cap, min_d, common_only)

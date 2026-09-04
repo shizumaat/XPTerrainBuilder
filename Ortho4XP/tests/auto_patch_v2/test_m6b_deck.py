@@ -369,8 +369,13 @@ def test_sheet_member_joins_its_deck_family(pack, law):
     """Bridge_01_LOD0_004 (a two-triangle sheet, no genuine solid) is a
     family member and takes the one delta (R12-2: none left behind)."""
     way = _ways(([(-40.0, 0.0), (40.0, 0.0)], {"highway": "trunk", "bridge": "yes"}))
-    pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0), ("sheet", (0.0, 0.0), 0.0, 0.0)], way)
-    assert {m.resource for m in pl.units[0].members} == {"objects/plate.obj", "objects/sheet.obj"}
+    # an unrelated object LAST: the family test must be this member's, not
+    # the last object read (OTHH: the two Bridge_01 sheets were skipped in
+    # the full pack and joined in a 12-object subset)
+    pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0), ("sheet", (0.0, 0.0), 0.0, 0.0),
+                              ("shed", (700.0, 0.0), 0.0, 0.0)], way)
+    fam = next(u for u in pl.units if any(m.resource == "objects/plate.obj" for m in u.members))
+    assert {m.resource for m in fam.members} == {"objects/plate.obj", "objects/sheet.obj"}
     # ...and alone it founds nothing
     pl2 = _planned(pack, law, [("sheet", (900.0, 0.0), 0.0, 0.0)])
     assert pl2.units == () and pl2.counts["no_feet"] == 1

@@ -234,6 +234,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             else:
                 deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
             counts["deck_members"] += 1
+        in_deck_family = fam_of.get(o.id) in deck_keys      # THIS member's family
         if not feet and deck_ring is None and not (in_deck_family and rb.deck_family_seats_rigid):
             # a DECK-family member with no genuine solid (Bridge_01_LOD0_004:
             # a two-triangle sheet) still joins its family and takes the

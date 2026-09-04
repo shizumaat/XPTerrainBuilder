@@ -54,10 +54,10 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY
 
-__all__ = ["ObjGeometry", "Component", "PlacedObject", "ObjReport", "parse_obj8",
+__all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjReport", "parse_obj8",
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
-           "read_placed_objects", "above_grade_footprint", "ResourceCache",
+           "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
            "HARD", "HARD_DECK"]
 
 STOCK_LIBRARY_PREFIX = "lib/"
@@ -358,6 +358,30 @@ def _clip_component(v: np.ndarray, comp: Component, plane_y: float, below: bool)
     return _union_rings(rings)
 
 
+def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
+    """The component's geometry AT OR ABOVE ``plane_y`` as plan LINEWORK
+    (every clipped triangle's ring as a ``LineString``) and as the union
+    of the clipped polygons: ``(lines, polygons)``, either ``None``.  A
+    vertical wall projects to a line of zero area, which a polygon union
+    drops — and a pit's rim IS its vertical walls."""
+    from shapely.geometry import LineString
+    lines = []
+    rings = []
+    for t in comp.tris.tolist():
+        r = _clip((v[t[0]], v[t[1]], v[t[2]]), plane_y, False)
+        if r is None:
+            continue
+        rings.append(r)
+        try:
+            lines.append(LineString(r + [r[0]]))
+        except (ValueError, TypeError):
+            continue
+    if not lines:
+        return None, None
+    u = unary_union(lines)
+    return (None if u.is_empty else u), _union_rings(rings)
+
+
 class ResourceCache:
     """Parse each resource ONCE; components once."""
 
@@ -408,6 +432,25 @@ class ResourceCache:
 # ── placed objects ───────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
+class FloorWitness:
+    """One floor-carrying solid component of a placement, in the frame
+    (RULINGS 2026-09-04i): ``below`` its footprint under the local
+    ground, ``plate`` the deep floor plates; ``z_min`` / ``z_top`` the
+    component's rendered extent, ``ground_z`` the DEM under it.  The
+    rim and own-cover evidence is the whole OBJECT's
+    (:func:`at_grade_geometry`), never one component's: a pit's wall
+    and its floor are often separate components (LEMD CNTRL: the floor
+    slab alone read 26 of 34 rim stations open)."""
+
+    below: object                       # Polygon | MultiPolygon
+    plate: object                       # Polygon | MultiPolygon
+    z_min: float
+    z_top: float
+    ground_z: float
+    plate_area_m2: float
+
+
+@_dc.dataclass(frozen=True)
 class PlacedObject:
     """One placement's structure reading in the airport frame.  Polygons
     are shapely (a loader, not the model).  ``solid_min_z`` is the
@@ -430,6 +473,9 @@ class PlacedObject:
     solid_min_depth_m: float | None
     hard_deck: object | None            # Polygon | MultiPolygon, frame
     deck_top_z: float | None
+    #: The floor-carrying components (04i): ``below_grade`` is the union
+    #: of their ``below`` footprints.
+    witnesses: tuple[FloorWitness, ...] = ()
 
 
 @_dc.dataclass
@@ -447,13 +493,25 @@ class ObjReport:
     msl_notes: int = 0
     no_dem_at_anchor: int = 0
     buried_components: int = 0
+    #: Resources with genuine, grade-reaching solids under the admission
+    #: plane but NO floor plate (a skirt, not a pit): path -> (placements,
+    #: deepest depth under the local ground, deepest rendered z).  Every
+    #: refusal names its reason (04i).
+    no_floor: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
+    #: Resources whose floor-carrying shells pass THROUGH the ground —
+    #: top more than ``contact_band_m`` above it (a building standing on
+    #: the pack's flat plane over real relief: LEMD's cargo terminal, its
+    #: slab 5.8 m under the local ground and its walls 15 m above it):
+    #: path -> (placements, highest top above the ground, deepest depth).
+    through_grade: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
 
 
 def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float | None, str]],
                         pack_root: str | None, index: _t.Mapping[str, str] | None,
                         dem_z: _t.Callable[[float, float], float],
                         admission_depth_m: float, thickness_m: float, contact_band_m: float,
-                        cache: ResourceCache | None = None, shell_reaches_grade: bool = True
+                        cache: ResourceCache | None = None, shell_reaches_grade: bool = True,
+                        *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -465,8 +523,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     pit seed reads the ground-contact band); geometry rendered wholly
     under the terrain (LEMD: grass clumps a v1 bake left 20–44 m under
     the local ground) is buried, not a pit, and is counted in
-    ``buried_components``.  Returns the readings and the report; an
-    unresolved placement is returned with every reading ``None``."""
+    ``buried_components``.  ``floor_plate_normal_y_min`` is the
+    near-horizontal gate on a floor plate (law ``basin.
+    floor_plate_normal_y_min``); with ``rim_reaches_grade`` a floor
+    witness's shell must TOP OUT within ``contact_band_m`` of the ground
+    (v1's pit seed: ``PIT_SEED_MAX_ABOVE_GRADE_Y_M``) — a shell passing
+    through the ground is a building, reported in ``through_grade``.
+    Returns the readings and the report; an unresolved placement is
+    returned with every reading ``None``."""
     cache = cache or ResourceCache(thickness_m)
     rep = ObjReport(placements=len(placements))
     out: list[PlacedObject] = []
@@ -503,6 +567,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         g = cache.geometry(phys)
         below = bbox = deck = None
         smin_z = smin_d = top = None
+        witnesses: list[FloorWitness] = []
         if g is not None and not stock:
             base = anchor_z + agl               # the rendered y = 0 plane
             vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
@@ -514,7 +579,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             grounds = [anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
             grounds = [z for z in grounds if not math.isnan(z)]
             if vmin < math.inf and base + vmin <= max(grounds) - admission_depth_m:
-                below_rings = []
+                deep_no_floor: tuple[float, float] | None = None
+                through: tuple[float, float] | None = None
                 for comp in cache.genuine(phys):
                     cx, cy = _to_frame(xy, heading, comp.cx, comp.cz)
                     local = float(dem_z(cx, cy))
@@ -526,16 +592,36 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
                         rep.buried_components += 1
                         continue
+                    plane_below = local - base - admission_depth_m     # authored y
+                    if comp.min_y > plane_below:
+                        continue
                     if smin_z is None or z_min < smin_z:
                         smin_z, smin_d = z_min, depth
-                    plane_below = local - base - admission_depth_m     # authored y
-                    if comp.min_y <= plane_below:
-                        u = _clip_component(g.vertices, comp, plane_below, True)
-                        if u is not None:
-                            below_rings.append(u)
-                below = _transformed(below_rings, mat)
-                if below is not None:
+                    w = _witness(g.vertices, comp, base, local, plane_below,
+                                 floor_plate_normal_y_min, mat)
+                    if w is None:
+                        if deep_no_floor is None or depth < deep_no_floor[0]:
+                            deep_no_floor = (depth, z_min)
+                        continue
+                    # THE RIM REACHES GRADE (04i; v1's pit seed): a pit's
+                    # shell tops out within the ground-contact band; a
+                    # shell that passes through the ground is a building
+                    top_above = base + comp.max_y - local
+                    if rim_reaches_grade and top_above > contact_band_m:
+                        if through is None or top_above > through[0]:
+                            through = (top_above, depth)
+                        continue
+                    witnesses.append(w)
+                if witnesses:
+                    below = _transformed([w.below for w in witnesses], [1, 0, 0, 1, 0, 0])
                     rep.below_grade_objects += 1
+                elif through is not None:
+                    n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
+                    rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
+                elif deep_no_floor is not None:
+                    n, d0, z0 = rep.no_floor.get(dpath, (0, math.inf, math.inf))
+                    rep.no_floor[dpath] = (n + 1, min(d0, deep_no_floor[0]),
+                                           min(z0, deep_no_floor[1]))
         if g is not None:
             tris = g.hard_deck
             if tris.shape[0]:
@@ -547,16 +633,49 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
                     rep.hard_deck_objects += 1
         out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
-                                below, bbox, smin_z, smin_d, deck, top))
+                                below, bbox, smin_z, smin_d, deck, top, tuple(witnesses)))
     return out, rep
+
+
+def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,
+             normal_y_min: float, mat: list[float]) -> FloorWitness | None:
+    """The component's floor witness, or ``None`` when it carries no floor
+    plate under the admission plane (a skirt: walls, no floor)."""
+    t = comp.tris
+    p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
+    n = np.cross(p1 - p0, p2 - p0)
+    ln = np.linalg.norm(n, axis=1)
+    ok = ln > 1e-12
+    ny = np.zeros(t.shape[0])
+    ny[ok] = np.abs(n[ok, 1] / ln[ok])
+    y_max = np.maximum(np.maximum(p0[:, 1], p1[:, 1]), p2[:, 1])
+    deep = (ny >= normal_y_min) & (y_max <= plane_below)
+    if not deep.any():
+        return None
+    plate = _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
+                          for tri in t[deep].tolist()])
+    if plate is None:
+        return None
+    plane_ground = local - base                       # authored y of the ground
+    below = _clip_component(v, comp, plane_ground, True)
+    if below is None:
+        return None
+    tf = _affinity.affine_transform
+    plate_f = tf(plate, mat)
+    return FloorWitness(tf(below, mat), plate_f, base + comp.min_y, base + comp.max_y, local,
+                        float(plate_f.area))
 
 
 def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
                           dem_z: _t.Callable[[float, float], float], contact_band_m: float):
-    """THE OPENNESS READING for one placement: its genuine solids clipped
+    """THE COVER READING for one placement: its solid geometry clipped
     ABOVE the local contact band, in the frame (``None`` when nothing
-    stands above it).  Computed on demand — only for placements whose
-    ``plan_bbox`` reaches a candidate region."""
+    stands above it).  EVERY solid component, thickness or not: the
+    thickness gate is a FLOOR-witness gate (§2.1: a sheet is not a
+    floor) and a roof sheet is cover regardless (LEMD's cargo sheds read
+    0 % own cover under the gate, their roofs being single sheets).
+    Computed on demand — only for placements whose ``plan_bbox`` reaches
+    a candidate region."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None
     g = cache.geometry(o.resolved)
@@ -564,7 +683,7 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
         return None
     base = o.anchor_z + o.agl_m
     rings = []
-    for comp in cache.genuine(o.resolved):
+    for comp in cache.components(o.resolved):
         cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
         local = float(dem_z(cx, cy))
         if math.isnan(local):
@@ -575,6 +694,41 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
             if u is not None:
                 rings.append(u)
     return _transformed(rings, placement_affine(o.xy, o.heading_deg))
+
+
+def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
+                      dem_z: _t.Callable[[float, float], float], contact_band_m: float):
+    """THE RIM AND OWN-COVER EVIDENCE for one placement (04i rules 3 and
+    4): EVERY solid component's geometry from ``contact_band_m`` under
+    the local ground upward, in the frame, as ``(linework, polygons)`` —
+    the linework is where the object meets the ground (a wall's rim),
+    the polygons what it holds over the ground at or above grade (a lid
+    flush with the ground, a roof).  Thickness or burial do not matter
+    here: a buried component simply has no geometry up here.  Computed
+    on demand for a candidate region's members only."""
+    if o.resolved is None or is_stock_library_resource(o.path):
+        return None, None
+    g = cache.geometry(o.resolved)
+    if g is None:
+        return None, None
+    base = o.anchor_z + o.agl_m
+    mat = placement_affine(o.xy, o.heading_deg)
+    lines, polys = [], []
+    for comp in cache.components(o.resolved):
+        cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
+        local = float(dem_z(cx, cy))
+        if math.isnan(local):
+            local = o.anchor_z
+        plane = local - base - contact_band_m
+        if comp.max_y < plane:
+            continue
+        ln, pg = _clip_both(g.vertices, comp, plane)
+        if ln is not None:
+            lines.append(_affinity.affine_transform(ln, mat))
+        if pg is not None:
+            polys.append(pg)
+    lu = unary_union(lines) if lines else None
+    return (None if lu is None or lu.is_empty else lu), _transformed(polys, mat)
 
 
 def _transformed(parts: list, mat: list[float]):

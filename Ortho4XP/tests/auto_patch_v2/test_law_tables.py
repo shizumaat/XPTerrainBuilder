@@ -291,6 +291,11 @@ def _structures_emit_checks(c: Checks, t) -> None:
          s.basin.floor_disagreement_m)
     c.eq("basin.max_covered_fraction", v1_otf.BOWL_MAX_ABOVE_GRADE_AREA_FRACTION,
          s.basin.max_covered_fraction)
+    # M4d (RULINGS 2026-09-04i): the floor-plate gate is v1's near-horizontal
+    # normal; min_area_m2 / max_covered_fraction above are DIAGNOSTICS now
+    c.eq("basin.floor_plate_normal_y_min", v1_otf.NEAR_HORIZONTAL_NORMAL_Y_MIN,
+         s.basin.floor_plate_normal_y_min)
+    assert s.basin.rim_reaches_grade is True
 
 
 def test_every_value_equals_v1(tables, capsys):
@@ -309,7 +314,7 @@ def test_every_value_equals_v1(tables, capsys):
         "icao.runway.longitudinal[4]": (0.0125, 0.015, "owner 2026-07-08"),
         # M4b: v1's founding openness constant was never exercised on a
         # real record; stated for ratification (m4b-report open question)
-        "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04, for ratification"),
+        "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04; a DIAGNOSTIC since 04i (M4d)"),
     }
     bad = [(n, a, b) for n, a, b in c.mismatches()
            if not (n in RULED and RULED[n][0] == a and RULED[n][1] == b)]

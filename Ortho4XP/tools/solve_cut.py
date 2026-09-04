@@ -143,7 +143,8 @@ def restore_env(manifest: dict) -> dict:
 
 def replay(src: Path, out: Path | None, *, baseline: str | None,
            allow_env_drift: bool, want_census: bool,
-           restore: bool, json_out: Path | None) -> int:
+           restore: bool, json_out: Path | None,
+           seed_branch_census: Path | None = None) -> int:
     from auto_patch.solve_capture import (
         read_manifest, env_drift, load_capture, CAPTURE_ENV)
     from shared_repo_guard import SharedRepoWriteGuard   # noqa: E402
@@ -187,6 +188,17 @@ def replay(src: Path, out: Path | None, *, baseline: str | None,
     solve_s = time.time() - t0
     layout.to_osm(str(out))
     side = Path(str(out) + ".axes.json")
+    if seed_branch_census:
+        # WHICH SEED BRANCH each variable class takes when the finished
+        # layout is re-read through the seeder (the ``solved_values``
+        # mint / final-projection entry read) — the engine's own census
+        # (``solver_primitives.seed_branch_census``), written beside the
+        # replay report.  Read-only on the layout; runs after ``to_osm``.
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            seed_branch_census as _sbc)
+        _c = _sbc(layout)
+        Path(seed_branch_census).write_text(json.dumps(_c, indent=2) + "\n")
+        print(f"  [solve-cut] seed-branch census -> {seed_branch_census}")
     body = _body_sha256(out)
 
     report = {
@@ -255,6 +267,12 @@ def main(argv=None) -> int:
                     help="also census the replayed patch (harness census)")
     ap.add_argument("--json", type=Path, default=None,
                     help="write the replay report as JSON")
+    ap.add_argument("--seed-branch-census", type=Path, default=None,
+                    metavar="OUT_JSON",
+                    help="after the replay, re-read the finished layout "
+                         "through the seeder and write per-class seed-"
+                         "branch counts + carrier agreement (the R1.3 "
+                         "backfill census) as JSON")
     args = ap.parse_args(argv)
 
     if args.show:
@@ -286,7 +304,8 @@ def main(argv=None) -> int:
     return replay(args.replay, args.out, baseline=baseline,
                   allow_env_drift=args.allow_env_drift,
                   want_census=args.census, restore=args.restore_env,
-                  json_out=args.json)
+                  json_out=args.json,
+                  seed_branch_census=args.seed_branch_census)
 
 
 if __name__ == "__main__":

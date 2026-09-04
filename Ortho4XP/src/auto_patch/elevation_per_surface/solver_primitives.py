@@ -3359,6 +3359,223 @@ def nearest_hard_candidates(nodes, soft_idx, hard_pts):
     return out
 
 
+#: THE ATTRIBUTES ``_seed_elevations`` PUBLISHES on the layout in its own
+#: node space.  A MEASUREMENT caller (the solve's ``solved_values`` mint,
+#: the projection snapshot, :func:`seed_branch_census`) snapshots and
+#: restores exactly this list around a ``readonly=True`` call — one list,
+#: every reader (the pattern ``_final_projection_snapshot`` set).
+SEEDER_PUBLISHED_ATTRS = (
+    "_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
+    "_eat_anchor_pin_idx", "_eat_anchor_pin_prev",
+    "_eat_anchor_pin_rect", "_eat_anchor_pin_side",
+    "_eat_scope_refused_keys")
+
+#: Gate for the NON-RING CARRIER WARM START (zero-airside R1 step 4,
+#: lane r1backfill 2026-09-03).  Measurement arm only; the merge
+#: candidate is gate-ON with the flag deleted (BUILD ECONOMY 29f).
+SEED_CARRY_NONRING_ENV = "O4_SEED_CARRY_NONRING"
+
+
+def seed_carry_nonring_enabled() -> bool:
+    return _os.environ.get(SEED_CARRY_NONRING_ENV) == "1"
+
+
+def carry_nonring_solved(layout, bucket_to_idx, elev, is_hard,
+                         have_initial, intern, mark) -> dict:
+    """WARM-START the NON-RING solve variables from the values the solve
+    PUBLISHED for them (zero-airside R1 step 4).
+
+    ``_writeback`` stamps pavement RINGS only, so a re-read of the layout
+    through ``_seed_elevations`` used to leave every non-ring variable —
+    apron spine STATION, apron interior LATTICE point, gap-fill drainage
+    SPINE node — with no warm start and (no DEM on the measurement path)
+    fall to branch 3, ``nearest_hard_backfill``: the nearest CIFP runway
+    corner's elevation.  Measured at HECA (R1.3, `r1-pins-attribution-
+    20260903.md`): 100,109 non-ring nodes on 335 distinct values, the
+    stations of one apron carried at 116.5 m over a 98 m surface the
+    solve had valued them at 99.05 m, and 977 of 1,362 pass-2 infeasible
+    rows anchored on such a phantom.  The solve's OWN publication of those
+    values is the single source read here:
+
+      * ``layout.apron_lattice_emit`` / ``apron_spine_station_emit`` —
+        the ``(pts_ll, alts)`` carriers the solve writeback mints from
+        ``_elev_emit`` (the very array the ring writeback stamps);
+      * ``layout.gap_fill_presolve[*]["values"]`` — the spine values the
+        same writeback carries beside ``["spine"]``.
+
+    Same branch-1 semantics as a ring's ``node_altitudes``: a node that is
+    hard, or already warm-started, is never touched.  Returns the count
+    per family plus the carrier points that resolved to no variable.
+    """
+    counts = {"station": 0, "lattice": 0, "gap_spine": 0,
+              "unresolved": 0, "skipped_hard_or_seeded": 0}
+    if intern is None:
+        return counts
+    ll_to_m = getattr(layout, "ll_to_m", None)
+
+    def _take(idx, value, branch):
+        if idx is None or idx >= len(elev):
+            counts["unresolved"] += 1
+            return False
+        if is_hard[idx] or have_initial[idx]:
+            counts["skipped_hard_or_seeded"] += 1
+            return False
+        elev[idx] = float(value)
+        have_initial[idx] = True
+        mark(idx, branch)
+        return True
+
+    for attr, family, branch in (
+            ("apron_spine_station_emit", "station",
+             "carrier_warm_start_station"),
+            ("apron_lattice_emit", "lattice",
+             "carrier_warm_start_lattice")):
+        if ll_to_m is None:
+            break
+        for car in (getattr(layout, attr, None) or ()):
+            try:
+                pts_ll, alts = car
+            except (TypeError, ValueError):            # pragma: no cover
+                continue
+            for (la, lo), alt in zip(pts_ll, alts):
+                if alt is None:
+                    continue
+                try:
+                    x, y = ll_to_m(float(la), float(lo))
+                except Exception:                      # pragma: no cover
+                    counts["unresolved"] += 1
+                    continue
+                k = intern(float(x), float(y))
+                idx = None if k is None else bucket_to_idx.get(k)
+                if _take(idx, alt, branch):
+                    counts[family] += 1
+    for entry in (getattr(layout, "gap_fill_presolve", None) or ()):
+        vals = entry.get("values")
+        if not vals:
+            continue
+        for (x, y), v in zip(entry.get("spine", ()), vals):
+            if v is None:
+                continue
+            k = intern(float(x), float(y))
+            idx = None if k is None else bucket_to_idx.get(k)
+            if _take(idx, v, "carrier_warm_start_gap_spine"):
+                counts["gap_spine"] += 1
+    return counts
+
+
+def seed_branch_census(layout) -> dict:
+    """WHICH SEED BRANCH each class of solve variable takes when the
+    layout is RE-READ through ``_seed_elevations(readonly=True)`` — the
+    read that mints ``solved_values`` and seeds the final projection.
+
+    Classes: ``ring`` (pavement / shape ring vertices), ``station``,
+    ``lattice``, ``gap_spine`` (the non-ring construct-store variables),
+    ``resa_cut`` and ``zone`` (the free terrain leaves).  Per class:
+    branch counts, distinct seeded values, and for the carrier classes
+    the agreement between the seeded value and the solve's published
+    carrier (``max_abs_diff_m``, ``n_disagree`` > 1 mm).  Write-only,
+    restores the seeder's published attributes; runs under
+    ``O4_SEED_BRANCH_ATTRIB=1`` for its own call only.
+    """
+    from collections import Counter
+    prev = _os.environ.get("O4_SEED_BRANCH_ATTRIB")
+    saved = {a: getattr(layout, a, None) for a in SEEDER_PUBLISHED_ATTRS}
+    saved_attrib = getattr(layout, "_seed_branch_attrib", None)
+    _os.environ["O4_SEED_BRANCH_ATTRIB"] = "1"
+    try:
+        nodes, b2i = _build_node_list(layout, readonly=True)
+        elev, is_hard, have = _seed_elevations(layout, nodes, b2i,
+                                               readonly=True)
+        attrib = dict(getattr(layout, "_seed_branch_attrib", None) or {})
+    finally:
+        if prev is None:
+            _os.environ.pop("O4_SEED_BRANCH_ATTRIB", None)
+        else:
+            _os.environ["O4_SEED_BRANCH_ATTRIB"] = prev
+        for a, v in saved.items():
+            if v is None:
+                if hasattr(layout, a):
+                    try:
+                        delattr(layout, a)
+                    except AttributeError:             # pragma: no cover
+                        pass
+            else:
+                setattr(layout, a, v)
+        if saved_attrib is None:
+            if hasattr(layout, "_seed_branch_attrib"):
+                delattr(layout, "_seed_branch_attrib")
+        else:
+            layout._seed_branch_attrib = saved_attrib
+    n = len(nodes)
+    cps = getattr(layout, "canonical_points", None)
+    get = cps.get if cps is not None else (lambda x, y: None)
+
+    def _idx(x, y):
+        k = get(float(x), float(y))
+        i = None if k is None else b2i.get(k)
+        return i if (i is not None and i < n) else None
+
+    cls = ["ring"] * n
+    first_free = int(getattr(layout, "_terrain_host_yield_first_index",
+                             n) or n)
+    first_zone = int(getattr(layout, "_adjacent_ground_first_zone_index",
+                             n) or n)
+    for i in range(first_free, n):
+        cls[i] = "zone" if i >= first_zone else "resa_cut"
+    for store, name in (("apron_spine_presolve", "station"),
+                        ("apron_lattice_presolve", "lattice")):
+        for e in (getattr(layout, store, None) or ()):
+            for (x, y) in (e.get("points") or ()):
+                i = _idx(x, y)
+                if i is not None:
+                    cls[i] = name
+    for e in (getattr(layout, "gap_fill_presolve", None) or ()):
+        for (x, y) in (e.get("spine") or ()):
+            i = _idx(x, y)
+            if i is not None:
+                cls[i] = "gap_spine"
+    out: dict = {"n_nodes": n, "classes": {}}
+    by_cls: dict = {}
+    for i in range(n):
+        by_cls.setdefault(cls[i], []).append(i)
+    for name, idxs in sorted(by_cls.items()):
+        branches = Counter(
+            (attrib.get(i) or {}).get("branch", "hard" if is_hard[i]
+                                      else "unattributed")
+            for i in idxs)
+        vals = {round(float(elev[i]), 6) for i in idxs}
+        out["classes"][name] = {
+            "n": len(idxs), "branches": dict(branches),
+            "distinct_values": len(vals)}
+    # carrier agreement — the twin claim at scale
+    ll_to_m = getattr(layout, "ll_to_m", None)
+    for attr, name in (("apron_spine_station_emit", "station"),
+                       ("apron_lattice_emit", "lattice")):
+        worst = 0.0
+        n_dis = n_pts = n_unres = 0
+        for car in (getattr(layout, attr, None) or ()):
+            pts_ll, alts = car
+            for (la, lo), alt in zip(pts_ll, alts):
+                n_pts += 1
+                if ll_to_m is None:
+                    n_unres += 1
+                    continue
+                x, y = ll_to_m(float(la), float(lo))
+                i = _idx(x, y)
+                if i is None:
+                    n_unres += 1
+                    continue
+                d = abs(float(elev[i]) - float(alt))
+                worst = max(worst, d)
+                if d > 1e-3:
+                    n_dis += 1
+        out["classes"].setdefault(
+            name, {"n": 0, "branches": {}, "distinct_values": 0})["carrier"] = {
+            "n_points": n_pts, "n_unresolved": n_unres,
+            "n_disagree": n_dis, "max_abs_diff_m": round(worst, 6)}
+    return out
+
+
 def _seed_elevations(layout, nodes, bucket_to_idx,
                      dem=None, tile_lat: int = 0, tile_lon: int = 0,
                      *, readonly: bool = False):
@@ -4145,6 +4362,21 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                    if s.altitude_high is not None
                    and s.altitude_low is not None
                    else "warm_start_shape_node_altitudes"), s, _ri)
+
+    # ── NON-RING CARRIER WARM START (zero-airside R1 step 4) ───────
+    # A station / lattice / gap-spine variable has no ring altitude; its
+    # warm start is the value the solve PUBLISHED for it (see
+    # :func:`carry_nonring_solved` — the R1.3 phantom-plateau class).
+    # Before the first solve no carrier exists and this is a no-op; gate
+    # OFF it is byte-inert.
+    if seed_carry_nonring_enabled():
+        _carry_counts = carry_nonring_solved(
+            layout, bucket_to_idx, elev, is_hard, have_initial, _intern,
+            _mark)
+        try:
+            layout._seed_carry_nonring_counts = _carry_counts
+        except AttributeError:                             # pragma: no cover
+            pass
 
     # DEM seed for soft nodes that warm-start didn't cover.
     if dem is not None and any(not h for h in have_initial):

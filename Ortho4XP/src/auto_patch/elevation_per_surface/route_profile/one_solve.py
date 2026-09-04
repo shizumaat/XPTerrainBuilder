@@ -1353,7 +1353,7 @@ def _project_chain_prepass(elev, iter_edges, n, immovable):
 
 def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
                         interval_mask, weight_i, weight_j, z, n, pairs,
-                        flat_group_reps=None):
+                        flat_group_reps=None, want_pred=False):
     """``L − U`` at ``pairs`` on the CAP graph — the adjudication that says
     whether a stalled carrier pair is genuinely INFEASIBLE.
 
@@ -1482,21 +1482,31 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
         anchor_src = anchors
     n_total = n + 1 + len(shadow)
 
-    def _envelope(offsets):
+    _pred = {}
+
+    def _envelope(offsets, key=None):
         rows = np.concatenate([src_ij, src_ji,
                                np.full(len(anchors), n)])
         cols = np.concatenate([dst_ij, dst_ji, anchor_src])
         data = np.concatenate([eb, eb, offsets])
         graph = coo_matrix((data, (rows, cols)),
                            shape=(n_total, n_total)).tocsr()
+        if want_pred and key is not None:
+            # R1.3 attribution instrument (read-only): the predecessor
+            # tree of the SAME Dijkstra, so an offline reader can walk a
+            # node's envelope value back to the anchor that set it.
+            dist, pred = dijkstra(graph, directed=True, indices=n,
+                                  return_predecessors=True)
+            _pred[key] = pred
+            return dist[:n]
         return dijkstra(graph, directed=True, indices=n)[:n]
 
-    upper = v.min() + _envelope(v - v.min())
-    lower = v.max() - _envelope(v.max() - v)
+    upper = v.min() + _envelope(v - v.min(), key="upper")
+    lower = v.max() - _envelope(v.max() - v, key="lower")
     gap = lower - upper
     finite = np.isfinite(gap)
     bad = finite & (gap > 1e-9)
-    return {
+    out = {
         "gap": gap,
         "pinned": pinned,
         "infeasible": int(bad.sum()),
@@ -1505,6 +1515,56 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
         "pairs": [(int(a), int(b), float(gap[a]), float(gap[b]))
                   for (a, b) in pairs if 0 <= a < n and 0 <= b < n],
     }
+    if want_pred:
+        out.update({"upper": upper, "lower": lower, "anchors": anchors,
+                    "anchor_src": anchor_src, "shadow": dict(shadow),
+                    "pred_upper": _pred.get("upper"),
+                    "pred_lower": _pred.get("lower"),
+                    "n_total": n_total})
+    return out
+
+
+# ── R1.3 INSTRUMENT (lane r1pins, 2026-09-03): THE ENVELOPE INPUT DUMP ──
+# ``O4_STALL_ENVELOPE_DUMP=<dir>`` (default unset ⇒ nothing here runs).
+# WRITE-ONLY: at every adjudicated projection the EXACT columns
+# ``_stall_envelope_gap`` judged are saved, so the attribution can re-run
+# THAT function offline (one code path — never a second envelope) with
+# predecessor tracking and name, per infeasible node, the two CONSTANTS
+# whose values contradict.  ``ENVELOPE_DUMP_LABEL`` is set by a caller
+# that wants its projection named (pass 2 sets ``pass2_conform`` /
+# ``pass2_own_only``); otherwise the file is named by its counter.
+ENVELOPE_DUMP_LABEL = None
+_ENVELOPE_DUMP_SEQ = [0]
+
+
+def _dump_envelope_inputs(np, endpoint_i, endpoint_j, raw_budget_column,
+                          interval_mask, weight_i, weight_j, z, n, pairs,
+                          flat_group_reps, verdict, site):
+    dest = _os.environ.get("O4_STALL_ENVELOPE_DUMP")
+    if not dest:
+        return
+    try:
+        from pathlib import Path as _P
+        _ENVELOPE_DUMP_SEQ[0] += 1
+        k = _ENVELOPE_DUMP_SEQ[0]
+        lab = ENVELOPE_DUMP_LABEL or "proj"
+        out = _P(dest)
+        out.mkdir(parents=True, exist_ok=True)
+        fn = out / f"env{k:03d}_{lab}_{site}_n{n}_e{len(interval_mask)}.npz"
+        reps = np.asarray(sorted(int(r) for r in (flat_group_reps or ())),
+                          dtype=np.intp)
+        np.savez_compressed(
+            fn, endpoint_i=endpoint_i, endpoint_j=endpoint_j,
+            raw_budget=raw_budget_column, interval_mask=interval_mask,
+            weight_i=weight_i, weight_j=weight_j, z=z, n=np.intp(n),
+            pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2),
+            flat_group_reps=reps,
+            gap=verdict["gap"], pinned=verdict["pinned"],
+            infeasible=np.intp(verdict["infeasible"]),
+            max_gap=np.float64(verdict["max_gap"]))
+        print(f"    [stall-report]   envelope inputs -> {fn}")
+    except Exception as exc:                               # pragma: no cover
+        print(f"    [stall-report]   envelope dump failed: {exc}")
 
 
 def _carrier_line(tag, carrier):
@@ -1623,6 +1683,9 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
     print(f"    [stall-report]   envelope: INFEASIBLE nodes (L>U) "
           f"{verdict['infeasible']} of {verdict['reachable']} reachable, "
           f"max gap {verdict['max_gap']:.6f} m [RAW-LAW budgets]")
+    _dump_envelope_inputs(np, endpoint_i, endpoint_j, raw_budget_column,
+                          interval_mask, weight_i, weight_j, z, n, pairs,
+                          flat_group_reps, verdict, "stall")
     for (pa, pb, ga, gb) in verdict["pairs"]:
         print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
               f"{ga:.6f} / {gb:.6f} -> {_lu_class(ga, gb)}"
@@ -2069,6 +2132,10 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                   f"{verdict['infeasible']} of {verdict['reachable']} "
                   f"reachable, max gap {verdict['max_gap']:.6f} m "
                   f"[RAW-LAW budgets]")
+            _dump_envelope_inputs(np, endpoint_i, endpoint_j,
+                                  raw_budget_column, interval_mask,
+                                  weight_i, weight_j, z, n, [pair],
+                                  flat_group_reps, verdict, "exit")
             for (pa, pb, ga, gb) in verdict["pairs"]:
                 print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
                       f"{ga:.6f} / {gb:.6f} -> {_lu_class(ga, gb)}"

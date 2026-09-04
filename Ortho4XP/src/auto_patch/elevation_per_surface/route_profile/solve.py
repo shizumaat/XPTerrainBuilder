@@ -6245,84 +6245,6 @@ def solve_route_profile(layout, icao: str,
         _elev_emit = elev
     n_terms, n_rects, n_juncs = _writeback(layout, _elev_emit,
                                            bucket_to_idx)
-    # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
-    # "one law, one source") ────────────────────────────────────────
-    # Every law input ``final_grade_projection`` needs is captured HERE,
-    # ONCE, at the moment the one solve publishes its surface, and keyed
-    # by CANONICAL POINT ID — the node identity audited stable across
-    # every post-solve pass.  Never by node index (the rod-key lesson),
-    # never re-derived downstream from raw shapes and roles where the
-    # re-derivation can disagree with what the solve was handed.
-    #
-    #   ``solved_values``  — the field this solve published, in EMITTED
-    #     (uncrowned) space, exactly as ``_writeback`` stamped it.  It is
-    #     what makes the projection's idempotence requirement decidable:
-    #     a node whose seed still equals its solved value, and whose key
-    #     the solve already had, was touched by nothing and must exit the
-    #     projection where the solve left it.
-    #   ``building_seats`` — the seats the near-miss frontage law is
-    #     built from.  The projection cannot re-derive them (they are a
-    #     solve-phase artifact), which is exactly why that law family was
-    #     missing from its edge set.
-    #   ``gs_witness``     — the groundside route pins whose feasibility-
-    #     witness role the owner's ruling bounds.  The projection used to
-    #     re-derive a DIFFERENT population by geometric proximity.
-    # EVERY key of an index, not one per index: two canonical keys can
-    # alias to one solve-time variable and split again in a rebuilt node
-    # space, and a key that did not travel is a node the projection would
-    # read as NEW — i.e. silently outside the hold.  Coverage is the whole
-    # point of the carry.
-    _keys_of: dict = {}
-    for _ck, _ci in bucket_to_idx.items():
-        if _ci < n:
-            _keys_of.setdefault(_ci, []).append(_ck)
-    _law_store = _store_of(layout)
-    # THE PUBLISHED SURFACE IS READ BACK THROUGH THE PROJECTION'S OWN
-    # READER, not copied out of ``elev``.  Two reasons, both measured:
-    #   * ``_writeback`` stamps PAVEMENT roles only, so ``elev`` still
-    #     holds the untouched DEM SEED at every node the solve did not
-    #     value — carrying those would claim a solved value the solve
-    #     never published (measured HEAZ, plateau: 36,828 of 40,284
-    #     nodes carried 1.00 m against a layout holding 79.30 m).
-    #   * identical readback semantics are what make the comparison
-    #     downstream exact: same function, same node space, no dem —
-    #     the rule ``_capture_projection_snapshot`` already follows.
-    # ``readonly=True`` forbids minting canonical points; the four
-    # attributes the seeder publishes are snapshotted and restored,
-    # since this call is a MEASUREMENT of the solve's own node space and
-    # must not republish anything in it.
-    _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
-                  "_eat_anchor_pin_idx", "_eat_anchor_pin_prev",
-                  "_eat_anchor_pin_rect", "_eat_anchor_pin_side",
-                  "_eat_scope_refused_keys")
-    _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
-    try:
-        _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
-                                            readonly=True)
-    finally:
-        for _pn, _pv in _pub_saved.items():
-            if _pv is None:
-                if hasattr(layout, _pn):
-                    try:
-                        delattr(layout, _pn)
-                    except AttributeError:             # pragma: no cover
-                        pass
-            else:
-                setattr(layout, _pn, _pv)
-    _law_store.mint(
-        "solved_values", "scalar",
-        {_ck: float(_published[_ci])
-         for _ci, _cks in _keys_of.items() for _ck in _cks},
-        replace=True)
-    _law_store.mint(
-        "building_seats", "scalar",
-        {_ck: float(_lv) for _i, _lv in building_seats.items()
-         if _lv is not None for _ck in _keys_of.get(_i, ())},
-        replace=True)
-    _law_store.mint(
-        "gs_witness", "keyset",
-        {_ck for _i in (_gs_hard or ()) for _ck in _keys_of.get(_i, ())},
-        replace=True)
     # ── GAP-SPINE writeback (Slice B stage B2, ratified 2026-07-10)
     # WHO WRITES WHAT: the solve writes ONLY the spine nodes — their
     # solved values go into the pre-solve store, which the post-solve
@@ -6466,6 +6388,89 @@ def solve_route_profile(layout, icao: str,
                 if len(_pts_ll) >= 2:
                     _st_emit.append((_pts_ll, _alts))
         layout.apron_spine_station_emit = _st_emit
+    # ORDER (zero-airside R1 step 4, lane r1backfill): this block runs
+    # AFTER every non-ring writeback below it used to precede — the
+    # gap-spine ``values``, the zone rows, the lattice and station
+    # carriers — because the seeder now reads those carriers as the
+    # warm start of the non-ring variables (``carry_nonring_solved``);
+    # minted before them, ``solved_values`` carried the runway-corner
+    # backfill for 100,109 nodes (R1.3).  Gate off, the seeder reads
+    # none of them and the order is byte-inert.
+    # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
+    # "one law, one source") ────────────────────────────────────────
+    # Every law input ``final_grade_projection`` needs is captured HERE,
+    # ONCE, at the moment the one solve publishes its surface, and keyed
+    # by CANONICAL POINT ID — the node identity audited stable across
+    # every post-solve pass.  Never by node index (the rod-key lesson),
+    # never re-derived downstream from raw shapes and roles where the
+    # re-derivation can disagree with what the solve was handed.
+    #
+    #   ``solved_values``  — the field this solve published, in EMITTED
+    #     (uncrowned) space, exactly as ``_writeback`` stamped it.  It is
+    #     what makes the projection's idempotence requirement decidable:
+    #     a node whose seed still equals its solved value, and whose key
+    #     the solve already had, was touched by nothing and must exit the
+    #     projection where the solve left it.
+    #   ``building_seats`` — the seats the near-miss frontage law is
+    #     built from.  The projection cannot re-derive them (they are a
+    #     solve-phase artifact), which is exactly why that law family was
+    #     missing from its edge set.
+    #   ``gs_witness``     — the groundside route pins whose feasibility-
+    #     witness role the owner's ruling bounds.  The projection used to
+    #     re-derive a DIFFERENT population by geometric proximity.
+    # EVERY key of an index, not one per index: two canonical keys can
+    # alias to one solve-time variable and split again in a rebuilt node
+    # space, and a key that did not travel is a node the projection would
+    # read as NEW — i.e. silently outside the hold.  Coverage is the whole
+    # point of the carry.
+    _keys_of: dict = {}
+    for _ck, _ci in bucket_to_idx.items():
+        if _ci < n:
+            _keys_of.setdefault(_ci, []).append(_ck)
+    _law_store = _store_of(layout)
+    # THE PUBLISHED SURFACE IS READ BACK THROUGH THE PROJECTION'S OWN
+    # READER, not copied out of ``elev``.  Two reasons, both measured:
+    #   * ``_writeback`` stamps PAVEMENT roles only, so ``elev`` still
+    #     holds the untouched DEM SEED at every node the solve did not
+    #     value — carrying those would claim a solved value the solve
+    #     never published (measured HEAZ, plateau: 36,828 of 40,284
+    #     nodes carried 1.00 m against a layout holding 79.30 m).
+    #   * identical readback semantics are what make the comparison
+    #     downstream exact: same function, same node space, no dem —
+    #     the rule ``_capture_projection_snapshot`` already follows.
+    # ``readonly=True`` forbids minting canonical points; the four
+    # attributes the seeder publishes are snapshotted and restored,
+    # since this call is a MEASUREMENT of the solve's own node space and
+    # must not republish anything in it.
+    from ..solver_primitives import SEEDER_PUBLISHED_ATTRS as _pub_names
+    _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
+    try:
+        _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
+                                            readonly=True)
+    finally:
+        for _pn, _pv in _pub_saved.items():
+            if _pv is None:
+                if hasattr(layout, _pn):
+                    try:
+                        delattr(layout, _pn)
+                    except AttributeError:             # pragma: no cover
+                        pass
+            else:
+                setattr(layout, _pn, _pv)
+    _law_store.mint(
+        "solved_values", "scalar",
+        {_ck: float(_published[_ci])
+         for _ci, _cks in _keys_of.items() for _ck in _cks},
+        replace=True)
+    _law_store.mint(
+        "building_seats", "scalar",
+        {_ck: float(_lv) for _i, _lv in building_seats.items()
+         if _lv is not None for _ck in _keys_of.get(_i, ())},
+        replace=True)
+    _law_store.mint(
+        "gs_witness", "keyset",
+        {_ck for _i in (_gs_hard or ()) for _ck in _keys_of.get(_i, ())},
+        replace=True)
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.
@@ -8142,6 +8147,88 @@ def _dump_airside_certificate(path_prefix, tag, layout, air, entry,
         _UI_ad.vprint(1, f"  [airside-cert-dump] {tag} FAILED "
                          f"({type(_e).__name__}: {_e}) — report-only, "
                          f"build continues")
+
+
+def _dump_pass2_pins(dest, icao, layout, b2i, nodes, elev, n, hard,
+                     runway_idx, tile_seam_idx, terrain_hard, base_hard,
+                     carried_solved, crown_of):
+    """R1.3 attribution instrument (``O4_STALL_ENVELOPE_DUMP=<dir>``):
+    ONE row per solver node of the final projection's node space, written
+    at the PASS-2 ENTRY (the values pass 2 will hold CONSTANT on every
+    tier-1/2/3 node) — plan xy / ll, the no-step tier
+    (``membrane_free_nodes``' own sets, handed out through ``detail_out``
+    so nothing is re-derived), the FGP hard-set family that froze the
+    node in pass 1 (runway-datum / tile-seam / terrain / seed-pin /
+    free), the shape roles carrying it, its pass-2 entry value and the
+    solve's carried value.  Report-only; a failure is a WARN."""
+    import json as _json
+    from pathlib import Path as _P
+    from auto_patch.airside_no_step import membrane_free_nodes
+    detail: dict = {}
+    free, senior, tiers = membrane_free_nodes(layout, b2i, n,
+                                              crown_of=crown_of,
+                                              detail_out=detail)
+    t1 = detail.get("tier1", set())
+    t2 = detail.get("tier2", set())
+    t3 = detail.get("tier3", set())
+    airside = detail.get("airside", set())
+    cps = layout.canonical_points
+    roles: dict = {}
+    from auto_patch.elevation_per_surface.solver_primitives import _open_ring
+    for s in (getattr(layout, "shapes", None) or ()):
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except Exception:                                 # pragma: no cover
+            continue
+        role = getattr(s, "role", "") or ""
+        ref = getattr(s, "ref", "") or ""
+        for (x, y) in ring:
+            i = b2i.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n:
+                roles.setdefault(int(i), set()).add(f"{role}:{ref}")
+    for store, tag in (("apron_lattice_presolve", "apron_lattice"),
+                       ("apron_spine_presolve", "apron_station")):
+        for entry in (getattr(layout, store, None) or ()):
+            for (x, y) in (entry.get("points") or ()):
+                i = b2i.get(cps.get_or_add(float(x), float(y)))
+                if i is not None and 0 <= i < n:
+                    roles.setdefault(int(i), set()).add(
+                        f"{tag}:{entry.get('ref', '')}")
+    rw = {int(i) for i in runway_idx if int(i) < n}
+    ts = {int(i) for i in tile_seam_idx if int(i) < n}
+    th = {int(i) for i in terrain_hard if int(i) < n}
+    out = _P(dest)
+    out.mkdir(parents=True, exist_ok=True)
+    fn = out / f"pass2_pins_{icao}_n{n}.jsonl"
+    with open(fn, "w") as fh:
+        fh.write(_json.dumps({"kind": "meta", "icao": icao, "n": n,
+                              "tiers": tiers, "free": len(free),
+                              "hard": len(hard), "anchor": list(layout.anchor)})
+                 + "\n")
+        for i in range(n):
+            x, y = nodes[i]
+            lat, lon = layout.m_to_ll(float(x), float(y))
+            tier = 1 if i in t1 else 2 if i in t2 else 3 if i in t3 \
+                else 4 if i in free else 0
+            pin = ("runway-datum" if i in rw else "tile-seam" if i in ts
+                   else "terrain" if i in th
+                   else "seed-pin" if (i < len(base_hard) and base_hard[i])
+                   else "hard" if i in hard else "free")
+            cs = carried_solved.get(i) if hasattr(carried_solved, "get") \
+                else None
+            fh.write(_json.dumps({
+                "idx": i, "x": round(float(x), 3), "y": round(float(y), 3),
+                "lat": round(lat, 7), "lon": round(lon, 7), "tier": tier,
+                "airside": i in airside, "pin": pin,
+                "roles": sorted(roles.get(i, ())),
+                "z": round(float(elev[i]), 4),
+                "z_solve": None if cs is None else round(float(cs), 4)})
+                + "\n")
+    import O4_UI_Utils as _UI_pd
+    _UI_pd.vprint(1, f"  [pass2-pins] {icao}: {n} node row(s) -> {fn}")
 
 
 def _publish_airside_certificate(layout, tag, air, nodes=None,
@@ -10817,6 +10904,18 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # are pass 1's, untouched.
     #
     # Flag OFF, or no published pair, or no free membrane node ⇒ vacuous.
+    # R1.3 attribution instrument (write-only, env-gated): the pin
+    # provenance of every constant pass 2 is about to hold.
+    if _os.environ.get("O4_STALL_ENVELOPE_DUMP"):
+        try:
+            _dump_pass2_pins(_os.environ["O4_STALL_ENVELOPE_DUMP"], icao,
+                             layout, b2i, nodes, elev, n, hard,
+                             runway_idx, _tile_seam_idx, terrain_hard,
+                             base_hard, _carried_solved, _crown_of)
+        except Exception as _pd_exc:                      # pragma: no cover
+            import O4_UI_Utils as _UI_pdx
+            _UI_pdx.vprint(1, f"  [pass2-pins] {icao}: dump FAILED "
+                              f"({type(_pd_exc).__name__}: {_pd_exc})")
     try:
         from auto_patch.airside_no_step import (
             membrane_conform as _mc, format_conform_report as _mc_fmt)

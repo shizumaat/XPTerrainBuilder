@@ -1,4 +1,12 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 OWNER 04t (four rulings): last resort = least total variance
+#   from law (IIS-scoped, quadratic spread, no terrace); cap by edge
+#   PORTION (mouths keep their cap; only the stretch along an apron takes
+#   the apron cap; oracle follows); taxiway cap per STRETCH from centreline
+#   intersections (G/E at 60.7079446,−135.0697651); roads: the CORE's
+#   smoothing first, v2 only over cap. IN FLIGHT: v2relax (HECA closing),
+#   v2caps (SPJC/KCLT/CYXY closing, oracle portion rule), v2roads (CYXY
+#   153). App 1.0.281 stands for the sim read.
 # 2026-09-04 PAD-CONTACT PAIRS MERGED f50423a3 (04s): KCLT hard-feasible
 #   71.6 s (70/44); HECA k_min 3, 241 s, 84/84 — IIS = ONE hangar row
 #   (apron pav132: eight flat pad contacts consume the rim; apron climbs

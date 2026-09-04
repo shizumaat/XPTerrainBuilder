@@ -7412,3 +7412,66 @@ def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
     emit = tomllib.loads((ROOT / "src" / "auto_patch_v2" / "law" / "emit.toml").read_text())
     assert emit["within_shape"]["apron_edge_portion_min_width_ratio"] == \
         APRON_EDGE_PORTION_MIN_WIDTH_RATIO == cg._APRON_EDGE_PORTION_RATIO
+
+
+# ── RECT STRETCH CAPS (lane v2integ 2026-09-05; RULINGS 2026-09-04t-3 / 04y) ──
+
+def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
+                        name: str = "RS") -> Path:
+    """A 200 m x 40 m ``cross_connector`` (letter F, 1.5 %) whose two
+    west-edge vertices (0,0)-(0,40) are level and whose east edge rises
+    ``step_grade`` over the 200 m; a sidecar STRETCH of cap ``stretch_cap``
+    runs along the north edge (0,40)-(200,40) — both its nodes are ring
+    nodes — or none when ``stretch_cap`` is None."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+
+    def ll(x, y):
+        return (_TWIN_ANCHOR[0] + math.degrees(y / r),
+                _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+
+    rise = step_grade * 200.0
+    pts = [(0.0, 0.0, 0.0), (200.0, 0.0, rise), (200.0, 40.0, rise), (0.0, 40.0, 0.0)]
+    out = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6' generator='rs-twin'>"]
+    for k, (x, y, a) in enumerate(pts):
+        lat, lon = ll(x, y)
+        out.append(f"  <node id='-{k + 1}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{a:.2f}' /></node>")
+    out.append("  <way id='-10'>")
+    out += [f"    <nd ref='-{k + 1}' />" for k in range(4)] + ["    <nd ref='-1' />"]
+    out += ["    <tag k='role' v='cross_connector' />", "    <tag k='shapeID' v='1' />",
+            "    <tag k='ref' v='pav1' />", "    <tag k='code_letter' v='F' />", "  </way>", "</osm>"]
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    side = {"anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}
+    if stretch_cap is not None:
+        la0, lo0 = ll(0.0, 40.0)
+        la1, lo1 = ll(200.0, 40.0)
+        side["stretches"] = [[[[la0, lo0], [la1, lo1]], stretch_cap, "B", "taxi1"]]
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    return osm
+
+
+def test_a_rect_pair_on_a_looser_stretch_reads_that_stretchs_cap(cg, tmp_path):
+    """04y on a PLANE shape: a 2.5 % rise along the north edge is a row at
+    F's 1.5 % with no stretch, and NO row when the sidecar says those two
+    nodes lie on a B (3 %) stretch — the generator's ``compose_pairs``
+    reading (LEMD 2026-09-05: 40 rows on B stretches through E/F
+    connectors read at the face cap by this reader alone).  The pairs OFF
+    the stretch (the diagonals, the south edge) keep the face cap: with the
+    east edge lifted they still price at 1.5 %."""
+    fo = _families(cg, _rect_stretch_patch(tmp_path, step_grade=0.025, stretch_cap=None, name="RS0"))
+    rows0 = [v for v in (fo.get("within_shape") or []) if v.way_a.tags.get("role") == "cross_connector"]
+    assert rows0 and {v.cap_pct for v in rows0} == {1.5}
+    fo = _families(cg, _rect_stretch_patch(tmp_path, step_grade=0.025, stretch_cap=0.03, name="RS1"))
+    rows1 = [v for v in (fo.get("within_shape") or []) if v.way_a.tags.get("role") == "cross_connector"]
+    # the north-edge pair (200 m, 5 m rise) is now lawful at 3 %; every
+    # other over-cap pair (south edge, diagonals) still reads at 1.5 %
+    assert not [v for v in rows1 if abs(v.distance_m - 200.0) < 0.01 and v.cap_pct == 3.0], rows1
+    assert rows1 and {v.cap_pct for v in rows1} == {1.5}
+    assert len(rows1) == len(rows0) - 1, (len(rows0), len(rows1))
+    # a stretch no looser than the face changes nothing
+    fo = _families(cg, _rect_stretch_patch(tmp_path, step_grade=0.025, stretch_cap=0.015, name="RS2"))
+    rows2 = [v for v in (fo.get("within_shape") or []) if v.way_a.tags.get("role") == "cross_connector"]
+    assert len(rows2) == len(rows0)

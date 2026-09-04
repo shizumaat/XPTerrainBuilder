@@ -152,16 +152,22 @@ def _probe_for(n: int, cs: ConstraintSet, deadline: float | None
 
 
 def diagnose(planar: PlanarMap, cs: ConstraintSet, weights: Weights,
-             options: Options, *, deadline: float | None = None
-             ) -> tuple[tuple[Row, Source], ...]:
-    """The IIS as ``(row, source)`` pairs; ``deadline`` (module docstring)."""
+             options: Options, *, deadline: float | None = None,
+             minimal: bool = True) -> tuple[tuple[Row, Source], ...]:
+    """The IIS as ``(row, source)`` pairs; ``deadline`` (module docstring).
+    ``minimal=False`` returns the Farkas SUPPORT as found — an infeasible
+    subsystem, not reduced — which is what the last resort needs: its
+    variance program gives a row in no conflict exactly zero slack, so
+    the reduction buys nothing there, and a support that IS a 2,500-row
+    chain (HECA 23C→05L along junction pav132's apron edge, 2026-09-05)
+    costs QuickXplain O(k·log n) probes the IIS budget cannot pay."""
     n = len(planar.vertices)
     remaining = None if deadline is None else deadline - time.perf_counter()
     if remaining is not None and remaining <= 0.0:
         raise IISBudgetExceeded("no budget left before the certificate LP")
     cand = ray_candidates(n, cs, remaining)
     if cand and not feasible(n, cand):
-        core = quickxplain(n, [], cand)
+        core = cand if not minimal else quickxplain(n, [], cand)
         return tuple((r, r.source) for r in core)
     fz = _probe_for(n, cs, deadline)
     seed: list[Row] = [*cs.pins, *cs.flats, *cs.bands]

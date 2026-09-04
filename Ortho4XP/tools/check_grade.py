@@ -5690,6 +5690,47 @@ def _junction_stretch_cap(c: "ShapePairConstraint", crossings: Dict[int, list],
     return best_cap
 
 
+def _stretch_node_index(stretches_m: Optional[list]) -> Dict[str, list]:
+    """Node id -> ``[(stretch ordinal, cap)]`` over the sidecar stretches —
+    the per-stretch pair law's membership test by IDENTITY (the v2
+    generator's ``compose_pairs``: a vertex is ON a stretch when it is one
+    of the stretch's own vertices)."""
+    out: Dict[str, list] = {}
+    for k, (_pts, cap, nids) in enumerate(stretches_m or []):
+        for nid in nids:
+            if nid is not None:
+                out.setdefault(nid, []).append((k, cap))
+    return out
+
+
+def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
+                        max_grade: float) -> Optional[float]:
+    """THE PER-STRETCH PAIR LAW on a taxi RECT (plane) shape (RULINGS
+    2026-09-04t-3 / 04y: "a pair on one stretch holds that stretch's cap,
+    any other pair the face's strictest crossing letter"): a body-cap
+    pair whose two nodes both lie on ONE published stretch reads the
+    looser common stretch's cap, never below the face's own — exactly
+    ``constraints.stretches.compose_pairs`` and the v2 verify reader.
+    ``None`` for every other pair (a cross-section, a frontage / portion
+    pair, a shape outside the rect family, a pair on no common stretch).
+    Measured at LEMD 2026-09-05: 40 rows on B (3 %) stretches crossing
+    E/F (1.5 %) cross_connectors read at the face cap by this reader
+    alone — the generator and v2 verify priced them at 3 %."""
+    if not on or c.transverse_road or law_role(c.way) not in _SLOPING_RECT_OSM_ROLES:
+        return None
+    sa, sb = on.get(c.nid_a), on.get(c.nid_b)
+    if not sa or not sb:
+        return None
+    ks = {k for k, _cap in sb}
+    common = [cap for k, cap in sa if k in ks]
+    if not common:
+        return None
+    body = _role_grade_limit(c.way, max_grade)
+    if body is None or abs(c.cap - body) > 1e-12:
+        return None
+    return max(body, max(common))
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -5729,6 +5770,7 @@ def _check_within_shape(ways: List[Way],
     """
     out: List[Violation] = []
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
+    _son = _stretch_node_index(stretches_m)
     for c in iter_shape_grade_constraints(
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
@@ -5746,6 +5788,10 @@ def _check_within_shape(ways: List[Way],
         # every other envelope term (quantisation, terrace, fan-ramp)
         # stays exactly as the law priced it.
         _sc = _junction_stretch_cap(c, _jsc, max_grade)
+        if _sc is None:
+            # RECT STRETCH CAPS (RULINGS 2026-09-04y on a plane shape): a
+            # pair of two nodes on ONE stretch reads that stretch's cap.
+            _sc = _common_stretch_cap(c, _son, max_grade)
         if _sc is not None and _sc != c.cap:
             allowance += (_sc - c.cap) * c.dist
             c.cap = _sc

@@ -67,13 +67,14 @@ class Weights:
     #: to every governed surface — and each tier above it costs
     #: ``tier_ratio`` times more, so the senior surface holds unless the
     #: junior tiers cannot close the contradiction.  ``tier_top`` caps the
-    #: ladder's top weight (the ratio shrinks to fit): the assembler
-    #: multiplies a group's weight by the largest DEM-fit weight and the
-    #: row's chord metres (≤ the no-step window), and HiGHS with presolve
-    #: returns "numerical difficulties" once an objective coefficient
-    #: passes ~5e9 (measured M5: 3e10 fails, 4.8e9 solves).  M5, additive.
+    #: ladder's top weight (the ratio shrinks to fit): a law group is
+    #: charged ``weight × chord metres`` (≤ the no-step window, 150 m) and
+    #: HiGHS with presolve returns "numerical difficulties" once the
+    #: objective's dynamic range passes ~1e10 (measured M5: a top
+    #: coefficient of 3e10 fails, 4.8e9 solves, against a 0.5 floor).
+    #: M5, additive.
     tier_ratio: float = 10.0
-    tier_top: float = 1.0e6
+    tier_top: float = 2.0e7
 
 
 @_dc.dataclass(frozen=True)

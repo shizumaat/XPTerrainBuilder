@@ -240,7 +240,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
         # Linear group's slack is METRES — both charged per metre of relief
         scale = sum(d.d for d in rows_g if isinstance(d, Diff)) + \
             sum(1.0 for d in rows_g if isinstance(d, Linear))
-        c[soft_cols[g]] = preference_weight(g, weights) * max(wv.max(), 1.0) * scale
+        # a DEM-relative preference (seam / end zone / crown) is charged
+        # relative to the largest fit weight; a LAW-tier group absolutely
+        # (its base already dwarfs any fit weight), which keeps the ladder
+        # inside HiGHS's usable objective range (``Weights.tier_top``)
+        mult = 1.0 if g.startswith("law:") else max(wv.max(), 1.0)
+        c[soft_cols[g]] = preference_weight(g, weights) * mult * scale
         lims = [None if d.ceiling is None else
                 (d.ceiling - d.cap) if isinstance(d, Diff) else d.ceiling
                 for d in rows_g]

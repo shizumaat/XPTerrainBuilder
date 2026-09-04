@@ -25,7 +25,7 @@ from auto_patch_v2.constraints import generate, no_step, precedence
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import is_rigid_role, role_cap
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
-from auto_patch_v2.model.constraints import Diff, Pin
+from auto_patch_v2.model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Source
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, displacement_by_role
 from auto_patch_v2.planar.build import build
@@ -149,15 +149,17 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     sol, rep = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options(), size_out=size)
     assert sol.status is Status.OPTIMAL and not sol.iis, sol.message
     assert rep.mode == "tiered" and rep.demoted > 0
-    assert rep.k_min == precedence.role_tier(law, "apron")   # the taxi tier stayed hard
-    assert [k for k, _s, _w in rep.attempts][-1] == rep.k_min
+    apron_tier = precedence.role_tier(law, "apron")
+    assert precedence.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
+    assert all(k >= rep.k_min for k in rep.yielded)
+    # the tightening tried to re-harden the apron and found it had to yield
+    assert any(k > apron_tier and st == "infeasible" for k, st, _w in rep.attempts)
     for p in pins:                                        # tier 0 held exactly
         assert abs(sol.z[p.v] - p.z) < 1e-6
     assert _over_cap(cs, sol, {"taxi"}) <= 1e-6
     assert _over_cap(cs, sol, {"runway_profile", "runway"}) <= 1e-6
     # the apron carried the relief the chain cannot span lawfully
     assert _over_cap(cs, sol, {"apron"}) > 0.3
-    apron_tier = precedence.role_tier(law, "apron")
     assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
     assert precedence.role_tier(law, "stub") not in rep.yielded
     for pad in (f for f in pm.faces.values() if f.role == "building"):
@@ -221,3 +223,22 @@ def test_pad_pavement_pairs_join_the_population(law):
     assert all(abs(c - cap) < 1e-12 for _a, _b, c, _d in with_pad)
     assert "building" in no_step.rigid_airside_roles(law)
     assert "building" not in no_step.no_step_roles(law)
+
+
+def test_demote_turns_an_off_tier_offset_into_a_preference(law):
+    """An ``Offset`` (a deck clearance, KCLT's bridges) off tier 0 becomes a
+    one-sided ``Linear`` preference; on tier 0 it stays (measured KCLT:
+    the first M5 replay crashed on ``Offset.soft``)."""
+    airport, pm = _airport(law, None)
+    apron = next(f for f in pm.faces.values() if f.role == "apron")
+    a, b = pm.ring_vertices(apron.ring)[:2]
+    rw = next(f for f in pm.faces.values() if f.role == "runway")
+    ra, rb = pm.ring_vertices(rw.ring)[:2]
+    src = Source("structures", "bridge.clearance_m", ())
+    cs = ConstraintSet.from_rows([Offset(a, b, 5.0, src), Offset(ra, rb, 5.0, src)])
+    cs2, demoted = demote(pm, law, cs)
+    assert len(cs2.offsets) == 1 and cs2.offsets[0].a == ra
+    assert len(cs2.linears) == 1 and len(demoted) == 1
+    ln = cs2.linears[0]
+    assert ln.soft.startswith("law:") and ln.ceiling is None
+    assert ln.lo == 5.0 and ln.hi is None and dict(ln.terms) == {a: 1.0, b: -1.0}

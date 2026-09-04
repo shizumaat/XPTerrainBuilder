@@ -44,10 +44,14 @@ class ZoneRegion:
     code_letter: str | None
 
 
-def zone_regions(cells: tuple[Cell, ...], law: Law) -> list[ZoneRegion]:
+def zone_regions(cells: tuple[Cell, ...], law: Law,
+                 keepouts: tuple[tuple, ...] = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
-    minus every cell (pavement, pads, roads) and minus senior strips."""
-    everything = unary_union([Polygon(c.ring, c.holes) for c in cells]) \
+    minus every cell (pavement, pads, roads), minus senior strips and
+    minus the ``keepouts`` (structure footprints: the zones stop at the
+    tunnel wall, M4)."""
+    everything = unary_union([Polygon(c.ring, c.holes) for c in cells]
+                             + [Polygon(k) for k in keepouts]) \
         if cells else Polygon()
     lip = law.tables.zones.adjacent_ground.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}

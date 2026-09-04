@@ -14,7 +14,7 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Row
 from ..model.planar import PlanarMap
 from . import (apron, no_step, pads, roads, runway_profile, seams, strips,
-               taxi, transverse, zones)
+               structures, taxi, transverse, zones)
 
 __all__ = ["GENERATORS", "generate", "stack", "seam_exempt"]
 
@@ -42,6 +42,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("pad_flats", pads.pad_flats),
     ("frontage_near_miss", pads.frontage_near_miss),
     ("seam_pins", seams.seam_pins),
+    ("structures", structures.structures),
 )
 
 

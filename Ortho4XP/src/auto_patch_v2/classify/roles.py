@@ -86,6 +86,10 @@ class Classification:
     cut_lines: tuple[CutLine, ...]
     stats: _t.Mapping[str, int | float]
     notes: tuple[str, ...]
+    #: Rings NO region may claim (M4): the unowned gap round a tunnel ramp
+    #: and the structure footprints — the zone regions stop at the wall
+    #: (RULINGS 2026-09-01c: the triangulated gap IS the face).
+    keepouts: tuple[tuple[XY, ...], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None

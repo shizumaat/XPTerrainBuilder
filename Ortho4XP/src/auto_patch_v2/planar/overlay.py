@@ -84,7 +84,7 @@ def build_arrangement(airport: Airport, classification: Classification,
     for c in classification.cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
                               c.code_number, c.code_letter, c.side, "cell"))
-    for z in zone_regions(classification.cells, law):
+    for z in zone_regions(classification.cells, law, classification.keepouts):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone))

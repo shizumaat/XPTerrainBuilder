@@ -253,6 +253,11 @@ class Tunnel:
     bore_cut_clearance_m: float
     ramp_cuts_runway_family: bool
     ramp_crosses_pad: bool
+    wall_band_width_m: float
+    lane_width_m: float
+    default_lanes: int
+    dual_carriageway_max_separation_m: float
+    max_ramp_length_m: float
 
 
 @_dc.dataclass(frozen=True)

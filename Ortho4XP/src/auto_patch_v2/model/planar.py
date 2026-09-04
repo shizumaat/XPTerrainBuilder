@@ -36,6 +36,7 @@ import enum
 import typing as _t
 
 from .frame import XY, Key
+from .structures import Tunnel
 
 __all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "PlanarMap", "PlanarError", "validate"]
@@ -140,6 +141,10 @@ class PlanarMap:
     #: additive): the graticule line the airport crosses is cut out of
     #: the map as a band the DEM owns, and these vertices bound it.
     seam_vertices: frozenset[int] = frozenset()
+    #: The tunnel structures the map's ramp / wall / deck faces belong to
+    #: (M4, additive): the generator and the verifier read the record,
+    #: never re-derive the corridor from rings.
+    structures: tuple[Tunnel, ...] = ()
 
     def edges_of_vertex(self) -> dict[int, tuple[int, ...]]:
         """Vertex id -> incident edge ids (derived, not stored)."""

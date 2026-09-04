@@ -157,7 +157,8 @@ def test_cli_writes_products(tmp_path):
     out = tmp_path / "planar"
     t0 = time.perf_counter()
     rc = main(["CYXY", "--out", str(out), "--xplane-root", str(FIX),
-               "--cifp-dir", str(FIX / "CIFP"), "--data-root", str(FIX)])
+               "--cifp-dir", str(FIX / "CIFP"), "--data-root", str(FIX),
+               "--dem-frame", "authored"])
     assert rc == 0 and time.perf_counter() - t0 < 5.0
     rep = json.loads((out / "report.json").read_text())
     assert rep["planar"]["t_vertices"] == 0 and rep["planar"]["faces"] > 0

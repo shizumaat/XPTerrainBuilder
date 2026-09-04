@@ -32,7 +32,7 @@ FIX = Path(__file__).resolve().parent / "fixtures" / "CYXY"
 def fixture_inputs() -> Inputs:
     return Inputs(xplane_root=str(FIX), cifp_dir=str(FIX / "CIFP"),
                   osm_root=str(FIX / "OSM_data"),
-                  elevation_root=str(FIX / "Elevation_data"),
+                  elevation_root=str(FIX / "Elevation_data"), dem_frame="authored",
                   mod_cache_root=str(FIX / "Airport_mod_cache"))
 
 

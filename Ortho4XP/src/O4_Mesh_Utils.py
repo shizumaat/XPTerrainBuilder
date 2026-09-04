@@ -933,6 +933,16 @@ def _auto_patch_post_mesh_rebake(tile):
     # modules, so source edits need an Ortho4XP restart.  No-op unless
     # O4_DSF_OBJECT_REANCHOR=1.  Must NEVER fail the tile.
     try:
+        # ENGINE DISPATCH (RULINGS 2026-09-04i 04f-1): under
+        # auto_patch_engine = v2 the re-seat is v2's (its own seat law over
+        # the tile's o4_v2_rebake_<ICAO>.json plans, v1's writer); one
+        # baker per pack per build.
+        from auto_patch import engine_v2 as AUTO_PATCH_ENGINE_V2
+
+        if (AUTO_PATCH_ENGINE_V2.resolved_auto_patch_engine(tile)
+                == AUTO_PATCH_ENGINE_V2.ENGINE_V2):
+            AUTO_PATCH_ENGINE_V2.rebake_after_mesh(tile)
+            return
         from auto_patch import post_mesh as AUTO_PATCH_POST_MESH
 
         AUTO_PATCH_POST_MESH.rebake_dsf_objects(tile)

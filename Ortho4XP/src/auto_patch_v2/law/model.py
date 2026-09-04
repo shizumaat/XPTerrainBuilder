@@ -315,6 +315,25 @@ class RetainingWall:
 
 
 @_dc.dataclass(frozen=True)
+class Rebake:
+    """Object re-seat law (RULINGS 2026-09-04i 04f-1: restore before
+    read, re-bake after the mesh; memory ``othh-bridge-deck-datum-r12``,
+    ``shared-datum-pack-authoring``; the reseat-threshold spec)."""
+
+    restore_before_read: bool
+    ground_datum: str
+    deck_datum: str
+    foot_band_m: float
+    foot_samples_per_component: int
+    foot_samples_per_member: int
+    agreement_window_m: float
+    min_delta_m: float
+    residual_report_m: float
+    water_founds_seat: bool
+    one_anchor_one_seat: bool
+
+
+@_dc.dataclass(frozen=True)
 class Structures:
     """structures.toml."""
 
@@ -323,6 +342,7 @@ class Structures:
     building_pad: BuildingPad
     basin: Basin
     retaining_wall: RetainingWall
+    rebake: Rebake
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

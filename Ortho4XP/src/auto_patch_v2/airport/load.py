@@ -102,6 +102,9 @@ class LoadReport:
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
     objects_resolved: int = 0
+    #: placements whose geometry was read from ``<obj>.anchor_bak`` — the
+    #: pack's AUTHORED state, restored for the read (RULINGS 04f-1)
+    objects_restored_for_read: int = 0
     library_index_path: str | None = None
     osm_sources: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
@@ -289,6 +292,12 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 rep.unresolved_objects += 1
             else:
                 rep.objects_resolved += 1
+                if law.tables.structures.rebake.restore_before_read:
+                    # RESTORE BEFORE READ (04f-1): the authored file, never
+                    # a previous bake — ``airport/pack.py``
+                    resolved, restored = _pack.authored_source(resolved)
+                    if restored:
+                        rep.objects_restored_for_read += 1
             agl = float(pl.elevation) if pl.kind == "OBJECT_AGL" and pl.elevation is not None \
                 else 0.0
             # hardness / deck top / below-grade solids are read by the

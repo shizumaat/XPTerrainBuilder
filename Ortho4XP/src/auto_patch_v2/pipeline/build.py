@@ -17,6 +17,8 @@ from ..classify import classify, load_rules
 from ..constraints import generate
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
+from ..airport.rebake_plan import plan as rebake_plan
+from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
@@ -72,6 +74,8 @@ class BuildResult:
     wall: dict[str, float]
     lp_size: dict[str, int]
     report: dict[str, _t.Any]
+    #: ``<out>/<ICAO>.rebake.json`` — the post-mesh re-seat plan (04f-1)
+    rebake_plan: Path | None = None
 
 
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
@@ -94,7 +98,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     cl = classify(airport, law, load_rules())
     wall["classify"] = time.perf_counter() - t
     t = time.perf_counter()
-    pm, pstats = build_planar(airport, cl, law)
+    objects_out: list = []
+    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out)
     wall["planar"] = time.perf_counter() - t
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
@@ -117,7 +122,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"[{icao}] objects: {o.placements} placements, {o.resolved} resolved "
              f"({o.unresolved} unresolved, {o.stock_placements} stock), "
              f"{o.resources_parsed} resources parsed in {bs.object_read_s:.2f} s, "
-             f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck", out)
+             f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck, "
+             f"{lrep.objects_restored_for_read} restored-for-read (.anchor_bak)", out)
         for up in o.unresolved_paths[:10]:
             _say(f"    unresolved {up}", out)
     if bs.regions or bs.refused:
@@ -216,9 +222,34 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"
              f"  patch {paths.bytes_patch} B  sidecar {paths.bytes_sidecar} B", out)
+        # THE RE-BAKE PLAN (RULINGS 04f-1): the units and witnesses the
+        # post-mesh seat reads, from the pack as AUTHORED, with the solved
+        # surface's value at every hard deck — ``emit/rebake.py``
+        t = time.perf_counter()
+        rplan = None
+        if objects_out:
+            _to_xy = airport.frame.transformers()[0]
+            rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
+                                lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
+                                exclude={oid for b in pm.basins for oid in b.objects})
+            rebake_path = Path(out_dir) / f"{icao}.rebake.json"
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            rebake_path.write_text(rplan.to_json())
+            wall["rebake_plan"] = time.perf_counter() - t
+            rc = rplan.counts
+            _say(f"[{icao}] rebake plan {wall['rebake_plan']:.2f} s  units {rc['units']}  "
+                 f"members {rc['members']}  deck members {rc['deck_members']}  "
+                 f"feet {rc['feet']}  skipped {len(rplan.skipped)} "
+                 f"(stock {rc['stock']}, multi-anchor {rc['multi_anchor']}, "
+                 f"outside pack {rc['outside_pack']}, msl {rc['msl']}, "
+                 f"terrain-adapted {rc['terrain_adapted']}, below grade {rc['below_grade']})"
+                 f"  -> {rebake_path}", out)
         for (tl, tn), pp in (pieces or {}).items():
             _say(f"    tile {tl:+03d}{tn:+04d}: ways {pp.ways}  nodes {pp.nodes}  "
                  f"-> {pp.patch}", out)
+        report["rebake_plan"] = None if rplan is None else {
+            "path": str(Path(out_dir) / f"{icao}.rebake.json"),
+            "counts": dict(rplan.counts), "skipped": len(rplan.skipped)}
         report["emit"] = {"patch": str(paths.patch), "sidecar": str(paths.sidecar),
                           "ways": paths.ways, "nodes": paths.nodes,
                           "bytes_patch": paths.bytes_patch,
@@ -249,4 +280,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     (Path(out_dir) / f"{icao}.report.json").write_text(
         json.dumps(report, indent=1, default=str))
     _say(f"[{icao}] total {wall['total']:.2f} s  -> {out_dir}", out)
-    return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report)
+    return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report,
+                       Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")
+                       else None)

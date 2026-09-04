@@ -237,6 +237,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             os.makedirs(pd)
         os.replace(str(src.patch), dest)
         os.replace(str(src.sidecar), dest + ".axes.json")
+        # the post-mesh re-seat plan (04f-1) beside the patch, read by
+        # ``rebake_after_mesh`` at the end of build_mesh
+        rebake_plan_path = _place_rebake_plan(task, res.rebake_plan, icao)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "write", "engine": ENGINE_V2,
                 "error": f"[v2] {exc}", "auto_patch_file": task["auto_patch_file"],
@@ -278,4 +281,236 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             "v2": {"status": status, "law_tables": digest,
                    "ruleset": law.ruleset_key, "wall": res.wall,
                    "report": os.path.join(scratch, icao + ".report.json"),
+                   "rebake_plan": rebake_plan_path,
                    "tiles": sorted(f"{a:+03d}{b:+04d}" for a, b in pieces)}}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE RE-BAKE AFTER THE MESH (RULINGS 2026-09-04i 04f-1)
+# ══════════════════════════════════════════════════════════════════════════
+# v1's Phase 2 (``post_mesh.rebake_dsf_objects``) runs at the END of
+# ``O4_Mesh_Utils.build_mesh`` / ``sort_mesh``; under ``auto_patch_engine =
+# v2`` the same hook routes HERE instead (one baker per pack per build —
+# two would fight through the reversion pass).  The v2 law half is pure
+# (``auto_patch_v2.emit.rebake.seat`` over the tile build's own
+# ``o4_v2_rebake_<ICAO>.json`` plans and a sampler of the built mesh);
+# this function is the I/O half: it reuses v1's mesh sampler, v1's
+# ordering / protected-root guards and — the ONE writer both engines
+# share — ``object_rebake.apply`` with its ``.anchor_bak`` discipline,
+# provenance sidecar and reversion pass.  ``modify_custom_airports`` is
+# honoured exactly as v1 honours it: OFF = measure-only, nothing is baked,
+# and an earlier bake is put back to the authored bytes.
+
+REBAKE_RESULT_FILENAME = "o4_v2_rebake_result_{icao}.json"
+
+
+def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
+    """Copy the pipeline's plan beside the patch (``Patches/<tile>/``)."""
+    import shutil
+    if src_plan is None or not os.path.isfile(str(src_plan)):
+        return None
+    from auto_patch_v2.emit.rebake import PLAN_FILENAME
+    dest = os.path.join(os.path.dirname(task["auto_patch_file"]),
+                        PLAN_FILENAME.format(icao=icao))
+    shutil.copyfile(str(src_plan), dest + ".tmp")
+    os.replace(dest + ".tmp", dest)
+    return dest
+
+
+def _decision_from_seats(plan_, result, measure_only: bool):
+    """A v1 ``RebakeDecision`` carrying v2's ONE delta per unit: one
+    structure per resource over all its solid triangles, every vertex the
+    same delta; a resource whose unit has no bake (below threshold, off
+    the mesh, measure-only) is listed in ``skipped`` and still registered
+    by anchor, so v1's reversion pass puts an earlier bake back."""
+    from . import obj8_reader
+    from .object_anchor import RebakeDecision, Structure
+    structures = []
+    deltas: dict[str, dict[int, float]] = {}
+    ground: dict[str, float] = {}
+    anchors: dict[str, tuple[float, float, float]] = {}
+    kinds: dict[str, str] = {}
+    datums: dict[str, float] = {}
+    skipped: list[tuple[str, str]] = []
+    for u, us in zip(plan_.units, result.units):
+        if us.held:
+            # HELD: unknown to the decision, so v1's reversion pass leaves
+            # the live bytes exactly as they are (reported, never reverted)
+            continue
+        for m in u.members:
+            r = m.resource
+            anchors[r] = (u.anchor[0], u.anchor[1], m.heading_deg)
+            if us.anchor_ground_m is not None:
+                ground[r] = float(us.anchor_ground_m)
+            if measure_only:
+                skipped.append((r, "measure-only: modify_custom_airports is off"))
+                continue
+            if not us.bakes:
+                skipped.append((r, us.skip_reason or "no seat"))
+                continue
+            try:
+                geom = obj8_reader.load_object_file(m.authored_path)
+            except (OSError, ValueError) as exc:
+                skipped.append((r, f"authored file unreadable: {exc}"))
+                continue
+            tris = list(geom.solid_triangles)
+            if not tris:
+                skipped.append((r, "no solid triangle: nothing to seat"))
+                continue
+            vids = sorted({i for t in tris for i in t})
+            deltas[r] = {i: float(us.delta_m) for i in vids}
+            ys = [geom.vertices[i][1] for i in vids]
+            structures.append(Structure(
+                triangles_by_resource={r: tris}, surface_area_square_metres=0.0,
+                centroid_latitude=u.anchor[0], centroid_longitude=u.anchor[1],
+                minimum_base_y_by_resource={r: min(ys)}, is_ground_touching=True,
+                ground_span_metres=None, needs_pad=False, skip_reason=None,
+                inherited_from_structure_index=None))
+            kinds[r] = "v2_" + us.datum
+            if us.seat_datum_m is not None:
+                datums[r] = float(us.seat_datum_m)
+    return RebakeDecision(structures=structures, delta_by_resource_and_vertex=deltas,
+                          anchor_ground_by_resource=ground, skipped=skipped,
+                          anchor_by_resource=anchors, decision_kind_by_resource=kinds,
+                          seat_datum_by_resource=datums)
+
+
+def rebake_after_mesh(tile) -> dict:
+    """Re-seat every object of the airports v2 patched on ``tile``
+    against the mesh just built (see the section comment).  Never raises
+    (the mesh hook wraps it too); returns the counts for the summary."""
+    import glob
+    import math
+    import O4_File_Names as FNAMES
+    import O4_UI_Utils as UI
+    from auto_patch_v2.emit import rebake as _rb
+    from auto_patch_v2.law import Law
+    from . import object_rebake
+    from .mesh_sampler import MeshElevationSampler, OutsideMeshError
+    from .post_mesh import (_is_protected_scenery_root, _mesh_is_newer_than_alt,
+                            object_anchor_worklist_path)
+
+    counts = {"airports": 0, "units": 0, "units_baked": 0, "units_below_threshold": 0,
+              "units_skipped": 0, "units_held": 0, "objects_written": 0,
+              "objects_reverted": 0,
+              "vertices_offset": 0, "findings": 0, "airports_failed": 0,
+              "packs_written": 0}
+    try:
+        patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
+        plans = sorted(glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json")))
+        plans = [p for p in plans if "_result_" not in os.path.basename(p)]
+        if not plans:
+            return counts
+        mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
+        if not os.path.isfile(mesh_path):
+            UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; re-seat skipped")
+            return counts
+        if not _mesh_is_newer_than_alt(tile, mesh_path):
+            UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
+                         "re-seat SKIPPED; rebuild the mesh after the elevation step")
+            return counts
+        measure_only = not getattr(tile, "modify_custom_airports", True)
+        if measure_only:
+            UI.vprint(1, "  [v2 rebake] modify_custom_airports is off — measure-only: "
+                         "no object is reseated and any earlier bake is put back")
+        # v1's engine-wide kill switch (``O4_DSF_OBJECT_REANCHOR=0`` "leaves
+        # every pack byte-identical"; function-local import so tests drive
+        # it): the seat still runs and its result sidecar is written — the
+        # measurement is the product — but nothing is applied and nothing
+        # is reverted.
+        from .config import DSF_OBJECT_REANCHOR
+        write_enabled = bool(DSF_OBJECT_REANCHOR)
+        if not write_enabled:
+            UI.vprint(1, "  [v2 rebake] DSF_OBJECT_REANCHOR is off — seats are measured "
+                         "and recorded, no pack file is written or reverted")
+        written_packs: set[str] = set()
+        for plan_path in plans:
+            icao = "?"
+            try:
+                with open(plan_path) as fh:
+                    plan_ = _rb.RebakePlan.from_json(fh.read())
+                icao = plan_.icao
+                law = Law.for_airport(icao)
+                if not plan_.units:
+                    UI.vprint(1, f"  [v2 rebake] {icao}: no unit to seat "
+                                 f"({len(plan_.skipped)} resource(s) skipped at plan time)")
+                    counts["airports"] += 1
+                    continue
+                if not os.path.isdir(plan_.pack_root) or \
+                        _is_protected_scenery_root(plan_.pack_root):
+                    UI.vprint(1, f"  [v2 rebake] {icao}: pack {plan_.pack_root} is not a "
+                                 "writable Custom Scenery pack — re-seat skipped")
+                    counts["airports"] += 1
+                    continue
+                sampler = MeshElevationSampler(mesh_path, plan_.bounds())
+
+                def _sample(lat: float, lon: float, _s=sampler):
+                    try:
+                        s = _s.sample_at(lat, lon)
+                    except OutsideMeshError:
+                        return None
+                    z = float(s.elevation_metres)
+                    return (z, bool(s.is_water)) if math.isfinite(z) else None
+
+                res = _rb.seat(plan_, _sample, law)
+                if write_enabled:
+                    decision = _decision_from_seats(plan_, res, measure_only)
+                    report = object_rebake.apply(decision, plan_.pack_root, mesh_path)
+                else:
+                    report = object_rebake.RebakeReport()
+                rc = res.counts()
+                counts["airports"] += 1
+                counts["units"] += rc["units"]
+                counts["units_baked"] += rc["baked"]
+                counts["units_below_threshold"] += rc["below_threshold"]
+                counts["units_skipped"] += rc["skipped"]
+                counts["units_held"] += rc["held"]
+                counts["findings"] += rc["findings"]
+                counts["objects_written"] += len(report.objects_written)
+                counts["objects_reverted"] += len(report.objects_reverted)
+                counts["vertices_offset"] += report.vertices_offset_total
+                if report.objects_written or report.objects_reverted:
+                    written_packs.add(plan_.pack_root)
+                out = {"icao": icao, "plan": plan_path, "mesh": mesh_path,
+                       "measure_only": measure_only, "write_enabled": write_enabled,
+                       "seat": res.to_dict(),
+                       "apply": {"objects_written": list(report.objects_written),
+                                 "objects_reverted": list(report.objects_reverted),
+                                 "vertices_offset": report.vertices_offset_total,
+                                 "skipped": [list(s) for s in report.skipped],
+                                 "reversions_missing_backup":
+                                     list(report.reversions_missing_backup),
+                                 "partially_baked": [list(s) for s in report.partially_baked],
+                                 "provenance_path": report.provenance_path}}
+                rp = os.path.join(patch_dir, REBAKE_RESULT_FILENAME.format(icao=icao))
+                with open(rp + ".tmp", "w") as fh:
+                    json.dump(out, fh, indent=1, default=str)
+                os.replace(rp + ".tmp", rp)
+                UI.vprint(1, f"  [v2 rebake] {icao}: {rc['units']} unit(s) "
+                             f"({rc['deck_units']} deck-founded): {rc['baked']} seated "
+                             f"({len(report.objects_written)} object(s) written, "
+                             f"{report.vertices_offset_total} vertices), "
+                             f"{rc['below_threshold']} below the {law.tables.structures.rebake.min_delta_m} m "
+                             f"threshold, {rc['held']} held (no land witness: current "
+                             f"bytes kept), {rc['skipped']} unseatable, "
+                             f"{len(report.objects_reverted)} reverted, "
+                             f"{rc['findings']} finding(s) -> {os.path.basename(rp)}")
+                for u in res.units:
+                    for f in u.findings:
+                        UI.vprint(2, f"  [v2 rebake] {icao}: {u.unit_id} "
+                                     f"{u.resources[0]}{'…' if len(u.resources) > 1 else ''}: {f}")
+                for r in report.reversions_missing_backup:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: {r} carries a stale bake but its "
+                                 ".anchor_bak is missing — left untouched, NOT reverted")
+            except Exception as exc:
+                counts["airports_failed"] += 1
+                UI.vprint(1, f"  [v2 rebake] {icao}: re-seat failed ({exc}); continuing")
+                UI.vprint(2, traceback.format_exc())
+        counts["packs_written"] = len(written_packs)
+        for pr in sorted(written_packs):
+            UI.vprint(1, f"  [v2 rebake] pack {os.path.basename(pr)} was modified "
+                         "(originals kept as .anchor_bak) — restart X-Plane, objects are cached")
+    except Exception as exc:
+        UI.vprint(1, f"  [v2 rebake] failed: {exc}")
+        UI.vprint(2, traceback.format_exc())
+    return counts

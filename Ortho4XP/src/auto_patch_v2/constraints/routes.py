@@ -238,13 +238,18 @@ def routes(pm: PlanarMap, law: Law) -> RouteGraph:
 
 def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
                      k: int, targets: _t.Container[int] | None = None,
-                     chunk: int = 256) -> list[tuple[int, int, float, float]]:
+                     chunk: int = 256,
+                     exclude: _t.Mapping[int, _t.Container[int]] | None = None
+                     ) -> list[tuple[int, int, float, float]]:
     """For every source vertex its ``k`` nearest graph vertices BY ROUTE
     DISTANCE within ``window_m`` (route metres): ``(a, b, dist, budget)``
     with ``a < b``, deduplicated; ``dist`` is the shortest path's plan
     length, ``budget`` the sum of ``cap · len`` along THAT path.  A
     vertex with no pavement path inside the window pairs with nothing —
-    the pair does not exist (04o).  ``targets`` restricts the partners."""
+    the pair does not exist (04o).  ``targets`` restricts the partners;
+    ``exclude[s]`` names partners source ``s`` never pairs with (a pad's
+    contact vertex and its own flat group, 04r) — they do not spend its
+    ``k``."""
     srcs = sorted(v for v in sources if v in g.nodes)
     if not srcs or k <= 0:
         return []
@@ -260,8 +265,10 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
             row = D[i]
             reached = np.flatnonzero(np.isfinite(row))
             reached = reached[reached != s]
-            if targets is not None:
-                reached = np.array([t for t in reached if t in targets], dtype=np.int64)
+            skip = exclude.get(s, ()) if exclude is not None else ()
+            if targets is not None or skip:
+                reached = np.array([t for t in reached if t not in skip
+                                    and (targets is None or t in targets)], dtype=np.int64)
             if reached.size == 0:
                 continue
             order = reached[np.argsort(row[reached], kind="stable")][:k]

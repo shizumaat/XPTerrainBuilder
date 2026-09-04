@@ -212,6 +212,8 @@ def test_demote_keeps_tier_zero_hard_and_prices_the_rest(law):
 
 
 def test_pad_pavement_pairs_join_the_population(law):
+    """04r: the ATTACHED pad pairs through its contact only; the DETACHED
+    pad has no pair; a pad-only (body) vertex is never an endpoint."""
     airport, pm = _airport(law, None)
     edges = no_step.no_step_edges(pm, law)
     pad_vs = {v for f in pm.faces.values() if f.role == "building"
@@ -220,12 +222,16 @@ def test_pad_pavement_pairs_join_the_population(law):
                                           for f in pm.vertices[v].incident_faces)}
     assert pad_only, "the fixture's detached pad must have pad-only vertices"
     assert set(no_step.pad_only_vertices(pm, law)) == pad_only
-    # the pavement list is the oracle's and carries no pad endpoint
-    assert not any(a in pad_only or b in pad_only for a, b, *_ in edges)
-    with_pad = no_step.pad_pavement_edges(pm, law)
-    assert with_pad and all((a in pad_only) != (b in pad_only) for a, b, *_ in with_pad)
-    cap = role_cap(law, "apron").longitudinal
-    assert all(abs(c - cap) < 1e-12 for _a, _b, c, _d in with_pad)
+    with_pad = no_step.pad_pavement_edges(pm, law, edges)
+    # neither list carries a pad-only endpoint
+    assert not any(a in pad_only or b in pad_only for a, b, *_ in edges + with_pad)
+    contacts = no_step.pad_contacts(pm, law)
+    pad1 = next(f.id for f in pm.faces.values() if f.ref == "pad1")
+    pad2 = next(f.id for f in pm.faces.values() if f.ref == "pad2")
+    assert pad1 in contacts and pad2 not in contacts
+    c1 = set(contacts[pad1])
+    assert with_pad and all((a in c1) != (b in c1) for a, b, *_ in with_pad)
+    assert not ({(a, b) for a, b, *_ in with_pad} & {(a, b) for a, b, *_ in edges})
     rows = no_step.no_step_pairs(pm, law, airport)
     assert len(rows) == len(edges) + len(with_pad)
     assert "building" in no_step.rigid_airside_roles(law)

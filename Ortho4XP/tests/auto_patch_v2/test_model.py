@@ -187,11 +187,23 @@ def test_no_v1_import_no_env_gate_no_geometry_in_model():
 
 
 def test_dependency_direction():
-    """law <- model <- solve <- emit; nothing imports upward."""
+    """law <- model <- solve <- emit; the M1 producers airport <-
+    classify <- planar import law + model and each other in that order;
+    nothing imports upward (M0 §1)."""
     order = ["law", "model", "solve", "emit"]
+    producers = {"airport": {"law", "model"},
+                 "classify": {"law", "model", "airport"},
+                 "planar": {"law", "model", "airport", "classify"}}
     for py in SRC.rglob("*.py"):
         pkg = py.parent.name if py.parent != SRC else None
+        imports = re.findall(r"from \.\.(\w+)", py.read_text())
+        if pkg in producers:
+            for m in imports:
+                assert m in producers[pkg], (py, m)
+            continue
         if pkg not in order:
             continue
-        for m in re.findall(r"from \.\.(\w+)", py.read_text()):
+        for m in imports:
             assert order.index(m) < order.index(pkg), (py, m)
+    for pkg in ("airport", "classify", "planar"):
+        assert (SRC / pkg / "__init__.py").is_file()

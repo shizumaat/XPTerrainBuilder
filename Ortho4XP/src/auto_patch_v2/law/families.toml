@@ -1,0 +1,231 @@
+# auto_patch_v2 LAW — the law FAMILIES (Appendix A §1; v1 register
+# `check_grade.LAW_FAMILIES`).  One entry per family the census reports.
+#   measures   what the family measures, one line
+#   parameter  the law key it reads, as a dotted path into the loaded Law
+#              (rulesets.<ruleset>.… is written `ruleset.…`); the loader
+#              REFUSES a path that does not resolve — a family can never
+#              point at a cap that is not in the tables
+#   roles      the roles (or role families) the family applies to;
+#              "airside" / "groundside" / "all" name the census partition
+#   pairs      "within" (one ring), "cross" (two shapes), "steps"
+#   ruling     the RULINGS.md id that made it law
+#   solver     how v2 satisfies it: "edge" (difference constraint on planar
+#              edges), "pin", "flat", "band", "offset", "construction"
+#              (true by how the planar map is built), "diagnostic" (an
+#              instrument row v2 emits nothing for)
+
+[within_shape]
+measures  = "ring vertex-pair grade vs the role's cap (apron: nearest-spine chord only)"
+parameter = "roles.*.longitudinal"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-08-21b/c/d; 2026-08-24"
+solver    = "edge"
+
+[road_cross_section]
+measures  = "across-axis pairs on road rings vs the road transverse cap (axis split at common.road_transverse_axis_min_deg)"
+parameter = "common.roles.service_road.transverse"
+roles     = ["service_road", "service_junction"]
+pairs     = "within"
+ruling    = "2026-08-25g"
+solver    = "edge"
+
+[plane_gradient]
+measures  = "triangle-plane slope of the junction mesh vs the role cap"
+parameter = "roles.*.longitudinal"
+roles     = ["junction"]
+pairs     = "within"
+ruling    = "user 2026-07-05"
+solver    = "edge"
+
+[runway_end_skirt]
+measures  = "end-skirt down-grade and its rate beyond the runway end"
+parameter = "ruleset.end_skirt.max_down_grade"
+roles     = ["runway_clearance"]
+pairs     = "within"
+ruling    = "reg-set 2026-08-08"
+solver    = "edge"
+
+[terrace_joint_route]
+measures  = "a declared apron terrace joint crossing a taxi route"
+parameter = "structures.retaining_wall.allowed_outside_carves"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-08-06"
+solver    = "construction"
+
+[terrace_joint_strip]
+measures  = "a declared apron terrace joint inside a runway strip"
+parameter = "structures.retaining_wall.in_runway_strip"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-08-06"
+solver    = "construction"
+
+[terrace_actual_step]
+measures  = "an apron terrace's actual step past its declared step"
+parameter = "emit.materiality.step_m"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-08-06"
+solver    = "construction"
+
+[basin_floor_declaration]
+measures  = "a basin facility floor disagreeing with its own body depth"
+parameter = "structures.basin.floor"
+roles     = ["object_pad"]
+pairs     = "within"
+ruling    = "2026-08-26"
+solver    = "pin"
+
+[adjacent_ground_tear]
+measures  = "graded-strip vertex outside the zone corridor (wall straddle exempt)"
+parameter = "zones.adjacent_ground.lip_width_m"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "2026-08-01"
+solver    = "band"
+
+[strip_seam_tear]
+measures  = "an adjacent-ground strip seam tear (wall straddle exempt)"
+parameter = "zones.adjacent_ground.lip_width_m"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "2026-08-01"
+solver    = "construction"
+
+[transverse]
+measures  = "cross-corridor grade vs the taxi transverse cap"
+parameter = "ruleset.taxi.transverse"
+roles     = ["taxi_family"]
+pairs     = "within"
+ruling    = "ICAO Annex 14 §3.9.11 (STANDARDS)"
+solver    = "edge"
+
+[drainage_spine]
+measures  = "an enclosed-pocket drainage spine at or above its lower pavement"
+parameter = "zones.pockets.drainage_spine"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-08-01 clarification"
+solver    = "band"
+
+[apron_lattice_membrane]
+measures  = "an apron interior lattice pair over the apron's own budget"
+parameter = "emit.chords.apron_interior_spacing_m"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-08-24b/c; 2026-08-26"
+solver    = "edge"
+
+[airside_no_step]
+measures  = "direct-distance grade within the window plus rate of change, all airside pavement"
+parameter = "emit.no_step.window_m"
+roles     = ["airside"]
+pairs     = "within"
+ruling    = "2026-08-27"
+solver    = "edge"
+
+[lateral_contiguity]
+measures  = "a road cross-section vs the strictest touching pavement class"
+parameter = "roles.*.longitudinal"
+roles     = ["service_road", "apron"]
+pairs     = "within"
+ruling    = "2026-08-25b"
+solver    = "edge"
+
+[strip_longitudinal]
+measures  = "graded-strip abeam slope vs the strip cap"
+parameter = "ruleset.strip.longitudinal"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "reg-set 2026-08-08"
+solver    = "edge"
+
+[strip_arc]
+measures  = "graded-strip longitudinal grade-change rate"
+parameter = "ruleset.strip.arc_rate"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "reg-set 2026-08-08"
+solver    = "edge"
+
+[resa_transverse]
+measures  = "end-corridor transverse grade"
+parameter = "ruleset.resa.transverse_max"
+roles     = ["runway_clearance"]
+pairs     = "within"
+ruling    = "reg-set 2026-08-08"
+solver    = "edge"
+
+[raoa]
+measures  = "radio-altimeter operating area grade-change rate (ICAO only)"
+parameter = "ruleset.raoa.max_grade_change"
+roles     = ["runway_family"]
+pairs     = "within"
+ruling    = "reg-set 2026-08-08"
+solver    = "edge"
+
+[drainage_minimum]
+measures  = "a surface flatter than its drainage minimum (runways: crown only)"
+parameter = "ruleset.drainage.apron_min_grade"
+roles     = ["runway"]
+pairs     = "within"
+ruling    = "2026-08-13b/14"
+solver    = "diagnostic"
+
+[runway_crown]
+measures  = "runway crown below its declared drop"
+parameter = "common.runway_crown_transverse"
+roles     = ["runway"]
+pairs     = "within"
+ruling    = "2026-08-05"
+solver    = "offset"
+
+[wall_in_runway_strip]
+measures  = "a retaining wall inside the runway strip keep-out"
+parameter = "structures.retaining_wall.in_runway_strip"
+roles     = ["retaining_wall"]
+pairs     = "within"
+ruling    = "2026-08-21d"
+solver    = "construction"
+
+[stacked_nodes]
+measures  = "one coordinate carrying disagreeing values"
+parameter = "emit.identity.coordinate_dp"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "canonical identity (memory canonical-identity-join)"
+solver    = "construction"
+
+[cross_shape]
+measures  = "proximity pairs across shapes vs the stricter cap"
+parameter = "emit.identity.min_distinct_spacing_m"
+roles     = ["all"]
+pairs     = "cross"
+ruling    = "LAW_TRUE_KNOBS"
+solver    = "construction"
+
+[frontage_near_miss]
+measures  = "a building pad and soft pavement across a sliver"
+parameter = "structures.building_pad.weld_to_touching_pavement"
+roles     = ["building"]
+pairs     = "cross"
+ruling    = "2026-08-08; 2026-09-01g"
+solver    = "construction"
+
+[vertex_to_edge_step]
+measures  = "a vertex against a neighbouring edge, step past the step threshold"
+parameter = "emit.materiality.step_m"
+roles     = ["all"]
+pairs     = "steps"
+ruling    = "2026-06-20"
+solver    = "construction"
+
+[mid_edge_step]
+measures  = "two edges disagreeing mid-span past the step threshold"
+parameter = "emit.materiality.step_m"
+roles     = ["all"]
+pairs     = "steps"
+ruling    = "2026-06-20"
+solver    = "construction"

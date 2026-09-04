@@ -1,0 +1,35 @@
+# auto_patch_v2 LAW — adjacent-ground zones (RULINGS 2026-08-01 zone law,
+# memory `adjacent-ground-zone-law`; Appendix A §3).  The ground next to a
+# paved edge is a corridor of two graded zones, then raw terrain:
+#   zone 1  the LIP, `lip_width_m` out from the pavement edge, sloping
+#           DOWN between `lip_min_down` and `lip_max_down`;
+#   zone 2  the graded BAND, out to the strip half-width for the class,
+#           sloping down between `band_min_down` and the class' max;
+#   zone 3  beyond zone 2: the DEM, untouched (`beyond_zone2 = "dem"`).
+# All bounds accumulate across zone boundaries (continuous corridor).
+# Grades are fractions; widths are metres from the PAVEMENT EDGE.
+
+[adjacent_ground]
+beyond_zone2   = "dem"      # zone 3 IS the DEM — never graded (08-01; only "dem" is lawful here)
+lip_width_m    = 3.0        # zone-1 width (ADJACENT_GROUND_LIP_WIDTH_M)
+lip_min_down   = 0.03       # zone-1 minimum down-slope (mandatory-DOWN, ruling 1)
+lip_max_down   = 0.05       # zone-1 maximum down-slope
+ungraded_max_up = 0.05      # rising ground beyond the graded strip may rise at most this (§4 row 9)
+
+# zone 2 for the RUNWAY family (runway, runway_crossing): keyed by code NUMBER
+[adjacent_ground.runway]
+half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip (Annex 14 §3.4.8)
+half_width_faa_m = { by_letter = { "A" = 18.3, "B" = 22.9, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA RSA half-width by RDC letter
+band_min_down  = 0.015      # FAA RSA minimum
+band_max_down  = { by_code = { "1" = 0.05, "2" = 0.05, "3" = 0.03, "4" = 0.03 }, default = 0.03 }  # 3 % code 3/4, 5 % code 1/2
+
+# zone 2 for the TAXI family (parallels, stub, cross_connector, junction): keyed by code LETTER
+[adjacent_ground.taxi]
+half_width_m   = { by_letter = { "A" = 10.25, "B" = 11.0, "C" = 12.5, "D" = 18.5, "E" = 19.0, "F" = 22.0 }, default = 12.5 }  # OMGWS-derived graded strip
+band_min_down  = 0.015
+band_max_down  = 0.05
+
+# enclosed pockets between graded zones FILL and drain along a spine (08-01 clarification)
+[pockets]
+fill = true
+drainage_spine = true       # spine sits at or above its lower pavement (family drainage_spine)

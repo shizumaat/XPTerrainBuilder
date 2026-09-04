@@ -1,0 +1,36 @@
+# auto_patch_v2 LAW — structures: tunnels, bridges/decks, building pads,
+# basins (Appendix A §3; rulings cited per key).  Metres unless a grade.
+# A string value names a DATUM the constraint generator resolves (e.g.
+# "dem" = the DEM sample at that vertex, "deck_top" = the object's deck).
+
+[tunnel]
+bore_datum_m      = 5.1     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
+wall_gap_m        = 0.6     # ramp edge -> wall inner edge; the triangulated gap IS the face (09-01c/e; never ON a weld tolerance)
+crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
+ramp_max_grade    = 0.040   # descent grade of the ramp (common.roles.tunnel_ramp; user 2026-05-08)
+bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
+ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
+ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
+
+[bridge]
+clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
+clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful
+deck_datum          = "deck_top"   # object seating datum = deck TOP (memory othh-bridge-deck-datum-r12)
+mapped_deck_cuttable = false       # a mapped road bridge over emitted below-grade is a deck, not cuttable (08-28 :1908)
+terrain_deck_without_object = true # no object => terrain deck at road level cutting the ramp (08-28 :1920)
+floor_below_object_deck_m = 0.5    # tunnel floor under an object deck (TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+
+[building_pad]
+weld_to_touching_pavement = true   # contact = value (09-01g)
+footprint_outside_pad_m   = 0.0    # NO footprint outside the pad — outline close retired (09-01g)
+groundside_cutback_m      = 0.6    # mixed pad: welds airside, groundside cut back and may differ (09-01i, 01e standoff)
+min_area_m2               = 250.0  # tiny pads fold into their host (08-24 :1687; PAD_MIN_AREA_M2)
+in_basin_sits_at_floor    = true   # a pad inside a basin sits at the basin floor (08-25 :1771)
+step_exemption_pad_to_pad = true   # two pads may sit at different floors (06-20 STEP_EXEMPTIONS)
+
+[basin]
+floor = "declared"                 # basin facility floor equals its declared body depth (08-26 :1847)
+
+[retaining_wall]
+allowed_outside_carves = false     # walls only at tunnel/bridge carves; everything else feathers (08-07 :887-917)
+in_runway_strip = false            # no wall inside the runway strip keep-out (08-21d :1672)

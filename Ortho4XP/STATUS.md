@@ -1,4 +1,15 @@
 # ══════════════════════════════════════════════════════════════════
+# APP 1.0.279 / ENGINE 1.50.1721 BUILT (v2 bundled, verified in the PYZ).
+# OWNER RULINGS 04i: priority is the LAW's, terrain never blocks (03k
+#   closed → M5 HECA/KCLT lane v2law2); restore + re-bake every build
+#   (lane v2rebake); below-grade objects get cutouts, thresholds are
+#   defects (lane v2cutouts). SIM-CHECK SITES for 04d/04g (v2 OTHH tile
+#   patch): tunnel walls 25.2722129,51.6021506 / 25.2560034,51.6087376 /
+#   25.2697144,51.6054847 / 25.2727029,51.6130752 / 25.2760643,51.6132859
+#   / 25.2535944,51.6032644 (ramps beside each); basins Dewatering
+#   25.2521988,51.6245445 (floor −10.74) and 25.2957256,51.6034427
+#   (−9.06); 04g-1/04g-2 zone-2 strip touching groundside
+#   25.2726816,51.6144139 (and any strip between two parallel taxiways).
 # 20260903b — OWNER SIM READ (OTHH tunnels) RULED + FIXED + MERGED;
 #   +40-004 abort ATTRIBUTED (teardown wedge, hardened); ZERO-AIRSIDE
 #   R1.1 MERGED, R1.2 IN FLIGHT. Main = 7c0513cf..dd025e05 (+ R1.2).

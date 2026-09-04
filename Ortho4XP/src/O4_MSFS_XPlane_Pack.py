@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import O4_UI_Utils as UI
+
 # Row types whose first column marks the start of an airport block and
 # whose fifth column carries the airport identifier: land airport (1),
 # seaport (16), heliport (17).
@@ -670,6 +672,9 @@ def write_overlay_dsf(
                     ],
                     capture_output=True,
                     text=True,
+                    # posix_spawn, never fork (PROJ atfork segfault
+                    # class, O4_UI_Utils.external_tool_keyword_arguments).
+                    **UI.external_tool_keyword_arguments(),
                 )
             except OSError as error:
                 raise RuntimeError(

@@ -5965,3 +5965,13 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   L4 host removals are named by `[tunnel-remove]` lines but do NOT ride
   `road_piece_ledger` (it tracks `tunnel_*` refs only) — a ledger row
   for host pieces is owed if the owner wants them ledgered.
+
+- 2026-09-03 POSIX-SPAWN SWEEP (fork-path `subprocess.run` sites reachable
+  from a PROJ-loaded parent: dsf_reader DSFTool `--dsf2text` x2, inset LERC
+  decode interpreters x2, provenance `git` x2 (was `cwd=` + bare `git`,
+  both force fork), MSFS pack DSFTool `--text2dsf`).  RUN: the new twin
+  `tests/test_posix_spawn_kwargs.py`, plus test_patch_provenance,
+  test_msfs_xplane_pack, test_dsf_surface_pavement and the LERC inset
+  tests, once.  SKIPPED: the full blast suites of dsf_reader (17 direct +
+  17 fixture tests) and O4_Airport_Elevation_Insets (29 + 16); no airport
+  build (kwargs-only change, no geometry path touched).

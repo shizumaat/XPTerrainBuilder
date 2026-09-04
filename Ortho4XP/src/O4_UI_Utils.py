@@ -53,8 +53,12 @@ def external_tool_keyword_arguments():
 
     Not sweeping file descriptors is safe: Python file descriptors are
     non-inheritable by default (PEP 446).  ``posix_spawn`` is only taken
-    when ``cwd`` is None and standard streams are not low file
-    descriptors -- true for every pipeline tool call.
+    when ``cwd`` is None, ``argv[0]`` carries a directory component
+    (a bare ``"git"`` forks -- resolve with ``shutil.which``) and
+    standard streams are not low file descriptors -- true for every
+    pipeline tool call.  A site needing a working directory passes
+    absolute paths (or ``git -C``) instead of ``cwd=``.
+    ``tests/test_posix_spawn_kwargs.py`` is the regression twin.
     """
     return {"env": subprocess_env(), "close_fds": False}
 

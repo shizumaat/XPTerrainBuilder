@@ -462,6 +462,12 @@ def ensure_dsf_text_path(dsf_path: str,
                 subprocess.run(
                     [tool, "--dsf2text", dsf_path, text_path],
                     check=True, capture_output=True, timeout=120,
+                    # posix_spawn, never fork: a fork in a PROJ-loaded
+                    # parent (census / replay after a GDAL warp) dies in
+                    # the proj.db atfork handler before exec -- the
+                    # 2026-07-16 crash class, seen again 2026-09-03 from
+                    # census.py / solve_cut.py parents.
+                    **UI.external_tool_keyword_arguments(),
                 )
             except (PermissionError, subprocess.CalledProcessError):
                 fallback = tempfile.NamedTemporaryFile(
@@ -471,6 +477,12 @@ def ensure_dsf_text_path(dsf_path: str,
                 subprocess.run(
                     [tool, "--dsf2text", dsf_path, text_path],
                     check=True, capture_output=True, timeout=120,
+                    # posix_spawn, never fork: a fork in a PROJ-loaded
+                    # parent (census / replay after a GDAL warp) dies in
+                    # the proj.db atfork handler before exec -- the
+                    # 2026-07-16 crash class, seen again 2026-09-03 from
+                    # census.py / solve_cut.py parents.
+                    **UI.external_tool_keyword_arguments(),
                 )
         except (OSError, subprocess.SubprocessError) as exc:
             UI.vprint(1,

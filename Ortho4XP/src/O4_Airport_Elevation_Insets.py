@@ -2588,6 +2588,9 @@ class StaticStacCatalogStrategy:
                     capture_output=True,
                     text=True,
                     timeout=600,
+                    # posix_spawn, never fork (PROJ atfork segfault class,
+                    # O4_UI_Utils.external_tool_keyword_arguments).
+                    **UI.external_tool_keyword_arguments(),
                 )
                 if completed.returncode != 0:
                     raise RuntimeError(
@@ -3406,6 +3409,9 @@ class ArcgisLercTileStrategy:
                 capture_output=True,
                 text=True,
                 timeout=600,
+                # posix_spawn, never fork (PROJ atfork segfault class,
+                # O4_UI_Utils.external_tool_keyword_arguments).
+                **UI.external_tool_keyword_arguments(),
             )
             if completed.returncode != 0:
                 UI.vprint(

@@ -47,8 +47,11 @@ import datetime
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import urllib.parse
+
+import O4_UI_Utils as UI
 
 
 # Master gate for the whole feature.  ON by default (provenance should be on
@@ -77,13 +80,22 @@ def git_provenance(cwd: str | None = None) -> dict:
         cwd = os.path.dirname(os.path.abspath(__file__))
     sha: str | None = None
     dirty: bool | None = None
+    # ``git -C <dir>`` instead of ``cwd=``, and an ABSOLUTE git path: CPython
+    # takes posix_spawn() only when cwd is None and argv[0] carries a
+    # directory; anything else is fork()+exec(), and a fork in a PROJ-loaded
+    # parent (every build after DEM prep) segfaults in the proj.db atfork
+    # handler before exec (2026-07-16 crash class, see
+    # O4_UI_Utils.external_tool_keyword_arguments).
+    git = shutil.which("git")
+    if git is None:
+        return {"sha": None, "dirty": None}
     try:
         sha = subprocess.run(
-            ["git", "rev-parse", "--short=8", "HEAD"],
-            cwd=cwd,
+            [git, "-C", cwd, "rev-parse", "--short=8", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,
+            **UI.external_tool_keyword_arguments(),
         ).stdout.strip() or None
     except Exception:
         return {"sha": None, "dirty": None}
@@ -93,11 +105,11 @@ def git_provenance(cwd: str | None = None) -> dict:
         return {"sha": None, "dirty": None}
     try:
         status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd,
+            [git, "-C", cwd, "status", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=5,
+            **UI.external_tool_keyword_arguments(),
         )
         dirty = bool(status.stdout.strip())
     except Exception:

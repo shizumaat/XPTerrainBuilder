@@ -22,3 +22,6 @@ Ortho4XP/Orthophotos
 .progress
 
 **/__pycache__/
+
+# never track bytecode under the negated fixture tree
+Ortho4XP/tests/auto_patch_v2/fixtures/__pycache__/

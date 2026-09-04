@@ -6,7 +6,10 @@
 #   intersections (G/E at 60.7079446,−135.0697651); roads: the CORE's
 #   smoothing first, v2 only over cap. IN FLIGHT: v2relax (HECA closing),
 #   v2caps (SPJC/KCLT/CYXY closing, oracle portion rule), v2roads (CYXY
-#   153). App 1.0.281 stands for the sim read.
+#   153); v2round3 (CYXY round 3, 04u: sliver weld < identity spacing;
+#   open pavement never apron by default + route reach = road evidence
+#   (shape 106); groundside keeps the pad setback (lot 87)). App 1.0.281
+#   stands for the sim read ("looking really good").
 # 2026-09-04 PAD-CONTACT PAIRS MERGED f50423a3 (04s): KCLT hard-feasible
 #   71.6 s (70/44); HECA k_min 3, 241 s, 84/84 — IIS = ONE hangar row
 #   (apron pav132: eight flat pad contacts consume the rim; apron climbs

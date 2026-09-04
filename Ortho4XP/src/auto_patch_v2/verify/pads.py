@@ -10,7 +10,9 @@ Every rigid-role shape (``precedence.toml`` ``rigid``) is read:
   (a sloped building would ship);
 * a RELAXED pad lies on one plane — its least-squares plane residual
   above ``emit.relaxation.materiality_m`` is a row (``reading =
-  "plane_residual"``).
+  "plane_residual"``) — no steeper than ``emit.relaxation.pad_slope_max``
+  (RULINGS 2026-09-05f: 1 %): a plane's gradient over it by more than the
+  grade materiality is a row (``reading = "plane_slope"``).
 
 Not a law family: an ACCEPTANCE check beside the tunnel / basin ones, so
 the register twins (v1 families == v2 families) hold.  A pad's ``Flat``
@@ -25,22 +27,28 @@ import numpy as np
 
 from .frame import Patch, Row, Shape, row
 
-__all__ = ["pad_flat", "plane_residual"]
+__all__ = ["pad_flat", "plane_fit", "plane_residual"]
 
 FAMILY = "pad_flat"
 
 
-def plane_residual(xy: list[tuple[float, float]], z: list[float]) -> float:
-    """Max |z − fit| of the least-squares plane through the points (the
-    spread when fewer than three points or a degenerate fit)."""
+def plane_fit(xy: list[tuple[float, float]], z: list[float]) -> tuple[float, float]:
+    """``(residual, slope)`` of the least-squares plane through the
+    points: max |z − fit| and the plane's gradient magnitude (m/m).  Fewer
+    than three points or a degenerate fit: the spread, slope 0."""
     if len(z) < 3:
-        return max(z) - min(z) if z else 0.0
+        return (max(z) - min(z) if z else 0.0), 0.0
     a = np.column_stack([np.ones(len(z)), np.asarray(xy, float)])
     zz = np.asarray(z, float)
     coef, _res, rank, _sv = np.linalg.lstsq(a, zz, rcond=None)
     if rank < 3:
-        return float(zz.max() - zz.min())
-    return float(np.abs(zz - a @ coef).max())
+        return float(zz.max() - zz.min()), 0.0
+    return float(np.abs(zz - a @ coef).max()), float(np.hypot(coef[1], coef[2]))
+
+
+def plane_residual(xy: list[tuple[float, float]], z: list[float]) -> float:
+    """Max |z − fit| of the least-squares plane through the points."""
+    return plane_fit(xy, z)[0]
 
 
 def _pad_points(p: Patch, sh: Shape) -> tuple[list[tuple[float, float]], list[float], list[int]]:
@@ -59,6 +67,8 @@ def pad_flat(p: Patch) -> list[Row]:
     relaxed_faces = {r.get("face") for r in rel if r.get("kind") == "pad"}
     flat_tol = p.law.tables.emit.materiality.elevation_m
     plane_tol = p.law.tables.emit.relaxation.materiality_m
+    slope_max = p.law.tables.emit.relaxation.pad_slope_max
+    grade_tol = p.law.tables.emit.materiality.grade
     out: list[Row] = []
     for sh in p.shapes:
         if not p.is_rigid(sh.role) or len(sh.ids) < 2:
@@ -67,8 +77,13 @@ def pad_flat(p: Patch) -> list[Row]:
         lo_i = min(range(len(z)), key=z.__getitem__)
         hi_i = max(range(len(z)), key=z.__getitem__)
         spread = z[hi_i] - z[lo_i]
+        slope = None
         if sh.key in relaxed_faces:
-            reading, magnitude, tol = "plane_residual", plane_residual(xy, z), plane_tol
+            resid, slope = plane_fit(xy, z)
+            reading, magnitude, tol = "plane_residual", resid, plane_tol
+            if resid <= plane_tol and slope > slope_max + grade_tol:
+                # one plane, but steeper than the ruling allows (05f)
+                reading, magnitude, tol = "plane_slope", spread, -1.0
         else:
             reading, magnitude, tol = "spread", spread, flat_tol
         if magnitude <= tol:
@@ -78,5 +93,7 @@ def pad_flat(p: Patch) -> list[Row]:
                 xy[lo_i], xy[hi_i], sh.ref, sh.ref, lat=lat, lon=lon)
         r.update({"reading": reading, "spread_m": round(spread, 4), "face": sh.key,
                   "relaxed": sh.key in relaxed_faces, "vertices": len(ids)})
+        if slope is not None:
+            r.update({"slope": round(slope, 6), "slope_max": slope_max})
         out.append(r)
     return out

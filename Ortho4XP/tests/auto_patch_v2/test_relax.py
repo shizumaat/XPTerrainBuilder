@@ -209,7 +209,11 @@ def test_pwl_approximation_agrees_with_the_qp(hangar, law):
     # the piecewise approximation lands within a few of the finest pieces of
     # the square's optimum, and its objective within the same envelope
     m = law.tables.emit.materiality.grade
-    assert max(abs(x - y) for x, y in zip(a, b)) <= 8 * m, (a, b)
+    # within a few of the finest pieces near zero; at a larger excess the
+    # doubling breakpoints make the piece a fraction of the value itself
+    # (the pads sit on the 05f slope cap, and the chord that takes what
+    # they no longer can lands on a breakpoint: measured 1.2e-3 at 6.3e-3)
+    assert max(abs(x - y) for x, y in zip(a, b)) <= 8 * m + 0.25 * max(a + b), (a, b)
     w = [x.extent_m for x in rel]
     fa = sum(wi * v * v for wi, v in zip(w, a))
     fb = sum(wi * v * v for wi, v in zip(w, b))
@@ -275,3 +279,44 @@ def test_census_tags_rows_on_relaxed_vertices(hangar, law):
     # every over-cap apron row the census sees sits on a relaxed vertex
     assert not [r for r in plain if r["family"] == "within_shape" and "apron" in r["roles"]], plain
     assert tagged or not [r for lst in rows.values() for r in lst], rows
+
+
+def _with_relaxation(law, **kw):
+    import dataclasses as _dc
+    rl = _dc.replace(law.tables.emit.relaxation, **kw)
+    return _dc.replace(law, tables=_dc.replace(
+        law.tables, emit=_dc.replace(law.tables.emit, relaxation=rl)))
+
+
+def test_relaxed_pad_slope_is_bounded_by_the_table(hangar, law):
+    """RULINGS 2026-09-05f: ``[relaxation] pad_slope_max`` bounds every
+    relaxed pad's plane in stage 1; the relief a steeper pad would have
+    taken goes to the other populations (04t-1), and the certificate
+    reads the bound."""
+    airport, pm, cs = hangar
+    rl = law.tables.emit.relaxation
+    assert 0.0 < rl.pad_slope_max <= 0.02
+    sol = solve_hard(pm, cs, DEFAULT_WEIGHTS, Options())
+    rows = [r for r, _s in sol.iis]
+    rel = relax.site_candidates(pm, law, cs, rows)
+    tol = law.tables.emit.materiality.grade
+    s1 = relax.stage1(pm, cs, rel, law, backend="qp")
+    pads = [x for x in rel if x.kind == "pad"]
+    assert pads and all(s1.excess[x.index] <= rl.pad_slope_max + tol for x in pads)
+    # the ruled cap is ACTIVE on this fixture (the unbounded pad sloped 1.02 %)
+    assert max(s1.excess[x.index] for x in pads) >= 0.9 * rl.pad_slope_max
+    tight = _with_relaxation(law, pad_slope_max=0.005)
+    # the default backend: highspy's QP reports kSolveError at this bound on
+    # this fixture (measured 2026-09-05) and the approximation answers
+    s2 = relax.stage1(pm, cs, rel, tight)
+    assert s2.status == "optimal", s2
+    assert all(s2.excess[x.index] <= 0.005 + tol for x in pads)
+    chords = [x for x in rel if x.kind != "pad"]
+    assert sum(s2.slack[x.index] for x in chords) > sum(s1.slack[x.index] for x in chords)
+    # the same on the approximation, and the certificate reads the bound
+    s3 = relax.stage1(pm, cs, rel, tight, backend="pwl")
+    assert all(s3.excess[x.index] <= 0.005 + tol for x in pads)
+    sol2, rep, _cs2 = relax.solve_relaxed(pm, cs, tight, DEFAULT_WEIGHTS, Options())
+    assert sol2 is not None and rep.certificate["ok"]
+    assert rep.certificate["pad_slope_max"] == 0.005
+    assert rep.certificate["pad_slope_max_seen"] <= 0.005 + tol

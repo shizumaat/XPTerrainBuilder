@@ -37,6 +37,10 @@ from ..law.tables import authority_rank, is_rigid_role, is_value_role
 
 __all__ = ["WeldStats", "weld_cells"]
 
+#: Convergence guard of the per-cell weld (project + insert repeated until
+#: the ring is unchanged): a bound on iterations, never a law value.
+MAX_PASSES = 6
+
 
 @_dc.dataclass
 class WeldStats:
@@ -47,6 +51,7 @@ class WeldStats:
     vertices_projected: int = 0
     vertices_inserted: int = 0
     cells_refused: int = 0     # a weld that would have collapsed the cell
+    passes_max: int = 0        # the most passes one cell took to converge
 
 
 def weld_cells(cells: tuple[Cell, ...], law: Law
@@ -85,8 +90,9 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
             continue
         frozen = [others[int(j)] for j in other_tree.query(
             p.buffer(tol), predicate="intersects")] if other_tree is not None else []
-        q, moved, inserted = _weld_one(p, unary_union(refs), tol,
-                                       unary_union(frozen) if frozen else None)
+        q, moved, inserted, passes = _weld_one(p, unary_union(refs), tol,
+                                               unary_union(frozen) if frozen else None)
+        stats.passes_max = max(stats.passes_max, passes)
         if q is None:
             stats.cells_refused += 1
             current[i] = p
@@ -103,39 +109,55 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
 
 
 def _weld_one(poly: Polygon, ref, tol: float, frozen=None
-              ) -> tuple[Polygon | None, int, int]:
+              ) -> tuple[Polygon | None, int, int, int]:
     """``poly`` welded to the boundary set ``ref``: ``(polygon, vertices
-    moved, vertices inserted)``; ``None`` when the weld would leave no
-    valid polygon (the cell is narrower than the tolerance).  Vertices
+    moved, vertices inserted, passes)``; ``None`` when the weld would leave
+    no valid polygon (the cell is narrower than the tolerance).  Vertices
     on ``frozen`` (another cell's boundary) never move."""
     rpts = [Point(c) for g in getattr(ref, "geoms", [ref]) for c in g.coords]
     rtree = STRtree(rpts) if rpts else None
-    ext, moved = _project(poly.exterior.coords, ref, rtree, rpts, tol, frozen)
-    holes = []
-    for h in poly.interiors:
-        ring, m = _project(h.coords, ref, rtree, rpts, tol, frozen)
-        holes.append(ring)
+    ext = list(poly.exterior.coords)
+    holes = [list(h.coords) for h in poly.interiors]
+    moved = inserted = 0
+    # TO A FIXED POINT: every projection or insertion bends the ring, and a
+    # senior vertex that was a hair OUTSIDE the tolerance of the old edge
+    # can lie inside it of the new one (HECA pav81 / pav129 2026-09-05: the
+    # corner welded 0.9 m onto pav131, one pav129 vertex inserted, and the
+    # next pav129 vertex sat 0.88 m off the bent edge — un-welded by the
+    # single pass, a 0.4-0.9 m sliver of graded strip and 14 rim steps)
+    for _pass in range(MAX_PASSES):
+        ext, m = _project(ext, ref, rtree, rpts, tol, frozen)
+        hs = []
+        for h in holes:
+            ring, mh = _project(h, ref, rtree, rpts, tol, frozen)
+            hs.append(ring)
+            m += mh
+        n_before = len(ext) + sum(len(h) for h in hs)
+        ext = _insert(ext, rtree, rpts, tol)
+        hs = [_insert(h, rtree, rpts, tol) for h in hs]
+        ins = len(ext) + sum(len(h) for h in hs) - n_before
+        holes = hs
         moved += m
-    n_before = len(ext) + sum(len(h) for h in holes)
-    ext = _insert(ext, rtree, rpts, tol)
-    holes = [_insert(h, rtree, rpts, tol) for h in holes]
-    inserted = len(ext) + sum(len(h) for h in holes) - n_before
+        inserted += ins
+        if m == 0 and ins == 0:
+            break
+    passes = _pass + 1
     try:
         q = Polygon(ext, [h for h in holes if len(h) >= 3])
     except (ValueError, TypeError):
-        return None, 0, 0
+        return None, 0, 0, passes
     if not q.is_valid:
         q = q.buffer(0)
     if q.is_empty:
-        return None, 0, 0
+        return None, 0, 0, passes
     if q.geom_type != "Polygon":
         parts = [g for g in getattr(q, "geoms", ()) if g.geom_type == "Polygon"]
         if not parts:
-            return None, 0, 0
+            return None, 0, 0, passes
         q = max(parts, key=lambda g: g.area)
     if q.area < 0.5 * poly.area:
-        return None, 0, 0
-    return q, moved, max(0, inserted)
+        return None, 0, 0, passes
+    return q, moved, max(0, inserted), passes
 
 
 def _project(coords, ref, rtree, rpts, tol: float, frozen
@@ -171,17 +193,23 @@ def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float
             ) -> list[tuple[float, float]]:
     """``ring`` with every ``ref`` vertex within ``tol`` of one of its
     segments (and not already a vertex) inserted into that segment, in
-    order along it."""
+    order along it — and the sub-segments an insertion makes examined
+    again (a worklist per segment): inserting a vertex bends the
+    segment toward the senior boundary, and the next senior vertex along
+    it is often inside the tolerance of the bent piece though it was
+    outside of the straight one.  Every ref vertex enters at most once,
+    so the worklist terminates."""
     if rtree is None or len(ring) < 3:
         return ring
     out: list[tuple[float, float]] = []
     n = len(ring)
-    for k in range(n):
-        a, b = ring[k], ring[(k + 1) % n]
-        out.append(a)
+    present = {(float(x), float(y)) for x, y in ring}   # already a vertex: never twice
+
+    def between(a, b) -> list[tuple[float, float]]:
+        """The chain of vertices to insert strictly between ``a`` and ``b``."""
         seg = LineString([a, b])
         if seg.length <= 1e-9:
-            continue
+            return []
         found: list[tuple[float, tuple[float, float]]] = []
         for j in rtree.query(seg.buffer(tol), predicate="intersects"):
             c = rpts[int(j)]
@@ -193,10 +221,26 @@ def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float
             if t <= 1e-9 or t >= seg.length - 1e-9:
                 continue                      # an endpoint (or beyond)
             xy = (float(c.x), float(c.y))
-            if xy == a or xy == b:
+            if xy in present:
                 continue
             found.append((t, xy))
+        if not found:
+            return []
+        chain: list[tuple[float, float]] = []
         for _t, xy in sorted(found):
-            if xy != out[-1]:
-                out.append(xy)
+            if xy not in present:
+                chain.append(xy)
+                present.add(xy)
+        # the bent pieces, examined again
+        pts = [a, *chain, b]
+        full: list[tuple[float, float]] = []
+        for u, v in zip(pts, pts[1:]):
+            full.extend(between(u, v))
+            full.append(v)
+        return full[:-1]
+
+    for k in range(n):
+        a, b = ring[k], ring[(k + 1) % n]
+        out.append(a)
+        out.extend(between(a, b))
     return out

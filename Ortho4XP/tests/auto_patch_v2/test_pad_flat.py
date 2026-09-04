@@ -96,3 +96,33 @@ def test_a_relaxed_pad_is_one_plane_never_a_row_until_it_bends(law):
     assert len(rows) == 1 and rows[0]["reading"] == "plane_residual"
     assert rows[0]["relaxed"] is True and rows[0]["face"] == fid
     assert rows[0]["magnitude_m"] > law.tables.emit.relaxation.materiality_m
+
+
+def _tilt_plane(surf, pm, pad_ring_ids, slope: float):
+    """The pad's ring laid on a plane of gradient ``slope`` along x."""
+    ids = set(pad_ring_ids)
+    x0 = min(pm.vertices[i].xy[0] for i in ids)
+    verts = tuple(dataclasses.replace(v, z=v.z + slope * (pm.vertices[v.id].xy[0] - x0))
+                  if v.id in ids else v for v in surf.vertices)
+    return dataclasses.replace(surf, vertices=verts)
+
+
+def test_a_relaxed_pad_steeper_than_the_table_is_one_row(law):
+    """RULINGS 2026-09-05f: a relaxed pad is one plane AND no steeper than
+    ``[relaxation] pad_slope_max``; over it by more than the grade
+    materiality the census reads ``plane_slope``."""
+    airport, pm, surf, pub, rep = _product(law, (730.0, 736.0))
+    if rep.mode != "relaxed":
+        pytest.skip(f"the fixture did not relax on this tree (mode {rep.mode})")
+    relaxed = [r for r in pub["relaxed_rows"] if r["kind"] == "pad"]
+    fid = relaxed[0]["face"]
+    pad = next(f for f in surf.faces if f.id == fid)
+    rl = law.tables.emit.relaxation
+    assert relaxed[0]["slope"] <= rl.pad_slope_max + law.tables.emit.materiality.grade
+    assert census(surf, law, pub, road_law_caps(pm, law, airport))[FAMILY_PAD_FLAT] == []
+    # re-laid as a plane 3x the cap: still one plane, but a defect by slope
+    steep = _tilt_plane(surf, pm, list(pad.ring), 3.0 * rl.pad_slope_max)
+    rows = census(steep, law, pub, road_law_caps(pm, law, airport))[FAMILY_PAD_FLAT]
+    assert len(rows) == 1 and rows[0]["reading"] == "plane_slope", rows
+    assert rows[0]["relaxed"] is True and rows[0]["face"] == fid
+    assert rows[0]["slope"] > rl.pad_slope_max and rows[0]["slope_max"] == rl.pad_slope_max

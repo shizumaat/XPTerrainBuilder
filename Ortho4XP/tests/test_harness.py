@@ -4741,6 +4741,14 @@ def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
     assert conftest.unauthorised_shared_writes(
         {"added": [], "modified": [], "removed": []},
         build_mod.scope_of) == []
+    # a concurrent guarded build's lock churn is never the suite's write
+    # (2026-09-05: it errored the session against the last collected test)
+    assert conftest.unauthorised_shared_writes(
+        {"added": ["Elevation_data/dem.lock"], "modified": [],
+         "removed": ["Airport_mod_cache/.harness/refresh.lock"]},
+        build_mod.scope_of) == []
+    assert conftest.is_lock_churn("Elevation_data/dem.lock")
+    assert not conftest.is_lock_churn("Elevation_data/N30E031.hgt")
 
 
 def test_the_suite_has_no_standing_write_allowance(build_mod):

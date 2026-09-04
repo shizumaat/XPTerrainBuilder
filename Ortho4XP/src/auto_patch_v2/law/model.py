@@ -493,6 +493,8 @@ class Relaxation:
     max_rounds: int
     max_pieces: int
     materiality_m: float
+    #: RULINGS 2026-09-05f: a relaxed pad's plane gradient, at most (m/m)
+    pad_slope_max: float
     relaxable_from_role: str
 
 

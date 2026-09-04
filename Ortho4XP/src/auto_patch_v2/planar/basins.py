@@ -80,7 +80,7 @@ from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..airport import obj8
+from ..airport import deck_signature, obj8
 from ..classify.roles import Cell, Classification
 from ..law import Law
 from ..law.tables import role_side
@@ -124,12 +124,22 @@ def read_objects(airport: Airport, law: Law, cache: obj8.ResourceCache | None = 
     # the loader already resolved: hand the resolved path through the
     # index mapping so obj8 never walks the pack a second time
     index = {o.path: o.resolved_path for o in airport.dsf_objects if o.resolved_path}
-    return obj8.read_placed_objects(rows, None, index, airport.dem.z,
-                                    bl.admission_depth_m, bl.min_solid_thickness_m,
-                                    bl.contact_band_m, cache,
-                                    shell_reaches_grade=bl.shell_reaches_grade,
-                                    floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
-                                    rim_reaches_grade=bl.rim_reaches_grade)
+    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
+    objs, rep = obj8.read_placed_objects(rows, None, index, airport.dem.z,
+                                         bl.admission_depth_m, bl.min_solid_thickness_m,
+                                         bl.contact_band_m, cache,
+                                         shell_reaches_grade=bl.shell_reaches_grade,
+                                         floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
+                                         rim_reaches_grade=bl.rim_reaches_grade)
+    # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
+    # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
+    objs, drep = deck_signature.classify(objs, cache, law,
+                                         deck_signature.bridge_lines(airport.osm_ways))
+    rep.deck_families = drep.families
+    rep.deck_signature_families = drep.accepted
+    rep.deck_candidate_families = drep.candidates
+    rep.deck_records = tuple(drep.records)
+    return objs, rep
 
 
 def _snap_ring(poly: Polygon, grid: float) -> Polygon | None:

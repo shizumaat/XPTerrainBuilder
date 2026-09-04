@@ -64,6 +64,7 @@ from ..law import Law
 from ..law.tables import role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
+from ..airport.deck_signature import is_bridge_way
 from ..model.structures import Deck, Tunnel
 from .basins import object_decks
 
@@ -102,8 +103,8 @@ def _is_tunnel(w: OsmWay) -> bool:
 
 
 def _is_bridge(w: OsmWay) -> bool:
-    b = w.tags.get("bridge")
-    return bool(b) and b != "no" and ("highway" in w.tags or "railway" in w.tags)
+    """One predicate with the deck signature's (``airport/deck_signature``)."""
+    return is_bridge_way(w.tags)
 
 
 def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
@@ -523,6 +524,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # decks across the corridor (a first pass over the full reach)
         deck_ivals = _deck_intervals(axis_ln, half + gap + bw, bridges, bridge_lines,
                                      bridge_tree, law)
+        # only a DECK (flagged, or the signature's) enters here — never a
+        # candidate plate crossing the corridor: at OTHH 22 terminal
+        # slab / kerb-road plates cross the four terminal tunnels, and
+        # promoting them pushed every climb past the slabs and lost four
+        # tunnels (portal acceptance 8/8 -> 7/8, site B3 at 1,725 m);
+        # the tunnel under a building is the pad law's, not a bridge's
         obj_ivals = _object_deck_intervals(axis_ln, half + gap + bw, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a

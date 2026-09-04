@@ -197,6 +197,9 @@ class Component:
     cx: float
     cz: float
     deck: bool
+    #: The component's triangle indices into ``ObjGeometry.solid`` (the
+    #: deck signature reads a plate's own component's faces).
+    idx: np.ndarray | None = None
 
 
 def solid_components(geom: ObjGeometry) -> list[Component]:
@@ -225,7 +228,8 @@ def solid_components(geom: ObjGeometry) -> list[Component]:
         pts = v[tris.reshape(-1)]
         out.append(Component(tris, float(pts[:, 1].min()), float(pts[:, 1].max()),
                              float(pts[:, 0].mean()), float(pts[:, 2].mean()),
-                             bool((geom.hardness[mask] == HARD_DECK).any())))
+                             bool((geom.hardness[mask] == HARD_DECK).any()),
+                             np.nonzero(mask)[0]))
     return out
 
 
@@ -476,6 +480,23 @@ class PlacedObject:
     #: The floor-carrying components (04i): ``below_grade`` is the union
     #: of their ``below`` footprints.
     witnesses: tuple[FloorWitness, ...] = ()
+    #: THE DECK SIGNATURE (RULINGS 2026-09-04k; ``airport/deck_signature.py``):
+    #: ``"flag"`` when ``hard_deck`` came from ``ATTR_hard_deck`` (the
+    #: primary signature), ``"signature"`` when the geometry read a deck
+    #: plate that spans a mapped bridge way or an emitted below-grade
+    #: region (``hard_deck`` / ``deck_top_z`` are then that plate's),
+    #: ``"candidate"`` for a plate with no spanning evidence yet (the
+    #: tunnel pass may promote one crossing its ramp), ``"family"`` for a
+    #: member of a deck family carrying no plate of its own (a pier, a
+    #: railing: it seats WITH its deck), ``""`` otherwise.
+    deck_kind: str = ""
+    #: The evidence the signature recorded for this object (04k: "evidence
+    #: recorded per object"), human-readable, one line per fact.
+    deck_evidence: tuple[str, ...] = ()
+    #: The plate reading itself (``deck_signature.DeckPlate``) — its axis
+    #: end lines and deck-top profile in the airport frame, which the
+    #: re-seat's abutment law reads.  ``None`` without a plate.
+    deck_plate: object | None = None
 
 
 @_dc.dataclass
@@ -504,6 +525,14 @@ class ObjReport:
     #: slab 5.8 m under the local ground and its walls 15 m above it):
     #: path -> (placements, highest top above the ground, deepest depth).
     through_grade: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
+    #: The deck signature (04k; ``deck_signature.classify``): anchor
+    #: families read, families whose plate spans a bridge way (decks),
+    #: families with a plate and no spanning evidence (candidates), and
+    #: the per-family records.
+    deck_families: int = 0
+    deck_signature_families: int = 0
+    deck_candidate_families: int = 0
+    deck_records: tuple = ()
 
 
 def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float | None, str]],
@@ -633,7 +662,10 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
                     rep.hard_deck_objects += 1
         out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
-                                below, bbox, smin_z, smin_d, deck, top, tuple(witnesses)))
+                                below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
+                                "flag" if deck is not None else "",
+                                ("ATTR_hard_deck: the primary deck signature",)
+                                if deck is not None else ()))
     return out, rep
 
 

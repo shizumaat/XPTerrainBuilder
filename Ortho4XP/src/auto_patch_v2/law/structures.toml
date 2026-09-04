@@ -11,6 +11,11 @@ ramp_max_grade    = 0.040   # descent grade of the ramp (common.roles.tunnel_ram
 bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
 ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
+wall_band_width_m = 1.0     # the wall band's plan width, inner edge to outer edge; both edges carry the crest (09-01c "wall band whose INNER AND OUTER edges both carry the same corridor-top elevation"; M0 Q2 — no v1 constant, stated here 2026-09-04 as the LEMD §F1 read "a band is ~1 m wide")
+lane_width_m      = 3.5     # carriageway width per mapped lane when the way carries no `width` tag (the ramp footprint is the carriageway, 2026-08-30 "ONE ramp surface")
+default_lanes     = 2       # lanes assumed for a mapped way with neither `lanes` nor `width`
+dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
+max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
 
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)

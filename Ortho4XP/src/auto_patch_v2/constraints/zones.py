@@ -186,8 +186,15 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             continue
         for v in vw.rings[f.id]:
             member.setdefault(v, set()).add(cls)
+    # THE ZONES STOP AT THE WALL (M4, 08-30l row "adjacent-ground zones
+    # stop at the wall"; 2026-09-03b L2 "the wall IS the discontinuity"):
+    # a strip vertex on a retaining wall's edge carries the wall's crest
+    # (the DEM) and no band toward a pavement lip binds it — measured
+    # OTHH: an IIS of two crest pins and one mandatory-down band row
+    wall_vertices = {v for f in vw.faces_of_role(("retaining_wall",))
+                     for v in vw.rings[f.id]}
     for v, classes in member.items():
-        if v in vw.pavement_vertices:
+        if v in vw.pavement_vertices or v in wall_vertices:
             continue
         src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)

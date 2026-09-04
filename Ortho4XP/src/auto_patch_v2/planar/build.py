@@ -31,6 +31,7 @@ from ..model.frame import XY, Key
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .overlay import Arrangement, build_arrangement
+from .structures import StructureStats, build_structures, ramp_targets
 
 __all__ = ["BuildStats", "build"]
 
@@ -59,13 +60,16 @@ class BuildStats:
     seam_bands: int = 0
     seam_vertices: int = 0
     dropped_seam_faces: int = 0
+    structures: StructureStats = _dc.field(default_factory=StructureStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None) -> tuple[PlanarMap, BuildStats]:
     """The planar map for ``airport`` under ``law``, validated."""
+    classification, tunnels, sstats = build_structures(airport, classification, law)
     arr = build_arrangement(airport, classification, law, grid_m)
-    stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces)
+    stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
+                       structures=sstats)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 
@@ -141,17 +145,19 @@ def build(airport: Airport, classification: Classification, law: Law,
     ys = np.array([p[1] for p in vertices_xy])
     lat, lon = to_ll(xs, ys)
     zs = _sample(airport, xs, ys)
+    # a tunnel ramp's target is its designed profile (``ramp_targets``)
+    targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs)
     dp = frame.identity_dp
     vertices: dict[int, Vertex] = {}
     for v, p in enumerate(vertices_xy):
         key: Key = (round(float(lat[v]), dp), round(float(lon[v]), dp))
-        z = float(zs[v])
+        z = targets.get(v, float(zs[v]))
         vertices[v] = Vertex(v, p, key, None if math.isnan(z) else z,
                              tuple(sorted(incident[v])))
 
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
-                   faces, {b.id: b for b in breaklines}, seam)
+                   faces, {b.id: b for b in breaklines}, seam, tunnels)
     validate(pm)
     stats.seam_bands = len(arr.seam_bands)
     stats.seam_vertices = len(seam)

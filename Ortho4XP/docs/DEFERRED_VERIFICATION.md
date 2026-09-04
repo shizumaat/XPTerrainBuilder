@@ -5966,3 +5966,5 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   `road_piece_ledger` (it tracks `tunnel_*` refs only) — a ledger row
   for host pieces is owed if the owner wants them ledgered.
 - 2026-09-04 v2 M3b (lane/v2m3b): CYXY and SPLP NOT re-built / re-censused after the DSF facade cpp-5 control-point fix (`airport/dsf.py::_flatten`) — their pad counts may change (one airport per round, BUILD ECONOMY 29e). Full pytest suite not run (only `tests/auto_patch_v2`, 84 pass, and no v1 test). Solve wall quoted single-run (13.0 s, bar 30 s); the mesh bar was measured 3 runs per arm.
+
+- 2026-09-04 v2 M4 (lane/v2m4): CYXY and SPLP NOT re-censused after the zone keep-out and structure pass (no bores at either — the pass is a no-op there by construction; one airport per round); no `--runs 3` solve-time read (single-run walls); the five-airport sweep is the orchestrator's.

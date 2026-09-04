@@ -95,6 +95,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}", out)
+    ss = pstats.structures
+    if ss.bores:
+        _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered})  "
+             f"mouths {ss.mouths}  duals merged {ss.duals_merged}  tunnels {ss.tunnels}  "
+             f"decks {ss.decks}  cells cut {ss.cells_cut}  refused {len(ss.refused)}", out)
+        for r in ss.refused:
+            _say(f"    refused {r}", out)
+        for tn in pm.structures:
+            _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
+                 f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
     t = time.perf_counter()
     cs, counts, gwalls = generate(pm, law, airport)
     wall["constraints"] = time.perf_counter() - t

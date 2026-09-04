@@ -23,6 +23,7 @@ from .strips import (adjacent_ground_tear, raoa, resa_transverse, strip_arc,
                      strip_longitudinal, strip_seam_tear)
 from .contiguity import lateral_contiguity
 from .frontage import frontage_near_miss
+from .structures import ACCEPTANCE, wall_in_runway_strip
 from .transverse import transverse
 from .within import plane_gradient, within_shape
 
@@ -48,6 +49,7 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "mid_edge_step": mid_edge_step,
     "lateral_contiguity": lateral_contiguity,
     "frontage_near_miss": frontage_near_miss,
+    "wall_in_runway_strip": wall_in_runway_strip,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or
@@ -55,7 +57,7 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
 NOT_IMPLEMENTED: tuple[str, ...] = (
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "basin_floor_declaration", "drainage_spine", "apron_lattice_membrane",
-    "drainage_minimum", "wall_in_runway_strip",
+    "drainage_minimum",
 )
 
 
@@ -70,6 +72,10 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
     out["within_shape"] = within
     out["road_cross_section"] = xsec
     for key, fn in READERS.items():
+        out[key] = fn(p)
+    # the tunnel ACCEPTANCE checks (M4) — not law families, published
+    # beside them under their own keys
+    for key, fn in ACCEPTANCE.items():
         out[key] = fn(p)
     return out
 

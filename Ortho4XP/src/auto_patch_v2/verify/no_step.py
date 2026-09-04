@@ -40,7 +40,8 @@ def no_step_direct(p: Patch) -> list[Row]:
         return None if best is None else best[1]
 
     out: list[Row] = []
-    for rec in p.publication.get("airside_no_step_edges") or []:
+    for rec in [*(p.publication.get("airside_no_step_edges") or []),
+                *(p.publication.get("pad_pavement_no_step_edges") or [])]:
         ax, ay = p.to_m(float(rec["a"][0]), float(rec["a"][1]))
         bx, by = p.to_m(float(rec["b"][0]), float(rec["b"][1]))
         ka, kb = find(ax, ay), find(bx, by)

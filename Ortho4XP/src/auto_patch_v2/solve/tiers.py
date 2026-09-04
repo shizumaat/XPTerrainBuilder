@@ -233,6 +233,17 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
         s2 = solve_hard(planar, cs2, _dc.replace(weights, tier_ratio=ratio),
                         opt if k_min == 1 else quiet, size_out=size2)
         rep.attempts.append((k_min, s2.status.value, s2.wall_s))
+        if s2.status is Status.ERROR and ratio > 1.0:
+            # HiGHS "numerical difficulties" (measured HECA, k_min 4, ratio
+            # 5.8): the same rows on a FLAT ladder — every demoted tier at
+            # the base charge — still holds every senior tier hard, which
+            # is the exact part; the ranking among the demoted tiers is
+            # the part given up, and the report says so (ratio 1)
+            ratio = 1.0
+            size2 = {}
+            s2 = solve_hard(planar, cs2, _dc.replace(weights, tier_ratio=1.0),
+                            opt if k_min == 1 else quiet, size_out=size2)
+            rep.attempts.append((k_min, s2.status.value + " (flat ladder)", s2.wall_s))
         return s2, demoted, size2, ratio
 
     lo, hi = 1, lowest                # lo: assumed feasible; hi: not yet refuted

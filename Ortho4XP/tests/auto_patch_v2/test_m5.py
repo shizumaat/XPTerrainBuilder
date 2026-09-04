@@ -218,11 +218,15 @@ def test_pad_pavement_pairs_join_the_population(law):
     pad_only = {v for v in pad_vs if all(pm.faces[f].role == "building"
                                           for f in pm.vertices[v].incident_faces)}
     assert pad_only, "the fixture's detached pad must have pad-only vertices"
-    with_pad = [e for e in edges if e[0] in pad_only or e[1] in pad_only]
-    assert with_pad
-    assert not any(a in pad_only and b in pad_only for a, b, *_ in edges)
+    assert set(no_step.pad_only_vertices(pm, law)) == pad_only
+    # the pavement list is the oracle's and carries no pad endpoint
+    assert not any(a in pad_only or b in pad_only for a, b, *_ in edges)
+    with_pad = no_step.pad_pavement_edges(pm, law)
+    assert with_pad and all((a in pad_only) != (b in pad_only) for a, b, *_ in with_pad)
     cap = role_cap(law, "apron").longitudinal
     assert all(abs(c - cap) < 1e-12 for _a, _b, c, _d in with_pad)
+    rows = no_step.no_step_pairs(pm, law, airport)
+    assert len(rows) == len(edges) + len(with_pad)
     assert "building" in no_step.rigid_airside_roles(law)
     assert "building" not in no_step.no_step_roles(law)
 
@@ -258,7 +262,7 @@ def test_a_mixed_pad_vertex_is_not_pad_only(law):
     cells.append(Cell(9, "groundside_pavement", "lot1", _rect(290, 150, 350, 200), (), None,
                       None, "groundside", "road", {}))
     pm2, _ = build(airport, Classification(tuple(cells), (), {}, ()), law)
-    edges = no_step.no_step_edges(pm2, law)
+    edges = no_step.no_step_edges(pm2, law) + no_step.pad_pavement_edges(pm2, law)
     shared = {v for v in pm2.vertices
               if {pm2.faces[f].role for f in pm2.vertices[v].incident_faces}
               == {"building", "groundside_pavement"}}

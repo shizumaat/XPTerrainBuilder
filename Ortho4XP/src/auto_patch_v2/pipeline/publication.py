@@ -10,6 +10,11 @@ vertices' canonical lat/lon identity so the census joins exactly.
   (``constraints.runway_profile.crown_drops``);
 * ``airside_no_step_edges``: ``{a, b, budget_m, dist_m}`` per priced
   direct-distance pair (``constraints.no_step.no_step_edges``);
+* ``pad_pavement_no_step_edges``: the same record per PAD↔PAVEMENT pair
+  (M5, ``constraints.no_step.pad_pavement_edges``) — its own key because
+  the v1 oracle's proximity join resolves a pad endpoint to a mixed
+  pad's 0.5 m groundside cut-back node (measured SPJC: 70 false 7.2 m
+  rows); v2 verify prices it by identity;
 * ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
   (``constraints.seams``) — the census skips pin↔pin pairs and prices
   pin↔free pairs at the body cap (user 2026-07-04);
@@ -31,7 +36,7 @@ from __future__ import annotations
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
-from ..constraints.no_step import no_step_edges
+from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops
 from ..constraints.seams import seam_pins, seam_vertices_pinned
@@ -84,8 +89,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 continue
             la, lo = to_ll(*st.xy)
             stations.append([round(la, 8), round(lo, 8), st.cap])
+    pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
+                  "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law)]
     return {"axes": ax_out, "crown_drops": drops,
             "airside_no_step_edges": edges,
+            "pad_pavement_no_step_edges": pad_edges,
             "seam_pins": [ll[v] for v in pins],
             "station_caps": stations,
             "basin_facilities": basin_facilities(planar, law, z)}

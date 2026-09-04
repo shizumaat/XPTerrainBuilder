@@ -326,13 +326,16 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 
 def _wall_rows(planar: PlanarMap, airport: Airport, path: LineString, wall_vs: list[int],
                shared_with_ground: _t.Callable[[int], bool], rows: list[Row],
-               pin: _t.Callable[..., None], src_wall: Source, src_band: Source
-               ) -> list[tuple[float, list[int]]]:
+               pin: _t.Callable[..., None], src_wall: Source, src_band: Source,
+               src_tie: Source | None = None) -> list[tuple[float, list[int]]]:
     """THE WALL CREST BY STATION (2026-09-03b L1; 2026-09-01c; the ground
     rule): the band's vertices grouped by station along ``path`` — one
     ``Flat`` per station across the band; a station the governed ground
     shares carries the ground's value, a bare one the DEM at its own
-    station on the centreline.  Returns the groups."""
+    station on the centreline.  With ``src_tie`` a shared station's
+    ``Flat`` is sourced as THE RIM TIE (2026-08-28c item 3: the rim
+    LEVEL with the apron — the hard row binding the whole band station
+    to the pavement vertex it shares).  Returns the groups."""
     closed = len(path.coords) > 2 and path.coords[0] == path.coords[-1]
     groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in wall_vs],
                       _STATION_CLUSTER_M)
@@ -342,9 +345,10 @@ def _wall_rows(planar: PlanarMap, airport: Airport, path: LineString, wall_vs: l
         first, last = groups[0], groups.pop()
         groups[0] = (first[0], first[1] + last[1])
     for u, vs in groups:
+        shared = any(shared_with_ground(v) for v in vs)
         if len(vs) > 1:
-            rows.append(Flat(tuple(vs), src_band))
-        if any(shared_with_ground(v) for v in vs):
+            rows.append(Flat(tuple(vs), src_tie if (shared and src_tie is not None) else src_band))
+        if shared:
             continue                      # the ground's value carries the crest
         # ONE value per station: the DEM at the group's own station on
         # the band's centreline (inner and outer edge project millimetres
@@ -391,8 +395,11 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         inputs = (b.id, *(f"obj:{o}" for o in b.objects[:8]))
         src_floor = Source(GEN, "basin.floor = deepest_solid: R_est + min solid − "
                            "(floor_below_object_deck_m + seat_margin_m) (2026-08-26)", inputs)
-        src_wall = Source(GEN, "basin.rim = ground (2026-08-28c item 3; 2026-09-03b L1)", inputs)
+        src_wall = Source(GEN, "basin.rim = ground: crest = DEM where bare (2026-09-03b L1; "
+                          "2026-09-04d)", inputs)
         src_band = Source(GEN, "one crest value per station (2026-09-01c)", inputs)
+        src_tie = Source(GEN, "basin.rim = ground: the rim LEVEL with the apron it shares "
+                         "(2026-08-28c item 3) — the station tied to the pavement vertex", inputs)
         for f in faces_by_ref.get(b.floor_ref, ()):
             for v in set(planar.ring_vertices(f.ring)):
                 pin(v, b.floor_z, src_floor, senior=True)
@@ -401,6 +408,6 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             wall_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
                               for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
             _wall_rows(planar, airport, path, wall_vs, shared_with_ground, rows, pin,
-                       src_wall, src_band)
+                       src_wall, src_band, src_tie)
     rows.extend(pins.values())
     return rows

@@ -105,9 +105,9 @@ class Basin:
     ``solid_min_y_m`` the same relative to ``R_est`` (the sidecar's
     ``solid_minimum_y_m``, so ``floor_z == rim_estimate_m +
     solid_min_y_m − margins`` holds exactly); ``covered_fraction`` the
-    openness reading (the pack's own geometry above the contact band
-    over the ring); ``anchor_ll`` a representative point inside the
-    ring."""
+    cover reading (the pack's own geometry above the contact band over
+    the ring — reported, never a refusal: 04i); ``anchor_ll`` a
+    representative point inside the ring."""
 
     id: str
     objects: tuple[str, ...]
@@ -123,3 +123,8 @@ class Basin:
     area_m2: float = 0.0
     anchor_ll: tuple[float, float] = (0.0, 0.0)
     notes: tuple[str, ...] = ()
+    #: 04i: the deep floor plates' area inside the ring (the floor
+    #: evidence) and the kind — ``"pit"`` (open) or ``"covered pit"``
+    #: (cover above the contact band over it; the cover is the object).
+    floor_plate_m2: float = 0.0
+    kind: str = "pit"

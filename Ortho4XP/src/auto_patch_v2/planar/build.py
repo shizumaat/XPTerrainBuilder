@@ -76,7 +76,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     read_s = _time.perf_counter() - t0
     classification, tunnels, sstats = build_structures(airport, classification, law, objects)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
-                                                  objects, cache)
+                                                  objects, cache, report=orep)
     bstats.objects = orep
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)

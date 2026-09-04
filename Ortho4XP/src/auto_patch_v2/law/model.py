@@ -296,14 +296,16 @@ class Basin:
     admission_depth_m: float
     contact_band_m: float
     footprint_close_m: float
-    min_area_m2: float
+    min_area_m2: float                 # diagnostic only (04i)
     rim_sample_step_m: float
-    max_covered_fraction: float
+    max_covered_fraction: float        # diagnostic only (04i)
     floor_disagreement_m: float
     rim: str
     shell_reaches_grade: bool
     cuts_pads: bool
     cuts_runway_family: bool
+    floor_plate_normal_y_min: float    # 04i: the floor-plate gate
+    rim_reaches_grade: bool            # 04i: the closed-region test
 
 
 @_dc.dataclass(frozen=True)
@@ -518,7 +520,7 @@ def _sane(path: str, name: str, value: float) -> None:
         if value < 0:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
         return
-    if name == "max_covered_fraction":
+    if name in ("max_covered_fraction", "floor_plate_normal_y_min"):
         if not 0.0 <= value <= 1.0:
             raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return

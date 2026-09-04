@@ -1,0 +1,837 @@
+[
+ {
+  "node": 2379,
+  "node_desc": {
+   "idx": 2379,
+   "ll": "30.1088001,31.3900895",
+   "xy": [
+    -4292.58,
+    -15.298
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 95.52,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "gap": 19.640689291492237,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2379,
+   "ll": "30.1088001,31.3900895",
+   "xy": [
+    -4292.58,
+    -15.298
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 95.52,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 1.80773476383456,
+  "dU": 0.0,
+  "senior": "L",
+  "chain_from_L": [
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 17
+ },
+ {
+  "node": 4221,
+  "node_desc": {
+   "idx": 4221,
+   "ll": "30.1089035,31.3900709",
+   "xy": [
+    -4294.37,
+    -3.78
+   ],
+   "tier": 4,
+   "class": "apron_membrane(t4)",
+   "pin": "free",
+   "roles": [
+    "apron:"
+   ],
+   "z": 95.043,
+   "z_solve": 94.9,
+   "dem": 94.92,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.06,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "gap": 19.515561194824414,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2378,
+   "ll": "30.1089285,31.3900551",
+   "xy": [
+    -4295.894,
+    -1.002
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 94.76,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 1.9242932855536878,
+  "dU": 0.00856957494869448,
+  "senior": "L",
+  "chain_from_L": [
+   "4221->2379 [pad(t3)] bud 0.117 dz +0.009 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [
+   "4221->2378 [pad(t3)] bud 0.009 dz +0.009 :: own-law RELAXED to pass-1 residual (\u00a7H1.2)"
+  ],
+  "n_nodes_sharing_pair": 2
+ },
+ {
+  "node": 2377,
+  "node_desc": {
+   "idx": 2377,
+   "ll": "30.1089482,31.3901196",
+   "xy": [
+    -4289.682,
+    1.191
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 94.58,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "gap": 19.43394746499854,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2377,
+   "ll": "30.1089482,31.3901196",
+   "xy": [
+    -4289.682,
+    1.191
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 94.58,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 2.0144765903282575,
+  "dU": 0.0,
+  "senior": "L",
+  "chain_from_L": [
+   "2377->4222 [apron_membrane(t4)] bud 0.050 dz -0.050 :: own-law RELAXED to pass-1 residual (\u00a7H1.2)",
+   "4222->2379 [pad(t3)] bud 0.157 dz +0.050 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 2
+ },
+ {
+  "node": 24599,
+  "node_desc": {
+   "idx": 24599,
+   "ll": "30.1072841,31.3905814",
+   "xy": [
+    -4245.21,
+    -184.05
+   ],
+   "tier": 4,
+   "class": "apron_membrane(t4)",
+   "pin": "free",
+   "roles": [
+    "apron_lattice:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.36,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "gap": 18.562754291492226,
+  "high_anchor(L)": {
+   "idx": 24940,
+   "ll": "30.1072935,31.3908463",
+   "xy": [
+    -4219.704,
+    -183.013
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.4,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2379,
+   "ll": "30.1088001,31.3900895",
+   "xy": [
+    -4292.58,
+    -15.298
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 95.52,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 0.382907000000003,
+  "dU": 2.5027627638345677,
+  "senior": "L",
+  "chain_from_L": [
+   "24599->24940 [spine_station(t2)] bud 0.383 dz -0.383 :: own-law RELAXED to pass-1 residual (\u00a7H1.2)"
+  ],
+  "chain_from_U": [
+   "24599->24600 [apron_membrane(t4)] bud 0.750 dz +0.012 :: apron_lattice published budget 0.750",
+   "24600->24601 [apron_membrane(t4)] bud 0.750 dz +0.410 :: apron_lattice published budget 0.750",
+   "24601->24602 [apron_membrane(t4)] bud 0.750 dz +17.553 :: apron_lattice published budget 0.750",
+   "24602->2379 [pad(t3)] bud 0.253 dz +3.090 :: own-law (within-shape/station/transverse)"
+  ],
+  "n_nodes_sharing_pair": 7
+ },
+ {
+  "node": 24598,
+  "node_desc": {
+   "idx": 24598,
+   "ll": "30.1068519,31.3907224",
+   "xy": [
+    -4231.628,
+    -232.17
+   ],
+   "tier": 4,
+   "class": "apron_membrane(t4)",
+   "pin": "free",
+   "roles": [
+    "apron_lattice:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.5,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "gap": 17.777167291492233,
+  "high_anchor(L)": {
+   "idx": 24939,
+   "ll": "30.1067798,31.3909999",
+   "xy": [
+    -4204.908,
+    -240.195
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.5,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2379,
+   "ll": "30.1088001,31.3900895",
+   "xy": [
+    -4292.58,
+    -15.298
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 95.52,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 0.4184939999999955,
+  "dU": 3.2527627638345677,
+  "senior": "L",
+  "chain_from_L": [
+   "24598->24939 [spine_station(t2)] bud 0.418 dz -0.418 :: apron_lattice published budget 0.418"
+  ],
+  "chain_from_U": [
+   "24598->24599 [apron_membrane(t4)] bud 0.750 dz -0.036 :: apron_lattice published budget 0.750",
+   "24599->24600 [apron_membrane(t4)] bud 0.750 dz +0.012 :: apron_lattice published budget 0.750",
+   "24600->24601 [apron_membrane(t4)] bud 0.750 dz +0.410 :: apron_lattice published budget 0.750",
+   "24601->24602 [apron_membrane(t4)] bud 0.750 dz +17.553 :: apron_lattice published budget 0.750",
+   "24602->2379 [pad(t3)] bud 0.253 dz +3.090 :: own-law (within-shape/station/transverse)"
+  ],
+  "n_nodes_sharing_pair": 8
+ },
+ {
+  "node": 2380,
+  "node_desc": {
+   "idx": 2380,
+   "ll": "30.1084494,31.3885498",
+   "xy": [
+    -4440.85,
+    -54.331
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 96.38,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "gap": 17.527475252163825,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2380,
+   "ll": "30.1084494,31.3885498",
+   "xy": [
+    -4440.85,
+    -54.331
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 96.38,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 3.920948803162972,
+  "dU": 0.0,
+  "senior": "L",
+  "chain_from_L": [
+   "2380->4210 [apron_membrane(t4)] bud 0.660 dz -1.303 :: no_step t3-t4 imposed=True APRON_MAX_GRADE 0.01 (config.py:1004) dist 66.0 m",
+   "4210->2379 [pad(t3)] bud 1.453 dz +1.303 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 24
+ },
+ {
+  "node": 4286,
+  "node_desc": {
+   "idx": 4286,
+   "ll": "30.1080080,31.3886558",
+   "xy": [
+    -4430.65,
+    -103.471
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.66,
+   "z_solve": 95.66,
+   "dem": 96.86,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.66,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "gap": 17.132297129263605,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 4286,
+   "ll": "30.1080080,31.3886558",
+   "xy": [
+    -4430.65,
+    -103.471
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.66,
+   "z_solve": 95.66,
+   "dem": 96.86,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.66,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "dL": 3.707702870736398,
+  "dU": 0.0,
+  "senior": "U",
+  "chain_from_L": [
+   "4286->4214 [apron_membrane(t4)] bud 0.095 dz +0.005 :: own-law (within-shape/station/transverse)",
+   "4214->4210 [apron_membrane(t4)] bud 0.352 dz -0.700 :: no_step t4-t4 imposed=True TAXI_MAX_GRADE 0.015 (config.py:821) dist 23.5 m",
+   "4210->2379 [pad(t3)] bud 1.453 dz +1.303 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 1
+ },
+ {
+  "node": 4285,
+  "node_desc": {
+   "idx": 4285,
+   "ll": "30.1079796,31.3886252",
+   "xy": [
+    -4433.594,
+    -106.631
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.66,
+   "z_solve": 95.66,
+   "dem": 96.85,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.66,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "gap": 17.051628606545876,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 4285,
+   "ll": "30.1079796,31.3886252",
+   "xy": [
+    -4433.594,
+    -106.631
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.66,
+   "z_solve": 95.66,
+   "dem": 96.85,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.66,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "dL": 3.7883713934541277,
+  "dU": 0.0,
+  "senior": "U",
+  "chain_from_L": [
+   "4285->4214 [apron_membrane(t4)] bud 0.175 dz +0.005 :: own-law (within-shape/station/transverse)",
+   "4214->4210 [apron_membrane(t4)] bud 0.352 dz -0.700 :: no_step t4-t4 imposed=True TAXI_MAX_GRADE 0.015 (config.py:821) dist 23.5 m",
+   "4210->2379 [pad(t3)] bud 1.453 dz +1.303 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 1
+ },
+ {
+  "node": 24597,
+  "node_desc": {
+   "idx": 24597,
+   "ll": "30.1064196,31.3908635",
+   "xy": [
+    -4218.047,
+    -280.291
+   ],
+   "tier": 4,
+   "class": "apron_membrane(t4)",
+   "pin": "free",
+   "roles": [
+    "apron_lattice:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.5,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "gap": 16.954465291492227,
+  "high_anchor(L)": {
+   "idx": 24938,
+   "ll": "30.1062661,31.3911536",
+   "xy": [
+    -4190.112,
+    -297.377
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.5,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 2379,
+   "ll": "30.1088001,31.3900895",
+   "xy": [
+    -4292.58,
+    -15.298
+   ],
+   "tier": 3,
+   "class": "pad(t3)",
+   "pin": "free",
+   "roles": [
+    "apron:",
+    "building:building170"
+   ],
+   "z": 95.0516,
+   "z_solve": 94.9,
+   "dem": 95.52,
+   "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+   "pre_fgp": 94.9,
+   "fgp": 95.05,
+   "fgp_moved": true,
+   "joined": true
+  },
+  "dL": 0.4911960000000022,
+  "dU": 4.002762763834568,
+  "senior": "L",
+  "chain_from_L": [
+   "24597->24938 [spine_station(t2)] bud 0.491 dz -0.491 :: apron_lattice published budget 0.491"
+  ],
+  "chain_from_U": [
+   "24597->24598 [apron_membrane(t4)] bud 0.750 dz -0.073 :: apron_lattice published budget 0.750",
+   "24598->24599 [apron_membrane(t4)] bud 0.750 dz -0.036 :: apron_lattice published budget 0.750",
+   "24599->24600 [apron_membrane(t4)] bud 0.750 dz +0.012 :: apron_lattice published budget 0.750",
+   "24600->24601 [apron_membrane(t4)] bud 0.750 dz +0.410 :: apron_lattice published budget 0.750",
+   "24601->24602 [apron_membrane(t4)] bud 0.750 dz +17.553 :: apron_lattice published budget 0.750",
+   "24602->2379 [pad(t3)] bud 0.253 dz +3.090 :: own-law (within-shape/station/transverse)"
+  ],
+  "n_nodes_sharing_pair": 11
+ },
+ {
+  "node": 4284,
+  "node_desc": {
+   "idx": 4284,
+   "ll": "30.1079533,31.3885969",
+   "xy": [
+    -4436.32,
+    -109.557
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.68,
+   "z_solve": 95.68,
+   "dem": 96.85,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.68,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "gap": 16.953546290352563,
+  "high_anchor(L)": {
+   "idx": 24941,
+   "ll": "30.1078071,31.3906926",
+   "xy": [
+    -4234.499,
+    -125.831
+   ],
+   "tier": 2,
+   "class": "spine_station(t2)",
+   "pin": "free",
+   "roles": [
+    "apron_station:"
+   ],
+   "z": 116.5,
+   "z_solve": 116.5,
+   "dem": 98.02,
+   "pinner": "UNJOINED",
+   "pre_fgp": null,
+   "fgp": null,
+   "fgp_moved": null,
+   "joined": false
+  },
+  "low_anchor(U)": {
+   "idx": 4284,
+   "ll": "30.1079533,31.3885969",
+   "xy": [
+    -4436.32,
+    -109.557
+   ],
+   "tier": 0,
+   "class": "non-airside(service_road)",
+   "pin": "free",
+   "roles": [
+    "service_road:"
+   ],
+   "z": 95.68,
+   "z_solve": 95.68,
+   "dem": 96.85,
+   "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+   "pre_fgp": 95.68,
+   "fgp": null,
+   "fgp_moved": false,
+   "joined": true
+  },
+  "dL": 3.8664537096474305,
+  "dU": 0.0,
+  "senior": "U",
+  "chain_from_L": [
+   "4284->4214 [apron_membrane(t4)] bud 0.253 dz +0.025 :: own-law (within-shape/station/transverse)",
+   "4214->4210 [apron_membrane(t4)] bud 0.352 dz -0.700 :: no_step t4-t4 imposed=True TAXI_MAX_GRADE 0.015 (config.py:821) dist 23.5 m",
+   "4210->2379 [pad(t3)] bud 1.453 dz +1.303 :: own-law (within-shape/station/transverse)",
+   "2379->24602 [apron_membrane(t4)] bud 0.253 dz -3.090 :: own-law (within-shape/station/transverse)",
+   "24602->24601 [apron_membrane(t4)] bud 0.750 dz -17.553 :: apron_lattice published budget 0.750",
+   "24601->24941 [spine_station(t2)] bud 0.805 dz -0.805 :: apron_lattice published budget 0.805"
+  ],
+  "chain_from_U": [],
+  "n_nodes_sharing_pair": 1
+ }
+]

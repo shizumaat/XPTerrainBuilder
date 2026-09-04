@@ -1,0 +1,218 @@
+{
+ "apron_-10270": {
+  "n_infeasible_within_25m": 44,
+  "worst": {
+   "node": {
+    "idx": 4327,
+    "ll": "30.1105867,31.3951150",
+    "xy": [
+     -3808.63,
+     183.59
+    ],
+    "tier": 4,
+    "class": "apron_membrane(t4)",
+    "pin": "free",
+    "roles": [
+     "apron:",
+     "service_junction:"
+    ],
+    "z": 96.4223,
+    "z_solve": 102.25,
+    "dem": 93.25,
+    "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+    "pre_fgp": 102.25,
+    "fgp": 96.42,
+    "fgp_moved": true,
+    "joined": true
+   },
+   "gap": 11.85696722808963,
+   "L": {
+    "idx": 24937,
+    "ll": "30.1085776,31.3941072",
+    "xy": [
+     -3905.68,
+     -40.059
+    ],
+    "tier": 2,
+    "class": "spine_station(t2)",
+    "pin": "free",
+    "roles": [
+     "apron_station:"
+    ],
+    "z": 114.47,
+    "z_solve": 114.47,
+    "dem": 99.5,
+    "pinner": "UNJOINED",
+    "pre_fgp": null,
+    "fgp": null,
+    "fgp_moved": null,
+    "joined": false
+   },
+   "U": {
+    "idx": 4356,
+    "ll": "30.1105731,31.3950846",
+    "xy": [
+     -3811.557,
+     182.07
+    ],
+    "tier": 0,
+    "class": "non-airside(service_junction)",
+    "pin": "hard",
+    "roles": [
+     "service_junction:"
+    ],
+    "z": 96.25,
+    "z_solve": 98.23,
+    "dem": 93.28,
+    "pinner": "pre-FGP:pipeline.py:7270:solve_and_finalize <- pipeline.py:4351",
+    "pre_fgp": 96.25,
+    "fgp": null,
+    "fgp_moved": false,
+    "joined": true
+   }
+  }
+ },
+ "apron_-10165_bld_-10749": {
+  "n_infeasible_within_25m": 8,
+  "worst": {
+   "node": {
+    "idx": 5948,
+    "ll": "30.1109551,31.3982569",
+    "xy": [
+     -3506.06,
+     224.6
+    ],
+    "tier": 4,
+    "class": "apron_membrane(t4)",
+    "pin": "free",
+    "roles": [
+     "apron:",
+     "service_junction:"
+    ],
+    "z": 100.7481,
+    "z_solve": 103.02,
+    "dem": 99.88,
+    "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+    "pre_fgp": 103.02,
+    "fgp": 99.36,
+    "fgp_moved": true,
+    "joined": true
+   },
+   "gap": 6.888287492046658,
+   "L": {
+    "idx": 24949,
+    "ll": "30.1093330,31.3973663",
+    "xy": [
+     -3591.83,
+     44.031
+    ],
+    "tier": 2,
+    "class": "spine_station(t2)",
+    "pin": "free",
+    "roles": [
+     "apron_station:"
+    ],
+    "z": 113.2,
+    "z_solve": 113.2,
+    "dem": 99.42,
+    "pinner": "UNJOINED",
+    "pre_fgp": null,
+    "fgp": null,
+    "fgp_moved": null,
+    "joined": false
+   },
+   "U": {
+    "idx": 6238,
+    "ll": "30.1110906,31.3980834",
+    "xy": [
+     -3522.77,
+     239.68
+    ],
+    "tier": 0,
+    "class": "non-airside(service_junction)",
+    "pin": "free",
+    "roles": [
+     "service_junction:"
+    ],
+    "z": 98.6348,
+    "z_solve": 99.12,
+    "dem": 99.72,
+    "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+    "pre_fgp": 97.29,
+    "fgp": 98.51,
+    "fgp_moved": true,
+    "joined": true
+   }
+  }
+ },
+ "carrier_2379": {
+  "idx": 2379,
+  "ll": "30.1088001,31.3900895",
+  "xy": [
+   -4292.58,
+   -15.298
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building170"
+  ],
+  "z": 95.0516,
+  "z_solve": 94.9,
+  "dem": 95.52,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 94.9,
+  "fgp": 95.05,
+  "fgp_moved": true,
+  "joined": true,
+  "gap": 19.640689291492237
+ },
+ "carrier_24595": {
+  "idx": 24595,
+  "ll": "30.1087030,31.3906580",
+  "xy": [
+   -4237.833,
+   -26.108
+  ],
+  "tier": 4,
+  "class": "apron_membrane(t4)",
+  "pin": "free",
+  "roles": [
+   "apron_lattice:"
+  ],
+  "z": 116.5,
+  "z_solve": 116.5,
+  "dem": 97.02,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "gap": 18.766026115564372
+ },
+ "carrier_24935": {
+  "idx": 24935,
+  "ll": "30.1075370,31.3944193",
+  "xy": [
+   -3875.621,
+   -155.9
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 114.8,
+  "z_solve": 114.8,
+  "dem": 99.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "gap": null
+ }
+}

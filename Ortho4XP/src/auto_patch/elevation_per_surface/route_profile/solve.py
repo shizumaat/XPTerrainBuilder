@@ -8144,6 +8144,88 @@ def _dump_airside_certificate(path_prefix, tag, layout, air, entry,
                          f"build continues")
 
 
+def _dump_pass2_pins(dest, icao, layout, b2i, nodes, elev, n, hard,
+                     runway_idx, tile_seam_idx, terrain_hard, base_hard,
+                     carried_solved, crown_of):
+    """R1.3 attribution instrument (``O4_STALL_ENVELOPE_DUMP=<dir>``):
+    ONE row per solver node of the final projection's node space, written
+    at the PASS-2 ENTRY (the values pass 2 will hold CONSTANT on every
+    tier-1/2/3 node) — plan xy / ll, the no-step tier
+    (``membrane_free_nodes``' own sets, handed out through ``detail_out``
+    so nothing is re-derived), the FGP hard-set family that froze the
+    node in pass 1 (runway-datum / tile-seam / terrain / seed-pin /
+    free), the shape roles carrying it, its pass-2 entry value and the
+    solve's carried value.  Report-only; a failure is a WARN."""
+    import json as _json
+    from pathlib import Path as _P
+    from auto_patch.airside_no_step import membrane_free_nodes
+    detail: dict = {}
+    free, senior, tiers = membrane_free_nodes(layout, b2i, n,
+                                              crown_of=crown_of,
+                                              detail_out=detail)
+    t1 = detail.get("tier1", set())
+    t2 = detail.get("tier2", set())
+    t3 = detail.get("tier3", set())
+    airside = detail.get("airside", set())
+    cps = layout.canonical_points
+    roles: dict = {}
+    from auto_patch.elevation_per_surface.solver_primitives import _open_ring
+    for s in (getattr(layout, "shapes", None) or ()):
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except Exception:                                 # pragma: no cover
+            continue
+        role = getattr(s, "role", "") or ""
+        ref = getattr(s, "ref", "") or ""
+        for (x, y) in ring:
+            i = b2i.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n:
+                roles.setdefault(int(i), set()).add(f"{role}:{ref}")
+    for store, tag in (("apron_lattice_presolve", "apron_lattice"),
+                       ("apron_spine_presolve", "apron_station")):
+        for entry in (getattr(layout, store, None) or ()):
+            for (x, y) in (entry.get("points") or ()):
+                i = b2i.get(cps.get_or_add(float(x), float(y)))
+                if i is not None and 0 <= i < n:
+                    roles.setdefault(int(i), set()).add(
+                        f"{tag}:{entry.get('ref', '')}")
+    rw = {int(i) for i in runway_idx if int(i) < n}
+    ts = {int(i) for i in tile_seam_idx if int(i) < n}
+    th = {int(i) for i in terrain_hard if int(i) < n}
+    out = _P(dest)
+    out.mkdir(parents=True, exist_ok=True)
+    fn = out / f"pass2_pins_{icao}_n{n}.jsonl"
+    with open(fn, "w") as fh:
+        fh.write(_json.dumps({"kind": "meta", "icao": icao, "n": n,
+                              "tiers": tiers, "free": len(free),
+                              "hard": len(hard), "anchor": list(layout.anchor)})
+                 + "\n")
+        for i in range(n):
+            x, y = nodes[i]
+            lat, lon = layout.m_to_ll(float(x), float(y))
+            tier = 1 if i in t1 else 2 if i in t2 else 3 if i in t3 \
+                else 4 if i in free else 0
+            pin = ("runway-datum" if i in rw else "tile-seam" if i in ts
+                   else "terrain" if i in th
+                   else "seed-pin" if (i < len(base_hard) and base_hard[i])
+                   else "hard" if i in hard else "free")
+            cs = carried_solved.get(i) if hasattr(carried_solved, "get") \
+                else None
+            fh.write(_json.dumps({
+                "idx": i, "x": round(float(x), 3), "y": round(float(y), 3),
+                "lat": round(lat, 7), "lon": round(lon, 7), "tier": tier,
+                "airside": i in airside, "pin": pin,
+                "roles": sorted(roles.get(i, ())),
+                "z": round(float(elev[i]), 4),
+                "z_solve": None if cs is None else round(float(cs), 4)})
+                + "\n")
+    import O4_UI_Utils as _UI_pd
+    _UI_pd.vprint(1, f"  [pass2-pins] {icao}: {n} node row(s) -> {fn}")
+
+
 def _publish_airside_certificate(layout, tag, air, nodes=None,
                                  n_nodes=None, label_sets=None,
                                  label_map=None):
@@ -10817,6 +10899,18 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # are pass 1's, untouched.
     #
     # Flag OFF, or no published pair, or no free membrane node ⇒ vacuous.
+    # R1.3 attribution instrument (write-only, env-gated): the pin
+    # provenance of every constant pass 2 is about to hold.
+    if _os.environ.get("O4_STALL_ENVELOPE_DUMP"):
+        try:
+            _dump_pass2_pins(_os.environ["O4_STALL_ENVELOPE_DUMP"], icao,
+                             layout, b2i, nodes, elev, n, hard,
+                             runway_idx, _tile_seam_idx, terrain_hard,
+                             base_hard, _carried_solved, _crown_of)
+        except Exception as _pd_exc:                      # pragma: no cover
+            import O4_UI_Utils as _UI_pdx
+            _UI_pdx.vprint(1, f"  [pass2-pins] {icao}: dump FAILED "
+                              f"({type(_pd_exc).__name__}: {_pd_exc})")
     try:
         from auto_patch.airside_no_step import (
             membrane_conform as _mc, format_conform_report as _mc_fmt)

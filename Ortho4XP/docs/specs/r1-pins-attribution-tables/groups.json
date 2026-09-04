@@ -1,0 +1,582 @@
+[
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 185,
+  "p50": 1.767,
+  "max": 1.917
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "L",
+  "n": 183,
+  "p50": 8.43,
+  "max": 19.641
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "U",
+  "n": 131,
+  "p50": 1.302,
+  "max": 7.097
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7270:solve_and_finalize",
+  "senior": "U",
+  "n": 107,
+  "p50": 11.553,
+  "max": 11.857
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "U",
+  "n": 94,
+  "p50": 1.633,
+  "max": 1.914
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 69,
+  "p50": 6.571,
+  "max": 12.806
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "L",
+  "n": 62,
+  "p50": 4.878,
+  "max": 6.798
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 60,
+  "p50": 0.275,
+  "max": 1.366
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "U",
+  "n": 44,
+  "p50": 4.623,
+  "max": 7.214
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "U",
+  "n": 39,
+  "p50": 4.698,
+  "max": 12.792
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7062:solve_and_finalize",
+  "senior": "U",
+  "n": 38,
+  "p50": 11.187,
+  "max": 12.806
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 38,
+  "p50": 1.906,
+  "max": 5.765
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "peer",
+  "n": 30,
+  "p50": 0.469,
+  "max": 0.689
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 28,
+  "p50": 5.849,
+  "max": 7.643
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_road)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "U",
+  "n": 25,
+  "p50": 14.463,
+  "max": 17.132
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "peer",
+  "n": 22,
+  "p50": 0.378,
+  "max": 0.589
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "peer",
+  "n": 21,
+  "p50": 0.001,
+  "max": 0.148
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7062:solve_and_finalize",
+  "senior": "U",
+  "n": 19,
+  "p50": 4.913,
+  "max": 12.806
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 18,
+  "p50": 0.582,
+  "max": 1.032
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "peer",
+  "n": 15,
+  "p50": 0.131,
+  "max": 1.378
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 14,
+  "p50": 0.257,
+  "max": 5.756
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 14,
+  "p50": 0.469,
+  "max": 1.109
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "L",
+  "n": 14,
+  "p50": 0.083,
+  "max": 0.105
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "U",
+  "n": 9,
+  "p50": 12.468,
+  "max": 12.806
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7241:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 8,
+  "p50": 0.549,
+  "max": 0.642
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "L",
+  "n": 5,
+  "p50": 0.112,
+  "max": 0.386
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "peer",
+  "n": 5,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7241:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 4,
+  "p50": 1.94,
+  "max": 1.94
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 4,
+  "p50": 0.964,
+  "max": 0.975
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "peer",
+  "n": 4,
+  "p50": 0.401,
+  "max": 0.621
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 4,
+  "p50": 0.065,
+  "max": 0.065
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "peer",
+  "n": 4,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction,service_road)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "U",
+  "n": 3,
+  "p50": 10.372,
+  "max": 10.445
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "L",
+  "n": 3,
+  "p50": 1.083,
+  "max": 1.123
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 3,
+  "p50": 0.459,
+  "max": 0.503
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:conformance.py:1824:planarize_airside",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 3,
+  "p50": 0.458,
+  "max": 0.458
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "peer",
+  "n": 3,
+  "p50": 0.257,
+  "max": 0.257
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7031:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 2,
+  "p50": 1.583,
+  "max": 1.675
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 2,
+  "p50": 0.533,
+  "max": 0.639
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7062:solve_and_finalize",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.469,
+  "max": 0.491
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7241:solve_and_finalize",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.158,
+  "max": 0.278
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "L",
+  "n": 2,
+  "p50": 0.203,
+  "max": 0.276
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.176,
+  "max": 0.176
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.089,
+  "max": 0.089
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:solve.py:5819:solve_route_profile",
+  "senior": "peer",
+  "n": 2,
+  "p50": 0.013,
+  "max": 0.013
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "peer",
+  "n": 2,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(service_junction,service_road)",
+  "low_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "senior": "U",
+  "n": 1,
+  "p50": 10.454,
+  "max": 10.454
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(retaining_wall,service_junction)",
+  "low_pinner": "UNJOINED",
+  "senior": "U",
+  "n": 1,
+  "p50": 4.327,
+  "max": 4.327
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "pad(t3)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 1,
+  "p50": 4.316,
+  "max": 4.316
+ },
+ {
+  "high(L)_class": "spine_station(t2)",
+  "high_pinner": "UNJOINED",
+  "low(U)_class": "non-airside(retaining_wall,service_junction)",
+  "low_pinner": "pre-FGP:bridges.py:6194:emit_wall_band",
+  "senior": "U",
+  "n": 1,
+  "p50": 4.156,
+  "max": 4.156
+ },
+ {
+  "high(L)_class": "non-airside(groundside_pavement,service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 1,
+  "p50": 3.628,
+  "max": 3.628
+ },
+ {
+  "high(L)_class": "taxi_family(t2)",
+  "high_pinner": "pre-FGP:pipeline.py:7270:solve_and_finalize",
+  "low(U)_class": "spine_station(t2)",
+  "low_pinner": "UNJOINED",
+  "senior": "L",
+  "n": 1,
+  "p50": 0.733,
+  "max": 0.733
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "U",
+  "n": 1,
+  "p50": 0.247,
+  "max": 0.247
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:finalize.py:452:emit_terrain_transition_features",
+  "senior": "L",
+  "n": 1,
+  "p50": 0.201,
+  "max": 0.201
+ },
+ {
+  "high(L)_class": "non-airside(service_junction)",
+  "high_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "low(U)_class": "taxi_family(t2)",
+  "low_pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "senior": "U",
+  "n": 1,
+  "p50": 0.194,
+  "max": 0.194
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7270:solve_and_finalize",
+  "senior": "L",
+  "n": 1,
+  "p50": 0.186,
+  "max": 0.186
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7062:solve_and_finalize",
+  "senior": "L",
+  "n": 1,
+  "p50": 0.121,
+  "max": 0.121
+ },
+ {
+  "high(L)_class": "pad(t3)",
+  "high_pinner": "pre-FGP:solve.py:6246:solve_route_profile",
+  "low(U)_class": "non-airside(groundside_pavement,service_junction)",
+  "low_pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize",
+  "senior": "L",
+  "n": 1,
+  "p50": 0.044,
+  "max": 0.044
+ }
+]

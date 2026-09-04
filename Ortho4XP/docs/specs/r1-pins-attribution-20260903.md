@@ -70,3 +70,154 @@ carry the dump (it can: the instruments are inside the solve stage).
 No sweep; CYXY not needed.
 
 (Measured results follow.)
+
+## Measured (2026-09-03, lane r1pins, ONE replay — no full build)
+
+Instruments on this branch (all env-gated, write-only, byte-inert OFF —
+CYXY smoke build `CYXY_20260903T171026` body `3a4217e5571d` = the CYXY
+control): `O4_STALL_ENVELOPE_DUMP=<dir>` — `one_solve._dump_envelope_inputs`
+(one_solve.py:1540, called from both adjudication sites), the
+`want_pred` predecessor return of `_stall_envelope_gap` (one_solve.py:1354),
+`solve._dump_pass2_pins` at the pass-2 call site (solve.py:8147 / :10906),
+`airside_no_step.membrane_free_nodes(detail_out=)` and the
+`ENVELOPE_DUMP_LABEL` stamps around pass 2's two projections.  Twin:
+`tests/test_stall_envelope_dump.py`.  Offline reader (re-runs the ENGINE's
+own envelope function on the dumped columns with predecessor tracking):
+`r1-pins-attribution-tables/analyze_pins.py` (scratch, single use).
+
+Replay: `solve_cut.py --replay` of the R1.2 arm-A capture (`r1a_capture/HECA`,
+phases 1–4 frozen) on THIS tree (main `4f2cc234` + instruments), gates unset,
+`--allow-env-drift`, lane caches: **wall 12.6 min** (replayed [5]+[6]), 3,722
+shapes, body `a62bd5b96447` (`replay_report.json`).  **DIVERGED from the R1.1
+control `134e5eadc7b0`: the tree moved** (`7c0513cf` wallcrest merge landed
+between the R1.1 control at `3f9e008f` and main `4f2cc234`: FGP node space
+121,716 → 121,722, final1_exit 2,167 → 1,985).  The pass-2 population is the
+same to within the drift: **1,362 of 4,496 reachable nodes INFEASIBLE, max
+gap 19.640689 m** (R1.2: 1,368 / 4,498 / 19.640689), exit carrier
+(2379, 24601) budget 3.7638 dz −20.6435 (R1.2's 24595 is this tree's 24601 —
+same coordinate 30.1087,31.3907).  Node histories are joined against the
+R1.1 control vertex dump (`r1ctl/vertices.jsonl`); every joined anchor's
+pass-2 value agreed with its control history, stations/lattice are not
+ring vertices and do not join (marked UNJOINED).
+
+### THE HEADLINE — the high side of the contradiction is a NEARBY-RUNWAY BACKFILL SEED, not a solved value
+
+* Every infeasible node is bracketed by a HIGH anchor (sets L) and a LOW
+  anchor (sets U).  **977 of 1,362 (72 %) have an apron SPINE STATION as one
+  anchor, and the 14 such stations sit 12.7–18.5 m ABOVE THEIR OWN DEM**
+  (stations 24938–24941 z = 116.5 exactly, DEM 98.0–98.5; 24934–24937
+  114.5–115.0 vs 99.5; 24945–24949 113.2–113.6 vs 99–101; four more at
+  −5 to −6 m).  The pads / service roads / taxi junctions on the other side
+  sit ON the DEM (pad building170 95.05 vs DEM 95.5; service road 95.66 vs
+  96.9; junction 4154 99.13 vs 98.8).
+* **The 116.5 m is not the solve's value for those stations.  The emitted
+  patch carries them at 99.05 m** (way `-14395`, nodes −52423…−52426) and
+  the lattice nodes 24594/24595/24601/24602 at 98.4–98.9 m (ways −14261/
+  −14262/−14270/−14271) — the `apron_spine_station_emit` /
+  `apron_lattice_emit` lists minted from `_elev_emit` at the solve
+  writeback (solve.py:6441/:6468).  The pass-2 CONSTANT 116.5 comes from
+  the `solved_values` store, which is minted by RE-READING the layout
+  through `_seed_elevations(readonly=True, dem=None)` (solve.py:6296–6313):
+  `_writeback` stamps pavement RINGS only, a station / lattice / drainage-
+  spine node has no layout altitude, no DEM is passed, so it takes branch
+  3 — **`nearest_hard_backfill` (solver_primitives.py:4161–4186): the
+  elevation of the geometrically nearest CIFP runway corner.**  Measured:
+  the store holds **100,109 non-ring nodes on only 335 distinct values**
+  (116.5 × 1,893, 136.16 × 2,291, 136.28 × 2,101, 62.51 × 1,902, …), and
+  46 of the 527 lattice + station nodes carry exactly 116.5.  FGP's own
+  entry seed (solve.py:8596, same seeder, no dem) reproduces it, so pass 2
+  holds every station CONSTANT at the runway-corner backfill and pulls the
+  lattice to it (24601 → 116.5, then the do-no-harm-relaxed lattice edge
+  24602→24601 carries dz −17.55 m on a 0.75 m budget).
+* So the "contradiction" the envelope proves is between a **phantom
+  runway-corner elevation stamped on non-ring membrane nodes** and the
+  real DEM-level pads / roads / junctions.  It never emits — the census
+  rows at the two sites are priced on the 99 m surface — but it is the
+  pin set every pass-2 / FGP projection at HECA is driven against, and it
+  is why R1.2's hold-release arm could re-mint apron rows there.
+
+### Predictions vs measured
+
+| P | verdict | measured |
+|---|---|---|
+| P1 pad HIGH vs station LOW | **REFUTED (inverted)** | top-10 chains: HIGH = spine station (9/10) at 116.5 (backfill), LOW = pad building170 (5), service road (3), pad 2378/2377 (2) |
+| P2 rigidity from the no-step pair budget at `APRON_MAX_GRADE` | **REFUTED** | the worst chain is `own-law within-shape` 0.253 m + published lattice 0.750 / 0.805 m; the imposed no-step edges appear only in 3 of 10 chains (t3–t4 at 0.01, t4–t4 at 0.015) |
+| P3 runway datum < 5 % | HELD | tier-1 anchors: 0 of 1,362 |
+| P4 groundside never anchors | **REFUTED** | non-airside service_junction / service_road / groundside_pavement nodes anchor 428 rows (U side 326: pinned by `pipeline.py:7270` `_enf_pre` 107, FGP main projection 73, 7127 48, 7062 58; L side 102) — through FGP's own hard set and the rebuilt graph (R6's channel) |
+| P5 tier3↔tier2 ≥ 50 %, tier2↔tier2 ≥ 25 % | HALF | station↔pad 471 (35 %), station↔groundside 428 (31 %), taxi↔station 285 (21 %), tier2↔tier2 peer 51 (4 %) |
+| P6 one side minted (> 5 m off DEM) | **HELD** | 1,100 of 1,362 rows have a > 5 m-off-DEM anchor (L 697 + U 264 + both 139); 262 rows have both anchors near-DEM (p50 gap ≈ 0.1 m, max 1.4 m) |
+| P7 main-solve carriers = seat-anchor class | NOT MEASURED | the solve's node space is not reconstructible from the capture (`_build_node_list` on the captured layout gives 30,019 nodes, not 133,465); needs the pin dump at the solve's own node list (a second replay) |
+
+### Top-10 distinct (HIGH, LOW) anchor pairs by gap (`top10_pairs.json`)
+
+| # | node (gap m) | HIGH anchor L — who pinned it, value / DEM | LOW anchor U — who pinned it, value / DEM | chain (budget law) | senior under precedence |
+|---|---|---|---|---|---|
+| 1 | pad 2379 (19.64; 17 nodes share) | station 24941 t2 — `nearest_hard_backfill` via `solved_values` (solve.py:6296) & FGP seed (:8596); 116.5 / 98.0 | pad building170 ring 2379 t3 — solve writeback 94.9, FGP main projection → 95.05 / 95.5 | own-law within-shape 0.253 (`APRON_MAX_GRADE` 0.01 × 25 m) + lattice 0.750 + 0.805 (published `_apron_lattice_edges_ll`, 50 m spacing × cap) | station (tier 2 > tier 3) |
+| 2 | membrane 4221 (19.52) | same 24941 | pad 2378 t3 — FGP main 95.05 / 94.8 | + relaxed own-law 0.009 | station |
+| 3 | pad 2377 (19.43) | same 24941 | pad 2377 — FGP main 95.05 / 94.6 | relaxed 0.050 + 0.157 + chain 1 | station |
+| 4 | lattice 24599 (18.56; 7) | station 24940 — backfill 116.5 / 98.4 | pad 2379 | relaxed 0.383 vs 4 × lattice 0.750 + 0.253 | station |
+| 5 | lattice 24598 (17.78; 8) | station 24939 — backfill 116.5 / 98.5 | pad 2379 | lattice 0.418 vs 5 × 0.750 + 0.253 | station |
+| 6 | pad 2380 (17.53; 24) | 24941 | pad 2380 — FGP main 95.05 / 96.4 | no_step t3–t4 IMPOSED 0.660 (`APRON_MAX_GRADE` × 66 m) + 1.453 + chain 1 | station |
+| 7 | service_road 4286 (17.13) | 24941 | service road 4286 non-airside — solve writeback 95.66 / 96.9 | own-law 0.095 + no_step t4–t4 0.352 (`TAXI_MAX_GRADE` × 23.5 m) + 1.453 + chain 1 | station |
+| 8 | service_road 4285 (17.05) | 24941 | 4285 — solve writeback 95.66 / 96.9 | as 7 | station |
+| 9 | lattice 24597 (16.95; 11) | station 24938 — backfill 116.5 / 98.5 | pad 2379 | lattice 0.491 vs 6 × 0.750 + 0.253 | station |
+| 10 | service_road 4284 (16.95) | 24941 | 4284 — solve writeback 95.68 / 96.9 | as 7 | station |
+
+Physical reading, all ten: the terrain drops from ~116 m at the 05C end
+(runway ON its DEM there: 05C/23C ring z − DEM p50 −2.45 m) to 95–99 m at
+this apron 600 m away; every DEM-level authority (pads, roads, junction
+4154 at 99.13) agrees with the ground; only the non-ring membrane nodes
+carry 116.5, and they carry it because nothing valued them in the layout
+the store re-reads.
+
+### The 1,362 grouped (`groups_dem.json`; HIGH class · > 5 m off DEM? · LOW class · off DEM? · senior)
+
+| HIGH (L) | L vs DEM | LOW (U) | U vs DEM | senior | n | gap p50 | max |
+|---|---|---|---|---|---|---|---|
+| spine station | MINTED | pad | near | L | 246 | 6.38 | 19.64 |
+| spine station | MINTED | service_junction (groundside, FGP-hard / 7270 / 7062 / 7127) | near | U | 232 | 10.13 | 12.81 |
+| taxi family (FGP main / 7127) | near | spine station | MINTED | L | 175 | 1.81 | 1.94 |
+| pad (solve 6246 / FGP main) | near | spine station | near | U | 101 | 1.30 | 7.10 |
+| pad | MINTED | spine station | MINTED | U | 76 | 0.96 | 1.86 |
+| spine station | MINTED | taxi family | near | U | 72 | 4.93 | 7.64 |
+| taxi family | near | taxi family | near | peer | 51 | 0.08 | 0.69 |
+| pad | near | spine station | MINTED | U | 48 | 1.91 | 2.02 |
+| spine station | MINTED | groundside_pavement+service_junction (7062) | near | U | 47 | 11.78 | 12.81 |
+| pad | MINTED | taxi family | near | U | 45 | 0.22 | 0.78 |
+| (17 smaller groups) | | | | | 269 | | |
+
+Dissolved by ONE ruling (a non-ring membrane node's "solved value" is the
+value the solve EMITS for it, never a runway-corner backfill — i.e.
+`solved_values` / the FGP seed read `apron_lattice_emit` /
+`apron_spine_station_emit` for lattice and station nodes): every row with
+a MINTED station anchor, **977 rows**, plus most of the 76 + 45 rows whose
+pad is > 5 m off DEM (those pads are the ones the station plateau dragged:
+building170 is 0.5 m under its DEM, the "minted" pads are elsewhere and
+need their own read).  True geometry the caps cannot span: the **262
+near-DEM/near-DEM rows** (p50 0.10 m, max 1.38 m — taxi↔taxi peers 51, pad
+↔station 101, pad↔taxi 30 …), i.e. the real HECA relief class, small.
+
+### The two arm-A census sites
+
+* apron −10270 @ 30.11056,31.39529: 44 infeasible nodes within 25 m; worst
+  gap 11.86 m at membrane 4327 (apron ∩ service_junction; solve 102.25 →
+  FGP main 96.42); HIGH = station 24937 (114.47, DEM 99.5, backfill);
+  LOW = service_junction 4356, FGP-HARD, pinned by `pipeline.py:7270`
+  (`_enf_pre` weld) at 96.25 (DEM 93.3).
+* apron −10165 / building −10749 @ 30.1108,31.3984: 8 nodes; worst 6.89 m
+  at membrane 5948 (solve 103.02 → FGP 99.36); HIGH = station 24949 (113.2,
+  DEM 99.4, backfill); LOW = service_junction 6238, FGP main projection
+  98.51 (DEM 99.7).
+  Both sites: the station plateau above, a groundside pin below, the apron
+  membrane torn between them — the R1.2 +22 rows are this pin set priced.
+
+### Not done
+* P7 (main solve's own airside-pass carriers): needs the pin dump at the
+  solve's node list — one more replay (12.6 min), not spent.
+* Which runway corner each backfilled node took (the `O4_SEED_BRANCH_ATTRIB=1`
+  instrument already exists and would name the branch per node) — one more
+  replay; the mechanism is read from the code and the 335-value census.
+* A current-main HECA control build (the R1.1 control is one tree behind);
+  the R1.1 vertex histories were used for the join and agreed everywhere
+  they joined.
+* Promotion of `analyze_pins.py` into `who_wrote.py` (single use so far).

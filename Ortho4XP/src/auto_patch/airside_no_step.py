@@ -963,7 +963,8 @@ def dem_demoted_nodes(layout, bucket_to_idx, n_nodes, apron_body,
 # constant, so the emit author cannot flip.
 
 
-def membrane_free_nodes(layout, bucket_to_idx, n_nodes, *, crown_of=None):
+def membrane_free_nodes(layout, bucket_to_idx, n_nodes, *, crown_of=None,
+                        detail_out=None):
     """``(free, constants, tiers)`` for pass 2.
 
     FREE = the airside nodes that are tier 4 under the MAX-TIER rule: the
@@ -1015,6 +1016,11 @@ def membrane_free_nodes(layout, bucket_to_idx, n_nodes, *, crown_of=None):
         free -= {int(i) for i in crown_of}
     tiers = {"tier1": len(tier1), "tier2": len(tier2), "tier3": len(tier3),
              "airside": len(airside), "free": len(free)}
+    if detail_out is not None:
+        # R1.3 attribution instrument: hand the SETS out (read-only
+        # copies) so an instrument never re-derives the tier ladder.
+        detail_out.update({"tier1": set(tier1), "tier2": set(tier2),
+                           "tier3": set(tier3), "airside": set(airside)})
     return free, senior, tiers
 
 
@@ -1314,7 +1320,13 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
         report["reseeded"] = int(rep.get("seeded", 0))
         report["reseed_worst_m"] = float(rep.get("worst_move_m", 0.0))
     hard = {i for i in range(n_nodes) if i not in free}
-    rem, both = feasibility_project(elev, entries, hard)
+    # R1.3 attribution instrument: name this projection's envelope dump.
+    from .elevation_per_surface.route_profile import one_solve as _os_mod
+    _os_mod.ENVELOPE_DUMP_LABEL = "pass2_conform"
+    try:
+        rem, both = feasibility_project(elev, entries, hard)
+    finally:
+        _os_mod.ENVELOPE_DUMP_LABEL = None
     report["over_cap_left"] = int(rem or 0)
     report["both_hard_left"] = int(both or 0)
     # ── CREATION-ORDER SENIORITY, ENFORCED (owner ruling RULINGS
@@ -1335,7 +1347,11 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
     # a law that predates it.
     if own and ns_edges:
         own_only = [e for e in entries if e.get("ref") != PROVENANCE]
-        rem2, both2 = feasibility_project(elev, own_only, hard)
+        _os_mod.ENVELOPE_DUMP_LABEL = "pass2_own_only"
+        try:
+            rem2, both2 = feasibility_project(elev, own_only, hard)
+        finally:
+            _os_mod.ENVELOPE_DUMP_LABEL = None
         report["own_law_over_cap_left"] = int(rem2 or 0)
     # ── DO-NO-HARM, MEASURED (spec §H1.2's invariant) ────────────────
     # For every own-law pair: its residual after pass 2 may not exceed

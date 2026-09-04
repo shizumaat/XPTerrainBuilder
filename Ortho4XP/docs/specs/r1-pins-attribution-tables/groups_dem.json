@@ -1,0 +1,392 @@
+[
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 246,
+  "p50": 6.381,
+  "max": 19.641
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 232,
+  "p50": 10.127,
+  "max": 12.806
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 175,
+  "p50": 1.808,
+  "max": 1.94
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 101,
+  "p50": 1.302,
+  "max": 7.097
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "U",
+  "n": 76,
+  "p50": 0.955,
+  "max": 1.857
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 72,
+  "p50": 4.931,
+  "max": 7.643
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 51,
+  "p50": 0.079,
+  "max": 0.689
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "U",
+  "n": 48,
+  "p50": 1.913,
+  "max": 2.021
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 47,
+  "p50": 11.783,
+  "max": 12.806
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 45,
+  "p50": 0.223,
+  "max": 0.782
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 33,
+  "p50": 0.684,
+  "max": 0.847
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "peer",
+  "n": 31,
+  "p50": 0.466,
+  "max": 1.378
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "near-DEM",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 30,
+  "p50": 0.768,
+  "max": 1.366
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(service_road)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 25,
+  "p50": 14.463,
+  "max": 17.132
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 23,
+  "p50": 1.675,
+  "max": 1.908
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 19,
+  "p50": 4.213,
+  "max": 5.765
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 17,
+  "p50": 0.257,
+  "max": 1.491
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 14,
+  "p50": 0.083,
+  "max": 0.105
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(service_junction)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 9,
+  "p50": 0.13,
+  "max": 0.386
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 8,
+  "p50": 0.548,
+  "max": 0.642
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 8,
+  "p50": 0.177,
+  "max": 0.53
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 5,
+  "p50": 0.952,
+  "max": 0.975
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 5,
+  "p50": 0.419,
+  "max": 0.503
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "peer",
+  "n": 5,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(service_junction,service_road)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 4,
+  "p50": 10.409,
+  "max": 10.454
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "pad(t3)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 4,
+  "p50": 0.065,
+  "max": 0.065
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "non-airside(service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 4,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "pad(t3)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "L",
+  "n": 3,
+  "p50": 1.083,
+  "max": 1.123
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 3,
+  "p50": 0.257,
+  "max": 0.257
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(service_junction)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "U",
+  "n": 2,
+  "p50": 9.433,
+  "max": 10.132
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "non-airside(retaining_wall,service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 2,
+  "p50": 4.242,
+  "max": 4.327
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "taxi_family(t2)",
+  "U_dem": "near-DEM",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.469,
+  "max": 0.491
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "near-DEM",
+  "low(U)": "pad(t3)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 2,
+  "p50": 0.294,
+  "max": 0.294
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "near-DEM",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 2,
+  "p50": 0.115,
+  "max": 0.186
+ },
+ {
+  "high(L)": "pad(t3)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.176,
+  "max": 0.176
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "MINTED(>5m over DEM)",
+  "low(U)": "pad(t3)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.089,
+  "max": 0.089
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "U_dem": "near-DEM",
+  "senior": "peer",
+  "n": 2,
+  "p50": 0.013,
+  "max": 0.013
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "non-airside(service_junction)",
+  "U_dem": "MINTED(>5m over DEM)",
+  "senior": "peer",
+  "n": 2,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)": "non-airside(groundside_pavement,service_junction)",
+  "L_dem": "near-DEM",
+  "low(U)": "spine_station(t2)",
+  "U_dem": "near-DEM",
+  "senior": "L",
+  "n": 1,
+  "p50": 3.628,
+  "max": 3.628
+ }
+]

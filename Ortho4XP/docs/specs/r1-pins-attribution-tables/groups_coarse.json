@@ -1,0 +1,194 @@
+[
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "pad(t3)",
+  "senior": "L",
+  "n": 246,
+  "p50": 6.381,
+  "max": 19.641
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "non-airside(service_junction)",
+  "senior": "U",
+  "n": 234,
+  "p50": 10.111,
+  "max": 12.806
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "spine_station(t2)",
+  "senior": "U",
+  "n": 225,
+  "p50": 1.432,
+  "max": 7.097
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "low(U)": "spine_station(t2)",
+  "senior": "L",
+  "n": 208,
+  "p50": 1.683,
+  "max": 1.94
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "taxi_family(t2)",
+  "senior": "U",
+  "n": 77,
+  "p50": 4.73,
+  "max": 7.643
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "taxi_family(t2)",
+  "senior": "U",
+  "n": 75,
+  "p50": 0.297,
+  "max": 1.366
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "low(U)": "spine_station(t2)",
+  "senior": "L",
+  "n": 59,
+  "p50": 1.658,
+  "max": 5.765
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "low(U)": "taxi_family(t2)",
+  "senior": "peer",
+  "n": 51,
+  "p50": 0.079,
+  "max": 0.689
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "senior": "U",
+  "n": 47,
+  "p50": 11.783,
+  "max": 12.806
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "pad(t3)",
+  "senior": "peer",
+  "n": 41,
+  "p50": 0.312,
+  "max": 1.378
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "non-airside(service_road)",
+  "senior": "U",
+  "n": 25,
+  "p50": 14.463,
+  "max": 17.132
+ },
+ {
+  "high(L)": "taxi_family(t2)",
+  "low(U)": "pad(t3)",
+  "senior": "L",
+  "n": 17,
+  "p50": 0.089,
+  "max": 1.123
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "non-airside(service_junction)",
+  "senior": "L",
+  "n": 9,
+  "p50": 0.13,
+  "max": 0.386
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "spine_station(t2)",
+  "senior": "L",
+  "n": 8,
+  "p50": 0.549,
+  "max": 0.642
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "low(U)": "taxi_family(t2)",
+  "senior": "U",
+  "n": 7,
+  "p50": 0.876,
+  "max": 0.975
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "senior": "peer",
+  "n": 7,
+  "p50": 0.001,
+  "max": 0.013
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "low(U)": "pad(t3)",
+  "senior": "U",
+  "n": 6,
+  "p50": 0.065,
+  "max": 0.089
+ },
+ {
+  "high(L)": "non-airside(service_junction)",
+  "low(U)": "non-airside(service_junction)",
+  "senior": "peer",
+  "n": 6,
+  "p50": 0.001,
+  "max": 0.001
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "non-airside(service_junction,service_road)",
+  "senior": "U",
+  "n": 4,
+  "p50": 10.408,
+  "max": 10.454
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "spine_station(t2)",
+  "senior": "peer",
+  "n": 3,
+  "p50": 0.257,
+  "max": 0.257
+ },
+ {
+  "high(L)": "spine_station(t2)",
+  "low(U)": "non-airside(retaining_wall,service_junction)",
+  "senior": "U",
+  "n": 2,
+  "p50": 4.242,
+  "max": 4.327
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "non-airside(groundside_pavement,service_junction)",
+  "senior": "L",
+  "n": 2,
+  "p50": 0.115,
+  "max": 0.186
+ },
+ {
+  "high(L)": "pad(t3)",
+  "low(U)": "pad(t3)",
+  "senior": "U",
+  "n": 2,
+  "p50": 0.176,
+  "max": 0.176
+ },
+ {
+  "high(L)": "non-airside(groundside_pavement,service_junction)",
+  "low(U)": "spine_station(t2)",
+  "senior": "L",
+  "n": 1,
+  "p50": 3.628,
+  "max": 3.628
+ }
+]

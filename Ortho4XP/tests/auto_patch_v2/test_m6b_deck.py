@@ -83,6 +83,10 @@ def pack(tmp_path_factory):
     _boxes_obj(d / "canopy.obj", _bridge_boxes(length=40.0, deck_y=5.0))   # a canopy on columns
     _boxes_obj(d / "pit.obj", [(0.0, 0.0, 10.0, 8.0, -6.0, 0.0)])   # a basin
     _boxes_obj(d / "rim.obj", [(0.0, 9.0, 10.0, 0.5, 0.0, 0.3)])    # its rim piece
+    # a SKIRT 5 m under grade with many feet and no floor plate (walls only)
+    _boxes_obj(d / "skirt.obj", [(0.0, -9.0, 8.0, 0.2, -5.0, 0.0), (0.0, 9.0, 8.0, 0.2, -5.0, 0.0),
+                                 (-9.0, 0.0, 0.2, 8.0, -5.0, 0.0), (9.0, 0.0, 0.2, 8.0, -5.0, 0.0)])
+    _boxes_obj(d / "shed.obj", [(0.0, 0.0, 6.0, 6.0, 0.0, 3.0)])     # a shed on the ground
     return root
 
 
@@ -312,3 +316,17 @@ def test_family_takes_one_anchor_one_delta(pack, law):
     us = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), law).units[0]
     assert us.bakes and us.datum == "deck_top"
     assert len(us.resources) == 3 and us.delta_m == pytest.approx(701.0, abs=0.01)
+
+
+def test_below_grade_skirt_never_founds_its_family(pack, law):
+    """A member whose genuine solids reach the admission depth under the
+    local ground is below-grade structure the terrain adapts to — floor
+    plate or not (OTHH TerminalRoads_03_005: 84 witnesses 4.7 m under,
+    lifted a 403-member family +5.96 once the witness floor had stopped
+    the 4-witness piece)."""
+    pl = _planned(pack, law, [("shed", (0.0, 0.0), 0.0, 0.0), ("skirt", (0.0, 0.0), 0.0, 0.0)])
+    unit = pl.units[0]
+    assert [m.resource for m in unit.members] == ["objects/shed.obj"]
+    assert pl.counts["below_grade"] == 1
+    us = R.seat(pl, lambda la, lo: (702.0, False), law).units[0]
+    assert us.delta_m == pytest.approx(0.0) and not us.held

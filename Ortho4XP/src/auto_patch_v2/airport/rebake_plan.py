@@ -112,6 +112,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
     deck (``deck_signature.promote``)."""
     rb = law.tables.structures.rebake
+    admission_m = law.tables.structures.basin.admission_depth_m
     excluded = set(exclude)
     if below_grade:
         owners = {oid for _r, ids in below_grade for oid in ids}
@@ -151,13 +152,18 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                         "adapted to it (08-26; v1 R4) — never re-seated")
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
-        if o.below_grade is not None and not (in_deck_family and rb.deck_family_seats_rigid):
+        deep = o.solid_min_depth_m is not None and o.solid_min_depth_m <= -admission_m
+        if (o.below_grade is not None or deep) and not (in_deck_family
+                                                          and rb.deck_family_seats_rigid):
             # a genuine solid under the local grade is a FACILITY the
             # terrain adapts to (08-26), never feet to seat: OTHH's
             # Drainage bowls (−3.8 m floors) and TerminalRoads_Parking_005
-            # (−9.1 m) would otherwise lift their whole families.  In a
-            # DECK family it is a pier footing under the canal bed: it
-            # seats WITH its deck (R12-2 completeness; v1 wrote all 12
+            # (−9.1 m) would otherwise lift their whole families — floor
+            # plate or not (``deep``: TerminalRoads_03_005, a skirt 4.7 m
+            # under with 84 witnesses, founded a 403-member family +5.96
+            # once the witness floor had stopped the 4-witness piece).
+            # In a DECK family it is a pier footing under the canal bed:
+            # it seats WITH its deck (R12-2 completeness; v1 wrote all 12
             # Bridge_01 members), never left behind.
             counts["below_grade"] += 1
             skipped.setdefault(o.path, "below-grade solids: the terrain adapts to it "

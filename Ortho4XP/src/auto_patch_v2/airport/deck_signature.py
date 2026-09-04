@@ -197,7 +197,8 @@ def _rect_axis(poly) -> tuple[XY, XY, float, float, tuple[tuple[XY, XY], tuple[X
     the polygon's minimum rotated rectangle, the axis canonicalised on
     +x (tie on +z) so the end order is a property of the geometry."""
     try:
-        rect = poly.minimum_rotated_rectangle
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rect = poly.minimum_rotated_rectangle       # a sliver plate is degenerate
     except Exception:
         return None
     if rect.geom_type != "Polygon":
@@ -411,7 +412,8 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps) -> DeckPl
     foot = tf(closed, mat)
     if not foot.is_valid:
         foot = foot.buffer(0)
-    rect = tf(closed.minimum_rotated_rectangle, mat)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rect = tf(closed.minimum_rotated_rectangle, mat)
     o_f = tf(shapely.points(*origin), mat)
     u_f = tf(shapely.points(origin[0] + unit[0], origin[1] + unit[1]), mat)
     axis_f = ((o_f.x, o_f.y), (u_f.x - o_f.x, u_f.y - o_f.y))

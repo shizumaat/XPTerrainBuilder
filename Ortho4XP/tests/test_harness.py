@@ -7077,3 +7077,192 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "3 masks": imagery["note"],
                                        "4 tile": imagery["note"]}
     assert result["steps_run"] == ["1 vector"]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §12 THE V2 ENGINE THROUGH THE SAME ENTRY (--engine v2, 2026-09-04)
+# ══════════════════════════════════════════════════════════════════════
+# RULINGS 2026-09-03d: v2 is built beside v1.  It builds and measures
+# through THIS entry, not a second one (tool discipline 7e90032): same
+# refusals, same guard, same ledger, same frame — plus the engine and the
+# law-table digest recorded and keyed.
+
+def test_the_build_entry_refuses_v1_only_flags_under_engine_v2(build_mod):
+    """A v1-only flag that quietly did nothing on the v2 path is how a lane
+    comes to believe it measured something it did not (the --solve-capture
+    / --tile precedent).  Each refuses BY NAME, before the cwd check and
+    before the ledger re-exec."""
+    for extra in (["--tile", "60", "-136"], ["--dem", "-500"],
+                  ["--geometry-only"], ["--solve-capture", "/tmp/cap"]):
+        with pytest.raises(SystemExit) as exc:
+            build_mod.main(["CYXY", "--engine", "v2", *extra])
+        assert f"--engine v2 with {extra[0]}" in str(exc.value), extra
+
+
+def test_the_engine_is_keyed_into_the_artifact_ledger_only_for_v2(build_mod):
+    """Two artifacts at one tree/corpus (v1's patch, v2's patch) must never
+    be served for each other — and every v1 key ever stored must stay a
+    HIT (a control that exists is never rebuilt, BUILD ECONOMY)."""
+    AL = build_mod.AL
+    v1 = AL.build_variant(solve_model="iterative")
+    assert "engine" not in v1
+    assert AL.build_variant(solve_model="iterative", engine="v1",
+                            law_tables_sha256="deadbeef") == v1, \
+        "a v1 arm keys exactly as before --engine existed"
+    v2 = AL.build_variant(solve_model="iterative", engine="v2",
+                          law_tables_sha256="deadbeef")
+    assert v2["engine"] == "v2" and v2["law_tables_sha256"] == "deadbeef"
+    corpus = {"sha256": "c0ffee"}
+    assert AL.artifact_key("tree", "CYXY", {}, corpus, v1) != \
+        AL.artifact_key("tree", "CYXY", {}, corpus, v2)
+    v2b = AL.build_variant(solve_model="iterative", engine="v2",
+                           law_tables_sha256="0badf00d")
+    assert AL.artifact_key("tree", "CYXY", {}, corpus, v2) != \
+        AL.artifact_key("tree", "CYXY", {}, corpus, v2b), \
+        "a different law-table set is a different artifact"
+
+
+def test_the_v2_law_table_digest_names_every_table_and_moves_with_bytes(
+        build_mod, tmp_path):
+    real = build_mod.v2_law_tables_digest(ROOT)
+    law_dir = ROOT / build_mod.V2_LAW_DIR
+    assert real["files"] == sorted(p.name for p in law_dir.glob("*.toml"))
+    assert real["sha256"] and len(real["sha256"]) == 64
+    copy = tmp_path / build_mod.V2_LAW_DIR
+    copy.mkdir(parents=True)
+    for p in law_dir.glob("*.toml"):
+        (copy / p.name).write_bytes(p.read_bytes())
+    assert build_mod.v2_law_tables_digest(tmp_path)["sha256"] == real["sha256"]
+    first = sorted(copy.glob("*.toml"))[0]
+    first.write_bytes(first.read_bytes() + b"\n# one byte more\n")
+    assert build_mod.v2_law_tables_digest(tmp_path)["sha256"] != real["sha256"]
+    assert build_mod.v2_law_tables_digest(tmp_path / "nowhere")["sha256"] is None
+
+
+def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True):
+    """The v2 pipeline as three stub modules: ``build`` writes the patch
+    the real adapter writes (``<ICAO>_auto.patch.osm`` + ``.axes.json``)
+    and returns the fields ``build_patch_v2`` reads."""
+    import types
+
+    class _Status:
+        def __init__(self, v): self.value = v
+
+    class _Sol:
+        def __init__(self, v):
+            self.status = _Status(v); self.message = f"stub {v}"
+
+    class _Paths:
+        def __init__(self, patch, side):
+            self.patch, self.sidecar = patch, side
+            self.ways, self.nodes = 3, 9
+
+    class _Res:
+        pass
+
+    def build(icao, inputs, out_dir, config=None, law=None, out=print):
+        out(f"[{icao}] stub build")
+        d = Path(out_dir); d.mkdir(parents=True, exist_ok=True)
+        patch = d / f"{icao}_auto.patch.osm"
+        patch.write_text("<osm/>")
+        side = Path(str(patch) + ".axes.json")
+        if sidecar:
+            side.write_text("{}")
+        (d / f"{icao}.report.json").write_text("{}")
+        r = _Res()
+        r.solution = _Sol(status)
+        r.paths = _Paths(patch, side) if status == "optimal" else None
+        r.report = {"load": {"dem_provenance": {"frame": "production"}},
+                    "verify": {"by_family": {"strip_seam_tear": 0}}}
+        r.wall = {"total": 0.1}; r.lp_size = {"rows_ub": 1}; r.pieces = None
+        return r
+
+    class _Law:
+        ruleset_key = "icao"
+
+        @classmethod
+        def for_airport(cls, icao): return cls()
+
+    mods = {
+        "auto_patch_v2": types.ModuleType("auto_patch_v2"),
+        "auto_patch_v2.planar": types.ModuleType("auto_patch_v2.planar"),
+        "auto_patch_v2.planar.__main__": types.ModuleType("auto_patch_v2.planar.__main__"),
+        "auto_patch_v2.pipeline": types.ModuleType("auto_patch_v2.pipeline"),
+        "auto_patch_v2.pipeline.build": types.ModuleType("auto_patch_v2.pipeline.build"),
+        "auto_patch_v2.law": types.ModuleType("auto_patch_v2.law"),
+    }
+    mods["auto_patch_v2.planar.__main__"].default_inputs = \
+        lambda **kw: {"stub_inputs": kw}
+    mods["auto_patch_v2.pipeline.build"].build = build
+    mods["auto_patch_v2.pipeline.build"].Config = lambda: None
+    mods["auto_patch_v2.law"].Law = _Law
+    for name, m in mods.items():
+        monkeypatch.setitem(sys.modules, name, m)
+
+
+def _run_build_patch_v2(build_mod, monkeypatch, tmp_path, **kw):
+    repo, lane = _lock_repo(tmp_path)
+    out = tmp_path / "out"
+    prog = build_mod.Progress(out / "twin.progress")
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    return build_mod.build_patch_v2("CYXY", lane, out, "twin", prog,
+                                    write_guard=guard, **kw), out
+
+
+def test_build_patch_v2_publishes_every_build_patch_key_and_records_the_engine(
+        build_mod, monkeypatch, tmp_path):
+    """ONE frame/result/ledger path for both engines: the v2 result carries
+    every key ``build_patch`` publishes (the twin above enumerates the
+    frame-and-guard ones; the rest are read by ``main`` by name), plus
+    ``engine`` and the law-table digest; the patch lands under the
+    harness names, the v2 products under ``<tag>.v2/``."""
+    import inspect
+    import re
+    _stub_v2_pipeline(monkeypatch)
+    result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
+    ret = inspect.getsource(build_mod.build_patch).rsplit("return {", 1)[1]
+    v1_keys = set(re.findall(r'"([a-z_0-9]+)":', ret)) - {"elevation_m", "world",
+                                                          "is_synthetic", "source"}
+    assert v1_keys >= {"patch", "sidecar", "body_sha256", "shapes",
+                       "dem_inset_provenance", "engine_solve_model"}
+    missing = v1_keys - set(result)
+    assert not missing, f"build_patch_v2 result omits {sorted(missing)}"
+    assert result["engine"] == "v2"
+    assert "sha256" in result["law_tables"]
+    assert result["patch"] == str(out / "twin.osm") and (out / "twin.osm").exists()
+    assert result["sidecar_present"] and (out / "twin.osm.axes.json").exists()
+    assert (out / "twin.v2" / "CYXY.report.json").exists()
+    assert not (out / "twin.v2" / "CYXY_auto.patch.osm").exists(), \
+        "moved, not copied — one artifact, one name"
+    assert result["write_guard_armed"] and result["engine_solve_model"] is None
+    assert result["dem_inset_provenance"] == {"frame": "production"}
+    assert result["v2"]["status"] == "optimal"
+    assert result["v2"]["verify_by_family"] == {"strip_seam_tear": 0}
+
+
+def test_build_patch_v2_refuses_an_infeasible_solve_and_a_missing_sidecar(
+        build_mod, monkeypatch, tmp_path):
+    _stub_v2_pipeline(monkeypatch, status="infeasible")
+    with pytest.raises(SystemExit) as exc:
+        _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
+    assert "infeasible" in str(exc.value) and "REFUSING" in str(exc.value)
+    _stub_v2_pipeline(monkeypatch, sidecar=False)
+    with pytest.raises(SystemExit) as exc:
+        _run_build_patch_v2(build_mod, monkeypatch, tmp_path / "b")
+    assert "sidecar" in str(exc.value)
+    result, _out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path / "c",
+                                       allow_no_sidecar=True)
+    assert result["sidecar_present"] is False
+
+
+def test_main_dispatches_the_v2_engine_through_the_same_frame_and_ledger_path():
+    """Source-level: ``main`` calls ``build_patch_v2`` on the v2 path,
+    keys the engine and the law digest into the artifact-ledger variant,
+    and stamps both into ``frame.json`` — no second frame, no second
+    store."""
+    src = (HARNESS / "build_airport.py").read_text()
+    assert 'elif args.engine == "v2":' in src and "build_patch_v2(" in src
+    assert 'frame["engine"] = args.engine' in src
+    assert 'frame["law_tables"]' in src
+    assert "engine=args.engine" in src and "law_tables_sha256=" in src
+    assert src.count("AL.store_build(") == 1, "one store, both engines"

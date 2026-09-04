@@ -24,7 +24,7 @@ from shapely.ops import unary_union
 
 from ..classify.roles import TAXI_FAMILY, Cell
 from ..law import Law
-from ..law.tables import zone2_half_width_m
+from ..law.tables import snap_margin_m, zone2_half_width_m
 
 __all__ = ["ZoneRegion", "zone_regions"]
 
@@ -53,9 +53,13 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
-    # terrace law; ``zones.toml groundside_cutback_m``)
+    # terrace law; ``zones.toml groundside_cutback_m``).  The stand-off
+    # holds AFTER the identity snap (``tables.snap_margin_m``, 04u): the
+    # same construction as the pad set-back, so the band never enters the
+    # gap a pad's knife opened in a lot
+    cut = ag.groundside_cutback_m + snap_margin_m(law)
     everything = unary_union(
-        [Polygon(c.ring, c.holes).buffer(ag.groundside_cutback_m, **_MITRE)
+        [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
         + [Polygon(k) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m

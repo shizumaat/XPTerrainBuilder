@@ -8,6 +8,8 @@ docstring cites the ruling it serves.
 """
 from __future__ import annotations
 
+import math
+
 from pathlib import Path
 
 from .model import (Family, Law, RoleCap, ZoneClass, load_tables,
@@ -18,7 +20,7 @@ __all__ = [
     "role_family", "role_side", "is_value_role", "is_rigid_role", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
-    "chord_cap_m", "identity_dp", "materiality_m",
+    "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
 ]
@@ -294,6 +296,18 @@ def chord_cap_m(law: Law, role: str) -> float:
 def identity_dp(law: Law) -> int:
     """Decimal places of the canonical lat/lon identity key."""
     return law.tables.emit.identity.coordinate_dp
+
+
+def snap_margin_m(law: Law) -> float:
+    """The identity snap's half-diagonal: how far a vertex can move when
+    the planar build snaps it to the ``min_distinct_spacing_m`` lattice.
+    A stand-off that must hold AFTER the snap (the pad set-back, the zone
+    band's groundside cut-back — RULINGS 2026-09-04u, lot 87) is applied
+    as its law value PLUS this margin (measured CYXY: a set-back gap
+    narrower than the lattice diagonal noded to one shared vertex; a pad
+    knife carrying the margin beside a zone cut-back without it left a
+    sub-metre zone sliver whose noding minted a cross_shape pair)."""
+    return law.tables.emit.identity.min_distinct_spacing_m * math.sqrt(2) / 2
 
 
 def materiality_m(law: Law) -> float:

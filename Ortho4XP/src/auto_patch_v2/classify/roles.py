@@ -46,7 +46,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import is_value_role, role_side
+from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
@@ -360,12 +360,15 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
     if back <= 0.0:
         return cells, 0
     # The set-back holds AFTER the identity snap: the pad is read on the
-    # identity grid and the knife carries the grid's half-diagonal on top
-    # of the set-back, so a lot vertex the snap moves by up to that still
-    # sits ``back`` off the pad and no hot pixel can capture it (measured
-    # CYXY building9 / lot pav4: a 0.6 m pre-snap gap noded to ONE vertex)
+    # identity grid and the knife carries the snap margin on top of the
+    # set-back (``tables.snap_margin_m``), so a lot vertex the snap moves
+    # still sits ``back`` off the pad and no hot pixel can capture it
+    # (measured CYXY building9 / lot pav4: a 0.6 m pre-snap gap noded to
+    # ONE vertex); the zone bands cut back from groundside by the same
+    # construction (``planar/zones.py``), so no zone sliver opens between
+    # a pad and the lot it is cut from
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    knife_m = back + grid * math.sqrt(0.5)
+    knife_m = back + snap_margin_m(law)
     pads = [c for c in cells if c.role == "building"]
     if not pads:
         return cells, 0

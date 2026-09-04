@@ -10,22 +10,24 @@ Cells are welded in SENIORITY order (``precedence.authority.order``,
 then larger first): a senior cell keeps its geometry, a junior cell is
 adjusted against the boundaries of the seniors already placed — (1)
 each of its ring vertices within the tolerance of a senior boundary is
-PROJECTED onto it, (2) ``shapely.snap`` then snaps its vertices to
-senior vertices within the tolerance and INSERTS senior vertices lying
-within the tolerance of its ring segments, so a senior vertex a hair
-off a junior edge (the owner's site) becomes a vertex of both rings and
-the noding that follows sees ONE chain.  Only value-carrying,
-non-rigid cells of the SAME side weld: a pad never welds by proximity
-(09-01i / 04u: groundside keeps its set-back from every pad), and an
-airside cell never welds to a groundside one (the stand-off terraces —
-memory ``groundside-terrace-law``).
+moved onto it (to the senior's own vertex when one is within the
+tolerance, else to the nearest point of the senior's edge), (2) senior
+vertices lying within the tolerance of its ring segments are INSERTED
+into the ring, so a senior vertex a hair off a junior edge (the owner's
+site) becomes a vertex of both rings and the noding that follows sees
+ONE chain.  A vertex the junior already SHARES with any other cell (a
+pad it welds to, a neighbour it is noded with) is an identity and never
+moves.  Only value-carrying, non-rigid cells of the SAME side weld: a
+pad never welds by proximity (09-01i / 04u: groundside keeps its
+set-back from every pad), and an airside cell never welds to a
+groundside one (the stand-off terraces — memory
+``groundside-terrace-law``).
 """
 from __future__ import annotations
 
 import dataclasses as _dc
 
-import shapely
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points, unary_union
 from shapely.strtree import STRtree
 
@@ -65,6 +67,11 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
     order = sorted(eligible, key=lambda i: (authority_rank(law, cells[i].role),
                                             -polys[i].area, i))
     tree = STRtree([polys[i] for i in order])
+    # every OTHER cell's boundary (pads, structures, the other side): a
+    # vertex on one of them is a shared identity and is frozen
+    others = [Polygon(c.ring, [h for h in c.holes if len(h) >= 3]).boundary
+              for k, c in enumerate(cells) if k not in polys and len(c.ring) >= 3]
+    other_tree = STRtree(others) if others else None
     current: dict[int, Polygon] = {}
     out = list(cells)
     for i in order:
@@ -76,7 +83,10 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
         if not refs:
             current[i] = p
             continue
-        q, moved, inserted = _weld_one(p, unary_union(refs), tol)
+        frozen = [others[int(j)] for j in other_tree.query(
+            p.buffer(tol), predicate="intersects")] if other_tree is not None else []
+        q, moved, inserted = _weld_one(p, unary_union(refs), tol,
+                                       unary_union(frozen) if frozen else None)
         if q is None:
             stats.cells_refused += 1
             current[i] = p
@@ -92,23 +102,28 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
     return tuple(out), stats
 
 
-def _weld_one(poly: Polygon, ref, tol: float
+def _weld_one(poly: Polygon, ref, tol: float, frozen=None
               ) -> tuple[Polygon | None, int, int]:
     """``poly`` welded to the boundary set ``ref``: ``(polygon, vertices
-    projected, vertices inserted)``; ``None`` when the weld would leave
-    no valid polygon (the cell is narrower than the tolerance)."""
-    n_before = len(poly.exterior.coords) + sum(len(h.coords) for h in poly.interiors)
-    ext, moved = _project(poly.exterior.coords, ref, tol)
+    moved, vertices inserted)``; ``None`` when the weld would leave no
+    valid polygon (the cell is narrower than the tolerance).  Vertices
+    on ``frozen`` (another cell's boundary) never move."""
+    rpts = [Point(c) for g in getattr(ref, "geoms", [ref]) for c in g.coords]
+    rtree = STRtree(rpts) if rpts else None
+    ext, moved = _project(poly.exterior.coords, ref, rtree, rpts, tol, frozen)
     holes = []
     for h in poly.interiors:
-        ring, m = _project(h.coords, ref, tol)
+        ring, m = _project(h.coords, ref, rtree, rpts, tol, frozen)
         holes.append(ring)
         moved += m
+    n_before = len(ext) + sum(len(h) for h in holes)
+    ext = _insert(ext, rtree, rpts, tol)
+    holes = [_insert(h, rtree, rpts, tol) for h in holes]
+    inserted = len(ext) + sum(len(h) for h in holes) - n_before
     try:
         q = Polygon(ext, [h for h in holes if len(h) >= 3])
     except (ValueError, TypeError):
         return None, 0, 0
-    q = shapely.snap(q, ref, tol)
     if not q.is_valid:
         q = q.buffer(0)
     if q.is_empty:
@@ -120,13 +135,14 @@ def _weld_one(poly: Polygon, ref, tol: float
         q = max(parts, key=lambda g: g.area)
     if q.area < 0.5 * poly.area:
         return None, 0, 0
-    n_after = len(q.exterior.coords) + sum(len(h.coords) for h in q.interiors)
-    return q, moved, max(0, n_after - n_before)
+    return q, moved, max(0, inserted)
 
 
-def _project(coords, ref, tol: float) -> tuple[list[tuple[float, float]], int]:
-    """Ring coordinates with every vertex within ``tol`` of ``ref`` (and
-    not already on it) moved to its nearest point on ``ref``."""
+def _project(coords, ref, rtree, rpts, tol: float, frozen
+             ) -> tuple[list[tuple[float, float]], int]:
+    """Ring coordinates with every vertex within ``tol`` of ``ref`` (not
+    on it, not on ``frozen``) moved onto ``ref``: to its nearest vertex
+    when one is within ``tol``, else to the nearest point of its edge."""
     out: list[tuple[float, float]] = []
     moved = 0
     pts = list(coords)
@@ -135,10 +151,52 @@ def _project(coords, ref, tol: float) -> tuple[list[tuple[float, float]], int]:
     for x, y in pts:
         pt = Point(x, y)
         d = ref.distance(pt)
-        if 1e-9 < d <= tol:
-            q = nearest_points(pt, ref)[1]
-            out.append((float(q.x), float(q.y)))
-            moved += 1
-        else:
+        if d <= 1e-9 or d > tol or (frozen is not None and frozen.distance(pt) <= 1e-9):
             out.append((float(x), float(y)))
+            continue
+        q = None
+        if rtree is not None:
+            cand = [rpts[int(j)] for j in rtree.query(pt.buffer(tol), predicate="intersects")]
+            cand = [c for c in cand if c.distance(pt) <= tol]
+            if cand:
+                q = min(cand, key=lambda c: c.distance(pt))
+        if q is None:
+            q = nearest_points(pt, ref)[1]
+        out.append((float(q.x), float(q.y)))
+        moved += 1
     return out, moved
+
+
+def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float
+            ) -> list[tuple[float, float]]:
+    """``ring`` with every ``ref`` vertex within ``tol`` of one of its
+    segments (and not already a vertex) inserted into that segment, in
+    order along it."""
+    if rtree is None or len(ring) < 3:
+        return ring
+    out: list[tuple[float, float]] = []
+    n = len(ring)
+    for k in range(n):
+        a, b = ring[k], ring[(k + 1) % n]
+        out.append(a)
+        seg = LineString([a, b])
+        if seg.length <= 1e-9:
+            continue
+        found: list[tuple[float, tuple[float, float]]] = []
+        for j in rtree.query(seg.buffer(tol), predicate="intersects"):
+            c = rpts[int(j)]
+            d = seg.distance(c)
+            if d > tol or d <= 1e-9:
+                continue                      # off the horizon, or already ON
+                                              # the segment (the noding sees it)
+            t = seg.project(c)
+            if t <= 1e-9 or t >= seg.length - 1e-9:
+                continue                      # an endpoint (or beyond)
+            xy = (float(c.x), float(c.y))
+            if xy == a or xy == b:
+                continue
+            found.append((t, xy))
+        for _t, xy in sorted(found):
+            if xy != out[-1]:
+                out.append(xy)
+    return out

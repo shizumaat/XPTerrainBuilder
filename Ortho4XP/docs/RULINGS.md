@@ -2078,3 +2078,4 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * **Loaders and classifiers are REWRITTEN** for v2 with v1 as the reference, cleaner and faster; nothing is carried by inheritance.
 * **Mesh-apply bar:** tile mesh wall time and constrained-edge count with the v2 patch vs v1's on the same tile — v2 no slower, fewer edges.
 * **Models:** Fable for ALL design, specs and reviews; implementation on whatever is most efficient (Opus by default once `.claude/hooks/agent_guard.py` admits it).
+* **2026-09-03e (owner):** the v2 LAW TABLE is a HUMAN-READABLE, EDITABLE DATA FILE — adjusting a cap or adding a family must never require a code change. Implementation: TOML files under `src/auto_patch_v2/law/` (stdlib `tomllib`; comments carry meaning, unit and ruling id per key), a typed schema + loader that validates and fails loudly, and a twin that cross-checks the values against v1's constants. No numeric law value may live in Python.

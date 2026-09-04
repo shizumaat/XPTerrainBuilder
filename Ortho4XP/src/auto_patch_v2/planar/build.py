@@ -189,6 +189,20 @@ def _sample(airport: Airport, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
     return np.array([dem.z(float(x), float(y)) for x, y in zip(xs, ys)])
 
 
+def _snapped(geom, grid_m: float):
+    """``geom`` with its coordinates on the grid and NO precision model
+    left on the result.  ``set_precision`` stamps the grid onto the
+    geometry, and every later operation on it is rounded to that grid
+    too: a ``0.3 m`` buffer of a 0.5 m-precision line is snapped to the
+    0.5 m lattice and, for any line off the axes, collapses to an EMPTY
+    polygon (measured at LEMD 2026-09-04: the 142° runways 14R/32L and
+    14L/32R lost their whole ``runway_profile`` breakline — no CIFP pins,
+    no profile law, no crown, 2,185 oracle ``runway_crown`` rows priced
+    against the 18/36 ridges 0.3–4.8 km away — while the 180° pair
+    survived because an axis-aligned ribbon rounds to one cell wide)."""
+    return shapely.set_precision(shapely.set_precision(geom, grid_m), 0.0)
+
+
 def _breaklines(arr: Arrangement, edge_list: list[Edge], vxy: list[XY]
                 ) -> tuple[list[Breakline], dict[int, EdgeKind], int, int]:
     """Match each source line to the noded edges lying on it (both
@@ -201,11 +215,11 @@ def _breaklines(arr: Arrangement, edge_list: list[Edge], vxy: list[XY]
     kinds: dict[int, EdgeKind] = {}
     dropped = split = 0
     for src in arr.sources:
-        line = shapely.set_precision(src.line, arr.grid_m)
+        line = _snapped(src.line, arr.grid_m)
         if line.is_empty or line.length <= 0 or tree is None:
             continue
         cand = []
-        for j in tree.query(line.buffer(tol), predicate="intersects"):
+        for j in tree.query(line, predicate="dwithin", distance=tol):
             e = edge_list[int(j)]
             if line.distance(Point(vxy[e.a])) <= tol and \
                     line.distance(Point(vxy[e.b])) <= tol and \
@@ -238,7 +252,7 @@ def _seam_vertices(arr: Arrangement, vxy: list[XY]) -> frozenset[int]:
     if not arr.seam_bands:
         return frozenset()
     tol = 0.6 * arr.grid_m
-    edges = [shapely.set_precision(b.boundary, arr.grid_m) for b in arr.seam_bands]
+    edges = [_snapped(b.boundary, arr.grid_m) for b in arr.seam_bands]
     out = set()
     for v, p in enumerate(vxy):
         pt = Point(p)

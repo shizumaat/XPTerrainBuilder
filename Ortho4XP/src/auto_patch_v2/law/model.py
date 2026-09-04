@@ -25,7 +25,7 @@ __all__ = [
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Structures", "Chords", "Identity", "Materiality",
-    "NoStep", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
+    "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables",
 ]
@@ -135,6 +135,7 @@ class EndSkirtLaw:
     rate_provisional: bool
     near_zone_m: float | None = None
     near_max_down_grade: float | None = None
+    corridor_length_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -341,6 +342,38 @@ class NoStep:
 
 
 @_dc.dataclass(frozen=True)
+class Transect:
+    """The transect walk (owner 2026-08-21): station / reach / span."""
+
+    step_m: float
+    half_width_m: float
+    min_width_m: float
+    max_gap_m: float
+
+
+@_dc.dataclass(frozen=True)
+class WithinShape:
+    """Which ring pairs the within-shape law prices."""
+
+    apron_body_chord_max_m: float
+    runway_station_cluster_m: float
+
+
+@_dc.dataclass(frozen=True)
+class Instrument:
+    """The census's encoding envelope (a reader's forgiveness, never a
+    solve budget)."""
+
+    rounding_noise_m: float
+    coarse_noise_m: float
+    coarse_noise_roles: tuple[str, ...]
+    strip_edge_noise_m: float
+    step_contact_tol_m: float
+    edge_search_m: float
+    tile_seam_zone_m: float
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -348,18 +381,23 @@ class EmitLaw:
     identity: Identity
     materiality: Materiality
     no_step: NoStep
+    transect: Transect
+    within_shape: WithinShape
+    instrument: Instrument
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
 class RoleSpec:
-    """One emitted role."""
+    """One emitted role.  ``rigid``: one flat value per face, levelled by
+    its contact (RULINGS 2026-09-03h)."""
 
     family: str
     side: str
     value: bool
     aeroway: str
+    rigid: bool = False
 
 
 @_dc.dataclass(frozen=True)

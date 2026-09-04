@@ -16,8 +16,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Source", "Pin", "Diff", "Flat", "Band", "Offset", "Row",
-           "ConstraintSet"]
+__all__ = ["Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
+           "Row", "ConstraintSet"]
 
 
 @_dc.dataclass(frozen=True)
@@ -97,7 +97,25 @@ class Offset:
     source: Source
 
 
-Row = _t.Union[Pin, Diff, Flat, Band, Offset]
+@_dc.dataclass(frozen=True)
+class Linear:
+    """``lo <= Σ c_i · z[v_i] <= hi`` — the general linear row (M2
+    extension of the M0 vocabulary, additive).  Two laws need more than
+    two vertices: a RATE law (second difference along a chain, RULINGS
+    2026-08-27 clause 2 / strip_arc / raoa) is a three-term row, and a
+    TRANSECT (the transverse law's cross-section, owner 2026-08-21) reads
+    two ring-edge INTERPOLATIONS, four terms.  ``terms`` is
+    ``((vertex, coefficient), ...)``; ``None`` = unbounded on that side.
+    A generator states the row in the law's own units (metres of Δz);
+    the assembler stacks it unchanged."""
+
+    terms: tuple[tuple[int, float], ...]
+    lo: float | None
+    hi: float | None
+    source: Source
+
+
+Row = _t.Union[Pin, Diff, Flat, Band, Offset, Linear]
 
 
 @_dc.dataclass(frozen=True)
@@ -116,6 +134,8 @@ class ConstraintSet:
       ``Offset`` as ONE row (``z[b] - z[a] <= -min_delta``);
       ``lo`` / ``hi`` are the per-variable bounds from ``Band`` rows
       (``-inf`` / ``+inf`` where none; the tightest wins when several);
+      every ``Linear`` row lands in ``A_ub`` as one row per finite side
+      (``Σ c z <= hi`` and ``-Σ c z <= -lo``);
     * rows keep their order within kind, so row index -> ``Row`` is a
       stable map the solver's IIS uses to name sources;
     * scipy CSR, float64; no dense matrix is ever formed.
@@ -126,17 +146,31 @@ class ConstraintSet:
     flats: tuple[Flat, ...] = ()
     bands: tuple[Band, ...] = ()
     offsets: tuple[Offset, ...] = ()
+    linears: tuple[Linear, ...] = ()
+
+    @classmethod
+    def from_rows(cls, rows: _t.Iterable[Row]) -> "ConstraintSet":
+        """Rows by kind, order preserved within kind."""
+        kinds: dict[type, list] = {Pin: [], Diff: [], Flat: [], Band: [],
+                                   Offset: [], Linear: []}
+        for r in rows:
+            try:
+                kinds[type(r)].append(r)
+            except KeyError:
+                raise TypeError(f"not a constraint row: {r!r}") from None
+        return cls(tuple(kinds[Pin]), tuple(kinds[Diff]), tuple(kinds[Flat]),
+                   tuple(kinds[Band]), tuple(kinds[Offset]), tuple(kinds[Linear]))
 
     def counts(self) -> dict[str, int]:
         """Row counts per kind (the build log's one-line summary)."""
         return {"pins": len(self.pins), "diffs": len(self.diffs),
                 "flats": len(self.flats), "bands": len(self.bands),
-                "offsets": len(self.offsets)}
+                "offsets": len(self.offsets), "linears": len(self.linears)}
 
     def rows(self) -> tuple[Row, ...]:
         """Every row, pins first, in the ``to_sparse`` order."""
         return (*self.pins, *self.flats, *self.diffs, *self.offsets,
-                *self.bands)
+                *self.linears, *self.bands)
 
     def vertices(self) -> frozenset[int]:
         """Every vertex any row touches."""
@@ -151,6 +185,8 @@ class ConstraintSet:
             out.add(b.v)
         for o in self.offsets:
             out.update((o.a, o.b))
+        for ln in self.linears:
+            out.update(v for v, _c in ln.terms)
         return frozenset(out)
 
     def by_generator(self) -> dict[str, int]:
@@ -165,8 +201,12 @@ class ConstraintSet:
         return ConstraintSet(
             pins=self.pins + other.pins, diffs=self.diffs + other.diffs,
             flats=self.flats + other.flats, bands=self.bands + other.bands,
-            offsets=self.offsets + other.offsets)
+            offsets=self.offsets + other.offsets,
+            linears=self.linears + other.linears)
 
     def to_sparse(self) -> _t.Any:
-        """See the class docstring; implemented in M2 (``solve``)."""
-        raise NotImplementedError("to_sparse is an M2 deliverable")
+        """See the class docstring.  The implementation is
+        ``solve.assemble.to_sparse(cs, n)`` (it needs scipy, which the
+        model never imports); this method only names it."""
+        raise NotImplementedError(
+            "use auto_patch_v2.solve.assemble.to_sparse(constraints, n)")

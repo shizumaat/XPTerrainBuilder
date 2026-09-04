@@ -15,7 +15,7 @@ from .model import (Family, Law, RoleCap, ZoneClass, load_tables,
 
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "resolve_ruleset", "role_cap",
-    "role_family", "role_side", "is_value_role", "authority_rank",
+    "role_family", "role_side", "is_value_role", "is_rigid_role", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m",
@@ -50,6 +50,11 @@ def role_side(law: Law, role: str) -> str:
 def is_value_role(law: Law, role: str) -> bool:
     """Whether faces of ``role`` carry their own graded elevation."""
     return law.tables.precedence.roles[role].value
+
+
+def is_rigid_role(law: Law, role: str) -> bool:
+    """Whether faces of ``role`` are rigid flat groups (pads, 03h)."""
+    return bool(getattr(law.tables.precedence.roles[role], "rigid", False))
 
 
 def role_cap(law: Law, role: str, code_number: int | None = None,

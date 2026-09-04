@@ -19,8 +19,14 @@ of its own and never will — a COLD tile is warmed deliberately with
 ``tools/harness/build_airport.py --refresh-data <scope>``, under a lock
 and hash-stamped into the shared refresh ledger.
 
-Usage: run_tile_mesh_only.py <latitude> <longitude> [first_step]
-(from the checkout root).  ``first_step`` is 1 (default, vector then mesh)
+Usage: run_tile_mesh_only.py <latitude> <longitude> [first_step] [--patches-as-is]
+(from the checkout root).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
+A/B): step 1 does NOT resolve the X-Plane install paths, so auto_patch
+generation is skipped and the ``Patches/`` files ALREADY ON DISK are meshed
+exactly as they are — the deliberate measurement of a given patch's
+mesh-apply cost (constrained edges, step 1/2 wall), never a trap: the
+flag is explicit, the run prints it, and a run without it still refuses
+when no install resolves.  ``first_step`` is 1 (default, vector then mesh)
 or 2 -- the MESH REPLAY: step 2 alone, on the ``.node`` / ``.poly`` /
 ``.weight`` / ``.alt`` inputs already sitting in the build directory.
 That is the loop for a change in the mesh CONSUMER itself (round 15's
@@ -83,9 +89,11 @@ if __name__ == "__main__":
     IMG.initialize_providers_dict()
     IMG.initialize_combined_providers_dict()
 
-    latitude = int(sys.argv[1])
-    longitude = int(sys.argv[2])
-    first_step = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    patches_as_is = "--patches-as-is" in sys.argv
+    argv = [a for a in sys.argv[1:] if a != "--patches-as-is"]
+    latitude = int(argv[0])
+    longitude = int(argv[1])
+    first_step = int(argv[2]) if len(argv) > 2 else 1
     if first_step not in (1, 2):
         raise SystemExit("first_step must be 1 (vector+mesh) or 2 (mesh)")
     if first_step == 1:
@@ -103,8 +111,12 @@ if __name__ == "__main__":
         # was written; the mesh-only entry inherits the SAME single
         # implementation rather than a second arrangement of it, and it
         # refuses identically when nothing resolves.
-        applied = apply_xplane_install_paths()
-        print("X-Plane install paths applied:", sorted(applied))
+        if patches_as_is:
+            print("--patches-as-is: auto_patch generation SKIPPED; meshing "
+                  "the Patches/ files on disk as they are", flush=True)
+        else:
+            applied = apply_xplane_install_paths()
+            print("X-Plane install paths applied:", sorted(applied))
     print("engine cache redirects:", _CACHE_REDIRECTS)
     # THE TILE FRAME, through the SHARED resolver (RULINGS 2026-08-31d):
     # the per-tile cfg is provisioned and recorded exactly as

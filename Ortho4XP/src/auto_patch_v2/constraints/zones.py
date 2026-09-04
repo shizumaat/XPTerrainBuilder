@@ -190,8 +190,12 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         cls = _face_class(f)
         if cls is None:
             continue
-        for v in vw.rings[f.id]:
-            member.setdefault(v, set()).add(cls)
+        # outer ring AND holes: a pad inside the strip is a hole of the
+        # zone face, and its rim vertices are strip vertices (KCLT
+        # building26, 2026-09-05 — see the rigid-pad note below)
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            for v in ring:
+                member.setdefault(v, set()).add(cls)
     # THE ZONES STOP AT THE WALL (M4, 08-30l row "adjacent-ground zones
     # stop at the wall"; 2026-09-03b L2 "the wall IS the discontinuity"):
     # a strip vertex on a retaining wall's edge carries the wall's crest

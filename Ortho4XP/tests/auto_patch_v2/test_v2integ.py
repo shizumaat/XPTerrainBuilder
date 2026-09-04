@@ -77,3 +77,104 @@ def test_the_outer_ring_pairs_are_still_priced_at_the_face_cap_with_the_hole_pre
                           verts, surf.faces, surf.breaklines, surf.provenance)
     within, _x = within_shape(Patch.of(surf2, law, pub, {}))
     assert within and all(abs(r["cap_pct"] - 1.5) < 1e-9 for r in within), within[:2]
+
+
+# ── the last resort reads rows, never their reach envelope (HECA 2026-09-05) ──
+
+from auto_patch_v2.constraints import generate
+from auto_patch_v2.model.constraints import REACH_GENERATOR, Band, Diff, Linear, Source
+from auto_patch_v2.solve import relax
+from auto_patch_v2.solve.tiers import row_tier
+from auto_patch_v2.law.tables import tiers as _tiers
+
+
+@pytest.fixture(scope="module")
+def hangar():
+    from tests.auto_patch_v2.test_relax import _hangar_row
+    law = Law.for_airport("ZZZZ")
+    airport, pm = _hangar_row(law)
+    cs, _counts, _w = generate(pm, law, airport)
+    return law, airport, pm, cs
+
+
+def test_an_apron_law_row_on_a_junction_face_relaxes_at_the_apron_tier(hangar):
+    """04t-2's apron cap on a taxi face's edge along the apron is an APRON
+    row: ``relaxable`` admits it although the face is taxi-family; the
+    same pair under the taxi law is refused (HECA junction pav132)."""
+    law, airport, pm, cs = hangar
+    stub = next(f for f in pm.faces.values() if f.role == "stub")
+    vs = [v for v in pm.vertices if stub.id in pm.vertices[v].incident_faces][:2]
+    a, b = vs
+    d = math.hypot(pm.vertices[a].xy[0] - pm.vertices[b].xy[0],
+                   pm.vertices[a].xy[1] - pm.vertices[b].xy[1])
+    apron_row = Diff(a, b, 0.01, d, Source("apron", "apron edge portion (04t-2)", (f"face:{stub.id}",)))
+    taxi_row = Diff(a, b, 0.015, d, Source("taxi", "taxi within_shape", (f"face:{stub.id}",)))
+    tt = _tiers(law)
+    tier_of = {r: k for k, t in enumerate(tt) for r in t}
+    assert row_tier(pm, apron_row, tier_of, len(tt) - 1) == tier_of["stub"]
+    assert [x.kind for x in relax.relaxable(pm, law, [apron_row])] == ["diff"]
+    assert relax.relaxable(pm, law, [apron_row])[0].tier == tier_of["apron"]
+    assert relax.relaxable(pm, law, [taxi_row]) == []
+
+
+def test_envelope_free_sets_aside_exactly_the_reach_bands(hangar):
+    law, airport, pm, cs = hangar
+    reach = [r for r in cs.rows() if isinstance(r, Band) and r.source.generator == REACH_GENERATOR]
+    assert reach, "the fixture carries reach bands from its two pins"
+    free = relax.envelope_free(cs)
+    assert not [r for r in free.rows() if isinstance(r, Band) and r.source.generator == REACH_GENERATOR]
+    assert len(list(free.rows())) == len(list(cs.rows())) - len(reach)
+    # the other bands (zones, none here) and every Diff/Linear/Flat/Pin stay
+    kinds = lambda c: sorted(type(r).__name__ for r in c.rows() if not (
+        isinstance(r, Band) and r.source.generator == REACH_GENERATOR))
+    assert kinds(free) == kinds(cs)
+
+
+def test_the_hangar_row_still_relaxes_on_the_envelope_free_set(hangar):
+    """The existing last-resort behaviour is unchanged where it applied:
+    the hangar row relaxes, and the relaxed hard set carries no reach band."""
+    from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
+    from auto_patch_v2.solve import Options
+    law, airport, pm, cs = hangar
+    sol, rep, cs2 = relax.solve_relaxed(pm, cs, law, DEFAULT_WEIGHTS, Options())
+    assert rep.applied and sol is not None, rep.line()
+    assert not [r for r in cs2.rows() if isinstance(r, Band) and r.source.generator == REACH_GENERATOR]
+
+
+# ── a rigid pad inside the strip is banded through its rim (KCLT 2026-09-05) ──
+
+def test_a_pad_inside_a_taxi_strip_carries_zone_bands_on_its_rim():
+    """A shed 8 m east of stub E, inside taxiway D's zone 2 and touching
+    no airside pavement: its rim vertices are strip vertices and carry
+    the zone band (the FLAT row then lifts the pad to it) — before, every
+    airside value face's vertices were exempt, pads included, and the
+    pad floated to its DEM (KCLT building26, 24 tear rows)."""
+    from tests.auto_patch_v2.test_relax import _Dem, _rect
+    from auto_patch_v2.classify.roles import Cell, Classification, CutLine
+    from auto_patch_v2.constraints.zones import zone_bands
+    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+    from auto_patch_v2.model.frame import Frame
+    from auto_patch_v2.planar.build import build
+    law = Law.for_airport("ZZZZ")
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 718.0, "fixture"))
+    runways = [Runway("09/27", 45.0, 1, ends, 3, "D")]
+    cells = [
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D", "airside", "runway", {}),
+        Cell(1, "stub", "stubE", _rect(138.5, 22.5, 161.5, 120), (), None, "D", "airside", "taxi", {}),
+        Cell(2, "building", "shed", _rect(170, 60, 182, 80), (), None, None, "airside", "pad", {}),
+    ]
+    cuts = [CutLine("taxi_centerline", "stubE", ((150.0, 0.0), (150.0, 120.0)))]
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, tuple(runways), (), (), {},
+                      (), (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
+    pm, _stats = build(airport, Classification(tuple(cells), tuple(cuts), {}, ()), law)
+    pad = next(f for f in pm.faces.values() if f.role == "building")
+    rim = {v for v in pm.vertices if pad.id in pm.vertices[v].incident_faces}
+    strip_rim = {v for v in rim if any(pm.faces[f].role == "graded_strip"
+                                       for f in pm.vertices[v].incident_faces)}
+    assert strip_rim, "the shed's rim is welded into the strip"
+    rows = zone_bands(pm, law, airport)
+    banded = {v for r in rows if isinstance(r, Linear) for v, _c in r.terms} & strip_rim
+    assert banded, "no zone band on the pad's strip-rim vertices"

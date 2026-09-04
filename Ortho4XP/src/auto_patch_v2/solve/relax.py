@@ -20,9 +20,16 @@ infeasibility, and inside ``emit.relaxation.iis_time_budget_s``:
    a vertex on the site — an apron chord, a frontage row, a no-step pair
    whose junior endpoint is the apron's — and every rigid face's ``Flat``
    group on it (a pad).  The IIS's own rows are always among them.  A
-   pin, a reach band, a runway or taxi-family row is never relaxed: an
+   row is owned by the tier of the LAW it states (``_law_tier``): an
+   apron-cap row on a junction's edge along the apron (04t-2) is an
+   apron row.  A pin, a runway or taxi-family row is never relaxed: an
    IIS naming only those falls back to the tier machinery (04i), and the
-   report says so.  Why the SITE and not the one IIS: an apron is a
+   report says so.  The route-REACH bands are set aside for the whole
+   last resort (``envelope_free``): they are the envelope the hard path
+   rows imply (tiers.py withdraws them on demotion for the same reason),
+   and an IIS naming the envelope names nothing the ruling can relax —
+   the diagnosis, the spread and the re-solve all run on the rows.
+   Why the SITE and not the one IIS: an apron is a
    membrane — the parallel chords beside an IIS path are IISs of their
    own (measured on the hangar-row twin: three rounds of one-IIS-at-a-
    time never closed), and the variance program below gives a row that
@@ -72,7 +79,7 @@ from scipy.optimize import linprog
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_tier, tiers
-from ..model.constraints import (ConstraintSet, Diff, Flat, Linear, Pin, Row,
+from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff, Flat, Linear, Pin, Row,
                                  Source)
 from ..model.planar import PlanarMap
 from .api import Options, Solution, Status, Weights
@@ -148,7 +155,7 @@ def relaxable(pm: PlanarMap, law: Law, iis: _t.Sequence[Row]) -> list[Relaxed]:
                                      for v, (dx, dy) in zip(r.group, off))))
             continue
         if isinstance(r, Diff) and r.soft is None:
-            k = row_tier(pm, r, tier_of, lowest)
+            k = _law_tier(pm, r, tier_of, lowest)
             if k >= k_from:
                 out.append(Relaxed(len(out), r, "diff", k, _face_of(r), r.d))
         elif isinstance(r, Linear) and r.soft is None and not (
@@ -158,6 +165,34 @@ def relaxable(pm: PlanarMap, law: Law, iis: _t.Sequence[Row]) -> list[Relaxed]:
             if k >= k_from:
                 out.append(Relaxed(len(out), r, "linear", k, _face_of(r), 1.0))
     return out
+
+
+def _law_tier(pm: PlanarMap, r: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
+    """The tier of the LAW a row states, never only of the face it sits
+    on: a row the APRON law mints on a junction face (04t-2, the apron
+    cap on the portion along the apron; ``apron.apron_edge_portions``) is
+    an apron row — "a slightly over-cap apron" is exactly what 04t(1)
+    admits — and reads the apron's tier.  Measured HECA 2026-09-05: the
+    23C→05L reach floor rose 3.3 m under 04t-2's 1 % on 2.5 km of junction
+    pav132's apron edge, the hard set went infeasible against the 05L pin,
+    and the portion rows (taxi-tier by face) were refused as relaxable."""
+    k = row_tier(pm, r, tier_of, lowest)
+    law_k = tier_of.get(r.source.generator)
+    return k if law_k is None else max(k, law_k)
+
+
+def envelope_free(cs: ConstraintSet) -> ConstraintSet:
+    """``cs`` without the route-reach bands (``REACH_GENERATOR``): the
+    thresholds' envelope the hard path rows already imply (tiers.py, the
+    demotion withdraws them for the same reason).  The last resort
+    diagnoses, spreads and re-solves on the ROWS — an IIS naming the
+    envelope instead of the path rows it summarises names nothing the
+    ruling can relax (HECA 2026-09-05: 'Band:reach' x3 + one runway
+    crown row, relaxation refused, the tier machinery demoted the apron
+    tier: +8 airside rows)."""
+    return ConstraintSet.from_rows(
+        r for r in cs.rows()
+        if not (isinstance(r, Band) and r.source.generator == REACH_GENERATOR))
 
 
 def site_candidates(pm: PlanarMap, law: Law, cs: ConstraintSet, iis: _t.Sequence[Row],
@@ -668,6 +703,7 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
     quiet = _dc.replace(opt, diagnose_iis=False)
     relaxed_all: list[Relaxed] = []
     unrelaxed: list[Row] = []
+    cs = envelope_free(cs)          # the rows, never their reach envelope
     probe = cs
     for rnd in range(1, rl.max_rounds + 1):
         rep.rounds = rnd

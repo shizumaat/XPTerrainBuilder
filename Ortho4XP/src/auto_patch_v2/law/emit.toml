@@ -1,0 +1,21 @@
+# auto_patch_v2 LAW — emission constants: chord density, identity,
+# materiality (Appendix A §5; plan §1 "chord density is a law parameter
+# applied once at planar-map build").
+
+[chords]
+pavement_max_chord_m    = 60.0   # no airside-pavement ring chord longer than this — ONE decimator, ONE cap (memory two-decimators-mask-each-other)
+apron_interior_spacing_m = 50.0  # apron interior vertex lattice spacing; a void wider than this is a membrane defect (08-24b/c, 08-26)
+station_spacing_m       = 12.0   # runway / spine profile station spacing along breaklines (crown spines 12 m stations, 08-05)
+
+[identity]
+coordinate_dp           = 11     # canonical vertex identity = lat/lon rounded to this many decimals (memory canonical-identity-join)
+min_distinct_spacing_m  = 0.5    # two DISTINCT vertices never closer than this — the census's proximity knob (LAW_TRUE_KNOBS proximity_m)
+
+[materiality]
+elevation_m             = 0.01   # a residual below this is PASS-with-residual, never iterated (owner 2026-08-02 convergence guards)
+grade                   = 0.0001 # 0.01 pp for grade residuals (same ruling)
+step_m                  = 0.5    # an elevation disagreement at one coordinate ≥ this is a STEP (06-20; LAW_TRUE_KNOBS edge_step_m)
+
+[no_step]
+window_m                = 150.0  # airside no-step direct-distance window (08-27; AIRSIDE_NO_STEP_WINDOW_M)
+k                       = 16     # law edges per airside node, spread over eight sectors (AIRSIDE_NO_STEP_K)

@@ -1,0 +1,51 @@
+# auto_patch_v2 LAW — roles and authority precedence (Appendix A §2;
+# RULINGS 2026-08-03 "emitters emit, never grade"; memory
+# emit-consensus-mints-violations).  Where two faces meet, the face whose
+# role comes FIRST in `order` owns the shared value; roles not in `order`
+# rank after every named one (the terrain tail).  This is a TOTAL order.
+
+[authority]
+order = [
+  "runway", "runway_crossing",                                          # runway family
+  "primary_parallel", "secondary_parallel", "stub", "cross_connector",
+  "junction", "tunnel_ramp",                                            # taxi family
+  "apron", "building",                                                  # apron, then landside occupants
+  "service_road", "service_junction", "groundside_pavement",
+]
+
+# Every role v2 emits.  `family` selects the cap table (runway / taxi /
+# common / none); `side` is the census partition EXACTLY as the v1 oracle
+# partitions it (`check_grade._GROUNDSIDE_ROLES`: four roles are
+# groundside, every other role is airside — airside is king: a MIXED row
+# counts against airside); `value` = carries its own graded elevation (a
+# non-value role traces a lawful bound, no within-shape cap).
+[roles]
+runway              = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }
+runway_crossing     = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }
+primary_parallel    = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
+secondary_parallel  = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
+stub                = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
+cross_connector     = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
+junction            = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
+tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway" }
+apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
+building            = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
+service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
+service_junction    = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
+groundside_pavement = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
+boundary            = { family = "none",   side = "airside",    value = false, aeroway = "aerodrome" }
+retaining_wall      = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+runway_clearance    = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+taxiway_clearance   = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+graded_strip        = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+ols_cut             = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+object_pad          = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+bridge_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+bridge_causeway     = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+tunnel_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+
+[taxi_family]
+members = ["primary_parallel", "secondary_parallel", "stub", "cross_connector", "junction"]
+
+[runway_family]
+members = ["runway", "runway_crossing"]

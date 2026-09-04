@@ -91,7 +91,6 @@ class StructureStats:
     tunnels: int = 0
     decks: int = 0
     object_decks: int = 0
-    promoted_candidates: int = 0
     refused: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
 
@@ -106,22 +105,6 @@ def _is_tunnel(w: OsmWay) -> bool:
 def _is_bridge(w: OsmWay) -> bool:
     """One predicate with the deck signature's (``airport/deck_signature``)."""
     return is_bridge_way(w.tags)
-
-
-def candidate_decks(objects: _t.Sequence) -> list[tuple[str, Polygon, float]]:
-    """``(object id, plate footprint, rendered deck top)`` per CANDIDATE
-    plate (a deck-shaped plate with no spanning evidence at read time,
-    04k): one that crosses a tunnel corridor spans the ramp — THAT is
-    its evidence, and it enters the map as an object deck."""
-    out = []
-    for o in objects:
-        pl = getattr(o, "deck_plate", None)
-        if getattr(o, "deck_kind", "") != "candidate" or pl is None:
-            continue
-        for part in shapely.get_parts(pl.footprint):
-            if part.geom_type == "Polygon" and part.area > 1.0:
-                out.append((o.id, part, float(o.anchor_z + o.agl_m + pl.deck_top_y)))
-    return out
 
 
 def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
@@ -470,7 +453,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     bridges.  A classification with no bores comes back unchanged."""
     stats = StructureStats()
     odecks = object_decks(objects)
-    cdecks = candidate_decks(objects)
     tn = law.tables.structures.tunnel
     tunnel_ways = [w for w in airport.osm_ways if _is_tunnel(w) and len(w.points) >= 2]
     if not tunnel_ways or not classification.cells:
@@ -542,13 +524,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # decks across the corridor (a first pass over the full reach)
         deck_ivals = _deck_intervals(axis_ln, half + gap + bw, bridges, bridge_lines,
                                      bridge_tree, law)
+        # only a DECK (flagged, or the signature's) enters here — never a
+        # candidate plate crossing the corridor: at OTHH 22 terminal
+        # slab / kerb-road plates cross the four terminal tunnels, and
+        # promoting them pushed every climb past the slabs and lost four
+        # tunnels (portal acceptance 8/8 -> 7/8, site B3 at 1,725 m);
+        # the tunnel under a building is the pad law's, not a bridge's
         obj_ivals = _object_deck_intervals(axis_ln, half + gap + bw, odecks)
-        promoted = _object_deck_intervals(axis_ln, half + gap + bw, cdecks)
-        if promoted:
-            # a candidate plate crossing the corridor spans the ramp: a
-            # deck by the signature's below-grade evidence (04k)
-            stats.promoted_candidates += len(promoted)
-            obj_ivals = sorted(obj_ivals + promoted, key=lambda t: t[1])
         if obj_ivals:
             # the object law governs where an object bridge stands: a
             # mapped bridge way over it mints no terrain deck (08-30d)
@@ -658,9 +640,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         notes = []
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
-        if promoted:
-            notes.append(f"{len(promoted)} candidate plate(s) promoted to object decks: "
-                         "they cross the ramp corridor (04k)")
         for d in decks:
             if d.datum == "deck_top":
                 notes.append(f"object bridge {d.ref} deck top {d.z:.2f} over s {d.s0:.0f}-{d.s1:.0f}")

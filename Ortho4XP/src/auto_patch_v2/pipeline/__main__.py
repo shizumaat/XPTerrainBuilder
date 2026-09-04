@@ -12,6 +12,7 @@ import os
 import sys
 
 from ..planar.__main__ import ENGINE_DIR, add_dem_frame_args, default_inputs
+from ..law import Law
 from ..solve import Options
 from .build import Config, build
 
@@ -27,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--data-root")
     b.add_argument("--feather-m", type=float, default=60.0)
     add_dem_frame_args(b)
+    b.add_argument("--law-dir", help="an ALTERNATIVE law-table directory (a "
+                   "labelled measurement arm; the shipped tables are law/)")
     b.add_argument("--no-verify", action="store_true")
     b.add_argument("--no-iis", action="store_true")
     b.add_argument("--verbose", action="store_true")
@@ -37,8 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config(options=Options(diagnose_iis=not args.no_iis,
                                  verbose=args.verbose),
                  verify=not args.no_verify, feather_m=args.feather_m)
+    law = Law.for_airport(args.icao.upper(), law_dir=args.law_dir) if args.law_dir else None
     with shared_repo_guard() as guard:
-        res = build(args.icao.upper(), inputs, args.out, cfg)
+        res = build(args.icao.upper(), inputs, args.out, cfg, law)
     blocked = list(getattr(guard, "blocked", ()))
     if blocked:
         print(f"[{args.icao.upper()}] REFUSED: {len(blocked)} write(s) into the "

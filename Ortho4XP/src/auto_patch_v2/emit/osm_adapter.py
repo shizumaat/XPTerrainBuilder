@@ -55,13 +55,13 @@ from .graded import z_decimals
 from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
-           "render_sidecar"]
+           "render_sidecar", "tile_of_face", "write_tile_pieces"]
 
 #: The sidecar keys v2 publishes, and nothing else (Appendix A §5).
 SIDECAR_KEYS: tuple[str, ...] = (
     "ruleset", "axes", "routes", "runway_end_skirt", "crown_drops",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
-    "airside_no_step_edges", "mesh_edges", "pair_caps",
+    "airside_no_step_edges", "mesh_edges", "pair_caps", "seam_pins",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).
@@ -191,3 +191,50 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
     graded.write_text(surface.to_json(z_dp=z_decimals(law)))
     return PatchPaths(patch, side, graded, n_ways, n_nodes,
                       patch.stat().st_size, side.stat().st_size)
+
+
+def tile_of_face(surface: GradedSurface, face) -> tuple[int, int]:
+    """The 1° tile holding a face: the mean of its ring vertices (a face
+    never straddles a tile line — the seam band is cut out of the map —
+    so the mean of points inside one square is inside it)."""
+    import math
+    vs = {v.id: v for v in surface.vertices}
+    lat = sum(vs[i].ll[0] for i in face.ring) / len(face.ring)
+    lon = sum(vs[i].ll[1] for i in face.ring) / len(face.ring)
+    return int(math.floor(lat)), int(math.floor(lon))
+
+
+def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
+                      sidecar: _t.Mapping[str, _t.Any] | None = None,
+                      header: _t.Mapping[str, str] | None = None,
+                      face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
+                      ) -> dict[tuple[int, int], PatchPaths]:
+    """One patch per tile the surface touches, at the mesh's own path
+    ``<out_dir>/<block>/<tile>/<ICAO>_auto.patch.osm`` (``O4_File_Names.
+    patch_dir``: ``Patches/-20-080/-13-077/``), each carrying only the
+    faces on that tile's side of the seam band, their vertices and the
+    breakline runs inside them; the sidecar is the whole airport's (the
+    census's axes and pairs are geometric, the tile filter is on faces).
+    A single-tile surface writes one piece, identical to ``write_patch``."""
+    by_tile: dict[tuple[int, int], list] = {}
+    for f in surface.faces:
+        by_tile.setdefault(tile_of_face(surface, f), []).append(f)
+    out: dict[tuple[int, int], PatchPaths] = {}
+    for (lat, lon), faces in sorted(by_tile.items()):
+        keep = {i for f in faces for i in f.ring} | \
+            {i for f in faces for h in f.holes for i in h}
+        verts = tuple(v for v in surface.vertices if v.id in keep)
+        bls = []
+        for b in surface.breaklines:
+            run = [i for i in b.vertices if i in keep]
+            if len(run) >= 2:
+                bls.append(_dc.replace(b, vertices=tuple(run)))
+        piece = _dc.replace(surface, vertices=verts, faces=tuple(faces),
+                            breaklines=tuple(bls))
+        block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
+        tile = f"{lat:+03d}{lon:+04d}"
+        hdr = dict(header or {})
+        hdr["o4_tile"] = tile
+        out[(lat, lon)] = write_patch(piece, law, Path(out_dir) / block / tile,
+                                      sidecar, hdr, face_tags)
+    return out

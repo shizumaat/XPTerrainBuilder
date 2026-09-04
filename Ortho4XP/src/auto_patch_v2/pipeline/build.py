@@ -16,7 +16,7 @@ from ..airport.load import Inputs, load_with_report
 from ..classify import classify, load_rules
 from ..constraints import generate
 from ..emit.graded import graded_surface
-from ..emit.osm_adapter import PatchPaths, write_patch
+from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..law import Law
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
@@ -59,6 +59,7 @@ class BuildResult:
     solution: Solution
     paths: PatchPaths | None
     verify_rows: dict[str, list[dict]] | None
+    pieces: dict[tuple[int, int], PatchPaths] | None
     wall: dict[str, float]
     lp_size: dict[str, int]
     report: dict[str, _t.Any]
@@ -88,7 +89,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["planar"] = time.perf_counter() - t
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
-         f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}", out)
+         f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
+         f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
+         f"  seam-band faces dropped {pstats.dropped_seam_faces}", out)
     t = time.perf_counter()
     cs, counts, gwalls = generate(pm, law, airport)
     wall["constraints"] = time.perf_counter() - t
@@ -99,8 +102,37 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     size: dict[str, int] = {}
     sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
+    # SEAM SECOND PASS: a seam vertex the solve could not hold on the DEM
+    # is FREE, so the pairs the first pass exempted as pin↔pin around it
+    # come back as law rows (the census prices them) and the LP runs once
+    # more over exactly that set.
+    if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
+        tol = law.tables.emit.materiality.elevation_m
+        honoured = {v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
+                    and abs(sol.z[v] - pm.vertices[v].dem_z) <= tol}
+        if len(honoured) < len(pm.seam_vertices):
+            t = time.perf_counter()
+            cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
+            counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
+            sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
+            wall["solve_pass2"] = time.perf_counter() - t
+            _say(f"[{icao}] seam pass 2: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
+                 f"{counts2['seam_pin_pair_exempt']} pairs exempt, "
+                 f"{wall['solve_pass2']:.2f} s, status {sol.status.value}", out)
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
+    if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
+        tol = law.tables.emit.materiality.elevation_m
+        res_seam = sorted(((abs(sol.z[v] - pm.vertices[v].dem_z), v)
+                           for v in pm.seam_vertices if pm.vertices[v].dem_z is not None),
+                          reverse=True)
+        off = [(d, v) for d, v in res_seam if d > tol]
+        report_seam = {"seam_vertices": len(pm.seam_vertices), "honoured": len(res_seam) - len(off),
+                       "residual": [{"vertex": v, "off_dem_m": round(d, 3)} for d, v in off]}
+        _say(f"[{icao}] seam: {report_seam['honoured']}/{len(res_seam)} vertices on the DEM; "
+             f"{len(off)} residual" + (f", max {off[0][0]:.3f} m at vertex {off[0][1]}" if off else ""), out)
+    else:
+        report_seam = None
     if sol.residual is not None:
         r = sol.residual
         _say(f"    residual: pin {r.max_pin_m:.4f} diff {r.max_diff_m:.4f} "
@@ -112,6 +144,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},
         "lp": size,
+        "seam": report_seam,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
                   "residual": None if sol.residual is None else _dc.asdict(sol.residual),
@@ -121,6 +154,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     }
     paths = None
     vrows = None
+    pieces = None
     if sol.status.value in ("optimal", "feasible"):
         t = time.perf_counter()
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
@@ -131,14 +165,26 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                             {"o4_apt_dat": airport.pack.apt_dat_path,
                              "o4_pack": airport.pack.name},
                             face_tags(pm, law))
+        if pm.seam_vertices:
+            pieces = write_tile_pieces(surf, law, out_dir, pub,
+                                       {"o4_apt_dat": airport.pack.apt_dat_path,
+                                        "o4_pack": airport.pack.name},
+                                       face_tags(pm, law))
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"
              f"  patch {paths.bytes_patch} B  sidecar {paths.bytes_sidecar} B", out)
+        for (tl, tn), pp in (pieces or {}).items():
+            _say(f"    tile {tl:+03d}{tn:+04d}: ways {pp.ways}  nodes {pp.nodes}  "
+                 f"-> {pp.patch}", out)
         report["emit"] = {"patch": str(paths.patch), "sidecar": str(paths.sidecar),
                           "ways": paths.ways, "nodes": paths.nodes,
                           "bytes_patch": paths.bytes_patch,
                           "bytes_sidecar": paths.bytes_sidecar,
-                          "published": {k: len(v) for k, v in pub.items()}}
+                          "published": {k: len(v) for k, v in pub.items()},
+                          "tiles": {f"{tl:+03d}{tn:+04d}": {"patch": str(pp.patch),
+                                                             "ways": pp.ways,
+                                                             "nodes": pp.nodes}
+                                    for (tl, tn), pp in (pieces or {}).items()}}
         if cfg.verify:
             t = time.perf_counter()
             from ..constraints.roads import road_law_caps
@@ -160,4 +206,4 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     (Path(out_dir) / f"{icao}.report.json").write_text(
         json.dumps(report, indent=1, default=str))
     _say(f"[{icao}] total {wall['total']:.2f} s  -> {out_dir}", out)
-    return BuildResult(icao, pm, cs, counts, sol, paths, vrows, wall, size, report)
+    return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report)

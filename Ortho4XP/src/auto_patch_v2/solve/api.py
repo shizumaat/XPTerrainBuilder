@@ -52,6 +52,14 @@ class Weights:
     zone3: float
     smoothness: float
     default: float
+    #: Charge per metre of relief of a PREFERENCE row (``Diff.soft`` /
+    #: ``Linear.soft``), by the group prefix before ``:`` — relative to the
+    #: largest DEM-fit weight, so a preference always beats the fit and the
+    #: tiers rank each other: seam DEM values (owner 2026-07-24 "at ALL
+    #: points") above the end-zone cap (owner 2026-07-08, yields minimally)
+    #: above the crown floor (M0 Q5, v2's own minimum).  M3a, additive.
+    preference: _t.Mapping[str, float] = _dc.field(
+        default_factory=lambda: {"seam": 1.0e4, "end_zone": 1.0e3, "crown": 1.0e2})
 
 
 @_dc.dataclass(frozen=True)

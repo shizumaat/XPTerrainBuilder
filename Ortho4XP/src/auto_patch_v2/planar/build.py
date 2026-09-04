@@ -56,6 +56,9 @@ class BuildStats:
     faces_by_role: dict[str, int] = _dc.field(default_factory=dict)
     area_by_role_m2: dict[str, float] = _dc.field(default_factory=dict)
     grid_m: float = 0.0
+    seam_bands: int = 0
+    seam_vertices: int = 0
+    dropped_seam_faces: int = 0
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -146,9 +149,13 @@ def build(airport: Airport, classification: Classification, law: Law,
         vertices[v] = Vertex(v, p, key, None if math.isnan(z) else z,
                              tuple(sorted(incident[v])))
 
+    seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
-                   faces, {b.id: b for b in breaklines})
+                   faces, {b.id: b for b in breaklines}, seam)
     validate(pm)
+    stats.seam_bands = len(arr.seam_bands)
+    stats.seam_vertices = len(seam)
+    stats.dropped_seam_faces = arr.dropped_seam_faces
     stats.faces, stats.edges = len(faces), len(edge_list)
     stats.vertices, stats.breaklines = len(vertices), len(breaklines)
     stats.t_vertices = _t_vertices(pm)
@@ -217,6 +224,21 @@ def _breaklines(arr: Arrangement, edge_list: list[Edge], vxy: list[XY]
                 kinds[eid] = _LINE_KIND.get(src.kind, EdgeKind.BREAKLINE)
             out.append(Breakline(len(out), src.kind, src.ref, tuple(ch)))
     return out, kinds, dropped, split
+
+
+def _seam_vertices(arr: Arrangement, vxy: list[XY]) -> frozenset[int]:
+    """Vertices on a seam band's edge (the band boundary was noded and
+    snapped with everything else, so the test is exact up to the grid)."""
+    if not arr.seam_bands:
+        return frozenset()
+    tol = 0.6 * arr.grid_m
+    edges = [shapely.set_precision(b.boundary, arr.grid_m) for b in arr.seam_bands]
+    out = set()
+    for v, p in enumerate(vxy):
+        pt = Point(p)
+        if any(e.distance(pt) <= tol for e in edges):
+            out.add(v)
+    return frozenset(out)
 
 
 def _t_vertices(pm: PlanarMap) -> int:

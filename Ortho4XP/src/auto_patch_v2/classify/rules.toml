@@ -39,6 +39,20 @@ free_max_width_m = 25.0    # a route station is FREE (cuts its own face) only wh
 sample_step_m    = 5.0     # station spacing of the cross-section test
 min_run_m        = 12.0    # free stations group into runs; shorter runs stay with the apron
 
+[osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
+enabled   = true
+highways  = ["service"]        # the tag values admitted (v1 osm_load: highway=service is the airport road feed)
+dedup_m   = 8.0                # a way part within this of a 1206 route duplicates it and is dropped
+min_len_m = 10.0               # a surviving part shorter than this is noise
+
+[lot]                          # owner 2026-09-04j: roads and PARKING LOTS are classes of their own, cut at the road-to-lot mouths
+min_road_fraction      = 0.2   # a polygon CARRIES a road only when the road centreline inside it is at least this fraction of its half-perimeter (CYXY pav4: 41 m of road clipping a 464 m hangar-side strip is not a road strip)
+narrow_road_width_m    = 12.0  # a source polygon (apt.dat 110 / DSF page) at most this wide that carries ANY road centreline IS the road (the pavement is the road)
+max_road_pieces_per_100m = 2.0 # ...and at most this many merged road pieces per 100 m of half-perimeter: ONE road, not an aisle grid (measured CYXY 2026-09-04: strips 0.2-1.5, lots 2.9-4.6)
+apron_name_tokens      = ["apron"]  # an apt.dat 110 description containing one of these names an APRON: its faces are never corridors (stand lanes inside an apron are apron, RULINGS 2026-09-03j)
+through_min_fraction   = 0.6   # a wider polygon (up to service.free_max_width_m) is a road STRIP when at least this fraction of its half-perimeter is road centreline running THROUGH it (both ends on its boundary); parking aisles dead-end inside and never qualify
+parking_cover_fraction = 0.5   # an OSM amenity=parking polygon covering at least this fraction of a source polygon makes it a lot (no such tag in the airport feeds today — a data question)
+
 [groundside]
 touch_tol_m       = 0.05   # cells within this touch (v1 touch_tol_m); a chain of touching airside cells reaches a runway or is landside (user 2026-06-09)
 requires_terminal = true   # an airport with NO terminal has no landside: every paved island is aircraft parking (user 2026-06-11)

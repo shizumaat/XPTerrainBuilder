@@ -50,10 +50,15 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
     tunnel wall, M4)."""
-    everything = unary_union([Polygon(c.ring, c.holes) for c in cells]
-                             + [Polygon(k) for k in keepouts]) \
-        if cells else Polygon()
-    lip = law.tables.zones.adjacent_ground.lip_width_m
+    ag = law.tables.zones.adjacent_ground
+    # groundside pavement (roads, lots) buffered by the stand-off: a zone
+    # band never shares a vertex with it — the gap terraces (groundside
+    # terrace law; ``zones.toml groundside_cutback_m``)
+    everything = unary_union(
+        [Polygon(c.ring, c.holes).buffer(ag.groundside_cutback_m, **_MITRE)
+         if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
+        + [Polygon(k) for k in keepouts]) if cells else Polygon()
+    lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     for c in cells:
         if c.role in RUNWAY_FAMILY:

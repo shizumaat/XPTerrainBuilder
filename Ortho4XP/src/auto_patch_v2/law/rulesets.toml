@@ -24,6 +24,7 @@ tunnel_ramp         = { longitudinal = 0.040, transverse = 0.020 }  # navigable 
 service_road        = { longitudinal = 0.080, transverse = 0.020 }  # VDOT GS-9 (owner 2026-08-03); laterally flat 2 % (08-25g)
 service_junction    = { longitudinal = 0.080, transverse = 0.020 }  # same car-logic cap as the road body (08-03)
 groundside_pavement = { longitudinal = 0.080, transverse = 0.020 }  # THE road limit, same constant (owner 2026-08-12)
+parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026-09-04j: lots 5 %; transverse = the road law's lateral 2 % until the owner states otherwise
 
 [common]
 apron_fan_ramp_max = 0.050          # interior apron fan cap (FAN_RAMP_CAP; 08-08 fabric model)

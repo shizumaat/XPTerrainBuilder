@@ -18,6 +18,15 @@ contour into CELLS; each cell is scored from what touches it:
   ``groundside_pavement`` when the airport has a terminal (user
   2026-06-09 / 2026-06-11).
 
+Owner 2026-09-04j (``sources.py``): a source polygon read as a road
+STRIP is its own face and a road (``service_road``); one read as a
+parking LOT is its own face and ``parking_lot``; both are cut from
+their neighbours at their own boundary (the mouth), so an apron never
+absorbs groundside pavement.  A demoted (landside) cell with road
+evidence is a ``parking_lot``; one with none stays
+``groundside_pavement``.  Pavement a network taxiway runs onto is
+airside even without a pavement touch-chain (item 4).
+
 Runway slabs are ``runway``; their pairwise overlaps ``runway_crossing``;
 ground-route corridors outside pavement ``service_road``; building
 footprints ``building`` (pads yield to their apron — RULINGS
@@ -42,6 +51,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .rules import Rules, load_rules
+from .sources import SourceRecord, classify_sources
 
 __all__ = ["Cell", "CutLine", "Classification", "classify"]
 
@@ -90,6 +100,8 @@ class Classification:
     #: and the structure footprints — the zone regions stop at the wall
     #: (RULINGS 2026-09-01c: the triangulated gap IS the face).
     keepouts: tuple[tuple[XY, ...], ...] = ()
+    #: Every source pavement polygon's evidence record (``sources.py``).
+    sources: tuple[SourceRecord, ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None
@@ -98,6 +110,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     rules = rules or load_rules()
     pad_min = law.tables.structures.building_pad.min_area_m2
     ev = build_evidence(airport, rules, pad_min)
+    sources, cut_polys = classify_sources(airport, ev, rules)
+    src_of = {r.id: r for r in sources}
+    cut_ids = list(cut_polys)
+    cut_tree = STRtree([cut_polys[i] for i in cut_ids]) if cut_ids else None
     cells: list[Cell] = []
     notes: list[str] = []
     stats: dict[str, int | float] = {}
@@ -137,21 +153,54 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         region = region.difference(ev.runway_union)
     if not ev.pad_union.is_empty:
         region = region.difference(ev.pad_union)
-    taxi_parts, truck_parts, prox, spurs = _cut_lines(ev, region, rules)
-    faces = _slice(region, taxi_parts, truck_parts, spurs, rules)
+    taxi_parts, truck_parts, prox, spurs, src_cuts = _cut_lines(
+        ev, region, rules, cut_polys)
+    faces = _slice(region, taxi_parts, truck_parts, spurs + src_cuts, rules)
     stats["slice_faces"] = len(faces)
     stats["keyhole_spurs"] = len(spurs)
+    stats["source_strips"] = sum(1 for r in sources if r.cls == "strip")
+    stats["source_lots"] = sum(1 for r in sources if r.cls == "lot")
 
     taxi_tree = STRtree([ln for ln, _c in taxi_parts]) if taxi_parts else None
     truck_tree = STRtree([ln for ln, _c in truck_parts]) if truck_parts else None
     pav_tree = STRtree([g for _i, g in ev.pavement_polys])
-    scored: list[tuple[Polygon, str, str, str | None, dict]] = []
+    pav_of = dict(ev.pavement_polys)
+    starts = [Point(st.xy) for st in airport.startups]
+    start_tree = STRtree(starts) if starts else None
+    scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
     for face in faces:
+        src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
+        if src is not None:
+            # A STRIP is the road, a LOT the lot (owner 2026-09-04j): its
+            # own face, cut at its boundary, no chain question to ask.
+            evid = {"area_m2": face.area, "n_taxi": 0, "kind": src.cls}
+            evid.update(src.as_evidence())
+            role = "service_road" if src.cls == "strip" else "parking_lot"
+            scored.append((face, role, src.id, None, evid, False))
+            continue
         taxi = _touching(face, taxi_tree, taxi_parts, rules)
         truck = _touching(face, truck_tree, truck_parts, rules)
-        kind, axis, evid = _kind(face, taxi, rules)
-        if kind == "apron" and not taxi and truck:
-            kind = "service"
+        net = any(c.runway_network for c in taxi)
+        ref = _ref_for(face, pav_tree, ev)
+        if _apron_named(src_of.get(ref), rules):
+            # RULINGS 2026-09-03j: stand lanes (unnamed 1202 edges) inside
+            # an apron pavement are apron; taxi law applies where an
+            # AUTHORED taxiway (a named designator) runs
+            # ...and runs ON it: at least half the chain lies inside this
+            # pavement (a neighbour's taxiway along the boundary, or a
+            # stub poking in, is that neighbour's evidence — CYXY pav17)
+            src_poly = pav_of.get(ref)
+            named = [c for c in taxi
+                     if any(not n.startswith("osm:") for n in c.names)
+                     and src_poly is not None
+                     and c.line.intersection(src_poly).length >= 0.5 * c.line.length]
+            kind, axis, evid = _kind(face, named, rules)
+            evid["apron_named"] = 1.0
+            evid["n_taxi_unnamed"] = len(taxi) - len(named)
+        else:
+            kind, axis, evid = _kind(face, taxi, rules)
+        if kind == "apron" and not taxi and truck and not _holds_startup(face, start_tree):
+            kind = "service"           # a stand (1300) makes it apron, not service territory
         if kind == "service":
             role = "service_junction"
         elif kind == "corridor" and axis is not None:
@@ -164,7 +213,6 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         if role in TAXI_FAMILY:
             ls = [c.letter for c in taxi if c.letter]
             letter = max(ls, key=_LETTERS.find) if ls else None
-        ref = _ref_for(face, pav_tree, ev)
         if role == "apron" and prox is not None:
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
             # v1 applies it: the part of an apron within the contour is
@@ -173,22 +221,29 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
             for part in polygon_parts(face.intersection(prox)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "junction", ref, None,
-                                   dict(evid, near_route=1.0)))
+                                   dict(evid, near_route=1.0), net))
             for part in polygon_parts(face.difference(prox)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "apron", ref, None,
-                                   dict(evid, near_route=0.0)))
+                                   dict(evid, near_route=0.0), net))
             continue
-        scored.append((face, role, ref, letter, evid))
+        scored.append((face, role, ref, letter, evid, net))
 
     # ── groundside: the runway touch-chain ─────────────────────────
     demoted = _groundside(scored, ev, rules)
     stats["groundside_demoted"] = len(demoted)
     if demoted and not ev.terminal_present:
         notes.append("no terminal: landside demotion skipped (user 2026-06-11)")
-    for i, (face, role, ref, letter, evid) in enumerate(scored):
+    road_ev = _road_evidence(scored, ev, rules)
+    stats["demoted_lots"] = 0
+    for i, (face, role, ref, letter, evid, _net) in enumerate(scored):
         if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY):
-            role = "groundside_pavement"
+            # landside: a lot when a road reaches it or a road/lot face
+            # touches it (the roads-and-lots complex, owner 2026-09-04j),
+            # else the paved island it always was
+            role = "parking_lot" if i in road_ev else "groundside_pavement"
+            evid = dict(evid, demoted=1.0, road_evidence=float(i in road_ev))
+            stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
         add(role, ref, face, str(evid.get("kind", "")), None, letter, evid)
 
@@ -221,11 +276,56 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords)))
     for ln, c in truck_parts:
         cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
+    strips = [cut_polys[i] for i in cut_ids if src_of[i].cls == "strip"]
+    if strips:                                     # the road axis inside each strip
+        strip_u = unary_union(strips)
+        for c in ev.truck_chains + ev.road_chains:
+            for ln in _line_parts(c.line.intersection(strip_u)):
+                cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     for c in ev.truck_chains:                      # the corridor spine outside pavement
         outside = c.line.difference(ev.pavement_union)
         for ln in _line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
-    return Classification(tuple(cells), tuple(cut), stats, tuple(notes))
+    return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
+                          sources=tuple(sources))
+
+
+def _source_for(face: Polygon, tree: STRtree | None, ids: list[str],
+                polys: _t.Mapping[str, Polygon], src_of) -> SourceRecord | None:
+    """The strip/lot source polygon this face lies in (>= half its area)."""
+    if tree is None:
+        return None
+    best, best_a = None, 0.0
+    for j in tree.query(face, predicate="intersects"):
+        sid = ids[int(j)]
+        a = polys[sid].intersection(face).area
+        if a > best_a:
+            best, best_a = src_of[sid], a
+    return best if best is not None and best_a >= 0.5 * face.area else None
+
+
+def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
+    """Indices of scored faces a road reaches: a road/route centreline
+    within ``on_tol_m``, or a strip/lot face touching within touch_tol."""
+    tol = rules.cells.on_tol_m
+    roads = [c.line for c in ev.truck_chains + ev.road_chains]
+    road_tree = STRtree(roads) if roads else None
+    rl = [(i, s[0]) for i, s in enumerate(scored) if s[1] in ("service_road", "parking_lot")]
+    rl_tree = STRtree([p for _i, p in rl]) if rl else None
+    out: set[int] = set()
+    for i, s in enumerate(scored):
+        face = s[0]
+        if road_tree is not None and any(
+                roads[int(j)].distance(face) <= tol
+                for j in road_tree.query(face.buffer(tol), predicate="intersects")):
+            out.add(i)
+            continue
+        if rl_tree is not None and any(
+                rl[int(j)][1].distance(face) <= rules.groundside.touch_tol_m
+                for j in rl_tree.query(face.buffer(rules.groundside.touch_tol_m),
+                                       predicate="intersects")):
+            out.add(i)
+    return out
 
 
 # ── mixed pads ───────────────────────────────────────────────────────────
@@ -306,14 +406,26 @@ def _line_parts(geom) -> list[LineString]:
             and g.length > 0]
 
 
-def _cut_lines(ev: Evidence, region, rules: Rules):
-    """Centreline parts inside the region, the proximity contour, and
-    the keyhole spurs for interior dead-ends."""
+def _cut_lines(ev: Evidence, region, rules: Rules,
+               cut_polys: _t.Mapping[str, Polygon]):
+    """Centreline parts inside the region, the proximity contour, the
+    keyhole spurs for interior dead-ends, and the strip/lot source
+    boundaries (owner 2026-09-04j: the mouth cut).  A free route part
+    inside a strip does not cut again (the strip is one face)."""
     taxi_parts = [(ln, c) for c in ev.taxi_chains
                   for ln in _line_parts(c.line.intersection(region))]
-    truck_parts = [(ln, c) for c in ev.truck_chains
-                   for ln in _free_road_parts(c.line, ev.pavement_union, rules)
-                   for ln in _line_parts(ln.intersection(region))]
+    src_u = unary_union(list(cut_polys.values())) if cut_polys else Polygon()
+    src_cuts: list[LineString] = []
+    for poly in cut_polys.values():
+        for ring in [poly.exterior, *poly.interiors]:
+            src_cuts += _line_parts(LineString(ring.coords).intersection(region.buffer(0.01)))
+    truck_parts = []
+    for c in ev.truck_chains:
+        for ln in _free_road_parts(c.line, ev.pavement_union, rules):
+            g = ln.intersection(region)
+            if not src_u.is_empty:
+                g = g.difference(src_u)
+            truck_parts += [(q, c) for q in _line_parts(g)]
     src = [c.line.buffer(rules.apron.route_proximity_m, join_style="mitre",
                          mitre_limit=2.0) for c in _through_routes(ev, rules)]
     if not ev.runway_union.is_empty:
@@ -321,7 +433,7 @@ def _cut_lines(ev: Evidence, region, rules: Rules):
                                           join_style="mitre", mitre_limit=2.0))
     prox = unary_union(src) if src else None
     spurs = _keyholes([ln for ln, _c in taxi_parts + truck_parts], region, rules)
-    return taxi_parts, truck_parts, prox, spurs
+    return taxi_parts, truck_parts, prox, spurs, src_cuts
 
 
 def _free_road_parts(line: LineString, pavement_union, rules: Rules
@@ -462,6 +574,23 @@ def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules
     return list(seen.values())
 
 
+def _holds_startup(face: Polygon, tree: STRtree | None) -> bool:
+    return tree is not None and len(tree.query(face, predicate="contains")) > 0
+
+
+def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:
+    """The face's source is an APRON by the author's own word (apt.dat
+    110 description, ``lot.apron_name_tokens``) or by OSM
+    ``aeroway=apron`` cover: its UNNAMED lanes (stand lanes) are apron
+    evidence for nothing; only an authored, named taxiway on it makes a
+    corridor (RULINGS 2026-09-03j; owner 2026-09-04j item 3, CYXY pav17)."""
+    if src is None:
+        return False
+    d = src.description.lower()
+    return any(t in d for t in rules.lot.apron_name_tokens) or \
+        src.apron_cover >= rules.lot.parking_cover_fraction
+
+
 def _kind(face: Polygon, taxi: list[Chain], rules: Rules
           ) -> tuple[str, Chain | None, dict]:
     """v1 ``classify_faces``: corridor / junction / apron from spine
@@ -550,11 +679,13 @@ def _groundside(scored, ev: Evidence, rules: Rules) -> set[int]:
     tol = rules.groundside.touch_tol_m
     reached: set[int] = set()
     queue: list[int] = []
-    if not ev.runway_union.is_empty:
-        for k, p in enumerate(polys):
-            if p.distance(ev.runway_union) <= tol:
-                reached.add(k)
-                queue.append(k)
+    for k, p in enumerate(polys):
+        # seeds: touches a runway, or a NETWORK taxiway runs onto it
+        # (owner 2026-09-04j item 4: CYXY pol19)
+        if scored[idx[k]][5] or (not ev.runway_union.is_empty
+                                 and p.distance(ev.runway_union) <= tol):
+            reached.add(k)
+            queue.append(k)
     while queue:
         k = queue.pop()
         for j in tree.query(polys[k].buffer(tol), predicate="intersects"):

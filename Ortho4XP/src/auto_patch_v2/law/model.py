@@ -220,6 +220,7 @@ class AdjacentGround:
     lip_min_down: float
     lip_max_down: float
     ungraded_max_up: float
+    groundside_cutback_m: float
     runway: ZoneClass
     taxi: ZoneClass
 
@@ -461,6 +462,9 @@ class RoleSpec:
     value: bool
     aeroway: str
     rigid: bool = False
+    #: The role name the v1 census oracle judges this role under (None =
+    #: its own name); the emitter writes ``class=<role>`` beside it.
+    oracle_role: str | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -703,6 +707,14 @@ def _check_cross_refs(t: LawTables) -> None:
         if spec.value != (spec.family != "none"):
             raise LawError(f"precedence.roles.{r}: value must be true iff "
                            "family != none")
+        if spec.oracle_role is not None:
+            alias = t.precedence.roles.get(spec.oracle_role)
+            if alias is None or alias.oracle_role is not None:
+                raise LawError(f"precedence.roles.{r}.oracle_role: "
+                               f"{spec.oracle_role!r} is not a registered "
+                               "un-aliased role")
+            if alias.side != spec.side:
+                raise LawError(f"precedence.roles.{r}.oracle_role: side differs")
     for r in t.common.roles:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")

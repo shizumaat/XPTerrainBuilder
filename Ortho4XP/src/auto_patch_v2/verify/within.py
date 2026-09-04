@@ -122,7 +122,9 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     if sh.role == "apron":
                         if d > ws.apron_body_chord_max_m:
                             continue
-                        pair_cap = fan
+                        # strict inside the body gate (owner 2026-08-24);
+                        # ``fan`` is the back-edge zones' cap (none modelled)
+                        pair_cap = cap
                 transverse = axis is not None and pair_is_transverse(
                     axis, xb - xa, yb - ya, min_deg)
                 if transverse:

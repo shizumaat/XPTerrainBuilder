@@ -5,8 +5,10 @@
 #   + other classes; highspy in venv — verify in the freeze); caps MERGED
 #   598a50d7 (stretches, portions, oracle portion rule; SPJC 0/0, KCLT
 #   airside 0; runway 1.5 % every code). OWNER 04v: v2 EQUAL OR BETTER at
-#   CYXY/SPLP/SPJC. IN FLIGHT: v2round3 (sliver weld, 106, lot 87),
-#   v2junction (04y: junction bodies as triangle planes; CYXY 156 rises).
+#   CYXY/SPLP/SPJC. ROUND 3 MERGED (04z: weld pass 1.0 m, open pavement
+#   never apron, pad set-back everywhere; CYXY 0/0). IN FLIGHT: v2junction
+#   (04y: junction bodies as triangle planes; CYXY 156 rises), v2taxiname
+#   (04z-1: taxiway-named pages are taxi evidence).
 #   NEXT: five-airport re-census, app 1.0.282 → HECA/LEMD/OTHH sim read.
 # 2026-09-04 OWNER 04t (four rulings): last resort = least total variance
 #   from law (IIS-scoped, quadratic spread, no terrace); cap by edge

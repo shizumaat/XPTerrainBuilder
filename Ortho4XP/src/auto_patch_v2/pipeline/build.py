@@ -22,7 +22,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
 from ..solve import Options, Solution, Weights
-from ..solve.highs import solve
+from ..solve.tiers import TierReport, solve_law_ordered
 from .publication import face_tags, publication
 
 __all__ = ["Config", "DEFAULT_WEIGHTS", "BuildResult", "build"]
@@ -76,6 +76,37 @@ class BuildResult:
 
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
+
+
+#: The report's "moved" threshold (metres off the DEM sample) — a report
+#: figure (M3b §4 / M5), not a law value.
+MOVED_M = 0.5
+
+
+def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
+                         ) -> dict[str, dict[str, _t.Any]]:
+    """Per role (a vertex counts for the SENIOR role touching it): how
+    many vertices sit more than :data:`MOVED_M` off their DEM sample, and
+    the largest such displacement — the M5 "what yielded where" figure."""
+    from ..constraints.precedence import tiers
+    from ..law.tables import senior_role
+    tier_of = {r: k for k, t in enumerate(tiers(law)) for r in t}
+    acc: dict[str, dict[str, _t.Any]] = {}
+    for vid, v in pm.vertices.items():
+        if v.dem_z is None or not v.incident_faces:
+            continue
+        roles = [pm.faces[f].role for f in v.incident_faces]
+        role = senior_role(law, roles)
+        rec = acc.setdefault(role, {"tier": tier_of.get(role), "vertices": 0,
+                                    "over": 0, "max_m": 0.0})
+        d = abs(sol.z[vid] - v.dem_z)
+        rec["vertices"] += 1
+        if d > MOVED_M:
+            rec["over"] += 1
+        rec["max_m"] = max(rec["max_m"], d)
+    for rec in acc.values():
+        rec["max_m"] = round(rec["max_m"], 3)
+    return dict(sorted(acc.items(), key=lambda kv: (kv[1]["tier"] is None, kv[1]["tier"])))
 
 
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
@@ -137,7 +168,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s", out)
     t = time.perf_counter()
     size: dict[str, int] = {}
-    sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
+    sol, tier_rep = solve_law_ordered(pm, cs, law, cfg.weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
     # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
     # FREE, so the pairs the previous pass exempted as pin↔pin around it
@@ -155,7 +186,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             t = time.perf_counter()
             cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-            sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
+            sol, tier_rep = solve_law_ordered(pm, cs, law, cfg.weights, cfg.options,
+                                              size_out=size)
             wall[f"solve_pass{n_pass}"] = time.perf_counter() - t
             _say(f"[{icao}] seam pass {n_pass}: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
                  f"{counts2['seam_pin_pair_exempt']} pairs exempt, "
@@ -164,6 +196,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 break
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
+    _say(f"[{icao}] {tier_rep.line()}", out)
+    moved = displacement_by_role(pm, law, sol) if sol.z else {}
+    if moved:
+        _say(f"[{icao}] off-DEM > {MOVED_M} m by role: " + ", ".join(
+            f"{r} {v['over']}/{v['vertices']} (max {v['max_m']:.2f})"
+            for r, v in moved.items() if v["over"]), out)
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
         tol = law.tables.emit.materiality.elevation_m
         res_seam = sorted(((abs(sol.z[v] - pm.vertices[v].dem_z), v)
@@ -188,6 +226,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},
         "lp": size,
+        "law_tiers": tier_rep.as_dict(),
+        "off_dem_by_role": moved,
         "seam": report_seam,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,

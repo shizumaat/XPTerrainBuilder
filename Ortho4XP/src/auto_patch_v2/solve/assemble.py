@@ -32,7 +32,8 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
 from ..model.planar import PlanarMap
 from .api import Weights
 
-__all__ = ["Sparse", "to_sparse", "Problem", "assemble", "PREFERENCE_WEIGHT"]
+__all__ = ["Sparse", "to_sparse", "Problem", "assemble", "PREFERENCE_WEIGHT",
+           "preference_weight"]
 
 #: Default charge of one unit of preference escalation, per metre of
 #: relief, relative to the largest DEM-fit weight, for a group prefix
@@ -102,10 +103,12 @@ def to_sparse(cs: ConstraintSet, n: int, soft: str = "ceiling") -> Sparse:
         for gi in f.group[1:]:
             eq(((g0, 1.0), (gi, -1.0)), 0.0, f)
     for d in cs.diffs:
-        if d.soft is not None and d.ceiling is not None:
+        if d.soft is not None:
             if soft == "defer":
                 soft_rows.append(d)
                 continue
+            if d.ceiling is None:
+                continue              # fully relaxable: constrains nothing
             bound = max(d.cap, d.ceiling) * d.d
         else:
             bound = d.cap * d.d
@@ -160,6 +163,23 @@ class Problem:
     #: Preference slack columns: group name -> column index (the escalation
     #: of that group's cap, a grade fraction in ``[0, ceiling - cap]``).
     soft_cols: dict[str, int] = _dc.field(default_factory=dict)
+
+
+def preference_weight(group: str, weights: Weights) -> float:
+    """The charge of one metre of relief for preference group ``group``:
+    ``Weights.preference[prefix]`` by the prefix before the first ``:``,
+    :data:`PREFERENCE_WEIGHT` for an unnamed prefix.  A LAW-TIER group
+    (``law:<rank>:<row>``, ``solve/tiers.py``) is charged the ``law``
+    prefix's weight times ``tier_ratio`` to the power of its rank — rank
+    0 is the most junior tier, so each senior tier costs ``tier_ratio``
+    times more than the one below it and yields only when the junior
+    tiers cannot close the contradiction (RULINGS 2026-09-04i)."""
+    prefix, _, rest = group.partition(":")
+    base = weights.preference.get(prefix, PREFERENCE_WEIGHT)
+    if prefix != "law":
+        return base
+    rank, _, _row = rest.partition(":")
+    return base * weights.tier_ratio ** int(rank)
 
 
 def vertex_weights(planar: PlanarMap, weights: Weights) -> np.ndarray:
@@ -220,9 +240,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
         # Linear group's slack is METRES — both charged per metre of relief
         scale = sum(d.d for d in rows_g if isinstance(d, Diff)) + \
             sum(1.0 for d in rows_g if isinstance(d, Linear))
-        tier = weights.preference.get(g.split(":", 1)[0], PREFERENCE_WEIGHT)
-        c[soft_cols[g]] = tier * max(wv.max(), 1.0) * scale
-        lims = [(d.ceiling - d.cap) if isinstance(d, Diff) else d.ceiling
+        c[soft_cols[g]] = preference_weight(g, weights) * max(wv.max(), 1.0) * scale
+        lims = [None if d.ceiling is None else
+                (d.ceiling - d.cap) if isinstance(d, Diff) else d.ceiling
                 for d in rows_g]
         soft_hi[g] = None if any(l is None for l in lims) else max(0.0, min(lims))
     t_col = {}

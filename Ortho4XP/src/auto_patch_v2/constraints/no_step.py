@@ -29,6 +29,15 @@ THE POPULATION is derived from the tables (03i): the airside VALUE roles
 that are governed and not rigid — a pad is a flat group levelled by its
 contact and is never a no-step endpoint of its own (v1
 ``enclaves.ENCLAVE_AIRSIDE_ROLES`` is the same set by other means).
+
+THE PAD↔PAVEMENT PAIRS (M5; RULINGS 2026-09-04i closing 03k; measured
+feasible at SPJC, M3b §4): a RIGID airside vertex (a pad's) joins the
+K/sector population as an endpoint AGAINST pavement only — a pair whose
+both endpoints are pad-only vertices prices one flat value against
+another and is not minted; the cap is the strictest governed cap at
+either endpoint (a pad carries the apron law, ``common.roles.building``).
+The pad is the junior tier, so where the pair contradicts a governed
+surface the pad's side yields (``solve/tiers.py``).
 """
 from __future__ import annotations
 
@@ -41,8 +50,8 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 
-__all__ = ["no_step_roles", "no_step_pairs", "no_step_rate",
-           "no_step_edges", "rate_rows_for_chain"]
+__all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
+           "no_step_rate", "no_step_edges", "rate_rows_for_chain"]
 
 GEN = "no_step"
 _SECTORS = 8
@@ -54,6 +63,15 @@ def no_step_roles(law: Law) -> frozenset[str]:
     return frozenset(r for r in reg
                      if role_side(law, r) == "airside" and is_value_role(law, r)
                      and role_cap(law, r) is not None and not is_rigid_role(law, r))
+
+
+def rigid_airside_roles(law: Law) -> frozenset[str]:
+    """Airside, value-carrying, governed, RIGID (a pad) — the pad side
+    of the pad↔pavement pairs."""
+    reg = law.tables.precedence.roles
+    return frozenset(r for r in reg
+                     if role_side(law, r) == "airside" and is_value_role(law, r)
+                     and role_cap(law, r) is not None and is_rigid_role(law, r))
 
 
 def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
@@ -78,6 +96,11 @@ def no_step_edges(planar: PlanarMap, law: Law
     vw = view(planar, law)
     ns = law.tables.emit.no_step
     caps = _airside_vertices(vw, no_step_roles(law))
+    pad_only = _airside_vertices(vw, rigid_airside_roles(law))
+    for v in list(pad_only):
+        if v in caps:
+            del pad_only[v]           # shared with pavement: a pavement vertex
+    caps.update(pad_only)
     ids = sorted(caps)
     if not ids:
         return []
@@ -96,8 +119,8 @@ def no_step_edges(planar: PlanarMap, law: Law
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for u in grid.get((cx + dx, cy + dy), ()):
-                    if u == v:
-                        continue
+                    if u == v or (v in pad_only and u in pad_only):
+                        continue      # pad-only against pad-only: not a pair
                     ux, uy = vw.xy[u]
                     d = math.hypot(ux - x, uy - y)
                     if d > ns.window_m or d <= 0.0:

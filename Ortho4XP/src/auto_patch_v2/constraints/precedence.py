@@ -18,12 +18,12 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap, role_family, role_side
+from ..law.tables import is_rigid_role, role_cap, role_family, role_side
 from ..model.planar import Face, PlanarMap
 from .geometry import ring_vertex_ids
 
 __all__ = ["is_governed", "governed_roles", "ungoverned_roles", "face_cap",
-           "View", "view"]
+           "tiers", "role_tier", "vertex_tier", "View", "view"]
 
 
 def is_governed(law: Law, role: str, code_number: int | None = None,
@@ -45,6 +45,67 @@ def ungoverned_roles(law: Law) -> tuple[str, ...]:
     """Every registered role with no cap — junior by omission (03i)."""
     return tuple(sorted(r for r in law.tables.precedence.roles
                         if not is_governed(law, r)))
+
+
+def tiers(law: Law) -> tuple[tuple[str, ...], ...]:
+    """THE LAW-ORDERED TIERS (RULINGS 2026-09-04i: "the LAW's priority
+    order decides which governed surface yields"), DERIVED from the
+    tables — never a role list in code:
+
+    * tier 0 .. n-2: the GOVERNED, non-rigid roles in ``[authority]
+      order``; members of a DECLARED family (``[runway_family]``,
+      ``[taxi_family]``) share their family's tier, at the position of
+      the family's first member (a runway crossing yields with the
+      runway, a stub with the parallel); a governed role the order omits
+      follows the named ones, alphabetically (``tunnel_ramp``);
+    * tier n-1 (the LAST): every ungoverned role (no cap) and every RIGID
+      role (a pad: one flat value levelled by its contact, 03h/03i) —
+      junior by omission, so a new capless surface class is junior with no
+      code change.
+
+    The solver holds tier 0 HARD and prices tier k ≥ 1 as a preference
+    charged ``tier_ratio`` times more than tier k+1 (``solve/tiers.py``).
+    """
+    p = law.tables.precedence
+    fam_of: dict[str, str] = {}
+    for name, grp in (("runway_family", p.runway_family), ("taxi_family", p.taxi_family)):
+        for r in grp.members:
+            fam_of[r] = name
+    governed = [r for r in governed_roles(law) if not is_rigid_role(law, r)]
+    out: list[list[str]] = []
+    fam_tier: dict[str, int] = {}
+    for r in governed:
+        fam = fam_of.get(r)
+        if fam is not None and fam in fam_tier:
+            out[fam_tier[fam]].append(r)
+            continue
+        if fam is not None:
+            fam_tier[fam] = len(out)
+        out.append([r])
+    last = sorted(r for r in p.roles if r not in governed)
+    out.append(last)
+    return tuple(tuple(t) for t in out)
+
+
+def role_tier(law: Law, role: str) -> int:
+    """The tier index of ``role`` (see :func:`tiers`)."""
+    for k, t in enumerate(tiers(law)):
+        if role in t:
+            return k
+    raise KeyError(f"role {role!r} is not registered in precedence.toml")
+
+
+def vertex_tier(vw: "View", v: int, tier_of: _t.Mapping[str, int],
+                lowest: int) -> int:
+    """The tier a VERTEX belongs to: the most SENIOR (smallest) tier of
+    any face touching it, ``lowest`` where no face does — a shared vertex
+    is owned by its senior surface (``senior_role``)."""
+    best = lowest
+    for fid in vw.vertex_faces[v]:
+        k = tier_of[vw.pm.faces[fid].role]
+        if k < best:
+            best = k
+    return best
 
 
 def face_cap(law: Law, face: Face) -> tuple[float, float] | None:

@@ -59,7 +59,21 @@ class Weights:
     #: points") above the end-zone cap (owner 2026-07-08, yields minimally)
     #: above the crown floor (M0 Q5, v2's own minimum).  M3a, additive.
     preference: _t.Mapping[str, float] = _dc.field(
-        default_factory=lambda: {"seam": 1.0e4, "end_zone": 1.0e3, "crown": 1.0e2})
+        default_factory=lambda: {"law": 1.0e5, "seam": 1.0e4, "end_zone": 1.0e3,
+                                 "crown": 1.0e2})
+    #: THE LAW LADDER (RULINGS 2026-09-04i; ``solve/tiers.py``): the
+    #: ``law`` prefix charges the MOST JUNIOR yielding tier (the ungoverned
+    #: and rigid surfaces), above the seam DEM preference — the DEM yields
+    #: to every governed surface — and each tier above it costs
+    #: ``tier_ratio`` times more, so the senior surface holds unless the
+    #: junior tiers cannot close the contradiction.  ``tier_top`` caps the
+    #: ladder's top weight (the ratio shrinks to fit): the assembler
+    #: multiplies a group's weight by the largest DEM-fit weight and the
+    #: row's chord metres (≤ the no-step window), and HiGHS with presolve
+    #: returns "numerical difficulties" once an objective coefficient
+    #: passes ~5e9 (measured M5: 3e10 fails, 4.8e9 solves).  M5, additive.
+    tier_ratio: float = 10.0
+    tier_top: float = 1.0e6
 
 
 @_dc.dataclass(frozen=True)

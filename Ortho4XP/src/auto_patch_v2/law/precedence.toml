@@ -28,7 +28,8 @@ order = [
 # counts against airside); `value` = carries its own graded elevation (a
 # non-value role traces a lawful bound, no within-shape cap); `rigid` = the
 # face is ONE flat value (a pad), set by what it touches, never a pin the
-# neighbours climb to (09-03h) and never a no-step pair endpoint of its own.
+# neighbours climb to (09-03h) and never a no-step pair endpoint of its own
+# (pad-only against pad-only); against PAVEMENT it is paired (M5, 09-04i).
 [roles]
 runway              = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }
 runway_crossing     = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }

@@ -21,7 +21,10 @@ node or an edge, and a ``road_centerline`` breakline adds nothing.
 
 Each edge carries its PLAN LENGTH and the CAP of the face it lies in —
 the strictest where two faces share it, which is the budget the solve
-actually grants along it.  Two readings:
+actually grants along it; a taxi CENTRELINE edge carries its STRETCH's
+cap and a taxi-family chord its per-stretch price (RULINGS 2026-09-04t-3,
+``constraints.stretches`` — the same rows ``taxi`` generates), a chord to
+a pad vertex the pad's cap (frontage).  Two readings:
 
 * ROUTE DISTANCE between two vertices = the shortest path by length; the
   path's BUDGET = ``Σ cap_e · len_e`` along that very path (the pair's
@@ -52,6 +55,7 @@ from scipy.sparse.csgraph import dijkstra
 from ..law import Law
 from ..law.tables import is_rigid_role, is_value_role, role_cap, role_side
 from ..model.planar import EdgeKind, PlanarMap
+from .stretches import edge_cap, pair_caps, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
            "route_neighbours", "reach", "route_path"]
@@ -147,6 +151,13 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     taxi = set(law.tables.precedence.taxi_family.members)
     rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
     gate = law.tables.emit.within_shape.apron_body_chord_max_m
+    min_d = law.tables.emit.identity.min_distinct_spacing_m
+    pad_cap = law.tables.common.roles["building"].longitudinal
+    st = stretches(pm, law)
+    face_caps: dict[int, tuple[float, float] | None] = {}
+    for fid, f in pm.faces.items():
+        rc = role_cap(law, f.role, f.code_number, f.code_letter)
+        face_caps[fid] = None if rc is None else (rc.longitudinal, rc.transverse)
     n_v = len(pm.vertices)
     xy = np.zeros((n_v, 2), float)
     for vid, v in pm.vertices.items():
@@ -154,6 +165,7 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     # spine vertices (taxi centrelines) and pad-shared vertices: an apron
     # chord to either is a movement surface (RULINGS 2026-08-21c)
     strict_v = np.zeros(n_v, bool)
+    f_rigid = np.zeros(n_v, bool)
     for bl in pm.breaklines.values():
         if bl.kind == "taxi_centerline":
             strict_v[list(bl.vertices(pm))] = True
@@ -161,6 +173,7 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
         if f.role in rigid:
             for cyc in (f.ring, *f.holes):
                 strict_v[list(pm.ring_vertices(cyc))] = True
+                f_rigid[list(pm.ring_vertices(cyc))] = True
     centre = np.array(sorted({e.a * n_v + e.b if e.a < e.b else e.b * n_v + e.a
                               for e in pm.edges.values() if e.kind is EdgeKind.CENTERLINE}),
                       dtype=np.int64)
@@ -189,9 +202,20 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
                     seen.add(v)
                     verts.append(v)
         nodes.update(verts)
-        if f.role in taxi or f.role == "apron":
+        if f.role in taxi:
+            # per-stretch chords (04t-3), a pad endpoint at the pad's cap
+            pc = pair_caps(pm, law, st, f.id, verts, cap, min_d)
+            if pc:
+                pa = np.array([p[0] for p in pc], np.int64)
+                pb = np.array([p[1] for p in pc], np.int64)
+                cc = np.array([min(p[2], pad_cap) if (strict_v[p[0]] and f_rigid[p[0]])
+                               or (strict_v[p[1]] and f_rigid[p[1]]) else p[2]
+                               for p in pc], float)
+                A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
+                C.append(cc); K.append(np.full(len(pc), CHORD, np.int8))
+        elif f.role == "apron":
             va = np.array(verts, np.int64)
-            i, j, _d = _face_pairs(xy[va], strict_v[va], f.role in taxi, gate)
+            i, j, _d = _face_pairs(xy[va], strict_v[va], False, gate)
             if len(i):
                 pa, pb = va[i], va[j]
                 A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
@@ -213,6 +237,18 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     a, b, cap, kind, key = a[first], b[first], cap[first], kind[first], key[first]
     kind = kind.copy()
     kind[np.isin(key, centre)] = CENTRELINE
+    # a taxi centreline edge holds ITS STRETCH's cap (04t-3), which may be
+    # looser than the faces it splits (G at 3 % through a letter-D junction)
+    cl_cap: dict[int, float] = {}
+    for eid, e in pm.edges.items():
+        if eid in st.by_edge:
+            c = edge_cap(pm, law, st, eid, face_caps)
+            if c is not None:
+                cl_cap[int(min(e.a, e.b)) * n_v + int(max(e.a, e.b))] = c[0]
+    if cl_cap:
+        cap = cap.copy()
+        for idx in np.flatnonzero(np.isin(key, np.array(list(cl_cap), np.int64))):
+            cap[idx] = cl_cap[int(key[idx])]
     length = np.hypot(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
     keep = length > 0.0
     a, b, cap, kind, length = a[keep], b[keep], cap[keep], kind[keep], length[keep]

@@ -55,6 +55,7 @@ class SourceLine:
     kind: str              # runway_profile | taxi_centerline | road_centerline
     ref: str
     line: LineString
+    code_letter: str | None = None   # the taxi chain's letter (04t-3)
 
 
 @_dc.dataclass
@@ -115,7 +116,8 @@ def build_arrangement(airport: Airport, classification: Classification,
     for cl in classification.cut_lines:
         if len(cl.points) >= 2:
             sources.append(SourceLine(cl.kind, cl.ref,
-                                      LineString(densify(cl.points, cap_pav))))
+                                      LineString(densify(cl.points, cap_pav)),
+                                      cl.code_letter))
     lines.extend(s.line for s in sources)
     bands = seam_bands(airport, regions, law.tables.emit.seam.half_width_m)
     lines.extend(LineString(b.exterior.coords) for b in bands)

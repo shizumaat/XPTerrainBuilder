@@ -1,0 +1,223 @@
+"""TAXIWAY STRETCHES (RULINGS 2026-09-04t-3): a taxiway's letter — its
+cap — applies per STRETCH, from its centreline intersection with another
+taxiway onward.  At CYXY taxiway G's 3 % begins at its intersection with
+E (60.7079446, −135.0697651); the next G node (60.7078279, −135.0704243)
+may already differ from the intersection by 3 % × 38 m.  Junction faces
+carry the cap of the stretch(es) they belong to; strictest-of-chains
+(04q-2) is superseded.
+
+* A STRETCH is a ``taxi_centerline`` breakline split at every planar
+  vertex where two taxi centrelines meet (a vertex on >= 2 such
+  breaklines); the intersection vertex belongs to BOTH stretches.  Each
+  stretch carries ITS chain's letter (``Breakline.code_letter``, threaded
+  from the classifier's chain) and the taxi family's cap for it.
+* A FACE the stretch bounds (an edge of the stretch has the face on a
+  side) is crossed by it.  Inside a taxi-family face every vertex is
+  assigned to the stretch(es) it lies ON, else to the NEAREST crossing
+  stretch (perpendicular distance to the stretch polyline).
+* PAIR PRICING (:func:`pair_caps`) — the stated choice: a pair is priced
+  by the stretch BOTH its vertices lie on — that stretch's cap over their
+  distance (the plane rule per stretch; the looser of several common
+  stretches, the oracle's "looser of the shared centerlines" through the
+  published axes).  Every other pair of the face — one or both vertices
+  off the common stretch — holds the FACE's cap, the strictest crossing
+  letter the classifier stamps (``roles._junction_letter``).  It is not a
+  chord across letters because a cross-stretch pair is never priced at
+  the looser letter: the relaxation lives exactly on the stretch whose
+  letter it is.  NOT chosen: partitioning the face at the intersection's
+  perpendicular or by nearest stretch, and composing cross-letter pairs
+  along the travel path (Σ cap·len through the intersection) — measured
+  on the twin fixture 2026-09-04, the v1 oracle (one letter per way, the
+  junction-mesh body rule) read four rows at 1.9-2.0 % / cap 1.5 % on
+  exactly the composed pairs; a single-letter oracle cannot read a body
+  region, and publishing v2's per-pair budgets (``pair_caps``) would put
+  the oracle on v2's population (its baked path floors every published
+  pair at the way cap, un-tightening the frontage reading).  Oracle
+  equality on the published population is the twin.
+* A CENTRELINE CHORD (:func:`edge_cap`) holds its stretch's cap, tightened
+  by any governed NON-taxi face it bounds (an apron lane is apron,
+  RULINGS 2026-09-03j).
+
+Pure over the planar map and the law; read by ``taxi``, ``transverse``,
+``routes`` and (through :func:`compose_pairs`) the verify reader.
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+import math
+import typing as _t
+
+from ..law import Law
+from ..law.tables import role_cap, role_family
+from ..model.planar import PlanarMap
+from .geometry import project_to_chain
+
+__all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
+           "compose_pairs"]
+
+XY = tuple[float, float]
+
+
+@_dc.dataclass(frozen=True)
+class Stretch:
+    """One constant-letter run of a taxi centreline between intersections."""
+
+    id: int
+    breakline: int
+    ref: str
+    code_letter: str | None
+    cap_l: float
+    cap_t: float
+    vertices: tuple[int, ...]
+    edges: tuple[int, ...]
+
+
+@_dc.dataclass(frozen=True)
+class Stretches:
+    """Every stretch of one planar map plus the joins the generators read."""
+
+    items: tuple[Stretch, ...]
+    on: dict[int, tuple[int, ...]]              # vertex -> stretches it lies on
+    by_edge: dict[int, int]                     # centreline edge -> stretch
+    face_stretches: dict[int, tuple[int, ...]]  # face -> stretches bounding it
+    intersections: frozenset[int]               # vertices where stretches meet
+
+    def cap(self, sid: int) -> float:
+        return self.items[sid].cap_l
+
+
+_CACHE: dict[int, tuple[PlanarMap, Law, Stretches]] = {}
+
+
+def _taxi_cap(law: Law, letter: str | None) -> tuple[float, float]:
+    """The taxi family's ``(longitudinal, transverse)`` cap for a letter
+    (``rulesets.<authority>.taxi``; the default when unlettered)."""
+    role = law.tables.precedence.taxi_family.members[0]
+    rc = role_cap(law, role, None, letter)
+    if rc is None:                          # a taxi family with no cap table
+        raise ValueError("the taxi family carries no longitudinal cap")
+    return rc.longitudinal, rc.transverse
+
+
+def build_stretches(pm: PlanarMap, law: Law) -> Stretches:
+    """Split every taxi centreline at the vertices it shares with another
+    taxi centreline (module docstring)."""
+    chains: dict[int, tuple[int, ...]] = {}
+    count: dict[int, int] = {}
+    for bid, b in pm.breaklines.items():
+        if b.kind != "taxi_centerline":
+            continue
+        ch = b.vertices(pm)
+        chains[bid] = ch
+        for v in set(ch):
+            count[v] = count.get(v, 0) + 1
+    inter = frozenset(v for v, n in count.items() if n >= 2)
+    items: list[Stretch] = []
+    on: dict[int, list[int]] = {}
+    by_edge: dict[int, int] = {}
+    faces: dict[int, list[int]] = {}
+    for bid, ch in chains.items():
+        b = pm.breaklines[bid]
+        cap_l, cap_t = _taxi_cap(law, b.code_letter)
+        cuts = [0] + [k for k in range(1, len(ch) - 1) if ch[k] in inter] + [len(ch) - 1]
+        for k0, k1 in zip(cuts, cuts[1:]):
+            vs = ch[k0:k1 + 1]
+            es = b.edges[k0:k1]
+            if len(vs) < 2:
+                continue
+            sid = len(items)
+            items.append(Stretch(sid, bid, b.ref, b.code_letter, cap_l, cap_t, vs, es))
+            for v in vs:
+                on.setdefault(v, []).append(sid)
+            for eid in es:
+                by_edge[eid] = sid
+                e = pm.edges[eid]
+                for f in (e.left_face, e.right_face):
+                    if f is not None:
+                        lst = faces.setdefault(f, [])
+                        if sid not in lst:
+                            lst.append(sid)
+    return Stretches(tuple(items), {v: tuple(s) for v, s in on.items()}, by_edge,
+                     {f: tuple(s) for f, s in faces.items()}, inter)
+
+
+def stretches(pm: PlanarMap, law: Law) -> Stretches:
+    """The (cached) stretches of ``pm`` under ``law``."""
+    hit = _CACHE.get(id(pm))
+    if hit is not None and hit[0] is pm and hit[1] is law:
+        return hit[2]
+    st = build_stretches(pm, law)
+    _CACHE.clear()
+    _CACHE[id(pm)] = (pm, law, st)
+    return st
+
+
+def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
+             face_caps: _t.Mapping[int, tuple[float, float] | None]
+             ) -> tuple[float, float] | None:
+    """A centreline edge's ``(cL, cT)``: its stretch's cap, tightened by
+    every governed non-taxi face it bounds (09-03j); an edge on no stretch
+    (a road centreline, a plain edge) reads the strictest bounding face."""
+    e = pm.edges[eid]
+    sid = st.by_edge.get(eid)
+    bounding = [(f, face_caps.get(f)) for f in (e.left_face, e.right_face)
+                if f is not None and face_caps.get(f) is not None]
+    if sid is None:
+        if not bounding:
+            return None
+        return min((c for _f, c in bounding), key=lambda c: c[0])
+    s = st.items[sid]
+    cl, ct = s.cap_l, s.cap_t
+    for f, c in bounding:
+        if role_family(law, pm.faces[f].role) != "taxi":
+            cl, ct = min(cl, c[0]), min(ct, c[1])
+    return cl, ct
+
+
+def compose_pairs(xy: _t.Mapping[int, XY], verts: _t.Sequence[int],
+                  lines: _t.Sequence[tuple[_t.Sequence[int], float]],
+                  base_cap: float, min_d: float
+                  ) -> list[tuple[int, int, float, float]]:
+    """THE PER-STRETCH PAIR LAW over one face (module docstring), pure:
+    ``verts`` the face's vertices, ``lines`` the stretches crossing it as
+    ``(vertex chain, cap)``, ``base_cap`` the face's own cap.  Returns
+    ``(a, b, cap, d)`` for every distinct pair: the looser common
+    stretch's cap when both lie on one, else ``base_cap``."""
+    on: dict[int, list[float]] = {}
+    for k, (ch, c) in enumerate(lines):
+        for v in ch:
+            on.setdefault(v, []).append((k, float(c)))  # type: ignore[arg-type]
+    out: list[tuple[int, int, float, float]] = []
+    n = len(verts)
+    for i in range(n):
+        a = verts[i]
+        sa = on.get(a)
+        for j in range(i + 1, n):
+            b = verts[j]
+            d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
+            if d < min_d:
+                continue
+            cap = base_cap
+            if sa:
+                sb = on.get(b)
+                if sb:
+                    ks = {k for k, _c in sb}
+                    common = [c for k, c in sa if k in ks]
+                    if common:
+                        cap = max(base_cap, max(common))
+            out.append((a, b, cap, d))
+    return out
+
+
+def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
+              verts: _t.Sequence[int], base_cap: float, min_d: float
+              ) -> list[tuple[int, int, float, float]]:
+    """:func:`compose_pairs` for face ``fid`` with its crossing stretches."""
+    xy = {v: pm.vertices[v].xy for v in verts}
+    lines: list[tuple[_t.Sequence[int], float]] = []
+    for sid in st.face_stretches.get(fid, ()):
+        s = st.items[sid]
+        for v in s.vertices:
+            xy.setdefault(v, pm.vertices[v].xy)
+        lines.append((s.vertices, s.cap_l))
+    return compose_pairs(xy, verts, lines, base_cap, min_d)

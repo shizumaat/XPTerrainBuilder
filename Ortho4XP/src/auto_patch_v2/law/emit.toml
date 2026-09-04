@@ -43,6 +43,17 @@ max_gap_m     = 1.0    # the priced span's near side may sit at most this off th
 # WHICH ring pairs the within-shape law prices (v1 grade_graph / grade_law).
 apron_body_chord_max_m   = 60.0  # apron interior body chord beyond this is not a grade path (APRON_BODY_CHORD_MAX_M); ring-adjacent and spine chords never dropped
 runway_station_cluster_m = 5.0   # runway ring vertices cluster into stations at this along-axis step; only same/adjacent-station pairs are lateral law (user 2026-07-08, RUNWAY_STATION_CLUSTER_M)
+# CAP BY EDGE PORTION (RULINGS 2026-09-04t-2, refining owner 2026-07-06): a
+# junction / road sharing a LONG EDGE with an apron takes the apron's cap on
+# the portion ALONG the apron only; a MOUTH (a corridor joining or leaving the
+# apron across its own width) keeps its own cap.  "Long" is geometric: the
+# contiguous shared run's length against the face's own width (the short
+# side of its minimum rotated rectangle).  A mouth shares about one width
+# (a square-on join ~1.0, a 45-degree skewed join ~1.4); a face that runs
+# ALONG an apron shares a multiple of its width.  v1's oracle reads the same
+# value (auto_patch.config.APRON_EDGE_PORTION_MIN_WIDTH_RATIO; a harness
+# twin holds the two equal).
+apron_edge_portion_min_width_ratio = 1.5
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

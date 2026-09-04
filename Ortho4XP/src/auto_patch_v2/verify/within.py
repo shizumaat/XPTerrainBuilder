@@ -6,7 +6,10 @@ tables (``check_grade.iter_shape_grade_constraints`` +
 * PLANE shapes (runway family, taxi family, rigid pads, groundside):
   every vertex pair at the role cap; a ``runway`` ring (``o4_single_poly``)
   only same/adjacent-station pairs (``within_shape.runway_station_cluster_m``,
-  user 2026-07-08);
+  user 2026-07-08); a TAXI-FAMILY ring crossed by published ``stretches``
+  is priced per stretch exactly as the generator priced it
+  (``constraints.stretches.compose_pairs``, RULINGS 2026-09-04t-3), and a
+  pair with a pad vertex at the pad's cap (the frontage rule);
 * SOFT shapes (apron, junction, service_junction, service_road): ring
   edges, spine chords (a published-axis vertex) and pad-frontage chords
   at the cap; an apron interior body chord within
@@ -27,6 +30,7 @@ import itertools
 import math
 
 from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
+from ..constraints.stretches import compose_pairs
 from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, noise_m, row
 
@@ -58,6 +62,37 @@ def spine_vertices(p: Patch) -> set[int]:
     return out
 
 
+def stretch_lines(p: Patch) -> list[tuple[tuple[int, ...], float]]:
+    """Published stretches joined to vertices by identity key:
+    ``(vertex chain, cap)`` each (a vertex the patch lacks is skipped)."""
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out: list[tuple[tuple[int, ...], float]] = []
+    for entry in p.publication.get("stretches") or []:
+        ids = tuple(v for v in (key_of.get((round(float(la), 7), round(float(lo), 7)))
+                                for la, lo in entry[0]) if v is not None)
+        if len(ids) >= 2:
+            out.append((ids, float(entry[1])))
+    return out
+
+
+def stretch_pair_caps(sh: Shape, lines: list[tuple[tuple[int, ...], float]],
+                      xy_all: dict[int, tuple[float, float]], cap: float,
+                      min_d: float) -> dict[tuple[int, int], float]:
+    """The per-stretch cap of every pair of ``sh`` — the stretches
+    crossing it are those with an edge on its ring (two consecutive
+    stretch vertices both on the ring)."""
+    ring = set(sh.ids)
+    crossing = [(ch, c) for ch, c in lines
+                if any(u in ring and w in ring for u, w in zip(ch, ch[1:]))]
+    if not crossing:
+        return {}
+    xy = {v: sh.xy[k] for k, v in enumerate(sh.ids)}
+    for ch, _c in crossing:
+        for v in ch:
+            xy.setdefault(v, xy_all[v])
+    return {(a, b): c for a, b, c, _d in compose_pairs(xy, list(sh.ids), crossing, cap, min_d)}
+
+
 def _offset(drops: dict[int, float], a: int, b: int, dz: float) -> float:
     """``crown_pair_offset_clamped``: the target of ``z_a − z_b``."""
     da, db = drops.get(a), drops.get(b)
@@ -83,16 +118,24 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     soft = {"apron", "junction", "service_junction", "service_road"}
     drops = crown_by_vertex(p)
     spine = spine_vertices(p)
+    lines = stretch_lines(p)
+    taxi = set(law.tables.precedence.taxi_family.members)
+    pad_cap = law.tables.common.roles["building"].longitudinal
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
             rigid_v.update(sh.ids)
+    xy_all: dict[int, tuple[float, float]] = {}
+    for sh in p.shapes:
+        for k, v in enumerate(sh.ids):
+            xy_all.setdefault(v, sh.xy[k])
     within: list[Row] = []
     xsec: list[Row] = []
     for sh in p.shapes:
         cap = p.cap(sh)
         if cap is None:
             continue
+        pc = stretch_pair_caps(sh, lines, xy_all, cap, min_d) if sh.role in taxi else {}
         rc = role_cap(law, sh.role, sh.code_number, sh.code_letter)
         cap_t = min(cap, rc.transverse) if rc else cap
         q = noise_m(law, sh.role)
@@ -117,7 +160,9 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                 if st is not None and abs(st[i] - st[j]) > 1:
                     continue
                 adjacent = (j == i + 1) or (i == 0 and j == n - 1)
-                pair_cap = cap
+                pair_cap = pc.get((a, b), pc.get((b, a), cap))
+                if sh.role in taxi and (a in rigid_v or b in rigid_v):
+                    pair_cap = min(pair_cap, pad_cap)      # frontage (09-01g)
                 if sh.role in soft and not adjacent and a not in strict \
                         and b not in strict:
                     if sh.role == "apron":

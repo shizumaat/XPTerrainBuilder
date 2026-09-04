@@ -31,6 +31,8 @@ THE SIDECAR (``<patch>.axes.json``) carries ONLY the census inputs v2
 has, keys ⊆ :data:`SIDECAR_KEYS` (Appendix A §5): ``ruleset``; ``axes``
 (every published centreline: ``[[lat, lon]…], cL, cT, ordinal,
 is_service`` — the transverse walk and the spine membership);
+``stretches`` (every taxi centreline STRETCH with its cap and letter,
+RULINGS 2026-09-04t-3 — the per-stretch pair law v2 verify re-composes);
 ``crown_drops`` (``[lat, lon, drop]`` per runway-family vertex);
 ``airside_no_step_edges`` (``{a, b, budget_m}`` — the pairs the solver
 priced, the census prices the same list); the always-empty
@@ -63,7 +65,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "ruleset", "axes", "routes", "runway_end_skirt", "crown_drops",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
-    "pair_caps", "seam_pins", "station_caps",
+    "pair_caps", "seam_pins", "station_caps", "stretches",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

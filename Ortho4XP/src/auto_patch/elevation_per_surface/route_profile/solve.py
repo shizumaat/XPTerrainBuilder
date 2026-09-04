@@ -6245,84 +6245,6 @@ def solve_route_profile(layout, icao: str,
         _elev_emit = elev
     n_terms, n_rects, n_juncs = _writeback(layout, _elev_emit,
                                            bucket_to_idx)
-    # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
-    # "one law, one source") ────────────────────────────────────────
-    # Every law input ``final_grade_projection`` needs is captured HERE,
-    # ONCE, at the moment the one solve publishes its surface, and keyed
-    # by CANONICAL POINT ID — the node identity audited stable across
-    # every post-solve pass.  Never by node index (the rod-key lesson),
-    # never re-derived downstream from raw shapes and roles where the
-    # re-derivation can disagree with what the solve was handed.
-    #
-    #   ``solved_values``  — the field this solve published, in EMITTED
-    #     (uncrowned) space, exactly as ``_writeback`` stamped it.  It is
-    #     what makes the projection's idempotence requirement decidable:
-    #     a node whose seed still equals its solved value, and whose key
-    #     the solve already had, was touched by nothing and must exit the
-    #     projection where the solve left it.
-    #   ``building_seats`` — the seats the near-miss frontage law is
-    #     built from.  The projection cannot re-derive them (they are a
-    #     solve-phase artifact), which is exactly why that law family was
-    #     missing from its edge set.
-    #   ``gs_witness``     — the groundside route pins whose feasibility-
-    #     witness role the owner's ruling bounds.  The projection used to
-    #     re-derive a DIFFERENT population by geometric proximity.
-    # EVERY key of an index, not one per index: two canonical keys can
-    # alias to one solve-time variable and split again in a rebuilt node
-    # space, and a key that did not travel is a node the projection would
-    # read as NEW — i.e. silently outside the hold.  Coverage is the whole
-    # point of the carry.
-    _keys_of: dict = {}
-    for _ck, _ci in bucket_to_idx.items():
-        if _ci < n:
-            _keys_of.setdefault(_ci, []).append(_ck)
-    _law_store = _store_of(layout)
-    # THE PUBLISHED SURFACE IS READ BACK THROUGH THE PROJECTION'S OWN
-    # READER, not copied out of ``elev``.  Two reasons, both measured:
-    #   * ``_writeback`` stamps PAVEMENT roles only, so ``elev`` still
-    #     holds the untouched DEM SEED at every node the solve did not
-    #     value — carrying those would claim a solved value the solve
-    #     never published (measured HEAZ, plateau: 36,828 of 40,284
-    #     nodes carried 1.00 m against a layout holding 79.30 m).
-    #   * identical readback semantics are what make the comparison
-    #     downstream exact: same function, same node space, no dem —
-    #     the rule ``_capture_projection_snapshot`` already follows.
-    # ``readonly=True`` forbids minting canonical points; the four
-    # attributes the seeder publishes are snapshotted and restored,
-    # since this call is a MEASUREMENT of the solve's own node space and
-    # must not republish anything in it.
-    _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
-                  "_eat_anchor_pin_idx", "_eat_anchor_pin_prev",
-                  "_eat_anchor_pin_rect", "_eat_anchor_pin_side",
-                  "_eat_scope_refused_keys")
-    _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
-    try:
-        _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
-                                            readonly=True)
-    finally:
-        for _pn, _pv in _pub_saved.items():
-            if _pv is None:
-                if hasattr(layout, _pn):
-                    try:
-                        delattr(layout, _pn)
-                    except AttributeError:             # pragma: no cover
-                        pass
-            else:
-                setattr(layout, _pn, _pv)
-    _law_store.mint(
-        "solved_values", "scalar",
-        {_ck: float(_published[_ci])
-         for _ci, _cks in _keys_of.items() for _ck in _cks},
-        replace=True)
-    _law_store.mint(
-        "building_seats", "scalar",
-        {_ck: float(_lv) for _i, _lv in building_seats.items()
-         if _lv is not None for _ck in _keys_of.get(_i, ())},
-        replace=True)
-    _law_store.mint(
-        "gs_witness", "keyset",
-        {_ck for _i in (_gs_hard or ()) for _ck in _keys_of.get(_i, ())},
-        replace=True)
     # ── GAP-SPINE writeback (Slice B stage B2, ratified 2026-07-10)
     # WHO WRITES WHAT: the solve writes ONLY the spine nodes — their
     # solved values go into the pre-solve store, which the post-solve
@@ -6466,6 +6388,88 @@ def solve_route_profile(layout, icao: str,
                 if len(_pts_ll) >= 2:
                     _st_emit.append((_pts_ll, _alts))
         layout.apron_spine_station_emit = _st_emit
+    # ORDER (zero-airside R1 step 4, lane r1backfill): this block runs
+    # AFTER every non-ring writeback below it used to precede — the
+    # gap-spine ``values``, the zone rows, the lattice and station
+    # carriers — because the seeder now reads those carriers as the
+    # warm start of the non-ring variables (``carry_nonring_solved``);
+    # minted before them, ``solved_values`` carried the runway-corner
+    # backfill for 100,109 nodes (R1.3).
+    # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
+    # "one law, one source") ────────────────────────────────────────
+    # Every law input ``final_grade_projection`` needs is captured HERE,
+    # ONCE, at the moment the one solve publishes its surface, and keyed
+    # by CANONICAL POINT ID — the node identity audited stable across
+    # every post-solve pass.  Never by node index (the rod-key lesson),
+    # never re-derived downstream from raw shapes and roles where the
+    # re-derivation can disagree with what the solve was handed.
+    #
+    #   ``solved_values``  — the field this solve published, in EMITTED
+    #     (uncrowned) space, exactly as ``_writeback`` stamped it.  It is
+    #     what makes the projection's idempotence requirement decidable:
+    #     a node whose seed still equals its solved value, and whose key
+    #     the solve already had, was touched by nothing and must exit the
+    #     projection where the solve left it.
+    #   ``building_seats`` — the seats the near-miss frontage law is
+    #     built from.  The projection cannot re-derive them (they are a
+    #     solve-phase artifact), which is exactly why that law family was
+    #     missing from its edge set.
+    #   ``gs_witness``     — the groundside route pins whose feasibility-
+    #     witness role the owner's ruling bounds.  The projection used to
+    #     re-derive a DIFFERENT population by geometric proximity.
+    # EVERY key of an index, not one per index: two canonical keys can
+    # alias to one solve-time variable and split again in a rebuilt node
+    # space, and a key that did not travel is a node the projection would
+    # read as NEW — i.e. silently outside the hold.  Coverage is the whole
+    # point of the carry.
+    _keys_of: dict = {}
+    for _ck, _ci in bucket_to_idx.items():
+        if _ci < n:
+            _keys_of.setdefault(_ci, []).append(_ck)
+    _law_store = _store_of(layout)
+    # THE PUBLISHED SURFACE IS READ BACK THROUGH THE PROJECTION'S OWN
+    # READER, not copied out of ``elev``.  Two reasons, both measured:
+    #   * ``_writeback`` stamps PAVEMENT roles only, so ``elev`` still
+    #     holds the untouched DEM SEED at every node the solve did not
+    #     value — carrying those would claim a solved value the solve
+    #     never published (measured HEAZ, plateau: 36,828 of 40,284
+    #     nodes carried 1.00 m against a layout holding 79.30 m).
+    #   * identical readback semantics are what make the comparison
+    #     downstream exact: same function, same node space, no dem —
+    #     the rule ``_capture_projection_snapshot`` already follows.
+    # ``readonly=True`` forbids minting canonical points; the four
+    # attributes the seeder publishes are snapshotted and restored,
+    # since this call is a MEASUREMENT of the solve's own node space and
+    # must not republish anything in it.
+    from ..solver_primitives import SEEDER_PUBLISHED_ATTRS as _pub_names
+    _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
+    try:
+        _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
+                                            readonly=True)
+    finally:
+        for _pn, _pv in _pub_saved.items():
+            if _pv is None:
+                if hasattr(layout, _pn):
+                    try:
+                        delattr(layout, _pn)
+                    except AttributeError:             # pragma: no cover
+                        pass
+            else:
+                setattr(layout, _pn, _pv)
+    _law_store.mint(
+        "solved_values", "scalar",
+        {_ck: float(_published[_ci])
+         for _ci, _cks in _keys_of.items() for _ck in _cks},
+        replace=True)
+    _law_store.mint(
+        "building_seats", "scalar",
+        {_ck: float(_lv) for _i, _lv in building_seats.items()
+         if _lv is not None for _ck in _keys_of.get(_i, ())},
+        replace=True)
+    _law_store.mint(
+        "gs_witness", "keyset",
+        {_ck for _i in (_gs_hard or ()) for _ck in _keys_of.get(_i, ())},
+        replace=True)
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.

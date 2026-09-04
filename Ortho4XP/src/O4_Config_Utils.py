@@ -192,32 +192,74 @@ class Tile:
                 )
                 raise Exception
 
+    def _tile_cfg_path(self):
+        """This tile's own config file path (build dir + canonical name)."""
+        return os.path.join(
+            self.build_dir,
+            "Ortho4XP_" + FNAMES.short_latlon(self.lat, self.lon) + ".cfg",
+        )
+
     def read_from_config(self, config_file=None, use_global=False):
         """
-        Read tile config from config file and update class variables.
+        Read tile config and update class variables — LAYERED.
 
-        :params str config_file: path to config file; unknown use case
-        :params bool use_global: force use of global config file
-        
-        :returns: 1 if successful, 0 if not
+        The value a tile var resolves to is, in order of precedence:
+
+        1. the tile's own config file (``Ortho4XP_+XX+YYY.cfg`` in the
+           build dir, or *config_file* when given) — only the keys it
+           actually carries;
+        2. the global ``Ortho4XP.cfg`` — again only the keys it carries;
+        3. whatever the instance already holds: ``__init__`` seeds every
+           tile var from this module's globals, i.e. the global config
+           as loaded at import PLUS any in-memory session settings a
+           front end applied since (``O4_Settings_Model.apply_runtime``);
+        4. the registry default (what those globals start from).
+
+        Tile configs are SPARSE OVERRIDES (``O4_Settings_Model.write_tile``,
+        the blended model): a key absent from a tile file means "inherit",
+        never "keep whatever this instance happened to carry".  The
+        pre-2026-09-04 reader opened EITHER the tile file OR the global
+        one, so a tile cfg written before a setting existed (the owner's
+        −13-077 / −13-078 tiles, cfgs from July, no ``auto_patch_engine``
+        line) resolved that setting to the registry default while a tile
+        with no cfg at all resolved it from the global — two tiles in one
+        build, one global setting, two engines.  One reader now serves the
+        engine CLI (``Ortho4XP.py lat lon``), the JSONL session and the
+        parallel worker children alike.
+
+        :params str config_file: explicit tile config path (still layered
+            over the global config)
+        :params bool use_global: read ONLY the global config file
+
+        :returns: 1 if at least one config file was read, 0 if not
         :return type: int
         """
-        if not config_file:
-            config_file = os.path.join(
-                self.build_dir,
-                "Ortho4XP_" + FNAMES.short_latlon(self.lat, self.lon) + ".cfg",
+        if use_global:
+            layers = [global_cfg_file]
+        else:
+            tile_cfg = config_file or self._tile_cfg_path()
+            layers = [global_cfg_file, tile_cfg]
+        layers = [path for path in layers if os.path.isfile(path)]
+        if not layers:
+            UI.lvprint(
+                0,
+                "CFG error: No tile or global config file found.",
+                FNAMES.short_latlon(self.lat, self.lon),
             )
-            if not os.path.isfile(config_file) or use_global:
-                config_file = global_cfg_file
+            return 0
+        for path in layers:
+            if not self._apply_config_file(path):
+                return 0
+        return 1
 
-                if not os.path.isfile(config_file):
-                    
-                    UI.lvprint(
-                        0,
-                        "CFG error: No tile or global config file found.",
-                        FNAMES.short_latlon(self.lat, self.lon),
-                    )
-                    return 0
+    def _apply_config_file(self, config_file):
+        """Overlay ONE ``key=value`` file onto this tile: only the keys the
+        file carries change.  Retired keys are skipped (loudly when their
+        retirement is loud), legacy quoting and foreign-fork values are
+        normalised, unknown keys are ignored at verbosity 2.
+
+        :returns: 1 on success, 0 when the file could not be read
+        """
         try:
             f = open(config_file, "r")
             for line in f.readlines():
@@ -280,6 +322,7 @@ class Tile:
                 0,
                 "CFG error: Could not read config file for tile",
                 FNAMES.short_latlon(self.lat, self.lon),
+                "(" + str(config_file) + ")",
             )
             return 0
 
@@ -293,11 +336,8 @@ class Tile:
         :return type: int
         """
         if not config_file:
-            config_file = os.path.join(
-                self.build_dir,
-                "Ortho4XP_" + FNAMES.short_latlon(self.lat, self.lon) + ".cfg",
-            )
-            config_file_bak = config_file + ".bak"
+            config_file = self._tile_cfg_path()
+        config_file_bak = config_file + ".bak"
         try:
             os.replace(config_file, config_file_bak)
         except:

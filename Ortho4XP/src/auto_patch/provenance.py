@@ -389,11 +389,31 @@ def provenance_tags(prov: dict) -> dict:
     return tags
 
 
+def source_label(git: dict | None) -> str:
+    """The ``sha=`` token of a ``[provenance]`` log line.
+
+    A git checkout renders its short sha (``*`` when the tree is dirty).
+    Outside a checkout — every FROZEN engine the app ships — there is no
+    sha, and ``sha=absent`` alone told the reader nothing about which
+    engine wrote the patch; the token then carries the engine version
+    (``O4_Version.version``, the same build-numbered string the patch's
+    ``o4_engine`` freshness stamp records): ``sha=absent version=1.50.1722``.
+    Shared by v1's :func:`format_log_line` and v2's
+    ``engine_v2.format_provenance_line``.
+    """
+    git = git or {}
+    sha = git.get("sha")
+    if sha:
+        return sha + ("*" if git.get("dirty") else "")
+    return "absent version=" + engine_version()
+
+
 def format_log_line(prov: dict) -> str:
     """One-line human summary logged per airport at patch completion.
 
     Compact by design: the full gate lists live in the tags/reader.  The line
-    shows the sha (with a ``*`` dirty marker), the count of ON gates plus any
+    shows the sha (with a ``*`` dirty marker; the engine version when no
+    checkout supplies a sha — :func:`source_label`), the count of ON gates plus any
     non-default deviations (the actionable drift), and the DEM label.  The
     no-inset case is rendered as a WARNING so it stands out in the build log.
     """
@@ -401,9 +421,7 @@ def format_log_line(prov: dict) -> str:
     git = prov.get("git") or {}
     gates = prov.get("gates") or {}
     dem = prov.get("dem") or {}
-    sha = git.get("sha") or "absent"
-    if git.get("dirty"):
-        sha += "*"  # dirty-tree marker
+    sha = source_label(git)
     on_count = len(gates.get("on", []))
     nondefault = gates.get("nondefault", [])
     if nondefault:

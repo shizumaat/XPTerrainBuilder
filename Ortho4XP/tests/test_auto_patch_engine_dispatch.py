@@ -106,7 +106,7 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
             self.patch, self.sidecar, self.ways, self.nodes = patch, side, ways, ways * 3
 
     class _Res:
-        pass
+        rebake_plan = None   # the M6a pipeline result field (5890bfa0)
 
     class _Config:
         def __init__(self, header_extra=None): self.header_extra = header_extra

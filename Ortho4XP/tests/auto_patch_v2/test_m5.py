@@ -244,3 +244,32 @@ def test_demote_turns_an_off_tier_offset_into_a_preference(law):
     ln = cs2.linears[0]
     assert ln.soft.startswith("law:") and ln.ceiling is None
     assert ln.lo == 5.0 and ln.hi is None and dict(ln.terms) == {a: 1.0, b: -1.0}
+
+
+def test_a_mixed_pad_vertex_is_not_pad_only(law):
+    """A pad vertex shared with a groundside lot is the lot's (09-01g):
+    never paired against airside pavement across the lawful terrace
+    (measured SPJC: 7.2 m building|groundside_pavement rows)."""
+    airport, pm = _airport(law, None)
+    # re-role the detached pad's east neighbour: a groundside lot sharing its east edge
+    from auto_patch_v2.classify.roles import Cell, Classification, CutLine
+    frame = airport.frame
+    cells = list(_cells_of(pm))
+    cells.append(Cell(9, "groundside_pavement", "lot1", _rect(290, 150, 350, 200), (), None,
+                      None, "groundside", "road", {}))
+    pm2, _ = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    edges = no_step.no_step_edges(pm2, law)
+    shared = {v for v in pm2.vertices
+              if {pm2.faces[f].role for f in pm2.vertices[v].incident_faces}
+              == {"building", "groundside_pavement"}}
+    assert shared
+    assert not any(a in shared or b in shared for a, b, *_ in edges)
+
+
+def _cells_of(pm):
+    """The fixture's cells re-read from a planar map's faces (rings only)."""
+    from auto_patch_v2.classify.roles import Cell
+    for f in pm.faces.values():
+        ring = tuple(pm.vertices[v].xy for v in pm.ring_vertices(f.ring))
+        yield Cell(f.id, f.role, f.ref, ring, (), f.code_number, f.code_letter, f.side,
+                   "pad" if f.role == "building" else f.role, {})

@@ -31,10 +31,11 @@ contact and is never a no-step endpoint of its own (v1
 ``enclaves.ENCLAVE_AIRSIDE_ROLES`` is the same set by other means).
 
 THE PAD↔PAVEMENT PAIRS (M5; RULINGS 2026-09-04i closing 03k; measured
-feasible at SPJC, M3b §4): a RIGID airside vertex (a pad's) joins the
-K/sector population as an endpoint AGAINST pavement only — a pair whose
-both endpoints are pad-only vertices prices one flat value against
-another and is not minted; the cap is the strictest governed cap at
+feasible at SPJC, M3b §4): a RIGID airside vertex (a pad's, touching
+rigid faces and nothing else) joins the K/sector population as an
+endpoint AGAINST pavement only — a pair whose both endpoints are pad-only
+vertices prices one flat value against another and is not minted, and a
+pad vertex a groundside lot shares is the lot's (09-01g); the cap is the strictest governed cap at
 either endpoint (a pad carries the apron law, ``common.roles.building``).
 The pad is the junior tier, so where the pair contradicts a governed
 surface the pad's side yields (``solve/tiers.py``).
@@ -96,10 +97,15 @@ def no_step_edges(planar: PlanarMap, law: Law
     vw = view(planar, law)
     ns = law.tables.emit.no_step
     caps = _airside_vertices(vw, no_step_roles(law))
-    pad_only = _airside_vertices(vw, rigid_airside_roles(law))
-    for v in list(pad_only):
-        if v in caps:
-            del pad_only[v]           # shared with pavement: a pavement vertex
+    # a PAD-ONLY vertex touches rigid faces and nothing else: a pad vertex
+    # shared with airside pavement is that pavement's; one shared with a
+    # GROUNDSIDE lot is the lot's (a mixed pad, 09-01g — the terrace in
+    # the stand-off is lawful; measured SPJC: pairing it minted 7.2 m
+    # building|groundside_pavement rows)
+    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
+    pad_only = {v: c for v, c in _airside_vertices(vw, rigid_airside_roles(law)).items()
+                if v not in caps and all(planar.faces[f].role in rigid
+                                         for f in vw.vertex_faces[v])}
     caps.update(pad_only)
     ids = sorted(caps)
     if not ids:

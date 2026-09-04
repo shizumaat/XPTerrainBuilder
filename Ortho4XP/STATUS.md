@@ -67,8 +67,9 @@
 #   v1 6,660; role agreement vs v1 48 %/71 % REPORTED, bar re-based 03j).
 #   M2 MERGED (RULINGS 04a): CYXY 3.2 s, v1 census on v2 patch 160 → 33
 #   (29 = RAOA oracle artefact), mesh edges 247k → 243k, step 1 −4.6 s.
-#   NEXT: M3 SPLP (strips, runway rows) then SPJC once 03k is ruled;
-#   repair M1's missing .hgt fixtures first.
+#   M3a MERGED (04b): SPLP 6.8 s, census 27 → 0; production DEM frame;
+#   RAOA oracle reader FIXED (CYXY 33 → 2); code-4 runway 1.5 % (07-08).
+#   M3b SPJC IN FLIGHT (pad↔pavement 369 rows wait on OWNER 03k).
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
 #   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at

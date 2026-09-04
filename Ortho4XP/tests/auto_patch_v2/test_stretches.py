@@ -144,42 +144,95 @@ def test_the_next_g_node_may_differ_by_three_percent_from_the_intersection(site,
     assert idx and g_.cap[idx[0]] == pytest.approx(cap_a)
 
 
+def _junction_parts(pm, vw):
+    """The two halves of junction J crossed by BOTH letters (A's stretch
+    on their south edge, G's on their shared x = 0 edge)."""
+    faces = [f for f in pm.faces.values() if f.ref == "junctionJ"
+             and max(vw.xy[v][1] for v in vw.rings[f.id]) > 150]
+    assert len(faces) == 2
+    return faces
+
+
 def test_a_junction_across_a_letter_change_prices_per_stretch_region(site, law):
-    """Inside junction J (crossed by A at D and G at A): a pair on the G
-    stretch holds G's cap, a pair on A's stretch holds D, a pair across
-    the two — and every pair with a body vertex off the stretches — holds
-    J's own D cap: the relaxation lives on the stretch whose letter it is,
-    never on a chord across letters."""
+    """RULINGS 2026-09-04y (applying 04t-3) inside junction J, crossed by
+    A (D, 1.5 %) and G (A, 3 %): a pair on the G stretch holds G's cap, a
+    pair on A's stretch holds D, and a chord between a G vertex and an A
+    vertex — or any body chord that is not a mesh edge — is NOT a law
+    edge: no row in any generator."""
     airport, pm = site
     st = S.stretches(pm, law)
     vw = view(pm, law)
     cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
     cap_d = law.ruleset.taxi.longitudinal.value(None, "D")
     X = _vid(pm, 0.0, 91.5)
-    faces = [f for f in pm.faces.values() if f.ref == "junctionJ"]
-    assert faces and all(f.code_letter == "D" for f in faces)
-    rows = [r for r in taxi.taxi_within_shape(pm, law, airport)
-            if r.source.inputs[0] in {f"face:{f.id}" for f in faces}]
-    by_pair = {}
-    for r in rows:
-        by_pair.setdefault((min(r.a, r.b), max(r.a, r.b)), r)
+    faces = _junction_parts(pm, vw)
+    assert all(f.code_letter == "D" for f in faces)
+    fids = {f"face:{f.id}" for f in faces}
+    cs, counts, _w = generate(pm, law, airport)
+    assert counts["junction_mesh"] > 0
+    by_pair: dict = {}
+    for r in cs.diffs:
+        if r.source.inputs and r.source.inputs[0] in fids:
+            by_pair.setdefault((min(r.a, r.b), max(r.a, r.b)), []).append(r)
     g = next(s for s in st.items if s.code_letter == "A")
     a_w = next(s for s in st.items if s.ref == "taxiA" and
                min(vw.xy[v][0] for v in s.vertices) < -100)
     g_v = [v for v in g.vertices if v != X and 0 < vw.xy[v][1] - 91.5 <= 100]
     a_v = [v for v in a_w.vertices if v != X and -30 <= vw.xy[v][0] < 0]
     assert g_v and a_v
-    # on G: G's cap; on A: D; across: J's own cap; body: J's own cap
-    assert by_pair[(min(X, g_v[0]), max(X, g_v[0]))].cap == pytest.approx(cap_a)
-    assert by_pair[(min(X, a_v[0]), max(X, a_v[0]))].cap == pytest.approx(cap_d)
-    assert by_pair[(min(g_v[0], a_v[0]), max(g_v[0], a_v[0]))].cap == pytest.approx(cap_d)
-    on_any = set(st.on)
-    body = [v for f in faces for v in vw.rings[f.id] if v not in on_any]
-    assert body, "J has rim vertices off every stretch"
-    for r in rows:
-        if r.a in body or r.b in body:
-            assert r.cap == pytest.approx(cap_d)
-    assert {round(r.cap, 12) for r in rows} == {round(cap_a, 12), round(cap_d, 12)}
+    # on G: G's cap (per stretch); on A: D
+    assert {round(r.cap, 9) for r in by_pair[(min(X, g_v[0]), max(X, g_v[0]))]} == {round(cap_a, 9)}
+    assert {round(r.cap, 9) for r in by_pair[(min(X, a_v[0]), max(X, a_v[0]))]} == {round(cap_d, 9)}
+    # ACROSS: a G vertex <-> an A vertex is no law edge (04y): no row at all
+    assert (min(g_v[0], a_v[0]), max(g_v[0], a_v[0])) not in by_pair
+    # every priced pair of the body is a ring edge, a mesh edge or a
+    # common-stretch pair; the all-pairs superset is gone
+    from auto_patch_v2.constraints import junction_mesh as JM
+    for f in faces:
+        mesh = JM.face_mesh_edges(vw, f.id)
+        on = {v: set(st.on.get(v, ())) for v in vw.rings[f.id]}
+        n = len(vw.rings[f.id])
+        priced = {k for k in by_pair if k[0] in on and k[1] in on}
+        for a, b in priced:
+            assert (a, b) in mesh or (on[a] & on[b]), (a, b)
+        assert len(priced) < n * (n - 1) // 2
+
+
+def test_junction_triangles_are_capped_by_the_stretch_nearest_them(site, law):
+    """Triangles of J on the G side (x = 0 edge) are at 3 %, on the A
+    side (y = 91.5 edge) at 1.5 %; every mesh edge at the cap of the
+    stretch nearest its midpoint; the row set is exactly {A, D}."""
+    airport, pm = site
+    from auto_patch_v2.constraints import junction_mesh as JM
+    st = S.stretches(pm, law)
+    vw = view(pm, law)
+    cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
+    cap_d = law.ruleset.taxi.longitudinal.value(None, "D")
+    seen = set()
+    for f in _junction_parts(pm, vw):
+        lines = JM.crossing_lines(vw, st, f.id)
+        assert {round(c, 6) for _p, c in lines} == {round(cap_a, 6), round(cap_d, 6)}
+        tris = JM.face_triangles(vw, f.id)
+        assert tris
+        tcaps = JM.triangle_caps(vw, lines, tris, cap_d)
+        for (a, b, c), cap in tcaps.items():
+            cy = (vw.xy[a][1] + vw.xy[b][1] + vw.xy[c][1]) / 3.0
+            cx = (vw.xy[a][0] + vw.xy[b][0] + vw.xy[c][0]) / 3.0
+            near_g, near_a = abs(cx), cy - 91.5
+            assert cap == pytest.approx(cap_a if near_g < near_a else cap_d)
+            seen.add(round(cap, 6))
+        ecaps = JM.mesh_edge_caps(vw, lines, JM.face_mesh_edges(vw, f.id, tris), cap_d)
+        for (a, b), cap in ecaps.items():
+            mx = 0.5 * (vw.xy[a][0] + vw.xy[b][0])
+            my = 0.5 * (vw.xy[a][1] + vw.xy[b][1])
+            assert cap == pytest.approx(cap_a if abs(mx) < my - 91.5 else cap_d)
+    assert seen == {round(cap_a, 6), round(cap_d, 6)}
+    rows = JM.junction_mesh(pm, law, airport)
+    assert {round(r.cap, 6) for r in rows if hasattr(r, "cap")} <= {round(cap_a, 6), round(cap_d, 6)}
+    # the published mesh is the oracle's population: every junction-mesh
+    # face's edges, by identity key
+    pub = publication(pm, law, airport)
+    assert pub["mesh_edges"] and all(len(e) == 2 and len(e[0]) == 2 for e in pub["mesh_edges"])
 
 
 def test_two_stretches_of_one_letter_read_as_one_plane(site, law):
@@ -252,13 +305,72 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
     d = math.hypot(pm.vertices[X].xy[0] - pm.vertices[nxt].xy[0],
                    pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1])
     assert abs(sol.z[X] - sol.z[nxt]) > cap_d * d + 0.01, "3 % is used, not just allowed"
-    # the v1 oracle reads the same patch: zero within-shape rows
+    # the v1 oracle reads the same patch (its mesh = v2's published mesh,
+    # its stretch caps = v2's published stretches): zero within-shape rows
     sys.path.insert(0, str(ROOT / "tools"))
     cg = pytest.importorskip("check_grade")
+    ctx = cg.law_context_from_sidecar(paths.patch)
+    assert ctx["stretches_ll"] and ctx["mesh_edges_ll"]
     fam: dict = {}
     cg.run_checks_law_true(paths.patch, family_out=fam, quiet=True, top_n=0)
     assert not fam.get("within_shape"), [
         (v.way_a.tags.get("role"), round(v.grade_pct, 2), v.cap_pct) for v in fam["within_shape"]]
+
+
+def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site, law, tmp_path):
+    """RULINGS 2026-09-04y, oracle equality where it is load-bearing: a
+    junction body mesh edge on the G side (nearest stretch A, 3 %) lifted
+    to 2.5 % is lawful in v2 verify AND in the v1 oracle reading the
+    sidecar's ``stretches``; the same patch judged without them reads J's
+    body at its strictest letter (D) and reports exactly such edges."""
+    airport, pm = site
+    from auto_patch_v2.constraints import junction_mesh as JM
+    cs, *_r = generate(pm, law, airport)
+    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    st = S.stretches(pm, law)
+    vw = view(pm, law)
+    cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
+    cap_d = law.ruleset.taxi.longitudinal.value(None, "D")
+    import numpy as np
+    z = np.array(sol.z, dtype=float)
+    minted = None
+    for f in _junction_parts(pm, vw):
+        lines = JM.crossing_lines(vw, st, f.id)
+        caps = JM.mesh_edge_caps(vw, lines, JM.face_mesh_edges(vw, f.id), cap_d)
+        nbrs: dict = {}
+        for (a, b), c in caps.items():
+            nbrs.setdefault(a, []).append((b, c))
+            nbrs.setdefault(b, []).append((a, c))
+        for v, lst in nbrs.items():
+            if v in st.on or any(c < cap_a for _u, c in lst):
+                continue                      # a G-side body vertex only
+            u, _c = max(lst, key=lambda e: vw.dist(v, e[0]))
+            zv = z[u] + 0.025 * vw.dist(v, u)
+            if all(abs(zv - z[w]) <= cap_a * vw.dist(v, w) - 0.02 for w, _c in lst):
+                minted = (f.id, v, u)
+                z[v] = zv
+                break
+        if minted:
+            break
+    assert minted, "a G-side body vertex whose every mesh edge stays under 3 %"
+    import dataclasses as _dc
+    sol2 = _dc.replace(sol, z=z)
+    surf = graded_surface(pm, law, sol2, airport.frame.origin, airport.frame.crs)
+    pub = publication(pm, law, airport, sol2.z)
+    within, _x = within_shape(Patch.of(surf, law, pub, {}))
+    jkeys = {f.id for f in _junction_parts(pm, vw)}
+    assert not [r for r in within if r["way_a"] in jkeys or r["way_b"] in jkeys], within
+    paths = write_patch(surf, law, tmp_path, pub, face_tags=face_tags(pm, law))
+    sys.path.insert(0, str(ROOT / "tools"))
+    cg = pytest.importorskip("check_grade")
+    fam: dict = {}
+    cg.run_checks_law_true(paths.patch, family_out=fam, quiet=True, top_n=0)
+    jrows = [v for v in (fam.get("within_shape") or []) if v.way_a.tags.get("role") == "junction"]
+    assert not jrows, [(round(v.grade_pct, 2), v.cap_pct, round(v.distance_m, 1)) for v in jrows]
+    fam2: dict = {}
+    cg.run_checks_law_true(paths.patch, family_out=fam2, quiet=True, top_n=0, stretches_ll=None)
+    jrows2 = [v for v in (fam2.get("within_shape") or []) if v.way_a.tags.get("role") == "junction"]
+    assert jrows2 and all(abs(v.cap_pct - 100 * cap_d) < 1e-6 for v in jrows2)
 
 
 def test_a_minted_step_on_the_g_stretch_is_read_at_g_cap(site, law, tmp_path):

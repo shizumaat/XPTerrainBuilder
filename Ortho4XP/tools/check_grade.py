@@ -5601,6 +5601,95 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
 _CROWN_UNKNOWN_PAIRS: Dict[str, int] = defaultdict(int)
 
 
+def _stretches_to_m(stretches_ll: Optional[list],
+                    nodes: Dict[str, Tuple[float, float]],
+                    ll_to_m) -> Optional[list]:
+    """Sidecar ``stretches`` (``[[[lat, lon]…], cL, letter, ref]``) as
+    ``(points_m, cap, ring_nids)``: the polyline in the audit's metre
+    frame, its cap, and the node ids of its vertices (identity by the
+    sidecar's 7-dp lat/lon key, ``None`` where the patch has no node)."""
+    if not stretches_ll:
+        return None
+    key_of = {(round(la, 7), round(lo, 7)): nid for nid, (la, lo) in nodes.items()}
+    out = []
+    for entry in stretches_ll:
+        pts_ll = entry[0]
+        if len(pts_ll) < 2:
+            continue
+        pts_m = [ll_to_m(float(la), float(lo)) for la, lo in pts_ll]
+        nids = [key_of.get((round(float(la), 7), round(float(lo), 7)))
+                for la, lo in pts_ll]
+        out.append((pts_m, float(entry[1]), nids))
+    return out
+
+
+def _junction_stretch_crossings(ways: List["Way"],
+                                nodes: Dict[str, Tuple[float, float]],
+                                stretches_m: Optional[list]
+                                ) -> Dict[int, list]:
+    """Per JUNCTION way (``grade_law.JUNCTION_ROLES``): the stretches
+    CROSSING it — those with an edge on its ring (two consecutive stretch
+    vertices both ring nodes), as ``(points_m, cap)`` — the v2 verify
+    reader's own crossing test (``verify.within.crossing_stretches``).
+    Keyed by ``id(way)``; a way with no crossing stretch is absent."""
+    out: Dict[int, list] = {}
+    if not stretches_m:
+        return out
+    for w in ways:
+        if law_role(w) not in _WELD_HUB_ROLES:
+            continue
+        ring = set(w.nids[:-1] if (len(w.nids) > 1 and w.nids[0] == w.nids[-1])
+                   else w.nids)
+        crossing = [(pts, cap) for pts, cap, nids in stretches_m
+                    if any(u is not None and w_ is not None and u in ring and w_ in ring
+                           for u, w_ in zip(nids, nids[1:]))]
+        if crossing:
+            out[id(w)] = crossing
+    return out
+
+
+def _point_polyline_dist(px: float, py: float, pts) -> float:
+    best = float("inf")
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        vx, vy = bx - ax, by - ay
+        l2 = vx * vx + vy * vy
+        if l2 < 1e-18:
+            continue
+        t = ((px - ax) * vx + (py - ay) * vy) / l2
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        d = math.hypot(px - (ax + t * vx), py - (ay + t * vy))
+        if d < best:
+            best = d
+    return best
+
+
+def _junction_stretch_cap(c: "ShapePairConstraint", crossings: Dict[int, list],
+                          max_grade: float, tie_m: float = 1e-6
+                          ) -> Optional[float]:
+    """THE NEAREST-STRETCH CAP for one junction pair (RULINGS 2026-09-04y):
+    the cap of the crossing stretch nearest the pair's midpoint (the
+    strictest among stretches tied within ``tie_m``), or ``None`` when the
+    pair is not a body-cap pair of a crossed junction — a cross-section
+    pair, or one the law priced at another cap (frontage, apron portion,
+    fan ramp) keeps that cap.  The v2 generator and verify reader apply
+    the identical rule (``constraints.stretches.nearest_line_cap``)."""
+    crossing = crossings.get(id(c.way))
+    if not crossing or c.transverse_road:
+        return None
+    body = _role_grade_limit(c.way, max_grade)
+    if body is None or abs(c.cap - body) > 1e-12:
+        return None
+    mx, my = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
+    best_d, best_cap = float("inf"), body
+    for pts, cap in crossing:
+        d = _point_polyline_dist(mx, my, pts)
+        if d < best_d - tie_m:
+            best_d, best_cap = d, cap
+        elif abs(d - best_d) <= tie_m:
+            best_cap = min(best_cap, cap)
+    return best_cap
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -5616,6 +5705,7 @@ def _check_within_shape(ways: List[Way],
                         fan_ramp_zones_m: Optional[list] = None,
                         interior_zones_m: Optional[list] = None,
                         transverse_road_out: Optional[List] = None,
+                        stretches_m: Optional[list] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -5638,6 +5728,7 @@ def _check_within_shape(ways: List[Way],
     before.
     """
     out: List[Violation] = []
+    _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
     for c in iter_shape_grade_constraints(
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
@@ -5646,6 +5737,18 @@ def _check_within_shape(ways: List[Way],
             interior_zones_m=interior_zones_m):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
+        # JUNCTION STRETCH CAPS (RULINGS 2026-09-04y, applying 04t-3): a
+        # junction body pair priced at the BODY cap (never a frontage /
+        # portion / cross-section pair, which the law already tightened)
+        # takes the cap of the crossing stretch nearest its midpoint —
+        # the letter the pavement there belongs to, not the face's
+        # strictest letter.  Shifts the allowance by the cap difference so
+        # every other envelope term (quantisation, terrace, fan-ramp)
+        # stays exactly as the law priced it.
+        _sc = _junction_stretch_cap(c, _jsc, max_grade)
+        if _sc is not None and _sc != c.cap:
+            allowance += (_sc - c.cap) * c.dist
+            c.cap = _sc
         if terrace_joints_m:
             # APRON TERRACE LAW (spec §5a): a within-pair edge crossing a
             # DECLARED joint is judged by the step law, not by the grade
@@ -6928,6 +7031,12 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "crown_drops": "crown_drops_ll",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
+    # TAXIWAY STRETCHES (RULINGS 2026-09-04t-3 / 04y): the v2 emitter's
+    # per-stretch centrelines with their letter caps.  LAW INPUT for the
+    # JUNCTION STRETCH CAPS reading (``_junction_stretch_caps``): a
+    # junction body pair priced at the body cap takes the cap of the
+    # stretch nearest its midpoint — the reading v2 solved to.
+    "stretches": "stretches_ll",
     # THE PER-STATION CAP VECTOR (owner 2026-08-29, Amendment 9).  LAW
     # INPUT: the cap authority lives at the STATION, and this is the ONE
     # derivation the emitter's three readers price with.  Without it the
@@ -7228,6 +7337,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    ctx["stretches_ll"] = data.get("stretches") or None
     # THE PER-STATION CAP VECTOR (Amendment 9) — the census's own read of
     # the one derivation.  ``None`` when the patch predates the key, which
     # ``_check_lateral_contiguity`` announces before falling back.
@@ -7572,6 +7682,7 @@ def run_checks(
     basin_facilities: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
+    stretches_ll: Optional[list] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
@@ -7692,6 +7803,11 @@ def run_checks(
     if mesh_edges_ll:
         mesh_edges_m = [(ll_to_m(*edge[0]), ll_to_m(*edge[1]))
                         for edge in mesh_edges_ll]
+    # TAXIWAY STRETCHES (sidecar ``stretches``, RULINGS 2026-09-04y): the
+    # per-stretch centrelines in this audit's metre frame, each with its
+    # cap and its ring-node identities (rounded lat/lon, the sidecar's
+    # own identity join) for the JUNCTION STRETCH CAPS reading.
+    stretches_m = _stretches_to_m(stretches_ll, nodes, ll_to_m)
 
     # SPINE CROWN drop field (sidecar ``crown_drops``, part 30): the
     # within-shape law re-centres every pair's budget on the designed
@@ -7774,7 +7890,8 @@ def run_checks(
         pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m,
         fan_ramp_zones_m=fan_ramp_zones_m,
         interior_zones_m=interior_zones_m,
-        transverse_road_out=_road_xsec_rows))
+        transverse_road_out=_road_xsec_rows,
+        stretches_m=stretches_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

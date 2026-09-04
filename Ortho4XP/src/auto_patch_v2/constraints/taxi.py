@@ -6,7 +6,11 @@
   shape in the census (all vertex pairs at the role's longitudinal cap by
   code letter) — the same population here, as ``Diff`` rows, priced PER
   STRETCH where taxi centrelines of different letters cross the face
-  (RULINGS 2026-09-04t-3; ``stretches.pair_caps``); a pair with a PAD
+  (RULINGS 2026-09-04t-3; ``stretches.pair_caps``) — EXCEPT a JUNCTION
+  BODY (``emit.within_shape.junction_mesh_roles``, RULINGS 2026-09-04y):
+  its pairs here are the common-stretch pairs only; the body is priced
+  by its triangle mesh in ``junction_mesh`` and a chord across stretches
+  of different letters produces no row; a pair with a PAD
   endpoint holds the pad's cap (the building seat the census prices at
   the strict cap — ``grade_law.classify_pair``'s frontage rule on every
   soft shape, 2026-08-08 / 09-01g; measured 2026-09-04: every SPJC 8 /
@@ -24,6 +28,7 @@
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap
@@ -34,7 +39,7 @@ from .precedence import View, view
 from .stretches import edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_within_shape", "taxi_centerlines", "triangle_planes",
-           "all_pairs", "pad_vertices"]
+           "all_pairs", "pad_vertices", "plane_rows"]
 
 GEN = "taxi"
 _GRADIENT_DIRECTIONS = 16
@@ -79,11 +84,13 @@ def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     pads = pad_vertices(vw)
     pad_cap = law.tables.common.roles["building"].longitudinal
+    mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
     rows: list[Row] = []
     for f in vw.faces_of_role(members):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
         if cap is None:
             continue
+        common_only = f.role in mesh_roles
         src = Source(GEN, "rulesets.taxi.longitudinal within_shape",
                      (f"face:{f.id}", f.ref))
         src_st = Source(GEN, "rulesets.taxi.longitudinal per stretch (04t-3)",
@@ -93,7 +100,7 @@ def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
         crossed = bool(st.face_stretches.get(f.id))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             for a, b, c, d in pair_caps(planar, law, st, f.id, ring,
-                                        cap.longitudinal, min_d):
+                                        cap.longitudinal, min_d, common_only):
                 if a in pads or b in pads:
                     rows.append(Diff(a, b, min(c, pad_cap), d, src_pad))
                 elif crossed and c != cap.longitudinal:
@@ -144,19 +151,28 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
             continue
         cap = (min(cap[0], law_caps.get(fid, cap[0])), cap[1])
         f = planar.faces[fid]
-        (x1, y1), (x2, y2), (x3, y3) = (vw.xy[v] for v in ring)
-        det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
-        if abs(det) < 1e-9:
-            continue
-        # ∇z = M · (z1, z2, z3): gx = Σ gi·zi, gy = Σ hi·zi (barycentric)
-        gx = ((y2 - y3) / det, (y3 - y1) / det, (y1 - y2) / det)
-        gy = ((x3 - x2) / det, (x1 - x3) / det, (x2 - x1) / det)
         src = Source(GEN, "plane_gradient (user 2026-07-05)",
                      (f"face:{fid}", f.ref))
-        bound = cap[0] * math.cos(math.pi / _GRADIENT_DIRECTIONS)
-        for k in range(_GRADIENT_DIRECTIONS):
-            th = 2.0 * math.pi * k / _GRADIENT_DIRECTIONS
-            c, s = math.cos(th), math.sin(th)
-            terms = tuple((ring[i], c * gx[i] + s * gy[i]) for i in range(3))
-            rows.append(Linear(terms, None, bound, src))
+        rows.extend(plane_rows(ring, vw.xy, cap[0], src))
+    return rows
+
+
+def plane_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
+               cap: float, src: Source) -> list[Row]:
+    """``|∇z| ≤ cap`` over one triangle as 16 half-plane ``Linear`` rows
+    (module docstring); none for a degenerate triangle."""
+    (x1, y1), (x2, y2), (x3, y3) = (xy[v] for v in tri)
+    det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
+    if abs(det) < 1e-9:
+        return []
+    # ∇z = M · (z1, z2, z3): gx = Σ gi·zi, gy = Σ hi·zi (barycentric)
+    gx = ((y2 - y3) / det, (y3 - y1) / det, (y1 - y2) / det)
+    gy = ((x3 - x2) / det, (x1 - x3) / det, (x2 - x1) / det)
+    bound = cap * math.cos(math.pi / _GRADIENT_DIRECTIONS)
+    rows: list[Row] = []
+    for k in range(_GRADIENT_DIRECTIONS):
+        th = 2.0 * math.pi * k / _GRADIENT_DIRECTIONS
+        c, s = math.cos(th), math.sin(th)
+        terms = tuple((tri[i], c * gx[i] + s * gy[i]) for i in range(3))
+        rows.append(Linear(terms, None, bound, src))
     return rows

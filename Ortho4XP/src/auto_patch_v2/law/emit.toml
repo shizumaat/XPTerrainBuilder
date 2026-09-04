@@ -54,6 +54,15 @@ runway_station_cluster_m = 5.0   # runway ring vertices cluster into stations at
 # value (auto_patch.config.APRON_EDGE_PORTION_MIN_WIDTH_RATIO; a harness
 # twin holds the two equal).
 apron_edge_portion_min_width_ratio = 1.5
+# JUNCTION BODIES ARE PRICED BY THEIR MESH (RULINGS 2026-09-04y, applying
+# 04t-3; the v1 oracle's JUNCTION MESH RULE, user 2026-06-30): a face of
+# one of these roles has NO all-pairs body — its law edges are the ring
+# edges, the pairs sharing ONE stretch, and the edges of its own triangle
+# mesh (published as sidecar ``mesh_edges``); each mesh edge at the cap of
+# the crossing stretch nearest its midpoint; a chord between two stretches
+# of different letters produces no row.  v1: grade_law.JUNCTION_ROLES
+# (service_junction there is the road family here and keeps roads.py).
+junction_mesh_roles = ["junction"]
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

@@ -13,8 +13,8 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Row
 from ..model.planar import PlanarMap
-from . import (apron, no_step, pads, roads, runway_profile, seams, strips,
-               structures, taxi, transverse, zones)
+from . import (apron, junction_mesh, no_step, pads, roads, runway_profile,
+               seams, strips, structures, taxi, transverse, zones)
 
 __all__ = ["GENERATORS", "generate", "stack", "seam_exempt"]
 
@@ -28,6 +28,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("taxi_within_shape", taxi.taxi_within_shape),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),
+    ("junction_mesh", junction_mesh.junction_mesh),
     ("apron_within_shape", apron.apron_within_shape),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),

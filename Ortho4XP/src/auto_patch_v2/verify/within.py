@@ -14,8 +14,14 @@ tables (``check_grade.iter_shape_grade_constraints`` +
   edges, spine chords (a published-axis vertex) and pad-frontage chords
   at the cap; an apron interior body chord within
   ``within_shape.apron_body_chord_max_m`` at ``common.apron_fan_ramp_max``;
-  junction bodies at the cap (the census's junction-mesh rule prices a
-  SUBSET of these — v2 verifies the superset it solved);
+* JUNCTION BODIES (``within_shape.junction_mesh_roles``, RULINGS
+  2026-09-04y) with published ``mesh_edges``: the population is the ring
+  edges, the published mesh edges and the common-stretch pairs — a
+  common-stretch pair at that stretch's cap, every other member at the
+  cap of the crossing stretch nearest its midpoint
+  (``stretches.nearest_line_cap``), a pad endpoint at the pad's cap; a
+  chord in none of the three classes produces no row.  A patch without
+  ``mesh_edges`` (pre-04y) reads the all-pairs superset as before;
 * every pair re-centred on the published ``crown_drops`` (2026-08-05)
   and forgiven the role's instrument envelope;
 * a road-family pair at or beyond ``common.road_transverse_axis_min_deg``
@@ -30,7 +36,7 @@ import itertools
 import math
 
 from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
-from ..constraints.stretches import compose_pairs
+from ..constraints.stretches import compose_pairs, nearest_line_cap
 from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, noise_m, row
 
@@ -75,22 +81,71 @@ def stretch_lines(p: Patch) -> list[tuple[tuple[int, ...], float]]:
     return out
 
 
+def crossing_stretches(sh: Shape, lines: list[tuple[tuple[int, ...], float]]
+                       ) -> list[tuple[tuple[int, ...], float]]:
+    """The published stretches crossing ``sh``: those with an edge on its
+    ring (two consecutive stretch vertices both on the ring)."""
+    ring = set(sh.ids)
+    return [(ch, c) for ch, c in lines
+            if any(u in ring and w in ring for u, w in zip(ch, ch[1:]))]
+
+
 def stretch_pair_caps(sh: Shape, lines: list[tuple[tuple[int, ...], float]],
                       xy_all: dict[int, tuple[float, float]], cap: float,
-                      min_d: float) -> dict[tuple[int, int], float]:
-    """The per-stretch cap of every pair of ``sh`` — the stretches
-    crossing it are those with an edge on its ring (two consecutive
-    stretch vertices both on the ring)."""
-    ring = set(sh.ids)
-    crossing = [(ch, c) for ch, c in lines
-                if any(u in ring and w in ring for u, w in zip(ch, ch[1:]))]
+                      min_d: float, common_only: bool = False
+                      ) -> dict[tuple[int, int], float]:
+    """The per-stretch cap of every pair of ``sh`` (``common_only``: of
+    the pairs sharing a stretch, the junction-body reading)."""
+    crossing = crossing_stretches(sh, lines)
     if not crossing:
         return {}
     xy = {v: sh.xy[k] for k, v in enumerate(sh.ids)}
     for ch, _c in crossing:
         for v in ch:
             xy.setdefault(v, xy_all[v])
-    return {(a, b): c for a, b, c, _d in compose_pairs(xy, list(sh.ids), crossing, cap, min_d)}
+    return {(a, b): c for a, b, c, _d in
+            compose_pairs(xy, list(sh.ids), crossing, cap, min_d, common_only)}
+
+
+def mesh_pairs(p: Patch) -> set[tuple[int, int]] | None:
+    """Published ``mesh_edges`` joined to vertices by identity key, as
+    ``(min, max)`` pairs; ``None`` when the patch publishes none."""
+    pub = p.publication.get("mesh_edges")
+    if pub is None:
+        return None
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out: set[tuple[int, int]] = set()
+    for a, b in pub:
+        va = key_of.get((round(float(a[0]), 7), round(float(a[1]), 7)))
+        vb = key_of.get((round(float(b[0]), 7), round(float(b[1]), 7)))
+        if va is not None and vb is not None and va != vb:
+            out.add((min(va, vb), max(va, vb)))
+    return out
+
+
+def junction_pair_caps(sh: Shape, lines: list[tuple[tuple[int, ...], float]],
+                       xy_all: dict[int, tuple[float, float]], cap: float,
+                       min_d: float, mesh: set[tuple[int, int]]
+                       ) -> dict[tuple[int, int], float]:
+    """THE JUNCTION-BODY POPULATION (RULINGS 2026-09-04y): ring edges,
+    published mesh edges and common-stretch pairs with their caps; a pair
+    absent from the result is not a law edge."""
+    out = stretch_pair_caps(sh, lines, xy_all, cap, min_d, common_only=True)
+    crossing = [([xy_all[v] for v in ch], c) for ch, c in crossing_stretches(sh, lines)]
+    n = len(sh.ids)
+    xy = {v: sh.xy[k] for k, v in enumerate(sh.ids)}
+    for i in range(n):
+        a, b = sh.ids[i], sh.ids[(i + 1) % n]
+        mesh = mesh | {(min(a, b), max(a, b))}
+    for a, b in mesh:
+        if a not in xy or b not in xy:
+            continue
+        key = (min(a, b), max(a, b))
+        if key in out or (key[1], key[0]) in out:
+            continue
+        (ax, ay), (bx, by) = xy[a], xy[b]
+        out[key] = nearest_line_cap((0.5 * (ax + bx), 0.5 * (ay + by)), crossing, cap)
+    return out
 
 
 def _offset(drops: dict[int, float], a: int, b: int, dz: float) -> float:
@@ -121,6 +176,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     lines = stretch_lines(p)
     taxi = set(law.tables.precedence.taxi_family.members)
     pad_cap = law.tables.common.roles["building"].longitudinal
+    mesh_roles = set(ws.junction_mesh_roles)
+    mesh = mesh_pairs(p)
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
@@ -135,7 +192,11 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
         cap = p.cap(sh)
         if cap is None:
             continue
-        pc = stretch_pair_caps(sh, lines, xy_all, cap, min_d) if sh.role in taxi else {}
+        meshed = sh.role in mesh_roles and mesh is not None
+        if meshed:
+            pc = junction_pair_caps(sh, lines, xy_all, cap, min_d, mesh)
+        else:
+            pc = stretch_pair_caps(sh, lines, xy_all, cap, min_d) if sh.role in taxi else {}
         rc = role_cap(law, sh.role, sh.code_number, sh.code_letter)
         cap_t = min(cap, rc.transverse) if rc else cap
         q = noise_m(law, sh.role)
@@ -160,6 +221,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                 if st is not None and abs(st[i] - st[j]) > 1:
                     continue
                 adjacent = (j == i + 1) or (i == 0 and j == n - 1)
+                if meshed and (a, b) not in pc and (b, a) not in pc:
+                    continue                       # not a law edge (04y)
                 pair_cap = pc.get((a, b), pc.get((b, a), cap))
                 if sh.role in taxi and (a in rigid_v or b in rigid_v):
                     pair_cap = min(pair_cap, pad_cap)      # frontage (09-01g)

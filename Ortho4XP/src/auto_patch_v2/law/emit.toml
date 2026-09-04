@@ -94,3 +94,19 @@ answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many l
 # the longitudinal cap is `common.roles.service_road.longitudinal` — ONE
 # constant with the core's `road_grade_limit` default (O4_Cfg_Vars); a
 # hosted build passes the tile's own value.
+[relaxation]
+# THE LAST RESORT (RULINGS 2026-09-04t(1)): where the HARD set is infeasible
+# at a site, the solver may relax the three junior populations TOGETHER —
+# a slightly over-cap apron chord, a slightly SLOPING pad contact (the pad
+# becomes one PLANE, never a step), a slightly over-cap slope between
+# buildings — choosing the combination of LEAST TOTAL VARIANCE from law
+# (Σ slack², spread across the rows an IIS names; never L1's concentration
+# on one row), and ONLY for the rows an IIS names.  No terrace minting.
+# ``solve/relax.py``; the tier machinery (04i) answers when the IIS cannot
+# be found inside the budget or names no relaxable row.
+iis_time_budget_s   = 120.0   # wall budget for the IIS search (HECA's took 73 s offline, m5c); past it the tier machinery answers and the report says so
+max_rounds          = 3       # IIS -> relax -> re-solve rounds (a second contradiction at another site) before the tier fallback
+qp_time_budget_s    = 20.0    # the exact QP's own wall budget (highspy); past it the piecewise-linear approximation answers (measured: HECA's 1.8 M-row QP did not finish in 5 min; the LP does in ~30 s)
+max_pieces          = 8       # piecewise-linear pieces per slack when the QP backend (highspy) is absent — an APPROXIMATION of the square, stated in the report
+materiality_m       = 0.01    # a relaxed pad's plane residual, or a step between adjacent relaxed elements, above this is a defect (the 2026-08-02 elevation floor)
+relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one may take a slack (the apron, everything junior, a rigid pad's contact); the runway and taxi families never

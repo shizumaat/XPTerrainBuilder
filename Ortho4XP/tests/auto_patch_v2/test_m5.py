@@ -179,8 +179,12 @@ def test_iis_names_tier_zero_only(law):
     assert sol.iis
     tt = tables.tiers(law)
     for row, src in sol.iis:                          # inside ONE surface: the runway's
-        assert isinstance(row, (Pin, Diff))
-        for v in ((row.v,) if isinstance(row, Pin) else (row.a, row.b)):
+        # (the certificate path, lane v2relax, may return a different minimal
+        # set than the seeded filter — a rate row is a Linear)
+        assert isinstance(row, (Pin, Diff, Linear))
+        vs = (row.v,) if isinstance(row, Pin) else (row.a, row.b) if isinstance(row, Diff) \
+            else tuple(v for v, _c in row.terms)
+        for v in vs:
             assert any(pm.faces[f].role in tt[0] for f in pm.vertices[v].incident_faces)
 
 

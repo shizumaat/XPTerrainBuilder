@@ -70,6 +70,10 @@ class Prepared:
     z: np.ndarray
     escalation: dict[str, float]
     wall: dict[str, float]
+    #: THE RELAXED MODE (RULINGS 2026-09-04t(1)): when the hard set was
+    #: infeasible, the last resort's report (``relax.RelaxReport``) and
+    #: ``cs`` is the RELAXED hard set the LP above solved
+    relaxation: _t.Any = None
 
     @property
     def dem(self) -> np.ndarray:

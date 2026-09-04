@@ -58,3 +58,22 @@ cuts_runway_family  = false        # a region reaching the runway family is refu
 [retaining_wall]
 allowed_outside_carves = false     # walls only at tunnel/bridge carves; everything else feathers (08-07 :887-917)
 in_runway_strip = false            # no wall inside the runway strip keep-out (08-21d :1672)
+
+[rebake]
+# OBJECT RE-SEAT (RULINGS 2026-09-04i 04f-1): every build restores the pack's
+# objects to their authored state before READING and re-bakes them against
+# the terrain the patch produced, after the mesh.  The v1 machinery
+# (post_mesh / object_anchor / object_rebake) is the reference; the bake
+# WRITES the pack's OBJ8 vertex y tokens (never the DSF), keeping the
+# authored file as <name>.anchor_bak.
+restore_before_read = true         # the loader reads <obj>.anchor_bak where one exists — the AUTHORED geometry, never a previous bake (04f-1; m4b-report §9 Q1)
+ground_datum        = "feet"       # an object with no hard deck seats its FEET — its own lowest band over its genuine solid components — on the built mesh (v1 generic y-bake: a rigid unit stands on its ground-touching parts, object_anchor.structure_deltas A3 median)
+deck_datum          = "deck_top"   # a hard-deck object seats its deck TOP on the solved surface at the deck (bridge.deck_datum; R12: the y=0 datum was the defect)
+foot_band_m         = 0.5          # the contact band: solid vertices within this of the unit's lowest y (DSF_OBJECT_FOOT_BAND_M); a shared-anchor family is founded by the members reaching ITS lowest band, the rest inherit (v1 I-8)
+foot_samples_per_component = 64    # the contact band is thinned to this many witnesses per component before sampling (a measurement budget; the median is what is read)
+foot_samples_per_member    = 256   # ...and to this many per resource over all its components (OTHH: 1,116 members, 1.5 M witnesses uncapped — a plan is a witness set, not the mesh)
+agreement_window_m  = 0.25         # a shared-anchor FAMILY seats on the agreeing coalition of member seats within this window (R12 amendment 3/4, _MEMBER_DELTA_AGREEMENT_WINDOW_M); tie or no ≥2 coalition → the median with a finding
+min_delta_m         = 1.0          # a unit whose seat moves it less than this stays at its authored y and the terrain adapts (DSF_OBJECT_BAKE_MIN_DELTA_M, reseat-threshold spec §2.1)
+residual_report_m   = 0.75         # a foot the rigid seat leaves further than this off the mesh is a FINDING (DSF_OBJECT_FOOT_PAD_RESIDUAL_M), never a split seat
+water_founds_seat   = false        # a foot standing on a WATER mesh triangle never founds a seat (R12: OTHH's canal at 0.00 is not a datum)
+one_anchor_one_seat = true         # every placement sharing one anchor spelling (lat, lon, AGL) is ONE rigid unit with ONE delta (shared-datum-pack-authoring; canonical identity, never proximity)

@@ -8,6 +8,17 @@ Airports (which lives under ``Global Scenery`` on XP12 and under
 ``Custom Scenery`` on XP11) — the 09-02 CYXY arm was built from the
 ``CYXY Whitehorse`` custom pack, and v2 must read the same authored
 geometry to be compared with it.
+
+RESTORE BEFORE READ (RULINGS 2026-09-04i 04f-1; ``structures.toml
+[rebake] restore_before_read``): a pack a previous build re-baked
+carries, beside every rewritten ``.obj``, the AUTHORED file as
+``<name>.anchor_bak`` (v1 ``object_rebake.BACKUP_SUFFIX``, created once
+from the authored bytes and never overwritten with a bake).  v2 reads
+THAT file — the pack as its author shipped it — never the previously
+re-baked state on disk (m4b-report §9 Q1: LEMD's T4S read +3.42 m off
+because the live file was the bake).  This is a READ-side restore: the
+pack is not written during the patch build; the re-bake after the mesh
+(``emit/rebake.py``) is what writes, through the same backup discipline.
 """
 from __future__ import annotations
 
@@ -19,7 +30,35 @@ from ..model.airport import SceneryPack
 from .apt_dat import block_sha256, find_apt_dat
 
 __all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature",
-           "sha256_file"]
+           "sha256_file", "AUTHORED_BACKUP_SUFFIX", "authored_source",
+           "is_authored_backup", "live_path_of"]
+
+#: v1's backup suffix (``object_rebake.BACKUP_SUFFIX``) — the one file
+#: format both engines share; spelled here so v2 imports nothing of v1.
+AUTHORED_BACKUP_SUFFIX = ".anchor_bak"
+
+
+def authored_source(path: str | None) -> tuple[str | None, bool]:
+    """``(path_to_read, restored)``: the ``.anchor_bak`` beside ``path``
+    when one exists (the authored geometry; ``restored`` True), else
+    ``path`` itself.  A path that already names a backup is returned
+    unchanged.  ``None`` passes through (an unresolved placement)."""
+    if not path or path.endswith(AUTHORED_BACKUP_SUFFIX):
+        return path, False
+    bak = path + AUTHORED_BACKUP_SUFFIX
+    if os.path.isfile(bak):
+        return bak, True
+    return path, False
+
+
+def is_authored_backup(path: str) -> bool:
+    return path.endswith(AUTHORED_BACKUP_SUFFIX)
+
+
+def live_path_of(path: str) -> str:
+    """The pack file a bake WRITES for a path the loader read: the live
+    ``.obj`` beside an ``.anchor_bak``, else the path itself."""
+    return path[:-len(AUTHORED_BACKUP_SUFFIX)] if is_authored_backup(path) else path
 
 
 @_dc.dataclass(frozen=True)

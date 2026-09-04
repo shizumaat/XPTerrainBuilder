@@ -66,13 +66,19 @@ class BuildStats:
 
 
 def build(airport: Airport, classification: Classification, law: Law,
-          grid_m: float | None = None) -> tuple[PlanarMap, BuildStats]:
-    """The planar map for ``airport`` under ``law``, validated."""
+          grid_m: float | None = None, objects_out: list | None = None
+          ) -> tuple[PlanarMap, BuildStats]:
+    """The planar map for ``airport`` under ``law``, validated.
+    ``objects_out``, when given, receives ``[objects, cache]`` — the
+    placed objects read here and their parsed geometry — so the emit
+    stage's re-bake plan (``emit/rebake.py``) reads the pack ONCE."""
     import time as _time
     t0 = _time.perf_counter()
     from ..airport.obj8 import ResourceCache
     cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     objects, orep = read_objects(airport, law, cache)
+    if objects_out is not None:
+        objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
     classification, tunnels, sstats = build_structures(airport, classification, law, objects)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,

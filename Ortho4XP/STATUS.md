@@ -69,7 +69,10 @@
 #   (29 = RAOA oracle artefact), mesh edges 247k → 243k, step 1 −4.6 s.
 #   M3a MERGED (04b): SPLP 6.8 s, census 27 → 0; production DEM frame;
 #   RAOA oracle reader FIXED (CYXY 33 → 2); code-4 runway 1.5 % (07-08).
-#   M3b SPJC IN FLIGHT (pad↔pavement 369 rows wait on OWNER 03k).
+#   M3b MERGED (04c): SPJC 13.0 s, census 686 → 1; DSF facade reader bug
+#   fixed (7 → 53 pads); pad class: no IIS at SPJC when pad pairs are
+#   added (taxi ≤ 0.88 m, runways 0) — OWNER 03k still open. NEXT: M4
+#   (OTHH tunnels/decks, LEMD basins) — SPJC bore is the prototype.
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
 #   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at

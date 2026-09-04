@@ -89,7 +89,7 @@ a vertex with no constraint and no DEM is an error at planar-map build.
 | M0 | Appendix A law inventory + Appendix B v1-at-three-airports scope, ratified by the owner; `law/` tables written from A | — | owner sign-off on the law tables |
 | M1 | `airport/` + `classify/` + `planar/`: planar map for CYXY; zero T-vertices; role agreement with v1 REPORTED, not a bar (03j) | CYXY | DONE 1c…5eb250d0: 1.13 s, 0 T-vertices, 48 %/71 % agreement, every difference listed |
 | M2 | `constraints/` + `solve/` + `emit/osm` + `verify/` + `pipeline/`: CYXY lawful | CYXY | DONE 8a4d5d56 (04a): 3.2 s; v1 census 160 → 33 (raoa 29 = oracle artefact, within_shape 3, tear 1); mesh edges 247k → 243k, step 1 39.4 → 34.8 s |
-| M3 | groundside, roads (core clamp; v2 only the contacts), building pads | SPLP, SPJC | SPLP DONE cf37ed6a (04b): 6.8 s, census 27 → 0; SPJC in flight (pad↔pavement class waits on 03k) |
+| M3 | groundside, roads, building pads, lateral contiguity | SPLP, SPJC | DONE: SPLP cf37ed6a 6.8 s census 27 → 0; SPJC dd25a4b7 13.0 s census 686 → 1 (groundside sliver quantum); pad class measured for 03k (04c) |
 | M4 | structures: tunnels (mouth/ramp/wall/crest = DEM), bridges/decks, basins | OTHH, LEMD | census 0; owner sim read |
 | M5 | HECA, KCLT: relief (85 m) and scale | HECA, KCLT | census 0; HECA < 60 s |
 | M6 | `emit/` S2 elevation-layer adapter stub + `GradedSurface` spec frozen | — | round-trips CYXY |

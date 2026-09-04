@@ -86,6 +86,9 @@ class CutLine:
     kind: str
     ref: str
     points: tuple[XY, ...]
+    #: The chain's code letter (RULINGS 2026-09-04t-3: the cap applies
+    #: per STRETCH of the centreline; ``None`` for a road / unlettered chain).
+    code_letter: str | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -279,7 +282,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
 
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
-        cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords)))
+        cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),
+                           c.letter))
     for ln, c in truck_parts:
         cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     strips = [cut_polys[i] for i in cut_ids if src_of[i].cls == "strip"]
@@ -564,24 +568,34 @@ def _slice(region, taxi_parts, truck_parts, spurs, rules: Rules
 
 def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],
                      rules: Rules) -> tuple[str | None, int]:
-    """THE JUNCTION'S CODE LETTER (RULINGS 2026-09-04q-2): a junction
-    minted by the route-proximity cut serves the taxi chains that run
-    through or along it and the through-routes whose proximity minted it
-    (within ``apron.route_proximity_m``); it inherits the STRICTEST of
-    their letters (the widest class, as a corridor does — ``max`` over
-    ``_LETTERS``).  Returns ``(letter, chains counted)``; ``None`` when
-    no serving chain carries a letter (the default cap, as before)."""
+    """THE JUNCTION'S CODE LETTER (RULINGS 2026-09-04t-3, superseding
+    04q-2's strictest-of-chains): a junction face carries the cap of the
+    STRETCH it belongs to.  A part the taxi chains run through or along
+    (shared length >= ``cells.min_shared_m``) belongs to those stretches:
+    its face letter is the strictest of THEM (the letter the oracle reads
+    the body at; the per-stretch regions are priced by the generators,
+    ``constraints.stretches``) — a route that merely passes within
+    ``apron.route_proximity_m`` no longer tightens it.  A part no chain
+    touches belongs to the NEAREST through-route that minted it and takes
+    that one chain's letter.  Returns ``(letter, chains counted)``;
+    ``None`` when the stretch carries no letter (the default cap)."""
     tol = rules.cells.on_tol_m
     near = part.buffer(tol)
-    serving: dict[int, Chain] = {}
+    crossing: dict[int, Chain] = {}
     for c in touching:
         if c.line.intersection(near).length >= rules.cells.min_shared_m:
-            serving[c.id] = c
+            crossing[c.id] = c
+    if crossing:
+        ls = [c.letter for c in crossing.values() if c.letter]
+        return (max(ls, key=_LETTERS.find) if ls else None), len(crossing)
+    best: tuple[float, Chain] | None = None
     for c in through:
-        if c.id not in serving and c.line.distance(part) <= rules.apron.route_proximity_m:
-            serving[c.id] = c
-    ls = [c.letter for c in serving.values() if c.letter]
-    return (max(ls, key=_LETTERS.find) if ls else None), len(serving)
+        d = c.line.distance(part)
+        if d <= rules.apron.route_proximity_m and (best is None or d < best[0]):
+            best = (d, c)
+    if best is None:
+        return None, 0
+    return best[1].letter, 1
 
 
 def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules

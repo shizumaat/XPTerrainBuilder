@@ -1002,6 +1002,18 @@ ROAD_CROSS_SECTION_LAW = (
 # JUNCTIONS stay at the TAXI rate (1.5%): they are part of the moving network
 # where 1.5% taxiways flow through, not parking surface (decoupled below).
 APRON_MAX_GRADE = 0.01          # apron + building pad, all directions
+# CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2, refining 2026-07-06): a
+# junction / road sharing a LONG EDGE with an apron takes the apron cap on
+# the portion ALONG the apron only; a MOUTH (a corridor joining or leaving
+# the apron across its own width) keeps its own cap.  "Long" = the
+# contiguous shared run's length is at least this many face WIDTHS (the
+# short side of the face's minimum rotated rectangle): a square-on mouth
+# shares ~1.0 width, a 45-degree skewed one ~1.4, a face running along an
+# apron a multiple.  The v2 law table carries the same value
+# (auto_patch_v2/law/emit.toml within_shape.apron_edge_portion_min_width_ratio;
+# tests/test_harness.py holds them equal).  Read by the ORACLE
+# (tools/check_grade.py) — the v1 solver still binds the whole body.
+APRON_EDGE_PORTION_MIN_WIDTH_RATIO = 1.5
 # RUNWAY FLEX displacement budget: DELETED (owner ruling 2026-08-05,
 # RULINGS.md "Runway flex: the LAW is the only bound").  The 4.0 m cap was
 # a prototype-era safety net of unclear origin; anything within the law is

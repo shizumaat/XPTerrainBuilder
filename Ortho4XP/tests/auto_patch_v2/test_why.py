@@ -187,7 +187,10 @@ def test_code_letter_evidence_reads_1202_by_geometry(prepared):
 
 def test_family_labels_cover_every_row(prepared):
     seen = {why.family_of(r) for r in prepared.cs.rows()}
-    assert seen <= {lbl for _g, _k, lbl in why._FAMILY_KEYS} | {"structures", "contiguity"}, seen
+    # ``apron_edge_portion`` (RULINGS 2026-09-04t-2) labels itself by its
+    # generator name — a non-apron face's rim rows at the apron cap
+    assert seen <= {lbl for _g, _k, lbl in why._FAMILY_KEYS} | {
+        "structures", "contiguity", "apron_edge_portion"}, seen
 
 
 def test_resolve_faces_by_coordinate_and_by_id(prepared):

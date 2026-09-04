@@ -6,6 +6,10 @@ vertices' canonical lat/lon identity so the census joins exactly.
   (``constraints.transverse.axes``) as ``[[[lat, lon]…], cL, cT,
   ordinal, is_service]`` — the transverse walk's axes and the
   within-shape spine membership;
+* ``stretches``: every taxi centreline STRETCH (RULINGS 2026-09-04t-3,
+  ``constraints.stretches``) as ``[[[lat, lon]…], cL, letter, ref]`` —
+  the per-stretch pair law v2 verify re-composes (v1's oracle reads the
+  stretch caps through ``axes``);
 * ``crown_drops``: ``[lat, lon, drop]`` per runway-family vertex
   (``constraints.runway_profile.crown_drops``);
 * ``airside_no_step_edges``: ``{a, b, budget_m, dist_m}`` per priced
@@ -44,6 +48,7 @@ from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops
 from ..constraints.seams import seam_pins, seam_vertices_pinned
+from ..constraints.stretches import stretches
 from ..constraints.transverse import axes
 from ..law import Law
 from ..model.airport import Airport
@@ -69,6 +74,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     for k, a in enumerate(axes(planar, law)):
         ax_out.append([[ll[v] for v in a.vertices], a.cap_l, a.cap_t, k,
                        bool(a.is_service)])
+    st_out = [[[ll[v] for v in s.vertices], s.cap_l, s.code_letter, s.ref]
+              for s in stretches(planar, law).items]
     drops = [[ll[v][0], ll[v][1], d] for v, d in
              sorted(crown_drops(planar, law, airport, z).items())]
     tol = law.tables.emit.materiality.elevation_m
@@ -96,7 +103,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             stations.append([round(la, 8), round(lo, 8), st.cap])
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav)]
-    return {"axes": ax_out, "crown_drops": drops,
+    return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
             "seam_pins": [ll[v] for v in pins],

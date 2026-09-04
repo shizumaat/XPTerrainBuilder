@@ -4,9 +4,16 @@
 
 * every taxi-family face (``precedence.taxi_family.members``) is a PLANE
   shape in the census (all vertex pairs at the role's longitudinal cap by
-  code letter) — the same population here, as ``Diff`` rows;
-* every ``taxi_centerline`` breakline chord at the cap of the face(s) it
-  bounds (RULINGS "reach follows centrelines": the profile an aircraft
+  code letter) — the same population here, as ``Diff`` rows, priced PER
+  STRETCH where taxi centrelines of different letters cross the face
+  (RULINGS 2026-09-04t-3; ``stretches.pair_caps``); a pair with a PAD
+  endpoint holds the pad's cap (the building seat the census prices at
+  the strict cap — ``grade_law.classify_pair``'s frontage rule on every
+  soft shape, 2026-08-08 / 09-01g; measured 2026-09-04: every SPJC 8 /
+  KCLT 33 / HECA 18 ``junction|junction cap=1.0`` row has a pad endpoint);
+* every ``taxi_centerline`` breakline chord at ITS STRETCH's cap, tightened
+  by a governed non-taxi face it bounds (an apron lane is apron, RULINGS
+  2026-09-03j; "reach follows centrelines": the profile an aircraft
   actually travels);
 * a THREE-vertex face is a rendered triangle whose PLANE gradient the
   census reads (user 2026-07-05): its gradient vector is linear in z, so
@@ -19,14 +26,15 @@ from __future__ import annotations
 import math
 
 from ..law import Law
-from ..law.tables import role_cap
+from ..law.tables import is_rigid_role, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
+from .stretches import edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_within_shape", "taxi_centerlines", "triangle_planes",
-           "all_pairs"]
+           "all_pairs", "pad_vertices"]
 
 GEN = "taxi"
 _GRADIENT_DIRECTIONS = 16
@@ -48,12 +56,29 @@ def all_pairs(vw: View, ring: list[int], cap_l: float, src: Source,
     return rows
 
 
+def pad_vertices(vw: View) -> frozenset[int]:
+    """Every vertex a rigid (pad) face carries — a pair to one is a
+    FRONTAGE pair at the pad's cap."""
+    law = vw.law
+    out: set[int] = set()
+    for f in vw.pm.faces.values():
+        if is_rigid_role(law, f.role):
+            out.update(vw.rings[f.id])
+            for h in vw.holes[f.id]:
+                out.update(h)
+    return frozenset(out)
+
+
 def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
                       ) -> list[Row]:
-    """All pairs of every taxi-family ring at its letter cap."""
+    """All pairs of every taxi-family ring, per stretch (04t-3), a pad
+    endpoint at the pad's cap (frontage)."""
     vw = view(planar, law)
+    st = stretches(planar, law)
     members = law.tables.precedence.taxi_family.members
     min_d = law.tables.emit.identity.min_distinct_spacing_m
+    pads = pad_vertices(vw)
+    pad_cap = law.tables.common.roles["building"].longitudinal
     rows: list[Row] = []
     for f in vw.faces_of_role(members):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
@@ -61,17 +86,30 @@ def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
             continue
         src = Source(GEN, "rulesets.taxi.longitudinal within_shape",
                      (f"face:{f.id}", f.ref))
+        src_st = Source(GEN, "rulesets.taxi.longitudinal per stretch (04t-3)",
+                        (f"face:{f.id}", f.ref))
+        src_pad = Source(GEN, "common.roles.building frontage pair (09-01g)",
+                         (f"face:{f.id}", f.ref))
+        crossed = bool(st.face_stretches.get(f.id))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
-            rows.extend(all_pairs(vw, ring, cap.longitudinal, src, min_d))
+            for a, b, c, d in pair_caps(planar, law, st, f.id, ring,
+                                        cap.longitudinal, min_d):
+                if a in pads or b in pads:
+                    rows.append(Diff(a, b, min(c, pad_cap), d, src_pad))
+                elif crossed and c != cap.longitudinal:
+                    rows.append(Diff(a, b, c, d, src_st))
+                else:
+                    rows.append(Diff(a, b, c, d, src))
     return rows
 
 
 def taxi_centerlines(planar: PlanarMap, law: Law, airport: Airport
                      ) -> list[Row]:
-    """Longitudinal cap along every taxi centreline chord: the strictest
-    governed cap of the faces the chord bounds (an apron lane is apron,
-    RULINGS 2026-09-03j)."""
+    """Longitudinal cap along every taxi centreline chord: its stretch's
+    cap (04t-3), tightened by a governed non-taxi face it bounds (an apron
+    lane is apron, RULINGS 2026-09-03j)."""
     vw = view(planar, law)
+    st = stretches(planar, law)
     rows: list[Row] = []
     for bid, b in planar.breaklines.items():
         if b.kind != "taxi_centerline":
@@ -80,14 +118,13 @@ def taxi_centerlines(planar: PlanarMap, law: Law, airport: Airport
                      (f"breakline:{bid}", b.ref))
         for eid in b.edges:
             e = planar.edges[eid]
-            caps = [vw.caps[f][0] for f in (e.left_face, e.right_face)
-                    if f is not None and vw.caps[f] is not None]
-            if not caps:
+            cap = edge_cap(planar, law, st, eid, vw.caps)
+            if cap is None:
                 continue
             d = vw.dist(e.a, e.b)
             if d <= 0.0:
                 continue
-            rows.append(Diff(e.a, e.b, min(caps), d, src))
+            rows.append(Diff(e.a, e.b, cap[0], d, src))
     return rows
 
 

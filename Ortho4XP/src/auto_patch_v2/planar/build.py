@@ -260,7 +260,8 @@ def _breaklines(arr: Arrangement, edge_list: list[Edge], vxy: list[XY]
         for ch in chains:
             for eid in ch:
                 kinds[eid] = _LINE_KIND.get(src.kind, EdgeKind.BREAKLINE)
-            out.append(Breakline(len(out), src.kind, src.ref, tuple(ch)))
+            out.append(Breakline(len(out), src.kind, src.ref, tuple(ch),
+                                 src.code_letter))
     return out, kinds, dropped, split
 
 

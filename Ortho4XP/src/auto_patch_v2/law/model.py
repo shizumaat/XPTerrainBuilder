@@ -429,6 +429,10 @@ class WithinShape:
 
     apron_body_chord_max_m: float
     runway_station_cluster_m: float
+    #: RULINGS 2026-09-04t-2 (edge portion): a shared apron run at least
+    #: this many face-widths long is a LONG EDGE (apron cap along it); a
+    #: shorter run is a MOUTH (the face's own cap).
+    apron_edge_portion_min_width_ratio: float
 
 
 @_dc.dataclass(frozen=True)

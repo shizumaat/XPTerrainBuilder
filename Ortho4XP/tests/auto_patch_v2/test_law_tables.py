@@ -312,6 +312,8 @@ def test_every_value_equals_v1(tables, capsys):
     # ruled value).  Each entry: path -> (v1 value, ruled value, ruling).
     RULED = {
         "icao.runway.longitudinal[4]": (0.0125, 0.015, "owner 2026-07-08"),
+        "icao.runway.longitudinal[1]": (0.02, 0.015, "owner 2026-07-08 (04y)"),
+        "icao.runway.longitudinal[2]": (0.02, 0.015, "owner 2026-07-08 (04y)"),
         # M4b: v1's founding openness constant was never exercised on a
         # real record; stated for ratification (m4b-report open question)
         "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04; a DIAGNOSTIC since 04i (M4d)"),

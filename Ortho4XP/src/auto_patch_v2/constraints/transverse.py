@@ -34,6 +34,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import TransectAxis, TransectShape, walk_transects
 from .precedence import View, view
+from .stretches import edge_cap, stretches
 from .roads import road_family_roles
 
 __all__ = ["Axis", "axes", "transverse", "priced_roles"]
@@ -64,12 +65,10 @@ def priced_roles(law: Law, is_service: bool) -> frozenset[str]:
 
 
 def _edge_cap(vw: View, eid: int) -> tuple[float, float] | None:
-    e = vw.pm.edges[eid]
-    caps = [vw.caps[f] for f in (e.left_face, e.right_face)
-            if f is not None and vw.caps[f] is not None]
-    if not caps:
-        return None
-    return min(caps, key=lambda c: c[0])
+    """A centreline edge's cap: its STRETCH's (RULINGS 2026-09-04t-3),
+    tightened by a governed non-taxi face it bounds; a road edge the
+    strictest bounding face (``stretches.edge_cap``)."""
+    return edge_cap(vw.pm, vw.law, stretches(vw.pm, vw.law), eid, vw.caps)
 
 
 def axes(planar: PlanarMap, law: Law) -> list[Axis]:

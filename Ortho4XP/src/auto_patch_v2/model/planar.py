@@ -114,6 +114,10 @@ class Breakline:
     kind: str
     ref: str
     edges: tuple[int, ...]
+    #: The chain's code letter (taxi centrelines; RULINGS 2026-09-04t-3:
+    #: a taxiway's letter applies per STRETCH — the breakline carries its
+    #: own chain's letter, never a bounding face's).
+    code_letter: str | None = None
 
     def vertices(self, pm: "PlanarMap") -> tuple[int, ...]:
         """The vertex chain in order (I6 guarantees adjacency)."""

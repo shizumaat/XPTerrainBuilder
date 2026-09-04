@@ -2,7 +2,8 @@
 rings: §1.1 the PUBLISHED pairs (``airside_no_step_edges``: the route
 pairs the solver bound, each priced at its published ``budget_m`` over
 its published ROUTE ``dist_m`` — the reader prices the population it is
-handed and never re-derives a chord; plus the pad↔pavement list) at
+handed and never re-derives a chord; plus the pad contact↔pavement
+list, 04r) at
 budget + the worse endpoint's instrument envelope (the v1
 ``_check_published_law_edges``) and §1.2 the rate of change along every
 airside ring sequence (wrap triples included) at ``strip.arc_rate`` with
@@ -57,8 +58,9 @@ def no_step_direct(p: Patch) -> list[Row]:
             if (ra != "?" or rb != "?") else law.tables.emit.instrument.rounding_noise_m
         if dz - budget <= noise:
             continue
-        # the published ROUTE distance prices the grade (04o); a record
-        # without one (a pad pair, direct) falls back to the chord
+        # the published ROUTE distance prices the grade (04o; the pad
+        # contact pairs carry it too, 04r); a record without one is a
+        # foreign sidecar and falls back to the chord
         dist = float(rec.get("dist_m") or math.hypot(bx - ax, by - ay))
         # an endpoint no shape names (measured HECA: a pad pair's endpoint
         # on a face the graded surface carries without a shape role) is

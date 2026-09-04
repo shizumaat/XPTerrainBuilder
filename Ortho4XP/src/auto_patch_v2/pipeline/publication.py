@@ -9,12 +9,16 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``crown_drops``: ``[lat, lon, drop]`` per runway-family vertex
   (``constraints.runway_profile.crown_drops``);
 * ``airside_no_step_edges``: ``{a, b, budget_m, dist_m}`` per priced
-  direct-distance pair (``constraints.no_step.no_step_edges``);
-* ``pad_pavement_no_step_edges``: the same record per PAD↔PAVEMENT pair
-  (M5, ``constraints.no_step.pad_pavement_edges``) — its own key because
-  the v1 oracle's proximity join resolves a pad endpoint to a mixed
-  pad's 0.5 m groundside cut-back node (measured SPJC: 70 false 7.2 m
-  rows); v2 verify prices it by identity;
+  route pair (``constraints.no_step.no_step_edges``, ``dist_m`` = the
+  ROUTE distance, 04o);
+* ``pad_pavement_no_step_edges``: the same record per PAD CONTACT↔
+  PAVEMENT route pair (RULINGS 2026-09-04r,
+  ``constraints.no_step.pad_pavement_edges``: from an attached pad's
+  contact vertices along pavement, the pavement list's own pairs not
+  repeated) — its own key because the v1 oracle's proximity join
+  resolves a pad endpoint to a mixed pad's 0.5 m groundside cut-back
+  node (measured SPJC: 70 false 7.2 m rows); v2 verify prices it by
+  identity;
 * ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
   (``constraints.seams``) — the census skips pin↔pin pairs and prices
   pin↔free pairs at the body cap (user 2026-07-04);
@@ -75,8 +79,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices
     # exactly the published list
+    pav = no_step_edges(planar, law)
     edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
-              "dist_m": round(d, 4)} for a, b, cap, d in no_step_edges(planar, law)
+              "dist_m": round(d, 4)} for a, b, cap, d in pav
              if not (a in seam_all and b in seam_all)]
     # THE FOURTH READER'S VECTOR (2026-08-28 Amendment 2): every road
     # station with a verdict, ``[lat, lon, cap]`` in the frame's own
@@ -90,7 +95,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             la, lo = to_ll(*st.xy)
             stations.append([round(la, 8), round(lo, 8), st.cap])
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
-                  "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law)]
+                  "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav)]
     return {"axes": ax_out, "crown_drops": drops,
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,

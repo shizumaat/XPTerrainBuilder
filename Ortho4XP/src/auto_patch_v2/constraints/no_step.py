@@ -47,23 +47,28 @@ that are governed and not rigid — a pad is a flat group levelled by its
 contact and is never a no-step endpoint of its own (v1
 ``enclaves.ENCLAVE_AIRSIDE_ROLES`` is the same set by other means).
 
-THE PAD↔PAVEMENT PAIRS (M5; RULINGS 2026-09-04i closing 03k; measured
-feasible at SPJC, M3b §4): a RIGID airside vertex (a pad's, touching
-rigid faces and nothing else) joins the population as an endpoint
-AGAINST pavement only (``pad_pavement_edges``, its own list and
-sidecar key) — a pair whose both endpoints are pad-only vertices prices
-one flat value against another and is not minted, and a pad vertex a
-groundside lot shares is the lot's (09-01g); the cap is the strictest
-governed cap at either endpoint (a pad carries the apron law,
-``common.roles.building``).  A pad is not pavement and lies on no route:
-these pairs stay K-per-sector at DIRECT distance (04o names pavement
-pairs; the pad pairs are left for the owner — m5b-report open question).
-The pad is the junior tier, so where the pair contradicts a governed
-surface the pad's side yields (``solve/tiers.py``).
+THE PAD↔PAVEMENT PAIRS (RULINGS 2026-09-04r, under 03h/03i + 04o; M5's
+chord population refuted at HECA: 1,181 tier-8 rows, the one population
+still chord-priced, m5b-report §5): a pad is a flat group LEVELLED BY
+ITS CONTACT, so its only law edge to pavement is the CONTACT EDGE — the
+vertices its rim shares with airside pavement — priced at the pavement's
+own caps along the pavement route.  ``pad_pavement_edges``: for every
+ATTACHED pad, from each contact vertex the K nearest pavement vertices
+BY ROUTE within the window, the pad's own group never a partner (one
+flat value against itself) and never spending the K; each pair
+``Σ cap·len`` along its path exactly as a pavement pair.  A DETACHED pad
+(no contact) has NO pairs — a DEM-levelled flat group (03h).  The pad's
+BODY vertices are never an endpoint: free-standing pad↔pavement chords
+do not exist.  A contact vertex a groundside lot shares is the lot's
+(09-01g).  Published under the sidecar key ``pad_pavement_no_step_edges``
+as the pairs the pavement list does not already carry (the contact
+vertex is itself a pavement vertex, so its own K-nearest are in
+``airside_no_step_edges``; the v1 oracle's proximity join is why the key
+stays separate, M5 §3), priced by v2 verify by identity.  The row's tier
+is the contact's owner (the apron), never the pad's: the pad pairs are
+apron law.
 """
 from __future__ import annotations
-
-import math
 
 from ..law import Law, LawError
 from ..law.tables import is_rigid_role, is_value_role, role_cap, role_side
@@ -75,12 +80,11 @@ from .precedence import View, view
 from .runway_profile import threshold_pins
 
 __all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
-           "no_step_rate", "no_step_edges", "pad_only_vertices",
+           "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
            "reach_band_values"]
 
 GEN = "no_step"
-_SECTORS = 8
 
 
 def no_step_roles(law: Law) -> frozenset[str]:
@@ -112,45 +116,6 @@ def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
         for h in vw.holes[f.id]:
             for v in h:
                 out[v] = min(out.get(v, c[0]), c[0])
-    return out
-
-
-def _sector_pairs(vw: View, ns, caps: dict[int, float], sources: list[int],
-                  targets: dict[int, float], skip_pair) -> list[tuple[int, int, float, float]]:
-    """K nearest ``targets`` per source over eight sectors within the
-    window, deduplicated; ``caps`` maps every vertex to its cap."""
-    cell = ns.window_m
-    grid: dict[tuple[int, int], list[int]] = {}
-    for v in sorted(targets):
-        x, y = vw.xy[v]
-        grid.setdefault((int(x // cell), int(y // cell)), []).append(v)
-    per_sector = max(1, ns.k // _SECTORS)
-    seen: set[tuple[int, int]] = set()
-    out: list[tuple[int, int, float, float]] = []
-    for v in sources:
-        x, y = vw.xy[v]
-        cx, cy = int(x // cell), int(y // cell)
-        buckets: list[list[tuple[float, int]]] = [[] for _ in range(_SECTORS)]
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for u in grid.get((cx + dx, cy + dy), ()):
-                    if u == v or skip_pair(v, u):
-                        continue
-                    ux, uy = vw.xy[u]
-                    d = math.hypot(ux - x, uy - y)
-                    if d > ns.window_m or d <= 0.0:
-                        continue
-                    sec = int(((math.atan2(uy - y, ux - x) + math.pi)
-                               / (2.0 * math.pi)) * _SECTORS) % _SECTORS
-                    buckets[sec].append((d, u))
-        for b in buckets:
-            b.sort()
-            for d, u in b[:per_sector]:
-                key = (v, u) if v < u else (u, v)
-                if key in seen:
-                    continue
-                seen.add(key)
-                out.append((key[0], key[1], min(caps[v], caps[u]), d))
     return out
 
 
@@ -216,32 +181,69 @@ def pad_only_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
                                     for f in vw.vertex_faces[v])}
 
 
-def pad_pavement_edges(planar: PlanarMap, law: Law
-                       ) -> list[tuple[int, int, float, float]]:
-    """``(pad vertex, pavement vertex, cap, direct distance)`` — the PAD↔
-    PAVEMENT pairs (M5): from every pad-only vertex, K nearest pavement
-    vertices per sector within the window; never pad↔pad.  Published
-    under their own sidecar key (``pad_pavement_no_step_edges``) so the
-    pavement list the v1 oracle prices is unchanged, and priced by v2
-    verify by identity."""
+def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:
+    """Pad face id -> its CONTACT vertices (rim vertices shared with
+    airside pavement, the no-step roles), sorted; a pad with none is
+    DETACHED and absent.  A rim vertex a groundside lot shares and no
+    airside pavement does is the lot's (09-01g) and is no contact."""
     vw = view(planar, law)
     pav = _airside_vertices(vw, no_step_roles(law))
-    pads = pad_only_vertices(planar, law)
-    if not pads:
+    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
+    out: dict[int, list[int]] = {}
+    for f in vw.faces_of_role(rigid):
+        seen: set[int] = set()
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            seen.update(v for v in ring if v in pav)
+        if seen:
+            out[f.id] = sorted(seen)
+    return out
+
+
+def pad_pavement_edges(planar: PlanarMap, law: Law,
+                       pavement: list[tuple[int, int, float, float]] | None = None
+                       ) -> list[tuple[int, int, float, float]]:
+    """``(contact vertex, pavement vertex, path cap, route distance)`` —
+    THE PAD↔PAVEMENT PAIRS through the contact (module docstring, 04r):
+    for every attached pad, from each contact vertex the K nearest
+    pavement vertices by route inside the window, the pad's own vertices
+    excluded, ``cap = budget / d`` so ``Diff.bound_m = Σ cap_e·len_e``
+    along the path; pairs the pavement list (``pavement``, computed when
+    not given) already carries are not repeated.  Detached pads: none."""
+    contacts = pad_contacts(planar, law)
+    if not contacts:
         return []
-    caps = dict(pav)
-    caps.update(pads)
-    return _sector_pairs(vw, law.tables.emit.no_step, caps, sorted(pads), pav,
-                         lambda v, u: False)
+    ns = law.tables.emit.no_step
+    vw = view(planar, law)
+    pav = _airside_vertices(vw, no_step_roles(law))
+    own: dict[int, set[int]] = {}
+    for fid, cvs in contacts.items():
+        group: set[int] = set(vw.rings[fid])
+        for h in vw.holes[fid]:
+            group.update(h)
+        for v in cvs:
+            own.setdefault(v, set()).update(group)
+    have = {(a, b) for a, b, _c, _d in (pavement if pavement is not None
+                                          else no_step_edges(planar, law))}
+    g = routes(planar, law)
+    out: list[tuple[int, int, float, float]] = []
+    for a, b, d, bud in route_neighbours(g, sorted(own), ns.window_m, ns.k,
+                                         targets=pav, exclude=own):
+        if d <= 0.0 or (a, b) in have:
+            continue
+        out.append((a, b, bud / d, d))
+    return out
 
 
 def no_step_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """§1.1 as ``Diff`` rows: the pavement pairs, then the pad↔pavement
-    pairs (M5; the pad is the junior tier and yields first)."""
+    pairs through the contact (04r; apron law rows by the vertex rule)."""
     src = Source(GEN, "airside_no_step §1.1 route pairs (2026-08-27, 04o/04q-1)", ())
-    src_pad = Source(GEN, "airside_no_step §1.1 pad↔pavement (M5, 2026-09-04i)", ())
-    return ([Diff(a, b, cap, d, src) for a, b, cap, d in no_step_edges(planar, law)]
-            + [Diff(a, b, cap, d, src_pad) for a, b, cap, d in pad_pavement_edges(planar, law)])
+    src_pad = Source(GEN, "airside_no_step §1.1 pad contact↔pavement route pairs "
+                     "(2026-09-04r)", ())
+    pav = no_step_edges(planar, law)
+    return ([Diff(a, b, cap, d, src) for a, b, cap, d in pav]
+            + [Diff(a, b, cap, d, src_pad)
+               for a, b, cap, d in pad_pavement_edges(planar, law, pav)])
 
 
 def rate_rows_for_chain(vw: View, chain: list[int], rate: float, src: Source,

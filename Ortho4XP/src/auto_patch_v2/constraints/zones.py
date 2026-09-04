@@ -229,13 +229,22 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if spec.value and not getattr(spec, "rigid", False)
         and (spec.side == "airside" or r in roads)))
         for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
-    # A RIGID PAD IS ONE LEVEL: its rim vertices span different ``d``, and
-    # the zone-1 band beside the lip cannot meet the zone-2 mandatory-down
-    # at the far rim on one flat plane (measured KCLT 2026-09-05: the
-    # hard set went infeasible on exactly that, and the tier machinery
-    # demoted every zone row).  The pad takes its level from the NEAREST
-    # pavement (the pocket rule): its rim vertex nearest a lip carries the
-    # full band, every other rim vertex the floor only ("no deeper than").
+    # A RIGID PAD IS ONE LEVEL, SO IT CARRIES ONE BAND: its rim vertices
+    # span different ``d`` and different feet, and the zone-1 band beside
+    # the lip cannot meet the zone-2 mandatory-down at the far rim on one
+    # flat plane (measured KCLT 2026-09-05: the hard set went infeasible
+    # on exactly that, and the tier machinery demoted every zone row).
+    # The pad takes its level from the NEAREST pavement (the pocket rule):
+    # its rim vertex nearest a lip carries the full band and NO other rim
+    # vertex carries any zone row — the ``Flat`` group carries that level
+    # to them.  A per-vertex floor on the far rim ("no deeper than" its own
+    # foot) is the same contradiction one lip-slope later: along a 1.5 %
+    # lip the far foot rises faster than the band is wide (0.28 m at
+    # d = 17.5 beside a code-3 runway), so a 100 m pad's floor at one end
+    # sat above its ceiling at the other — measured 2026-09-05 (lane
+    # v2padflat): the hard set INFEASIBLE on the pad's Flat + two zone
+    # rows (the m5g §6-2 KCLT class).  Bands on a detached pad apply to
+    # the group's single level, never per vertex.
     # ONLY A DETACHED PAD is levelled by the strip: a pad with a rim vertex
     # on airside pavement (or a road) takes THAT level (03h weld, 04r
     # contact), and a strip band on its other rim vertices would demand
@@ -333,7 +342,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             if rank > 0:
                 hi = None            # a farther pavement: floor only
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
-                hi = None            # a pad's far rim: floor only (above)
+                continue             # a pad's far rim: no row (the Flat carries the level)
             if t <= 0.0:
                 terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
             elif t >= 1.0:

@@ -11,7 +11,10 @@
   infeasible: the tiered solve holds both runways on their pins and
   every taxi row at 1.5 % (the taxi tier stays HARD — the apron and the
   pads close the gap), the apron (junior) yields, the pads follow, no
-  IIS;
+  IIS — and a pad is ONE FLAT VALUE in the hard and the tiered solve
+  always; ONLY inside the 04t(1) relaxation may a pad the IIS names be
+  ONE PLANE (its contact slopes, residual ≤ ``relaxation.materiality_m``),
+  every other pad stays flat (lane v2padflat, 2026-09-05);
 * a runway whose CIFP pins contradict its own cap stays infeasible in
   the tiered solve and the IIS names tier-0 rows only;
 * pad↔pavement no-step pairs are published, pad-only↔pad-only never.
@@ -175,9 +178,22 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     if tiered:
         assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
     assert tables.role_tier(law, "stub") not in rep.yielded
+    # planes exist ONLY inside the 04t(1) relaxation: a pad the last resort
+    # named is one plane (never a step: its rim vertices are the apron's);
+    # every other pad — and every pad in the tiered mode — one flat value
+    from auto_patch_v2.verify.pads import plane_residual
+    relaxed_pads = {r["face"] for r in (rep.relaxation or {}).get("rows", [])
+                    if r["kind"] == "pad"} if rep.mode == "relaxed" else set()
+    if tiered:
+        assert not relaxed_pads
     for pad in (f for f in pm.faces.values() if f.role == "building"):
-        zs = [sol.z[v] for v in pm.ring_vertices(pad.ring)]
-        assert max(zs) - min(zs) < 1e-6
+        vs = list(pm.ring_vertices(pad.ring))
+        zs = [sol.z[v] for v in vs]
+        if pad.id in relaxed_pads:
+            assert plane_residual([pm.vertices[v].xy for v in vs], zs) \
+                <= law.tables.emit.relaxation.materiality_m
+        else:
+            assert max(zs) - min(zs) < 1e-6
     assert "escalation" in size and not any(g.startswith("law:") for g in size["escalation"])
 
 

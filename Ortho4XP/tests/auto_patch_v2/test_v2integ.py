@@ -183,8 +183,9 @@ def test_a_pad_inside_a_taxi_strip_carries_zone_bands_on_its_rim():
 def test_a_pad_in_the_strip_is_one_level_the_nearest_rim_carries_the_band():
     """The shed's rim spans zone 1 and zone 2; a flat plane cannot meet
     both bands, so exactly ONE rim vertex (the nearest to the lip) carries
-    a ceiling and every other rim vertex a floor only — and the hard set
-    with the pad stays feasible."""
+    the band and NO other rim vertex carries any zone row (a far-rim floor
+    is the same contradiction one lip-slope later, lane v2padflat) — and
+    the hard set with the pad stays feasible."""
     from tests.auto_patch_v2.test_relax import _Dem, _rect
     from auto_patch_v2.classify.roles import Cell, Classification, CutLine
     from auto_patch_v2.constraints.zones import zone_bands
@@ -216,10 +217,55 @@ def test_a_pad_in_the_strip_is_one_level_the_nearest_rim_carries_the_band():
     assert rows
     with_ceiling = {r.terms[0][0] for r in rows if r.hi is not None}
     assert len(with_ceiling) == 1, with_ceiling
-    assert {r.terms[0][0] for r in rows} - with_ceiling, "the far rim carries floors"
+    assert {r.terms[0][0] for r in rows} == with_ceiling, "the far rim carries no zone row"
     cs, _c, _w = generate(pm, law, airport)
     sol = solve_hard(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+
+
+def test_a_long_detached_pad_along_a_sloping_lip_stays_hard_feasible():
+    """Bands on a detached pad apply to the group's SINGLE level, never
+    per vertex: a 100 m pad inside the runway's zone 2 along a 1.5 % lip
+    — the far foot rises 1.5 m while the band at d = 17.5 is 0.28 m wide,
+    so a per-vertex floor at one end sat above the ceiling at the other
+    (measured 2026-09-05: the hard set INFEASIBLE on the pad's Flat + two
+    zone rows, the m5g §6-2 KCLT class).  With one band per pad the hard
+    set is feasible and the pad is one flat value."""
+    from tests.auto_patch_v2.test_relax import _Dem, _rect
+    from auto_patch_v2.classify.roles import Cell, Classification, CutLine
+    from auto_patch_v2.constraints.zones import zone_bands
+    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+    from auto_patch_v2.model.frame import Frame
+    from auto_patch_v2.planar.build import build
+    from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
+    from auto_patch_v2.solve import Options, Status
+    from auto_patch_v2.solve.highs import solve as solve_hard
+    law = Law.for_airport("ZZZZ")
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 718.0, "fixture"))
+    runways = [Runway("09/27", 45.0, 1, ends, 3, "D")]
+    cells = [
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D", "airside", "runway", {}),
+        Cell(1, "stub", "stubE", _rect(138.5, 22.5, 161.5, 120), (), None, "D", "airside", "taxi", {}),
+        Cell(2, "building", "hangar", _rect(200, 40, 300, 60), (), None, None, "airside", "pad", {}),
+    ]
+    cuts = [CutLine("taxi_centerline", "stubE", ((150.0, 0.0), (150.0, 120.0)))]
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, tuple(runways), (), (), {},
+                      (), (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
+    pm, _stats = build(airport, Classification(tuple(cells), tuple(cuts), {}, ()), law)
+    pad = next(f for f in pm.faces.values() if f.role == "building")
+    rim = {v for v in pm.vertices if pad.id in pm.vertices[v].incident_faces}
+    assert len(rim) >= 6, "the long rim is welded into the strip at more than its corners"
+    rows = [r for r in zone_bands(pm, law, airport) if isinstance(r, Linear)
+            and r.terms[0][0] in rim]
+    assert len({r.terms[0][0] for r in rows}) == 1, "one band per pad"
+    cs, _c, _w = generate(pm, law, airport)
+    sol = solve_hard(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+    zs = [sol.z[v] for v in rim]
+    assert max(zs) - min(zs) < 1e-6
 
 
 def test_a_pad_touching_pavement_takes_the_pavement_level_and_no_strip_band(hangar):

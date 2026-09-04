@@ -1957,11 +1957,18 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
             raise SystemExit("REFUSING to report this build: " + msg)
         prog.note("DEGRADED (accepted by flag): " + msg)
     verify = (res.report.get("verify") or {}).get("by_family")
+    verify_defects = (res.report.get("verify") or {}).get("defects") or {}
     prog.note(f"built {tag} [v2] in {dt:.1f}s  ways={res.paths.ways}  "
               f"nodes={res.paths.nodes}  status={status}  -> {osm}  "
               f"sidecar={'OK' if side.exists() else 'MISSING'}  "
               f"body_sha={body_sha256(osm)[:12]}  v2-verify rows="
               f"{sum(verify.values()) if verify else 'n/a'}")
+    if verify_defects:
+        # a structural defect of the product (verify.DEFECT_KEYS: a pad
+        # that is not one flat value) — the app driver FAILS the airport
+        # on it; the harness measures and says so on every line
+        prog.note("v2-verify DEFECT (the app build would fail this airport): "
+                  + ", ".join(f"{k} {n}" for k, n in verify_defects.items()))
     return {
         "_layout": None,
         "icao": icao, "tag": tag, "patch": str(osm), "sidecar": str(side),
@@ -1983,7 +1990,8 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         "anchor": None,
         "v2": {"dir": str(v2_dir), "report": str(v2_dir / f"{icao}.report.json"),
                "status": status, "wall_s": res.wall, "lp": res.lp_size,
-               "verify_by_family": verify, "ruleset": law.ruleset_key,
+               "verify_by_family": verify, "verify_defects": verify_defects,
+               "ruleset": law.ruleset_key,
                "tiles": sorted(f"{tl:+03d}{tn:+04d}" for (tl, tn) in (res.pieces or {}))},
     }
 

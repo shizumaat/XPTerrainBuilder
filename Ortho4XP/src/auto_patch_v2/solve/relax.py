@@ -57,7 +57,11 @@ infeasibility, and inside ``emit.relaxation.iis_time_budget_s``:
    excesses become the rows' new bounds (``cap + g``; a pad's plane as
    equalities at the solved slope) and ``highs.solve`` runs the usual L1
    DEM preference over the whole map — so ``why`` can read the relaxed
-   set's duals like any feasible airport's.
+   set's duals like any feasible airport's.  A WARM START of this LP is
+   REFUTED (m5j, HECA 1.35 M rows, single runs): from stage 1's own point
+   364 s (cold 62 s); from the optimum of the set with the relaxed rows
+   dropped 54 s after that solve's own 57 s; the plain feasible LP at this
+   size is the cost, not the relaxation.
 5. **THE CERTIFICATE**: every relaxed pad's plane residual and every
    step between adjacent relaxed elements ≤ ``materiality_m``.
 
@@ -287,7 +291,20 @@ class _Model:
     grade_cols: set[int] = _dc.field(default_factory=set)
 
 
-def _model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed]) -> _Model:
+#: Directions of the polygonal bound on a relaxed pad's gradient
+#: (``_model``): a regular polygon INSCRIBED in the ``pad_slope_max`` disc,
+#: so the true gradient never exceeds the table value in any direction.
+SLOPE_DIRECTIONS = 32
+
+
+def _model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed],
+           pad_slope_max: float | None = None) -> _Model:
+    """``pad_slope_max`` (RULINGS 2026-09-05f, ``[relaxation]``): every
+    relaxed pad's plane ``(u, v)`` is bounded to the disc of that radius
+    (``SLOPE_DIRECTIONS`` half-planes ``u·cosθ + v·sinθ ≤ s·cos(π/K)``,
+    whose polygon lies INSIDE the disc: |u|, |v| ≤ s among them), so the
+    variance program spreads the relief a steeper pad would have taken
+    over the other populations (04t-1)."""
     n = len(pm.vertices)
     S = to_sparse(_without(cs, relaxed), n)
     ncol = n
@@ -347,6 +364,12 @@ def _model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed]) -> _
             zc, u, v = cols                  # the plane: z = zc + u·dx + v·dy
             for vid, dx, dy in x.offsets:
                 eq(((vid, 1.0), (zc, -1.0), (u, -dx), (v, -dy)), 0.0)
+            if pad_slope_max is not None and math.isfinite(pad_slope_max):
+                K = SLOPE_DIRECTIONS
+                b = pad_slope_max * math.cos(math.pi / K)
+                for k in range(K):
+                    th = 2.0 * math.pi * k / K
+                    ub(((u, math.cos(th)), (v, math.sin(th))), b)
     A_ub = sp.vstack([sp.hstack([S.A_ub, sp.csr_matrix((S.A_ub.shape[0], ncol - n))]),
                       sp.csr_matrix((ub_v, (ub_r, ub_c)), shape=(len(ub_b), ncol))],
                      format="csr")
@@ -499,8 +522,8 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     forces ``"qp"`` / ``"pwl"``; by default the QP runs under
     ``qp_time_limit_s`` and the approximation takes over past it."""
     opt = options or Options()
-    m = _model(pm, cs, relaxed)
     rl = law.tables.emit.relaxation
+    m = _model(pm, cs, relaxed, rl.pad_slope_max)
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
     st, x, wall = "", None, 0.0
@@ -589,28 +612,35 @@ def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage
 # ── the certificate ──────────────────────────────────────────────────────
 
 def certificate(pm: PlanarMap, relaxed: _t.Sequence[Relaxed], s1: Stage1,
-                z: _t.Sequence[float], materiality_m: float) -> dict[str, _t.Any]:
-    """Every relaxed pad is ONE plane at ``z`` (residual ≤ materiality);
+                z: _t.Sequence[float], materiality_m: float,
+                pad_slope_max: float | None = None, grade_tol: float = 0.0
+                ) -> dict[str, _t.Any]:
+    """Every relaxed pad is ONE plane at ``z`` (residual ≤ materiality)
+    no steeper than ``pad_slope_max`` (05f, within the grade materiality);
     adjacent relaxed elements share vertices, so their step is zero by
     identity — reported as the largest |Δz| between a relaxed pad's rim
     vertex and the same vertex read through any relaxed chord (always
     0.0: one variable) and the worst plane residual."""
     worst_plane = 0.0
+    worst_slope = 0.0
     for x in relaxed:
         if x.kind != "pad" or x.index not in s1.planes:
             continue
         _zc, gx, gy = s1.planes[x.index]
         vals = [z[vid] - gx * dx - gy * dy for vid, dx, dy in x.offsets]
         worst_plane = max(worst_plane, max(vals) - min(vals))
+        worst_slope = max(worst_slope, math.hypot(gx, gy))
+    slope_ok = pad_slope_max is None or worst_slope <= pad_slope_max + grade_tol
     over: list[float] = []
     for x in relaxed:
         if x.kind == "diff":
             r = x.row
             over.append(abs(z[r.a] - z[r.b]) - r.cap * r.d)
-    ok = worst_plane <= materiality_m and all(
+    ok = worst_plane <= materiality_m and slope_ok and all(
         o <= s1.slack.get(x.index, 0.0) + materiality_m
         for o, x in zip(over, [x for x in relaxed if x.kind == "diff"]))
     return {"plane_residual_max_m": round(worst_plane, 6),
+            "pad_slope_max_seen": round(worst_slope, 7), "pad_slope_max": pad_slope_max,
             "shared_vertex_step_m": 0.0, "materiality_m": materiality_m, "ok": bool(ok)}
 
 
@@ -831,7 +861,8 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
                          for r in unrelaxed]
         rep.stats = _stats([s1.excess[x.index] for x in support if x.kind != "linear"])
         rep.stats_m = _stats([s1.slack[x.index] for x in support])
-        rep.certificate = certificate(pm, support, s1, sol.z, rl.materiality_m)
+        rep.certificate = certificate(pm, support, s1, sol.z, rl.materiality_m,
+                                      rl.pad_slope_max, tol_g)
         return sol, rep, cs2
     rep.reason = f"{rl.max_rounds} rounds spent without a feasible relaxed set; the tier machinery answers"
     return None, rep, None

@@ -453,7 +453,23 @@ def unauthorised_shared_writes(changes: dict, scope_of) -> list:
                      | set(changes.get("modified", ()))
                      | set(changes.get("removed", ())))
     return [(p, scope_of(p)) for p in touched
-            if scope_of(p) not in _SUITE_MAY_WARM]
+            if scope_of(p) not in _SUITE_MAY_WARM and not is_lock_churn(p)]
+
+
+def is_lock_churn(relpath: str) -> bool:
+    """A cross-process ``.lock`` coordination file (the harness's own
+    ``is_lock_artifact`` predicate): CHURN, never corpus data.  A guarded
+    build running BESIDE the suite creates and removes one in the shared
+    repo lawfully (RULINGS: the lock primitive's create/remove is
+    recorded churn), and until 2026-09-05 the session detector counted
+    that as the suite's own write — reported by pytest as an ERROR at
+    teardown of the LAST collected test (``tests/auto_patch_v2/test_why.py
+    ::test_report_renders_every_section`` in that suite), which passes
+    alone because a one-second window sees no concurrent build."""
+    try:
+        return bool(_harness_build_module().is_lock_artifact(relpath))
+    except Exception:                                   # pragma: no cover
+        return str(relpath).endswith(".lock")
 
 
 #: Where the session redirected the DSFTool dump cache to.  Module-level
@@ -734,9 +750,16 @@ def _the_shared_data_repo_survives_the_suite():
         changes = harness.snapshot_diff(
             before, harness.shared_repo_snapshot(repo))
         unlawful = unauthorised_shared_writes(changes, harness.scope_of)
+        churn = sorted(p for k in ("added", "modified", "removed")
+                       for p in changes.get(k, ()) if is_lock_churn(p))
+        if churn:
+            print(f"\n[conftest] shared-repo LOCK CHURN during the suite (a guarded "
+                  f"build beside it; coordination state, never corpus data): {churn[:8]}")
         if unlawful:
             lines = [
                 f"THE TEST SUITE WROTE INTO THE SHARED DATA REPO {repo}.",
+                "(pytest reports this session-teardown failure as an ERROR at "
+                "teardown of the LAST collected test — that test is not the writer.)",
                 "Owner ruling e9daef5: it is THE corpus every lane mounts; "
                 "a test that writes there changes what every other lane "
                 "measures, and no pytest report says so.",

@@ -2259,3 +2259,8 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 
 * `lane/v2taxiname` 05ad0280 merged. The 04z(1) premise is REFUTED by the data: "New Taxiway N" is WED's default description on all 31 CYXY 110 polygons (including the owner-ruled lots pav4/pav29/pav30), so a name is no evidence there — the rule ships with `unauthored_names = ["new taxiway"]` and flips nothing; "Aeronaval" (SPJC pav3) is the naval base's ramp beside "Naval Aviation Ramp", not a taxiway; `dsf:pol64`'s description is a library path. CYXY/SPJC 0/0 unchanged.
 * RULED (spawner): `apron_name_tokens = ["apron", "ramp"]` — SPJC names its aprons "Ramp". Seven-airport re-census and app 1.0.282 follow.
+
+## 2026-09-05c — seven-airport re-census on main 7ddf3f5b (after six merges); app 1.0.282
+
+* v2 through the harness: **CYXY 0/0 (6 s) · SPLP 0/0 (10 s) · SPJC 0/0 (54 s) · OTHH 0/0 (74 s)** — the four airports the owner sim-reads are clean. **LEMD FAILS** (rc 1, 96 s): `verify/within.py:105 stretch_pair_caps` KeyError 8521 — a merge interaction (stretches vs the weld pass / seam pieces); the driver would report LEMD as a v2 failure in the app, so DO NOT rebuild +40-004 on v2 until lane `v2integ` lands. **KCLT 27/24 airside** (was 27/0 after caps) and **HECA 67/60** (was 52; 244 s) — regressions from the merge interplay, attributed by `v2integ` (bisect over the merges; 04x-2 oracle reading of `relaxed_rows` and 04x-1 QP gate included).
+* App **1.0.282 / engine 1.50.1724** built (85 v2 modules; `highspy` NOT frozen — the relaxation takes its PWL path, by design optional). Good for CYXY/SPLP/SPJC/OTHH sim reads; HECA builds (60 rows, relaxed) but LEMD would fail.

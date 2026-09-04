@@ -72,7 +72,7 @@ from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
-from ..model.frame import XY
+from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote",
@@ -201,8 +201,7 @@ def _rect_axis(poly) -> tuple[XY, XY, float, float, tuple[tuple[XY, XY], tuple[X
     the polygon's minimum rotated rectangle, the axis canonicalised on
     +x (tie on +z) so the end order is a property of the geometry."""
     try:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rect = poly.minimum_rotated_rectangle       # a sliver plate is degenerate
+        rect = rotated_rectangle(poly)              # a sliver plate is degenerate
     except Exception:
         return None
     if rect.geom_type != "Polygon":
@@ -417,8 +416,7 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps) -> DeckPl
     foot = tf(closed, mat)
     if not foot.is_valid:
         foot = foot.buffer(0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        rect = tf(closed.minimum_rotated_rectangle, mat)
+    rect = tf(rotated_rectangle(closed), mat)
     o_f = tf(shapely.points(*origin), mat)
     u_f = tf(shapely.points(origin[0] + unit[0], origin[1] + unit[1]), mat)
     axis_f = ((o_f.x, o_f.y), (u_f.x - o_f.x, u_f.y - o_f.y))

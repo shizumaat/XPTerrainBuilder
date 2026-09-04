@@ -36,6 +36,7 @@ from ..law import Law
 from ..law.tables import is_rigid_role, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
+from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
 from .geometry import principal_axis, project_to_chain
 from .precedence import View, view
@@ -125,7 +126,7 @@ def face_width(xy: list[tuple[float, float]]) -> float:
     if poly.area < 1e-6:                    # collinear / degenerate: no width
         return 0.0
     try:
-        rect = poly.minimum_rotated_rectangle
+        rect = rotated_rectangle(poly)
     except Exception:                       # a self-touching ring: fall back
         ax = principal_axis(xy)
         return 0.0 if ax is None else float(ax[2])

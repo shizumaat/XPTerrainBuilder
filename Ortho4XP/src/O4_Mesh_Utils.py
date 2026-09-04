@@ -38,8 +38,9 @@ else:
 community_server = False
 if os.path.exists(FNAMES.resource_path("community_server.txt")):
     try:
-        f = open(FNAMES.resource_path("community_server.txt"), "r")
-        for line in f.readlines():
+        with open(FNAMES.resource_path("community_server.txt"), "r") as f:
+            lines = f.readlines()
+        for line in lines:
             line = line.strip()
             if not line:
                 continue

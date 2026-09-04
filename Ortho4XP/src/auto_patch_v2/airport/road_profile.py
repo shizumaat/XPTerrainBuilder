@@ -65,6 +65,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..model.frame import rotated_rectangle
 from ..law.tables import family, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.frame import XY
@@ -140,8 +141,7 @@ def face_axis(ring: _t.Sequence[XY], step_m: float) -> list[XY] | None:
         return None
     if poly.length < 1e-3 or poly.area < 1e-6:
         return None
-    with np.errstate(all="ignore"):
-        rect = poly.minimum_rotated_rectangle
+    rect = rotated_rectangle(poly)
     if rect.geom_type != "Polygon":
         return None
     c = list(rect.exterior.coords)[:4]

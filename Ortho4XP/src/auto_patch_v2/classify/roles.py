@@ -50,6 +50,7 @@ from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.frame import XY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
+from .open_default import open_pavement_role
 from .rules import Rules, load_rules
 from .sources import SourceRecord, classify_sources
 
@@ -251,6 +252,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
             evid = dict(evid, demoted=1.0, road_evidence=float(i in road_ev))
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
+        elif role == "apron" and ev.terminal_present:
+            # RULINGS 2026-09-04u: open pavement is never apron by default
+            role, evid = open_pavement_role(face, src_of.get(ref), evid, start_tree,
+                                            i in road_ev, rules)
+            stats["open_defaulted"] = stats.get("open_defaulted", 0) + int(role != "apron")
         add(role, ref, face, str(evid.get("kind", "")), None, letter, evid)
 
     # ── service roads outside pavement, pads ───────────────────────
@@ -338,43 +344,53 @@ def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
 
 def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
                          ) -> tuple[list[Cell], int]:
-    """THE MIXED-PAD RULE (RULINGS 2026-09-01g/i; ``structures.building_pad
-    .groundside_cutback_m``): a pad that touches BOTH an airside governed
-    surface and groundside pavement welds AIRSIDE — its one flat value is
-    its airside contact (03h) — and the groundside pavement is CUT BACK
-    from it so the two never share a vertex: the groundside lot keeps its
-    own law and follows the DEM, and the terrace in the stand-off is the
-    lawful airside/groundside boundary (memory ``groundside-terrace-law``).
+    """THE PAD SET-BACK (RULINGS 2026-09-01g/i, 2026-09-04u;
+    ``structures.building_pad.groundside_cutback_m``): a pad welds AIRSIDE
+    only — its one flat value is its airside contact (03h) — and
+    groundside pavement is CUT BACK from EVERY pad it touches, airside-
+    touching or not, so the two never share a vertex: the groundside lot
+    keeps its own law and follows the DEM, and the terrace in the
+    stand-off is the lawful boundary (memory ``groundside-terrace-law``).
     Measured SPJC (M3b): a terminal pad at 24.55 m dragged a groundside
     DSF page 4.8 m below the DEM and minted 14 groundside step rows against
-    its DEM-following neighbour.  Returns the cells and the number cut."""
+    its DEM-following neighbour; CYXY (04u): lot 87 welded to building9's
+    pad (694.77) was pulled down with it while it spans 694.77-702.17.
+    Returns the cells and the number cut."""
     back = law.tables.structures.building_pad.groundside_cutback_m
     if back <= 0.0:
         return cells, 0
-    tol = rules.groundside.touch_tol_m
+    # The set-back holds AFTER the identity snap: the pad is read on the
+    # identity grid and the knife carries the grid's half-diagonal on top
+    # of the set-back, so a lot vertex the snap moves by up to that still
+    # sits ``back`` off the pad and no hot pixel can capture it (measured
+    # CYXY building9 / lot pav4: a 0.6 m pre-snap gap noded to ONE vertex)
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    knife_m = back + grid * math.sqrt(0.5)
     pads = [c for c in cells if c.role == "building"]
     if not pads:
         return cells, 0
-    airside = [Polygon(c.ring, c.holes) for c in cells
-               if c.role != "building" and c.side == "airside"
-               and is_value_role(law, c.role)]
     ground_idx = [i for i, c in enumerate(cells)
                   if c.side == "groundside" and is_value_role(law, c.role)]
-    if not airside or not ground_idx:
+    if not ground_idx:
         return cells, 0
-    air_tree = STRtree(airside)
     gpolys = [Polygon(cells[i].ring, cells[i].holes) for i in ground_idx]
     g_tree = STRtree(gpolys)
     knives: list[Polygon] = []
     for c in pads:
-        poly = Polygon(c.ring, c.holes)
-        probe = poly.buffer(tol)
-        touches_air = any(airside[int(k)].distance(poly) <= tol
-                          for k in air_tree.query(probe, predicate="intersects"))
-        touches_ground = any(gpolys[int(k)].distance(poly) <= tol
-                             for k in g_tree.query(probe, predicate="intersects"))
-        if touches_air and touches_ground:
-            knives.append(poly.buffer(back, join_style="mitre", mitre_limit=2.0))
+        # a groundside cell within the set-back is cut back whether it
+        # touches the pad or lies a sliver off it: the identity grid would
+        # otherwise weld the two (CYXY lot 87 / building9, 04u)
+        # (precision model stripped again: a buffer of a gridded geometry
+        # is itself rounded to the grid — ``planar/build._snapped``)
+        poly = shapely.set_precision(
+            shapely.set_precision(Polygon(c.ring, c.holes), grid), 0.0)
+        if poly.is_empty or poly.geom_type != "Polygon":
+            poly = Polygon(c.ring, c.holes)
+        probe = poly.buffer(knife_m)
+        near_ground = any(gpolys[int(k)].distance(poly) <= knife_m
+                          for k in g_tree.query(probe, predicate="intersects"))
+        if near_ground:
+            knives.append(poly.buffer(knife_m, join_style="mitre", mitre_limit=2.0))
     if not knives:
         return cells, 0
     knife = unary_union(knives)

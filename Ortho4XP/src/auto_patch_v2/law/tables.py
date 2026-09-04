@@ -19,6 +19,8 @@ __all__ = [
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m",
+    "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
+    "tier_of_roles",
 ]
 
 #: The checked-in law directory.
@@ -108,6 +110,92 @@ def authority_rank(law: Law, role: str) -> int:
 def senior_role(law: Law, roles: "list[str] | tuple[str, ...]") -> str:
     """The role that owns a value shared by ``roles``."""
     return min(roles, key=lambda r: authority_rank(law, r))
+
+
+# ── seniority: governed tiers (RULINGS 2026-09-03i, 2026-09-04i, 04q-3) ──
+
+def is_governed(law: Law, role: str, code_number: int | None = None,
+                code_letter: str | None = None) -> bool:
+    """Whether the law states a grade cap for ``role`` (03i: SENIORITY
+    FOLLOWS FROM BEING GOVERNED)."""
+    return role_cap(law, role, code_number, code_letter) is not None
+
+
+def governed_roles(law: Law) -> tuple[str, ...]:
+    """The governed tier in the tables' stated order (03i)."""
+    reg = law.tables.precedence.roles
+    order = law.tables.precedence.order
+    gov = [r for r in order if is_governed(law, r)]
+    gov += sorted(r for r in reg if r not in order and is_governed(law, r))
+    return tuple(gov)
+
+
+def ungoverned_roles(law: Law) -> tuple[str, ...]:
+    """Every registered role with no cap — junior by omission (03i)."""
+    return tuple(sorted(r for r in law.tables.precedence.roles
+                        if not is_governed(law, r)))
+
+
+def tiers(law: Law) -> tuple[tuple[str, ...], ...]:
+    """THE LAW-ORDERED TIERS (RULINGS 2026-09-04i: "the LAW's priority
+    order decides which governed surface yields"), a function of
+    ``precedence.toml`` alone — which is why it lives here (04q-3:
+    ``solve/`` reads the law, never a generator):
+
+    * tier 0 .. n-2: the GOVERNED, non-rigid roles in ``[authority]
+      order``; members of a DECLARED family (``[runway_family]``,
+      ``[taxi_family]``) share their family's tier, at the position of
+      the family's first member (a runway crossing yields with the
+      runway, a stub with the parallel); a governed role the order omits
+      follows the named ones, alphabetically (``tunnel_ramp``);
+    * tier n-1 (the LAST): every ungoverned role (no cap) and every RIGID
+      role (a pad: one flat value levelled by its contact, 03h/03i) —
+      junior by omission, so a new capless surface class is junior with no
+      code change.
+
+    The solver holds tier 0 HARD and prices tier k ≥ 1 as a preference
+    charged ``tier_ratio`` times more than tier k+1 (``solve/tiers.py``).
+    """
+    p = law.tables.precedence
+    fam_of: dict[str, str] = {}
+    for name, grp in (("runway_family", p.runway_family), ("taxi_family", p.taxi_family)):
+        for r in grp.members:
+            fam_of[r] = name
+    governed = [r for r in governed_roles(law) if not is_rigid_role(law, r)]
+    out: list[list[str]] = []
+    fam_tier: dict[str, int] = {}
+    for r in governed:
+        fam = fam_of.get(r)
+        if fam is not None and fam in fam_tier:
+            out[fam_tier[fam]].append(r)
+            continue
+        if fam is not None:
+            fam_tier[fam] = len(out)
+        out.append([r])
+    last = sorted(r for r in p.roles if r not in governed)
+    out.append(last)
+    return tuple(tuple(t) for t in out)
+
+
+def role_tier(law: Law, role: str) -> int:
+    """The tier index of ``role`` (see :func:`tiers`)."""
+    for k, t in enumerate(tiers(law)):
+        if role in t:
+            return k
+    raise KeyError(f"role {role!r} is not registered in precedence.toml")
+
+
+def tier_of_roles(roles: "tuple[str, ...] | list[str]", tier_of: "dict[str, int]",
+                  lowest: int) -> int:
+    """The tier a VALUE shared by ``roles`` belongs to: the most SENIOR
+    (smallest) tier among them, ``lowest`` when there are none — a shared
+    vertex is owned by its senior surface (``senior_role``)."""
+    best = lowest
+    for r in roles:
+        k = tier_of[r]
+        if k < best:
+            best = k
+    return best
 
 
 # ── adjacent-ground zones (RULINGS 2026-08-01) ───────────────────────────

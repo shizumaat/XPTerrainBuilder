@@ -103,8 +103,7 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
     """Per role (a vertex counts for the SENIOR role touching it): how
     many vertices sit more than :data:`MOVED_M` off their DEM sample, and
     the largest such displacement — the M5 "what yielded where" figure."""
-    from ..constraints.precedence import tiers
-    from ..law.tables import senior_role
+    from ..law.tables import senior_role, tiers
     tier_of = {r: k for k, t in enumerate(tiers(law)) for r in t}
     acc: dict[str, dict[str, _t.Any]] = {}
     for vid, v in pm.vertices.items():

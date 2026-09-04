@@ -134,9 +134,9 @@ def explain_main(args) -> int:
 
 
 def why_main(args) -> int:
-    """``why``: the pipeline's LP rebuilt (no emit) and one face's binding
-    story (``solve/why.py``)."""
-    from ..solve.why import prepare, report, resolve_faces
+    """``why``: the pipeline's LP rebuilt (no emit, ``pipeline/why.py``)
+    and one face's binding story (``solve/why.py``)."""
+    from .why import prepare, report, resolve_faces
     if (args.shape is None) == (args.at is None):
         print("why: exactly one of --shape N / --at LAT,LON")
         return 2

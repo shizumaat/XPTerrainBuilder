@@ -21,7 +21,8 @@ from __future__ import annotations
 import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
-from auto_patch_v2.constraints import generate, no_step, precedence
+from auto_patch_v2.constraints import generate, no_step
+from auto_patch_v2.law import tables
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import is_rigid_role, role_cap
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
@@ -109,11 +110,11 @@ def _over_cap(cs, sol, generators: set[str]) -> float:
 
 
 def test_tiers_derive_from_the_tables(law):
-    tt = precedence.tiers(law)
+    tt = tables.tiers(law)
     p = law.tables.precedence
     assert set(tt[0]) == set(p.runway_family.members)
     assert set(tt[1]) == set(p.taxi_family.members)
-    assert all(precedence.is_governed(law, r) and not is_rigid_role(law, r)
+    assert all(tables.is_governed(law, r) and not is_rigid_role(law, r)
                for t in tt[:-1] for r in t)
     assert {"building", "graded_strip", "retaining_wall"} <= set(tt[-1])
     assert all(role_cap(law, r) is None or is_rigid_role(law, r) for r in tt[-1])
@@ -121,8 +122,8 @@ def test_tiers_derive_from_the_tables(law):
     flat = [r for t in tt for r in t]
     assert sorted(flat) == sorted(p.roles) and len(flat) == len(set(flat))
     named = [r for r in p.order if r in flat[:-len(tt[-1])]]
-    assert [precedence.role_tier(law, r) for r in named] == sorted(
-        precedence.role_tier(law, r) for r in named)
+    assert [tables.role_tier(law, r) for r in named] == sorted(
+        tables.role_tier(law, r) for r in named)
 
 
 def test_apron_between_taxiways_over_relief_is_feasible_hard(law):
@@ -149,13 +150,13 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     sol, rep = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options(), size_out=size)
     assert sol.status is Status.OPTIMAL and not sol.iis, sol.message
     assert rep.mode == "tiered" and rep.demoted > 0
-    apron_tier = precedence.role_tier(law, "apron")
-    assert precedence.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
+    apron_tier = tables.role_tier(law, "apron")
+    assert tables.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
     assert all(k >= rep.k_min for k in rep.yielded)
     # the search tried a depth that kept the apron hard and found it infeasible,
     # and its first attempt was the cheap one: the lowest tier alone
     assert any(k > apron_tier and st == "infeasible" for k, st, _w in rep.attempts)
-    assert rep.attempts[0][0] == len(precedence.tiers(law)) - 1
+    assert rep.attempts[0][0] == len(tables.tiers(law)) - 1
     for p in pins:                                        # tier 0 held exactly
         assert abs(sol.z[p.v] - p.z) < 1e-6
     assert _over_cap(cs, sol, {"taxi"}) <= 1e-6
@@ -163,7 +164,7 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     # the apron carried the relief the chain cannot span lawfully
     assert _over_cap(cs, sol, {"apron"}) > 0.3
     assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
-    assert precedence.role_tier(law, "stub") not in rep.yielded
+    assert tables.role_tier(law, "stub") not in rep.yielded
     for pad in (f for f in pm.faces.values() if f.role == "building"):
         zs = [sol.z[v] for v in pm.ring_vertices(pad.ring)]
         assert max(zs) - min(zs) < 1e-6
@@ -176,7 +177,7 @@ def test_iis_names_tier_zero_only(law):
     sol, rep = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options())
     assert sol.status is Status.INFEASIBLE and rep.mode == "tiered"
     assert sol.iis
-    tt = precedence.tiers(law)
+    tt = tables.tiers(law)
     for row, src in sol.iis:                          # inside ONE surface: the runway's
         assert isinstance(row, (Pin, Diff))
         for v in ((row.v,) if isinstance(row, Pin) else (row.a, row.b)):
@@ -188,7 +189,7 @@ def test_demote_keeps_tier_zero_hard_and_prices_the_rest(law):
     cs, _c, _w = generate(pm, law, airport)
     cs2, demoted = demote(pm, law, cs)
     assert len(cs2.pins) == 4 and len(cs2.flats) == len(cs.flats)
-    tt = precedence.tiers(law)
+    tt = tables.tiers(law)
 
     def on_runway(v: int) -> bool:
         return any(pm.faces[f].role in tt[0] for f in pm.vertices[v].incident_faces)
@@ -198,13 +199,13 @@ def test_demote_keeps_tier_zero_hard_and_prices_the_rest(law):
         d.source.generator in ("runway_profile", "runway") or (on_runway(d.a) and on_runway(d.b))
         for d in hard_diffs)
     # k_min keeps the tiers above it hard: demoting the apron and below leaves taxi rows hard
-    cs3, _d3 = demote(pm, law, cs, precedence.role_tier(law, "apron"))
+    cs3, _d3 = demote(pm, law, cs, tables.role_tier(law, "apron"))
     assert any(d.soft is None and d.source.generator == "taxi" for d in cs3.diffs)
     assert not any(d.soft is None and d.source.generator == "apron" for d in cs3.diffs)
     soft = [d for d in cs2.diffs if d.soft is not None and d.soft.startswith("law:")]
     assert soft and all(d.ceiling is None for d in soft)
     ranks = {int(d.soft.split(":")[1]) for d in soft}
-    n = len(precedence.tiers(law))
+    n = len(tables.tiers(law))
     assert ranks <= set(range(n - 1))                     # rank 0 = the lowest tier
     assert len(demoted) == len(soft) + sum(
         1 for ln in cs2.linears if ln.soft is not None and ln.soft.startswith("law:"))

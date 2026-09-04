@@ -17,7 +17,16 @@ import dataclasses as _dc
 import typing as _t
 
 __all__ = ["Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
-           "Row", "ConstraintSet"]
+           "Row", "ConstraintSet", "REACH_GENERATOR"]
+
+#: The generator name of the ROUTE-REACH bands (RULINGS 2026-09-04o: the
+#: threshold pins' values propagated along the taxi routes at the path
+#: caps, v1's reach band as ``Band`` rows).  Named here because the solver
+#: must recognise them without reading a generator: a reach band is the
+#: envelope the hard rows already imply, and once any tier yields
+#: (``solve/tiers.demote``) it is WITHDRAWN, never held against the
+#: yielding surface.
+REACH_GENERATOR = "reach"
 
 
 @_dc.dataclass(frozen=True)

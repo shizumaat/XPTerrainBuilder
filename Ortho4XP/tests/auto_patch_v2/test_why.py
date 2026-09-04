@@ -19,6 +19,7 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.planar.build import build
+from auto_patch_v2.pipeline import why as pwhy
 from auto_patch_v2.solve import why
 
 
@@ -163,7 +164,7 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
 
 def test_code_letter_evidence_reads_1202_by_geometry(prepared):
     fid = _apron_face(prepared)
-    lines = why.taxi_letters(prepared, fid)
+    lines = pwhy.taxi_letters(prepared, fid)
     assert lines, "the stub's lane runs into the apron"
     joined = "\n".join(lines)
     assert "B1 ['A']" in joined, joined           # the 1202 edge along the stub lane
@@ -177,19 +178,19 @@ def test_family_labels_cover_every_row(prepared):
 
 def test_resolve_faces_by_coordinate_and_by_id(prepared):
     fid = _apron_face(prepared)
-    faces, how = why.resolve_faces(prepared, shape=fid)
+    faces, how = pwhy.resolve_faces(prepared, shape=fid)
     assert faces == [fid] and "face" in how
     _to_xy, to_ll = prepared.airport.frame.transformers()
     lat, lon = to_ll(0.0, 180.0)
-    faces, how = why.resolve_faces(prepared, at=(lat, lon))
+    faces, how = pwhy.resolve_faces(prepared, at=(lat, lon))
     assert faces == [fid], how
-    faces, how = why.resolve_faces(prepared, shape=10_000)
+    faces, how = pwhy.resolve_faces(prepared, shape=10_000)
     assert faces == [] and "no face" in how
 
 
 def test_report_renders_every_section(prepared):
     fid = _apron_face(prepared)
-    text = why.report(prepared, fid, max_relax=2)
+    text = pwhy.report(prepared, fid, max_relax=2)
     for key in ("== face", "binding rows", "chain trace", "relax one family",
                 "code-letter evidence", "terminal"):
         assert key in text, key

@@ -265,8 +265,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         verify_err = str(exc)
 
     dem_prov = dict((res.report.get("load") or {}).get("dem_provenance") or {})
-    git = _prov.git_provenance() or {}
-    sha = (git.get("sha") or "absent") + ("*" if git.get("dirty") else "")
+    sha = _prov.source_label(_prov.git_provenance())
     line = format_provenance_line(icao, sha=sha, law_sha256=digest["sha256"],
                                   ruleset=law.ruleset_key, dem_prov=dem_prov,
                                   status=status)

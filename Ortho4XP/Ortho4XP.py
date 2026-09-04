@@ -159,6 +159,11 @@ if __name__ == '__main__':
     if len(sys.argv) == 3:
         try:
             tile = CFG.Tile(lat, lon, '')
+            # Layered: global Ortho4XP.cfg, then the tile's own cfg —
+            # the same reader the JSONL session and its worker children
+            # use (Tile.read_from_config).
+            if not tile.read_from_config():
+                raise RuntimeError("no tile or global config file found")
         except Exception as e:
             print(e)
             print("ERROR: could not read tile config file."); sys.exit()

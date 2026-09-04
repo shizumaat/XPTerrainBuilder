@@ -240,3 +240,44 @@ def test_provenance_tags_are_quote_safe(tmp_path):
     prov = P.assemble_provenance("CYXY", {"insets": [], "raw": True})
     for value in P.provenance_tags(prov).values():
         assert "'" not in value  # never breaks the single-quoted attribute
+
+
+# ── source label: frozen engines carry the version (2026-09-04) ───────────
+def test_source_label_checkout_is_sha_with_dirty_marker():
+    assert P.source_label({"sha": "abc12345", "dirty": False}) == "abc12345"
+    assert P.source_label({"sha": "abc12345", "dirty": True}) == "abc12345*"
+    assert "version=" not in P.source_label({"sha": "abc12345"})
+
+
+def test_source_label_without_sha_carries_engine_version():
+    version = P.engine_version()
+    assert version != "absent"
+    for git in (None, {}, {"sha": None, "dirty": None}):
+        assert P.source_label(git) == "absent version=" + version
+
+
+def test_log_line_frozen_engine_carries_version(monkeypatch):
+    monkeypatch.setattr(P, "git_provenance",
+                        lambda cwd=None: {"sha": None, "dirty": None})
+    prov = P.assemble_provenance("CYXY", {"insets": [], "raw": False})
+    line = P.format_log_line(prov)
+    assert "sha=absent version=" + P.engine_version() in line
+
+
+def test_log_line_checkout_has_no_version_token(monkeypatch):
+    monkeypatch.setattr(P, "git_provenance",
+                        lambda cwd=None: {"sha": "abc12345", "dirty": False})
+    line = P.format_log_line(
+        P.assemble_provenance("CYXY", {"insets": [], "raw": False}))
+    assert "sha=abc12345" in line
+    assert "version=" not in line
+
+
+def test_v2_provenance_line_shares_the_source_label():
+    from auto_patch import engine_v2
+
+    line = engine_v2.format_provenance_line(
+        "CYXY", sha=P.source_label(None), law_sha256="a" * 64,
+        ruleset="icao", dem_prov={}, status="optimal")
+    assert line.startswith("  [provenance] CYXY patch: engine=v2 sha=absent version=")
+    assert P.engine_version() in line

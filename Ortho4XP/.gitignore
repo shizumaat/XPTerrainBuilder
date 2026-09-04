@@ -46,3 +46,4 @@ tools/probes_heca_burial_20260729/
 # auto_patch_v2 test fixtures reuse the corpus directory names on purpose
 # (the v2 loaders resolve the shared-corpus layout); keep them tracked.
 !tests/auto_patch_v2/fixtures/**
+tests/auto_patch_v2/fixtures/__pycache__/

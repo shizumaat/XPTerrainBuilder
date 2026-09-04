@@ -1,0 +1,991 @@
+[
+ {
+  "side": "U",
+  "idx": 24931,
+  "ll": "30.1295485,31.4112507",
+  "xy": [
+   -2254.763,
+   2294.403
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 74.7078,
+  "z_solve": 63.03,
+  "dem": 79.92,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 315
+ },
+ {
+  "side": "L",
+  "idx": 24937,
+  "ll": "30.1085776,31.3941072",
+  "xy": [
+   -3905.68,
+   -40.059
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 114.47,
+  "z_solve": 114.47,
+  "dem": 99.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 234
+ },
+ {
+  "side": "L",
+  "idx": 24949,
+  "ll": "30.1093330,31.3973663",
+  "xy": [
+   -3591.83,
+   44.031
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 113.2,
+  "z_solve": 113.2,
+  "dem": 99.42,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 188
+ },
+ {
+  "side": "U",
+  "idx": 24942,
+  "ll": "30.1300395,31.4003774",
+  "xy": [
+   -3301.861,
+   2349.065
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 61.35,
+  "z_solve": 61.35,
+  "dem": 61.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 134
+ },
+ {
+  "side": "U",
+  "idx": 4356,
+  "ll": "30.1105731,31.3950846",
+  "xy": [
+   -3811.557,
+   182.07
+  ],
+  "tier": 0,
+  "class": "non-airside(service_junction)",
+  "pin": "hard",
+  "roles": [
+   "service_junction:"
+  ],
+  "z": 96.25,
+  "z_solve": 98.23,
+  "dem": 93.28,
+  "pinner": "pre-FGP:pipeline.py:7270:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 96.25,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 100
+ },
+ {
+  "side": "L",
+  "idx": 24941,
+  "ll": "30.1078071,31.3906926",
+  "xy": [
+   -4234.499,
+   -125.831
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 116.5,
+  "z_solve": 116.5,
+  "dem": 98.02,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 88
+ },
+ {
+  "side": "U",
+  "idx": 624,
+  "ll": "30.1339633,31.4113933",
+  "xy": [
+   -2241.032,
+   2785.854
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building65",
+   "junction:"
+  ],
+  "z": 70.852,
+  "z_solve": 70.93,
+  "dem": 74.26,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 70.93,
+  "fgp": 70.85,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 87
+ },
+ {
+  "side": "L",
+  "idx": 3102,
+  "ll": "30.1215197,31.4142644",
+  "xy": [
+   -1964.55,
+   1400.645
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 91.8685,
+  "z_solve": 91.82,
+  "dem": 95.21,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 80.24,
+  "fgp": 91.88,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 85
+ },
+ {
+  "side": "U",
+  "idx": 2339,
+  "ll": "30.1109060,31.3990438",
+  "xy": [
+   -3430.287,
+   219.131
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "building:building169",
+   "service_junction:"
+  ],
+  "z": 98.2,
+  "z_solve": 98.2,
+  "dem": 101.37,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 98.2,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 59
+ },
+ {
+  "side": "L",
+  "idx": 24946,
+  "ll": "30.1079476,31.3977750",
+  "xy": [
+   -3552.471,
+   -110.201
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 113.57,
+  "z_solve": 113.58,
+  "dem": 100.53,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 56
+ },
+ {
+  "side": "L",
+  "idx": 2255,
+  "ll": "30.1306777,31.4131490",
+  "xy": [
+   -2071.958,
+   2420.107
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building163"
+  ],
+  "z": 76.3459,
+  "z_solve": 76.35,
+  "dem": 81.87,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 76.35,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 49
+ },
+ {
+  "side": "U",
+  "idx": 2379,
+  "ll": "30.1088001,31.3900895",
+  "xy": [
+   -4292.58,
+   -15.298
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building170"
+  ],
+  "z": 95.0516,
+  "z_solve": 94.9,
+  "dem": 95.52,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 94.9,
+  "fgp": 95.05,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 43
+ },
+ {
+  "side": "L",
+  "idx": 2455,
+  "ll": "30.1289018,31.4009984",
+  "xy": [
+   -3242.06,
+   2222.418
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building173"
+  ],
+  "z": 69.879,
+  "z_solve": 69.88,
+  "dem": 66.55,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 69.88,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 39
+ },
+ {
+  "side": "U",
+  "idx": 4291,
+  "ll": "30.1094132,31.3925985",
+  "xy": [
+   -4050.963,
+   52.953
+  ],
+  "tier": 0,
+  "class": "non-airside(groundside_pavement,service_junction)",
+  "pin": "terrain",
+  "roles": [
+   "groundside_pavement:groundside",
+   "service_junction:"
+  ],
+  "z": 96.72,
+  "z_solve": 97.44,
+  "dem": 97.83,
+  "pinner": "pre-FGP:pipeline.py:7062:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 96.72,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 38
+ },
+ {
+  "side": "L",
+  "idx": 1320,
+  "ll": "30.1250808,31.4062978",
+  "xy": [
+   -2731.73,
+   1797.062
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "building:building96",
+   "service_junction:"
+  ],
+  "z": 81.3705,
+  "z_solve": 81.37,
+  "dem": 81.1,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 81.37,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 30
+ },
+ {
+  "side": "U",
+  "idx": 2380,
+  "ll": "30.1084494,31.3885498",
+  "xy": [
+   -4440.85,
+   -54.331
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building170"
+  ],
+  "z": 95.0516,
+  "z_solve": 94.9,
+  "dem": 96.38,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 94.9,
+  "fgp": 95.05,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 28
+ },
+ {
+  "side": "U",
+  "idx": 2292,
+  "ll": "30.1069556,31.3965557",
+  "xy": [
+   -3669.889,
+   -220.622
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building167"
+  ],
+  "z": 101.021,
+  "z_solve": 103.01,
+  "dem": 100.83,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 103.01,
+  "fgp": 100.37,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 28
+ },
+ {
+  "side": "U",
+  "idx": 2528,
+  "ll": "30.1102226,31.3971281",
+  "xy": [
+   -3614.769,
+   143.058
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building175"
+  ],
+  "z": 101.021,
+  "z_solve": 103.01,
+  "dem": 98.59,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 103.01,
+  "fgp": 100.37,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 27
+ },
+ {
+  "side": "L",
+  "idx": 24945,
+  "ll": "30.1074857,31.3979112",
+  "xy": [
+   -3539.351,
+   -161.611
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 113.61,
+  "z_solve": 113.61,
+  "dem": 100.93,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 27
+ },
+ {
+  "side": "U",
+  "idx": 24929,
+  "ll": "30.1305440,31.4108802",
+  "xy": [
+   -2290.45,
+   2405.226
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 71.969,
+  "z_solve": 62.65,
+  "dem": 78.14,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 24
+ },
+ {
+  "side": "L",
+  "idx": 2264,
+  "ll": "30.1285144,31.4129031",
+  "xy": [
+   -2095.641,
+   2179.29
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building164"
+  ],
+  "z": 78.676,
+  "z_solve": 78.68,
+  "dem": 84.43,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 78.68,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 24
+ },
+ {
+  "side": "L",
+  "idx": 267,
+  "ll": "30.1207862,31.4156006",
+  "xy": [
+   -1835.877,
+   1318.991
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building20"
+  ],
+  "z": 94.312,
+  "z_solve": 94.25,
+  "dem": 99.15,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 94.25,
+  "fgp": 94.32,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 21
+ },
+ {
+  "side": "L",
+  "idx": 2263,
+  "ll": "30.1283754,31.4123572",
+  "xy": [
+   -2148.211,
+   2163.819
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building164"
+  ],
+  "z": 78.676,
+  "z_solve": 78.68,
+  "dem": 82.83,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 78.68,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 19
+ },
+ {
+  "side": "L",
+  "idx": 3111,
+  "ll": "30.1268265,31.4105861",
+  "xy": [
+   -2318.77,
+   1991.39
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 80.9172,
+  "z_solve": 80.71,
+  "dem": 82.97,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 80.71,
+  "fgp": 81.06,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 18
+ },
+ {
+  "side": "L",
+  "idx": 5000,
+  "ll": "30.1136738,31.4112581",
+  "xy": [
+   -2254.052,
+   527.239
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 102.5526,
+  "z_solve": 102.54,
+  "dem": 106.08,
+  "pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 102.54,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 17
+ },
+ {
+  "side": "U",
+  "idx": 4969,
+  "ll": "30.1157643,31.4120882",
+  "xy": [
+   -2174.12,
+   759.96
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 98.7017,
+  "z_solve": 98.69,
+  "dem": 102.95,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 98.69,
+  "fgp": 98.7,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 17
+ },
+ {
+  "side": "U",
+  "idx": 4195,
+  "ll": "30.1058184,31.3916019",
+  "xy": [
+   -4146.94,
+   -347.22
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 99.11,
+  "z_solve": 99.11,
+  "dem": 98.58,
+  "pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 99.11,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 16
+ },
+ {
+  "side": "L",
+  "idx": 2457,
+  "ll": "30.1288114,31.4018595",
+  "xy": [
+   -3159.137,
+   2212.352
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building173",
+   "building:building176"
+  ],
+  "z": 69.879,
+  "z_solve": 69.88,
+  "dem": 70.31,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 69.88,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 14
+ },
+ {
+  "side": "L",
+  "idx": 2182,
+  "ll": "30.1221275,31.4158062",
+  "xy": [
+   -1816.078,
+   1468.302
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building153"
+  ],
+  "z": 92.3977,
+  "z_solve": 92.31,
+  "dem": 96.33,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 92.31,
+  "fgp": 92.4,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 14
+ },
+ {
+  "side": "L",
+  "idx": 24938,
+  "ll": "30.1062661,31.3911536",
+  "xy": [
+   -4190.112,
+   -297.377
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 116.5,
+  "z_solve": 116.5,
+  "dem": 98.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 13
+ },
+ {
+  "side": "U",
+  "idx": 5513,
+  "ll": "30.1084979,31.4012427",
+  "xy": [
+   -3218.53,
+   -48.94
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 101.64,
+  "z_solve": 101.64,
+  "dem": 101.6,
+  "pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 101.64,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 13
+ },
+ {
+  "side": "U",
+  "idx": 2262,
+  "ll": "30.1294930,31.4132629",
+  "xy": [
+   -2060.992,
+   2288.229
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building163"
+  ],
+  "z": 76.3459,
+  "z_solve": 76.35,
+  "dem": 83.75,
+  "pinner": "pre-FGP:solve.py:6246:solve_route_profile <- solver.py:29",
+  "pre_fgp": 76.35,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 13
+ },
+ {
+  "side": "U",
+  "idx": 4169,
+  "ll": "30.1064210,31.3943957",
+  "xy": [
+   -3877.9,
+   -280.13
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 102.7681,
+  "z_solve": 102.67,
+  "dem": 99.53,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 102.67,
+  "fgp": 102.77,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 12
+ },
+ {
+  "side": "L",
+  "idx": 3351,
+  "ll": "30.1191753,31.4151978",
+  "xy": [
+   -1874.66,
+   1139.67
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 95.9382,
+  "z_solve": 95.86,
+  "dem": 100.16,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 95.86,
+  "fgp": 95.95,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 12
+ },
+ {
+  "side": "L",
+  "idx": 5700,
+  "ll": "30.1290177,31.4055841",
+  "xy": [
+   -2800.46,
+   2235.32
+  ],
+  "tier": 2,
+  "class": "taxi_family(t2)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "junction:"
+  ],
+  "z": 74.5,
+  "z_solve": 74.5,
+  "dem": 72.74,
+  "pinner": "pre-FGP:pipeline.py:7127:solve_and_finalize <- pipeline.py:4351",
+  "pre_fgp": 74.5,
+  "fgp": null,
+  "fgp_moved": false,
+  "joined": true,
+  "n_nodes": 11
+ },
+ {
+  "side": "L",
+  "idx": 4679,
+  "ll": "30.1242844,31.4149473",
+  "xy": [
+   -1898.79,
+   1708.41
+  ],
+  "tier": 0,
+  "class": "non-airside(service_junction)",
+  "pin": "hard",
+  "roles": [
+   "service_junction:"
+  ],
+  "z": 92.28,
+  "z_solve": 92.28,
+  "dem": 93.96,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 88.57,
+  "fgp": 92.28,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 11
+ },
+ {
+  "side": "U",
+  "idx": 24944,
+  "ll": "30.1307233,31.3996485",
+  "xy": [
+   -3372.059,
+   2425.184
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 61.35,
+  "z_solve": 61.35,
+  "dem": 61.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 10
+ },
+ {
+  "side": "U",
+  "idx": 2295,
+  "ll": "30.1068447,31.3961687",
+  "xy": [
+   -3707.158,
+   -232.97
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building167"
+  ],
+  "z": 101.021,
+  "z_solve": 103.01,
+  "dem": 100.62,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 103.01,
+  "fgp": 100.37,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 10
+ },
+ {
+  "side": "U",
+  "idx": 2218,
+  "ll": "30.1263692,31.4178549",
+  "xy": [
+   -1618.789,
+   1940.489
+  ],
+  "tier": 3,
+  "class": "pad(t3)",
+  "pin": "free",
+  "roles": [
+   "apron:",
+   "building:building158"
+  ],
+  "z": 83.5981,
+  "z_solve": 83.8,
+  "dem": 94.29,
+  "pinner": "FGP main projection (solve.py final_grade_projection, pass 1)",
+  "pre_fgp": 83.8,
+  "fgp": 83.6,
+  "fgp_moved": true,
+  "joined": true,
+  "n_nodes": 10
+ },
+ {
+  "side": "L",
+  "idx": 24939,
+  "ll": "30.1067798,31.3909999",
+  "xy": [
+   -4204.908,
+   -240.195
+  ],
+  "tier": 2,
+  "class": "spine_station(t2)",
+  "pin": "free",
+  "roles": [
+   "apron_station:"
+  ],
+  "z": 116.5,
+  "z_solve": 116.5,
+  "dem": 98.5,
+  "pinner": "UNJOINED",
+  "pre_fgp": null,
+  "fgp": null,
+  "fgp_moved": null,
+  "joined": false,
+  "n_nodes": 9
+ }
+]

@@ -1,0 +1,49 @@
+{
+  "capture": "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1solve/r1a_capture/HECA",
+  "icao": "HECA",
+  "patch": "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1pins/heca/HECA.osm",
+  "sidecar_present": true,
+  "shapes": 3722,
+  "body_sha256": "a62bd5b964472b0ecf641e8bd1d3396b466ab25e50330a24e8f87cdc0d708c4d",
+  "load_seconds": 0.53,
+  "replay_seconds": 726.0,
+  "write_guard_blocked": [],
+  "env_drift": {
+    "O4_AIRPORT_MOD_CACHE_DIR": [
+      "/Users/noah/XPTerrainBuilder/.claude/worktrees/r1solve/Ortho4XP/tmp/engine_caches/Airport_mod_cache",
+      "/Users/noah/XPTerrainBuilder/.claude/worktrees/r1pins/Ortho4XP/tmp/engine_caches/Airport_mod_cache"
+    ],
+    "O4_AIRSIDE_CERT_DUMP": [
+      "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1solve/r1a/r1a",
+      null
+    ],
+    "O4_BOTH_HARD_DUMP": [
+      "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1solve/r1a/r1a",
+      null
+    ],
+    "O4_DSF_CACHE_DIR": [
+      "/Users/noah/XPTerrainBuilder/.claude/worktrees/r1solve/Ortho4XP/tmp/engine_caches/Default_DSF_cache",
+      "/Users/noah/XPTerrainBuilder/.claude/worktrees/r1pins/Ortho4XP/tmp/engine_caches/Default_DSF_cache"
+    ],
+    "O4_FGP_HOLD_RELEASE": [
+      "1",
+      null
+    ],
+    "O4_HARNESS_IN_LEDGER": [
+      "1",
+      null
+    ],
+    "O4_MASKS_DIR": [
+      "/tmp/harness/r1a.engine_caches/Masks",
+      "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1pins/masks"
+    ],
+    "O4_STALL_ENVELOPE_DUMP": [
+      null,
+      "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/b89d7ebd-242d-4009-8bda-cfdad9b8aad0/scratchpad/r1pins/heca"
+    ]
+  },
+  "env_drift_allowed": true,
+  "env_restored": [],
+  "baseline_body_sha256": "134e5eadc7b0a72fa28540123274c21f191fb45031b128979ac50bea2429fd0e",
+  "verdict": "DIVERGED"
+}

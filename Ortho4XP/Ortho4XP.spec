@@ -42,6 +42,30 @@ gdal_proj_datas = (
     if gdal_proj_dir else []
 )
 
+# ---------------------------------------------------------------------------
+# auto_patch_v2 LAW TABLES (RULINGS 2026-09-03e): the law is DATA — TOML
+# files beside the package, read through ``Path(__file__).parent``.  PyInstaller
+# collects only Python modules into the PYZ, so the tables are bundled as
+# datas at the SAME relative path (``_internal/auto_patch_v2/law/*.toml``,
+# ``.../classify/rules.toml``); a bundle without them fails LOUDLY at first
+# use (``law_tables_digest()['sha256'] is None`` → the v2 worker refuses,
+# ``LawError("law table missing")`` in the loader) — v2 never falls back
+# to v1.  ``collect_submodules`` pins every v2 module into the PYZ: the
+# tile driver imports the package lazily, per engine selection.
+# ---------------------------------------------------------------------------
+import glob as _glob
+v2_law_datas = (
+    [(f, os.path.join("auto_patch_v2", "law"))
+     for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "law", "*.toml")))]
+    + [(f, os.path.join("auto_patch_v2", "classify"))
+       for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
+)
+if len(v2_law_datas) < 7:
+    raise SystemExit(
+        f"ERROR: expected the six auto_patch_v2 law tables + classify/rules.toml "
+        f"under src/auto_patch_v2, found {len(v2_law_datas)} — refusing to freeze "
+        f"an engine whose v2 cannot load its law.")
+
 a = Analysis(
     ['Ortho4XP.py'],
     pathex=['src'],
@@ -56,8 +80,8 @@ a = Analysis(
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
-    ] + gdal_proj_datas,
-    hiddenimports=collect_submodules('PIL'),
+    ] + gdal_proj_datas + v2_law_datas,
+    hiddenimports=collect_submodules('PIL') + collect_submodules('auto_patch_v2'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

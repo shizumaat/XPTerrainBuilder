@@ -14,7 +14,7 @@ from .model import (Family, Law, RoleCap, ZoneClass, load_tables,
                     resolve_ruleset)
 
 __all__ = [
-    "DEFAULT_LAW_DIR", "load_default", "resolve_ruleset", "role_cap",
+    "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
@@ -29,6 +29,25 @@ def load_default() -> Law:
     """The checked-in tables bound to the default ruleset."""
     tables = load_tables(DEFAULT_LAW_DIR)
     return Law(tables=tables, ruleset_key=tables.resolution.default)
+
+
+def law_tables_digest(law_dir: str | Path | None = None) -> dict:
+    """The law tables a build solves under, hashed — PROVENANCE for the
+    harness's ``frame.json``, the tile build's ``[provenance]`` line and
+    the artifact-ledger variant key.  Sorted ``name + bytes`` over every
+    ``.toml`` under ``law_dir`` (default: the checked-in directory), so a
+    reader can name WHICH tables without a checkout.  ``sha256`` is
+    ``None`` when the directory holds no table at all — a frozen engine
+    whose datas omitted the tables reads as exactly that, never as the
+    shipped law."""
+    import hashlib
+    d = Path(law_dir) if law_dir is not None else DEFAULT_LAW_DIR
+    files = sorted(q for q in d.glob("*.toml")) if d.is_dir() else []
+    h = hashlib.sha256()
+    for q in files:
+        h.update(q.name.encode()); h.update(b"\0"); h.update(q.read_bytes()); h.update(b"\0")
+    return {"dir": str(d), "files": [q.name for q in files],
+            "sha256": h.hexdigest() if files else None}
 
 
 # ── roles ────────────────────────────────────────────────────────────────

@@ -95,6 +95,7 @@ enum SettingsLayout {
             SettingItem("fill_nodata", "Fill missing elevation data", .tile),
             SettingItem("auto_patch", "Auto-patch airports (runway slopes)", .tile),
             SettingItem("solve_model", "Airport elevation solve", .tile),
+            SettingItem("auto_patch_engine", "Auto-patch engine (v1 / v2 preview)", .tile),
             SettingItem("modify_custom_airports", "Modify custom airports (reseat objects)", .tile),
             SettingItem("airport_elevation_insets", "Fetch airport lidar insets", .tile),
             SettingItem("airport_elevation_level", "Airport elevation detail level", .tile),

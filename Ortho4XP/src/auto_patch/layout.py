@@ -4395,7 +4395,7 @@ def _atomic_write_text(path: str, text: str) -> None:
 _PATCH_SOURCE_APT_RE = re.compile(r"o4_apt_dat='([^']*)'")
 _PATCH_SOURCE_MTIME_RE = re.compile(r"o4_apt_dat_mtime='([^']*)'")
 _PATCH_FRESHNESS_RE = re.compile(r"(o4_(?:fresh_v|cfg|dem|cifp|pack|engine"
-                                 r"|dsf_tiles|dsf))='([^']*)'")
+                                 r"|ap_engine|dsf_tiles|dsf))='([^']*)'")
 
 
 def read_patch_source(path: str) -> dict | None:

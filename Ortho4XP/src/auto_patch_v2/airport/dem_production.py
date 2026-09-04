@@ -130,13 +130,16 @@ class ProductionDem:
 
     def __init__(self, frame: Frame, icao: str, elevation_root: str,
                  osm_root: str, xplane_root: str, *, allow_degraded: bool = False,
-                 out: _t.Callable[[str], None] = print) -> None:
+                 out: _t.Callable[[str], None] = print,
+                 seed_tiles: _t.Mapping[tuple[int, int], _t.Any] | None = None,
+                 core_hosted: bool = False) -> None:
         self.frame = frame
         self.icao = icao
         self.elevation_root = elevation_root
         self.osm_root = osm_root
         self.xplane_root = xplane_root
         self.allow_degraded = bool(allow_degraded)
+        self.core_hosted = bool(core_hosted)
         self._out = out
         self.provenance: dict[str, str] = {"frame": "production",
                                            "query": "bilinear on the baked working grid"}
@@ -145,6 +148,12 @@ class ProductionDem:
         self._inv = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
         self._fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
         self._check_corpus()
+        # THE HOST'S OWN RASTER, REUSED (a tile build's ``tile.dem``): the
+        # frame of record for every patch node the mesh will sample, so
+        # it is adopted as-is — never re-composed — and its bake
+        # provenance is recorded the same way a lazy composition's is.
+        for (lat, lon), dem in sorted((seed_tiles or {}).items()):
+            self._tiles[(int(lat), int(lon))] = self._adopt(int(lat), int(lon), dem)
 
     # ── DemSample protocol ──────────────────────────────────────────
     def z(self, x: float, y: float) -> float:
@@ -177,7 +186,8 @@ class ProductionDem:
         """The core resolves ``Elevation_data`` from ITS data root; v2's
         ``elevation_root`` must be the same corpus (a private one is a
         second measurement frame — refused, RULINGS ``e9daef5``)."""
-        self._ensure_core_path()
+        if not self.core_hosted:
+            self._ensure_core_path()
         import O4_File_Names as FNAMES
         core = os.path.realpath(FNAMES.Elevation_dir)
         ours = os.path.realpath(self.elevation_root)
@@ -224,7 +234,8 @@ class ProductionDem:
             if not state["base_raster_present"]:
                 self.provenance[f"tile:{stem}"] = "ABSENT"
                 return None
-        self._ensure_core_path()
+        if not self.core_hosted:
+            self._ensure_core_path()
         import O4_Config_Utils as CFG
         import O4_OSM_Utils as OSM
         import O4_Vector_Map as VMAP
@@ -240,6 +251,24 @@ class ProductionDem:
                                          ["all"], cached_suffix="airports")
             dico = VMAP.build_airports_dico(tile, layer)
         dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
+        return self._bake(lat, lon, dem, stem, state, tile=tile,
+                          airports_smoothed=len(dico), how="composed")
+
+    def _adopt(self, lat: int, lon: int, dem: _t.Any) -> _BakedTile | None:
+        """A seeded (host-prepared) tile raster: the same checks and the
+        same provenance record as a lazy composition, minus the
+        composition — the host's cfg values ride on the DEM object where
+        it carries them."""
+        state, problems = frame_state(self.elevation_root, self.osm_root,
+                                      lat, lon, self.icao)
+        stem = state["tile_stem"]
+        if problems:
+            self._degrade(stem, problems)
+        return self._bake(lat, lon, dem, stem, state, tile=None,
+                          airports_smoothed=None, how="host-seeded")
+
+    def _bake(self, lat: int, lon: int, dem: _t.Any, stem: str, state: dict, *,
+              tile: _t.Any, airports_smoothed: int | None, how: str) -> _BakedTile:
         arr = getattr(dem, "alt_dem", None)
         if arr is None or not arr.size or not np.any(arr):
             raise ColdDemFrame(f"production frame for {stem} is IDENTICALLY ZERO "
@@ -251,13 +280,14 @@ class ProductionDem:
                                  f"{state['airport_inset']} exists — the prep "
                                  f"degraded silently (2026-08-07 class)"])
         self.provenance[f"tile:{stem}"] = (
-            f"grid {dem.nxdem}x{dem.nydem}, baked_query={dem.baked_query_active}, "
-            f"airports_smoothed={len(dico)}, insets="
-            + ",".join(f"{b.get('icao')}:{b.get('provider')}" for b in baked))
-        for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",
-                  "airport_elevation_insets", "airport_elevation_inset_feather_m",
-                  "elevation_level", "custom_dem", "fill_nodata"):
-            self.provenance[f"cfg:{k}"] = str(getattr(tile, k, ""))
+            f"{how}: grid {dem.nxdem}x{dem.nydem}, baked_query={dem.baked_query_active}, "
+            f"airports_smoothed={airports_smoothed if airports_smoothed is not None else '?'}, "
+            f"insets=" + ",".join(f"{b.get('icao')}:{b.get('provider')}" for b in baked))
+        if tile is not None:
+            for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",
+                      "airport_elevation_insets", "airport_elevation_inset_feather_m",
+                      "elevation_level", "custom_dem", "fill_nodata"):
+                self.provenance[f"cfg:{k}"] = str(getattr(tile, k, ""))
         self._out(f"  [dem] production frame {stem}: {self.provenance[f'tile:{stem}']}")
         return _BakedTile(lat, lon, arr, dem.x0, dem.x1, dem.y0, dem.y1)
 
@@ -278,11 +308,15 @@ class ProductionDem:
 def load_production_dem(frame: Frame, icao: str, elevation_root: str,
                         osm_root: str, xplane_root: str, *,
                         allow_degraded: bool = False,
-                        out: _t.Callable[[str], None] = print) -> ProductionDem:
+                        out: _t.Callable[[str], None] = print,
+                        seed_tiles: _t.Mapping[tuple[int, int], _t.Any] | None = None,
+                        core_hosted: bool = False) -> ProductionDem:
     """The production sampler, with the origin tile composed eagerly so a
-    cold frame refuses at load time, not mid-planar-build."""
+    cold frame refuses at load time, not mid-planar-build (a seeded
+    origin tile is adopted instead — see ``Inputs.production_dem_tiles``)."""
     dem = ProductionDem(frame, icao, elevation_root, osm_root, xplane_root,
-                        allow_degraded=allow_degraded, out=out)
+                        allow_degraded=allow_degraded, out=out,
+                        seed_tiles=seed_tiles, core_hosted=core_hosted)
     lat, lon = frame.origin
     dem.tile(int(math.floor(lat)), int(math.floor(lon)))
     return dem

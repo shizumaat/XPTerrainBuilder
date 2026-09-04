@@ -66,7 +66,12 @@
 #   for CYXY — lane v2m1 IN FLIGHT (Fable; owner 03h: Fable implements).
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
-#   — v1 lane r4padyield IN FLIGHT (HECA residual 1,058 apron|apron).
+#   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at
+#   pass-2/fp#8/FGP → airside 1,069 → 1,182 on the replay (pass-2 rows
+#   1,510 → 682 but apron rings absorb the drop as within_shape); the
+#   seat is MINTED in phases A/B (hard |= building_seats, spine seat
+#   stamps, body-fill anchors). ARM 2 IN FLIGHT (r4padyield2): attached
+#   pads leave the A/B hard set (premise change; 03i: ungoverned yields).
 # R1.3 MERGED e4c568c6: the pass-2 "infeasible" pins are PHANTOM — non-
 #   ring membrane nodes (stations/lattice) backfilled with the nearest
 #   CIFP runway-corner elevation (116.5 m vs DEM 98) by

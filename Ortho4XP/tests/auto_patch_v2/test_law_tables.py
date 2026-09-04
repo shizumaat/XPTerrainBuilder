@@ -276,7 +276,14 @@ def test_every_value_equals_v1(tables, capsys):
                     tables.zones)
     _common_checks(c, tables)
     _structures_emit_checks(c, tables)
-    bad = c.mismatches()
+    # RULED DEVIATIONS: places where the owner's ruling supersedes the
+    # value v1 still carries in its ruleset table (the census prices the
+    # ruled value).  Each entry: path -> (v1 value, ruled value, ruling).
+    RULED = {
+        "icao.runway.longitudinal[4]": (0.0125, 0.015, "owner 2026-07-08"),
+    }
+    bad = [(n, a, b) for n, a, b in c.mismatches()
+           if not (n in RULED and RULED[n][0] == a and RULED[n][1] == b)]
     assert not bad, "law drift vs v1:\n" + "\n".join(
         f"  {n}: v1={a!r} v2={b!r}" for n, a, b in bad)
     print(f"\n[law-twin] {len(c.rows)} constants verified equal to v1")
@@ -366,8 +373,10 @@ def test_no_numeric_literal_in_law_python():
 
 def test_accessors(tables):
     law = Law(tables=tables, ruleset_key="icao")
+    # code 4 is the RULED value (owner 2026-07-08: 1.5 % is the law),
+    # which v1's census prices as ROLE_GRADE_LIMITS["runway"].
     assert T.role_cap(law, "runway", code_number=4).longitudinal == \
-        v1.ICAO_RULESET.runway_max_grade.value(code_number=4)
+        v1.ROLE_GRADE_LIMITS["runway"]
     assert T.role_cap(law, "graded_strip") is None
     assert T.senior_role(law, ["building", "apron", "runway"]) == "runway"
     assert T.authority_rank(law, "boundary") == len(tables.precedence.order)

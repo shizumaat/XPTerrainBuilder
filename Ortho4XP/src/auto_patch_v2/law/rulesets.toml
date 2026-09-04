@@ -36,7 +36,7 @@ name = "ICAO Annex 14 Vol I / EASA CS-ADR-DSN"
 authority = "ICAO"
 
 [icao.runway]
-longitudinal      = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.0125 }, default = 0.0125 }  # Annex 14 §3.1.13
+longitudinal      = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.015 }, default = 0.015 }  # owner 2026-07-08: 1.5 % IS the law for code 3/4 (supersedes Annex 14 §3.1.13 1.25 % for code 4; the census prices 1.5 %; M3a: CIFP at SPLP implies 1.255 %)
 end_zone          = { by_code = { "3" = 0.008, "4" = 0.008 } }   # first/last quarter, code 3/4 only (§3.1.14); code 1/2: no rule
 end_zone_fraction = 0.25                                  # extent of each end zone, fraction of length
 end_zone_precision_only_codes = [3]                       # code 3: end-zone cap binds Cat II/III only

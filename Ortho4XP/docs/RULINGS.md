@@ -2279,3 +2279,8 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 ## 2026-09-05f — Owner: relaxed pad slope ≤ 1 % (`[relaxation] pad_slope_max = 0.01`)
 
 * A pad relaxed under 04t(1) may slope at most 1 % — ratified as the table value (spawner default confirmed). Owner rebuilding LEMD and HECA on app 1.0.283 for the sim read.
+
+## 2026-09-05g — HECA relaxed without demotion; LEMD hard-feasible; oracle reads relaxed rows
+
+* `lane/v2hecalemd` 2a3df1d4 merged. HECA: the certificate LP with the reach bands over used columns costs 3 s (107–207 s without), cached between rounds and seeded into a neighbourhood certificate (4 hops / 20k rows / 0.3 s); QP size-gated (`qp_max_rows = 100000`); **relaxed-optimal, no tier demoted, 125 s (solve 102), census 24/17** (`4856370d74f8`): 14 rim steps at two sites (round-3 class) + 3 building slivers; 150 relaxed rows under `relaxed_by_04t1`, 0 rows at the relaxed site. LEMD: the IIS named tunnel −5938's crest (616.99) vs basin 22's rim (611.00) on one vertex — `_faces_of` joined every `retaining_wall` to the nearest tunnel by ROLE; now by the tunnel's own ref, plus `precedence.toml [structures] datum_order = ["tunnel", "basin"]` and a `reconcile_datums` pass; **hard feasible, 2/0** (`f4f0491023f4`). CYXY 0/0 unchanged. 04x-2: `check_grade` prices `relaxed_rows` at `cap_after × the solve's own (route) distance`, stamps `out_of_scope = relaxed_by_04t1`.
+* OWED (next lane): `[relaxation] pad_slope_max = 0.01` as a table value enforced in stage 1 (HECA's relaxed pad slopes 1.28 % > the ruled 1 %); HECA's 14 rim steps (weld class at two sites); stage 1+2 warm start (96 s of HECA's 102).

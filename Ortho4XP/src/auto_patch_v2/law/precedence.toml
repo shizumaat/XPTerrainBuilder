@@ -26,7 +26,9 @@ order = [
 # partitions it (`check_grade._GROUNDSIDE_ROLES`: four roles are
 # groundside, every other role is airside — airside is king: a MIXED row
 # counts against airside); `value` = carries its own graded elevation (a
-# non-value role traces a lawful bound, no within-shape cap).
+# non-value role traces a lawful bound, no within-shape cap); `rigid` = the
+# face is ONE flat value (a pad), set by what it touches, never a pin the
+# neighbours climb to (09-03h) and never a no-step pair endpoint of its own.
 [roles]
 runway              = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }
 runway_crossing     = { family = "runway", side = "airside",    value = true,  aeroway = "runway" }
@@ -37,7 +39,7 @@ cross_connector     = { family = "taxi",   side = "airside",    value = true,  a
 junction            = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
 tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway" }
 apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
-building            = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
+building            = { family = "common", side = "airside",    value = true,  aeroway = "apron", rigid = true }  # a RIGID flat group levelled by its contact (09-01g weld = value; 09-03h pads yield)
 service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
 service_junction    = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
 groundside_pavement = { family = "common", side = "groundside", value = true,  aeroway = "apron" }

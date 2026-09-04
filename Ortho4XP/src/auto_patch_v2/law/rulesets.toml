@@ -57,6 +57,7 @@ arc_rate_provisional = true
 
 [icao.end_skirt]
 max_down_grade = 0.05                                     # beyond the runway end (reg-set 08-08)
+corridor_length_m = { by_code = { "1" = 60.0, "2" = 90.0, "3" = 150.0, "4" = 240.0 }, default = 240.0 }  # governed end corridor beyond each end (Annex 14 §3.5.3 RESA length; RUNWAY_END_CLEARANCE_LENGTH_BY_CODE)
 rate           = { grade = 0.02, per_m = 30.5 }           # PROVISIONAL
 rate_provisional = true
 
@@ -100,6 +101,7 @@ arc_rate_provisional = false
 
 [faa.end_skirt]
 near_zone_m          = 61.0                               # first 200 ft beyond the end (Table 3-6)
+corridor_length_m    = { by_code = { "1" = 60.0, "2" = 90.0, "3" = 150.0, "4" = 240.0 }, default = 240.0 }  # governed end corridor (RUNWAY_END_CLEARANCE_LENGTH_BY_CODE; the repo keys it by ICAO code number under both authorities)
 near_max_down_grade  = 0.03
 max_down_grade       = 0.05
 rate                 = { grade = 0.02, per_m = 30.5 }

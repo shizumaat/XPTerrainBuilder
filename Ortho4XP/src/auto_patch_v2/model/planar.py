@@ -150,6 +150,25 @@ class PlanarMap:
         e = self.edges[eid]
         return tuple(f for f in (e.left_face, e.right_face) if f is not None)
 
+    def ring_vertices(self, cycle: _t.Sequence[int]) -> tuple[int, ...]:
+        """The vertex ids of an edge cycle in walking order (first not
+        repeated) — I4 guarantees consecutive edges share a vertex."""
+        if not cycle:
+            return ()
+        if len(cycle) == 1:
+            e = self.edges[cycle[0]]
+            return (e.a, e.b)
+        e0, e1 = self.edges[cycle[0]], self.edges[cycle[1]]
+        cur = e0.a if e0.b in (e1.a, e1.b) else e0.b
+        out = [cur]
+        for eid in cycle:
+            e = self.edges[eid]
+            cur = e.b if cur == e.a else e.a
+            out.append(cur)
+        if out[-1] == out[0]:
+            out.pop()
+        return tuple(out)
+
 
 class PlanarError(ValueError):
     """An invariant I1..I7 is broken; the message names the offender."""

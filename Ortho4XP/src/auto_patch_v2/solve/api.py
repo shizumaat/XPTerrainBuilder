@@ -103,5 +103,6 @@ class Solution:
 
 def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
           options: Options | None = None) -> Solution:
-    """Solve the QP (see module docstring).  M2 implements; M0 raises."""
-    raise NotImplementedError("solve is an M2 deliverable (plan §1 row 6)")
+    """Solve the LP (see module docstring) — ``highs.solve`` (M2)."""
+    from .highs import solve as _solve
+    return _solve(planar, constraints, weights, options)

@@ -123,7 +123,7 @@ def test_constraint_set_counts_and_sources():
         bands=(Band(6, None, 705.0, Source("zones", "2026-08-01")),),
         offsets=(Offset(7, 8, 5.1, Source("tunnels", "2026-09-03b")),))
     assert cs.counts() == {"pins": 1, "diffs": 2, "flats": 1, "bands": 1,
-                           "offsets": 1}
+                           "offsets": 1, "linears": 0}
     assert cs.vertices() == frozenset(range(9))
     assert cs.by_generator() == {"runway_profile": 3, "pads": 1, "zones": 1,
                                  "tunnels": 1}
@@ -163,11 +163,9 @@ def test_graded_surface_json_round_trip():
 def test_package_imports_and_stubs():
     assert importlib.import_module("auto_patch_v2")
     api = importlib.import_module("auto_patch_v2.solve.api")
-    with pytest.raises(NotImplementedError):
-        api.solve(None, None, None)
+    assert callable(api.solve)                      # M2: implemented (highs.solve)
     osm = importlib.import_module("auto_patch_v2.emit.osm_adapter")
-    with pytest.raises(NotImplementedError):
-        osm.write_patch(None, None, ".")
+    assert callable(osm.write_patch)                # M2: implemented
     s2 = importlib.import_module("auto_patch_v2.emit.s2_adapter")
     with pytest.raises(NotImplementedError):
         s2.rasterise(None, (), 1.0)
@@ -193,7 +191,14 @@ def test_dependency_direction():
     order = ["law", "model", "solve", "emit"]
     producers = {"airport": {"law", "model"},
                  "classify": {"law", "model", "airport"},
-                 "planar": {"law", "model", "airport", "classify"}}
+                 "planar": {"law", "model", "airport", "classify"},
+                 # M2: constraints import law + model (+ nothing of v2 above);
+                 # verify reads law/model/emit and the constraints' pure
+                 # geometry; pipeline is the orchestrator and reads everything
+                 "constraints": {"law", "model"},
+                 "verify": {"law", "model", "emit", "constraints"},
+                 "pipeline": {"law", "model", "airport", "classify", "planar",
+                              "constraints", "solve", "emit", "verify"}}
     for py in SRC.rglob("*.py"):
         pkg = py.parent.name if py.parent != SRC else None
         imports = re.findall(r"from \.\.(\w+)", py.read_text())

@@ -19,3 +19,31 @@ step_m                  = 0.5    # an elevation disagreement at one coordinate â
 [no_step]
 window_m                = 150.0  # airside no-step direct-distance window (08-27; AIRSIDE_NO_STEP_WINDOW_M)
 k                       = 16     # law edges per airside node, spread over eight sectors (AIRSIDE_NO_STEP_K)
+
+[transect]
+# THE TRANSECT WALK (owner 2026-08-21, spec transverse-hyperplane-solve-spec.md
+# step 2; v1 auto_patch/transect_walk.py constants): the transverse law prices
+# a corridor CROSS-SECTION at stations along each axis, a perpendicular either
+# side, the ring-edge INTERPOLATIONS the perpendicular crosses.
+step_m        = 10.0   # station spacing along an axis (STEP_M)
+half_width_m  = 80.0   # how far either side a perpendicular looks (HALF_M)
+min_width_m   = 3.0    # the narrowest cross-section the law prices (MIN_WIDTH_M)
+max_gap_m     = 1.0    # the priced span's near side may sit at most this off the axis (MAX_GAP_M)
+
+[within_shape]
+# WHICH ring pairs the within-shape law prices (v1 grade_graph / grade_law).
+apron_body_chord_max_m   = 60.0  # apron interior body chord beyond this is not a grade path (APRON_BODY_CHORD_MAX_M); ring-adjacent and spine chords never dropped
+runway_station_cluster_m = 5.0   # runway ring vertices cluster into stations at this along-axis step; only same/adjacent-station pairs are lateral law (user 2026-07-08, RUNWAY_STATION_CLUSTER_M)
+
+[instrument]
+# THE CENSUS'S OWN ENCODING ENVELOPE â€” the forgiveness the v1 oracle grants
+# an EMITTED value (never a solve budget: the solver satisfies the law
+# exactly and the reader forgives rounding on top).  verify/ prices with
+# the same envelope so the two row sets are diffable.
+rounding_noise_m   = 0.03  # per-node alt_abs at 0.01 m: a pair carries this (ELEV_ROUNDING_NOISE_M)
+coarse_noise_m     = 0.1   # junction-family weld hubs / sloped quads (SLOPED_QUAD_ROUNDING_NOISE_M); also every rate reader's quantum
+coarse_noise_roles = ["junction", "service_junction"]  # the weld-hub roles the coarse envelope applies to (check_grade._WELD_HUB_ROLES = JUNCTION_ROLES)
+strip_edge_noise_m = 0.15  # runway_end_skirt ring edges (skirt_edge_noise_m)
+step_contact_tol_m = 1.0   # a vertex touches a foreign edge within this (_STEP_CONTACT_TOL_M)
+edge_search_m      = 5.0   # step readers look this far for a foreign edge (LAW_TRUE_KNOBS edge_search_m)
+tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-zone (TILE_SEAM_ZONE_M)

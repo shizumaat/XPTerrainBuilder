@@ -49,6 +49,20 @@
 #   attribute WHO MINTED the infeasible pass-2 pins (who_wrote --at on
 #   the carriers + the -10270 site; ONE instrumented HECA) so the owner
 #   can rule which senior yields (R5 if a runway datum, else R4).
+# V2 DIRECTION (owner 2026-09-03 evening): build `auto_patch_v2` from
+#   the ground up SIDE BY SIDE with v1 — fully law-compliant patches,
+#   simpler, faster to build and to apply to the mesh (NOT byte-identity);
+#   files ≤ 1,000 lines; format-agnostic GradedSurface with osm + S2
+#   adapters (X-Plane Next-Gen S2 tile engine, late 2026). PLAN:
+#   docs/specs/auto-patch-v2-plan.md (1eadc802); week review that led to
+#   it: docs/specs/review-20260903-week.md (27ce5590; artifact link
+#   inside). Lanes/scouts default to OPUS (CLAUDE.md Lanes; the hook
+#   .claude/hooks/agent_guard.py still needs the owner's one-line edit).
+# R1.3 MERGED e4c568c6: the pass-2 "infeasible" pins are PHANTOM — non-
+#   ring membrane nodes (stations/lattice) backfilled with the nearest
+#   CIFP runway-corner elevation (116.5 m vs DEM 98) by
+#   _seed_elevations(readonly) → nearest_hard_backfill; 977/1,362 rows.
+#   R1.4 lane r1backfill IN FLIGHT: carried value = the solve's own value.
 # APP 1.0.276 / engine 1.50.1719 BUILT (b6f264d2; embedded==dist, fixes
 #   verified inside the PYZ). NEXT: owner rebuilds +25+051 and sim-reads
 #   OTHH sites 25.2715296,51.6022683 / 25.2556192,51.6080938; merge R1.2

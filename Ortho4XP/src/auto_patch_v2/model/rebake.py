@@ -22,7 +22,7 @@ __all__ = ["Foot", "Member", "Unit", "RebakePlan", "MemberSeat", "UnitSeat",
            "SeatResult", "PLAN_VERSION", "PLAN_FILENAME", "DATUM_FEET",
            "DATUM_DECK_TOP"]
 
-PLAN_VERSION = 1
+PLAN_VERSION = 2       # 2: the deck signature's end lines / profile (04k, M6b)
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -56,6 +56,25 @@ class Member:
     deck_ring: tuple[LL, ...] | None = None
     deck_top_y: float | None = None
     deck_datum_z: float | None = None
+    #: THE DECK SIGNATURE (04k; ``airport/deck_signature.py``): ``"flag"``
+    #: (``ATTR_hard_deck``), ``"signature"`` (a plate spanning a bridge
+    #: way / below-grade region), ``"family"`` (a member of a deck family
+    #: without a plate: it seats WITH the deck), else ``""``.
+    deck_kind: str = ""
+    #: A signature deck's abutment END LINES ``((a, b), (c, d))`` in
+    #: ``(lat, lon)`` — where the seat reads the ground (R12: deck top at
+    #: the abutment grade; the landward walk starts here).
+    deck_ends: tuple[tuple[LL, LL], tuple[LL, LL]] | None = None
+    #: ...and its deck-top PROFILE ``(s, y)``: ``s`` metres from the
+    #: start end's midpoint along the axis, ``y`` the authored top there
+    #: (what the mid-span clearance test reads).
+    deck_profile: tuple[tuple[float, float], ...] = ()
+    #: The evidence the signature recorded (one line per fact).
+    deck_evidence: tuple[str, ...] = ()
+    #: The plate's STATIONS ``(lat, lon, authored y)``: near-horizontal
+    #: faces of its own components spread along the axis — the clearance
+    #: test's witnesses (``deck_min_clearance_under_m``).
+    deck_stations: tuple[tuple[float, float, float], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -110,6 +129,12 @@ class RebakePlan:
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
+                    "deck_kind": m.deck_kind,
+                    "deck_ends": None if m.deck_ends is None
+                    else [[[a, b] for a, b in e] for e in m.deck_ends],
+                    "deck_profile": [[s, y] for s, y in m.deck_profile],
+                    "deck_evidence": list(m.deck_evidence),
+                    "deck_stations": [list(st) for st in m.deck_stations],
                 } for m in u.members],
             } for u in self.units],
         }
@@ -134,6 +159,14 @@ class RebakePlan:
                 deck_top_y=None if m.get("deck_top_y") is None else float(m["deck_top_y"]),
                 deck_datum_z=None if m.get("deck_datum_z") is None
                 else float(m["deck_datum_z"]),
+                deck_kind=str(m.get("deck_kind", "")),
+                deck_ends=None if m.get("deck_ends") is None
+                else tuple(tuple((float(a), float(b)) for a, b in e)   # type: ignore[misc]
+                           for e in m["deck_ends"]),
+                deck_profile=tuple((float(s), float(y)) for s, y in m.get("deck_profile", ())),
+                deck_evidence=tuple(str(x) for x in m.get("deck_evidence", ())),
+                deck_stations=tuple((float(a), float(b), float(c))
+                                    for a, b, c in m.get("deck_stations", ())),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,
@@ -160,6 +193,13 @@ class MemberSeat:
     off_mesh: int
     outliers: int
     note: str = ""
+    #: The abutment records of a signature deck (per end: walked metres,
+    #: land samples, samples over water, found) and the mid-span
+    #: clearance reading — the evidence trail per member (04k).
+    records: tuple[str, ...] = ()
+    #: Whether this member FOUNDED the unit's seat (a deck plate with a
+    #: measured abutment grade; a foot member over the witness floor).
+    founding: bool = False
 
 
 @_dc.dataclass(frozen=True)

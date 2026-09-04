@@ -270,6 +270,22 @@ class Bridge:
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool
     floor_below_object_deck_m: float
+    # the deck signature by geometry (04k; M6b)
+    deck_plate_normal_y_min: float
+    deck_plane_bin_m: float
+    deck_plane_area_tie: float
+    deck_min_area_m2: float
+    deck_min_span_m: float
+    deck_min_elevation_m: float
+    deck_close_m: float
+    deck_profile_bin_m: float
+    deck_way_cover_min: float
+    deck_spanning_evidence: tuple[str, ...]
+    abutment_sample_step_m: float
+    abutment_walk_max_m: float
+    abutment_min_land_samples: int
+    deck_stations: int
+    deck_min_clearance_under_m: float
 
 
 @_dc.dataclass(frozen=True)
@@ -333,6 +349,11 @@ class Rebake:
     residual_report_m: float
     water_founds_seat: bool
     one_anchor_one_seat: bool
+    # the founding witness floor and family exclusions (04k; M6b)
+    founding_min_witnesses: int
+    founding_min_share: float
+    basin_family_excluded: bool
+    deck_family_seats_rigid: bool
 
 
 @_dc.dataclass(frozen=True)

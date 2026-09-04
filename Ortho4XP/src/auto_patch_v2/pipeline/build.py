@@ -78,6 +78,17 @@ class BuildResult:
     rebake_plan: Path | None = None
 
 
+def _basin_polygon(b):
+    """A basin's admitted region as a frame polygon (the deck signature's
+    below-grade spanning evidence, 04k), ``None`` when degenerate."""
+    from shapely.geometry import Polygon
+    try:
+        p = Polygon(b.ring)
+        return p if p.is_valid and not p.is_empty else p.buffer(0)
+    except (ValueError, TypeError):
+        return None
+
+
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
 
@@ -231,7 +242,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _to_xy = airport.frame.transformers()[0]
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
-                                exclude={oid for b in pm.basins for oid in b.objects})
+                                exclude={oid for b in pm.basins for oid in b.objects},
+                                below_grade=[(_basin_polygon(b), tuple(b.objects))
+                                             for b in pm.basins])
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             rebake_path.write_text(rplan.to_json())

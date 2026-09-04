@@ -17,6 +17,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.rebake import Foot, Member, RebakePlan, Unit
+from . import deck_signature as _deck
 from . import obj8 as _obj8
 from .pack import live_path_of
 
@@ -97,15 +98,34 @@ def _batch_to_ll(frame):
 
 def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          cache: _obj8.ResourceCache, law: Law, deck_datum: DeckDatum | None = None,
-         exclude: _t.Collection[str] = ()) -> RebakePlan:
+         exclude: _t.Collection[str] = (),
+         below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = ()) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
     ``objects`` are the planar pass's placed objects (read from the
-    AUTHORED files); ``deck_datum`` the solved surface's reading at a
-    deck ring; ``exclude`` the placement ids the TERRAIN adapted to (the
-    basin facilities, RULINGS 2026-08-26 / v1 ruling R4) — never
-    re-seated."""
+    AUTHORED files, the deck signature applied); ``deck_datum`` the
+    solved surface's reading at a flagged deck ring; ``exclude`` the
+    placement ids the TERRAIN adapted to (the basin facilities, RULINGS
+    2026-08-26 / v1 ruling R4) — never re-seated, and with
+    ``[rebake] basin_family_excluded`` neither is any member of their
+    anchor family (m6a Q3: Dewatering_01's rim pieces go with the pit);
+    ``below_grade`` the emitted below-grade regions ``(frame polygon,
+    owner ids)`` — a CANDIDATE plate of a foreign family over one is a
+    deck (``deck_signature.promote``)."""
     rb = law.tables.structures.rebake
     excluded = set(exclude)
+    if below_grade:
+        owners = {oid for _r, ids in below_grade for oid in ids}
+        foreign = [o for o in objects if o.id not in owners]
+        keep = {o.id for o in foreign}
+        promoted, _n = _deck.promote(foreign, [r for r, _ids in below_grade])
+        by_id = {o.id: o for o in promoted}
+        objects = [by_id.get(o.id, o) if o.id in keep else o for o in objects]
+    fam_of = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
+    if rb.basin_family_excluded:
+        basin_keys = {fam_of[oid] for oid in excluded if oid in fam_of}
+        excluded |= {o.id for o in objects if fam_of.get(o.id) in basin_keys}
+    deck_keys = {fam_of[o.id] for o in objects
+                 if o.resolved is not None and o.deck_kind in ("flag", "signature")}
     to_xy, to_ll = airport.frame.transformers()
     to_ll_batch = _batch_to_ll(airport.frame)
     apt = airport.pack.apt_dat_path
@@ -114,7 +134,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "outside_pack": 0, "msl": 0, "multi_anchor": 0,
                               "units": 0, "members": 0, "deck_members": 0,
                               "feet": 0, "no_feet": 0, "terrain_adapted": 0,
-                              "below_grade": 0}
+                              "below_grade": 0, "deck_families": len(deck_keys),
+                              "signature_decks": sum(1 for o in objects
+                                                     if o.deck_kind == "signature")}
     skipped: dict[str, str] = {}
     anchors_by_resource: dict[str, set[tuple[float, float, float]]] = {}
     keyed: list[tuple[tuple[float, float, float], _obj8.PlacedObject]] = []
@@ -125,14 +147,18 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in excluded:
             counts["terrain_adapted"] += 1
-            skipped.setdefault(o.path, "basin facility: the terrain adapted to it "
-                                        "(08-26; v1 R4) — never re-seated")
+            skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
+                                        "adapted to it (08-26; v1 R4) — never re-seated")
             continue
-        if o.below_grade is not None:
+        in_deck_family = fam_of.get(o.id) in deck_keys
+        if o.below_grade is not None and not (in_deck_family and rb.deck_family_seats_rigid):
             # a genuine solid under the local grade is a FACILITY the
             # terrain adapts to (08-26), never feet to seat: OTHH's
             # Drainage bowls (−3.8 m floors) and TerminalRoads_Parking_005
-            # (−9.1 m) would otherwise lift their whole families
+            # (−9.1 m) would otherwise lift their whole families.  In a
+            # DECK family it is a pier footing under the canal bed: it
+            # seats WITH its deck (R12-2 completeness; v1 wrote all 12
+            # Bridge_01 members), never left behind.
             counts["below_grade"] += 1
             skipped.setdefault(o.path, "below-grade solids: the terrain adapts to it "
                                         "(08-26), never re-seated by its feet")
@@ -177,6 +203,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         deck_ring = None
         deck_top_y = None
         deck_datum_z = None
+        deck_ends = None
+        deck_profile: tuple[tuple[float, float], ...] = ()
+        deck_stations: tuple[tuple[float, float, float], ...] = ()
         if o.hard_deck is not None and o.deck_top_z is not None:
             poly = o.hard_deck
             if poly.geom_type != "Polygon":
@@ -184,7 +213,18 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             ring_xy = [(float(x), float(y)) for x, y in poly.exterior.coords[:-1]]
             deck_ring = tuple(to_ll(x, y) for x, y in ring_xy)
             deck_top_y = float(o.deck_top_z - o.anchor_z - o.agl_m)
-            deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
+            if o.deck_kind == "signature" and o.deck_plate is not None:
+                # THE ABUTMENTS (R12): the deck top lands at the ground at
+                # the deck's END LINES, on land — read after the mesh by
+                # ``emit/rebake.py``; the solved surface is not consulted
+                # (a bridge over a canal stands outside every graded face)
+                pl = o.deck_plate
+                if pl.ends is not None:
+                    deck_ends = tuple(tuple(to_ll(x, y) for x, y in e) for e in pl.ends)
+                deck_profile = tuple(pl.profile)
+                deck_stations = tuple((*to_ll(sx, sy), float(y)) for (sx, sy), y in pl.stations)
+            else:
+                deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
             counts["deck_members"] += 1
         if not feet and deck_ring is None:
             counts["no_feet"] += 1
@@ -193,7 +233,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
             else live_path_of(o.resolved)
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
-                                 o.heading_deg, feet, deck_ring, deck_top_y, deck_datum_z)
+                                 o.heading_deg, feet, deck_ring, deck_top_y, deck_datum_z,
+                                 o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
+                                 deck_stations)
         counts["feet"] += len(feet)
     units: list[Unit] = []
     for i, (key, members) in enumerate(sorted(units_by_key.items())):

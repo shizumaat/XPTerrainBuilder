@@ -24,6 +24,31 @@ deck_datum          = "deck_top"   # object seating datum = deck TOP (memory oth
 mapped_deck_cuttable = false       # a mapped road bridge over emitted below-grade is a deck, not cuttable (08-28 :1908)
 terrain_deck_without_object = true # no object => terrain deck at road level cutting the ramp (08-28 :1920)
 floor_below_object_deck_m = 0.5    # tunnel floor under an object deck (TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+# THE DECK SIGNATURE BY GEOMETRY (RULINGS 2026-09-04k; lane v2deck, M6b) for
+# objects carrying NO ATTR_hard_deck (OTHH's Bridge_0x: 0 hard triangles):
+# ATTR_hard_deck stays the PRIMARY signature; a family (one anchor spelling)
+# with no flagged member is read for a PLATE — the family's dominant plane of
+# near-horizontal solid faces standing deck_min_elevation_m or more above the
+# family's lowest feet — that SPANS something the terrain cannot carry: a
+# mapped bridge way (highway/railway, bridge != no) crossing it, or an emitted
+# below-grade region (basin / tunnel ramp) under it.  A roof or a canopy is a
+# plate too; the spanning evidence is what refuses it (and, after the mesh, the
+# clearance under the seated deck's mid-span: deck_min_clearance_under_m).
+deck_plate_normal_y_min = 0.7      # a solid face is a plate face when |normal_y| reaches this (NEAR_HORIZONTAL_NORMAL_Y_MIN; v1 _classify_bridge)
+deck_plane_bin_m        = 0.5      # plate faces are binned by their mean authored height this coarse; the family's DECK PLANE is the largest-area bin (PLANE_HEIGHT_BIN_M; v1 _dominant_height_plane — the reading behind the R12 seats the owner accepted)
+deck_plane_area_tie     = 0.9      # bins within this fraction of the largest bin's area TIE and the higher one is the deck top (a slab's underside equals its top in area; OTHH's five families have no second bin above 83 % — Bridge_01's 3.5 bin against its 3.0 bin)
+deck_min_area_m2        = 200.0    # the deck plane's total face area across the family (BRIDGE_MIN_DECK_AREA_M2)
+deck_min_span_m         = 10.0     # a member's plate must run at least this along its long axis to carry abutment end lines (a 2 m² kerb piece founds nothing)
+deck_min_elevation_m    = 2.0      # the plane stands at least this above the family's lowest feet — a slab on the ground is not a deck (BRIDGE_DECK_CARRIED_MIN_HEIGHT_M)
+deck_close_m            = 1.0      # a member's plate faces are closed at this before its axis is read (BRIDGE_DECK_CLOSE_M)
+deck_profile_bin_m      = 10.0     # the deck-top profile along the axis: max face corner per bin (BRIDGE_PROFILE_BIN_LENGTH_M)
+deck_way_cover_min      = 0.5      # a mapped bridge way CARRIES a plate when its pieces inside the plate's rectangle project this much of the plate's length along its axis (OTHH: Bridge_05 0.97, _04 0.84, _01 0.67; a way crossing the 466-member TerminalRoads/Terminal_Base slab family transversally reads 0.02 — the slab is no deck)
+deck_spanning_evidence  = ["road_bridge", "below_grade"]   # what a plate must span to be a deck: a mapped bridge way over it, or an emitted below-grade region under it (04k "the deck spans a below-grade cut/road")
+abutment_sample_step_m  = 5.0      # the abutment grade is sampled along each deck-end line this far apart (_ABUTMENT_GRADE_SAMPLE_STEP_M)
+abutment_walk_max_m     = 60.0     # a deck end whose samples are water WALKS LANDWARD along the axis, one step at a time, up to this (R12 amendment 1: _ABUTMENT_LAND_WALK_MAX_M — far enough to clear OTHH's canal bank, short enough to be the bridge's own shore)
+abutment_min_land_samples = 4      # ...until this many land samples stand on the line (_ABUTMENT_LAND_MIN_SAMPLES)
+deck_stations           = 32       # near-horizontal faces of the plate's own components, spread along the axis, that the clearance test samples (a witness set)
+deck_min_clearance_under_m = 1.0   # AFTER the seat: the mesh under SOME station must lie this far under the seated face there, or be water — a plate whose every station stands on the ground it covers spans nothing (a canopy, an elevated kerb road on columns: OTHH Terminal_Parking); the deck seat is refused with a finding and the feet law governs
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)
@@ -89,3 +114,10 @@ min_delta_m         = 1.0          # a unit whose seat moves it less than this s
 residual_report_m   = 0.75         # a foot the rigid seat leaves further than this off the mesh is a FINDING (DSF_OBJECT_FOOT_PAD_RESIDUAL_M), never a split seat
 water_founds_seat   = false        # a foot standing on a WATER mesh triangle never founds a seat (R12: OTHH's canal at 0.00 is not a datum)
 one_anchor_one_seat = true         # every placement sharing one anchor spelling (lat, lon, AGL) is ONE rigid unit with ONE delta (shared-datum-pack-authoring; canonical identity, never proximity)
+# THE FOUNDING WITNESS FLOOR (04k; lane v2deck): a member founds a feet seat
+# only with enough land witnesses — TerminalRoads_03_004 (4 witnesses, its
+# floor 6.3 m under the rest) would otherwise lift a 400-object family.
+founding_min_witnesses = 8         # a founding member carries at least this many land witnesses (when any member of the unit has that many — a sign on four feet still seats on its four)...
+founding_min_share     = 0.25      # ...and at least this share of the unit's LARGEST member's land witnesses (witnesses are thinned to foot_samples_per_member, so a 400-member family's total says nothing; 4 against 256 founds nothing, Bridge_01's plate at 64 against 155 does)
+basin_family_excluded  = true      # a basin facility excludes its WHOLE anchor family from the re-seat (Dewatering_01_000's rim pieces go with the pit; m6a Q3), never just the below-grade member
+deck_family_seats_rigid = true     # in a deck family a member with below-grade solids (a pier footing under the canal bed) is SEATED with its deck, never left behind (R12-2 member-set completeness: v1 wrote all 12 Bridge_01 members)

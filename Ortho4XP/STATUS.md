@@ -81,8 +81,11 @@
 #   BASINS MERGED 14a42f9c (04f); RESIDUALS MERGED (04g): harness
 #   --engine v2 + seam-tear fixes + quantum allowance → FIVE AIRPORTS
 #   0/0 ledgered (CYXY 4.3 s, SPLP 7.3 s, SPJC 12.8, OTHH 28.9, LEMD
-#   30.5). NEXT: owner sim read of v2 patches; M5 HECA/KCLT after 03k;
-#   OBJ8 parse cache; mesh bar --runs 3; app engine selection.
+#   30.5). V2 IN THE APP (04h): `auto_patch_engine = v2` setting + driver
+#   dispatch + harness --tile; OTHH tile v2 patch 0/0. App rebuilt from
+#   main (see below). NEXT: OWNER SIM READ of v2 (+25+051, +60-136; A/B
+#   by flipping the key); M5 HECA/KCLT after 03k; OBJ8 parse cache;
+#   masks-step shared-repo write chip.
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
 #   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at

@@ -50,10 +50,29 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--cifp-dir")
     e.add_argument("--data-root")
     add_dem_frame_args(e)
+    y = sub.add_parser("why", help="WHAT BINDS THIS SHAPE: the active rows, the chain "
+                       "trace to the nearest hard pin and the relax-one-family rises")
+    y.add_argument("icao")
+    y.add_argument("--shape", type=int, help="face id (= shapeID of the v2 patch)")
+    y.add_argument("--at", help="LAT,LON (WGS84)")
+    y.add_argument("--patch", help="match --shape's ring in THIS patch to a face instead")
+    y.add_argument("--relax", help="comma-separated families to relax (default: the "
+                   "binding families by Σ|dual|, at most --max-relax)")
+    y.add_argument("--max-relax", type=int, default=5)
+    y.add_argument("--drop", help="comma-separated families dropped BEFORE the solve "
+                   "(a labelled arm: 'with X relaxed, what binds next?')")
+    y.add_argument("--top", type=int, default=3, help="binding rows shown per vertex")
+    y.add_argument("--xplane-root")
+    y.add_argument("--cifp-dir")
+    y.add_argument("--data-root")
+    y.add_argument("--law-dir", help="an ALTERNATIVE law-table directory (a labelled arm)")
+    add_dem_frame_args(y)
     args = ap.parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
     if args.cmd == "explain":
         return explain_main(args)
+    if args.cmd == "why":
+        return why_main(args)
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
                             args.feather_m, args.dem_frame, args.allow_degraded_dem)
     cfg = Config(options=Options(diagnose_iis=not args.no_iis,
@@ -111,6 +130,31 @@ def explain_main(args) -> int:
     print(f"shape {args.shape} in {patch}: shipped role={tags.get('role')} "
           f"class={tags.get('class', '-')} ref={tags.get('ref')} area={poly.area:,.0f} m2")
     print(render(explain_polygon(poly, cl, ev, airport)))
+    return 0
+
+
+def why_main(args) -> int:
+    """``why``: the pipeline's LP rebuilt (no emit) and one face's binding
+    story (``solve/why.py``)."""
+    from ..solve.why import prepare, report, resolve_faces
+    if (args.shape is None) == (args.at is None):
+        print("why: exactly one of --shape N / --at LAT,LON")
+        return 2
+    icao = args.icao.upper()
+    inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
+                            60.0, args.dem_frame, args.allow_degraded_dem)
+    law = Law.for_airport(icao, law_dir=args.law_dir) if args.law_dir else None
+    drop = args.drop.split(",") if args.drop else ()
+    with shared_repo_guard():
+        prep = prepare(icao, inputs, law, drop=drop)
+    at = tuple(float(v) for v in args.at.split(",")) if args.at else None
+    faces, how = resolve_faces(prep, args.shape, at, args.patch)
+    print(f"[{icao}] why: {how}")
+    if not faces:
+        return 1
+    relax = args.relax.split(",") if args.relax else None
+    for fid in faces:
+        print(report(prep, fid, top=args.top, relax=relax, max_relax=args.max_relax))
     return 0
 
 

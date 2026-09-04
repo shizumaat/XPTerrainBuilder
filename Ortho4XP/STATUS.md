@@ -6,8 +6,11 @@
 #   the apron page — next pass). CUTOUTS MERGED 461617e2 (04l: OTHH ten
 #   basins by floor witness). REBAKE MERGED b7eac6d7 (04k: restore-before-
 #   read; re-bake measured-only — bridge datum gap → lane v2deck).
-#   IN FLIGHT: v2law2 (04i law-ordered priority, HECA/KCLT), v2deck.
-#   App rebuild from main in progress (→ 1.0.280).
+#   DECK MERGED 3fb6dd1d (04n: bridge seats = accepted, re-bake writes
+#   lawful). APP 1.0.280 / engine 1.50.1722 built (class + cutouts +
+#   restore-before-read; deck lands in the next build). IN FLIGHT:
+#   v2law2 (04i law-ordered priority, HECA/KCLT). Log review 08:53: the
+#   Peru tiles built v1 — tile cfg predates the key (chip filed).
 # APP 1.0.279 / ENGINE 1.50.1721 BUILT (v2 bundled, verified in the PYZ).
 # OWNER RULINGS 04i: priority is the LAW's, terrain never blocks (03k
 #   closed → M5 HECA/KCLT lane v2law2); restore + re-bake every build

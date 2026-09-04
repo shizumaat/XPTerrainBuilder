@@ -3,14 +3,23 @@ not always reliable; a feasible solution exists for every airport; ALL
 pavement must comply with the law and always overrides terrain when
 needed; the LAW's priority order decides which governed surface yields").
 
-One HARD solve; a SEARCH over the demotion depth only when it cannot:
+One HARD solve; THE LAST RESORT (RULINGS 2026-09-04t(1), ``solve/relax.py``:
+the IIS-scoped least-total-variance relaxation) when it cannot; the SEARCH
+over the demotion depth only when the IIS cannot be found inside its
+budget or names no relaxable row:
 
 1. **HARD.**  Every law row as the generators minted it — every governed
    pavement law row hard, the DEM only in the objective (M2) and in the
    seam / end-zone / crown preference groups (M3a).  OPTIMAL here means no
    surface yielded to any other: the shipped behaviour of the five
    zero airports, byte for byte.
-2. **DEMOTE**, when 1 is infeasible.  ``demote(k_min)`` turns every row
+1b. **RELAX** (04t-1), when 1 is infeasible: the IIS names the
+   contradiction; its apron / pad / between-building rows take slacks
+   whose Σ slack² is minimised, the relief is fixed into the rows, and
+   the normal solve runs on that relaxed HARD set (``TierReport.mode ==
+   "relaxed"``; ``relaxation`` carries the rows and slacks).  The
+   preference ladder below is not entered.
+2. **DEMOTE**, when 1 is infeasible and 1b could not answer.  ``demote(k_min)`` turns every row
    of every tier ``≥ k_min`` (``constraints.precedence.tiers``; tier 0 =
    the runway family) into a PREFERENCE with an unbounded slack, charged
    ``Weights.preference["law"] × ratio ** rank`` per metre of relief
@@ -164,7 +173,7 @@ def ladder_ratio(weights: Weights, n_ranks: int) -> float:
 class TierReport:
     """What the law-ordered solve did."""
 
-    mode: str                                   # "hard" | "tiered"
+    mode: str                                   # "hard" | "relaxed" | "tiered"
     tiers: tuple[tuple[str, ...], ...]
     #: the most senior tier demoted (every tier from it down is soft)
     k_min: int | None = None
@@ -175,6 +184,12 @@ class TierReport:
     wall_hard_s: float = 0.0
     #: the demotion attempts: ``(k_min, status, wall_s)``
     attempts: list[tuple[int, str, float]] = _dc.field(default_factory=list)
+    #: THE LAST RESORT's report (``relax.RelaxReport.as_dict``): present
+    #: whenever the hard set was infeasible — applied, or why not
+    relaxation: dict[str, _t.Any] | None = None
+    #: the relaxed HARD set the solution satisfies (mode "relaxed"), for
+    #: the publication and ``why``; never serialised
+    relaxed_set: _t.Any = _dc.field(default=None, repr=False, compare=False)
 
     def as_dict(self) -> dict[str, _t.Any]:
         return {"mode": self.mode, "tiers": [list(t) for t in self.tiers],
@@ -182,16 +197,22 @@ class TierReport:
                 "yielded": {str(k): v for k, v in sorted(self.yielded.items())},
                 "wall_hard_s": round(self.wall_hard_s, 3),
                 "attempts": [{"k_min": k, "status": st, "wall_s": round(w, 3)}
-                             for k, st, w in self.attempts]}
+                             for k, st, w in self.attempts],
+                "relaxation": self.relaxation}
 
     def line(self) -> str:
         if self.mode == "hard":
             return "law tiers: hard set feasible, no surface yielded"
+        if self.mode == "relaxed":
+            return ("law tiers: hard set INFEASIBLE; " + str((self.relaxation or {}).get("line", ""))
+                    + "; no tier demoted")
         parts = [f"tier {k} {' '.join(self.tiers[k][:2])}{'…' if len(self.tiers[k]) > 2 else ''}: "
                  f"{v['rows']} rows, max {v['max_m']:.3f} m"
                  for k, v in sorted(self.yielded.items())]
         att = ", ".join(f"k_min {k} {st} {w:.1f} s" for k, st, w in self.attempts)
-        return (f"law tiers: hard set INFEASIBLE; soft from tier {self.k_min} down "
+        why_not = (self.relaxation or {}).get("line")
+        return (f"law tiers: hard set INFEASIBLE; " + (f"{why_not}; " if why_not else "")
+                + f"soft from tier {self.k_min} down "
                 f"({self.demoted} rows, ratio {self.ratio:.3g}; {att}); "
                 + ("; ".join(parts) if parts else "nothing yielded"))
 
@@ -236,7 +257,20 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep = TierReport("hard", tt, wall_hard_s=sol.wall_s)
     if sol.status is not Status.INFEASIBLE:
         return sol, rep
-    rep = TierReport("tiered", tt, wall_hard_s=sol.wall_s)
+    # THE LAST RESORT FIRST (04t-1): IIS-scoped, least total variance
+    from .relax import solve_relaxed
+    size_relax: dict = {}
+    rsol, rrep, rcs = solve_relaxed(planar, cs, law, weights, opt, size_out=size_relax)
+    rdict = rrep.as_dict()
+    rdict["line"] = rrep.line()
+    if rsol is not None:
+        rep = TierReport("relaxed", tt, wall_hard_s=sol.wall_s, relaxation=rdict,
+                         relaxed_set=rcs)
+        if size_out is not None:
+            size_out.update(size_relax)
+        msg = rsol.message.split("; preferences yielded")[0]
+        return _dc.replace(rsol, message=msg + "; " + rep.line()), rep
+    rep = TierReport("tiered", tt, wall_hard_s=sol.wall_s, relaxation=rdict)
     lowest = len(tt) - 1
     best: tuple[int, Solution, dict, dict[int, Demoted]] | None = None
 

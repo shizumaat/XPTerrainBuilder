@@ -27,7 +27,8 @@ from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_stri
 from .transverse import transverse
 from .within import plane_gradient, within_shape
 
-__all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "census", "census_patch"]
+__all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "RELAXED_KEY", "RELAXED_RULING",
+           "mark_relaxed", "census", "census_patch"]
 
 #: family key -> reader (one reader may serve two families: within_shape
 #: yields the road cross-section rows beside its own).
@@ -80,9 +81,46 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
     return out
 
 
+#: The key a row carries when it sits on a vertex the last resort relaxed
+#: (RULINGS 2026-09-04t(1)); its value names the ruling.
+RELAXED_KEY = "relaxed_by"
+RELAXED_RULING = "04t(1)"
+
+
+def mark_relaxed(p: Patch, rows: dict[str, list[Row]]) -> dict[str, list[Row]]:
+    """THE "relaxed by 04t(1)" HEADING: a row with an endpoint on a vertex
+    of a published relaxed row (sidecar ``relaxed_rows``, identity by the
+    census's own proximity knob) is a lawful last-resort row, tagged so
+    every reader can count it apart from the rest.  In place; returns
+    ``rows``."""
+    rel = p.publication.get("relaxed_rows") or []
+    if not rel:
+        return rows
+    pts = [p.to_m(float(la), float(lo)) for r in rel for la, lo in r.get("ll", [])]
+    if not pts:
+        return rows
+    tol = p.law.tables.emit.identity.min_distinct_spacing_m
+    cells: set[tuple[int, int]] = set()
+    for x, y in pts:
+        cells.add((round(x / tol), round(y / tol)))
+
+    def near(xy) -> bool:
+        cx, cy = round(xy[0] / tol), round(xy[1] / tol)
+        return any((cx + dx, cy + dy) in cells for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+
+    for lst in rows.values():
+        for r in lst:
+            site = r.get("site_m")
+            if site and any(near(pt) for pt in site):
+                r[RELAXED_KEY] = RELAXED_RULING
+    return rows
+
+
 def census(surface: GradedSurface, law: Law,
            publication: _t.Mapping[str, _t.Any] | None = None,
            law_caps: _t.Mapping[int, float] | None = None
            ) -> dict[str, list[Row]]:
-    """Rows per family over the emitted product."""
-    return census_patch(Patch.of(surface, law, publication, law_caps))
+    """Rows per family over the emitted product; rows on relaxed vertices
+    carry :data:`RELAXED_KEY` (:func:`mark_relaxed`)."""
+    p = Patch.of(surface, law, publication, law_caps)
+    return mark_relaxed(p, census_patch(p))

@@ -123,6 +123,41 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
     return dict(sorted(acc.items(), key=lambda kv: (kv[1]["tier"] is None, kv[1]["tier"])))
 
 
+def relaxed_publication(rep: TierReport) -> list[dict[str, _t.Any]]:
+    """The sidecar ``relaxed_rows`` records (RULINGS 2026-09-04t(1)): one
+    per relaxed row — kind, family, ruling, face, slack metres, the
+    vertices' lat/lon identities — so every census can count the rows on
+    them under the "relaxed by 04t(1)" heading."""
+    if rep.mode != "relaxed" or not rep.relaxation:
+        return []
+    return [{"kind": r["kind"], "family": r["family"], "ruling": r["ruling"],
+             "face": r.get("face"), "slack_m": r["slack_m"], "ll": r["ll"],
+             **({"slope": r["slope"], "extent_m": r["extent_m"]} if r["kind"] == "pad"
+                else {"cap": r.get("cap"), "cap_after": r.get("cap_after"),
+                      "distance_m": r.get("distance_m")})}
+            for r in rep.relaxation.get("rows", [])]
+
+
+def relaxation_lines(rep: TierReport) -> list[str]:
+    """The relaxation's rows for the build log (``relaxed by 04t(1)``)."""
+    rl = rep.relaxation or {}
+    if not rl.get("applied"):
+        return []
+    out = [f"relaxed by 04t(1): {len(rl['rows'])} rows; slack stats {rl.get('stats')}; "
+           f"certificate {rl.get('certificate')}"]
+    for r in rl["rows"]:
+        if r["kind"] == "pad":
+            out.append(f"  pad   face {r['face']} {r['inputs'][1:2]} slope {r['slope']:.5f} "
+                       f"rise {r['slack_m']:.4f} m over {r['extent_m']:.1f} m")
+        else:
+            out.append(f"  {r['kind']:5s} {r['family']:8s} face {r['face']} slack {r['slack_m']:.4f} m"
+                       + (f" cap {r['cap']:.4f} -> {r['cap_after']:.5f} over {r['distance_m']:.1f} m"
+                          if r["kind"] == "diff" else ""))
+    for u in rl.get("unrelaxed", []):
+        out.append(f"  held  {u['kind']} {u['family']} ({u['ruling'][:60]})")
+    return out
+
+
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
           config: Config | None = None, law: Law | None = None,
           out: _t.Callable[[str], None] = print) -> BuildResult:
@@ -213,6 +248,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     _say(f"[{icao}] {tier_rep.line()}", out)
+    relaxed_rows = relaxed_publication(tier_rep)
+    for ln in relaxation_lines(tier_rep):
+        _say(f"    {ln}", out)
     moved = displacement_by_role(pm, law, sol) if sol.z else {}
     if moved:
         _say(f"[{icao}] off-DEM > {MOVED_M} m by role: " + ", ".join(
@@ -261,6 +299,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
         pub = publication(pm, law, airport, sol.z)
+        if relaxed_rows:
+            pub["relaxed_rows"] = relaxed_rows
         header = {"o4_apt_dat": airport.pack.apt_dat_path,
                   "o4_pack": airport.pack.name}
         header.update(cfg.header_extra or {})
@@ -319,11 +359,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             from ..verify import census
             vrows = census(surf, law, pub, road_law_caps(pm, law, airport))
             wall["verify"] = time.perf_counter() - t
-            summary = {k: len(v) for k, v in vrows.items()}
+            from ..verify.census import RELAXED_KEY
+            relaxed_v = {k: sum(1 for r in v if r.get(RELAXED_KEY)) for k, v in vrows.items()}
+            summary = {k: len(v) - relaxed_v[k] for k, v in vrows.items()}
             _say(f"[{icao}] verify {wall['verify']:.2f} s  rows "
                  f"{sum(summary.values())}  " + ", ".join(
                      f"{k} {n}" for k, n in summary.items() if n), out)
+            if any(relaxed_v.values()):
+                _say(f"[{icao}] verify: relaxed by 04t(1) (lawful last-resort rows, counted "
+                     f"apart): {sum(relaxed_v.values())}  " + ", ".join(
+                         f"{k} {n}" for k, n in relaxed_v.items() if n), out)
             report["verify"] = {"by_family": summary,
+                                "relaxed_by_04t1": {k: n for k, n in relaxed_v.items() if n},
                                 "rows": {k: v for k, v in vrows.items() if v}}
     else:
         for r, s in sol.iis[:50]:

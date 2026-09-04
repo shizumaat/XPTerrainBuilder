@@ -64,6 +64,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",
+    "relaxed_rows",   # RULINGS 2026-09-04t(1): the rows the last resort relaxed, with their slacks (``solve/relax.py``)
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

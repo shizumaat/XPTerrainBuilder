@@ -25,6 +25,7 @@ __all__ = [
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Structures", "Chords", "Identity", "Materiality",
+    "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables",
@@ -464,6 +465,19 @@ class LateralContiguity:
 
 
 @_dc.dataclass(frozen=True)
+class Relaxation:
+    """THE LAST RESORT (RULINGS 2026-09-04t(1)): the IIS-scoped,
+    least-total-variance relaxation's budgets (``solve/relax.py``)."""
+
+    iis_time_budget_s: float
+    qp_time_budget_s: float
+    max_rounds: int
+    max_pieces: int
+    materiality_m: float
+    relaxable_from_role: str
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -476,6 +490,7 @@ class EmitLaw:
     instrument: Instrument
     seam: Seam
     lateral_contiguity: LateralContiguity
+    relaxation: Relaxation
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────

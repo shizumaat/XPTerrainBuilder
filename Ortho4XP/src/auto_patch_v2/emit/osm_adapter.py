@@ -216,13 +216,21 @@ def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
     breakline runs inside them; the sidecar is the whole airport's (the
     census's axes and pairs are geometric, the tile filter is on faces).
     A single-tile surface writes one piece, identical to ``write_patch``."""
+    import math
     by_tile: dict[tuple[int, int], list] = {}
     for f in surface.faces:
         by_tile.setdefault(tile_of_face(surface, f), []).append(f)
+    vs = {v.id: v for v in surface.vertices}
     out: dict[tuple[int, int], PatchPaths] = {}
     for (lat, lon), faces in sorted(by_tile.items()):
         keep = {i for f in faces for i in f.ring} | \
             {i for f in faces for h in f.holes for i in h}
+        # breakline stations INSIDE a face (the runway ridge's profile
+        # stations are not ring vertices) travel with their tile, so the
+        # piece's crown spine keeps the stations the census reads against
+        for b in surface.breaklines:
+            keep |= {i for i in b.vertices
+                     if (int(math.floor(vs[i].ll[0])), int(math.floor(vs[i].ll[1]))) == (lat, lon)}
         verts = tuple(v for v in surface.vertices if v.id in keep)
         bls = []
         for b in surface.breaklines:

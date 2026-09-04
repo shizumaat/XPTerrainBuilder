@@ -46,6 +46,9 @@ class Config:
     options: Options = Options()
     verify: bool = True
     feather_m: float = 60.0
+    #: Seam passes after the first solve (the exemption set = the seam
+    #: vertices the previous solve held on the DEM), to a fixed point.
+    seam_passes_max: int = 6
 
 
 @_dc.dataclass
@@ -102,23 +105,29 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     size: dict[str, int] = {}
     sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
-    # SEAM SECOND PASS: a seam vertex the solve could not hold on the DEM
-    # is FREE, so the pairs the first pass exempted as pin↔pin around it
-    # come back as law rows (the census prices them) and the LP runs once
-    # more over exactly that set.
+    # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
+    # FREE, so the pairs the previous pass exempted as pin↔pin around it
+    # come back as law rows (the census prices them) and the LP runs
+    # again over exactly that set, to a fixed point of the honoured set.
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
         tol = law.tables.emit.materiality.elevation_m
-        honoured = {v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
-                    and abs(sol.z[v] - pm.vertices[v].dem_z) <= tol}
-        if len(honoured) < len(pm.seam_vertices):
+        prev: frozenset[int] | None = None
+        for n_pass in range(2, 2 + cfg.seam_passes_max):
+            honoured = frozenset(v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
+                                 and abs(sol.z[v] - pm.vertices[v].dem_z) <= tol)
+            if len(honoured) == len(pm.seam_vertices) or honoured == prev:
+                break                 # every seam value held, or a fixed point
+            prev = honoured
             t = time.perf_counter()
             cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
             sol = solve(pm, cs, cfg.weights, cfg.options, size_out=size)
-            wall["solve_pass2"] = time.perf_counter() - t
-            _say(f"[{icao}] seam pass 2: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
+            wall[f"solve_pass{n_pass}"] = time.perf_counter() - t
+            _say(f"[{icao}] seam pass {n_pass}: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
                  f"{counts2['seam_pin_pair_exempt']} pairs exempt, "
-                 f"{wall['solve_pass2']:.2f} s, status {sol.status.value}", out)
+                 f"{wall[f'solve_pass{n_pass}']:.2f} s, status {sol.status.value}", out)
+            if sol.status.value not in ("optimal", "feasible"):
+                break
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:

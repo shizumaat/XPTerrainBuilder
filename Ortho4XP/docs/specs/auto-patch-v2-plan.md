@@ -109,9 +109,11 @@ before M0 is ratified.
    v2 patch vs v1 patch on the same tile — no slower, fewer edges.
 5. **Models**: Fable for design, specs, reviews AND implementation
    (owner 2026-09-03h: higher success rate).
-6. **Apron relief (03h)**: pads YIELD — a pad stays connected to its
-   apron and the apron stays within its grade law; the pad is a flat
-   group levelled by its apron contact, never a pin the apron climbs to.
+6. **Apron relief (03h/03i)**: SENIORITY FOLLOWS FROM BEING GOVERNED —
+   anything without a grade law yields to everything that has one. Pads
+   yield by omission: a pad is a flat group levelled by its apron
+   contact, never a pin the apron climbs to. `precedence.toml` states
+   the principle; the loader derives the ungoverned tier from the caps.
 
 ## 5. The numbers v2 starts from (Appendix B)
 | | SPJC | SPLP | CYXY |

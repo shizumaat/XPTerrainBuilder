@@ -3,6 +3,14 @@
 # emit-consensus-mints-violations).  Where two faces meet, the face whose
 # role comes FIRST in `order` owns the shared value; roles not in `order`
 # rank after every named one (the terrain tail).  This is a TOTAL order.
+#
+# PRINCIPLE (RULINGS 2026-09-03i): SENIORITY FOLLOWS FROM BEING GOVERNED.
+# Anything without a grade cap in rulesets.toml yields to everything that
+# has one — pads yield to aprons by OMISSION (no pad grade law), not by a
+# pad rule.  `order` lists the governed roles in their stated seniority;
+# `building` appears after `apron` only to fix its place among the
+# ungoverned; M2's loader derives the ungoverned tier from "no cap" so a
+# new surface class without a cap is junior without a code change.
 
 [authority]
 order = [

@@ -164,6 +164,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     taxi_tree = STRtree([ln for ln, _c in taxi_parts]) if taxi_parts else None
     truck_tree = STRtree([ln for ln, _c in truck_parts]) if truck_parts else None
     pav_tree = STRtree([g for _i, g in ev.pavement_polys])
+    pav_of = dict(ev.pavement_polys)
     starts = [Point(st.xy) for st in airport.startups]
     start_tree = STRtree(starts) if starts else None
     scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
@@ -181,7 +182,23 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         truck = _touching(face, truck_tree, truck_parts, rules)
         net = any(c.runway_network for c in taxi)
         ref = _ref_for(face, pav_tree, ev)
-        kind, axis, evid = _kind(face, taxi, rules, _apron_named(src_of.get(ref), rules))
+        if _apron_named(src_of.get(ref), rules):
+            # RULINGS 2026-09-03j: stand lanes (unnamed 1202 edges) inside
+            # an apron pavement are apron; taxi law applies where an
+            # AUTHORED taxiway (a named designator) runs
+            # ...and runs ON it: at least half the chain lies inside this
+            # pavement (a neighbour's taxiway along the boundary, or a
+            # stub poking in, is that neighbour's evidence — CYXY pav17)
+            src_poly = pav_of.get(ref)
+            named = [c for c in taxi
+                     if any(not n.startswith("osm:") for n in c.names)
+                     and src_poly is not None
+                     and c.line.intersection(src_poly).length >= 0.5 * c.line.length]
+            kind, axis, evid = _kind(face, named, rules)
+            evid["apron_named"] = 1.0
+            evid["n_taxi_unnamed"] = len(taxi) - len(named)
+        else:
+            kind, axis, evid = _kind(face, taxi, rules)
         if kind == "apron" and not taxi and truck and not _holds_startup(face, start_tree):
             kind = "service"           # a stand (1300) makes it apron, not service territory
         if kind == "service":
@@ -564,8 +581,9 @@ def _holds_startup(face: Polygon, tree: STRtree | None) -> bool:
 def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:
     """The face's source is an APRON by the author's own word (apt.dat
     110 description, ``lot.apron_name_tokens``) or by OSM
-    ``aeroway=apron`` cover: its stand lanes are apron, never corridors
-    (RULINGS 2026-09-03j; owner 2026-09-04j item 3, CYXY pav17)."""
+    ``aeroway=apron`` cover: its UNNAMED lanes (stand lanes) are apron
+    evidence for nothing; only an authored, named taxiway on it makes a
+    corridor (RULINGS 2026-09-03j; owner 2026-09-04j item 3, CYXY pav17)."""
     if src is None:
         return False
     d = src.description.lower()
@@ -573,17 +591,13 @@ def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:
         src.apron_cover >= rules.lot.parking_cover_fraction
 
 
-def _kind(face: Polygon, taxi: list[Chain], rules: Rules, apron_named: bool = False
+def _kind(face: Polygon, taxi: list[Chain], rules: Rules
           ) -> tuple[str, Chain | None, dict]:
     """v1 ``classify_faces``: corridor / junction / apron from spine
     topology, with the numbers recorded."""
     evid: dict[str, float | str] = {"area_m2": face.area, "n_taxi": len(taxi)}
     if not taxi:
         evid["kind"] = "apron"
-        return "apron", None, evid
-    if apron_named:
-        evid["kind"] = "apron"
-        evid["apron_named"] = 1.0
         return "apron", None, evid
     buf = unary_union([c.line.buffer(rules.cells.on_tol_m, cap_style="flat")
                        for c in taxi])

@@ -3,9 +3,10 @@
 #   Seven-airport v2 re-census on main 7ddf3f5b: CYXY 0/0 · SPLP 0/0 ·
 #   SPJC 0/0 · OTHH 0/0 · LEMD FAILS (verify/within.py stretch_pair_caps
 #   KeyError — merge interaction) · KCLT 27/24 · HECA 67/60 (244 s).
-#   LANE v2integ IN FLIGHT: LEMD crash, KCLT/HECA regressions (bisect
-#   over the merges), 04x-1/2. OWNER: 1.0.282 is good for CYXY/SPLP/SPJC/
-#   OTHH; do not rebuild +40-004 (LEMD) on v2 until v2integ lands.
+#   v2integ MERGED 3e95e73f (05d): LEMD 5/3, KCLT 3/0, HECA 61/54.
+#   BLOCKER: M5 twin red — a pad tilts 1.18 m in the HARD solve (flat
+#   group lost) → lane v2padflat IN FLIGHT; NO app build until green.
+#   OWNER: 1.0.282 good for CYXY/SPLP/SPJC/OTHH; hold LEMD/HECA reads.
 # 2026-09-04 04t LANES: roads MERGED 7d778471 (core clamp profile is v2's
 #   road preference); relaxation MERGED 31e5d126 (dual-ray IIS + quadratic
 #   last resort; HECA optimal, no demotion, 111 s, census 52 → 2 relaxed

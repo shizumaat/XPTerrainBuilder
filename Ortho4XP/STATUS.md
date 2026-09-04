@@ -1,4 +1,15 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 v2hecaclose MERGED 74c8b85d (05i): pad_slope_max table value
+#   (HECA pad 0.998 %), fixed-point weld (HECA 24/17 → 10/3, airside = 3
+#   building slivers; CYXY 0/0 with the owner's site fully welded), warm
+#   start REFUTED+deleted. Tile-cfg SPARSE OVERRIDE chip MERGED ed4a8812
+#   (the owner's LEMD/HECA/OTHH app builds had run v1: engine key only in
+#   CYXY's tile cfg; old tile cfgs shadowed the global). APP 1.0.284 IN
+#   BUILD. NEXT: owner sim read HECA/LEMD/OTHH on v2 → if equal-or-better,
+#   plan v1 RETIREMENT (v2 verify becomes the instrument; v1-only settings
+#   and gates deleted). v2 = 22,519 py + 816 toml + 7,228 test lines; v1
+#   226,965.
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 HECA/LEMD MERGED 8a939da5 (05g): HECA relaxed-optimal, no
 #   demotion, 125 s, 24/17 (14 rim steps + 3 slivers); LEMD hard-feasible
 #   2/0 (walls joined by tunnel ref; datum_order tunnel > basin); oracle

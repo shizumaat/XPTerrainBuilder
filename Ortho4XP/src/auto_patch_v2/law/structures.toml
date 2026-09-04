@@ -36,7 +36,24 @@ frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a 
 frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)
 
 [basin]
-floor = "declared"                 # basin facility floor equals its declared body depth (08-26 :1847)
+# THE FLOOR LAW (RULINGS 2026-08-26 :1847, supersedes Amendment 3's deck-face
+# clause): floor = R_est + (deepest genuine solid, thickness-gated) −
+# (bridge.floor_below_object_deck_m + seat_margin_m), open pits as bores;
+# "err deep" — depth is occluded by the shell, shallowness is the poke-through.
+floor = "deepest_solid"            # the floor key: the facility's deepest genuine solid, never a pack's authored pit depth (08-26)
+seat_margin_m       = 1.0          # covers R_est's estimate error against the SOLVED rim (TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M; 0.79 m measured OTHH Drainage_04)
+min_solid_thickness_m = 0.3        # a solid part thinner than this is a ground DECAL, never a floor witness (MIN_SOLID_PART_THICKNESS_M; 08-26 §2.1, LEMD VOR quads at −50 m)
+admission_depth_m   = 2.5          # a solid must lie this far below the LOCAL terrain to be below grade (TRENCH_SPINE_MIN_DEPTH_M; 08-26 region recipe)
+contact_band_m      = 1.0          # the ground-contact band half width: geometry above +this over the region is COVER (GROUND_CONTACT_BAND_HALF_WIDTH_M; founding spec §2.1)
+footprint_close_m   = 2.0          # the below-grade union is morphologically closed at this (AT_GRADE_FOOTPRINT_CLOSE_M; 08-26)
+min_area_m2         = 1000.0       # a region smaller than this is not a facility (TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2; 08-26 recipe step 5)
+rim_sample_step_m   = 10.0         # R_est = the MEDIAN DEM sampled this far apart along the region ring (rim-flush spec §2.1 item 2; _BASIN_RIM_SAMPLE_STEP_M)
+max_covered_fraction = 0.5         # OPENNESS: a region the pack's own geometry stands over (above the contact band) by more than this is a building/bore, not a pit — REFUSED loudly.  v1's founding constant is 0.02 (BOWL_MAX_ABOVE_GRADE_AREA_FRACTION) but was never exercised on a real record (LEMD/OTHH founded 0); OTHH's Dewatering pits, owner-accepted in sim, read 24–36 % covered on v1's own records (TRENCH_SPINE class) and 2.5 / 20 % here; LEMD's Muñoza basements read ~100 %.  0.5 stated 2026-09-04 (M4b) FOR OWNER RATIFICATION — open question in m4b-report.
+floor_disagreement_m = 2.0         # basin_floor_declaration: |solid_minimum_y + body_depth| beyond this is a floor its own geometry does not evidence (BASIN_FLOOR_DISAGREEMENT_M; 08-26 §2.2)
+rim                 = "ground"     # the wall crest: the ground's value where the band's edge is shared with governed ground (rim LEVEL with the apron, 2026-08-28c item 3), the DEM where bare (09-03b)
+shell_reaches_grade = true         # a solid part witnesses a pit only if its rendered TOP reaches within contact_band_m of the ground over it (v1 pit seed: PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground-contact band); geometry wholly under the terrain is buried, never a pit (LEMD: v1-baked grass clumps 20–44 m under grade)
+cuts_pads           = true         # inside a below-grade region the trench is SENIOR to every pad/building authority (08-26; building_pad.in_basin_sits_at_floor)
+cuts_runway_family  = false        # a region reaching the runway family is refused, never cut (08-25 tunnel analogue)
 
 [retaining_wall]
 allowed_outside_carves = false     # walls only at tunnel/bridge carves; everything else feathers (08-07 :887-917)

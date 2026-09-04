@@ -276,6 +276,21 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("lateral_contiguity.gap_tol_m", v1_lc.GAP_TOL_M, e.lateral_contiguity.gap_tol_m)
     c.eq("lateral_contiguity.min_member_m", v1_lc.MIN_MEMBER_M,
          e.lateral_contiguity.min_member_m)
+    # M4b: the basin law (RULINGS 2026-08-26) and the object reader gates
+    from auto_patch import object_terrain_assembly as v1_ota
+    from auto_patch import object_terrain_features as v1_otf
+    c.eq("basin.seat_margin_m", v1.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M, s.basin.seat_margin_m)
+    c.eq("basin.min_solid_thickness_m", v1.MIN_SOLID_PART_THICKNESS_M,
+         s.basin.min_solid_thickness_m)
+    c.eq("basin.admission_depth_m", v1_otf.TRENCH_SPINE_MIN_DEPTH_M, s.basin.admission_depth_m)
+    c.eq("basin.contact_band_m", v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
+    c.eq("basin.footprint_close_m", v1_otf.AT_GRADE_FOOTPRINT_CLOSE_M, s.basin.footprint_close_m)
+    c.eq("basin.min_area_m2", v1_otf.TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2, s.basin.min_area_m2)
+    c.eq("basin.rim_sample_step_m", v1_ota._BASIN_RIM_SAMPLE_STEP_M, s.basin.rim_sample_step_m)
+    c.eq("basin.floor_disagreement_m", v1.BASIN_FLOOR_DISAGREEMENT_M,
+         s.basin.floor_disagreement_m)
+    c.eq("basin.max_covered_fraction", v1_otf.BOWL_MAX_ABOVE_GRADE_AREA_FRACTION,
+         s.basin.max_covered_fraction)
 
 
 def test_every_value_equals_v1(tables, capsys):
@@ -292,6 +307,9 @@ def test_every_value_equals_v1(tables, capsys):
     # ruled value).  Each entry: path -> (v1 value, ruled value, ruling).
     RULED = {
         "icao.runway.longitudinal[4]": (0.0125, 0.015, "owner 2026-07-08"),
+        # M4b: v1's founding openness constant was never exercised on a
+        # real record; stated for ratification (m4b-report open question)
+        "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04, for ratification"),
     }
     bad = [(n, a, b) for n, a, b in c.mismatches()
            if not (n in RULED and RULED[n][0] == a and RULED[n][1] == b)]

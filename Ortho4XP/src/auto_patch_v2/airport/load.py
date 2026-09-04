@@ -24,6 +24,7 @@ from . import apt_dat as _apt
 from . import cifp as _cifp
 from . import dem as _dem
 from . import dsf as _dsf
+from . import obj8 as _obj8
 from . import osm as _osm
 from . import pack as _pack
 
@@ -85,6 +86,8 @@ class LoadReport:
     dsf_pavements: int = 0
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
+    objects_resolved: int = 0
+    library_index_path: str | None = None
     osm_sources: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
@@ -254,21 +257,30 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 tuple(_ring(h, to_xy) for h in poly.windings[1:]),
                 f"dsf:fac:{role}", None, None))
             n_fac += 1
+        # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements
+        # resolve through v1's cached merged index; absent = unresolved
+        lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
+            if inputs.mod_cache_root and inputs.xplane_root else ""
+        index = _obj8.read_library_index(lib_path)
+        rep.library_index_path = lib_path if index is not None else None
         for i, pl in enumerate(dump.placements):
             if not pl.def_path.lower().endswith((".obj", ".agp")):
                 continue
             if abs(pl.lat - lat0) > inputs.radius_deg or \
                     abs(pl.lon - lon0) > inputs.radius_deg:
                 continue
-            local = os.path.join(sel.root, pl.def_path)
-            hardness = _dsf.obj8_hardness(local) if not pl.def_path.startswith("lib/") \
-                else None
-            if hardness is None:
+            resolved = _obj8.resolve_resource(pl.def_path, sel.root, index)
+            if resolved is None:
                 rep.unresolved_objects += 1
+            else:
+                rep.objects_resolved += 1
+            agl = float(pl.elevation) if pl.kind == "OBJECT_AGL" and pl.elevation is not None \
+                else 0.0
+            # hardness / deck top / below-grade solids are read by the
+            # structure pass from ``resolved_path`` (``airport/obj8.py``)
             dsf_objects.append(DsfObject(
                 f"dsf:obj{i}", pl.def_path, to_xy(pl.lon, pl.lat),
-                pl.heading_deg, None, bool(hardness and hardness[1]), None,
-                0.0))
+                pl.heading_deg, None, False, None, agl, resolved, pl.kind))
     rep.dsf_pavements = n_pol
     pavements = pavements + tuple(dsf_pavements)
     cache_path = inputs.footprint_cache_path or (

@@ -199,9 +199,13 @@ class DemSample(_t.Protocol):
 
 @_dc.dataclass(frozen=True)
 class DsfObject:
-    """A placed DSF object with its OBJ8 hardness (``ATTR_hard_deck``)
-    — the deck datum is the deck TOP (memory
-    ``othh-bridge-deck-datum-r12``)."""
+    """A placed DSF object.  ``resolved_path`` is the OBJ8 file the
+    placement resolves to (pack-relative first, then the library index;
+    ``None`` = unresolved, reported) — the structure pass reads the
+    geometry from it (``airport/obj8.py``, M4b): hard-deck footprint and
+    deck TOP (memory ``othh-bridge-deck-datum-r12``), below-grade solids.
+    ``y_offset_m`` is the ``OBJECT_AGL`` offset (0 for a plain
+    ``OBJECT``); ``kind`` names the row."""
 
     id: str
     path: str
@@ -211,6 +215,8 @@ class DsfObject:
     hard_deck: bool
     deck_top_m: float | None
     y_offset_m: float
+    resolved_path: str | None = None
+    kind: str = "OBJECT"
 
 
 @_dc.dataclass(frozen=True)

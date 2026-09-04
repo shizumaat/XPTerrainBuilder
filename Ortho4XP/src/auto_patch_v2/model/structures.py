@@ -88,9 +88,26 @@ class Tunnel:
 
 @_dc.dataclass(frozen=True)
 class Basin:
-    """A below-grade facility with a DECLARED floor (RULINGS 2026-08-26;
-    ``structures.basin.floor = "declared"``): the floor face at
-    ``floor_z``, a wall band round it whose crest is the DEM."""
+    """A below-grade FACILITY derived from the pack's own objects
+    (RULINGS 2026-08-26; ``structures.toml [basin]``; M4b): ONE floor
+    face at ``floor_z`` (role ``tunnel_trench``, ref ``floor_ref``), the
+    ``wall_gap_m`` unowned gap round it, ONE wall band (role
+    ``retaining_wall``, ref ``wall_ref``) whose crest is the ground
+    (the DEM where bare, the governed ground's value where shared — the
+    rim LEVEL with the apron, 2026-08-28c item 3).
+
+    ``ring`` is the admitted region (the floor face's outline before the
+    arrangement); ``wall_path`` the band's centreline as a closed ring
+    (crest by station along it); ``rim_estimate_m`` is ``R_est`` (the
+    median DEM around the ring, ``rim_sample_step_m`` apart);
+    ``solid_min_z`` the RENDERED elevation of the facility's deepest
+    genuine solid (``DEM(anchor) + agl + y``, thickness-gated) and
+    ``solid_min_y_m`` the same relative to ``R_est`` (the sidecar's
+    ``solid_minimum_y_m``, so ``floor_z == rim_estimate_m +
+    solid_min_y_m − margins`` holds exactly); ``covered_fraction`` the
+    openness reading (the pack's own geometry above the contact band
+    over the ring); ``anchor_ll`` a representative point inside the
+    ring."""
 
     id: str
     objects: tuple[str, ...]
@@ -98,3 +115,11 @@ class Basin:
     floor_ref: str
     wall_ref: str
     ring: tuple[XY, ...]
+    wall_path: tuple[XY, ...] = ()
+    rim_estimate_m: float = 0.0
+    solid_min_z: float = 0.0
+    solid_min_y_m: float = 0.0
+    covered_fraction: float = 0.0
+    area_m2: float = 0.0
+    anchor_ll: tuple[float, float] = (0.0, 0.0)
+    notes: tuple[str, ...] = ()

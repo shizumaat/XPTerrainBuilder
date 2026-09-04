@@ -105,6 +105,24 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         for tn in pm.structures:
             _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
                  f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
+    bs = pstats.basins
+    if bs.objects is not None:
+        o = bs.objects
+        _say(f"[{icao}] objects: {o.placements} placements, {o.resolved} resolved "
+             f"({o.unresolved} unresolved, {o.stock_placements} stock), "
+             f"{o.resources_parsed} resources parsed in {bs.object_read_s:.2f} s, "
+             f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck", out)
+        for up in o.unresolved_paths[:10]:
+            _say(f"    unresolved {up}", out)
+    if bs.regions or bs.refused:
+        _say(f"[{icao}] basins: regions {bs.regions}  basins {bs.basins}  cells cut {bs.cells_cut}  "
+             f"refused {len(bs.refused)}  under min area {len(bs.small_regions)}", out)
+        for r in bs.refused:
+            _say(f"    refused {r}", out)
+        for b in pm.basins:
+            _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
+                 f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  area {b.area_m2:.0f} m2  "
+                 f"at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  {'; '.join(b.notes)}", out)
     t = time.perf_counter()
     cs, counts, gwalls = generate(pm, law, airport)
     wall["constraints"] = time.perf_counter() - t
@@ -160,6 +178,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     report: dict[str, _t.Any] = {
         "icao": icao, "ruleset": law.ruleset_key,
         "load": _dc.asdict(lrep), "planar": _dc.asdict(pstats),
+        "basins": [_dc.asdict(b) for b in pm.basins],
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},
         "lp": size,

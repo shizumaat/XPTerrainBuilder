@@ -168,6 +168,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     starts = [Point(st.xy) for st in airport.startups]
     start_tree = STRtree(starts) if starts else None
     scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
+    through = _through_routes(ev, rules) if prox is not None else []
     for face in faces:
         src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
         if src is not None:
@@ -217,11 +218,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
             # v1 applies it: the part of an apron within the contour is
             # maneuvering surface (junction); only the rest keeps the
-            # apron law.
+            # apron law.  The junction INHERITS THE CODE LETTER of the
+            # taxi chain(s) it serves (RULINGS 2026-09-04q-2; measured
+            # CYXY junction 103: letter-less at 1.5 % over 222 m while
+            # taxiway G is 1202 code A at 3 %).
             for part in polygon_parts(face.intersection(prox)):
                 if part.area >= rules.cells.min_area_m2:
-                    scored.append((part, "junction", ref, None,
-                                   dict(evid, near_route=1.0), net))
+                    jl, n_serving = _junction_letter(part, taxi, through, rules)
+                    scored.append((part, "junction", ref, jl,
+                                   dict(evid, near_route=1.0,
+                                        letter_chains=float(n_serving)), net))
             for part in polygon_parts(face.difference(prox)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "apron", ref, None,
@@ -554,6 +560,28 @@ def _slice(region, taxi_parts, truck_parts, spurs, rules: Rules
         if prep.contains(poly.representative_point()):
             out.append(poly)
     return out
+
+
+def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],
+                     rules: Rules) -> tuple[str | None, int]:
+    """THE JUNCTION'S CODE LETTER (RULINGS 2026-09-04q-2): a junction
+    minted by the route-proximity cut serves the taxi chains that run
+    through or along it and the through-routes whose proximity minted it
+    (within ``apron.route_proximity_m``); it inherits the STRICTEST of
+    their letters (the widest class, as a corridor does — ``max`` over
+    ``_LETTERS``).  Returns ``(letter, chains counted)``; ``None`` when
+    no serving chain carries a letter (the default cap, as before)."""
+    tol = rules.cells.on_tol_m
+    near = part.buffer(tol)
+    serving: dict[int, Chain] = {}
+    for c in touching:
+        if c.line.intersection(near).length >= rules.cells.min_shared_m:
+            serving[c.id] = c
+    for c in through:
+        if c.id not in serving and c.line.distance(part) <= rules.apron.route_proximity_m:
+            serving[c.id] = c
+    ls = [c.letter for c in serving.values() if c.letter]
+    return (max(ls, key=_LETTERS.find) if ls else None), len(serving)
 
 
 def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules

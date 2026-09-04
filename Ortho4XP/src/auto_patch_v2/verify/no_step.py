@@ -1,6 +1,9 @@
-"""``airside_no_step`` (RULINGS 2026-08-27) over the emitted rings:
-§1.1 the PUBLISHED direct-distance pairs (``airside_no_step_edges``,
-budget + the worse endpoint's instrument envelope — the v1
+"""``airside_no_step`` (RULINGS 2026-08-27, 2026-09-04o) over the emitted
+rings: §1.1 the PUBLISHED pairs (``airside_no_step_edges``: the route
+pairs the solver bound, each priced at its published ``budget_m`` over
+its published ROUTE ``dist_m`` — the reader prices the population it is
+handed and never re-derives a chord; plus the pad↔pavement list) at
+budget + the worse endpoint's instrument envelope (the v1
 ``_check_published_law_edges``) and §1.2 the rate of change along every
 airside ring sequence (wrap triples included) at ``strip.arc_rate`` with
 the rate reader's blind spot ``q·(1/dp + 1/dn)`` (``_rate_reader_blind_spot``,
@@ -54,7 +57,9 @@ def no_step_direct(p: Patch) -> list[Row]:
             if (ra != "?" or rb != "?") else law.tables.emit.instrument.rounding_noise_m
         if dz - budget <= noise:
             continue
-        dist = math.hypot(bx - ax, by - ay)
+        # the published ROUTE distance prices the grade (04o); a record
+        # without one (a pad pair, direct) falls back to the chord
+        dist = float(rec.get("dist_m") or math.hypot(bx - ax, by - ay))
         # an endpoint no shape names (measured HECA: a pad pair's endpoint
         # on a face the graded surface carries without a shape role) is
         # priced on the airside side, never a KeyError in the reader

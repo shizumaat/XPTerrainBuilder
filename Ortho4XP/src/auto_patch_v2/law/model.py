@@ -401,10 +401,15 @@ class Materiality:
 
 @_dc.dataclass(frozen=True)
 class NoStep:
-    """Airside no-step window (RULINGS 2026-08-27)."""
+    """Airside no-step pairs (RULINGS 2026-08-27; 2026-09-04o/04q re-derive
+    the window and K as ROUTE distances).  ``metric`` names the distance
+    the pairs are formed and priced over: ``"route"`` = along the taxi
+    network through airside pavement (the only lawful value; a chord
+    metric is the refuted 08-27 reading)."""
 
     window_m: float
     k: int
+    metric: str
 
 
 @_dc.dataclass(frozen=True)

@@ -114,13 +114,22 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("strips", "raoa", "raoa"),
     ("pads", "", "pads"),
     ("seams", "", "seam_values"),
+    ("reach", "", "reach_bands"),
 )
+
+
+#: The route-reach bands (RULINGS 2026-09-04o) are the ENVELOPE the path
+#: rows imply, not a law of their own: an arm that drops a family drops
+#: them too, or the envelope of the rows just removed would still hold the
+#: shape and every relax arm would read 0.000 (measured on the why
+#: fixture: 1e-13 m for every family).
+_ENVELOPE = "reach_bands"
 
 
 def _drop(cs: ConstraintSet, families: _t.Sequence[str]) -> ConstraintSet:
     if not families:
         return cs
-    bad = set(families)
+    bad = set(families) | {_ENVELOPE}
     return ConstraintSet.from_rows(r for r in cs.rows() if family_of(r) not in bad)
 
 
@@ -387,9 +396,10 @@ class RelaxResult:
 
 def relax_family(prep: Prepared, family: str, verts: _t.Sequence[int]
                  ) -> RelaxResult:
-    """Re-solve with every row of ``family`` dropped; the shape's rise."""
+    """Re-solve with every row of ``family`` dropped (and the reach
+    envelope, ``_ENVELOPE``); the shape's rise."""
     from .highs import solve as _solve
-    rows = [r for r in prep.cs.rows() if family_of(r) != family]
+    rows = [r for r in prep.cs.rows() if family_of(r) not in (family, _ENVELOPE)]
     dropped = len(prep.cs.rows()) - len(rows)
     t = time.perf_counter()
     sol = _solve(prep.pm, ConstraintSet.from_rows(rows), prep.weights)

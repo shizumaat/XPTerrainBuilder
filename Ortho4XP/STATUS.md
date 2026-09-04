@@ -34,8 +34,21 @@
 #   _enf_pre 101) — a channel the plan lacks; S1+S2+S3 ON grows apron
 #   690 → 1,073. New instruments: who_wrote --cert-attrib/--vertex-dump,
 #   O4_AIRSIDE_CERT_DUMP. R1.2 lane/r1solve IN FLIGHT: arm A hold-
-#   release-only (≤646 service rows predicted), arm B solve-side
-#   membrane_conform certify; ≤3 HECA builds, gates default-OFF.
+#   release-only, arm B solve-side membrane_conform certify — DONE,
+#   PARKED at lane/r1solve 6acef114 (docs/specs/r1-solve-20260903.md):
+#   arm A closes 653 cert rows (2,167 → 1,514; entry both-hard 1,602 →
+#   166; apron/junction/tns unchanged) but mints +22 census rows at two
+#   shared-vertex apron sites (-10270 @30.11056,31.39529; -10165/-10749
+#   @30.1108,31.3984) → strict rule PARKS it; gate-OFF byte-identical
+#   (CYXY + HECA replay = control). Arm B: pass-2 membrane_conform pin
+#   set PROVEN INFEASIBLE (L>U, 1,368/4,498 nodes, max gap 19.64 m,
+#   carrier (2379,24595) budget 3.76 vs dz 20.64) → STOP, no forcing.
+#   decimate_emit_nodes = ring re-mapping (0 value changes); the value-
+#   changing re-seeders are _grade_limit_groundside_chords 881, _quant_pre
+#   198, emit_terrain_transition 113. R1.3 (lane r1pins) IN FLIGHT:
+#   attribute WHO MINTED the infeasible pass-2 pins (who_wrote --at on
+#   the carriers + the -10270 site; ONE instrumented HECA) so the owner
+#   can rule which senior yields (R5 if a runway datum, else R4).
 # APP 1.0.276 / engine 1.50.1719 BUILT (b6f264d2; embedded==dist, fixes
 #   verified inside the PYZ). NEXT: owner rebuilds +25+051 and sim-reads
 #   OTHH sites 25.2715296,51.6022683 / 25.2556192,51.6080938; merge R1.2

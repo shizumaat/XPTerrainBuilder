@@ -62,6 +62,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "ruleset", "axes", "routes", "runway_end_skirt", "crown_drops",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     "airside_no_step_edges", "mesh_edges", "pair_caps", "seam_pins",
+    "station_caps",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

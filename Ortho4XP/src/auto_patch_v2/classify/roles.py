@@ -37,7 +37,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import role_side
+from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.frame import XY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
@@ -206,6 +206,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     for ref, poly in ev.pads:
         add("building", ref, poly, "building")
     stats["pads_dropped"] = ev.dropped_pads
+    cells, n_cut = _cut_back_groundside(cells, law, rules)
+    stats["mixed_pad_cutbacks"] = n_cut
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
@@ -220,6 +222,73 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         for ln in _line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes))
+
+
+# ── mixed pads ───────────────────────────────────────────────────────────
+
+def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
+                         ) -> tuple[list[Cell], int]:
+    """THE MIXED-PAD RULE (RULINGS 2026-09-01g/i; ``structures.building_pad
+    .groundside_cutback_m``): a pad that touches BOTH an airside governed
+    surface and groundside pavement welds AIRSIDE — its one flat value is
+    its airside contact (03h) — and the groundside pavement is CUT BACK
+    from it so the two never share a vertex: the groundside lot keeps its
+    own law and follows the DEM, and the terrace in the stand-off is the
+    lawful airside/groundside boundary (memory ``groundside-terrace-law``).
+    Measured SPJC (M3b): a terminal pad at 24.55 m dragged a groundside
+    DSF page 4.8 m below the DEM and minted 14 groundside step rows against
+    its DEM-following neighbour.  Returns the cells and the number cut."""
+    back = law.tables.structures.building_pad.groundside_cutback_m
+    if back <= 0.0:
+        return cells, 0
+    tol = rules.groundside.touch_tol_m
+    pads = [c for c in cells if c.role == "building"]
+    if not pads:
+        return cells, 0
+    airside = [Polygon(c.ring, c.holes) for c in cells
+               if c.role != "building" and c.side == "airside"
+               and is_value_role(law, c.role)]
+    ground_idx = [i for i, c in enumerate(cells)
+                  if c.side == "groundside" and is_value_role(law, c.role)]
+    if not airside or not ground_idx:
+        return cells, 0
+    air_tree = STRtree(airside)
+    gpolys = [Polygon(cells[i].ring, cells[i].holes) for i in ground_idx]
+    g_tree = STRtree(gpolys)
+    knives: list[Polygon] = []
+    for c in pads:
+        poly = Polygon(c.ring, c.holes)
+        probe = poly.buffer(tol)
+        touches_air = any(airside[int(k)].distance(poly) <= tol
+                          for k in air_tree.query(probe, predicate="intersects"))
+        touches_ground = any(gpolys[int(k)].distance(poly) <= tol
+                             for k in g_tree.query(probe, predicate="intersects"))
+        if touches_air and touches_ground:
+            knives.append(poly.buffer(back, join_style="mitre", mitre_limit=2.0))
+    if not knives:
+        return cells, 0
+    knife = unary_union(knives)
+    out: list[Cell] = []
+    n_cut = 0
+    for i, c in enumerate(cells):
+        if i not in ground_idx:
+            out.append(c)
+            continue
+        poly = Polygon(c.ring, c.holes)
+        if not poly.intersects(knife):
+            out.append(c)
+            continue
+        n_cut += 1
+        for k, part in enumerate(polygon_parts(poly.difference(knife))):
+            if part.area < rules.cells.min_area_m2:
+                continue
+            ring = tuple(part.exterior.coords)[:-1]
+            holes = tuple(tuple(h.coords)[:-1] for h in part.interiors)
+            out.append(Cell(len(out), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
+                            ring, holes, c.code_number, c.code_letter, c.side,
+                            c.kind, dict(c.evidence, mixed_pad_cutback=1.0)))
+    # ids are positional
+    return [_dc.replace(c, id=i) for i, c in enumerate(out)], n_cut
 
 
 # ── slice helpers ────────────────────────────────────────────────────────

@@ -277,6 +277,8 @@ class BuildingPad:
     min_area_m2: float
     in_basin_sits_at_floor: bool
     step_exemption_pad_to_pad: bool
+    frontage_near_miss_m: float
+    frontage_soft_roles: tuple[str, ...]
 
 
 @_dc.dataclass(frozen=True)
@@ -382,6 +384,17 @@ class Seam:
 
 
 @_dc.dataclass(frozen=True)
+class LateralContiguity:
+    """The road station walk (owner 2026-08-02 clause 2; 2026-08-28
+    Amendment 2): station spacing, probe reach, run tolerances."""
+
+    station_step_m: float
+    probe_m: float
+    gap_tol_m: float
+    min_member_m: float
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -393,6 +406,7 @@ class EmitLaw:
     within_shape: WithinShape
     instrument: Instrument
     seam: Seam
+    lateral_contiguity: LateralContiguity
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────

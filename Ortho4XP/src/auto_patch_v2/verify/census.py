@@ -6,9 +6,8 @@ shape so ``tools/harness/census.py --rows-json`` and this diff by
 ``FAMILIES`` is derived from ``law/families.toml`` — a family in the
 tables with no reader here is reported as ``not_implemented``, never
 silently absent (the census-wrapper precedent).  Families v2 has no
-geometry for (terraces, basins, walls, lattice, drainage spines, the
-lateral-contiguity station walk — M3) return no rows and are listed as
-such in the M2 report.
+geometry for (terraces, basins, walls, lattice, drainage spines) return
+no rows and are listed as such in the M2/M3b reports.
 """
 from __future__ import annotations
 
@@ -22,6 +21,8 @@ from .runway import runway_crown, runway_end_skirt
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
 from .strips import (adjacent_ground_tear, raoa, resa_transverse, strip_arc,
                      strip_longitudinal, strip_seam_tear)
+from .contiguity import lateral_contiguity
+from .frontage import frontage_near_miss
 from .transverse import transverse
 from .within import plane_gradient, within_shape
 
@@ -45,6 +46,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "cross_shape": cross_shape,
     "vertex_to_edge_step": vertex_to_edge_step,
     "mid_edge_step": mid_edge_step,
+    "lateral_contiguity": lateral_contiguity,
+    "frontage_near_miss": frontage_near_miss,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or
@@ -52,8 +55,7 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
 NOT_IMPLEMENTED: tuple[str, ...] = (
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "basin_floor_declaration", "drainage_spine", "apron_lattice_membrane",
-    "lateral_contiguity", "drainage_minimum", "wall_in_runway_strip",
-    "frontage_near_miss",
+    "drainage_minimum", "wall_in_runway_strip",
 )
 
 

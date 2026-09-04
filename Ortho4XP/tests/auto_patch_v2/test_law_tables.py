@@ -265,6 +265,17 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("materiality.elevation_m", v1_rt.MATERIALITY_M, e.materiality.elevation_m)
     c.eq("no_step.window_m", v1.AIRSIDE_NO_STEP_WINDOW_M, e.no_step.window_m)
     c.eq("no_step.k", v1.AIRSIDE_NO_STEP_K, e.no_step.k)
+    # M3b: the near-miss frontage law and the lateral-contiguity walk
+    c.eq("building_pad.frontage_near_miss_m", v1.BUILDING_FRONTAGE_NEAR_MISS_M,
+         s.building_pad.frontage_near_miss_m)
+    assert tuple(s.building_pad.frontage_soft_roles) == tuple(v1.NEAR_MISS_FRONTAGE_SOFT_ROLES)
+    from auto_patch import lateral_contiguity as v1_lc
+    c.eq("lateral_contiguity.station_step_m", v1_lc.STATION_STEP_M,
+         e.lateral_contiguity.station_step_m)
+    c.eq("lateral_contiguity.probe_m", v1_lc.PROBE_M, e.lateral_contiguity.probe_m)
+    c.eq("lateral_contiguity.gap_tol_m", v1_lc.GAP_TOL_M, e.lateral_contiguity.gap_tol_m)
+    c.eq("lateral_contiguity.min_member_m", v1_lc.MIN_MEMBER_M,
+         e.lateral_contiguity.min_member_m)
 
 
 def test_every_value_equals_v1(tables, capsys):

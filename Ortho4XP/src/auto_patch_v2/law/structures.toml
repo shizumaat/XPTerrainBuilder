@@ -27,6 +27,8 @@ groundside_cutback_m      = 0.6    # mixed pad: welds airside, groundside cut ba
 min_area_m2               = 250.0  # tiny pads fold into their host (08-24 :1687; PAD_MIN_AREA_M2)
 in_basin_sits_at_floor    = true   # a pad inside a basin sits at the basin floor (08-25 :1771)
 step_exemption_pad_to_pad = true   # two pads may sit at different floors (06-20 STEP_EXEMPTIONS)
+frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a pad, unshared with it, is a FRONTAGE across a sliver: each endpoint holds the apron cap over its own distance to the pad (BUILDING_FRONTAGE_NEAR_MISS_M; 08-08, cycle-5 item 6; SPJC building29 0.68 m source offset)
+frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)
 
 [basin]
 floor = "declared"                 # basin facility floor equals its declared body depth (08-26 :1847)

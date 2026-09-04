@@ -73,8 +73,11 @@ flat groups z_i = z_j; bands l_i ≤ z_i ≤ u_i (zone 2 toward DEM, tunnel
 datum floors, deck clearance as z_deck − z_ramp ≥ 5.1). Objective: Σ w_i
 (z_i − dem_i)² with w by role (airside high, groundside 1, zone 3 pinned
 to DEM), plus a second-difference penalty along breaklines for
-smoothness. This is a sparse convex QP; HiGHS/OSQP solve 10^5 variables
-with 10^6 constraints in seconds. Feasibility first (LP phase 1): if
+smoothness. Measured (solver-benchmark-20260903.md): scipy/HiGHS LP with the real
+objective solves 150k vertices in 5.3 s (2.0 GB), 15k in 0.23 s; OSQP is
+refused (112 mm violations at default, 680 s + a false infeasible at
+1e-6). M2 uses the L1 form (|z − dem| + L1 roughness) as a pure LP; a
+HiGHS QP via `highspy` is the follow-up benchmark. Feasibility first (LP phase 1): if
 infeasible, extract an IIS and report `(constraint, generator, inputs)`
 — the R1.3 question ("who minted the contradiction") is answered by the
 solver itself, every build, in the log. The solver never invents a value:

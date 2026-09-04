@@ -43,7 +43,6 @@ runway_station_cluster_m = 5.0   # runway ring vertices cluster into stations at
 # arm: owner 2026-07-24, seam contacts enter the profile as hard anchors), and
 # each tile's patch carries only the faces on its side.
 half_width_m = 5.0
-runway_contact_step_m = 10.0  # the runway's contact with the seam LINE is sampled at this spacing (owner 2026-07-24; v1 RUNWAY_SEAM_CONTACT_STEP_M)
 
 [instrument]
 # THE CENSUS'S OWN ENCODING ENVELOPE — the forgiveness the v1 oracle grants

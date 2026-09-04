@@ -379,7 +379,6 @@ class Seam:
     covers, ``half_width_m`` each side of an integer lat/lon line."""
 
     half_width_m: float
-    runway_contact_step_m: float
 
 
 @_dc.dataclass(frozen=True)

@@ -1,4 +1,15 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 (later) — v2 SIM-READ ROUND 2. M5 MERGED (04p: law-ordered
+#   tiered yielding; HECA INFEASIBLE under the chord no-step law → k=1
+#   1,621 s / 4,285 airside). OWNER 04o: feasibility propagates along
+#   TAXI ROUTES from the thresholds, never straight chords. `why` MERGED
+#   b23e9f3d (04q): CYXY apron 156 limiter = one 149.9 m no-step CHORD at
+#   the apron cap; junction 103 letter-less at 1.5 % (G is code A).
+#   LANE v2route IN FLIGHT: route graph, no-step pairs by ROUTE distance
+#   at the path's caps, reach bands, junction letter inheritance,
+#   solve/ no longer imports constraints/; CYXY → SPJC/OTHH → HECA
+#   closing (predict hard-feasible < 60 s). Owner's open intent: roads
+#   follow terrain within cap (CYXY 153) or seek level.
 # 2026-09-04 v2 SIM-READ ROUND 1 (owner at CYXY: "very strong first
 #   result"): classification MERGED 4e2f1491 (04j/04m: pages kept as
 #   strips/lots/open cut at mouths; parking_lot 5 %; OSM road evidence;

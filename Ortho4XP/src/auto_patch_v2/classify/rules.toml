@@ -53,6 +53,11 @@ apron_name_tokens      = ["apron"]  # an apt.dat 110 description containing one 
 through_min_fraction   = 0.6   # a wider polygon (up to service.free_max_width_m) is a road STRIP when at least this fraction of its half-perimeter is road centreline running THROUGH it (both ends on its boundary); parking aisles dead-end inside and never qualify
 parking_cover_fraction = 0.5   # an OSM amenity=parking polygon covering at least this fraction of a source polygon makes it a lot (no such tag in the airport feeds today — a data question)
 
+[taxi_name]                    # RULINGS 2026-09-04z(1): a pavement DESCRIPTION naming a taxiway IS taxi evidence — the page is taxi family (junction) even without a 1202 centreline, never a lot; below a real centreline, above the open default
+tokens             = ["taxiway", "twy"]   # whole words, case-insensitive, in the apt.dat 110 description (a DSF page's name is its .pol library path: never a taxiway name)
+unauthored_names   = ["new taxiway"]      # the EDITOR'S DEFAULT, not the author's word: WED names every new pavement "New Taxiway N" (measured 2026-09-04: all 31 CYXY 110 polygons, incl. the owner-ruled lots of shape 69 and the shape 161 service road, 04j/04m) — a description equal to one of these plus an optional number names nothing
+designator_max_len = 3                    # the word after the token is the taxiway's DESIGNATOR when at most this long ("Taxiway B" -> B; "Taxiway Aux B, C" -> Aux is not one); reported by explain, never a code letter (width class stays the 1202 chain's)
+
 [groundside]
 touch_tol_m       = 0.05   # cells within this touch (v1 touch_tol_m); a chain of touching airside cells reaches a runway or is landside (user 2026-06-09)
 requires_terminal = true   # an airport with NO terminal has no landside: every paved island is aircraft parking (user 2026-06-11)

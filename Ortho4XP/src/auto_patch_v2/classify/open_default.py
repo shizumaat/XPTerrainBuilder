@@ -11,6 +11,10 @@ face), otherwise ``rules.groundside.default_open_role``.
 Measured CYXY (04u): dsf:pol17 + pol20 + pol123 (12,466 m², no taxi, no
 startup, no apron name) defaulted to APRON, airside, while they are the
 parking lots 1206 route 50 climbs to from the apron.
+
+A face on a TAXIWAY-NAMED source (RULINGS 2026-09-04z(1)) never reaches
+this default: the scorer reads it ``junction`` first (``roles.py``,
+``evidence.taxi_name_match``) — the name is evidence above the default.
 """
 from __future__ import annotations
 

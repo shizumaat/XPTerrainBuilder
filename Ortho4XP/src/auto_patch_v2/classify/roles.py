@@ -27,6 +27,16 @@ evidence is a ``parking_lot``; one with none stays
 ``groundside_pavement``.  Pavement a network taxiway runs onto is
 airside even without a pavement touch-chain (item 4).
 
+THE TAXI-NAME RULE (RULINGS 2026-09-04z(1); ``rules.taxi_name``,
+``evidence.taxi_name_match``): a face on a source whose apt.dat
+description names a taxiway is taxi family — ``junction`` — when no
+centreline touches it and it holds no startup (a touching 1202 chain
+keeps its corridor / junction verdict and letter; a startup on the face
+keeps apron); it sits ABOVE the open default (never a lot) and the
+route-proximity band (already junction).  Demoted by the touch-chain
+law it is ``groundside_pavement``, never a lot.  The editor's default
+name ("New Taxiway N") names nothing.
+
 Runway slabs are ``runway``; their pairwise overlaps ``runway_crossing``;
 ground-route corridors outside pavement ``service_road``; building
 footprints ``building`` (pads yield to their apron — RULINGS
@@ -218,6 +228,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
         if role in TAXI_FAMILY:
             ls = [c.letter for c in taxi if c.letter]
             letter = max(ls, key=_LETTERS.find) if ls else None
+        named_src = src_of.get(ref)
+        if role in ("apron", "service_junction") and not taxi and named_src is not None \
+                and named_src.taxi_name and not _holds_startup(face, start_tree):
+            # THE TAXI-NAME RULE (04z-1): the author's word stands in for
+            # the centreline the page lacks — junction, at the letter of the
+            # nearest through-route within the proximity band (else the
+            # default cap), whole face, no proximity split
+            role = "junction"
+            letter, n_serving = _junction_letter(face, taxi, through, rules)
+            evid = dict(evid, kind="junction", taxi_name=named_src.taxi_name,
+                        taxi_name_designator=named_src.taxi_designator or "-",
+                        letter_chains=float(n_serving))
+            stats["taxi_named"] = stats.get("taxi_named", 0) + 1
         if role == "apron" and prox is not None:
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
             # v1 applies it: the part of an apron within the contour is
@@ -251,7 +274,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
             # landside: a lot when a road reaches it or a road/lot face
             # touches it (the roads-and-lots complex, owner 2026-09-04j),
             # else the paved island it always was
-            role = "parking_lot" if i in road_ev else "groundside_pavement"
+            role = "parking_lot" if i in road_ev and not evid.get("taxi_name") \
+                else "groundside_pavement"
             evid = dict(evid, demoted=1.0, road_evidence=float(i in road_ev))
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None

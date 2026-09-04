@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
+import re
 import typing as _t
 
 import shapely
@@ -20,7 +21,7 @@ from ..model.frame import XY
 from .rules import Rules
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
-           "polygon_parts", "chains_from_edges"]
+           "polygon_parts", "chains_from_edges", "apron_named", "taxi_name_match"]
 
 _LETTERS = "ABCDEF"
 
@@ -76,6 +77,43 @@ class Evidence:
     road_chains: list[Chain] = _dc.field(default_factory=list)
     #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``).
     parking_polys: list[tuple[str, Polygon]] = _dc.field(default_factory=list)
+
+
+# ── names (the author's own word for a page) ────────────────────────────
+
+def apron_named(description: str, rules: Rules) -> bool:
+    """The apt.dat 110 description names an APRON (``lot.apron_name_tokens``)."""
+    d = description.lower()
+    return any(t in d for t in rules.lot.apron_name_tokens)
+
+
+def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
+    """THE TAXI-NAME RULE (RULINGS 2026-09-04z(1), ``rules.taxi_name``):
+    ``(token, designator)`` when the apt.dat 110 description names a
+    taxiway — a whole-word ``tokens`` match ("Taxiway B", "TWY A1") — else
+    ``None``.  Names nothing when: the description also names an APRON
+    (the apron name is senior — a "Taxiway E apron" is the apron a
+    taxiway crosses, RULINGS 2026-09-03j); or it is one of the editor's
+    ``unauthored_names`` plus an optional number ("New Taxiway 41" is
+    WED's default for every new pavement — CYXY's roads and lots all
+    carry it).  The designator is the word after the token when it is
+    at most ``designator_max_len`` characters, else empty."""
+    tn = rules.taxi_name
+    d = " ".join(description.lower().split())
+    if not d or apron_named(d, rules):
+        return None
+    for u in tn.unauthored_names:
+        if re.fullmatch(re.escape(u.lower()) + r"\s*\d*", d):
+            return None
+    for tok in tn.tokens:
+        m = re.search(r"\b" + re.escape(tok.lower()) + r"\b[\s:\-]*([a-z0-9]*)", d)
+        if m is None:
+            continue
+        desig = m.group(1)
+        if len(desig) > tn.designator_max_len:
+            desig = ""
+        return tok, desig.upper()
+    return None
 
 
 # ── polygons ─────────────────────────────────────────────────────────────

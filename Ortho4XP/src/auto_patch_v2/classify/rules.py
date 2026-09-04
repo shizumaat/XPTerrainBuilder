@@ -88,6 +88,13 @@ class Lot:
 
 
 @_dc.dataclass(frozen=True)
+class TaxiName:
+    tokens: tuple[str, ...]
+    unauthored_names: tuple[str, ...]
+    designator_max_len: int
+
+
+@_dc.dataclass(frozen=True)
 class Groundside:
     touch_tol_m: float
     requires_terminal: bool
@@ -139,6 +146,7 @@ class Rules:
     service: Service
     osm_roads: OsmRoads
     lot: Lot
+    taxi_name: TaxiName
     groundside: Groundside
     taxi_subrole: TaxiSubrole
     leadin: Leadin
@@ -202,7 +210,8 @@ def load_rules(path: str | Path | None = None) -> Rules:
     types = {"cells": Cells, "keyhole": Keyhole, "corridor": Corridor,
              "junction": Junction, "apron": Apron,
              "osm_taxiways": OsmTaxiways, "service": Service,
-             "osm_roads": OsmRoads, "lot": Lot, "groundside": Groundside, "taxi_subrole": TaxiSubrole,
+             "osm_roads": OsmRoads, "lot": Lot, "taxi_name": TaxiName,
+             "groundside": Groundside, "taxi_subrole": TaxiSubrole,
              "leadin": Leadin, "dsf_pavement": DsfPavement,
              "surfaces": Surfaces, "buildings": Buildings}
     for name, cls in types.items():

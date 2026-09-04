@@ -29,6 +29,17 @@ THE POPULATION is derived from the tables (03i): the airside VALUE roles
 that are governed and not rigid — a pad is a flat group levelled by its
 contact and is never a no-step endpoint of its own (v1
 ``enclaves.ENCLAVE_AIRSIDE_ROLES`` is the same set by other means).
+
+THE PAD↔PAVEMENT PAIRS (M5; RULINGS 2026-09-04i closing 03k; measured
+feasible at SPJC, M3b §4): a RIGID airside vertex (a pad's, touching
+rigid faces and nothing else) joins the K/sector population as an
+endpoint AGAINST pavement only (``pad_pavement_edges``, its own list and
+sidecar key) — a pair whose both endpoints are pad-only vertices prices
+one flat value against another and is not minted, and a pad vertex a
+groundside lot shares is the lot's (09-01g); the cap is the strictest governed cap at
+either endpoint (a pad carries the apron law, ``common.roles.building``).
+The pad is the junior tier, so where the pair contradicts a governed
+surface the pad's side yields (``solve/tiers.py``).
 """
 from __future__ import annotations
 
@@ -41,8 +52,9 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 
-__all__ = ["no_step_roles", "no_step_pairs", "no_step_rate",
-           "no_step_edges", "rate_rows_for_chain"]
+__all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
+           "no_step_rate", "no_step_edges", "pad_only_vertices",
+           "pad_pavement_edges", "rate_rows_for_chain"]
 
 GEN = "no_step"
 _SECTORS = 8
@@ -54,6 +66,15 @@ def no_step_roles(law: Law) -> frozenset[str]:
     return frozenset(r for r in reg
                      if role_side(law, r) == "airside" and is_value_role(law, r)
                      and role_cap(law, r) is not None and not is_rigid_role(law, r))
+
+
+def rigid_airside_roles(law: Law) -> frozenset[str]:
+    """Airside, value-carrying, governed, RIGID (a pad) — the pad side
+    of the pad↔pavement pairs."""
+    reg = law.tables.precedence.roles
+    return frozenset(r for r in reg
+                     if role_side(law, r) == "airside" and is_value_role(law, r)
+                     and role_cap(law, r) is not None and is_rigid_role(law, r))
 
 
 def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
@@ -71,32 +92,26 @@ def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
     return out
 
 
-def no_step_edges(planar: PlanarMap, law: Law
-                  ) -> list[tuple[int, int, float, float]]:
-    """``(a, b, cap, direct distance)`` per published pair — K nearest
-    per vertex over eight sectors within the window, deduplicated."""
-    vw = view(planar, law)
-    ns = law.tables.emit.no_step
-    caps = _airside_vertices(vw, no_step_roles(law))
-    ids = sorted(caps)
-    if not ids:
-        return []
+def _sector_pairs(vw: View, ns, caps: dict[int, float], sources: list[int],
+                  targets: dict[int, float], skip_pair) -> list[tuple[int, int, float, float]]:
+    """K nearest ``targets`` per source over eight sectors within the
+    window, deduplicated; ``caps`` maps every vertex to its cap."""
     cell = ns.window_m
     grid: dict[tuple[int, int], list[int]] = {}
-    for v in ids:
+    for v in sorted(targets):
         x, y = vw.xy[v]
         grid.setdefault((int(x // cell), int(y // cell)), []).append(v)
     per_sector = max(1, ns.k // _SECTORS)
     seen: set[tuple[int, int]] = set()
     out: list[tuple[int, int, float, float]] = []
-    for v in ids:
+    for v in sources:
         x, y = vw.xy[v]
         cx, cy = int(x // cell), int(y // cell)
         buckets: list[list[tuple[float, int]]] = [[] for _ in range(_SECTORS)]
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for u in grid.get((cx + dx, cy + dy), ()):
-                    if u == v:
+                    if u == v or skip_pair(v, u):
                         continue
                     ux, uy = vw.xy[u]
                     d = math.hypot(ux - x, uy - y)
@@ -116,10 +131,58 @@ def no_step_edges(planar: PlanarMap, law: Law
     return out
 
 
+def no_step_edges(planar: PlanarMap, law: Law
+                  ) -> list[tuple[int, int, float, float]]:
+    """``(a, b, cap, direct distance)`` per published PAVEMENT pair — K
+    nearest per vertex over eight sectors within the window, deduplicated
+    (the list the v1 oracle prices; unchanged by the pad pairs)."""
+    vw = view(planar, law)
+    caps = _airside_vertices(vw, no_step_roles(law))
+    return _sector_pairs(vw, law.tables.emit.no_step, caps, sorted(caps), caps,
+                         lambda v, u: False)
+
+
+def pad_only_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
+    """Vertex -> cap for every PAD-ONLY airside vertex: a rigid face's
+    vertex touching rigid faces and nothing else (a pad vertex shared
+    with airside pavement is that pavement's; one shared with a
+    groundside lot is the lot's — a mixed pad, 09-01g: the terrace in
+    the stand-off is lawful; measured SPJC: pairing it minted 7.2 m
+    building|groundside_pavement rows)."""
+    vw = view(planar, law)
+    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
+    pav = _airside_vertices(vw, no_step_roles(law))
+    return {v: c for v, c in _airside_vertices(vw, rigid_airside_roles(law)).items()
+            if v not in pav and all(planar.faces[f].role in rigid
+                                    for f in vw.vertex_faces[v])}
+
+
+def pad_pavement_edges(planar: PlanarMap, law: Law
+                       ) -> list[tuple[int, int, float, float]]:
+    """``(pad vertex, pavement vertex, cap, direct distance)`` — the PAD↔
+    PAVEMENT pairs (M5): from every pad-only vertex, K nearest pavement
+    vertices per sector within the window; never pad↔pad.  Published
+    under their own sidecar key (``pad_pavement_no_step_edges``) so the
+    pavement list the v1 oracle prices is unchanged, and priced by v2
+    verify by identity."""
+    vw = view(planar, law)
+    pav = _airside_vertices(vw, no_step_roles(law))
+    pads = pad_only_vertices(planar, law)
+    if not pads:
+        return []
+    caps = dict(pav)
+    caps.update(pads)
+    return _sector_pairs(vw, law.tables.emit.no_step, caps, sorted(pads), pav,
+                         lambda v, u: False)
+
+
 def no_step_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """§1.1 as ``Diff`` rows."""
+    """§1.1 as ``Diff`` rows: the pavement pairs, then the pad↔pavement
+    pairs (M5; the pad is the junior tier and yields first)."""
     src = Source(GEN, "airside_no_step §1.1 (2026-08-27)", ())
-    return [Diff(a, b, cap, d, src) for a, b, cap, d in no_step_edges(planar, law)]
+    src_pad = Source(GEN, "airside_no_step §1.1 pad↔pavement (M5, 2026-09-04i)", ())
+    return ([Diff(a, b, cap, d, src) for a, b, cap, d in no_step_edges(planar, law)]
+            + [Diff(a, b, cap, d, src_pad) for a, b, cap, d in pad_pavement_edges(planar, law)])
 
 
 def rate_rows_for_chain(vw: View, chain: list[int], rate: float, src: Source,

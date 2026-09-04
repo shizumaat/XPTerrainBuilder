@@ -236,13 +236,23 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # demoted every zone row).  The pad takes its level from the NEAREST
     # pavement (the pocket rule): its rim vertex nearest a lip carries the
     # full band, every other rim vertex the floor only ("no deeper than").
-    pad_rim: dict[int, int] = {}          # vertex -> rigid face id
+    # ONLY A DETACHED PAD is levelled by the strip: a pad with a rim vertex
+    # on airside pavement (or a road) takes THAT level (03h weld, 04r
+    # contact), and a strip band on its other rim vertices would demand
+    # the mandatory-down below the very lip it sits on — measured
+    # 2026-09-05: CYXY / SPLP / SPJC / OTHH went hard-infeasible on it.
+    pad_rim: dict[int, int] = {}          # vertex -> rigid face id (detached pads)
+    attached_rim: set[int] = set()        # rim vertices of pads touching pavement
     for f in vw.faces_of_role(tuple(
             r for r, spec in law.tables.precedence.roles.items()
             if getattr(spec, "rigid", False))):
-        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
-            for v in ring:
-                pad_rim.setdefault(v, f.id)
+        rim = [v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring]
+        if any(v in own_law for v in rim):
+            attached_rim.update(rim)
+            continue
+        for v in rim:
+            pad_rim.setdefault(v, f.id)
+    own_law = own_law | attached_rim
 
     def _found(v: int, classes: set) -> list:
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)

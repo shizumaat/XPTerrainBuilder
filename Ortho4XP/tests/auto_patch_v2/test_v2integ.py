@@ -220,3 +220,17 @@ def test_a_pad_in_the_strip_is_one_level_the_nearest_rim_carries_the_band():
     cs, _c, _w = generate(pm, law, airport)
     sol = solve_hard(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+
+
+def test_a_pad_touching_pavement_takes_the_pavement_level_and_no_strip_band(hangar):
+    """The hangar pads front the apron (03h): none of their rim vertices —
+    the apron-shared ones or the ones in the strip — carries a zone band,
+    and the hard set stays exactly as feasible as before (the last resort
+    still relaxes the hangar row, nothing new is infeasible)."""
+    from auto_patch_v2.constraints.zones import zone_bands
+    law, airport, pm, cs = hangar
+    pads = [f for f in pm.faces.values() if f.role == "building"]
+    rim = {v for f in pads for v in pm.vertices if f.id in pm.vertices[v].incident_faces}
+    rows = [r for r in zone_bands(pm, law, airport) if isinstance(r, Linear)
+            and r.terms[0][0] in rim]
+    assert rows == [], rows[:2]

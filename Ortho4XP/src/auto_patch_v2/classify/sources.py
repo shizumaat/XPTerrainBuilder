@@ -26,7 +26,10 @@ The verdict per source, with the numbers recorded (``SourceRecord``):
   (RULINGS 2026-09-04u: a route reaching a page is road evidence for
   it; CYXY dsf:pol17 read "road 0 m" while route 50 ended at its
   boundary — supersedes 04j's "a 1206 route alone never makes a lot");
-* ``open`` — everything else.
+* ``open`` — everything else, including a source whose description
+  NAMES A TAXIWAY (RULINGS 2026-09-04z(1), ``evidence.taxi_name_match``):
+  taxi evidence stands in for the centreline it lacks, so the page is
+  never a strip or a lot (the scorer reads it taxi family).
 """
 from __future__ import annotations
 
@@ -38,7 +41,7 @@ from shapely.ops import linemerge, unary_union
 from shapely.strtree import STRtree
 
 from ..model.airport import Airport
-from .evidence import Evidence, polygon_parts
+from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
 
 __all__ = ["SourceRecord", "classify_sources"]
@@ -67,12 +70,18 @@ class SourceRecord:
     apron_cover: float      # fraction under OSM aeroway=apron
     cls: str                # strip | lot | open
     reason: str
+    taxi_name: str = ""     # the description's taxiway token (04z-1), "" when it names none
+    taxi_designator: str = ""  # ...and the designator after it ("Taxiway B" -> "B")
 
     def as_evidence(self) -> dict[str, float | str]:
-        return {"source": self.id, "source_class": self.cls,
-                "source_reason": self.reason, "source_width_m": self.width_m,
-                "source_road_m": self.road_m, "source_taxi_m": self.taxi_m,
-                "source_road_reach": float(self.road_reach)}
+        out: dict[str, float | str] = {
+            "source": self.id, "source_class": self.cls,
+            "source_reason": self.reason, "source_width_m": self.width_m,
+            "source_road_m": self.road_m, "source_taxi_m": self.taxi_m,
+            "source_road_reach": float(self.road_reach)}
+        if self.taxi_name:
+            out["source_taxi_name"] = self.taxi_name
+        return out
 
 
 def classify_sources(airport: Airport, ev: Evidence, rules: Rules
@@ -183,10 +192,15 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     through, dead_ends, pieces = _through_length(poly, road_parts)
     reach = _road_reach(poly, road_tree, roads, rules.cells.on_tol_m)
     lot = rules.lot
-    no_taxi = taxi_m < rules.cells.min_shared_m
+    named = taxi_name_match(description, rules)
+    tok, desig = named if named else ("", "")
+    no_taxi = taxi_m < rules.cells.min_shared_m and named is None
     carries = road_m >= lot.min_road_fraction * half_perim
     carries_osm = (osm_m + aisle_m) >= lot.min_road_fraction * half_perim
     cls, reason = "open", "no road; or taxi/startup/apron evidence"
+    if named is not None and taxi_m < rules.cells.min_shared_m:
+        reason = (f"taxi by name {tok!r}" + (f" ({desig})" if desig else "")
+                  + " (04z-1), no taxi centreline")
     if carries and no_taxi:
         if width <= lot.narrow_road_width_m:
             cls, reason = "strip", f"width {width:.1f} m <= narrow {lot.narrow_road_width_m:g}, road {road_m:.0f} m"
@@ -197,7 +211,7 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
                                     f"{lot.through_min_fraction:g} x {half_perim:.0f} m, "
                                     f"{pieces} road piece(s)")
     if cls == "open" and no_taxi and starts == 0 and \
-            acov < lot.parking_cover_fraction and "apron" not in description.lower():
+            acov < lot.parking_cover_fraction and not apron_named(description, rules):
         if pcov >= lot.parking_cover_fraction:
             cls, reason = "lot", f"amenity=parking covers {pcov:.0%}"
         elif aisle_m > 0.0 and carries_osm:
@@ -210,7 +224,7 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
                                   f"no startup, width {width:.1f} m")
     return SourceRecord(sid, description, poly.area, width, road_m, osm_m, through,
                         dead_ends, pieces, reach, aisle_m, taxi_m, starts, pcov, acov,
-                        cls, reason)
+                        cls, reason, tok, desig)
 
 
 def _road_reach(poly: Polygon, tree: STRtree | None, lines, tol: float) -> int:

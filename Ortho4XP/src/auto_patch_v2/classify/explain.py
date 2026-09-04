@@ -71,7 +71,10 @@ def _cell_lines(c: Cell, poly: Polygon, overlap: float | None, cl: Classificatio
                    f"through {r.through_m:.0f}, pieces {r.road_pieces}, aisle {r.aisle_m:.0f}), "
                    f"taxi {r.taxi_m:.0f} m, startups {r.startups}, parking cover "
                    f"{r.parking_cover:.0%}, apron cover {r.apron_cover:.0%}"
-                   + (f", desc {r.description!r}" if r.description else ""))
+                   + (f", desc {r.description!r}" if r.description else "")
+                   + (f", TAXI NAME {r.taxi_name!r}"
+                      + (f" designator {r.taxi_designator}" if r.taxi_designator else "")
+                      + " (04z-1)" if r.taxi_name else ""))
         out.append(f"      -> {r.reason}")
     probe = poly.buffer(1.0)
     taxi = [f"taxi{ch.id}" + ("(network)" if ch.runway_network else "")

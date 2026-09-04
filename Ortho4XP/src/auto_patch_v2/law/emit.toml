@@ -10,6 +10,7 @@ station_spacing_m       = 12.0   # runway / spine profile station spacing along 
 [identity]
 coordinate_dp           = 11     # canonical vertex identity = lat/lon rounded to this many decimals (memory canonical-identity-join)
 min_distinct_spacing_m  = 0.5    # two DISTINCT vertices never closer than this — the census's proximity knob (LAW_TRUE_KNOBS proximity_m)
+weld_spacing_m          = 1.0    # THE SLIVER WELD (RULINGS 2026-09-04u): two same-side pavement cells whose boundaries lie within this of each other share the edge / the vertices at planar build — no unowned sliver between pavements (CYXY cross_connector 101 / junction 211: 0.47 m, draped as a cliff). Read in PRE-SNAP coordinates, so it is the identity spacing plus the snap's half-diagonal (0.5 + 0.35), which also covers HECA's post-snap 0.554 m rim (04s, pav129 #331 / pav81 #42) and matches the frontage near-miss horizon (structures.building_pad.frontage_near_miss_m)
 
 [materiality]
 elevation_m             = 0.01   # a residual below this is PASS-with-residual, never iterated (owner 2026-08-02 convergence guards)

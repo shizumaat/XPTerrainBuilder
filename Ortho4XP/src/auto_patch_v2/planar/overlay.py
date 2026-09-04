@@ -12,8 +12,10 @@ dropped — the DEM owns it.
 
 Shared boundaries exist once BY CONSTRUCTION: two regions that share a
 boundary contribute the same coordinates, the union merges them, and the
-face on each side references the same noded segment.  No welds, no
-annuli, no T-vertices.
+face on each side references the same noded segment.  No annuli, no
+T-vertices.  Boundaries that MERELY NEARLY coincide (two sources a
+sub-metre apart) are welded first (``weld.py``, RULINGS 2026-09-04u) so
+the sliver between them never becomes a face.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from ..law import Law
 from ..law.tables import chord_cap_m, role_side
 from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
+from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands"]
@@ -74,6 +77,9 @@ class Arrangement:
     #: owns the band, each tile's patch stops ``half_width_m`` short.
     seam_bands: list[Polygon] = _dc.field(default_factory=list)
     dropped_seam_faces: int = 0
+    #: The sliver weld (``weld.py``, RULINGS 2026-09-04u) applied to the
+    #: cells BEFORE the zones are derived and the rings noded.
+    weld: WeldStats = _dc.field(default_factory=WeldStats)
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -81,11 +87,12 @@ def build_arrangement(airport: Airport, classification: Classification,
     """Regions + breakline sources -> ONE noded arrangement."""
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
+    cells, weld = weld_cells(classification.cells, law)
     regions: list[Region] = []
-    for c in classification.cells:
+    for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
                               c.code_number, c.code_letter, c.side, "cell"))
-    for z in zone_regions(classification.cells, law, classification.keepouts):
+    for z in zone_regions(cells, law, classification.keepouts):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone))
@@ -152,7 +159,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             continue
         faces.append((poly, best))
     return Arrangement(faces, noded, sources, regions, dropped, grid,
-                       bands, dropped_seam)
+                       bands, dropped_seam, weld)
 
 
 def seam_bands(airport: Airport, regions: list[Region], half_width_m: float

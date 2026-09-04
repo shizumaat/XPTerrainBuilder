@@ -389,6 +389,7 @@ class Identity:
 
     coordinate_dp: int
     min_distinct_spacing_m: float
+    weld_spacing_m: float
 
 
 @_dc.dataclass(frozen=True)

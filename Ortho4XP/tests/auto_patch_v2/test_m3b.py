@@ -98,7 +98,11 @@ def test_mixed_pad_cuts_the_groundside_lot_back(synthetic, law):
     from shapely.geometry import Polygon
     lot_poly = Polygon(lot.ring, lot.holes)
     mixed_c = next(c for c in cl.cells if c.ref == "pad_mixed")
-    assert lot_poly.distance(Polygon(mixed_c.ring)) == pytest.approx(back, abs=1e-6)
+    # the knife carries the identity grid's half-diagonal on top of the
+    # set-back (04u: the set-back holds AFTER the snap; every pad cuts)
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    assert lot_poly.distance(Polygon(mixed_c.ring)) == \
+        pytest.approx(back + grid * 0.5 ** 0.5, abs=1e-6)
     assert min(y for _x, y in lot.ring) == pytest.approx(290.0, abs=1e-6)
     assert sum(1 for c in cl.cells if c.role == "groundside_pavement") == 1
     mixed = next(f for f in pm.faces.values() if f.ref == "pad_mixed")

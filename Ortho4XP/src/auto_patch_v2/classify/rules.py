@@ -91,6 +91,7 @@ class Lot:
 class Groundside:
     touch_tol_m: float
     requires_terminal: bool
+    default_open_role: str
 
 
 @_dc.dataclass(frozen=True)
@@ -170,6 +171,10 @@ def _build(cls: type, data: _t.Mapping[str, _t.Any], where: str) -> _t.Any:
         elif t == "bool" or t is bool:
             if not isinstance(v, bool):
                 raise RulesError(f"{where}.{name}: not a bool ({v!r})")
+            kw[name] = v
+        elif t == "str" or t is str:
+            if not isinstance(v, str) or not v:
+                raise RulesError(f"{where}.{name}: not a non-empty string ({v!r})")
             kw[name] = v
         elif t.startswith("tuple[int") if isinstance(t, str) else False:
             if not isinstance(v, list) or not all(isinstance(i, int) for i in v):

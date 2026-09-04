@@ -20,9 +20,12 @@ The verdict per source, with the numbers recorded (``SourceRecord``):
   measured CYXY: strips 0.2-1.5, lots 2.9-4.6);
 * ``lot`` — not a strip, touches no taxi centreline, holds no startup,
   is not an apron by name (apt.dat description) or by OSM
-  ``aeroway=apron`` cover, and carries an OSM road or parking aisle
-  (car evidence: a 1206 truck route alone serves aircraft on an apron
-  and never makes a lot) or is covered by OSM ``amenity=parking``;
+  ``aeroway=apron`` cover, and carries an OSM road or parking aisle,
+  or is covered by OSM ``amenity=parking``, or is REACHED by a road —
+  a 1206 route or an OSM road entering it or ending at its boundary
+  (RULINGS 2026-09-04u: a route reaching a page is road evidence for
+  it; CYXY dsf:pol17 read "road 0 m" while route 50 ended at its
+  boundary — supersedes 04j's "a 1206 route alone never makes a lot");
 * ``open`` — everything else.
 """
 from __future__ import annotations
@@ -56,6 +59,7 @@ class SourceRecord:
     through_m: float        # road length in pieces entering AND leaving
     dead_ends: int          # road ends inside, on no boundary and no junction
     road_pieces: int        # merged road pieces inside (an aisle grid has many)
+    road_reach: int         # road centrelines REACHING it: entering, or an end within on_tol_m of the boundary (04u)
     aisle_m: float          # OSM service=parking_aisle length inside
     taxi_m: float           # taxi centreline length on/inside it
     startups: int           # 1300 startups inside
@@ -67,7 +71,8 @@ class SourceRecord:
     def as_evidence(self) -> dict[str, float | str]:
         return {"source": self.id, "source_class": self.cls,
                 "source_reason": self.reason, "source_width_m": self.width_m,
-                "source_road_m": self.road_m, "source_taxi_m": self.taxi_m}
+                "source_road_m": self.road_m, "source_taxi_m": self.taxi_m,
+                "source_road_reach": float(self.road_reach)}
 
 
 def classify_sources(airport: Airport, ev: Evidence, rules: Rules
@@ -176,6 +181,7 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     pcov = poly.intersection(parking).area / poly.area if not parking.is_empty else 0.0
     acov = poly.intersection(apron_u).area / poly.area if not apron_u.is_empty else 0.0
     through, dead_ends, pieces = _through_length(poly, road_parts)
+    reach = _road_reach(poly, road_tree, roads, rules.cells.on_tol_m)
     lot = rules.lot
     no_taxi = taxi_m < rules.cells.min_shared_m
     carries = road_m >= lot.min_road_fraction * half_perim
@@ -199,6 +205,26 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
         elif carries_osm:
             cls, reason = "lot", (f"OSM road {osm_m:.0f} m inside ({pieces} pieces), no "
                                   f"taxi centreline, no startup, width {width:.1f} m")
+        elif reach > 0:
+            cls, reason = "lot", (f"{reach} road(s) reach it (04u), no taxi centreline, "
+                                  f"no startup, width {width:.1f} m")
     return SourceRecord(sid, description, poly.area, width, road_m, osm_m, through,
-                        dead_ends, pieces, aisle_m, taxi_m, starts, pcov, acov,
+                        dead_ends, pieces, reach, aisle_m, taxi_m, starts, pcov, acov,
                         cls, reason)
+
+
+def _road_reach(poly: Polygon, tree: STRtree | None, lines, tol: float) -> int:
+    """How many road centrelines REACH ``poly`` (RULINGS 2026-09-04u): the
+    line enters it (a positive length inside) or one of its ends lies
+    within ``tol`` of its boundary."""
+    if tree is None:
+        return 0
+    n = 0
+    for j in tree.query(poly.buffer(tol), predicate="intersects"):
+        ln = lines[int(j)]
+        if ln.intersection(poly).length > 0.0:
+            n += 1
+        elif any(poly.boundary.distance(Point(c)) <= tol
+                 for c in (ln.coords[0], ln.coords[-1])):
+            n += 1
+    return n

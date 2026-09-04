@@ -31,6 +31,7 @@ from ..model.frame import XY, Key
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .overlay import Arrangement, build_arrangement
+from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
 
@@ -63,6 +64,7 @@ class BuildStats:
     dropped_seam_faces: int = 0
     structures: StructureStats = _dc.field(default_factory=StructureStats)
     basins: BasinStats = _dc.field(default_factory=BasinStats)
+    weld: WeldStats = _dc.field(default_factory=WeldStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -87,7 +89,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
-                       structures=sstats, basins=bstats)
+                       structures=sstats, basins=bstats, weld=arr.weld)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

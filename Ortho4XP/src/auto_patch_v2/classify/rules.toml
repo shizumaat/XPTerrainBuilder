@@ -56,6 +56,7 @@ parking_cover_fraction = 0.5   # an OSM amenity=parking polygon covering at leas
 [groundside]
 touch_tol_m       = 0.05   # cells within this touch (v1 touch_tol_m); a chain of touching airside cells reaches a runway or is landside (user 2026-06-09)
 requires_terminal = true   # an airport with NO terminal has no landside: every paved island is aircraft parking (user 2026-06-11)
+default_open_role = "groundside_pavement"  # RULINGS 2026-09-04u: OPEN pavement is never apron by default — a face with no apron evidence (no startup, no taxi centreline on its source, no apron name / aeroway=apron cover) is this role, or parking_lot when a road reaches it (the CYXY pol17+pol20+pol123 lots served by 1206 route 50); gated by requires_terminal like the demotion
 
 [taxi_subrole]                        # corridor faces name their taxi sub-role from geometry against the runways
 parallel_max_angle_deg     = 15.0     # axis within this of a runway bearing = a parallel

@@ -149,21 +149,31 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     size: dict = {}
     sol, rep = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options(), size_out=size)
     assert sol.status is Status.OPTIMAL and not sol.iis, sol.message
-    assert rep.mode == "tiered" and rep.demoted > 0
+    # HARD -> RELAX -> tiers (04t-1, 04x): the apron may yield through the
+    # IIS-scoped relaxation or, when that stands down, through demotion.
+    assert rep.mode in ("relaxed", "tiered"), rep.mode
+    tiered = rep.mode == "tiered"
+    if tiered:
+        assert rep.demoted > 0
     apron_tier = tables.role_tier(law, "apron")
-    assert tables.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
-    assert all(k >= rep.k_min for k in rep.yielded)
+    if tiered:
+        assert tables.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
+    if tiered:
+        assert all(k >= rep.k_min for k in rep.yielded)
     # the search tried a depth that kept the apron hard and found it infeasible,
     # and its first attempt was the cheap one: the lowest tier alone
-    assert any(k > apron_tier and st == "infeasible" for k, st, _w in rep.attempts)
-    assert rep.attempts[0][0] == len(tables.tiers(law)) - 1
+    if tiered:
+        assert any(k > apron_tier and st == "infeasible" for k, st, _w in rep.attempts)
+    if tiered:
+        assert rep.attempts[0][0] == len(tables.tiers(law)) - 1
     for p in pins:                                        # tier 0 held exactly
         assert abs(sol.z[p.v] - p.z) < 1e-6
     assert _over_cap(cs, sol, {"taxi"}) <= 1e-6
     assert _over_cap(cs, sol, {"runway_profile", "runway"}) <= 1e-6
     # the apron carried the relief the chain cannot span lawfully
     assert _over_cap(cs, sol, {"apron"}) > 0.3
-    assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
+    if tiered:
+        assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
     assert tables.role_tier(law, "stub") not in rep.yielded
     for pad in (f for f in pm.faces.values() if f.role == "building"):
         zs = [sol.z[v] for v in pm.ring_vertices(pad.ring)]

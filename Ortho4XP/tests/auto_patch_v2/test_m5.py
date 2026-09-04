@@ -152,8 +152,10 @@ def test_pinned_runways_make_the_apron_yield_not_the_taxiways(law):
     apron_tier = precedence.role_tier(law, "apron")
     assert precedence.role_tier(law, "stub") < rep.k_min <= apron_tier   # taxi hard, apron soft
     assert all(k >= rep.k_min for k in rep.yielded)
-    # the tightening tried to re-harden the apron and found it had to yield
+    # the search tried a depth that kept the apron hard and found it infeasible,
+    # and its first attempt was the cheap one: the lowest tier alone
     assert any(k > apron_tier and st == "infeasible" for k, st, _w in rep.attempts)
+    assert rep.attempts[0][0] == len(precedence.tiers(law)) - 1
     for p in pins:                                        # tier 0 held exactly
         assert abs(sol.z[p.v] - p.z) < 1e-6
     assert _over_cap(cs, sol, {"taxi"}) <= 1e-6

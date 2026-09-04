@@ -3,39 +3,42 @@ not always reliable; a feasible solution exists for every airport; ALL
 pavement must comply with the law and always overrides terrain when
 needed; the LAW's priority order decides which governed surface yields").
 
-One HARD solve; a LADDER solve and a TIGHTENING only when it cannot:
+One HARD solve; a SEARCH over the demotion depth only when it cannot:
 
 1. **HARD.**  Every law row as the generators minted it — every governed
    pavement law row hard, the DEM only in the objective (M2) and in the
    seam / end-zone / crown preference groups (M3a).  OPTIMAL here means no
    surface yielded to any other: the shipped behaviour of the five
    zero airports, byte for byte.
-2. **LADDER**, when 1 is infeasible.  Every row of every tier but 0
-   (``constraints.precedence.tiers``; tier 0 = the runway family) becomes
-   a PREFERENCE with an unbounded slack, charged
+2. **DEMOTE**, when 1 is infeasible.  ``demote(k_min)`` turns every row
+   of every tier ``≥ k_min`` (``constraints.precedence.tiers``; tier 0 =
+   the runway family) into a PREFERENCE with an unbounded slack, charged
    ``Weights.preference["law"] × ratio ** rank`` per metre of relief
    (``assemble.preference_weight``; rank 0 = the LOWEST tier, the
    ungoverned and rigid surfaces; ``ratio`` is ``Weights.tier_ratio``
    capped so the top stays under ``Weights.tier_top`` — HiGHS loses the
-   solve past ~1e10 of objective range), so the relief lands on the most
-   junior surfaces by preference.  Tier 0 is never demoted; nor are the
-   structural equalities (``Flat``: a pad or a wall band is ONE value,
-   movable as a whole) and the object ``Band`` bounds.  Every DEM-derived
-   pin off tier 0 (a wall crest, a basin rim, a mouth datum) is thereby a
-   preference too, never a hard row — the DEM yields to every governed
-   surface.  Infeasible HERE ⇒ the IIS, which can only name hard↔hard
-   contradictions inside tier 0 (CIFP pins against the runway cap) or
-   among the structural rows.
-3. **TIGHTEN.**  A weighted ladder is not lexicographic: a senior tier
-   with few rows can be cheaper to bend than a junior tier with many.  So
-   the most senior tier that yielded (> 1 mm) in step 2, and every tier
-   above it, are re-HARDENED and the LP runs again; feasible ⇒ that
-   solution stands (the senior surface truly held) and the tightening
-   repeats one tier further down; infeasible ⇒ the previous solution
-   stands (that tier had to yield).  At most one solve per tier; in
-   practice one or two.  The result is exact at tier granularity: a
-   surface is soft only when every tier junior to it could not close the
-   contradiction.
+   solve past ~1e10 of objective range), so among the demoted tiers the
+   relief lands on the most junior surfaces by preference.  Tier 0 is
+   never demoted; nor are the structural equalities (``Flat``: a pad or
+   a wall band is ONE value, movable as a whole) and the object ``Band``
+   bounds.  Every DEM-derived pin off tier 0 (a wall crest, a basin rim,
+   a mouth datum) is thereby a preference too, never a hard row — the
+   DEM yields to every governed surface.
+3. **THE DEPTH SEARCH.**  Feasibility is monotone in ``k_min`` (a deeper
+   demotion relaxes a superset), so the LARGEST feasible ``k_min`` — the
+   fewest tiers soft, every tier above them HARD — is found by bisection:
+   the lowest tier alone first (the cheap, common case: measured KCLT,
+   one DEM-derived structure row 1.97 m closes it), then the midpoints.
+   A feasible attempt whose most senior yielding tier is ``ky > k_min``
+   PROVES ``k_min = ky`` feasible with the same solution (every tier
+   below ``ky`` held hard in it), so the search jumps there without a
+   solve.  The result is exact at tier granularity — a surface is soft
+   only when every tier junior to it could not close the contradiction —
+   in ``≤ 1 + log2(tiers)`` solves, each carrying slacks for the demoted
+   rows only (a full ladder over every row cost 524 s at KCLT; the
+   search's first attempt there is a fraction).  ``k_min = 1`` infeasible
+   ⇒ the IIS, which can only name hard↔hard contradictions inside tier 0
+   (CIFP pins against the runway cap) or among the structural rows.
 
 A row's TIER: a row minted for a face (``Source.inputs`` ``face:<id>``)
 belongs to that face's role — an apron ring edge shared with a taxiway is
@@ -211,8 +214,7 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
                       weights: Weights, options: Options | None = None, *,
                       size_out: dict | None = None
                       ) -> tuple[Solution, TierReport]:
-    """Hard first; the ladder and the tightening on infeasibility
-    (module docstring)."""
+    """Hard first; the depth search on infeasibility (module docstring)."""
     opt = options or Options()
     tt = tiers(law)
     quiet = _dc.replace(opt, diagnose_iis=False)
@@ -222,31 +224,51 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return sol, rep
     rep = TierReport("tiered", tt, wall_hard_s=sol.wall_s)
     lowest = len(tt) - 1
-    best: tuple[Solution, dict, dict[int, Demoted]] | None = None
-    k_min = 1
-    for _attempt in range(len(tt)):
+    best: tuple[int, Solution, dict, dict[int, Demoted]] | None = None
+
+    def attempt(k_min: int) -> tuple[Solution, dict[int, Demoted], dict, float]:
         cs2, demoted = demote(planar, law, cs, k_min)
         ratio = ladder_ratio(weights, lowest - k_min + 1)
-        w = _dc.replace(weights, tier_ratio=ratio)
         size2: dict = {}
-        sol = solve_hard(planar, cs2, w, opt if best is None else quiet, size_out=size2)
-        rep.attempts.append((k_min, sol.status.value, sol.wall_s))
-        if sol.status not in (Status.OPTIMAL, Status.FEASIBLE):
+        s2 = solve_hard(planar, cs2, _dc.replace(weights, tier_ratio=ratio),
+                        opt if k_min == 1 else quiet, size_out=size2)
+        rep.attempts.append((k_min, s2.status.value, s2.wall_s))
+        return s2, demoted, size2, ratio
+
+    lo, hi = 1, lowest                # lo: assumed feasible; hi: not yet refuted
+    k = lowest                        # the lowest tier alone, first
+    while True:
+        s2, demoted, size2, ratio = attempt(k)
+        if s2.status in (Status.OPTIMAL, Status.FEASIBLE):
+            y = _yields(demoted, size2.get("escalation", {}))
+            ky = _min_yield_tier(y)
+            proven = k if ky is None else max(k, ky)
+            if best is None or proven > best[0]:
+                best = (proven, s2, size2, demoted)
+                rep.k_min, rep.demoted, rep.ratio, rep.yielded = proven, len(demoted), ratio, y
+            lo = proven
+        elif s2.status is Status.INFEASIBLE:
+            if k == 1:
+                return s2, rep            # the IIS names tier 0 / structural rows
+            hi = k - 1
+        else:
             if best is None:
-                return sol, rep       # the ladder itself failed: IIS / error
-            break                     # the tightening failed: keep the last
-        best = (sol, size2, demoted)
-        rep.k_min, rep.demoted, rep.ratio = k_min, len(demoted), ratio
-        rep.yielded = _yields(demoted, size2.get("escalation", {}))
-        ky = _min_yield_tier(rep.yielded)
-        if ky is None or ky >= lowest:
-            break                     # nothing senior left to re-harden
-        k_min = ky + 1                # re-harden that tier and every tier above
-    assert best is not None
-    sol, size2, demoted = best
+                return s2, rep            # backend error, nothing to fall back on
+            break
+        if lo >= hi:
+            break
+        k = (lo + hi + 1) // 2
+    if best is None:                      # lo == 1 assumed, never solved
+        s2, demoted, size2, ratio = attempt(1)
+        if s2.status not in (Status.OPTIMAL, Status.FEASIBLE):
+            return s2, rep
+        y = _yields(demoted, size2.get("escalation", {}))
+        best = (1, s2, size2, demoted)
+        rep.k_min, rep.demoted, rep.ratio, rep.yielded = 1, len(demoted), ratio, y
+    _k, sol, size2, demoted = best
     if size_out is not None:
         esc = size2.pop("escalation", {})
-        size_out.update({f"tiered_{k}": v for k, v in size2.items()})
+        size_out.update({f"tiered_{kk}": v for kk, v in size2.items()})
         size_out["escalation"] = {g: e for g, e in esc.items()
                                   if not g.startswith(GROUP + ":")}
     msg = sol.message.split("; preferences yielded")[0]

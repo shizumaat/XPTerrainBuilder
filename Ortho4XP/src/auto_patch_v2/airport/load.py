@@ -70,6 +70,21 @@ class Inputs:
     dem_frame: str = "production"
     #: ``--allow-degraded-dem``: accept a cold production frame KNOWINGLY.
     allow_degraded_dem: bool = False
+    #: PRE-COMPOSED production tile rasters, keyed ``(lat, lon)`` — the
+    #: core ``O4_DEM_Utils.DEM`` objects a HOSTING tile build has already
+    #: prepared (the tile driver's ``tile.dem``, the very surface
+    #: ``include_patches`` drapes on).  A seeded tile is REUSED, never
+    #: re-composed: the tile build's DEM prep is the frame of record, and
+    #: composing it a second time in a worker is the class of drift the
+    #: harness's warm-vs-cold refusals exist for.  Tiles a straddling
+    #: airport touches beyond the seeds compose lazily as before.
+    production_dem_tiles: _t.Any = None
+    #: The caller RUNS INSIDE THE CORE (its data root already set, its
+    #: ``src``/``Providers`` on ``sys.path``, its cwd whatever the engine
+    #: process uses): the production loader must not assert the CLI's
+    #: cwd/engine-root contract nor re-point the data root.  The corpus
+    #: check (``elevation_root`` IS the core's ``Elevation_dir``) stays.
+    core_hosted: bool = False
 
 
 @_dc.dataclass
@@ -301,7 +316,9 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         from . import dem_production as _prod
         dem = _prod.load_production_dem(frame, icao, inputs.elevation_root,
                                         inputs.osm_root, inputs.xplane_root,
-                                        allow_degraded=inputs.allow_degraded_dem)
+                                        allow_degraded=inputs.allow_degraded_dem,
+                                        seed_tiles=inputs.production_dem_tiles,
+                                        core_hosted=inputs.core_hosted)
     elif inputs.elevation_root and inputs.dem_frame == "authored":
         dem = _dem.load_dem(frame, inputs.elevation_root, icao, inputs.feather_m)
     elif inputs.elevation_root:

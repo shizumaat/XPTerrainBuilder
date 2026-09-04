@@ -491,7 +491,10 @@ def parse_patch_provenance(path: str) -> dict | None:
 #
 # Bump when the stamp SET or any value's meaning changes: a patch whose
 # ``o4_fresh_v`` differs from this is treated as unrecognised and rebuilds once.
-FRESHNESS_SCHEMA_VERSION = "1"
+# "2" (2026-09-04): ``o4_ap_engine`` joined the compared keys — a patch one
+# auto-patch engine wrote is never current for the other (RULINGS
+# 2026-09-03d, v2 beside v1).  Every "1" patch rebuilds exactly once.
+FRESHNESS_SCHEMA_VERSION = "2"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -507,6 +510,7 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_cifp",
     "o4_pack",
     "o4_engine",
+    "o4_ap_engine",
     "o4_dsf",
 )
 

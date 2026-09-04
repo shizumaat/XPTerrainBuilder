@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.0",
+ "engineVersion": "1.50.1719",
  "groups": {
   "app": [
    "verbosity",
@@ -81,6 +81,10 @@
   ],
   "vector": [
    "auto_patch",
+   "solve_model",
+   "auto_patch_engine",
+   "flat_site_declared",
+   "flat_site_declared_elevation_m",
    "modify_custom_airports",
    "elevation_level",
    "elevation_coastline_band_km",
@@ -95,6 +99,7 @@
    "working_grid_arc_seconds",
    "road_level",
    "road_banking_limit",
+   "road_grade_limit",
    "lane_width",
    "max_levelled_segs",
    "water_simplification",
@@ -125,7 +130,7 @@
   },
   "airport_elevation_level": {
    "default": "auto",
-   "hint": "Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. \"auto\" (default) uses each provider's best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief; finer levels only help where a provider actually publishes data that fine. Cached insets fetched at an earlier level are recycled as-is until refreshed.",
+   "hint": "Airport elevation detail level \u2014 the ground resolution in metres to which fetched airport elevation insets are warped and stored. \"auto\" (default) uses each provider's best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief. A level FINER than what a provider publishes is raised to that provider's native resolution \u2014 interpolating 30 m data onto a 3 m grid adds no detail while costing ~100x the disk \u2014 so a fine level only takes effect where a source genuinely offers it. Cached insets are recycled as-is until refreshed, except one stored finer than its source publishes, which is regenerated at native posting.",
    "name": "airport_elevation_level",
    "type": "str",
    "valueLabels": {
@@ -134,7 +139,7 @@
     "10": "10 m",
     "30": "30 m",
     "5": "5 m",
-    "auto": "Auto — best available (down to 0.5 m)"
+    "auto": "Auto \u2014 best available (down to 0.5 m)"
    },
    "values": [
     "auto",
@@ -153,7 +158,7 @@
   },
   "airport_inset_water": {
    "default": false,
-   "hint": "RETIRED (2026-07-26) and ignored: the hydro-flat basin scan of lidar insets is no longer run — water comes from OpenStreetMap / custom data only. The variable is kept so existing config files parse; its value has no effect.",
+   "hint": "RETIRED (2026-07-26) and ignored: the hydro-flat basin scan of lidar insets is no longer run \u2014 water comes from OpenStreetMap / custom data only. The variable is kept so existing config files parse; its value has no effect.",
    "name": "airport_inset_water",
    "type": "bool"
   },
@@ -201,6 +206,20 @@
     "None",
     "ICAO",
     "All"
+   ]
+  },
+  "auto_patch_engine": {
+   "default": "v1",
+   "hint": "Which engine generates the airport auto-patches. \"v1\" (the default) is the engine every release has shipped with. \"v2\" is the ground-up rewrite that solves the whole airport surface against the aerodrome grade law tables in one linear program: fewer mesh edges, faster, and every patch is verified against the law before it is written \u2014 a patch the law cannot satisfy fails the tile build loudly instead of shipping. Set per tile to A/B the two engines on the same airport; changing the value rebuilds that tile's auto-patches with the chosen engine.",
+   "name": "auto_patch_engine",
+   "type": "str",
+   "valueLabels": {
+    "v1": "v1 \u2014 the shipping engine",
+    "v2": "v2 \u2014 law-compliant rewrite (preview)"
+   },
+   "values": [
+    "v1",
+    "v2"
    ]
   },
   "base_elevation_source": {
@@ -413,7 +432,7 @@
   },
   "elevation_level": {
    "default": "auto",
-   "hint": "Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. \"auto\" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. \"90\" pins that 90 m base class explicitly. \"coastline\" keeps the automatic behaviour and additionally drapes a lidar band along the tile's coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar's vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. \"30\" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level's base-class preference.",
+   "hint": "Tile-wide elevation detail level \u2014 the elevation analogue of the imagery zoom level. \"auto\" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. \"90\" pins that 90 m base class explicitly. \"coastline\" keeps the automatic behaviour and additionally drapes a lidar band along the tile's coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond \u2014 lidar's vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. \"30\" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level's base-class preference.",
    "name": "elevation_level",
    "type": "str",
    "valueLabels": {
@@ -422,7 +441,7 @@
     "30": "30 m (1 arc-second)",
     "5": "5 m (1/6 arc-second)",
     "90": "90 m (3 arc-second)",
-    "auto": "Auto — 90 m base + lidar at airports",
+    "auto": "Auto \u2014 90 m base + lidar at airports",
     "coastline": "Auto + coastline lidar band"
    },
    "values": [
@@ -440,6 +459,18 @@
    "hint": "When set, the no_data values in the raster will be filled by a nearest neighbour algorithm. If unset, they are turned into zero (can be useful for rasters with no_data over the whole oceanic part or partial LIDAR data).",
    "name": "fill_nodata",
    "type": "bool"
+  },
+  "flat_site_declared": {
+   "default": "",
+   "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
+   "name": "flat_site_declared",
+   "type": "str"
+  },
+  "flat_site_declared_elevation_m": {
+   "default": "",
+   "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
+   "name": "flat_site_declared_elevation_m",
+   "type": "str"
   },
   "global_airport_elevation_inset_feather_m": {
    "default": 60.0,
@@ -461,7 +492,7 @@
   },
   "global_airport_elevation_level": {
    "default": "auto",
-   "hint": "Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. \"auto\" (default) uses each provider's best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief; finer levels only help where a provider actually publishes data that fine. Cached insets fetched at an earlier level are recycled as-is until refreshed.",
+   "hint": "Airport elevation detail level \u2014 the ground resolution in metres to which fetched airport elevation insets are warped and stored. \"auto\" (default) uses each provider's best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief. A level FINER than what a provider publishes is raised to that provider's native resolution \u2014 interpolating 30 m data onto a 3 m grid adds no detail while costing ~100x the disk \u2014 so a fine level only takes effect where a source genuinely offers it. Cached insets are recycled as-is until refreshed, except one stored finer than its source publishes, which is regenerated at native posting.",
    "name": "global_airport_elevation_level",
    "type": "str",
    "valueLabels": {
@@ -470,7 +501,7 @@
     "10": "10 m",
     "30": "30 m",
     "5": "5 m",
-    "auto": "Auto — best available (down to 0.5 m)"
+    "auto": "Auto \u2014 best available (down to 0.5 m)"
    },
    "values": [
     "auto",
@@ -489,7 +520,7 @@
   },
   "global_airport_inset_water": {
    "default": false,
-   "hint": "RETIRED (2026-07-26) and ignored: the hydro-flat basin scan of lidar insets is no longer run — water comes from OpenStreetMap / custom data only. The variable is kept so existing config files parse; its value has no effect.",
+   "hint": "RETIRED (2026-07-26) and ignored: the hydro-flat basin scan of lidar insets is no longer run \u2014 water comes from OpenStreetMap / custom data only. The variable is kept so existing config files parse; its value has no effect.",
    "name": "global_airport_inset_water",
    "type": "bool"
   },
@@ -537,6 +568,20 @@
     "None",
     "ICAO",
     "All"
+   ]
+  },
+  "global_auto_patch_engine": {
+   "default": "v1",
+   "hint": "Which engine generates the airport auto-patches. \"v1\" (the default) is the engine every release has shipped with. \"v2\" is the ground-up rewrite that solves the whole airport surface against the aerodrome grade law tables in one linear program: fewer mesh edges, faster, and every patch is verified against the law before it is written \u2014 a patch the law cannot satisfy fails the tile build loudly instead of shipping. Set per tile to A/B the two engines on the same airport; changing the value rebuilds that tile's auto-patches with the chosen engine.",
+   "name": "global_auto_patch_engine",
+   "type": "str",
+   "valueLabels": {
+    "v1": "v1 \u2014 the shipping engine",
+    "v2": "v2 \u2014 law-compliant rewrite (preview)"
+   },
+   "values": [
+    "v1",
+    "v2"
    ]
   },
   "global_bathymetry_airport_radius_km": {
@@ -678,7 +723,7 @@
   },
   "global_elevation_level": {
    "default": "auto",
-   "hint": "Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. \"auto\" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. \"90\" pins that 90 m base class explicitly. \"coastline\" keeps the automatic behaviour and additionally drapes a lidar band along the tile's coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar's vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. \"30\" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level's base-class preference.",
+   "hint": "Tile-wide elevation detail level \u2014 the elevation analogue of the imagery zoom level. \"auto\" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. \"90\" pins that 90 m base class explicitly. \"coastline\" keeps the automatic behaviour and additionally drapes a lidar band along the tile's coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond \u2014 lidar's vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. \"30\" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level's base-class preference.",
    "name": "global_elevation_level",
    "type": "str",
    "valueLabels": {
@@ -687,7 +732,7 @@
     "30": "30 m (1 arc-second)",
     "5": "5 m (1/6 arc-second)",
     "90": "90 m (3 arc-second)",
-    "auto": "Auto — 90 m base + lidar at airports",
+    "auto": "Auto \u2014 90 m base + lidar at airports",
     "coastline": "Auto + coastline lidar band"
    },
    "values": [
@@ -705,6 +750,18 @@
    "hint": "When set, the no_data values in the raster will be filled by a nearest neighbour algorithm. If unset, they are turned into zero (can be useful for rasters with no_data over the whole oceanic part or partial LIDAR data).",
    "name": "global_fill_nodata",
    "type": "bool"
+  },
+  "global_flat_site_declared": {
+   "default": "",
+   "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
+   "name": "global_flat_site_declared",
+   "type": "str"
+  },
+  "global_flat_site_declared_elevation_m": {
+   "default": "",
+   "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
+   "name": "global_flat_site_declared_elevation_m",
+   "type": "str"
   },
   "global_imprint_masks_to_dds": {
    "default": false,
@@ -888,19 +945,25 @@
    "name": "global_road_banking_limit",
    "type": "float"
   },
+  "global_road_grade_limit": {
+   "default": 0.08,
+   "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it \u2014 the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (SERVICE_ROAD_MAX_GRADE), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+   "name": "global_road_grade_limit",
+   "type": "float"
+  },
   "global_road_level": {
    "default": "auto",
-   "hint": "Allows to level the mesh along roads and railways. \"auto\" (default) levels major roads and railways across the whole tile (level 1) and additionally levels EVERY road and rail class (level 5 + rail sidings/spurs/trams) inside each airport's elevation-inset neighbourhood, where lidar terrain makes unlevelled minor roads most visible — same spirit as the elevation/imagery auto modes. Numeric levels keep the historical tile-wide behaviour: zero means nothing is included; \"1\" looks for banking ways among motorways, primary and secondary roads and railway tracks; \"2\" adds tertiary roads; \"3\" brings residential and unclassified roads; \"4\" takes service roads, and 5 finishes with tracks. Purge the small_roads / airport_small_roads cached data if you change your mind in between levels.",
+   "hint": "Allows to level the mesh along roads and railways. \"auto\" (default) levels major roads and railways across the whole tile (level 1) and additionally levels EVERY road and rail class (level 5 + rail sidings/spurs/trams) inside each airport's elevation-inset neighbourhood, where lidar terrain makes unlevelled minor roads most visible \u2014 same spirit as the elevation/imagery auto modes. Numeric levels keep the historical tile-wide behaviour: zero means nothing is included; \"1\" looks for banking ways among motorways, primary and secondary roads and railway tracks; \"2\" adds tertiary roads; \"3\" brings residential and unclassified roads; \"4\" takes service roads, and 5 finishes with tracks. Purge the small_roads / airport_small_roads cached data if you change your mind in between levels.",
    "name": "global_road_level",
    "type": "str",
    "valueLabels": {
-    "auto": "Auto — major roads tile-wide, all roads near airports",
     "0": "No roads",
     "1": "Major roads + railways",
     "2": "+ tertiary roads",
     "3": "+ residential streets",
     "4": "+ service roads",
-    "5": "+ dirt tracks"
+    "5": "+ dirt tracks",
+    "auto": "Auto \u2014 major roads tile-wide, all roads near airports"
    },
    "values": [
     "auto",
@@ -939,6 +1002,20 @@
    "hint": "For layers of type \"mask\" in combined providers imageries, determines the extent (in meters) of the blur radius applied. This allows to smoothen some sea imageries where the wave or reflection pattern was too much present.",
    "name": "global_sea_texture_blur",
    "type": "float"
+  },
+  "global_solve_model": {
+   "default": "iterative",
+   "hint": "Which solve computes airport elevations. \"Iterative\" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules \u2014 the most faithful result, and the slower one. \"Constructive\" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.",
+   "name": "global_solve_model",
+   "type": "str",
+   "valueLabels": {
+    "constructive": "Constructive \u2014 lawful by construction (faster)",
+    "iterative": "Iterative \u2014 best fit to the terrain (slower)"
+   },
+   "values": [
+    "iterative",
+    "constructive"
+   ]
   },
   "global_terrain_casts_shadows": {
    "default": true,
@@ -1115,11 +1192,11 @@
   },
   "max_build_slots": {
    "default": 0,
-   "hint": "How many tiles build at the same time when several are queued. 0 (the default) means Auto: one tile per three processor cores and one per six gigabytes of memory, whichever is smaller, capped at six. The memory rule is deliberately soft — modern systems page gracefully to fast storage — and guards against the slowdown of actively used rasters swapping, not against running out; the Auto cap of six keeps the default polite to the OpenStreetMap and imagery servers. Explicit values up to eight are honoured for big-memory machines (expect occasional server throttling at the top end — downloads retry — and prefer fewer slots when building at the fine elevation detail levels, whose tiles each hold multi-gigabyte rasters). 1 builds tiles one after another in the application process (the historic behaviour); higher values run each tile in its own worker process. Parallel conversion workers automatically share the processor between concurrent tiles.",
+   "hint": "How many tiles build at the same time when several are queued. 0 (the default) means Auto: one tile per processor core, reduced only when the machine has too little free memory to feed that many workers. Memory is guarded per STEP rather than per slot \u2014 a run never projects more than eighty per cent of the memory the machine can hand out onto the steps it has started, so the multi-gigabyte rasters of the fine elevation detail levels are scheduled around each other automatically. Politeness to the OpenStreetMap and imagery servers is handled separately \u2014 at most four tiles fetch from either at once however many slots you run, and a tile whose data is already downloaded never waits for that budget \u2014 so extra slots buy processor parallelism only. Explicit values are honoured above or below Auto. 1 builds tiles one after another in the application process (the historic behaviour); higher values run each tile in its own worker process. Parallel conversion workers automatically share the processor between concurrent tiles.",
    "name": "max_build_slots",
    "type": "int",
    "valueLabels": {
-    "0": "Auto — scale to this machine",
+    "0": "Auto \u2014 scale to this machine",
     "1": "1 (one tile at a time)",
     "2": "2",
     "3": "3",
@@ -1155,7 +1232,7 @@
    "name": "max_convert_slots",
    "type": "int",
    "valueLabels": {
-    "0": "Auto — scale to this machine"
+    "0": "Auto \u2014 scale to this machine"
    },
    "values": [
     "0",
@@ -1170,12 +1247,12 @@
   },
   "max_download_slots": {
    "default": 0,
-   "hint": "How many orthophotos are constructed in parallel; each uses 16 request threads by default (unless the provider file says otherwise). Auto is currently two — downloads are network-bound, so processor cores are irrelevant here. If running Ortho4XP from an external drive, errors may occur at settings higher than 4; set an explicit 1 to restore the historic behaviour.",
+   "hint": "How many orthophotos are constructed in parallel; each uses 16 request threads by default (unless the provider file says otherwise). Auto is currently two \u2014 downloads are network-bound, so processor cores are irrelevant here. If running Ortho4XP from an external drive, errors may occur at settings higher than 4; set an explicit 1 to restore the historic behaviour.",
    "module": "TILE",
    "name": "max_download_slots",
    "type": "int",
    "valueLabels": {
-    "0": "Auto — scale to this machine",
+    "0": "Auto \u2014 scale to this machine",
     "1": "1 (historic behaviour)"
    },
    "values": [
@@ -1321,19 +1398,25 @@
    "name": "road_banking_limit",
    "type": "float"
   },
+  "road_grade_limit": {
+   "default": 0.08,
+   "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it \u2014 the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (SERVICE_ROAD_MAX_GRADE), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+   "name": "road_grade_limit",
+   "type": "float"
+  },
   "road_level": {
    "default": "auto",
-   "hint": "Allows to level the mesh along roads and railways. \"auto\" (default) levels major roads and railways across the whole tile (level 1) and additionally levels EVERY road and rail class (level 5 + rail sidings/spurs/trams) inside each airport's elevation-inset neighbourhood, where lidar terrain makes unlevelled minor roads most visible — same spirit as the elevation/imagery auto modes. Numeric levels keep the historical tile-wide behaviour: zero means nothing is included; \"1\" looks for banking ways among motorways, primary and secondary roads and railway tracks; \"2\" adds tertiary roads; \"3\" brings residential and unclassified roads; \"4\" takes service roads, and 5 finishes with tracks. Purge the small_roads / airport_small_roads cached data if you change your mind in between levels.",
+   "hint": "Allows to level the mesh along roads and railways. \"auto\" (default) levels major roads and railways across the whole tile (level 1) and additionally levels EVERY road and rail class (level 5 + rail sidings/spurs/trams) inside each airport's elevation-inset neighbourhood, where lidar terrain makes unlevelled minor roads most visible \u2014 same spirit as the elevation/imagery auto modes. Numeric levels keep the historical tile-wide behaviour: zero means nothing is included; \"1\" looks for banking ways among motorways, primary and secondary roads and railway tracks; \"2\" adds tertiary roads; \"3\" brings residential and unclassified roads; \"4\" takes service roads, and 5 finishes with tracks. Purge the small_roads / airport_small_roads cached data if you change your mind in between levels.",
    "name": "road_level",
    "type": "str",
    "valueLabels": {
-    "auto": "Auto — major roads tile-wide, all roads near airports",
     "0": "No roads",
     "1": "Major roads + railways",
     "2": "+ tertiary roads",
     "3": "+ residential streets",
     "4": "+ service roads",
-    "5": "+ dirt tracks"
+    "5": "+ dirt tracks",
+    "auto": "Auto \u2014 major roads tile-wide, all roads near airports"
    },
    "values": [
     "auto",
@@ -1386,6 +1469,20 @@
    "module": "TILE",
    "name": "skip_downloads",
    "type": "bool"
+  },
+  "solve_model": {
+   "default": "iterative",
+   "hint": "Which solve computes airport elevations. \"Iterative\" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules \u2014 the most faithful result, and the slower one. \"Constructive\" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.",
+   "name": "solve_model",
+   "type": "str",
+   "valueLabels": {
+    "constructive": "Constructive \u2014 lawful by construction (faster)",
+    "iterative": "Iterative \u2014 best fit to the terrain (slower)"
+   },
+   "values": [
+    "iterative",
+    "constructive"
+   ]
   },
   "terrain_casts_shadows": {
    "default": true,

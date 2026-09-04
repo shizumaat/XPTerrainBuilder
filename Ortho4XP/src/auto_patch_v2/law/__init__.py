@@ -5,7 +5,8 @@ typed schema + loader, ``tables`` the accessors.  Nothing here imports
 from any other v2 package.
 """
 from .model import Law, LawError, LawTables, load_tables  # noqa: F401
-from .tables import DEFAULT_LAW_DIR, load_default, resolve_ruleset  # noqa: F401
+from .tables import (DEFAULT_LAW_DIR, law_tables_digest, load_default,  # noqa: F401
+                     resolve_ruleset)
 
 __all__ = ["Law", "LawError", "LawTables", "load_tables", "DEFAULT_LAW_DIR",
-           "load_default", "resolve_ruleset"]
+           "load_default", "law_tables_digest", "resolve_ruleset"]

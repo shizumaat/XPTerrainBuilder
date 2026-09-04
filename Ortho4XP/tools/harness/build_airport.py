@@ -1872,14 +1872,17 @@ def v2_law_tables_digest(root) -> dict:
     can name WHICH tables without a checkout, and so a ``--law-dir``
     arm (an alternative table set, ``auto_patch_v2 build --law-dir``) can
     never be served for the shipped-table arm if that flag is ever wired
-    through this entry.  Sorted ``name + bytes`` over every ``.toml``."""
+    through this entry.  ONE implementation — the engine's own
+    ``auto_patch_v2.law.law_tables_digest`` (the tile build's
+    ``[provenance]`` line prints the same digest), pointed at THIS tree's
+    tables (a lane's checkout, not whichever ``auto_patch_v2`` is first on
+    ``sys.path``)."""
     d = Path(root) / V2_LAW_DIR
-    files = sorted(q for q in d.glob("*.toml"))
-    h = hashlib.sha256()
-    for q in files:
-        h.update(q.name.encode()); h.update(b"\0"); h.update(q.read_bytes()); h.update(b"\0")
-    return {"dir": str(d), "files": [q.name for q in files],
-            "sha256": h.hexdigest() if files else None}
+    src = str(Path(root) / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    from auto_patch_v2.law import law_tables_digest   # noqa: E402
+    return law_tables_digest(d)
 
 
 def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
@@ -2050,10 +2053,35 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
     return timings, skipped
 
 
+def apply_engine_override(tile, engine: str | None, prog=None) -> dict | None:
+    """``--engine`` on a ``--tile`` run: the auto-patch engine the tile
+    builds with, set on the Tile INSTANCE exactly where a per-tile cfg
+    line would put it (``Tile.read_from_config`` → ``tile.auto_patch_engine``,
+    read once by ``auto_patch.driver.resolved_auto_patch_engine``) — the
+    provisioned cfg file itself is never rewritten (owner ruling
+    2026-08-12b: an existing lane cfg is left untouched, and a flag that
+    silently rewrote it would be a second, unrecorded frame change).
+    Returns the record for ``frame.json`` (what the cfg said, what this
+    run built with), or ``None`` when no override was asked for."""
+    if engine is None:
+        return None
+    was = getattr(tile, "auto_patch_engine", None)
+    tile.auto_patch_engine = engine
+    rec = {"cfg_value": was, "effective": engine,
+           "overridden": (was or "v1") != engine}
+    if prog is not None:
+        prog.note(f"auto-patch engine for this tile run: {engine} "
+                  f"(per-tile/global cfg said {was!r}; the cfg file is not "
+                  f"rewritten — the value is set on the tile instance)")
+    return rec
+
+
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
-               skip_steps=None) -> dict:
+               skip_steps=None, engine: str | None = None) -> dict:
     """One whole tile through the four release steps, with the owner's
-    X-Plane install paths applied (absorbs ``run_release_tile.py``)."""
+    X-Plane install paths applied (absorbs ``run_release_tile.py``).
+    ``engine`` (``--engine``): the auto-patch engine the tile's patches
+    build with, see :func:`apply_engine_override`."""
     sys.path.append(str(ROOT / "src"))
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
@@ -2078,9 +2106,11 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     # ``tools/run_tile_mesh_only.py`` (RULINGS 2026-08-31d).
     tile, cfg_provenance, imagery = resolve_tile_frame(
         lat, lon, build_dir, prog)
+    engine_rec = apply_engine_override(tile, engine, prog)
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
               f"auto_patch={tile.auto_patch} "
+              f"auto_patch_engine={getattr(tile, 'auto_patch_engine', 'v1')} "
               f"modify_custom_airports={tile.modify_custom_airports}")
     if not imagery["ok"]:
         # RULINGS 2026-08-31d: A TILE ENTRY DOES NOT REFUSE FOR A MISSING
@@ -2115,7 +2145,8 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
             "steps_skipped": skipped,
             "xplane_paths": paths,
             "imagery": imagery,
-            "tile_cfg_provenance": cfg_provenance}
+            "tile_cfg_provenance": cfg_provenance,
+            "tile_engine": engine_rec}
 
 
 def resolve_tile_for(icao: str, root: Path):
@@ -2262,9 +2293,12 @@ def main(argv=None) -> int:
     if args.engine == "v2":
         # A v1-only flag that quietly did nothing on the v2 path is how a
         # lane comes to believe it measured something it did not (the
-        # --solve-capture/--tile precedent below).  Each is refused by name.
-        for flag, on in (("--tile", bool(args.tile)),
-                         ("--dem", args.dem is not None),
+        # --solve-capture precedent below).  Each is refused by name.
+        # ``--tile`` is WIRED (2026-09-04, lane v2app): the tile driver
+        # itself dispatches on ``auto_patch_engine`` (``auto_patch.
+        # engine_v2``), and ``build_tile`` sets it on the tile from this
+        # flag — the app's own path, under the harness's guard and frame.
+        for flag, on in (("--dem", args.dem is not None),
                          ("--geometry-only", bool(args.geometry_only)),
                          ("--solve-capture", args.solve_capture is not None)):
             if on:
@@ -2272,8 +2306,9 @@ def main(argv=None) -> int:
                     f"REFUSING: --engine v2 with {flag} is not wired — v2 "
                     f"builds the airport patch on the production DEM frame "
                     f"only (no constant-DEM oracle world, no geometry-only "
-                    f"emit, no v1 solve-stage capture, no tile run).  Build "
-                    f"the patch: build_airport.py {args.icao} --engine v2.")
+                    f"emit, no v1 solve-stage capture).  Build "
+                    f"the patch: build_airport.py {args.icao} --engine v2, "
+                    f"or the tile: --tile LAT LON --engine v2.")
     if args.geometry_only and args.tile:
         raise SystemExit(
             "REFUSING: --geometry-only with --tile is not wired — "
@@ -2579,8 +2614,10 @@ def main(argv=None) -> int:
             with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,
-                    args.build_dir or str(out_dir / f"tile_{tag}"), prog)
+                    args.build_dir or str(out_dir / f"tile_{tag}"), prog,
+                    engine=args.engine)
             result["engine_cache_redirects"] = redirects
+            result["engine"] = args.engine
         elif args.engine == "v2":
             result = build_patch_v2(args.icao, root, out_dir, tag, prog,
                                     allow_no_sidecar=args.allow_no_sidecar,
@@ -2650,6 +2687,8 @@ def main(argv=None) -> int:
     # two lanes that hand-seeded two different sources on 2026-08-12 left
     # nothing in either frame to compare).
     frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")
+    # ``--tile --engine``: what the cfg said vs what the run built with.
+    frame["tile_engine"] = result.get("tile_engine")
     # WHICH HALVES OF THE TILE THIS BUILD ACTUALLY RAN (RULINGS
     # 2026-08-31d): a frame with no imagery provider builds the
     # geometry and stands the textures down, so the record has to

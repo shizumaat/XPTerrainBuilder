@@ -49,6 +49,12 @@ class Config:
     #: Seam passes after the first solve (the exemption set = the seam
     #: vertices the previous solve held on the DEM), to a fixed point.
     seam_passes_max: int = 6
+    #: Extra ``<osm>`` root attributes for the emitted patch (and every
+    #: tile piece): a HOSTING tile build's rebuild-freshness stamps
+    #: (the v1 tile driver reads them back through ``read_patch_source``
+    #: before reusing a patch).  Applied over the adapter's own header, so
+    #: a host may override ``o4_apt_dat`` with its percent-encoded form.
+    header_extra: _t.Mapping[str, str] | None = None
 
 
 @_dc.dataclass
@@ -199,14 +205,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
         pub = publication(pm, law, airport, sol.z)
-        paths = write_patch(surf, law, out_dir, pub,
-                            {"o4_apt_dat": airport.pack.apt_dat_path,
-                             "o4_pack": airport.pack.name},
+        header = {"o4_apt_dat": airport.pack.apt_dat_path,
+                  "o4_pack": airport.pack.name}
+        header.update(cfg.header_extra or {})
+        paths = write_patch(surf, law, out_dir, pub, header,
                             face_tags(pm, law, airport))
         if pm.seam_vertices:
-            pieces = write_tile_pieces(surf, law, out_dir, pub,
-                                       {"o4_apt_dat": airport.pack.apt_dat_path,
-                                        "o4_pack": airport.pack.name},
+            pieces = write_tile_pieces(surf, law, out_dir, pub, header,
                                        face_tags(pm, law, airport))
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"

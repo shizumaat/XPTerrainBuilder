@@ -7092,11 +7092,44 @@ def test_the_build_entry_refuses_v1_only_flags_under_engine_v2(build_mod):
     comes to believe it measured something it did not (the --solve-capture
     / --tile precedent).  Each refuses BY NAME, before the cwd check and
     before the ledger re-exec."""
-    for extra in (["--tile", "60", "-136"], ["--dem", "-500"],
+    for extra in (["--dem", "-500"],
                   ["--geometry-only"], ["--solve-capture", "/tmp/cap"]):
         with pytest.raises(SystemExit) as exc:
             build_mod.main(["CYXY", "--engine", "v2", *extra])
         assert f"--engine v2 with {extra[0]}" in str(exc.value), extra
+
+
+def test_the_build_entry_admits_tile_under_engine_v2(build_mod, monkeypatch,
+                                                     tmp_path):
+    """``--tile --engine v2`` is WIRED (2026-09-04, lane v2app): the tile
+    driver dispatches on ``auto_patch_engine`` and ``build_tile`` sets it
+    on the tile from the flag.  The by-name refusal must not fire; the
+    run then proceeds to the cwd check like any tile run (which refuses
+    HERE, from a non-engine cwd, with ITS message — proof the v2 gate was
+    passed, not that a tile was built)."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.main(["OTHH", "--tile", "25", "51", "--engine", "v2",
+                        "--no-ledger"])
+    assert "--engine v2 with --tile" not in str(exc.value)
+    assert "REFUSING" in str(exc.value)
+
+
+def test_apply_engine_override_sets_the_tile_attribute_and_records_it(
+        build_mod):
+    """The flag lands where a per-tile cfg line would (the Tile INSTANCE,
+    read by ``auto_patch.driver.resolved_auto_patch_engine``), records
+    the cfg's own value beside the effective one, and rewrites no file."""
+    class _Tile:
+        auto_patch_engine = "v1"
+    t = _Tile()
+    assert build_mod.apply_engine_override(t, None) is None
+    assert t.auto_patch_engine == "v1"
+    rec = build_mod.apply_engine_override(t, "v2")
+    assert t.auto_patch_engine == "v2"
+    assert rec == {"cfg_value": "v1", "effective": "v2", "overridden": True}
+    t2 = _Tile()
+    assert build_mod.apply_engine_override(t2, "v1")["overridden"] is False
 
 
 def test_the_engine_is_keyed_into_the_artifact_ledger_only_for_v2(build_mod):
@@ -7191,11 +7224,16 @@ def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True):
         "auto_patch_v2.pipeline.build": types.ModuleType("auto_patch_v2.pipeline.build"),
         "auto_patch_v2.law": types.ModuleType("auto_patch_v2.law"),
     }
+    # The law-table DIGEST is the engine's own (one implementation, the
+    # harness delegates): captured from the real package before the stub
+    # replaces it on sys.modules.
+    from auto_patch_v2.law import law_tables_digest as _real_digest
     mods["auto_patch_v2.planar.__main__"].default_inputs = \
         lambda **kw: {"stub_inputs": kw}
     mods["auto_patch_v2.pipeline.build"].build = build
     mods["auto_patch_v2.pipeline.build"].Config = lambda: None
     mods["auto_patch_v2.law"].Law = _Law
+    mods["auto_patch_v2.law"].law_tables_digest = _real_digest
     for name, m in mods.items():
         monkeypatch.setitem(sys.modules, name, m)
 

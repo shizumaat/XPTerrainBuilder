@@ -18,6 +18,8 @@ from shapely import geometry as shp_geom
 from shapely import ops as shp_ops
 from shapely.errors import GEOSException, TopologicalError
 
+from . import engine_v2 as _engine_v2
+
 # Driver harness tuple — covers expected runtime failure modes for a
 # per-airport pass.  Specifically OMITS NameError / AttributeError /
 # ImportError so typos and broken imports propagate immediately
@@ -210,6 +212,10 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),
+        # WHICH auto-patch engine (v1 | v2, RULINGS 2026-09-03d): a patch
+        # one engine wrote is never "current" for the other, so flipping
+        # the cfg key rebuilds — the owner's A/B is a key flip + rebuild.
+        "o4_ap_engine": _engine_v2.resolved_auto_patch_engine(tile),
     }
 
 
@@ -708,6 +714,20 @@ def _build_write_verify_one(task: dict) -> dict:
     from collections import Counter as _Counter
     icao = task["icao"]
     t_apt = _time.time()
+    # THE ENGINE DISPATCH (RULINGS 2026-09-03d: v2 beside v1).  The task
+    # carries the tile's resolved ``auto_patch_engine``; v2 replaces this
+    # one step (build + write + verify) and returns the SAME record, so
+    # everything below the worker — results loop, manifest check,
+    # AutoPatchFailed events — is one path for both engines.  A v2 import
+    # or refusal is contained the same way a v1 build error is: a named
+    # ``build``-stage failure, never a silent skip.
+    if task.get("engine") == _engine_v2.ENGINE_V2:
+        try:
+            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+        except Exception as _e:
+            return {"icao": icao, "ok": False, "stage": "build",
+                    "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
+                    "traceback": _tb.format_exc()}
     # Catch BROADLY (Exception, not just _DRIVER_EXC): one airport's build must
     # never abort the whole tile (serial: an uncaught error propagates out of the
     # caller's list-comp and aborts every remaining airport) nor vanish as an
@@ -1081,6 +1101,12 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             if stage == "write":
                 UI.lvprint(0, "   Auto-patch: Failed to write",
                            t["auto_patch_file"], ":", r.get("error"))
+            elif stage == "solve":
+                # v2: the LP could not satisfy the law (or v2 refused).
+                # The IIS rides in ``traceback`` into the verify debug
+                # log below; the console gets the one-line verdict.
+                UI.lvprint(0, "   Auto-patch: v2 solve FAILED for", icao,
+                           ":", r.get("error"))
             else:
                 UI.lvprint(0, "   Auto-patch: Pavement builder FAILED for",
                            icao, "(", stage, "):", r.get("error"))
@@ -1107,6 +1133,11 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         _plog = r.get("provenance_log")
         if _plog:
             UI.lvprint(0, _plog)
+        # v2's per-stage lines (load/planar/constraints/solve/emit/verify
+        # counts and walls), printed here by the main process in task
+        # order — a worker never writes the shared console.
+        for _ln in r.get("log_lines") or ():
+            UI.vprint(1, "   [v2]", _ln)
         auto_patched.append(icao)
         if r.get("verify_err"):
             UI.lvprint(0, "   Auto-patch: verification error for", icao,
@@ -1280,6 +1311,15 @@ def generate_auto_patches(tile, cifp_path: str,
     from . import config as _cfg
     _saved_verbosity = UI.verbosity
     UI.verbosity = _cfg.LOG_VERBOSITY
+
+    # THE ENGINE, resolved ONCE per tile from the cfg key (global +
+    # per-tile, ``O4_Cfg_Vars`` ``auto_patch_engine``) and carried on every
+    # task record — the workers may be spawned processes, and the only
+    # channels into one are the task and the pool initializer.  An
+    # unregistered value refuses here, before any airport is queued.
+    engine = _engine_v2.resolved_auto_patch_engine(tile)
+    UI.lvprint(0, "   Auto-patch: engine", engine,
+               "(auto_patch_engine; v1 = shipping, v2 = law-compliant rewrite)")
 
     # Per-tile verify DEBUG log: the non-user-actionable verify findings
     # (overlap / off-source / within-shape grade — our geometry/solver bugs,
@@ -1525,6 +1565,10 @@ def generate_auto_patches(tile, cifp_path: str,
             "auto_patch_file": auto_patch_file,
             "verify_log_path": _verify_debug_path + "." + icao + ".part",
             "freshness": freshness_stamps,
+            # v2 (``engine_v2``) reads these three; v1 ignores them.
+            "engine": engine,
+            "cifp_path": cifp_path,
+            "apt_dat_path": apt_dat_selected,
         })
 
     # ── Write the Phase 2 worklist sidecar (main process ONLY) ──────────

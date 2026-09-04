@@ -222,6 +222,27 @@ cfg_tile_vars = {
         },
         "hint": 'Which solve computes airport elevations. "Iterative" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules — the most faithful result, and the slower one. "Constructive" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.',
     },
+    # ── THE AUTO-PATCH ENGINE (RULINGS 2026-09-03d: v2 beside v1; the
+    # owner's sim read of v2 patches from the app, 2026-09-04) ──────────
+    # Two auto-patch engines ship side by side: v1 (``src/auto_patch``,
+    # the shipping default) and v2 (``src/auto_patch_v2``, the ground-up
+    # law-compliant rewrite).  Registered in ``cfg_tile_vars`` so it has
+    # the global + per-tile scopes every tile var has; the driver reads
+    # it ONCE per tile (``auto_patch.driver.resolved_auto_patch_engine``)
+    # and stamps it into each patch's freshness block, so flipping the
+    # key rebuilds the tile's patches with the other engine — never a
+    # reused patch from the wrong one.  No env override: the engine is a
+    # cfg fact, recorded in the build log's ``[provenance]`` line.
+    "auto_patch_engine": {
+        "type": str,
+        "default": "v1",
+        "values": ("v1", "v2"),
+        "value_labels": {
+            "v1": "v1 — the shipping engine",
+            "v2": "v2 — law-compliant rewrite (preview)",
+        },
+        "hint": 'Which engine generates the airport auto-patches. "v1" (the default) is the engine every release has shipped with. "v2" is the ground-up rewrite that solves the whole airport surface against the aerodrome grade law tables in one linear program: fewer mesh edges, faster, and every patch is verified against the law before it is written — a patch the law cannot satisfy fails the tile build loudly instead of shipping. Set per tile to A/B the two engines on the same airport; changing the value rebuilds that tile\'s auto-patches with the chosen engine.',
+    },
     # ── FLAT-SITE declaration (docs/specs/flat-site-detector-spec.md
     # section 2 (c), owner ruling 2026-08-09) ──────────────────────────
     # INTENT NEVER WAITS ON STATISTICS.  The detector measures four
@@ -749,6 +770,7 @@ gui_app_vars_long = list_app_vars[-4:]
 list_vector_vars = [
     "auto_patch",
     "solve_model",
+    "auto_patch_engine",
     "flat_site_declared",
     "flat_site_declared_elevation_m",
     "modify_custom_airports",

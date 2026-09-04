@@ -65,8 +65,10 @@
 #   s2), m0-interfaces.md carries the M1 CYXY brief. NEXT: M1 planar map
 #   for CYXY — M1 MERGED 9eeaa7d5 (1.13 s, 0 T-vertices, 4,352 vertices vs
 #   v1 6,660; role agreement vs v1 48 %/71 % REPORTED, bar re-based 03j).
-#   M2 IN FLIGHT (lane v2m2): constraints + HiGHS LP + osm emit + verify;
-#   bar = v1 census ZERO on CYXY, build < 10 s, mesh no slower.
+#   M2 MERGED (RULINGS 04a): CYXY 3.2 s, v1 census on v2 patch 160 → 33
+#   (29 = RAOA oracle artefact), mesh edges 247k → 243k, step 1 −4.6 s.
+#   NEXT: M3 SPLP (strips, runway rows) then SPJC once 03k is ruled;
+#   repair M1's missing .hgt fixtures first.
 #   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
 #   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
 #   — v1 R4 ARM 1 PARKED (lane/r4padyield c0eccc76): pads freed only at

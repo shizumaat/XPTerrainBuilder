@@ -1,0 +1,66 @@
+# auto_patch_v2 CLASSIFY — the scorer's thresholds (owner 2026-09-03e:
+# editable data, not code).  Every value is a CLASSIFICATION rule — where a
+# pavement face's ROLE comes from — never a grade cap (those live in
+# ``law/``).  v1 references are the constants the 09-02 arms were built with;
+# a change here changes roles, and roles change which law applies.
+
+[cells]
+snap_grid_m  = 0.01    # noding grid of the pavement slice (v1 global_slice._GRID_SIZE)
+min_area_m2  = 0.25    # a polygonised piece below this is noise, folded into its neighbour (v1 _MIN_PIECE_AREA)
+on_tol_m     = 1.0     # a cell whose boundary runs within this of a centreline TOUCHES it (v1 _ON_TOL_M)
+min_shared_m = 0.5     # ...and shares at least this much boundary with it (a corner graze is not contact)
+
+[keyhole]                       # dead-end centrelines spur to the nearest boundary so the tip grades (v1 global_slice)
+deadend_boundary_tol_m = 3.0    # an endpoint farther than this from the pavement boundary is INTERIOR
+join_tol_m             = 3.0    # another centreline within this of the endpoint = a junction, not a dead end
+max_spur_m             = 40.0   # never spur farther than this (a corridor is at most about this wide)
+
+[corridor]
+max_width_m = 50.0     # single-axis face with mean width (area / shared edge) <= this is a CORRIDOR (v1 _CORRIDOR_MAX_WIDTH_M)
+
+[junction]
+max_area_m2                  = 2500.0   # a multi-centreline face up to this area is a tight junction (v1 _JUNCTION_MAX_AREA_M2)
+route_territory_half_width_m = 25.0     # bigger faces are junctions when mostly within this of their routes (v1 _ROUTE_TERRITORY_HALF_W_M)
+route_territory_min_fraction = 0.55     # ...this fraction of their area (v1 _ROUTE_TERRITORY_MIN_FRAC)
+
+[apron]
+route_proximity_m   = 50.0   # pavement nearer than this to a taxi centreline or runway is NOT apron (user 2026-07-06; APRON_ROUTE_PROXIMITY_M)
+through_join_tol_m  = 2.0    # only THROUGH routes count for the cut: each end joins another centreline or the runway within this (2026-07-06 gate-lead-in fix)
+through_min_len_m   = 150.0  # ...or the route is at least this long (owner 2026-07-26, KCLT taxiway U; APRON_ROUTE_THROUGH_MIN_LEN_M)
+
+[osm_taxiways]                 # OSM aeroway=taxiway ways as taxi centrelines where the apt.dat network is SILENT
+enabled  = true
+dedup_m  = 8.0                 # a way part within this of a 1202 route duplicates it and is dropped
+min_len_m = 20.0               # a surviving part shorter than this is noise
+
+[service]
+road_width_m     = 6.0     # the 1206 ground-route corridor width outside pavement (SERVICE_ROAD_WIDTH_M)
+free_max_width_m = 25.0    # a route station is FREE (cuts its own face) only where the pavement cross-section is at most this wide or absent (owner 2026-07-27 free-road ruling)
+sample_step_m    = 5.0     # station spacing of the cross-section test
+min_run_m        = 12.0    # free stations group into runs; shorter runs stay with the apron
+
+[groundside]
+touch_tol_m       = 0.05   # cells within this touch (v1 touch_tol_m); a chain of touching airside cells reaches a runway or is landside (user 2026-06-09)
+requires_terminal = true   # an airport with NO terminal has no landside: every paved island is aircraft parking (user 2026-06-11)
+
+[taxi_subrole]                        # corridor faces name their taxi sub-role from geometry against the runways
+parallel_max_angle_deg     = 15.0     # axis within this of a runway bearing = a parallel
+parallel_min_overlap_frac  = 0.3      # ...and at least this fraction of the axis projects onto the runway's extent
+primary_max_offset_m       = 300.0    # the nearest parallel within this lateral offset is the PRIMARY parallel
+runway_touch_m             = 1.0      # an axis end within this of a runway is a runway contact (stub)
+
+[leadin]                        # the last dead-end route piece onto a stand carries no spine (user 2026-07-04)
+ramp_start_trim_m = 30.0        # a leaf chain ending within this of a 1300 startup...
+max_len_m         = 80.0        # ...and no longer than this is a LEAD-IN: out of the slice, the apron covers it
+
+[dsf_pavement]                  # draped .pol pavement pages from the pack DSF (v1 read_dsf_pavements gates)
+boundary_buffer_m   = 50.0      # admitted inside the apt.dat boundary + this (DSF_AIRPORT_BOUNDARY_BUFFER_M)
+overlay_fraction    = 0.80      # a page >= this fraction inside apt.dat pavement is an OVERLAY: only its remainder counts
+remainder_min_m2    = 50.0      # ...and a remainder piece below this is dropped
+min_area_m2         = 5.0       # a clipped page below this is dropped
+
+[surfaces]
+graded_codes = [1, 2, 3, 4, 5, 12, 14]   # apt.dat surfaces that are pavement to grade; water (13) / transparent (15) are not
+
+[buildings]
+sources = ["osm", "dsf:fac", "dsf:object"]   # footprint sources admitted as pads (v1: OSM + DSF facades + OBJ8 structures)

@@ -17,6 +17,7 @@ from ..emit.surface import GradedSurface
 from ..law import Law
 from .frame import Patch, Row
 from .no_step import no_step_direct, no_step_rate
+from .pads import pad_flat
 from .runway import runway_crown, runway_end_skirt
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
 from .strips import (adjacent_ground_tear, raoa, resa_transverse, strip_arc,
@@ -28,7 +29,7 @@ from .transverse import transverse
 from .within import plane_gradient, within_shape
 
 __all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "RELAXED_KEY", "RELAXED_RULING",
-           "mark_relaxed", "census", "census_patch"]
+           "DEFECT_KEYS", "mark_relaxed", "census", "census_patch"]
 
 #: family key -> reader (one reader may serve two families: within_shape
 #: yields the road cross-section rows beside its own).
@@ -78,7 +79,18 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
     # beside them under their own keys
     for key, fn in ACCEPTANCE.items():
         out[key] = fn(p)
+    # THE PAD-FLAT CHECK (verify/pads.py): a rigid pad is one flat value,
+    # or one plane under 04t(1) — a row here is a DEFECT, never a census
+    # residual (RULINGS 03h; lane v2padflat 2026-09-05)
+    out[FAMILY_PAD_FLAT] = pad_flat(p)
     return out
+
+
+#: Keys of ``census_patch`` whose rows are structural DEFECTS of the
+#: emitted product (a solver / emit invariant broken), not law residuals:
+#: the pipeline reports them apart, the app driver fails the airport.
+FAMILY_PAD_FLAT = "pad_flat"
+DEFECT_KEYS: tuple[str, ...] = (FAMILY_PAD_FLAT,)
 
 
 #: The key a row carries when it sits on a vertex the last resort relaxed

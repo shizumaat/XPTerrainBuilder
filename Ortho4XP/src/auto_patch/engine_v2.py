@@ -222,6 +222,22 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                           f"{res.solution.message}; the IIS is in "
                           f"{os.path.join(scratch, icao + '.report.json')}"),
                 "traceback": _iis_text(res.report, log_lines)}
+    # A VERIFY DEFECT never ships (lane v2padflat 2026-09-05): a building
+    # pad that is not one flat value (RULINGS 03h) and that no 04t(1)
+    # relaxation names is a solver/emit invariant broken, not a residual
+    # — the airport fails by name, like a non-optimal solve.
+    defects = (res.report.get("verify") or {}).get("defects") or {}
+    if defects:
+        rows = (res.report.get("verify") or {}).get("rows") or {}
+        text = "\n".join(f"[v2:{k}] {json.dumps(r, default=str)}"
+                          for k in defects for r in rows.get(k, []))
+        return {"icao": icao, "ok": False, "stage": "verify", "engine": ENGINE_V2,
+                "error": (f"[v2] verify found a structural DEFECT in {icao}: "
+                          + ", ".join(f"{k} {n}" for k, n in defects.items())
+                          + " — a building pad is not one flat value (RULINGS "
+                          "2026-09-03h) and no 04t(1) relaxation names it; the "
+                          f"rows are in {os.path.join(scratch, icao + '.report.json')}"),
+                "traceback": text + "\n--- v2 build log ---\n" + "\n".join(log_lines)}
 
     # ── PLACE the current tile's patch where the mesh reads it ────────
     try:

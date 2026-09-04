@@ -399,8 +399,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 _say(f"[{icao}] verify: relaxed by 04t(1) (lawful last-resort rows, counted "
                      f"apart): {sum(relaxed_v.values())}  " + ", ".join(
                          f"{k} {n}" for k, n in relaxed_v.items() if n), out)
+            from ..verify.census import DEFECT_KEYS
+            defects = {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}
+            for k, n in defects.items():
+                _say(f"[{icao}] verify: DEFECT {k} {n} — " + "; ".join(
+                    f"{r.get('way_a')} {r.get('reading')} {r.get('magnitude_m')} m"
+                    for r in vrows[k][:10]) + (" ..." if n > 10 else ""), out)
             report["verify"] = {"by_family": summary,
                                 "relaxed_by_04t1": {k: n for k, n in relaxed_v.items() if n},
+                                "defects": defects,
                                 "rows": {k: v for k, v in vrows.items() if v}}
     else:
         for r, s in sol.iis[:50]:

@@ -35,6 +35,15 @@ max_gap_m     = 1.0    # the priced span's near side may sit at most this off th
 apron_body_chord_max_m   = 60.0  # apron interior body chord beyond this is not a grade path (APRON_BODY_CHORD_MAX_M); ring-adjacent and spine chords never dropped
 runway_station_cluster_m = 5.0   # runway ring vertices cluster into stations at this along-axis step; only same/adjacent-station pairs are lateral law (user 2026-07-08, RUNWAY_STATION_CLUSTER_M)
 
+[seam]
+# THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every
+# integer lat/lon line the airport crosses is cut out of the layout as a band
+# this wide each side — the DEM owns the band, the band-edge vertices are
+# DEM-pinned (user 2026-07-04 "treat the seam like a runway edge"; the runway
+# arm: owner 2026-07-24, seam contacts enter the profile as hard anchors), and
+# each tile's patch carries only the faces on its side.
+half_width_m = 5.0
+
 [instrument]
 # THE CENSUS'S OWN ENCODING ENVELOPE — the forgiveness the v1 oracle grants
 # an EMITTED value (never a solve budget: the solver satisfies the law

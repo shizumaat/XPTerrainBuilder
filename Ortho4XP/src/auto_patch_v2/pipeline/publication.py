@@ -9,7 +9,10 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``crown_drops``: ``[lat, lon, drop]`` per runway-family vertex
   (``constraints.runway_profile.crown_drops``);
 * ``airside_no_step_edges``: ``{a, b, budget_m, dist_m}`` per priced
-  direct-distance pair (``constraints.no_step.no_step_edges``).
+  direct-distance pair (``constraints.no_step.no_step_edges``);
+* ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
+  (``constraints.seams``) — the census skips pin↔pin pairs and prices
+  pin↔free pairs at the body cap (user 2026-07-04).
 """
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ import typing as _t
 from ..constraints.no_step import no_step_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops
+from ..constraints.seams import seam_pins, seam_vertices_pinned
 from ..constraints.transverse import axes
 from ..law import Law
 from ..model.airport import Airport
@@ -44,7 +48,17 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                        bool(a.is_service)])
     drops = [[ll[v][0], ll[v][1], d] for v, d in
              sorted(crown_drops(planar, law, airport, z).items())]
+    tol = law.tables.emit.materiality.elevation_m
+    seam_all = seam_vertices_pinned(seam_pins(planar, law, airport))
+    pins = sorted(seam_all)
+    if z is not None:
+        pins = [v for v in pins if abs(z[v] - planar.vertices[v].dem_z) <= tol]
+    # the pairs the solver priced: a pin↔pin pair was exempt in the solve
+    # (constraints.seam_exempt) and is not published — the census prices
+    # exactly the published list
     edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
-              "dist_m": round(d, 4)} for a, b, cap, d in no_step_edges(planar, law)]
+              "dist_m": round(d, 4)} for a, b, cap, d in no_step_edges(planar, law)
+             if not (a in seam_all and b in seam_all)]
     return {"axes": ax_out, "crown_drops": drops,
-            "airside_no_step_edges": edges}
+            "airside_no_step_edges": edges,
+            "seam_pins": [ll[v] for v in pins]}

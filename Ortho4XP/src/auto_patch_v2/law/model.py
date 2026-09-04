@@ -374,6 +374,14 @@ class Instrument:
 
 
 @_dc.dataclass(frozen=True)
+class Seam:
+    """The tile-seam cut (user 2026-05-10): the graticule band no face
+    covers, ``half_width_m`` each side of an integer lat/lon line."""
+
+    half_width_m: float
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -384,6 +392,7 @@ class EmitLaw:
     transect: Transect
     within_shape: WithinShape
     instrument: Instrument
+    seam: Seam
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────

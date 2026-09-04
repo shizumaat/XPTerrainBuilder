@@ -63,6 +63,12 @@ class Inputs:
     apt_dat_path: str | None = None
     dsf_dump_path: str | None = None
     footprint_cache_path: str | None = None
+    #: ``"production"`` (03j: the core's composed tile DEM the mesh drapes
+    #: on, ``dem_production.py``) or ``"authored"`` (the ``.hgt`` + inset
+    #: sampler, fixtures and probes).
+    dem_frame: str = "production"
+    #: ``--allow-degraded-dem``: accept a cold production frame KNOWINGLY.
+    allow_degraded_dem: bool = False
 
 
 @_dc.dataclass
@@ -279,8 +285,15 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.buildings_by_source["dsf:object"] = n_obj
 
     # ── DEM ────────────────────────────────────────────────────────
-    if inputs.elevation_root:
+    if inputs.elevation_root and inputs.dem_frame == "production":
+        from . import dem_production as _prod
+        dem = _prod.load_production_dem(frame, icao, inputs.elevation_root,
+                                        inputs.osm_root, inputs.xplane_root,
+                                        allow_degraded=inputs.allow_degraded_dem)
+    elif inputs.elevation_root and inputs.dem_frame == "authored":
         dem = _dem.load_dem(frame, inputs.elevation_root, icao, inputs.feather_m)
+    elif inputs.elevation_root:
+        raise ValueError(f"dem_frame {inputs.dem_frame!r}: production | authored")
     else:
         dem = _dem.DemSampler(frame, "", None, 0.0, {"base": "absent"})
         rep.notes.append("no elevation_root: DEM samples are NaN")

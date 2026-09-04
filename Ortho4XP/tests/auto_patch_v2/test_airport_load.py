@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +32,7 @@ FIX = Path(__file__).resolve().parent / "fixtures" / "CYXY"
 def fixture_inputs() -> Inputs:
     return Inputs(xplane_root=str(FIX), cifp_dir=str(FIX / "CIFP"),
                   osm_root=str(FIX / "OSM_data"),
-                  elevation_root=str(FIX / "Elevation_data"),
+                  elevation_root=str(FIX / "Elevation_data"), dem_frame="authored",
                   mod_cache_root=str(FIX / "Airport_mod_cache"))
 
 
@@ -263,3 +264,13 @@ def test_frame_key_is_identity_precision():
     fr = Frame("X", (60.0, -135.0), 11)
     assert fr.key(60.123456789012, -135.0) == (60.12345678901, -135.0)
     assert os.path.basename(A.__file__) == "apt_dat.py"
+
+
+def test_dem_fixture_is_the_generator_output():
+    """The committed synthetic rasters ARE what
+    ``fixtures/make_dem_fixture.py`` writes (M3a fixture repair: the M1
+    rasters were never committed — ``.gitignore`` ate the corpus-named
+    directories — so the generator, not a lost file, is the record)."""
+    sys.path.insert(0, str(FIX.parent))
+    import make_dem_fixture as G
+    assert G.check() == []

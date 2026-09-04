@@ -56,6 +56,14 @@ class Diff:
     cap: float
     d: float
     source: Source
+    #: A PREFERENCE row (owner 2026-07-08 relaxation order: the runway
+    #: end-zone cap yields, MINIMALLY and per runway, when hard anchors make
+    #: it unsatisfiable): ``soft`` names the escalation group, ``ceiling``
+    #: the cap it may escalate to.  The solver adds one slack per group and
+    #: charges it heavily; an IIS probe prices the row at the ceiling, so
+    #: the IIS names LAW contradictions only.  ``None`` = a hard row.
+    soft: str | None = None
+    ceiling: float | None = None
 
     @property
     def bound_m(self) -> float:
@@ -113,6 +121,10 @@ class Linear:
     lo: float | None
     hi: float | None
     source: Source
+    #: A PREFERENCE row (see ``Diff.soft``): ``soft`` names the slack
+    #: group, ``ceiling`` how far (metres) ``hi`` may rise / ``lo`` fall.
+    soft: str | None = None
+    ceiling: float | None = None
 
 
 Row = _t.Union[Pin, Diff, Flat, Band, Offset, Linear]

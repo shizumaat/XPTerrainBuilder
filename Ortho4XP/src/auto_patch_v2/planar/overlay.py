@@ -31,7 +31,7 @@ from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
 from .zones import zone_regions
 
-__all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement"]
+__all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands"]
 
 
 @_dc.dataclass(frozen=True)
@@ -67,6 +67,12 @@ class Arrangement:
     regions: list[Region]
     dropped_faces: int
     grid_m: float
+    #: The tile-seam bands (``law.emit.seam``, user 2026-05-10) cut out of
+    #: the arrangement, one per integer lat/lon line the regions cross;
+    #: faces inside them are dropped (``dropped_seam_faces``) — the DEM
+    #: owns the band, each tile's patch stops ``half_width_m`` short.
+    seam_bands: list[Polygon] = _dc.field(default_factory=list)
+    dropped_seam_faces: int = 0
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -111,6 +117,8 @@ def build_arrangement(airport: Airport, classification: Classification,
             sources.append(SourceLine(cl.kind, cl.ref,
                                       LineString(densify(cl.points, cap_pav))))
     lines.extend(s.line for s in sources)
+    bands = seam_bands(airport, regions, law.tables.emit.seam.half_width_m)
+    lines.extend(LineString(b.exterior.coords) for b in bands)
 
     # Node at full precision, snap the ONE result to the grid, then node
     # AGAIN under the grid's precision model: snap-rounding can create new
@@ -125,7 +133,11 @@ def build_arrangement(airport: Airport, classification: Classification,
     tree = STRtree([r.polygon for r in regions])
     faces: list[tuple[Polygon, Region]] = []
     dropped = 0
+    dropped_seam = 0
     for poly in polys:
+        if bands and any(b.contains(poly.representative_point()) for b in bands):
+            dropped_seam += 1
+            continue
         best: Region | None = None
         best_a = 0.0
         for j in tree.query(poly, predicate="intersects"):
@@ -137,4 +149,32 @@ def build_arrangement(airport: Airport, classification: Classification,
             dropped += 1
             continue
         faces.append((poly, best))
-    return Arrangement(faces, noded, sources, regions, dropped, grid)
+    return Arrangement(faces, noded, sources, regions, dropped, grid,
+                       bands, dropped_seam)
+
+
+def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
+               ) -> list[Polygon]:
+    """One band per integer latitude / longitude line crossing the
+    regions' extent: the graticule line sampled every 25 m in the frame
+    (a tmerc image of a parallel is not straight), buffered
+    ``half_width_m`` with flat caps."""
+    if not regions or half_width_m <= 0.0:
+        return []
+    to_xy, to_ll = airport.frame.transformers()
+    xmin, ymin, xmax, ymax = unary_union([r.polygon for r in regions]).bounds
+    margin = 2.0 * half_width_m
+    xmin, ymin, xmax, ymax = xmin - margin, ymin - margin, xmax + margin, ymax + margin
+    corners = [to_ll(x, y) for x in (xmin, xmax) for y in (ymin, ymax)]
+    lat_lo, lat_hi = min(c[0] for c in corners), max(c[0] for c in corners)
+    lon_lo, lon_hi = min(c[1] for c in corners), max(c[1] for c in corners)
+    out: list[Polygon] = []
+    import math
+    n = max(2, int((max(xmax - xmin, ymax - ymin)) / 25.0) + 1)
+    for L in range(math.ceil(lat_lo), math.floor(lat_hi) + 1):
+        pts = [to_xy(lon_lo + (lon_hi - lon_lo) * k / (n - 1), float(L)) for k in range(n)]
+        out.append(LineString(pts).buffer(half_width_m, cap_style=2))
+    for L in range(math.ceil(lon_lo), math.floor(lon_hi) + 1):
+        pts = [to_xy(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1)) for k in range(n)]
+        out.append(LineString(pts).buffer(half_width_m, cap_style=2))
+    return out

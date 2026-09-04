@@ -96,7 +96,14 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             return (x - a_xy[0]) * ux + (y - a_xy[1]) * uy
 
         src = Source(GEN, "rulesets.runway.longitudinal", (f"rwy:{rw.id}",))
-        src_end = Source(GEN, "rulesets.runway.end_zone", (f"rwy:{rw.id}",))
+        src_end = Source(GEN, "rulesets.runway.end_zone (preference, owner "
+                         "2026-07-08 relaxation order)", (f"rwy:{rw.id}",))
+        # THE END-ZONE CAP IS A PREFERENCE (owner 2026-07-08): the main cap
+        # is law; the first/last-quarter cap yields MINIMALLY, per runway,
+        # up to the main cap, when the hard anchors (CIFP pins, seam DEM
+        # pins) make both unsatisfiable.  One escalation group per runway.
+        soft_g = f"end_zone:{rw.id}"
+        soft_hi = cap.longitudinal
         chs = sorted(chs, key=lambda c: min(along(c[0]), along(c[-1])))
         chs = [c if along(c[0]) <= along(c[-1]) else list(reversed(c)) for c in chs]
         for prev, nxt in zip(chs, chs[1:]):
@@ -106,9 +113,10 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if d > 0.0:
                     s_mid = 0.5 * (along(a) + along(b))
                     in_end = s_mid < end_len or s_mid > L - end_len
-                    rows.append(Diff(a, b, end_cap if (in_end and end_cap is not None)
-                                     else cap.longitudinal, d,
-                                     src_end if (in_end and end_cap is not None) else src))
+                    if in_end and end_cap is not None:
+                        rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
+                    else:
+                        rows.append(Diff(a, b, cap.longitudinal, d, src))
         for ch in chs:
             for a, b in zip(ch, ch[1:]):
                 d = vw.dist(a, b)
@@ -117,7 +125,7 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 s_mid = 0.5 * (along(a) + along(b))
                 in_end = s_mid < end_len or s_mid > L - end_len
                 if in_end and end_cap is not None:
-                    rows.append(Diff(a, b, end_cap, d, src_end))
+                    rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                 else:
                     rows.append(Diff(a, b, cap.longitudinal, d, src))
         # pins: the station nearest each threshold with a CIFP elevation
@@ -217,7 +225,11 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 terms = ((v, 1.0), (a, -1.0))
             elif t >= 1.0:
                 terms = ((v, 1.0), (b, -1.0))
-            rows.append(Linear(terms, None, -drop, src))
+            # THE CROWN FLOOR IS A PREFERENCE (M2 dev. 4 declared the built
+            # drop; M3a: where a seam DEM pin holds the edge higher than the
+            # floor allows, the floor yields — per vertex, by the minimum —
+            # and the built drop is what v2 declares)
+            rows.append(Linear(terms, None, -drop, src, f"crown:{v}", drop))
     return rows
 
 
@@ -231,6 +243,22 @@ def runway_within_shape(planar: PlanarMap, law: Law, airport: Airport
     chains = ridge_chains(vw)
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
+    # ``runway`` rings: the ADJACENT ring chords at the longitudinal cap
+    # (M3a: the profile implies them only while the crown floor holds; at
+    # a tile seam the floor yields to the DEM and the census still prices
+    # the adjacent-station ring pair at the body cap)
+    for f in vw.faces_of_role(("runway",)):
+        cap = role_cap(law, f.role, f.code_number, f.code_letter)
+        if cap is None:
+            continue
+        ring = vw.rings[f.id]
+        src = Source(GEN, "rulesets.runway.longitudinal ring chord", (f"face:{f.id}", f.ref))
+        n = len(ring)
+        for i in range(n):
+            a, b = ring[i], ring[(i + 1) % n]
+            d = vw.dist(a, b)
+            if d >= min_d and a != b:
+                rows.append(Diff(a, b, cap.longitudinal, d, src))
     for f in vw.faces_of_role(("runway_crossing",)):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
         if cap is None:

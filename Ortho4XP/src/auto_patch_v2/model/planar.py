@@ -136,6 +136,10 @@ class PlanarMap:
     edges: _t.Mapping[int, Edge]
     faces: _t.Mapping[int, Face]
     breaklines: _t.Mapping[int, Breakline]
+    #: Vertices on the edge of a tile-seam band (``law.emit.seam``; M3a,
+    #: additive): the graticule line the airport crosses is cut out of
+    #: the map as a band the DEM owns, and these vertices bound it.
+    seam_vertices: frozenset[int] = frozenset()
 
     def edges_of_vertex(self) -> dict[int, tuple[int, ...]]:
         """Vertex id -> incident edge ids (derived, not stored)."""

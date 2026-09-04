@@ -25,13 +25,18 @@ def lp_size(p: Problem) -> dict[str, int]:
 
 
 def residual(planar: PlanarMap, cs: ConstraintSet, z: np.ndarray,
-             objective: float) -> Residual:
-    """The certificate: worst violation per row kind at ``z``."""
+             objective: float, escalation: dict[str, float] | None = None
+             ) -> Residual:
+    """The certificate: worst violation per row kind at ``z``.  A
+    preference row is judged at its escalated cap (``escalation`` by
+    group, owner 2026-07-08)."""
+    esc = escalation or {}
     mp = md = mf = mb = mo = 0.0
     for p in cs.pins:
         mp = max(mp, abs(z[p.v] - p.z))
     for d in cs.diffs:
-        md = max(md, abs(z[d.a] - z[d.b]) - d.cap * d.d)
+        cap = d.cap + (esc.get(d.soft, 0.0) if d.soft is not None else 0.0)
+        md = max(md, abs(z[d.a] - z[d.b]) - cap * d.d)
     for f in cs.flats:
         g = z[list(f.group)]
         mf = max(mf, float(g.max() - g.min()))
@@ -45,10 +50,11 @@ def residual(planar: PlanarMap, cs: ConstraintSet, z: np.ndarray,
     ml = 0.0
     for ln in cs.linears:
         s = sum(c * z[v] for v, c in ln.terms)
+        relax = esc.get(ln.soft, 0.0) if ln.soft is not None else 0.0
         if ln.hi is not None:
-            ml = max(ml, s - ln.hi)
+            ml = max(ml, s - ln.hi - relax)
         if ln.lo is not None:
-            ml = max(ml, ln.lo - s)
+            ml = max(ml, ln.lo - relax - s)
     return Residual(max_pin_m=mp, max_diff_m=max(md, ml), max_flat_m=mf,
                     max_band_m=mb, max_offset_m=mo, objective=objective)
 
@@ -91,10 +97,21 @@ def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
                         backend=Backend.HIGHS, wall_s=wall,
                         message=f"status {res.status}: {res.message}")
     z = np.asarray(res.x[:prob.n], float)
-    cert = residual(planar, constraints, z, float(res.fun))
+    escalation = {g: float(res.x[col]) for g, col in prob.soft_cols.items()}
+    if size_out is not None:
+        size_out["escalation"] = {g: round(e, 6) for g, e in escalation.items()
+                                  if e > 1e-9}
+        size_out["preference_groups"] = len(escalation)
+    cert = residual(planar, constraints, z, float(res.fun), escalation)
     status = Status.OPTIMAL if cert.max_m <= opt.feasibility_tol_m * 100 \
         else Status.FEASIBLE
+    hot = sorted(((e, g) for g, e in escalation.items() if e > 1e-9), reverse=True)
+    esc_msg = (f"; preferences yielded {len(hot)}/{len(escalation)}: "
+               + ", ".join(f"{g} {e:.4f}" for e, g in hot[:8])) if hot else ""
+    if hot and len(hot) > 8:
+        esc_msg += ", ..."
+
     return Solution(z=tuple(float(v) for v in z), status=status, residual=cert,
                     backend=Backend.HIGHS, iterations=int(getattr(res, "nit", 0) or 0),
                     wall_s=wall, message=f"{res.message}; "
-                    f"rows {lp_size(prob)['rows_ub']}+{lp_size(prob)['rows_eq']}")
+                    f"rows {lp_size(prob)['rows_ub']}+{lp_size(prob)['rows_eq']}{esc_msg}")

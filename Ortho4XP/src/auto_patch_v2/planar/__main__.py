@@ -39,7 +39,8 @@ def _cfg_value(key: str) -> str:
 
 
 def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
-                   data_root: str | None = None, feather_m: float = 60.0
+                   data_root: str | None = None, feather_m: float = 60.0,
+                   dem_frame: str = "production", allow_degraded_dem: bool = False
                    ) -> Inputs:
     """The engine tree's mounts and the cfg-named install."""
     if xplane_root is None:
@@ -54,7 +55,19 @@ def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
                   osm_root=str(root / "OSM_data"),
                   elevation_root=str(root / "Elevation_data"),
                   mod_cache_root=str(root / "Airport_mod_cache"),
-                  feather_m=feather_m)
+                  feather_m=feather_m, dem_frame=dem_frame,
+                  allow_degraded_dem=allow_degraded_dem)
+
+
+def add_dem_frame_args(ap: argparse.ArgumentParser) -> None:
+    """The DEM-frame flags both CLIs share (03j)."""
+    ap.add_argument("--dem-frame", choices=("production", "authored"),
+                    default="production",
+                    help="production: the core's composed tile DEM the mesh "
+                         "drapes on (default); authored: raw .hgt + inset")
+    ap.add_argument("--allow-degraded-dem", action="store_true",
+                    help="accept a COLD production frame knowingly (recorded; "
+                         "authorises no write)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,13 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data-root", help="root holding Elevation_data/, OSM_data/, "
                     "Airport_mod_cache/ (default: the engine tree's mounts)")
     ap.add_argument("--feather-m", type=float, default=60.0)
+    add_dem_frame_args(ap)
     ap.add_argument("--grid-m", type=float, default=None,
                     help="identity snap grid (default: law min_distinct_spacing_m)")
     args = ap.parse_args(argv)
+    os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
 
     t0 = time.perf_counter()
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
-                            args.feather_m)
+                            args.feather_m, args.dem_frame, args.allow_degraded_dem)
     law = Law.for_airport(args.icao)
     airport, lrep = load_with_report(args.icao, inputs, law)
     t1 = time.perf_counter()

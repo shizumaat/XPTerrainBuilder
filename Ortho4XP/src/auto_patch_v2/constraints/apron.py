@@ -72,7 +72,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",
                            (f"face:{f.id}", f.ref))
-        src_body = Source(GEN, "common.apron_fan_ramp_max interior (2026-08-21c)",
+        src_body = Source(GEN, "apron body chord, strict (2026-08-24 amends 08-21c)",
                           (f"face:{f.id}", f.ref))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             n = len(ring)
@@ -90,5 +90,10 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     elif a_strict or b in strict:
                         rows.append(Diff(a, b, cap.longitudinal, d, src_spine))
                     elif d <= gate:
-                        rows.append(Diff(a, b, fan, d, src_body))
+                        # THE 5 % CLASS IS ONLY THE BACK-EDGE ZONES BETWEEN
+                        # BUILDINGS (owner 2026-08-24, amends 08-21c): v2
+                        # models no fan-ramp zone yet, so every body chord
+                        # inside the gate holds the STRICT cap; ``fan`` is
+                        # the back-edge zones' cap when M3b generates them
+                        rows.append(Diff(a, b, cap.longitudinal, d, src_body))
     return rows

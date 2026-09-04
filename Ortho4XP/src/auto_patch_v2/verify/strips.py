@@ -213,12 +213,19 @@ def raoa(p: Patch) -> list[Row]:
                 if len(idx) < 3:
                     continue
                 s = [sh.xy[i][0] * ux + sh.xy[i][1] * uy for i in idx]
+                t_lat = [sh.xy[i][0] * px + sh.xy[i][1] * py for i in idx]
                 order = sorted(range(len(idx)), key=lambda k: s[k])
                 s = [s[k] for k in order]
+                t_lat = [t_lat[k] for k in order]
                 src = [idx[k] for k in order]
                 for k in range(1, len(s) - 1):
                     dp, dn = s[k] - s[k - 1], s[k + 1] - s[k]
                     if dp < 1e-6 or dn < 1e-6:
+                        continue
+                    # the profile runs ALONG the approach: a hop that is more
+                    # across than along is a cross-width neighbour (M3a
+                    # adjudication; the oracle reads the same since 91426d6c)
+                    if abs(t_lat[k] - t_lat[k - 1]) > dp or abs(t_lat[k + 1] - t_lat[k]) > dn:
                         continue
                     z0, z1, z2 = sh.z[src[k - 1]], sh.z[src[k]], sh.z[src[k + 1]]
                     change = abs((z2 - z1) / dn - (z1 - z0) / dp)

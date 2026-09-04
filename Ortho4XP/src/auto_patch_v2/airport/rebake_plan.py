@@ -234,7 +234,11 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             else:
                 deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
             counts["deck_members"] += 1
-        if not feet and deck_ring is None:
+        if not feet and deck_ring is None and not (in_deck_family and rb.deck_family_seats_rigid):
+            # a DECK-family member with no genuine solid (Bridge_01_LOD0_004:
+            # a two-triangle sheet) still joins its family and takes the
+            # one delta (R12-2 completeness: no member left at another
+            # altitude); anywhere else nothing founds a seat for it
             counts["no_feet"] += 1
             skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
             continue

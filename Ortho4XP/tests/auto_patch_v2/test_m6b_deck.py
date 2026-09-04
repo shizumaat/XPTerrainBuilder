@@ -87,6 +87,7 @@ def pack(tmp_path_factory):
     _boxes_obj(d / "skirt.obj", [(0.0, -9.0, 8.0, 0.2, -5.0, 0.0), (0.0, 9.0, 8.0, 0.2, -5.0, 0.0),
                                  (-9.0, 0.0, 0.2, 8.0, -5.0, 0.0), (9.0, 0.0, 0.2, 8.0, -5.0, 0.0)])
     _boxes_obj(d / "shed.obj", [(0.0, 0.0, 6.0, 6.0, 0.0, 3.0)])     # a shed on the ground
+    _boxes_obj(d / "sheet.obj", [(0.0, 0.0, 5.0, 3.0, 4.0, 4.05)])   # a decal-thin sheet on the deck
     return root
 
 
@@ -362,3 +363,14 @@ def test_basin_exclusion_matches_paths_too(pack, law):
     pl = _planned(pack, law, [("pit", (0.0, 0.0), 0.0, 0.0), ("rim", (0.0, 0.0), 0.0, 0.0)],
                   exclude={"objects/pit.obj"})
     assert pl.units == () and pl.counts["terrain_adapted"] == 2
+
+
+def test_sheet_member_joins_its_deck_family(pack, law):
+    """Bridge_01_LOD0_004 (a two-triangle sheet, no genuine solid) is a
+    family member and takes the one delta (R12-2: none left behind)."""
+    way = _ways(([(-40.0, 0.0), (40.0, 0.0)], {"highway": "trunk", "bridge": "yes"}))
+    pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0), ("sheet", (0.0, 0.0), 0.0, 0.0)], way)
+    assert {m.resource for m in pl.units[0].members} == {"objects/plate.obj", "objects/sheet.obj"}
+    # ...and alone it founds nothing
+    pl2 = _planned(pack, law, [("sheet", (900.0, 0.0), 0.0, 0.0)])
+    assert pl2.units == () and pl2.counts["no_feet"] == 1

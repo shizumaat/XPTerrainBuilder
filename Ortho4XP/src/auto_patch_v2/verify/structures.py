@@ -20,8 +20,9 @@ from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
 from .frame import Patch, Row, Shape, row
 
-__all__ = ["wall_in_runway_strip", "tunnel_wall_top_flat", "tunnel_ramp_wall_gap",
-           "tunnel_mouth_canonical", "tunnel_deck_clearance", "ACCEPTANCE"]
+__all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_wall_top_flat",
+           "tunnel_ramp_wall_gap", "tunnel_mouth_canonical", "tunnel_deck_clearance",
+           "basin_floor_at_declaration", "basin_wall_gap", "ACCEPTANCE"]
 
 _WALL_REF = "tunnel_wall"
 
@@ -94,7 +95,96 @@ def wall_in_runway_strip(p: Patch) -> list[Row]:
     return out
 
 
+def basin_floor_declaration(p: Patch) -> list[Row]:
+    """THE DECLARATION ITSELF, judged (Appendix A §1; RULINGS 2026-08-26
+    §2.2; v1 ``_check_basin_floor_declaration``): a published basin
+    facility whose two bottom instruments — ``solid_minimum_y_m`` and
+    ``body_depth_m`` — disagree by more than
+    ``structures.basin.floor_disagreement_m`` is a floor its own geometry
+    does not evidence.  Populations are the sidecar's ``basin_facilities``
+    rows exactly as the oracle reads them."""
+    tol = p.law.tables.structures.basin.floor_disagreement_m
+    out: list[Row] = []
+    for rec in p.publication.get("basin_facilities") or ():
+        try:
+            floor_m = float(rec["floor_m"])
+            body = rec.get("body_depth_m")
+            smin = rec.get("solid_minimum_y_m")
+            if body is None or smin is None:
+                continue
+            dis = abs(float(smin) + float(body))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if dis <= tol:
+            continue
+        anchor = rec.get("anchor_longitude_latitude") or (None, None)
+        lat = lon = None
+        try:
+            lon, lat = float(anchor[0]), float(anchor[1])
+        except (TypeError, ValueError, IndexError):
+            pass
+        out.append(row("basin_floor_declaration", ("tunnel_trench",) * 2, "airside", dis,
+                       0.0, 0.0, 0.0, (0.0, 0.0), (0.0, 0.0),
+                       ",".join(str(r).split("/")[-1] for r in rec.get("resources") or ())
+                       or "basin_facility", None, lat=lat, lon=lon,
+                       out_of_scope=f"floor {floor_m:.2f}: solid {smin} vs body {body}"))
+    return out
+
+
 # ── the acceptance checks ────────────────────────────────────────────────
+
+def _basin_floors(p: Patch) -> list[Shape]:
+    return [sh for sh in p.shapes if sh.role == "tunnel_trench" and sh.ref.startswith("basin_floor:")]
+
+
+def _basin_walls(p: Patch) -> list[Shape]:
+    return [sh for sh in p.shapes if sh.role == "retaining_wall" and sh.ref.startswith("basin_wall:")]
+
+
+def basin_floor_at_declaration(p: Patch) -> list[Row]:
+    """M4b acceptance: every vertex of a basin floor face carries the
+    facility's PUBLISHED ``floor_m`` (within the materiality floor) — the
+    census's declared-number join has nothing to join otherwise."""
+    tol = p.law.tables.emit.materiality.elevation_m
+    declared = {}
+    for rec in p.publication.get("basin_facilities") or ():
+        ref = rec.get("floor_ref")
+        try:
+            declared[str(ref)] = float(rec["floor_m"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    out: list[Row] = []
+    for f in _basin_floors(p):
+        want = declared.get(f.ref.split("#")[0])
+        if want is None:
+            out.append(row("basin_floor_at_declaration", ("tunnel_trench",) * 2, "airside", 0.0,
+                           None, None, None, f.xy[0], f.xy[0], f.key, None,
+                           out_of_scope=f"{f.ref}: no published facility"))
+            continue
+        for k, z in enumerate(f.z):
+            if abs(z - want) > tol + 1e-9:
+                out.append(row("basin_floor_at_declaration", ("tunnel_trench",) * 2, "airside",
+                               abs(z - want), None, None, None, f.xy[k], f.xy[k], f.key, None,
+                               lat=p.ll[f.ids[k]][0], lon=p.ll[f.ids[k]][1],
+                               out_of_scope=f"{f.ref}: {z:.2f} vs declared {want:.2f}"))
+    return out
+
+
+def basin_wall_gap(p: Patch) -> list[Row]:
+    """M4b acceptance (2026-09-01c/e): the floor is NOT welded to its
+    wall — a vertex id shared between a basin floor ring and a basin
+    wall ring is a row."""
+    out: list[Row] = []
+    wall_ids = {v: w for w in _basin_walls(p) for v in w.ids}
+    for f in _basin_floors(p):
+        for k, v in enumerate(f.ids):
+            w = wall_ids.get(v)
+            if w is not None:
+                out.append(row("basin_wall_gap", ("tunnel_trench", "retaining_wall"), "airside",
+                               0.0, None, None, 0.0, f.xy[k], f.xy[k], f.key, w.key,
+                               lat=p.ll[v][0], lon=p.ll[v][1]))
+    return out
+
 
 def tunnel_wall_top_flat(p: Patch) -> list[Row]:
     """§F1 / 2026-09-01c: two wall vertices closer than the band span in
@@ -323,4 +413,6 @@ ACCEPTANCE = {
     "tunnel_ramp_wall_gap": tunnel_ramp_wall_gap,
     "tunnel_mouth_canonical": tunnel_mouth_canonical,
     "tunnel_deck_clearance": tunnel_deck_clearance,
+    "basin_floor_at_declaration": basin_floor_at_declaration,
+    "basin_wall_gap": basin_wall_gap,
 }

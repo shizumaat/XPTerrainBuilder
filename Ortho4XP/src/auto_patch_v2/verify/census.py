@@ -6,7 +6,7 @@ shape so ``tools/harness/census.py --rows-json`` and this diff by
 ``FAMILIES`` is derived from ``law/families.toml`` — a family in the
 tables with no reader here is reported as ``not_implemented``, never
 silently absent (the census-wrapper precedent).  Families v2 has no
-geometry for (terraces, basins, walls, lattice, drainage spines) return
+geometry for (terraces, lattice, drainage spines; basins read the sidecar, M4b) return
 no rows and are listed as such in the M2/M3b reports.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from .strips import (adjacent_ground_tear, raoa, resa_transverse, strip_arc,
                      strip_longitudinal, strip_seam_tear)
 from .contiguity import lateral_contiguity
 from .frontage import frontage_near_miss
-from .structures import ACCEPTANCE, wall_in_runway_strip
+from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
 from .within import plane_gradient, within_shape
 
@@ -50,14 +50,14 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "lateral_contiguity": lateral_contiguity,
     "frontage_near_miss": frontage_near_miss,
     "wall_in_runway_strip": wall_in_runway_strip,
+    "basin_floor_declaration": basin_floor_declaration,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or
 #: an M3+ family) — listed, never dropped.
 NOT_IMPLEMENTED: tuple[str, ...] = (
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
-    "basin_floor_declaration", "drainage_spine", "apron_lattice_membrane",
-    "drainage_minimum",
+    "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
 )
 
 

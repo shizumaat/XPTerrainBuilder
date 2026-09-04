@@ -16,9 +16,9 @@ Read from the dump (v1 ``dsf_reader`` is the reference for the grammar):
   ``{"fingerprint", "result": [(outer, holes, role), ...]}``) — the OBJ8
   structure footprints v1 partitioned, reused as-is.
 
-OBJ8 hardness (``ATTR_hard`` / ``ATTR_hard_deck``) is scanned only for a
-PACK-RELATIVE object path; library paths (``lib/...``) need the X-Plane
-library index, which M1 does not resolve (reported as ``hard_deck=None``).
+OBJ8 geometry (hardness, decks, below-grade solids) is read by
+``airport/obj8.py`` (M4b) from the RESOLVED path the loader records on
+each ``DsfObject`` — pack-relative first, then the library index.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ import math
 
 __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "read_dump", "building_role_for_def", "read_footprint_cache",
-           "obj8_hardness", "mod_cache_dir"]
+           "mod_cache_dir"]
 
 
 @_dc.dataclass(frozen=True)
@@ -54,6 +54,9 @@ class DsfPlacement:
     lat: float
     heading_deg: float
     elevation: float | None
+    #: ``OBJECT`` / ``OBJECT_AGL`` / ``OBJECT_MSL`` — which row it was, so
+    #: ``elevation`` reads as an AGL offset or an absolute MSL (M4b).
+    kind: str = "OBJECT"
 
 
 @_dc.dataclass(frozen=True)
@@ -109,9 +112,9 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
             elif kw == "POLYGON_DEF":
                 polygon_defs.append(raw[len("POLYGON_DEF"):].strip())
             elif kw == "OBJECT" and len(toks) >= 4:
-                _placement(placements, object_defs, toks, 4, None)
+                _placement(placements, object_defs, toks, 4, None, kw)
             elif kw in ("OBJECT_MSL", "OBJECT_AGL") and len(toks) >= 5:
-                _placement(placements, object_defs, toks, 5, 4)
+                _placement(placements, object_defs, toks, 5, 4, kw)
             elif kw == "BEGIN_POLYGON" and len(toks) >= 4:
                 try:
                     idx = int(toks[1])
@@ -141,7 +144,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
 
 
 def _placement(out: list[DsfPlacement], defs: list[str], toks: list[str],
-               hi: int, elev_i: int | None) -> None:
+               hi: int, elev_i: int | None, kind: str = "OBJECT") -> None:
     try:
         oi = int(toks[1])
         lon, lat = float(toks[2]), float(toks[3])
@@ -150,7 +153,7 @@ def _placement(out: list[DsfPlacement], defs: list[str], toks: list[str],
     except (ValueError, IndexError):
         return
     if 0 <= oi < len(defs):
-        out.append(DsfPlacement(defs[oi], lon, lat, heading, elev))
+        out.append(DsfPlacement(defs[oi], lon, lat, heading, elev, kind))
 
 
 def _flatten(points: list[list[str]], cpp: int) -> tuple[LonLat, ...]:
@@ -271,22 +274,3 @@ def read_footprint_cache(path: str) -> list[tuple[tuple[LonLat, ...], str]]:
                 outer = outer[:-1]
             out.append((outer, role))
     return out
-
-
-def obj8_hardness(obj_path: str) -> tuple[bool, bool] | None:
-    """``(hard, hard_deck)`` from an OBJ8 file's attributes, ``None``
-    when the file is absent (a library path M1 does not resolve)."""
-    if not os.path.isfile(obj_path):
-        return None
-    hard = deck = False
-    try:
-        with open(obj_path, "r", errors="replace") as fh:
-            for line in fh:
-                kw = line.split(maxsplit=1)[0] if line.strip() else ""
-                if kw == "ATTR_hard_deck":
-                    deck = True
-                elif kw == "ATTR_hard":
-                    hard = True
-    except OSError:
-        return None
-    return hard, deck

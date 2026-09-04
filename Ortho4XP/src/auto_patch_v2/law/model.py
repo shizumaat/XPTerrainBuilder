@@ -288,9 +288,22 @@ class BuildingPad:
 
 @_dc.dataclass(frozen=True)
 class Basin:
-    """Basin facility law (RULINGS 2026-08-26)."""
+    """Basin facility law (RULINGS 2026-08-26; M4b)."""
 
     floor: str
+    seat_margin_m: float
+    min_solid_thickness_m: float
+    admission_depth_m: float
+    contact_band_m: float
+    footprint_close_m: float
+    min_area_m2: float
+    rim_sample_step_m: float
+    max_covered_fraction: float
+    floor_disagreement_m: float
+    rim: str
+    shell_reaches_grade: bool
+    cuts_pads: bool
+    cuts_runway_family: bool
 
 
 @_dc.dataclass(frozen=True)
@@ -494,7 +507,8 @@ _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
 _DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
-           "deck_datum": ("deck_top",), "floor": ("declared",)}
+           "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
+           "rim": ("ground",)}
 
 
 def _sane(path: str, name: str, value: float) -> None:
@@ -503,6 +517,10 @@ def _sane(path: str, name: str, value: float) -> None:
     if name.endswith(("_m", "_m2", "_deg", "per_m")) or name == "k":
         if value < 0:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
+        return
+    if name == "max_covered_fraction":
+        if not 0.0 <= value <= 1.0:
+            raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return
     if any(w in name for w in _GRADE_WORDS) or name in ("default",):
         if not 0.0 <= value <= 0.2:

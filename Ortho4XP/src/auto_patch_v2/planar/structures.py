@@ -34,7 +34,16 @@ crest = DEM; law ``structures.toml [tunnel]``):
   (08-30d: no object ⇒ terrain deck at road level): a road face across
   the corridor that severs the ramp and the walls; the cut stays at bore
   datum from the mouth to the deck and the climb begins beyond it
-  (08-30f); the deck's ground is road (08-30m).
+  (08-30f); the deck's ground is road (08-30m);
+* a HARD-DECK OBJECT (``ATTR_hard_deck``, read by ``airport/obj8.py``)
+  whose footprint crosses the corridor is an OBJECT BRIDGE (M4b; 08-30d
+  "where a classified hard-deck OBJECT bridge exists the object law
+  governs and the terrain stays open"): the ramp is NOT severed — the
+  cut continues under the deck at bore datum and the climb begins
+  beyond it (08-30f's depth clause) — and the deck's TOP (memory
+  othh-bridge-deck-datum-r12) must clear the ramp by
+  ``bridge.clearance_m`` (a bound the generator states, the IIS reports);
+  a mapped bridge way over an object deck mints no terrain deck.
 
 Every length here is a law-table value or an input's own tag; the DEM
 samples recorded on the records are the builder's, taken once.
@@ -56,6 +65,7 @@ from ..law.tables import role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import Deck, Tunnel
+from .basins import object_decks
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -79,6 +89,7 @@ class StructureStats:
     duals_merged: int = 0
     tunnels: int = 0
     decks: int = 0
+    object_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
 
@@ -431,12 +442,16 @@ def _u_polygon(left_in, left_out, right_in, right_out, cap_in, cap_out) -> Polyg
 
 # ── build ────────────────────────────────────────────────────────────────
 
-def build_structures(airport: Airport, classification: Classification, law: Law
+def build_structures(airport: Airport, classification: Classification, law: Law,
+                     objects: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
-    and the stats.  A classification with no bores comes back unchanged."""
+    and the stats.  ``objects`` are the pack's placed OBJ8 readings
+    (``planar.basins.read_objects``): their hard decks are object
+    bridges.  A classification with no bores comes back unchanged."""
     stats = StructureStats()
+    odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
     tunnel_ways = [w for w in airport.osm_ways if _is_tunnel(w) and len(w.points) >= 2]
     if not tunnel_ways or not classification.cells:
@@ -508,7 +523,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law
         # decks across the corridor (a first pass over the full reach)
         deck_ivals = _deck_intervals(axis_ln, half + gap + bw, bridges, bridge_lines,
                                      bridge_tree, law)
-        climb_from = max([0.0] + [s1 + gap for _w, s0, s1, _p in deck_ivals])
+        obj_ivals = _object_deck_intervals(axis_ln, half + gap + bw, odecks)
+        if obj_ivals:
+            # the object law governs where an object bridge stands: a
+            # mapped bridge way over it mints no terrain deck (08-30d)
+            ou = unary_union([dp for _o, _s0, _s1, dp, _z in obj_ivals])
+            deck_ivals = [d for d in deck_ivals if not d[3].intersects(ou)]
+        climb_from = max([0.0] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
+                         + [s1 + gap for _o, s0, s1, _p, _z in obj_ivals])
         s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing, half)
         if s_top is None:
             stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb does not reach "
@@ -566,6 +588,21 @@ def build_structures(airport: Airport, classification: Classification, law: Law
             decks.append(Deck(dref, w.id, s0, s1, tuple(dpoly.exterior.coords)[:-1]))
             deck_polys.append(dpoly)
             stats.decks += 1
+        # OBJECT BRIDGES: recorded, never severing (the terrain stays open
+        # under the object; the deck-top clearance is the generator's row)
+        for oid, s0, s1, dp, top_z in obj_ivals:
+            if s0 > s_top:
+                continue
+            dpoly = dp.intersection(outer)
+            if dpoly.is_empty or dpoly.area < 1.0:
+                continue
+            if dpoly.geom_type != "Polygon":
+                dpoly = max(_parts(dpoly), key=lambda g: g.area, default=None)
+                if dpoly is None:
+                    continue
+            decks.append(Deck(f"object_deck:{oid}", 0, s0, s1,
+                              tuple(dpoly.exterior.coords)[:-1], "deck_top", top_z))
+            stats.object_decks += 1
         # the ramp's ref is EXACTLY the oracle's population key too
         # (``ref == "tunnel_ramp"`` sorts a corridor surface as a ramp;
         # anything else is "other" and the mouth is not canonical)
@@ -596,6 +633,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law
         notes = []
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
+        for d in decks:
+            if d.datum == "deck_top":
+                notes.append(f"object bridge {d.ref} deck top {d.z:.2f} over s {d.s0:.0f}-{d.s1:.0f}")
         if clipped_by:
             notes.append(f"clipped at building pad {clipped_by} at {s_top:.1f} m "
                          f"(08-07 ruling 3)")
@@ -677,7 +717,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      keepouts=tuple(tuple(k.exterior.coords)[:-1] for k in keepouts),
                      stats={**dict(classification.stats), "tunnels": stats.tunnels,
-                            "tunnel_decks": stats.decks, "tunnel_cells_cut": stats.cells_cut,
+                            "tunnel_decks": stats.decks, "tunnel_object_decks": stats.object_decks,
+                            "tunnel_cells_cut": stats.cells_cut,
                             "tunnels_refused": len(stats.refused)})
     return cl, tuple(tunnels), stats
 
@@ -855,5 +896,28 @@ def _deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay
             for q in g.coords:
                 s_vals.append(axis_ln.project(Point(q)))
         out.append((w, min(s_vals), max(s_vals), dpoly))
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+def _object_deck_intervals(axis_ln: LineString, half_outer: float,
+                           odecks: list[tuple[str, Polygon, float]]
+                           ) -> list[tuple[str, float, float, Polygon, float]]:
+    """``(object id, s0, s1, deck footprint, deck top)`` per hard-deck
+    object footprint crossing the corridor, ordered by ``s0``."""
+    if not odecks:
+        return []
+    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
+    out = []
+    for oid, dp, top in odecks:
+        if not dp.intersects(corridor):
+            continue
+        seg = axis_ln.intersection(dp)
+        if seg.is_empty:
+            continue
+        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
+        if not s_vals:
+            continue
+        out.append((oid, min(s_vals), max(s_vals), dp, top))
     out.sort(key=lambda t: t[1])
     return out

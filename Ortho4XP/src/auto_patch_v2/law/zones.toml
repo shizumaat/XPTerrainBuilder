@@ -15,6 +15,7 @@ lip_width_m    = 3.0        # zone-1 width (ADJACENT_GROUND_LIP_WIDTH_M)
 lip_min_down   = 0.03       # zone-1 minimum down-slope (mandatory-DOWN, ruling 1)
 lip_max_down   = 0.05       # zone-1 maximum down-slope
 ungraded_max_up = 0.05      # rising ground beyond the graded strip may rise at most this (§4 row 9)
+groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GROUNDSIDE pavement (roads, lots) so the two never share a vertex: the stand-off terraces (groundside terrace law; the mixed-pad precedent 09-01i; measured CYXY 2026-09-04: a road strip's DEM climb tore a taxi zone band 3.03 m in 5.6 m through one shared corner vertex)
 
 # zone 2 for the RUNWAY family (runway, runway_crossing): keyed by code NUMBER
 [adjacent_ground.runway]

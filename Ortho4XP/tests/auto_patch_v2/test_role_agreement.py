@@ -39,12 +39,29 @@ XPLANE = Path("/Users/noah/X-Plane 12")
 VALUE_ROLES = frozenset(("runway", "runway_crossing", "primary_parallel",
                          "secondary_parallel", "stub", "cross_connector",
                          "junction", "apron", "service_road",
-                         "service_junction", "groundside_pavement"))
+                         "service_junction", "groundside_pavement",
+                         "parking_lot"))
 TAXI = frozenset(("primary_parallel", "secondary_parallel", "stub",
                   "cross_connector", "junction"))
 
 #: Every (v2 role, v1 role) pair that disagrees needs a reason here.
 REASONS: dict[tuple[str, str], str] = {
+    # owner 2026-09-04j (lane v2class): lots and road strips are classes of their own
+    ("parking_lot", "groundside_pavement"): "owner 2026-09-04j: a landside source polygon carrying an OSM road (not a strip) is a PARKING LOT (5 %); v1 has no such role",
+    ("parking_lot", "service_junction"): "owner 2026-09-04j: v1's road-feed junction territory inside a lot page is the lot (the road inside the lot IS the lot, cut at the mouth)",
+    ("parking_lot", "service_road"): "owner 2026-09-04j: v1's road-feed corridor inside a lot page is the lot",
+    ("parking_lot", "apron"): "owner 2026-09-04j item 3: a lot page (OSM road, no taxi centreline, no startup, not apron-named) that v1 dissolved into the apron blob (CYXY dsf:pol130)",
+    ("parking_lot", "junction"): "as parking_lot vs apron (v1 route-proximity junction band over a lot page)",
+    ("parking_lot", "building"): "v1 pad footprint inside a lot v2 keeps as pavement (pad folded)",
+    ("service_road", "apron"): "owner 2026-09-04j item 3: a road STRIP (pav29/pav30, the 1206 ring road drawn as its own 110 polygon) is cut from the apron at its own boundary",
+    ("service_road", "junction"): "as service_road vs apron (v1's route-proximity band over a road strip)",
+    ("service_road", "groundside_pavement"): "as service_road vs apron: a landside strip page carrying the road (v1 groundside_pavement)",
+    ("service_road", "service_junction"): "a strip page carrying the route: one road face where v1 read a service junction",
+    ("service_road", "building"): "as service_road vs apron",
+    ("groundside_pavement", "service_junction"): "as groundside_pavement vs apron",
+    ("cross_connector", "groundside_pavement"): "owner 2026-09-04j item 4: a NETWORK taxiway runs onto the page (CYXY dsf:pol19): airside without a pavement touch-chain; v1 demoted it",
+    ("junction", "groundside_pavement"): "runway touch-chain difference (item 4: network taxiway seeds the chain)",
+    ("apron", "groundside_pavement"): "runway touch-chain: v1's road carve severed these lots; v2 keeps roads inside wide pavement uncut (free-road ruling) so the chain reaches the runway; item 4 network seeding",
     ("primary_parallel", "junction"): "v1 emits every slice face as junction; v2 names corridors by sub-role (same taxi-family caps; plane_gradient family differs)",
     ("secondary_parallel", "junction"): "same as primary_parallel vs junction",
     ("stub", "junction"): "same as primary_parallel vs junction",

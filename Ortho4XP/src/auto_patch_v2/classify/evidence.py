@@ -38,6 +38,13 @@ class Chain:
     runway_contact: tuple[bool, bool]
     service: bool
     end_degree: tuple[int, int] = (0, 0)
+    #: An end node lies in the taxi-network component that reaches a
+    #: runway (owner 2026-09-04j item 4: pavement a network taxiway runs
+    #: onto is airside even when no pavement touch-chain reaches it).
+    runway_network: bool = False
+    #: An OSM ``service=parking_aisle`` way: LOT evidence, never a road
+    #: a strip is read from (owner 2026-09-04j).
+    aisle: bool = False
 
     @property
     def letter(self) -> str | None:
@@ -64,6 +71,11 @@ class Evidence:
     leadin_chains: list[Chain]
     dsf_pavements_kept: int
     dsf_pavements_dropped: int
+    #: OSM ``highway=*`` road centrelines on pavement, deduped against the
+    #: 1206 routes (owner 2026-09-04j evidence; ``rules.osm_roads``).
+    road_chains: list[Chain] = _dc.field(default_factory=list)
+    #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``).
+    parking_polys: list[tuple[str, Polygon]] = _dc.field(default_factory=list)
 
 
 # ── polygons ─────────────────────────────────────────────────────────────
@@ -222,8 +234,18 @@ def build_evidence(airport: Airport, rules: Rules,
                                      len(taxi_chains))
 
     taxi_chains, leadins = _trim_leadins(taxi_chains, airport, rules)
+    reach = _network_reach(taxi_edges, runway_nodes)
+    reach_xy = {node_xy[n] for n in reach if n in node_xy}
+    taxi_chains = [_dc.replace(c, runway_network=(
+        c.line.coords[0] in reach_xy or c.line.coords[-1] in reach_xy))
+        for c in taxi_chains]
     taxi_chains += _osm_taxiways(airport, taxi_chains, pavement_union,
                                  runway_union, rules, len(taxi_chains) + len(truck_chains))
+    road_chains = _osm_roads(airport, truck_chains, pavement_union, rules,
+                             len(taxi_chains) + len(truck_chains))
+    parking = [(f"osm:{w.id}", p) for w in airport.osm_ways
+               if w.closed and w.tags.get("amenity") == "parking"
+               for p in [polygon_from(w.points[:-1])] if p is not None]
 
     pads, dropped = _pads(airport, rules, pad_min_area_m2, boundary,
                           pavement_union, runway_union)
@@ -234,7 +256,61 @@ def build_evidence(airport: Airport, rules: Rules,
         b.source.endswith(":terminal") for b in airport.buildings)
     return Evidence(runway_polys, runway_union, pav, pavement_union,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
-                    terminal, dropped, leadins, len(dsf_pav), dsf_dropped)
+                    terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
+                    road_chains, parking)
+
+
+def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],
+                   runway_nodes: _t.Collection[int]) -> set[int]:
+    """Node ids in a taxi-network component containing a runway node."""
+    adj: dict[int, list[int]] = {}
+    for a, b, _l, _n in edges:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+    seen: set[int] = set(n for n in runway_nodes if n in adj)
+    queue = list(seen)
+    while queue:
+        n = queue.pop()
+        for m in adj.get(n, ()):
+            if m not in seen:
+                seen.add(m)
+                queue.append(m)
+    return seen
+
+
+def _osm_roads(airport: Airport, truck_chains: list[Chain], pavement_union,
+               rules: Rules, first_id: int) -> list[Chain]:
+    """OSM road ways (``rules.osm_roads.highways``) as ground-vehicle
+    centrelines ON pavement, deduped against the authored 1206 routes
+    (the network stays senior); one chain per surviving way part."""
+    orr = rules.osm_roads
+    if not orr.enabled or pavement_union.is_empty:
+        return []
+    cover = unary_union([c.line for c in truck_chains]).buffer(orr.dedup_m) \
+        if truck_chains else Polygon()
+    out: list[Chain] = []
+    for w in airport.osm_ways:
+        if w.tags.get("highway") not in orr.highways or len(w.points) < 2:
+            continue
+        g = LineString(w.points).intersection(pavement_union)
+        if not cover.is_empty:
+            g = g.difference(cover)
+        for part in _line_parts(g):
+            if part.length < orr.min_len_m:
+                continue
+            out.append(Chain(first_id + len(out), part, (None,) * (len(part.coords) - 1),
+                             frozenset([f"osm:{w.id}"]), (False, False), True, (1, 1),
+                             aisle=w.tags.get("service") == "parking_aisle"))
+    return out
+
+
+def _line_parts(geom) -> list[LineString]:
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "LineString":
+        return [geom]
+    return [g for g in getattr(geom, "geoms", ()) if g.geom_type == "LineString"
+            and g.length > 0]
 
 
 def _dsf_pavements(raw: list[tuple[str, Polygon]], apt_union, boundary,

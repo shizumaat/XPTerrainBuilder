@@ -80,7 +80,9 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     min_deg = law.tables.common.road_transverse_axis_min_deg
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
-    roles = tuple(roads) + ("groundside_pavement",)
+    # groundside classes without a cross-section axis: all pairs at the
+    # role's longitudinal cap (parking_lot: owner 2026-09-04j, 5 %)
+    roles = tuple(roads) + ("groundside_pavement", "parking_lot")
     for f in vw.faces_of_role(roles):
         cap = role_cap(law, f.role)
         if cap is None:

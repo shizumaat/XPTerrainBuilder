@@ -70,6 +70,24 @@ class Service:
 
 
 @_dc.dataclass(frozen=True)
+class OsmRoads:
+    enabled: bool
+    highways: tuple[str, ...]
+    dedup_m: float
+    min_len_m: float
+
+
+@_dc.dataclass(frozen=True)
+class Lot:
+    min_road_fraction: float
+    narrow_road_width_m: float
+    max_road_pieces_per_100m: float
+    apron_name_tokens: tuple[str, ...]
+    through_min_fraction: float
+    parking_cover_fraction: float
+
+
+@_dc.dataclass(frozen=True)
 class Groundside:
     touch_tol_m: float
     requires_terminal: bool
@@ -118,6 +136,8 @@ class Rules:
     apron: Apron
     osm_taxiways: OsmTaxiways
     service: Service
+    osm_roads: OsmRoads
+    lot: Lot
     groundside: Groundside
     taxi_subrole: TaxiSubrole
     leadin: Leadin
@@ -143,6 +163,10 @@ def _build(cls: type, data: _t.Mapping[str, _t.Any], where: str) -> _t.Any:
             if v < 0:
                 raise RulesError(f"{where}.{name}: negative")
             kw[name] = float(v)
+        elif t == "int" or t is int:
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                raise RulesError(f"{where}.{name}: not a non-negative int ({v!r})")
+            kw[name] = v
         elif t == "bool" or t is bool:
             if not isinstance(v, bool):
                 raise RulesError(f"{where}.{name}: not a bool ({v!r})")
@@ -173,7 +197,7 @@ def load_rules(path: str | Path | None = None) -> Rules:
     types = {"cells": Cells, "keyhole": Keyhole, "corridor": Corridor,
              "junction": Junction, "apron": Apron,
              "osm_taxiways": OsmTaxiways, "service": Service,
-             "groundside": Groundside, "taxi_subrole": TaxiSubrole,
+             "osm_roads": OsmRoads, "lot": Lot, "groundside": Groundside, "taxi_subrole": TaxiSubrole,
              "leadin": Leadin, "dsf_pavement": DsfPavement,
              "surfaces": Surfaces, "buildings": Buildings}
     for name, cls in types.items():

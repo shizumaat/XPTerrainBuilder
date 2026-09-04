@@ -19,6 +19,7 @@ order = [
   "junction", "tunnel_ramp",                                            # taxi family
   "apron", "building",                                                  # apron, then landside occupants
   "service_road", "service_junction", "groundside_pavement",
+  "parking_lot",                                                        # owner 2026-09-04j: a class of its own, junior-most governed
 ]
 
 # Every role v2 emits.  `family` selects the cap table (runway / taxi /
@@ -43,6 +44,15 @@ building            = { family = "common", side = "airside",    value = true,  a
 service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
 service_junction    = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
 groundside_pavement = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
+# PARKING LOT (owner 2026-09-04j): car parking pavement, a class of its own,
+# cut from the roads at the road-to-lot mouths.  ``oracle_role`` is the name
+# the v1 census reads it under (``check_grade._GROUNDSIDE_ROLES`` has no
+# parking_lot: an unregistered role would be judged AIRSIDE at the CLI
+# default cap) — the emitter writes role=<oracle_role>, class=parking_lot and
+# o4_grade_law_cap=<its longitudinal cap>, which the census composes as a
+# minimum, so the oracle prices exactly this table's cap on the groundside
+# partition.  v2's own verify reads the role itself.
+parking_lot         = { family = "common", side = "groundside", value = true,  aeroway = "apron", oracle_role = "groundside_pavement" }
 boundary            = { family = "none",   side = "airside",    value = false, aeroway = "aerodrome" }
 retaining_wall      = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 runway_clearance    = { family = "none",   side = "airside",    value = false, aeroway = "apron" }

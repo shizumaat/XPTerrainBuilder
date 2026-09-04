@@ -7,7 +7,7 @@ The reader keeps the TAGS OF INTEREST only (``model.airport.OsmWay``):
 ``highway``, ``railway``, ``bridge``, ``tunnel``, ``layer``, ``aeroway``,
 ``building``, ``building:part``, ``service``, ``access``, ``name``,
 ``surface``, ``width``, ``lanes``, ``oneway``, ``height``,
-``building:levels``.  Ways are selected when any vertex lies inside the
+``building:levels``, ``amenity``, ``parking``.  Ways are selected when any vertex lies inside the
 box around the airport; the 3x3 tile neighbourhood is merged with
 per-tile id namespacing (Overpass exports reuse negative ids across
 tiles — user 2026-04-29).  Read-only.
@@ -28,6 +28,7 @@ TAGS_OF_INTEREST = frozenset((
     "highway", "railway", "bridge", "tunnel", "layer", "aeroway",
     "building", "building:part", "service", "access", "name", "surface",
     "width", "lanes", "oneway", "height", "building:levels", "area",
+    "amenity", "parking",   # amenity=parking lots (owner 2026-09-04j evidence)
 ))
 FEEDS = ("airports", "airport_small_roads", "big_roads")
 

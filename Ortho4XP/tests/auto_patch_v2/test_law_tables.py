@@ -310,6 +310,15 @@ def test_every_value_equals_v1(tables, capsys):
         # M4b: v1's founding openness constant was never exercised on a
         # real record; stated for ratification (m4b-report open question)
         "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04, for ratification"),
+        # owner 2026-09-04j: parking_lot is a v2-only role (v1 has none) —
+        # junior-most governed in the order, groundside in the partition;
+        # the oracle reads it under its alias (precedence.toml oracle_role)
+        "precedence.order": (tuple(v1_layout.AUTHORITY_PRECEDENCE),
+                             tuple(v1_layout.AUTHORITY_PRECEDENCE) + ("parking_lot",),
+                             "owner 2026-09-04j"),
+        "groundside partition": (set(v1_cg._GROUNDSIDE_ROLES),
+                                 set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot"},
+                                 "owner 2026-09-04j"),
     }
     bad = [(n, a, b) for n, a, b in c.mismatches()
            if not (n in RULED and RULED[n][0] == a and RULED[n][1] == b)]

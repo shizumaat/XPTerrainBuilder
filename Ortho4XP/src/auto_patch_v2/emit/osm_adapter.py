@@ -51,6 +51,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from ..law.model import Law
+from ..law.tables import role_cap
 from .graded import z_decimals
 from .surface import GradedSurface
 
@@ -138,15 +139,31 @@ def render_patch(surface: GradedSurface, law: Law,
 
     for f in surface.faces:
         spec = reg.get(f.role)
+        extra = dict((face_tags or {}).get(f.id) or {})
+        role = f.role
+        if spec is not None and spec.oracle_role is not None:
+            # THE ORACLE ALIAS (precedence.toml ``oracle_role``): the v1
+            # census reads ``role`` from its own register, so an aliased
+            # role is written under the name it judges, ``class`` names
+            # the v2 role, and ``o4_grade_law_cap`` carries the v2 cap —
+            # which the census composes as a MINIMUM with the alias's
+            # cap, so it prices exactly the v2 table.
+            role = spec.oracle_role
+            extra["class"] = f.role
+            rc = role_cap(law, f.role, f.code_number, f.code_letter)
+            if rc is not None:
+                prior = extra.get("o4_grade_law_cap")
+                cap = rc.longitudinal if prior is None else min(rc.longitudinal, float(prior))
+                extra["o4_grade_law_cap"] = f"{cap:g}"
         tags = [("aeroway", spec.aeroway if spec else "apron"),
-                ("ref", f.ref), ("role", f.role), ("shapeID", str(f.id))]
+                ("ref", f.ref), ("role", role), ("shapeID", str(f.id))]
         if f.code_letter:
             tags.append(("code_letter", f.code_letter))
         if f.code_number is not None:
             tags.append(("code_number", str(f.code_number)))
         if f.role == "runway":
             tags.append(("o4_single_poly", "1"))
-        for k, val in sorted(((face_tags or {}).get(f.id) or {}).items()):
+        for k, val in sorted(extra.items()):
             tags.append((k, val))
         way(f.ring, tags, True)
         for h in f.holes:

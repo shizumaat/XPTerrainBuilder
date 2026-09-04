@@ -182,10 +182,11 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     for sh in p.shapes:
         if p.is_rigid(sh.role):
             rigid_v.update(sh.ids)
-    xy_all: dict[int, tuple[float, float]] = {}
-    for sh in p.shapes:
-        for k, v in enumerate(sh.ids):
-            xy_all.setdefault(v, sh.xy[k])
+    # THE FRAME'S WHOLE VERTEX MAP, never the outer rings alone: a stretch
+    # chain runs through hole-ring vertices too (a taxi centreline entering
+    # a gap-interior ring — LEMD face 145 / taxi660, 2026-09-05), exactly
+    # as the generator prices it through ``pm.vertices``.
+    xy_all = p.xy
     within: list[Row] = []
     xsec: list[Row] = []
     for sh in p.shapes:

@@ -13,6 +13,7 @@ import typing as _t
 from pathlib import Path
 
 from ..airport.load import Inputs, load_with_report
+from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
 from ..constraints import generate
 from ..emit.graded import graded_surface
@@ -176,6 +177,25 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
                  f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  area {b.area_m2:.0f} m2  "
                  f"at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  {'; '.join(b.notes)}", out)
+    # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
+    # vertex's fit target is the core's clamped, laterally-levelled road
+    # profile on this DEM (``airport/road_profile.py``); the cap rows
+    # below stay and v2 moves a vertex off it only where one binds.
+    t = time.perf_counter()
+    road_pref, road_rep, _profiles = preferred_road_z(
+        airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
+    pm = _dc.replace(pm, preferred_z=road_pref)
+    wall["road_profile"] = time.perf_counter() - t
+    rs = road_rep["profiles"]
+    _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
+         f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
+         f"axis {rs['ways_by_kind'].get('axis', 0)})"
+         f"  stations {rs['stations']}  clamped {rs['clamped_stations']} "
+         f"(max lift {rs['max_lift_m']:.2f} m, cut {rs['max_cut_m']:.2f} m)  cap {rs['cap']:.3f}"
+         f"  vertices {road_rep['vertices']}  preferred {road_rep['preferred']}"
+         f"  DEM fallback {road_rep['dem_fallback']}"
+         f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
+         out)
     t = time.perf_counter()
     cs, counts, gwalls = generate(pm, law, airport)
     wall["constraints"] = time.perf_counter() - t
@@ -230,6 +250,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"{len(off)} residual" + (f", max {off[0][0]:.3f} m at vertex {off[0][1]}" if off else ""), out)
     else:
         report_seam = None
+    road_agree = None
+    if sol.status.value in ("optimal", "feasible") and pm.preferred_z:
+        from ..verify.roads import road_profile_agreement
+        road_agree = road_profile_agreement(pm, law, sol.z)
+        _say(f"[{icao}] roads vs core profile: {road_agree['vertices']} vertices, "
+             f"mean |z-profile| {road_agree['mean_m']:.3f} m, max {road_agree['max_m']:.3f} m, "
+             f"{road_agree['off']} off beyond materiality in {road_agree['faces_off']} "
+             f"of {len(road_agree['faces'])} faces", out)
     if sol.residual is not None:
         r = sol.residual
         _say(f"    residual: pin {r.max_pin_m:.4f} diff {r.max_diff_m:.4f} "
@@ -244,6 +272,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "lp": size,
         "law_tiers": tier_rep.as_dict(),
         "off_dem_by_role": moved,
+        "road_profile": road_rep,
+        "road_profile_agreement": road_agree,
         "seam": report_seam,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,

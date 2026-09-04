@@ -1569,6 +1569,9 @@ def generate_auto_patches(tile, cifp_path: str,
             "engine": engine,
             "cifp_path": cifp_path,
             "apt_dat_path": apt_dat_selected,
+            # the tile's road clamp knobs (v2 road_profile, RULINGS 04t-4)
+            "road_grade_limit": getattr(tile, "road_grade_limit", None),
+            "lane_width": getattr(tile, "lane_width", None),
         })
 
     # ── Write the Phase 2 worklist sidecar (main process ONLY) ──────────

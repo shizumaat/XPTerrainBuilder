@@ -464,6 +464,17 @@ class LateralContiguity:
 
 
 @_dc.dataclass(frozen=True)
+class RoadProfile:
+    """The core's road clamp constants (RULINGS 2026-09-04t-4: the core
+    smooths first; ``airport/road_profile.py`` reproduces its profile as
+    the road family's fit target)."""
+
+    station_m: float
+    lane_width_m: float
+    answer_radius_lane_widths: float
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -476,6 +487,7 @@ class EmitLaw:
     instrument: Instrument
     seam: Seam
     lateral_contiguity: LateralContiguity
+    road_profile: RoadProfile
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────

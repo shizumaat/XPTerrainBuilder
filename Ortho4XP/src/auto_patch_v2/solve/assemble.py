@@ -204,7 +204,11 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
     """The whole LP."""
     n = len(planar.vertices)
     S = to_sparse(cs, n, soft="defer")
-    dem = np.array([planar.vertices[i].dem_z if planar.vertices[i].dem_z is not None
+    # the fit target: the DEM sample, or the vertex's PREFERRED value where
+    # an adapter published one (the core's road profile, RULINGS 04t-4)
+    pref = planar.preferred_z
+    dem = np.array([pref.get(i, planar.vertices[i].dem_z)
+                    if planar.vertices[i].dem_z is not None
                     else math.nan for i in range(n)], float)
     has_dem = ~np.isnan(dem)
     wv = vertex_weights(planar, weights)

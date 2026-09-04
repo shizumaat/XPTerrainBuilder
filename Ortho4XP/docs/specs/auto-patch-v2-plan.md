@@ -96,18 +96,16 @@ Side by side: `Ortho4XP/src/auto_patch_v2/`, selected by
 The five-airport sweep gates each milestone (29f). No milestone starts
 before M0 is ratified.
 
-## 4. Owner decisions
-1. **Numeric solver**: scipy/HiGHS only (already frozen) vs adding OSQP to
-   the engine freeze (faster QP, one more wheel per platform).
-2. **Law table ownership**: `law/` becomes the single source that BOTH
-   engines' censuses read (v1's `check_grade` retargeted to it) — or v1
-   keeps its own until retirement.
-3. **What to keep from v1**: the loaders (apt.dat/CIFP/DSF/OSM) and the
-   classifier's rules — as listed — vs a clean rewrite of those too.
-4. **The mesh-apply bar**: "faster to apply" measured as tile step-1
-   wall time with the v2 patch vs v1's, on the same tile, `--runs 3`.
-5. **Model for lanes**: Opus by default per tonight's standing; v2's spec
-   and law tables authored/reviewed on Fable.
+## 4. Owner decisions (RULED 2026-09-03d)
+1. **Numeric solver**: add OSQP to the freeze if it measurably beats
+   scipy/HiGHS on the v2 QP — measure first, then add.
+2. **Law tables**: v2's `law/` is v2's own single source; v1 is NOT
+   retargeted (no value); v1's census remains the cross-validation oracle.
+3. **Loaders and classifiers are rewritten**, v1 as the reference only.
+4. **Mesh-apply bar**: tile mesh wall time and constrained-edge count,
+   v2 patch vs v1 patch on the same tile — no slower, fewer edges.
+5. **Models**: Fable for all design, specs, reviews; implementation on
+   whatever is most efficient (Opus by default once the guard admits it).
 
 ## 5. The numbers v2 starts from (Appendix B)
 | | SPJC | SPLP | CYXY |

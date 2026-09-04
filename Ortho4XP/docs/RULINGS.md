@@ -2069,3 +2069,12 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 ## 2026-09-03c — +40-004 abort on 1.0.275 attributed: NOT a failure line
 
 * The tile child finished the LEMD patch (13:58:32) and never ran the results loop; the app's Stop (~14:00) labelled it "failed". No failing line exists on disk. Three harness rebuilds of the tile did NOT reproduce (rc=0, ~760 s each). Merged `0fabfce7` (lane/tilewedge): bounded pool/Manager teardown naming stragglers, a cancelling child reports "stopped", step tracebacks reach Ortho4XP.log. Root cause unnamed — the next app run either completes or names the wedged pid. Owed: per-tile Stop never escalates to SIGTERM (only Stop-all does) — chip filed.
+
+## 2026-09-03d — Owner rulings: auto-patch-v2 (ground-up, side by side)
+
+* **V2 IS THE PLAN OF RECORD FOR THE ENGINE'S FUTURE.** Build `auto_patch_v2` from the ground up beside v1 (`docs/specs/auto-patch-v2-plan.md`, appendices A/B): fully LAW-COMPLIANT patches (not byte-identical to v1 — v1's are not lawful), simpler, faster to generate and to apply to the mesh; every source file ≤ 1,000 lines (a larger file needs a written reason); format-agnostic GradedSurface for X-Plane Next-Gen (S2 tiles), the Ortho4XP `.osm` patch being one adapter. Triggered by the week review (`review-20260903-week.md`): auto_patch 225,964 lines vs upstream Ortho4XP 17,979.
+* **Solver:** add OSQP to the engine freeze if it measurably beats scipy/HiGHS on the v2 QP (measure, then add).
+* **Law tables:** whichever is simpler; no value in retargeting v1's census to a new law source — v1 keeps `check_grade` until retirement; v2's `law/` is v2's own single source, cross-validated against v1's census as the oracle.
+* **Loaders and classifiers are REWRITTEN** for v2 with v1 as the reference, cleaner and faster; nothing is carried by inheritance.
+* **Mesh-apply bar:** tile mesh wall time and constrained-edge count with the v2 patch vs v1's on the same tile — v2 no slower, fewer edges.
+* **Models:** Fable for ALL design, specs and reviews; implementation on whatever is most efficient (Opus by default once `.claude/hooks/agent_guard.py` admits it).

@@ -58,6 +58,12 @@
 #   it: docs/specs/review-20260903-week.md (27ce5590; artifact link
 #   inside). Lanes/scouts default to OPUS (CLAUDE.md Lanes; the hook
 #   .claude/hooks/agent_guard.py still needs the owner's one-line edit).
+# V2 M0 MERGED 1c053226: src/auto_patch_v2/ — law as TOML (rulesets,
+#   families, precedence, zones, structures, emit; 239 constants cross-
+#   checked = v1; owner 03e: editable without code), frozen interfaces
+#   (model/airport, planar, constraints; solve/api; emit/surface, osm,
+#   s2), m0-interfaces.md carries the M1 CYXY brief. NEXT: M1 planar map
+#   for CYXY (Opus lane once agent_guard.py admits opus).
 # R1.3 MERGED e4c568c6: the pass-2 "infeasible" pins are PHANTOM — non-
 #   ring membrane nodes (stations/lattice) backfilled with the nearest
 #   CIFP runway-corner elevation (116.5 m vs DEM 98) by

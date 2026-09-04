@@ -229,10 +229,22 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if spec.value and not getattr(spec, "rigid", False)
         and (spec.side == "airside" or r in roads)))
         for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
-    for v, classes in member.items():
-        if v in own_law or v in wall_vertices:
-            continue
-        src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
+    # A RIGID PAD IS ONE LEVEL: its rim vertices span different ``d``, and
+    # the zone-1 band beside the lip cannot meet the zone-2 mandatory-down
+    # at the far rim on one flat plane (measured KCLT 2026-09-05: the
+    # hard set went infeasible on exactly that, and the tier machinery
+    # demoted every zone row).  The pad takes its level from the NEAREST
+    # pavement (the pocket rule): its rim vertex nearest a lip carries the
+    # full band, every other rim vertex the floor only ("no deeper than").
+    pad_rim: dict[int, int] = {}          # vertex -> rigid face id
+    for f in vw.faces_of_role(tuple(
+            r for r, spec in law.tables.precedence.roles.items()
+            if getattr(spec, "rigid", False))):
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            for v in ring:
+                pad_rim.setdefault(v, f.id)
+
+    def _found(v: int, classes: set) -> list:
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)
         for cls in classes:
             g = by_class.get(cls)
@@ -272,7 +284,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     k, t, d = near
                     found.append((min(d, half_of(edges[k]) or 0.0), k, t, d))
         if not found:
-            continue
+            return []
         found = [f_ for f_ in found if abeam(v, f_[1])]
         found.sort(key=lambda f_: (f_[3], f_[1]))
         # a pavement beyond its own corridor contributes ONLY as the
@@ -282,6 +294,26 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         found = [f_ for rank, f_ in enumerate(found)
                  if rank == 0 or f_[3] <= (half_of(edges[f_[1]]) or 0.0)
                  or any(_face_class_of(edges[f_[1]]) == c for c in classes)]
+        return found
+
+    pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
+    pad_d: dict[int, float] = {}
+    for v, fid in pad_rim.items():
+        if v not in member or v in own_law or v in wall_vertices:
+            continue
+        fv = _found(v, member[v])
+        if not fv:
+            continue
+        if fid not in pad_nearest or fv[0][3] < pad_d[fid]:
+            pad_nearest[fid], pad_d[fid] = v, fv[0][3]
+
+    for v, classes in member.items():
+        if v in own_law or v in wall_vertices:
+            continue
+        src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
+        found = _found(v, classes)
+        if not found:
+            continue
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl = edges[k]
             role = "runway" if fam == "runway" else "junction"
@@ -290,6 +322,8 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             if rank > 0:
                 hi = None            # a farther pavement: floor only
+            if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
+                hi = None            # a pad's far rim: floor only (above)
             if t <= 0.0:
                 terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
             elif t >= 1.0:

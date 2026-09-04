@@ -709,7 +709,7 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
         rep.rounds = rnd
         t = time.perf_counter()
         try:
-            iis = diagnose(pm, probe, weights, opt, deadline=deadline)
+            iis = diagnose(pm, probe, weights, opt, deadline=deadline, minimal=False)
         except IISBudgetExceeded as e:
             rep.iis_wall_s += time.perf_counter() - t
             rep.reason = (f"IIS not found inside the {rl.iis_time_budget_s:.0f} s budget "

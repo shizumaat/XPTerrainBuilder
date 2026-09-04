@@ -211,10 +211,19 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # ``groundside_pavement`` beside the lip) is banded like any other —
     # measured CYXY: unbanded, it sat on the DEM 2.16 m above the junction
     # lip 4.3 m away (the 2026-09-04e seam tear).
+    # A RIGID PAD HAS NO OWN LEVEL (09-01g: "levelled by its contact";
+    # 03i: "takes its level from what it touches"): its rim vertices that
+    # are strip vertices stay banded like any other, and the FLAT row lifts
+    # the whole pad to the band — measured KCLT building26 (2026-09-05):
+    # a pad inside taxiway F's zone 2, touching no airside pavement, was
+    # held at the lip only by an accidental weld to a groundside road;
+    # round 3 cut the road back (04u) and the unbanded pad settled 2.14 m
+    # onto its DEM, tearing the strip 2.17 m in 2.5–3.9 m (24 rows).
     roads = tuple(road_family_roles(law))
     own_law = {v for f in vw.faces_of_role(tuple(
         r for r, spec in law.tables.precedence.roles.items()
-        if spec.value and (spec.side == "airside" or r in roads)))
+        if spec.value and not getattr(spec, "rigid", False)
+        and (spec.side == "airside" or r in roads)))
         for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
     for v, classes in member.items():
         if v in own_law or v in wall_vertices:

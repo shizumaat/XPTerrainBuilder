@@ -109,5 +109,23 @@ before M0 is ratified.
 5. **Model for lanes**: Opus by default per tonight's standing; v2's spec
    and law tables authored/reviewed on Fable.
 
-Appendix A (law inventory) and Appendix B (v1 at SPJC/SPLP/CYXY, mesh
-cost) are committed beside this file when their scouts report.
+## 5. The numbers v2 starts from (Appendix B)
+| | SPJC | SPLP | CYXY |
+|---|---|---|---|
+| v1 build (09-02, exclusive) | 166.2 s (solve 113, emit 49) | 9.5 s | 41.5 s |
+| law-true rows / AIRSIDE to close | 686 / **596** | 35 / **27** | 160 / **67** |
+| the airside classes | pad↔pavement no-step 369, strip_arc 57, drainage_spine 37 | strip_arc 17, runway ring pairs 3 (1.7 % vs 1.5) | transverse at junctions/roads 72, no_step 24 |
+| patch / sidecar bytes | 2.75 MB / 24.1 MB | 0.30 / 1.1 | 1.24 / 5.1 |
+| nodes, chords p50 (apron p50) | 14,495, 9.5 m (1.96 m) | 1,654, 15 m | 6,660, 14.4 m |
+| mesh step 2 (tile) | 8.1 s | 23.3 s | 11.2 s |
+
+Generation is 30–40× the mesh cost; solve + emit are 97–98 % of it. The
+mesh reads only altitude fields (Appendix A §5) — the 24 MB sidecar is
+instrument-only, so v2's sidecar carries exactly the census inputs.
+Three-quarters of SPJC's airside rows are one class (building pads
+stepping against pavement): the M3 pad law is the SPJC milestone. SPLP's
+three runway rows show the centreline twin and the ring census disagree —
+v2's `verify/` measures rings, as the census does.
+
+Appendices: `auto-patch-v2/appendix-a-law-inventory.md` (the law),
+`auto-patch-v2/appendix-b-three-airports.md` (scope and mesh cost).

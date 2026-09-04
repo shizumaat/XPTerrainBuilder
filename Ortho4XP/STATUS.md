@@ -1,4 +1,14 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-04 PAD-CONTACT PAIRS MERGED f50423a3 (04s): KCLT hard-feasible
+#   71.6 s (70/44); HECA k_min 3, 241 s, 84/84 — IIS = ONE hangar row
+#   (apron pav132: eight flat pad contacts consume the rim; apron climbs
+#   4.9 m, routes need 5.16 m, terrain 15.4 m). SPJC/KCLT junction rows =
+#   oracle prices a junction sharing an apron edge at 1 % (owner 07-06)
+#   vs v2's inherited letter (04q-2). APP 1.0.281 / engine 1.50.1723
+#   BUILT (route metric, tiers, why, decks). OWNER QUESTIONS (04s): hangar
+#   row over relief (terrace / sloped contact / accept yield); junction
+#   cap 07-06 vs 04q-2; junction letter strictest vs per-stretch; roads
+#   follow terrain vs seek level. Nothing in flight.
 # 2026-09-04 ROUTE METRIC MERGED 6e4e8c87 (04r): no-step pairs by ROUTE
 #   distance at the path's caps, reach bands, junction letter; CYXY 156
 #   −4.38 → −1.78 m; HECA 4,285 → 50 airside, 1,598 → 248 s (residual =

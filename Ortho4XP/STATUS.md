@@ -73,8 +73,10 @@
 #   pass-2/fp#8/FGP → airside 1,069 → 1,182 on the replay (pass-2 rows
 #   1,510 → 682 but apron rings absorb the drop as within_shape); the
 #   seat is MINTED in phases A/B (hard |= building_seats, spine seat
-#   stamps, body-fill anchors). ARM 2 IN FLIGHT (r4padyield2): attached
-#   pads leave the A/B hard set (premise change; 03i: ungoverned yields).
+#   stamps, body-fill anchors). ARM 2 PARKED 33f387a4: airside 1,140,
+#   R1.3 steps unmoved — residual is GOVERNED vs GOVERNED (taxiway ring
+#   constants vs apron 1 % over real relief): OWNER QUESTION 03k
+#   (terrace / taxiways yield locally / accept as geometry).
 # R1.3 MERGED e4c568c6: the pass-2 "infeasible" pins are PHANTOM — non-
 #   ring membrane nodes (stations/lattice) backfilled with the nearest
 #   CIFP runway-corner elevation (116.5 m vs DEM 98) by

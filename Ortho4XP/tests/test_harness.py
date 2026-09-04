@@ -7045,6 +7045,10 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                         lambda: {})
 
     class _Tile:
+        # A tile frame has coordinates: ``build_tile`` judges the
+        # bathymetry band admission on it before step 1 (2026-09-04);
+        # with no ``masks_use_DEM_too`` the band is not wanted — settled.
+        lat, lon = 40, -4
         build_dir = str(tmp_path)
         default_website, default_zl = "", 16
         auto_patch = modify_custom_airports = True

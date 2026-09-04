@@ -371,24 +371,40 @@ def test_bathymetry_predicate_needs_settled_cells_and_a_mosaic(
         FNAMES, "Elevation_dir", str(tmp_path / "Elevation_data"))
     monkeypatch.setattr(
         "O4_Airport_Elevation_Insets.select_bathymetry_definitions",
-        lambda lat, lon: [{"code": "CUDEM"}])
+        # A FINE provider: the auto gating admits it (a coarse one is
+        # filtered out by the pass, which then fetches nothing).
+        lambda lat, lon: [{"code": "CUDEM", "native_resolution_m": 3.0}])
     tile = _bathymetry_tile()
     assert BAND.is_cached(tile) is False, "no stamp"
 
     directory = FNAMES.bathymetry_band_directory(21, -160)
     os.makedirs(directory, exist_ok=True)
-    cell_name = "cell_03_07_cudem_10.0m"
-    with open(os.path.join(directory, cell_name + ".tif"), "wb") as handle:
+    # Stems are the pass's own naming (FNAMES-derived): the predicate
+    # reads the provider off the stem.
+    cell_path = FNAMES.bathymetry_band_cell(
+        21, -160, 3, 7, "CUDEM", BAND.BATHYMETRY_CELL_RESOLUTION_M)
+    cell_name = os.path.splitext(os.path.basename(cell_path))[0]
+    negative_name = os.path.splitext(os.path.basename(
+        FNAMES.bathymetry_band_cell(
+            21, -160, 4, 7, "CUDEM", BAND.BATHYMETRY_CELL_RESOLUTION_M)))[0]
+    with open(cell_path, "wb") as handle:
         handle.write(b"raster")
     stamp = {
         "provider": "CUDEM",
-        "cells": {cell_name: "ok", "cell_04_07_cudem_10.0m": "no_coverage"},
+        "cells": {cell_name: "ok", negative_name: "no_coverage"},
         "gating": BAND._band_gating_key(tile, True, False),
     }
     BAND._write_band_stamp(FNAMES.bathymetry_band_index(21, -160), stamp)
     assert BAND.is_cached(tile) is False, "the mosaic is still missing"
+    # The mosaic must reference EXACTLY the settled cells (2026-09-04:
+    # a stale one is rebuilt by the pass — a GDAL write).
     with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w") as handle:
         handle.write("<VRTDataset/>")
+    assert BAND.is_cached(tile) is False, "the mosaic references no cell"
+    with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w") as handle:
+        handle.write(
+            '<VRTDataset><SourceFilename relativeToVRT="1">%s.tif'
+            "</SourceFilename></VRTDataset>" % cell_name)
     assert BAND.is_cached(tile) is True
 
     # A wider band wants cells nobody fetched.

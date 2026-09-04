@@ -4,9 +4,11 @@
 #   SPJC 0/0 · OTHH 0/0 · LEMD FAILS (verify/within.py stretch_pair_caps
 #   KeyError — merge interaction) · KCLT 27/24 · HECA 67/60 (244 s).
 #   v2integ MERGED 3e95e73f (05d): LEMD 5/3, KCLT 3/0, HECA 61/54.
-#   BLOCKER: M5 twin red — a pad tilts 1.18 m in the HARD solve (flat
-#   group lost) → lane v2padflat IN FLIGHT; NO app build until green.
-#   OWNER: 1.0.282 good for CYXY/SPLP/SPJC/OTHH; hold LEMD/HECA reads.
+#   PAD-FLAT MERGED 39298a60 (05e: blocker refuted — relaxed pad = plane
+#   by 04t-1; pad_flat verify DEFECT check; pads flat everywhere). APP
+#   1.0.283 building. LANE v2hecalemd IN FLIGHT: HECA certificate cache +
+#   neighbourhood LP (no demotion, < 120 s) + oracle relaxed rows; LEMD
+#   tunnel-crest vs basin-rim pin precedence. OWNER: pad_slope_max (1 %?).
 # 2026-09-04 04t LANES: roads MERGED 7d778471 (core clamp profile is v2's
 #   road preference); relaxation MERGED 31e5d126 (dual-ray IIS + quadratic
 #   last resort; HECA optimal, no demotion, 111 s, census 52 → 2 relaxed

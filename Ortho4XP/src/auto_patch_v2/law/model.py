@@ -280,6 +280,7 @@ class Bridge:
     deck_close_m: float
     deck_profile_bin_m: float
     deck_way_cover_min: float
+    deck_way_carried_area_min: float
     deck_spanning_evidence: tuple[str, ...]
     abutment_sample_step_m: float
     abutment_walk_max_m: float
@@ -354,6 +355,7 @@ class Rebake:
     founding_min_share: float
     basin_family_excluded: bool
     deck_family_seats_rigid: bool
+    deck_seat_threshold_exempt: bool
 
 
 @_dc.dataclass(frozen=True)

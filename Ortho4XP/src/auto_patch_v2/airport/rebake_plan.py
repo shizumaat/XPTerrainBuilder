@@ -113,10 +113,12 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     deck (``deck_signature.promote``)."""
     rb = law.tables.structures.rebake
     admission_m = law.tables.structures.basin.admission_depth_m
-    excluded = set(exclude)
+    # the basin records name their members by resource PATH
+    # (``planar.basins``); the ids here match either spelling
+    excluded = {o.id for o in objects if o.id in set(exclude) or o.path in set(exclude)}
     if below_grade:
         owners = {oid for _r, ids in below_grade for oid in ids}
-        foreign = [o for o in objects if o.id not in owners]
+        foreign = [o for o in objects if o.id not in owners and o.path not in owners]
         keep = {o.id for o in foreign}
         promoted, _n = _deck.promote(foreign, [r for r, _ids in below_grade])
         by_id = {o.id: o for o in promoted}

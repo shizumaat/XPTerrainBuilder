@@ -407,7 +407,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                                 tuple(seats), "non-finite seat", tuple(findings)))
             continue
         reason = None
-        if abs(delta) < rb.min_delta_m:
+        if abs(delta) < rb.min_delta_m and not (datum == DATUM_DECK_TOP
+                                                and rb.deck_seat_threshold_exempt):
             reason = (f"below_threshold: |{delta:.3f}| m < {rb.min_delta_m} m — the unit "
                       "stays at its authored y and the terrain adapts")
         out.append(UnitSeat(u.id, resources, anchor_ground, datum, delta, base + delta,

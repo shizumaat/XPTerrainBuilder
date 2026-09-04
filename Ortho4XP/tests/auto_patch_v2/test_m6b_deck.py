@@ -330,3 +330,35 @@ def test_below_grade_skirt_never_founds_its_family(pack, law):
     assert pl.counts["below_grade"] == 1
     us = R.seat(pl, lambda la, lo: (702.0, False), law).units[0]
     assert us.delta_m == pytest.approx(0.0) and not us.held
+
+
+def test_a_way_along_a_small_plate_does_not_carry_a_large_family(pack, law):
+    """OTHH Terminal_Parking: one 90 m kerb road (bridge=yes) beside
+    50,000 m² of parking slabs — the way must carry most of the family's
+    deck plane."""
+    # the deck (60 m) plus a much larger slab in the same plane at the same anchor
+    _boxes_obj(pack / "objects" / "slab.obj", [(0.0, 60.0, 30.0, 40.0, 3.6, 4.0)])
+    way = _ways(([(-40.0, 0.0), (40.0, 0.0)], {"highway": "trunk", "bridge": "yes"}))
+    _a, objs, rep = _read(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0),
+                                      ("slab", (0.0, 0.0), 0.0, 0.0)], way)
+    assert all(o.deck_kind == "candidate" for o in objs)
+    assert any("refused" in e and "%" in e for o in objs for e in o.deck_evidence)
+    assert rep.deck_signature_families == 0
+
+
+def test_deck_seat_is_exempt_from_the_threshold(pack, law):
+    """OTHH's interchange sits at +0.9576 (v1, owner-accepted): a deck
+    seat under 1.0 m still bakes; a feet seat under it stays."""
+    way = _ways(([(-40.0, 0.0), (40.0, 0.0)], {"highway": "trunk", "bridge": "yes"}))
+    pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0)], way)
+    u = pl.units[0]
+    mpd = R._metres_per_degree(u.anchor[0])
+    # anchor over the canal at 0.0; the banks at 4.5: delta = 4.5 − 4.0 = 0.5
+    us = R.seat(pl, _span_sampler(4.5, 20.0, u.anchor, mpd), law).units[0]
+    assert us.datum == "deck_top" and us.delta_m == pytest.approx(0.5, abs=0.01) and us.bakes
+
+
+def test_basin_exclusion_matches_paths_too(pack, law):
+    pl = _planned(pack, law, [("pit", (0.0, 0.0), 0.0, 0.0), ("rim", (0.0, 0.0), 0.0, 0.0)],
+                  exclude={"objects/pit.obj"})
+    assert pl.units == () and pl.counts["terrain_adapted"] == 2

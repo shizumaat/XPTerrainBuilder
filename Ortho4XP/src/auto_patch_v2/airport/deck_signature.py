@@ -42,8 +42,12 @@ module reads the geometry:
   with its family).
 * THE SPANNING EVIDENCE decides: a plate is a deck only when it spans
   something the terrain cannot carry — a mapped bridge way (highway /
-  railway with ``bridge != no``) crossing the family's plates, or an
-  emitted below-grade region (a basin, a tunnel ramp) under them
+  railway with ``bridge != no``) RUNNING ALONG the family's plates
+  (``deck_way_cover_min`` of a plate's length, and the carried plates
+  holding ``deck_way_carried_area_min`` of the family's deck plane: the
+  way carries THE DECK, not a 90 m kerb road beside 50,000 m² of
+  parking slabs and a mosque — OTHH Terminal_Parking), or an emitted
+  below-grade region (a basin, a tunnel ramp) under them
   (``deck_spanning_evidence``).  A roof and a canopy are plates too; the
   evidence refuses them.  A plate without evidence is a CANDIDATE: the
   tunnel pass promotes one that crosses its ramp
@@ -304,7 +308,8 @@ def classify(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCach
         fam, plates = _read_family(members, cache, _faces_of, br, key)
         if fam is None:
             continue
-        spans = _spans(plates, bridges, below_grade, br.deck_way_cover_min)
+        spans = _spans(plates, bridges, below_grade, br.deck_way_cover_min,
+                       br.deck_way_carried_area_min)
         accepted = bool(set(spans) & set(br.deck_spanning_evidence))
         rec = DeckFamily(key, tuple(o.id for o in members), tuple(sorted(plates)),
                          fam[0], fam[1], tuple(spans), accepted,
@@ -458,22 +463,32 @@ def way_cover(pl: DeckPlate, line: LineString) -> float:
     return total / pl.length_m
 
 
-def _spans(plates: dict[str, DeckPlate], bridges, below_grade, cover_min: float) -> list[str]:
+def _spans(plates: dict[str, DeckPlate], bridges, below_grade, cover_min: float,
+           carried_area_min: float) -> list[str]:
     if not plates:
         return []
     fp = unary_union([p.footprint for p in plates.values()])
     spans: list[str] = []
     carried: list[tuple[int, str, float]] = []
+    carried_ids: set[str] = set()
     for wid, ln in bridges:
-        for p in plates.values():
+        for oid, p in plates.items():
             c = way_cover(p, ln)
             if c >= cover_min:
                 carried.append((wid, p.path.rsplit("/", 1)[-1], c))
-    if carried:
+                carried_ids.add(oid)
+    total = sum(p.area_m2 for p in plates.values())
+    share = sum(plates[i].area_m2 for i in carried_ids) / total if total > 0 else 0.0
+    if carried and share >= carried_area_min:
         spans.append(EVIDENCE_ROAD_BRIDGE)
-        spans.append(f"{EVIDENCE_ROAD_BRIDGE}: mapped bridge way(s) run along the plate — "
+        spans.append(f"{EVIDENCE_ROAD_BRIDGE}: mapped bridge way(s) run along {share:.0%} of "
+                     "the family's deck plane — "
                      + "; ".join(f"way {w} on {r} ({c:.0%} of its length)"
                                  for w, r, c in carried[:4]))
+    elif carried:
+        spans.append(f"road_bridge refused: mapped bridge way(s) run along only {share:.0%} of "
+                     f"the family's deck plane (< {carried_area_min:.0%}) — "
+                     + "; ".join(f"way {w} on {r}" for w, r, _c in carried[:3]))
     hits = sum(1 for r in below_grade if r is not None and r.intersects(fp))
     if hits:
         spans.append(EVIDENCE_BELOW_GRADE)

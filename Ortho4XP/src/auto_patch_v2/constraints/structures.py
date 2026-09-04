@@ -79,25 +79,36 @@ from ..model.planar import Face, PlanarMap
 from ..model.structures import Basin, Tunnel
 from .precedence import view
 
-__all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of", "GEN"]
+__all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
+           "reconcile_datums", "structure_of", "GEN", "RAMP_REF", "WALL_REF"]
 
 GEN = "structures"
+#: The planar builder's refs of a tunnel's own faces (``planar/structures.py``;
+#: the verify reader keys the same strings) — the join keys of ``_faces_of``.
+RAMP_REF = "tunnel_ramp"
+WALL_REF = "tunnel_wall"
 #: Two ramp vertices closer than this along the axis are one station.
 _STATION_CLUSTER_M = 1.0
 
 
-def _faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel], role: str,
+def _faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel], role: str, ref: str,
               path_of: _t.Callable[[Tunnel], _t.Sequence[XY]]) -> dict[str, list[Face]]:
-    """Tunnel id -> its faces of ``role``, joined BY GEOMETRY (the ramp
-    and wall refs are the oracle's population keys, ``tunnel_ramp`` /
-    ``tunnel_wall`` exactly): the tunnel whose ``path_of`` line is
-    nearest the face's ring centroid."""
+    """Tunnel id -> its faces of ``role`` AND ``ref`` (the oracle's
+    population keys, ``tunnel_ramp`` / ``tunnel_wall`` exactly — the
+    ``#n`` piece suffix aside), joined BY GEOMETRY among the tunnels: the
+    one whose ``path_of`` line is nearest the face's ring centroid.  The
+    ref is the structure's identity, never the role alone: a basin's wall
+    band is ``retaining_wall`` too (ref ``basin_wall:<k>``), and joined by
+    role it was pinned at the DEM of its projection onto a tunnel's wall
+    path — 616.99 at LEMD basin 22 / tunnel -5938 — against the basin's
+    own crest 611.00 on the same vertex: two hard pins, the IIS of
+    2026-09-05 (5.99 m tier-8 yield)."""
     paths = {tn.id: LineString(path_of(tn)) for tn in tunnels if len(path_of(tn)) >= 2}
     out: dict[str, list[Face]] = {tn.id: [] for tn in tunnels}
     if not paths:
         return out
     for f in planar.faces.values():
-        if f.role != role:
+        if f.role != role or f.ref.split("#")[0] != ref:
             continue
         ids = planar.ring_vertices(f.ring)
         cx = sum(planar.vertices[v].xy[0] for v in ids) / len(ids)
@@ -110,12 +121,12 @@ def _faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel], role: str,
 
 def wall_faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel]) -> dict[str, list[Face]]:
     """Tunnel id -> its ``retaining_wall`` faces."""
-    return _faces_of(planar, tunnels, "retaining_wall", lambda tn: tn.wall_path)
+    return _faces_of(planar, tunnels, "retaining_wall", WALL_REF, lambda tn: tn.wall_path)
 
 
 def ramp_faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel]) -> dict[str, list[Face]]:
     """Tunnel id -> its ``tunnel_ramp`` faces."""
-    return _faces_of(planar, tunnels, "tunnel_ramp", lambda tn: tn.axis)
+    return _faces_of(planar, tunnels, "tunnel_ramp", RAMP_REF, lambda tn: tn.axis)
 
 
 def ramp_groups(planar: PlanarMap, tn: Tunnel, face: Face
@@ -411,3 +422,40 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                        src_wall, src_band, src_tie)
     rows.extend(pins.values())
     return rows
+
+
+def structure_of(row: Row) -> str | None:
+    """The structure kind a structure row belongs to — the prefix of its
+    first input (``tunnel:-5938@0`` -> ``tunnel``, ``basin:22`` -> ``basin``);
+    ``None`` for any other generator's row."""
+    if row.source.generator != GEN or not row.source.inputs:
+        return None
+    return row.source.inputs[0].split(":", 1)[0]
+
+
+def reconcile_datums(rows: list[Row], law: Law) -> tuple[list[Row], int]:
+    """THE SENIOR STRUCTURE'S DATUM (``precedence.toml [structures]
+    datum_order``; spawner ruling 2026-09-05): a vertex two structures pin
+    keeps the pin of the structure listed first and loses the other's —
+    never both hard.  Returns the rows and the number withdrawn.  A
+    ``generate`` post-pass, like ``seam_exempt``: the generators are pure
+    per structure and cannot see each other's pins."""
+    order = {k: i for i, k in enumerate(law.tables.precedence.structures.datum_order)}
+    best: dict[int, int] = {}          # vertex -> the most senior rank pinning it
+    for r in rows:
+        if isinstance(r, Pin):
+            k = structure_of(r)
+            if k is not None and k in order:
+                rank = order[k]
+                if r.v not in best or rank < best[r.v]:
+                    best[r.v] = rank
+    out: list[Row] = []
+    n = 0
+    for r in rows:
+        if isinstance(r, Pin):
+            k = structure_of(r)
+            if k is not None and k in order and order[k] > best.get(r.v, order[k]):
+                n += 1
+                continue
+        out.append(r)
+    return out, n

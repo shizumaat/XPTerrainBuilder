@@ -7416,8 +7416,17 @@ def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
 
 # ── RECT STRETCH CAPS (lane v2integ 2026-09-05; RULINGS 2026-09-04t-3 / 04y) ──
 
+def _rs_ll(x: float, y: float) -> Tuple[float, float]:
+    """The rect-stretch twins' metres -> lat/lon about ``_TWIN_ANCHOR``."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+    return (_TWIN_ANCHOR[0] + math.degrees(y / r),
+            _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+
+
 def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
-                        name: str = "RS") -> Path:
+                        name: str = "RS", relaxed_rows=None) -> Path:
     """A 200 m x 40 m ``cross_connector`` (letter F, 1.5 %) whose two
     west-edge vertices (0,0)-(0,40) are level and whose east edge rises
     ``step_grade`` over the 200 m; a sidecar STRETCH of cap ``stretch_cap``
@@ -7449,8 +7458,76 @@ def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
         la0, lo0 = ll(0.0, 40.0)
         la1, lo1 = ll(200.0, 40.0)
         side["stretches"] = [[[[la0, lo0], [la1, lo1]], stretch_cap, "B", "taxi1"]]
+    if relaxed_rows is not None:
+        side["relaxed_rows"] = relaxed_rows
     Path(str(osm) + ".axes.json").write_text(json.dumps(side))
     return osm
+
+
+def _rs_relaxed(kind: str, **rec) -> list:
+    """One ``relaxed_rows`` record on the rect-stretch north edge
+    (0,40)-(200,40), in the shape ``pipeline.build.relaxed_publication``
+    writes."""
+    la0, lo0 = _rs_ll(0.0, 40.0)
+    la1, lo1 = _rs_ll(200.0, 40.0)
+    base = {"kind": kind, "family": "apron", "ruling": "apron cap; relaxed by 04t(1)",
+            "face": 1, "slack_m": rec.pop("slack_m", 0.0), "ll": [[la0, lo0], [la1, lo1]]}
+    base.update(rec)
+    return [base]
+
+
+def test_a_relaxed_row_is_priced_at_its_relaxed_cap_and_reported_under_the_heading(cg, tmp_path):
+    """04x-2 (spawner, RULINGS 2026-09-04x): a row the last resort relaxed
+    is LAWFUL at its relaxed cap.  The north-edge pair rises 2.5 % over
+    200 m against F's 1.5 %: with the sidecar naming that pair relaxed to
+    ``cap_after`` 2.6 % the row is stamped ``relaxed_by_04t1`` and leaves
+    the adjudicated count (reported, never dropped); at ``cap_after`` 2.0 %
+    it is over even its relaxed cap and stays a violation; the pairs the
+    relaxation never named (south edge, diagonals) are untouched either
+    way."""
+    def north(fo):
+        # the (0,40)-(200,40) edge: 200 m at 2.5 %, both endpoints at y = 40
+        # (the south edge is the same length and grade at y = 0)
+        return [v for v in (fo.get("within_shape") or [])
+                if abs(v.distance_m - 200.0) < 0.01 and abs(v.grade_pct - 2.5) < 0.01
+                and min(v.pt_a[1], v.pt_b[1]) > 20.0]
+    fo0 = _families(cg, _rect_stretch_patch(tmp_path, step_grade=0.025, stretch_cap=None, name="RX0"))
+    rows0 = [(k, r) for k, rs in fo0.items() if isinstance(rs, list) for r in rs]
+    assert len(north(fo0)) == 1 and north(fo0)[0].out_of_scope is None
+    fo1 = _families(cg, _rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX1",
+        relaxed_rows=_rs_relaxed("diff", cap=0.015, cap_after=0.026, distance_m=200.0, slack_m=2.2)))
+    rows1 = [(k, r) for k, rs in fo1.items() if isinstance(rs, list) for r in rs]
+    assert len(rows1) == len(rows0), "counted, never dropped"
+    n1 = north(fo1)
+    assert len(n1) == 1 and n1[0].out_of_scope == cg.RELAXED_OUT_OF_SCOPE
+    assert all(r.out_of_scope is None for _k, r in rows1 if r is not n1[0])
+    adj = cg.adjudication(rows1)
+    assert adj["out_of_scope_classes"][cg.RELAXED_OUT_OF_SCOPE]["n"] == 1
+    assert adj["adjudicated_total"] == cg.adjudication(rows0)["adjudicated_total"] - 1
+    # over even the relaxed cap: a violation still
+    fo2 = _families(cg, _rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX2",
+        relaxed_rows=_rs_relaxed("diff", cap=0.015, cap_after=0.020, distance_m=200.0, slack_m=1.0)))
+    assert north(fo2)[0].out_of_scope is None
+    # a PAD plane: both endpoints on one relaxed pad at slope 2.6 % — lawful;
+    # at 2.0 % — not
+    fo3 = _families(cg, _rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX3",
+        relaxed_rows=_rs_relaxed("pad", slope=0.026, extent_m=200.0)))
+    assert north(fo3)[0].out_of_scope == cg.RELAXED_OUT_OF_SCOPE
+    fo4 = _families(cg, _rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX4",
+        relaxed_rows=_rs_relaxed("pad", slope=0.020, extent_m=200.0)))
+    assert north(fo4)[0].out_of_scope is None
+    # the register carries the class and its ruling; the sidecar reader carries the key
+    why = cg.OUT_OF_SCOPE_CLASSES[cg.RELAXED_OUT_OF_SCOPE]
+    assert "04t(1)" in why and "04x-2" in why
+    assert cg.SIDECAR_LAW_KEYS["relaxed_rows"] == "relaxed_rows"
+    ctx = cg.law_context_from_sidecar(_rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX5",
+        relaxed_rows=_rs_relaxed("diff", cap=0.015, cap_after=0.026, distance_m=200.0)))
+    assert len(ctx["relaxed_rows"]) == 1
 
 
 def test_a_rect_pair_on_a_looser_stretch_reads_that_stretchs_cap(cg, tmp_path):

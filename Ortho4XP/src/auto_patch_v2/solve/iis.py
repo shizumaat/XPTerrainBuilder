@@ -21,6 +21,26 @@ scipy probes.  Measured HECA (1.8 M rows): the seeded filter alone took
 seeded filter remains the path without ``highspy``, without a ray, and
 ``deadline`` (a ``time.perf_counter`` instant) raises
 :class:`IISBudgetExceeded` on either path.
+
+THE CACHED CERTIFICATE AND THE BOUNDED NEIGHBOURHOOD (lane v2hecalemd,
+2026-09-05; RULINGS 05d "HECA IIS budget: cache the certificate").
+Measured HECA (1.30 M rows, 23.8 k columns): the whole-model certificate
+LP on the ENVELOPE-FREE set (the reach bands set aside, ``relax.
+envelope_free``) costs 107 s cold with presolve off, 142 s with it on,
+207 s with the hard model's own objective — the 120 s budget, twice —
+while the same LP WITH the reach bands, over the columns the rows touch,
+proves infeasibility in 3.0 s (the envelope makes the contradiction
+shallow) and names the SITE: the band vertices and the runway row it
+leans on.  So :class:`Certificate` keeps that HiGHS model alive across
+the relaxation's rounds — the rows a round relaxes are FREED in place
+(``changeRowsBounds``, the basis kept) and the next ray hot-starts in
+0.1 s — and :func:`neighbourhood_certificate` solves the envelope-free
+set only over the rows within a few HOPS of the seed vertices (a row is a
+hop; all-pairs face rows make a whole ring one hop): HECA's round-1
+certificate came out at 4 hops, 20 k rows, 0.2 s.  A sub-LP that is
+infeasible is a certificate for the whole model (its rows are a subset),
+so nothing is approximated; a neighbourhood that stays feasible through
+the schedule falls back to the whole-model LP under the remaining budget.
 """
 from __future__ import annotations
 
@@ -31,12 +51,186 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.optimize import linprog
 
-from ..model.constraints import Band, ConstraintSet, Row, Source
+from ..model.constraints import Band, ConstraintSet, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .api import Options, Weights
 from .assemble import to_sparse
 
-__all__ = ["IISBudgetExceeded", "ray_candidates", "diagnose", "feasible", "quickxplain"]
+__all__ = ["IISBudgetExceeded", "Certificate", "RowIndex", "row_vertices", "ray_candidates",
+           "neighbourhood_certificate", "diagnose", "feasible", "quickxplain",
+           "HOP_SCHEDULE"]
+
+#: The neighbourhood growth: hops tried in turn before the whole model
+#: (HECA: 4 hops / 20 k rows / 0.2 s found it; 8 hops / 193 k rows cost
+#: 14 s and 12 hops / 442 k rows 68 s without one — past 8 the whole
+#: model is the cheaper question).
+HOP_SCHEDULE: tuple[int, ...] = (1, 2, 3, 4, 6, 8)
+
+
+def row_vertices(r: Row) -> tuple[int, ...]:
+    """The vertices a row binds."""
+    if isinstance(r, Pin):
+        return (r.v,)
+    if isinstance(r, (Diff, Offset)):
+        return (r.a, r.b)
+    if isinstance(r, Flat):
+        return r.group
+    if isinstance(r, Linear):
+        return tuple(v for v, _c in r.terms)
+    return (r.v,)
+
+
+class RowIndex:
+    """Vertex -> the rows touching it, over one row list (built once per
+    set; 0.5 s at HECA's 674 k envelope-free rows)."""
+
+    def __init__(self, rows: _t.Iterable[Row]):
+        self.touch: dict[int, list[Row]] = {}
+        for r in rows:
+            for v in row_vertices(r):
+                self.touch.setdefault(v, []).append(r)
+
+    def neighbourhood(self, seed: _t.Iterable[int], hops: int,
+                      exclude: _t.Container[int] = frozenset()
+                      ) -> tuple[set[int], list[Row]]:
+        """The vertices reached from ``seed`` in ``hops`` row-steps and
+        every row touching them (``exclude``: ``id(row)`` set left out)."""
+        V: set[int] = set(seed)
+        R: dict[int, Row] = {}
+        for _ in range(hops):
+            for v in list(V):
+                for r in self.touch.get(v, ()):
+                    if id(r) not in exclude:
+                        R.setdefault(id(r), r)
+            for r in R.values():
+                V.update(row_vertices(r))
+        return V, list(R.values())
+
+
+class Certificate:
+    """ONE HiGHS feasibility model (presolve off, zero objective) over
+    ``rows``, restricted to the columns they touch, whose dual ray is the
+    Farkas certificate; kept alive so rows can be freed (:meth:`free`) and the
+    next :meth:`ray` hot-starts from the basis (module docstring)."""
+
+    def __init__(self, n: int, rows: _t.Iterable[Row]):
+        import highspy
+        cs = ConstraintSet.from_rows(rows)
+        S = to_sparse(cs, n)
+        self.S = S
+        self.nub = S.A_ub.shape[0]
+        A = sp.vstack([S.A_ub, S.A_eq], format="csc")
+        used = np.nonzero(np.diff(A.indptr))[0]
+        extra = np.array([b.v for b in cs.bands] + [p.v for p in cs.pins], int)
+        self.used = np.unique(np.concatenate([used, extra])) if extra.size else used
+        self.A = A[:, self.used]
+        self.col_of = {int(c): j for j, c in enumerate(self.used)}
+        self.bands = {b.v: b for b in cs.bands}
+        self.row_of: dict[int, list[int]] = {}
+        for k, r in enumerate(S.ub_rows):
+            self.row_of.setdefault(id(r), []).append(k)
+        for k, r in enumerate(S.eq_rows):
+            self.row_of.setdefault(id(r), []).append(self.nub + k)
+        inf = highspy.kHighsInf
+        self.inf = inf
+        h = highspy.Highs()
+        h.silent()
+        h.setOptionValue("presolve", "off")
+        lp = highspy.HighsLp()
+        lp.num_col_ = len(self.used)
+        lp.num_row_ = self.A.shape[0]
+        lp.col_cost_ = np.zeros(len(self.used))
+        lp.col_lower_ = np.where(np.isfinite(S.lo[self.used]), S.lo[self.used], -inf)
+        lp.col_upper_ = np.where(np.isfinite(S.hi[self.used]), S.hi[self.used], inf)
+        lp.row_lower_ = np.concatenate([np.full(self.nub, -inf), S.b_eq])
+        lp.row_upper_ = np.concatenate([S.b_ub, S.b_eq])
+        lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
+        lp.a_matrix_.start_ = self.A.indptr
+        lp.a_matrix_.index_ = self.A.indices
+        lp.a_matrix_.value_ = self.A.data
+        h.passModel(lp)
+        self.h = h
+        self.rows = self.A.shape[0]
+        self.cols = len(self.used)
+        self.freed = 0
+
+    def free(self, rows: _t.Iterable[Row]) -> int:
+        """Withdraw ``rows`` from the model IN PLACE (bounds to ±inf; a
+        ``Band`` frees its column) — the basis stays valid, so the next
+        :meth:`ray` hot-starts.  Returns the LP rows freed."""
+        idx: list[int] = []
+        for r in rows:
+            idx.extend(self.row_of.get(id(r), ()))
+            if isinstance(r, Band) and r.v in self.col_of:
+                self.h.changeColBounds(self.col_of[r.v], -self.inf, self.inf)
+        if idx:
+            a = np.asarray(sorted(set(idx)), dtype=np.int32)
+            self.h.changeRowsBounds(len(a), a, np.full(len(a), -self.inf),
+                                    np.full(len(a), self.inf))
+        self.freed += len(idx)
+        return len(idx)
+
+    def ray(self, time_limit_s: float | None = None) -> list[Row] | None:
+        """The Farkas support (rows, and the bands of the columns it leans
+        on) — ``None`` when the model is feasible or no ray is reported;
+        raises :class:`IISBudgetExceeded` on the time limit."""
+        import highspy
+        if time_limit_s is not None:
+            self.h.setOptionValue("time_limit", float(max(1.0, time_limit_s)))
+        self.h.run()
+        st = self.h.getModelStatus()
+        if st == highspy.HighsModelStatus.kTimeLimit:
+            raise IISBudgetExceeded("the certificate LP hit the time limit")
+        if st != highspy.HighsModelStatus.kInfeasible:
+            return None
+        got = self.h.getDualRay()
+        if not (isinstance(got, tuple) and len(got) == 3 and got[1]):
+            return None
+        y = np.asarray(got[2], float)
+        cand: dict[int, Row] = {}
+        for k in np.nonzero(np.abs(y) > 1e-9)[0]:
+            r = self.S.ub_rows[k] if k < self.nub else self.S.eq_rows[k - self.nub]
+            cand.setdefault(id(r), r)
+        w = np.abs(self.A.T @ y)
+        for j in np.nonzero(w > 1e-9)[0]:
+            v = int(self.used[j])
+            b = self.bands.get(v)
+            if b is not None:
+                cand.setdefault(id(b), b)
+        return list(cand.values())
+
+
+def neighbourhood_certificate(n: int, index: RowIndex, seed: _t.Iterable[int], *,
+                              deadline: float | None = None,
+                              exclude: _t.Container[int] = frozenset(),
+                              schedule: _t.Sequence[int] = HOP_SCHEDULE,
+                              trace: dict | None = None) -> list[Row] | None:
+    """The Farkas support of the first infeasible neighbourhood of
+    ``seed`` along ``schedule`` (module docstring), or ``None`` when every
+    neighbourhood in the schedule is feasible.  ``trace`` (a dict)
+    receives ``hops`` / ``rows`` / ``wall_s`` of the LPs run."""
+    seed = list(seed)
+    if trace is not None:
+        trace.setdefault("lps", [])
+    for hops in schedule:
+        remaining = None if deadline is None else deadline - time.perf_counter()
+        if remaining is not None and remaining <= 0.0:
+            raise IISBudgetExceeded("no budget left for the neighbourhood certificate")
+        _V, rows = index.neighbourhood(seed, hops, exclude)
+        if not rows:
+            continue
+        t = time.perf_counter()
+        sup = Certificate(n, rows).ray(remaining)
+        if trace is not None:
+            trace["lps"].append({"hops": hops, "rows": len(rows),
+                                 "wall_s": round(time.perf_counter() - t, 3),
+                                 "infeasible": sup is not None})
+        if sup:
+            if trace is not None:
+                trace["hops"] = hops
+            return sup
+    return None
+
 
 
 class IISBudgetExceeded(RuntimeError):
@@ -62,61 +256,20 @@ def feasible(n: int, rows: list[Row]) -> bool:
 
 def ray_candidates(n: int, cs: ConstraintSet, time_limit_s: float | None = None
                    ) -> list[Row] | None:
-    """THE FARKAS CERTIFICATE: the whole set as ONE HiGHS LP with presolve
-    OFF (a reduced model carries no ray) and a zero objective; when it is
-    infeasible the dual ray ``y`` names the rows in its support and, by
-    ``Aᵀy``, the columns whose ``Band`` bounds it leans on — together an
-    infeasible set a few dozen rows long (measured HECA: 23 rows + 2
-    bands from 1.8 M, 32 s) that QuickXplain reduces with tiny probes.
-    ``None`` when ``highspy`` is absent, the LP is feasible, or no ray
-    is reported; raises :class:`IISBudgetExceeded` on the time limit."""
+    """THE FARKAS CERTIFICATE of the whole set: the whole set as ONE HiGHS
+    LP with presolve OFF (a reduced model carries no ray) and a zero
+    objective; when it is infeasible the dual ray ``y`` names the rows in
+    its support and, by ``Aᵀy``, the columns whose ``Band`` bounds it
+    leans on — together an infeasible set a few dozen rows long (measured
+    HECA: 23 rows + 2 bands from 1.8 M, 32 s; 3.0 s over the columns the
+    rows touch) that QuickXplain reduces with tiny probes.  ``None`` when
+    ``highspy`` is absent, the LP is feasible, or no ray is reported;
+    raises :class:`IISBudgetExceeded` on the time limit."""
     try:
-        import highspy
+        import highspy  # noqa: F401
     except ImportError:
         return None
-    S = to_sparse(cs, n)
-    inf = highspy.kHighsInf
-    nub = S.A_ub.shape[0]
-    A = sp.vstack([S.A_ub, S.A_eq], format="csc")
-    h = highspy.Highs()
-    h.silent()
-    h.setOptionValue("presolve", "off")
-    if time_limit_s is not None:
-        h.setOptionValue("time_limit", float(max(1.0, time_limit_s)))
-    lp = highspy.HighsLp()
-    lp.num_col_ = n
-    lp.num_row_ = A.shape[0]
-    lp.col_cost_ = np.zeros(n)
-    lp.col_lower_ = np.where(np.isfinite(S.lo), S.lo, -inf)
-    lp.col_upper_ = np.where(np.isfinite(S.hi), S.hi, inf)
-    lp.row_lower_ = np.concatenate([np.full(nub, -inf), S.b_eq])
-    lp.row_upper_ = np.concatenate([S.b_ub, S.b_eq])
-    lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
-    lp.a_matrix_.start_ = A.indptr
-    lp.a_matrix_.index_ = A.indices
-    lp.a_matrix_.value_ = A.data
-    h.passModel(lp)
-    h.run()
-    st = h.getModelStatus()
-    if st == highspy.HighsModelStatus.kTimeLimit:
-        raise IISBudgetExceeded("the certificate LP hit the time limit")
-    if st != highspy.HighsModelStatus.kInfeasible:
-        return None
-    got = h.getDualRay()
-    if not (isinstance(got, tuple) and len(got) == 3 and got[1]):
-        return None
-    y = np.asarray(got[2], float)
-    rows_nz = np.nonzero(np.abs(y) > 1e-9)[0]
-    cand: dict[int, Row] = {}
-    for k in rows_nz:
-        r = S.ub_rows[k] if k < nub else S.eq_rows[k - nub]
-        cand.setdefault(id(r), r)
-    w = np.abs(A.T @ y)
-    cols = set(np.nonzero(w > 1e-9)[0].tolist())
-    for b in cs.bands:
-        if b.v in cols:
-            cand.setdefault(id(b), b)
-    return list(cand.values())
+    return Certificate(n, cs.rows()).ray(time_limit_s)
 
 
 def quickxplain(n: int, background: list[Row], cand: list[Row],

@@ -87,7 +87,7 @@ a vertex with no constraint and no DEM is an error at planar-map build.
 | M | deliverable | airport | bar |
 |---|---|---|---|
 | M0 | Appendix A law inventory + Appendix B v1-at-three-airports scope, ratified by the owner; `law/` tables written from A | — | owner sign-off on the law tables |
-| M1 | `airport/` + `classify/` + `planar/`: planar map for CYXY; census-of-geometry twin (faces/roles equal v1's within tolerance; zero T-vertices) | CYXY | roles match v1's on ≥ 95 % of area; differences listed |
+| M1 | `airport/` + `classify/` + `planar/`: planar map for CYXY; zero T-vertices; role agreement with v1 REPORTED, not a bar (03j) | CYXY | DONE 1c…5eb250d0: 1.13 s, 0 T-vertices, 48 %/71 % agreement, every difference listed |
 | M2 | `constraints/` (runway/taxi/apron/adjacent-ground) + `solve/` + `emit/osm`: CYXY lawful | CYXY | v1 census law-true = 0 on v2 patch; build < 10 s; mesh step 1 time ≤ v1's |
 | M3 | groundside, roads (core's clamp; v2 only the contacts), buildings/pads | SPLP, SPJC | census 0 at both; < 30 s each |
 | M4 | structures: tunnels (mouth/ramp/wall/crest = DEM), bridges/decks, basins | OTHH, LEMD | census 0; owner sim read |

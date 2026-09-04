@@ -1,7 +1,7 @@
 # auto-patch-v2 — M3b report: SPJC lawful on every class except the pad↔pavement class (waits on 03k)
 
 Lane `v2m3b` (Fable, owner 2026-09-03h), branch `lane/v2m3b` off main
-`a46e4651`. Every file ≤ 1,000 lines (largest `law/model.py` 807); no
+`a46e4651`. Every file ≤ 1,000 lines (largest `law/model.py` 803); no
 environment reads; every law value from the TOML tables (two new keys in
 `structures.toml [building_pad]`, one new section `emit.toml
 [lateral_contiguity]`, §5); nothing imports v1. Commits in §9, on the

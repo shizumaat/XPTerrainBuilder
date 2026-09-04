@@ -63,7 +63,10 @@
 #   checked = v1; owner 03e: editable without code), frozen interfaces
 #   (model/airport, planar, constraints; solve/api; emit/surface, osm,
 #   s2), m0-interfaces.md carries the M1 CYXY brief. NEXT: M1 planar map
-#   for CYXY (Opus lane once agent_guard.py admits opus).
+#   for CYXY — lane v2m1 IN FLIGHT (Fable; owner 03h: Fable implements).
+#   Solver decided (03g): scipy/HiGHS LP, real objective (150k in 5.3 s);
+#   OSQP refused. OWNER 03h: PADS YIELD to aprons (apron relief charter)
+#   — v1 lane r4padyield IN FLIGHT (HECA residual 1,058 apron|apron).
 # R1.3 MERGED e4c568c6: the pass-2 "infeasible" pins are PHANTOM — non-
 #   ring membrane nodes (stations/lattice) backfilled with the nearest
 #   CIFP runway-corner elevation (116.5 m vs DEM 98) by

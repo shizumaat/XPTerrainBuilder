@@ -7745,7 +7745,7 @@ def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> in
     def key(x: float, y: float) -> Tuple[int, int]:
         return (int(round(x * 1000.0)), int(round(y * 1000.0)))
 
-    pairs: Dict[frozenset, Tuple[str, float]] = {}
+    pairs: Dict[frozenset, Tuple[str, float, Optional[float]]] = {}
     pads: List[Tuple[set, float]] = []
     for rec in relaxed_rows:
         try:
@@ -7756,9 +7756,16 @@ def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> in
         if kind == "pad":
             pads.append((set(lls), float(rec.get("slope") or 0.0)))
         elif kind == "diff" and len(lls) == 2 and rec.get("cap_after") is not None:
-            pairs[frozenset(lls)] = ("diff", float(rec["cap_after"]))
+            # the SOLVE's own metric for the pair (a route pair's d is the
+            # ROUTE distance, 04o/04q-1; the census reads the direct one):
+            # the relaxed budget is cap_after x THAT distance — HECA
+            # 2026-09-05: 0.98 m over 53.5 m direct / 60.3 m route,
+            # relaxed to 1.63 %: lawful at 0.98, a row at 0.87
+            d_rec = rec.get("distance_m")
+            pairs[frozenset(lls)] = ("diff", float(rec["cap_after"]),
+                                     None if d_rec is None else float(d_rec))
         elif kind == "linear" and len(lls) == 2:
-            pairs[frozenset(lls)] = ("linear", float(rec.get("slack_m") or 0.0))
+            pairs[frozenset(lls)] = ("linear", float(rec.get("slack_m") or 0.0), None)
     if not pairs and not pads:
         return 0
     n = 0
@@ -7780,17 +7787,17 @@ def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> in
                 break
             for verts, slope in pads:
                 if ka in verts and kb in verts:
-                    found = ("pad", slope)
+                    found = ("pad", slope, None)
                     break
             if found is not None:
                 break
         if found is None:
             continue
-        kind, val = found
+        kind, val, d_rec = found
         dist = float(v.distance_m)
         de = abs(float(v.de_m))
         if kind == "diff":
-            lawful = de <= val * dist + ELEV_ROUNDING_NOISE_M
+            lawful = de <= val * (dist if d_rec is None else d_rec) + ELEV_ROUNDING_NOISE_M
         elif kind == "pad":
             lawful = de <= val * dist + ELEV_ROUNDING_NOISE_M
         else:

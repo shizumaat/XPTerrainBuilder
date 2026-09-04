@@ -7510,6 +7510,13 @@ def test_a_relaxed_row_is_priced_at_its_relaxed_cap_and_reported_under_the_headi
         tmp_path, step_grade=0.025, stretch_cap=None, name="RX2",
         relaxed_rows=_rs_relaxed("diff", cap=0.015, cap_after=0.020, distance_m=200.0, slack_m=1.0)))
     assert north(fo2)[0].out_of_scope is None
+    # the solve's OWN distance prices the relaxed budget (a route pair's d is
+    # the route distance): 2.1 % over the record's 250 m = 5.25 m ≥ the 5 m
+    # rise — lawful, though 2.1 % over the direct 200 m would not be
+    fo2b = _families(cg, _rect_stretch_patch(
+        tmp_path, step_grade=0.025, stretch_cap=None, name="RX2b",
+        relaxed_rows=_rs_relaxed("diff", cap=0.015, cap_after=0.021, distance_m=250.0, slack_m=1.5)))
+    assert north(fo2b)[0].out_of_scope == cg.RELAXED_OUT_OF_SCOPE
     # a PAD plane: both endpoints on one relaxed pad at slope 2.6 % — lawful;
     # at 2.0 % — not
     fo3 = _families(cg, _rect_stretch_patch(

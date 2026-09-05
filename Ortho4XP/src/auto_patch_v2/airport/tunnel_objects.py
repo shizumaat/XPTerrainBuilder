@@ -310,6 +310,26 @@ def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
     return out
 
 
+def _rotated_box(w: WallLines) -> WallLines:
+    """The O read the other way round: the end walls become the side
+    walls (``inner_a`` = the wall at end 0, from ``inner_b``'s start to
+    ``inner_a``'s start; ``inner_b`` = the wall at end 1, in the same
+    direction) and the side walls the end walls."""
+    a = [w.inner_b[0], w.inner_a[0]]
+    b = [w.inner_b[-1], w.inner_a[-1]]
+    # the former side walls' thickness at their middles
+    la, lb = LineString(w.inner_a), LineString(w.inner_b)
+    pa, pb = la.interpolate(0.5, normalized=True), lb.interpolate(0.5, normalized=True)
+    mid_ab = ((pa.x + pb.x) / 2.0, (pa.y + pb.y) / 2.0)
+    from .tunnel_walls import _dir, _thickness_at
+    ua = _dir(mid_ab, (pa.x, pa.y))
+    ub = _dir(mid_ab, (pb.x, pb.y))
+    ta = _thickness_at((pa.x, pa.y), ua, w.plate, 3.0 * max(w.thickness_m, 0.5))
+    tb = _thickness_at((pb.x, pb.y), ub, w.plate, 3.0 * max(w.thickness_m, 0.5))
+    return WallLines(w.plate, a, b, (True, True), (ta or w.thickness_m, tb or w.thickness_m),
+                     w.thickness_m, "O")
+
+
 def _faces_other(axis: list[XY], k: int, others: _t.Sequence[Polygon]) -> bool:
     """End ``k``'s outward direction points at another placement of the
     same resource (within ``_FACING_COS``)."""
@@ -383,11 +403,21 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     if isinstance(walls, str):
         return walls
     axis = midline(walls, ob.wall_sample_m)
+    bores = _bore_ends_at(walls, axis, tunnel_ways, ob.end_cap_open_m)
+    notes: list[str] = []
+    if walls.kind == "O" and not (bores[0] or bores[1]):
+        # A BOX reads its long sides as the side walls; a near-square box
+        # on a bore (OTHH tunnel west 1: 35 × 40 m inside) orients itself
+        # ALONG the bore — the walls the bore crosses are its end walls
+        alt = _rotated_box(walls)
+        axis_alt = midline(alt, ob.wall_sample_m)
+        bores_alt = _bore_ends_at(alt, axis_alt, tunnel_ways, ob.end_cap_open_m)
+        if bores_alt[0] or bores_alt[1]:
+            walls, axis, bores = alt, axis_alt, bores_alt
+            notes.append("box oriented along the bore that passes through it")
     sts = stations_along(axis, walls, ob.wall_sample_m, grid)
     if len(sts) < 2:
         return "the inner faces leave no station (the walls do not face each other)"
-    bores = _bore_ends_at(walls, axis, tunnel_ways, ob.end_cap_open_m)
-    notes: list[str] = []
     if bores[0] and bores[1]:
         mouth, flat, kind = 0, True, "bore"
         notes.append(f"bores at both ends ({bores[0]} / {bores[1]}): two mouths, the trench "

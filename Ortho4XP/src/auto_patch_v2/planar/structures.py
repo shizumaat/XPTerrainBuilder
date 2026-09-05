@@ -315,6 +315,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     and chord * tn.ramp_max_grade >= c.plate_y - 1e-9)
             if fits:
                 deck_ivals, obj_ivals = [], []
+            else:
+                # the climb beyond the walls is planned first WITHOUT decks:
+                # a deck standing beyond where the ramp already meets the
+                # DEM is not over the ramp at all (the axis past the walls
+                # is an extension, not a mapped road — OTHH tunnel_sw: a
+                # bridge 400 m out pushed the climb past the reach)
+                design_grade = tn.ramp_max_grade
+                s_free, _ss = _ramp_top(airport, law, axis_fn, mouth_z, 0.0, spacing, half)
+                if s_free is not None:
+                    deck_ivals = [d for d in deck_ivals if d[1] <= s_free]
+                    obj_ivals = [d for d in obj_ivals if d[1] <= s_free]
         climb_from = 0.0 if c is not None else 0.0
         climb_from = max([climb_from] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
                          + [s1 + gap for _o, s0, s1, _p, _z in obj_ivals])

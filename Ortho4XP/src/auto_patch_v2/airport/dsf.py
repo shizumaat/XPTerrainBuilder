@@ -84,8 +84,8 @@ def dsf_path_in_pack(pack_root: str, lat: int, lon: int) -> str:
 
 def text_dump_tag(dsf_path: str) -> str:
     """The 8-hex tag the engine's DSFTool cache puts in the dump name —
-    ``sha1(abspath)[:8]`` (``auto_patch.dsf_reader._default_pack_text_
-    cache_path``; twin-asserted equal in ``test_airport_load``)."""
+    ``sha1(abspath)[:8]`` (the v1 dsf_reader's default pack text cache
+    path; twin-asserted equal in ``test_airport_load``)."""
     import hashlib
     return hashlib.sha1(os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
 

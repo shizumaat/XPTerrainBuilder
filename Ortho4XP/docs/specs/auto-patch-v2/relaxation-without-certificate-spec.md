@@ -141,3 +141,25 @@ census vs 40/7, v2-verify, solve wall); the classification change touches
 every airport — `--base-arm` deltas by role at CYXY, SPJC and OTHH (their
 crossed aprons: state which cells changed role and the census before →
 after; 0/0 must hold).
+
+## 7. Amendment 2026-09-05 — the runway family is part of the route network (RULINGS 2026-09-05y)
+
+The nine-row HECA certificate after §6: two reach bands on each edge of
+runway 05C/23C at stubs pav91/pav101, 60 m apart and tied within ±0.455 m
+by the transverse law, but 3,206 m vs 6,417 m from the 23R pin in the
+route graph — the graph has no route ACROSS or ALONG the runway body
+(`classify` cuts the taxi centreline parts inside `runway_union`; the
+runway faces contribute no edges). RULED: `constraints/routes.py` adds
+the runway family to the graph — (i) every runway-family face's ring
+edges at the runway's longitudinal cap (`rulesets.<auth>.runway.
+longitudinal` by code), both crown halves, so the two edges and the
+thresholds are joined along the length; (ii) the crossing 1202 taxi
+centreline parts across the runway at the runway cap (recover them from
+the taxi network before the runway cut, or as the straight crossing
+between the two edge intersections); (iii) the width between the two
+edges at the runway `transverse_max` (a CROSSING kind edge). The reach
+band then IS the envelope of the runway profile + transverse law + the
+taxi routes. Twins: a synthetic parallel-taxiway/stub/runway fixture
+whose two runway edges get reach bands that overlap by at least the
+transverse allowance; `reach` from a pin along the runway ring equals
+pin ± cap·distance. Acceptance as §3/§6 (HECA once, the three base arms).

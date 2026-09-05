@@ -1,4 +1,10 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 v2tunnelobj MERGED 0b875c02 (05m): OTHH tunnels from the pack's
+#   wall objects (8 corridors, floor = seat 0.96, terrain crest = ground —
+#   the plate is a 2 m parapet), OTHH 0/0 v2-verify 0; LEMD byte-identical.
+#   APP 1.0.285 IN BUILD (flat-site law, tunnel objects, hole-way fix,
+#   fresh DSF dump, shapely warnings).
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 v2flatsite MERGED f0964074 (05l): flat datum = law preference
 #   (per-row flat_datum groups) + [declared] table; structure faces excluded
 #   (amendment); OTHH 0/0, v2-verify 0, CYXY byte-identical. Lane

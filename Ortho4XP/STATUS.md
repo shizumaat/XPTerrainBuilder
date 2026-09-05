@@ -1,4 +1,13 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 (late) owner 1.0.285 reads: OTHH tunnels round 2 (lane
+#   v2tunnelobj2 IN FLIGHT), HECA 05C/23C = runway transverse max unpriced
+#   (lane v2rwytransverse IN FLIGHT), HECA buildings/lots above airside =
+#   OBJ8 indented-TRIS parse defect FIXED 8072bad7 (43 units now) + pads
+#   1.2–2.8 m off the apron unwelded (OWNER Q 05p-1: gap distance, rec 5 m),
+#   OTHH terminal +1.888 m = sunken roads founded the family → FACILITY
+#   RULE MERGED 3b8c7a02 (relative to the family's coalition, 05q).
+#   NEXT: merge the two lanes, pull bathymetry-band fix 0d3da32d, APP 1.0.286.
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 v2tunnelobj MERGED 0b875c02 (05m): OTHH tunnels from the pack's
 #   wall objects (8 corridors, floor = seat 0.96, terrain crest = ground —
 #   the plate is a 2 m parapet), OTHH 0/0 v2-verify 0; LEMD byte-identical.

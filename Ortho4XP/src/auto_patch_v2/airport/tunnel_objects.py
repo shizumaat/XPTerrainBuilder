@@ -368,6 +368,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     stats = TunnelObjectStats()
     msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
     admission = law.tables.structures.basin.admission_depth_m
+    skirt = law.tables.structures.tunnel.object.skirt_min_depth_m
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
     out: list[Corridor] = []
@@ -382,6 +383,16 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.path not in sigs:
             stats.resources += 1
+            # THE PRE-SCREEN (the basin reader's O(n) step): a skirt reaches
+            # skirt_min_depth_m under the seat, so a resource whose lowest
+            # authored vertex does not is refused before its components
+            # are built (OTHH: 1,350 resources, 7 tunnels — 0.67 s → the
+            # 7's components, already the basin pass's)
+            vmin = cache.y_range(o.resolved)[0]
+            if vmin > -skirt:
+                sigs[o.path] = (f"no wall skirt: the lowest vertex is {-vmin:.2f} m under the "
+                                f"seat (< skirt_min_depth_m {skirt})")
+                continue
             g = cache.geometry(o.resolved)
             sigs[o.path] = signature(g, cache.genuine(o.resolved), law) if g is not None \
                 else "unreadable OBJ8"

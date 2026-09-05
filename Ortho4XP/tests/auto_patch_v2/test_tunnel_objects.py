@@ -283,7 +283,7 @@ def test_bore_under_the_hull_is_replaced(corridor_map, law):
     assert stats.tunnel_objects.corridors == 1
 
 
-def test_generator_rows_solve_and_verify(corridor_map, law):
+def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     airport, cl2, tunnels, st, pm, stats, cs = corridor_map
     tn = law.tables.structures.tunnel
     t = pm.structures[0]
@@ -326,6 +326,11 @@ def test_generator_rows_solve_and_verify(corridor_map, law):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
     assert pub["tunnel_objects"] and pub["tunnel_objects"][0]["depth_m"] == pytest.approx(5.0)
+    # the sidecar register carries the key (the OTHH closing build refused it once)
+    from auto_patch_v2.emit.osm_adapter import write_patch
+    paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
+    import json
+    assert json.loads(paths.sidecar.read_text())["tunnel_objects"][0]["ends"] == "closed/open"
     rows_v = census(surf, law, pub, {})
     for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "tunnel_mouth_canonical",
                 "wall_in_runway_strip"):

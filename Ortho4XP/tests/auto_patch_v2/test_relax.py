@@ -328,14 +328,21 @@ def test_no_certificate_runs_the_relaxable_scope(hangar, law):
     assert rl["certificate"]["ok"], rl["certificate"]
     assert "scope relaxable" in rep.line() and "RELAXABLE scope" in rl["line"]
     assert not any(g.startswith("law:") for g in size.get("escalation", {}))
-    # the same relief the certificate path spreads: the support is the
-    # same site (the variance program gives a row in no contradiction
-    # exactly zero slack)
+    # the same SITE the certificate path spreads over — the hangar row:
+    # the certificate's support (the IIS rows' faces) lies inside the
+    # relaxable scope's, and both inside the row; a candidate SUPERSET
+    # spends no more total slack in the least-total-variance program.
+    # Measured 2026-09-05 under RULINGS 05z (the runway edges are no
+    # route; the stub mouths join through the ridge, 0.7 m looser): the
+    # relaxable scope also lets hangar3 (a pad the IIS never named) take
+    # a plane and spends 4.15 m where the certificate scope spends 6.31 m
     sol_c, rep_c = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options())
     assert rep_c.scope == "certificate"
     faces_c = {r["face"] for r in rep_c.relaxation["rows"]}
-    assert {r["face"] for r in rows} == faces_c, (faces_c, {r["face"] for r in rows})
-    assert abs(rl["stats_m"]["sum"] - rep_c.relaxation["stats_m"]["sum"]) < 0.05
+    faces_r = {r["face"] for r in rows}
+    site = {f.id for f in pm.faces.values() if f.role in ("apron", "building")} | {None}
+    assert faces_c <= faces_r <= site, (faces_c, faces_r)
+    assert rl["stats_m"]["sum"] <= rep_c.relaxation["stats_m"]["sum"] + 0.05
 
 
 def test_unrelaxable_conflict_with_no_certificate_names_the_ladder_failure(law):
@@ -450,14 +457,21 @@ def test_relaxed_pad_slope_is_bounded_by_the_table(hangar, law):
     s1 = relax.stage1(pm, cs, rel, law, backend="qp")
     pads = [x for x in rel if x.kind == "pad"]
     assert pads and all(s1.excess[x.index] <= rl.pad_slope_max + tol for x in pads)
-    # the ruled cap is ACTIVE on this fixture (the unbounded pad sloped 1.02 %)
-    assert max(s1.excess[x.index] for x in pads) >= 0.9 * rl.pad_slope_max
+    # the bound is read where it binds: under RULINGS 05z (the runway
+    # edges are no route, the stub mouths join through the ridge) the
+    # unbounded pad on this fixture slopes 0.86 % (measured 2026-09-05;
+    # 1.02 % on the ring-route graph), inside the ruled 1 % — the tight
+    # table value below is the arm the cap is ACTIVE on
+    loose = _with_relaxation(law, pad_slope_max=0.05)
+    s0 = relax.stage1(pm, cs, rel, loose, backend="qp")
+    assert max(s1.excess[x.index] for x in pads) <= max(s0.excess[x.index] for x in pads) + tol
     tight = _with_relaxation(law, pad_slope_max=0.005)
     # the default backend: highspy's QP reports kSolveError at this bound on
     # this fixture (measured 2026-09-05) and the approximation answers
     s2 = relax.stage1(pm, cs, rel, tight)
     assert s2.status == "optimal", s2
     assert all(s2.excess[x.index] <= 0.005 + tol for x in pads)
+    assert max(s2.excess[x.index] for x in pads) >= 0.9 * 0.005   # ACTIVE here
     chords = [x for x in rel if x.kind != "pad"]
     assert sum(s2.slack[x.index] for x in chords) > sum(s1.slack[x.index] for x in chords)
     # the same on the approximation, and the certificate reads the bound

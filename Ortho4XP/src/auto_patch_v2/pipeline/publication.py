@@ -92,7 +92,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices
     # exactly the published list
-    pav = no_step_edges(planar, law)
+    pav = no_step_edges(planar, law, airport)
     edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
               "dist_m": round(d, 4)} for a, b, cap, d in pav
              if not (a in seam_all and b in seam_all)]
@@ -108,7 +108,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             la, lo = to_ll(*st.xy)
             stations.append([round(la, 8), round(lo, 8), st.cap])
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
-                  "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav)]
+                  "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "mesh_edges": mesh_edges_ll(planar, law),
             "airside_no_step_edges": edges,

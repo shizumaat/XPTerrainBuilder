@@ -22,6 +22,7 @@ from auto_patch_v2.constraints.routes import (CENTRELINE, build_routes, reach,
                                               route_roles, routes)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law, LawError
+from auto_patch_v2.law.tables import role_cap
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import REACH_GENERATOR, Band, ConstraintSet
 from auto_patch_v2.model.frame import Frame
@@ -380,3 +381,138 @@ def test_apron_body_chord_is_not_a_route_the_far_taxiway_takes_the_route_budget(
     pairs = no_step.no_step_edges(pm, law)
     assert pairs and all(0 < dd <= law.tables.emit.no_step.window_m + 1e-9 for *_x, dd in pairs)
     assert (min(a, b), max(a, b)) not in {(x, y) for x, y, *_ in pairs}
+
+
+# ── RULINGS 2026-09-05z: the runway is like an apron in the route graph ──
+
+@pytest.fixture(scope="module")
+def crossing(law):
+    """A runway with a stub on EACH edge at x = 0, the two cut centrelines
+    ending on the runway edges (as classify's runway cut leaves them),
+    and the apt.dat 1202 network crossing the runway through a node on
+    its centreline: stubN (0, 190) → (0, 0) → stubS (0, −190), plus the
+    runway's own 1202 edges along the centreline."""
+    from auto_patch_v2.model.airport import TaxiEdge, TaxiNode
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    nodes = {1: TaxiNode(1, (0.0, 190.0), "both"), 2: TaxiNode(2, (0.0, 0.0), "both"),
+             3: TaxiNode(3, (0.0, -190.0), "both"), 4: TaxiNode(4, (-600.0, 0.0), "both"),
+             5: TaxiNode(5, (600.0, 0.0), "both")}
+    edges = (TaxiEdge(1, 2, "N", False, False, "D"), TaxiEdge(2, 3, "S", False, False, "D"),
+             TaxiEdge(4, 2, "09/27", False, True, None), TaxiEdge(2, 5, "09/27", False, True, None))
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), nodes, edges,
+                      (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "stub", "stubN", _rect(-11.5, 22.5, 11.5, 190), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(2, "stub", "stubS", _rect(-11.5, -190, 11.5, -22.5), (), None, "D",
+             "airside", "taxi", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "stubN", ((0.0, 22.5), (0.0, 190.0))),
+            CutLine("taxi_centerline", "stubS", ((0.0, -190.0), (0.0, -22.5))))
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    return airport, pm
+
+
+def _runway_ring_edges_that_are_no_route(pm, law):
+    """Every runway-family ring edge between two EDGE vertices — neither
+    endpoint on the ridge or a centreline (an edge vertex's hop to an
+    ADJACENT anchor is one ring edge long and lawful, 05z c) — that is
+    not shared with a non-runway route face."""
+    from auto_patch_v2.constraints.routes import RIDGE_KIND
+    from auto_patch_v2.law.tables import role_family
+    ridge = {eid for bl in pm.breaklines.values() if bl.kind == RIDGE_KIND for eid in bl.edges}
+    anchors = {v for eid, e in pm.edges.items() if eid in ridge or e.kind.value == "centerline"
+               for v in (e.a, e.b)}
+    out = set()
+    for f in pm.faces.values():
+        if role_family(law, f.role) != "runway":
+            continue
+        for cyc in (f.ring, *f.holes):
+            for eid in cyc:
+                e = pm.edges[eid]
+                if eid in ridge or e.kind.value == "centerline" or e.a in anchors or e.b in anchors:
+                    continue
+                if any(role_family(law, pm.faces[o].role) != "runway" and pm.faces[o].role in route_roles(law)
+                       for o in pm.faces_of_edge(eid)):
+                    continue
+                out.add(e.length_key)
+    return out
+
+
+@pytest.mark.parametrize("fx", ["crossing", "loop", "between"])
+def test_no_graph_edge_lies_on_a_runway_ring(fx, law, request):
+    """05z: the runway's EDGES are not graph edges — no route lies on a
+    runway ring edge that is not the ridge, a centreline part, or a
+    taxi face's own ring edge."""
+    airport, pm = request.getfixturevalue(fx)
+    g = build_routes(pm, law, airport)
+    on_graph = {(int(a), int(b)) for a, b in zip(g.a, g.b)}
+    edges = _runway_ring_edges_that_are_no_route(pm, law)
+    assert edges
+    assert not (edges & on_graph)
+    # ...and every runway ring vertex is still a graph node (it hops)
+    assert _verts_of_role(pm, "runway") <= g.nodes
+
+
+def test_runway_edges_reach_each_other_through_the_crossing(crossing, law):
+    """05z (b): a stub on each edge; the two edges' reach bands overlap by
+    at least the transverse allowance, because both reach through the
+    crossing and the centreline — not around the runway end."""
+    from auto_patch_v2.constraints.routes import CROSSING, EDGE_HOP
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    from auto_patch_v2.law.tables import runway_transverse_max
+    airport, pm = crossing
+    g = routes(pm, law, airport)
+    assert g.stats["crossing"] > 0 and g.stats["crossing_unmatched"] == 0
+    assert g.stats["edge_hop"] > 0 and g.stats["ring"] > 0
+    assert set(np.unique(g.kind)) >= {CROSSING, EDGE_HOP}
+    north = [v for v in _verts_of_role(pm, "runway") if abs(pm.vertices[v].xy[1] - 22.5) < 1e-6
+             and abs(pm.vertices[v].xy[0]) < 1e-6]
+    south = [v for v in _verts_of_role(pm, "runway") if abs(pm.vertices[v].xy[1] + 22.5) < 1e-6
+             and abs(pm.vertices[v].xy[0]) < 1e-6]
+    assert len(north) == 1 and len(south) == 1
+    n, s = north[0], south[0]
+    d, bud, path = route_path(g, n, s)
+    assert d == pytest.approx(45.0, abs=1e-6), (d, path)           # straight across
+    cap = role_cap(law, "runway", 3, "D").longitudinal
+    assert bud == pytest.approx(cap * 45.0, abs=1e-6)
+    pins = threshold_pins(pm, law, airport)
+    band = reach(g, pins)
+    lo, hi = max(band[n][0], band[s][0]), min(band[n][1], band[s][1])
+    allowance = runway_transverse_max(law, "D", 3) * 45.0
+    assert hi - lo >= allowance
+    assert abs(band[n][1] - band[s][1]) <= cap * 45.0 + 1e-6
+    # an edge vertex on NO crossing hops along its ring to the crossing
+    far = min((v for v in _verts_of_role(pm, "runway")
+               if abs(pm.vertices[v].xy[1] - 22.5) < 1e-6 and abs(pm.vertices[v].xy[0]) > 1e-6),
+              key=lambda v: abs(pm.vertices[v].xy[0]))
+    d2, _b2, path2 = route_path(g, far, n)
+    assert d2 == pytest.approx(abs(pm.vertices[far].xy[0]), abs=1e-6) and path2 == [far, n]
+
+
+def test_reach_along_the_centreline_is_pin_plus_cap_times_distance(crossing, law):
+    """05z (a): from a threshold pin the reach along the centreline is
+    pin ± cap · distance at the runway longitudinal cap by code."""
+    from auto_patch_v2.constraints.routes import RIDGE_KIND
+    airport, pm = crossing
+    g = routes(pm, law, airport)
+    ridge = [v for bl in pm.breaklines.values() if bl.kind == RIDGE_KIND for v in bl.vertices(pm)]
+    pin = min(ridge, key=lambda v: pm.vertices[v].xy[0])
+    assert pm.vertices[pin].xy == pytest.approx((-600.0, 0.0))
+    cap = role_cap(law, "runway", 3, "D").longitudinal
+    band = reach(g, {pin: 700.0})
+    for v in ridge:
+        dist = pm.vertices[v].xy[0] + 600.0
+        assert band[v][1] == pytest.approx(700.0 + cap * dist, abs=1e-6), v
+        assert band[v][0] == pytest.approx(700.0 - cap * dist, abs=1e-6), v
+    # the far edge vertex: pin ± cap · (centreline + crossing) — the
+    # route, never the ring around the end
+    south = [v for v in _verts_of_role(pm, "runway") if abs(pm.vertices[v].xy[1] + 22.5) < 1e-6
+             and abs(pm.vertices[v].xy[0]) < 1e-6][0]
+    assert band[south][1] == pytest.approx(700.0 + cap * (600.0 + 22.5), abs=1e-6)

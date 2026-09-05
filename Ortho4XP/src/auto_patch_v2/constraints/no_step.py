@@ -119,7 +119,7 @@ def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
     return out
 
 
-def no_step_edges(planar: PlanarMap, law: Law
+def no_step_edges(planar: PlanarMap, law: Law, airport: Airport | None = None
                   ) -> list[tuple[int, int, float, float]]:
     """``(a, b, cap, route distance)`` per published PAVEMENT pair — K
     nearest per airside vertex BY ROUTE within the window (route metres),
@@ -133,7 +133,7 @@ def no_step_edges(planar: PlanarMap, law: Law
                        "(RULINGS 2026-09-04o — a chord metric is the refuted reading)")
     vw = view(planar, law)
     caps = _airside_vertices(vw, no_step_roles(law))
-    g = routes(planar, law)
+    g = routes(planar, law, airport)
     out: list[tuple[int, int, float, float]] = []
     for a, b, d, bud in route_neighbours(g, caps, ns.window_m, ns.k, targets=caps):
         if d <= 0.0:
@@ -150,7 +150,7 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
     pins = threshold_pins(planar, law, airport)
     if not pins:
         return {}
-    return reach(routes(planar, law), pins)
+    return reach(routes(planar, law, airport), pins)
 
 
 def reach_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -200,7 +200,8 @@ def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:
 
 
 def pad_pavement_edges(planar: PlanarMap, law: Law,
-                       pavement: list[tuple[int, int, float, float]] | None = None
+                       pavement: list[tuple[int, int, float, float]] | None = None,
+                       airport: Airport | None = None
                        ) -> list[tuple[int, int, float, float]]:
     """``(contact vertex, pavement vertex, path cap, route distance)`` —
     THE PAD↔PAVEMENT PAIRS through the contact (module docstring, 04r):
@@ -223,8 +224,8 @@ def pad_pavement_edges(planar: PlanarMap, law: Law,
         for v in cvs:
             own.setdefault(v, set()).update(group)
     have = {(a, b) for a, b, _c, _d in (pavement if pavement is not None
-                                          else no_step_edges(planar, law))}
-    g = routes(planar, law)
+                                          else no_step_edges(planar, law, airport))}
+    g = routes(planar, law, airport)
     out: list[tuple[int, int, float, float]] = []
     for a, b, d, bud in route_neighbours(g, sorted(own), ns.window_m, ns.k,
                                          targets=pav, exclude=own):
@@ -240,10 +241,10 @@ def no_step_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     src = Source(GEN, "airside_no_step §1.1 route pairs (2026-08-27, 04o/04q-1)", ())
     src_pad = Source(GEN, "airside_no_step §1.1 pad contact↔pavement route pairs "
                      "(2026-09-04r)", ())
-    pav = no_step_edges(planar, law)
+    pav = no_step_edges(planar, law, airport)
     return ([Diff(a, b, cap, d, src) for a, b, cap, d in pav]
             + [Diff(a, b, cap, d, src_pad)
-               for a, b, cap, d in pad_pavement_edges(planar, law, pav)])
+               for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)])
 
 
 def rate_rows_for_chain(vw: View, chain: list[int], rate: float, src: Source,

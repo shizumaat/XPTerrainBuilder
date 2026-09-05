@@ -467,13 +467,20 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         cap_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2) for ci, co in zip(cap_in, cap_out)]
         far_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2)
                    for ci, co in zip(geom.far_in, geom.far_out)]
-        # the band's centreline: the middle of its inner and outer edges
-        # (an object's bands vary in width by station)
-        wall_path = ([((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-                      for a, b in zip(reversed(geom.left_in), reversed(geom.left_out))]
-                     + cap_mid
-                     + [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-                        for a, b in zip(geom.right_in, geom.right_out)] + far_mid)
+        # the band's centreline, ANALYTIC (the generator groups the band's
+        # stations by projection onto it — the snapped edges' middle moved
+        # LEMD's OSM stations and broke the byte-identity arm): axis ±
+        # (half + gap + bw / 2) by station (an object's half-widths and
+        # band widths vary by station; constant for an OSM bore)
+        hl_s = [g.half_fn(s)[0] if g.half_fn else half for s in ss]
+        hr_s = [g.half_fn(s)[1] if g.half_fn else half for s in ss]
+        bl_s = [g.bw_fn(s)[0] if g.bw_fn else bw for s in ss]
+        br_s = [g.bw_fn(s)[1] if g.bw_fn else bw for s in ss]
+        left_mid = [(p[0] + nv[0] * (h + gap + b / 2), p[1] + nv[1] * (h + gap + b / 2))
+                    for p, nv, h, b in zip(axis, nrm, hl_s, bl_s)]
+        right_mid = [(p[0] - nv[0] * (h + gap + b / 2), p[1] - nv[1] * (h + gap + b / 2))
+                     for p, nv, h, b in zip(axis, nrm, hr_s, br_s)]
+        wall_path = list(reversed(left_mid)) + cap_mid + right_mid + far_mid
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed centreline
         notes = []

@@ -81,3 +81,34 @@ Re-pricing apron chords over route distance (the scout's option 2): the
 owner's apron law is 1 % in all directions (2026-06-18, 08-21b); 04t(1)
 is the ruled resolution when it meets relief. The route graph's apron
 chords (`routes.py:216-222`) stay.
+
+## 5. Amendment 2026-09-05 (lane v2relaxfull STOP → RULINGS 2026-09-05v)
+
+The full relaxable scope is STILL infeasible at HECA; the certificate with
+every relaxable row dropped names 65 rows: runway 05C/23C's 16 transverse
++ 1 profile, 30 `no_step` pairs, 4 taxi rows (pav112/pav91) and **15
+reach bands** — no pin, no apron, no pad. The reach bands and the no_step
+route distances are computed over `constraints/routes.py`'s graph, which
+puts every APRON PLAN CHORD (`routes.py` apron branch, `_face_pairs`, cap
+1 %) into the route metric. A path that cuts across pav132 on a 700 m
+chord grants 7 m where the taxi route around it grants 43 m, so the band
+at the pav98/T junction is far below what the taxi law allows, and the
+bands are HARD and never relaxed — relaxing the apron rows cannot free
+them. §4 above ("the route graph's apron chords stay") is WITHDRAWN.
+
+Law (04o, route-true): the ROUTE GRAPH for reach and no_step = the
+movement-surface route network — runway-family and taxi-family ring
+edges, taxi centrelines and per-stretch chords at their stretch caps, and
+the 1202 taxilane centrelines that CROSS an apron (at the apron cap),
+plus apron ring edges (its perimeter) — and NO apron plan chord. Apron
+chords remain the apron law's own hard-but-relaxable rows
+(`apron_within_shape`), never a route.
+
+Mechanism: `routes.py` apron branch replaced by the apron's crossing
+1202 centreline chains (the classification already names the taxi
+chains touching each cell); a twin asserts the graph carries no
+`CHORD` edge whose both endpoints lie on an apron face; `reach_bands`
+and `no_step` unchanged in form. Acceptance as §3 (HECA once; expect
+scope `relaxable` or `certificate`, no demotion, relaxed rows on
+pav132's apron chords and the hangar pads, taxi rows untouched, census
+under 40/7 airside is the bar to quote against).

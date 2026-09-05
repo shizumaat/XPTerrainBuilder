@@ -1,4 +1,11 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 APP 1.0.286 / engine 1.50.1728 BUILT (c9e758fe): tunnel wall
+#   objects round 2 (e2734c71), seat facility rule (3b8c7a02), OBJ8 indented
+#   TRIS (8072bad7), flat-site law, bathymetry-band write fix (f14e1160).
+#   NOT in it: runway transverse max (lane 781d560d) — HECA taxi system
+#   infeasible with the runway edges held → OWNER Q 05r-1 (taxi family
+#   least-variance over-cap). OWNER Q 05p-1 (pad gap, rec 5 m) open.
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 (late) owner 1.0.285 reads: OTHH tunnels round 2 (lane
 #   v2tunnelobj2 IN FLIGHT), HECA 05C/23C = runway transverse max unpriced
 #   (lane v2rwytransverse IN FLIGHT), HECA buildings/lots above airside =

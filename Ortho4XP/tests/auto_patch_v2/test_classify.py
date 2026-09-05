@@ -7,7 +7,8 @@ import math
 from pathlib import Path
 
 import pytest
-from shapely.geometry import Polygon
+import shapely
+from shapely.geometry import LineString, Polygon
 
 from auto_patch_v2.airport.dem import DemSampler
 from auto_patch_v2.airport.load import load
@@ -195,3 +196,78 @@ def test_cyxy_cells(cyxy_cl):
     evid = [c.evidence for c in cl.cells if c.kind == "corridor"]
     assert evid and all("width_m" in e for e in evid)
     assert math.isfinite(sum(e["width_m"] for e in evid))
+
+
+# ── the bounded route territory (RULINGS 2026-09-05x, spec §6) ───────────
+
+def _crossed_apron() -> Airport:
+    """A 600 x 400 m apron crossed by two through taxi centrelines (x = 300
+    and y = 200, each far longer than ``apron.through_min_len_m``), the
+    runway 300 m away (its own proximity band never reaches the apron)."""
+    frame = Frame("SYNT", (60.0, -135.0), 11)
+    ends = (RunwayEnd("09", (0.0, -300.0), (60.0, -135.0), 0.0, 0.0, 100.0, "cifp"),
+            RunwayEnd("27", (1000.0, -300.0), (60.0, -134.98), 0.0, 60.0, 100.0, "cifp"))
+    rw = Runway("09/27", 30.0, Surface.ASPHALT, ends, 2, "C")
+    pav = [Pavement("apron", Surface.ASPHALT, _rect(0.0, 0.0, 600.0, 400.0), ())]
+    nodes = {1: TaxiNode(1, (0.0, 200.0), "both"), 2: TaxiNode(2, (300.0, 200.0), "both"),
+             3: TaxiNode(3, (600.0, 200.0), "both"), 4: TaxiNode(4, (300.0, 0.0), "both"),
+             5: TaxiNode(5, (300.0, 400.0), "both")}
+    edges = (TaxiEdge(1, 2, "A", False, False, "C"), TaxiEdge(2, 3, "A", False, False, "C"),
+             TaxiEdge(4, 2, "B", False, False, "C"), TaxiEdge(2, 5, "B", False, False, "C"))
+    pack = SceneryPack("synthetic", "", "", (), ())
+    return Airport("SYNT", "Synthetic", frame, 100.0, (rw,), tuple(pav), (), nodes,
+                   edges, (), (), (), (), (), (), pack, _FlatDem(), "icao")
+
+
+def test_crossed_apron_junction_is_the_bounded_route_territory(law):
+    """The proximity contour (50 m of each centreline) would make 90,000 m²
+    of the apron junction; the ruling bounds it to the routes' 25 m
+    corridors — two 50 m corridors crossing, 47,500 m² — and the rest of
+    every face is APRON, with the evidence recorded."""
+    rules = load_rules()
+    half = rules.junction.route_territory_half_width_m
+    cl = classify(_crossed_apron(), law, rules)
+    cells = [c for c in cl.cells if c.ref == "apron"]
+    assert {c.role for c in cells} == {"apron", "junction"}
+    axes = shapely.union_all([LineString([(0, 200), (600, 200)]),
+                              LineString([(300, 0), (300, 400)])])
+    corridor = axes.buffer(half, cap_style="flat")
+    junction_area = sum(Polygon(c.ring, c.holes).area for c in cells if c.role == "junction")
+    apron_area = sum(Polygon(c.ring, c.holes).area for c in cells if c.role == "apron")
+    assert junction_area == pytest.approx(corridor.area, rel=0.01)          # 47,500 m²
+    assert apron_area == pytest.approx(240_000.0 - corridor.area, rel=0.01)  # 192,500 m²
+    for c in cells:
+        poly = Polygon(c.ring, c.holes)
+        if c.role == "junction":       # nothing beyond the corridor's edge
+            assert poly.difference(corridor.buffer(0.05)).area < 1.0
+            assert c.evidence["near_route"] == 1.0
+            assert c.code_letter == "C"
+        else:                          # nothing inside it
+            assert poly.intersection(corridor.buffer(-0.05)).area < 1.0
+            assert c.evidence["near_route"] == 0.0
+        # the explain record: the territory's share of the contour on this
+        # face, and the contour's apron remainder (a face's L-shaped 50 m band
+        # is 22,500 m², its 25 m corridors 11,875 m²)
+        assert c.evidence["territory_frac"] == pytest.approx(11_875 / 22_500, abs=0.02)
+        assert c.evidence["apron_remainder_m2"] == pytest.approx(10_625.0, rel=0.02)
+
+
+def test_route_territory_keeps_tight_pockets_and_returns_the_rest():
+    """The helper on plain geometry: a corridor band through a face is
+    territory; a remainder piece up to ``junction.max_area_m2`` (a pocket
+    at an intersection) joins it; a bigger piece is apron remainder."""
+    from shapely.geometry import box
+    from auto_patch_v2.classify.roles import _route_territory
+    rules = load_rules()
+    band = box(0, 80, 1000, 120)                          # a 40 m corridor band
+    wide = box(0, 0, 200, 200)                            # remainders 16,000 m² each
+    terr, near, rem = _route_territory(wide, wide, band, rules)
+    assert near == pytest.approx(40_000.0) and terr.area == pytest.approx(8_000.0)
+    assert rem == pytest.approx(32_000.0)
+    narrow = box(0, 0, 30, 200)                           # remainders 2,400 m² each: pockets
+    assert 2_400.0 <= rules.junction.max_area_m2
+    terr, near, rem = _route_territory(narrow, narrow, band, rules)
+    assert terr.area == pytest.approx(6_000.0) and rem == 0.0
+    # no contour on the face: no territory, nothing to report
+    terr, near, rem = _route_territory(wide, box(500, 500, 600, 600), band, rules)
+    assert terr.is_empty and near == 0.0 and rem == 0.0

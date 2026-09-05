@@ -183,6 +183,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     start_tree = STRtree(starts) if starts else None
     scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
     through = _through_routes(ev, rules) if prox is not None else []
+    corridors = _route_corridors(through, ev, rules) if prox is not None else None
     for face in faces:
         src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
         if src is not None:
@@ -243,22 +244,33 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
             stats["taxi_named"] = stats.get("taxi_named", 0) + 1
         if role == "apron" and prox is not None:
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
-            # v1 applies it: the part of an apron within the contour is
-            # maneuvering surface (junction); only the rest keeps the
-            # apron law.  The junction INHERITS THE CODE LETTER of the
+            # v1 applies it, BOUNDED BY THE ROUTE TERRITORY (owner ruling
+            # RULINGS 2026-09-05x, spec relaxation-without-certificate
+            # §6): of the part of an apron within the contour only the
+            # crossing routes' corridors (half-width ``junction.route_
+            # territory_half_width_m``) and the tight pockets at their
+            # intersections (``junction.max_area_m2``) are maneuvering
+            # surface (junction); every remaining part keeps the apron
+            # law.  Measured HECA pav132: the whole 50 m contour made a
+            # 214,262 m² junction cell whose plane-gradient rows were the
+            # certificate.  The junction INHERITS THE CODE LETTER of the
             # taxi chain(s) it serves (RULINGS 2026-09-04q-2; measured
             # CYXY junction 103: letter-less at 1.5 % over 222 m while
             # taxiway G is 1202 code A at 3 %).
-            for part in polygon_parts(face.intersection(prox)):
+            territory, near_area, remainder_area = _route_territory(
+                face, prox, corridors, rules)
+            tfrac = territory.area / near_area if near_area > 0 else 0.0
+            tev = dict(evid, territory_frac=tfrac, apron_remainder_m2=remainder_area)
+            for part in polygon_parts(face.intersection(territory)):
                 if part.area >= rules.cells.min_area_m2:
                     jl, n_serving = _junction_letter(part, taxi, through, rules)
                     scored.append((part, "junction", ref, jl,
-                                   dict(evid, near_route=1.0,
+                                   dict(tev, near_route=1.0,
                                         letter_chains=float(n_serving)), net))
-            for part in polygon_parts(face.difference(prox)):
+            for part in polygon_parts(face.difference(territory)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "apron", ref, None,
-                                   dict(evid, near_route=0.0), net))
+                                   dict(tev, near_route=0.0), net))
             continue
         scored.append((face, role, ref, letter, evid, net))
 
@@ -607,6 +619,52 @@ def _slice(region, taxi_parts, truck_parts, spurs, rules: Rules
         if prep.contains(poly.representative_point()):
             out.append(poly)
     return out
+
+
+def _route_corridors(through: list[Chain], ev: Evidence, rules: Rules):
+    """The crossing routes' corridors: each through-route's line buffered
+    by ``junction.route_territory_half_width_m`` (flat-capped: a route
+    ending inside the apron claims no pavement past its end), plus the
+    RUNWAY's own proximity band (``apron.route_proximity_m``, the 2026-07-06
+    rule's runway clause, which 05x — "a large apron crossed by
+    taxilanes" — does not bound; measured 2026-09-05: without it HECA
+    pav81/pav82 (52 k m² beside 05R/23L), CYXY pav24 (11 k) and OTHH pav32
+    (64 k) turn apron).  Computed once per airport; the same set that
+    minted the proximity contour."""
+    src = [c.line.buffer(rules.junction.route_territory_half_width_m, cap_style="flat")
+           for c in through]
+    if not ev.runway_union.is_empty:
+        src.append(ev.runway_union.buffer(rules.apron.route_proximity_m,
+                                          join_style="mitre", mitre_limit=2.0))
+    return unary_union(src) if src else Polygon()
+
+
+def _route_territory(face: Polygon, prox, corridors, rules: Rules
+                     ) -> tuple[_t.Any, float, float]:
+    """THE BOUNDED ROUTE TERRITORY of an apron-derived face (RULINGS
+    2026-09-05x): the part of the proximity contour that lies (i) in a
+    crossing route's corridor or (ii) in a tight pocket between corridors
+    at their intersections — a remainder part of at most
+    ``junction.max_area_m2`` (the existing tight-junction test, applied to
+    the pocket) — the rest of the contour being apron remainder.  Returns
+    ``(territory, contour area on the face, apron remainder area)``."""
+    near = face.intersection(prox)
+    if near.is_empty:
+        return Polygon(), 0.0, 0.0
+    if corridors is None or corridors.is_empty:
+        return Polygon(), near.area, near.area
+    parts = [p for p in polygon_parts(near.intersection(corridors))
+             if p.area >= rules.cells.min_area_m2]
+    remainder = 0.0
+    for p in polygon_parts(near.difference(corridors)):
+        if p.area < rules.cells.min_area_m2:
+            continue
+        if p.area <= rules.junction.max_area_m2:
+            parts.append(p)                    # a tight pocket at an intersection
+        else:
+            remainder += p.area
+    territory = unary_union(parts) if parts else Polygon()
+    return territory, near.area, remainder
 
 
 def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],

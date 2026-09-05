@@ -112,3 +112,32 @@ and `no_step` unchanged in form. Acceptance as §3 (HECA once; expect
 scope `relaxable` or `certificate`, no demotion, relaxed rows on
 pav132's apron chords and the hangar pads, taxi rows untouched, census
 under 40/7 airside is the bar to quote against).
+
+## 6. Amendment 2026-09-05 — owner ruling 05x (a): junction = bounded route territory
+
+HECA's hangar apron pav132 (335,171 m², apron-named, 19 crossing taxi
+chains, 21 % of it within 25 m of a route) is cut by the route-proximity
+rule into a 214,262 m² JUNCTION cell (three faces 1.2–1.3 km across); its
+junction-mesh and taxi rows are tier-0 hard and the certificate (308
+rows) is made of them. RULED (a): on an apron-derived cell the junction
+role is the BOUNDED ROUTE TERRITORY — the union of (i) each crossing
+centreline's corridor of half-width `[junction] route_territory_half_
+width_m` (25 m) and (ii) the tight areas at centreline intersections
+(the existing `max_area_m2` tight-junction test on the intersection
+neighbourhood) — and every remaining part of the face is APRON under the
+apron law. The proximity contour (`prox`, user 2026-07-06) is
+intersected with that territory before the cut; parts under
+`cells.min_area_m2` follow the existing rule. Corridor cells (`kind ==
+"corridor"`, width ≤ `corridor.max_width_m`) and tight junctions
+(`area ≤ max_area_m2`) are unchanged.
+
+Twins: a synthetic 600 × 400 m apron crossed by two centrelines → two
+50 m corridors + one intersection junction + apron remainder, the
+remainder's role `apron`; the `explain` evidence records `territory_
+frac` and the apron remainder area. Acceptance: HECA once (scope
+`certificate` or `relaxable`, no demotion, all six runway halves ≤ 1.5 %
++ quantum, relaxed rows on pav132's apron remainder and the hangar pads,
+census vs 40/7, v2-verify, solve wall); the classification change touches
+every airport — `--base-arm` deltas by role at CYXY, SPJC and OTHH (their
+crossed aprons: state which cells changed role and the census before →
+after; 0/0 must hold).

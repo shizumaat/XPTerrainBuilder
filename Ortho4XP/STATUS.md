@@ -1,4 +1,11 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 OTHH read on 1.0.284 (05j): shape 718 = covered-hole duplicate
+#   way FIXED 6f196e0e; pack tunnel wall objects were INVISIBLE to v2 (stale
+#   dump picked by name) FIXED 775676eb (driver re-dumps); shapely warnings
+#   silenced b73e8e08. OPEN owner questions 05j-1 (objects as tunnel
+#   authority) and 05j-2 (flat-site datum design: (b)+(c) recommended).
+#   OTHH v2 0/0 (OTHH_20260904T174430). Next app build carries all three.
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 v2hecaclose MERGED 74c8b85d (05i): pad_slope_max table value
 #   (HECA pad 0.998 %), fixed-point weld (HECA 24/17 → 10/3, airside = 3
 #   building slivers; CYXY 0/0 with the owner's site fully welded), warm

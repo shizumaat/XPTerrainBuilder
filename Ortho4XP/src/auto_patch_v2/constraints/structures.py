@@ -180,9 +180,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     br_law = law.tables.structures.bridge
     if tn_law.crest != "dem":
         raise ValueError(f"tunnel.crest {tn_law.crest!r}: only 'dem' is generated")
-    if tn_law.object.crest != "plate" or tn_law.object.floor_datum != "seat":
+    if tn_law.object.crest not in ("plate", "dem") or tn_law.object.floor_datum != "seat":
         raise ValueError(f"tunnel.object.crest {tn_law.object.crest!r} / floor_datum "
-                         f"{tn_law.object.floor_datum!r}: only 'plate' / 'seat' are generated")
+                         f"{tn_law.object.floor_datum!r}: only 'plate' | 'dem' / 'seat' are "
+                         f"generated")
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
 
@@ -221,9 +222,16 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # = "plate"``): floor + the plate height at every bare station;
             # the mouth datum is the SEAT, absolute — never the cap − 5.1
             inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
-            crest_z = tn.crest_z
-            src_wall = Source(GEN, "tunnel.object.crest = plate: seat + plate height "
-                              "(2026-09-05k-1)", inputs)
+            if tn.crest == "plate":
+                crest_z = tn.crest_z
+                src_wall = Source(GEN, "tunnel.object.crest = plate: seat + plate height "
+                                  "(2026-09-05k-1)", inputs)
+            else:
+                # ``tunnel.object.crest = "dem"``: the band at the ground
+                # (09-03b's rule), the object's parapet standing as authored
+                src_wall = Source(GEN, "tunnel.object.crest = dem: the ground by station "
+                                  "(2026-09-03b L1) under an object corridor (2026-09-05k-1)",
+                                  inputs)
             src_mouth = Source(GEN, "tunnel.object.floor_datum = seat (2026-09-05k-1)", inputs)
         # ── the wall band: crest = the ground, one value per station ──
         path = LineString(tn.wall_path) if len(tn.wall_path) >= 2 else None

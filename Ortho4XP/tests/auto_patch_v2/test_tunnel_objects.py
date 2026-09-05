@@ -405,3 +405,40 @@ def test_law_register(law):
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
     assert law.tables.structures.rebake.structure_family_excluded is True
+
+
+def test_object_crest_dem_is_one_key(corridor_map, tmp_path):
+    """The crest law of an object corridor is the TABLE's: with
+    ``[tunnel.object] crest = "dem"`` the band's bare stations carry the
+    DEM (09-03b) and the floor stays the seat — no code, one key (the
+    OTHH closing build measured the plate 2.0 m above the ground)."""
+    import shutil
+    from auto_patch_v2.law import Law as _Law
+    from auto_patch_v2.law.tables import DEFAULT_LAW_DIR
+    d = tmp_path / "law"
+    shutil.copytree(DEFAULT_LAW_DIR, d, ignore=shutil.ignore_patterns("*.py", "__pycache__"))
+    t = d / "structures.toml"
+    text = t.read_text()
+    assert 'crest               = "plate"' in text
+    t.write_text(text.replace('crest               = "plate"', 'crest               = "dem"  ', 1))
+    law2 = _Law.for_airport("ZZZZ", law_dir=d)
+    airport, cl2, tunnels, st, pm, stats, cs = corridor_map
+    cl = Classification(tuple(_cells()), (), {}, ())
+    cache = obj8.ResourceCache(law2.tables.structures.basin.min_solid_thickness_m)
+    objects, rep = read_objects(airport, law2, cache)
+    cs2, ts2 = read_corridors(airport, objects, cache, law2)
+    pm2, _stats = build(airport, cl, law2)
+    t2 = pm2.structures[0]
+    assert t2.source == "object" and t2.crest == "dem" and t2.mouth_z == pytest.approx(cs2[0].floor_z)
+    rows = structures(pm2, law2, airport)
+    pins = {r.v: r for r in rows if isinstance(r, Pin)}
+    walls = wall_faces_of(pm2, pm2.structures)[t2.id]
+    dem = _PlaneDem()
+    bare = 0
+    for f in walls:
+        for v in pm2.ring_vertices(f.ring):
+            if v in pins and "crest = dem" in pins[v].source.ruling:
+                bare += 1
+                x, y = pm2.vertices[v].xy
+                assert abs(pins[v].z - dem.z(x, y)) < 0.05
+    assert bare > 0

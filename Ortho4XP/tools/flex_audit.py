@@ -21,7 +21,7 @@ numbers below are the inputs to that ruling, not the ruling.
 
 Usage:
     venv/bin/python tools/flex_audit.py A.osm B.osm
-        [--roles runway|all] [--tol M] [--map-only]
+        [--roles runway|all] [--tol M] [--map-only] [--by-role]
 
 ``--roles all`` widens step 1's displacement map from the runway family
 to EVERY emitted role, and ``--map-only`` stops after it — that is the
@@ -116,11 +116,12 @@ def patch_frame(path):
     return (prov.get("sha") or "absent"), prov.get("dirty")
 
 
-def load(path, roles=RUNWAY_ROLES):
+def load(path, roles=RUNWAY_ROLES, role_out=None):
     """(node values keyed by rounded lat/lon for ``roles``, all nodes).
 
     ``roles=None`` takes every way regardless of role — the whole-surface
-    displacement map."""
+    displacement map.  ``role_out`` (a dict) collects key -> the role of
+    the FIRST way carrying that node (the ``--by-role`` breakdown)."""
     nodes = {}
     current_node = None
     node_re = re.compile(
@@ -151,8 +152,10 @@ def load(path, roles=RUNWAY_ROLES):
             lat, lon, alt = nodes.get(nid, (None, None, None))
             if lat is None or alt is None:
                 continue
-            runway_values[(round(lat, JOIN_ROUND_DP),
-                           round(lon, JOIN_ROUND_DP))] = float(alt)
+            key = (round(lat, JOIN_ROUND_DP), round(lon, JOIN_ROUND_DP))
+            runway_values[key] = float(alt)
+            if role_out is not None:
+                role_out.setdefault(key, tags.get("role") or "?")
     return runway_values, nodes
 
 
@@ -162,6 +165,7 @@ def main() -> int:
     tol = 0.10
     map_only = False
     map_json = None
+    by_role = False
     positional = []
     i = 0
     while i < len(argv):
@@ -177,6 +181,8 @@ def main() -> int:
         elif a == "--map-json":
             i += 1
             map_json = argv[i]
+        elif a == "--by-role":
+            by_role = True
         else:
             positional.append(a)
         i += 1
@@ -210,7 +216,8 @@ def main() -> int:
     print(f"join: node values matched on lat/lon rounded to "
           f"{JOIN_ROUND_DP} decimal place(s)")
 
-    on_values, on_nodes = load(on_path, roles)
+    role_of = {}
+    on_values, on_nodes = load(on_path, roles, role_of)
     off_values, _ = load(off_path, roles)
 
     what = "runway node(s)" if roles is not None else "node(s), ALL roles"
@@ -230,6 +237,25 @@ def main() -> int:
         mags = sorted(abs(t[2]) for t in moved)
         print(f"moved |d|: p50 {mags[len(mags) // 2]:.3f} m, p95 "
               f"{mags[min(len(mags) - 1, int(0.95 * len(mags)))]:.3f} m")
+    if by_role:
+        # THE DISPLACEMENT MAP BY ROLE (lane v2relaxfull2, promoted from a
+        # scratch ``dz_by_role.py`` on its second use): which ROLES moved
+        # between the arms, n matched / max |d| / moved >= tol — the
+        # reading "reach and no_step changed across the aprons: what
+        # moved, and did the runway?" one line per role, worst first.
+        per = {}
+        for key, value in on_values.items():
+            baseline = off_values.get(key)
+            if baseline is None:
+                continue
+            d = abs(value - baseline)
+            r = per.setdefault(role_of.get(key, "?"), [0, 0.0, 0])
+            r[0] += 1
+            r[1] = max(r[1], d)
+            r[2] += d >= tol
+        print(f"by role ({len(per)} role(s), moved >= {tol:g} m):")
+        for role, (n, mx, mv) in sorted(per.items(), key=lambda kv: -kv[1][1]):
+            print(f"  {role:22s} n {n:6d}  max|d| {mx:7.3f} m  moved {mv}")
     if map_json:
         # THE MAP ITSELF, per node and SIGNED.  The printed summary answers
         # "did the surface move and by how much"; a question of the form

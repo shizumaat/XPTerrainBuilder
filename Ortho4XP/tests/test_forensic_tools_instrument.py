@@ -527,3 +527,28 @@ def test_the_pad_rigidity_knife_REFUSES_when_there_are_no_pads(irr):
         irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
                        st["node_bounds"], st["group_bounds"], st)
     assert "REFUSING --arm no-pad-groups" in str(excinfo.value)
+
+
+def test_by_role_breakdown_reads_each_node_role_once(fa, tmp_path):
+    """``--by-role`` (lane v2relaxfull2, the scratch ``dz_by_role.py``
+    promoted on its second use): ``load(..., role_out=d)`` keys every
+    matched node to the role of the first way carrying it, so the
+    per-role table is one row per role over the same join the summary
+    prints — never a second join."""
+    osm = ("<?xml version='1.0'?>\n<osm version='0.6'>\n"
+           "<node id='-1' lat='60.70000000000' lon='-135.10000000000'>\n"
+           "  <tag k='alt_abs' v='{a}'/>\n</node>\n"
+           "<node id='-2' lat='60.70010000000' lon='-135.10000000000'>\n"
+           "  <tag k='alt_abs' v='{b}'/>\n</node>\n"
+           "<way id='-10'><nd ref='-1'/><nd ref='-2'/><tag k='role' v='apron'/></way>\n"
+           "<way id='-11'><nd ref='-2'/><tag k='role' v='building'/></way>\n"
+           "</osm>\n")
+    on, off = tmp_path / "on.osm", tmp_path / "off.osm"
+    on.write_text(osm.format(a=700.0, b=701.5))
+    off.write_text(osm.format(a=700.0, b=700.0))
+    roles = {}
+    vals, _nodes = fa.load(str(on), None, roles)
+    assert len(vals) == 2 and set(roles.values()) == {"apron"}, "first way wins"
+    base, _ = fa.load(str(off), None)
+    moved = {roles[k]: abs(v - base[k]) for k, v in vals.items() if abs(v - base[k]) >= 0.01}
+    assert moved == {"apron": pytest.approx(1.5)}

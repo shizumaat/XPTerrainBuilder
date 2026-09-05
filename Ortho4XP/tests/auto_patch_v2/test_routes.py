@@ -273,3 +273,110 @@ def test_sidecar_and_verify_read_the_same_population(loop, law):
     surf2 = graded_surface(pm, law, sol2, airport.frame.origin, airport.frame.crs, {})
     rows = no_step_direct(Patch.of(surf2, law, pub, {}))
     assert rows and all(r["family"] == "airside_no_step" for r in rows)
+
+
+# ── RULINGS 2026-09-05v: no apron plan chord in the route graph ──────────
+
+@pytest.fixture(scope="module")
+def between(law):
+    """A runway; a stub up at x = −300 into a 700 m × 100 m apron; a
+    second taxiway leaving the apron's far end (x = +300) northward to
+    nowhere.  The apron sits BETWEEN two taxiways; the far taxiway is
+    reached from the thresholds only through the apron, whose 700 m body
+    chord (608 m corner to far mouth) is NOT a route (2026-09-05v)."""
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                      (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "stub", "stubW", _rect(-311.5, 22.5, -288.5, 190), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(2, "apron", "apron1", _rect(-350, 190, 350, 290), (), None, None,
+             "airside", "apron", {}),
+        Cell(3, "stub", "stubN", _rect(288.5, 290, 311.5, 400), (), None, "D",
+             "airside", "taxi", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "stubW", ((-300.0, 0.0), (-300.0, 190.0))),
+            CutLine("taxi_centerline", "stubN", ((300.0, 290.0), (300.0, 400.0))))
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    return airport, pm
+
+
+def _apron_face_vertex_sets(pm):
+    return [{v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+            for f in pm.faces.values() if f.role == "apron"]
+
+
+@pytest.mark.parametrize("fx", ["loop", "between"])
+def test_no_chord_edge_lies_on_one_apron_face(fx, law, request):
+    """The twin of 2026-09-05v: the route graph carries no CHORD edge whose
+    two endpoints lie on one apron face; the apron's perimeter (its ring
+    edges) and the centrelines crossing it are its only routes."""
+    from auto_patch_v2.constraints.routes import CHORD, RING
+    _airport, pm = request.getfixturevalue(fx)
+    g = build_routes(pm, law)
+    sets = _apron_face_vertex_sets(pm)
+    assert sets
+    chords = [(int(a), int(b)) for a, b, k in zip(g.a, g.b, g.kind) if k == CHORD]
+    for s in sets:
+        assert not [(a, b) for a, b in chords if a in s and b in s]
+        # ...and every apron ring edge IS a route
+        rings = {(int(a), int(b)) for a, b, k in zip(g.a, g.b, g.kind) if k in (RING, CENTRELINE)}
+        assert s <= {v for e in rings for v in e}
+
+
+def test_apron_body_chord_is_not_a_route_the_far_taxiway_takes_the_route_budget(between, law):
+    """The apron between two taxiways: the reach band at the far taxiway
+    is the ROUTE's budget — runway ring, stub, the apron PERIMETER, the
+    far stub — not the 608 m apron body chord's (which grants ~0.9 m
+    less at the apron cap and, hard as a band, would bind where the
+    apron law's own relaxable chord row is the only law on it)."""
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    from auto_patch_v2.constraints.routes import CHORD
+    from auto_patch_v2.law.tables import role_cap
+    airport, pm = between
+    g = routes(pm, law)
+    pins = threshold_pins(pm, law, airport)
+    assert set(pins.values()) == {700.0}
+    band = reach(g, pins)
+    top = [v for v in _verts_of_role(pm, "stub") if abs(pm.vertices[v].xy[1] - 400.0) < 1e-6]
+    mouth_w = [v for v in _verts_of_role(pm, "apron") if abs(pm.vertices[v].xy[1] - 190.0) < 1e-6
+               and abs(pm.vertices[v].xy[0] + 300.0) < 12.0]
+    mouth_n = [v for v in _verts_of_role(pm, "apron") if abs(pm.vertices[v].xy[1] - 290.0) < 1e-6
+               and abs(pm.vertices[v].xy[0] - 300.0) < 12.0]
+    assert top and mouth_w and mouth_n
+    v = top[0]
+    pin = next(iter(pins))
+    d, bud, path = route_path(g, pin, v)
+    assert band[v][1] == pytest.approx(700.0 + bud, abs=1e-6)
+    # the route runs the apron's PERIMETER: no CHORD edge of the path
+    # lies on the apron (the runway / stub per-stretch chords are routes)
+    kinds = {}
+    for a, b, k in zip(g.a, g.b, g.kind):
+        kinds[(int(a), int(b))] = int(k)
+    apron_v = _verts_of_role(pm, "apron")
+    assert any(x in apron_v and y in apron_v for x, y in zip(path, path[1:]))
+    assert all(kinds[(min(x, y), max(x, y))] != CHORD
+               for x, y in zip(path, path[1:]) if x in apron_v and y in apron_v)
+    # the withdrawn chord: apron west mouth -> north mouth straight across
+    # the body, at the apron cap; the route around it grants more
+    apron_cap = role_cap(law, "apron").longitudinal
+    a, b = mouth_w[0], mouth_n[0]
+    chord = math.hypot(*(np.subtract(pm.vertices[a].xy, pm.vertices[b].xy)))
+    assert chord > 550.0
+    da, ba, _pa = route_path(g, pin, a)
+    dperim, bperim, pperim = route_path(g, a, b)
+    assert dperim > chord + 50.0 and bperim > apron_cap * chord + 0.5
+    assert band[b][1] == pytest.approx(700.0 + ba + bperim, abs=1e-6)
+    assert band[b][1] > 700.0 + ba + apron_cap * chord + 0.5
+    # reach and no_step keep their form on this map
+    rows = no_step.reach_bands(pm, law, airport)
+    assert {r.v for r in rows} == set(band) and all(r.lo <= r.hi for r in rows)
+    pairs = no_step.no_step_edges(pm, law)
+    assert pairs and all(0 < dd <= law.tables.emit.no_step.window_m + 1e-9 for *_x, dd in pairs)
+    assert (min(a, b), max(a, b)) not in {(x, y) for x, y, *_ in pairs}

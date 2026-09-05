@@ -3,21 +3,31 @@ out from runway thresholds and have to follow taxi routes ... aircraft
 can't travel straight across the grass; they have to follow taxi routes,
 which is what follows the grade cap").
 
-The graph an aircraft travels: NODES are the planar vertices on airside
-pavement; EDGES are the travel paths the law itself prices inside and
-along that pavement — every ring edge of an airside pavement face (a
-taxi centreline chord is a ring edge of the faces it splits, so the
-centrelines are first-class), every chord of a taxi-family face (the
-face is a PLANE shape: any two of its vertices are a travel path,
-``rulesets.taxi.longitudinal within_shape``), and on an apron the
-movement surfaces the apron law names (ring edges, chords to a spine or
-pad vertex, body chords inside ``emit.within_shape.apron_body_chord_max_m``;
-RULINGS 2026-08-21c / 08-24) — chords span ALL the rings of a face, the
-outer and its holes: a face is one surface and a pad's rim reaches the
-pad beside it across the apron between them.  SERVICE ROADS ARE EXCLUDED from airside
-reach (v1 ``config.REACH_NO_SERVICE_SPINES``; memory
-``reach-follows-centerlines``): the groundside roles never contribute a
-node or an edge, and a ``road_centerline`` breakline adds nothing.
+The graph an aircraft travels (RULINGS 2026-09-05v, 04o applied): NODES
+are the planar vertices on airside pavement; EDGES are the MOVEMENT-
+SURFACE ROUTE NETWORK — every ring edge of an airside pavement face
+(runway-family and taxi-family rings, apron PERIMETERS), the taxi
+centrelines (a centreline is a cut line through every pavement region,
+so a 1202 taxilane crossing an apron is a ring edge of the apron faces
+it splits, priced at the apron cap through ``edge_cap``) and the
+per-stretch chords of a taxi-family face (the face is a PLANE shape:
+any two of its vertices on one stretch are a travel path,
+``rulesets.taxi.longitudinal within_shape``, 04t-3).  NO APRON PLAN
+CHORD: a chord across an apron's body is the apron law's own hard-but-
+relaxable row (``constraints.apron``), never a route — measured HECA
+2026-09-05: a path cutting pav132 on a 700 m chord at 1 % granted 7 m
+where the taxi route around it grants 43 m, and the reach bands are
+hard, so relaxing the apron rows could never free them (the §4 reading
+of ``relaxation-without-certificate-spec.md`` is withdrawn).  The twin:
+the graph carries no CHORD edge whose two endpoints lie on one apron
+face — a taxi chord along a run shared with an apron is dropped too
+(its ring edges are the route).  A pad hole's rim inside an apron is
+therefore an island unless a centreline reaches it: it takes no reach
+band and no perimeter no-step pair (the pad law and the apron frontage
+rows bind it).  SERVICE ROADS ARE EXCLUDED from airside reach (v1
+``config.REACH_NO_SERVICE_SPINES``; memory ``reach-follows-centerlines``):
+the groundside roles never contribute a node or an edge, and a
+``road_centerline`` breakline adds nothing.
 
 Each edge carries its PLAN LENGTH and the CAP of the face it lies in —
 the strictest where two faces share it, which is the budget the solve
@@ -117,41 +127,13 @@ def _pack(a: np.ndarray, b: np.ndarray, n: int) -> np.ndarray:
     return a.astype(np.int64) * n + b.astype(np.int64)
 
 
-def _face_pairs(P: np.ndarray, strict: np.ndarray, all_pairs: bool, gate: float,
-                chunk: int = 512) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The chords of one face over ALL its rings (outer and holes — the
-    face is one surface; a pad hole's rim reaches the rim beside it across
-    the apron, measured CYXY building6/7: 3.6 m apart, 1.59 m step when
-    only same-ring chords were routes): ``(i, j, d)`` with ``i < j``;
-    every pair for a plane shape, else a pair with a strict endpoint at
-    any distance or any pair inside ``gate``."""
-    n = len(P)
-    ii, jj, dd = [], [], []
-    for i0 in range(0, n, chunk):
-        i1 = min(n, i0 + chunk)
-        d = np.hypot(P[i0:i1, None, 0] - P[None, :, 0], P[i0:i1, None, 1] - P[None, :, 1])
-        rows = np.arange(i0, i1)[:, None]
-        cols = np.arange(n)[None, :]
-        m = (cols > rows) & (d > 0.0)
-        if not all_pairs:
-            m &= strict[i0:i1, None] | strict[None, :] | (d <= gate)
-        r, c = np.nonzero(m)
-        ii.append(r + i0)
-        jj.append(c)
-        dd.append(d[r, c])
-    if not ii:
-        z = np.zeros(0, np.int64)
-        return z, z, np.zeros(0, float)
-    return np.concatenate(ii), np.concatenate(jj), np.concatenate(dd)
-
-
 def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     """The route graph of ``pm`` under ``law`` (module docstring)."""
     roles = route_roles(law)
     taxi = set(law.tables.precedence.taxi_family.members)
     rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
-    gate = law.tables.emit.within_shape.apron_body_chord_max_m
     min_d = law.tables.emit.identity.min_distinct_spacing_m
+    mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
     pad_cap = law.tables.common.roles["building"].longitudinal
     st = stretches(pm, law)
     face_caps: dict[int, tuple[float, float] | None] = {}
@@ -162,8 +144,8 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     xy = np.zeros((n_v, 2), float)
     for vid, v in pm.vertices.items():
         xy[vid] = v.xy
-    # spine vertices (taxi centrelines) and pad-shared vertices: an apron
-    # chord to either is a movement surface (RULINGS 2026-08-21c)
+    # spine vertices (taxi centrelines) and pad-shared vertices: a taxi
+    # chord to a pad vertex carries the pad's cap (frontage)
     strict_v = np.zeros(n_v, bool)
     f_rigid = np.zeros(n_v, bool)
     for bl in pm.breaklines.values():
@@ -203,8 +185,14 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
                     verts.append(v)
         nodes.update(verts)
         if f.role in taxi:
-            # per-stretch chords (04t-3), a pad endpoint at the pad's cap
-            pc = pair_caps(pm, law, st, f.id, verts, cap, min_d)
+            # per-stretch chords (04t-3), a pad endpoint at the pad's cap;
+            # a JUNCTION BODY's pairs are its common-stretch pairs ONLY
+            # (04y, the rows ``taxi`` generates) — measured HECA
+            # 2026-09-05: junction pav132's every-pair chords (1300 m and
+            # 1175 m from a hangar-pad rim at the pad cap) were the
+            # min-budget route from 05L/23R to runway 05C/23C's edge
+            pc = pair_caps(pm, law, st, f.id, verts, cap, min_d,
+                           common_only=f.role in mesh_roles)
             if pc:
                 pa = np.array([p[0] for p in pc], np.int64)
                 pb = np.array([p[1] for p in pc], np.int64)
@@ -213,13 +201,6 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
                                for p in pc], float)
                 A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
                 C.append(cc); K.append(np.full(len(pc), CHORD, np.int8))
-        elif f.role == "apron":
-            va = np.array(verts, np.int64)
-            i, j, _d = _face_pairs(xy[va], strict_v[va], False, gate)
-            if len(i):
-                pa, pb = va[i], va[j]
-                A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
-                C.append(np.full(len(i), cap)); K.append(np.full(len(i), CHORD, np.int8))
     if not A:
         z = np.zeros(0, np.int64)
         return RouteGraph(n_v, frozenset(), z, z, np.zeros(0), np.zeros(0),
@@ -249,6 +230,19 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
         cap = cap.copy()
         for idx in np.flatnonzero(np.isin(key, np.array(list(cl_cap), np.int64))):
             cap[idx] = cl_cap[int(key[idx])]
+    # NO APRON PLAN CHORD (2026-09-05v): a CHORD with both endpoints on one
+    # apron face (a taxi chord along a run the face shares with an apron)
+    # is not a route — the ring edges along that run are
+    drop = np.zeros(len(a), bool)
+    is_chord = kind == CHORD
+    for f in pm.faces.values():
+        if f.role != "apron" or not is_chord.any():
+            continue
+        fv = np.fromiter({v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)},
+                         np.int64)
+        drop |= is_chord & np.isin(a, fv) & np.isin(b, fv)
+    keep = ~drop
+    a, b, cap, kind = a[keep], b[keep], cap[keep], kind[keep]
     length = np.hypot(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
     keep = length > 0.0
     a, b, cap, kind, length = a[keep], b[keep], cap[keep], kind[keep], length[keep]

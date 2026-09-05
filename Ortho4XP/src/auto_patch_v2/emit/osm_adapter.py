@@ -12,11 +12,15 @@ THE PATCH v2 WRITES:
     ``code_number`` where the face carries a class, ``o4_single_poly=1``
     on runway rings (the census's station-scoped lateral law, user
     2026-07-08), node ``alt_abs`` per vertex;
-  * one closed way per HOLE, tagged ``o4_feature=gap_interior_ring``
+  * one closed way per UNCOVERED HOLE, tagged ``o4_feature=gap_interior_ring``
     exactly as v1 so the census keeps it out of the ring laws and the
     mesh still constrains it (``include_patches`` inserts every closed
     way as a ring; ``_parse_osm`` routes the feature class to
-    ``feature_out``);
+    ``feature_out``).  A hole every edge of which is already an edge of
+    some face ring (the planar map's normal case: the hole IS the faces
+    inside it) is NOT written — the ring would be a coincident duplicate
+    carrying the parent's shapeID, which read in the sim as "shapeID 718
+    gap_interior_ring" over what is apron 730 (owner, OTHH 2026-09-04);
   * one open way per ``runway_profile`` breakline tagged
     ``o4_feature=crown_spine`` — the ridge the census's ``runway_crown``
     reader measures the declared drops against (a ``DUMMY`` constrained
@@ -101,6 +105,13 @@ def _q(v: object) -> str:
     return "'" + escape(str(v), {"'": "&apos;", '"': "&quot;"}) + "'"
 
 
+def _edges(cycle: _t.Sequence[int]) -> set[tuple[int, int]]:
+    """The unordered vertex-id edges of a closed cycle."""
+    n = len(cycle)
+    return {(min(cycle[i], cycle[(i + 1) % n]), max(cycle[i], cycle[(i + 1) % n]))
+            for i in range(n)}
+
+
 def render_patch(surface: GradedSurface, law: Law,
                  header: _t.Mapping[str, str] | None = None,
                  face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
@@ -141,6 +152,10 @@ def render_patch(surface: GradedSurface, law: Law,
             lines.append(f"    <tag k={_q(k)} v={_q(val)} />")
         lines.append("  </way>")
 
+    ring_edges: set[tuple[int, int]] = set()
+    for f in surface.faces:
+        ring_edges.update(_edges(f.ring))
+
     for f in surface.faces:
         spec = reg.get(f.role)
         extra = dict((face_tags or {}).get(f.id) or {})
@@ -171,6 +186,8 @@ def render_patch(surface: GradedSurface, law: Law,
             tags.append((k, val))
         way(f.ring, tags, True)
         for h in f.holes:
+            if _edges(h) <= ring_edges:
+                continue                    # covered: the inner faces constrain it
             way(h, [("o4_feature", HOLE_FEATURE), ("shapeID", str(f.id))], True)
     for b in surface.breaklines:
         feat = _OPEN_WAY_KINDS.get(b.kind)

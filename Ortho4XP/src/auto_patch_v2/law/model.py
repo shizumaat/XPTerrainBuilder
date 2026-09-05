@@ -532,12 +532,9 @@ class Relaxation:
     #: RULINGS 2026-09-05f: a relaxed pad's plane gradient, at most (m/m)
     pad_slope_max: float
     relaxable_from_role: str
-    #: RULINGS 2026-09-05u: what 04t(1) runs over when no certificate
-    #: arrives inside ``iis_time_budget_s`` — ``"relaxable"``: every row
-    #: of ``relaxable_from_role``'s tier and junior, every rigid pad
+    #: RULINGS 2026-09-05u: 04t(1) over every relaxable row with no certificate in budget
     scope_without_certificate: str
-    #: the tier ladder (04i) answers only after the relaxable scope, and a
-    #: governed family it demotes is a NAMED FAILURE
+    #: the tier ladder answers last; a governed family it demotes is a NAMED FAILURE
     tier_ladder_last: bool
 
 
@@ -651,9 +648,7 @@ class LawTables:
 _GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up",
                 "fan_ramp", "crown", "materiality")
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
-#: ``[relaxation] scope_without_certificate`` (RULINGS 2026-09-05u): the
-#: one ruled scope — the whole relaxable population
-_RELAXATION_SCOPES = ("relaxable",)
+_RELAXATION_SCOPES = ("relaxable",)   # [relaxation] scope_without_certificate (2026-09-05u)
 _SIDES = ("airside", "groundside")
 _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
@@ -828,11 +823,10 @@ def _check_cross_refs(t: LawTables) -> None:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     rl = t.emit.relaxation
     if rl.relaxable_from_role not in roles:
-        raise LawError(f"emit.relaxation.relaxable_from_role: unknown role "
-                       f"{rl.relaxable_from_role!r}")
+        raise LawError(f"emit.relaxation.relaxable_from_role: unknown role {rl.relaxable_from_role!r}")
     if rl.scope_without_certificate not in _RELAXATION_SCOPES:
-        raise LawError(f"emit.relaxation.scope_without_certificate "
-                       f"{rl.scope_without_certificate!r} (allowed: {_RELAXATION_SCOPES})")
+        raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
+                       f" (allowed: {_RELAXATION_SCOPES})")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

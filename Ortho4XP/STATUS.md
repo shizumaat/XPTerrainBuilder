@@ -1,4 +1,10 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 v2flatsite MERGED f0964074 (05l): flat datum = law preference
+#   (per-row flat_datum groups) + [declared] table; structure faces excluded
+#   (amendment); OTHH 0/0, v2-verify 0, CYXY byte-identical. Lane
+#   v2tunnelobj (05k-1) implementation committed 73171897, closing build
+#   pending → merge → APP 1.0.285.
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 OTHH read on 1.0.284 (05j): shape 718 = covered-hole duplicate
 #   way FIXED 6f196e0e; pack tunnel wall objects were INVISIBLE to v2 (stale
 #   dump picked by name) FIXED 775676eb (driver re-dumps); shapely warnings

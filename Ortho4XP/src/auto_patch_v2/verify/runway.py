@@ -1,4 +1,5 @@
-"""``runway_crown`` and ``runway_end_skirt`` over the emitted rings.
+"""``runway_crown``, ``runway_transverse`` and ``runway_end_skirt`` over
+the emitted rings.
 
 Crown (RULINGS 2026-08-05; v1 ``_check_runway_crown``): every
 runway-family ring vertex carrying a published drop must sit at least
@@ -7,6 +8,16 @@ it), less the instrument envelope; with nothing declared the ruleset's
 crown minimum (``runway.transverse_min``) binds on runways against the
 law's own axis.  Rows at a ``runway_crossing`` (or a node welded to one)
 are OUT OF SCOPE (Annex 14 §3.1.19 "except at intersections").
+
+Transverse maximum (RULINGS 2026-09-05o): a ``runway`` ring vertex
+whose built fall under the nearest ``crown_spine`` exceeds
+``runway.transverse_max × d`` by more than the instrument envelope — or
+which rises above the spine by more than that — is a DEFECT row
+(``reading = "transverse_max"``, family ``runway_transverse``, a
+``verify.census.DEFECT_KEYS`` member): the hard generator states the
+band, so a row can only come from a solver / emit defect.  Rows at a
+``runway_crossing`` (or a node welded to one) are out of scope (§3.1.19)
+and are not minted.
 
 End skirt: rings with ``ref == runway_end_skirt`` — v2 emits none, so
 the family is vacuous on v2's own product (the corridor ground is
@@ -17,10 +28,13 @@ from __future__ import annotations
 import math
 
 from ..constraints.geometry import principal_axis
+from ..law.tables import runway_transverse_max
 from .frame import Patch, Row, noise_m, row
 from .within import crown_by_vertex
 
-__all__ = ["runway_crown", "runway_end_skirt"]
+__all__ = ["runway_crown", "runway_transverse", "runway_end_skirt"]
+
+FAMILY_TRANSVERSE = "runway_transverse"
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 
@@ -91,6 +105,48 @@ def runway_crown(p: Patch) -> list[Row]:
                            (x, y), foot, sh.key, sh.key,
                            "runway_intersection" if (sh.role == "runway_crossing"
                                                      or v in xing) else None))
+    return out
+
+
+def runway_transverse(p: Patch) -> list[Row]:
+    """The transverse MAXIMUM read on the built surface (module docstring):
+    ``|z_spine(foot) − z_v| > cap × d + noise`` on a ``runway`` ring
+    vertex off any crossing is one DEFECT row."""
+    law = p.law
+    spines = [list(sh.closed_ring) for sh in p.features if sh.feature == "crown_spine"]
+    if not spines:
+        return []
+    xing: set[int] = set()
+    for sh in p.shapes:
+        if sh.role == "runway_crossing":
+            xing.update(sh.ids)
+    out: list[Row] = []
+    seen: set[int] = set()
+    for sh in p.shapes:
+        if sh.role != "runway":
+            continue
+        cap = runway_transverse_max(law, sh.code_letter, sh.code_number)
+        if cap is None:
+            continue
+        noise = noise_m(law, sh.role)
+        for k, v in enumerate(sh.ids):
+            if v in xing or v in seen:
+                continue
+            seen.add(v)
+            x, y = sh.xy[k]
+            dist, ridge_z, foot = _nearest_ridge(x, y, spines)
+            if ridge_z is None or dist <= 0.0:
+                continue
+            fall = ridge_z - sh.z[k]
+            over = abs(fall) - cap * dist - noise
+            if over <= 0.0:
+                continue
+            r = row(FAMILY_TRANSVERSE, (sh.role, sh.role), p.side(sh.role),
+                    abs(fall), 100 * fall / dist, 100 * cap, dist,
+                    (x, y), foot, sh.key, sh.key)
+            r.update({"reading": "transverse_max", "face": sh.key,
+                      "direction": "fall" if fall > 0.0 else "rise"})
+            out.append(r)
     return out
 
 

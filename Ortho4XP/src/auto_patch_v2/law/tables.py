@@ -23,6 +23,7 @@ __all__ = [
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
+    "runway_transverse_max",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
     "flat_source_class", "flat_relief_floor_m",
 ]
@@ -115,6 +116,16 @@ def role_cap(law: Law, role: str, code_number: int | None = None,
     if lon is None or tr is None:
         return None
     return RoleCap(longitudinal=lon, transverse=tr)
+
+
+def runway_transverse_max(law: Law, code_letter: str | None,
+                          code_number: int | None = None) -> float | None:
+    """The runway TRANSVERSE MAXIMUM (``rulesets.<authority>.runway
+    .transverse_max`` by code letter; ICAO §3.1.18, FAA likewise): the
+    steepest lawful fall from the crown ridge to an edge — and, RULINGS
+    2026-09-05o, the steepest lawful rise above it.  ``None`` only where
+    the authority states no value."""
+    return law.ruleset.runway.transverse_max.value(code_number, code_letter)
 
 
 def authority_rank(law: Law, role: str) -> int:

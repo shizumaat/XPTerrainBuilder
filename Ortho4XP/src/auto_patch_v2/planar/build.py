@@ -34,6 +34,7 @@ from .overlay import Arrangement, build_arrangement
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
+from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 
 __all__ = ["BuildStats", "build"]
 
@@ -65,6 +66,7 @@ class BuildStats:
     structures: StructureStats = _dc.field(default_factory=StructureStats)
     basins: BasinStats = _dc.field(default_factory=BasinStats)
     weld: WeldStats = _dc.field(default_factory=WeldStats)
+    tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -82,14 +84,18 @@ def build(airport: Airport, classification: Classification, law: Law,
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
-    classification, tunnels, sstats = build_structures(airport, classification, law, objects)
+    # THE TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1): read over the
+    # geometry the cache already holds, they replace the OSM bores they cover
+    corridors, tstats = read_corridors(airport, objects, cache, law)
+    classification, tunnels, sstats = build_structures(airport, classification, law, objects,
+                                                       corridors)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep)
     bstats.objects = orep
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
-                       structures=sstats, basins=bstats, weld=arr.weld)
+                       structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

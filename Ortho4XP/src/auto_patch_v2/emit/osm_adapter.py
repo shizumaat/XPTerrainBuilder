@@ -72,6 +72,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "pair_caps", "seam_pins", "station_caps",
     "relaxed_rows",   # RULINGS 2026-09-04t(1): the rows the last resort relaxed, with their slacks (``solve/relax.py``)
     "pair_caps", "seam_pins", "station_caps", "stretches",
+    "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

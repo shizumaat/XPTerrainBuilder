@@ -84,6 +84,30 @@ class Tunnel:
     #: The end cap's centre point on the band's centreline: the MOUTH WALL
     #: NODE of 2026-09-03b — the mouth datum is its crest − bore_datum_m.
     cap_centre: XY | None = None
+    # ── TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1; ``[tunnel.object]``) ──
+    #: ``"osm"`` (a mapped bore) or ``"object"`` (the pack's wall object:
+    #: seat = floor, plate = crest, hull = footprint).
+    source: str = "osm"
+    #: The crest law this tunnel's wall band carries: ``"dem"`` (09-03b,
+    #: OSM bores) or ``"plate"`` (``crest_z`` = floor + the plate height).
+    crest: str = "dem"
+    crest_z: float | None = None
+    #: The object corridor's reading: the resource, its placement ids,
+    #: the plate height (= depth), the hull's sides, the ends
+    #: (``"closed/open"`` from s = 0 outward) and the OSM bore way ids
+    #: it replaced.
+    resource: str = ""
+    objects: tuple[str, ...] = ()
+    depth_m: float = 0.0
+    hull_length_m: float = 0.0
+    hull_width_m: float = 0.0
+    ends: str = ""
+    replaced_ways: tuple[int, ...] = ()
+    #: The band closes across s = 0 (``capped``) and across the far end
+    #: (``far_capped``, a corridor closed at both ends); an open+open
+    #: corridor is two capless halves meeting at its midpoint.
+    capped: bool = True
+    far_capped: bool = False
 
 
 @_dc.dataclass(frozen=True)

@@ -115,7 +115,30 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "pad_pavement_no_step_edges": pad_edges,
             "seam_pins": [ll[v] for v in pins],
             "station_caps": stations,
-            "basin_facilities": basin_facilities(planar, law, z)}
+            "basin_facilities": basin_facilities(planar, law, z),
+            "tunnel_objects": tunnel_objects(planar, airport)}
+
+
+def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """The object corridors (RULINGS 2026-09-05k-1): id, resource, the
+    placements, floor / crest / depth, the hull's sides, its ends, the
+    OSM bores replaced, and the axis in lat/lon — a reader's record of
+    which tunnels the pack's objects state."""
+    _to_xy, to_ll = airport.frame.transformers()
+    out: list[dict[str, _t.Any]] = []
+    for tn in planar.structures:
+        if tn.source != "object":
+            continue
+        out.append({
+            "id": tn.id, "resource": tn.resource, "objects": list(tn.objects),
+            "floor_m": round(tn.mouth_z, 3), "crest_m": round(float(tn.crest_z or 0.0), 3),
+            "depth_m": round(tn.depth_m, 3), "length_m": round(tn.hull_length_m, 1),
+            "width_m": round(tn.hull_width_m, 1), "ends": tn.ends, "crest_law": tn.crest,
+            "replaced_ways": list(tn.replaced_ways), "top_s": round(tn.top_s, 1),
+            "axis_ll": [[round(la, 8), round(lo, 8)] for la, lo in
+                        (to_ll(x, y) for x, y in tn.axis)],
+        })
+    return out
 
 
 def basin_facilities(planar: PlanarMap, law: Law,

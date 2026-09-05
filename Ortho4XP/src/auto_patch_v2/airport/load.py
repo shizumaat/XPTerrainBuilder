@@ -322,8 +322,10 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                     resolved, restored = _pack.authored_source(resolved)
                     if restored:
                         rep.objects_restored_for_read += 1
-            agl = float(pl.elevation) if pl.kind == "OBJECT_AGL" and pl.elevation is not None \
-                else 0.0
+            # the AGL offset, or the MSL elevation (``kind`` says which;
+            # the tunnel-object floor law reads an MSL seat as absolute)
+            agl = float(pl.elevation) if pl.kind in ("OBJECT_AGL", "OBJECT_MSL") \
+                and pl.elevation is not None else 0.0
             # hardness / deck top / below-grade solids are read by the
             # structure pass from ``resolved_path`` (``airport/obj8.py``)
             dsf_objects.append(DsfObject(

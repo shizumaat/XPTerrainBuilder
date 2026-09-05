@@ -296,6 +296,20 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("basin.floor_plate_normal_y_min", v1_otf.NEAR_HORIZONTAL_NORMAL_Y_MIN,
          s.basin.floor_plate_normal_y_min)
     assert s.basin.rim_reaches_grade is True
+    # RULINGS 2026-09-05k-1 (lane v2tunnelobj): the tunnel wall OBJECT law —
+    # no v1 counterpart; every key read through the model, stated here
+    ob = s.tunnel.object
+    assert ob.source_precedence == ("object", "osm")
+    assert ob.floor_datum == "seat" and ob.crest == "dem"     # RULINGS 2026-09-05m (plate = parapet at OTHH)
+    c.eq("tunnel.object.plate_normal_y_min (= deck_plate_normal_y_min)",
+         s.bridge.deck_plate_normal_y_min, ob.plate_normal_y_min)
+    c.eq("tunnel.object.plate_bin_m (= deck_plane_bin_m)", s.bridge.deck_plane_bin_m,
+         ob.plate_bin_m)
+    assert ob.floor_plate_max_m2 == 0.0
+    for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
+                "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
+        assert getattr(ob, key) > 0.0, key
+    assert s.rebake.structure_family_excluded is True
 
 
 def test_every_value_equals_v1(tables, capsys):

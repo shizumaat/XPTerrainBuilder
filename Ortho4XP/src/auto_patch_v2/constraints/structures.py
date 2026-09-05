@@ -180,6 +180,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     br_law = law.tables.structures.bridge
     if tn_law.crest != "dem":
         raise ValueError(f"tunnel.crest {tn_law.crest!r}: only 'dem' is generated")
+    if tn_law.object.crest not in ("plate", "dem") or tn_law.object.floor_datum != "seat":
+        raise ValueError(f"tunnel.object.crest {tn_law.object.crest!r} / floor_datum "
+                         f"{tn_law.object.floor_datum!r}: only 'plate' | 'dem' / 'seat' are "
+                         f"generated")
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
 
@@ -212,13 +216,31 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
         src_wall = Source(GEN, "tunnel.crest = dem (2026-09-03b L1; 2026-09-01c)", inputs)
         src_band = Source(GEN, "one corridor-top value per station (2026-09-01c)", inputs)
+        crest_z: float | None = None
+        if tn.source == "object":
+            # THE OBJECT'S CREST (RULINGS 2026-09-05k-1; ``tunnel.object.crest
+            # = "plate"``): floor + the plate height at every bare station;
+            # the mouth datum is the SEAT, absolute — never the cap − 5.1
+            inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
+            if tn.crest == "plate":
+                crest_z = tn.crest_z
+                src_wall = Source(GEN, "tunnel.object.crest = plate: seat + plate height "
+                                  "(2026-09-05k-1)", inputs)
+            else:
+                # ``tunnel.object.crest = "dem"``: the band at the ground
+                # (09-03b's rule), the object's parapet standing as authored
+                src_wall = Source(GEN, "tunnel.object.crest = dem: the ground by station "
+                                  "(2026-09-03b L1) under an object corridor (2026-09-05k-1)",
+                                  inputs)
+            src_mouth = Source(GEN, "tunnel.object.floor_datum = seat (2026-09-05k-1)", inputs)
         # ── the wall band: crest = the ground, one value per station ──
         path = LineString(tn.wall_path) if len(tn.wall_path) >= 2 else None
         cap_reps: list[int] = []
         if path is not None:
-            wall_vs = sorted({v for f in walls.get(tn.id, ()) for v in planar.ring_vertices(f.ring)})
+            wall_vs = sorted({v for f in walls.get(tn.id, ())
+                              for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
             groups = _wall_rows(planar, airport, path, wall_vs, shared_with_ground, rows, pin,
-                                src_wall, src_band)
+                                src_wall, src_band, crest_z=crest_z)
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -285,7 +307,9 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             group = tuple(sorted(set(datum_vs)))
             if len(group) > 1:
                 rows.append(Flat(group, src_mouth))
-            if len(cap_reps) == 1:
+            if tn.source == "object":
+                pin(group[0], tn.mouth_z, src_mouth, senior=True)
+            elif len(cap_reps) == 1:
                 rows.append(Linear(((group[0], 1.0), (cap_reps[0], -1.0)),
                                    -tn_law.bore_datum_m, -tn_law.bore_datum_m, src_mouth))
             else:
@@ -338,15 +362,17 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 def _wall_rows(planar: PlanarMap, airport: Airport, path: LineString, wall_vs: list[int],
                shared_with_ground: _t.Callable[[int], bool], rows: list[Row],
                pin: _t.Callable[..., None], src_wall: Source, src_band: Source,
-               src_tie: Source | None = None) -> list[tuple[float, list[int]]]:
+               src_tie: Source | None = None, crest_z: float | None = None
+               ) -> list[tuple[float, list[int]]]:
     """THE WALL CREST BY STATION (2026-09-03b L1; 2026-09-01c; the ground
     rule): the band's vertices grouped by station along ``path`` — one
     ``Flat`` per station across the band; a station the governed ground
     shares carries the ground's value, a bare one the DEM at its own
-    station on the centreline.  With ``src_tie`` a shared station's
-    ``Flat`` is sourced as THE RIM TIE (2026-08-28c item 3: the rim
-    LEVEL with the apron — the hard row binding the whole band station
-    to the pavement vertex it shares).  Returns the groups."""
+    station on the centreline — or ``crest_z`` when given (an object
+    corridor's plate crest, 2026-09-05k-1).  With ``src_tie`` a shared
+    station's ``Flat`` is sourced as THE RIM TIE (2026-08-28c item 3:
+    the rim LEVEL with the apron — the hard row binding the whole band
+    station to the pavement vertex it shares).  Returns the groups."""
     closed = len(path.coords) > 2 and path.coords[0] == path.coords[-1]
     groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in wall_vs],
                       _STATION_CLUSTER_M)
@@ -364,6 +390,10 @@ def _wall_rows(planar: PlanarMap, airport: Airport, path: LineString, wall_vs: l
         # ONE value per station: the DEM at the group's own station on
         # the band's centreline (inner and outer edge project millimetres
         # apart — two samples were an IIS)
+        if crest_z is not None:
+            for v in vs:
+                pin(v, crest_z, src_wall, senior=True)
+            continue
         u_mean = sum(path.project(Point(planar.vertices[v].xy)) for v in vs) / len(vs)
         p = path.interpolate(u_mean)
         z = _dem_at(airport, p.x, p.y)

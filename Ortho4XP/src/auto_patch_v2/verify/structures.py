@@ -314,7 +314,27 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     by_id: dict[str, list[Shape]] = {}
     for i, r in enumerate(ramps_all):
         by_id.setdefault(f"site{find(i)}", []).append(r)
+    # THE OBJECT CORRIDORS (RULINGS 2026-09-05k-1; sidecar ``tunnel_objects``):
+    # their mouth is the object's — floor = seat, crest = plate, a mouth
+    # at each OPEN end with no cap — so the 09-03b mouth law (cap crest =
+    # mouth + bore_datum_m) does not read them; a site whose ramps stand
+    # on an object corridor's axis is out of this reader's scope
+    obj_axes = []
+    for rec in p.publication.get("tunnel_objects") or []:
+        pts = [p.to_m(float(la), float(lo)) for la, lo in rec.get("axis_ll", [])]
+        if len(pts) >= 2:
+            obj_axes.append((pts, float(rec.get("width_m", 0.0)) / 2.0 + reach))
+
+    def on_object(pt) -> bool:
+        for pts, half in obj_axes:
+            if any(_seg_dist(pt[0], pt[1], pts[k], pts[k + 1]) <= half
+                   for k in range(len(pts) - 1)):
+                return True
+        return False
+
     for tid, ramps in by_id.items():
+        if obj_axes and all(on_object(q) for r in ramps for q in r.xy[:1]):
+            continue
         # the mouth piece: the one whose cap-side end is nearest a wall
         cand = [(r, _mouth_end(r, [o for o in ramps if o is not r], walls)) for r in ramps]
         low, (mouth, zmouth) = min(cand, key=lambda c: min(

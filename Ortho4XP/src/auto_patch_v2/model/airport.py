@@ -204,8 +204,8 @@ class DsfObject:
     ``None`` = unresolved, reported) — the structure pass reads the
     geometry from it (``airport/obj8.py``, M4b): hard-deck footprint and
     deck TOP (memory ``othh-bridge-deck-datum-r12``), below-grade solids.
-    ``y_offset_m`` is the ``OBJECT_AGL`` offset (0 for a plain
-    ``OBJECT``); ``kind`` names the row."""
+    ``y_offset_m`` is the ``OBJECT_AGL`` offset or the ``OBJECT_MSL``
+    elevation (0 for a plain ``OBJECT``); ``kind`` names the row."""
 
     id: str
     path: str

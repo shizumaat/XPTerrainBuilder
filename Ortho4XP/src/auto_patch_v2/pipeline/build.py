@@ -196,13 +196,28 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}", out)
     ss = pstats.structures
-    if ss.bores:
-        _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered})  "
-             f"mouths {ss.mouths}  duals merged {ss.duals_merged}  tunnels {ss.tunnels}  "
-             f"decks {ss.decks}  cells cut {ss.cells_cut}  refused {len(ss.refused)}", out)
+    ts = pstats.tunnel_objects
+    if ss.bores or ss.object_corridors or ts.refused:
+        _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered}, replaced by "
+             f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths}  duals merged "
+             f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
+             f"{ts.signatures} of {ts.resources} resources, merged {ts.merged}, "
+             f"{ts.signature_s:.2f} s)  tunnels {ss.tunnels}  decks {ss.decks}  "
+             f"cells cut {ss.cells_cut}  refused {len(ss.refused) + len(ts.refused)}", out)
+        for r in ts.refused:
+            _say(f"    refused object {r}", out)
         for r in ss.refused:
             _say(f"    refused {r}", out)
         for tn in pm.structures:
+            if tn.source == "object":
+                # spec §3.7: the per-corridor line
+                _say(f"    {tn.id}: floor {tn.mouth_z:.2f} crest {tn.crest_z:.2f} depth "
+                     f"{tn.depth_m:.1f} m length {tn.hull_length_m:.0f} m width "
+                     f"{tn.hull_width_m:.0f} m ends {tn.ends} replaced bores "
+                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  top {tn.top_s:.0f} m  "
+                     f"DEM at cap {tn.mouth_dem_z:.2f}  decks {len(tn.decks)}  "
+                     f"{'; '.join(tn.notes)}", out)
+                continue
             _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
                  f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
     bs = pstats.basins
@@ -388,6 +403,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
                                 exclude={oid for b in pm.basins for oid in b.objects},
+                                tunnel_objects={oid for tn in pm.structures
+                                                for oid in tn.objects},
                                 below_grade=[(_basin_polygon(b), tuple(b.objects))
                                              for b in pm.basins])
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"

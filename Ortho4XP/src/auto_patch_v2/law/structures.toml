@@ -17,6 +17,20 @@ default_lanes     = 2       # lanes assumed for a mapped way with neither `lanes
 dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
 max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
 
+[tunnel.object]                     # RULINGS 2026-09-05k-1: the pack's tunnel wall OBJECTS are the tunnel authority
+source_precedence   = ["object", "osm"]   # an object tunnel REPLACES every OSM bore its footprint covers; OSM bores stand only where no object does
+floor_datum         = "seat"        # the placement seat (OBJECT_MSL absolute; OBJECT/OBJECT_AGL = production DEM at the placement + elevation)
+crest               = "dem"         # the TERRAIN crest at the wall = the ground (09-03b), the object's slab covers floor -> plate itself: OTHH places every wall AGL -3.0 with the plate +5.0, i.e. a 2.0 m PARAPET above ground — pinned at the plate the band was a 2 m berm sawing 3.96<->5.96 against the apron (7 strip_seam_tear, IIS). "plate" stays a lawful value for a pack whose plate IS the ground. RULINGS 2026-09-05m
+skirt_min_depth_m   = 3.0           # genuine solids must reach this far BELOW the seat for a wall skirt (OTHH: 10-15 m)
+plate_normal_y_min  = 0.7           # reuse of deck_plate_normal_y_min: a crest face is near-horizontal
+plate_bin_m         = 0.5           # crest plane = the largest-area bin of plate faces at or above the seat
+plate_min_area_m2   = 100.0         # below this the object is not a wall (a bollard, a kerb)
+plate_min_height_m  = 2.0           # crest must stand this far above the seat (a 0.3 m kerb is not a tunnel wall)
+floor_plate_max_m2  = 0.0           # any floor plate below the seat disqualifies (that is a basin — basins.py owns it)
+hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
+end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall
+merge_gap_m         = 3.0           # two object hulls whose open ends face within this are ONE corridor (tunnel1 x 2)
+
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
 clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful
@@ -120,6 +134,6 @@ one_anchor_one_seat = true         # every placement sharing one anchor spelling
 # floor 6.3 m under the rest) would otherwise lift a 400-object family.
 founding_min_witnesses = 8         # a founding member carries at least this many land witnesses (when any member of the unit has that many — a sign on four feet still seats on its four)...
 founding_min_share     = 0.25      # ...and at least this share of the unit's LARGEST member's land witnesses (witnesses are thinned to foot_samples_per_member, so a 400-member family's total says nothing; 4 against 256 founds nothing, Bridge_01's plate at 64 against 155 does)
-basin_family_excluded  = true      # a basin facility excludes its WHOLE anchor family from the re-seat (Dewatering_01_000's rim pieces go with the pit; m6a Q3), never just the below-grade member
+structure_family_excluded = true   # a STRUCTURE the terrain adapted to — a basin facility (m6a Q3: Dewatering_01_000's rim pieces go with the pit) or a tunnel wall object (2026-09-05k-1) — excludes its WHOLE anchor family from the re-seat, never just the below-grade member (was basin_family_excluded)
 deck_family_seats_rigid = true     # in a deck family a member with below-grade solids (a pier footing under the canal bed) is SEATED with its deck, never left behind (R12-2 member-set completeness: v1 wrote all 12 Bridge_01 members)
 deck_seat_threshold_exempt = true  # a DECK-founded seat bakes at any |delta|: it is a law datum (deck top at the abutment grade), not a drape correction the terrain could absorb — v1's bridge_abutment_seat wrote OTHH's interchange at +0.9576 under the same 1.0 m generic threshold, the state the owner accepted; min_delta_m keeps governing feet seats

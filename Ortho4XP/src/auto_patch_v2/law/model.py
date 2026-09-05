@@ -28,7 +28,7 @@ __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
     "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
-    "Pockets", "Zones", "Tunnel", "Bridge", "BuildingPad", "Basin",
+    "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
     "Declared", "FlatSite", "Chords", "Identity", "Materiality",
     "Relaxation",
@@ -252,6 +252,26 @@ class Zones:
 # ── structures.toml ──────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
+class TunnelObject:
+    """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1;
+    ``structures.toml [tunnel.object]``): the placement seat is the
+    floor, the object's top plate the crest, its hull the footprint."""
+
+    source_precedence: tuple[str, ...]
+    floor_datum: str
+    crest: str
+    skirt_min_depth_m: float
+    plate_normal_y_min: float
+    plate_bin_m: float
+    plate_min_area_m2: float
+    plate_min_height_m: float
+    floor_plate_max_m2: float
+    hull_min_length_m: float
+    end_cap_open_m: float
+    merge_gap_m: float
+
+
+@_dc.dataclass(frozen=True)
 class Tunnel:
     """Tunnel ramp / wall / bore law (RULINGS 2026-09-01c/e, 2026-09-03b)."""
 
@@ -267,6 +287,7 @@ class Tunnel:
     default_lanes: int
     dual_carriageway_max_separation_m: float
     max_ramp_length_m: float
+    object: TunnelObject
 
 
 @_dc.dataclass(frozen=True)
@@ -362,7 +383,7 @@ class Rebake:
     # the founding witness floor and family exclusions (04k; M6b)
     founding_min_witnesses: int
     founding_min_share: float
-    basin_family_excluded: bool
+    structure_family_excluded: bool
     deck_family_seats_rigid: bool
     deck_seat_threshold_exempt: bool
 
@@ -619,7 +640,8 @@ _SIDES = ("airside", "groundside")
 _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
-_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
+_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem", "plate"),
+           "floor_datum": ("seat",),
            "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
            "rim": ("ground",)}
 #: The one SIGNED metre key: an authored OBJ8 ``base_y`` threshold (a depth

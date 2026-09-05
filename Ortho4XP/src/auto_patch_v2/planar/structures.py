@@ -45,6 +45,13 @@ crest = DEM; law ``structures.toml [tunnel]``):
   ``bridge.clearance_m`` (a bound the generator states, the IIS reports);
   a mapped bridge way over an object deck mints no terrain deck.
 
+* a TUNNEL WALL OBJECT (RULINGS 2026-09-05k-1; ``airport/tunnel_objects``;
+  law ``[tunnel.object]``) is the tunnel AUTHORITY where it stands: its
+  placement seat is the floor, its top plate the crest, its hull the
+  footprint; every OSM bore its footprint covers is REPLACED, and the
+  corridor enters the SAME ``Tunnel`` product (the crest a per-tunnel
+  field, ``"plate"`` here, ``"dem"`` for OSM bores — one emitter).
+
 Every length here is a law-table value or an input's own tag; the DEM
 samples recorded on the records are the builder's, taken once.
 """
@@ -67,6 +74,7 @@ from ..model.frame import XY
 from ..airport.deck_signature import is_bridge_way
 from ..model.structures import Deck, Tunnel
 from .basins import object_decks
+from .structure_geometry import geometry, offset_line
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -93,6 +101,9 @@ class StructureStats:
     object_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
+    #: RULINGS 2026-09-05k-1: object corridors built, OSM bores they replaced.
+    object_corridors: int = 0
+    bores_replaced_by_object: int = 0
 
 
 # ── tags ─────────────────────────────────────────────────────────────────
@@ -341,57 +352,6 @@ def _merge_duals(mouths: list[_Mouth], law: Law, stats: StructureStats
     return out
 
 
-# ── the ramp geometry ────────────────────────────────────────────────────
-
-def _normals(axis: _t.Sequence[XY]) -> list[XY]:
-    """Left-hand unit normal per axis point (averaged at joints)."""
-    n = len(axis)
-    out: list[XY] = []
-    for i in range(n):
-        a = axis[max(0, i - 1)]
-        b = axis[min(n - 1, i + 1)]
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        L = math.hypot(dx, dy) or 1.0
-        out.append((-dy / L, dx / L))
-    return out
-
-
-def _offset_line(axis: _t.Sequence[XY], normals: _t.Sequence[XY], off: float) -> list[XY]:
-    return [(p[0] + nv[0] * off, p[1] + nv[1] * off) for p, nv in zip(axis, normals)]
-
-
-def _snap(p: XY, grid: float) -> XY:
-    """The nearest identity-grid point."""
-    return (round(p[0] / grid) * grid, round(p[1] / grid) * grid)
-
-
-def _snap_out(p: XY, origin: XY, grid: float) -> XY:
-    """``p`` snapped to the identity grid AWAY from ``origin`` on both
-    axes, so a designed stand-off (the 0.6 m gap, 09-01e "never ON a
-    weld tolerance") survives the arrangement's snap-rounding: two
-    points 0.85 m apart both round to ONE 0.5 m grid point (measured
-    OTHH: the ramp's mouth corner and the cap's inner corner merged into
-    vertex 14058 — an IIS of its two pins)."""
-    out = []
-    for c, o in zip(p, origin):
-        k = c / grid
-        if c > o + 1e-9:
-            out.append(math.ceil(k - 1e-9) * grid)
-        elif c < o - 1e-9:
-            out.append(math.floor(k + 1e-9) * grid)
-        else:
-            out.append(round(k) * grid)
-    return (out[0], out[1])
-
-
-def _offset_out(axis: _t.Sequence[XY], normals: _t.Sequence[XY], off: float,
-                base: _t.Sequence[XY], grid: float) -> list[XY]:
-    """``axis`` offset by ``off`` along ``normals``, each point snapped
-    away from its ``base`` point."""
-    return [_snap_out((p[0] + nv[0] * off, p[1] + nv[1] * off), b, grid)
-            for p, nv, b in zip(axis, normals, base)]
-
-
 def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
 
@@ -431,49 +391,132 @@ def _ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: f
     return None, ss
 
 
-def _u_polygon(left_in, left_out, right_in, right_out, cap_in, cap_out) -> Polygon:
-    """The wall band as ONE U: outer-left top→mouth, outer cap (left,
-    centre, right), outer-right mouth→top, top of the right band, inner-
-    right top→mouth, inner cap, inner-left mouth→top, top of the left
-    band (closes)."""
-    ring = (list(reversed(left_out)) + list(cap_out) + list(right_out)
-            + list(reversed(right_in)) + list(reversed(cap_in)) + list(left_in))
-    return Polygon(ring)
-
-
 # ── build ────────────────────────────────────────────────────────────────
 
+@_dc.dataclass
+class _Group:
+    """One structure to build: ``members`` the OSM mouths (empty for an
+    object corridor), ``mouth`` the s = 0 point, ``inward`` the cap's
+    direction, ``width`` the ramp width, ``axis`` the path outward;
+    for an object corridor (RULINGS 2026-09-05k-1) ``corridor`` its
+    record, ``tid`` its tunnel id, ``hull_s`` where the hull ends (the
+    climb starts there), ``climbs`` whether an open end climbs to the
+    DEM, ``capped`` / ``far_capped`` the band's shape."""
+
+    members: list
+    mouth: XY
+    inward: XY
+    width: float
+    axis: list[XY]
+    corridor: object = None
+    tid: str = ""
+    hull_s: float = 0.0
+    climbs: bool = True
+    capped: bool = True
+    far_capped: bool = False
+
+
+def _object_groups(corridors: _t.Sequence, replaced: list, osm: list[OsmWay], reach: float
+                   ) -> list[_Group]:
+    """The object corridors as build groups (spec §3.4): the axis starts
+    at a CLOSED end (the cap) and runs the hull to the open end, then
+    climbs — along the replaced OSM bore's approach where one mapped
+    end lies at that mouth, else the corridor axis extended; a corridor
+    open at both ends is TWO capless halves meeting at its midpoint; one
+    closed at both ends is a capped, far-capped trench with no climb."""
+    out: list[_Group] = []
+    for c in corridors:
+        L = math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]) or 1.0
+        u = ((c.b[0] - c.a[0]) / L, (c.b[1] - c.a[1]) / L)
+
+        def climb(end: XY, out_dir: XY) -> list[XY]:
+            # the replaced bore's mapped end at this mouth carries the approach
+            best = None
+            for b in replaced:
+                for e, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
+                    d = math.hypot(e[0] - end[0], e[1] - end[1])
+                    if d <= c.width_m and (best is None or d < best[0]):
+                        best = (d, e, _unit(e, nxt))
+            if best is not None:
+                path = _approach(best[1], best[2], osm, reach)
+                dx, dy = end[0] - path[0][0], end[1] - path[0][1]
+                return [end] + [(p[0] + dx, p[1] + dy) for p in path[1:]]
+            return [end, (end[0] + out_dir[0] * (reach + 1.0), end[1] + out_dir[1] * (reach + 1.0))]
+
+        neg = (-u[0], -u[1])
+        if not c.open_a and c.open_b:
+            out.append(_Group([], c.a, neg, c.width_m, [c.a] + climb(c.b, u), c, c.id, L))
+        elif c.open_a and not c.open_b:
+            out.append(_Group([], c.b, u, c.width_m, [c.b] + climb(c.a, neg), c, c.id, L))
+        elif not c.open_a and not c.open_b:
+            out.append(_Group([], c.a, neg, c.width_m, [c.a, c.b], c, c.id, L, False, True, True))
+        else:
+            mid = ((c.a[0] + c.b[0]) / 2.0, (c.a[1] + c.b[1]) / 2.0)
+            out.append(_Group([], mid, neg, c.width_m, [mid] + climb(c.b, u), c, f"{c.id}[b]",
+                              L / 2.0, True, False))
+            out.append(_Group([], mid, u, c.width_m, [mid] + climb(c.a, neg), c, f"{c.id}[a]",
+                              L / 2.0, True, False))
+    return out
+
+
 def build_structures(airport: Airport, classification: Classification, law: Law,
-                     objects: _t.Sequence = ()
+                     objects: _t.Sequence = (), corridors: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
     and the stats.  ``objects`` are the pack's placed OBJ8 readings
     (``planar.basins.read_objects``): their hard decks are object
-    bridges.  A classification with no bores comes back unchanged."""
+    bridges.  ``corridors`` are the pack's tunnel wall objects read as
+    corridors (``airport.tunnel_objects.read_corridors``; RULINGS
+    2026-09-05k-1): each REPLACES every OSM bore its footprint covers and
+    enters the SAME ``Tunnel`` product — trench at the seat, band at the
+    plate crest, a ramp from each open end.  A classification with no
+    bores and no corridors comes back unchanged."""
     stats = StructureStats()
     odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
+    corridors = list(corridors)
     tunnel_ways = [w for w in airport.osm_ways if _is_tunnel(w) and len(w.points) >= 2]
-    if not tunnel_ways or not classification.cells:
+    if (not tunnel_ways and not corridors) or not classification.cells:
         return classification, (), stats
     cells = list(classification.cells)
     polys = [Polygon(c.ring, c.holes) for c in cells]
     cover = unary_union(polys)
-    bores = _chains(tunnel_ways)
+    bores = _chains(tunnel_ways) if tunnel_ways else []
     stats.bores = len(bores)
+    # THE PRECEDENCE (05k-1, ``tunnel.object.source_precedence``): an OSM
+    # bore whose axis intersects an object corridor's footprint is
+    # DROPPED; the corridor takes its place (its mouths still lend the
+    # ramp its approach centreline)
+    replaced_bores: list[_Bore] = []
+    replaced_ways: dict[str, list[int]] = {}
+    if corridors and tn.object.source_precedence[0] == "object":
+        kept = []
+        for b in bores:
+            hit = [c for c in corridors if b.line.intersects(c.rect)]
+            if hit:
+                stats.bores_replaced_by_object += 1
+                replaced_bores.append(b)
+                for c in hit:
+                    replaced_ways.setdefault(c.id, []).extend(w.id for w in b.ways)
+            else:
+                kept.append(b)
+        bores = kept
     covered = []
     for b in bores:
         if b.line.intersection(cover).length >= 1.0:
             covered.append(b)
         else:
             stats.bores_uncovered += 1
-    if not covered:
+    if not covered and not corridors:
         return classification, (), stats
     reach = tn.max_ramp_length_m + 2 * (tn.wall_gap_m + tn.wall_band_width_m)
-    mouths = _mouths(covered, list(airport.osm_ways), law, reach)
+    mouths = _mouths(covered, list(airport.osm_ways), law, reach) if covered else []
     stats.mouths = len(mouths)
-    groups = _merge_duals(mouths, law, stats)
+    groups = [_Group(list(m), xy, inw, w, list(ax))
+              for m, xy, inw, w, ax in (_merge_duals(mouths, law, stats) if mouths else [])]
+    groups += _object_groups(corridors, replaced_bores, list(airport.osm_ways), reach)
+    stats.object_corridors = len(corridors)
 
     # what a ramp may not cross
     runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
@@ -497,12 +540,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     tunnels: list[Tunnel] = []
     new_cells: list[tuple[str, str, Polygon, str]] = []
     footprints: list[Polygon] = []
+    hull_knives: list[Polygon] = []
     keepouts: list[Polygon] = []
     seen_ids: dict[str, int] = {}
-    for members, mouth, inward, width, axis_path in groups:
-        base = "+".join(str(i) for m in members for i in m.ways)
-        seen_ids[base] = seen_ids.get(base, -1) + 1
-        tid = f"tunnel:{base}@{seen_ids[base]}"
+    for g in groups:
+        members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
+        c = g.corridor
+        if c is None:
+            base = "+".join(str(i) for m in members for i in m.ways)
+            seen_ids[base] = seen_ids.get(base, -1) + 1
+            tid = f"tunnel:{base}@{seen_ids[base]}"
+        else:
+            tid = g.tid
         half = width / 2.0
         axis_ln = LineString(axis_path)
 
@@ -514,13 +563,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # (09-03b): the end cap's centre, gap + half the band in front of
         # the mouth line — not the axis point's sample (measured LEMD
         # -15327+-5980: a cutting whose cap stands 2 m above the axis
-        # sample; the ramp planned from the axis sample was 0.2 % over cap)
+        # sample; the ramp planned from the axis sample was 0.2 % over cap).
+        # An OBJECT corridor's datum is its SEAT (05k-1 ``floor_datum``).
         cap_c = (mouth[0] + inward[0] * (gap + bw / 2), mouth[1] + inward[1] * (gap + bw / 2))
         mouth_dem = _dem(airport, cap_c)
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
-        mouth_z = mouth_dem - tn.bore_datum_m
+        mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
         # decks across the corridor (a first pass over the full reach)
         deck_ivals = _deck_intervals(axis_ln, half + gap + bw, bridges, bridge_lines,
                                      bridge_tree, law)
@@ -536,30 +586,39 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # mapped bridge way over it mints no terrain deck (08-30d)
             ou = unary_union([dp for _o, _s0, _s1, dp, _z in obj_ivals])
             deck_ivals = [d for d in deck_ivals if not d[3].intersects(ou)]
-        climb_from = max([0.0] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
+        climb_from = max([g.hull_s] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
                          + [s1 + gap for _o, s0, s1, _p, _z in obj_ivals])
-        s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing, half)
-        if s_top is None:
-            stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb does not reach "
-                                 f"the DEM within {tn.max_ramp_length_m:.0f} m")
-            continue
+        if g.climbs:
+            s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing, half)
+            if s_top is None:
+                stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb does not reach "
+                                     f"the DEM within {tn.max_ramp_length_m:.0f} m")
+                continue
+        else:
+            # a trench closed at both ends: stations along the hull, the
+            # last one ON the far end line
+            ss = [spacing * k for k in range(int(g.hull_s // spacing) + 1)]
+            if g.hull_s - ss[-1] > 1e-6:
+                ss.append(g.hull_s)
+            s_top = g.hull_s
         # a building pad across the approach CLIPS the ramp at the pad's
         # edge (08-07 ruling 3: "the ramp stops at the building edge"; the
         # bore continues under the pad, not emitted); the structure is
         # shortened station by station until its whole footprint clears
-        # the pad by the gap, so no vertex is ever shared with it
-        top_pinned = True
+        # the pad by the gap, so no vertex is ever shared with it.  An
+        # object corridor's HULL is never clipped — the object is the
+        # authority (05k-1) and the trench is senior to the pad (08-26)
+        top_pinned = g.climbs
         clipped_by = ""
         ss = [s for s in ss if s <= s_top + 1e-9]
         while True:
-            geom = _geometry(axis_fn, ss, half, gap, bw, inward, grid, axis_ln)
+            geom = geometry(axis_fn, ss, half, gap, bw, inward, grid, g.capped, g.far_capped)
             if geom is None:
                 stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
                                      f"(ramp or wall ring self-intersects)")
                 break
-            axis, nrm, left, right, ramp, wall, outer, cap_in, cap_out = geom
-            hit = _pad_hit(outer, pads, pad_tree, gap)
-            if hit is None:
+            hit = _pad_hit(geom.outer, pads, pad_tree, gap)
+            if hit is None or (c is not None and ss[-1] <= g.hull_s + 1e-9):
                 break
             clipped_by = hit
             top_pinned = False
@@ -571,6 +630,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             s_top = ss[-1]
         if geom is None:
             continue
+        axis, nrm, left, right = geom.axis, geom.normals, geom.left, geom.right
+        ramp, wall, outer, cap_in, cap_out = geom.ramp, geom.wall, geom.outer, geom.cap_in, geom.cap_out
         # refusals: a runway-family crossing, the runway strip keep-out
         if runway_u is not None and outer.intersects(runway_u) and \
                 outer.intersection(runway_u).area > 1e-6:
@@ -635,8 +696,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             for k, part in enumerate(_parts(dp)):
                 new_cells.append(("service_road", d.ref + (f"#{k}" if k else ""), part, tid))
         cap_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2) for ci, co in zip(cap_in, cap_out)]
-        wall_path = (list(reversed(_offset_line(axis, nrm, half + gap + bw / 2)))
-                     + cap_mid + _offset_line(axis, nrm, -(half + gap + bw / 2)))
+        far_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2)
+                   for ci, co in zip(geom.far_in, geom.far_out)]
+        wall_path = (list(reversed(offset_line(axis, nrm, half + gap + bw / 2)))
+                     + cap_mid + offset_line(axis, nrm, -(half + gap + bw / 2)) + far_mid)
+        if far_mid and cap_mid:
+            wall_path.append(wall_path[0])          # the O: a closed centreline
         notes = []
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
@@ -646,11 +711,22 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if clipped_by:
             notes.append(f"clipped at building pad {clipped_by} at {s_top:.1f} m "
                          f"(08-07 ruling 3)")
+        extra: dict = {}
+        if c is not None:
+            notes.append(f"tunnel wall object {c.resource} (2026-09-05k-1): seat = floor "
+                         f"{c.floor_z:.2f}, plate = crest {c.crest_z:.2f}, ends {c.ends}")
+            notes.extend(c.notes)
+            extra = dict(source="object", crest=tn.object.crest, crest_z=c.crest_z,
+                         resource=c.resource, objects=tuple(c.objects), depth_m=c.depth_m,
+                         hull_length_m=c.length_m, hull_width_m=c.width_m, ends=c.ends,
+                         replaced_ways=tuple(replaced_ways.get(c.id, ())),
+                         capped=g.capped, far_capped=g.far_capped)
         tunnels.append(Tunnel(tid, tuple(i for m in members for i in m.ways),
                               tuple(axis), half, mouth_dem, mouth_z, s_top, climb_from,
                               tuple(ramp_refs), wall_ref, tuple(wall_path), tuple(decks),
                               tuple(notes), top_pinned, clipped_by,
-                              (cap_mid[0], cap_mid[2]), cap_mid[1]))
+                              (cap_mid[0], cap_mid[2]) if cap_mid else None,
+                              cap_mid[1] if cap_mid else None, **extra))
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap
@@ -672,6 +748,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 outer = outer.convex_hull
         footprints.append(outer)
         keepouts.append(outer)
+        if c is not None:
+            # the hull cuts EVERYTHING but the runway family — the pad too
+            # (08-26: the trench is senior to the pad authority)
+            hull_knives.append(outer.intersection(c.rect.buffer(gap + bw + grid, **_MITRE)))
     # TWO STRUCTURES MAY NOT OVERLAP: parallel mouths beyond 31h's test
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly
@@ -689,7 +769,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                      f"{tunnels[other].id} (not a dual under 31h's "
                                      f"separation test)")
     if not all(keep):
-        cell_refs = {t.id for t, k in zip(tunnels, keep) if k}
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]
         footprints = [f for f, k in zip(footprints, keep) if k]
@@ -699,14 +778,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         return classification, (), stats
 
     # cut the pavement the structures run through (never the runway
-    # family, never a pad — those refused above)
+    # family, never a pad — those refused above; an object hull cuts pads)
     knife = unary_union(footprints)
+    hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []
     for c, p in zip(cells, polys):
-        if c.role in RUNWAY_FAMILY or c.role == "building" or not p.intersects(knife):
+        blade = knife
+        if c.role == "building":
+            blade = hull_knife
+        if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
             out_cells.append(c)
             continue
-        rest = p.difference(knife)
+        rest = p.difference(blade)
         stats.cells_cut += 1
         for k, part in enumerate(_parts(rest)):
             if part.area < 0.25:
@@ -726,87 +809,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      stats={**dict(classification.stats), "tunnels": stats.tunnels,
                             "tunnel_decks": stats.decks, "tunnel_object_decks": stats.object_decks,
                             "tunnel_cells_cut": stats.cells_cut,
-                            "tunnels_refused": len(stats.refused)})
+                            "tunnels_refused": len(stats.refused),
+                            "tunnel_object_corridors": stats.object_corridors,
+                            "bores_replaced_by_object": stats.bores_replaced_by_object})
     return cl, tuple(tunnels), stats
 
 
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:
     ids = {t.id for t, k in zip(tunnels, keep) if k}
     return cell[3] in ids
-
-
-def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
-                 grid: float, axis_ln: LineString):
-    """The ramp, the wall U and the outer footprint for stations ``ss``,
-    every vertex ON the identity grid, the wall's rounded AWAY from the
-    ramp (``_snap_out``) so the gap is ≥ the law's after the arrangement
-    snaps, never collapsed by it.  ``None`` when a bend tighter than the
-    offsets folds a ring over itself (a buffer would repair it with
-    off-grid vertices — the merge class)."""
-    axis = [axis_fn(s) for s in ss]
-    nrm = _normals(axis)
-    left = [_snap(p, grid) for p in _offset_line(axis, nrm, half)]
-    right = [_snap(p, grid) for p in _offset_line(axis, nrm, -half)]
-    ramp = Polygon(left + list(reversed(right)))
-    if not ramp.is_valid or ramp.area < 1.0:
-        return None
-    # the band's inner points: offset, snapped away, then PUSHED one grid
-    # step further along their direction until each clears the ramp by
-    # the gap (a component-wise outward snap can shorten a diagonal
-    # offset's projection; the law is the plan distance to the ramp)
-    left_in = [_clear(p, d, ramp, gap, grid) for p, d in
-               zip(_offset_out(left, nrm, gap, left, grid), nrm)]
-    right_in = [_clear(p, (-d[0], -d[1]), ramp, gap, grid) for p, d in
-                zip(_offset_out(right, nrm, -gap, right, grid), nrm)]
-    left_out = _offset_out(left_in, nrm, bw, left_in, grid)
-    right_out = _offset_out(right_in, nrm, -bw, right_in, grid)
-    # the cap: left corner, CENTRE (the mouth wall node, 09-03b), right corner
-    cap_dir = [(inward[0] + nrm[0][0], inward[1] + nrm[0][1]), inward,
-               (inward[0] - nrm[0][0], inward[1] - nrm[0][1])]
-    m0 = axis[0]
-    cap_in = [_clear(_snap_out((left_in[0][0] + inward[0] * gap, left_in[0][1] + inward[1] * gap),
-                               left[0], grid), cap_dir[0], ramp, gap, grid),
-              _clear(_snap_out((m0[0] + inward[0] * gap, m0[1] + inward[1] * gap), m0, grid),
-                     inward, ramp, gap, grid),
-              _clear(_snap_out((right_in[0][0] + inward[0] * gap, right_in[0][1] + inward[1] * gap),
-                               right[0], grid), cap_dir[2], ramp, gap, grid)]
-    cap_out = [_snap_out((c[0] + d[0] * bw, c[1] + d[1] * bw), c, grid)
-               for c, d in zip(cap_in, cap_dir)]
-    wall = _u_polygon(left_in, left_out, right_in, right_out, cap_in, cap_out)
-    outer = Polygon(list(reversed(left_out)) + list(cap_out) + list(right_out))
-    if not wall.is_valid or not outer.is_valid:
-        return None
-    return axis, nrm, left, right, ramp, wall, outer, cap_in, cap_out
-
-
-def _geometry(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
-              grid: float, axis_ln: LineString):
-    """:func:`_geometry_at` with the gap widened by grid steps (at most
-    three) until the ramp and the wall rings clear each other by the
-    law's gap everywhere — the snapped rings are jagged by up to half a
-    grid step, so an edge can stand closer than its vertices do.  THE GAP
-    IS THE LAW: a bend that cannot be cleared this way is refused, never
-    welded."""
-    for k in range(4):
-        g = _geometry_at(axis_fn, ss, half, gap + k * grid, bw, inward, grid, axis_ln)
-        if g is None:
-            return None
-        if g[4].distance(g[5]) >= gap - 1e-6:
-            return g
-    return None
-
-
-def _clear(p: XY, direction: XY, ramp: Polygon, gap: float, grid: float) -> XY:
-    """``p`` moved along ``direction`` by grid steps (snapped away from
-    where it came from) until it stands ≥ ``gap`` off the ramp."""
-    L = math.hypot(direction[0], direction[1]) or 1.0
-    ux, uy = direction[0] / L, direction[1] / L
-    q = p
-    for _k in range(6):
-        if ramp.distance(Point(q)) >= gap - 1e-9:
-            return q
-        q = _snap_out((q[0] + ux * grid, q[1] + uy * grid), q, grid)
-    return q
 
 
 def _pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | None,

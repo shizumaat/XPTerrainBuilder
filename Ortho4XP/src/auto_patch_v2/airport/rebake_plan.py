@@ -99,14 +99,15 @@ def _batch_to_ll(frame):
 def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          cache: _obj8.ResourceCache, law: Law, deck_datum: DeckDatum | None = None,
          exclude: _t.Collection[str] = (),
-         below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = ()) -> RebakePlan:
+         below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
+         tunnel_objects: _t.Collection[str] = ()) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
     ``objects`` are the planar pass's placed objects (read from the
     AUTHORED files, the deck signature applied); ``deck_datum`` the
     solved surface's reading at a flagged deck ring; ``exclude`` the
     placement ids the TERRAIN adapted to (the basin facilities, RULINGS
     2026-08-26 / v1 ruling R4) — never re-seated, and with
-    ``[rebake] basin_family_excluded`` neither is any member of their
+    ``[rebake] structure_family_excluded`` neither is any member of their
     anchor family (m6a Q3: Dewatering_01's rim pieces go with the pit);
     ``below_grade`` the emitted below-grade regions ``(frame polygon,
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
@@ -116,6 +117,11 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # the basin records name their members by resource PATH
     # (``planar.basins``); the ids here match either spelling
     excluded = {o.id for o in objects if o.id in set(exclude) or o.path in set(exclude)}
+    # TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1; spec §3.6): a structure
+    # the terrain adapted to, excluded like a basin facility — and its
+    # whole anchor family with it under ``structure_family_excluded``
+    tunnel_ids = {o.id for o in objects if o.id in set(tunnel_objects) or o.path in set(tunnel_objects)}
+    excluded |= tunnel_ids
     if below_grade:
         owners = {oid for _r, ids in below_grade for oid in ids}
         foreign = [o for o in objects if o.id not in owners and o.path not in owners]
@@ -124,8 +130,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         by_id = {o.id: o for o in promoted}
         objects = [by_id.get(o.id, o) if o.id in keep else o for o in objects]
     fam_of = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
-    if rb.basin_family_excluded:
+    tunnel_keys: set = set()
+    if rb.structure_family_excluded:
         basin_keys = {fam_of[oid] for oid in excluded if oid in fam_of}
+        tunnel_keys = {fam_of[oid] for oid in tunnel_ids if oid in fam_of}
         excluded |= {o.id for o in objects if fam_of.get(o.id) in basin_keys}
     deck_keys = {fam_of[o.id] for o in objects
                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
@@ -150,8 +158,13 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in excluded:
             counts["terrain_adapted"] += 1
-            skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
-                                        "adapted to it (08-26; v1 R4) — never re-seated")
+            if o.id in tunnel_ids or fam_of.get(o.id) in tunnel_keys:
+                skipped.setdefault(o.path, "tunnel_object: tunnel wall object (or its anchor "
+                                            "family) — the tunnel authority the terrain adapted "
+                                            "to (2026-09-05k-1) — never re-seated")
+            else:
+                skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
+                                            "adapted to it (08-26; v1 R4) — never re-seated")
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
         deep = o.solid_min_depth_m is not None and o.solid_min_depth_m <= -admission_m

@@ -4,8 +4,13 @@ spec ``flat-site-datum-spec.md`` §3.2; ``law/flat_site.toml [datum]``).
 At a flat site (``Airport.flat_site`` a ``flat_candidate`` or a
 ``flat_declared`` verdict with a datum) every GOVERNED vertex inside the
 verdict's region — pavement ∪ boundary ⊕ margin — whose faces are not
-of the RUNWAY family carries one soft ``Linear`` row ``z_i = Z0`` in the
-preference group ``[datum] preference`` (``flat_datum``): ranked below
+of the RUNWAY family carries one soft ``Linear`` row ``z_i = Z0`` in its
+OWN preference group ``<[datum] preference>:<vertex>`` (``flat_datum:
+1234``, exactly as the seam's ``seam:<vertex>``): the assembler gives one
+slack column per GROUP, so a shared group would let every row relax by
+the largest single relief for free (measured OTHH 2026-09-05: one bare
+``flat_datum`` group escalated 5.1 m at a tunnel mouth and freed all
+15,687 rows); the prefix before ``:`` carries the weight.  Ranked below
 the law ladder and above the seam, so the hard law rows outrank it (a
 real gradient at a spread-< 5 m site still fans lawfully from the pinned
 thresholds — v1's behaviour) and the seam's DEM values yield to it.  The
@@ -84,5 +89,5 @@ def flat_datum(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     rows: list[Row] = []
     for v, ok in zip(cand, inside):
         if ok:
-            rows.append(Linear(((v, 1.0),), z0, z0, src, group, None))
+            rows.append(Linear(((v, 1.0),), z0, z0, src, f"{group}:{v}", None))
     return rows

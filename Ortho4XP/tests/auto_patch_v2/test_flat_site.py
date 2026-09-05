@@ -227,8 +227,13 @@ def test_flat_candidate_verdict_and_rows(flat_site, law):
     assert s["s4"]["pass"] is None                    # no objects: no_data, never a fail
     assert s["core"] is None and fv.region
     rows = C.flat_datum(pm, law, airport)
-    assert rows and all(isinstance(r, Linear) and r.soft == "flat_datum"
+    # one preference group PER ROW (the assembler's slack is per group —
+    # a shared group would free every row by the largest single relief)
+    assert rows and all(isinstance(r, Linear) and r.soft == f"flat_datum:{r.terms[0][0]}"
                         and r.lo == r.hi == pytest.approx(100.1) for r in rows)
+    assert len({r.soft for r in rows}) == len(rows)
+    from auto_patch_v2.solve.assemble import preference_weight
+    assert preference_weight(rows[0].soft, weights_under_law(DEFAULT_WEIGHTS, law)) == 5.0e4
     assert {r.source.generator for r in rows} == {"flat_site"}
     from auto_patch_v2.constraints.precedence import view
     vw = view(pm, law)
@@ -360,20 +365,31 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     taxi = law2.ruleset.taxi.longitudinal.value(None, "D")
     rw_cap = law2.ruleset.runway.longitudinal.value(3, None)
     # the stub mouth (3 m off the runway edge) can stand at most the runway
-    # edge's lawful climb from the threshold plus 3 m of taxi grade: under
-    # the datum by more than a metre — the row yielded there
+    # edge's lawful climb from the threshold plus 3 m of taxi grade
+    # (109.07 m): the preference lifts it exactly to that ceiling and no
+    # further — under the datum, the law's margin, never at it
     stub = next(f for f in pm.faces.values() if f.role == "stub")
     mouth = [v for v in vw.rings[stub.id] if abs(vw.xy[v][1] - 25.5) < 1e-6]
     assert mouth
     ceiling = 100.2 + rw_cap * (600.0 - 11.5) + taxi * 3.0
     for v in mouth:
         assert sol.z[v] <= ceiling + tol
-        assert 110.0 - sol.z[v] > 1.0
+        assert 110.0 - sol.z[v] > 110.0 - ceiling - tol > tol
     # nothing overshoots the datum, and the datum rows are the ONLY soft
     # rows that yielded — no law row did
     datum_v = {r.terms[0][0] for r in cs.linears if r.source.generator == "flat_site"}
     assert all(sol.z[v] <= 110.0 + tol for v in datum_v)
     assert not rep.yielded
+
+
+def test_provenance_line_carries_the_datum():
+    from auto_patch.engine_v2 import format_provenance_line   # v1 driver, test-only
+    kw = dict(sha="abc", law_sha256="f" * 64, ruleset="icao", dem_prov={}, status="optimal")
+    assert " flat=3.96 " in format_provenance_line(
+        "OTHH", flat_site={"substitutes": True, "z0_m": 3.96}, **kw)
+    assert "flat=" not in format_provenance_line(
+        "CYXY", flat_site={"substitutes": False, "z0_m": 697.3}, **kw)
+    assert "flat=" not in format_provenance_line("CYXY", **kw)
 
 
 # ── 6. plumbing ───────────────────────────────────────────────────────────

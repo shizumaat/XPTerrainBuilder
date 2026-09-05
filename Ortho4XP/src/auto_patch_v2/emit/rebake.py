@@ -31,7 +31,16 @@ feet law governs.  Otherwise the agreeing coalition of founding feet seats
 water triangle never founds a seat (OTHH's canal is not a datum); a
 unit with no founding witness on land is HELD — the pack's current
 bytes are kept and a finding is raised; a unit that moves under
-``min_delta_m`` stays and the terrain adapts.
+``min_delta_m`` stays and the terrain adapts.  THE FACILITY RULE
+(RULINGS 2026-09-05p): a member whose feet stand deeper than ``[basin]
+contact_band_m`` BELOW the built mesh is a FACILITY member — it never
+founds the family and keeps its authored y (the terrain's cutout is the
+basin pass's affair); the founding band is the lowest band among the
+AT-GRADE eligible members, and a member floating ABOVE the mesh stays
+eligible (HECA's authored plane over a cut apron is what the seat exists
+for).  OTHH unit:21: the sunken TerminalRoads/Parking (feet 1.9–2.5 m
+under grade, their pits refused as roofed/basement) founded the
+399-member terminal family and lifted it +1.888 m.
 
 Nothing here writes: the delta per unit is handed to the v1 driver hook
 (``engine_v2.rebake_after_mesh``), which rewrites the pack's OBJ8 vertex
@@ -211,13 +220,26 @@ def _mid_span(m: Member, base: float, delta: float, sampler: Sampler, br
                    "ground it covers, deck seat refused"))
 
 
-def _founders(u: Unit, seats: list[MemberSeat], rb) -> list[bool]:
+def _facility(seats: _t.Sequence[MemberSeat], depth_m: float) -> list[bool]:
+    """THE FACILITY RULE (05p): a foot member whose median foot stands
+    deeper than ``depth_m`` (``[basin] contact_band_m``) BELOW the mesh —
+    its member delta is the lift that would put it on the ground, so a
+    lift over the band IS the depth.  A member ABOVE the mesh (negative
+    delta) is never a facility."""
+    return [s.datum == DATUM_FEET and s.delta_m is not None and s.delta_m > depth_m
+            for s in seats]
+
+
+def _founders(u: Unit, seats: list[MemberSeat], rb, facility: _t.Sequence[bool]
+              ) -> list[bool]:
     """Which foot members may found the unit: those over the WITNESS
     FLOOR (land witnesses ≥ ``founding_min_witnesses`` and ≥
-    ``founding_min_share`` of the unit's largest member's) whose feet
-    reach the unit's lowest band over the eligible members (v1 I-8 — a
-    railing's feet are on the deck, it inherits)."""
-    n = [s.witnesses if s.datum == DATUM_FEET else 0 for s in seats]
+    ``founding_min_share`` of the unit's largest member's), NOT facility
+    members (05p), whose feet reach the unit's lowest band over the
+    eligible AT-GRADE members (v1 I-8 — a railing's feet are on the deck,
+    it inherits)."""
+    n = [s.witnesses if s.datum == DATUM_FEET and not fac else 0
+         for s, fac in zip(seats, facility)]
     largest = max(n, default=0)
     # the floor is RELATIVE: it demotes a small piece beside a larger
     # member; a unit whose every member is small (a sign on four feet)
@@ -290,6 +312,7 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
     """ONE delta per unit against the built mesh (see module doc)."""
     rb = law.tables.structures.rebake
     br = law.tables.structures.bridge
+    facility_depth_m = law.tables.structures.basin.contact_band_m    # 05p
     out: list[UnitSeat] = []
     for u in plan_.units:
         resources = tuple(m.resource for m in u.members)
@@ -359,10 +382,36 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
             seats = [f if d is None else _dc_replace(f, records=d.records + (f"deck reading: "
                      f"{d.note}" + (f" delta {d.delta_m:.3f}" if d.delta_m is not None else ""),))
                      for d, f in zip(decks, feet)]
-            founding = _founders(u, seats, rb)
+            facility = _facility(seats, facility_depth_m)
+            founding = _founders(u, seats, rb, facility)
+            n_fac = sum(facility)
+            if n_fac:
+                seats = [_dc_replace(s, facility=True,
+                                     note=(f"facility member: feet {s.delta_m:.2f} m below "
+                                           f"the mesh (> contact_band_m {facility_depth_m}) — "
+                                           "never founds, keeps its authored y"))
+                         if fac else s for s, fac in zip(seats, facility)]
+                names = [s.resource.rsplit('/', 1)[-1] for s, fac in zip(seats, facility)
+                         if fac]
+                findings.append(f"{n_fac} facility member(s) with feet deeper than "
+                                f"{facility_depth_m} m below the mesh excluded from founding, "
+                                "authored y kept (05p; the cutout is the basin pass's): "
+                                + ", ".join(names[:3]) + (" …" if n_fac > 3 else ""))
             measurable = [s for s, f in zip(seats, founding) if s.delta_m is not None and f]
             n_w = sum(s.water for s in seats)
             if not measurable:
+                seats = [_dc_replace(s, founding=False) for s in seats]
+                if n_fac and all(fac or s.delta_m is None
+                                 for s, fac in zip(seats, facility)):
+                    # every measurable member is a facility: the family is
+                    # unfounded by law, not unjudged — authored y kept
+                    out.append(UnitSeat(u.id, resources, anchor_ground, DATUM_FEET, None,
+                                        None, tuple(seats),
+                                        f"no founder: all {n_fac} measurable member(s) are "
+                                        f"facility members (feet > {facility_depth_m} m "
+                                        "below the mesh) — the unit keeps its authored y "
+                                        "(05p)", tuple(findings)))
+                    continue
                 out.append(UnitSeat(u.id, resources, anchor_ground, DATUM_FEET, None, None,
                                     tuple(seats),
                                     f"held: no founding witness on land ({n_w} on water, "
@@ -371,7 +420,7 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                                     tuple(findings), True))
                 continue
             below_floor = [s.resource for s, f in zip(seats, founding)
-                           if not f and s.delta_m is not None
+                           if not f and not s.facility and s.delta_m is not None
                            and s.witnesses < max(min(rb.founding_min_witnesses,
                                                      max(x.witnesses for x in seats)),
                                                  rb.founding_min_share

@@ -292,7 +292,8 @@ def test_founding_witness_floor(law):
     rb = law.tables.structures.rebake
     lat, lon = 60.5, -135.5
     feet_big = tuple(R.Foot(lat + i * 1e-5, lon, 0.0) for i in range(100))
-    feet_tiny = tuple(R.Foot(lat - i * 1e-5, lon, -6.0) for i in range(4))
+    # at grade (05p: −6 would be a facility member, excluded before the floor)
+    feet_tiny = tuple(R.Foot(lat - i * 1e-5, lon, -0.5) for i in range(4))
     big = R.Member("a", "objects/big.obj", "big", "big", 0.0, feet_big)
     tiny = R.Member("b", "objects/tiny.obj", "tiny", "tiny", 0.0, feet_tiny)
     pl = R.RebakePlan("ZZZZ", "p", "/p", (R.Unit("u", (lat, lon), 0.0, (big, tiny)),), (), {})

@@ -200,6 +200,12 @@ class MemberSeat:
     #: Whether this member FOUNDED the unit's seat (a deck plate with a
     #: measured abutment grade; a foot member over the witness floor).
     founding: bool = False
+    #: A FACILITY member (RULINGS 2026-09-05p): its feet stand deeper than
+    #: ``[basin] contact_band_m`` BELOW the built mesh — it never founds
+    #: the family and keeps its authored y (the terrain's cutout is the
+    #: basin pass's affair, never the seat's).  OTHH unit:21: the sunken
+    #: TerminalRoads/Parking founded the 399-member terminal +1.888 m.
+    facility: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -233,9 +239,10 @@ class SeatResult:
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
              "held": 0, "skipped": 0, "resources_baked": 0, "findings": 0,
-             "deck_units": 0}
+             "deck_units": 0, "facility_members": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
+            c["facility_members"] += sum(1 for m in u.members if m.facility)
             if u.datum == DATUM_DECK_TOP:
                 c["deck_units"] += 1
             if u.bakes:

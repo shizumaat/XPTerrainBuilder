@@ -389,6 +389,7 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             # HELD: unknown to the decision, so v1's reversion pass leaves
             # the live bytes exactly as they are (reported, never reverted)
             continue
+        facility = {s.resource: s for s in us.members if s.facility}
         for m in u.members:
             r = m.resource
             anchors[r] = (u.anchor[0], u.anchor[1], m.heading_deg)
@@ -396,6 +397,16 @@ def _decision_from_seats(plan_, result, measure_only: bool):
                 ground[r] = float(us.anchor_ground_m)
             if measure_only:
                 skipped.append((r, "measure-only: modify_custom_airports is off"))
+                continue
+            if r in facility:
+                # RULINGS 2026-09-05p: a facility member keeps its authored
+                # y whatever its family does — the excluded path, so v1's
+                # reversion pass restores an earlier bake and the
+                # provenance records the exclusion
+                fs = facility[r]
+                skipped.append((r, f"facility member (05p): feet {fs.delta_m:.2f} m below the "
+                                   f"mesh — keeps its authored y; the cutout is the basin "
+                                   f"pass's affair ({us.unit_id})"))
                 continue
             if not us.bakes:
                 skipped.append((r, us.skip_reason or "no seat"))

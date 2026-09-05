@@ -217,14 +217,89 @@ def _flat(z: float, water: bool = False):
 
 def test_feet_seat_on_the_mesh(planned, law):
     _, pl = planned
-    res = R.seat(pl, _flat(710.0), law)
-    seats = {u.resources[0]: u for u in res.units}
-    ua = seats["objects/a.obj"]
-    # anchor ground 710, feet authored at −2: the seat lifts the unit +2
-    assert ua.bakes and ua.datum == "feet" and ua.delta_m == pytest.approx(2.0)
-    assert ua.seat_datum_m == pytest.approx(712.0)
+    # anchor ground 710, the mesh 705 under the feet (authored at −2, i.e.
+    # 708): the feet float 3 m over the ground and the seat LOWERS the
+    # unit −3 (05p: feet 2 m UNDER a flat mesh would be a facility)
+    seen = {"n": 0}
+
+    def s(lat, lon):
+        seen["n"] += 1
+        return (710.0 if seen["n"] == 1 else 705.0, False)
+    unit = next(u for u in pl.units if u.members[0].resource == "objects/a.obj")
+    res = R.seat(R.RebakePlan(pl.icao, pl.pack_name, pl.pack_root, (unit,), (), {}), s, law)
+    ua = res.units[0]
+    assert ua.bakes and ua.datum == "feet" and ua.delta_m == pytest.approx(-3.0)
+    assert ua.seat_datum_m == pytest.approx(707.0)
     assert set(ua.resources) == {"objects/a.obj", "objects/b.obj"}   # one delta, both
-    assert all(m.delta_m == pytest.approx(2.0) for m in ua.members)
+    assert all(m.delta_m == pytest.approx(-3.0) and not m.facility for m in ua.members)
+
+
+# ── 3b. THE FACILITY RULE (RULINGS 2026-09-05p) ──────────────────────────
+
+def _feet_member(name: str, y: float, n: int = 16, lat0: float = 0.0):
+    feet = tuple(R.Foot(lat0 + i * 1e-5, 1e-5, y) for i in range(n))
+    return R.Member(name, f"objects/{name}.obj", name, name, 0.0, feet)
+
+
+def _unit(*members):
+    return R.RebakePlan("OTHH", "p", "/p", (R.Unit("unit:21", (0.0, 0.0), 0.0, members),),
+                        (), {})
+
+
+def test_facility_member_never_founds(law):
+    """OTHH unit:21: three at-grade members and one whose feet stand
+    2.5 m under the mesh — the sunken one is a FACILITY member, the seat
+    is founded by the at-grade band (delta ≈ 0), the family stays."""
+    depth = law.tables.structures.basin.contact_band_m
+    pl = _unit(_feet_member("Terminal_Base", 0.0), _feet_member("Terminal_Interior", 0.0),
+               _feet_member("Terminal_Orchard", 0.0),
+               _feet_member("TerminalRoads_03_004", -(depth + 1.5)))
+    us = R.seat(pl, _flat(710.0), law).units[0]
+    by = {m.resource: m for m in us.members}
+    assert us.delta_m == pytest.approx(0.0, abs=1e-9) and not us.held
+    assert us.skip_reason.startswith("below_threshold")
+    road = by["objects/TerminalRoads_03_004.obj"]
+    assert road.facility and not road.founding and "facility member" in road.note
+    assert all(by[r].founding and not by[r].facility for r in by if "Terminal_" in r)
+    assert any("facility member" in f and "TerminalRoads_03_004" in f for f in us.findings)
+    assert R.SeatResult("OTHH", (us,)).counts()["facility_members"] == 1
+
+
+def test_members_above_the_mesh_still_found(law):
+    """HECA's authored plane over a cut apron: every member 15 m ABOVE
+    the mesh — never a facility, the seat lowers the family −15."""
+    pl = _unit(_feet_member("a", 15.0), _feet_member("b", 15.0), _feet_member("c", 15.0))
+    us = R.seat(pl, _flat(710.0), law).units[0]
+    assert us.bakes and us.delta_m == pytest.approx(-15.0)
+    assert all(m.founding and not m.facility for m in us.members)
+
+
+def test_all_sunken_unit_has_no_founder(law):
+    depth = law.tables.structures.basin.contact_band_m
+    pl = _unit(_feet_member("road", -(depth + 0.9)), _feet_member("parking", -(depth + 1.4)))
+    us = R.seat(pl, _flat(710.0), law).units[0]
+    assert us.delta_m is None and not us.bakes and not us.held
+    assert "no founder" in us.skip_reason and "facility" in us.skip_reason
+    assert all(m.facility and not m.founding for m in us.members)
+    assert any("2 facility member(s)" in f for f in us.findings)
+    # exactly at the band the member is still at grade (the band is inclusive)
+    us2 = R.seat(_unit(_feet_member("edge", -depth)), _flat(710.0), law).units[0]
+    assert not us2.members[0].facility and us2.delta_m == pytest.approx(depth)
+
+
+def test_facility_member_is_excluded_from_the_decision(law):
+    """The v1 decision hands a facility member to the excluded path with
+    a reason the provenance records (``excluded_reason``)."""
+    from auto_patch.engine_v2 import _decision_from_seats
+    depth = law.tables.structures.basin.contact_band_m
+    pl = _unit(_feet_member("Terminal_Base", 12.0), _feet_member("road", -(depth + 1.0)))
+    res = R.seat(pl, _flat(710.0), law)
+    assert res.units[0].bakes and res.units[0].delta_m == pytest.approx(-12.0)
+    dec = _decision_from_seats(pl, res, measure_only=False)
+    reasons = dict(dec.skipped)
+    assert "facility member (05p)" in reasons["objects/road.obj"]
+    assert "objects/road.obj" not in dec.delta_by_resource_and_vertex
+    assert "objects/road.obj" in dec.anchor_by_resource      # registered for the reversion pass
 
 
 def test_water_never_founds_a_seat(planned, law):

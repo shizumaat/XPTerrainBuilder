@@ -310,6 +310,11 @@ def _structures_emit_checks(c: Checks, t) -> None:
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
     assert s.rebake.structure_family_excluded is True
+    # RULINGS 2026-09-05p: the seat's FACILITY depth IS [basin] contact_band_m
+    # (no separate key — the ground-contact band, read by emit/rebake.seat)
+    c.eq("rebake facility depth (= basin.contact_band_m, 05p)",
+         v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
+    assert s.basin.contact_band_m > 0.0
 
 
 def test_every_value_equals_v1(tables, capsys):

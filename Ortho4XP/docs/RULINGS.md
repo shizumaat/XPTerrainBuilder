@@ -2347,3 +2347,7 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 ## 2026-09-05s — Owner RULED 05r-1: runways are FLAT LATERALLY; HECA is solvable — v2 is shortcutting the centreline routes
 
 * (1) Runways must be flat laterally: the transverse maximum is hard law and the runway family never yields to the taxi system (the transverse lane 781d560d stands as law). (2) HECA IS solvable — v1's engine produced a surface; v2 is not finding the right centreline routes between the runway complexes. The IIS the lane produced supports it: 96 `junction_mesh` plane-gradient rows on junction pav132 and 37 taxi `within_shape` rows on pav112/pav64/pav131/pav132 price vertex pairs over DIRECT distance inside a shape, while the law (04o: feasibility along taxi ROUTES; 04t-3: caps per STRETCH between centreline intersections) prices the route. Scout dispatched to attribute: v1's HECA surface along the 1202 routes between 05L/23R and 05R/23L (route lengths, climb, max grade per stretch) vs v2's rows on the same pairs. Then a lane removes the shortcut; the transverse lane merges with it.
+
+## 2026-09-05t — Owner RULED 05p-1: the pad-to-apron weld gap stays UNDER 1 m
+
+* `[building_pad] frontage_near_miss_m = 1.0` stands; a pad 1.2–2.8 m off an apron (HECA building272/280 beside pav132) is NOT welded to it — it is groundside ground, terraced under the groundside law, and the pack's building objects seat on it through the re-bake (the OBJ8 indentation fix, 8072bad7). No change to the law tables.

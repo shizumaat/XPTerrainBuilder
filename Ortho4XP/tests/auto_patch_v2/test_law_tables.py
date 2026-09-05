@@ -321,6 +321,12 @@ def _structures_emit_checks(c: Checks, t) -> None:
          v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
     assert s.basin.contact_band_m > 0.0
     assert s.rebake.structure_seat_threshold_exempt is True     # 05n-4: the plate seat, like a deck seat
+    # RULINGS 2026-09-05u (lane v2relaxfull): no certificate is not a reason
+    # to demote — 04t(1) runs over the whole relaxable scope, the ladder last
+    rl = e.relaxation
+    assert rl.scope_without_certificate == "relaxable"
+    assert rl.tier_ladder_last is True
+    assert rl.relaxable_from_role == "apron"
 
 
 def test_every_value_equals_v1(tables, capsys):

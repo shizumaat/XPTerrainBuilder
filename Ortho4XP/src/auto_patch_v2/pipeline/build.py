@@ -178,8 +178,8 @@ def relaxation_lines(rep: TierReport) -> list[str]:
     rl = rep.relaxation or {}
     if not rl.get("applied"):
         return []
-    out = [f"relaxed by 04t(1): {len(rl['rows'])} rows; slack stats {rl.get('stats')}; "
-           f"certificate {rl.get('certificate')}"]
+    out = [f"relaxed by 04t(1) over the {rl.get('scope')} scope: {len(rl['rows'])} rows; "
+           f"slack stats {rl.get('stats')}; certificate {rl.get('certificate')}"]
     for r in rl["rows"]:
         if r["kind"] == "pad":
             out.append(f"  pad   face {r['face']} {r['inputs'][1:2]} slope {r['slope']:.5f} "
@@ -336,6 +336,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     _say(f"[{icao}] {tier_rep.line()}", out)
+    if tier_rep.failure:
+        # THE NAMED FAILURE (RULINGS 2026-09-05u): a governed family the
+        # ladder made yield is not a lawful surface — the patch is still
+        # written (the census reads it), the app fails the airport by name
+        _say(f"[{icao}] FAILURE: {tier_rep.failure}", out)
     relaxed_rows = relaxed_publication(tier_rep)
     for ln in relaxation_lines(tier_rep):
         _say(f"    {ln}", out)
@@ -394,6 +399,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "seam": report_seam,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
+                  # RULINGS 2026-09-05u: which scope answered, and the
+                  # governed families the ladder demoted (a NAMED FAILURE)
+                  "scope": tier_rep.scope, "demoted": tier_rep.demoted_governed,
+                  "failure": tier_rep.failure,
                   "residual": None if sol.residual is None else _dc.asdict(sol.residual),
                   "iis": [{"row": repr(r), "generator": s.generator,
                            "ruling": s.ruling, "inputs": list(s.inputs)}

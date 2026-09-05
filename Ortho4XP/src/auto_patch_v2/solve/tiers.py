@@ -17,9 +17,19 @@ budget or names no relaxable row:
    contradiction; its apron / pad / between-building rows take slacks
    whose Σ slack² is minimised, the relief is fixed into the rows, and
    the normal solve runs on that relaxed HARD set (``TierReport.mode ==
-   "relaxed"``; ``relaxation`` carries the rows and slacks).  The
-   preference ladder below is not entered.
-2. **DEMOTE**, when 1 is infeasible and 1b could not answer.  ``demote(k_min)`` turns every row
+   "relaxed"``; ``relaxation`` carries the rows and slacks).  With NO
+   certificate inside the budget the same program runs over the WHOLE
+   relaxable scope (RULINGS 2026-09-05u, ``relax.py``; ``relaxation
+   ["scope"]`` says which answered).  The preference ladder below is
+   not entered.
+2. **DEMOTE**, when 1 is infeasible and 1b could not answer — THE LADDER
+   IS LAST (``[relaxation] tier_ladder_last``), and a GOVERNED family it
+   makes yield is a NAMED FAILURE (``TierReport.failure``, ``report.
+   solve.demoted``, the ``[v2] law tiers`` line, the app's per-airport
+   failure): a governed surface yielding is not a lawful surface.  The
+   ungoverned / rigid last tier yielding (a DEM-derived structure row:
+   KCLT) is the lawful case — the DEM yields to every governed surface.
+   ``demote(k_min)`` turns every row
    of every tier ``≥ k_min`` (``constraints.precedence.tiers``; tier 0 =
    the runway family) into a PREFERENCE with an unbounded slack, charged
    ``Weights.preference["law"] × ratio ** rank`` per metre of relief
@@ -82,7 +92,7 @@ from ..model.planar import PlanarMap, vertex_tier
 from .api import Options, Solution, Status, Weights
 from .highs import solve as solve_hard
 
-__all__ = ["GROUP", "row_tier", "demote", "ladder_ratio", "TierReport",
+__all__ = ["GROUP", "row_tier", "demote", "ladder_ratio", "TierReport", "name_failure",
            "solve_law_ordered"]
 
 #: The preference-group prefix of a demoted law row: ``law:<rank>:<index>``.
@@ -187,31 +197,47 @@ class TierReport:
     #: THE LAST RESORT's report (``relax.RelaxReport.as_dict``): present
     #: whenever the hard set was infeasible — applied, or why not
     relaxation: dict[str, _t.Any] | None = None
+    #: THE NAMED FAILURE (RULINGS 2026-09-05u): the governed tiers the
+    #: ladder made yield — ``{"tier", "roles", "rows", "max_m",
+    #: "by_generator"}`` each — or, with no feasible ladder, the
+    #: infeasible status; empty when the surface is lawful
+    demoted_governed: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
+    failure: str | None = None
     #: the relaxed HARD set the solution satisfies (mode "relaxed"), for
     #: the publication and ``why``; never serialised
     relaxed_set: _t.Any = _dc.field(default=None, repr=False, compare=False)
 
+    @property
+    def scope(self) -> str:
+        """Which scope answered: ``hard`` | ``certificate`` | ``relaxable``
+        | ``ladder`` (``relax.RelaxReport.scope``)."""
+        if self.mode == "hard":
+            return "hard"
+        return str((self.relaxation or {}).get("scope") or "ladder")
+
     def as_dict(self) -> dict[str, _t.Any]:
-        return {"mode": self.mode, "tiers": [list(t) for t in self.tiers],
+        return {"mode": self.mode, "scope": self.scope, "tiers": [list(t) for t in self.tiers],
                 "k_min": self.k_min, "demoted": self.demoted, "ratio": round(self.ratio, 4),
                 "yielded": {str(k): v for k, v in sorted(self.yielded.items())},
                 "wall_hard_s": round(self.wall_hard_s, 3),
                 "attempts": [{"k_min": k, "status": st, "wall_s": round(w, 3)}
                              for k, st, w in self.attempts],
-                "relaxation": self.relaxation}
+                "relaxation": self.relaxation,
+                "demoted_governed": self.demoted_governed, "failure": self.failure}
 
     def line(self) -> str:
         if self.mode == "hard":
             return "law tiers: hard set feasible, no surface yielded"
         if self.mode == "relaxed":
-            return ("law tiers: hard set INFEASIBLE; " + str((self.relaxation or {}).get("line", ""))
-                    + "; no tier demoted")
+            return (f"law tiers: hard set INFEASIBLE; scope {self.scope}; "
+                    + str((self.relaxation or {}).get("line", "")) + "; no tier demoted")
         parts = [f"tier {k} {' '.join(self.tiers[k][:2])}{'…' if len(self.tiers[k]) > 2 else ''}: "
                  f"{v['rows']} rows, max {v['max_m']:.3f} m"
                  for k, v in sorted(self.yielded.items())]
         att = ", ".join(f"k_min {k} {st} {w:.1f} s" for k, st, w in self.attempts)
         why_not = (self.relaxation or {}).get("line")
-        return (f"law tiers: hard set INFEASIBLE; " + (f"{why_not}; " if why_not else "")
+        return ((f"law tiers: FAILURE — {self.failure}; " if self.failure else "law tiers: ")
+                + f"hard set INFEASIBLE; scope ladder; " + (f"{why_not}; " if why_not else "")
                 + f"soft from tier {self.k_min} down "
                 f"({self.demoted} rows, ratio {self.ratio:.3g}; {att}); "
                 + ("; ".join(parts) if parts else "nothing yielded"))
@@ -243,6 +269,31 @@ def _yields(demoted: dict[int, Demoted], escalation: dict[str, float]
 def _min_yield_tier(yielded: dict[int, dict[str, _t.Any]]) -> int | None:
     ks = [k for k, v in yielded.items() if v["rows"] > 0]
     return min(ks) if ks else None
+
+
+def name_failure(rep: TierReport, law: Law, status: Status) -> None:
+    """THE NAMED FAILURE (RULINGS 2026-09-05u, ``tier_ladder_last``): the
+    governed tiers the ladder made yield, or the infeasible status when
+    no ladder answered.  The last tier (ungoverned / rigid) yielding is
+    the lawful DEM yield and names nothing."""
+    if not law.tables.emit.relaxation.tier_ladder_last:
+        return
+    if status not in (Status.OPTIMAL, Status.FEASIBLE):
+        rep.failure = (f"no lawful surface: the ladder ended {status.value} — the IIS "
+                       f"names tier 0 / structural rows")
+        return
+    gov: list[dict[str, _t.Any]] = []
+    last = len(rep.tiers) - 1          # the ungoverned / rigid tier (tables.tiers): the DEM's own yield
+    for k, v in sorted(rep.yielded.items()):
+        roles = rep.tiers[k]
+        if v["rows"] > 0 and k < last:
+            gov.append({"tier": k, "roles": list(roles), "rows": v["rows"],
+                        "max_m": v["max_m"], "by_generator": dict(v.get("by_generator", {}))})
+    rep.demoted_governed = gov
+    if gov:
+        rep.failure = "governed family demoted: " + "; ".join(
+            f"tier {g['tier']} ({' '.join(g['roles'][:3])}{'…' if len(g['roles']) > 3 else ''}) "
+            f"{g['rows']} rows, max {g['max_m']:.3f} m" for g in gov)
 
 
 def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -308,10 +359,12 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
             lo = proven
         elif s2.status is Status.INFEASIBLE:
             if k == 1:
+                name_failure(rep, law, s2.status)
                 return s2, rep            # the IIS names tier 0 / structural rows
             hi = k - 1
         else:
             if best is None:
+                name_failure(rep, law, s2.status)
                 return s2, rep            # backend error, nothing to fall back on
             break
         if lo >= hi:
@@ -320,6 +373,7 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if best is None:                      # lo == 1 assumed, never solved
         s2, demoted, size2, ratio = attempt(1)
         if s2.status not in (Status.OPTIMAL, Status.FEASIBLE):
+            name_failure(rep, law, s2.status)
             return s2, rep
         y = _yields(demoted, size2.get("escalation", {}))
         best = (1, s2, size2, demoted)
@@ -330,5 +384,6 @@ def solve_law_ordered(planar: PlanarMap, cs: ConstraintSet, law: Law,
         size_out.update({f"tiered_{kk}": v for kk, v in size2.items()})
         size_out["escalation"] = {g: e for g, e in esc.items()
                                   if not g.startswith(GROUP + ":")}
+    name_failure(rep, law, sol.status)
     msg = sol.message.split("; preferences yielded")[0]
     return _dc.replace(sol, message=msg + "; " + rep.line()), rep

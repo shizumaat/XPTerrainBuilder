@@ -185,10 +185,21 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
     assert sol.status.value == "optimal"
     for r in rows:
         assert r.lo - 1e-6 <= sol.z[r.v] <= r.hi + 1e-6, (r.v, r.lo, sol.z[r.v], r.hi)
-    # ...and with them the solve is the same surface
+    # ...and with them the solve is the same OPTIMUM: the same objective,
+    # and the with-band surface inside the bands too.  Point identity is
+    # NOT the meaning: the L1 fit has ties, and under the runway transverse
+    # maximum (RULINGS 2026-09-05o/s: two-sided rows on every off-ridge
+    # runway edge vertex) HiGHS returns two optima 0.011 m apart on this
+    # loop (measured 2026-09-05) — a tie between equal-cost surfaces, not
+    # a band that cut the feasible set.
     sol2 = solve(pm, cs, DEFAULT_WEIGHTS)
     assert sol2.status.value == "optimal"
-    assert float(np.max(np.abs(np.asarray(sol.z) - np.asarray(sol2.z)))) < 1e-6
+    o1, o2 = sol.residual.objective, sol2.residual.objective
+    assert abs(o1 - o2) <= 1e-6 * max(1.0, abs(o1)), (o1, o2)
+    for r in rows:
+        assert r.lo - 1e-6 <= sol2.z[r.v] <= r.hi + 1e-6, (r.v, r.lo, sol2.z[r.v], r.hi)
+    moved = float(np.max(np.abs(np.asarray(sol.z) - np.asarray(sol2.z))))
+    assert moved < 0.05, moved                    # a tie among equal optima, never a band's pull
 
 
 def test_route_neighbours_respects_window_and_k(loop, law):

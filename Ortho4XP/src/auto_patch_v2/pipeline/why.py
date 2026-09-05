@@ -239,7 +239,8 @@ def relaxation_block(prep: Prepared) -> list[str]:
     if rep is None:
         return []
     d = rep.as_dict() if hasattr(rep, "as_dict") else dict(rep)
-    L = ["-- relaxed by 04t(1): the HARD set was infeasible; the IIS and the relief applied "
+    L = [f"-- relaxed by 04t(1) over the {d.get('scope')} scope: the HARD set was infeasible; "
+         "the IIS and the relief applied "
          f"(backend {d.get('backend')}{' — piecewise-linear APPROXIMATION of the square' if d.get('approximation') else ''}):"]
     L.append(f"   IIS {d.get('iis_rows')} rows in {d.get('iis_wall_s', 0):.1f} s; "
              f"{len(d.get('rows', []))} relaxed, {len(d.get('unrelaxed', []))} held; "

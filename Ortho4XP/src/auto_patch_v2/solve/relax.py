@@ -66,9 +66,25 @@ infeasibility, and inside ``emit.relaxation.iis_time_budget_s``:
    step between adjacent relaxed elements ≤ ``materiality_m``.
 
 A second contradiction outside the site is a second ROUND (its IIS
-widens the site), up to ``max_rounds``; past the budget or the rounds
-the tier machinery answers.  This module imports ``law``, ``model`` and
-its siblings only (04q-3).
+widens the site), up to ``max_rounds``.
+
+NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
+``relaxation-without-certificate-spec.md``; ``[relaxation]
+scope_without_certificate`` / ``tier_ladder_last``).  The order of
+answers on an infeasible hard set is (i) the IIS-scoped program above
+when the certificate arrives inside ``iis_time_budget_s``; (ii) with no
+certificate — the budget spent, the rounds spent, a stage that would not
+solve — the SAME variance program over the WHOLE relaxable population
+(:func:`full_scope`: every row ``relaxable_from_role``'s tier or a junior
+one owns, every rigid pad as a plane ≤ ``pad_slope_max``), whose support
+is the rows a certificate would have named; (iii) only when that is
+still infeasible the tier ladder (``tiers.py``), which names the
+governed family it demotes as a FAILURE.  A certificate that names NO
+relaxable row (runway / taxi rows and pins alone) refutes (ii) without
+running it.  ``RelaxReport.scope`` states which answered.  Measured
+HECA 2026-09-05: the ladder demoted the taxi tier (3,037 rows, 5 m)
+after 120 / 300 s certificate searches that never returned.  This
+module imports ``law``, ``model`` and its siblings only (04q-3).
 """
 from __future__ import annotations
 
@@ -78,8 +94,6 @@ import time
 import typing as _t
 
 import numpy as np
-import scipy.sparse as sp
-from scipy.optimize import linprog
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_tier, tiers
@@ -87,28 +101,20 @@ from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff, Fla
                                  Source)
 from ..model.planar import PlanarMap
 from .api import Options, Solution, Status, Weights
-from .assemble import to_sparse
 from .highs import solve as solve_hard
 from .iis import (Certificate, IISBudgetExceeded, RowIndex, diagnose, neighbourhood_certificate,
                   row_vertices)
 from .tiers import row_tier
+from .variance import model, pieces, pwl, qp, qp_available, without as _without
 
-__all__ = ["RULING", "Relaxed", "RelaxReport", "relaxable", "site_candidates", "stage1",
+__all__ = ["RULING", "SCOPE_CERTIFICATE", "SCOPE_RELAXABLE", "SCOPE_LADDER", "Relaxed",
+           "RelaxReport", "relaxable", "site_candidates", "full_scope", "stage1",
            "relaxed_hard_set", "certificate", "solve_relaxed", "qp_available"]
 
 #: The ruling every relaxed row cites (the census heading).
 RULING = "relaxed by 04t(1)"
 #: Generator name of a relaxed pad's plane rows.
 PLANE_GENERATOR = "pads"
-
-
-def qp_available() -> bool:
-    """Is the ``highspy`` QP backend importable?"""
-    try:
-        import highspy  # noqa: F401
-    except ImportError:
-        return False
-    return True
 
 
 @_dc.dataclass(frozen=True)
@@ -261,242 +267,7 @@ def site_candidates(pm: PlanarMap, law: Law, cs: ConstraintSet, iis: _t.Sequence
     return list(prior) + [_dc.replace(x, index=base + i) for i, x in enumerate(new)]
 
 
-def _without(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed]) -> ConstraintSet:
-    drop = {id(x.row) for x in relaxed}
-    return ConstraintSet.from_rows(r for r in cs.rows() if id(r) not in drop)
-
-
-# ── stage 1: the variance program ────────────────────────────────────────
-
-@_dc.dataclass
-class _Model:
-    """Columns: ``z`` (n), then one block per relaxed element — a Diff /
-    Linear: ``s``; a pad: ``zc, u, v``.  ``quad`` names the columns the
-    square charges (``u`` / ``v`` free, ``s ≥ 0``)."""
-
-    n: int
-    ncol: int
-    A_ub: sp.csr_matrix
-    b_ub: np.ndarray
-    A_eq: sp.csr_matrix
-    b_eq: np.ndarray
-    lo: np.ndarray
-    hi: np.ndarray
-    quad: list[int]
-    col_of: dict[int, tuple[int, ...]]   # Relaxed.index -> its columns
-    #: the square's weight per quad column (``d`` for a Diff's grade, 1 for
-    #: a Linear's metres, ``D`` for a pad's slope components)
-    weight: dict[int, float] = _dc.field(default_factory=dict)
-    #: quad columns charged in GRADE units (pieces from the grade materiality)
-    grade_cols: set[int] = _dc.field(default_factory=set)
-
-
-#: Directions of the polygonal bound on a relaxed pad's gradient
-#: (``_model``): a regular polygon INSCRIBED in the ``pad_slope_max`` disc,
-#: so the true gradient never exceeds the table value in any direction.
-SLOPE_DIRECTIONS = 32
-
-
-def _model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed],
-           pad_slope_max: float | None = None) -> _Model:
-    """``pad_slope_max`` (RULINGS 2026-09-05f, ``[relaxation]``): every
-    relaxed pad's plane ``(u, v)`` is bounded to the disc of that radius
-    (``SLOPE_DIRECTIONS`` half-planes ``u·cosθ + v·sinθ ≤ s·cos(π/K)``,
-    whose polygon lies INSIDE the disc: |u|, |v| ≤ s among them), so the
-    variance program spreads the relief a steeper pad would have taken
-    over the other populations (04t-1)."""
-    n = len(pm.vertices)
-    S = to_sparse(_without(cs, relaxed), n)
-    ncol = n
-    col_of: dict[int, tuple[int, ...]] = {}
-    quad: list[int] = []
-    weight: dict[int, float] = {}
-    grade_cols: set[int] = set()
-    for x in relaxed:
-        if x.kind == "pad":
-            col_of[x.index] = (ncol, ncol + 1, ncol + 2)
-            quad += [ncol + 1, ncol + 2]
-            weight[ncol + 1] = weight[ncol + 2] = x.extent_m
-            grade_cols.update((ncol + 1, ncol + 2))
-            ncol += 3
-        else:
-            col_of[x.index] = (ncol,)
-            quad.append(ncol)
-            weight[ncol] = x.extent_m if x.kind == "diff" else 1.0
-            if x.kind == "diff":
-                grade_cols.add(ncol)
-            ncol += 1
-    ub_r: list[int] = []
-    ub_c: list[int] = []
-    ub_v: list[float] = []
-    ub_b: list[float] = []
-    eq_r: list[int] = []
-    eq_c: list[int] = []
-    eq_v: list[float] = []
-    eq_b: list[float] = []
-
-    def ub(terms, b):
-        k = len(ub_b)
-        for c, v in terms:
-            ub_r.append(k); ub_c.append(c); ub_v.append(v)
-        ub_b.append(b)
-
-    def eq(terms, b):
-        k = len(eq_b)
-        for c, v in terms:
-            eq_r.append(k); eq_c.append(c); eq_v.append(v)
-        eq_b.append(b)
-
-    for x in relaxed:
-        cols = col_of[x.index]
-        r = x.row
-        if x.kind == "diff":
-            g = cols[0]                      # grade excess: |Δz| ≤ (cap + g)·d
-            ub(((r.a, 1.0), (r.b, -1.0), (g, -r.d)), r.cap * r.d)
-            ub(((r.b, 1.0), (r.a, -1.0), (g, -r.d)), r.cap * r.d)
-        elif x.kind == "linear":
-            s = cols[0]
-            if r.hi is not None:
-                ub(tuple(r.terms) + ((s, -1.0),), r.hi)
-            if r.lo is not None:
-                ub(tuple((v, -c) for v, c in r.terms) + ((s, -1.0),), -r.lo)
-        else:
-            zc, u, v = cols                  # the plane: z = zc + u·dx + v·dy
-            for vid, dx, dy in x.offsets:
-                eq(((vid, 1.0), (zc, -1.0), (u, -dx), (v, -dy)), 0.0)
-            if pad_slope_max is not None and math.isfinite(pad_slope_max):
-                K = SLOPE_DIRECTIONS
-                b = pad_slope_max * math.cos(math.pi / K)
-                for k in range(K):
-                    th = 2.0 * math.pi * k / K
-                    ub(((u, math.cos(th)), (v, math.sin(th))), b)
-    A_ub = sp.vstack([sp.hstack([S.A_ub, sp.csr_matrix((S.A_ub.shape[0], ncol - n))]),
-                      sp.csr_matrix((ub_v, (ub_r, ub_c)), shape=(len(ub_b), ncol))],
-                     format="csr")
-    A_eq = sp.vstack([sp.hstack([S.A_eq, sp.csr_matrix((S.A_eq.shape[0], ncol - n))]),
-                      sp.csr_matrix((eq_v, (eq_r, eq_c)), shape=(len(eq_b), ncol))],
-                     format="csr")
-    lo = np.concatenate([S.lo, np.full(ncol - n, -np.inf)])
-    hi = np.concatenate([S.hi, np.full(ncol - n, np.inf)])
-    for x in relaxed:
-        if x.kind != "pad":
-            lo[col_of[x.index][0]] = 0.0
-    return _Model(n, ncol, A_ub, np.concatenate([S.b_ub, np.asarray(ub_b, float)]),
-                  A_eq, np.concatenate([S.b_eq, np.asarray(eq_b, float)]),
-                  lo, hi, quad, col_of, weight, grade_cols)
-
-
-def _qp(m: _Model, time_limit_s: float | None) -> tuple[str, np.ndarray | None, float]:
-    """``min Σ_quad x_j²`` through highspy's QP.  Returns (status, x, wall)."""
-    import highspy
-    t0 = time.perf_counter()
-    h = highspy.Highs()
-    h.silent()
-    if time_limit_s is not None:
-        h.setOptionValue("time_limit", float(time_limit_s))
-    inf = highspy.kHighsInf
-    A = sp.vstack([m.A_ub, m.A_eq], format="csc")
-    lp = highspy.HighsLp()
-    lp.num_col_ = m.ncol
-    lp.num_row_ = A.shape[0]
-    lp.col_cost_ = np.zeros(m.ncol)
-    lp.col_lower_ = np.where(np.isfinite(m.lo), m.lo, -inf)
-    lp.col_upper_ = np.where(np.isfinite(m.hi), m.hi, inf)
-    lp.row_lower_ = np.concatenate([np.full(m.A_ub.shape[0], -inf), m.b_eq])
-    lp.row_upper_ = np.concatenate([m.b_ub, m.b_eq])
-    lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
-    lp.a_matrix_.start_ = A.indptr
-    lp.a_matrix_.index_ = A.indices
-    lp.a_matrix_.value_ = A.data
-    h.passModel(lp)
-    hess = highspy.HighsHessian()
-    hess.dim_ = m.ncol
-    start = np.zeros(m.ncol + 1, dtype=np.int64)
-    qs = sorted(m.quad)
-    for j in qs:
-        start[j + 1:] += 1
-    hess.start_ = start
-    hess.index_ = np.asarray(qs, dtype=np.int32)
-    hess.value_ = np.asarray([2.0 * m.weight.get(j, 1.0) for j in qs], float)
-    h.passHessian(hess)
-    h.run()
-    st = h.getModelStatus()
-    wall = time.perf_counter() - t0
-    if st == highspy.HighsModelStatus.kInfeasible:
-        return "infeasible", None, wall
-    if st == highspy.HighsModelStatus.kTimeLimit:
-        return "time_limit", None, wall
-    if st not in (highspy.HighsModelStatus.kOptimal,):
-        return f"error:{st}", None, wall
-    return "optimal", np.asarray(h.getSolution().col_value, float), wall
-
-
-def _pieces(materiality_m: float, k: int) -> list[tuple[float, float]]:
-    """``k`` convex pieces of ``x²`` on ``x ≥ 0``: breakpoints ``m·(2^i −
-    1)``, each piece ``(width, slope)`` with slope ``b_i + b_{i−1}`` (the
-    chord's slope of the square), the last unbounded."""
-    out: list[tuple[float, float]] = []
-    prev = 0.0
-    for i in range(1, k + 1):
-        b = materiality_m * (2.0 ** i - 1.0)
-        out.append(((np.inf if i == k else b - prev), b + prev))
-        prev = b
-    return out
-
-
-def _pwl(m: _Model, grade_pieces: list[tuple[float, float]],
-         metre_pieces: list[tuple[float, float]], time_limit_s: float | None
-         ) -> tuple[str, np.ndarray | None, float]:
-    """The convex piecewise-linear approximation on scipy's HiGHS LP: each
-    quadratic column ``x`` becomes ``x = Σ p_k`` (a free ``x``: ``Σ p⁺_k −
-    Σ p⁻_k``), ``0 ≤ p_k ≤ width_k``, cost ``weight · slope_k``."""
-    t0 = time.perf_counter()
-    K = len(grade_pieces)
-    assert len(metre_pieces) == K
-    extra = 0
-    blocks: list[tuple[int, int, int]] = []   # (column, +block start, -block start or -1)
-    for j in m.quad:
-        neg = m.lo[j] < 0.0
-        blocks.append((j, m.ncol + extra, (m.ncol + extra + K) if neg else -1))
-        extra += 2 * K if neg else K
-    ncol = m.ncol + extra
-    c = np.zeros(ncol)
-    lo = np.concatenate([m.lo, np.zeros(extra)])
-    hi = np.concatenate([m.hi, np.zeros(extra)])
-    r_: list[int] = []
-    c_: list[int] = []
-    v_: list[float] = []
-    for row, (j, pos, neg) in enumerate(blocks):
-        r_.append(row); c_.append(j); v_.append(1.0)
-        pieces = grade_pieces if j in m.grade_cols else metre_pieces
-        wt = m.weight.get(j, 1.0)
-        for k, (w, s) in enumerate(pieces):
-            c[pos + k] = wt * s
-            hi[pos + k] = w
-            r_.append(row); c_.append(pos + k); v_.append(-1.0)
-            if neg >= 0:
-                c[neg + k] = wt * s
-                hi[neg + k] = w
-                r_.append(row); c_.append(neg + k); v_.append(1.0)
-    link = sp.csr_matrix((v_, (r_, c_)), shape=(len(blocks), ncol))
-    A_ub = sp.hstack([m.A_ub, sp.csr_matrix((m.A_ub.shape[0], extra))], format="csr")
-    A_eq = sp.vstack([sp.hstack([m.A_eq, sp.csr_matrix((m.A_eq.shape[0], extra))]), link],
-                     format="csr")
-    b_eq = np.concatenate([m.b_eq, np.zeros(len(blocks))])
-    bounds = [(None if not np.isfinite(lo[i]) else float(lo[i]),
-               None if not np.isfinite(hi[i]) else float(hi[i])) for i in range(ncol)]
-    opts = {"disp": False, "presolve": True}
-    if time_limit_s is not None:
-        opts["time_limit"] = float(time_limit_s)
-    res = linprog(c, A_ub=A_ub, b_ub=m.b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds,
-                  method="highs", options=opts)
-    wall = time.perf_counter() - t0
-    if res.status == 2:
-        return "infeasible", None, wall
-    if res.status != 0 or res.x is None:
-        return f"error:{res.status}", None, wall
-    return "optimal", np.asarray(res.x[:m.ncol], float), wall
-
+# ── stage 1: the variance program (``solve/variance.py``) ───────────────
 
 @_dc.dataclass
 class Stage1:
@@ -523,7 +294,7 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     ``qp_time_limit_s`` and the approximation takes over past it."""
     opt = options or Options()
     rl = law.tables.emit.relaxation
-    m = _model(pm, cs, relaxed, rl.pad_slope_max)
+    m = model(pm, cs, relaxed, rl.pad_slope_max)
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
     st, x, wall = "", None, 0.0
@@ -536,15 +307,15 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
         be = "pwl"
     if be == "qp":
         lim = opt.time_limit_s if backend == "qp" else qp_time_limit_s
-        st, x, wall = _qp(m, lim)
+        st, x, wall = qp(m, lim)
         if st in ("time_limit",) or st.startswith("error"):
             if backend == "qp":
                 return Stage1(st, be, wall, {}, {}, {}, "forced QP did not finish")
             note = f"QP {st} after {wall:.1f} s; the piecewise-linear approximation answers"
             be = "pwl"
     if be == "pwl":
-        st2, x, wall2 = _pwl(m, _pieces(law.tables.emit.materiality.grade, rl.max_pieces),
-                             _pieces(rl.materiality_m, rl.max_pieces), opt.time_limit_s)
+        st2, x, wall2 = pwl(m, pieces(law.tables.emit.materiality.grade, rl.max_pieces),
+                            pieces(rl.materiality_m, rl.max_pieces), opt.time_limit_s)
         st, wall = st2, wall + wall2
     if x is None:
         return Stage1(st, be, wall, {}, {}, {}, note)
@@ -646,12 +417,20 @@ def certificate(pm: PlanarMap, relaxed: _t.Sequence[Relaxed], s1: Stage1,
 
 # ── the whole last resort ────────────────────────────────────────────────
 
+#: Which scope answered (``RelaxReport.scope``; RULINGS 2026-09-05u).
+SCOPE_CERTIFICATE = "certificate"   # (i) the IIS-scoped program, the certificate in budget
+SCOPE_RELAXABLE = "relaxable"       # (ii) the whole relaxable population, no certificate
+SCOPE_LADDER = "ladder"             # (iii) the tier ladder answers (tiers.py) — a FAILURE when a governed family yields
+
+
 @_dc.dataclass
 class RelaxReport:
     """What the last resort did (``TierReport.relaxation``)."""
 
     applied: bool
     reason: str = ""
+    #: which scope answered — ``certificate`` | ``relaxable`` | ``ladder``
+    scope: str = ""
     backend: str = ""
     approximation: bool = False
     rounds: int = 0
@@ -659,7 +438,7 @@ class RelaxReport:
     iis_wall_s: float = 0.0
     stage1_wall_s: float = 0.0
     stage2_wall_s: float = 0.0
-    #: the site's candidate rows (every junior row on the IIS's faces)
+    #: the candidate rows — the site's (certificate) or the whole relaxable population
     candidates: int = 0
     note: str = ""
     #: how each round's certificate was found: the cached with-envelope
@@ -674,6 +453,8 @@ class RelaxReport:
     #: spread of the relief in metres over the support
     stats_m: dict[str, float] = _dc.field(default_factory=dict)
     certificate: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: the certificate path's own exit when the relaxable scope answered
+    certificate_reason: str = ""
 
     def as_dict(self) -> dict[str, _t.Any]:
         d = _dc.asdict(self)
@@ -684,8 +465,12 @@ class RelaxReport:
         if not self.applied:
             return f"relaxation (04t-1) not applied: {self.reason}"
         s, sm = self.stats, self.stats_m
-        return (f"relaxation (04t-1) applied: IIS {self.iis_rows} rows in {self.iis_wall_s:.1f} s, "
-                f"site {self.candidates} candidates, {len(self.rows)} relaxed "
+        how = (f"over the {self.scope.upper()} scope" if self.scope == SCOPE_RELAXABLE
+               else "IIS-scoped")
+        cert = (f"IIS {self.iis_rows} rows in {self.iis_wall_s:.1f} s" if self.scope == SCOPE_CERTIFICATE
+                else f"no certificate ({self.certificate_reason or 'search skipped'})")
+        return (f"relaxation (04t-1) applied {how}: {cert}, "
+                f"{self.candidates} candidates, {len(self.rows)} relaxed "
                 f"({self.backend}{' approx' if self.approximation else ''}, {self.rounds} round(s)"
                 f"{'; ' + self.note if self.note else ''}); excess grade mean {s.get('mean', 0):.5f} "
                 f"max {s.get('max', 0):.5f} sd {s.get('sd', 0):.5f} max/mean {s.get('max_over_mean', 0):.2f}; "
@@ -730,18 +515,52 @@ def _stats(slacks: _t.Sequence[float]) -> dict[str, float]:
             "max_over_mean": round(float(a.max() / mean), 4) if mean > 0 else 0.0}
 
 
-def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
-                  options: Options | None = None, *, size_out: dict | None = None,
-                  backend: str | None = None
-                  ) -> tuple[Solution | None, RelaxReport, ConstraintSet | None]:
-    """The last resort on an INFEASIBLE hard set: (solution, report, the
-    relaxed hard set) — ``solution`` is ``None`` when the tier machinery
-    must answer instead (``report.reason``)."""
-    opt = options or Options()
+def full_scope(pm: PlanarMap, law: Law, cs: ConstraintSet) -> list[Relaxed]:
+    """THE WHOLE RELAXABLE POPULATION (RULINGS 2026-09-05u, ``[relaxation]
+    scope_without_certificate = "relaxable"``): every hard ``Diff`` /
+    ``Linear`` owned (``_law_tier``) by ``relaxable_from_role``'s tier or a
+    junior one, and every rigid face's ``Flat`` group (a pad, as a plane
+    ≤ ``pad_slope_max``) — the same admission as :func:`relaxable`, over
+    the set instead of a site.  The variance program gives a row in no
+    contradiction exactly zero slack, so its support is still "the rows
+    an IIS would name" — without waiting for one."""
+    return relaxable(pm, law, [*cs.flats, *cs.diffs, *cs.linears])
+
+
+def _finish(rep: RelaxReport, pm: PlanarMap, law: Law, relaxed: _t.Sequence[Relaxed],
+            s1: Stage1, sol: Solution, unrelaxed: _t.Sequence[Row]) -> None:
+    """The report of an applied relaxation: the support, the spread, the
+    certificate (module docstring, step 5)."""
     rl = law.tables.emit.relaxation
-    t_start = time.perf_counter()
-    deadline = t_start + rl.iis_time_budget_s
-    rep = RelaxReport(False)
+    tol_g = law.tables.emit.materiality.grade
+    rep.applied = True
+    # the SUPPORT: an excess below the materiality floor is a residual,
+    # never a relaxed row (owner 2026-08-02 convergence guards)
+    support = [x for x in relaxed
+               if s1.excess.get(x.index, 0.0) >= (tol_g if x.kind != "linear" else rl.materiality_m)]
+    rep.rows = [_row_record(pm, x, s1) for x in support]
+    rep.unrelaxed = [{"kind": type(r).__name__, "family": r.source.generator,
+                      "ruling": r.source.ruling, "inputs": list(r.source.inputs)}
+                     for r in unrelaxed]
+    rep.stats = _stats([s1.excess[x.index] for x in support if x.kind != "linear"])
+    rep.stats_m = _stats([s1.slack[x.index] for x in support])
+    rep.certificate = certificate(pm, support, s1, sol.z, rl.materiality_m,
+                                  rl.pad_slope_max, tol_g)
+
+
+def _certificate_rounds(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
+                        opt: Options, rep: RelaxReport, *, size_out: dict | None,
+                        backend: str | None
+                        ) -> tuple[Solution | None, ConstraintSet | None, bool]:
+    """(i) THE IIS-SCOPED PROGRAM, inside ``iis_time_budget_s`` (module
+    docstring, steps 1–5; ``cs`` WITH its reach envelope — the cached
+    certificate is built on it, the rows are then freed of it).  Returns
+    ``(solution, relaxed set, proven)`` — ``proven`` when a certificate
+    NAMED NO RELAXABLE ROW: an infeasible subsystem of runway / taxi rows
+    and pins stays infeasible under any relaxation of the junior rows, so
+    the relaxable scope is refuted without running (the ladder answers)."""
+    rl = law.tables.emit.relaxation
+    deadline = time.perf_counter() + rl.iis_time_budget_s
     quiet = _dc.replace(opt, diagnose_iis=False)
     relaxed_all: list[Relaxed] = []
     unrelaxed: list[Row] = []
@@ -789,15 +608,15 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
         except IISBudgetExceeded as e:
             rep.iis_wall_s += time.perf_counter() - t
             rep.reason = (f"IIS not found inside the {rl.iis_time_budget_s:.0f} s budget "
-                          f"(round {rnd}: {e}); the tier machinery (04i) answers")
-            return None, rep, None
+                          f"(round {rnd}: {e})")
+            return None, None, False
         rep.iis_wall_s += time.perf_counter() - t
         rep.iis_rows += len(rows)
         if not rows:
             rep.reason = (f"round {rnd}: no IIS found on the set with the relaxed rows "
                           f"dropped, yet the relaxed program is infeasible (a pad's plane "
-                          f"cannot absorb its contradiction); the tier machinery answers")
-            return None, rep, None
+                          f"cannot absorb its contradiction)")
+            return None, None, False
         cand = site_candidates(pm, law, cs, rows, relaxed_all)
         new = cand[len(relaxed_all):]
         unrelaxed += [r for r in rows if id(r) not in {id(x.row) for x in cand}]
@@ -808,7 +627,7 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
             rep.reason = (f"the IIS ({len(rows)} rows) names no relaxable row — "
                           f"{sorted({type(r).__name__ + ':' + r.source.generator for r in rows})}; "
                           f"the tier machinery (04i) answers")
-            return None, rep, None
+            return None, None, True
         relaxed_all = cand
         rep.candidates = len(relaxed_all)
         t = time.perf_counter()
@@ -839,30 +658,96 @@ def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
                                          "wall_s": round(time.perf_counter() - t, 3)})
             continue
         if s1.status != "optimal":
-            rep.reason = f"stage 1 ({s1.backend}) ended {s1.status}; the tier machinery answers"
-            return None, rep, None
+            rep.reason = f"stage 1 ({s1.backend}) ended {s1.status}"
+            return None, None, False
         cs2, _repl = relaxed_hard_set(cs, relaxed_all, s1)
         t = time.perf_counter()
         sol = solve_hard(pm, cs2, weights, quiet, size_out=size_out)
         rep.stage2_wall_s += time.perf_counter() - t
         if sol.status not in (Status.OPTIMAL, Status.FEASIBLE):
             rep.reason = (f"stage 2 ended {sol.status.value} on the relaxed set "
-                          f"({sol.message[:120]}); the tier machinery answers")
-            return None, rep, None
-        rep.applied = True
-        tol_g = law.tables.emit.materiality.grade
-        # the SUPPORT: an excess below the materiality floor is a residual,
-        # never a relaxed row (owner 2026-08-02 convergence guards)
-        support = [x for x in relaxed_all
-                   if s1.excess.get(x.index, 0.0) >= (tol_g if x.kind != "linear" else rl.materiality_m)]
-        rep.rows = [_row_record(pm, x, s1) for x in support]
-        rep.unrelaxed = [{"kind": type(r).__name__, "family": r.source.generator,
-                          "ruling": r.source.ruling, "inputs": list(r.source.inputs)}
-                         for r in unrelaxed]
-        rep.stats = _stats([s1.excess[x.index] for x in support if x.kind != "linear"])
-        rep.stats_m = _stats([s1.slack[x.index] for x in support])
-        rep.certificate = certificate(pm, support, s1, sol.z, rl.materiality_m,
-                                      rl.pad_slope_max, tol_g)
-        return sol, rep, cs2
-    rep.reason = f"{rl.max_rounds} rounds spent without a feasible relaxed set; the tier machinery answers"
+                          f"({sol.message[:120]})")
+            return None, None, False
+        _finish(rep, pm, law, relaxed_all, s1, sol, unrelaxed)
+        return sol, cs2, False
+    rep.reason = f"{rl.max_rounds} rounds spent without a feasible relaxed set"
+    return None, None, False
+
+
+def _relaxable_scope(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
+                     opt: Options, rep: RelaxReport, *, size_out: dict | None,
+                     backend: str | None) -> tuple[Solution | None, ConstraintSet | None]:
+    """(ii) 04t(1) OVER THE WHOLE RELAXABLE SCOPE (RULINGS 2026-09-05u):
+    the same variance program with every relaxable row a candidate, then
+    the normal solve on the relaxed hard set.  Infeasible here means the
+    contradiction lies among the runway / taxi rows and the pins — the
+    ladder answers, and its demotion is a FAILURE (``tiers.py``)."""
+    rl = law.tables.emit.relaxation
+    quiet = _dc.replace(opt, diagnose_iis=False)
+    cand = full_scope(pm, law, cs)
+    rep.candidates = len(cand)
+    rep.rounds += 1
+    if not cand:
+        rep.reason += "; the set holds no relaxable row"
+        return None, None
+    t = time.perf_counter()
+    s1 = stage1(pm, cs, cand, law, opt, backend, qp_time_limit_s=rl.qp_time_budget_s)
+    rep.stage1_wall_s += time.perf_counter() - t
+    rep.backend = s1.backend
+    rep.approximation = s1.backend == "pwl"
+    rep.note = s1.note
+    if s1.status == "infeasible":
+        rep.reason += (f"; the {SCOPE_RELAXABLE} scope ({len(cand)} candidates) is STILL "
+                       f"infeasible — the contradiction lies among the runway / taxi rows "
+                       f"and the pins")
+        return None, None
+    if s1.status != "optimal":
+        rep.reason += f"; stage 1 ({s1.backend}) over the {SCOPE_RELAXABLE} scope ended {s1.status}"
+        return None, None
+    cs2, _repl = relaxed_hard_set(cs, cand, s1)
+    t = time.perf_counter()
+    sol = solve_hard(pm, cs2, weights, quiet, size_out=size_out)
+    rep.stage2_wall_s += time.perf_counter() - t
+    if sol.status not in (Status.OPTIMAL, Status.FEASIBLE):
+        rep.reason += (f"; stage 2 ended {sol.status.value} on the {SCOPE_RELAXABLE}-scope "
+                       f"relaxed set ({sol.message[:120]})")
+        return None, None
+    _finish(rep, pm, law, cand, s1, sol, ())
+    return sol, cs2
+
+
+def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,
+                  options: Options | None = None, *, size_out: dict | None = None,
+                  backend: str | None = None
+                  ) -> tuple[Solution | None, RelaxReport, ConstraintSet | None]:
+    """The last resort on an INFEASIBLE hard set, in the ruled order
+    (RULINGS 2026-09-05u): (i) the IIS-scoped program when a certificate
+    arrives inside ``iis_time_budget_s``; (ii) with none, 04t(1) over the
+    whole relaxable scope (``scope_without_certificate``); (iii) only then
+    the tier ladder (``tier_ladder_last``) — ``solution`` is ``None`` and
+    ``report.scope == "ladder"`` when it must answer (``report.reason``).
+    A certificate naming NO relaxable row refutes (ii) without running it.
+    Returns ``(solution, report, the relaxed hard set)``."""
+    opt = options or Options()
+    rl = law.tables.emit.relaxation
+    rep = RelaxReport(False)
+    proven = False
+    if rl.iis_time_budget_s > 0.0:
+        sol, cs2, proven = _certificate_rounds(pm, cs, law, weights, opt, rep,
+                                               size_out=size_out, backend=backend)
+        if sol is not None:
+            rep.scope = SCOPE_CERTIFICATE
+            return sol, rep, cs2
+    else:
+        rep.reason = f"iis_time_budget_s {rl.iis_time_budget_s:g}: no certificate search"
+    if not proven and rl.scope_without_certificate == SCOPE_RELAXABLE and rl.tier_ladder_last:
+        rep.certificate_reason = rep.reason
+        # the rows, never their reach envelope (module docstring, step 2)
+        sol, cs2 = _relaxable_scope(pm, envelope_free(cs), law, weights, opt, rep,
+                                    size_out=size_out, backend=backend)
+        if sol is not None:
+            rep.scope = SCOPE_RELAXABLE
+            return sol, rep, cs2
+    rep.scope = SCOPE_LADDER
+    rep.reason += "; the tier machinery (04i) answers"
     return None, rep, None

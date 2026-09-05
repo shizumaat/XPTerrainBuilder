@@ -256,6 +256,22 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                           f"{res.solution.message}; the IIS is in "
                           f"{os.path.join(scratch, icao + '.report.json')}"),
                 "traceback": _iis_text(res.report, log_lines)}
+    # A GOVERNED FAMILY DEMOTED IS A NAMED FAILURE (RULINGS 2026-09-05u,
+    # ``[relaxation] tier_ladder_last``): the tier ladder answered after
+    # the whole relaxable scope could not, and made a governed surface
+    # yield — not a lawful surface; the airport fails by name like a
+    # non-optimal solve (the patch and report stay in the scratch dir).
+    solve_rep = res.report.get("solve") or {}
+    if solve_rep.get("demoted"):
+        names = "; ".join(f"tier {g.get('tier')} ({' '.join(g.get('roles') or [])}) "
+                          f"{g.get('rows')} rows, max {g.get('max_m')} m"
+                          for g in solve_rep["demoted"])
+        return {"icao": icao, "ok": False, "stage": "solve", "engine": ENGINE_V2,
+                "error": (f"[v2] the law ladder DEMOTED a governed family at {icao} "
+                          f"(scope {solve_rep.get('scope')}): {names} — "
+                          f"{solve_rep.get('failure')}; the report is in "
+                          f"{os.path.join(scratch, icao + '.report.json')}"),
+                "traceback": _iis_text(res.report, log_lines)}
     # A VERIFY DEFECT never ships (lane v2padflat 2026-09-05): a building
     # pad that is not one flat value (RULINGS 03h) and that no 04t(1)
     # relaxation names is a solver/emit invariant broken, not a residual

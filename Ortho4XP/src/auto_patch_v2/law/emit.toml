@@ -133,3 +133,10 @@ max_pieces          = 8       # piecewise-linear pieces per slack when the QP ba
 pad_slope_max       = 0.01    # RULINGS 2026-09-05f: a pad relaxed under 04t(1) may SLOPE at most this (gradient of its plane, m/m) — stage 1 bounds every relaxed pad's plane to it and spreads the rest of the relief over the other populations (04t-1); a relaxed pad steeper than this on the emitted product is a ``pad_flat`` DEFECT (verify/pads.py). Owner: "a 2.27 % floor is a visible tilt"; HECA's 1.28 % pad (m5i) comes inside it
 materiality_m       = 0.01    # a relaxed pad's plane residual, or a step between adjacent relaxed elements, above this is a defect (the 2026-08-02 elevation floor)
 relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one may take a slack (the apron, everything junior, a rigid pad's contact); the runway and taxi families never
+# NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
+# relaxation-without-certificate-spec.md): HECA's certificate search expired
+# (120 / 300 s) and the fallback demoted the TAXI tier (3,037 rows, 5 m) —
+# the one family the law order forbids yielding — where the ruled answer
+# was 04t(1) over the hangar apron and its flat pads.
+scope_without_certificate = "relaxable"   # no certificate inside iis_time_budget_s => 04t(1) runs over EVERY relaxable row (relaxable_from_role's tier and junior, pads as planes <= pad_slope_max) — never the tier ladder for a governed family
+tier_ladder_last          = true          # the tier ladder (04i) answers only when the relaxable scope is still infeasible — and then it names the family it demoted as a FAILURE in the report and the app log

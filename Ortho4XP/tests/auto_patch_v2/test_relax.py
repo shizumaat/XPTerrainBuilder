@@ -163,12 +163,19 @@ def test_relaxation_spreads_the_relief_and_forms_no_step(hangar, law):
     # excess); what holds, and is the ruling's substance:
     st, sm = rl["stats"], rl["stats_m"]
     assert st["n"] >= 20, st                               # many rows, not one
-    assert sm["max"] / sm["sum"] <= 0.25, sm               # no single carrier (L1: ~1.0)
+    # Under the runway TRANSVERSE maximum (RULINGS 2026-09-05o/s, hard
+    # tier-0 rows on the runway's off-ridge edge) the stubs' runway-end
+    # vertices no longer sag below the ridge, so the apron carries more of
+    # the climb: measured 2026-09-05 the middle pad 0.90 %, the outer pads
+    # 0.45 %, the largest single element 1.21 m of 4.19 m (0.29; it was
+    # 0.25 before the law).  The substance holds: the largest carrier is
+    # under a third of the relief where L1 would load ~1.0 on one row.
+    assert sm["max"] / sm["sum"] <= 1.0 / 3.0, sm          # no single carrier (L1: ~1.0)
     assert st["max"] <= 0.011, st                          # slightly over cap: ≤ the apron's own 1 %
     assert sm["max"] < 1.5, sm
     pads = [r for r in rows if r["kind"] == "pad"]
     assert len(pads) >= 2                                  # more than one pad shares it
-    assert max(r["slope"] for r in pads) / min(r["slope"] for r in pads) < 2.0
+    assert max(r["slope"] for r in pads) / min(r["slope"] for r in pads) < 2.5   # measured 1.99 under the transverse law
     # senior rows exact
     for p in cs.pins:
         assert abs(sol.z[p.v] - p.z) < 1e-6
@@ -192,6 +199,10 @@ def test_relaxation_spreads_the_relief_and_forms_no_step(hangar, law):
     # the message names the mode; the size dict carries no ladder groups
     assert "relaxed by 04t(1)" in sol.message or "relaxation (04t-1) applied" in sol.message
     assert not any(g.startswith("law:") for g in size.get("escalation", {}))
+    # the certificate arrived in budget: scope (i), no failure named
+    assert rl["scope"] == relax.SCOPE_CERTIFICATE and rep.scope == "certificate"
+    assert rep.failure is None and rep.demoted_governed == []
+    assert "scope certificate" in rep.line()
 
 
 def test_pwl_approximation_agrees_with_the_qp(hangar, law):
@@ -234,8 +245,9 @@ def test_feasible_airport_is_byte_identical(law):
 
 def test_iis_naming_no_relaxable_row_falls_back_to_the_tiers(law):
     """A runway whose CIFP pins contradict its own cap (test_m5): the IIS
-    names tier-0 rows only, the last resort declines, the report says so
-    and the tier machinery answers exactly as before."""
+    names tier-0 rows only — a PROOF the relaxable scope cannot answer
+    (RULINGS 2026-09-05u: it is refuted without running) — the report
+    says so, the tier machinery answers and NAMES the failure."""
     from tests.auto_patch_v2.test_m5 import _airport
     airport, pm = _airport(law, None, rw1=(700.0, 760.0))
     cs, _c, _w = generate(pm, law, airport)
@@ -243,7 +255,112 @@ def test_iis_naming_no_relaxable_row_falls_back_to_the_tiers(law):
     assert sol.status is Status.INFEASIBLE and rep.mode == "tiered"
     assert rep.relaxation and not rep.relaxation["applied"]
     assert "no relaxable row" in rep.relaxation["reason"]
+    assert rep.relaxation["scope"] == relax.SCOPE_LADDER and rep.scope == "ladder"
+    # the relaxable scope never ran: no exit string of its own in the reason
+    # (its candidates are the certificate path's site, kept for the report)
+    assert "STILL infeasible" not in rep.relaxation["reason"]
     assert "not applied" in rep.line()
+    assert rep.failure and "no lawful surface" in rep.failure
+    assert rep.line().startswith("law tiers: FAILURE")
+    assert rep.as_dict()["failure"] == rep.failure and rep.as_dict()["scope"] == "ladder"
+
+
+# ── RULINGS 2026-09-05u: no certificate is not a reason to demote ────────
+
+def test_no_certificate_runs_the_relaxable_scope(hangar, law):
+    """Spec §3, twin 1: the infeasible hangar row with the IIS budget at
+    0 s — no certificate search at all — is answered by 04t(1) over the
+    WHOLE relaxable scope: status relaxed, scope ``relaxable``, the taxi
+    rows untouched, the apron rows carrying the slack, every pad a plane
+    ≤ ``pad_slope_max``; no tier demoted, no failure named."""
+    airport, pm, cs = hangar
+    nocert = _with_relaxation(law, iis_time_budget_s=0.0)
+    size: dict = {}
+    sol, rep = solve_law_ordered(pm, cs, nocert, DEFAULT_WEIGHTS, Options(), size_out=size)
+    assert sol.status is Status.OPTIMAL, sol.message
+    assert rep.mode == "relaxed" and rep.scope == "relaxable"
+    assert rep.k_min is None and rep.demoted == 0 and rep.failure is None
+    rl = rep.relaxation
+    assert rl["applied"] and rl["scope"] == relax.SCOPE_RELAXABLE
+    assert rl["iis_rows"] == 0 and rl["certificates"] == []      # no certificate was sought
+    assert "no certificate search" in rl["certificate_reason"]
+    # the WHOLE relaxable population was the candidate set: every hard
+    # apron-tier-or-junior Diff/Linear and every pad of the map
+    assert rl["candidates"] == len(relax.full_scope(pm, nocert, relax.envelope_free(cs)))
+    assert rl["candidates"] > len(rl["rows"]) > 0
+    apron_tier = tables.role_tier(law, "apron")
+    rows = rl["rows"]
+    assert all(r["tier"] >= apron_tier for r in rows)
+    assert all(r["family"] in ("apron", "pads", "no_step") for r in rows), {r["family"] for r in rows}
+    assert any(r["kind"] == "diff" and r["family"] == "apron" for r in rows)   # the apron carries slack
+    pads = [r for r in rows if r["kind"] == "pad"]
+    assert pads
+    tol = law.tables.emit.materiality.grade
+    assert all(r["slope"] <= law.tables.emit.relaxation.pad_slope_max + tol for r in pads)
+    # the taxi and runway rows untouched: exact at the solution
+    for p in cs.pins:
+        assert abs(sol.z[p.v] - p.z) < 1e-6
+    assert _over_cap(cs, sol.z, {"taxi", "runway_profile", "runway"}) <= 1e-6
+    assert rl["certificate"]["ok"], rl["certificate"]
+    assert "scope relaxable" in rep.line() and "RELAXABLE scope" in rl["line"]
+    assert not any(g.startswith("law:") for g in size.get("escalation", {}))
+    # the same relief the certificate path spreads: the support is the
+    # same site (the variance program gives a row in no contradiction
+    # exactly zero slack)
+    sol_c, rep_c = solve_law_ordered(pm, cs, law, DEFAULT_WEIGHTS, Options())
+    assert rep_c.scope == "certificate"
+    faces_c = {r["face"] for r in rep_c.relaxation["rows"]}
+    assert {r["face"] for r in rows} == faces_c, (faces_c, {r["face"] for r in rows})
+    assert abs(rl["stats_m"]["sum"] - rep_c.relaxation["stats_m"]["sum"]) < 0.05
+
+
+def test_unrelaxable_conflict_with_no_certificate_names_the_ladder_failure(law):
+    """Spec §3, twin 2: two runway pins against the runway's own cap with
+    the IIS budget at 0 s — the relaxable scope is tried and is STILL
+    infeasible (the contradiction is tier 0's), the ladder answers and
+    the report names the failure."""
+    from tests.auto_patch_v2.test_m5 import _airport
+    airport, pm = _airport(law, None, rw1=(700.0, 760.0))
+    cs, _c, _w = generate(pm, law, airport)
+    nocert = _with_relaxation(law, iis_time_budget_s=0.0)
+    sol, rep = solve_law_ordered(pm, cs, nocert, DEFAULT_WEIGHTS, Options())
+    assert sol.status is Status.INFEASIBLE and rep.mode == "tiered"
+    rl = rep.relaxation
+    assert not rl["applied"] and rl["scope"] == relax.SCOPE_LADDER
+    assert rl["candidates"] > 0                          # the relaxable scope RAN
+    assert "STILL infeasible" in rl["reason"] and "tier machinery" in rl["reason"]
+    assert rep.failure and "no lawful surface" in rep.failure
+    assert "FAILURE" in rep.line() and "scope ladder" in rep.line()
+
+
+def test_governed_demotion_is_a_named_failure(law):
+    """The ladder's own demotion of a governed family (the M5 fixture's
+    apron between two pinned runways, driven past the last resort by a
+    0 s budget and a relaxation scope that admits no apron row): the
+    apron tier yields and the report names it as the FAILURE."""
+    from tests.auto_patch_v2.test_m5 import _airport
+    airport, pm = _airport(law, (730.0, 736.0))
+    cs, _c, _w = generate(pm, law, airport)
+    # relaxable from the LOWEST tier only: the apron is senior to it, so
+    # neither scope can relax the apron and the ladder must demote it
+    lowest = tables.tiers(law)[-1][0]
+    ladder = _with_relaxation(law, iis_time_budget_s=0.0, relaxable_from_role=lowest)
+    sol, rep = solve_law_ordered(pm, cs, ladder, DEFAULT_WEIGHTS, Options())
+    assert sol.status is Status.OPTIMAL and rep.mode == "tiered"
+    apron_tier = tables.role_tier(law, "apron")
+    assert apron_tier in rep.yielded and rep.yielded[apron_tier]["rows"] > 0
+    assert rep.demoted_governed and rep.demoted_governed[0]["tier"] == apron_tier
+    assert "apron" in rep.demoted_governed[0]["roles"]
+    assert rep.failure and rep.failure.startswith("governed family demoted")
+    assert rep.line().startswith("law tiers: FAILURE — governed family demoted")
+    assert rep.as_dict()["demoted_governed"] == rep.demoted_governed
+    # the lawful case names nothing: only the last (ungoverned / rigid) tier
+    # yielding is the DEM's own yield
+    from auto_patch_v2.solve.tiers import TierReport, name_failure
+    tt = tables.tiers(law)
+    lawful = TierReport("tiered", tt, yielded={len(tt) - 1: {"rows": 3, "max_m": 1.97, "by_generator": {}}})
+    name_failure(lawful, law, Status.OPTIMAL)
+    assert lawful.failure is None and lawful.demoted_governed == []
 
 
 def test_why_runs_in_relaxed_mode(hangar, law):

@@ -178,6 +178,22 @@ def relaxable(pm: PlanarMap, law: Law, iis: _t.Sequence[Row]) -> list[Relaxed]:
     return out
 
 
+#: The citation prefix of a row that states a ROLE's law (``Source.ruling``
+#: ``common.roles.<role> …``): the law a row states is read from its own
+#: citation, never from the face it sits on nor its generator's name.
+LAW_CITATION = "common.roles."
+
+
+def stated_role(r: Row, roles: _t.Container[str]) -> str | None:
+    """The registered role whose law ``r`` cites (``common.roles.apron on
+    the shared edge portion (04t-2)`` → ``apron``), or ``None``."""
+    cite = r.source.ruling.split(" ", 1)[0]
+    if not cite.startswith(LAW_CITATION):
+        return None
+    role = cite[len(LAW_CITATION):].split(".", 1)[0]
+    return role if role in roles else None
+
+
 def _law_tier(pm: PlanarMap, r: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
     """The tier of the LAW a row states, never only of the face it sits
     on: a row the APRON law mints on a junction face (04t-2, the apron
@@ -186,9 +202,14 @@ def _law_tier(pm: PlanarMap, r: Row, tier_of: _t.Mapping[str, int], lowest: int)
     admits — and reads the apron's tier.  Measured HECA 2026-09-05: the
     23C→05L reach floor rose 3.3 m under 04t-2's 1 % on 2.5 km of junction
     pav132's apron edge, the hard set went infeasible against the 05L pin,
-    and the portion rows (taxi-tier by face) were refused as relaxable."""
+    and the portion rows (taxi-tier by face) were refused as relaxable.
+    The law is read from the row's CITATION (:func:`stated_role`): the
+    first fix keyed on the generator's NAME, and ``apron_edge_portion`` is
+    not a role — measured on the HECA replay (lane v2relaxfull, 2026-09-05)
+    18,672 of 22,547 portion rows were still refused."""
     k = row_tier(pm, r, tier_of, lowest)
-    law_k = tier_of.get(r.source.generator)
+    role = stated_role(r, tier_of)
+    law_k = tier_of.get(r.source.generator) if role is None else tier_of[role]
     return k if law_k is None else max(k, law_k)
 
 
@@ -700,6 +721,7 @@ def _relaxable_scope(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weight
         rep.reason += (f"; the {SCOPE_RELAXABLE} scope ({len(cand)} candidates) is STILL "
                        f"infeasible — the contradiction lies among the runway / taxi rows "
                        f"and the pins")
+        _name_unrelaxable(pm, cs, cand, rl.qp_time_budget_s, rep)
         return None, None
     if s1.status != "optimal":
         rep.reason += f"; stage 1 ({s1.backend}) over the {SCOPE_RELAXABLE} scope ended {s1.status}"
@@ -714,6 +736,46 @@ def _relaxable_scope(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weight
         return None, None
     _finish(rep, pm, law, cand, s1, sol, ())
     return sol, cs2
+
+
+def _name_unrelaxable(pm: PlanarMap, cs: ConstraintSet, cand: _t.Sequence[Relaxed],
+                      time_limit_s: float, rep: RelaxReport) -> None:
+    """THE NAMING the owner rules on: the certificate of the set with EVERY
+    relaxable row dropped — rows the ruling may not relax, contradicting
+    each other (HECA replay 2026-09-05: 65 rows in 0.9 s — runway 05C/23C's
+    transverse and profile rows, taxi rows on stub pav91 / parallel pav112,
+    their no-step pairs, no pin, no apron).  Published as ``unrelaxed`` and
+    summarised in the reason; bounded by ``qp_time_budget_s`` (a budget the
+    table already carries), and silent past it."""
+    try:
+        t = time.perf_counter()
+        sup = Certificate(len(pm.vertices), _without(cs, cand).rows()).ray(time_limit_s)
+        rep.iis_wall_s += time.perf_counter() - t
+    except (ImportError, IISBudgetExceeded):
+        return
+    if not sup:
+        return
+    rep.unrelaxed = [{"kind": type(r).__name__, "family": r.source.generator,
+                      "ruling": r.source.ruling, "inputs": list(r.source.inputs)}
+                     for r in sup]
+    hist: dict[str, int] = {}
+    for r in sup:
+        k = f"{type(r).__name__}:{r.source.generator}"
+        hist[k] = hist.get(k, 0) + 1
+    faces: dict[str, int] = {}
+    for r in sup:
+        for inp in r.source.inputs:
+            if inp.startswith("face:"):
+                try:
+                    f = pm.faces[int(inp[5:])]
+                except (KeyError, ValueError):
+                    continue
+                key = f"{f.role}/{f.ref}"
+                faces[key] = faces.get(key, 0) + 1
+    top = ", ".join(f"{k}={v}" for k, v in sorted(faces.items(), key=lambda kv: -kv[1])[:6])
+    rep.reason += (f" — the unrelaxable contradiction ({len(sup)} rows): "
+                   + ", ".join(f"{k}={v}" for k, v in sorted(hist.items()))
+                   + (f"; faces {top}" if top else ""))
 
 
 def solve_relaxed(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,

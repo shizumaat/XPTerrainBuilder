@@ -265,6 +265,30 @@ def test_iis_naming_no_relaxable_row_falls_back_to_the_tiers(law):
     assert rep.as_dict()["failure"] == rep.failure and rep.as_dict()["scope"] == "ladder"
 
 
+def test_a_row_stating_the_apron_law_on_a_junction_face_is_relaxable(hangar, law):
+    """04t-2's portion rows cite ``common.roles.apron`` on a taxi-family
+    face: the law they state, read from the citation, makes them apron
+    rows the last resort admits (HECA replay 2026-09-05: keyed on the
+    generator's name, 18,672 of 22,547 were refused)."""
+    from auto_patch_v2.constraints.apron import GEN_EDGE
+    from auto_patch_v2.model.constraints import Source
+    airport, pm, cs = hangar
+    stub = next(f for f in pm.faces.values() if f.role == "stub")
+    ring = list(pm.ring_vertices(stub.ring))
+    a, b = ring[0], ring[1]
+    (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
+    d = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+    src = Source(GEN_EDGE, "common.roles.apron on the shared edge portion (04t-2)",
+                 (f"face:{stub.id}", stub.ref))
+    portion = Diff(a, b, 0.01, d, src)
+    taxi = Diff(a, b, 0.015, d, Source("taxi", "common.roles.stub within shape", (f"face:{stub.id}",)))
+    assert relax.stated_role(portion, law.tables.precedence.roles) == "apron"
+    assert relax.stated_role(taxi, law.tables.precedence.roles) == "stub"
+    got = relax.relaxable(pm, law, [portion, taxi])
+    assert [x.row for x in got] == [portion]
+    assert got[0].tier == tables.role_tier(law, "apron")
+
+
 # ── RULINGS 2026-09-05u: no certificate is not a reason to demote ────────
 
 def test_no_certificate_runs_the_relaxable_scope(hangar, law):
@@ -329,6 +353,12 @@ def test_unrelaxable_conflict_with_no_certificate_names_the_ladder_failure(law):
     assert not rl["applied"] and rl["scope"] == relax.SCOPE_LADDER
     assert rl["candidates"] > 0                          # the relaxable scope RAN
     assert "STILL infeasible" in rl["reason"] and "tier machinery" in rl["reason"]
+    # THE NAMING: the certificate of the set minus every relaxable row —
+    # the runway's own rows against its pins, nothing the ruling may relax
+    assert "unrelaxable contradiction" in rl["reason"], rl["reason"]
+    named = {u["family"] for u in rl["unrelaxed"]}
+    assert "runway_profile" in named, named
+    assert not named & {"apron", "pads"}, named
     assert rep.failure and "no lawful surface" in rep.failure
     assert "FAILURE" in rep.line() and "scope ladder" in rep.line()
 

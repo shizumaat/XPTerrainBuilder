@@ -25,6 +25,7 @@ Generator = _t.Callable[[PlanarMap, Law, Airport], list[Row]]
 GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("runway_profile", runway_profile.runway_profile),
     ("runway_crown", runway_profile.runway_crown),
+    ("runway_transverse", runway_profile.runway_transverse),
     ("runway_within_shape", runway_profile.runway_within_shape),
     ("taxi_within_shape", taxi.taxi_within_shape),
     ("taxi_centerlines", taxi.taxi_centerlines),

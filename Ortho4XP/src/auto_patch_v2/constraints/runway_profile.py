@@ -31,6 +31,13 @@ Rows (all from ``rulesets.<authority>.runway`` and
 * consecutive ridge chains of one runway (split at a crossing) are
   bridged by a ``Diff`` at the body cap so the profile stays one law
   across the crossing.
+* TRANSVERSE MAXIMUM (RULINGS 2026-09-05o, family ``runway_transverse``,
+  HARD, the runway tier): every off-ridge ``runway`` ring vertex sits
+  within ``runway.transverse_max × d`` of the ridge at its foot — no fall
+  steeper than the cap and no rise above the ridge steeper than it
+  (HECA 05C/23C: half 14's outer edge 18 m under the ridge across 31 m).
+  Vertices on a ``runway_crossing`` ring are exempt (Annex 14 §3.1.19
+  "except at intersections", the crown reader's own scope).
 """
 from __future__ import annotations
 
@@ -38,15 +45,16 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap, runway_end_zone_length_m
+from ..law.tables import (role_cap, runway_end_zone_length_m,
+                          runway_transverse_max)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import View, view
 
-__all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_within_shape",
-           "crown_drops", "ridge_chains"]
+__all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_transverse",
+           "runway_within_shape", "crown_drops", "ridge_chains"]
 
 GEN = "runway_profile"
 RUNWAY_FAMILY = ("runway", "runway_crossing")
@@ -259,6 +267,55 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # floor allows, the floor yields — per vertex, by the minimum —
             # and the built drop is what v2 declares)
             rows.append(Linear(terms, None, -drop, src, f"crown:{v}", drop))
+    return rows
+
+
+def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """The runway TRANSVERSE MAXIMUM as HARD law (RULINGS 2026-09-05o; spec
+    ``runway-transverse-max-spec.md`` §3): for every off-ridge ``runway``
+    ring vertex ``v`` with foot ``(a, b, t)`` at lateral distance ``d`` on
+    its OWN ridge chain (the crown's ``_foot``), one two-sided ``Linear``
+
+        −cap·d ≤ (1 − t)·z_a + t·z_b − z_v ≤ cap·d
+
+    (``cap = rulesets.runway.transverse_max`` by code letter).  The row
+    carries the runway face, so the tier machinery holds it in tier 0 and
+    the last resort never relaxes it; a taxiway sharing the edge conforms
+    and carries the relief into its body at its own cap (owner 03k/04i).
+    Crossing-ring vertices are exempt (§3.1.19; the verify scope)."""
+    vw = view(planar, law)
+    chains = ridge_chains(vw)
+    xing: set[int] = set()
+    for f in vw.faces_of_role(("runway_crossing",)):
+        xing.update(vw.rings[f.id])
+    rows: list[Row] = []
+    done: set[int] = set()
+    for f in vw.faces_of_role(("runway",)):
+        chs = chains.get(f.ref, [])
+        if not chs:
+            continue
+        cap = runway_transverse_max(law, f.code_letter, f.code_number)
+        if cap is None:
+            continue
+        own_ridge = {v for c in chs for v in c}
+        src = Source(GEN, "rulesets.runway.transverse_max (2026-09-05o)",
+                     (f"face:{f.id}", f.ref))
+        for v in vw.rings[f.id]:
+            if v in done or v in own_ridge or v in xing:
+                continue
+            ft = _foot(vw, v, chs)
+            if ft is None or ft[0] <= 0.0:
+                continue
+            done.add(v)
+            d, a, b, t = ft
+            bound = cap * d
+            if t <= 0.0:
+                terms = ((a, 1.0), (v, -1.0))
+            elif t >= 1.0:
+                terms = ((b, 1.0), (v, -1.0))
+            else:
+                terms = ((a, 1.0 - t), (b, t), (v, -1.0))
+            rows.append(Linear(terms, -bound, bound, src))
     return rows
 
 

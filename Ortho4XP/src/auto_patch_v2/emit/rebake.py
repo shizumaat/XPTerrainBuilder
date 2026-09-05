@@ -32,8 +32,9 @@ water triangle never founds a seat (OTHH's canal is not a datum); a
 unit with no founding witness on land is HELD — the pack's current
 bytes are kept and a finding is raised; a unit that moves under
 ``min_delta_m`` stays and the terrain adapts.  THE FACILITY RULE
-(RULINGS 2026-09-05p): a member whose feet stand deeper than ``[basin]
-contact_band_m`` BELOW the built mesh is a FACILITY member — it never
+(RULINGS 2026-09-05p, amended 05q): a member whose seat delta exceeds the
+family's at-grade coalition's by more than ``[basin] contact_band_m`` is a
+FACILITY member — it never
 founds the family and keeps its authored y (the terrain's cutout is the
 basin pass's affair); the founding band is the lowest band among the
 AT-GRADE eligible members, and a member floating ABOVE the mesh stays
@@ -220,13 +221,25 @@ def _mid_span(m: Member, base: float, delta: float, sampler: Sampler, br
                    "ground it covers, deck seat refused"))
 
 
-def _facility(seats: _t.Sequence[MemberSeat], depth_m: float) -> list[bool]:
-    """THE FACILITY RULE (05p): a foot member whose median foot stands
-    deeper than ``depth_m`` (``[basin] contact_band_m``) BELOW the mesh —
-    its member delta is the lift that would put it on the ground, so a
-    lift over the band IS the depth.  A member ABOVE the mesh (negative
-    delta) is never a facility."""
-    return [s.datum == DATUM_FEET and s.delta_m is not None and s.delta_m > depth_m
+def _facility(seats: _t.Sequence[MemberSeat], depth_m: float, window_m: float
+              ) -> list[bool]:
+    """THE FACILITY RULE (05p, amended 05q): a foot member whose seat
+    delta exceeds the family's AT-GRADE COALITION's by more than
+    ``depth_m`` (``[basin] contact_band_m``) — it stands that much deeper
+    than the family's own ground plane and would need that much more of
+    a lift.  Measured against the family, never the mesh alone: a family
+    authored uniformly under the DEM lifts as one (the seat's purpose),
+    while OTHH's sunken TerminalRoads (2 m under the terminal's plane)
+    never found it.  The coalition is the largest agreeing subset of the
+    witness-carrying feet deltas within ``window_m``; with none, the
+    median."""
+    vals = [s.delta_m for s in seats
+            if s.datum == DATUM_FEET and s.delta_m is not None and s.witnesses > 0]
+    if not vals:
+        return [False] * len(seats)
+    coal, _why = _coalition(vals, window_m)
+    d0 = float(statistics.median(coal if coal else vals))
+    return [s.datum == DATUM_FEET and s.delta_m is not None and s.delta_m > d0 + depth_m
             for s in seats]
 
 
@@ -382,19 +395,21 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
             seats = [f if d is None else _dc_replace(f, records=d.records + (f"deck reading: "
                      f"{d.note}" + (f" delta {d.delta_m:.3f}" if d.delta_m is not None else ""),))
                      for d, f in zip(decks, feet)]
-            facility = _facility(seats, facility_depth_m)
+            facility = _facility(seats, facility_depth_m, rb.agreement_window_m)
             founding = _founders(u, seats, rb, facility)
             n_fac = sum(facility)
             if n_fac:
                 seats = [_dc_replace(s, facility=True,
-                                     note=(f"facility member: feet {s.delta_m:.2f} m below "
-                                           f"the mesh (> contact_band_m {facility_depth_m}) — "
-                                           "never founds, keeps its authored y"))
+                                     note=(f"facility member: seat delta {s.delta_m:+.2f} m, more "
+                                           f"than contact_band_m {facility_depth_m} beyond the "
+                                           "family's at-grade coalition — never founds, keeps "
+                                           "its authored y"))
                          if fac else s for s, fac in zip(seats, facility)]
                 names = [s.resource.rsplit('/', 1)[-1] for s, fac in zip(seats, facility)
                          if fac]
-                findings.append(f"{n_fac} facility member(s) with feet deeper than "
-                                f"{facility_depth_m} m below the mesh excluded from founding, "
+                findings.append(f"{n_fac} facility member(s) standing more than "
+                                f"{facility_depth_m} m under the family's at-grade coalition "
+                                "excluded from founding, "
                                 "authored y kept (05p; the cutout is the basin pass's): "
                                 + ", ".join(names[:3]) + (" …" if n_fac > 3 else ""))
             measurable = [s for s, f in zip(seats, founding) if s.delta_m is not None and f]

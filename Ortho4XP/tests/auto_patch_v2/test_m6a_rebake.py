@@ -274,17 +274,24 @@ def test_members_above_the_mesh_still_found(law):
     assert all(m.founding and not m.facility for m in us.members)
 
 
-def test_all_sunken_unit_has_no_founder(law):
+def test_all_sunken_family_lifts_as_one(law):
+    """A family authored uniformly UNDER the mesh is not a facility — it
+    is the seat's own case (05q: the facility test is relative to the
+    family's at-grade coalition, never the mesh alone)."""
     depth = law.tables.structures.basin.contact_band_m
     pl = _unit(_feet_member("road", -(depth + 0.9)), _feet_member("parking", -(depth + 1.4)))
     us = R.seat(pl, _flat(710.0), law).units[0]
-    assert us.delta_m is None and not us.bakes and not us.held
-    assert "no founder" in us.skip_reason and "facility" in us.skip_reason
-    assert all(m.facility and not m.founding for m in us.members)
-    assert any("2 facility member(s)" in f for f in us.findings)
+    assert us.bakes and us.delta_m == pytest.approx(depth + 1.15) and not us.held
+    assert not any(m.facility for m in us.members)
     # exactly at the band the member is still at grade (the band is inclusive)
     us2 = R.seat(_unit(_feet_member("edge", -depth)), _flat(710.0), law).units[0]
     assert not us2.members[0].facility and us2.delta_m == pytest.approx(depth)
+    # a member 2.5 m under a coalition that itself sits 3 m under the mesh IS a facility
+    pl3 = _unit(_feet_member("a", -3.0), _feet_member("b", -3.0), _feet_member("c", -3.0),
+                _feet_member("pit", -(3.0 + depth + 1.5)))
+    us3 = R.seat(pl3, _flat(710.0), law).units[0]
+    by = {m.resource: m for m in us3.members}
+    assert us3.delta_m == pytest.approx(3.0) and by["objects/pit.obj"].facility
 
 
 def test_facility_member_is_excluded_from_the_decision(law):

@@ -96,7 +96,10 @@ def parse_obj8(path: str) -> ObjGeometry:
     table is truncated."""
     with open(path, "rb") as fh:
         data = fh.read()
-    lines = data.split(b"\n")
+    # keyword lines may be INDENTED (XPlane2Blender writes ``\tTRIS\t0 30``
+    # under an LOD; HECA's Tai Models pack: 479 buildings read as "no
+    # genuine solid" and none was seated, 2026-09-04) — strip each line
+    lines = [ln.strip() for ln in data.split(b"\n")]
     vt = [ln[2:] for ln in lines if ln.startswith(b"VT")]
     verts = _floats(vt, 8)[:, :3] if vt else np.zeros((0, 3))
     idx_lines = [ln.split(None, 1)[1] for ln in lines

@@ -75,16 +75,49 @@ def mod_cache_dir(mod_cache_root: str, pack_name: str) -> str:
     return os.path.join(mod_cache_root, pack_name)
 
 
+def dsf_path_in_pack(pack_root: str, lat: int, lon: int) -> str:
+    """``<pack>/Earth nav data/<10° block>/<tile>.dsf``."""
+    block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
+    return os.path.join(pack_root, "Earth nav data", block,
+                        f"{lat:+03d}{lon:+04d}.dsf")
+
+
+def text_dump_tag(dsf_path: str) -> str:
+    """The 8-hex tag the engine's DSFTool cache puts in the dump name —
+    ``sha1(abspath)[:8]`` (``auto_patch.dsf_reader._default_pack_text_
+    cache_path``; twin-asserted equal in ``test_airport_load``)."""
+    import hashlib
+    return hashlib.sha1(os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+
+
 def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
-                   lon: int) -> str | None:
-    """The cached ``<tile>.dsf.<tag>.text`` for the pack's tile DSF."""
+                   lon: int, dsf_path: str | None = None) -> str | None:
+    """The cached ``<tile>.dsf[.<tag>].text`` for the pack's tile DSF.
+
+    With ``dsf_path`` the dump is chosen the way the engine's cache
+    wrote it — ``<tile>.dsf.<tag>.text`` for THIS DSF path — and a dump
+    older than the DSF is REFUSED (``None``): OTHH's pack gained its
+    tunnel objects on 2026-09-04 and the name-sorted pick served the
+    legacy ``+25+051.dsf.text`` of 07-30 over the fresh
+    ``+25+051.dsf.e9df4ffc.text`` (``'t' > 'e'``), so no v2 build saw
+    them.  Without ``dsf_path`` (a fixture) the newest dump by mtime.
+    """
     d = mod_cache_dir(mod_cache_root, pack_name)
     if not os.path.isdir(d):
         return None
     prefix = f"{lat:+03d}{lon:+04d}.dsf."
-    hits = sorted(n for n in os.listdir(d)
-                  if n.startswith(prefix) and n.endswith(".text"))
-    return os.path.join(d, hits[-1]) if hits else None
+    hits = [os.path.join(d, n) for n in os.listdir(d)
+            if n.startswith(prefix) and n.endswith(".text")]
+    if not hits:
+        return None
+    if dsf_path and os.path.isfile(dsf_path):
+        dsf_mtime = os.path.getmtime(dsf_path)
+        keyed = os.path.join(d, f"{os.path.basename(dsf_path)}.{text_dump_tag(dsf_path)}.text")
+        fresh = [h for h in hits if os.path.getmtime(h) >= dsf_mtime]
+        if keyed in fresh:
+            return keyed
+        return max(fresh, key=os.path.getmtime) if fresh else None
+    return max(hits, key=os.path.getmtime)
 
 
 def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None

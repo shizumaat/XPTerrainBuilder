@@ -296,3 +296,43 @@ def test_dem_fixture_is_the_generator_output():
     sys.path.insert(0, str(FIX.parent))
     import make_dem_fixture as G
     assert G.check() == []
+
+
+# ── the DSF text dump is chosen by the DSF's identity, never by name order
+# (OTHH 2026-09-04: the legacy ``+25+051.dsf.text`` of 07-30 out-sorted the
+# fresh ``+25+051.dsf.e9df4ffc.text`` and no v2 build saw the pack's new
+# tunnel wall objects) ────────────────────────────────────────────────────
+
+def test_text_dump_tag_is_the_engine_cache_tag(tmp_path):
+    from auto_patch import dsf_reader as v1
+    dsf = tmp_path / "pack" / "Earth nav data" / "+20+050" / "+25+051.dsf"
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"XPLNEDSF")
+    v1_name = os.path.basename(v1._default_pack_text_cache_path(str(tmp_path), str(dsf)))
+    assert v1_name == f"+25+051.dsf.{S.text_dump_tag(str(dsf))}.text"
+    assert S.dsf_path_in_pack(str(tmp_path / "pack"), 25, 51) == str(dsf)
+    assert S.dsf_path_in_pack("/p", -13, -78).endswith("/Earth nav data/-20-080/-13-078.dsf")
+
+
+def test_find_text_dump_prefers_the_keyed_fresh_dump_and_refuses_stale(tmp_path):
+    import time
+    pack = tmp_path / "xp" / "Custom Scenery" / "OTHH Pack"
+    dsf = pack / "Earth nav data" / "+20+050" / "+25+051.dsf"
+    dsf.parent.mkdir(parents=True)
+    root = tmp_path / "mod_cache"
+    d = root / "OTHH Pack"
+    d.mkdir(parents=True)
+    legacy = d / "+25+051.dsf.text"
+    legacy.write_text("OBJECT_DEF old\n")
+    t0 = time.time() - 3600
+    os.utime(legacy, (t0, t0))                       # 07-30
+    dsf.write_bytes(b"XPLNEDSF")
+    os.utime(dsf, (t0 + 600, t0 + 600))              # the pack changed later
+    # every dump older than the DSF: refused, not the legacy one by name
+    assert S.find_text_dump(str(root), "OTHH Pack", 25, 51, dsf_path=str(dsf)) is None
+    keyed = d / f"+25+051.dsf.{S.text_dump_tag(str(dsf))}.text"
+    keyed.write_text("OBJECT_DEF Objects/tunnels/tunnel1.obj\n")
+    os.utime(keyed, (t0 + 1200, t0 + 1200))
+    assert S.find_text_dump(str(root), "OTHH Pack", 25, 51, dsf_path=str(dsf)) == str(keyed)
+    # a fixture dir with no DSF path: the newest by mtime, never by name
+    assert S.find_text_dump(str(root), "OTHH Pack", 25, 51) == str(keyed)

@@ -105,6 +105,8 @@ class LoadReport:
     cifp_missing_ends: tuple[str, ...] = ()
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
+    #: the pack's tile DSF is newer than every cached text dump (refused)
+    dsf_dump_stale: bool = False
     dsf_pavements: int = 0
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
@@ -249,10 +251,22 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
     # ── DSF: facades, object footprints, placements ────────────────
     dsf_objects: list[DsfObject] = []
+    pack_dsf = _dsf.dsf_path_in_pack(sel.root, *tile)
     dump_path = inputs.dsf_dump_path or (
-        _dsf.find_text_dump(inputs.mod_cache_root, sel.name, *tile)
+        _dsf.find_text_dump(inputs.mod_cache_root, sel.name, *tile,
+                            dsf_path=pack_dsf)
         if inputs.mod_cache_root else None)
     rep.dsf_dump_path = dump_path
+    if (dump_path is None and inputs.mod_cache_root
+            and os.path.isfile(pack_dsf)):
+        rep.dsf_dump_stale = True
+        raise RuntimeError(
+            f"{icao}: the pack DSF {pack_dsf} is newer than every cached text "
+            f"dump under {_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)} "
+            "— the pack's objects would be read from a stale dump (OTHH's tunnel "
+            "walls, 2026-09-04). Refresh it explicitly: build_airport.py "
+            "--refresh-data airport_mod_cache (the app's driver refreshes it "
+            "before the build).")
     n_fac = n_obj = n_pol = 0
     dsf_pavements: list[Pavement] = []
     if dump_path and os.path.isfile(dump_path):

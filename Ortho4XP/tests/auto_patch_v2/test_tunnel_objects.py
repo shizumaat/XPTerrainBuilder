@@ -1,28 +1,37 @@
-"""Twins for the tunnel wall OBJECTS as the tunnel authority (RULINGS
-2026-09-05k-1; spec ``docs/specs/auto-patch-v2/tunnel-wall-objects-spec.md``
-§4): the wall signature over synthetic OBJ8 text, its refusals, the
-two-placement merge, the seat / plate datums, an OSM bore under the hull
-replaced, the SAME ``Tunnel`` product through the generator, the solve
-and the verify readers, the re-bake exclusion, and the law register.
+"""Twins for the tunnel wall OBJECTS as the tunnel authority — round 2
+(RULINGS 2026-09-05n; spec ``docs/specs/auto-patch-v2/tunnel-wall-
+objects-round2-spec.md`` §4): the wall lines read from the crest plate's
+plan ring (a U, an O, two bands; a CURVED pair of walls), the trench
+between the inner faces with no vertex outside the walls and the band =
+the wall footprint, the mouth chosen by the bore, the floor at the mouth
+= ground − plate height, the ramp inside the walls (and beyond only at
+``ramp_max_grade`` when the walls are too short), a bore covered at one
+end keeping its OSM ramp at the other, a box on the bore flat at the
+mouth depth, the plate re-seat (delta = ground − rendered plate, exempt
+from the 1 m threshold, one file one delta), the SAME ``Tunnel`` product
+through the generator / solve / verify readers, and the law register.
 Law values are read from the tables inside the tests, never retyped.
 """
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Point, Polygon
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
 from auto_patch_v2.airport.tunnel_objects import read_corridors, signature
+from auto_patch_v2.airport.tunnel_walls import read_wall_lines
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.structures import ramp_faces_of, structures, wall_faces_of
 from auto_patch_v2.emit.graded import graded_surface
+from auto_patch_v2.emit.rebake import DATUM_PLATE, seat
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, DsfObject, OsmWay, Runway, RunwayEnd, SceneryPack
-from auto_patch_v2.model.constraints import Flat, Pin
+from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
@@ -59,43 +68,65 @@ def _write(path, vt, tris):
     return path
 
 
-def _slab(vt, tris, x0, x1, z0, z1, y0, y1, bottom=False):
-    """A box slab (five faces, open-bottomed unless ``bottom``)."""
-    base = len(vt)
-    for x in (x0, x1):
-        for z in (z0, z1):
-            vt.append((x, y0, z))
-            vt.append((x, y1, z))
-    # corners: (x0,z0)=0,1 (x0,z1)=2,3 (x1,z0)=4,5 (x1,z1)=6,7  (even = y0, odd = y1)
-    b = base
-    faces = [(b + 1, b + 3, b + 7), (b + 1, b + 7, b + 5),          # top
-             (b, b + 1, b + 5), (b, b + 5, b + 4),                  # z0 side
-             (b + 2, b + 3, b + 7), (b + 2, b + 7, b + 6),          # z1 side
-             (b, b + 1, b + 3), (b, b + 3, b + 2),                  # x0 side
-             (b + 4, b + 5, b + 7), (b + 4, b + 7, b + 6)]          # x1 side
-    if bottom:
-        faces += [(b, b + 2, b + 6), (b, b + 6, b + 4)]
-    tris.extend(faces)
+def _prism(vt, tris, quad, y0, y1):
+    """A vertical prism over the plan quad ``quad`` (4 × (x, z), in
+    order): four sides and a top, no bottom."""
+    b = len(vt)
+    for x, z in quad:
+        vt.append((x, y0, z))
+        vt.append((x, y1, z))
+    for k in range(4):
+        i, j = b + 2 * k, b + 2 * ((k + 1) % 4)
+        tris += [(i, i + 1, j + 1), (i, j + 1, j)]
+    tris += [(b + 1, b + 3, b + 5), (b + 1, b + 5, b + 7)]
+
+
+def _slab(vt, tris, x0, x1, z0, z1, y0, y1):
+    _prism(vt, tris, [(x0, z0), (x1, z0), (x1, z1), (x0, z1)], y0, y1)
 
 
 def _wall_obj(path, length=100.0, width=20.0, thick=2.0, depth=12.0, top=5.0,
-              end_a=False, end_b=False, floor=False, bottom=False):
-    """Two parallel wall slabs along z (authored), ``top`` above the
-    seat, ``depth`` below it; an end wall across z = −L/2 (``end_a``) /
-    +L/2 (``end_b``); a floor plate at −depth (``floor``)."""
+              end_a=False, end_b=False, floor=False):
+    """Two parallel wall slabs along z (authored), ``top`` above the seat,
+    ``depth`` below it; an end wall across z = −L/2 (``end_a``) / +L/2
+    (``end_b``); a floor plate at −depth (``floor``)."""
     vt: list = []
     tris: list = []
     hx, hz = width / 2.0, length / 2.0
-    _slab(vt, tris, -hx, -hx + thick, -hz, hz, -depth, top, bottom)
-    _slab(vt, tris, hx - thick, hx, -hz, hz, -depth, top, bottom)
+    _slab(vt, tris, -hx, -hx + thick, -hz, hz, -depth, top)
+    _slab(vt, tris, hx - thick, hx, -hz, hz, -depth, top)
     if end_a:
-        _slab(vt, tris, -hx + thick, hx - thick, -hz, -hz + thick, -depth, top, bottom)
+        _slab(vt, tris, -hx + thick, hx - thick, -hz, -hz + thick, -depth, top)
     if end_b:
-        _slab(vt, tris, -hx + thick, hx - thick, hz - thick, hz, -depth, top, bottom)
+        _slab(vt, tris, -hx + thick, hx - thick, hz - thick, hz, -depth, top)
     if floor:
         b = len(vt)
         vt += [(-hx, -depth, -hz), (hx, -depth, -hz), (hx, -depth, hz), (-hx, -depth, hz)]
         tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    return _write(path, vt, tris)
+
+
+def _arc_wall_obj(path, radius=150.0, sweep_deg=60.0, width=20.0, thick=1.0, depth=12.0,
+                  top=5.0, step_deg=3.0):
+    """Two CURVED walls (arcs about the authored origin, ``width`` apart
+    between their inner faces) joined by an end wall at the arc's start —
+    a U whose side walls bend ``sweep_deg``."""
+    vt: list = []
+    tris: list = []
+    n = int(round(sweep_deg / step_deg))
+    angs = [math.radians(k * step_deg) for k in range(n + 1)]
+
+    def pt(r, a):
+        return (r * math.cos(a), r * math.sin(a))
+    for r_in, r_out in ((radius - width / 2.0 - thick, radius - width / 2.0),
+                        (radius + width / 2.0, radius + width / 2.0 + thick)):
+        for a0, a1 in zip(angs[:-1], angs[1:]):
+            _prism(vt, tris, [pt(r_in, a0), pt(r_out, a0), pt(r_out, a1), pt(r_in, a1)], -depth, top)
+    # the end wall across the start (angle 0 .. thick/r): overlapping the
+    # side walls' bands, so the plate is ONE welded ring (a U)
+    a0, a1 = angs[0], math.radians(math.degrees(thick / radius))
+    ri, ro = radius - width / 2.0 - thick / 2.0, radius + width / 2.0 + thick / 2.0
+    _prism(vt, tris, [pt(ri, a0), pt(ro, a0), pt(ro, a1), pt(ri, a1)], -depth, top)
     return _write(path, vt, tris)
 
 
@@ -112,10 +143,11 @@ def objs(tmp_path_factory):
     (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
     return {
         "dir": d,
-        "wall": _wall_obj(d / "wall.obj", end_a=True),                     # closed/open
-        "wall_open": _wall_obj(d / "wall_open.obj"),                       # open/open
-        "wall_box": _wall_obj(d / "wall_box.obj", end_a=True, end_b=True),  # closed/closed
-        "wall_bottom": _wall_obj(d / "wall_bottom.obj", end_a=True, bottom=True),
+        "wall": _wall_obj(d / "wall.obj", end_a=True),                        # U, 100 m
+        "wall_long": _wall_obj(d / "wall_long.obj", length=160.0, end_a=True),  # U, 160 m
+        "wall_open": _wall_obj(d / "wall_open.obj"),                          # two bands
+        "wall_box": _wall_obj(d / "wall_box.obj", end_a=True, end_b=True),     # O
+        "arc": _arc_wall_obj(d / "arc.obj"),                                  # curved U
         "floored": _wall_obj(d / "floored.obj", end_a=True, floor=True),
         "kerb": _wall_obj(d / "kerb.obj", depth=12.0, top=0.3),
         "shallow": _wall_obj(d / "shallow.obj", depth=1.0, top=5.0),
@@ -129,25 +161,29 @@ def _sig(objs, law, name):
     return signature(cache.geometry(path), cache.genuine(path), law)
 
 
-# ── §4: the signature ────────────────────────────────────────────────────
+# ── the signature and the wall lines ─────────────────────────────────────
 
-def test_two_slabs_with_a_crest_plate_are_a_wall_skirt(objs, law):
+def test_signature_and_wall_lines(objs, law):
     ob = law.tables.structures.tunnel.object
     sig = _sig(objs, law, "wall")
     assert not isinstance(sig, str), sig
     assert sig.plate_y == pytest.approx(5.0)
-    assert sig.plate_area_m2 == pytest.approx(2 * 100.0 * 2.0 + 16.0 * 2.0, rel=0.02)
-    assert sig.plate_area_m2 >= ob.plate_min_area_m2
-    assert sig.skirt_depth_m == pytest.approx(12.0)
-    assert sig.length_m == pytest.approx(100.0) and sig.width_m == pytest.approx(20.0)
-    # the end wall closes a; b is a mouth (the two slabs leave the centre bare)
-    assert (sig.open_a, sig.open_b) == (False, True)
-    # a slab's own underside at the flank is not a floor plate
-    sig2 = _sig(objs, law, "wall_bottom")
-    assert not isinstance(sig2, str), sig2
-    assert _sig(objs, law, "wall_open").open_a and _sig(objs, law, "wall_open").open_b
-    box = _sig(objs, law, "wall_box")
-    assert not box.open_a and not box.open_b
+    assert sig.plate_area_m2 >= ob.plate_min_area_m2 and sig.skirt_depth_m == pytest.approx(12.0)
+    # the plate's plan ring is the walls: a U (one end wall), 2 m bands,
+    # the inner faces 16 m apart
+    w = read_wall_lines(sig.plate, law)
+    assert not isinstance(w, str), w
+    assert w.kind == "U" and w.closed == (True, False)
+    assert w.thickness_m == pytest.approx(2.0, abs=0.05)
+    assert w.end_thickness_m[0] == pytest.approx(2.0, abs=0.05)
+    assert LineString(w.inner_a).distance(LineString(w.inner_b)) == pytest.approx(16.0, abs=0.01)
+    box = read_wall_lines(_sig(objs, law, "wall_box").plate, law)
+    assert box.kind == "O" and box.closed == (True, True)
+    two = read_wall_lines(_sig(objs, law, "wall_open").plate, law)
+    assert two.kind == "II" and two.closed == (False, False)
+    arc = read_wall_lines(_sig(objs, law, "arc").plate, law)
+    assert arc.kind == "U" and arc.closed == (True, False)
+    assert arc.thickness_m == pytest.approx(1.0, abs=0.05)
 
 
 def test_refusals_name_their_reason(objs, law):
@@ -172,21 +208,24 @@ def _airport(objs, law, placements, ways=()):
                    tuple(ways), (), dsf, pack, _PlaneDem(), law.ruleset_key)
 
 
-def _cells():
+def _cells(x0=-200, y0=-120, x1=200, y1=120):
     return [
         Cell(0, "runway", "09/27", _rect(-600, 500, 600, 545), (), 3, "D", "airside", "runway", {}),
-        Cell(1, "apron", "apron1", _rect(-200, -120, 200, 120), (), None, None,
+        Cell(1, "apron", "apron1", _rect(x0, y0, x1, y1), (), None, None,
              "airside", "apron", {}),
     ]
 
 
-def _bore():
-    """A mapped bore along the corridor's axis (y in the frame), under the apron."""
+def _bore(y_in=-40.0, y_far=-400.0, y_open=50.0):
+    """A mapped bore ending at ``y_in`` (inside a wall object placed at the
+    origin, heading 180: its closed end is at −y) and running on under
+    the ground to ``y_far``; the approach way beyond the far mouth, and a
+    mapped road leaving the object's open end (``y_open``) toward +y."""
     tags_t = {"highway": "secondary", "tunnel": "yes", "lanes": "2", "layer": "-1"}
     tags_r = {"highway": "secondary", "lanes": "2"}
-    return (OsmWay(-101, "big_roads", ((0.0, -60.0), (0.0, 60.0)), False, tags_t),
-            OsmWay(-201, "big_roads", ((0.0, 60.0), (0.0, 900.0)), False, tags_r),
-            OsmWay(-202, "big_roads", ((0.0, -60.0), (0.0, -900.0)), False, tags_r))
+    return (OsmWay(-101, "big_roads", ((0.0, y_in), (0.0, y_far)), False, tags_t),
+            OsmWay(-201, "big_roads", ((0.0, y_far), (0.0, y_far - 900.0)), False, tags_r),
+            OsmWay(-202, "big_roads", ((0.0, y_open), (0.0, 300.0)), False, tags_r))
 
 
 def _corridors(objs, law, placements, ways=()):
@@ -197,254 +236,310 @@ def _corridors(objs, law, placements, ways=()):
     return airport, objects, cache, cs, st
 
 
-def test_datums_seat_and_plate(objs, law):
-    """§3.3: floor = the seat (DEM(placement) + AGL; MSL absolute),
-    crest = floor + the plate height, depth = the plate height."""
+# ── §4: the curved walls ─────────────────────────────────────────────────
+
+def test_curved_walls_trench_between_inner_faces(objs, law):
+    """05n-2: the trench follows the walls' curves and never leaves them;
+    the wall band is the wall footprint; no rectangle anywhere."""
+    # the arc's end wall stands at authored (150, 0) = frame (150, 0); the
+    # bore ends just inside it and runs away to +y
+    tags_t = {"highway": "secondary", "tunnel": "yes", "lanes": "2"}
+    bore = (OsmWay(-501, "big_roads", ((150.0, -5.0), (150.0, 400.0)), False, tags_t),)
+    airport, objects, cache, cs, st = _corridors(
+        objs, law, [("arc", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL")], bore)
+    assert st.corridors == 1, st.refused
+    c = cs[0]
+    assert c.mouth_kind == "bore" and c.mouth_closed
+    # the axis bends: its middle stands off the chord by the sagitta
+    a, b = c.axis[0], c.axis[-1]
+    mid = c.axis[len(c.axis) // 2]
+    chord = LineString([a, b])
+    assert chord.distance(Point(mid)) > 5.0
+    cl = Classification(tuple(_cells(-400, -400, 400, 400)), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    # (the bore's far OSM mouth climbs toward the runway and is refused
+    # on its own account; the object corridor is what this twin reads)
+    assert not [r for r in sst.refused if "arc.obj" in r], sst.refused
+    t = [t for t in tunnels if t.source == "object"][0]
+    assert t.trench_outside_max_m == 0.0
+    near = c.footprint.buffer(5.0)
+    ramps = [Polygon(x.ring) for x in cl2.cells if x.role == "tunnel_ramp"
+             and near.contains(Polygon(x.ring).centroid)]
+    walls = [Polygon(x.ring, x.holes) for x in cl2.cells if x.role == "retaining_wall"
+             and near.contains(Polygon(x.ring).centroid)]
+    assert ramps and walls
+    # 05n-2 as the build measures it: no trench vertex outside the inner
+    # lines (0.0 above); and none further than one identity-grid step
+    # past the walls' END line either (the snapped end-line vertices)
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    region = c.trench.buffer(grid + 1e-6)
+    for r in ramps:
+        for p in r.exterior.coords:
+            assert region.contains(Point(p)), p
+    # every band vertex stands on the wall's footprint: the band's inner
+    # edge is the inner face rounded AWAY from the ramp and cleared off it
+    # by the gap in grid steps (09-01e), its outer edge that plus the
+    # wall's thickness — so it may overhang the wall's outer face by those
+    # grid steps, never more (a hull rectangle would be tens of metres)
+    plate = c.walls.buffer(4 * grid + 1e-6)
+    for w in walls:
+        for cyc in (w.exterior, *w.interiors):
+            for p in cyc.coords:
+                assert plate.contains(Point(p)), p
+    # and the band's outer edge is NOT a rectangle round the object: its
+    # area is the walls' (1 m bands), not a hull's
+    assert sum(w.area for w in walls) < 1.5 * c.walls.area
+
+
+# ── §4: the mouth, the floor, the ramp inside / beyond the walls ─────────
+
+def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
+    """05n-1: mouth = the bore end (the closed end); floor = ground(mouth)
+    − plate; a 160 m wall holds the 5 m at 3.2 % — the ramp tops AT the
+    wall end at the design grade."""
+    tn = law.tables.structures.tunnel
     dem = _PlaneDem()
     airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("wall", (400.0, 0.0), 90.0, 650.0, "OBJECT_MSL"),
-                    ("wall", (800.0, 0.0), 0.0, 0.0, "OBJECT")])
-    # the plain OBJECT seats AT grade: a fence, not a tunnel floor (the
-    # basin family's admission depth) — refused by placement, named
-    assert st.corridors == 2 and len(st.refused) == 1 and "not 2.5 m" in st.refused[0].replace(
-        f"not {law.tables.structures.basin.admission_depth_m:.1f} m", "not 2.5 m"), st.refused
-    by_x = sorted(cs, key=lambda c: c.rect.centroid.x)
-    assert by_x[0].floor_z == pytest.approx(dem.z(0.0, 0.0) - 3.0)
-    assert by_x[0].crest_z == pytest.approx(dem.z(0.0, 0.0) - 3.0 + 5.0)
-    assert by_x[0].depth_m == pytest.approx(5.0)
-    assert by_x[1].floor_z == pytest.approx(650.0)
-    # the hull under its placement: 100 × 20, the long axis along the
-    # frame's y at heading 0 and along x at heading 90
-    assert by_x[0].rect.area == pytest.approx(2000.0, rel=0.01)
-    assert abs(by_x[0].b[1] - by_x[0].a[1]) == pytest.approx(100.0, abs=0.01)
-    assert abs(by_x[1].b[0] - by_x[1].a[0]) == pytest.approx(100.0, abs=0.01)
-    assert by_x[0].ends == "closed/open"
-
-
-def test_two_placements_merge_at_their_open_ends(objs, law):
-    """§3.2: two hulls whose open ends face within merge_gap_m are ONE
-    corridor (tunnel1 × 2); two the gap apart stay two."""
-    gap = law.tables.structures.tunnel.object.merge_gap_m
-    # wall: closed at −z (authored), open at +z; heading 0 → +z is frame −y.
-    # A: open end at y = −50; B (heading 180): open end at y = +50 → placed
-    # at y = −100 − gap/2 its open end stands gap/2 short of A's
-    airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("wall", (0.0, -100.0 - gap / 2.0), 180.0, -3.0, "OBJECT_AGL")])
-    assert st.merged == 1 and st.corridors == 1, (st.merged, st.corridors, st.refused)
+        objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], _bore(y_in=-70.0, y_open=80.0))
+    assert st.corridors == 1, st.refused
     c = cs[0]
-    assert c.ends == "closed/closed" and len(c.objects) == 2
-    assert c.length_m == pytest.approx(200.0 + gap / 2.0, abs=0.5)
+    assert c.mouth_kind == "bore" and c.mouth_closed and not c.far_closed and not c.flat
+    assert c.axis[0][1] < c.axis[-1][1]          # the mouth is the −y (closed) end
+    assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - 5.0)
+    assert c.plate_y == pytest.approx(5.0)
+    cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    assert not sst.refused, sst.refused
+    t = [t for t in tunnels if t.source == "object"][0]
+    assert t.mouth_z == pytest.approx(c.floor_z) and t.climb_from_s == 0.0
+    assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned
+    assert 0.0 < t.design_grade < tn.ramp_max_grade
+    assert t.design_grade == pytest.approx(5.0 / t.wall_length_m)
+    assert t.mouth_kind == "bore" and t.ground_kind == "open"
+
+
+def test_wall_too_short_ramp_beyond_at_ramp_max_grade(objs, law):
+    """A 100 m wall cannot hold 5 m at 4 %: the ramp continues beyond the
+    wall end at exactly ``ramp_max_grade`` along the approach."""
+    tn = law.tables.structures.tunnel
     airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("wall", (0.0, -100.0 - 3 * gap), 180.0, -3.0, "OBJECT_AGL")])
-    assert st.merged == 0 and st.corridors == 2
+        objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], _bore(y_in=-40.0))
+    assert st.corridors == 1, st.refused
+    cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    assert not sst.refused, sst.refused
+    t = [t for t in tunnels if t.source == "object"][0]
+    assert t.top_s > t.wall_length_m and t.design_grade == pytest.approx(tn.ramp_max_grade)
+    # the climb beyond: the existing ramp machinery — the depth at
+    # ramp_max_grade over the DIRECT distance from the mouth (the census
+    # prices ring pairs over the chord: 2 × half off the axis), plus one
+    # station of slack
+    half = t.half_width_m
+    need = 5.0 / tn.ramp_max_grade + 2.0 * half
+    spacing = law.tables.emit.chords.station_spacing_m
+    assert need <= t.top_s <= need + 2.0 * spacing
+    # the ramp beyond the walls runs down the approach way (x = 0)
+    assert all(abs(x) < 0.5 for x, y in t.axis)
 
 
-# ── the SAME Tunnel product ──────────────────────────────────────────────
+# ── §4: precedence per mouth ─────────────────────────────────────────────
+
+def test_bore_covered_at_one_end_keeps_its_osm_ramp_at_the_other(objs, law):
+    """05n-3: the bore's mouth inside the object is the object's; its far
+    mouth (under the apron, outside every object) keeps its OSM ramp."""
+    airport, objects, cache, cs, st = _corridors(
+        objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+        _bore(y_in=-70.0, y_far=-400.0, y_open=80.0))
+    cl = Classification(tuple(_cells(-200, -600, 200, 200)), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    assert not sst.refused, sst.refused
+    assert sst.mouths_replaced_by_object == 1 and sst.bores_replaced_by_object == 0
+    assert sst.mouths == 1 and sst.tunnels == 2
+    kinds = sorted(t.source for t in tunnels)
+    assert kinds == ["object", "osm"]
+    osm = [t for t in tunnels if t.source == "osm"][0]
+    assert osm.axis[0][1] == pytest.approx(-400.0, abs=1.0)
+    assert any("one mouth inside" in r for r in sst.bore_precedence)
+    obj = [t for t in tunnels if t.source == "object"][0]
+    assert obj.replaced_ways == (-101,)
+
+
+def test_box_on_the_bore_is_flat_at_the_mouth_depth(objs, law):
+    """A box the bore passes through (OTHH tunnel west 1) has two bore
+    mouths: no ground end, the trench flat at ground − plate."""
+    tags_t = {"highway": "secondary", "tunnel": "yes", "lanes": "2"}
+    bore = (OsmWay(-301, "big_roads", ((0.0, 300.0), (0.0, -300.0)), False, tags_t),)
+    airport, objects, cache, cs, st = _corridors(
+        objs, law, [("wall_box", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL")], bore)
+    assert st.corridors == 1, st.refused
+    c = cs[0]
+    assert c.flat and c.mouth_kind == "bore" and c.ground_kind == "bore"
+    cl = Classification(tuple(_cells()), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    # (the bore's own mouths at ±300 stand outside the box: OSM ramps,
+    # 05n-3 — the +y one climbs toward the runway and is refused on its
+    # own account)
+    assert not [r for r in sst.refused if "wall_box" in r], sst.refused
+    t = [t for t in tunnels if t.source == "object"][0]
+    assert t.capped and t.far_capped and not t.top_pinned
+    assert t.climb_from_s == pytest.approx(t.top_s) and t.design_grade == 0.0
+
+
+# ── the SAME Tunnel product through the readers ──────────────────────────
 
 @pytest.fixture(scope="module")
 def corridor_map(objs, law):
-    """A closed/open wall object over a mapped bore under the apron: the
-    corridor replaces the bore and climbs out of its open end (the
-    frame's −y, along the bore's approach way)."""
-    airport = _airport(objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL")], _bore())
-    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
-    objects, rep = read_objects(airport, law, cache)
-    cs, ts = read_corridors(airport, objects, cache, law)
-    cl = Classification(tuple(_cells()), (), {}, ())
-    cl2, tunnels, st = build_structures(airport, cl, law, objects, cs)
+    # the apron covers the mouth end only: the walls' far stations stand
+    # on BARE ground (their crest the DEM), the near ones share the apron
+    airport = _airport(objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+                       _bore(y_in=-70.0, y_open=80.0))
+    cl = Classification(tuple(_cells(-200, -300, 200, -60)), (), {}, ())
     pm, stats = build(airport, cl, law)
-    return airport, cl2, tunnels, st, pm, stats, cs
-
-
-def test_bore_under_the_hull_is_replaced(corridor_map, law):
-    airport, cl2, tunnels, st, pm, stats, cs = corridor_map
-    tn = law.tables.structures.tunnel
-    assert st.bores == 1 and st.bores_replaced_by_object == 1 and st.object_corridors == 1
-    assert st.tunnels == 1 and not st.refused, st.refused
-    t = tunnels[0]
-    assert t.source == "object" and t.crest == tn.object.crest and t.replaced_ways == (-101,)
-    assert t.mouth_z == pytest.approx(cs[0].floor_z) and t.crest_z == pytest.approx(cs[0].crest_z)
-    assert t.depth_m == pytest.approx(5.0) and t.ends == "closed/open" and t.capped
-    # the cap stands at the closed end (+y), the climb starts at the hull's far end
-    assert t.axis[0][1] == pytest.approx(50.0, abs=0.01) and t.climb_from_s == pytest.approx(100.0)
-    assert t.top_s > t.climb_from_s and t.top_pinned
-    # the ramp runs down the approach way (x = 0) beyond the open end
-    assert all(abs(x) < 0.5 for x, y in t.axis)
-    roles = [c.role for c in cl2.cells]
-    assert roles.count("tunnel_ramp") >= 1 and roles.count("retaining_wall") >= 1
-    assert all(c.ref == "tunnel_ramp" for c in cl2.cells if c.role == "tunnel_ramp")
-    assert all(c.ref == "tunnel_wall" for c in cl2.cells if c.role == "retaining_wall")
-    # the same map through the pipeline's planar build
-    assert len(pm.structures) == 1 and pm.structures[0].source == "object"
-    assert stats.structures.bores_replaced_by_object == 1
-    assert stats.tunnel_objects.corridors == 1
+    return airport, pm, stats
 
 
 def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
-    airport, cl2, tunnels, st, pm, stats, cs = corridor_map
+    airport, pm, stats = corridor_map
     tn = law.tables.structures.tunnel
-    t = pm.structures[0]
+    objs_t = [t for t in pm.structures if t.source == "object"]
+    assert len(objs_t) == 1
+    t = objs_t[0]
     rows = structures(pm, law, airport)
     pins = {r.v: r for r in rows if isinstance(r, Pin)}
     walls = wall_faces_of(pm, pm.structures)[t.id]
     ramps = ramp_faces_of(pm, pm.structures)[t.id]
     assert walls and ramps
-    # every BARE wall vertex is pinned at the GROUND crest (the default
-    # ``[tunnel.object] crest = "dem"``, RULINGS 2026-09-05m: OTHH's plate
-    # is a 2 m parapet above ground); the datum group at the seat is a
-    # Flat and its representative pinned at the floor
     dem = _PlaneDem()
     bare = 0
     for f in walls:
         for v in pm.ring_vertices(f.ring):
             ground = any(pm.faces[x].role not in ("tunnel_ramp", "retaining_wall")
                          for x in pm.vertices[v].incident_faces)
-            if v in pins and not ground and "crest = dem" in pins[v].source.ruling:
+            if v in pins and not ground and "plate_datum = ground" in pins[v].source.ruling:
                 bare += 1
                 x, y = pm.vertices[v].xy
                 assert abs(pins[v].z - dem.z(x, y)) < 0.05
     assert bare > 0
-    assert t.crest == "dem"
-    seat_pins = [p for p in pins.values() if "floor_datum" in p.source.ruling]
-    assert len(seat_pins) == 1 and seat_pins[0].z == pytest.approx(t.mouth_z)
-    assert not any(r.source.ruling.startswith("tunnel.bore_datum") for r in rows)
+    mouth_pins = [p for p in pins.values() if "mouth_depth = plate" in p.source.ruling]
+    assert len(mouth_pins) == 1 and mouth_pins[0].z == pytest.approx(t.mouth_z)
+    # no 5.1 m mouth relation on the OBJECT's rows (the OSM far mouth keeps its own)
+    assert not any(r.source.ruling.startswith("tunnel.bore_datum") for r in rows
+                   if r.source.inputs and r.source.inputs[0] == t.id)
     cs_all, counts, _w = generate(pm, law, airport)
     sol = solve(pm, cs_all, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
-    zs = [sol.z[v] for f in ramps for v in pm.ring_vertices(f.ring)]
-    assert min(zs) == pytest.approx(t.mouth_z, abs=1e-6)
-    # the trench is flat at the floor over the hull; the ramp climbs beyond
-    axis = t.axis
-    from shapely.geometry import LineString, Point
-    ln = LineString(axis)
+    ln = LineString(t.axis)
+    zs = []
     for f in ramps:
         for v in pm.ring_vertices(f.ring):
             s = ln.project(Point(pm.vertices[v].xy))
-            if s <= t.climb_from_s + 1.0:
-                assert sol.z[v] == pytest.approx(t.mouth_z, abs=1e-6)
-            else:
-                assert sol.z[v] <= t.mouth_z + tn.ramp_max_grade * (s - t.climb_from_s) + 1e-6
+            z = sol.z[v]
+            zs.append((s, z))
+            assert z <= t.mouth_z + tn.ramp_max_grade * s + 1e-6
+    smin = min(zs, key=lambda q: q[0])
+    smax = max(zs, key=lambda q: q[0])
+    assert smin[1] == pytest.approx(t.mouth_z, abs=1e-6)
+    # the top reaches the ground at the wall end
+    x, y = t.axis[-1]
+    assert smax[1] == pytest.approx(dem.z(x, y), abs=0.05)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
-    assert pub["tunnel_objects"] and pub["tunnel_objects"][0]["depth_m"] == pytest.approx(5.0)
-    # the sidecar register carries the key (the OTHH closing build refused it once)
+    rec = pub["tunnel_objects"][0]
+    assert rec["depth_m"] == pytest.approx(5.0) and rec["mouth"] == "bore"
+    assert rec["ramp_beyond_walls_m"] == 0.0 and rec["trench_outside_max_m"] == 0.0
     from auto_patch_v2.emit.osm_adapter import write_patch
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
-    import json
-    assert json.loads(paths.sidecar.read_text())["tunnel_objects"][0]["ends"] == "closed/open"
+    assert json.loads(paths.sidecar.read_text())["tunnel_objects"][0]["ground_end"] == "open"
     rows_v = census(surf, law, pub, {})
     for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "tunnel_mouth_canonical",
                 "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])
 
 
-def test_open_open_and_closed_closed_corridors(objs, law):
-    """An open+open corridor is two capless halves (a ramp from each
-    mouth); a closed+closed one is a capped, far-capped trench with no
-    climb — both the same ramp / wall faces."""
-    airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall_open", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("wall_box", (300.0, 0.0), 0.0, -3.0, "OBJECT_AGL")])
-    cl = Classification(tuple(_cells()) + (
-        Cell(2, "apron", "apron2", _rect(200, -120, 400, 120), (), None, None,
-             "airside", "apron", {}),), (), {}, ())
-    cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
-    assert not sst.refused, sst.refused
-    halves = [t for t in tunnels if t.ends == "open/open"]
-    box = [t for t in tunnels if t.ends == "closed/closed"]
-    assert len(halves) == 2 and len(box) == 1
-    for h in halves:
-        assert not h.capped and h.cap_centre is None and h.climb_from_s == pytest.approx(50.0)
-        assert h.top_pinned and h.top_s > 50.0
-    b = box[0]
-    assert b.capped and b.far_capped and not b.top_pinned
-    assert b.top_s == pytest.approx(100.0) and b.climb_from_s == pytest.approx(100.0)
-    assert b.wall_path[0] == b.wall_path[-1]           # the O: a closed centreline
-    # the box's band is ONE ring with the trench in its hole
-    box_walls = [Polygon(c.ring, c.holes) for c in cl2.cells
-                 if c.role == "retaining_wall" and Polygon(c.ring).centroid.x > 200]
-    assert len(box_walls) == 1 and len(box_walls[0].interiors) == 1
-    # the two halves' ramps meet at the midpoint: their rings share the mid-line
+# ── §4: the re-seat ──────────────────────────────────────────────────────
+
+def test_reseat_plate_to_ground(corridor_map, objs, law):
+    """05n-4: the wall object is planned with its plate and band
+    stations; the seat's delta = ground − (mesh(anchor) + agl + plate),
+    exempt from the 1 m threshold, datum ``plate``."""
+    from auto_patch_v2.pipeline.build import _plate_seats
+    airport, pm, stats = corridor_map
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, rep = read_objects(airport, law, cache)
+    seats = _plate_seats(pm, law)
+    assert set(seats) == {"dsf:obj0"} and seats["dsf:obj0"][0] == pytest.approx(5.0)
+    pl = rebake_plan(airport, objects, cache, law, None, tunnel_objects=seats)
+    members = [m for u in pl.units for m in u.members]
+    assert len(members) == 1 and members[0].plate_y == pytest.approx(5.0)
+    assert len(members[0].plate_stations) > 10
+    assert pl.counts["plate_members"] == 1 and pl.counts["terrain_adapted"] == 0
+    assert "objects/wall_long.obj" not in dict(pl.skipped)
+    # the round trip carries the plate
+    from auto_patch_v2.model.rebake import RebakePlan
+    pl2 = RebakePlan.from_json(pl.to_json())
+    assert pl2.units[0].members[0].plate_stations == members[0].plate_stations
+    # a mesh: the anchor sits in the cut trench 2.0 m under the ground,
+    # the wall band stations on the ground
+    unit = pl2.units[0]
+    ground = 700.0
+
+    def sampler(lat, lon):
+        if (round(lat, 7), round(lon, 7)) == (round(unit.anchor[0], 7), round(unit.anchor[1], 7)):
+            return ground - 2.0, False
+        return ground, False
+    res = seat(pl2, sampler, law)
+    us = res.units[0]
+    assert us.datum == DATUM_PLATE and us.bakes
+    # rendered plate = (ground − 2.0) + agl(−3.0) + 5.0 = ground; delta = 0 … exempt
+    # from the threshold either way; with the cut the delta is what lifts it
+    expect = ground - ((ground - 2.0) + unit.agl_m + 5.0)
+    assert us.delta_m == pytest.approx(expect)
+    assert us.skip_reason is None
+    assert res.counts()["plate_units"] == 1
+
+
+def test_one_file_one_delta_for_two_placements(objs, law):
+    """A plate-seated resource placed at two anchors (OTHH tunnel1 × 2)
+    is planned per anchor and bakes only when the seats agree."""
+    from auto_patch_v2.pipeline.build import _plate_seats
+    airport = _airport(objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL"),
+                                   ("wall_long", (600.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+                       _bore(y_in=-70.0, y_open=80.0)
+                       + (OsmWay(-401, "big_roads", ((600.0, -70.0), (600.0, -400.0)),
+                                 False, {"highway": "secondary", "tunnel": "yes"}),))
+    cl = Classification(tuple(_cells(-200, -300, 800, 200)), (), {}, ())
     pm, stats = build(airport, cl, law)
-    from shapely.geometry import Polygon as _P
-    ramps = [_P([pm.vertices[i].xy for i in pm.ring_vertices(f.ring)])
-             for f in pm.faces.values() if f.role == "tunnel_ramp"
-             and _P([pm.vertices[i].xy for i in pm.ring_vertices(f.ring)]).centroid.x < 100]
-    assert len(ramps) == 2 and ramps[0].touches(ramps[1])
-    assert stats.t_vertices == 0
-    rows = structures(pm, law, airport)
-    cs_all, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs_all, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    assert len([t for t in pm.structures if t.source == "object"]) == 2, stats.structures.refused
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, rep = read_objects(airport, law, cache)
+    pl = rebake_plan(airport, objects, cache, law, None, tunnel_objects=_plate_seats(pm, law))
+    assert len(pl.units) == 2 and pl.counts["multi_anchor"] == 0
+    rb = law.tables.structures.rebake
+    res = seat(pl, lambda la, lo: (700.0, False), law)
+    assert all(u.bakes and u.datum == DATUM_PLATE for u in res.units)
+    # disagreeing seats: the second anchor's ground 1 m lower → held, both
+    anchors = {u.anchor for u in pl.units}
+    low = sorted(anchors)[0]
 
-
-def test_rebake_excludes_the_tunnel_object_family(objs, law):
-    """§3.6: a tunnel wall object (and its anchor family) is never
-    re-seated; the plan lists it under ``tunnel_object``."""
-    airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("shallow", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
-                    ("shallow", (500.0, 0.0), 0.0, 0.0, "OBJECT")])
-    pl = rebake_plan(airport, objects, cache, law, None,
-                     tunnel_objects={oid for c in cs for oid in c.objects})
-    resources = [m.resource for u in pl.units for m in u.members]
-    assert "objects/wall.obj" not in resources
-    assert pl.counts["terrain_adapted"] == 2          # the wall and its family's sibling
-    assert dict(pl.skipped)["objects/wall.obj"].startswith("tunnel_object")
-    assert "objects/shallow.obj" in resources         # the far sibling still seats
+    def sampler(lat, lon):
+        return (699.0 if (lat, lon) == low else 700.0), False
+    res2 = seat(pl, sampler, law)
+    assert all(u.held and "one file" in (u.skip_reason or "") for u in res2.units)
+    assert rb.agreement_window_m < 1.0
 
 
 def test_law_register(law):
     """§2: every key read through the model, no literal in Python."""
     ob = law.tables.structures.tunnel.object
     assert ob.source_precedence == ("object", "osm")
-    assert ob.floor_datum == "seat" and ob.crest == "dem"
+    assert ob.plate_datum == "ground" and ob.mouth_depth == "plate"
+    assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls" and ob.mouth_end == "bore"
+    assert ob.reseat is True
+    assert ob.wall_face_max_thickness_m > 0.0 and ob.wall_sample_m > 0.0
     assert ob.plate_normal_y_min == law.tables.structures.bridge.deck_plate_normal_y_min
     assert ob.plate_bin_m == law.tables.structures.bridge.deck_plane_bin_m
     assert ob.floor_plate_max_m2 == 0.0
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
-    assert law.tables.structures.rebake.structure_family_excluded is True
-
-
-def test_object_crest_plate_is_one_key(corridor_map, tmp_path):
-    """The crest law of an object corridor is the TABLE's: the default is
-    ``crest = "dem"`` (the OTHH closing build measured the plate 2.0 m
-    above the ground — a parapet, RULINGS 2026-09-05m); a pack whose plate
-    IS the ground flips ``[tunnel.object] crest = "plate"`` and the band's
-    bare stations carry seat + plate height — no code, one key."""
-    import shutil
-    from auto_patch_v2.law import Law as _Law
-    from auto_patch_v2.law.tables import DEFAULT_LAW_DIR
-    d = tmp_path / "law"
-    shutil.copytree(DEFAULT_LAW_DIR, d, ignore=shutil.ignore_patterns("*.py", "__pycache__"))
-    t = d / "structures.toml"
-    text = t.read_text()
-    assert 'crest               = "dem"' in text
-    t.write_text(text.replace('crest               = "dem"', 'crest               = "plate"', 1))
-    law2 = _Law.for_airport("ZZZZ", law_dir=d)
-    airport, cl2, tunnels, st, pm, stats, cs = corridor_map
-    cl = Classification(tuple(_cells()), (), {}, ())
-    cache = obj8.ResourceCache(law2.tables.structures.basin.min_solid_thickness_m)
-    objects, rep = read_objects(airport, law2, cache)
-    cs2, ts2 = read_corridors(airport, objects, cache, law2)
-    pm2, _stats = build(airport, cl, law2)
-    t2 = pm2.structures[0]
-    assert t2.source == "object" and t2.crest == "plate" and t2.mouth_z == pytest.approx(cs2[0].floor_z)
-    assert t2.crest_z == pytest.approx(cs2[0].crest_z)
-    rows = structures(pm2, law2, airport)
-    pins = {r.v: r for r in rows if isinstance(r, Pin)}
-    walls = wall_faces_of(pm2, pm2.structures)[t2.id]
-    bare = 0
-    for f in walls:
-        for v in pm2.ring_vertices(f.ring):
-            ground = any(pm2.faces[x].role not in ("tunnel_ramp", "retaining_wall")
-                         for x in pm2.vertices[v].incident_faces)
-            if v in pins and not ground and "plate" in pins[v].source.ruling:
-                bare += 1
-                assert pins[v].z == pytest.approx(t2.crest_z)
-    assert bare > 0
+    assert law.tables.structures.rebake.structure_seat_threshold_exempt is True

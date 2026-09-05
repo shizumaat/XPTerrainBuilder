@@ -82,6 +82,28 @@ class BuildResult:
     rebake_plan: Path | None = None
 
 
+def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
+    """Placement id -> ``(plate height, wall-band stations in frame xy)``
+    for every tunnel wall object (RULINGS 2026-09-05n-4): the band's
+    centreline points inside the object's own walls (the ramp's bands
+    beyond the walls are the OSM law's)."""
+    from shapely.geometry import Point as _Pt
+    tol = (law.tables.structures.tunnel.wall_band_width_m
+           + 2.0 * law.tables.emit.identity.min_distinct_spacing_m)
+    out: dict[str, tuple[float, list]] = {}
+    for tn in pm.structures:
+        if tn.source != "object" or not tn.objects:
+            continue
+        pts = list(tn.wall_path)
+        if tn.wall_length_m > 0.0 and tn.top_s > tn.wall_length_m + 1e-6:
+            from shapely.geometry import LineString as _LS
+            ax = _LS(tn.axis)
+            pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
+        for oid in tn.objects:
+            out[oid] = (float(tn.depth_m), pts)
+    return out
+
+
 def _basin_polygon(b):
     """A basin's admitted region as a frame polygon (the deck signature's
     below-grade spanning evidence, 04k), ``None`` when degenerate."""
@@ -208,14 +230,20 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused object {r}", out)
         for r in ss.refused:
             _say(f"    refused {r}", out)
+        for r in ss.bore_precedence:
+            _say(f"    {r}", out)
         for tn in pm.structures:
             if tn.source == "object":
-                # spec §3.7: the per-corridor line
-                _say(f"    {tn.id}: floor {tn.mouth_z:.2f} crest {tn.crest_z:.2f} depth "
-                     f"{tn.depth_m:.1f} m length {tn.hull_length_m:.0f} m width "
-                     f"{tn.hull_width_m:.0f} m ends {tn.ends} replaced bores "
-                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  top {tn.top_s:.0f} m  "
-                     f"DEM at cap {tn.mouth_dem_z:.2f}  decks {len(tn.decks)}  "
+                # round-2 spec §3.6: the per-corridor line
+                inside = min(tn.top_s, tn.wall_length_m)
+                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                     f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
+                     f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
+                     f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
+                     f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
+                     f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
+                     f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
+                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
                      f"{'; '.join(tn.notes)}", out)
                 continue
             _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
@@ -403,8 +431,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
                                 exclude={oid for b in pm.basins for oid in b.objects},
-                                tunnel_objects={oid for tn in pm.structures
-                                                for oid in tn.objects},
+                                tunnel_objects=_plate_seats(pm, law),
                                 below_grade=[(_basin_polygon(b), tuple(b.objects))
                                              for b in pm.basins])
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"

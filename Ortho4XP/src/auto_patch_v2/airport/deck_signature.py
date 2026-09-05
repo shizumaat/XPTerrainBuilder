@@ -75,7 +75,7 @@ from shapely.ops import unary_union
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
-__all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote",
+__all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way",
            "is_bridge_way", "bridge_lines", "family_key"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
@@ -146,6 +146,14 @@ def is_bridge_way(tags: _t.Mapping[str, str]) -> bool:
     """A mapped bridge: ``bridge`` set and not ``no`` on a highway or
     railway (the one predicate ``planar/structures.py`` uses too)."""
     b = tags.get("bridge")
+    return bool(b) and b != "no" and ("highway" in tags or "railway" in tags)
+
+
+def is_tunnel_way(tags: _t.Mapping[str, str]) -> bool:
+    """A mapped bore: ``tunnel`` set and not ``no`` on a highway or
+    railway (the one predicate ``planar/structures.py`` and
+    ``airport/tunnel_objects.py`` share)."""
+    b = tags.get("tunnel")
     return bool(b) and b != "no" and ("highway" in tags or "railway" in tags)
 
 

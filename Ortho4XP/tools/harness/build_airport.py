@@ -624,6 +624,73 @@ def missing_shared_artifacts(root, lat, lon) -> list:
     return out
 
 
+def bathymetry_band_admission(tile, root, dsf_step_runs: bool) -> list:
+    """The bathymetry band's entry in the missing-artifact list, for a
+    TILE build — ``(scope, artifact, why)`` triples like
+    :func:`missing_shared_artifacts`, empty when the band is settled.
+
+    The band lives in the shared repo under scope ``dem``
+    (``Elevation_data/**/<tile>_bathymetry_band/``: cells, the
+    ``index.json`` fetch-admission stamp, the mosaic VRTs) and a tile
+    build reaches it THREE times — the step-1 prefetch and the step-3
+    masks under the masks gating (``masks_use_DEM_too``), and step 4's
+    DSF ``sea_level`` raster under the all-provider gating.  A band that
+    would fetch a cell, learn a negative or rebuild a mosaic is a
+    shared-repo write mid-build; measured 2026-09-04 on +25+051 the
+    write guard refused it in step 3, AFTER the vector and mesh steps
+    had been paid for.  The admission predicate is the engine's own
+    (``O4_Bathymetry_Band.is_cached`` — imported, never copied), judged
+    for exactly the gatings the steps will use, so a cold band refuses
+    up front naming ``--refresh-data dem``.
+
+    Needs the resolved tile frame (its cfg keys decide the gating), so
+    it runs at the earliest point that frame exists — inside
+    ``build_tile`` before step 1 — not in ``main``'s filesystem-only
+    pre-flight.  ``--allow-degraded-dem`` does not apply: this is a
+    would-write refusal, and that flag authorises no write.
+    """
+    import O4_Bathymetry_Band as BATHYBAND
+    import O4_File_Names as FNAMES
+
+    band_dir = FNAMES.bathymetry_band_directory(tile.lat, tile.lon)
+    try:
+        artifact = str(Path(band_dir).resolve().relative_to(
+            Path(root).resolve() / "Elevation_data"))
+        artifact = f"Elevation_data/{artifact}/"
+    except ValueError:
+        artifact = band_dir
+    out = []
+    masks_setting = str(getattr(tile, "masks_use_DEM_too", "False"))
+    if not BATHYBAND.is_cached(tile):
+        out.append(("dem", artifact,
+                    f"the coastal bathymetry band under the MASKS gating "
+                    f"(masks_use_DEM_too={masks_setting}) — the step-1 "
+                    f"prefetch / step-3 masks would fetch cells, record "
+                    f"negatives or rebuild the mosaic mid-build"))
+    if dsf_step_runs:
+        # Mirror of ``O4_DSF_Utils.elevation_and_bathymetry_data``'s
+        # dispatch: the band is consulted for dsf_bathymetry=True, and
+        # for auto exactly when no Global Scenery donor DSF is installed.
+        setting = str(getattr(tile, "dsf_bathymetry", "auto"))
+        wanted = setting == "True"
+        if setting == "auto":
+            try:
+                import O4_DSF_Utils as DSF
+                wanted = not DSF._global_scenery_donor_exists(
+                    tile.lat, tile.lon)
+            except Exception as exc:
+                print(f"  [harness] bathymetry admission: donor check "
+                      f"failed ({exc!r}); judging the DSF gating anyway")
+                wanted = True
+        if wanted and not BATHYBAND.is_cached(tile, False, False):
+            out.append(("dem", artifact,
+                        f"the coastal bathymetry band under the DSF "
+                        f"sea_level gating (dsf_bathymetry={setting}, all "
+                        f"providers, whole shoreline) — step 4 would fetch "
+                        f"cells, record negatives or rebuild the mosaic"))
+    return out
+
+
 def require_no_implicit_refresh(missing: list, requested: set) -> None:
     """The refusal.  A build must never mutate the shared repo as a side
     effect (ruling §2) — so a missing artifact stops the build and names
@@ -2085,11 +2152,14 @@ def apply_engine_override(tile, engine: str | None, prog=None) -> dict | None:
 
 
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
-               skip_steps=None, engine: str | None = None) -> dict:
+               skip_steps=None, engine: str | None = None,
+               requested=None) -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``).
     ``engine`` (``--engine``): the auto-patch engine the tile's patches
-    build with, see :func:`apply_engine_override`."""
+    build with, see :func:`apply_engine_override`.  ``requested``: the
+    authorised ``--refresh-data`` scopes, for the admission checks that
+    need the resolved tile frame (:func:`bathymetry_band_admission`)."""
     sys.path.append(str(ROOT / "src"))
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
@@ -2139,6 +2209,18 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
         skip_steps = dict(skip_steps or {})
         for name in ("3 masks", "4 tile"):
             skip_steps.setdefault(name, imagery["note"])
+    # THE BAND ADMISSION (2026-09-04): a cold bathymetry band is a
+    # shared-repo write the masks step (and the step-1 prefetch) would
+    # make mid-build — refused HERE, before step 1 is paid for, naming
+    # --refresh-data dem, exactly like the filesystem-only pre-flight
+    # refuses a missing base raster.  It needs the tile frame (the cfg
+    # keys decide the gating), which is why it is not in ``main``.
+    band_missing = bathymetry_band_admission(
+        tile, ROOT, dsf_step_runs="4 tile" not in (skip_steps or {}))
+    require_no_implicit_refresh(band_missing, set(requested or ()))
+    prog.note(f"bathymetry band admission: "
+              f"{'SETTLED (no fetch, no write)' if not band_missing else 'AUTHORISED refresh'}")
+
     plan = (("1 vector", VMAP.build_poly_file),
             ("2 mesh", MESH.build_mesh),
             ("3 masks", MASK.build_masks),
@@ -2623,7 +2705,7 @@ def main(argv=None) -> int:
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
-                    engine=args.engine)
+                    engine=args.engine, requested=requested)
             result["engine_cache_redirects"] = redirects
             result["engine"] = args.engine
         elif args.engine == "v2":

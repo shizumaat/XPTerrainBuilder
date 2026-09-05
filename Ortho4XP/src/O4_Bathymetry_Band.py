@@ -150,6 +150,344 @@ def _write_band_stamp(stamp_path: str, stamp: dict) -> None:
     os.replace(temporary_path, stamp_path)
 
 
+# =====================================================================
+# The stamp as fetch-admission STATE (2026-09-04)
+# =====================================================================
+# ``index.json`` is corpus-adjacent knowledge in the shared data repo
+# (refresh scope ``dem``): which cells were fetched, which are durable
+# provider negatives, and which gatings have run to a settle.  It gets no
+# churn allowance in the harness write guard, so a settled warm pass must
+# produce NO write at all — the stamp changes only when information
+# arrives.  Measured 2026-09-04 (+25+051, OTHH): the masks step (auto →
+# fine providers only → CORALATLAS) and the DSF step (all providers →
+# GEBCO2024) each rewrote the stamp with THEIR provider and gating and
+# the masks writer dropped the other provider's ``ok`` cells — two
+# shared-repo writes per tile build carrying zero new information, and
+# the write guard refused the first of them (rc 1 in step 3).
+#
+# Stamp shape (a superset of the legacy one, read back compatibly):
+#   provider  — the provider the last writing pass settled on (legacy)
+#   gating    — that pass's gating key (legacy)
+#   cells     — EVERY cell outcome of EVERY provider, merged across passes
+#   checked   — last write date (never a reason to write)
+#   gatings   — {gating key text: {"provider": code, "reached": [codes]}}
+#               one record per gating that ran to a settle: ``reached``
+#               is the provider list that pass walked (best-first, up to
+#               and including the one it settled on), the evidence a later
+#               pass with a narrower gating needs to know it would fetch
+#               nothing without re-deriving the geometry.
+
+
+def _stamp_cells(stamp: dict) -> dict:
+    cells = stamp.get("cells")
+    return dict(cells) if isinstance(cells, dict) else {}
+
+
+def _gating_key_text(gating_key) -> str:
+    """The JSON text of a gating key: the ``gatings`` map key."""
+    return json.dumps(
+        [bool(gating_key[0]), bool(gating_key[1]), float(gating_key[2])]
+    )
+
+
+def _recorded_gatings(stamp: dict) -> dict:
+    """``{gating key text: record}`` from a stamp, legacy shape included.
+
+    A legacy stamp (``provider`` + ``gating``, no ``gatings``) is one
+    record: the pass wrote its stamp after every provider it walked, so
+    the ``provider`` on disk is the one it settled on, and ``reached``
+    is derived from the current registry order by the reader.
+    """
+    out = {}
+    gatings = stamp.get("gatings")
+    if isinstance(gatings, dict):
+        for text, record in gatings.items():
+            if isinstance(record, dict):
+                out[text] = dict(record)
+    legacy = stamp.get("gating")
+    if (
+        "gatings" not in stamp        # a stamp from before the map existed
+        and isinstance(legacy, (list, tuple))
+        and len(legacy) == 3
+        and stamp.get("provider")
+    ):
+        try:
+            text = _gating_key_text(legacy)
+        except (TypeError, ValueError):
+            text = None
+        if text is not None and text not in out:
+            out[text] = {"provider": stamp["provider"], "reached": None}
+    return out
+
+
+def _admitted_definitions(definitions, fine_nearshore_only: bool,
+                          intertidal_ok: bool):
+    """The providers a pass with this gating walks, best-first.
+
+    Returns ``(admitted, intertidal_only, coarse_only)``: the two rejected
+    lists exist so the fetch pass can explain an empty admission.  ONE
+    derivation, shared by the fetch pass and the admission predicate —
+    a predicate filtering providers differently from the pass it
+    predicts is exactly the two-instruments defect.
+    """
+    admitted = list(definitions)
+    intertidal = []
+    if not intertidal_ok:
+        intertidal = [d for d in admitted if d.get("intertidal")]
+        admitted = [d for d in admitted if d not in intertidal]
+    coarse = []
+    if fine_nearshore_only:
+        coarse = [
+            d for d in admitted
+            if float(d.get("native_resolution_m", 1e9))
+            > AUTO_MODE_MAXIMUM_RESOLUTION_M
+        ]
+        admitted = [d for d in admitted if d not in coarse]
+    return (admitted, intertidal, coarse)
+
+
+def _cell_stem_suffix(code: str) -> str:
+    """``"_<code>_10m"`` — how a cell stem names its provider."""
+    probe = FNAMES.bathymetry_band_cell(
+        0, 0, 0, 0, code, BATHYMETRY_CELL_RESOLUTION_M)
+    return os.path.splitext(os.path.basename(probe))[0][len("cell_00_00"):]
+
+
+def _stem_provider(stem: str, codes) -> Optional[str]:
+    """The provider code a stamped cell stem belongs to, or ``None``."""
+    basename = stem.partition("@")[0]
+    for code in codes:
+        if basename.endswith(_cell_stem_suffix(code)):
+            return code
+    return None
+
+
+def _settling_record(stamp: dict, definitions, wanted_key):
+    """``(record, identical)`` for the recorded gating that settles
+    ``wanted_key``, or ``(None, False)`` — would a pass with that gating
+    fetch nothing, by the stamp alone?
+
+    A recorded gating DOMINATES the wanted one when: same intertidal
+    admission, a band at least as wide (the wanted cell set is then a
+    subset — the airport-radius gate of the fine-only mode only ever
+    removes cells), and every provider the wanted pass would walk was
+    walked by the recorded pass (its ``reached`` list) — a walked
+    provider has every cell of the wider set settled, fetched or a
+    durable negative.  The wanted pass stops where the recorded pass
+    settled when the two gatings are identical (same cells, same
+    provider yields again); otherwise every wanted provider must have
+    been reached.  An identical record wins over a merely dominating
+    one (its mosaic is the wanted pass's mosaic).  Conservative in every
+    unknown: an unreadable record, a provider no longer in the registry,
+    a fine-only record judging an all-provider pass — none settles.
+    """
+    wanted = [
+        d["code"] for d in _admitted_definitions(
+            definitions, bool(wanted_key[0]), bool(wanted_key[1]))[0]
+    ]
+    if not wanted:
+        return ({"provider": None, "reached": [], "mosaic": []}, True)
+    dominating = None
+    for text, record in _recorded_gatings(stamp).items():
+        try:
+            key = json.loads(text)
+            (recorded_fine, recorded_intertidal, recorded_km) = (
+                bool(key[0]), bool(key[1]), float(key[2]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if recorded_intertidal != bool(wanted_key[1]):
+            continue
+        if recorded_km + 1e-9 < float(wanted_key[2]):
+            continue
+        if recorded_fine and not bool(wanted_key[0]):
+            continue
+        settled_on = record.get("provider")
+        reached = record.get("reached")
+        if not isinstance(reached, list):
+            walked = [
+                d["code"] for d in _admitted_definitions(
+                    definitions, recorded_fine, recorded_intertidal)[0]
+            ]
+            if settled_on not in walked:
+                continue
+            reached = walked[: walked.index(settled_on) + 1]
+        identical = (
+            recorded_fine == bool(wanted_key[0])
+            and abs(recorded_km - float(wanted_key[2])) <= 1e-9
+        )
+        dominated = True
+        for code in wanted:
+            if code not in reached:
+                dominated = False
+                break
+            if identical and code == settled_on:
+                break
+        if not dominated:
+            continue
+        if identical:
+            return (record, True)
+        if dominating is None:
+            dominating = record
+    return (dominating, False) if dominating is not None else (None, False)
+
+
+def _gating_is_settled(stamp: dict, definitions, wanted_key) -> bool:
+    """See :func:`_settling_record`."""
+    return _settling_record(stamp, definitions, wanted_key)[0] is not None
+
+
+def _record_mosaic(record: dict, cells: dict, definitions) -> list:
+    """The cell stems a settled gating mosaics.
+
+    A record written since 2026-09-04 carries them; a legacy stamp's
+    pass only ever kept its own provider's ``ok`` cells, so those ARE
+    its mosaic.
+    """
+    mosaic = record.get("mosaic")
+    if isinstance(mosaic, list):
+        return sorted(mosaic)
+    provider = record.get("provider")
+    if not provider:
+        return []
+    return sorted(
+        stem for (stem, outcome) in cells.items()
+        if outcome == "ok" and _stem_provider(stem, [provider]) == provider
+    )
+
+
+def _records_equivalent(existing, record, cells, definitions) -> bool:
+    """Whether writing ``record`` over ``existing`` would add information."""
+    if existing == record:
+        return True
+    if not isinstance(existing, dict) or not isinstance(record, dict):
+        return False
+    if existing.get("reached") is not None:
+        return False
+    # A legacy record: same provider, and the pass's mosaic is what the
+    # legacy stamp already implies.
+    return (
+        existing.get("provider") == record.get("provider")
+        and _record_mosaic(existing, cells, definitions)
+        == sorted(record.get("mosaic") or [])
+    )
+
+
+def _merged_stamp(previous: dict, cells: dict, code: str, gating_key,
+                  record, definitions):
+    """The stamp to write, or ``None`` when nothing in it is new.
+
+    New information is: a cell outcome that changed (a fetch, a durable
+    negative learned), or a settle record this stamp does not already
+    carry — a gating whose settle is already implied (dominated by a
+    recorded one, and yielding no mosaic) adds nothing and is NOT
+    recorded, so the masks pass over a band the DSF pass settled writes
+    nothing.  ``checked`` alone never triggers a write.
+    """
+    gatings = {}
+    for text, existing in _recorded_gatings(previous).items():
+        gatings[text] = existing
+    cells_changed = cells != _stamp_cells(previous)
+    gating_changed = False
+    if record is not None:
+        key_text = _gating_key_text(gating_key)
+        existing = gatings.get(key_text)
+        if existing is None:
+            implied = (
+                not record.get("mosaic")
+                and _gating_is_settled(previous, definitions, gating_key)
+            )
+            if not implied:
+                gatings[key_text] = record
+                gating_changed = True
+        elif not _records_equivalent(existing, record, cells, definitions):
+            gatings[key_text] = record
+            gating_changed = True
+    if not cells_changed and not gating_changed:
+        return None
+    return {
+        "provider": code,
+        "cells": dict(cells),
+        "checked": datetime.date.today().isoformat(),
+        "gating": [bool(gating_key[0]), bool(gating_key[1]),
+                   float(gating_key[2])],
+        "gatings": gatings,
+    }
+
+
+def _mosaic_digest(stems) -> str:
+    import hashlib
+
+    return hashlib.sha1(
+        "\n".join(sorted(stems)).encode("utf-8")).hexdigest()[:10]
+
+
+def _find_band_vrt(lat, lon, code, cell_paths) -> Optional[str]:
+    """An existing mosaic of EXACTLY these cells for the provider, or
+    ``None``.  The legacy name (``band_<code>.vrt``) is a candidate like
+    any other: a mosaic is found by its content, never by its name."""
+    directory = FNAMES.bathymetry_band_directory(lat, lon)
+    prefix = os.path.basename(FNAMES.bathymetry_band_vrt(lat, lon, code))
+    prefix = prefix[: -len(".vrt")]
+    candidates = [FNAMES.bathymetry_band_vrt(lat, lon, code)]
+    try:
+        for name in sorted(os.listdir(directory)):
+            if (name.startswith(prefix + "_") and name.endswith(".vrt")
+                    and ".part" not in name):
+                candidates.append(os.path.join(directory, name))
+    except OSError:
+        pass
+    for candidate in candidates:
+        if os.path.isfile(candidate) and _vrt_matches_cells(
+                candidate, cell_paths):
+            return candidate
+    return None
+
+
+def _new_band_vrt_path(lat, lon, code, stems) -> str:
+    """Where a NEW mosaic goes: the legacy name while it is free (the
+    first mosaic of a provider), else a name keyed by its cell set — two
+    gatings mosaicking different subsets of one provider's cells each
+    keep their own, instead of rebuilding one shared file at every
+    step (the VRT half of the stamp ping-pong)."""
+    legacy = FNAMES.bathymetry_band_vrt(lat, lon, code)
+    if not os.path.exists(legacy):
+        return legacy
+    return legacy[: -len(".vrt")] + "_" + _mosaic_digest(stems) + ".vrt"
+
+
+def _vrt_source_paths(vrt_path: str) -> Optional[set]:
+    """The cell files a band VRT mosaics, resolved; ``None`` if unreadable.
+
+    ``gdal.BuildVRT`` writes one ``<SourceFilename>`` per cell, relative
+    to the VRT directory when it can (``relativeToVRT="1"``) and absolute
+    otherwise (the overhang cells of a neighbour tile's directory).
+    """
+    try:
+        with open(vrt_path, "r") as vrt_file:
+            text = vrt_file.read()
+    except OSError:
+        return None
+    import re
+
+    directory = os.path.dirname(vrt_path)
+    out = set()
+    for match in re.finditer(
+            r"<SourceFilename([^>]*)>([^<]*)</SourceFilename>", text):
+        (attributes, source) = (match.group(1), match.group(2).strip())
+        if 'relativeToVRT="1"' in attributes and not os.path.isabs(source):
+            source = os.path.join(directory, source)
+        out.add(os.path.realpath(source))
+    return out
+
+
+def _vrt_matches_cells(vrt_path: str, cell_paths) -> bool:
+    """True when the VRT on disk mosaics EXACTLY these cells."""
+    sources = _vrt_source_paths(vrt_path)
+    if sources is None:
+        return False
+    return sources == {os.path.realpath(path) for path in cell_paths}
+
+
 def _cell_file_state(cell_path: str) -> str:
     """Integrity of a band cell file: ``valid``, ``empty`` or ``unreadable``.
 
@@ -669,15 +1007,30 @@ def _cell_path_from_stem(tile, stem: str):
         return None
 
 
-def is_cached(tile) -> bool:
-    """True when this tile's bathymetry band would fetch nothing.
+def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
+    """True when this tile's bathymetry band would fetch nothing — and
+    write nothing: no cell, no stamp, no mosaic.
 
     One of the per-subsystem fetch-admission predicates of
-    docs/specs/apron-string-and-scheduling-spec.md §A.2.  Cheap (one
-    JSON read plus a ``getsize`` per recorded cell), never a network
-    probe, conservative in every unknown.  A tile whose mask settings do
-    not call for the band, or that no bathymetry provider covers, is
+    docs/specs/apron-string-and-scheduling-spec.md §A.2, and the
+    harness's pre-flight for a tile build (``build_airport.py --tile``).
+    Cheap (one JSON read, a ``getsize`` per recorded cell, one read of
+    the mosaic), never a network probe, conservative in every unknown.
+
+    With no gating given, the MASKS step's gating is judged, derived
+    from ``masks_use_DEM_too`` exactly as the step derives it — and a
+    tile whose mask settings do not call for the band is trivially
+    cached.  An explicit gating (``fine_nearshore_only``,
+    ``intertidal_ok``) judges that pass regardless of the mask setting:
+    the DSF ``sea_level`` callers use the defaults ``(False, False)``
+    whatever the masks do.  A tile no bathymetry provider covers is
     trivially cached: the prefetch returns before touching the network.
+
+    What "settled" means for a gating is :func:`_gating_is_settled`;
+    beyond it, every ``ok`` cell of a provider the pass would walk must
+    be on disk, and a provider the pass would find cells for must have
+    its mosaic, referencing exactly those cells (otherwise the pass
+    rebuilds it — a GDAL write the guard cannot refuse, only detect).
 
     Known gap, deliberate: the fetch pass validates each cached cell
     through GDAL (:func:`_cell_file_state` — a truncated or fully-nodata
@@ -690,29 +1043,41 @@ def is_cached(tile) -> bool:
     try:
         if not has_gdal:
             return True
-        masks_dem_setting = str(getattr(tile, "masks_use_DEM_too", "False"))
-        if masks_dem_setting not in ("auto", "True"):
-            return True
+        if fine_nearshore_only is None or intertidal_ok is None:
+            masks_dem_setting = str(
+                getattr(tile, "masks_use_DEM_too", "False"))
+            if masks_dem_setting not in ("auto", "True"):
+                return True
+            fine_nearshore_only = masks_dem_setting == "auto"
+            intertidal_ok = masks_dem_setting == "True"
         import O4_Airport_Elevation_Insets as INSETS
 
         definitions = INSETS.select_bathymetry_definitions(
             tile.lat, tile.lon)
         if not definitions:
             return True
+        wanted_key = _band_gating_key(
+            tile, fine_nearshore_only, intertidal_ok)
+        walked = [
+            d["code"] for d in _admitted_definitions(
+                definitions, bool(fine_nearshore_only),
+                bool(intertidal_ok))[0]
+        ]
+        if not walked:
+            return True
         stamp = _read_band_stamp(
             FNAMES.bathymetry_band_index(tile.lat, tile.lon))
-        cells = stamp.get("cells")
-        provider = stamp.get("provider")
-        if not provider or not isinstance(cells, dict) or not cells:
+        cells = _stamp_cells(stamp)
+        if not cells:
             return False
-        if stamp.get("gating") != _band_gating_key(
-                tile, masks_dem_setting == "auto",
-                masks_dem_setting == "True"):
+        (record, identical) = _settling_record(
+            stamp, definitions, wanted_key)
+        if record is None:
             return False
-        if not os.path.isfile(
-                FNAMES.bathymetry_band_vrt(tile.lat, tile.lon, provider)):
-            return False
+        walked_ok_cells = 0
         for (stem, outcome) in cells.items():
+            if _stem_provider(stem, walked) is None:
+                continue                  # another gating's provider
             if outcome == NO_COVERAGE:
                 continue
             if outcome != "ok":
@@ -725,6 +1090,23 @@ def is_cached(tile) -> bool:
                     return False
             except OSError:
                 return False
+            walked_ok_cells += 1
+        if identical:
+            # The pass yields this record's mosaic: it must be on disk,
+            # referencing exactly those cells, or the pass rebuilds it.
+            mosaic = _record_mosaic(record, cells, definitions)
+            if mosaic:
+                paths = [_cell_path_from_stem(tile, stem) for stem in mosaic]
+                if any(path is None for path in paths):
+                    return False
+                if _find_band_vrt(tile.lat, tile.lon, record["provider"],
+                                  paths) is None:
+                    return False
+        elif walked_ok_cells:
+            # Settled by a WIDER gating: nothing to fetch, but the mosaic
+            # this narrower pass would build (its own subset) is not
+            # recorded — only a pass that yields nothing is predictable.
+            return False
         return True
     except Exception:
         return False
@@ -944,48 +1326,28 @@ def _ensure_bathymetry_band_now(
 
     import O4_Airport_Elevation_Insets as INSETS
 
-    definitions = INSETS.select_bathymetry_definitions(tile.lat, tile.lon)
-    if not intertidal_ok:
-        intertidal = [
-            definition
-            for definition in definitions
-            if definition.get("intertidal")
-        ]
-        definitions = [
-            definition
-            for definition in definitions
-            if definition not in intertidal
-        ]
-        if intertidal and not definitions:
-            UI.vprint(
-                1,
-                "   INFO: the covering bathymetry source(s)",
-                ", ".join(d["code"] for d in intertidal),
-                "only measure exposed tidal flats; the OpenStreetMap"
-                " shallow-water fallback serves those for free — set"
-                " masks_use_DEM_too=True to fetch the measured flats"
-                " anyway.",
-            )
-    if fine_nearshore_only:
-        coarse = [
-            definition
-            for definition in definitions
-            if float(definition.get("native_resolution_m", 1e9))
-            > AUTO_MODE_MAXIMUM_RESOLUTION_M
-        ]
-        definitions = [
-            definition
-            for definition in definitions
-            if definition not in coarse
-        ]
-        if coarse and not definitions:
-            UI.vprint(
-                1,
-                "   INFO: the covering bathymetry source(s)",
-                ", ".join(d["code"] for d in coarse),
-                "are too coarse for automatic depth-graded masks; set"
-                " masks_use_DEM_too=True to use them anyway.",
-            )
+    all_definitions = INSETS.select_bathymetry_definitions(
+        tile.lat, tile.lon)
+    (definitions, intertidal, coarse) = _admitted_definitions(
+        all_definitions, fine_nearshore_only, intertidal_ok)
+    if intertidal and not definitions and not coarse:
+        UI.vprint(
+            1,
+            "   INFO: the covering bathymetry source(s)",
+            ", ".join(d["code"] for d in intertidal),
+            "only measure exposed tidal flats; the OpenStreetMap"
+            " shallow-water fallback serves those for free — set"
+            " masks_use_DEM_too=True to fetch the measured flats"
+            " anyway.",
+        )
+    if coarse and not definitions:
+        UI.vprint(
+            1,
+            "   INFO: the covering bathymetry source(s)",
+            ", ".join(d["code"] for d in coarse),
+            "are too coarse for automatic depth-graded masks; set"
+            " masks_use_DEM_too=True to use them anyway.",
+        )
     if not definitions:
         UI.vprint(
             2,
@@ -1128,13 +1490,37 @@ def _ensure_bathymetry_band_now(
     os.makedirs(band_directory, exist_ok=True)
     stamp_path = FNAMES.bathymetry_band_index(tile.lat, tile.lon)
     previous_stamp = _read_band_stamp(stamp_path)
-    # Durable per-cell negatives survive across providers and runs (the
-    # stems are provider-qualified).
-    cell_outcomes = {
-        stem: outcome
-        for stem, outcome in previous_stamp.get("cells", {}).items()
-        if outcome == NO_COVERAGE
-    }
+    # MERGE semantics (2026-09-04): every recorded outcome of every
+    # provider carries over — durable negatives AND the other gating's
+    # ``ok`` cells — and this pass updates the entries of its own
+    # provider's cells.  Dropping another provider's entries was one half
+    # of the stamp ping-pong between the masks and DSF callers.
+    cell_outcomes = _stamp_cells(previous_stamp)
+    gating_key = _band_gating_key(tile, fine_nearshore_only, intertidal_ok)
+
+    def _persist_stamp(code, record, holding_lock):
+        """Write the merged stamp — ONLY when it carries new information.
+
+        ``record`` is this gating's settle record (``None`` while the
+        pass is still walking providers).  The lock is taken for the
+        write alone: a settled pass never creates ``fetch.lock`` churn.
+        """
+        nonlocal previous_stamp
+        stamp = _merged_stamp(
+            previous_stamp, cell_outcomes, code, gating_key, record,
+            all_definitions)
+        if stamp is None:
+            return
+        if holding_lock:
+            _write_band_stamp(stamp_path, stamp)
+            previous_stamp = stamp
+            return
+        if _acquire_band_lock(band_directory, wait=False):
+            try:
+                _write_band_stamp(stamp_path, stamp)
+                previous_stamp = stamp
+            finally:
+                _release_band_lock(band_directory)
 
     # Walk the covering providers best-first: a provider whose coverage
     # claim exceeds its data (the Allen Coral Atlas library before any
@@ -1143,6 +1529,9 @@ def _ensure_bathymetry_band_now(
         if UI.red_flag:
             return None
         code = definition["code"]
+        reached = [
+            d["code"] for d in definitions[: definitions.index(definition) + 1]
+        ]
         cells = [
             _resolve_band_cell(tile, cell_column, cell_row, code)
             for (cell_column, cell_row) in cell_indices
@@ -1253,10 +1642,13 @@ def _ensure_bathymetry_band_now(
                             " next build.",
                         )
                         outcome = None
-            try:
-                os.remove(temporary_path)
-            except OSError:
-                pass
+            # A no-coverage answer never created the temporary file;
+            # removing a path that is not there is a write to the guard.
+            if os.path.exists(temporary_path):
+                try:
+                    os.remove(temporary_path)
+                except OSError:
+                    pass
             return (cell["stem"], outcome)
 
         def _scan_cells(candidate_cells):
@@ -1321,11 +1713,9 @@ def _ensure_bathymetry_band_now(
                 # Another process may have fetched cells (and recorded
                 # durable negatives) while we waited on its lock:
                 # honour its stamp and rescan before downloading.
-                for stem, outcome in _read_band_stamp(stamp_path).get(
-                    "cells", {}
-                ).items():
-                    if outcome == NO_COVERAGE:
-                        cell_outcomes.setdefault(stem, outcome)
+                previous_stamp = _read_band_stamp(stamp_path)
+                for stem, outcome in _stamp_cells(previous_stamp).items():
+                    cell_outcomes.setdefault(stem, outcome)
                 (resumed, missing_cells) = _scan_cells(missing_cells)
                 cells_done += resumed
                 _report_band_progress(cells_done, cells_total)
@@ -1376,46 +1766,35 @@ def _ensure_bathymetry_band_now(
                                 (stem, outcome) = fetch_future.result()
                                 _consume_fetch_result(stem, outcome)
 
-                _write_band_stamp(
-                    stamp_path,
-                    {
-                        "provider": code,
-                        "cells": cell_outcomes,
-                        "checked": datetime.date.today().isoformat(),
-                        "gating": _band_gating_key(
-                            tile, fine_nearshore_only, intertidal_ok),
-                    },
-                )
+                # What was learned is persisted under the lock we hold
+                # (crash-resume: the next pass starts from here).  This
+                # gating's settle record joins it below, once the pass
+                # knows whether the provider yields.
+                _persist_stamp(code, None, holding_lock=True)
             finally:
                 _release_band_lock(band_directory)
         else:
             _report_band_progress(cells_done, cells_total)
-            # Nothing to fetch: refresh the stamp only when it is out of
-            # date, and only if no other process is mid-fetch (its final
-            # write supersedes ours anyway).
-            if (
-                previous_stamp.get("provider") != code
-                or previous_stamp.get("cells") != cell_outcomes
-                or previous_stamp.get("gating") != _band_gating_key(
-                    tile, fine_nearshore_only, intertidal_ok)
-            ) and _acquire_band_lock(band_directory, wait=False):
-                try:
-                    _write_band_stamp(
-                        stamp_path,
-                        {
-                            "provider": code,
-                            "cells": cell_outcomes,
-                            "checked": datetime.date.today().isoformat(),
-                            "gating": _band_gating_key(
-                                tile, fine_nearshore_only, intertidal_ok),
-                        },
-                    )
-                finally:
-                    _release_band_lock(band_directory)
 
         existing_cells = [
             cell for cell in cells if os.path.isfile(cell["path"])
         ]
+        settled_here = bool(existing_cells) or definition is definitions[-1]
+        if settled_here:
+            # The pass settles on this provider: record the gating with
+            # the providers it walked and the mosaic it yields — the
+            # evidence :func:`is_cached` needs to admit a later pass
+            # without re-deriving the geometry.  Written only when the
+            # record is new information (see :func:`_merged_stamp`).
+            _persist_stamp(
+                code,
+                {
+                    "provider": code,
+                    "reached": reached,
+                    "mosaic": sorted(cell["stem"] for cell in existing_cells),
+                },
+                holding_lock=False,
+            )
         if not existing_cells:
             UI.vprint(
                 1,
@@ -1428,14 +1807,24 @@ def _ensure_bathymetry_band_now(
             )
             continue
 
-        vrt_path = FNAMES.bathymetry_band_vrt(tile.lat, tile.lon, code)
+        cell_paths = [cell["path"] for cell in existing_cells]
+        vrt_path = _find_band_vrt(tile.lat, tile.lon, code, cell_paths)
+        if vrt_path is not None:
+            # The mosaic on disk references exactly these cells: nothing
+            # to rebuild.  (GDAL's write bypasses the Python-level write
+            # guard, so an unconditional rebuild was a shared-repo
+            # mutation the harness could only detect after the fact.)
+            return vrt_path
+        vrt_path = _new_band_vrt_path(
+            tile.lat, tile.lon, code,
+            [cell["stem"] for cell in existing_cells])
         # Built beside its final name then renamed into place: another
         # process may be reading the previous mosaic right now, and a
         # rename within the directory keeps the cell references valid.
         temporary_vrt_path = "%s.part%d" % (vrt_path, os.getpid())
         mosaic = gdal.BuildVRT(
             temporary_vrt_path,
-            [cell["path"] for cell in existing_cells],
+            cell_paths,
             options=gdal.BuildVRTOptions(
                 resolution="highest",
                 resampleAlg="bilinear",

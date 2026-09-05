@@ -163,3 +163,20 @@ taxi routes. Twins: a synthetic parallel-taxiway/stub/runway fixture
 whose two runway edges get reach bands that overlap by at least the
 transverse allowance; `reach` from a pin along the runway ring equals
 pin ± cap·distance. Acceptance as §3/§6 (HECA once, the three base arms).
+
+### §7 amended (owner, RULINGS 2026-09-05z)
+
+(i) and (iii) are WITHDRAWN: the runway is like an APRON in the route
+graph — a route may cross it and follow its centreline, and its EDGES
+are not graph edges. The graph carries (a) the runway CENTRELINE (the
+crown spine chain `ridge_chains`, at the runway longitudinal cap by
+code, threshold pins on it) and (b) the crossing 1202 taxi routes across
+the runway at the runway cap, joined to the centreline where they cross
+it and to the runway edge vertices where they enter. Edge vertices not
+on a crossing get their reach through the nearest crossing/centreline
+vertex of their own face ring at the runway cap over the ring distance
+— the same way an apron perimeter reaches its taxilane — never through
+a runway ring edge as a route. Twins as before, restated: a stub on each
+edge, the two edges' reach bands overlap by at least the transverse
+allowance because both reach through the crossing.
+

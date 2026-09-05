@@ -261,13 +261,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
                 face, prox, corridors, rules)
             tfrac = territory.area / near_area if near_area > 0 else 0.0
             tev = dict(evid, territory_frac=tfrac, apron_remainder_m2=remainder_area)
-            for part in polygon_parts(face.intersection(territory)):
+            # Snap-round the cut on the slice's own grid: a corridor piece
+            # and a runway-band piece meeting along one edge leave a ring
+            # pinched at a zero-width spike (CYXY pav9: two lobes joined by
+            # a spike, one lobe lost to the weld) — set_precision splits
+            # such a ring into its parts.
+            grid = rules.cells.snap_grid_m
+            for part in polygon_parts(shapely.set_precision(face.intersection(territory), grid)):
                 if part.area >= rules.cells.min_area_m2:
                     jl, n_serving = _junction_letter(part, taxi, through, rules)
                     scored.append((part, "junction", ref, jl,
                                    dict(tev, near_route=1.0,
                                         letter_chains=float(n_serving)), net))
-            for part in polygon_parts(face.difference(territory)):
+            for part in polygon_parts(shapely.set_precision(face.difference(territory), grid)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "apron", ref, None,
                                    dict(tev, near_route=0.0), net))
@@ -631,8 +637,8 @@ def _route_corridors(through: list[Chain], ev: Evidence, rules: Rules):
     pav81/pav82 (52 k m² beside 05R/23L), CYXY pav24 (11 k) and OTHH pav32
     (64 k) turn apron).  Computed once per airport; the same set that
     minted the proximity contour."""
-    src = [c.line.buffer(rules.junction.route_territory_half_width_m, cap_style="flat")
-           for c in through]
+    src = [c.line.buffer(rules.junction.route_territory_half_width_m, cap_style="flat",
+                         join_style="mitre", mitre_limit=2.0) for c in through]
     if not ev.runway_union.is_empty:
         src.append(ev.runway_union.buffer(rules.apron.route_proximity_m,
                                           join_style="mitre", mitre_limit=2.0))

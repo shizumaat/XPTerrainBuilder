@@ -86,6 +86,8 @@ _NODE_TOL = 0.05
 _MAX_HOPS = 6
 #: A deck crossing the axis at less than this angle is along it, not over it.
 _DECK_MIN_ANGLE_DEG = 30.0
+#: Two directions within 30° are parallel (31h's dual test; the approach kink test).
+_PARALLEL_COS = math.cos(math.radians(30))
 
 
 @_dc.dataclass
@@ -285,7 +287,7 @@ def _parallel(a: _Mouth, b: _Mouth, sep_max: float) -> bool:
     d0 = math.hypot(a.xy[0] - b.xy[0], a.xy[1] - b.xy[1])
     if d0 > sep_max:
         return False
-    if a.inward[0] * b.inward[0] + a.inward[1] * b.inward[1] < math.cos(math.radians(30)):
+    if a.inward[0] * b.inward[0] + a.inward[1] * b.inward[1] < _PARALLEL_COS:
         return False
     pa, pb = _resample(a.approach, [50.0])[0], _resample(b.approach, [50.0])[0]
     d1 = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
@@ -440,7 +442,12 @@ def _object_groups(corridors: _t.Sequence, replaced: list, osm: list[OsmWay], re
             if best is not None:
                 path = _approach(best[1], best[2], osm, reach)
                 dx, dy = end[0] - path[0][0], end[1] - path[0][1]
-                return [end] + [(p[0] + dx, p[1] + dy) for p in path[1:]]
+                path = [end] + [(p[0] + dx, p[1] + dy) for p in path[1:]]
+                # the approach must LEAVE the mouth the way the hull points
+                # (31h's parallel angle): a kinked path folds the rings
+                d0 = _unit(path[0], path[1])
+                if d0[0] * out_dir[0] + d0[1] * out_dir[1] >= _PARALLEL_COS:
+                    return path
             return [end, (end[0] + out_dir[0] * (reach + 1.0), end[1] + out_dir[1] * (reach + 1.0))]
 
         neg = (-u[0], -u[1])
@@ -586,14 +593,39 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # mapped bridge way over it mints no terrain deck (08-30d)
             ou = unary_union([dp for _o, _s0, _s1, dp, _z in obj_ivals])
             deck_ivals = [d for d in deck_ivals if not d[3].intersects(ou)]
+        if c is not None and g.climbs:
+            # an object corridor's climb beyond its open end is planned
+            # first without decks: a deck standing beyond where the ramp
+            # already meets the DEM is not over the ramp at all (the
+            # axis past the hull is an extension, not a mapped road —
+            # OTHH tunnel_sw: a bridge 400 m out pushed the climb past
+            # the reach); OSM bores keep their own reading unchanged
+            s_free, _ss = _ramp_top(airport, law, axis_fn, mouth_z, g.hull_s, spacing, half)
+            if s_free is not None:
+                deck_ivals = [d for d in deck_ivals if d[1] <= s_free]
+                obj_ivals = [d for d in obj_ivals if d[1] <= s_free]
         climb_from = max([g.hull_s] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
                          + [s1 + gap for _o, s0, s1, _p, _z in obj_ivals])
         if g.climbs:
             s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing, half)
             if s_top is None:
-                stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb does not reach "
-                                     f"the DEM within {tn.max_ramp_length_m:.0f} m")
+                if any(math.isnan(_dem(airport, axis_fn(s))) for s in ss):
+                    stats.refused.append(f"{tid}: no DEM along the climb (the corridor leaves "
+                                         f"the DEM / reaches water) within {ss[-1]:.0f} m")
+                else:
+                    ds = [_dem(airport, axis_fn(s)) for s in ss]
+                    m = axis_fn(climb_from)
+                    e = axis_fn(ss[-1])
+                    stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb from "
+                                         f"{mouth_z:.2f} at s {climb_from:.0f} does not reach the "
+                                         f"DEM ({min(ds):.2f}..{max(ds):.2f}) within "
+                                         f"{tn.max_ramp_length_m:.0f} m (axis {axis_ln.length:.0f} m, "
+                                         f"chord at the end {math.hypot(e[0] - m[0], e[1] - m[1]):.0f} m, "
+                                         f"half {half:.1f} m)")
                 continue
+            if c is not None and all(abs(s - g.hull_s) > 1e-6 for s in ss):
+                # the station ON the hull's end line: the trench spans the hull
+                ss = sorted(ss + [g.hull_s])
         else:
             # a trench closed at both ends: stations along the hull, the
             # last one ON the far end line
@@ -611,14 +643,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         top_pinned = g.climbs
         clipped_by = ""
         ss = [s for s in ss if s <= s_top + 1e-9]
+        beyond = _beyond(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         while True:
             geom = geometry(axis_fn, ss, half, gap, bw, inward, grid, g.capped, g.far_capped)
             if geom is None:
                 stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
                                      f"(ramp or wall ring self-intersects)")
                 break
-            hit = _pad_hit(geom.outer, pads, pad_tree, gap)
-            if hit is None or (c is not None and ss[-1] <= g.hull_s + 1e-9):
+            # an object corridor's HULL cuts the pads it lies under (the
+            # knife below); only its ramp BEYOND the hull's end line is clipped
+            probe = geom.outer if beyond is None else geom.outer.intersection(beyond)
+            hit = _pad_hit(probe, pads, pad_tree, gap) if not probe.is_empty else None
+            if hit is None:
                 break
             clipped_by = hit
             top_pinned = False
@@ -751,7 +787,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if c is not None:
             # the hull cuts EVERYTHING but the runway family — the pad too
             # (08-26: the trench is senior to the pad authority)
-            hull_knives.append(outer.intersection(c.rect.buffer(gap + bw + grid, **_MITRE)))
+            hull_knives.append(outer if beyond is None else outer.difference(beyond))
     # TWO STRUCTURES MAY NOT OVERLAP: parallel mouths beyond 31h's test
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly
@@ -813,6 +849,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "tunnel_object_corridors": stats.object_corridors,
                             "bores_replaced_by_object": stats.bores_replaced_by_object})
     return cl, tuple(tunnels), stats
+
+
+def _beyond(axis_fn, s_end: float, length: float) -> Polygon:
+    """The half-plane strip BEYOND the axis station ``s_end`` (an object
+    corridor's open end line): ``length`` long along the axis, as wide."""
+    a, b = axis_fn(max(0.0, s_end - 1.0)), axis_fn(s_end)
+    ux, uy = _unit(a, b)
+    nx, ny = -uy, ux
+    e = axis_fn(s_end)
+    return Polygon([(e[0] + nx * length, e[1] + ny * length),
+                    (e[0] - nx * length, e[1] - ny * length),
+                    (e[0] - nx * length + ux * length, e[1] - ny * length + uy * length),
+                    (e[0] + nx * length + ux * length, e[1] + ny * length + uy * length)])
 
 
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:

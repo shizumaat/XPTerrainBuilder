@@ -19,8 +19,15 @@ already parsed (``obj8.ResourceCache`` — never a second parse):
   ``plate_min_height_m`` above the seat (a kerb is not a wall);
 * NO FLOOR PLATE below the seat (``floor_plate_max_m2``): an object the
   basin pass witnessed a floor in, or whose near-horizontal faces below
-  the seat exceed the allowance, is a basin — ``planar/basins.py`` owns
-  it, never this reader.
+  the seat run along the axis, is a basin — ``planar/basins.py`` owns
+  it, never this reader; and NO ROOF: near-horizontal faces running
+  along the axis at any height worth a plate (``plate_min_area_m2``) make
+  it a building or a deck (measured OTHH: the skirt + plate + hull
+  signature alone admitted a terminal, a duty-free hall and three
+  terminal road slabs);
+* per PLACEMENT, the SEAT lies ``basin.admission_depth_m`` or more under
+  the ground at the placement — a tunnel floor is below grade; a wall
+  seated at grade is a fence (OTHH: a fuel-farm wall, a kerb wall).
 
 THE FOOTPRINT (§3.2): the plan hull of the genuine solid vertices, its
 minimum rotated rectangle (``model.frame.rotated_rectangle``) — length
@@ -262,8 +269,18 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     below = horiz & (ymax < 0.0)
     floor_area = _axis_crossing_area(v, tris[below], area[below], a, b, ob.end_cap_open_m)
     if floor_area > ob.floor_plate_max_m2:
-        return (f"a floor plate below the seat ({floor_area:.0f} m2 across the axis > "
+        return (f"a floor plate below the seat ({floor_area:.0f} m2 along the axis > "
                 f"floor_plate_max_m2 {ob.floor_plate_max_m2:.0f}): a basin, basins.py owns it")
+    # ...and OPEN ALONG ITS AXIS at every height: a near-horizontal face
+    # running along the axis above the seat is a roof or a deck — a
+    # building or a road slab, whose reader is its own (measured OTHH:
+    # the spec's skirt + plate + hull signature alone admitted the
+    # Emiri terminal, a fuel building and three terminal road slabs)
+    roof_area = _axis_crossing_area(v, tris[horiz], area[horiz], a, b, ob.end_cap_open_m)
+    if roof_area >= ob.plate_min_area_m2:
+        return (f"roofed along its axis ({roof_area:.0f} m2 of near-horizontal faces run "
+                f"along the corridor axis, a plate's worth: >= plate_min_area_m2 "
+                f"{ob.plate_min_area_m2:.0f}): a building or a deck, not a wall skirt")
     open_a = _end_open(v, tris, a, b, width, ob.end_cap_open_m, True)
     open_b = _end_open(v, tris, a, b, width, ob.end_cap_open_m, False)
     return WallSignature(geom.path, plate_y, float(plate_area), float(skirt), corners,
@@ -287,7 +304,7 @@ def _place(sig: WallSignature, o: _obj8.PlacedObject, seat: float, k: int) -> Co
     pa = _affinity.affine_transform(Point(sig.a), mat)
     pb = _affinity.affine_transform(Point(sig.b), mat)
     a, b = (float(pa.x), float(pa.y)), (float(pb.x), float(pb.y))
-    name = os.path.basename(sig.path)
+    name = os.path.basename(o.path)
     return Corridor(f"{ID_PREFIX}:{name}@{k}", o.path, (o.id,), rect, a, b, sig.open_a,
                     sig.open_b, sig.length_m, sig.width_m, seat, seat + sig.plate_y,
                     sig.plate_y)
@@ -350,6 +367,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     t0 = time.perf_counter()
     stats = TunnelObjectStats()
     msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
+    admission = law.tables.structures.basin.admission_depth_m
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
     out: list[Corridor] = []
@@ -370,9 +388,21 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         sig = sigs[o.path]
         if isinstance(sig, str):
             continue
+        seat = _seat(o, msl)
+        # THE SEAT IS BELOW GRADE (the basin family's admission depth): a
+        # tunnel floor lies under the ground it is cut into; a wall
+        # object seated AT grade is a fence or a compound wall (measured
+        # OTHH: a fuel-farm wall and a terminal kerb wall carried the
+        # skirt + plate signature with their seats on the DEM)
+        if seat > o.anchor_z - admission:
+            stats.refused.append(f"{o.id} {os.path.basename(o.path)}: seat {seat:.2f} is not "
+                                 f"{admission:.1f} m (basin.admission_depth_m) under the ground "
+                                 f"at the placement ({o.anchor_z:.2f}) — a wall at grade, not a "
+                                 f"tunnel floor")
+            continue
         k = k_by_res.get(o.path, 0)
         k_by_res[o.path] = k + 1
-        out.append(_place(sig, o, _seat(o, msl), k))
+        out.append(_place(sig, o, seat, k))
     stats.signatures = sum(1 for s in sigs.values() if not isinstance(s, str))
     for path, sig in sigs.items():
         if isinstance(sig, str) and not sig.startswith("no wall skirt") \

@@ -205,13 +205,15 @@ def test_datums_seat_and_plate(objs, law):
         objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
                     ("wall", (400.0, 0.0), 90.0, 650.0, "OBJECT_MSL"),
                     ("wall", (800.0, 0.0), 0.0, 0.0, "OBJECT")])
-    assert st.corridors == 3 and not st.refused, st.refused
+    # the plain OBJECT seats AT grade: a fence, not a tunnel floor (the
+    # basin family's admission depth) — refused by placement, named
+    assert st.corridors == 2 and len(st.refused) == 1 and "not 2.5 m" in st.refused[0].replace(
+        f"not {law.tables.structures.basin.admission_depth_m:.1f} m", "not 2.5 m"), st.refused
     by_x = sorted(cs, key=lambda c: c.rect.centroid.x)
     assert by_x[0].floor_z == pytest.approx(dem.z(0.0, 0.0) - 3.0)
     assert by_x[0].crest_z == pytest.approx(dem.z(0.0, 0.0) - 3.0 + 5.0)
     assert by_x[0].depth_m == pytest.approx(5.0)
     assert by_x[1].floor_z == pytest.approx(650.0)
-    assert by_x[2].floor_z == pytest.approx(dem.z(800.0, 0.0))
     # the hull under its placement: 100 × 20, the long axis along the
     # frame's y at heading 0 and along x at heading 90
     assert by_x[0].rect.area == pytest.approx(2000.0, rel=0.01)
@@ -228,15 +230,15 @@ def test_two_placements_merge_at_their_open_ends(objs, law):
     # A: open end at y = −50; B (heading 180): open end at y = +50 → placed
     # at y = −100 − gap/2 its open end stands gap/2 short of A's
     airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, 0.0, "OBJECT"),
-                    ("wall", (0.0, -100.0 - gap / 2.0), 180.0, 0.0, "OBJECT")])
+        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
+                    ("wall", (0.0, -100.0 - gap / 2.0), 180.0, -3.0, "OBJECT_AGL")])
     assert st.merged == 1 and st.corridors == 1, (st.merged, st.corridors, st.refused)
     c = cs[0]
     assert c.ends == "closed/closed" and len(c.objects) == 2
     assert c.length_m == pytest.approx(200.0 + gap / 2.0, abs=0.5)
     airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 0.0, 0.0, "OBJECT"),
-                    ("wall", (0.0, -100.0 - 3 * gap), 180.0, 0.0, "OBJECT")])
+        objs, law, [("wall", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL"),
+                    ("wall", (0.0, -100.0 - 3 * gap), 180.0, -3.0, "OBJECT_AGL")])
     assert st.merged == 0 and st.corridors == 2
 
 
@@ -325,7 +327,8 @@ def test_generator_rows_solve_and_verify(corridor_map, law):
     pub = publication(pm, law, airport, sol.z)
     assert pub["tunnel_objects"] and pub["tunnel_objects"][0]["depth_m"] == pytest.approx(5.0)
     rows_v = census(surf, law, pub, {})
-    for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "wall_in_runway_strip"):
+    for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "tunnel_mouth_canonical",
+                "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])
 
 

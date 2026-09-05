@@ -415,3 +415,38 @@ def test_flat_verdict_model_is_plain():
     assert not fv.substitutes
     assert FlatVerdict("flat_declared", "not_flat", 3.96, "metres", (), {}).substitutes
     assert Airport.__dataclass_fields__["flat_site"].default is None
+
+
+# ── structure faces take no datum row (05k-2 amendment) ───────────────────
+
+def test_structure_faces_take_no_datum_row(law):
+    from auto_patch_v2.law.tables import is_structure_role
+    assert is_structure_role(law, "tunnel_ramp") and is_structure_role(law, "tunnel_trench") \
+        and is_structure_role(law, "retaining_wall") and not is_structure_role(law, "apron")
+    airport = _airport(law, _CoarseRipple(100.1, 0.5))
+    fv = F.detect(airport, law)
+    airport = _dc.replace(airport, flat_site=fv)
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "primary_parallel", "taxiA", _rect(-400, 80, 400, 103), (), None,
+             "D", "airside", "taxi", {}),
+        Cell(2, "stub", "stubB", _rect(-11.5, 22.5, 11.5, 80), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(3, "apron", "apron1", _rect(-200, 103, 200, 250), (), None, None,
+             "airside", "apron", {}),
+        Cell(4, "tunnel_trench", "trench1", _rect(-60, 150, 60, 180), (), None, None,
+             "airside", "none", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "taxiA", ((-400.0, 91.5), (400.0, 91.5))),
+            CutLine("taxi_centerline", "stubB", ((0.0, 0.0), (0.0, 91.5))))
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    rows = C.flat_datum(pm, law, airport)
+    from auto_patch_v2.constraints.precedence import view
+    vw = view(pm, law)
+    pinned = {r.terms[0][0] for r in rows}
+    trench = next(f for f in pm.faces.values() if f.role == "tunnel_trench")
+    apron = next(f for f in pm.faces.values() if f.role == "apron")
+    assert not (set(vw.rings[trench.id]) & pinned)           # the structure's rim: no datum row
+    assert set(vw.rings[apron.id]) - set(vw.rings[trench.id]) <= pinned   # the apron still has its rows
+

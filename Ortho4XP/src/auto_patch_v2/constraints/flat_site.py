@@ -29,7 +29,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..law.tables import flat_datum_group, role_family
+from ..law.tables import flat_datum_group, is_structure_role, role_family
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -72,12 +72,16 @@ def flat_datum(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     group = flat_datum_group(law)
     z0 = float(fv.z0_m)
     runway_v: set[int] = set()
-    if fs.datum.runway_pins_hard:
-        for fid, f in planar.faces.items():
-            if role_family(law, f.role) == "runway":
-                runway_v.update(vw.rings[fid])
-                for h in vw.holes[fid]:
-                    runway_v.update(h)
+    for fid, f in planar.faces.items():
+        # the runway keeps its CIFP pins; a STRUCTURE face (tunnel ramp /
+        # trench, wall band, basin floor — precedence.toml ``structure``)
+        # keeps its generator's datum: OTHH's ramps were lifted 3.7 m
+        # toward Z0 when the datum priced them (05k-2 amendment)
+        if ((fs.datum.runway_pins_hard and role_family(law, f.role) == "runway")
+                or is_structure_role(law, f.role)):
+            runway_v.update(vw.rings[fid])
+            for h in vw.holes[fid]:
+                runway_v.update(h)
     cand = sorted(v for v in vw.pavement_vertices if v not in runway_v)
     if not cand:
         return []

@@ -537,6 +537,11 @@ class RoleSpec:
     #: The role name the v1 census oracle judges this role under (None =
     #: its own name); the emitter writes ``class=<role>`` beside it.
     oracle_role: str | None = None
+    #: A STRUCTURE role: its values are a structure generator's datum
+    #: (tunnel floor / ramp / wall crest / basin floor), never a site-wide
+    #: preference's — the flat datum rows skip every vertex such a face
+    #: touches (RULINGS 2026-09-05k-2 amendment: OTHH ramp lifted 3.7 m).
+    structure: bool = False
 
 
 @_dc.dataclass(frozen=True)

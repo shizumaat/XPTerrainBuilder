@@ -39,7 +39,7 @@ secondary_parallel  = { family = "taxi",   side = "airside",    value = true,  a
 stub                = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
 cross_connector     = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
 junction            = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
-tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway" }
+tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true }
 apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
 building            = { family = "common", side = "airside",    value = true,  aeroway = "apron", rigid = true }  # a RIGID flat group levelled by its contact (09-01g weld = value; 09-03h pads yield)
 service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }
@@ -55,15 +55,15 @@ groundside_pavement = { family = "common", side = "groundside", value = true,  a
 # partition.  v2's own verify reads the role itself.
 parking_lot         = { family = "common", side = "groundside", value = true,  aeroway = "apron", oracle_role = "groundside_pavement" }
 boundary            = { family = "none",   side = "airside",    value = false, aeroway = "aerodrome" }
-retaining_wall      = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+retaining_wall      = { family = "none",   side = "airside",    value = false, aeroway = "apron", structure = true }
 runway_clearance    = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 taxiway_clearance   = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 graded_strip        = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 ols_cut             = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
 object_pad          = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
-bridge_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
-bridge_causeway     = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
-tunnel_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron" }
+bridge_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron", structure = true }
+bridge_causeway     = { family = "none",   side = "airside",    value = false, aeroway = "apron", structure = true }
+tunnel_trench       = { family = "none",   side = "airside",    value = false, aeroway = "apron", structure = true }
 
 # STRUCTURE DATUMS (RULINGS 2026-09-05d/e, lane v2hecalemd, spawner ruling
 # 2026-09-05: "a structure vertex shared by two structures takes the SENIOR

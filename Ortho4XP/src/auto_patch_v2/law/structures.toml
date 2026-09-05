@@ -17,10 +17,16 @@ default_lanes     = 2       # lanes assumed for a mapped way with neither `lanes
 dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
 max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
 
-[tunnel.object]                     # RULINGS 2026-09-05k-1: the pack's tunnel wall OBJECTS are the tunnel authority
-source_precedence   = ["object", "osm"]   # an object tunnel REPLACES every OSM bore its footprint covers; OSM bores stand only where no object does
-floor_datum         = "seat"        # the placement seat (OBJECT_MSL absolute; OBJECT/OBJECT_AGL = production DEM at the placement + elevation)
-crest               = "dem"         # the TERRAIN crest at the wall = the ground (09-03b), the object's slab covers floor -> plate itself: OTHH places every wall AGL -3.0 with the plate +5.0, i.e. a 2.0 m PARAPET above ground — pinned at the plate the band was a 2 m berm sawing 3.96<->5.96 against the apron (7 strip_seam_tear, IIS). "plate" stays a lawful value for a pack whose plate IS the ground. RULINGS 2026-09-05m
+[tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
+source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before
+plate_datum         = "ground"      # the wall's top plate is FLUSH with the ground at the wall (05n-4); the object is re-seated to it
+mouth_depth         = "plate"       # floor at the mouth = ground - plate height (05n-1: "full depth of the wall object")
+ramp_end            = "wall_end"    # the ramp reaches ground at the far end of the wall, extended beyond it only where ramp_max_grade needs the length (05n-1)
+trench              = "inner_walls" # trench = the region between the walls' INNER faces, following their curves; the wall band = each wall's own plan footprint (05n-2); never a hull rectangle
+wall_face_max_thickness_m = 2.0     # a wall solid's plan thickness; thicker plan solids are decks/slabs, not walls (OTHH: 1.0-1.1 m side walls, 2.0 m box walls)
+wall_sample_m       = 2.0           # station spacing along a wall line
+mouth_end           = "bore"        # the deep end = the end whose axis continues into an OSM tunnel way (bore); else the end facing the other placement of the same family; else the closed end
+reseat              = true          # the re-bake seats every tunnel-object family so its plate sits at the ground (delta = ground - rendered plate); never excluded
 skirt_min_depth_m   = 3.0           # genuine solids must reach this far BELOW the seat for a wall skirt (OTHH: 10-15 m)
 plate_normal_y_min  = 0.7           # reuse of deck_plate_normal_y_min: a crest face is near-horizontal
 plate_bin_m         = 0.5           # crest plane = the largest-area bin of plate faces at or above the seat
@@ -28,8 +34,8 @@ plate_min_area_m2   = 100.0         # below this the object is not a wall (a bol
 plate_min_height_m  = 2.0           # crest must stand this far above the seat (a 0.3 m kerb is not a tunnel wall)
 floor_plate_max_m2  = 0.0           # any floor plate below the seat disqualifies (that is a basin — basins.py owns it)
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
-end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall
-merge_gap_m         = 3.0           # two object hulls whose open ends face within this are ONE corridor (tunnel1 x 2)
+end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
+merge_gap_m         = 3.0           # two corridors whose ground ends face within this are reported as one site (they are refused as overlapping structures, never merged into a hull)
 
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
@@ -134,7 +140,7 @@ one_anchor_one_seat = true         # every placement sharing one anchor spelling
 # floor 6.3 m under the rest) would otherwise lift a 400-object family.
 founding_min_witnesses = 8         # a founding member carries at least this many land witnesses (when any member of the unit has that many — a sign on four feet still seats on its four)...
 founding_min_share     = 0.25      # ...and at least this share of the unit's LARGEST member's land witnesses (witnesses are thinned to foot_samples_per_member, so a 400-member family's total says nothing; 4 against 256 founds nothing, Bridge_01's plate at 64 against 155 does)
-structure_family_excluded = true   # a STRUCTURE the terrain adapted to — a basin facility (m6a Q3: Dewatering_01_000's rim pieces go with the pit) or a tunnel wall object (2026-09-05k-1) — excludes its WHOLE anchor family from the re-seat, never just the below-grade member (was basin_family_excluded)
+structure_family_excluded = true   # a STRUCTURE the terrain adapted to — a basin facility (m6a Q3: Dewatering_01_000's rim pieces go with the pit) — excludes its WHOLE anchor family from the re-seat, never just the below-grade member (was basin_family_excluded); a tunnel wall object is NOT excluded: it is re-SEATED to the ground at its plate (tunnel.object.reseat, RULINGS 2026-09-05n-4)
 deck_family_seats_rigid = true     # in a deck family a member with below-grade solids (a pier footing under the canal bed) is SEATED with its deck, never left behind (R12-2 member-set completeness: v1 wrote all 12 Bridge_01 members)
 # THE FACILITY RULE (RULINGS 2026-09-05p) reads [basin] contact_band_m: a
 # member whose feet stand deeper than that band BELOW the built mesh is a
@@ -142,4 +148,4 @@ deck_family_seats_rigid = true     # in a deck family a member with below-grade 
 # cutout is the basin pass's affair); the founding band is the lowest band
 # among the AT-GRADE eligible members; a member floating ABOVE the mesh stays
 # eligible (HECA's authored plane over a cut apron is what the seat is for).
-deck_seat_threshold_exempt = true  # a DECK-founded seat bakes at any |delta|: it is a law datum (deck top at the abutment grade), not a drape correction the terrain could absorb — v1's bridge_abutment_seat wrote OTHH's interchange at +0.9576 under the same 1.0 m generic threshold, the state the owner accepted; min_delta_m keeps governing feet seats
+structure_seat_threshold_exempt = true  # a STRUCTURE-founded seat (a deck top, a tunnel wall plate: 05n-4) bakes at any |delta|: it is a law datum (deck top at the abutment grade), not a drape correction the terrain could absorb — v1's bridge_abutment_seat wrote OTHH's interchange at +0.9576 under the same 1.0 m generic threshold, the state the owner accepted; min_delta_m keeps governing feet seats

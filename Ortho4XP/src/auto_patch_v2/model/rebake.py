@@ -20,14 +20,17 @@ from .frame import LL
 
 __all__ = ["Foot", "Member", "Unit", "RebakePlan", "MemberSeat", "UnitSeat",
            "SeatResult", "PLAN_VERSION", "PLAN_FILENAME", "DATUM_FEET",
-           "DATUM_DECK_TOP"]
+           "DATUM_DECK_TOP", "DATUM_PLATE"]
 
-PLAN_VERSION = 2       # 2: the deck signature's end lines / profile (04k, M6b)
+PLAN_VERSION = 3       # 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall plates (05n-4)
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
 DATUM_FEET = "feet"
 DATUM_DECK_TOP = "deck_top"
+#: A tunnel wall object seats its top PLATE on the ground at its wall band
+#: (RULINGS 2026-09-05n-4; ``tunnel.object.plate_datum = "ground"``).
+DATUM_PLATE = "plate"
 
 
 # ── the plan ─────────────────────────────────────────────────────────────
@@ -75,6 +78,13 @@ class Member:
     #: faces of its own components spread along the axis — the clearance
     #: test's witnesses (``deck_min_clearance_under_m``).
     deck_stations: tuple[tuple[float, float, float], ...] = ()
+    #: THE WALL PLATE (05n-4; ``airport/tunnel_objects``): a tunnel wall
+    #: object's authored plate height and the STATIONS ``(lat, lon)`` along
+    #: its wall band where the seat reads the ground — the member seats
+    #: so that ``base + plate_y`` equals the ground there.  ``None`` / empty
+    #: for every other member.
+    plate_y: float | None = None
+    plate_stations: tuple[LL, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -135,6 +145,8 @@ class RebakePlan:
                     "deck_profile": [[s, y] for s, y in m.deck_profile],
                     "deck_evidence": list(m.deck_evidence),
                     "deck_stations": [list(st) for st in m.deck_stations],
+                    "plate_y": m.plate_y,
+                    "plate_stations": [[a, b] for a, b in m.plate_stations],
                 } for m in u.members],
             } for u in self.units],
         }
@@ -167,6 +179,8 @@ class RebakePlan:
                 deck_evidence=tuple(str(x) for x in m.get("deck_evidence", ())),
                 deck_stations=tuple((float(a), float(b), float(c))
                                     for a, b, c in m.get("deck_stations", ())),
+                plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
+                plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,
@@ -239,12 +253,14 @@ class SeatResult:
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
              "held": 0, "skipped": 0, "resources_baked": 0, "findings": 0,
-             "deck_units": 0, "facility_members": 0}
+             "deck_units": 0, "facility_members": 0, "plate_units": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
             c["facility_members"] += sum(1 for m in u.members if m.facility)
             if u.datum == DATUM_DECK_TOP:
                 c["deck_units"] += 1
+            if u.datum == DATUM_PLATE:
+                c["plate_units"] += 1
             if u.bakes:
                 c["baked"] += 1
                 c["resources_baked"] += len(u.resources)

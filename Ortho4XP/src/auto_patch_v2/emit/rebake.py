@@ -59,13 +59,13 @@ import numpy as np
 
 from ..law import Law
 from ..model.frame import LL, XY
-from ..model.rebake import (DATUM_DECK_TOP, DATUM_FEET, PLAN_FILENAME, PLAN_VERSION,
+from ..model.rebake import (DATUM_DECK_TOP, DATUM_FEET, DATUM_PLATE, PLAN_FILENAME, PLAN_VERSION,
                             Foot, Member, MemberSeat, RebakePlan, SeatResult, Unit,
                             UnitSeat)
 
 __all__ = ["seat", "deck_datum_from_surface", "Sampler", "Foot", "Member", "Unit",
            "RebakePlan", "MemberSeat", "UnitSeat", "SeatResult", "PLAN_VERSION",
-           "PLAN_FILENAME", "DATUM_FEET", "DATUM_DECK_TOP"]
+           "PLAN_FILENAME", "DATUM_FEET", "DATUM_DECK_TOP", "DATUM_PLATE"]
 
 #: ``sampler(lat, lon) -> (z, is_water)`` or ``None`` off the mesh.
 Sampler = _t.Callable[[float, float], "tuple[float, bool] | None"]
@@ -282,6 +282,32 @@ def _feet_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat:
                       "" if rs else "no foot on land within the mesh")
 
 
+def _plate_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat | None:
+    """THE WALL PLATE (RULINGS 2026-09-05n-4; ``tunnel.object.plate_datum
+    = "ground"``): a tunnel wall object seats so that its rendered plate
+    (``base + plate_y``) equals the GROUND at its wall band — the median
+    of the mesh at the band's stations (land only); ``None`` for every
+    other member."""
+    if m.plate_y is None or not m.plate_stations:
+        return None
+    zs: list[float] = []
+    water = off = 0
+    for la, lo in m.plate_stations:
+        s = sampler(la, lo)
+        if s is None:
+            off += 1
+        elif s[1] and not rb.water_founds_seat:
+            water += 1
+        else:
+            zs.append(float(s[0]))
+    ground = float(statistics.median(zs)) if zs else None
+    delta = None if ground is None else ground - (base + m.plate_y)
+    return MemberSeat(m.resource, DATUM_PLATE, delta, len(zs), water, off, 0,
+                      f"ground at the wall band ({len(zs)} stations) − rendered plate "
+                      f"(base {base:.3f} + plate {m.plate_y:.3f})" if ground is not None
+                      else "no wall-band station on land within the mesh")
+
+
 def _deck_reading(m: Member, base: float, sampler: Sampler, rb, br) -> MemberSeat | None:
     """The deck-top reading of a deck member, ``None`` for a foot member."""
     if m.deck_ring is None or rb.deck_datum != DATUM_DECK_TOP or m.deck_top_y is None:
@@ -337,7 +363,10 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
         anchor_ground = float(a[0])
         base = anchor_ground + u.agl_m          # the rendered y = 0 plane
         feet = [_feet_reading(m, base, sampler, rb) for m in u.members]
-        decks = [_deck_reading(m, base, sampler, rb, br) for m in u.members]
+        # a STRUCTURE member founds the family: a deck by its top, a tunnel
+        # wall object by its plate (05n-4) — the same coalition
+        decks = [_deck_reading(m, base, sampler, rb, br) or _plate_reading(m, base, sampler, rb)
+                 for m in u.members]
         findings: list[str] = []
         # ── the deck datum: a deck member founds the family ─────────────
         measurable_decks = [(k, d) for k, d in enumerate(decks)
@@ -376,7 +405,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                 seats[k] = _dc_replace(d, records=d.records + (rec,))
                 spans.append(ok)
             if any(spans):
-                datum = DATUM_DECK_TOP
+                datum = DATUM_PLATE if all(measurable_decks[j][1].datum == DATUM_PLATE
+                                           for j in coal_idx) else DATUM_DECK_TOP
                 for j, ok in zip(coal_idx, spans):
                     founding[measurable_decks[j][0]] = bool(ok)
                 n_feet = sum(1 for d in decks if d is None)
@@ -471,13 +501,44 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                                 tuple(seats), "non-finite seat", tuple(findings)))
             continue
         reason = None
-        if abs(delta) < rb.min_delta_m and not (datum == DATUM_DECK_TOP
-                                                and rb.deck_seat_threshold_exempt):
+        if abs(delta) < rb.min_delta_m and not (datum in (DATUM_DECK_TOP, DATUM_PLATE)
+                                                and rb.structure_seat_threshold_exempt):
             reason = (f"below_threshold: |{delta:.3f}| m < {rb.min_delta_m} m — the unit "
                       "stays at its authored y and the terrain adapts")
         out.append(UnitSeat(u.id, resources, anchor_ground, datum, delta, base + delta,
                             tuple(seats), reason, tuple(findings)))
-    return SeatResult(plan_.icao, tuple(out))
+    return SeatResult(plan_.icao, tuple(_one_file_one_delta(out, rb)))
+
+
+def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:
+    """A resource planned at SEVERAL anchors (a plate-seated wall object
+    placed twice: OTHH tunnel1) has ONE file: its units bake only when
+    their deltas agree within ``agreement_window_m``; otherwise every
+    one of them is HELD with a finding naming the spread (never the last
+    writer's delta)."""
+    by_res: dict[str, list[int]] = {}
+    for i, u in enumerate(units):
+        for r in u.resources:
+            by_res.setdefault(r, []).append(i)
+    held: dict[int, str] = {}
+    for r, idx in by_res.items():
+        if len(idx) < 2:
+            continue
+        vals = [units[i].delta_m for i in idx if units[i].bakes]
+        if len(vals) >= 2 and max(vals) - min(vals) > rb.agreement_window_m:
+            for i in idx:
+                held[i] = (f"held: {r.rsplit('/', 1)[-1]} is placed at {len(idx)} anchors and its "
+                           f"seats disagree (spread {max(vals) - min(vals):.3f} m > "
+                           f"{rb.agreement_window_m} m): one file, no single delta")
+    out = []
+    for i, u in enumerate(units):
+        if i in held:
+            import dataclasses as _dc
+            out.append(_dc.replace(u, delta_m=None, seat_datum_m=None, skip_reason=held[i],
+                                   findings=u.findings + (held[i],), held=True))
+        else:
+            out.append(u)
+    return out
 
 
 def _dc_replace(s: MemberSeat, **kw) -> MemberSeat:

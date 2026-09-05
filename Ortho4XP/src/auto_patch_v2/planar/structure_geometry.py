@@ -48,6 +48,12 @@ class RampGeometry:
     cap_out: list[XY]
     far_in: list[XY]
     far_out: list[XY]
+    #: The band's inner / outer edges per station (round 2: an object
+    #: corridor's ``wall_path`` is their middle; empty for round-1 callers).
+    left_in: list[XY] = _dc.field(default_factory=list)
+    left_out: list[XY] = _dc.field(default_factory=list)
+    right_in: list[XY] = _dc.field(default_factory=list)
+    right_out: list[XY] = _dc.field(default_factory=list)
 
 
 def normals(axis: _t.Sequence[XY]) -> list[XY]:
@@ -91,12 +97,13 @@ def snap_out(p: XY, origin: XY, grid: float) -> XY:
     return (out[0], out[1])
 
 
-def _offset_out(axis: _t.Sequence[XY], nrm: _t.Sequence[XY], off: float,
+def _offset_out(axis: _t.Sequence[XY], nrm: _t.Sequence[XY], off: "float | _t.Sequence[float]",
                 base: _t.Sequence[XY], grid: float) -> list[XY]:
-    """``axis`` offset by ``off`` along ``nrm``, each point snapped away
-    from its ``base`` point."""
-    return [snap_out((p[0] + nv[0] * off, p[1] + nv[1] * off), b, grid)
-            for p, nv, b in zip(axis, nrm, base)]
+    """``axis`` offset by ``off`` along ``nrm`` (one value, or one per
+    point), each point snapped away from its ``base`` point."""
+    offs = [off] * len(axis) if isinstance(off, (int, float)) else list(off)
+    return [snap_out((p[0] + nv[0] * o, p[1] + nv[1] * o), b, grid)
+            for p, nv, b, o in zip(axis, nrm, base, offs)]
 
 
 def _clear(p: XY, direction: XY, ramp: Polygon, gap: float, grid: float) -> XY:
@@ -128,15 +135,25 @@ def _cap(m: XY, lin: XY, rin: XY, lbase: XY, rbase: XY, d: XY, nv: XY, ramp: Pol
 
 
 def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
-                 grid: float, capped: bool, far_capped: bool) -> RampGeometry | None:
+                 grid: float, capped: bool, far_capped: bool, half_fn=None, bw_fn=None,
+                 cap_bw: float | None = None, far_bw: float | None = None
+                 ) -> RampGeometry | None:
     """The ramp, the wall band and the outer footprint for stations
     ``ss`` (see the module doc).  ``None`` when a bend tighter than the
     offsets folds a ring over itself (a buffer would repair it with
-    off-grid vertices — the merge class)."""
+    off-grid vertices — the merge class).  ``half_fn(s) -> (left,
+    right)`` / ``bw_fn(s) -> (left, right)`` give a corridor whose ramp
+    edges and band widths vary by station (a wall object's inner faces
+    and its walls' thickness, round 2); ``cap_bw`` / ``far_bw`` the end
+    caps' thickness (an object's end wall)."""
     axis = [axis_fn(s) for s in ss]
     nrm = normals(axis)
-    left = [snap(p, grid) for p in offset_line(axis, nrm, half)]
-    right = [snap(p, grid) for p in offset_line(axis, nrm, -half)]
+    hl = [half_fn(s)[0] for s in ss] if half_fn is not None else [half] * len(ss)
+    hr = [half_fn(s)[1] for s in ss] if half_fn is not None else [half] * len(ss)
+    bl = [bw_fn(s)[0] for s in ss] if bw_fn is not None else [bw] * len(ss)
+    br = [bw_fn(s)[1] for s in ss] if bw_fn is not None else [bw] * len(ss)
+    left = [snap((p[0] + nv[0] * h, p[1] + nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hl)]
+    right = [snap((p[0] - nv[0] * h, p[1] - nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hr)]
     ramp = Polygon(left + list(reversed(right)))
     if not ramp.is_valid or ramp.area < 1.0:
         return None
@@ -148,8 +165,8 @@ def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, i
                zip(_offset_out(left, nrm, gap, left, grid), nrm)]
     right_in = [_clear(p, (-d[0], -d[1]), ramp, gap, grid) for p, d in
                 zip(_offset_out(right, nrm, -gap, right, grid), nrm)]
-    left_out = _offset_out(left_in, nrm, bw, left_in, grid)
-    right_out = _offset_out(right_in, nrm, -bw, right_in, grid)
+    left_out = _offset_out(left_in, nrm, bl, left_in, grid)
+    right_out = _offset_out(right_in, nrm, [-b for b in br], right_in, grid)
     cap_in: list[XY] = []
     cap_out: list[XY] = []
     far_in: list[XY] = []
@@ -157,14 +174,15 @@ def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, i
     if capped:
         # the cap: left corner, CENTRE (the mouth wall node, 09-03b), right corner
         cap_in, cap_out = _cap(axis[0], left_in[0], right_in[0], left[0], right[0], inward,
-                               nrm[0], ramp, gap, bw, grid)
+                               nrm[0], ramp, gap, cap_bw if cap_bw is not None else bw, grid)
     if far_capped:
         a, b = axis[-2], axis[-1]
         L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
         outward = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         # in ring order after the right band's top: right corner, centre, left corner
         far_in, far_out = _cap(axis[-1], right_in[-1], left_in[-1], right[-1], left[-1], outward,
-                               (-nrm[-1][0], -nrm[-1][1]), ramp, gap, bw, grid)
+                               (-nrm[-1][0], -nrm[-1][1]), ramp, gap,
+                               far_bw if far_bw is not None else bw, grid)
     outer_ring = (list(reversed(left_out)) + list(cap_out) + list(right_out) + list(far_out))
     if capped and not far_capped:
         # the U: back along the inner edge
@@ -192,11 +210,12 @@ def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, i
     if not wall.is_valid or not outer.is_valid:
         return None
     return RampGeometry(axis, nrm, left, right, ramp, wall, outer, cap_in, cap_out,
-                        far_in, far_out)
+                        far_in, far_out, left_in, left_out, right_in, right_out)
 
 
 def geometry(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
-             grid: float, capped: bool = True, far_capped: bool = False
+             grid: float, capped: bool = True, far_capped: bool = False, half_fn=None,
+             bw_fn=None, cap_bw: float | None = None, far_bw: float | None = None
              ) -> RampGeometry | None:
     """:func:`_geometry_at` with the gap widened by grid steps (at most
     three) until the ramp and the wall rings clear each other by the
@@ -205,7 +224,8 @@ def geometry(axis_fn, ss: list[float], half: float, gap: float, bw: float, inwar
     IS THE LAW: a bend that cannot be cleared this way is refused, never
     welded."""
     for k in range(4):
-        g = _geometry_at(axis_fn, ss, half, gap + k * grid, bw, inward, grid, capped, far_capped)
+        g = _geometry_at(axis_fn, ss, half, gap + k * grid, bw, inward, grid, capped, far_capped,
+                         half_fn, bw_fn, cap_bw, far_bw)
         if g is None:
             return None
         if g.ramp.distance(g.wall) >= gap - 1e-6:

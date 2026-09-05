@@ -108,6 +108,26 @@ class Tunnel:
     #: corridor is two capless halves meeting at its midpoint.
     capped: bool = True
     far_capped: bool = False
+    # ── ROUND 2 (RULINGS 2026-09-05n; ``plate_datum = "ground"``) ──
+    #: The ramp's DESIGN grade: ``min(ramp_max_grade, depth / wall
+    #: length)`` for an object corridor (the ramp reaches the ground at
+    #: the wall end), ``ramp_max_grade`` for an OSM bore — what
+    #: ``ramp_targets`` aims the ramp at.
+    design_grade: float = 0.0
+    #: The wall length along the axis (the trench inside the walls ends
+    #: there; ``top_s − wall_length_m`` is the ramp beyond the walls).
+    wall_length_m: float = 0.0
+    #: How the mouth was chosen (``"bore"`` / ``"family"`` / ``"closed"``),
+    #: and what the far end is (``"open"`` / ``"closed"`` / ``"bore"`` —
+    #: a second mouth: the trench is flat at the floor).
+    mouth_kind: str = ""
+    ground_kind: str = ""
+    #: The re-seat the design implies per placement, ``ground − (floor at
+    #: the anchor's station + agl + plate)`` (the post-mesh seat measures
+    #: the real one); the largest distance any trench vertex stands
+    #: OUTSIDE the walls' inner faces (the 05n-2 assertion, expect 0).
+    reseat_expect_m: tuple[float, ...] = ()
+    trench_outside_max_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

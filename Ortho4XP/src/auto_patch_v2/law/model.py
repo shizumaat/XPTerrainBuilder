@@ -253,13 +253,21 @@ class Zones:
 
 @_dc.dataclass(frozen=True)
 class TunnelObject:
-    """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1;
-    ``structures.toml [tunnel.object]``): the placement seat is the
-    floor, the object's top plate the crest, its hull the footprint."""
+    """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1,
+    round 2 05n; ``structures.toml [tunnel.object]``): the object's own
+    geometry referenced to the GROUND — plate = ground (re-seated), floor
+    at the mouth = ground − plate height, the ramp inside the walls, the
+    trench between the walls' inner faces, precedence per mouth."""
 
     source_precedence: tuple[str, ...]
-    floor_datum: str
-    crest: str
+    plate_datum: str
+    mouth_depth: str
+    ramp_end: str
+    trench: str
+    wall_face_max_thickness_m: float
+    wall_sample_m: float
+    mouth_end: str
+    reseat: bool
     skirt_min_depth_m: float
     plate_normal_y_min: float
     plate_bin_m: float
@@ -385,7 +393,7 @@ class Rebake:
     founding_min_share: float
     structure_family_excluded: bool
     deck_family_seats_rigid: bool
-    deck_seat_threshold_exempt: bool
+    structure_seat_threshold_exempt: bool
 
 
 @_dc.dataclass(frozen=True)
@@ -640,8 +648,10 @@ _SIDES = ("airside", "groundside")
 _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
-_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem", "plate"),
-           "floor_datum": ("seat",),
+_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
+           "plate_datum": ("ground",), "mouth_depth": ("plate",),
+           "ramp_end": ("wall_end",), "trench": ("inner_walls",),
+           "mouth_end": ("bore",),
            "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
            "rim": ("ground",)}
 #: The one SIGNED metre key: an authored OBJ8 ``base_y`` threshold (a depth

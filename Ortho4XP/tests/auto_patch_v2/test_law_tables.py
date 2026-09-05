@@ -300,7 +300,12 @@ def _structures_emit_checks(c: Checks, t) -> None:
     # no v1 counterpart; every key read through the model, stated here
     ob = s.tunnel.object
     assert ob.source_precedence == ("object", "osm")
-    assert ob.floor_datum == "seat" and ob.crest == "dem"     # RULINGS 2026-09-05m (plate = parapet at OTHH)
+    # RULINGS 2026-09-05n (round 2, lane v2tunnelobj2): the datum is the
+    # object's geometry referenced to the GROUND; every key a named value
+    assert ob.plate_datum == "ground" and ob.mouth_depth == "plate"
+    assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls"
+    assert ob.mouth_end == "bore" and ob.reseat is True
+    assert 0.0 < ob.wall_face_max_thickness_m and 0.0 < ob.wall_sample_m
     c.eq("tunnel.object.plate_normal_y_min (= deck_plate_normal_y_min)",
          s.bridge.deck_plate_normal_y_min, ob.plate_normal_y_min)
     c.eq("tunnel.object.plate_bin_m (= deck_plane_bin_m)", s.bridge.deck_plane_bin_m,
@@ -315,6 +320,7 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("rebake facility depth (= basin.contact_band_m, 05p)",
          v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
     assert s.basin.contact_band_m > 0.0
+    assert s.rebake.structure_seat_threshold_exempt is True     # 05n-4: the plate seat, like a deck seat
 
 
 def test_every_value_equals_v1(tables, capsys):

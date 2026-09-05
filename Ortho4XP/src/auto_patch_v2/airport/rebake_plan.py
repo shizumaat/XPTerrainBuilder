@@ -100,7 +100,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          cache: _obj8.ResourceCache, law: Law, deck_datum: DeckDatum | None = None,
          exclude: _t.Collection[str] = (),
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
-         tunnel_objects: _t.Collection[str] = ()) -> RebakePlan:
+         tunnel_objects: _t.Mapping[str, tuple[float, _t.Sequence[XY]]] | None = None
+         ) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
     ``objects`` are the planar pass's placed objects (read from the
     AUTHORED files, the deck signature applied); ``deck_datum`` the
@@ -111,17 +112,21 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     anchor family (m6a Q3: Dewatering_01's rim pieces go with the pit);
     ``below_grade`` the emitted below-grade regions ``(frame polygon,
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
-    deck (``deck_signature.promote``)."""
+    deck (``deck_signature.promote``); ``tunnel_objects`` the tunnel
+    wall objects by placement id → ``(plate height, wall-band stations
+    in frame xy)``: RE-SEATED so the plate sits on the ground at the
+    band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``), their whole
+    anchor family with them — never excluded, never a feet seat, and
+    never the below-grade skip (their skirts are the tunnel)."""
     rb = law.tables.structures.rebake
     admission_m = law.tables.structures.basin.admission_depth_m
     # the basin records name their members by resource PATH
     # (``planar.basins``); the ids here match either spelling
     excluded = {o.id for o in objects if o.id in set(exclude) or o.path in set(exclude)}
-    # TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1; spec §3.6): a structure
-    # the terrain adapted to, excluded like a basin facility — and its
-    # whole anchor family with it under ``structure_family_excluded``
-    tunnel_ids = {o.id for o in objects if o.id in set(tunnel_objects) or o.path in set(tunnel_objects)}
-    excluded |= tunnel_ids
+    # TUNNEL WALL OBJECTS (RULINGS 2026-09-05n-4): plate-seated, by id
+    plates: dict[str, tuple[float, _t.Sequence[XY]]] = dict(tunnel_objects or {})
+    if not law.tables.structures.tunnel.object.reseat:
+        plates = {}
     if below_grade:
         owners = {oid for _r, ids in below_grade for oid in ids}
         foreign = [o for o in objects if o.id not in owners and o.path not in owners]
@@ -130,11 +135,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         by_id = {o.id: o for o in promoted}
         objects = [by_id.get(o.id, o) if o.id in keep else o for o in objects]
     fam_of = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
-    tunnel_keys: set = set()
     if rb.structure_family_excluded:
         basin_keys = {fam_of[oid] for oid in excluded if oid in fam_of}
-        tunnel_keys = {fam_of[oid] for oid in tunnel_ids if oid in fam_of}
         excluded |= {o.id for o in objects if fam_of.get(o.id) in basin_keys}
+    plate_keys = {fam_of[oid] for oid in plates if oid in fam_of}
     deck_keys = {fam_of[o.id] for o in objects
                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
     to_xy, to_ll = airport.frame.transformers()
@@ -146,6 +150,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "units": 0, "members": 0, "deck_members": 0,
                               "feet": 0, "no_feet": 0, "terrain_adapted": 0,
                               "below_grade": 0, "deck_families": len(deck_keys),
+                              "plate_members": 0, "plate_families": len(plate_keys),
                               "signature_decks": sum(1 for o in objects
                                                      if o.deck_kind == "signature")}
     skipped: dict[str, str] = {}
@@ -158,18 +163,15 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in excluded:
             counts["terrain_adapted"] += 1
-            if o.id in tunnel_ids or fam_of.get(o.id) in tunnel_keys:
-                skipped.setdefault(o.path, "tunnel_object: tunnel wall object (or its anchor "
-                                            "family) — the tunnel authority the terrain adapted "
-                                            "to (2026-09-05k-1) — never re-seated")
-            else:
-                skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
-                                            "adapted to it (08-26; v1 R4) — never re-seated")
+            skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
+                                        "adapted to it (08-26; v1 R4) — never re-seated")
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
+        in_plate_family = o.id in plates or fam_of.get(o.id) in plate_keys
         deep = o.solid_min_depth_m is not None and o.solid_min_depth_m <= -admission_m
         if (o.below_grade is not None or deep) and not (in_deck_family
-                                                          and rb.deck_family_seats_rigid):
+                                                          and rb.deck_family_seats_rigid) \
+                and not in_plate_family:
             # a genuine solid under the local grade is a FACILITY the
             # terrain adapts to (08-26), never feet to seat: OTHH's
             # Drainage bowls (−3.8 m floors) and TerminalRoads_Parking_005
@@ -203,10 +205,17 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         anchors_by_resource.setdefault(o.path, set()).add(key)
         keyed.append((key, o))
     multi = {r for r, ks in anchors_by_resource.items() if len(ks) > 1}
+    # a PLATE-seated resource at several anchors (OTHH tunnel1 × 2) is
+    # planned per anchor: its file takes ONE delta only if the placements'
+    # seats agree (``emit/rebake.py`` holds them otherwise)
+    plate_paths = {o.path for o in objects if o.id in plates}
     for r in sorted(multi):
+        if r in plate_paths:
+            continue
         counts["multi_anchor"] += 1
         skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "
                       "file cannot carry per-placement offsets (I-4)")
+    multi -= plate_paths
     units_by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
     for key, o in keyed:
         if o.path in multi:
@@ -247,8 +256,16 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             else:
                 deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
             counts["deck_members"] += 1
+        plate_y = None
+        plate_stations: tuple[tuple[float, float], ...] = ()
+        if o.id in plates:
+            plate_y, st_xy = plates[o.id]
+            plate_stations = tuple(to_ll(x, y) for x, y in st_xy)
+            counts["plate_members"] += 1
         in_deck_family = fam_of.get(o.id) in deck_keys      # THIS member's family
-        if not feet and deck_ring is None and not (in_deck_family and rb.deck_family_seats_rigid):
+        in_plate_family = fam_of.get(o.id) in plate_keys
+        if not feet and deck_ring is None and plate_y is None \
+                and not (in_deck_family and rb.deck_family_seats_rigid) and not in_plate_family:
             # a DECK-family member with no genuine solid (Bridge_01_LOD0_004:
             # a two-triangle sheet) still joins its family and takes the
             # one delta (R12-2 completeness: no member left at another
@@ -261,7 +278,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                                  o.heading_deg, feet, deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
-                                 deck_stations)
+                                 deck_stations, plate_y, plate_stations)
         counts["feet"] += len(feet)
     units: list[Unit] = []
     for i, (key, members) in enumerate(sorted(units_by_key.items())):

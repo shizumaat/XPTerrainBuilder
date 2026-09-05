@@ -120,10 +120,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
 
 
 def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
-    """The object corridors (RULINGS 2026-09-05k-1): id, resource, the
-    placements, floor / crest / depth, the hull's sides, its ends, the
-    OSM bores replaced, and the axis in lat/lon — a reader's record of
-    which tunnels the pack's objects state."""
+    """The object corridors (RULINGS 2026-09-05k-1 / 05n): id, resource,
+    the placements, the floor at the mouth / the ground crest / the
+    depth (= the plate height), the walls' length and mean inner width,
+    the ends and how the mouth was chosen, the ramp's design grade and
+    its length beyond the walls, the re-seat the design implies, the
+    05n-2 trench assertion, the OSM bore mouths taken, and the axis in
+    lat/lon — a reader's record of which tunnels the pack's objects
+    state."""
     _to_xy, to_ll = airport.frame.transformers()
     out: list[dict[str, _t.Any]] = []
     for tn in planar.structures:
@@ -135,6 +139,12 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
             "depth_m": round(tn.depth_m, 3), "length_m": round(tn.hull_length_m, 1),
             "width_m": round(tn.hull_width_m, 1), "ends": tn.ends, "crest_law": tn.crest,
             "replaced_ways": list(tn.replaced_ways), "top_s": round(tn.top_s, 1),
+            "wall_length_m": round(tn.wall_length_m, 1),
+            "ramp_beyond_walls_m": round(max(0.0, tn.top_s - tn.wall_length_m), 1),
+            "design_grade": round(tn.design_grade, 5),
+            "mouth": tn.mouth_kind, "ground_end": tn.ground_kind,
+            "reseat_expect_m": [round(d, 3) for d in tn.reseat_expect_m],
+            "trench_outside_max_m": round(tn.trench_outside_max_m, 3),
             "axis_ll": [[round(la, 8), round(lo, 8)] for la, lo in
                         (to_ll(x, y) for x, y in tn.axis)],
         })

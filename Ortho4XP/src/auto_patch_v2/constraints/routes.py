@@ -70,8 +70,10 @@ from .stretches import edge_cap, pair_caps, stretches
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
            "route_neighbours", "reach", "route_path"]
 
-#: Edge provenance codes (``RouteGraph.kind``).
-RING, CHORD, CENTRELINE = 0, 1, 2
+#: Edge provenance codes (``RouteGraph.kind``).  FRONTAGE: a hole rim's
+#: hop to the nearest vertex of another ring of its face (CANDIDATE
+#: amendment to 2026-09-05v, measured, NOT ruled — see build_routes).
+RING, CHORD, CENTRELINE, FRONTAGE = 0, 1, 2, 3
 
 
 @_dc.dataclass(frozen=True)
@@ -134,6 +136,7 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
+    hop_m = float(law.tables.emit.no_step.window_m)
     pad_cap = law.tables.common.roles["building"].longitudinal
     st = stretches(pm, law)
     face_caps: dict[int, tuple[float, float] | None] = {}
@@ -201,11 +204,36 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
                                for p in pc], float)
                 A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
                 C.append(cc); K.append(np.full(len(pc), CHORD, np.int8))
+        # PAD FRONTAGE HOPS — CANDIDATE amendment to 2026-09-05v, measured
+        # on CYXY, NOT RULED: with no apron plan chord a hole rim (a pad
+        # inside an apron / junction face) is a route ISLAND — no reach
+        # band, no no_step pair to the pavement 0.5 m away (CYXY
+        # building6/7: building|building 1.95 m, 5 pad twins red).  Each
+        # hole vertex hops to the NEAREST vertex of every other ring of
+        # its face inside the no-step window — the shortest link there is,
+        # never a plan chord across the body — at the pad cap.
+        if hop_m > 0.0 and f.holes:
+            rings = [np.array(list(pm.ring_vertices(c)), np.int64) for c in (f.ring, *f.holes)]
+            for hi in range(1, len(rings)):
+                src = rings[hi]
+                for oj, other in enumerate(rings):
+                    if oj == hi or len(other) == 0:
+                        continue
+                    dd = np.hypot(xy[src, None, 0] - xy[None, other, 0],
+                                  xy[src, None, 1] - xy[None, other, 1])
+                    j = np.argmin(dd, axis=1)
+                    ok = dd[np.arange(len(src)), j] <= hop_m
+                    if ok.any():
+                        pa, pb = src[ok], other[j[ok]]
+                        A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
+                        C.append(np.full(int(ok.sum()), min(cap, pad_cap)))
+                        K.append(np.full(int(ok.sum()), FRONTAGE, np.int8))
     if not A:
         z = np.zeros(0, np.int64)
         return RouteGraph(n_v, frozenset(), z, z, np.zeros(0), np.zeros(0),
                           np.zeros(0, np.int8), {"nodes": 0, "edges": 0, "faces": 0,
-                                                  "ring": 0, "chord": 0, "centreline": 0})
+                                                  "ring": 0, "chord": 0, "centreline": 0,
+                                                  "frontage": 0})
     a = np.concatenate(A); b = np.concatenate(B); cap = np.concatenate(C); kind = np.concatenate(K)
     keep = a != b
     a, b, cap, kind = a[keep], b[keep], cap[keep], kind[keep]
@@ -248,7 +276,8 @@ def build_routes(pm: PlanarMap, law: Law) -> RouteGraph:
     a, b, cap, kind, length = a[keep], b[keep], cap[keep], kind[keep], length[keep]
     stats = {"nodes": len(nodes), "edges": int(len(a)), "faces": n_faces,
              "ring": int(np.sum(kind == RING)), "chord": int(np.sum(kind == CHORD)),
-             "centreline": int(np.sum(kind == CENTRELINE))}
+             "centreline": int(np.sum(kind == CENTRELINE)),
+             "frontage": int(np.sum(kind == FRONTAGE))}
     return RouteGraph(n_v, frozenset(nodes), a, b, length, cap, kind, stats)
 
 

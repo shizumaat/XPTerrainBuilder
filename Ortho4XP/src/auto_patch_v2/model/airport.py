@@ -23,7 +23,7 @@ __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
     "OsmWay", "Building", "DemSample", "DsfObject", "SceneryPack",
-    "Airport",
+    "FlatVerdict", "Airport",
 ]
 
 
@@ -231,6 +231,34 @@ class SceneryPack:
 
 
 @_dc.dataclass(frozen=True)
+class FlatVerdict:
+    """The FLAT-SITE verdict (RULINGS 2026-09-05k-2; ``airport/flat_site.py``
+    measures it, ``constraints/flat_site.py`` prices it).  ``verdict`` ∈
+    ``flat_candidate | not_flat | lidar_credible | no_data |
+    flat_declared``; ``auto_verdict`` is what the detector measured even
+    when a ``[declared]`` entry overrode it (v1's audit); ``z0_m`` the
+    datum (``None`` when there is none to grade to); ``source`` names it
+    (``cifp`` | ``pack_seats`` | ``metres``); ``region`` is pavement ∪
+    boundary ⊕ margin as ``(outer, holes)`` rings in the frame — the
+    preference's extent; ``signals`` the S1..S4 evidence (plain values,
+    reported verbatim)."""
+
+    verdict: str
+    auto_verdict: str
+    z0_m: float | None
+    source: str
+    region: tuple[tuple[Ring, tuple[Ring, ...]], ...]
+    signals: _t.Mapping[str, _t.Any]
+
+    @property
+    def substitutes(self) -> bool:
+        """Whether the datum is priced: a flat candidate or a declared
+        site with a datum to grade to."""
+        return self.z0_m is not None and self.verdict in (
+            "flat_candidate", "flat_declared")
+
+
+@_dc.dataclass(frozen=True)
 class Airport:
     """Everything the producers need, loaded ONCE."""
 
@@ -252,3 +280,6 @@ class Airport:
     pack: SceneryPack
     dem: DemSample
     ruleset_key: str
+    #: The flat-site verdict, measured after the load (``pipeline`` sets it
+    #: through ``dataclasses.replace``); ``None`` before the detector ran.
+    flat_site: FlatVerdict | None = None

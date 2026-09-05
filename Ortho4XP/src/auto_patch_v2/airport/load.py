@@ -118,6 +118,9 @@ class LoadReport:
     osm_sources: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
+    #: The flat-site verdict record (``airport/flat_site.record``; set by
+    #: the pipeline once the detector ran — ``report.load.flat_site``).
+    flat_site: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

@@ -1,0 +1,35 @@
+# auto_patch_v2 LAW — the FLAT-SITE datum (RULINGS 2026-09-05k-2: options
+# (b) + (c) of 05j-2; spec docs/specs/auto-patch-v2/flat-site-datum-spec.md).
+# A flat site (OTHH's class: CIFP thresholds agree, the DEM shows no relief
+# its own source class can be trusted for) is graded to ONE datum Z0 as a
+# LAW PREFERENCE the LP prices — below the law, above the seam — never a
+# hard row: runway thresholds stay CIFP-absolute (08-25) and a real
+# gradient still fans lawfully from the pinned thresholds.  The detector's
+# constants are v1's flat-site-detector-spec v3 by name
+# (src/auto_patch/config.py FLAT_SITE_*); [declared] is the ONE register of
+# owner-declared sites (the tile-cfg keys flat_site_declared /
+# flat_site_declared_elevation_m are RETIRED).  Metres unless a grade.
+
+[detector]                          # v1 flat-site-detector-spec v3, constants by name
+threshold_spread_max_m   = 5.0      # S1: max − min over the CIFP threshold elevations, STRICTLY under (FLAT_SITE_THRESHOLD_SPREAD_M, owner 08-09)
+relief_floor_m           = { coarse = 8.0, fine = 2.0 }   # S2 p95−p5 noise floor by DEM source class (≥ 1 arcsec | sub-10 m; FLAT_SITE_RELIEF_FLOOR_BY_CLASS)
+fine_source_max_m        = 10.0     # a DEM pixel at or under this is "fine" (FLAT_SITE_SOURCE_CLASS_BOUNDS_M sub10m)
+lidar_credible_max_m     = 2.0      # ≤ this pixel: lidar_credible short-circuit — never flat by statistics (FLAT_SITE_SOURCE_CLASS_BOUNDS_M lidar)
+plane_slope_max          = 0.0015   # S2 plane-fit slope, a fraction (FLAT_SITE_MAX_SLOPE_PCT 0.15 %)
+sea_band_max_m           = 0.0      # S2a: samples at or under this are sea / void fill when z0 ≥ sea_band_min_z0_m (FLAT_SITE_SEA_BAND_MAX_M)
+sea_band_min_z0_m        = 1.0      # FLAT_SITE_SEA_BAND_MIN_Z0_M
+dsm_trim_over_median_m   = 0.5      # S2b: trim samples above median + this × the relief floor (FLAT_SITE_DSM_TRIM_FRACTION_OF_FLOOR — a fraction of the floor, named as the spec names it)
+seat_consensus_max_m     = 1.0      # S4 |median seat − Z0| (FLAT_SITE_PACK_OFFSET_MAX_M); confirms, never gates
+seat_spread_max_m        = 3.0      # S4 p95−p5 of the seats (FLAT_SITE_PACK_SPREAD_MAX_M)
+below_grade_base_y_m     = -1.0     # S4: an object whose deepest solid's authored base_y is at or under this is below grade (excluded; −FLAT_SITE_PACK_BELOW_GRADE_M)
+margin_m                 = 200.0    # the flat REGION = pavement ∪ boundary ⊕ margin (report + preference extent; FLAT_SITE_MARGIN_M)
+
+[datum]
+source     = "cifp"                 # "cifp" (mean threshold elevation) | "pack_seats" (S4 median) — the verdict's Z0
+preference = "flat_datum"           # the Weights.preference group; ranked below law, above seam
+weight     = 5.0e4                  # law 1e5 > flat_datum 5e4 > seam 1e4 > end_zone 1e3 > crown 1e2
+runway_pins_hard = true             # thresholds stay CIFP-absolute (08-25); the datum NEVER pins pavement
+
+[declared]                          # (c): per-airport overrides — the ONLY airport-specific facts in law/
+# OTHH = { z0 = 3.96, source = "cifp" }        # example; absent = measured verdict
+# VHHH = { z0 = 5.5,  source = "metres" }      # "metres" = the number IS the datum

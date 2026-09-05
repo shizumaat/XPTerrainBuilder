@@ -252,16 +252,12 @@ cfg_tile_vars = {
     # declaration and detection stay auditable against each other
     # forever.  The flat-site mode treats ``flat_declared`` exactly as
     # ``flat_candidate``.
-    "flat_site_declared": {
-        "type": str,
-        "default": "",
-        "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
-    },
-    "flat_site_declared_elevation_m": {
-        "type": str,
-        "default": "",
-        "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
-    },
+    # ── DECLARED FLAT SITES: RETIRED (RULINGS 2026-09-05k-2, lane
+    # v2flatsite).  The ONE declared register is the v2 law table
+    # ``src/auto_patch_v2/law/flat_site.toml [declared]`` (ICAO → z0 +
+    # source), which both DEM prep (v1 ``flat_site.declared_flat_airports``)
+    # and the v2 law read, so the two can never declare two datums.  The
+    # keys live on only in ``retired_cfg_keys`` below, loudly.
     # ── DECLARED CORRIDORS: RETIRED (Round 21, owner ruling 2026-08-12
     # "LAND-CONNECTED CONTINUITY, NO DECLARATIONS").  R17-2 asked the
     # owner to type a causeway's bounding box into a per-tile cfg; the
@@ -771,8 +767,6 @@ list_vector_vars = [
     "auto_patch",
     "solve_model",
     "auto_patch_engine",
-    "flat_site_declared",
-    "flat_site_declared_elevation_m",
     "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",
@@ -898,6 +892,20 @@ list_cfg_vars = list_tile_vars + list_global_tile_vars + list_app_vars
 retired_cfg_keys = {
     # Superseded by airport_elevation_level (2026-07-24).
     "airport_elevation_inset_resolution_m": None,
+    # RULINGS 2026-09-05k-2: the declared register is the v2 law table.
+    "flat_site_declared": (
+        "flat_site_declared is RETIRED and IGNORED: an airport is declared "
+        "a flat site in the engine's law table "
+        "src/auto_patch_v2/law/flat_site.toml [declared] (ICAO = { z0, "
+        "source }), the ONE register DEM prep and the v2 law both read "
+        "(owner ruling 2026-09-05k-2) — delete the line."
+    ),
+    "flat_site_declared_elevation_m": (
+        "flat_site_declared_elevation_m is RETIRED and IGNORED: a declared "
+        "flat site's datum is its entry in src/auto_patch_v2/law/"
+        "flat_site.toml [declared] (source = \"metres\" makes z0 the datum; "
+        "owner ruling 2026-09-05k-2) — delete the line."
+    ),
     # Round 21, owner ruling 2026-08-12: the causeway is MEASURED now.
     "flat_site_declared_corridors": (
         "flat_site_declared_corridors is RETIRED and IGNORED: the ground "

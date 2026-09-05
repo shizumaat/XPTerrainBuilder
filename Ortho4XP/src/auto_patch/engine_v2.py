@@ -165,14 +165,20 @@ def _dem_label(dem_prov: dict) -> str:
 
 
 def format_provenance_line(icao: str, *, sha: str, law_sha256: str | None,
-                           ruleset: str, dem_prov: dict, status: str) -> str:
+                           ruleset: str, dem_prov: dict, status: str,
+                           flat_site: dict | None = None) -> str:
     """The v2 twin of ``provenance.format_log_line`` — one line per airport
     at patch completion, ``engine=v2`` and the law-table digest instead of
     v1's gate census (v2 has no gates: RULINGS 2026-09-03e, no numeric law
-    value lives in Python)."""
+    value lives in Python).  ``flat=<Z0>`` names the flat-site datum the
+    LP priced when the verdict substitutes (RULINGS 2026-09-05k-2; the
+    ``law=`` digest already changes when a site is declared)."""
     law = (law_sha256 or "absent")[:12]
+    flat = ""
+    if flat_site and flat_site.get("substitutes") and flat_site.get("z0_m") is not None:
+        flat = f" flat={float(flat_site['z0_m']):.2f}"
     return (f"  [provenance] {icao} patch: engine=v2 sha={sha} law={law} "
-            f"ruleset={ruleset} solve={status} dem={_dem_label(dem_prov)}")
+            f"ruleset={ruleset} solve={status}{flat} dem={_dem_label(dem_prov)}")
 
 
 def _iis_text(report: dict, log_lines: list[str]) -> str:
@@ -314,7 +320,8 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     sha = _prov.source_label(_prov.git_provenance())
     line = format_provenance_line(icao, sha=sha, law_sha256=digest["sha256"],
                                   ruleset=law.ruleset_key, dem_prov=dem_prov,
-                                  status=status)
+                                  status=status,
+                                  flat_site=(res.report.get("load") or {}).get("flat_site"))
     summary = (f"{src.ways} ways, {src.nodes} nodes [v2 {status}, "
                f"verify rows {sum(by_family.values()) if by_family else 'n/a'}]")
     return {"icao": icao, "ok": True, "engine": ENGINE_V2, "summary": summary,

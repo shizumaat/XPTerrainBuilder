@@ -379,20 +379,22 @@ def test_the_driver_stamps_the_engine_into_every_task_and_freshness_block():
 def test_the_freeze_spec_bundles_the_v2_law_tables_and_modules():
     spec = (ENGINE_ROOT / "Ortho4XP.spec").read_text()
     assert re.search(r'auto_patch_v2.*law.*\*\.toml', spec), \
-        "the six law tables must be PyInstaller datas"
+        "the seven law tables must be PyInstaller datas"
     assert re.search(r'auto_patch_v2.*classify.*\*\.toml', spec)
     assert "collect_submodules('auto_patch_v2')" in spec
     assert "v2_law_datas" in spec and "raise SystemExit" in spec, \
         "a freeze without the tables must fail at freeze time"
     tables = sorted(p.name for p in (ENGINE_ROOT / "src/auto_patch_v2/law").glob("*.toml"))
-    assert len(tables) == 6, tables
+    from auto_patch_v2.law.model import TABLE_FILES
+    assert tables == sorted(TABLE_FILES), tables      # seven since 2026-09-05k-2
     assert (ENGINE_ROOT / "src/auto_patch_v2/classify/rules.toml").is_file()
 
 
 def test_the_real_law_digest_names_every_table_and_is_none_when_absent(tmp_path):
     from auto_patch_v2.law import law_tables_digest
     real = law_tables_digest()
-    assert len(real["files"]) == 6 and len(real["sha256"]) == 64
+    from auto_patch_v2.law.model import TABLE_FILES
+    assert sorted(real["files"]) == sorted(TABLE_FILES) and len(real["sha256"]) == 64
     assert law_tables_digest(tmp_path)["sha256"] is None
     (tmp_path / "a.toml").write_text("x = 1\n")
     one = law_tables_digest(tmp_path)["sha256"]

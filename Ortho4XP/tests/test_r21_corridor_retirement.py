@@ -102,7 +102,7 @@ class TestAStaleCfgStillLoads:
             "airport_elevation_inset_resolution_m") is None
 
     def test_a_live_key_is_not_a_retirement(self):
-        assert CV.retired_cfg_key_warning("flat_site_declared") is None
+        assert CV.retired_cfg_key_warning("modify_custom_airports") is None
 
     def test_the_config_reader_knows_the_retirement(self):
         assert KEY in CFG.RETIRED_CFG_KEYS

@@ -19,22 +19,29 @@ import types as _types
 import typing as _t
 from pathlib import Path
 
+# flat_site.toml's schema + its own checks live beside this module (the
+# 1,000-line file law; RULINGS 2026-09-05k-2) and are re-exported here.
+from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
+                               ReliefFloor, check_flat_site as _check_flat_site)
+
 __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
     "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "Bridge", "BuildingPad", "Basin",
-    "RetainingWall", "Structures", "Chords", "Identity", "Materiality",
+    "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
+    "Declared", "FlatSite", "Chords", "Identity", "Materiality",
     "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables",
 ]
 
-#: The six files a law directory must contain (owner amendment 2026-09-03).
+#: The seven files a law directory must contain (owner amendment
+#: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2).
 TABLE_FILES: tuple[str, ...] = (
     "rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
-    "precedence.toml", "families.toml",
+    "precedence.toml", "families.toml", "flat_site.toml",
 )
 
 
@@ -585,7 +592,7 @@ class Family:
 
 @_dc.dataclass(frozen=True)
 class LawTables:
-    """Everything the six files hold, validated."""
+    """Everything the seven files hold, validated."""
 
     resolution: Resolution
     common: CommonLaw
@@ -595,6 +602,7 @@ class LawTables:
     emit: EmitLaw
     precedence: Precedence
     families: _t.Mapping[str, Family]
+    flat_site: FlatSite
 
 
 # ── the loader ───────────────────────────────────────────────────────────
@@ -609,13 +617,16 @@ _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
 _DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
            "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
            "rim": ("ground",)}
+#: The one SIGNED metre key: an authored OBJ8 ``base_y`` threshold (a depth
+#: under the placement seat is negative by the file's own convention).
+_SIGNED_METRES = ("below_grade_base_y_m",)
 
 
 def _sane(path: str, name: str, value: float) -> None:
     """Unit sanity: grades are fractions in [0, 0.2]; metres, counts and
     degrees are non-negative."""
     if name.endswith(("_m", "_m2", "_deg", "per_m")) or name == "k":
-        if value < 0:
+        if value < 0 and name not in _SIGNED_METRES:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
         return
     if name in ("max_covered_fraction", "floor_plate_normal_y_min"):
@@ -804,6 +815,7 @@ def _check_cross_refs(t: LawTables) -> None:
     if t.resolution.default not in t.rulesets:
         raise LawError(f"rulesets.resolution.default {t.resolution.default!r}"
                        " is not a ruleset")
+    _check_flat_site(t.flat_site, LawError)
     role_words = roles | {"all", "airside", "groundside", "taxi_family",
                           "runway_family"}
     for key, fam in t.families.items():
@@ -847,7 +859,7 @@ def _walk(obj: object, parts: list[str]) -> bool:
 
 
 def load_tables(law_dir: str | Path) -> LawTables:
-    """Load and validate the six tables under ``law_dir``."""
+    """Load and validate the seven tables under ``law_dir``."""
     d = Path(law_dir)
     rs_raw = _read(d, "rulesets.toml")
     known = {"resolution", "common"}
@@ -875,7 +887,8 @@ def load_tables(law_dir: str | Path) -> LawTables:
         emit=_build(EmitLaw, _read(d, "emit.toml"), "emit"),
         precedence=_build(Precedence, _read(d, "precedence.toml"),
                           "precedence"),
-        families=families)
+        families=families,
+        flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"))
     _check_cross_refs(tables)
     return tables
 

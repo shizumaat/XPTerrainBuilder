@@ -385,7 +385,9 @@ def extents_from_apt(apt, to_m, margin_m: float | None = None):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# (c) THE OWNER DECLARATION — intent never waits on statistics
+# (c) THE OWNER DECLARATION — intent never waits on statistics.  The
+# register is the v2 law table (RULINGS 2026-09-05k-2); ``_cfg_value``
+# stays for the other tile-cfg reads this module's callers make.
 # ──────────────────────────────────────────────────────────────────────
 def _cfg_value(name: str, override=None) -> str:
     """A tile-cfg string, from an explicit override or the live config.
@@ -405,20 +407,60 @@ def _cfg_value(name: str, override=None) -> str:
         return ""
 
 
+def _v2_declared() -> dict:
+    """The v2 law's ``[declared]`` register (``auto_patch_v2/law/
+    flat_site.toml``; RULINGS 2026-09-05k-2 (c)): ``{ICAO: Declared}``.
+    v1 → v2 is the allowed import direction (v2 never imports v1).  A
+    tree or bundle whose v2 law cannot load reads an EMPTY register —
+    loudly, once, never a failed build."""
+    global _V2_DECLARED_CACHE
+    if _V2_DECLARED_CACHE is not None:
+        return _V2_DECLARED_CACHE
+    try:
+        from auto_patch_v2.law import Law
+
+        reg = dict(Law.load().tables.flat_site.declared)
+    except Exception as exc:                          # pragma: no cover
+        import warnings
+
+        warnings.warn(f"flat-site declared register unreadable ({exc!r}): "
+                      f"no airport is declared flat", RuntimeWarning)
+        reg = {}
+    _V2_DECLARED_CACHE = reg
+    return reg
+
+
+_V2_DECLARED_CACHE: dict | None = None
+
+
 def declared_flat_airports(value=None) -> set:
-    """The ICAOs the owner has DECLARED flat (``flat_site_declared``)."""
-    raw = _cfg_value("flat_site_declared", value)
-    return {token.strip().upper() for token in raw.split(",") if token.strip()}
+    """The ICAOs the owner has DECLARED flat.
+
+    THE ONE REGISTER is the v2 law table ``[declared]`` (RULINGS
+    2026-09-05k-2; the tile-cfg keys ``flat_site_declared`` /
+    ``flat_site_declared_elevation_m`` are RETIRED, loudly).  ``value``
+    keeps the comma-separated form for callers that hand a list in (the
+    sweep, the twins).
+    """
+    if value is not None:
+        raw = str(value)
+        return {token.strip().upper() for token in raw.split(",") if token.strip()}
+    return {str(k).upper() for k in _v2_declared()}
 
 
 def declared_flat_elevations(value=None) -> dict:
-    """``{ICAO: metres}`` from ``flat_site_declared_elevation_m``.
+    """``{ICAO: metres}`` for the declared sites whose declaration IS a
+    number (v2 ``source = "metres"``); a ``cifp`` / ``pack_seats``
+    declaration carries no number here and the airport grades to its
+    CIFP consensus Z0, as before.
 
-    Malformed pairs are SKIPPED, never raised on and never guessed at: a
-    typo in a cfg string must not take a build down, and the airport
-    simply falls back to its CIFP consensus Z0.
+    ``value`` keeps the ``ICAO:METRES`` comma form for explicit callers;
+    malformed pairs are SKIPPED, never raised on and never guessed at.
     """
-    raw = _cfg_value("flat_site_declared_elevation_m", value)
+    if value is None:
+        return {str(k).upper(): float(d.z0) for k, d in _v2_declared().items()
+                if getattr(d, "source", None) == "metres" and d.z0 is not None}
+    raw = str(value)
     out = {}
     for token in raw.split(","):
         token = token.strip()

@@ -12,8 +12,8 @@ import math
 
 from pathlib import Path
 
-from .model import (Family, Law, RoleCap, ZoneClass, load_tables,
-                    resolve_ruleset)
+from .model import (Declared, Family, FlatSite, Law, RoleCap, ZoneClass,
+                    load_tables, resolve_ruleset)
 
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
@@ -23,7 +23,15 @@ __all__ = [
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
+    "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
+    "flat_source_class", "flat_relief_floor_m",
 ]
+
+#: The DEM source classes the flat-site detector knows (flat_site.toml
+#: ``[detector]`` ``relief_floor_m`` keys + the lidar short-circuit).
+FLAT_CLASS_LIDAR = "lidar"
+FLAT_CLASS_FINE = "fine"
+FLAT_CLASS_COARSE = "coarse"
 
 #: The checked-in law directory.
 DEFAULT_LAW_DIR: Path = Path(__file__).resolve().parent
@@ -313,3 +321,58 @@ def snap_margin_m(law: Law) -> float:
 def materiality_m(law: Law) -> float:
     """The elevation residual floor (owner 2026-08-02)."""
     return law.tables.emit.materiality.elevation_m
+
+
+# ── the flat-site datum (RULINGS 2026-09-05k-2) ──────────────────────────
+
+def flat_site(law: Law) -> FlatSite:
+    """flat_site.toml: the detector's constants, the datum's pricing and
+    the declared register."""
+    return law.tables.flat_site
+
+
+def flat_datum_group(law: Law) -> str:
+    """The ``Weights.preference`` group the datum rows ride in (below the
+    law ladder, above the seam — ``[datum] preference``)."""
+    return law.tables.flat_site.datum.preference
+
+
+def flat_datum_weight(law: Law) -> float:
+    """The charge per metre of relief of one datum row (``[datum] weight``)."""
+    return law.tables.flat_site.datum.weight
+
+
+def flat_declared(law: Law, icao: str) -> Declared | None:
+    """The owner's declaration for ``icao`` (option (c)), or ``None`` —
+    the ONE declared register; the tile-cfg keys are retired."""
+    return law.tables.flat_site.declared.get(str(icao or "").strip().upper())
+
+
+def flat_source_class(law: Law, pixel_m: float | None) -> str | None:
+    """The DEM source class of a pixel size: ``lidar`` at or under
+    ``lidar_credible_max_m`` (never flat by statistics), ``fine`` at or
+    under ``fine_source_max_m``, ``coarse`` above; ``None`` = unknown
+    pixel (the base tier, whose 1- and 3-arcsec postings are both coarse,
+    is stated by the caller as :data:`FLAT_CLASS_COARSE`)."""
+    if pixel_m is None:
+        return None
+    det = law.tables.flat_site.detector
+    p = float(pixel_m)
+    if not p > 0.0:
+        return None
+    if p <= det.lidar_credible_max_m:
+        return FLAT_CLASS_LIDAR
+    if p <= det.fine_source_max_m:
+        return FLAT_CLASS_FINE
+    return FLAT_CLASS_COARSE
+
+
+def flat_relief_floor_m(law: Law, source_class: str | None) -> float | None:
+    """S2's p95−p5 floor for a source class; ``None`` for lidar (the
+    short-circuit) and for an unknown class."""
+    rf = law.tables.flat_site.detector.relief_floor_m
+    if source_class == FLAT_CLASS_FINE:
+        return rf.fine
+    if source_class == FLAT_CLASS_COARSE:
+        return rf.coarse
+    return None

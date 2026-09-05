@@ -410,21 +410,26 @@ def test_the_declaration_cfg_strings_parse_the_way_the_cfg_writes_them():
         "VHHH": 7.32}
 
 
-def test_the_declaration_keys_are_registered_tile_cfg_vars():
-    """The app has to be able to expose them, so they go through the
-    normal settings registry, not a private read."""
+def test_the_declaration_keys_are_retired_loudly_and_the_v2_table_is_the_register():
+    """RULINGS 2026-09-05k-2 (c): the ONE declared register is the v2 law
+    table ``[declared]``; the tile-cfg keys are retired LOUDLY (a cfg
+    still carrying them warns and loads) and no longer registered."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "src"))
     import O4_Cfg_Vars as cfg
 
     for key in ("flat_site_declared", "flat_site_declared_elevation_m"):
-        assert key in cfg.cfg_tile_vars, f"{key} is not a tile cfg var"
-        assert key in cfg.list_tile_vars, f"{key} is not in list_tile_vars"
-        assert cfg.cfg_tile_vars[key]["type"] is str
-        assert cfg.cfg_tile_vars[key]["default"] == ""
-        assert cfg.cfg_tile_vars[key]["hint"]
-        # Reachable through the global-prefixed mirror the cfg loader uses.
-        assert f"{cfg.global_prefix}{key}" in cfg.cfg_global_tile_vars
+        assert key not in cfg.cfg_tile_vars, f"{key} is still a tile cfg var"
+        assert key not in cfg.list_tile_vars
+        assert key in cfg.retired_cfg_keys
+        assert "flat_site.toml" in cfg.retired_cfg_key_warning(key, "OTHH")
+    # the readers consult the v2 table, not a cfg string
+    from auto_patch_v2.law import Law
+
+    table = Law.load().tables.flat_site.declared
+    assert flat_site.declared_flat_airports() == {k.upper() for k in table}
+    assert flat_site.declared_flat_elevations() == {
+        k.upper(): d.z0 for k, d in table.items() if d.source == "metres"}
 
 
 # ──────────────────────────────────────────────────────────────────────

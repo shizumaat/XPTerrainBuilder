@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1719",
+ "engineVersion": "1.50.1726",
  "groups": {
   "app": [
    "verbosity",
@@ -83,8 +83,6 @@
    "auto_patch",
    "solve_model",
    "auto_patch_engine",
-   "flat_site_declared",
-   "flat_site_declared_elevation_m",
    "modify_custom_airports",
    "elevation_level",
    "elevation_coastline_band_km",
@@ -460,18 +458,6 @@
    "name": "fill_nodata",
    "type": "bool"
   },
-  "flat_site_declared": {
-   "default": "",
-   "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
-   "name": "flat_site_declared",
-   "type": "str"
-  },
-  "flat_site_declared_elevation_m": {
-   "default": "",
-   "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
-   "name": "flat_site_declared_elevation_m",
-   "type": "str"
-  },
   "global_airport_elevation_inset_feather_m": {
    "default": 60.0,
    "hint": "Width in metres of the blend band over which a baked elevation inset ramps from its own values to the underlying base elevation at the inset edge, avoiding a cliff at the seam.",
@@ -750,18 +736,6 @@
    "hint": "When set, the no_data values in the raster will be filled by a nearest neighbour algorithm. If unset, they are turned into zero (can be useful for rasters with no_data over the whole oceanic part or partial LIDAR data).",
    "name": "global_fill_nodata",
    "type": "bool"
-  },
-  "global_flat_site_declared": {
-   "default": "",
-   "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
-   "name": "global_flat_site_declared",
-   "type": "str"
-  },
-  "global_flat_site_declared_elevation_m": {
-   "default": "",
-   "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
-   "name": "global_flat_site_declared_elevation_m",
-   "type": "str"
   },
   "global_imprint_masks_to_dds": {
    "default": false,

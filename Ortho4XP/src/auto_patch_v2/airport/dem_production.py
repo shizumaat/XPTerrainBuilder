@@ -102,10 +102,21 @@ class _BakedTile:
     array is read once and the core object is released)."""
 
     def __init__(self, lat: int, lon: int, alt_dem: np.ndarray,
-                 x0: float, x1: float, y0: float, y1: float) -> None:
+                 x0: float, x1: float, y0: float, y1: float,
+                 inset_provenance: list | None = None,
+                 flat_site_provenance: list | None = None,
+                 overlay_provenance: dict | None = None) -> None:
         self.lat, self.lon = lat, lon
         self.alt = np.asarray(alt_dem, dtype=np.float64)
         self.x0, self.x1, self.y0, self.y1 = x0, x1, y0, y1
+        # THE CORE'S OWN RECORDS on the composed raster, kept for the
+        # flat-site detector (RULINGS 2026-09-05k-2): the insets that
+        # baked (their ``native_resolution_m`` is the source class), the
+        # tile-wide overlay, and the core's ``synthetic_flat_site``
+        # verdict per airport (compared with v2's, never reconciled).
+        self.inset_provenance = list(inset_provenance or [])
+        self.flat_site_provenance = list(flat_site_provenance or [])
+        self.overlay_provenance = dict(overlay_provenance or {})
 
     def sample(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
         ny, nx = self.alt.shape
@@ -165,6 +176,77 @@ class ProductionDem:
         xs, ys = self._fwd.transform([t1, t1 + 1, t1, t1 + 1],
                                      [t0, t0, t0 + 1, t0 + 1])
         return (min(xs), min(ys), max(xs), max(ys))
+
+    # ── the flat-site detector's reads (RULINGS 2026-09-05k-2) ──────
+    def posting_m(self) -> float | None:
+        """The origin tile's working-grid posting in frame metres (the
+        smaller of the two axes) — the step the detector samples the
+        raster at, so it reads the DEM's own cells and invents nothing
+        between them (v1 ``dem_relief``)."""
+        lat, lon = self.frame.origin
+        t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
+        if t is None:
+            return None
+        ny, nx = t.alt.shape
+        if nx < 2 or ny < 2:
+            return None
+        xmin, ymin, xmax, ymax = self.bounds()
+        return float(min((xmax - xmin) * (t.x1 - t.x0) / (nx - 1),
+                         (ymax - ymin) * (t.y1 - t.y0) / (ny - 1)))
+
+    def source_pixel_m(self) -> tuple[float | None, str]:
+        """``(pixel_m, whence)`` of the finest source that baked over THIS
+        airport, in v1's order (``flat_site.source_class_for_dem``): the
+        airport's own inset's ``native_resolution_m`` (``inset``), else
+        the tile overlay's ``target_resolution_m`` (``overlay``), else
+        ``(None, "base_tier")`` — the base tier's 1- and 3-arcsec postings
+        are both coarse; the raster's own posting is NOT consulted (a
+        3-arcsec .hgt is upsampled with no record of it)."""
+        lat, lon = self.frame.origin
+        t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
+        if t is None:
+            return None, "unknown"
+        finest: float | None = None
+        for e in t.inset_provenance:
+            if not isinstance(e, dict):
+                continue
+            # v1 ``provenance._entries_for_icao``: an entry naming another
+            # airport is not this airport's; one naming none counts
+            if e.get("icao") and str(e["icao"]).upper() != self.icao.upper():
+                continue
+            v = e.get("native_resolution_m")
+            if v is None:
+                v = e.get("resolution_m")
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                continue
+            if f > 0.0 and (finest is None or f < finest):
+                finest = f
+        if finest is not None:
+            return finest, "inset"
+        try:
+            f = float(t.overlay_provenance.get("target_resolution_m"))
+        except (TypeError, ValueError):
+            f = 0.0
+        if f > 0.0:
+            return f, "overlay"
+        return None, "base_tier"
+
+    def core_flat_site(self) -> dict | None:
+        """The core's own ``synthetic_flat_site`` record for this airport
+        on the composed raster (``O4_Airport_Elevation_Insets.
+        overlay_flat_site_insets``), or ``None`` when the core substituted
+        nothing here."""
+        lat, lon = self.frame.origin
+        t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
+        if t is None:
+            return None
+        for e in t.flat_site_provenance:
+            if isinstance(e, dict) and str(e.get("icao", "")).upper() == self.icao.upper() \
+                    and e.get("kind") == "synthetic_flat_site":
+                return e
+        return None
 
     def warm_tiles(self) -> frozenset[tuple[int, int]]:
         """The 1° tiles already composed (or seeded) — the rasters a
@@ -302,7 +384,12 @@ class ProductionDem:
                       "elevation_level", "custom_dem", "fill_nodata"):
                 self.provenance[f"cfg:{k}"] = str(getattr(tile, k, ""))
         self._out(f"  [dem] production frame {stem}: {self.provenance[f'tile:{stem}']}")
-        return _BakedTile(lat, lon, arr, dem.x0, dem.x1, dem.y0, dem.y1)
+        overlay = getattr(dem, "tile_overlay_provenance", None)
+        return _BakedTile(lat, lon, arr, dem.x0, dem.x1, dem.y0, dem.y1,
+                          inset_provenance=baked,
+                          flat_site_provenance=list(
+                              getattr(dem, "synthetic_flat_site_provenance", None) or []),
+                          overlay_provenance=overlay if isinstance(overlay, dict) else None)
 
     def _degrade(self, stem: str, problems: list[str]) -> None:
         text = "\n  - ".join(problems)

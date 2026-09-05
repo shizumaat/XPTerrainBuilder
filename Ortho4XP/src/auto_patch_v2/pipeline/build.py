@@ -12,15 +12,18 @@ import time
 import typing as _t
 from pathlib import Path
 
+from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
 from ..constraints import generate
+from ..constraints.flat_site import GEN as FLAT_GEN
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
+from ..law.tables import flat_datum_group, flat_datum_weight
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
@@ -92,6 +95,15 @@ def _basin_polygon(b):
 
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
+
+
+def weights_under_law(weights: Weights, law: Law) -> Weights:
+    """``Weights`` with the flat-site datum's preference group priced from
+    the table (``law/flat_site.toml [datum] weight``; RULINGS 2026-09-05k-2)
+    — the group name and its weight are law, never a literal here."""
+    pref = dict(weights.preference)
+    pref[flat_datum_group(law)] = flat_datum_weight(law)
+    return _dc.replace(weights, preference=pref)
 
 
 #: The report's "moved" threshold (metres off the DEM sample) — a report
@@ -212,6 +224,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
                  f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  area {b.area_m2:.0f} m2  "
                  f"at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  {'; '.join(b.notes)}", out)
+    # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; ``airport/flat_site.py``):
+    # measured here, after the planar stage read the pack's objects (S4),
+    # on the production raster already in memory; the datum is a
+    # preference the generator below prices, the runway keeps its pins
+    t = time.perf_counter()
+    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else ())
+    airport = _dc.replace(airport, flat_site=fv)
+    wall["flat_site"] = time.perf_counter() - t
+    lrep.flat_site = _flat.record(fv)
+    _say(_flat.log_line(icao, fv) + f"  ({wall['flat_site']:.2f} s)", out)
+    for ln in _flat.notes(icao, fv):
+        _say(ln, out)
+    weights = weights_under_law(cfg.weights, law)
     # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
     # vertex's fit target is the core's clamped, laterally-levelled road
     # profile on this DEM (``airport/road_profile.py``); the cap rows
@@ -239,7 +264,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s", out)
     t = time.perf_counter()
     size: dict[str, int] = {}
-    sol, tier_rep = solve_law_ordered(pm, cs, law, cfg.weights, cfg.options, size_out=size)
+    sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
     # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
     # FREE, so the pairs the previous pass exempted as pin↔pin around it
@@ -257,7 +282,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             t = time.perf_counter()
             cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-            sol, tier_rep = solve_law_ordered(pm, cs, law, cfg.weights, cfg.options,
+            sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options,
                                               size_out=size)
             wall[f"solve_pass{n_pass}"] = time.perf_counter() - t
             _say(f"[{icao}] seam pass {n_pass}: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
@@ -271,6 +296,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     relaxed_rows = relaxed_publication(tier_rep)
     for ln in relaxation_lines(tier_rep):
         _say(f"    {ln}", out)
+    if fv.substitutes and sol.z:
+        tol = law.tables.emit.materiality.elevation_m
+        dz = [abs(sol.z[r.terms[0][0]] - r.hi) for r in cs.linears
+              if r.source.generator == FLAT_GEN]
+        held = sum(1 for d in dz if d <= tol)
+        lrep.flat_site["rows"] = len(dz)
+        lrep.flat_site["rows_at_datum"] = held
+        lrep.flat_site["max_off_datum_m"] = round(max(dz), 3) if dz else 0.0
+        _say(f"[flat-site] {icao}: {held}/{len(dz)} datum rows at Z0 {fv.z0_m:.2f} "
+             f"(max off {lrep.flat_site['max_off_datum_m']:.3f} m; the law rows outrank "
+             f"the preference where they differ)", out)
     moved = displacement_by_role(pm, law, sol) if sol.z else {}
     if moved:
         _say(f"[{icao}] off-DEM > {MOVED_M} m by role: " + ", ".join(

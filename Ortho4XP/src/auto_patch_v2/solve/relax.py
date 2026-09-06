@@ -110,7 +110,7 @@ from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff, Fla
 from ..model.planar import PlanarMap
 from .api import Options, Solution, Status, Weights
 from .assemble import roughness_stations, vertex_weights
-from .highs import solve as solve_hard
+from .highs import RESTATEMENT_MARGIN_M, solve as solve_hard
 from .iis import (Certificate, IISBudgetExceeded, RowIndex, diagnose, neighbourhood_certificate,
                   row_vertices)
 from .tiers import row_tier
@@ -413,11 +413,17 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
 # ── stage 2: the relaxed HARD set ────────────────────────────────────────
 
 def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage1,
-                     tol: float = 1e-9) -> tuple[ConstraintSet, dict[int, Row | tuple[Row, ...]]]:
-    """Every relaxed row at its solved relief: a ``Diff`` at ``cap + s/d``,
-    a ``Linear`` at ``hi + s`` / ``lo − s``, a pad as plane equalities at
-    the solved gradient (a pad whose rise is below ``tol`` stays a
-    ``Flat``); returns the set and ``index -> replacement``."""
+                     tol: float = 1e-9, margin: float = RESTATEMENT_MARGIN_M
+                     ) -> tuple[ConstraintSet, dict[int, Row | tuple[Row, ...]]]:
+    """Every relaxed row at its solved relief: a ``Diff`` at ``cap + (s +
+    margin)/d``, a ``Linear`` at ``hi + s + margin`` / ``lo − s − margin``,
+    a pad as plane equalities at the solved gradient (a pad whose rise is
+    below ``tol`` stays a ``Flat``); returns the set and ``index ->
+    replacement``.  ``margin`` (``highs.RESTATEMENT_MARGIN_M``): the
+    stage-1 point satisfies its rows only to the LP's feasibility
+    tolerance, so a row re-stated at the slack EXACTLY is a knife edge
+    the stage-2 solve may call infeasible (measured at HECA, lane v2bow2:
+    the same set optimal in one process, infeasible in another)."""
     repl: dict[int, Row | tuple[Row, ...]] = {}
     by_id: dict[int, Relaxed] = {id(x.row): x for x in relaxed}
     out: list[Row] = []
@@ -433,12 +439,13 @@ def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage
             repl[x.index] = r
             continue
         if x.kind == "diff":
-            nr: Row = _dc.replace(r, cap=r.cap + s1.excess[x.index], source=src)
+            nr: Row = _dc.replace(r, cap=r.cap + s1.excess[x.index] + margin / max(r.d, tol),
+                                  source=src)
             out.append(nr)
             repl[x.index] = nr
         elif x.kind == "linear":
-            nr = _dc.replace(r, hi=None if r.hi is None else r.hi + s,
-                             lo=None if r.lo is None else r.lo - s, source=src)
+            nr = _dc.replace(r, hi=None if r.hi is None else r.hi + s + margin,
+                             lo=None if r.lo is None else r.lo - s - margin, source=src)
             out.append(nr)
             repl[x.index] = nr
         else:

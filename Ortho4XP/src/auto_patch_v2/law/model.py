@@ -360,9 +360,7 @@ class Basin:
 
 @_dc.dataclass(frozen=True)
 class Cutout:
-    """Every below-grade OBJECT's trench (RULINGS 2026-09-06b (1); ``[cutout]``):
-    the floor overlaps the inner perimeter by ``floor_overlap_m``, the rim
-    stands ``rim_gap_m`` outside the outer one, no wall face between."""
+    """Below-grade object trench: floor ⊕ overlap, rim ⊕ gap, no band (2026-09-06b (1))."""
 
     floor_overlap_m: float
     rim_gap_m: float
@@ -379,9 +377,7 @@ class RetainingWall:
 
 @_dc.dataclass(frozen=True)
 class Rebake:
-    """Object re-seat law (RULINGS 2026-09-04i 04f-1: restore before
-    read, re-bake after the mesh; memory ``othh-bridge-deck-datum-r12``,
-    ``shared-datum-pack-authoring``; the reseat-threshold spec)."""
+    """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
 
     restore_before_read: bool
     ground_datum: str
@@ -515,9 +511,7 @@ class LateralContiguity:
 
 @_dc.dataclass(frozen=True)
 class RoadProfile:
-    """The core's road clamp constants (RULINGS 2026-09-04t-4: the core
-    smooths first; ``airport/road_profile.py`` reproduces its profile as
-    the road family's fit target)."""
+    """The core's road clamp constants (RULINGS 2026-09-04t-4; ``airport/road_profile.py``)."""
 
     station_m: float
     lane_width_m: float

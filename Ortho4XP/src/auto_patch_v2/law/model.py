@@ -536,8 +536,7 @@ class Relaxation:
     scope_without_certificate: str
     #: the tier ladder answers last; a governed family it demotes is a NAMED FAILURE
     tier_ladder_last: bool
-    #: RULINGS 2026-09-05ae(2): a relaxed row's slack <= (factor - 1) x cap x d
-    max_over_cap_factor: float
+    max_over_cap_factor: float   # 05ae(2): a relaxed row's slack <= (factor - 1) x cap x d
 
 
 @_dc.dataclass(frozen=True)

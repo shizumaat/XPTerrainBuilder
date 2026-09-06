@@ -192,6 +192,7 @@ class CommonLaw:
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float
     vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
+    runway_profile_smoothness: float       # 06h (c): λ per metre of |Δgrade| × span on a runway ridge (above the runway DEM-fit weight)
 
 
 @_dc.dataclass(frozen=True)

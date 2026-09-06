@@ -75,6 +75,13 @@ class Weights:
     #: M5, additive.
     tier_ratio: float = 10.0
     tier_top: float = 2.0e7
+    #: THE RUNWAY SMOOTHNESS (RULINGS 2026-09-06h (c)): λ per BREAKLINE
+    #: KIND, overriding ``smoothness`` for that kind's stations — the
+    #: ``runway_profile`` ridge carries ``rulesets.toml [common]
+    #: runway_profile_smoothness`` (``pipeline.build.weights_under_law``),
+    #: a charge above the runway DEM-fit weight so the profile runs
+    #: straight between its holds; the vertical-curve rows stay hard.
+    smoothness_by_kind: _t.Mapping[str, float] = _dc.field(default_factory=dict)
 
 
 @_dc.dataclass(frozen=True)

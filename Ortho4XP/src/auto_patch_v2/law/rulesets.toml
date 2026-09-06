@@ -30,6 +30,7 @@ parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026
 apron_fan_ramp_max = 0.050          # interior apron fan cap (FAN_RAMP_CAP; 08-08 fabric model)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)
+runway_profile_smoothness = 5000.0  # RULINGS 2026-09-06h (c): the runway profile's SMOOTHNESS preference — the charge per metre of |grade change| × station span along a runway ridge (the LP's L1 second-difference term, solve/assemble.py ``r`` columns), in the DEM-fit weights' own units (per metre); ABOVE the runway DEM-fit weight (pipeline/build.py 20/m) so the profile runs straight between its holds instead of humping to the DEM and diving (HECA 05C/23C 1.0.288: −0.24 % straight vs a +0.58 % / −1.41 % hump, 3.3 m of the bow); the K rows stay hard. Ladder: law > flat_datum > seam > end_zone > crown > THIS > runway fit
 vertical_curve_k_grade_unit = 0.01  # the UNIT of every ruleset's vertical_curve_k_m: K is metres per THIS much grade change (one per cent, Annex 14 §3.1.16 / AC 150/5300-13 §3.16); a spacing s admits a change of s / K × this (2026-09-06b law 1)
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────

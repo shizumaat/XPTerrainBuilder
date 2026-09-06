@@ -8,9 +8,12 @@ Variables (column blocks):
   ``r``  one per interior breakline station: the L1 second difference
          (grade change per station) — the roughness term, weight λ.
 
-Objective ``min Σ w_i t_i + λ Σ r_k`` — the L1 form the solver benchmark
+Objective ``min Σ w_i t_i + Σ λ_k r_k`` — the L1 form the solver benchmark
 measured (solver-benchmark-20260903.md finding 3a): a pure LP, solved
 with the REAL objective (a zero-objective phase 1 wanders, finding 1).
+``λ_k`` is the chain's kind's weight (``Weights.smoothness_by_kind``: the
+runway ridge's ``[common] runway_profile_smoothness``, RULINGS
+2026-09-06h (c)) or ``Weights.smoothness``.
 
 Rows: ``Pin`` and ``Flat`` are equalities; ``Diff`` two inequalities;
 ``Offset`` one; ``Linear`` one per finite side; ``Band`` per-variable
@@ -33,7 +36,7 @@ from ..model.planar import PlanarMap
 from .api import Weights
 
 __all__ = ["Sparse", "to_sparse", "Problem", "assemble", "PREFERENCE_WEIGHT",
-           "preference_weight"]
+           "preference_weight", "vertex_weights", "roughness_stations"]
 
 #: Default charge of one unit of preference escalation, per metre of
 #: relief, relative to the largest DEM-fit weight, for a group prefix
@@ -182,22 +185,55 @@ def preference_weight(group: str, weights: Weights) -> float:
     return base * weights.tier_ratio ** int(rank)
 
 
-def vertex_weights(planar: PlanarMap, weights: Weights) -> np.ndarray:
+def vertex_weights(planar: PlanarMap, weights: Weights,
+                   roles: _t.Container[str] | None = None) -> np.ndarray:
     """DEM-fit weight per vertex: the LARGEST weight of any incident
     face's role (airside pulls hardest), ``default`` where no face has
-    a weight, ``zone3`` never (v2 emits no zone-3 vertex)."""
+    a weight, ``zone3`` never (v2 emits no zone-3 vertex).  ``roles``
+    restricts the reading to faces of those roles — ``0`` for a vertex
+    touching none (the relaxation's RUNWAY-family fit term, RULINGS
+    2026-09-06h (b))."""
     n = len(planar.vertices)
-    w = np.full(n, float(weights.default))
+    w = np.full(n, float(weights.default) if roles is None else 0.0)
     role_w = dict(weights.by_role)
     for vid, v in planar.vertices.items():
         best: float | None = None
         for fid in v.incident_faces:
-            rw = role_w.get(planar.faces[fid].role)
+            role = planar.faces[fid].role
+            if roles is not None and role not in roles:
+                continue
+            rw = role_w.get(role)
             if rw is not None:
                 best = rw if best is None else max(best, rw)
         if best is not None:
             w[vid] = best
     return w
+
+
+def roughness_stations(planar: PlanarMap, weights: Weights
+                       ) -> list[tuple[int, int, int, float, float, float]]:
+    """The L1 second-difference stations: every interior vertex of every
+    breakline chain with its two spacings and its λ — ``smoothness_by_
+    kind[kind]`` for the chain's kind (the runway ridge, 06h c), else
+    ``smoothness``; a station whose λ is 0 is no station.  ``(a, m, c,
+    dp, dn, λ)``.  ONE enumeration for the solve and the relaxation."""
+    out: list[tuple[int, int, int, float, float, float]] = []
+    by_kind = dict(weights.smoothness_by_kind)
+    lam0 = float(weights.smoothness)
+    for b in planar.breaklines.values():
+        lam = float(by_kind.get(b.kind, lam0))
+        if lam <= 0.0:
+            continue
+        ch = b.vertices(planar)
+        for k in range(1, len(ch) - 1):
+            a, m, c = ch[k - 1], ch[k], ch[k + 1]
+            if len({a, m, c}) < 3:
+                continue
+            (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
+            dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
+            if dp > 1e-6 and dn > 1e-6:
+                out.append((a, m, c, dp, dn, lam))
+    return out
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
@@ -212,20 +248,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
                     else math.nan for i in range(n)], float)
     has_dem = ~np.isnan(dem)
     wv = vertex_weights(planar, weights)
-    # roughness stations along breaklines (interior vertices of each chain)
-    stations: list[tuple[int, int, int, float, float]] = []
-    lam = float(weights.smoothness)
-    if lam > 0.0:
-        for b in planar.breaklines.values():
-            ch = b.vertices(planar)
-            for k in range(1, len(ch) - 1):
-                a, m, c = ch[k - 1], ch[k], ch[k + 1]
-                if len({a, m, c}) < 3:
-                    continue
-                (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
-                dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
-                if dp > 1e-6 and dn > 1e-6:
-                    stations.append((a, m, c, dp, dn))
+    # roughness stations along breaklines (interior vertices of each
+    # chain), each at its kind's λ (the runway ridge's from the law table)
+    stations = roughness_stations(planar, weights)
     n_t = int(has_dem.sum())
     n_r = len(stations)
     # preference slacks (owner 2026-07-08): one column per escalation group,
@@ -261,8 +286,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
             t_col[i] = k
             c[k] = wv[i]
             k += 1
-    for j in range(n_r):
-        c[n + n_t + j] = lam
+    for j, st_ in enumerate(stations):
+        c[n + n_t + j] = st_[5]
     # extra inequality rows: |z - dem| <= t ; |second diff| <= r
     r_: list[int] = []
     c_: list[int] = []
@@ -275,7 +300,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
         v_ += [1.0, -1.0, -1.0, -1.0]
         b_ += [dem[i], -dem[i]]
         row += 2
-    for j, (a, m, cc, dp, dn) in enumerate(stations):
+    for j, (a, m, cc, dp, dn, _lam) in enumerate(stations):
         rc = n + n_t + j
         terms = ((cc, 1.0 / dn), (m, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
         scale = 0.5 * (dp + dn)          # metres of Δgrade·span: comparable to t

@@ -20,7 +20,16 @@ centerlines``).  Its EDGES are
 * (iii) the 1202 taxi routes CROSSING a runway (05z b) — recovered from
   ``airport.taxi_edges`` clipped to the slab (classify cut them off the
   centrelines), joined to the ridge's bracketing stations where they
-  cross it and to the runway ring vertex where they enter;
+  cross it, to the runway ring vertex where they enter, and — RULINGS
+  2026-09-06h (a) — from every 1202 node INSIDE the slab by ONE lateral
+  hop to the ridge's bracketing stations over its perpendicular distance
+  at the runway TRANSVERSE cap (the walk along the ridge from the foot at
+  the longitudinal cap) — the node where the route meets the runway's own
+  1202 line: a crossing need not cross the ridge to reach it, and the
+  interior nodes are route terminals the entry's walk passes through (HECA 05C/23C, measured 2026-09-06: T4 enters the slab
+  diagonally at s≈2215 and ENDS at node 257 at s≈2057, 2.4 m off the
+  ridge — the entry's reach ran a 32 m perpendicular hop instead of the
+  161 m of centreline, a 4.4 m shortcut on the s≈2218 ceiling);
 
 and NOTHING ELSE: no ring edge of any face, no chord of any kind
 (stretch, apron, junction), no apron perimeter, no pad frontage hop.
@@ -35,7 +44,9 @@ stretches splitting or touching (through a ring vertex) every other
 face — over the PERPENDICULAR distance (the foot on the polyline) at
 the face's TRANSVERSE cap: ``runway.transverse_max`` for a runway edge,
 the taxi transverse cap for a taxiway edge, the apron cap for an apron
-vertex.  A PAD attaches at its CONTACT (RULINGS 2026-09-05ab, spec §9):
+vertex.  A crossing ENTRY whose crossing reaches the ridge IS a station
+of a centreline inside its runway face (the crossing, 06h a) and hops
+no more on that face: it reaches the ridge along the crossing.  A PAD attaches at its CONTACT (RULINGS 2026-09-05ab, spec §9):
 a rim vertex welded to the pavement IS that pavement vertex and attaches
 as one; a rim vertex bound by a ``frontage_near_miss`` row (a sub-metre
 source gap, ``pads.frontage_contacts``) joins its apron vertex by ONE
@@ -82,7 +93,7 @@ from scipy.sparse.csgraph import dijkstra
 
 from ..law import Law
 from ..law.tables import (is_rigid_role, is_value_role, role_cap, role_family,
-                          role_side)
+                          role_side, runway_transverse_max)
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
@@ -211,25 +222,32 @@ def _runway_frame(rw) -> tuple[float, float, float, float, float, float, float]:
 def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
                       ridge_by_ref: _t.Mapping[str, list[list[int]]],
                       ring_by_ref: _t.Mapping[str, set[int]], tol: float
-                      ) -> tuple[list[tuple[int, int, float, float]], set[int], int]:
-    """RULINGS 2026-09-05z (b): the 1202 taxi routes CROSSING each runway
-    as graph edges at the runway longitudinal cap.  Every non-runway
-    ``taxi_edge`` is clipped to the slab; the clipped parts form a small
-    POINTS GRAPH per runway — an end on the slab boundary is an ENTRY
-    (the runway ring vertex the cut centreline ended on, within
-    ``tol``), an end at a network node inside the slab an interior
-    point (HECA 05C/23C, measured 2026-09-05: the crossing at stubs
-    pav91 / pav101 is centreline node 257 → node 437, 14.6 m off the
-    ridge inside the slab → node 436 outside — no single part both
-    enters and meets the ridge), and where a part meets the ridge its
-    meeting point joins the two bracketing stations.  From every entry
-    the shortest path through interior points to each TERMINAL (a
-    station or another entry) is one graph edge of that length.
-    Returns ``(edges, entries, unmatched)``; ``edges`` are ``(a, b, cap,
-    length)``."""
+                      ) -> tuple[list[tuple[int, int, float, float]], set[int], int, set[int]]:
+    """RULINGS 2026-09-05z (b) + 2026-09-06h (a): the 1202 taxi routes
+    CROSSING each runway as graph edges.  Every non-runway ``taxi_edge``
+    is clipped to the slab; the clipped parts form a small POINTS GRAPH
+    per runway — an end on the slab boundary is an ENTRY (the runway ring
+    vertex the cut centreline ended on, within ``tol``), an end at a
+    network node inside the slab an INTERIOR point, and where a part
+    meets the ridge its meeting point joins the two bracketing stations.
+    Every interior point that is a node of the RUNWAY's own 1202
+    centreline (where the taxi route meets the runway line) ALSO joins
+    the ridge's bracketing stations by one lateral hop: its perpendicular
+    distance at the runway TRANSVERSE cap plus the walk along the ridge
+    from the foot at the longitudinal cap (06h a — HECA 05C/23C, measured
+    2026-09-05/06: T4 is runway-line node 257 (2.4 m off the ridge at
+    s≈2057) → node 437 (17 m off) → node 436 outside; no part crosses the
+    ridge, so the crossing never reached it and the entry's perpendicular
+    hop stood in for 161 m of centreline).  From every entry the least-BUDGET path through interior
+    points to each TERMINAL (a station or another entry) is one graph
+    edge carrying that path's budget and length (``cap = budget /
+    length``, as a lateral hop is priced).  Returns ``(edges, entries,
+    unmatched, ridge_entries)``; ``edges`` are ``(a, b, cap, length)``;
+    ``ridge_entries`` the entries whose crossing reaches a ridge station."""
     import heapq
     out: list[tuple[int, int, float, float]] = []
     entries: set[int] = set()
+    ridge_entries: set[int] = set()
     unmatched = 0
     node_xy = {nid: n.xy for nid, n in airport.taxi_nodes.items()}
     for rw in airport.runways:
@@ -239,6 +257,9 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
         if rc is None or not ring_v or not chains:
             continue
         cap = rc.longitudinal
+        tcap = runway_transverse_max(law, rw.code_letter, rw.code_number)
+        if tcap is None:
+            tcap = cap
         ax, ay, ux, uy, L, h, L0 = _runway_frame(rw)
         if L <= 0.0:
             continue
@@ -255,31 +276,43 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
             j = int(np.argmin(d))
             return int(rv[j]) if d[j] <= tol else None
 
-        def ridge_join(X):
+        def ridge_foot(X):
+            """``(perpendicular distance, [(station, along)] * 2)`` — the
+            foot of ``X`` on the nearest chain and the two stations
+            bracketing it with their distance along the segment."""
             best = None
             for ci, ch in enumerate(chains):
                 if len(ch) < 2:
                     continue
-                d, k, _t_, _s = project_to_chain(X, chain_xy[ci])
+                d, k, t_, _s = project_to_chain(X, chain_xy[ci])
                 if best is None or d < best[0]:
-                    best = (d, ci, k)
+                    best = (d, ci, k, t_)
             if best is None:
-                return []
-            _d, ci, k = best
-            return [(chains[ci][k], math.hypot(X[0] - chain_xy[ci][k][0], X[1] - chain_xy[ci][k][1])),
-                    (chains[ci][k + 1], math.hypot(X[0] - chain_xy[ci][k + 1][0],
-                                                   X[1] - chain_xy[ci][k + 1][1]))]
+                return 0.0, []
+            d, ci, k, t_ = best
+            (px, py), (qx, qy) = chain_xy[ci][k], chain_xy[ci][k + 1]
+            seg = math.hypot(qx - px, qy - py)
+            return d, [(chains[ci][k], t_ * seg), (chains[ci][k + 1], (1.0 - t_) * seg)]
 
         # the points graph: ("v", ring vertex) entries / stations, ("n", node)
-        # interior network nodes, ("x", i) ridge meeting points
-        adj: dict[tuple, list[tuple[tuple, float]]] = {}
+        # interior network nodes, ("x", i) ridge meeting points; an arc
+        # carries (length, budget)
+        adj: dict[tuple, list[tuple[tuple, float, float]]] = {}
 
-        def link(p, q, d):
+        def link(p, q, length, budget):
             if p != q:
-                adj.setdefault(p, []).append((q, d))
-                adj.setdefault(q, []).append((p, d))
+                adj.setdefault(p, []).append((q, length, budget))
+                adj.setdefault(q, []).append((p, length, budget))
         n_x = 0
         local_entries: set[int] = set()
+        # the nodes ON the runway's own 1202 centreline: where a taxi route
+        # meets the runway line (T4 at node 257), never a bend of the route
+        # inside the slab (node 437, 17 m off the ridge: joined too, the
+        # entry reaches the ridge in 56 m and the s≈2218 ceiling reads
+        # 110.99; joined at the runway line only it reads 114.52, the
+        # ruling's 114.5 — measured 2026-09-06 on the HECA planar map)
+        rw_nodes = {n for e in airport.taxi_edges if e.is_runway for n in (e.a, e.b)}
+        interior: dict[tuple, tuple[float, float]] = {}
         for e in airport.taxi_edges:
             if e.is_runway or e.a not in node_xy or e.b not in node_xy:
                 continue
@@ -323,40 +356,54 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
                     keys.append((("v", v), p))
                 else:
                     keys.append((("n", node), p))
+                    if node in rw_nodes:
+                        interior.setdefault(("n", node), p)
             if ta * tb <= 0.0:
                 w = ta / (ta - tb) if ta != tb else 0.0
                 X = (p0[0] + w * (p1[0] - p0[0]), p0[1] + w * (p1[1] - p0[1]))
                 kx = ("x", n_x); n_x += 1
-                for S, dS in ridge_join(X):
-                    link(kx, ("v", S), dS)
+                for S, dS in ridge_foot(X)[1]:
+                    link(kx, ("v", S), dS, cap * dS)
                 for kp in keys:
                     if kp is not None:
-                        link(kp[0], kx, math.hypot(kp[1][0] - X[0], kp[1][1] - X[1]))
+                        dk = math.hypot(kp[1][0] - X[0], kp[1][1] - X[1])
+                        link(kp[0], kx, dk, cap * dk)
             elif keys[0] is not None and keys[1] is not None:
-                link(keys[0][0], keys[1][0], math.hypot(p0[0] - p1[0], p0[1] - p1[1]))
-        # from every entry: the shortest path to each terminal (a station
-        # or another entry) through interior points only
+                dk = math.hypot(p0[0] - p1[0], p0[1] - p1[1])
+                link(keys[0][0], keys[1][0], dk, cap * dk)
+        # THE INTERIOR JOIN (06h a): every 1202 node inside the slab hops
+        # once to the ridge's bracketing stations — the perpendicular at
+        # the transverse cap, the walk along the ridge at the longitudinal
+        # cap (as ``_nearest_station`` prices a ring vertex's hop)
+        for kn, p in interior.items():
+            d, feet = ridge_foot(p)
+            for S, along in feet:
+                link(kn, ("v", S), d + along, tcap * d + cap * along)
+        # from every entry: the least-budget path to each terminal (a
+        # station or another entry) through interior points only
         for v in sorted(local_entries):
             src = ("v", v)
-            dist = {src: 0.0}
+            dist = {src: (0.0, 0.0)}
             heap = [(0.0, 0, src)]
             tick = 0
             while heap:
-                d, _k, u = heapq.heappop(heap)
-                if d > dist.get(u, math.inf):
+                b, _k, u = heapq.heappop(heap)
+                if b > dist.get(u, (math.inf, 0.0))[0]:
                     continue
                 if u != src and u[0] == "v":
                     continue                  # a terminal is never expanded
-                for w_, dw in adj.get(u, ()):
-                    nd = d + dw
-                    if nd < dist.get(w_, math.inf):
-                        dist[w_] = nd
+                for w_, dl, db in adj.get(u, ()):
+                    nb = b + db
+                    if nb < dist.get(w_, (math.inf, 0.0))[0]:
+                        dist[w_] = (nb, dist[u][1] + dl)
                         tick += 1
-                        heapq.heappush(heap, (nd, tick, w_))
-            for u, d in dist.items():
-                if u != src and u[0] == "v" and d > 0.0:
-                    out.append((v, u[1], cap, d))
-    return out, entries, unmatched
+                        heapq.heappush(heap, (nb, tick, w_))
+            for u, (b, ln) in dist.items():
+                if u != src and u[0] == "v" and ln > 0.0:
+                    out.append((v, u[1], b / ln, ln))
+                    if u[1] not in local_entries:
+                        ridge_entries.add(v)
+    return out, entries, unmatched, ridge_entries
 
 
 def _nearest_station(pts: np.ndarray,
@@ -501,8 +548,9 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     # off the rest of the network)
     n_unmatched = 0
     entries: set[int] = set()
+    ridge_entries: set[int] = set()
     if airport is not None and ridge_by_ref:
-        xing_edges, entries, n_unmatched = _runway_crossings(
+        xing_edges, entries, n_unmatched, ridge_entries = _runway_crossings(
             law, airport, xy, ridge_by_ref, ring_by_ref, weld_m)
         for a, b, cap, ln in xing_edges:
             add(a, b, cap, CROSSING, ln)
@@ -558,6 +606,10 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
                 ch = list(st.items[sid].vertices)
                 lines.append((ch, xy[np.array(ch, np.int64)], stretch_caps[sid]))
         on_line = {v for ch, _c, _k in lines for v in ch}
+        if f.role in rw_fam:
+            # an entry whose crossing reaches the ridge is a station of a
+            # centreline inside this face (06h a): no hop on this face
+            on_line |= ridge_entries
         off = np.array([v for v in ring_v if v not in on_line], np.int64)
         if off.size == 0:
             continue
@@ -628,7 +680,8 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
              "lateral": int(np.sum(kind == LATERAL)),
              "contact": int(np.sum(kind == CONTACT)),
              "unattached": len(unattached - nodes),
-             "crossing_unmatched": n_unmatched}
+             "crossing_unmatched": n_unmatched,
+             "crossing_ridge_entries": len(ridge_entries)}
     return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats,
                       {p: e for p, e in contact_of.items() if p in nodes}, face)
 

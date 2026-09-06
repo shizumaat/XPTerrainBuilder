@@ -4,7 +4,14 @@
 
 * :func:`model` — columns ``z`` then one block per relaxed element (a
   Diff / Linear: its slack; a pad: ``zc, u, v`` — one PLANE bounded to the
-  ``pad_slope_max`` disc, 05f), the un-relaxed rows as they stand;
+  ``pad_slope_max`` disc, 05f), the un-relaxed rows as they stand; then
+  (RULINGS 2026-09-06h (b)) the RUNWAY family's L1 DEM-fit columns ``t``
+  at the preference ladder's runway weight and (06h (c)) the runway
+  ridge's L1 second-difference columns ``r`` at its smoothness λ — the
+  LINEAR part of the objective beside the slack variance, so the slack
+  is placed where it costs the runway nothing before the runway is sunk
+  (HECA 05C/23C: stage 1 blind to the runway sank it 2.7 m to spare
+  apron pav132's chords);
 * :func:`qp` — highspy's exact QP ``min Σ weight · x²``;
 * :func:`pieces` / :func:`pwl` — the CONVEX PIECEWISE-LINEAR approximation
   of the square on scipy's HiGHS LP (``max_pieces`` pieces from the
@@ -77,6 +84,12 @@ class Model:
     weight: dict[int, float] = _dc.field(default_factory=dict)
     #: quad columns charged in GRADE units (pieces from the grade materiality)
     grade_cols: set[int] = _dc.field(default_factory=set)
+    #: the LINEAR objective over every column (the runway fit ``t`` and
+    #: smoothness ``r`` columns, 06h b/c; zero elsewhere)
+    lin_cost: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0))
+    #: how many fit / smoothness columns and rows the linear part added
+    linear_cols: int = 0
+    linear_rows: int = 0
 
 
 #: Directions of the polygonal bound on a relaxed pad's gradient
@@ -110,7 +123,10 @@ def slack_bound(x: _HasRow, max_over_cap_factor: float | None) -> float:
 
 def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
            pad_slope_max: float | None = None,
-           max_over_cap_factor: float | None = None) -> Model:
+           max_over_cap_factor: float | None = None,
+           fit: _t.Mapping[int, tuple[float, float]] | None = None,
+           smooth: _t.Sequence[tuple[int, int, int, float, float, float]] = ()
+           ) -> Model:
     """``pad_slope_max`` (RULINGS 2026-09-05f, ``[relaxation]``): every
     relaxed pad's plane ``(u, v)`` is bounded to the disc of that radius
     (``SLOPE_DIRECTIONS`` half-planes ``u·cosθ + v·sinθ ≤ s·cos(π/K)``,
@@ -118,7 +134,12 @@ def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
     variance program spreads the relief a steeper pad would have taken
     over the other populations (04t-1).  ``max_over_cap_factor`` (RULINGS
     2026-09-05ae(2)): every Diff / Linear slack column is bounded above by
-    :func:`slack_bound` — a slight over-cap, never a cliff."""
+    :func:`slack_bound` — a slight over-cap, never a cliff.  ``fit``
+    (06h b): vertex -> ``(weight, target)`` — one L1 column ``t ≥ |z −
+    target|`` charged ``weight`` (the runway family at the ladder's
+    runway weight); ``smooth`` (06h c): ``(a, m, c, dp, dn, λ)`` stations
+    (``assemble.roughness_stations``) — one L1 column ``r ≥ |Δgrade| ×
+    span`` charged ``λ``."""
     n = len(pm.vertices)
     S = to_sparse(without(cs, relaxed), n)
     ncol = n
@@ -161,6 +182,28 @@ def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
             eq_r.append(k); eq_c.append(c); eq_v.append(v)
         eq_b.append(b)
 
+    # THE LINEAR PART (06h b/c): the runway fit and smoothness columns
+    lin: dict[int, float] = {}
+    n_lin_rows = 0
+    for vid, (wt, target) in sorted((fit or {}).items()):
+        if wt <= 0.0:
+            continue
+        tc = ncol; ncol += 1
+        lin[tc] = float(wt)
+        ub(((vid, 1.0), (tc, -1.0)), float(target))
+        ub(((vid, -1.0), (tc, -1.0)), -float(target))
+        n_lin_rows += 2
+    for a_, m_, c_, dp, dn, lam in smooth:
+        if lam <= 0.0:
+            continue
+        rc = ncol; ncol += 1
+        lin[rc] = float(lam)
+        scale = 0.5 * (dp + dn)
+        terms = ((c_, scale / dn), (m_, -scale * (1.0 / dn + 1.0 / dp)), (a_, scale / dp))
+        ub(terms + ((rc, -1.0),), 0.0)
+        ub(tuple((v, -k) for v, k in terms) + ((rc, -1.0),), 0.0)
+        n_lin_rows += 2
+    n_lin_cols = len(lin)
     for x in relaxed:
         cols = col_of[x.index]
         r = x.row
@@ -196,9 +239,13 @@ def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
         if x.kind != "pad":
             lo[col_of[x.index][0]] = 0.0
             hi[col_of[x.index][0]] = slack_bound(x, max_over_cap_factor)
+    lin_cost = np.zeros(ncol)
+    for j, wt in lin.items():
+        lin_cost[j] = wt
+        lo[j] = 0.0
     return Model(n, ncol, A_ub, np.concatenate([S.b_ub, np.asarray(ub_b, float)]),
                   A_eq, np.concatenate([S.b_eq, np.asarray(eq_b, float)]),
-                  lo, hi, quad, col_of, weight, grade_cols)
+                  lo, hi, quad, col_of, weight, grade_cols, lin_cost, n_lin_cols, n_lin_rows)
 
 
 def qp(m: Model, time_limit_s: float | None) -> tuple[str, np.ndarray | None, float]:
@@ -214,7 +261,7 @@ def qp(m: Model, time_limit_s: float | None) -> tuple[str, np.ndarray | None, fl
     lp = highspy.HighsLp()
     lp.num_col_ = m.ncol
     lp.num_row_ = A.shape[0]
-    lp.col_cost_ = np.zeros(m.ncol)
+    lp.col_cost_ = m.lin_cost if len(m.lin_cost) == m.ncol else np.zeros(m.ncol)
     lp.col_lower_ = np.where(np.isfinite(m.lo), m.lo, -inf)
     lp.col_upper_ = np.where(np.isfinite(m.hi), m.hi, inf)
     lp.row_lower_ = np.concatenate([np.full(m.A_ub.shape[0], -inf), m.b_eq])
@@ -276,6 +323,8 @@ def pwl(m: Model, grade_pieces: list[tuple[float, float]],
         extra += 2 * K if neg else K
     ncol = m.ncol + extra
     c = np.zeros(ncol)
+    if len(m.lin_cost) == m.ncol:
+        c[:m.ncol] = m.lin_cost
     lo = np.concatenate([m.lo, np.zeros(extra)])
     hi = np.concatenate([m.hi, np.zeros(extra)])
     r_: list[int] = []

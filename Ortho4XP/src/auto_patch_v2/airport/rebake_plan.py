@@ -1,13 +1,15 @@
-"""THE RE-SEAT PLAN (RULINGS 2026-09-04i 04f-1): the units and witnesses
-of an airport's pack, from the loader's AUTHORED reading of the objects
-(``airport/pack.py`` restore-before-read).  Runs at PATCH time inside the
-pipeline; the plan is the tile build's ``o4_v2_rebake_<ICAO>.json``
-sidecar, seated after the mesh by ``emit/rebake.py``.  Law:
-``structures.toml [rebake]``.  No environment is read here.
+"""THE RE-SEAT PLAN (RULINGS 2026-09-04i 04f-1; 06g): the anchor families,
+their members' welded PARTS and the pack-wide ε-CONTACT GRAPH
+(``airport/contact.py``), from the loader's AUTHORED reading of the
+objects (``airport/pack.py`` restore-before-read).  Runs at PATCH time
+inside the pipeline; the plan is the tile build's
+``o4_v2_rebake_<ICAO>.json`` sidecar, seated after the mesh by
+``emit/rebake.py`` / ``emit/clusters.py``.  Law: ``structures.toml
+[rebake]``.  No environment is read here.
 """
 from __future__ import annotations
 
-import math
+
 import os
 import typing as _t
 
@@ -16,7 +18,8 @@ import numpy as np
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.rebake import Foot, Member, RebakePlan, Unit
+from ..model.rebake import Member, Part, RebakePlan, Unit
+from . import contact as _contact
 from . import deck_signature as _deck
 from . import obj8 as _obj8
 from .pack import live_path_of
@@ -35,54 +38,6 @@ def _inside(path: str, root: str) -> bool:
             == os.path.abspath(root)
     except ValueError:
         return False
-
-
-def _thin(rows: np.ndarray, n: int) -> np.ndarray:
-    """At most ``n`` rows, evenly spaced over the rows sorted by plan
-    position (deterministic; a witness set, not a random sample)."""
-    if rows.shape[0] <= n:
-        return rows
-    order = np.lexsort((rows[:, 2], rows[:, 0]))
-    pick = np.linspace(0, rows.shape[0] - 1, n).round().astype(int)
-    return rows[order][pick]
-
-
-def _feet(geom: _obj8.ObjGeometry, comps: list[_obj8.Component], o: _obj8.PlacedObject,
-          band_m: float, per_comp: int, per_member: int, to_ll_batch
-          ) -> tuple[Foot, ...]:
-    """The contact band of every genuine component, thinned per component
-    and per member, in world position with its authored ``y``.
-    ``to_ll_batch(xs, ys) -> (lats, lons)`` over arrays (one projection
-    call per member: OTHH has 1,116 members)."""
-    v = geom.vertices
-    parts: list[np.ndarray] = []
-    if not comps:
-        return ()
-    # THE OBJECT'S OWN LOWEST BAND: its feet are the genuine components
-    # reaching within ``band_m`` of its lowest solid vertex (a roof piece
-    # that is its own component has no feet of its own — v1 seats a rigid
-    # unit on its GROUND-TOUCHING parts; measured OTHH AuxBuilding_02:
-    # 162 components, 20 of them roof parts at y 7.5–8.9)
-    floor = min(c.min_y for c in comps)
-    for c in comps:
-        if c.min_y > floor + band_m:
-            continue
-        ids = np.unique(np.asarray(c.tris).reshape(-1))
-        pts = v[ids]
-        pts = pts[pts[:, 1] <= floor + band_m]
-        if pts.shape[0] == 0:
-            continue
-        parts.append(_thin(pts, per_comp))
-    if not parts:
-        return ()
-    pts = _thin(np.concatenate(parts), per_member)
-    h = math.radians(o.heading_deg)
-    sn, cs = math.sin(h), math.cos(h)
-    ex = o.xy[0] + pts[:, 0] * cs - pts[:, 2] * sn
-    ny = o.xy[1] - (pts[:, 0] * sn + pts[:, 2] * cs)
-    lats, lons = to_ll_batch(ex, ny)
-    return tuple(Foot(float(la), float(lo), float(y))
-                 for la, lo, y in zip(lats, lons, pts[:, 1].tolist()))
 
 
 def _batch_to_ll(frame):
@@ -148,7 +103,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts: dict[str, int] = {"placements": 0, "unresolved": 0, "stock": 0,
                               "outside_pack": 0, "msl": 0, "multi_anchor": 0,
                               "units": 0, "members": 0, "deck_members": 0,
-                              "feet": 0, "no_feet": 0, "terrain_adapted": 0,
+                              "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
+                              "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
+                              "terrain_adapted": 0,
                               "below_grade": 0, "deck_families": len(deck_keys),
                               "plate_members": 0, "plate_families": len(plate_keys),
                               "signature_decks": sum(1 for o in objects
@@ -217,6 +174,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       "file cannot carry per-placement offsets (I-4)")
     multi -= plate_paths
     units_by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
+    # the placed geometry per member, in member order, for the partition
+    placed: list[tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
+                       list[tuple[int, _obj8.Component]]]] = []
+    member_ref: list[tuple[tuple[float, float, float], str]] = []
     for key, o in keyed:
         if o.path in multi:
             continue
@@ -227,9 +188,11 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if geom is None:
             skipped.setdefault(o.path, "unreadable OBJ8")
             continue
-        feet = _feet(geom, cache.genuine(o.resolved), o, rb.foot_band_m,
-                     rb.foot_samples_per_component, rb.foot_samples_per_member,
-                     to_ll_batch)
+        # the genuine components with their index into ALL solid components
+        # (``obj8.solid_components``): the writer maps ``Part.comp`` back
+        # through the same deterministic partition of the authored file
+        comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
+                 if c.max_y - c.min_y >= cache.thickness_m]
         deck_ring = None
         deck_top_y = None
         deck_datum_z = None
@@ -264,22 +227,58 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             counts["plate_members"] += 1
         in_deck_family = fam_of.get(o.id) in deck_keys      # THIS member's family
         in_plate_family = fam_of.get(o.id) in plate_keys
-        if not feet and deck_ring is None and plate_y is None \
+        if not comps and deck_ring is None and plate_y is None \
                 and not (in_deck_family and rb.deck_family_seats_rigid) and not in_plate_family:
             # a DECK-family member with no genuine solid (Bridge_01_LOD0_004:
             # a two-triangle sheet) still joins its family and takes the
-            # one delta (R12-2 completeness: no member left at another
+            # deck's delta (R12-2 completeness: no member left at another
             # altitude); anywhere else nothing founds a seat for it
-            counts["no_feet"] += 1
+            counts["no_parts"] += 1
             skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
             continue
         rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
             else live_path_of(o.resolved)
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
-                                 o.heading_deg, feet, deck_ring, deck_top_y, deck_datum_z,
+                                 o.heading_deg, (), deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
                                  deck_stations, plate_y, plate_stations)
-        counts["feet"] += len(feet)
+        placed.append((o, geom, list(comps)))
+        member_ref.append((key, o.path))
+    # THE PARTITION (06g): every member's genuine components as placed
+    # parts, the pack-wide contact graph, the pool / structure counts
+    part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
+                              rb.contact_narrow_budget, rb.pool_overlap_m,
+                              rb.contact_batch_rows)
+    parts_by_member: dict[int, list[Part]] = {}
+    if part.parts:
+        xs = np.array([p.centroid[0] for p in part.parts])
+        ys = np.array([p.centroid[1] for p in part.parts])
+        lats, lons = to_ll_batch(xs, ys)
+        bx = np.array([p.plan_box for p in part.parts])
+        la0, lo0 = to_ll_batch(bx[:, 0], bx[:, 1])
+        la1, lo1 = to_ll_batch(bx[:, 2], bx[:, 3])
+        for p, la, lo, a0, o0, a1, o1 in zip(part.parts, lats, lons, la0, lo0, la1, lo1):
+            # rounded to the millimetre (8 dp of a degree, 3 dp of a metre):
+            # the plan is a witness set, and OTHH's 152 k parts are 26 MB unrounded
+            parts_by_member.setdefault(p.member, []).append(
+                Part(p.pid, p.comp, round(float(la), 8), round(float(lo), 8),
+                     round(p.base_y, 3), round(p.area_m2, 3),
+                     (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
+                      round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8))))
+    for mi, (key, path) in enumerate(member_ref):
+        m = units_by_key[key][path]
+        ps = tuple(parts_by_member.get(mi, ()))
+        units_by_key[key][path] = Member(m.id, m.resource, m.authored_path, m.live_path,
+                                         m.heading_deg, ps, m.deck_ring, m.deck_top_y,
+                                         m.deck_datum_z, m.deck_kind, m.deck_ends,
+                                         m.deck_profile, m.deck_evidence, m.deck_stations,
+                                         m.plate_y, m.plate_stations)
+        counts["parts"] += len(ps)
+    counts["contacts"] = len(part.contacts)
+    counts["pools"] = part.pools
+    counts["structures"] = part.structures
+    counts["pairs_tested"] = part.pairs_tested
+    counts["pairs_unproved"] = part.pairs_unproved
     units: list[Unit] = []
     for i, (key, members) in enumerate(sorted(units_by_key.items())):
         if not members:
@@ -289,4 +288,4 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         counts["members"] += len(ms)
     counts["units"] = len(units)
     return RebakePlan(airport.icao, airport.pack.name, pack_root, tuple(units),
-                      tuple(sorted(skipped.items())), counts)
+                      tuple(sorted(skipped.items())), counts, part.contacts)

@@ -382,19 +382,28 @@ class Rebake:
     restore_before_read: bool
     ground_datum: str
     deck_datum: str
-    foot_band_m: float
-    foot_samples_per_component: int
-    foot_samples_per_member: int
-    agreement_window_m: float
+    # the partition (06g; v1 pools / structures / contact graph)
+    pool_overlap_m: float
+    contact_epsilon_m: float
+    contact_weld_m: float
+    contact_narrow_budget: int
+    contact_batch_rows: int
+    elevated_base_m: float
+    # the cut and the cluster seat (06g; v1 per-cluster seating spec)
+    cluster_seat_tolerance_m: float
     min_delta_m: float
-    residual_report_m: float
+    cluster_span_pad_m: float
+    cluster_residual_pad_m: float
+    nobake_pad_floor_m: float
+    pad_max_relief_m: float
+    a3_guard_max_diameter_m: float
+    a3_tolerance_m: float
+    agreement_window_m: float
     water_founds_seat: bool
     one_anchor_one_seat: bool
-    # the founding witness floor and family exclusions (04k; M6b)
-    founding_min_witnesses: int
-    founding_min_share: float
     structure_family_excluded: bool
     deck_family_seats_rigid: bool
+    facility_requires_at_grade_coalition: bool
     structure_seat_threshold_exempt: bool
 
 

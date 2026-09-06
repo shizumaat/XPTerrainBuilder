@@ -318,6 +318,35 @@ def _structures_emit_checks(c: Checks, t) -> None:
          v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
     assert s.basin.contact_band_m > 0.0
     assert s.rebake.structure_seat_threshold_exempt is True     # 05n-4: the plate seat, like a deck seat
+    # RULINGS 2026-09-06g (lane v2seatclusters): THE CONTACT-CLUSTER LAW — v1's
+    # pools / structures / clusters as data, every number cited to its v1 constant
+    from auto_patch import obj8_partition as v1_op
+    from auto_patch import object_anchor as v1_oa
+    rb = s.rebake
+    assert rb.ground_datum == "cluster" and rb.one_anchor_one_seat is False
+    c.eq("rebake.pool_overlap_m", v1.DSF_OBJECT_CONTACT_EPSILON_M, rb.pool_overlap_m)
+    c.eq("rebake.contact_epsilon_m", v1.DSF_OBJECT_CONTACT_EPSILON_M, rb.contact_epsilon_m)
+    from auto_patch import obj8_reader as v1_or
+    c.eq("rebake.contact_weld_m (= 10^-VERTEX_WELD_DECIMALS)", 10.0 ** -v1_or.VERTEX_WELD_DECIMALS,
+         rb.contact_weld_m)
+    assert rb.contact_batch_rows > rb.contact_narrow_budget > 0
+    c.eq("rebake.contact_narrow_budget", v1_op.NARROW_PHASE_POINT_TRIANGLE_BUDGET,
+         rb.contact_narrow_budget)
+    c.eq("rebake.elevated_base_m", v1.DSF_OBJECT_ELEVATED_BASE_M, rb.elevated_base_m)
+    c.eq("rebake.cluster_seat_tolerance_m", v1.DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M,
+         rb.cluster_seat_tolerance_m)
+    c.eq("rebake.min_delta_m", v1.DSF_OBJECT_BAKE_MIN_DELTA_M, rb.min_delta_m)
+    c.eq("rebake.cluster_span_pad_m", v1.DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M, rb.cluster_span_pad_m)
+    c.eq("rebake.cluster_residual_pad_m", v1.DSF_OBJECT_FOOT_PAD_RESIDUAL_M,
+         rb.cluster_residual_pad_m)
+    c.eq("rebake.nobake_pad_floor_m", v1.DSF_OBJECT_NOBAKE_PAD_FLOOR_M, rb.nobake_pad_floor_m)
+    c.eq("rebake.pad_max_relief_m", v1.DSF_OBJECT_PAD_MAX_RELIEF_M, rb.pad_max_relief_m)
+    c.eq("rebake.a3_guard_max_diameter_m", v1_oa.A3_GUARD_MAXIMUM_DIAMETER_METRES,
+         rb.a3_guard_max_diameter_m)
+    c.eq("rebake.a3_tolerance_m", v1_oa.RESIDUAL_COMPARISON_TOLERANCE_METRES, rb.a3_tolerance_m)
+    assert 0.0 < rb.contact_epsilon_m <= rb.cluster_seat_tolerance_m < rb.min_delta_m
+    assert rb.nobake_pad_floor_m < rb.cluster_residual_pad_m < rb.cluster_span_pad_m
+    assert rb.water_founds_seat is False and rb.deck_family_seats_rigid is True
     # RULINGS 2026-09-05u (lane v2relaxfull): no certificate is not a reason
     # to demote — 04t(1) runs over the whole relaxable scope, the ladder last
     rl = e.relaxation

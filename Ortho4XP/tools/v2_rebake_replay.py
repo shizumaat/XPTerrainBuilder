@@ -56,14 +56,26 @@ def cmd_seat(args: argparse.Namespace) -> int:
 
     res = R.seat(plan, sample, law)
     print("seat:", res.counts())
-    baked = sorted((u for u in res.units if u.bakes), key=lambda u: -abs(u.delta_m))
-    print("largest seats:")
-    for u in baked[:args.top]:
-        founding = [m for m in u.members if not m.note.startswith("inherits")]
-        print(f"  {u.unit_id} n={len(u.resources)} anchor_ground={u.anchor_ground_m:.2f} "
-              f"delta={u.delta_m:+.3f} founding="
-              + ", ".join(f"{os.path.basename(m.resource)[:32]} {m.delta_m if m.delta_m is None else round(m.delta_m, 2)} w={m.witnesses} water={m.water}"
-                          for m in founding[:3]) + (f"  {u.findings[0]}" if u.findings else ""))
+    # THE CLUSTERS (06g): the largest lifts, the widest spans, the residuals
+    baked = sorted((k for k in res.clusters if k.bakes and k.lift_m is not None),
+                   key=lambda k: -abs(k.lift_m))
+    print("largest cluster seats:")
+    for k in baked[:args.top]:
+        print(f"  cluster {k.id} (structure {k.structure}) parts={k.n_parts} ground={k.n_ground} "
+              f"measured={k.n_measured} ground_m={k.ground_m:.2f} lift={k.lift_m:+.3f} "
+              f"span={k.span_m:.2f} residual_parts={k.residual_parts} pad={k.needs_pad} "
+              f"resources=" + ", ".join(os.path.basename(r)[:28] for r in k.resources[:3]))
+    spans = [k.span_m for k in res.clusters if k.n_measured]
+    if spans:
+        print(f"cluster spans: max {max(spans):.2f} m, > pad {sum(1 for x in spans if x > law.tables.structures.rebake.cluster_span_pad_m)}")
+    if res.pad_requests:
+        worst = max(res.pad_requests, key=lambda p: abs(p.residual_m))
+        print(f"pad requests: {len(res.pad_requests)} (seated {sum(1 for p in res.pad_requests if p.seated)}), "
+              f"worst residual {worst.residual_m:+.2f} m on {os.path.basename(worst.resource)} "
+              f"({worst.part_count} part(s))")
+    for u in (u for u in res.units if u.datum != R.DATUM_CLUSTER)[:args.top]:
+        print(f"  {u.unit_id} {u.datum} n={len(u.resources)} delta={u.delta_m} "
+              + (f"  {u.findings[0]}" if u.findings else ""))
     if args.filter:
         for u in res.units:
             if any(args.filter in r for r in u.resources):
@@ -72,9 +84,10 @@ def cmd_seat(args: argparse.Namespace) -> int:
                 for m in u.members:
                     print(f"     {os.path.basename(m.resource):48s} {m.datum:8s} delta={m.delta_m if m.delta_m is None else round(m.delta_m, 3)} "
                           f"w={m.witnesses} water={m.water} off={m.off_mesh} out={m.outliers} {m.note}")
-    ds = [u.delta_m for u in baked]
+    ds = [d for u in res.units if u.bakes for m in u.members
+          for d in ([m.delta_m] if m.delta_m is not None else [x for _c, _k, x in m.part_deltas if x is not None])]
     if ds:
-        print(f"baked deltas: median {statistics.median(ds):+.3f} max |{max(ds, key=abs):+.3f}| over {len(ds)} units")
+        print(f"baked deltas: median {statistics.median(ds):+.3f} min {min(ds):+.3f} max {max(ds):+.3f} over {len(ds)} part delta(s)")
     out = os.path.splitext(args.plan)[0] + ".seat.json"
     with open(out, "w") as fh:
         json.dump(res.to_dict(), fh, indent=1, default=str)

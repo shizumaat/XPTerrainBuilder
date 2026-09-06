@@ -31,7 +31,8 @@ from test_v2bow import _runway_off_dem, hangar_slack  # noqa: F401  (the fixture
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # the 06l order under test; the shipped table says "variance" (06m)
+    return _with_relaxation(Law.for_airport("ZZZZ"), order="lexicographic")
 
 
 def _with_relaxation(law: Law, **kw) -> Law:

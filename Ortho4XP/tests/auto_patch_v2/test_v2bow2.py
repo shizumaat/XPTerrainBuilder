@@ -38,7 +38,11 @@ from test_v2bow import hangar_slack  # noqa: F401  (fixture)
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # the 06l order under test; the shipped table says "variance" (06m)
+    base = Law.for_airport("ZZZZ")
+    rl = _dc.replace(base.tables.emit.relaxation, order="lexicographic")
+    return Law(tables=_dc.replace(base.tables, emit=_dc.replace(base.tables.emit, relaxation=rl)),
+               ruleset_key=base.ruleset_key)
 
 
 def _holds(rows, z) -> bool:

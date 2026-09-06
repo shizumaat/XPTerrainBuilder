@@ -242,8 +242,10 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     opt = options or Options()
     rl = law.tables.emit.relaxation
     if order is None:
+        # 06m: the table's ``[relaxation] order`` answers; a positive
+        # runway_fit_weight with weights selects the weighted alternative
         order = (ORDER_WEIGHTED if weights is not None and rl.runway_fit_weight > 0.0
-                 else ORDER_LEXICOGRAPHIC)
+                 else rl.order)
     if order == ORDER_VARIANCE:
         return stage1b(pm, cs, relaxed, law, opt, backend, qp_time_limit_s)
     if order == ORDER_WEIGHTED:

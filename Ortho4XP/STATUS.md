@@ -1,4 +1,13 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 HECA SOLVES under the complete law (05ac/05ad, MERGED 43d50a53):
+#   flat runways (transverse max hard), centreline-only route graph (owner
+#   KML verdict 05aa), bounded junctions (05x), taxi law as the CHAIN (no
+#   pair rows), 04t(1) without certificate + named ladder failures. HECA
+#   certificate scope, no demotion, runways ≤ 1.53 %, taxi verify 0; oracle
+#   adjudicated 33 (+31k withdrawn chord law apart). NEXT: relaxation SHAPE
+#   (cliffs on short rows, 7 transverse rows on pav132), strip gen/reader gap.
+#   APP 1.0.287 IN BUILD. SPJC frame cold (-12-078 unbuilt).
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 APP 1.0.286 / engine 1.50.1728 BUILT (c9e758fe): tunnel wall
 #   objects round 2 (e2734c71), seat facility rule (3b8c7a02), OBJ8 indented
 #   TRIS (8072bad7), flat-site law, bathymetry-band write fix (f14e1160).

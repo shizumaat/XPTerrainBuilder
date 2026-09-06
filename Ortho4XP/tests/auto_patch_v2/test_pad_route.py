@@ -64,7 +64,12 @@ def site(law):
     only by ~830 m of taxiway) plus TWO pads: ``pad1`` ATTACHED along the
     apron's south edge, its body 2.5 m from the runway edge (a chord pair
     well inside the window — the refuted population); ``pad2`` DETACHED
-    east of the apron, touching nothing."""
+    east of the apron, touching nothing.  The stub's 1202 taxilane runs
+    through the apron TO THE STAND (its cut ends on pad1's frontage at
+    (−100, 40)): under RULINGS 2026-09-05aa the apron's vertices attach
+    to that lane by lateral hops, so the contacts' route neighbourhood
+    is the frontage and the lane — a lane ending 60 m short would leave
+    every contact's K nearest already in the pavement list."""
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
             RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
@@ -90,7 +95,7 @@ def site(law):
     )
     cuts = (CutLine("taxi_centerline", "stubE", ((500.0, 0.0), (500.0, 201.5))),
             CutLine("taxi_centerline", "taxiA", ((-100.0, 201.5), (500.0, 201.5))),
-            CutLine("taxi_centerline", "stubW", ((-100.0, 100.0), (-100.0, 201.5))))
+            CutLine("taxi_centerline", "stubW", ((-100.0, 40.0), (-100.0, 201.5))))
     pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
     return airport, pm
 

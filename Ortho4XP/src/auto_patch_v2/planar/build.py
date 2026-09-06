@@ -232,9 +232,16 @@ def _snapped(geom, grid_m: float):
 def _breaklines(arr: Arrangement, edge_list: list[Edge], vxy: list[XY]
                 ) -> tuple[list[Breakline], dict[int, EdgeKind], int, int]:
     """Match each source line to the noded edges lying on it (both
-    endpoints within ``0.6 * grid`` of the snapped source), order them
-    along the source and split where the chain breaks."""
-    tol = 0.6 * arr.grid_m
+    endpoints within ``0.6 * grid`` of the snapped source — or within
+    the sliver weld's spacing where the weld moved vertices, RULINGS
+    2026-09-04u), order them along the source and split where the chain
+    breaks.  Measured HECA 2026-09-05 (lane v2relaxfull5): four 1202
+    chains meet at node (6.3, 579.3); the welded planar vertex sits at
+    (6, 580), 0.323 m off the snapped source, so at 0.3 m the last edge
+    of ``taxi136`` went unmatched, the chain ended one edge short and
+    the route network split into two components (the 05L/23R complex
+    cut off from every other threshold)."""
+    tol = max(0.6 * arr.grid_m, arr.weld.tolerance_m)
     segs = [LineString([vxy[e.a], vxy[e.b]]) for e in edge_list]
     tree = STRtree(segs) if segs else None
     out: list[Breakline] = []

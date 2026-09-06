@@ -99,7 +99,7 @@ def test_the_pinned_fixture_relaxes_rows_and_its_pads_stay_flat(law):
         pytest.skip(f"the fixture did not relax on this tree (mode {rep.mode})")
     rows = pub["relaxed_rows"]
     assert rows and not any(r["kind"] == "pad" for r in rows)
-    assert {r["family"] for r in rows} <= {"no_step", "apron", "zones"}
+    assert {r["family"] for r in rows} <= {"no_step", "apron", "apron_edge_portion", "zones"}
     for f in surf.faces:
         if f.role == "building":
             zs = [v.z for v in surf.vertices if v.id in set(f.ring)]

@@ -81,7 +81,11 @@ def _airport(law, second_runway_z: tuple[float, float] | None, rw1=(700.0, 706.0
              "airside", "pad", {}),
     ]
     cuts = [CutLine("taxi_centerline", "taxiA", ((-400.0, 91.5), (400.0, 91.5))),
-            CutLine("taxi_centerline", "stubB", ((0.0, 0.0), (0.0, 91.5))),
+            # the stub's lane runs through the parallel and the apron TO THE
+            # STAND (pad1's frontage at y = 150): under RULINGS 2026-09-05aa an
+            # apron no centreline touches is a route island — no reach band,
+            # no no_step distance — and its pad contacts would pair with nothing
+            CutLine("taxi_centerline", "stubB", ((0.0, 0.0), (0.0, 150.0))),
             CutLine("taxi_centerline", "taxiC", ((-400.0, 311.5), (400.0, 311.5)))]
     if second_runway_z is not None:
         e2 = (RunwayEnd("09R", (-600.0, 372.5), (60.5, -135.5), 0.0, 0.0,

@@ -1,4 +1,6 @@
-"""Twins for the ROUTE law (lane v2route; RULINGS 2026-09-04o / 04q):
+"""Twins for the ROUTE law (lane v2route; RULINGS 2026-09-04o / 04q;
+2026-09-05z/aa: the graph is the centreline network only, every other
+vertex attached by one lateral hop):
 the route graph (service excluded, centrelines first-class), route-
 distance no-step pairs against chord pairs on an apron beside a runway
 joined only by a long taxi loop, the pair budget as Σ cap·len along the
@@ -276,15 +278,28 @@ def test_sidecar_and_verify_read_the_same_population(loop, law):
     assert rows and all(r["family"] == "airside_no_step" for r in rows)
 
 
-# ── RULINGS 2026-09-05v: no apron plan chord in the route graph ──────────
+# ── RULINGS 2026-09-05aa: the graph is the centreline network only ──────
+
+def _planar_edges(pm):
+    """``(a, b) -> (EdgeKind, on a taxi centreline / ridge breakline)``."""
+    on_line = {eid for bl in pm.breaklines.values()
+               if bl.kind in ("taxi_centerline", "runway_profile") for eid in bl.edges}
+    return {e.length_key: (e.kind.value, e.id in on_line) for e in pm.edges.values()}
+
+
+def _stations(pm):
+    return {v for bl in pm.breaklines.values()
+            if bl.kind in ("taxi_centerline", "runway_profile") for v in bl.vertices(pm)}
+
 
 @pytest.fixture(scope="module")
 def between(law):
     """A runway; a stub up at x = −300 into a 700 m × 100 m apron; a
     second taxiway leaving the apron's far end (x = +300) northward to
-    nowhere.  The apron sits BETWEEN two taxiways; the far taxiway is
-    reached from the thresholds only through the apron, whose 700 m body
-    chord (608 m corner to far mouth) is NOT a route (2026-09-05v)."""
+    nowhere.  NO centreline crosses the apron: its vertices attach to the
+    two stubs' end stations by lateral hops, its perimeter is no route,
+    and the far stub — joined to the thresholds by no centreline — has
+    no reach band (05aa: a vertex with nothing to attach to)."""
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
             RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
@@ -308,79 +323,223 @@ def between(law):
     return airport, pm
 
 
-def _apron_face_vertex_sets(pm):
-    return [{v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
-            for f in pm.faces.values() if f.role == "apron"]
+def _arc_points(n: int = 12):
+    """A quarter circle, centre (0, 500), radius 300, from (0, 200)
+    (tangent +x) to (300, 500) (tangent +y)."""
+    return [(300.0 * math.cos(math.radians(-90.0 + 90.0 * k / n)),
+             500.0 + 300.0 * math.sin(math.radians(-90.0 + 90.0 * k / n))) for k in range(n + 1)]
 
 
-@pytest.mark.parametrize("fx", ["loop", "between"])
-def test_no_chord_edge_lies_on_one_apron_face(fx, law, request):
-    """The twin of 2026-09-05v: the route graph carries no CHORD edge whose
-    two endpoints lie on one apron face; the apron's perimeter (its ring
-    edges) and the centrelines crossing it are its only routes."""
-    from auto_patch_v2.constraints.routes import CHORD, RING
-    _airport, pm = request.getfixturevalue(fx)
-    g = build_routes(pm, law)
-    sets = _apron_face_vertex_sets(pm)
-    assert sets
-    chords = [(int(a), int(b)) for a, b, k in zip(g.a, g.b, g.kind) if k == CHORD]
-    for s in sets:
-        assert not [(a, b) for a, b in chords if a in s and b in s]
-        # ...and every apron ring edge IS a route
-        rings = {(int(a), int(b)) for a, b, k in zip(g.a, g.b, g.kind) if k in (RING, CENTRELINE)}
-        assert s <= {v for e in rings for v in e}
+@pytest.fixture(scope="module")
+def arc(law):
+    """A runway; a stub north from its centreline at x = 0 that CURVES
+    (a quarter-circle arc of radius 300 — 471 m of arc for a 424 m
+    chord) to an end at (300, 500); an apron sitting on that end (its
+    south edge shares the taxiway's end cap), crossed by no centreline."""
+    from shapely.geometry import LineString
+    from shapely.geometry.polygon import orient
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                      (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
+    line = [(0.0, 22.5), *_arc_points()]
+    poly = orient(LineString(line).buffer(11.5, cap_style=2, join_style=2), 1.0)
+    ring = tuple((round(x, 6), round(y, 6)) for x, y in list(poly.exterior.coords)[:-1])
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "stub", "arcA", ring, (), None, "D", "airside", "taxi", {}),
+        Cell(2, "apron", "apron1", _rect(250, 500, 450, 700), (), None, None,
+             "airside", "apron", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "arcA", ((0.0, 0.0), *_arc_points())),)
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    return airport, pm
 
 
-def test_apron_body_chord_is_not_a_route_the_far_taxiway_takes_the_route_budget(between, law):
-    """The apron between two taxiways: the reach band at the far taxiway
-    is the ROUTE's budget — runway ring, stub, the apron PERIMETER, the
-    far stub — not the 608 m apron body chord's (which grants ~0.9 m
-    less at the apron cap and, hard as a band, would bind where the
-    apron law's own relaxable chord row is the only law on it)."""
+def _vid(pm, x, y):
+    hits = [v for v, vv in pm.vertices.items() if abs(vv.xy[0] - x) < 1e-3 and abs(vv.xy[1] - y) < 1e-3]
+    assert len(hits) == 1, (x, y, hits)
+    return hits[0]
+
+
+@pytest.mark.parametrize("fx", ["loop", "between", "crossing", "arc"])
+def test_no_graph_edge_lies_on_any_face_ring(fx, law, request):
+    """05aa: no ring edge, no chord, no perimeter, no frontage hop.  Every
+    graph edge that is a planar edge is a taxi centreline / ridge edge;
+    a LATERAL hop may coincide with a ring edge only at a mouth — the
+    hop from a vertex adjacent to the station it attaches to — and is
+    then priced as a hop (the transverse cap, one station endpoint)."""
+    from auto_patch_v2.constraints.routes import CROSSING, LATERAL
+    airport, pm = request.getfixturevalue(fx)
+    g = build_routes(pm, law, airport)
+    assert not ({"ring", "chord", "frontage", "edge_hop"} & set(g.stats))
+    assert g.stats["lateral"] > 0 and g.stats["centreline"] > 0
+    planar = _planar_edges(pm)
+    stations = _stations(pm)
+    coincident = 0
+    for a, b, k, cap in zip(g.a, g.b, g.kind, g.cap):
+        key = (int(a), int(b))
+        if key not in planar:
+            assert k in (CROSSING, LATERAL)
+            continue
+        ekind, on_line = planar[key]
+        if k == LATERAL:
+            assert ekind == "boundary" or on_line
+            assert key[0] in stations or key[1] in stations
+            coincident += 1
+            continue
+        assert on_line and ekind != "boundary", (key, ekind, int(k))
+    # the withdrawn kinds are gone: nothing is priced along a face ring
+    assert coincident < g.stats["lateral"]
+    assert set(np.unique(g.kind)) <= {CENTRELINE, CROSSING, LATERAL}
+
+
+def test_curved_taxiway_budget_is_cap_times_arc_length_never_the_chord(arc, law):
+    """§8 twin: between the runway station and the arc's end the graph's
+    budget is cap × ARC length (every polyline vertex followed), never
+    cap × chord; the route walks the centreline vertex by vertex."""
+    from auto_patch_v2.constraints.geometry import polyline_length
     from auto_patch_v2.constraints.runway_profile import threshold_pins
-    from auto_patch_v2.constraints.routes import CHORD
-    from auto_patch_v2.law.tables import role_cap
-    airport, pm = between
-    g = routes(pm, law)
+    airport, pm = arc
+    g = routes(pm, law, airport)
+    chain = [(0.0, 22.5), *_arc_points()]
+    start, end = _vid(pm, 0.0, 22.5), _vid(pm, 300.0, 500.0)
+    cap = role_cap(law, "stub", None, "D").longitudinal
+    arc_len = polyline_length(chain)
+    chord = math.hypot(300.0, 500.0 - 22.5)
+    assert arc_len > chord + 40.0
+    d, bud, path = route_path(g, start, end)
+    # the route walks the centreline: every polyline vertex is on it (the
+    # map snaps to its identity grid and stations the straight run)
+    pxy = [pm.vertices[v].xy for v in path]
+    for cx, cy in chain:
+        assert min(math.hypot(x - cx, y - cy) for x, y in pxy) < 1.0, (cx, cy)
+    assert all(g.station[v] for v in path)
+    built = polyline_length(pxy)                  # the map's own vertices
+    assert built == pytest.approx(arc_len, abs=1.0)
+    assert d == pytest.approx(built, abs=1e-6)
+    assert bud == pytest.approx(cap * built, abs=1e-6)
+    band = reach(g, threshold_pins(pm, law, airport))
+    assert band[end][1] - band[start][1] == pytest.approx(cap * built, abs=1e-6)
+    assert band[end][1] - band[start][1] > cap * chord + 0.5
+    # the taxiway's own edge vertices attach by ONE lateral hop to the
+    # nearest station of the arc: the perpendicular distance (the half
+    # width, up to the mitre diagonal at the 90° bend where the straight
+    # run meets the arc) at the taxi transverse cap, plus the walk along
+    # the centreline from the station to the foot at the stretch cap
+    from auto_patch_v2.constraints.geometry import project_to_chain
+    ct = role_cap(law, "stub", None, "D").transverse
+    rim = [v for v in _verts_of_role(pm, "stub") - _verts_of_role(pm, "runway")
+           - _verts_of_role(pm, "apron") if v not in _stations(pm)]
+    assert rim
+    ring_chain = [pm.vertices[u].xy for u in path]
+    idx = {k: i for i, k in enumerate(g.a * 0 + np.arange(len(g.a)))}
+    for v in rim:
+        dd, bb, pth = route_path(g, v, end)
+        assert pth[1] in _stations(pm) and len(pth) >= 2
+        d_perp, k, tt, _s = project_to_chain(pm.vertices[v].xy, ring_chain)
+        seg = math.hypot(ring_chain[k + 1][0] - ring_chain[k][0], ring_chain[k + 1][1] - ring_chain[k][1])
+        along = min(tt * seg, (1.0 - tt) * seg)
+        assert 11.5 - 0.6 <= d_perp <= 11.5 * math.sqrt(2.0) + 0.6
+        e = [j for j in range(len(g.a)) if {int(g.a[j]), int(g.b[j])} == {v, pth[1]}][0]
+        assert g.length[e] == pytest.approx(d_perp + along, abs=1e-6)
+        assert g.budget[e] == pytest.approx(ct * d_perp + cap * along, abs=1e-6)
+
+
+def test_apron_beside_the_taxiway_attaches_by_the_hop_never_its_perimeter(arc, law):
+    """§8 twin: the apron touching the arc's end: every apron vertex's
+    band comes through ONE lateral hop from the touching taxilane's
+    station at the apron cap over the straight distance — never through
+    the apron's perimeter (no apron ring edge is a route)."""
+    from auto_patch_v2.constraints.routes import LATERAL
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    airport, pm = arc
+    g = routes(pm, law, airport)
     pins = threshold_pins(pm, law, airport)
-    assert set(pins.values()) == {700.0}
     band = reach(g, pins)
-    top = [v for v in _verts_of_role(pm, "stub") if abs(pm.vertices[v].xy[1] - 400.0) < 1e-6]
-    mouth_w = [v for v in _verts_of_role(pm, "apron") if abs(pm.vertices[v].xy[1] - 190.0) < 1e-6
-               and abs(pm.vertices[v].xy[0] + 300.0) < 12.0]
-    mouth_n = [v for v in _verts_of_role(pm, "apron") if abs(pm.vertices[v].xy[1] - 290.0) < 1e-6
-               and abs(pm.vertices[v].xy[0] - 300.0) < 12.0]
-    assert top and mouth_w and mouth_n
-    v = top[0]
-    pin = next(iter(pins))
-    d, bud, path = route_path(g, pin, v)
-    assert band[v][1] == pytest.approx(700.0 + bud, abs=1e-6)
-    # the route runs the apron's PERIMETER: no CHORD edge of the path
-    # lies on the apron (the runway / stub per-stretch chords are routes)
-    kinds = {}
-    for a, b, k in zip(g.a, g.b, g.kind):
-        kinds[(int(a), int(b))] = int(k)
-    apron_v = _verts_of_role(pm, "apron")
-    assert any(x in apron_v and y in apron_v for x, y in zip(path, path[1:]))
-    assert all(kinds[(min(x, y), max(x, y))] != CHORD
-               for x, y in zip(path, path[1:]) if x in apron_v and y in apron_v)
-    # the withdrawn chord: apron west mouth -> north mouth straight across
-    # the body, at the apron cap; the route around it grants more
-    apron_cap = role_cap(law, "apron").longitudinal
-    a, b = mouth_w[0], mouth_n[0]
-    chord = math.hypot(*(np.subtract(pm.vertices[a].xy, pm.vertices[b].xy)))
-    assert chord > 550.0
-    da, ba, _pa = route_path(g, pin, a)
-    dperim, bperim, pperim = route_path(g, a, b)
-    assert dperim > chord + 50.0 and bperim > apron_cap * chord + 0.5
-    assert band[b][1] == pytest.approx(700.0 + ba + bperim, abs=1e-6)
-    assert band[b][1] > 700.0 + ba + apron_cap * chord + 0.5
-    # reach and no_step keep their form on this map
+    end = _vid(pm, 300.0, 500.0)
+    apron_cap = role_cap(law, "apron").transverse
+    apron = _verts_of_role(pm, "apron")
+    assert end in apron
+    corner = _vid(pm, 450.0, 700.0)
+    d, bud, path = route_path(g, end, corner)
+    assert path == [end, corner] and d == pytest.approx(250.0, abs=1e-6)
+    assert bud == pytest.approx(apron_cap * 250.0, abs=1e-6)
+    perimeter = 150.0 + 200.0                           # end → (450,500) → corner along the ring
+    assert band[corner][1] == pytest.approx(band[end][1] + apron_cap * 250.0, abs=1e-6)
+    assert band[corner][1] < band[end][1] + apron_cap * perimeter - 0.5
+    from auto_patch_v2.constraints.geometry import project_to_chain
+    stub_cap = role_cap(law, "stub", None, "D").longitudinal
+    lane = [pm.vertices[u].xy for u in route_path(g, _vid(pm, 0.0, 22.5), end)[2]]
+    for v in apron - {end}:
+        dd, bb, pth = route_path(g, v, end)
+        assert len(pth) == 2, (v, pth)
+        # the hop: the perpendicular distance at the apron cap plus the walk
+        # along the lane from the end station to the foot at the stub cap
+        d_perp, k, tt, _s = project_to_chain(pm.vertices[v].xy, lane)
+        seg = math.hypot(lane[k + 1][0] - lane[k][0], lane[k + 1][1] - lane[k][1])
+        along = min(tt * seg, (1.0 - tt) * seg)
+        assert dd == pytest.approx(d_perp + along, abs=1e-6)
+        assert bb == pytest.approx(apron_cap * d_perp + stub_cap * along, abs=1e-6)
+        assert band[v][1] == pytest.approx(band[end][1] + bb, abs=1e-6)
+    # no apron ring edge is a route: a graph edge on the apron ring is a
+    # LATERAL hop into the end station, nothing else
+    ring = {e.length_key for f in pm.faces.values() if f.role == "apron"
+            for eid in f.ring for e in [pm.edges[eid]]}
+    kinds = {(int(a), int(b)): int(k) for a, b, k in zip(g.a, g.b, g.kind)}
+    on_ring = [key for key in ring if key in kinds]
+    assert on_ring and all(kinds[key] == LATERAL and end in key for key in on_ring)
+    # reach and no_step keep their form
     rows = no_step.reach_bands(pm, law, airport)
     assert {r.v for r in rows} == set(band) and all(r.lo <= r.hi for r in rows)
-    pairs = no_step.no_step_edges(pm, law)
+    pairs = no_step.no_step_edges(pm, law, airport)
     assert pairs and all(0 < dd <= law.tables.emit.no_step.window_m + 1e-9 for *_x, dd in pairs)
-    assert (min(a, b), max(a, b)) not in {(x, y) for x, y, *_ in pairs}
+
+
+def test_apron_crossed_by_no_centreline_has_no_perimeter_route(between, law):
+    """05aa on the 05v fixture: the apron between two stubs is crossed by
+    no centreline.  Its vertices attach to the stubs' end stations by
+    lateral hops at the apron cap; the far stub, joined to the
+    thresholds by no centreline, has NO reach band; no apron perimeter
+    edge is a route."""
+    from auto_patch_v2.constraints.routes import LATERAL
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    airport, pm = between
+    g = routes(pm, law, airport)
+    band = reach(g, threshold_pins(pm, law, airport))
+    apron_cap = role_cap(law, "apron").transverse
+    mouth_w, mouth_n = _vid(pm, -300.0, 190.0), _vid(pm, 300.0, 290.0)
+    top = [v for v in _verts_of_role(pm, "stub") if abs(pm.vertices[v].xy[1] - 400.0) < 1e-6]
+    assert top and all(v not in band for v in top)
+    assert mouth_n not in band and mouth_w in band
+    apron = _verts_of_role(pm, "apron")
+    for v in apron - {mouth_w, mouth_n}:
+        rp = route_path(g, v, mouth_w)
+        near_w = math.hypot(*(np.subtract(pm.vertices[v].xy, pm.vertices[mouth_w].xy))) <= \
+            math.hypot(*(np.subtract(pm.vertices[v].xy, pm.vertices[mouth_n].xy)))
+        if near_w:
+            dd, bb, pth = rp
+            assert len(pth) == 2 and bb == pytest.approx(apron_cap * dd, abs=1e-6)
+            assert band[v][1] == pytest.approx(band[mouth_w][1] + bb, abs=1e-6)
+        else:
+            assert rp is None and v not in band
+    kinds = {(int(a), int(b)): int(k) for a, b, k in zip(g.a, g.b, g.kind)}
+    ring = {e.length_key for f in pm.faces.values() if f.role == "apron"
+            for eid in f.ring for e in [pm.edges[eid]]}
+    assert all(kinds[key] == LATERAL for key in ring if key in kinds)
+    rows = no_step.reach_bands(pm, law, airport)
+    assert {r.v for r in rows} == set(band)
+    # the far stub still pairs along ITS OWN centreline with the apron's
+    # north-mouth vertices (a route, though none reaches a pin) and never
+    # with a west-mouth vertex (no perimeter joins the two mouths)
+    pairs = no_step.no_step_edges(pm, law, airport)
+    west = {v for v in apron if v in band}
+    assert pairs and not any((a in west) != (b in west) and (a in apron and b in apron)
+                             for a, b, *_ in pairs)
 
 
 # ── RULINGS 2026-09-05z: the runway is like an apron in the route graph ──
@@ -421,9 +580,8 @@ def crossing(law):
 
 def _runway_ring_edges_that_are_no_route(pm, law):
     """Every runway-family ring edge between two EDGE vertices — neither
-    endpoint on the ridge or a centreline (an edge vertex's hop to an
-    ADJACENT anchor is one ring edge long and lawful, 05z c) — that is
-    not shared with a non-runway route face."""
+    endpoint on the ridge or a centreline — that is not shared with a
+    non-runway route face."""
     from auto_patch_v2.constraints.routes import RIDGE_KIND
     from auto_patch_v2.law.tables import role_family
     ridge = {eid for bl in pm.breaklines.values() if bl.kind == RIDGE_KIND for eid in bl.edges}
@@ -445,18 +603,17 @@ def _runway_ring_edges_that_are_no_route(pm, law):
     return out
 
 
-@pytest.mark.parametrize("fx", ["crossing", "loop", "between"])
+@pytest.mark.parametrize("fx", ["crossing", "loop", "between", "arc"])
 def test_no_graph_edge_lies_on_a_runway_ring(fx, law, request):
     """05z: the runway's EDGES are not graph edges — no route lies on a
-    runway ring edge that is not the ridge, a centreline part, or a
-    taxi face's own ring edge."""
+    runway ring edge that is not the ridge or a centreline part."""
     airport, pm = request.getfixturevalue(fx)
     g = build_routes(pm, law, airport)
     on_graph = {(int(a), int(b)) for a, b in zip(g.a, g.b)}
     edges = _runway_ring_edges_that_are_no_route(pm, law)
     assert edges
     assert not (edges & on_graph)
-    # ...and every runway ring vertex is still a graph node (it hops)
+    # ...and every runway ring vertex is still a graph node (it hops to the ridge)
     assert _verts_of_role(pm, "runway") <= g.nodes
 
 
@@ -464,14 +621,14 @@ def test_runway_edges_reach_each_other_through_the_crossing(crossing, law):
     """05z (b): a stub on each edge; the two edges' reach bands overlap by
     at least the transverse allowance, because both reach through the
     crossing and the centreline — not around the runway end."""
-    from auto_patch_v2.constraints.routes import CROSSING, EDGE_HOP
+    from auto_patch_v2.constraints.routes import CROSSING, LATERAL
     from auto_patch_v2.constraints.runway_profile import threshold_pins
     from auto_patch_v2.law.tables import runway_transverse_max
     airport, pm = crossing
     g = routes(pm, law, airport)
     assert g.stats["crossing"] > 0 and g.stats["crossing_unmatched"] == 0
-    assert g.stats["edge_hop"] > 0 and g.stats["ring"] > 0
-    assert set(np.unique(g.kind)) >= {CROSSING, EDGE_HOP}
+    assert g.stats["lateral"] > 0
+    assert set(np.unique(g.kind)) >= {CROSSING, LATERAL}
     north = [v for v in _verts_of_role(pm, "runway") if abs(pm.vertices[v].xy[1] - 22.5) < 1e-6
              and abs(pm.vertices[v].xy[0]) < 1e-6]
     south = [v for v in _verts_of_role(pm, "runway") if abs(pm.vertices[v].xy[1] + 22.5) < 1e-6
@@ -485,15 +642,31 @@ def test_runway_edges_reach_each_other_through_the_crossing(crossing, law):
     pins = threshold_pins(pm, law, airport)
     band = reach(g, pins)
     lo, hi = max(band[n][0], band[s][0]), min(band[n][1], band[s][1])
-    allowance = runway_transverse_max(law, "D", 3) * 45.0
-    assert hi - lo >= allowance
+    tmax = runway_transverse_max(law, "D", 3)
+    assert hi - lo >= tmax * 45.0
     assert abs(band[n][1] - band[s][1]) <= cap * 45.0 + 1e-6
-    # an edge vertex on NO crossing hops along its ring to the crossing
-    far = min((v for v in _verts_of_role(pm, "runway")
+    # an edge vertex on NO crossing attaches by ONE lateral hop to the
+    # nearest ridge station at transverse_max over the half width —
+    # never along its ring
+    far = min((v for v in _verts_of_role(pm, "runway") - _verts_of_role(pm, "stub")
                if abs(pm.vertices[v].xy[1] - 22.5) < 1e-6 and abs(pm.vertices[v].xy[0]) > 1e-6),
               key=lambda v: abs(pm.vertices[v].xy[0]))
     d2, _b2, path2 = route_path(g, far, n)
-    assert d2 == pytest.approx(abs(pm.vertices[far].xy[0]), abs=1e-6) and path2 == [far, n]
+    ridge = _stations(pm) - _verts_of_role(pm, "stub")
+    assert path2[1] in ridge and abs(pm.vertices[path2[1]].xy[1]) < 1e-6
+    # a shared CORNER (runway ring + stub ring, no station) is a LEAF: it
+    # hops into both centrelines but no route passes THROUGH it
+    corner = _vid(pm, -11.5, -22.5)
+    assert not g.station[corner]
+    d3, _b3, path3 = route_path(g, s, corner)
+    assert path3[0] == s and path3[-1] == corner and len(path3) == 2
+    assert all(g.station[v] for v in route_path(g, n, s)[2][1:-1])
+    kinds = {(int(a), int(b)): int(k) for a, b, k in zip(g.a, g.b, g.kind)}
+    lens = {(int(a), int(b)): float(ln) for a, b, ln in zip(g.a, g.b, g.length)}
+    key = (min(far, path2[1]), max(far, path2[1]))
+    assert kinds[key] == LATERAL and lens[key] == pytest.approx(22.5, abs=1e-6)
+    sx = pm.vertices[path2[1]].xy[0]
+    assert band[far][1] == pytest.approx(700.0 + cap * (sx + 600.0) + tmax * 22.5, abs=1e-6)
 
 
 def test_reach_along_the_centreline_is_pin_plus_cap_times_distance(crossing, law):

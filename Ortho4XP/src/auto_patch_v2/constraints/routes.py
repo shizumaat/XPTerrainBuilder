@@ -3,69 +3,60 @@ out from runway thresholds and have to follow taxi routes ... aircraft
 can't travel straight across the grass; they have to follow taxi routes,
 which is what follows the grade cap").
 
-The graph an aircraft travels (RULINGS 2026-09-05v, 04o applied): NODES
-are the planar vertices on airside pavement; EDGES are the MOVEMENT-
-SURFACE ROUTE NETWORK — every ring edge of an airside pavement face
-(runway-family and taxi-family rings, apron PERIMETERS), the taxi
-centrelines (a centreline is a cut line through every pavement region,
-so a 1202 taxilane crossing an apron is a ring edge of the apron faces
-it splits, priced at the apron cap through ``edge_cap``) and the
-per-stretch chords of a taxi-family face (the face is a PLANE shape:
-any two of its vertices on one stretch are a travel path,
-``rulesets.taxi.longitudinal within_shape``, 04t-3).  NO APRON PLAN
-CHORD: a chord across an apron's body is the apron law's own hard-but-
-relaxable row (``constraints.apron``), never a route — measured HECA
-2026-09-05: a path cutting pav132 on a 700 m chord at 1 % granted 7 m
-where the taxi route around it grants 43 m, and the reach bands are
-hard, so relaxing the apron rows could never free them (the §4 reading
-of ``relaxation-without-certificate-spec.md`` is withdrawn).  The twin:
-the graph carries no CHORD edge whose two endpoints lie on one apron
-face — a taxi chord along a run shared with an apron is dropped too
-(its ring edges are the route).  A pad hole's rim inside an apron is
-therefore an island unless a centreline reaches it: it takes no reach
-band and no perimeter no-step pair (the pad law and the apron frontage
-rows bind it).  SERVICE ROADS ARE EXCLUDED from airside reach (v1
-``config.REACH_NO_SERVICE_SPINES``; memory ``reach-follows-centerlines``):
-the groundside roles never contribute a node or an edge, and a
-``road_centerline`` breakline adds nothing.
+THE GRAPH IS THE 1202 CENTRELINE NETWORK ONLY (RULINGS 2026-09-05aa, the
+owner's verdict on the HECA limiting-chain KML; spec ``relaxation-
+without-certificate-spec.md`` §8; v1's model, memory ``reach-follows-
+centerlines``).  Its EDGES are
 
-Each edge carries its PLAN LENGTH and the CAP of the face it lies in —
-the strictest where two faces share it, which is the budget the solve
-actually grants along it; a taxi CENTRELINE edge carries its STRETCH's
-cap and a taxi-family chord its per-stretch price (RULINGS 2026-09-04t-3,
-``constraints.stretches`` — the same rows ``taxi`` generates), a chord to
-a pad vertex the pad's cap (frontage).  Two readings:
+* (i) every TAXI CENTRELINE STRETCH (``constraints.stretches``, the 1202
+  network) — every polyline vertex, so every curve and turn is
+  followed — at its stretch cap (``edge_cap``: the stretch's letter,
+  tightened by a governed non-taxi face it splits, 09-03j; a part noded
+  inside a runway slab at the runway cap);
+* (ii) every RUNWAY CENTRELINE — the ``runway_profile`` ridge chains
+  (consecutive split chains bridged) at the runway longitudinal cap by
+  code (``rulesets.<auth>.runway.longitudinal``), the threshold pins on
+  it;
+* (iii) the 1202 taxi routes CROSSING a runway (05z b) — recovered from
+  ``airport.taxi_edges`` clipped to the slab (classify cut them off the
+  centrelines), joined to the ridge's bracketing stations where they
+  cross it and to the runway ring vertex where they enter;
+
+and NOTHING ELSE: no ring edge of any face, no chord of any kind
+(stretch, apron, junction), no apron perimeter, no pad frontage hop.
+Every one of those was measured at HECA 2026-09-05 as a shortcut across
+open pavement or grass that the reach bands then made hard.
+
+THE ATTACHMENT: every pavement ring vertex of a runway / taxi / apron
+face that is no station of a centreline of its OWN face attaches by ONE
+LATERAL HOP to the nearest station of the nearest centreline INSIDE or
+TOUCHING that face — the ridge chains on a runway-family face, the
+stretches splitting or touching (through a ring vertex) every other
+face — over the PERPENDICULAR distance (the foot on the polyline) at
+the face's TRANSVERSE cap: ``runway.transverse_max`` for a runway edge,
+the taxi transverse cap for a taxiway edge, the apron cap for an apron
+vertex.  A pad vertex is an apron vertex where its rim meets the apron
+(the frontage row's apron vertex) and attaches as one; the rest of the
+pad is rigid and no node.  A vertex with nothing to attach to is NO
+NODE: it has no reach band and no no_step route distance — the shape
+laws alone govern it.  SERVICE ROADS ARE EXCLUDED from airside reach
+(v1 ``config.REACH_NO_SERVICE_SPINES``): the groundside roles never
+contribute a node or an edge, and a ``road_centerline`` breakline adds
+nothing.
+
+Each edge carries its LENGTH and the CAP the solve grants along it — the
+least budget where two edges compete for one pair.  Two readings:
 
 * ROUTE DISTANCE between two vertices = the shortest path by length; the
   path's BUDGET = ``Σ cap_e · len_e`` along that very path (the pair's
   own caps: an apron↔taxiway pair carries the taxiway's cap on the
-  taxiway stretch and the apron's on the apron stretch, 04q-1) —
+  taxiway stretch and the apron's on its hop, 04q-1) —
   :func:`route_neighbours` (the no-step population).
 * REACH from the runway thresholds = the threshold values propagated
   along every route at the path caps, multi-source Dijkstra over the
   budget weights — :func:`reach` (v1's reach band as a floor / ceiling
   per vertex).  Budgets are non-negative by construction (memory
   ``reach-envelope-sign-discipline``).
-
-THE RUNWAY IS LIKE AN APRON IN THE GRAPH (RULINGS 2026-09-05z, spec
-``relaxation-without-certificate-spec.md`` §7 amended): crossable and
-followed along its CENTRELINE, its EDGES never graph edges.  A runway-
-family face contributes (a) its centreline — the ``runway_profile``
-breakline chain (consecutive split chains bridged) at the runway
-longitudinal cap by code (``rulesets.<auth>.runway.longitudinal``), the
-threshold pins on it; (b) the 1202 taxi routes CROSSING the runway at
-the runway cap — recovered from ``airport.taxi_edges`` clipped to the
-runway slab (classify cut them off the centrelines), joined to the
-ridge's bracketing stations where they cross it and to the runway edge
-vertex where they enter (the planar vertex the cut centreline ended
-on, within the weld spacing); (c) an edge vertex on no crossing hops
-to the NEAREST crossing / centreline vertex of its own face ring at
-the runway cap over the RING distance — as an apron perimeter reaches
-its taxilane — never a runway ring edge as a route.  Measured HECA
-2026-09-05 (certificate, 9 rows): runway 05C/23C's two edges at stubs
-pav91 / pav101, 60 m apart and tied within ±0.455 m by the transverse
-law, were 3,206 m vs 6,417 m from the low pin because the graph
-routed a crossing around the runway end.
 
 ``scipy.sparse.csgraph`` does the walking; nothing here is O(n²) over
 the map.  Pure over the planar map and the law; no shapely, no v1.  It
@@ -87,34 +78,41 @@ from ..law import Law
 from ..law.tables import (is_rigid_role, is_value_role, role_cap, role_family,
                           role_side)
 from ..model.airport import Airport
-from ..model.planar import EdgeKind, PlanarMap
+from ..model.planar import PlanarMap
 from .geometry import project_to_chain
-from .stretches import edge_cap, pair_caps, stretches
+from .stretches import edge_cap, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
            "route_neighbours", "reach", "route_path"]
 
-#: Edge provenance codes (``RouteGraph.kind``).  FRONTAGE: a hole rim's
-#: hop to the nearest vertex of another ring of its face (CANDIDATE
-#: amendment to 2026-09-05v, measured, NOT ruled — see build_routes).
-#: CROSSING: a 1202 taxi route across a runway (05z b); EDGE_HOP: a
-#: runway edge vertex's hop to its ring's nearest crossing / centreline
-#: vertex over the ring distance (05z c).
-RING, CHORD, CENTRELINE, FRONTAGE, CROSSING, EDGE_HOP = 0, 1, 2, 3, 4, 5
+#: Edge provenance codes (``RouteGraph.kind``).  CENTRELINE: a taxi
+#: stretch edge or a runway ridge edge (a split ridge's bridge too);
+#: CROSSING: a 1202 taxi route across a runway slab (05z b); LATERAL: a
+#: pavement ring vertex's ONE hop to the nearest station of its own
+#: face's centreline (05aa).
+CENTRELINE, CROSSING, LATERAL = 0, 1, 2
 RIDGE_KIND = "runway_profile"
 
 
 @_dc.dataclass(frozen=True)
 class RouteGraph:
-    """The route graph of one planar map (module docstring)."""
+    """The route graph of one planar map (module docstring).  ``station``
+    marks the NETWORK vertices — those on a centreline (a taxi stretch
+    or a runway ridge); every other vertex is a LEAF hanging off the
+    network by its hop: a path may start or end at a leaf, never pass
+    through one (two hops at a shared corner would otherwise chain into
+    a route across the pavement the owner withdrew, 05aa) — so the walk
+    is DIRECTED over ``2n`` ids: a leaf's OUT id is ``v``, its IN id
+    ``v + n``; a station is one id both ways (:meth:`csr`, :meth:`inbound`)."""
 
     n: int                                  # planar vertex count (ids dense)
-    nodes: frozenset[int]                   # airside pavement vertices
+    nodes: frozenset[int]                   # attached airside pavement vertices
     a: np.ndarray                           # edge endpoints, a < b
     b: np.ndarray
     length: np.ndarray                      # plan metres
     cap: np.ndarray                         # grade fraction along the edge
-    kind: np.ndarray                        # RING / CHORD / CENTRELINE / ...
+    kind: np.ndarray                        # CENTRELINE / CROSSING / LATERAL
+    station: np.ndarray                     # bool per planar vertex: on a centreline
     stats: dict[str, int] = _dc.field(default_factory=dict)
 
     @property
@@ -122,16 +120,28 @@ class RouteGraph:
         """``cap · length`` per edge — metres of lawful rise along it."""
         return self.cap * self.length
 
+    def inbound(self, v: int | np.ndarray) -> int | np.ndarray:
+        """The id a walk ARRIVES at vertex ``v`` by (``v`` for a station,
+        ``v + n`` for a leaf); a walk LEAVES every vertex by ``v``."""
+        return np.where(self.station[v], v, v + self.n) if isinstance(v, np.ndarray) \
+            else (int(v) if self.station[v] else int(v) + self.n)
+
+    def vertex(self, ident: int | np.ndarray) -> int | np.ndarray:
+        """The planar vertex of a walk id."""
+        return ident % self.n
+
     def csr(self, weight: str = "length", max_len: float | None = None) -> csr_matrix:
-        """Symmetric CSR over the planar vertex ids with ``length`` or
-        ``budget`` weights; ``max_len`` drops edges longer than it (an edge
-        longer than a window can lie on no path inside it)."""
+        """DIRECTED CSR over the ``2n`` walk ids with ``length`` or
+        ``budget`` weights: every edge ``(u, v)`` is ``u → inbound(v)``
+        and ``v → inbound(u)``; ``max_len`` drops edges longer than it (an
+        edge longer than a window can lie on no path inside it)."""
         w = self.length if weight == "length" else self.budget
         keep = np.ones(len(w), bool) if max_len is None else self.length <= max_len
         a, b, w = self.a[keep], self.b[keep], w[keep]
         m = csr_matrix((np.concatenate([w, w]),
-                        (np.concatenate([a, b]), np.concatenate([b, a]))),
-                       shape=(self.n, self.n))
+                        (np.concatenate([a, b]),
+                         np.concatenate([self.inbound(b), self.inbound(a)]))),
+                       shape=(2 * self.n, 2 * self.n))
         m.sum_duplicates()
         return m
 
@@ -322,30 +332,42 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
     return out, entries, unmatched
 
 
-def _ring_hops(ring: list[int], xy: np.ndarray, anchors: _t.Container[int]
-               ) -> list[tuple[int, int, float]]:
-    """RULINGS 2026-09-05z (c): ``(v, anchor, ring distance)`` for every
-    ring vertex that is no anchor — the nearest anchor along the ring
-    (cyclic), never across the face."""
-    idx = [i for i, v in enumerate(ring) if v in anchors]
-    if not idx or len(idx) == len(ring):
-        return []
-    r = np.array(ring, np.int64)
-    seg = np.hypot(xy[np.roll(r, -1), 0] - xy[r, 0], xy[np.roll(r, -1), 1] - xy[r, 1])
-    pos = np.concatenate([[0.0], np.cumsum(seg)[:-1]])
-    total = float(seg.sum())
-    if total <= 0.0:
-        return []
-    ai = np.array(idx, np.int64)
-    out: list[tuple[int, int, float]] = []
-    for i, v in enumerate(ring):
-        if v in anchors:
-            continue
-        d = np.abs(pos[ai] - pos[i])
-        d = np.minimum(d, total - d)
-        j = int(np.argmin(d))
-        out.append((v, ring[idx[j]], float(d[j])))
-    return out
+def _nearest_station(pts: np.ndarray,
+                     lines: _t.Sequence[tuple[list[int], np.ndarray, np.ndarray]]
+                     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """For every point the nearest STATION of the nearest line: the
+    perpendicular distance to the nearest line (the foot clamped to the
+    polyline), the nearer of the two stations bracketing that foot, the
+    distance ALONG the segment from that station to the foot, and the
+    segment's longitudinal cap — ``(d_perp, station, d_along, cap_l)``;
+    station ``-1`` where no line has a segment.  Vectorised over the
+    points, one pass per segment.  ``lines`` are ``(chain vertex ids,
+    chain xy, per-segment longitudinal cap)``."""
+    n = len(pts)
+    best_d = np.full(n, np.inf)
+    best_v = np.full(n, -1, np.int64)
+    best_along = np.zeros(n)
+    best_cap = np.zeros(n)
+    px, py = pts[:, 0], pts[:, 1]
+    for chain, cxy, caps in lines:
+        for k in range(len(chain) - 1):
+            (ax, ay), (bx, by) = cxy[k], cxy[k + 1]
+            vx, vy = bx - ax, by - ay
+            l2 = vx * vx + vy * vy
+            if l2 <= 0.0:
+                continue
+            seg = math.sqrt(l2)
+            t = np.clip(((px - ax) * vx + (py - ay) * vy) / l2, 0.0, 1.0)
+            d = np.hypot(px - (ax + t * vx), py - (ay + t * vy))
+            hit = d < best_d
+            if not hit.any():
+                continue
+            near_b = np.hypot(px - bx, py - by) < np.hypot(px - ax, py - ay)
+            best_d[hit] = d[hit]
+            best_v[hit] = np.where(near_b[hit], chain[k + 1], chain[k])
+            best_along[hit] = np.where(near_b[hit], (1.0 - t[hit]) * seg, t[hit] * seg)
+            best_cap[hit] = caps[k]
+    return best_d, best_v, best_along, best_cap
 
 
 def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> RouteGraph:
@@ -354,14 +376,9 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     recovered from (without it a runway is followed along its
     centreline only)."""
     roles = route_roles(law)
-    taxi = set(law.tables.precedence.taxi_family.members)
     rw_fam = frozenset(r for r in law.tables.precedence.roles if role_family(law, r) == "runway")
     weld_m = float(law.tables.emit.identity.weld_spacing_m)
-    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
-    min_d = law.tables.emit.identity.min_distinct_spacing_m
-    mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
-    hop_m = float(law.tables.emit.no_step.window_m)
-    pad_cap = law.tables.common.roles["building"].longitudinal
+    min_d = float(law.tables.emit.identity.min_distinct_spacing_m)
     st = stretches(pm, law)
     face_caps: dict[int, tuple[float, float] | None] = {}
     for fid, f in pm.faces.items():
@@ -371,155 +388,43 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     xy = np.zeros((n_v, 2), float)
     for vid, v in pm.vertices.items():
         xy[vid] = v.xy
-    # spine vertices (taxi centrelines) and pad-shared vertices: a taxi
-    # chord to a pad vertex carries the pad's cap (frontage)
-    strict_v = np.zeros(n_v, bool)
-    f_rigid = np.zeros(n_v, bool)
-    for bl in pm.breaklines.values():
-        if bl.kind == "taxi_centerline":
-            strict_v[list(bl.vertices(pm))] = True
-    for f in pm.faces.values():
-        if f.role in rigid:
-            for cyc in (f.ring, *f.holes):
-                strict_v[list(pm.ring_vertices(cyc))] = True
-                f_rigid[list(pm.ring_vertices(cyc))] = True
-    centre = np.array(sorted({e.a * n_v + e.b if e.a < e.b else e.b * n_v + e.a
-                              for e in pm.edges.values() if e.kind is EdgeKind.CENTERLINE}),
-                      dtype=np.int64)
-    # THE RUNWAY FAMILY (RULINGS 2026-09-05z): the ridge chains by runway,
-    # the runway ring vertices by runway, the crossings from the network
-    ridge_edges: set[int] = set()
-    ridge_by_ref: dict[str, list[list[int]]] = {}
-    for bl in pm.breaklines.values():
-        if bl.kind == RIDGE_KIND:
-            ridge_edges.update(bl.edges)
-            ridge_by_ref.setdefault(bl.ref, []).append(list(bl.vertices(pm)))
-    ring_by_ref: dict[str, set[int]] = {}
-    for f in pm.faces.values():
-        if f.role in rw_fam and f.role in roles:
-            for cyc in (f.ring, *f.holes):
-                ring_by_ref.setdefault(f.ref, set()).update(pm.ring_vertices(cyc))
-    xing_edges: list[tuple[int, int, float, float]] = []
-    entries: set[int] = set()
-    n_unmatched = 0
-    if airport is not None and ridge_by_ref:
-        xing_edges, entries, n_unmatched = _runway_crossings(
-            law, airport, xy, ridge_by_ref, ring_by_ref, weld_m)
     A, B, C, K = [], [], [], []
     LEN: list[np.ndarray] = []        # explicit lengths (crossings, hops); NaN = plan chord
-    nodes: set[int] = set()
-    n_faces = 0
+
+    def add(a: int, b: int, cap: float, kind: int, length: float = np.nan) -> None:
+        A.append(np.array([min(a, b)], np.int64)); B.append(np.array([max(a, b)], np.int64))
+        C.append(np.full(1, cap)); K.append(np.full(1, kind, np.int8)); LEN.append(np.full(1, length))
+
+    # (ii) THE RUNWAY CENTRELINES: the ridge chains by runway at the runway
+    # longitudinal cap by code; the runway ring vertices by runway
+    ridge_by_ref: dict[str, list[list[int]]] = {}
+    ridge_chain_of_edge: dict[int, tuple[str, int]] = {}
+    for bl in pm.breaklines.values():
+        if bl.kind == RIDGE_KIND:
+            chs = ridge_by_ref.setdefault(bl.ref, [])
+            for eid in bl.edges:
+                ridge_chain_of_edge[eid] = (bl.ref, len(chs))
+            chs.append(list(bl.vertices(pm)))
+    ring_by_ref: dict[str, set[int]] = {}
     ref_cap: dict[str, float] = {}
     for f in pm.faces.values():
-        if f.role not in roles:
-            continue
-        rc = role_cap(law, f.role, f.code_number, f.code_letter)
-        if rc is None:
-            continue
-        cap = rc.longitudinal
-        n_faces += 1
-        verts: list[int] = []
-        seen: set[int] = set()
-        if f.role in rw_fam:
-            # (a) the centreline (ridge) edges and any taxi centreline part
-            # noded inside the slab, at the runway cap; (c) every other ring
-            # vertex hops to its ring's nearest anchor over the ring distance;
-            # the runway's EDGES are no route
-            ref_cap[f.ref] = min(cap, ref_cap.get(f.ref, cap))
+        if f.role in rw_fam and f.role in roles and face_caps[f.id] is not None:
             for cyc in (f.ring, *f.holes):
-                ring = list(pm.ring_vertices(cyc))
-                anchors: set[int] = set()
+                ring_by_ref.setdefault(f.ref, set()).update(pm.ring_vertices(cyc))
                 for eid in cyc:
-                    e = pm.edges[eid]
-                    if eid in ridge_edges or e.kind is EdgeKind.CENTERLINE:
-                        anchors.add(e.a); anchors.add(e.b)
-                        A.append(np.array([min(e.a, e.b)], np.int64))
-                        B.append(np.array([max(e.a, e.b)], np.int64))
-                        C.append(np.full(1, cap))
-                        K.append(np.full(1, CENTRELINE, np.int8))
-                        LEN.append(np.full(1, np.nan))
-                anchors |= entries & set(ring)
-                hops = _ring_hops(ring, xy, anchors)
-                if hops:
-                    ha = np.array([h[0] for h in hops], np.int64)
-                    hb = np.array([h[1] for h in hops], np.int64)
-                    A.append(np.minimum(ha, hb)); B.append(np.maximum(ha, hb))
-                    C.append(np.full(len(hops), cap)); K.append(np.full(len(hops), EDGE_HOP, np.int8))
-                    LEN.append(np.array([h[2] for h in hops], float))
-                for v in ring:
-                    if v not in seen:
-                        seen.add(v)
-                        verts.append(v)
-            nodes.update(verts)
-            continue
-        for cyc in (f.ring, *f.holes):
-            ring = list(pm.ring_vertices(cyc))
-            m = len(ring)
-            ra = np.array(ring, np.int64)
-            rb = np.roll(ra, -1)
-            A.append(np.minimum(ra, rb)); B.append(np.maximum(ra, rb))
-            C.append(np.full(m, cap)); K.append(np.full(m, RING, np.int8))
-            LEN.append(np.full(m, np.nan))
-            for v in ring:
-                if v not in seen:
-                    seen.add(v)
-                    verts.append(v)
-        nodes.update(verts)
-        if f.role in taxi:
-            # per-stretch chords (04t-3), a pad endpoint at the pad's cap;
-            # a JUNCTION BODY's pairs are its common-stretch pairs ONLY
-            # (04y, the rows ``taxi`` generates) — measured HECA
-            # 2026-09-05: junction pav132's every-pair chords (1300 m and
-            # 1175 m from a hangar-pad rim at the pad cap) were the
-            # min-budget route from 05L/23R to runway 05C/23C's edge
-            pc = pair_caps(pm, law, st, f.id, verts, cap, min_d,
-                           common_only=f.role in mesh_roles)
-            if pc:
-                pa = np.array([p[0] for p in pc], np.int64)
-                pb = np.array([p[1] for p in pc], np.int64)
-                cc = np.array([min(p[2], pad_cap) if (strict_v[p[0]] and f_rigid[p[0]])
-                               or (strict_v[p[1]] and f_rigid[p[1]]) else p[2]
-                               for p in pc], float)
-                A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
-                C.append(cc); K.append(np.full(len(pc), CHORD, np.int8))
-                LEN.append(np.full(len(pc), np.nan))
-        # PAD FRONTAGE HOPS — CANDIDATE amendment to 2026-09-05v, measured
-        # on CYXY, NOT RULED: with no apron plan chord a hole rim (a pad
-        # inside an apron / junction face) is a route ISLAND — no reach
-        # band, no no_step pair to the pavement 0.5 m away (CYXY
-        # building6/7: building|building 1.95 m, 5 pad twins red).  Each
-        # hole vertex hops to the NEAREST vertex of every other ring of
-        # its face inside the no-step window — the shortest link there is,
-        # never a plan chord across the body — at the pad cap.
-        if hop_m > 0.0 and f.holes:
-            rings = [np.array(list(pm.ring_vertices(c)), np.int64) for c in (f.ring, *f.holes)]
-            for hi in range(1, len(rings)):
-                src = rings[hi]
-                for oj, other in enumerate(rings):
-                    if oj == hi or len(other) == 0:
-                        continue
-                    dd = np.hypot(xy[src, None, 0] - xy[None, other, 0],
-                                  xy[src, None, 1] - xy[None, other, 1])
-                    j = np.argmin(dd, axis=1)
-                    ok = dd[np.arange(len(src)), j] <= hop_m
-                    if ok.any():
-                        pa, pb = src[ok], other[j[ok]]
-                        A.append(np.minimum(pa, pb)); B.append(np.maximum(pa, pb))
-                        C.append(np.full(int(ok.sum()), min(cap, pad_cap)))
-                        K.append(np.full(int(ok.sum()), FRONTAGE, np.int8))
-                        LEN.append(np.full(int(ok.sum()), np.nan))
-    # (b) the crossings; (a) consecutive split ridge chains of one runway
-    # bridged at the runway cap over the straight distance (as
-    # ``runway_profile`` bridges its Diff rows)
-    if xing_edges:
-        xa = np.array([x[0] for x in xing_edges], np.int64)
-        xb = np.array([x[1] for x in xing_edges], np.int64)
-        A.append(np.minimum(xa, xb)); B.append(np.maximum(xa, xb))
-        C.append(np.array([x[2] for x in xing_edges], float))
-        K.append(np.full(len(xing_edges), CROSSING, np.int8))
-        LEN.append(np.array([x[3] for x in xing_edges], float))
+                    hit = ridge_chain_of_edge.get(eid)
+                    if hit is not None:
+                        ref_cap[hit[0]] = min(face_caps[f.id][0], ref_cap.get(hit[0], face_caps[f.id][0]))
     for ref, chs in ridge_by_ref.items():
-        if len(chs) < 2 or ref not in ref_cap:
+        cap = ref_cap.get(ref)
+        if cap is None:
+            continue
+        for ch in chs:
+            for u, v in zip(ch, ch[1:]):
+                add(u, v, cap, CENTRELINE)
+        # consecutive split chains of one runway bridged at the runway cap
+        # over the straight distance (as ``runway_profile`` bridges its rows)
+        if len(chs) < 2:
             continue
         longest = max(chs, key=len)
         p0, p1 = xy[longest[0]], xy[longest[-1]]
@@ -534,17 +439,126 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         ordered = sorted(chs, key=lambda c: min(along(c[0]), along(c[-1])))
         ordered = [c if along(c[0]) <= along(c[-1]) else list(reversed(c)) for c in ordered]
         for prev, nxt in zip(ordered, ordered[1:]):
-            u, v = prev[-1], nxt[0]
-            if u != v:
-                A.append(np.array([min(u, v)], np.int64)); B.append(np.array([max(u, v)], np.int64))
-                C.append(np.full(1, ref_cap[ref])); K.append(np.full(1, CENTRELINE, np.int8))
-                LEN.append(np.full(1, np.nan))
+            if prev[-1] != nxt[0]:
+                add(prev[-1], nxt[0], cap, CENTRELINE)
+    # (i) THE TAXI CENTRELINES: every stretch edge, every polyline vertex,
+    # at its stretch cap (``edge_cap``: tightened by a governed non-taxi
+    # face it splits, 09-03j); a part noded inside a runway slab at the
+    # runway cap (the crossing's own price)
+    n_stretch_edges = 0
+    stretch_caps: dict[int, np.ndarray] = {}      # stretch id -> per-segment cap
+    for s in st.items:
+        caps_s: list[float] = []
+        for eid in s.edges:
+            e = pm.edges[eid]
+            fs = pm.faces_of_edge(eid)
+            if fs and all(pm.faces[fid].role in rw_fam for fid in fs):
+                caps = [face_caps[fid][0] for fid in fs if face_caps[fid] is not None]
+                cap = min(caps) if caps else s.cap_l
+            else:
+                c = edge_cap(pm, law, st, eid, face_caps)
+                cap = s.cap_l if c is None else c[0]
+            add(e.a, e.b, cap, CENTRELINE)
+            caps_s.append(cap)
+            n_stretch_edges += 1
+        stretch_caps[s.id] = np.array(caps_s, float)
+    # (iii) THE CROSSINGS (05z b).  An ENTRY — the runway ring vertex a
+    # 1202 route enters the slab at — is a point ON that route and so a
+    # network node even where the planar cut left it off the stub's
+    # stretch (HECA 05L/23R, measured 2026-09-05: entry 3702 at junction
+    # pav81 / stub pav126 is no stretch station; as a leaf it dead-ended
+    # every crossing there and cut the 05L/23R complex — 654 stations —
+    # off the rest of the network)
+    n_unmatched = 0
+    entries: set[int] = set()
+    if airport is not None and ridge_by_ref:
+        xing_edges, entries, n_unmatched = _runway_crossings(
+            law, airport, xy, ridge_by_ref, ring_by_ref, weld_m)
+        for a, b, cap, ln in xing_edges:
+            add(a, b, cap, CROSSING, ln)
+    # THE ATTACHMENT (05aa): every ring vertex of a route face that is no
+    # station of one of ITS OWN face's centrelines — the ridge chains on a
+    # runway-family face, the stretches splitting or touching every other
+    # face — hops ONCE to the nearest station of the nearest such line:
+    # the perpendicular distance at the face's TRANSVERSE cap, plus the
+    # walk along the centreline from that station to the foot at the
+    # centreline's own cap (the station is seldom AT the foot: HECA's
+    # ridges are stationed every 12 m, a taxi stretch at its 1202 nodes;
+    # priced at the perpendicular distance alone the band is TIGHTER
+    # than the hard rows by cap × the station offset and cuts a feasible
+    # hard set — measured on the shared-edge twins 2026-09-05, IIS 3 rows)
+    n_faces = 0
+    unattached: set[int] = set()
+    for f in pm.faces.values():
+        if f.role not in roles or face_caps[f.id] is None:
+            continue
+        n_faces += 1
+        cap_t = face_caps[f.id][1]
+        ring_v: list[int] = []
+        seen: set[int] = set()
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                if v not in seen:
+                    seen.add(v); ring_v.append(v)
+        lines: list[tuple[list[int], np.ndarray, np.ndarray]] = []
+        if f.role in rw_fam:
+            refs: dict[str, None] = {}
+            for cyc in (f.ring, *f.holes):
+                for eid in cyc:
+                    hit = ridge_chain_of_edge.get(eid)
+                    if hit is not None:
+                        refs.setdefault(hit[0])
+            if not refs and f.ref in ridge_by_ref:
+                refs[f.ref] = None
+            for ref in refs:
+                rcap = ref_cap.get(ref)
+                if rcap is None:
+                    continue
+                for ch in ridge_by_ref[ref]:
+                    lines.append((ch, xy[np.array(ch, np.int64)],
+                                  np.full(max(len(ch) - 1, 0), rcap)))
+        else:
+            sids: dict[int, None] = {}
+            for sid in st.face_stretches.get(f.id, ()):
+                sids.setdefault(sid)
+            for v in ring_v:
+                for sid in st.on.get(v, ()):
+                    sids.setdefault(sid)
+            for sid in sids:
+                ch = list(st.items[sid].vertices)
+                lines.append((ch, xy[np.array(ch, np.int64)], stretch_caps[sid]))
+        on_line = {v for ch, _c, _k in lines for v in ch}
+        off = np.array([v for v in ring_v if v not in on_line], np.int64)
+        if off.size == 0:
+            continue
+        if not lines:
+            unattached.update(int(v) for v in off)
+            continue
+        d, station, along, cap_l = _nearest_station(xy[off], lines)
+        ok = station >= 0
+        unattached.update(int(v) for v in off[~ok])
+        if ok.any():
+            src, dst = off[ok], station[ok]
+            length = np.maximum(d[ok] + along[ok], min_d)
+            bud = cap_t * d[ok] + cap_l[ok] * along[ok]
+            A.append(np.minimum(src, dst)); B.append(np.maximum(src, dst))
+            C.append(bud / length); K.append(np.full(int(ok.sum()), LATERAL, np.int8))
+            LEN.append(length)
+    station = np.zeros(n_v, bool)
+    for chs in ridge_by_ref.values():
+        for ch in chs:
+            station[ch] = True
+    for s_ in st.items:
+        station[list(s_.vertices)] = True
+    if entries:
+        station[sorted(entries)] = True
     if not A:
         z = np.zeros(0, np.int64)
         return RouteGraph(n_v, frozenset(), z, z, np.zeros(0), np.zeros(0),
-                          np.zeros(0, np.int8), {"nodes": 0, "edges": 0, "faces": 0,
-                                                  "ring": 0, "chord": 0, "centreline": 0,
-                                                  "frontage": 0, "crossing": 0, "edge_hop": 0,
+                          np.zeros(0, np.int8), station,
+                          {"nodes": 0, "edges": 0, "faces": n_faces,
+                                                  "centreline": 0, "crossing": 0, "lateral": 0,
+                                                  "unattached": len(unattached),
                                                   "crossing_unmatched": n_unmatched})
     a = np.concatenate(A); b = np.concatenate(B); cap = np.concatenate(C); kind = np.concatenate(K)
     ln = np.concatenate(LEN)
@@ -553,53 +567,23 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     plan = np.hypot(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
     ln = np.where(np.isnan(ln), plan, ln)
     key = _pack(a, b, n_v)
-    # one edge per pair: the STRICTEST cap (the budget the solve grants
-    # along a shared edge); a ring edge beats a chord of equal cap; the
-    # least BUDGET where two explicit lengths compete
+    # one edge per pair: the least BUDGET (the budget the solve grants
+    # along a shared edge); a centreline beats a hop of equal budget
     order = np.lexsort((kind, cap * ln, key))
     key, a, b, cap, kind, ln = key[order], a[order], b[order], cap[order], kind[order], ln[order]
     _u, first = np.unique(key, return_index=True)
-    a, b, cap, kind, key, ln = a[first], b[first], cap[first], kind[first], key[first], ln[first]
-    kind = kind.copy()
-    kind[np.isin(key, centre)] = CENTRELINE
-    # a taxi centreline edge holds ITS STRETCH's cap (04t-3), which may be
-    # looser than the faces it splits (G at 3 % through a letter-D junction)
-    cl_cap: dict[int, float] = {}
-    for eid, e in pm.edges.items():
-        if eid in st.by_edge:
-            fs = pm.faces_of_edge(eid)
-            if fs and all(pm.faces[fid].role in rw_fam for fid in fs):
-                continue                      # a crossing part inside the slab: runway cap
-            c = edge_cap(pm, law, st, eid, face_caps)
-            if c is not None:
-                cl_cap[int(min(e.a, e.b)) * n_v + int(max(e.a, e.b))] = c[0]
-    if cl_cap:
-        cap = cap.copy()
-        for idx in np.flatnonzero(np.isin(key, np.array(list(cl_cap), np.int64))):
-            cap[idx] = cl_cap[int(key[idx])]
-    # NO APRON PLAN CHORD (2026-09-05v): a CHORD with both endpoints on one
-    # apron face (a taxi chord along a run the face shares with an apron)
-    # is not a route — the ring edges along that run are
-    drop = np.zeros(len(a), bool)
-    is_chord = kind == CHORD
-    for f in pm.faces.values():
-        if f.role != "apron" or not is_chord.any():
-            continue
-        fv = np.fromiter({v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)},
-                         np.int64)
-        drop |= is_chord & np.isin(a, fv) & np.isin(b, fv)
-    keep = ~drop
-    a, b, cap, kind, ln = a[keep], b[keep], cap[keep], kind[keep], ln[keep]
+    a, b, cap, kind, ln = a[first], b[first], cap[first], kind[first], ln[first]
     keep = ln > 0.0
     a, b, cap, kind, length = a[keep], b[keep], cap[keep], kind[keep], ln[keep]
+    nodes = frozenset(int(v) for v in np.unique(np.concatenate([a, b])))
     stats = {"nodes": len(nodes), "edges": int(len(a)), "faces": n_faces,
-             "ring": int(np.sum(kind == RING)), "chord": int(np.sum(kind == CHORD)),
              "centreline": int(np.sum(kind == CENTRELINE)),
-             "frontage": int(np.sum(kind == FRONTAGE)),
+             "stretch_edges": n_stretch_edges,
              "crossing": int(np.sum(kind == CROSSING)),
-             "edge_hop": int(np.sum(kind == EDGE_HOP)),
+             "lateral": int(np.sum(kind == LATERAL)),
+             "unattached": len(unattached - nodes),
              "crossing_unmatched": n_unmatched}
-    return RouteGraph(n_v, frozenset(nodes), a, b, length, cap, kind, stats)
+    return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats)
 
 
 _CACHE: dict[int, tuple[PlanarMap, Law, Airport | None, RouteGraph]] = {}
@@ -636,43 +620,48 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
         return []
     m = g.csr("length", max_len=window_m)
     wb = g.edge_budget()
+    n = g.n
     seen: set[tuple[int, int]] = set()
     out: list[tuple[int, int, float, float]] = []
     for c0 in range(0, len(srcs), chunk):
         idx = srcs[c0:c0 + chunk]
-        D, P = dijkstra(m, directed=False, indices=idx, limit=window_m,
+        D, P = dijkstra(m, directed=True, indices=idx, limit=window_m,
                         return_predecessors=True)
         for i, s in enumerate(idx):
             row = D[i]
-            reached = np.flatnonzero(np.isfinite(row))
-            reached = reached[reached != s]
+            # a vertex is ARRIVED at by its inbound id only
+            cols = np.flatnonzero(np.isfinite(row))
+            cols = cols[(cols == g.inbound(g.vertex(cols))) & (g.vertex(cols) != s)]
+            verts = g.vertex(cols)
             skip = exclude.get(s, ()) if exclude is not None else ()
             if targets is not None or skip:
-                reached = np.array([t for t in reached if t not in skip
-                                    and (targets is None or t in targets)], dtype=np.int64)
-            if reached.size == 0:
+                ok = np.array([t not in skip and (targets is None or t in targets)
+                               for t in verts], dtype=bool)
+                cols, verts = cols[ok], verts[ok]
+            if cols.size == 0:
                 continue
-            order = reached[np.argsort(row[reached], kind="stable")][:k]
+            order = cols[np.argsort(row[cols], kind="stable")][:k]
             bud: dict[int, float] = {s: 0.0}
             pred = P[i]
-            for t in order:
-                t = int(t)
-                # walk the predecessor chain back to a memoised vertex
+            for c in order:
+                c = int(c)
+                # walk the predecessor chain back to a memoised id
                 path: list[int] = []
-                u = t
+                u = c
                 while u not in bud:
                     path.append(u)
                     u = int(pred[u])
                 acc = bud[u]
                 for v in reversed(path):
-                    p = int(pred[v])
-                    acc += wb[(p, v) if p < v else (v, p)]
+                    p, q = int(g.vertex(int(pred[v]))), int(g.vertex(v))
+                    acc += wb[(p, q) if p < q else (q, p)]
                     bud[v] = acc
+                t = int(g.vertex(c))
                 key = (s, t) if s < t else (t, s)
                 if key in seen:
                     continue
                 seen.add(key)
-                out.append((key[0], key[1], float(row[t]), bud[t]))
+                out.append((key[0], key[1], float(row[c]), bud[c]))
     return out
 
 
@@ -689,10 +678,12 @@ def reach(g: RouteGraph, pins: _t.Mapping[int, float]
     if not idx:
         return {}
     m = g.csr("budget")
-    D = dijkstra(m, directed=False, indices=idx)
+    D = dijkstra(m, directed=True, indices=idx)
     z = np.array([pins[v] for v in idx], dtype=float)[:, None]
-    hi = np.min(z + D, axis=0)
-    lo = np.max(z - D, axis=0)
+    verts = np.arange(g.n)
+    Din = D[:, g.inbound(verts)]
+    hi = np.min(z + Din, axis=0)
+    lo = np.max(z - Din, axis=0)
     ok = np.isfinite(hi)
     return {int(v): (float(lo[v]), float(hi[v])) for v in np.flatnonzero(ok)
             if int(v) in g.nodes}
@@ -707,14 +698,16 @@ def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None
     if a not in g.nodes or b not in g.nodes:
         return None
     m = g.csr("length", max_len=max_len)
-    D, P = dijkstra(m, directed=False, indices=[a], return_predecessors=True,
+    D, P = dijkstra(m, directed=True, indices=[a], return_predecessors=True,
                     limit=np.inf if max_len is None else max_len)
-    if not np.isfinite(D[0][b]):
+    tgt = g.inbound(b)
+    if not np.isfinite(D[0][tgt]):
         return None
     wb = g.edge_budget()
-    path = [b]
-    while path[-1] != a:
-        path.append(int(P[0][path[-1]]))
-    path.reverse()
+    ids = [tgt]
+    while ids[-1] != a:
+        ids.append(int(P[0][ids[-1]]))
+    ids.reverse()
+    path = [int(g.vertex(i)) for i in ids]
     bud = sum(wb[(u, v) if u < v else (v, u)] for u, v in zip(path, path[1:]))
-    return float(D[0][b]), float(bud), path
+    return float(D[0][tgt]), float(bud), path

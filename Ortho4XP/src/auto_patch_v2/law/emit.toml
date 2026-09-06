@@ -141,7 +141,7 @@ relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one m
 # grade excess g <= (factor - 1) x cap; a Linear's metre slack <= (factor - 1)
 # x its own bound magnitude (cap x d + the reader's envelope); a pad keeps
 # pad_slope_max.  At 2.0 a 1 % apron chord may reach 2 %, a 2.55 m edge 0.04 m.
-max_over_cap_factor = 2.0
+max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core needs (2.00, 2.05] — 2.0 demoted the apron; 2.5 leaves margin, the objective keeps rows near 1x
 # NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
 # relaxation-without-certificate-spec.md): HECA's certificate search expired
 # (120 / 300 s) and the fallback demoted the TAXI tier (3,037 rows, 5 m) —

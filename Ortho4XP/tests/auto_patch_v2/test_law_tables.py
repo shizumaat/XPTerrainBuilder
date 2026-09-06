@@ -356,6 +356,9 @@ def _structures_emit_checks(c: Checks, t) -> None:
     # RULINGS 2026-09-05ae(2) (lane v2fix288): the relaxation's SHAPE — a
     # relaxed row's slack is bounded by (factor - 1) x cap x d, never a cliff
     assert rl.max_over_cap_factor == 2.5 and rl.max_over_cap_factor > 1.0    # 05af
+    # RULINGS 2026-09-06k (1) (lane v2bow2): the runway DEM-fit term enters the
+    # stage-1 relaxation objective only at a positive weight — OFF by default
+    assert rl.runway_fit_weight == 0.0 and rl.runway_fit_weight >= 0.0
 
 
 def test_every_value_equals_v1(tables, capsys):

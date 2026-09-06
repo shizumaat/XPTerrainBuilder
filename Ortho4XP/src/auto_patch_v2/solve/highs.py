@@ -18,6 +18,19 @@ from .assemble import Problem, assemble
 __all__ = ["solve", "residual", "lp_size"]
 
 
+#: HiGHS's primal feasibility tolerance (its default, 1e-7): a point the
+#: LP calls feasible may violate a row by this much.
+PRIMAL_FEASIBILITY_TOLERANCE = 1e-7
+#: THE RE-STATEMENT MARGIN (lane v2bow2, 2026-09-06): a row re-stated at a
+#: solved slack EXACTLY is a knife edge — measured at HECA, the stage-2
+#: relaxed set (8,233 rows restated at the stage-1 slacks, the point inside
+#: the tolerance on every row, ≤ 6e-8) solved OPTIMAL in one process,
+#: INFEASIBLE in another, and presolve-off named a 289-row Farkas core
+#: through junction pav132.  Ten tolerances of margin (immaterial: the
+#: materiality floor is 0.01 m) made it robustly feasible.
+RESTATEMENT_MARGIN_M = 10.0 * PRIMAL_FEASIBILITY_TOLERANCE
+
+
 def lp_size(p: Problem) -> dict[str, int]:
     return {"columns": int(p.c.shape[0]), "z": p.n,
             "rows_ub": int(p.A_ub.shape[0]), "rows_eq": int(p.A_eq.shape[0]),

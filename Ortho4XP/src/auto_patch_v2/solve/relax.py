@@ -45,8 +45,16 @@ infeasibility, and inside ``emit.relaxation.iis_time_budget_s``:
    the pavement (``d`` the chord, ``D`` the pad's extent): its optimum is
    the UNIFORM over-cap along the whole site, the spread the ruling asks
    for (a plain ``Σ g²`` would load the long chords, ``Σ metres²`` the
-   short edges).  Pure variance, no DEM term: the combination is a
-   property of the law rows alone.  Backend: ``highspy``'s QP under
+   short edges) — PLUS, only at a positive ``[relaxation]
+   runway_fit_weight`` (RULINGS 2026-09-06k (1); OFF by default), the
+   06h (b)/(c) RUNWAY family's L1 DEM-fit term at the preference
+   ladder's runway weight and the runway ridge's smoothness λ
+   (``variance.model`` ``fit`` / ``smooth``, from the same ``Weights``
+   the solve uses).  Measured at HECA (v2bow 7aeb747e) that term moved
+   the 05C/23C bow 11.04 → 10.12 m at 2.8× the relief (Σ 3,804 →
+   10,680 m) and minted a ``pad_flat`` row, so the owner keeps it off;
+   the bow's mechanism was the junction mesh's isotropic cone (06k (2)).
+   Backend: ``highspy``'s QP under
    ``Options.time_limit_s`` when the wheel is present — measured: exact
    at twin scale, and at HECA's 1.8 M rows it did not finish in five
    minutes — else, and past the limit, a CONVEX PIECEWISE-LINEAR
@@ -101,7 +109,8 @@ from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff, Fla
                                  Source)
 from ..model.planar import PlanarMap
 from .api import Options, Solution, Status, Weights
-from .highs import solve as solve_hard
+from .assemble import roughness_stations, vertex_weights
+from .highs import RESTATEMENT_MARGIN_M, solve as solve_hard
 from .iis import (Certificate, IISBudgetExceeded, RowIndex, diagnose, neighbourhood_certificate,
                   row_vertices)
 from .tiers import row_tier
@@ -305,17 +314,59 @@ class Stage1:
     planes: dict[int, tuple[float, float, float]]
     #: how the backend was chosen (a QP that hit its limit says so)
     note: str = ""
+    #: the LINEAR part's size (06h b/c): fit + smoothness columns, rows
+    linear_cols: int = 0
+    linear_rows: int = 0
+
+
+def runway_fit(pm: PlanarMap, law: Law, weights: Weights
+               ) -> dict[int, tuple[float, float]]:
+    """THE RUNWAY FAMILY's DEM-fit term (RULINGS 2026-09-06h (b)): vertex
+    -> ``(weight, target)`` for every vertex on a runway-family face
+    with a DEM sample — the preference ladder's runway weight
+    (``Weights.by_role``, the largest over its runway-family faces) and
+    the fit target the solve itself uses (``planar.preferred_z`` else the
+    DEM sample, as ``assemble`` reads it)."""
+    from ..law.tables import role_family
+    roles = frozenset(r for r in law.tables.precedence.roles if role_family(law, r) == "runway")
+    wv = vertex_weights(pm, weights, roles)
+    pref = pm.preferred_z
+    out: dict[int, tuple[float, float]] = {}
+    for vid in np.flatnonzero(wv > 0.0):
+        v = pm.vertices[int(vid)]
+        if v.dem_z is None:
+            continue
+        out[int(vid)] = (float(wv[vid]), float(pref.get(int(vid), v.dem_z)))
+    return out
 
 
 def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law: Law,
            options: Options | None = None, backend: str | None = None,
-           qp_time_limit_s: float | None = None) -> Stage1:
+           qp_time_limit_s: float | None = None,
+           weights: Weights | None = None) -> Stage1:
     """The variance program (module docstring, step 3).  ``backend``
     forces ``"qp"`` / ``"pwl"``; by default the QP runs under
-    ``qp_time_limit_s`` and the approximation takes over past it."""
+    ``qp_time_limit_s`` and the approximation takes over past it.
+    ``weights`` (RULINGS 2026-09-06h b/c, gated by 06k (1)): when
+    ``[relaxation] runway_fit_weight`` > 0 the objective carries the
+    RUNWAY family's DEM-fit term at the ladder's runway weight × that
+    scale and the runway ridge's smoothness λ likewise, beside the slack
+    variance (the pipeline always passes the weights); at the table's
+    default 0, or with ``None``, it is the pure-variance program of
+    04t(1) alone (the 06e relaxation)."""
     opt = options or Options()
     rl = law.tables.emit.relaxation
-    m = model(pm, cs, relaxed, rl.pad_slope_max, rl.max_over_cap_factor)
+    # RULINGS 2026-09-06k (1): the runway term enters ONLY at a positive
+    # [relaxation] runway_fit_weight, scaled by it; at 0 (the table's
+    # default) the program is 04t(1)'s pure variance — the 06e relaxation
+    fit: dict[int, tuple[float, float]] | None = None
+    smooth: _t.Sequence[tuple[int, int, int, float, float, float]] = ()
+    if weights is not None and rl.runway_fit_weight > 0.0:
+        fit = {v: (w * rl.runway_fit_weight, tgt)
+               for v, (w, tgt) in runway_fit(pm, law, weights).items()}
+        smooth = [(a, m, c, dp, dn, lam * rl.runway_fit_weight)
+                  for a, m, c, dp, dn, lam in roughness_stations(pm, weights)]
+    m = model(pm, cs, relaxed, rl.pad_slope_max, rl.max_over_cap_factor, fit, smooth)
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
     st, x, wall = "", None, 0.0
@@ -331,7 +382,8 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
         st, x, wall = qp(m, lim)
         if st in ("time_limit",) or st.startswith("error"):
             if backend == "qp":
-                return Stage1(st, be, wall, {}, {}, {}, "forced QP did not finish")
+                return Stage1(st, be, wall, {}, {}, {}, "forced QP did not finish",
+                              m.linear_cols, m.linear_rows)
             note = f"QP {st} after {wall:.1f} s; the piecewise-linear approximation answers"
             be = "pwl"
     if be == "pwl":
@@ -339,7 +391,7 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
                             pieces(rl.materiality_m, rl.max_pieces), opt.time_limit_s)
         st, wall = st2, wall + wall2
     if x is None:
-        return Stage1(st, be, wall, {}, {}, {}, note)
+        return Stage1(st, be, wall, {}, {}, {}, note, m.linear_cols, m.linear_rows)
     excess: dict[int, float] = {}
     slack: dict[int, float] = {}
     planes: dict[int, tuple[float, float, float]] = {}
@@ -355,17 +407,23 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
             slack[r.index] = excess[r.index] * r.row.d
         else:
             excess[r.index] = slack[r.index] = max(0.0, float(x[cols[0]]))
-    return Stage1(st, be, wall, excess, slack, planes, note)
+    return Stage1(st, be, wall, excess, slack, planes, note, m.linear_cols, m.linear_rows)
 
 
 # ── stage 2: the relaxed HARD set ────────────────────────────────────────
 
 def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage1,
-                     tol: float = 1e-9) -> tuple[ConstraintSet, dict[int, Row | tuple[Row, ...]]]:
-    """Every relaxed row at its solved relief: a ``Diff`` at ``cap + s/d``,
-    a ``Linear`` at ``hi + s`` / ``lo − s``, a pad as plane equalities at
-    the solved gradient (a pad whose rise is below ``tol`` stays a
-    ``Flat``); returns the set and ``index -> replacement``."""
+                     tol: float = 1e-9, margin: float = RESTATEMENT_MARGIN_M
+                     ) -> tuple[ConstraintSet, dict[int, Row | tuple[Row, ...]]]:
+    """Every relaxed row at its solved relief: a ``Diff`` at ``cap + (s +
+    margin)/d``, a ``Linear`` at ``hi + s + margin`` / ``lo − s − margin``,
+    a pad as plane equalities at the solved gradient (a pad whose rise is
+    below ``tol`` stays a ``Flat``); returns the set and ``index ->
+    replacement``.  ``margin`` (``highs.RESTATEMENT_MARGIN_M``): the
+    stage-1 point satisfies its rows only to the LP's feasibility
+    tolerance, so a row re-stated at the slack EXACTLY is a knife edge
+    the stage-2 solve may call infeasible (measured at HECA, lane v2bow2:
+    the same set optimal in one process, infeasible in another)."""
     repl: dict[int, Row | tuple[Row, ...]] = {}
     by_id: dict[int, Relaxed] = {id(x.row): x for x in relaxed}
     out: list[Row] = []
@@ -381,12 +439,13 @@ def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage
             repl[x.index] = r
             continue
         if x.kind == "diff":
-            nr: Row = _dc.replace(r, cap=r.cap + s1.excess[x.index], source=src)
+            nr: Row = _dc.replace(r, cap=r.cap + s1.excess[x.index] + margin / max(r.d, tol),
+                                  source=src)
             out.append(nr)
             repl[x.index] = nr
         elif x.kind == "linear":
-            nr = _dc.replace(r, hi=None if r.hi is None else r.hi + s,
-                             lo=None if r.lo is None else r.lo - s, source=src)
+            nr = _dc.replace(r, hi=None if r.hi is None else r.hi + s + margin,
+                             lo=None if r.lo is None else r.lo - s - margin, source=src)
             out.append(nr)
             repl[x.index] = nr
         else:
@@ -487,6 +546,10 @@ class RelaxReport:
     certificate: dict[str, _t.Any] = _dc.field(default_factory=dict)
     #: the certificate path's own exit when the relaxable scope answered
     certificate_reason: str = ""
+    #: the stage-1 objective's LINEAR part (06h b/c): runway fit + ridge
+    #: smoothness columns and their rows beside the slack variance
+    linear_cols: int = 0
+    linear_rows: int = 0
 
     def as_dict(self) -> dict[str, _t.Any]:
         d = _dc.asdict(self)
@@ -509,7 +572,10 @@ class RelaxReport:
                 f"relief Σ {sm.get('sum', 0):.3f} m max {sm.get('max', 0):.3f} m; "
                 f"worst over-cap factor {self.certificate.get('over_cap_factor_max_seen', 0):.3f} "
                 f"(bound {self.certificate.get('max_over_cap_factor')}); "
-                f"stage1 {self.stage1_wall_s:.1f} s stage2 {self.stage2_wall_s:.1f} s; "
+                f"stage1 {self.stage1_wall_s:.1f} s (runway fit + smoothness: "
+                f"{self.linear_cols} columns, {self.linear_rows} rows, 06h; "
+                f"{'ON' if self.linear_cols else 'OFF'} by [relaxation] runway_fit_weight, 06k) "
+                f"stage2 {self.stage2_wall_s:.1f} s; "
                 f"certificate {'OK' if self.certificate.get('ok') else 'FAILED'}")
 
 
@@ -667,11 +733,13 @@ def _certificate_rounds(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Wei
         t = time.perf_counter()
         s1 = stage1(pm, cs, relaxed_all, law, opt, backend,
                     qp_time_limit_s=min(rl.qp_time_budget_s,
-                                        max(1.0, deadline - time.perf_counter())))
+                                        max(1.0, deadline - time.perf_counter())),
+                    weights=weights)
         rep.stage1_wall_s += time.perf_counter() - t
         rep.backend = s1.backend
         rep.approximation = s1.backend == "pwl"
         rep.note = s1.note
+        rep.linear_cols, rep.linear_rows = s1.linear_cols, s1.linear_rows
         if s1.status == "infeasible":
             # another site: the next certificate on the rest — the cached
             # model freed of this round's rows (hot start) re-seeds it
@@ -725,11 +793,13 @@ def _relaxable_scope(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weight
         rep.reason += "; the set holds no relaxable row"
         return None, None
     t = time.perf_counter()
-    s1 = stage1(pm, cs, cand, law, opt, backend, qp_time_limit_s=rl.qp_time_budget_s)
+    s1 = stage1(pm, cs, cand, law, opt, backend, qp_time_limit_s=rl.qp_time_budget_s,
+                weights=weights)
     rep.stage1_wall_s += time.perf_counter() - t
     rep.backend = s1.backend
     rep.approximation = s1.backend == "pwl"
     rep.note = s1.note
+    rep.linear_cols, rep.linear_rows = s1.linear_cols, s1.linear_rows
     if s1.status == "infeasible":
         rep.reason += (f"; the {SCOPE_RELAXABLE} scope ({len(cand)} candidates) is STILL "
                        f"infeasible — the contradiction lies among the runway / taxi rows "

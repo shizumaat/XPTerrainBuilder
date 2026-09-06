@@ -18,6 +18,7 @@ from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
 from ..constraints import generate
 from ..constraints.flat_site import GEN as FLAT_GEN
+from ..constraints.routes import RIDGE_KIND
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
@@ -139,10 +140,14 @@ def _say(msg: str, out: _t.Callable[[str], None]) -> None:
 def weights_under_law(weights: Weights, law: Law) -> Weights:
     """``Weights`` with the flat-site datum's preference group priced from
     the table (``law/flat_site.toml [datum] weight``; RULINGS 2026-09-05k-2)
-    — the group name and its weight are law, never a literal here."""
+    and the runway ridge's smoothness λ (``rulesets.toml [common]
+    runway_profile_smoothness``; RULINGS 2026-09-06h (c)) — the group
+    name and both weights are law, never a literal here."""
     pref = dict(weights.preference)
     pref[flat_datum_group(law)] = flat_datum_weight(law)
-    return _dc.replace(weights, preference=pref)
+    lam = dict(weights.smoothness_by_kind)
+    lam[RIDGE_KIND] = float(law.tables.common.runway_profile_smoothness)
+    return _dc.replace(weights, preference=pref, smoothness_by_kind=lam)
 
 
 #: The report's "moved" threshold (metres off the DEM sample) — a report

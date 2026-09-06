@@ -194,6 +194,7 @@ class CommonLaw:
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float
     vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
+    runway_profile_smoothness: float       # 06h (c): λ per metre of |Δgrade| × span on a runway ridge (above the runway DEM-fit weight)
 
 
 @_dc.dataclass(frozen=True)
@@ -518,6 +519,9 @@ class Relaxation:
     #: the tier ladder answers last; a governed family it demotes is a NAMED FAILURE
     tier_ladder_last: bool
     max_over_cap_factor: float   # 05ae(2): a relaxed row's slack <= (factor - 1) x cap x d
+    #: 06k(1): the runway DEM-fit (+ ridge smoothness) term's scale in the stage-1
+    #: relaxation objective; enters only when > 0 (0 = the 06e pure-variance program)
+    runway_fit_weight: float
 
 
 @_dc.dataclass(frozen=True)

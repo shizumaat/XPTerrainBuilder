@@ -268,6 +268,7 @@ class TunnelObject:
     plate_min_area_m2: float
     plate_min_height_m: float
     edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
+    edge_wall_min_skirt_m: float       # 2026-09-06f: the edge wall's skirt below ITS crest (the top band, wherever it lies vs the seat)
     floor_plate_max_m2: float
     hull_min_length_m: float
     end_cap_open_m: float
@@ -315,6 +316,7 @@ class Bridge:
     deck_profile_bin_m: float
     deck_way_cover_min: float
     deck_way_carried_area_min: float
+    pavement_deck_families: tuple[str, ...]   # 2026-09-06f: pavement cells of these role families spanning a corridor are decks
     deck_spanning_evidence: tuple[str, ...]
     abutment_sample_step_m: float
     abutment_walk_max_m: float
@@ -358,6 +360,7 @@ class Basin:
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     rim_reaches_grade: bool            # 04i: the closed-region test
+    rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
 
 
 @_dc.dataclass(frozen=True)
@@ -767,14 +770,12 @@ def _build(cls: type, data: object, path: str) -> object:
     fields = {f.name: f for f in _dc.fields(cls)}
     unknown = set(data) - set(fields)
     if unknown:
-        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} "
-                       f"(allowed: {sorted(fields)})")
+        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} (allowed: {sorted(fields)})")
     kw: dict[str, object] = {}
     for name, f in fields.items():
         optional, inner = _is_optional(hints[name])
         if name not in data:
-            if f.default is _dc.MISSING and \
-                    f.default_factory is _dc.MISSING:  # type: ignore[misc]
+            if f.default is _dc.MISSING and f.default_factory is _dc.MISSING:  # type: ignore[misc]
                 raise LawError(f"{path}: missing required key {name!r}")
             continue
         kw[name] = _convert(path, name, inner if optional else hints[name],

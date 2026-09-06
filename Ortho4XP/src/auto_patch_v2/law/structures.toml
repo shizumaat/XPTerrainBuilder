@@ -49,6 +49,18 @@ plate_min_height_m  = 2.0           # a FULL tunnel wall's crest stands this far
 # edge wall, at/above plate_min_height_m a full wall; a crest between the
 # two (only when this key is set under plate_min_height_m) is a kerb.
 edge_wall_max_plate_m = 2.0
+# THE CREST IS THE TOP BAND WHEREVER IT LIES (RULINGS 2026-09-06f (1088)): the
+# seat is the author's handle, not a datum.  LEMD's Bridge4.obj (one component,
+# 660 vertices, 76 × 144 m in plan) is AUTHORED y 0 … 2.02 (its base on the
+# seat plane; the live file v1 had baked to −2.88 … −0.86) and was refused
+# silently: no skirt below the seat.  A wall whose skirt below the seat is
+# shallower than skirt_min_depth_m reads its crest as the TOPMOST plate-worthy
+# band of its near-horizontal faces (plate_min_area_m2 at plate_bin_m), above
+# or below the seat, and is an EDGE WALL when its solids reach this far below
+# THAT crest; the re-seat (05n-4) puts the crest flush at grade.  A full
+# wall's skirt (skirt_min_depth_m) stays measured from the seat, and
+# edge_wall_max_plate_m keeps its 06c meaning over a full skirt.
+edge_wall_min_skirt_m = 1.5
 floor_plate_max_m2  = 0.0           # any floor plate below the seat disqualifies (that is a basin — basins.py owns it)
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
@@ -94,6 +106,16 @@ deck_close_m            = 1.0      # a member's plate faces are closed at this b
 deck_profile_bin_m      = 10.0     # the deck-top profile along the axis: max face corner per bin (BRIDGE_PROFILE_BIN_LENGTH_M)
 deck_way_cover_min      = 0.5      # a mapped bridge way CARRIES a plate when its pieces inside the plate's rectangle project this much of the plate's length along its axis (OTHH: Bridge_05 0.97, _04 0.84, _01 0.67; a way crossing the 466-member TerminalRoads/Terminal_Base slab family transversally reads 0.02 — the slab is no deck)
 deck_way_carried_area_min = 0.5    # ...and the plates so carried hold at least this share of the family's deck plane: the way carries THE DECK (OTHH Bridge_01 71 %, _04 95 %, _05 88 %, the 02/03/06 interchange 72 %; Terminal_Parking 2 % — one 90 m kerb road beside 50,000 m² of parking slabs, a mosque on them: no deck, the feet law)
+# THE PAVEMENT DECK (RULINGS 2026-09-06f (1088)): an apt.dat / DSF pavement
+# cell of these role FAMILIES (precedence.toml [roles].family) that SPANS a
+# tunnel corridor — crosses it wall to wall with the corridor continuing on
+# both sides — is a DECK over the ramp (the terrain-deck machinery: the ramp
+# severed under it at the mouth datum, bridge.clearance_m under the deck,
+# the climb resuming beyond), never a cut through the pavement; the deck
+# piece keeps the pavement's role and is named bridge_deck:<its ref>.  Read
+# INSIDE an object corridor's walls too (a mapped bridge way inside the walls
+# is still not read: the walls are the object's).
+pavement_deck_families  = ["taxi"]
 deck_spanning_evidence  = ["road_bridge", "below_grade"]   # what a plate must span to be a deck: a mapped bridge way over it, or an emitted below-grade region under it (04k "the deck spans a below-grade cut/road")
 abutment_sample_step_m  = 5.0      # the abutment grade is sampled along each deck-end line this far apart (_ABUTMENT_GRADE_SAMPLE_STEP_M)
 abutment_walk_max_m     = 60.0     # a deck end whose samples are water WALKS LANDWARD along the axis, one step at a time, up to this (R12 amendment 1: _ABUTMENT_LAND_WALK_MAX_M — far enough to clear OTHH's canal bank, short enough to be the bridge's own shore)
@@ -134,6 +156,16 @@ min_solid_thickness_m = 0.3        # a solid part thinner than this is a ground 
 admission_depth_m   = 2.5          # THE FLOOR GATE: a floor plate must lie this far below the LOCAL terrain to witness a pit (TRENCH_SPINE_MIN_DEPTH_M; 08-26 region recipe; 04i — a depth gate on the floor, never on the cut's outline: the region is the shell's footprint below the ground)
 floor_plate_normal_y_min = 0.7     # a solid face is a FLOOR PLATE when |normal_y| reaches this (NEAR_HORIZONTAL_NORMAL_Y_MIN; 04i "a genuine solid floor")
 rim_reaches_grade   = true         # THE RIM TEST (04i; v1's pit seed PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground band): a floor witness's shell TOPS OUT within contact_band_m of the local ground — a shell passing through the ground is a BUILDING standing on the pack's flat plane over real relief (LEMD cargo terminal: slab 5.8 m under the local ground, walls 15 m above it), REFUSED by resource with its height; the ring-station openness (stations farther than footprint_close_m from the members' at-grade geometry) is REPORTED per basin, never a refusal (OTHH's owner-accepted Dewatering pits read 1–2 of 46 stations open where a buried culvert leaves the shell)
+# THE RIM IS THE SHELL'S GROUND-CONTACT RING (RULINGS 2026-09-06f (970)): solids
+# of the SAME component standing above the contact band are cover or
+# protrusions (a control tower, a vent) — never the rim — unless they cover
+# basement_cover_min of the floor (rule 4).  This fraction of the component's
+# solid FACE AREA (each triangle clipped at the band plane over the ground at
+# the component, 3-D area) may stand above the band without refusing the pit;
+# more is a shell through the ground (rule 1, through_grade).  Measured LEMD85
+# (the T4S sunken structure, a 27,193 m2 floor plate 4.03 m under the ground):
+# 1,004 of 29,228 m2 = 3.4 % above the band, its tower reaching +11.4 m.
+rim_protrusion_max_fraction = 0.05
 contact_band_m      = 1.0          # the ground-contact band half width: geometry above +this over the region is COVER (GROUND_CONTACT_BAND_HALF_WIDTH_M; founding spec §2.1); ALSO the seat's FACILITY depth (RULINGS 2026-09-05p): a member whose feet stand deeper than this below the built mesh never founds its anchor family and keeps its authored y (emit/rebake._facility; OTHH unit:21's sunken TerminalRoads/Parking lifted the 399-member terminal +1.888 m)
 footprint_close_m   = 2.0          # the below-grade union is morphologically closed at this (AT_GRADE_FOOTPRINT_CLOSE_M; 08-26)
 min_area_m2         = 1000.0       # DIAGNOSTIC ONLY (04i): v1's facility floor (TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2; 08-26 recipe step 5); a basin under it is admitted and NOTED — it refused OTHH's six Drainage bowls (closed regions 54–544 m² under the 2.5 m clip), which the owner ruled a defect

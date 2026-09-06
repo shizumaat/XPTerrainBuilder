@@ -18,11 +18,12 @@ from ..law import Law
 from .frame import Patch, Row
 from .no_step import no_step_direct, no_step_rate
 from .pads import pad_flat
-from .runway import (FAMILY_TRANSVERSE, runway_crown, runway_end_skirt,
-                     runway_transverse)
+from .runway import (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE, runway_crown,
+                     runway_end_skirt, runway_transverse, runway_vertical_curve)
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
-from .strips import (adjacent_ground_tear, raoa, resa_transverse, strip_arc,
-                     strip_longitudinal, strip_seam_tear)
+from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_tear, raoa,
+                     resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
+                     strip_transverse)
 from .contiguity import lateral_contiguity
 from .frontage import frontage_near_miss
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
@@ -30,7 +31,8 @@ from .transverse import transverse
 from .within import plane_gradient, within_shape
 
 __all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "RELAXED_KEY", "RELAXED_RULING",
-           "DEFECT_KEYS", "FAMILY_PAD_FLAT", "FAMILY_TRANSVERSE", "mark_relaxed",
+           "DEFECT_KEYS", "FAMILY_PAD_FLAT", "FAMILY_TRANSVERSE", "FAMILY_VERTICAL_CURVE",
+           "FAMILY_STRIP_TRANSVERSE", "mark_relaxed",
            "census", "census_patch"]
 
 #: family key -> reader (one reader may serve two families: within_shape
@@ -48,6 +50,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "raoa": raoa,
     "runway_crown": runway_crown,
     FAMILY_TRANSVERSE: runway_transverse,
+    FAMILY_VERTICAL_CURVE: runway_vertical_curve,
+    FAMILY_STRIP_TRANSVERSE: strip_transverse,
     "stacked_nodes": stacked_nodes,
     "cross_shape": cross_shape,
     "vertex_to_edge_step": vertex_to_edge_step,
@@ -93,9 +97,12 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
 #: emitted product (a solver / emit invariant broken), not law residuals:
 #: the pipeline reports them apart, the app driver fails the airport.
 #: ``runway_transverse`` (RULINGS 2026-09-05o): the runway transverse
-#: maximum is a hard tier-0 row, so a built cross-fall over it is a defect.
+#: maximum is a hard tier-0 row, so a built cross-fall over it is a defect;
+#: ``runway_vertical_curve`` (2026-09-06b law 1) likewise.  The strip tie
+#: (``strip_transverse``) sits in the strip's tier — the last resort may
+#: relax it — so its rows are residuals, never defects.
 FAMILY_PAD_FLAT = "pad_flat"
-DEFECT_KEYS: tuple[str, ...] = (FAMILY_PAD_FLAT, FAMILY_TRANSVERSE)
+DEFECT_KEYS: tuple[str, ...] = (FAMILY_PAD_FLAT, FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE)
 
 
 #: The key a row carries when it sits on a vertex the last resort relaxed

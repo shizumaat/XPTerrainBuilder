@@ -310,6 +310,11 @@ class RebakeDecision:
     # bakes (workstream W5's escalation: ``apply`` has no placements).
     anchor_by_resource: dict[str, tuple[float, float, float]] = (
         dataclass_field(default_factory=dict))
+    # Per-resource seat NOTE for the provenance sidecar (v2, RULINGS
+    # 2026-09-06b law 3: a member seated apart records the family's
+    # coalition delta beside its own).  Empty for every other decision.
+    seat_note_by_resource: dict[str, str] = (
+        dataclass_field(default_factory=dict))
     # Foot re-anchor audit trail: every foot-anchored structure's
     # detected feet (world/mesh fields filled), keyed by index into
     # ``structures``.  Present even when the structure was later

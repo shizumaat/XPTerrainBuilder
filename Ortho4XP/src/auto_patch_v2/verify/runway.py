@@ -19,6 +19,16 @@ band, so a row can only come from a solver / emit defect.  Rows at a
 ``runway_crossing`` (or a node welded to one) are out of scope (§3.1.19)
 and are not minted.
 
+Vertical curve (RULINGS 2026-09-06b law 1): along each ``crown_spine``
+feature (a runway's profile chain), the grade change between
+consecutive chords over ``tables.runway_vertical_curve_bound`` by more
+than the rate readers' quantum (``coarse_noise_m × (1/d₁ + 1/d₂)``) is a
+DEFECT row (``reading = "vertical_curve"``, family
+``runway_vertical_curve``, a ``DEFECT_KEYS`` member): the generator
+states the same bound as a hard runway-tier row.  Stations are the
+generator's own (``constraints.runway_profile.curve_stations``: the
+identity floor drops slivers).
+
 End skirt: rings with ``ref == runway_end_skirt`` — v2 emits none, so
 the family is vacuous on v2's own product (the corridor ground is
 ``graded_strip``, bound by ``strips.py``).
@@ -28,13 +38,16 @@ from __future__ import annotations
 import math
 
 from ..constraints.geometry import principal_axis
-from ..law.tables import runway_transverse_max
+from ..constraints.runway_profile import curve_stations
+from ..law.tables import runway_transverse_max, runway_vertical_curve_bound
 from .frame import Patch, Row, noise_m, row
 from .within import crown_by_vertex
 
-__all__ = ["runway_crown", "runway_transverse", "runway_end_skirt"]
+__all__ = ["runway_crown", "runway_transverse", "runway_vertical_curve",
+           "runway_end_skirt"]
 
 FAMILY_TRANSVERSE = "runway_transverse"
+FAMILY_VERTICAL_CURVE = "runway_vertical_curve"
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 
@@ -146,6 +159,45 @@ def runway_transverse(p: Patch) -> list[Row]:
                     (x, y), foot, sh.key, sh.key)
             r.update({"reading": "transverse_max", "face": sh.key,
                       "direction": "fall" if fall > 0.0 else "rise"})
+            out.append(r)
+    return out
+
+
+def runway_vertical_curve(p: Patch) -> list[Row]:
+    """The vertical-curve law read on the built ridge (module docstring):
+    per interior station the change of grade against the bound at the
+    mean spacing; a breach beyond the quantum is one DEFECT row."""
+    law = p.law
+    q = law.tables.emit.instrument.coarse_noise_m
+    min_d = law.tables.emit.identity.min_distinct_spacing_m
+    code: dict[str, tuple[int | None, str | None]] = {}
+    for sh in p.shapes:
+        if sh.role == "runway" and sh.ref not in code:
+            code[sh.ref] = (sh.code_number, sh.code_letter)
+    out: list[Row] = []
+    for sh in p.features:
+        if sh.feature != "crown_spine" or len(sh.ids) < 3:
+            continue
+        cn, cl = code.get(sh.ref, (None, None))
+        st = curve_stations(sh.xy, [list(range(len(sh.ids)))], lambda i: float(i), min_d)
+        for a, b, c in zip(st, st[1:], st[2:]):
+            d1 = math.dist(sh.xy[a], sh.xy[b])
+            d2 = math.dist(sh.xy[b], sh.xy[c])
+            if d1 <= 0.0 or d2 <= 0.0:
+                continue
+            bound = runway_vertical_curve_bound(law, 0.5 * (d1 + d2), cn, cl)
+            if bound is None:
+                continue
+            change = (sh.z[c] - sh.z[b]) / d2 - (sh.z[b] - sh.z[a]) / d1
+            allowed = bound + q * (1.0 / d1 + 1.0 / d2)
+            if abs(change) <= allowed:
+                continue
+            span = 0.5 * (d1 + d2)
+            r = row(FAMILY_VERTICAL_CURVE, ("runway", "runway"), p.side("runway"),
+                    (abs(change) - bound) * span, 100 * change, 100 * bound, span,
+                    sh.xy[a], sh.xy[c], sh.key, sh.key)
+            r.update({"reading": "vertical_curve", "face": sh.ref,
+                      "station": [round(v, 3) for v in sh.xy[b]]})
             out.append(r)
     return out
 

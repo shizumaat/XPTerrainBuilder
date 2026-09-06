@@ -38,6 +38,15 @@ Rows (all from ``rulesets.<authority>.runway`` and
   (HECA 05C/23C: half 14's outer edge 18 m under the ridge across 31 m).
   Vertices on a ``runway_crossing`` ring are exempt (Annex 14 §3.1.19
   "except at intersections", the crown reader's own scope).
+* VERTICAL CURVE (RULINGS 2026-09-06b law 1, family
+  ``runway_vertical_curve``, HARD, the runway tier): between consecutive
+  profile chords the grade may change by no more than
+  ``tables.runway_vertical_curve_bound`` — ``min(max_grade_change,
+  mean spacing / vertical_curve_k_m)`` by code (§3.1.15/16) — one
+  two-sided three-term ``Linear`` per interior ridge station, the
+  chains of one runway read as ONE station sequence across a crossing
+  (HECA 05C/23C on 1.0.288: 2.32 pp per 100 m against K's 0.33; both
+  keys were declared and priced by nothing).
 """
 from __future__ import annotations
 
@@ -46,7 +55,7 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (role_cap, runway_end_zone_length_m,
-                          runway_transverse_max)
+                          runway_transverse_max, runway_vertical_curve_bound)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
@@ -54,7 +63,8 @@ from .geometry import project_to_chain
 from .precedence import View, view
 
 __all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_transverse",
-           "runway_within_shape", "crown_drops", "ridge_chains"]
+           "runway_vertical_curve", "curve_stations", "runway_within_shape",
+           "crown_drops", "ridge_chains"]
 
 GEN = "runway_profile"
 RUNWAY_FAMILY = ("runway", "runway_crossing")
@@ -316,6 +326,70 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             else:
                 terms = ((a, 1.0 - t), (b, t), (v, -1.0))
             rows.append(Linear(terms, -bound, bound, src))
+    return rows
+
+
+def curve_stations(xy: _t.Sequence[tuple[float, float]], chains: _t.Sequence[_t.Sequence[int]],
+                   along: _t.Callable[[int], float], min_d: float) -> list[int]:
+    """ONE station sequence for a runway's profile: its chains ordered
+    and oriented along the axis, joined end to end (a chain split at a
+    crossing continues the law, as the profile's bridging ``Diff``
+    does), stations closer than ``min_d`` to the last kept one dropped
+    (the identity floor — a noding sliver would otherwise state a rate
+    over a metre).  Shared by the generator and the verify reader."""
+    chs = sorted((list(c) for c in chains if len(c) >= 2),
+                 key=lambda c: min(along(c[0]), along(c[-1])))
+    chs = [c if along(c[0]) <= along(c[-1]) else list(reversed(c)) for c in chs]
+    out: list[int] = []
+    for ch in chs:
+        for v in ch:
+            if out and (v == out[-1] or math.dist(xy[v], xy[out[-1]]) < min_d):
+                continue
+            out.append(v)
+    return out
+
+
+def runway_vertical_curve(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """The vertical-curve law as HARD runway-tier rows (module docstring):
+    for stations ``(p, c, n)`` with spacings ``d1``, ``d2``,
+
+        −b ≤ (z_n − z_c)/d2 − (z_c − z_p)/d1 ≤ b,
+        b = runway_vertical_curve_bound(law, (d1 + d2)/2, code)
+
+    — a three-term ``Linear`` whose vertices are all ridge stations, so
+    the tier machinery holds it in the runway tier and the last resort
+    never relaxes it."""
+    vw = view(planar, law)
+    chains = ridge_chains(vw)
+    min_d = law.tables.emit.identity.min_distinct_spacing_m
+    rows: list[Row] = []
+    for rw in airport.runways:
+        chs = chains.get(rw.id)
+        if not chs:
+            continue
+        a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
+        L = rw.length_m
+        ux = (b_xy[0] - a_xy[0]) / L if L > 0 else 0.0
+        uy = (b_xy[1] - a_xy[1]) / L if L > 0 else 0.0
+
+        def along(v: int) -> float:
+            x, y = vw.xy[v]
+            return (x - a_xy[0]) * ux + (y - a_xy[1]) * uy
+
+        st = curve_stations(vw.xy, chs, along, min_d)
+        src = Source(GEN, "rulesets.runway.vertical_curve_k_m / max_grade_change "
+                     "(§3.1.15-16, 2026-09-06b)", (f"rwy:{rw.id}",))
+        for p, c, n in zip(st, st[1:], st[2:]):
+            d1 = vw.dist(p, c)
+            d2 = vw.dist(c, n)
+            if d1 <= 0.0 or d2 <= 0.0:
+                continue
+            b = runway_vertical_curve_bound(law, 0.5 * (d1 + d2), rw.code_number,
+                                            rw.code_letter)
+            if b is None:
+                continue
+            terms = ((p, 1.0 / d1), (c, -(1.0 / d1 + 1.0 / d2)), (n, 1.0 / d2))
+            rows.append(Linear(terms, -b, b, src))
     return rows
 
 

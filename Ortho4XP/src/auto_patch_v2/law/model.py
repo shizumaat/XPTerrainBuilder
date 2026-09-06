@@ -30,8 +30,7 @@ __all__ = [
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
-    "Declared", "FlatSite", "Chords", "Identity", "Materiality",
-    "Relaxation",
+    "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables",
@@ -196,6 +195,7 @@ class CommonLaw:
     apron_fan_ramp_max: float
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float
+    vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
 
 
 @_dc.dataclass(frozen=True)

@@ -180,3 +180,32 @@ a runway ring edge as a route. Twins as before, restated: a stub on each
 edge, the two edges' reach bands overlap by at least the transverse
 allowance because both reach through the crossing.
 
+
+## 8. Amendment 2026-09-05 — the route graph is the centreline network (owner, RULINGS 2026-09-05aa)
+
+Withdraw every non-centreline edge from `constraints/routes.py`'s
+graph: no RING edges, no CHORD edges (stretch, apron, junction), no
+apron perimeters, no pad FRONTAGE hops. The graph = (i) every taxi
+centreline stretch (`stretches`, the 1202 network, every vertex of the
+polyline so every curve is followed) at its stretch cap; (ii) every
+runway centreline (`ridge_chains`) at the runway longitudinal cap by
+code, threshold pins on it; (iii) the crossings where a taxi centreline
+crosses a runway (already recovered, 05z). Attachment: every pavement
+ring vertex of a runway/taxi/apron face gets ONE lateral HOP to the
+nearest station of a centreline INSIDE or TOUCHING its own face, at
+the perpendicular distance and that face's transverse cap (`transverse_
+max` for runways, the taxi transverse cap, the apron cap); a pad vertex
+attaches through the apron it fronts (its frontage row's apron vertex).
+A vertex with nothing to attach to has no reach band and no no_step
+route distance (the shape laws alone govern it). `reach_band_values`
+and `no_step` keep their form over this graph. The lane's `_ring_hops`
+(ring-distance hops) and `FRONTAGE` kind are removed.
+
+Twins (`test_routes.py`): a curved taxiway (arc) between two pins: the
+budget along the graph equals cap × ARC length, never the chord; an
+apron beside it: its vertices' bands come through the lateral hop from
+the taxilane that touches it, never through its perimeter; no graph
+edge lies on any face ring. Acceptance as §3/§6/§7: the OFFLINE HECA
+certificate first, then the one HECA build, then CYXY/OTHH base arms
+(0/0 must hold; the pad rims lose their frontage hops — quote the
+building rows if any return).

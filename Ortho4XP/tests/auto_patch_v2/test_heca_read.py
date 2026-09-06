@@ -12,7 +12,6 @@ import pytest
 
 from auto_patch_v2.constraints import GENERATORS, generate, roads, runway_profile, zones
 from auto_patch_v2.constraints.precedence import view
-from auto_patch_v2.emit import rebake as R
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import tables as T
@@ -27,7 +26,6 @@ from auto_patch_v2.verify.census import DEFECT_KEYS
 from auto_patch_v2.verify.runway import FAMILY_VERTICAL_CURVE
 from auto_patch_v2.verify.strips import FAMILY_STRIP_TRANSVERSE
 from tests.auto_patch_v2.test_crown import build_diagonal
-from tests.auto_patch_v2.test_m6a_rebake import _feet_member, _flat, _unit
 
 
 @pytest.fixture(scope="module")
@@ -262,149 +260,3 @@ def _seg_dist(p, a, b) -> float:
     l2 = vx * vx + vy * vy
     t = 0.0 if l2 < 1e-12 else max(0.0, min(1.0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / l2))
     return math.hypot(p[0] - (a[0] + t * vx), p[1] - (a[1] + t * vy))
-
-
-# ── law 3: the seat splits where the members disagree ────────────────────
-
-def _anchor_then(z_anchor: float, z_low: float, z_high: float, split: float = 0.5):
-    """A sampler answering ``z_anchor`` on its FIRST call (the unit's
-    anchor, the base of the rendered plane), then ``z_low`` south of
-    ``split`` and ``z_high`` north of it."""
-    seen = {"n": 0}
-
-    def s(lat, lon):
-        seen["n"] += 1
-        if seen["n"] == 1:
-            return (z_anchor, False)
-        return ((z_low if lat < split else z_high), False)
-    return s
-
-
-def test_three_agree_the_fourth_seats_apart(law, monkeypatch):
-    """§4 twin: three members at one delta, one 30 m off → three move
-    together, the fourth by its own delta, the coalition recorded."""
-    rb = law.tables.structures.rebake
-    pl = _unit(_feet_member("a", 0.0), _feet_member("b", 0.0), _feet_member("c", 0.0),
-               _feet_member("d", 0.0, lat0=1.0))
-    # anchor 710, the three read 705 (delta −5), d reads 680 (delta −30)
-    us = R.seat(pl, _anchor_then(710.0, 705.0, 680.0), law).units[0]
-    by = {m.resource.rsplit("/", 1)[-1]: m for m in us.members}
-    assert us.bakes and us.delta_m == pytest.approx(-5.0)
-    assert all(not by[k].seated_apart for k in ("a.obj", "b.obj", "c.obj"))
-    d = by["d.obj"]
-    assert d.seated_apart and d.delta_m == pytest.approx(-30.0)
-    assert d.family_delta_m == pytest.approx(-5.0) and "seated_apart" in d.note
-    assert any("family split" in f for f in us.findings)
-    c = R.SeatResult("ZZZZ", (us,)).counts()
-    assert c["units_split"] == 1 and c["members_apart"] == 1 and c["resources_baked"] == 4
-    # the decision carries the member's own delta and the provenance note
-    # (the OBJ8 read stubbed: one solid triangle per member)
-    from auto_patch import engine_v2, obj8_reader
-
-    class _Geom:
-        vertices = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)]
-        solid_triangles = [(0, 1, 2)]
-    monkeypatch.setattr(obj8_reader, "load_object_file", lambda path: _Geom())
-    dec = engine_v2._decision_from_seats(pl, R.SeatResult("ZZZZ", (us,)), measure_only=False)
-    assert all(x == pytest.approx(-30.0) for x in dec.delta_by_resource_and_vertex["objects/d.obj"].values())
-    assert all(x == pytest.approx(-5.0) for x in dec.delta_by_resource_and_vertex["objects/a.obj"].values())
-    assert dec.decision_kind_by_resource["objects/d.obj"] == "v2_feet_apart"
-    assert "seated_apart" in dec.seat_note_by_resource["objects/d.obj"]
-    assert "coalition -5.000" in dec.seat_note_by_resource["objects/d.obj"]
-    assert dec.seat_datum_by_resource["objects/d.obj"] == pytest.approx(710.0 - 30.0)
-    assert (rb.min_delta_m > 0) and "objects/a.obj" not in dec.seat_note_by_resource
-
-
-def test_a_roof_piece_over_the_familys_ground_follows(law):
-    """OTHH unit:21's class: two members at y = 0 on flat ground and one
-    whose feet are 6.4 m up over the SAME ground — its own delta would
-    drop it to the ground; it is on the family (I-8) and follows, the
-    unit seats as one."""
-    pl = _unit(_feet_member("AuxBuilding_19_000", 0.0), _feet_member("AuxBuilding_19_001", 0.0),
-               _feet_member("AuxBuilding_19_002", 6.4))
-    us = R.seat(pl, _flat(710.0), law).units[0]
-    assert us.delta_m == pytest.approx(0.0) and us.skip_reason.startswith("below_threshold")
-    roof = us.members[2]
-    assert roof.delta_m == pytest.approx(-6.4) and not roof.founding
-    assert not roof.seated_apart and not roof.apart_stays
-    assert R.SeatResult("OTHH", (us,)).counts()["units_split"] == 0
-
-
-def test_a_building_on_its_own_ground_seats_apart_even_out_of_band(law):
-    """HECA's class: a member authored 5 m up whose feet stand on ground
-    5 m HIGHER than the family's (85 m of relief around one anchor) is
-    on the land, not on the family — outside the coalition it seats by
-    its own delta."""
-    pl = _unit(_feet_member("base_a", 0.0), _feet_member("base_b", 0.0),
-               _feet_member("upper", 5.0, lat0=1.0))
-    # anchor 710; the family floats 10 m over a cut (delta −10); the
-    # upper member's ground is 10 m lower still: its own delta is −25
-    us = R.seat(pl, _anchor_then(710.0, 700.0, 690.0), law).units[0]
-    assert us.delta_m == pytest.approx(-10.0)
-    up = us.members[2]
-    assert up.ground_m == pytest.approx(690.0) and up.delta_m == pytest.approx(-25.0)
-    assert up.seated_apart and up.family_delta_m == pytest.approx(-10.0)
-
-
-def test_a_floating_member_is_not_a_facility(law):
-    """05p/05q read with the rule's own words: a facility stands BELOW the
-    mesh by more than the contact band.  A family floating 35 m over a
-    cut with one member floating 7 m has no facility — the 7 m member is
-    outside the coalition and seats apart."""
-    depth = law.tables.structures.basin.contact_band_m
-    pl = _unit(_feet_member("a", 0.0), _feet_member("b", 0.0), _feet_member("c", 0.0),
-               _feet_member("d", 0.0, lat0=1.0))
-    us = R.seat(pl, _anchor_then(710.0, 675.0, 703.0), law).units[0]      # family −35, d −7
-    by = {m.resource.rsplit("/", 1)[-1]: m for m in us.members}
-    assert us.delta_m == pytest.approx(-35.0)
-    assert not by["d.obj"].facility and by["d.obj"].seated_apart
-    assert by["d.obj"].delta_m == pytest.approx(-7.0)
-    # ...while a member genuinely sunk under the mesh beyond the band still is
-    pl2 = _unit(_feet_member("a", 0.0), _feet_member("b", 0.0), _feet_member("c", 0.0),
-                _feet_member("pit", -(depth + 1.5)))
-    us2 = R.seat(pl2, _flat(710.0), law).units[0]
-    assert us2.members[3].facility and not us2.members[3].seated_apart
-
-
-def test_outside_the_coalition_but_under_the_threshold_stays(law):
-    rb = law.tables.structures.rebake
-    small = 0.5 * rb.min_delta_m
-    assert small > rb.agreement_window_m
-    pl = _unit(_feet_member("a", 0.0), _feet_member("b", 0.0),
-               _feet_member("c", 0.0, lat0=1.0))
-    us = R.seat(pl, _anchor_then(710.0, 705.0, 710.0 + small), law).units[0]   # family −5, c +small
-    c = us.members[2]
-    assert us.delta_m == pytest.approx(-5.0)
-    assert c.apart_stays and not c.seated_apart and c.delta_m == pytest.approx(small)
-    from auto_patch.engine_v2 import _decision_from_seats
-    dec = _decision_from_seats(pl, R.SeatResult("ZZZZ", (us,)), measure_only=False)
-    assert "objects/c.obj" not in dec.delta_by_resource_and_vertex
-    assert "seated apart" in dict(dec.skipped)["objects/c.obj"]
-
-
-def test_a_resource_apart_at_two_anchors_takes_its_own_median(law):
-    """One file, one delta (I-4 per resource): the same resource seated
-    apart at two anchors with two own deltas bakes at their median."""
-    m1 = _feet_member("a", 0.0)
-    m2 = _feet_member("b", 0.0)
-    far1 = _feet_member("twice", 0.0, lat0=1.0)
-    far2 = _feet_member("twice", 0.0, lat0=2.0)
-    plan = R.RebakePlan("ZZZZ", "p", "/p", (
-        R.Unit("unit:1", (0.0, 0.0), 0.0, (m1, m2, far1)),
-        R.Unit("unit:2", (0.0, 0.0), 0.0, (m1, m2, far2))), (), {})
-
-    calls = {"n": 0}
-
-    def s(lat, lon):
-        calls["n"] += 1
-        if lat < 0.5:
-            # the anchor reads 710 (first call of each unit), the family 705
-            return ((710.0 if calls["n"] == 1 or lat == 0.0 and lon == 0.0 else 705.0), False)
-        return ((680.0 if lat < 1.5 else 678.0), False)
-    res = R.seat(plan, s, law)
-    a1 = next(m for m in res.units[0].members if m.resource.endswith("twice.obj"))
-    a2 = next(m for m in res.units[1].members if m.resource.endswith("twice.obj"))
-    assert a1.seated_apart and a2.seated_apart
-    assert a1.delta_m == pytest.approx(-31.0) and a2.delta_m == pytest.approx(-31.0)
-    assert "own median" in a1.note
-    assert all(not u.held for u in res.units)

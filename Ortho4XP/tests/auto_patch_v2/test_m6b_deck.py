@@ -237,9 +237,12 @@ def test_deck_seats_its_top_at_the_abutment_ground(pack, law):
     deck = next(s for s in us.members if s.resource == "objects/plate.obj")
     assert deck.founding and deck.delta_m == pytest.approx(701.0, abs=0.01)
     assert any("stations over water" in r for r in deck.records)
+    # the railing is a deck-FAMILY member: its (elevated) parts re-home to
+    # the deck's cluster and take the deck's delta (R12-2: none left behind)
     rail = next(s for s in us.members if s.resource == "objects/rail.obj")
     assert not rail.founding
-    assert any("foot member(s) follow rigidly" in f for f in us.findings)
+    assert rail.part_deltas and all(d == pytest.approx(701.0, abs=0.01)
+                                    for _c, _k, d in rail.part_deltas)
 
 
 def test_abutment_walks_landward_off_the_water(pack, law):
@@ -265,12 +268,12 @@ def test_canopy_on_the_ground_is_refused_by_the_crest_clearance(pack, law):
     # flat land everywhere: the deck seat would drop the canopy 5 m
     res = R.seat(pl, lambda la, lo: (704.0, False), law)
     us = res.units[0]
-    assert us.datum == "feet"
+    assert us.datum == R.DATUM_CLUSTER
     assert any("crest clearance" in f or "stands over anything" in f for f in us.findings)
-    # the feet law: the columns' feet (y = 0) already stand on the flat
-    # 704 ground (the deck seat would have dropped the canopy 5 m)
-    assert us.delta_m == pytest.approx(0.0, abs=0.01)
-    assert any(r.startswith("deck reading") for r in us.members[0].records)
+    # the cluster law: the columns (y = 0) already stand on the flat 704
+    # ground (the deck seat would have dropped the canopy 5 m) — stays
+    assert us.skip_reason.startswith("below_threshold") and not us.bakes
+    assert us.members[0].note.startswith("deck reading")
 
 
 def test_disagreeing_deck_members_stand_down(pack, law):
@@ -284,28 +287,8 @@ def test_disagreeing_deck_members_stand_down(pack, law):
     mpd = R._metres_per_degree(pl.units[0].anchor[0])
     res = R.seat(pl2, _span_sampler(705.0, 20.0, pl.units[0].anchor, mpd), law)
     us = res.units[0]
-    assert us.datum == "feet"
+    assert us.datum == R.DATUM_CLUSTER
     assert any("deck members disagree" in f for f in us.findings)
-
-
-def test_founding_witness_floor(law):
-    rb = law.tables.structures.rebake
-    lat, lon = 60.5, -135.5
-    feet_big = tuple(R.Foot(lat + i * 1e-5, lon, 0.0) for i in range(100))
-    # at grade (05p: −6 would be a facility member, excluded before the floor)
-    feet_tiny = tuple(R.Foot(lat - i * 1e-5, lon, -0.5) for i in range(4))
-    big = R.Member("a", "objects/big.obj", "big", "big", 0.0, feet_big)
-    tiny = R.Member("b", "objects/tiny.obj", "tiny", "tiny", 0.0, feet_tiny)
-    pl = R.RebakePlan("ZZZZ", "p", "/p", (R.Unit("u", (lat, lon), 0.0, (big, tiny)),), (), {})
-    res = R.seat(pl, lambda la, lo: (702.0, False), law)
-    us = res.units[0]
-    # flat ground under the anchor: the 100-witness member's feet sit on it
-    # (0); the 4-witness piece 6 m under would have lifted the unit +6
-    assert us.delta_m == pytest.approx(0.0)
-    assert next(s for s in us.members if s.resource == "objects/big.obj").founding
-    assert not next(s for s in us.members if s.resource == "objects/tiny.obj").founding
-    assert any("under the founding witness floor" in f for f in us.findings)
-    assert 4 < rb.founding_min_witnesses
 
 
 def test_family_takes_one_anchor_one_delta(pack, law):
@@ -331,7 +314,7 @@ def test_below_grade_skirt_never_founds_its_family(pack, law):
     assert [m.resource for m in unit.members] == ["objects/shed.obj"]
     assert pl.counts["below_grade"] == 1
     us = R.seat(pl, lambda la, lo: (702.0, False), law).units[0]
-    assert us.delta_m == pytest.approx(0.0) and not us.held
+    assert us.skip_reason.startswith("below_threshold") and not us.held
 
 
 def test_a_way_along_a_small_plate_does_not_carry_a_large_family(pack, law):
@@ -379,4 +362,4 @@ def test_sheet_member_joins_its_deck_family(pack, law):
     assert {m.resource for m in fam.members} == {"objects/plate.obj", "objects/sheet.obj"}
     # ...and alone it founds nothing
     pl2 = _planned(pack, law, [("sheet", (900.0, 0.0), 0.0, 0.0)])
-    assert pl2.units == () and pl2.counts["no_feet"] == 1
+    assert pl2.units == () and pl2.counts["no_parts"] == 1

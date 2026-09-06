@@ -58,6 +58,21 @@ class WallLines:
     end_thickness_m: tuple[float, float]
     thickness_m: float
     kind: str
+    #: The end walls' INNER faces as polylines from ``inner_a``'s end to
+    #: ``inner_b``'s end (2026-09-06f: LEMD's Bridge4 closes its far end
+    #: with THREE wall segments — an 11 m end wall, a 32 m oblique wall
+    #: and a 10.6 m return); ``()`` at an open end.  The trench is closed
+    #: along them, never along the chord between the side walls' ends.
+    end_walls: tuple[tuple[XY, ...], tuple[XY, ...]] = ((), ())
+
+    def trench_ring(self) -> list[XY]:
+        """The region between the walls' inner faces, closed along the
+        end walls where they stand."""
+        ring = list(self.inner_a)
+        ring += list(self.end_walls[1])[1:-1] if self.end_walls[1] else []
+        ring += list(reversed(self.inner_b))
+        ring += list(reversed(self.end_walls[0]))[1:-1] if self.end_walls[0] else []
+        return ring
 
     def end_line(self, k: int) -> tuple[XY, XY]:
         """The segment across the corridor at end ``k`` (the inner faces'
@@ -130,6 +145,29 @@ def _corners(chain: list[XY]) -> list[int]:
         if d0[0] * d1[0] + d0[1] * d1[1] < cos_lim:
             out.append(i)
     return out
+
+
+def _drop_jogs(chain: list[XY], corners: list[int], jog_max: float) -> list[int]:
+    """The corners that are not JOGS: two consecutive corners closer
+    than ``jog_max`` along the chain across which the direction RESUMES
+    (LEMD's Bridge4: a 1.73 m sideways offset of the inner face mid-wall)
+    are a jog of one wall, never an end wall."""
+    cos_lim = math.cos(math.radians(_CORNER_DEG))
+    keep: list[int] = []
+    i = 0
+    while i < len(corners):
+        c = corners[i]
+        if i + 1 < len(corners):
+            d = corners[i + 1]
+            if _length(chain[c: d + 1]) <= jog_max:
+                d0 = _dir(chain[c - 1], chain[c])
+                d1 = _dir(chain[d], chain[d + 1])
+                if d0[0] * d1[0] + d0[1] * d1[1] >= cos_lim:
+                    i += 2
+                    continue
+        keep.append(c)
+        i += 1
+    return keep
 
 
 def _dedupe(pts: list[XY]) -> list[XY]:
@@ -230,7 +268,11 @@ def read_wall_lines(plate, law) -> WallLines | str:
                 u = _dir(mid, a[0] if p0 is a[-1] else a[-1])
                 t = _thickness_at(mid, (-u[0], -u[1]), plate_u, 3.0 * tmax)
                 th.append(t if t else mean_t)
-            return WallLines(plate_u, a, b, (True, True), (th[0], th[1]), mean_t, "O")
+            # the end walls' inner faces from a's end to b's end
+            ew0 = tuple(reversed(end_walls[0]))          # ends at a[0]: a[0] … b[0]
+            ew1 = tuple(end_walls[1])                    # starts at a[-1]: a[-1] … b[-1]
+            return WallLines(plate_u, a, b, (True, True), (th[0], th[1]), mean_t, "O",
+                             (ew0, ew1))
         if part.interiors:
             return f"a plate with {len(part.interiors)} holes"
         free = _free_ends(ext, _FREE_END_THICKNESS_FACTOR * tmax)
@@ -241,12 +283,15 @@ def read_wall_lines(plate, law) -> WallLines | str:
         chains = [c1, c2]
         ki = _inner_of(chains, plate_u)
         inner = chains[ki]
-        corners = _corners(inner)
+        corners = _drop_jogs(inner, _corners(inner), _FREE_END_THICKNESS_FACTOR * tmax)
         if len(corners) == 0:
             return "a single wall (a half object): two side walls are needed"
-        if len(corners) != 2:
-            return f"a U plate whose inner face has {len(corners)} corners, not 2"
-        i1, i2 = corners
+        if len(corners) < 2:
+            return f"a U plate whose inner face has {len(corners)} corner, not 2"
+        # THE END WALL is the run between the first and the last corner:
+        # one segment (OTHH's box ends) or several (2026-09-06f: Bridge4's
+        # end wall + oblique wall + return) — the side walls lie outside it
+        i1, i2 = corners[0], corners[-1]
         side_a = list(reversed(inner[: i1 + 1]))        # from the end wall to the free end
         end_wall = inner[i1: i2 + 1]
         side_b = inner[i2:]
@@ -254,7 +299,7 @@ def read_wall_lines(plate, law) -> WallLines | str:
         u = _dir(mid, ((side_a[-1][0] + side_b[-1][0]) / 2.0, (side_a[-1][1] + side_b[-1][1]) / 2.0))
         t = _thickness_at(mid, (-u[0], -u[1]), plate_u, 3.0 * tmax)
         return WallLines(plate_u, side_a, side_b, (True, False), (t if t else mean_t, 0.0),
-                         mean_t, "U")
+                         mean_t, "U", (tuple(end_wall), ()))
     if len(parts) == 2:
         # TWO SEPARATE WALLS (open at both ends): each band's inner face is
         # the chain nearer the other band

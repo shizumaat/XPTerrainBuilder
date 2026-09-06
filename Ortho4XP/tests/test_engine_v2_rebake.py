@@ -71,15 +71,23 @@ def world(tmp_path, monkeypatch):
                 "objects/flat.obj": _slab(0.0)}
     for rel, text in authored.items():
         (pack / rel).write_text(text)
-    feet = tuple(R.Foot(ANCHOR[0], ANCHOR[1], -5.0) for _ in range(4))
+    # a and b: one slab part each, 0.0005° EAST of the anchor (5 m up the
+    # slope: delta +5, the slab from −5 to the ground), in contact — one
+    # cluster (06g); flat: its part at its own anchor (delta 0: stays)
+    east = ANCHOR[1] + 0.0005
+
+    def _part(pid, lat, lon, y):
+        return (R.Part(pid, 0, lat, lon, y, 100.0, (lat - 1e-5, lon - 1e-5, lat + 1e-5, lon + 1e-5)),)
     members = tuple(R.Member(f"dsf:{n}", f"objects/{n}.obj", str(pack / f"objects/{n}.obj"),
-                             str(pack / f"objects/{n}.obj"), 0.0, feet) for n in ("a", "b"))
+                             str(pack / f"objects/{n}.obj"), 0.0, _part(i, ANCHOR[0], east, -5.0))
+                    for i, n in enumerate(("a", "b")))
     flat = R.Member("dsf:flat", "objects/flat.obj", str(pack / "objects/flat.obj"),
                     str(pack / "objects/flat.obj"), 0.0,
-                    tuple(R.Foot(ANCHOR[0], ANCHOR[1], 0.0) for _ in range(4)))
+                    _part(2, ANCHOR[0] + 0.0005, ANCHOR[1], 0.0))
     plan = R.RebakePlan("ZZZZ", "ZZZZ Pack", str(pack), (
         R.Unit("unit:0", ANCHOR, 0.0, members),
-        R.Unit("unit:1", (ANCHOR[0] + 0.0005, ANCHOR[1]), 0.0, (flat,))), (), {"units": 2})
+        R.Unit("unit:1", (ANCHOR[0] + 0.0005, ANCHOR[1]), 0.0, (flat,))), (), {"units": 2},
+        ((0, 1),))
     (patches / R.PLAN_FILENAME.format(icao="ZZZZ")).write_text(plan.to_json())
     return types.SimpleNamespace(tile=tile, pack=pack, patches=patches, authored=authored)
 
@@ -110,7 +118,7 @@ def test_bakes_through_v1_writer_with_backup_and_one_family_delta(world):
     prov = json.load(open(w.pack / object_rebake.PROVENANCE_FILENAME))
     assert prov["objects"]["objects/a.obj"]["delta_m"] == pytest.approx(5.0)
     assert prov["objects"]["objects/b.obj"]["delta_m"] == pytest.approx(5.0)
-    assert prov["objects"]["objects/a.obj"]["decision_kind"] == "v2_feet"
+    assert prov["objects"]["objects/a.obj"]["decision_kind"] == "v2_cluster"
     res = json.load(open(w.patches / engine_v2.REBAKE_RESULT_FILENAME.format(icao="ZZZZ")))
     assert res["seat"]["counts"]["baked"] == 1 and not res["measure_only"]
 
@@ -183,11 +191,11 @@ def test_kill_switch_measures_and_writes_nothing(world, monkeypatch):
     assert {rel: _sha(str(w.pack / rel)) for rel in w.authored} == before
     res = json.load(open(w.patches / engine_v2.REBAKE_RESULT_FILENAME.format(icao="ZZZZ")))
     assert res["write_enabled"] is False and res["seat"]["counts"]["baked"] == 1
-    assert res["seat"]["units"][0]["delta_m"] == pytest.approx(5.0)
+    assert res["seat"]["units"][0]["members"][0]["delta_m"] == pytest.approx(5.0)
 
 
 def test_held_unit_keeps_the_current_bytes(world):
-    """A unit v2 cannot judge (every founding foot on water) is HELD:
+    """A unit v2 cannot judge (every ground part on water) is HELD:
     an earlier bake on disk is neither re-seated nor reverted."""
     w = world
     engine_v2.rebake_after_mesh(w.tile)                 # bake a and b (+5)

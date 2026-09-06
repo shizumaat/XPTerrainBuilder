@@ -194,7 +194,14 @@ def test_refusals_name_their_reason(objs, law):
     # the kerb refusal stays for a crest between the two keys
     kerb = _sig(objs, law, "kerb")
     assert not isinstance(kerb, str) and kerb.edge_wall and kerb.plate_y == pytest.approx(0.3)
-    assert "no wall skirt" in _sig(objs, law, "shallow")
+    # RULINGS 2026-09-06f: a wall whose skirt below the SEAT is shallow
+    # (1 m) reads its crest as its top band — an EDGE WALL signature
+    # (skirt 6 m below the crest); it builds only around a bore mouth
+    # (test_v2lemd4).  Round 2's "no wall skirt" refusal is now for a
+    # wall too low for either reading (edge_wall_min_skirt_m).
+    shallow = _sig(objs, law, "shallow")
+    assert not isinstance(shallow, str) and shallow.edge_wall
+    assert shallow.plate_y == pytest.approx(5.0) and shallow.skirt_depth_m == pytest.approx(6.0)
     assert "stub" in _sig(objs, law, "stub")
 
 

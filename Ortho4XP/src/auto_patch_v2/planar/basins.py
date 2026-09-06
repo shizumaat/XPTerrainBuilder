@@ -17,7 +17,12 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    buried under it (``shell_reaches_grade``) nor passing through it
    (``rim_reaches_grade``; v1's pit seed) — and which carries a FLOOR
    PLATE: near-horizontal solid faces (``floor_plate_normal_y_min``)
-   lying ``admission_depth_m`` or more under the LOCAL ground
+   lying ``admission_depth_m`` or more under the LOCAL ground.  The rim
+   is the shell's GROUND-CONTACT RING (RULINGS 2026-09-06f): solids of
+   the same component above the band are cover or protrusions (a
+   tower, a vent) up to ``rim_protrusion_max_fraction`` of its face
+   area (LEMD85: 3.4 %, its tower +11.4 m over a 27,000 m2 plate);
+   more is a shell through the ground
    (``airport/obj8.py``: a vertex renders at ``DEM(anchor) + agl + y``,
    judged against the ground under it).  Walls without a floor witness
    nothing — REFUSED by resource as "no genuine solid floor" (LEMD's
@@ -136,7 +141,8 @@ def read_objects(airport: Airport, law: Law, cache: obj8.ResourceCache | None = 
                                          bl.contact_band_m, cache,
                                          shell_reaches_grade=bl.shell_reaches_grade,
                                          floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
-                                         rim_reaches_grade=bl.rim_reaches_grade)
+                                         rim_reaches_grade=bl.rim_reaches_grade,
+                                         rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction)
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,
@@ -230,9 +236,11 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
     for path, (n, top, depth) in sorted(rep.through_grade.items(), key=lambda kv: -kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: its floor lies {-depth:.2f} m under the local "
                    f"ground but the shell carrying it rises {top:.2f} m above the ground (> "
-                   f"contact_band_m {bl.contact_band_m}) — a shell through the ground is a "
-                   f"building on the pack's plane or a structure standing in a pit, never the "
-                   f"pit itself (04i rule 1: a pit's rim tops out at grade)")
+                   f"contact_band_m {bl.contact_band_m}) over more than rim_protrusion_max_fraction "
+                   f"{bl.rim_protrusion_max_fraction:.0%} of its face area — a shell through the "
+                   f"ground is a building on the pack's plane or a structure standing in a pit, "
+                   f"never the pit itself (04i rule 1: a pit's rim tops out at grade; "
+                   f"2026-09-06f: a smaller protrusion is cover)")
     for path, (n, depth, z_min) in sorted(rep.no_floor.items(), key=lambda kv: kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: genuine solids reach {depth:.2f} m under "
                    f"the local ground (rendered {z_min:.2f}) but carry NO floor plate "
@@ -390,9 +398,15 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         inside = any(f.contains(a_pt) for f in floors)
         mesh_pred = floor_z if inside else float(deepest.anchor_z)
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
+        prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
+                 (f"rim protrusion {prot.protrusion_fraction:.1%} of the shell's face area above "
+                  f"the contact band, top +{prot.protrusion_top_m:.2f} m (<= "
+                  f"rim_protrusion_max_fraction {bl.rim_protrusion_max_fraction:.0%}, 2026-09-06f: "
+                  f"cover, not the rim)") if prot.protrusion_fraction > 0.0
+                 else "rim tops out in the contact band",
                  f"floor faces {len(floors)} ({floor_area:.0f} m2 of {ring.area:.0f} m2 region)",
                  f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
                  f"seat expect {seat_expect:+.2f} m"]

@@ -19,13 +19,15 @@ from pathlib import Path
 # 1,000-line file law; RULINGS 2026-09-05k-2) and are re-exported here.
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
+# the [rebake] schema (06g: the contact-cluster law's keys) likewise
+from .rebake_schema import Rebake  # noqa: F401
 
 __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
     "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
-    "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
+    "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
     "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
@@ -267,6 +269,7 @@ class TunnelObject:
     plate_min_area_m2: float
     plate_min_height_m: float
     edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
+    edge_wall_min_skirt_m: float       # 2026-09-06f: the edge wall's skirt below ITS crest (the top band, wherever it lies vs the seat)
     floor_plate_max_m2: float
     hull_min_length_m: float
     end_cap_open_m: float
@@ -314,6 +317,7 @@ class Bridge:
     deck_profile_bin_m: float
     deck_way_cover_min: float
     deck_way_carried_area_min: float
+    pavement_deck_families: tuple[str, ...]   # 2026-09-06f: pavement cells of these role families spanning a corridor are decks
     deck_spanning_evidence: tuple[str, ...]
     abutment_sample_step_m: float
     abutment_walk_max_m: float
@@ -357,6 +361,7 @@ class Basin:
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     rim_reaches_grade: bool            # 04i: the closed-region test
+    rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
 
 
 @_dc.dataclass(frozen=True)
@@ -374,29 +379,6 @@ class RetainingWall:
 
     allowed_outside_carves: bool
     in_runway_strip: bool
-
-
-@_dc.dataclass(frozen=True)
-class Rebake:
-    """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
-
-    restore_before_read: bool
-    ground_datum: str
-    deck_datum: str
-    foot_band_m: float
-    foot_samples_per_component: int
-    foot_samples_per_member: int
-    agreement_window_m: float
-    min_delta_m: float
-    residual_report_m: float
-    water_founds_seat: bool
-    one_anchor_one_seat: bool
-    # the founding witness floor and family exclusions (04k; M6b)
-    founding_min_witnesses: int
-    founding_min_share: float
-    structure_family_excluded: bool
-    deck_family_seats_rigid: bool
-    structure_seat_threshold_exempt: bool
 
 
 @_dc.dataclass(frozen=True)
@@ -789,14 +771,12 @@ def _build(cls: type, data: object, path: str) -> object:
     fields = {f.name: f for f in _dc.fields(cls)}
     unknown = set(data) - set(fields)
     if unknown:
-        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} "
-                       f"(allowed: {sorted(fields)})")
+        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} (allowed: {sorted(fields)})")
     kw: dict[str, object] = {}
     for name, f in fields.items():
         optional, inner = _is_optional(hints[name])
         if name not in data:
-            if f.default is _dc.MISSING and \
-                    f.default_factory is _dc.MISSING:  # type: ignore[misc]
+            if f.default is _dc.MISSING and f.default_factory is _dc.MISSING:  # type: ignore[misc]
                 raise LawError(f"{path}: missing required key {name!r}")
             continue
         kw[name] = _convert(path, name, inner if optional else hints[name],

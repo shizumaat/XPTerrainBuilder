@@ -120,7 +120,11 @@ def test_every_taxi_row_is_a_route_edge_and_no_pair_row_exists(hook, law):
         key = (min(r.a, r.b), max(r.a, r.b))
         assert key in edges and edges[key][1] in (LATERAL, CROSSING), key
         assert r.bound_m == pytest.approx(edges[key][0], abs=1e-9)
-        assert r.source.generator == "taxi" and "chain" in r.source.ruling
+        assert "chain" in r.source.ruling
+        role = pm.faces[int(r.source.inputs[0][5:])].role
+        assert r.source.generator == ("runway_profile" if role == "runway" else
+                                      "taxi" if role in law.tables.precedence.taxi_family.members
+                                      else role), (role, r.source.generator)
         assert r.source.inputs and r.source.inputs[0].startswith("face:")
         seen.add(key)
     assert len(seen) == len(chain) == g.stats["lateral"] + g.stats["crossing"]

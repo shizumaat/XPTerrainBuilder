@@ -331,6 +331,26 @@ def test_lp_lands_the_apron_at_z0_where_the_law_allows(flat_site, law):
     assert abs(z09 - 100.0) <= tol
 
 
+def _law_ceiling(pm, cs, v: int) -> float:
+    """``max z_v`` under the set's hard ``Diff`` rows and ``Pin``s alone (the
+    ``Linear`` rows dropped: an upper bound of the law's own ceiling)."""
+    import numpy as np
+    from scipy.optimize import linprog
+    n = len(pm.vertices)
+    diffs = [r for r in cs.diffs if r.soft is None]
+    A = np.zeros((2 * len(diffs), n)); ub = np.zeros(2 * len(diffs))
+    for k, r in enumerate(diffs):
+        A[2 * k, r.a], A[2 * k, r.b] = 1.0, -1.0
+        A[2 * k + 1, r.a], A[2 * k + 1, r.b] = -1.0, 1.0
+        ub[2 * k] = ub[2 * k + 1] = r.bound_m
+    pins = {p.v: p.z for p in cs.pins}
+    bounds = [(pins[i], pins[i]) if i in pins else (-1e4, 1e4) for i in range(n)]
+    c = np.zeros(n); c[v] = -1.0
+    res = linprog(c, A_ub=A, b_ub=ub, bounds=bounds, method="highs")
+    assert res.status == 0, res.message
+    return float(-res.fun)
+
+
 def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     """A declared datum 10 m over the thresholds: no airside vertex can
     reach it lawfully (the runway edge climbs at most 1.5 % from its
@@ -366,13 +386,19 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     rw_cap = law2.ruleset.runway.longitudinal.value(3, None)
     # the stub mouth (3 m off the runway edge) can stand at most the runway
     # edge's lawful climb from the threshold plus 3 m of taxi grade
-    # (109.07 m): the preference lifts it exactly to that ceiling and no
-    # further — under the datum, the law's margin, never at it
+    # (109.07 m) under the withdrawn chord law; under the CHAIN (RULINGS
+    # 2026-09-05ac) its ceiling is the LP's own — the hard Diff / Pin rows
+    # pushed as far as they go (the mouth's lateral hop, the stub's
+    # centreline, the edge station's runway hop) — a little higher: the
+    # preference lifts it to that ceiling and no further — under the
+    # datum, the law's margin, never at it
     stub = next(f for f in pm.faces.values() if f.role == "stub")
     mouth = [v for v in vw.rings[stub.id] if abs(vw.xy[v][1] - 25.5) < 1e-6]
     assert mouth
-    ceiling = 100.2 + rw_cap * (600.0 - 11.5) + taxi * 3.0
+    chord_ceiling = 100.2 + rw_cap * (600.0 - 11.5) + taxi * 3.0
     for v in mouth:
+        ceiling = _law_ceiling(pm, cs, v)
+        assert chord_ceiling - tol <= ceiling < 110.0 - tol
         assert sol.z[v] <= ceiling + tol
         assert 110.0 - sol.z[v] > 110.0 - ceiling - tol > tol
     # nothing overshoots the datum, and the datum rows are the ONLY soft

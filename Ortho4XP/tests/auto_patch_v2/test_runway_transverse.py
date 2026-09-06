@@ -163,8 +163,9 @@ def _solve_with_pin(shared_edge, law, depth_m, *, with_generator, envelope=True,
     # without the generator the cliff must be BUILDABLE: under RULINGS
     # 2026-09-05aa the edge vertex's lateral hop to its ridge station is a
     # no_step ROUTE pair at transverse_max (66 ↔ 155, 23 m, measured), so
-    # the no_step generator goes off with the transverse one
-    only = None if with_generator else {n for n, _ in GENERATORS} - {GEN, "no_step_pairs"}
+    # the no_step generator goes off with the transverse one — and so does
+    # the chain (05ac), whose runway hop states the same edge once more
+    only = None if with_generator else {n for n, _ in GENERATORS} - {GEN, "no_step_pairs", "taxi_chain"}
     cs, _c, _w = generate(pm, law, airport, only=only)
     base = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert base.status in (Status.OPTIMAL, Status.FEASIBLE), base.message

@@ -98,6 +98,8 @@ def solve_with_duals(pm: PlanarMap, cs: ConstraintSet, weights: Weights
 _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # (generator, substring of the ruling, family label)
     ("taxi", "chain", "taxi_chain"),
+    ("apron", "chain", "apron_chain"),
+    ("runway_profile", "chain", "runway_chain"),
     ("taxi", "longitudinal centreline", "taxi_centreline"),
     ("taxi", "plane_gradient", "plane_gradient"),
     ("apron", "", "apron_within_shape"),

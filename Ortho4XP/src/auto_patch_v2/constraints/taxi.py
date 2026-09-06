@@ -59,6 +59,8 @@ __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
            "taxi_pair_routes", "chain_ruling"]
 
 GEN = "taxi"
+#: ``runway_profile.GEN`` (stated here: ``runway_profile`` imports this module)
+RUNWAY_GEN = "runway_profile"
 _GRADIENT_DIRECTIONS = 16
 
 
@@ -164,18 +166,24 @@ def taxi_pair_routes(planar: PlanarMap, law: Law, airport: Airport | None
     return out
 
 
-def chain_ruling(law: Law, role: str | None, kind: int) -> str:
-    """The citation of one chain row: the law the edge states — a LATERAL
-    hop at its face's transverse cap (``common.roles.<role>`` for a
-    common-table role such as an apron, so the relaxation reads the
-    apron's tier through ``relax.stated_role``; ``rulesets.<family>``
-    otherwise), a runway CROSSING at the runway longitudinal cap."""
+def chain_ruling(law: Law, role: str | None, kind: int) -> tuple[str, str]:
+    """``(generator, citation)`` of one chain row: the law the edge STATES
+    — a LATERAL hop at its face's transverse cap, named for the face's
+    law family (``taxi`` on a taxi-family face; ``runway_profile`` on a
+    runway-family face; the role itself — ``apron`` — for a common-table
+    role, cited ``common.roles.<role>`` so the relaxation reads the
+    apron's tier through ``relax.stated_role``); a runway CROSSING at the
+    runway longitudinal cap.  A hop is the ATTACHMENT of its own face's
+    vertex, so its family is that face's, never the taxi family's by
+    default (measured on the M5 / relax twins: apron hops named ``taxi``
+    read as taxi rows relaxed)."""
     if kind == CROSSING:
-        return "rulesets.runway.longitudinal crossing, chain (2026-09-05z b / 05ac)"
+        return GEN, "rulesets.runway.longitudinal crossing, chain (2026-09-05z b / 05ac)"
     if role is not None and role in law.tables.common.roles:
-        return f"common.roles.{role} lateral hop, chain (2026-09-05aa / 05ac)"
+        return role, f"common.roles.{role} lateral hop, chain (2026-09-05aa / 05ac)"
     fam = role_family(law, role) if role is not None else None
-    return f"rulesets.{fam or 'taxi'}.transverse lateral hop, chain (2026-09-05aa / 05ac)"
+    gen = RUNWAY_GEN if fam == "runway" else GEN
+    return gen, f"rulesets.{fam or 'taxi'}.transverse lateral hop, chain (2026-09-05aa / 05ac)"
 
 
 def taxi_chain(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -185,9 +193,10 @@ def taxi_chain(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     CENTRELINE edges are :func:`taxi_centerlines` / ``runway_profile``'s
     rows and the CONTACT edges ``pads.frontage_near_miss``'s — stated
     once each, never twice.  A hop cites the face it hangs off
-    (``face:<id>``) so the relaxation reads that face's tier: an apron
-    vertex's hop is an apron row (relaxable under 04t(1)); a taxiway's or
-    a runway's is not."""
+    (``face:<id>``) and is named for that face's law family
+    (:func:`chain_ruling`) so the relaxation reads that face's tier: an
+    apron vertex's hop is an apron row (relaxable under 04t(1)); a
+    taxiway's or a runway's is not."""
     g = routes(planar, law, airport)
     faces = planar.faces
     src_of: dict[tuple[int, int], Source] = {}
@@ -202,7 +211,8 @@ def taxi_chain(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             f = faces.get(fid)
             role = None if f is None else f.role
             inputs = () if f is None else (f"face:{f.id}", f.ref)
-            src = Source(GEN, chain_ruling(law, role, kind), inputs)
+            gen, ruling = chain_ruling(law, role, kind)
+            src = Source(gen, ruling, inputs)
             src_of[(fid, kind)] = src
         rows.append(Diff(int(a), int(b), float(cap), float(ln), src))
     return rows

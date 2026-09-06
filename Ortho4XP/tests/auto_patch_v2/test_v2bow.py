@@ -217,7 +217,9 @@ def test_relaxation_objective_keeps_the_runway_on_the_dem(hangar_slack, law):
     cand = relax.full_scope(pm, law, cs)
     assert any(x.kind == "diff" for x in cand) and any(x.kind == "pad" for x in cand)
     tol = law.tables.emit.materiality.elevation_m
-    control = relax.stage1(pm, cs, cand, law, backend="pwl")
+    # RULINGS 2026-09-06l: the pure-variance program is a twin's CONTROL now
+    # (the default order is lexicographic; test_v2bow3 twins it)
+    control = relax.stage1(pm, cs, cand, law, backend="pwl", order=relax.ORDER_VARIANCE)
     assert control.status == "optimal" and control.linear_cols == 0
     # RULINGS 2026-09-06k (1): the term enters only at a positive
     # [relaxation] runway_fit_weight (OFF by default; test_v2bow2 twins the default)

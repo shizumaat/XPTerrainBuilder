@@ -169,26 +169,25 @@ def _with_fit(law: Law, w: float) -> Law:
                ruleset_key=law.ruleset_key)
 
 
-def test_runway_fit_weight_zero_restores_the_06e_relaxation(hangar_slack, law):
-    """At the table's default (0) stage 1 with the pipeline's weights is
-    the pure-variance program: no linear column, the same slacks as the
-    weightless control; at 1.0 the runway term enters (the 06h twin's
-    ruled arm)."""
+def test_runway_fit_weight_zero_is_not_the_weighted_order(hangar_slack, law):
+    """At the table's default (0) the 06h weighted term never enters —
+    RULINGS 2026-09-06l superseded 06k (1)'s "0 restores the 06e program":
+    0 is the LEXICOGRAPHIC order (test_v2bow3), the pure-variance program
+    a twin's control (``ORDER_VARIANCE``); at 1.0 the weighted single
+    stage answers (the 06h twin's ruled arm)."""
     airport, pm, cs = hangar_slack
     assert law.tables.emit.relaxation.runway_fit_weight == 0.0
     w = weights_under_law(DEFAULT_WEIGHTS, law)
     cand = relax.full_scope(pm, law, cs)
-    control = relax.stage1(pm, cs, cand, law, backend="pwl")
+    control = relax.stage1(pm, cs, cand, law, backend="pwl", order=relax.ORDER_VARIANCE)
     default = relax.stage1(pm, cs, cand, law, backend="pwl", weights=w)
     assert control.status == default.status == "optimal"
-    assert control.linear_cols == default.linear_cols == 0
-    assert default.linear_rows == 0
+    assert control.order == relax.ORDER_VARIANCE and control.linear_cols == 0
+    assert default.order == relax.ORDER_LEXICOGRAPHIC
     tol = law.tables.emit.materiality.elevation_m
-    for x in cand:
-        assert abs(control.slack.get(x.index, 0.0) - default.slack.get(x.index, 0.0)) <= tol
     on = relax.stage1(pm, cs, cand, _with_fit(law, 1.0), backend="pwl", weights=w)
-    assert on.status == "optimal" and on.linear_cols > 0
-    assert sum(on.slack.values()) > sum(default.slack.values()) + tol
+    assert on.status == "optimal" and on.order == relax.ORDER_WEIGHTED and on.linear_cols > 0
+    assert sum(on.slack.values()) > sum(control.slack.values()) + tol
 
 
 # ── (3) the pad_flat quantum ────────────────────────────────────────────

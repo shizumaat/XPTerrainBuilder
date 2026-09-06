@@ -35,7 +35,7 @@ from ..model.planar import PlanarMap
 from .assemble import to_sparse
 
 __all__ = ["Model", "SLOPE_DIRECTIONS", "model", "slack_bound", "qp", "pieces", "pwl",
-           "qp_available", "without"]
+           "lp", "held", "qp_available", "without"]
 
 
 def qp_available() -> bool:
@@ -246,6 +246,39 @@ def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
     return Model(n, ncol, A_ub, np.concatenate([S.b_ub, np.asarray(ub_b, float)]),
                   A_eq, np.concatenate([S.b_eq, np.asarray(eq_b, float)]),
                   lo, hi, quad, col_of, weight, grade_cols, lin_cost, n_lin_cols, n_lin_rows)
+
+
+def lp(m: Model, time_limit_s: float | None) -> tuple[str, np.ndarray | None, float]:
+    """THE LINEAR PART ALONE (RULINGS 2026-09-06l, stage 1a): ``min
+    lin_cost · x`` over the model's rows and bounds — the square's columns
+    are free inside their bounds and uncharged.  Returns (status, x, wall)."""
+    t0 = time.perf_counter()
+    c = m.lin_cost if len(m.lin_cost) == m.ncol else np.zeros(m.ncol)
+    bounds = [(None if not np.isfinite(m.lo[i]) else float(m.lo[i]),
+               None if not np.isfinite(m.hi[i]) else float(m.hi[i])) for i in range(m.ncol)]
+    opts = {"disp": False, "presolve": True}
+    if time_limit_s is not None:
+        opts["time_limit"] = float(time_limit_s)
+    res = linprog(c, A_ub=m.A_ub, b_ub=m.b_ub, A_eq=m.A_eq, b_eq=m.b_eq, bounds=bounds,
+                  method="highs", options=opts)
+    wall = time.perf_counter() - t0
+    if res.status == 2:
+        return "infeasible", None, wall
+    if res.status != 0 or res.x is None:
+        return f"error:{res.status}", None, wall
+    return "optimal", np.asarray(res.x, float), wall
+
+
+def held(m: Model, values: _t.Mapping[int, float], tolerance_m: float) -> Model:
+    """``m`` with column ``v`` bounded to ``values[v] ± tolerance_m``
+    (RULINGS 2026-09-06l, stage 1b: the runway family held at its stage-1a
+    value) and the linear cost withdrawn — the variance program alone on
+    the held set.  Bounds, never rows: the LP grows by nothing."""
+    lo, hi = m.lo.copy(), m.hi.copy()
+    for v, z in values.items():
+        lo[v] = max(lo[v], z - tolerance_m)
+        hi[v] = min(hi[v], z + tolerance_m)
+    return _dc.replace(m, lo=lo, hi=hi, lin_cost=np.zeros(0), linear_cols=0, linear_rows=0)
 
 
 def qp(m: Model, time_limit_s: float | None) -> tuple[str, np.ndarray | None, float]:

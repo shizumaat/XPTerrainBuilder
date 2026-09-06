@@ -359,6 +359,10 @@ def _structures_emit_checks(c: Checks, t) -> None:
     # RULINGS 2026-09-06k (1) (lane v2bow2): the runway DEM-fit term enters the
     # stage-1 relaxation objective only at a positive weight — OFF by default
     assert rl.runway_fit_weight == 0.0 and rl.runway_fit_weight >= 0.0
+    # RULINGS 2026-09-06l (lane v2bow3): the last resort is LEXICOGRAPHIC —
+    # stage 1b holds the runway family within the elevation materiality of
+    # its stage-1a (DEM-fit) value
+    assert rl.runway_hold_tolerance_m == e.materiality.elevation_m == rl.materiality_m
 
 
 def test_every_value_equals_v1(tables, capsys):

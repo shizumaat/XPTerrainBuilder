@@ -40,6 +40,8 @@ class Shape:
     code_number: int | None = None
     single_poly: bool = False
     law_cap: float | None = None  # o4_grade_law_cap (lateral contiguity)
+    #: a hole feature's host face id (``key`` of the shape it is cut from)
+    host: int | None = None
 
     @property
     def closed_ring(self) -> tuple[tuple[float, float, float], ...]:
@@ -111,7 +113,7 @@ class Patch:
                 k += 1
                 feats.append(Shape(-k, "", f.ref, tuple(h),
                                    tuple(xy[i] for i in h), tuple(z[i] for i in h),
-                                   "gap_interior_ring"))
+                                   "gap_interior_ring", host=f.id))
         for b in surface.breaklines:
             if b.kind == "runway_profile" and len(b.vertices) >= 2:
                 k += 1

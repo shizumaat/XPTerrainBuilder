@@ -202,7 +202,10 @@ def test_strip_families_and_pads(synthetic, law):
 def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     airport, pm, _ = synthetic
     cs, counts, _w = generate(pm, law, airport)
-    assert set(counts) == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "structure_datum_withdrawn"}
+    # every generator's count, plus a generator's own ``<name>.<stat>`` keys
+    # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
+    assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "structure_datum_withdrawn"}
+    assert "apron_within_shape.chords_outside_face" in counts
     S = to_sparse(cs, len(pm.vertices))
     assert S.A_ub.shape[0] == len(S.ub_rows) and S.A_eq.shape[0] == len(S.eq_rows)
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))

@@ -133,6 +133,15 @@ max_pieces          = 8       # piecewise-linear pieces per slack when the QP ba
 pad_slope_max       = 0.01    # RULINGS 2026-09-05f: a pad relaxed under 04t(1) may SLOPE at most this (gradient of its plane, m/m) — stage 1 bounds every relaxed pad's plane to it and spreads the rest of the relief over the other populations (04t-1); a relaxed pad steeper than this on the emitted product is a ``pad_flat`` DEFECT (verify/pads.py). Owner: "a 2.27 % floor is a visible tilt"; HECA's 1.28 % pad (m5i) comes inside it
 materiality_m       = 0.01    # a relaxed pad's plane residual, or a step between adjacent relaxed elements, above this is a defect (the 2026-08-02 elevation floor)
 relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one may take a slack (the apron, everything junior, a rigid pad's contact); the runway and taxi families never
+# THE RELAXATION'S SHAPE (RULINGS 2026-09-05ae(2), answering 05ad): a relaxed
+# row's slack is at most (max_over_cap_factor - 1) x its cap x its distance —
+# a "slightly" over-cap row (04t-1), never a cliff on a short edge (measured
+# HECA 43d50a53: a 2.55 m apron ring edge carried 1.33 m, 52 %; transverse
+# rows 0.63-0.78 m; an apron/taxilane seam at 4-6 % over 14 m).  A Diff's
+# grade excess g <= (factor - 1) x cap; a Linear's metre slack <= (factor - 1)
+# x its own bound magnitude (cap x d + the reader's envelope); a pad keeps
+# pad_slope_max.  At 2.0 a 1 % apron chord may reach 2 %, a 2.55 m edge 0.04 m.
+max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core needs (2.00, 2.05] — 2.0 demoted the apron; 2.5 leaves margin, the objective keeps rows near 1x
 # NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
 # relaxation-without-certificate-spec.md): HECA's certificate search expired
 # (120 / 300 s) and the fallback demoted the TAXI tier (3,037 rows, 5 m) —

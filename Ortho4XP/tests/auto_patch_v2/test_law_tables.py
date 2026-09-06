@@ -327,6 +327,9 @@ def _structures_emit_checks(c: Checks, t) -> None:
     assert rl.scope_without_certificate == "relaxable"
     assert rl.tier_ladder_last is True
     assert rl.relaxable_from_role == "apron"
+    # RULINGS 2026-09-05ae(2) (lane v2fix288): the relaxation's SHAPE — a
+    # relaxed row's slack is bounded by (factor - 1) x cap x d, never a cliff
+    assert rl.max_over_cap_factor == 2.5 and rl.max_over_cap_factor > 1.0    # 05af
 
 
 def test_every_value_equals_v1(tables, capsys):

@@ -74,6 +74,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "pair_caps", "seam_pins", "station_caps", "stretches",
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
+    "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon (``publication.face_holes_ll``)
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

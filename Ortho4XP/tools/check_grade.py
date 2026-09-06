@@ -1823,8 +1823,12 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
                           if mesh_edges_m else None))
 
 
-def _soft_grade_shape(w: "Way", role0: str, pts, pnids):
+def _soft_grade_shape(w: "Way", role0: str, pts, pnids, holes=None):
     """The ``grade_graph.GradeShape`` for ONE soft airside ring.
+
+    ``holes`` (RULINGS 2026-09-05ae(1)): the face's holes in the audit's
+    metre frame (sidecar ``face_holes`` by ``shapeID``) — a chord crossing
+    one is not a pair.  A patch without the key is judged as before.
 
     ONE construction, shared by both consumers inside
     :func:`iter_shape_grade_constraints` (the re-bake path and the
@@ -1857,7 +1861,8 @@ def _soft_grade_shape(w: "Way", role0: str, pts, pnids):
                             and w.apron_portion_runs is None),
         adopts_taxi_grade=taxi_law,
         adopted_taxi_letter=(w.tags.get("code_letter") if taxi_law else None),
-        lateral_cap=_lateral_cap_tag(w))
+        lateral_cap=_lateral_cap_tag(w),
+        holes=list(holes or ()))
 
 
 def iter_shape_grade_constraints(
@@ -1873,6 +1878,7 @@ def iter_shape_grade_constraints(
         crown_centerline_nids: Optional[set] = None,
         pair_caps_ll: Optional[list] = None,
         interior_zones_m: Optional[list] = None,
+        face_holes_m: Optional[dict] = None,
         ) -> "list[ShapePairConstraint]":
     """Yield every within-shape vertex-pair the grade check constrains.
 
@@ -2125,7 +2131,9 @@ def iter_shape_grade_constraints(
                 # gone).
                 _mk = {(min(_ia, _ib), max(_ia, _ib))
                        for (_ia, _ib, _c) in _matched}
-                _ring_gs = _soft_grade_shape(w, role0, pts, pnids)
+                _ring_gs = _soft_grade_shape(
+                    w, role0, pts, pnids,
+                    (face_holes_m or {}).get(str(w.tags.get("shapeID"))))
                 _idx = {pnids[k]: k for k in range(n)}
                 for (ka, kb, cap) in _GG.shape_constraints(
                         _ring_gs, _law_ctx, ring_only=True).edges:
@@ -2159,7 +2167,9 @@ def iter_shape_grade_constraints(
                         offset=_off, transverse_road=_tv))
                 continue
         if role0 in _SOFT_ROLES:
-            gs = _soft_grade_shape(w, role0, pts, pnids)
+            gs = _soft_grade_shape(
+                w, role0, pts, pnids,
+                (face_holes_m or {}).get(str(w.tags.get("shapeID"))))
             # THE CENSUS is one of the two readers Amendment 1 names for
             # the road PATH METRIC (the other is the emitter's chord
             # limiter); the SOLVE keeps the euclidean chord, which is the
@@ -5747,6 +5757,7 @@ def _check_within_shape(ways: List[Way],
                         interior_zones_m: Optional[list] = None,
                         transverse_road_out: Optional[List] = None,
                         stretches_m: Optional[list] = None,
+                        face_holes_m: Optional[dict] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -5776,7 +5787,7 @@ def _check_within_shape(ways: List[Way],
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
             crown_centerline_nids=crown_centerline_nids,
             pair_caps_ll=pair_caps_ll,
-            interior_zones_m=interior_zones_m):
+            interior_zones_m=interior_zones_m, face_holes_m=face_holes_m):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
         # JUNCTION STRETCH CAPS (RULINGS 2026-09-04y, applying 04t-3): a
@@ -7107,6 +7118,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "anchor": "anchor",
     "seam_pins": "seam_pins_ll",
     "mesh_edges": "mesh_edges_ll",
+    # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
+    # chord crossing one is no pair (``grade_graph._visibility_predicate``)
+    "face_holes": "face_holes_ll",
     "crown_drops": "crown_drops_ll",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
@@ -7427,6 +7441,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["anchor"] = tuple(anchor) if anchor else None
     ctx["seam_pins_ll"] = data.get("seam_pins")
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
+    ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
@@ -7848,6 +7863,7 @@ def run_checks(
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
+    face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
@@ -7983,6 +7999,13 @@ def run_checks(
     if mesh_edges_ll:
         mesh_edges_m = [(ll_to_m(*edge[0]), ll_to_m(*edge[1]))
                         for edge in mesh_edges_ll]
+    # THE FACE HOLES (sidecar ``face_holes``, RULINGS 2026-09-05ae(1)): per
+    # ``shapeID``, the holes of the face in this audit's metre frame — the
+    # visibility polygon a soft shape's chords must stay inside.
+    face_holes_m = None
+    if face_holes_ll:
+        face_holes_m = {str(k): [[ll_to_m(*pt) for pt in ring] for ring in rings]
+                        for k, rings in face_holes_ll.items()}
     # TAXIWAY STRETCHES (sidecar ``stretches``, RULINGS 2026-09-04y): the
     # per-stretch centrelines in this audit's metre frame, each with its
     # cap and its ring-node identities (rounded lat/lon, the sidecar's
@@ -8071,7 +8094,7 @@ def run_checks(
         fan_ramp_zones_m=fan_ramp_zones_m,
         interior_zones_m=interior_zones_m,
         transverse_road_out=_road_xsec_rows,
-        stretches_m=stretches_m))
+        stretches_m=stretches_m, face_holes_m=face_holes_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

@@ -362,6 +362,12 @@ class GradeShape:
     ring: list[tuple[float, float]]
     keys: list[Hashable]
     adopts_apron_grade: bool = False
+    #: THE FACE'S HOLES (RULINGS 2026-09-05ae(1), lane v2fix288): open rings
+    #: in the same frame; a non-adjacent chord crossing one is not a
+    #: surface path (``_visibility_predicate``).  The v1 engine leaves it
+    #: empty (its layout carries no hole geometry here — a stricter
+    #: superset); the census fills it from the v2 sidecar ``face_holes``.
+    holes: list = field(default_factory=list)
     fan_ramp_zone: bool = False
     adopts_taxi_grade: bool = False
     adopted_taxi_letter: str | None = None
@@ -1749,10 +1755,19 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
 
 # ── visibility ──────────────────────────────────────────────────────────────
 
-def _visibility_predicate(ring: list[tuple[float, float]]):
+def _visibility_predicate(ring: list[tuple[float, float]], holes=()):
     """Return ``vis(xa,ya,xb,yb)->bool``: True iff the chord stays inside the
     ring grown by ``_VIS_BUF``.  ``None`` if shapely is unavailable / the polygon
     is degenerate (caller falls back to plain all-pair).
+
+    ``holes`` (RULINGS 2026-09-05ae(1)): the face's holes as open rings —
+    a chord crossing a hole (a road, a building standing inside the
+    apron) leaves the pavement and is not a pair; the ring edges and the
+    inside chords carry the apron law around the obstacle.  Measured HECA
+    43d50a53: apron pav132's 585–770 m frontage chords through the hole
+    where a road and a building stand carried 21 km of the relaxation's
+    26.5 km of relief.  A hole narrower than ``2 × _VIS_BUF`` closes
+    under the buffer — a sliver, never a road.
 
     THE POLYGON POPULATION IS THIS SHAPE'S OWN RING — which is what makes
     this predicate already answer the RULINGS 2026-08-25 / spec §1.2
@@ -1774,7 +1789,7 @@ def _visibility_predicate(ring: list[tuple[float, float]]):
     except ImportError:  # pragma: no cover
         return None
     try:
-        poly = Polygon(ring)
+        poly = Polygon(ring, [list(h) for h in (holes or ()) if len(h) >= 3])
         if not poly.is_valid:
             poly = poly.buffer(0)
         poly = poly.buffer(_VIS_BUF)
@@ -2997,7 +3012,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # ONE VISIBILITY THUNK for this ring, built once and used by BOTH the
     # A5 chord selection and the pair loop's own visibility gate — the same
     # predicate, so "can this vertex reach that one" has one answer here.
-    vis = None if ring_only else _visibility_predicate(ring)
+    vis = None if ring_only else _visibility_predicate(ring, shape.holes)
     # ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b
     # spec Amendment 1 clause 1) ─────────────────────────────────────
     # A road-family ring's pairs are priced along the RING WALK, not the

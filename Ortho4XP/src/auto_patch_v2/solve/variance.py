@@ -27,8 +27,8 @@ from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
 from .assemble import to_sparse
 
-__all__ = ["Model", "SLOPE_DIRECTIONS", "model", "qp", "pieces", "pwl", "qp_available",
-           "without"]
+__all__ = ["Model", "SLOPE_DIRECTIONS", "model", "slack_bound", "qp", "pieces", "pwl",
+           "qp_available", "without"]
 
 
 def qp_available() -> bool:
@@ -85,14 +85,40 @@ class Model:
 SLOPE_DIRECTIONS = 32
 
 
+def slack_bound(x: _HasRow, max_over_cap_factor: float | None) -> float:
+    """THE RELAXATION'S SHAPE (RULINGS 2026-09-05ae(2), ``[relaxation]
+    max_over_cap_factor``): the most a relaxed row may take — a Diff's
+    GRADE excess at most ``(factor − 1) × cap`` (its metres then
+    ``(factor − 1) × cap × d``: a 2.55 m edge at 1 % carries 0.04 m at
+    2.0, never 1.33 m); a Linear's metre slack at most ``(factor − 1) ×``
+    its own bound magnitude (``cap × d`` plus the reader's envelope, the
+    row's statement of the law); an equality row (bound 0) may not open
+    at all — a weld or a plane tie relaxed is a STEP, which 04t(1)
+    forbids.  ``inf`` with no factor (the pre-05ae program)."""
+    if max_over_cap_factor is None or not math.isfinite(max_over_cap_factor):
+        return math.inf
+    k = max(0.0, max_over_cap_factor - 1.0)
+    r = x.row
+    if x.kind == "diff":
+        return k * float(r.cap)                              # type: ignore[attr-defined]
+    if x.kind == "linear":
+        mags = [abs(float(b)) for b in (r.hi, r.lo)           # type: ignore[attr-defined]
+                if b is not None and math.isfinite(float(b))]
+        return k * (max(mags) if mags else 0.0)
+    return math.inf
+
+
 def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
-           pad_slope_max: float | None = None) -> Model:
+           pad_slope_max: float | None = None,
+           max_over_cap_factor: float | None = None) -> Model:
     """``pad_slope_max`` (RULINGS 2026-09-05f, ``[relaxation]``): every
     relaxed pad's plane ``(u, v)`` is bounded to the disc of that radius
     (``SLOPE_DIRECTIONS`` half-planes ``u·cosθ + v·sinθ ≤ s·cos(π/K)``,
     whose polygon lies INSIDE the disc: |u|, |v| ≤ s among them), so the
     variance program spreads the relief a steeper pad would have taken
-    over the other populations (04t-1)."""
+    over the other populations (04t-1).  ``max_over_cap_factor`` (RULINGS
+    2026-09-05ae(2)): every Diff / Linear slack column is bounded above by
+    :func:`slack_bound` — a slight over-cap, never a cliff."""
     n = len(pm.vertices)
     S = to_sparse(without(cs, relaxed), n)
     ncol = n
@@ -169,6 +195,7 @@ def model(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[_HasRow],
     for x in relaxed:
         if x.kind != "pad":
             lo[col_of[x.index][0]] = 0.0
+            hi[col_of[x.index][0]] = slack_bound(x, max_over_cap_factor)
     return Model(n, ncol, A_ub, np.concatenate([S.b_ub, np.asarray(ub_b, float)]),
                   A_eq, np.concatenate([S.b_eq, np.asarray(eq_b, float)]),
                   lo, hi, quad, col_of, weight, grade_cols)

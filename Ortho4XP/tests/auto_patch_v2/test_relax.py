@@ -342,7 +342,17 @@ def test_no_certificate_runs_the_relaxable_scope(hangar, law):
     faces_r = {r["face"] for r in rows}
     site = {f.id for f in pm.faces.values() if f.role in ("apron", "building")} | {None}
     assert faces_c <= faces_r <= site, (faces_c, faces_r)
-    assert rl["stats_m"]["sum"] <= rep_c.relaxation["stats_m"]["sum"] + 0.05
+    # THE OBJECTIVE, not the metre sum (lane v2fix288, RULINGS 2026-09-05ae(2)):
+    # with every slack bounded by ``max_over_cap_factor`` the least-total-
+    # variance program on a candidate SUPERSET spends no more of ITS OWN
+    # objective (Σ d·g² + Σ D·slope² + Σ s²); its metre sum may differ
+    # (measured 3.26 m vs 3.08 m — the bound pushes relief onto more,
+    # longer rows).  The pre-05ae reading compared the metre sums.
+    def objective(rows):
+        return sum(r["distance_m"] * r["excess"] ** 2 if r["kind"] == "diff"
+                   else r["extent_m"] * r["slope"] ** 2 if r["kind"] == "pad"
+                   else r["slack_m"] ** 2 for r in rows)
+    assert objective(rows) <= objective(rep_c.relaxation["rows"]) * 1.01 + 1e-9
 
 
 def test_unrelaxable_conflict_with_no_certificate_names_the_ladder_failure(law):

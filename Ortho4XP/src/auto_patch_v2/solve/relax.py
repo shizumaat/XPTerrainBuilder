@@ -315,7 +315,7 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     ``qp_time_limit_s`` and the approximation takes over past it."""
     opt = options or Options()
     rl = law.tables.emit.relaxation
-    m = model(pm, cs, relaxed, rl.pad_slope_max)
+    m = model(pm, cs, relaxed, rl.pad_slope_max, rl.max_over_cap_factor)
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
     st, x, wall = "", None, 0.0
@@ -405,7 +405,8 @@ def relaxed_hard_set(cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], s1: Stage
 
 def certificate(pm: PlanarMap, relaxed: _t.Sequence[Relaxed], s1: Stage1,
                 z: _t.Sequence[float], materiality_m: float,
-                pad_slope_max: float | None = None, grade_tol: float = 0.0
+                pad_slope_max: float | None = None, grade_tol: float = 0.0,
+                max_over_cap_factor: float | None = None
                 ) -> dict[str, _t.Any]:
     """Every relaxed pad is ONE plane at ``z`` (residual ≤ materiality)
     no steeper than ``pad_slope_max`` (05f, within the grade materiality);
@@ -424,16 +425,26 @@ def certificate(pm: PlanarMap, relaxed: _t.Sequence[Relaxed], s1: Stage1,
         worst_slope = max(worst_slope, math.hypot(gx, gy))
     slope_ok = pad_slope_max is None or worst_slope <= pad_slope_max + grade_tol
     over: list[float] = []
+    worst_factor = 1.0
     for x in relaxed:
         if x.kind == "diff":
             r = x.row
             over.append(abs(z[r.a] - z[r.b]) - r.cap * r.d)
+            if r.cap > 0.0 and r.d > 0.0:
+                worst_factor = max(worst_factor, abs(z[r.a] - z[r.b]) / (r.cap * r.d))
     ok = worst_plane <= materiality_m and slope_ok and all(
         o <= s1.slack.get(x.index, 0.0) + materiality_m
         for o, x in zip(over, [x for x in relaxed if x.kind == "diff"]))
+    factor_ok = (max_over_cap_factor is None
+                 or worst_factor <= max_over_cap_factor * (1.0 + grade_tol)
+                 + materiality_m)
     return {"plane_residual_max_m": round(worst_plane, 6),
             "pad_slope_max_seen": round(worst_slope, 7), "pad_slope_max": pad_slope_max,
-            "shared_vertex_step_m": 0.0, "materiality_m": materiality_m, "ok": bool(ok)}
+            "shared_vertex_step_m": 0.0, "materiality_m": materiality_m,
+            # THE SHAPE (05ae-2): the worst relaxed chord's |Δz| / (cap × d)
+            "over_cap_factor_max_seen": round(worst_factor, 5),
+            "max_over_cap_factor": max_over_cap_factor,
+            "ok": bool(ok and factor_ok)}
 
 
 # ── the whole last resort ────────────────────────────────────────────────
@@ -496,6 +507,8 @@ class RelaxReport:
                 f"{'; ' + self.note if self.note else ''}); excess grade mean {s.get('mean', 0):.5f} "
                 f"max {s.get('max', 0):.5f} sd {s.get('sd', 0):.5f} max/mean {s.get('max_over_mean', 0):.2f}; "
                 f"relief Σ {sm.get('sum', 0):.3f} m max {sm.get('max', 0):.3f} m; "
+                f"worst over-cap factor {self.certificate.get('over_cap_factor_max_seen', 0):.3f} "
+                f"(bound {self.certificate.get('max_over_cap_factor')}); "
                 f"stage1 {self.stage1_wall_s:.1f} s stage2 {self.stage2_wall_s:.1f} s; "
                 f"certificate {'OK' if self.certificate.get('ok') else 'FAILED'}")
 
@@ -566,7 +579,7 @@ def _finish(rep: RelaxReport, pm: PlanarMap, law: Law, relaxed: _t.Sequence[Rela
     rep.stats = _stats([s1.excess[x.index] for x in support if x.kind != "linear"])
     rep.stats_m = _stats([s1.slack[x.index] for x in support])
     rep.certificate = certificate(pm, support, s1, sol.z, rl.materiality_m,
-                                  rl.pad_slope_max, tol_g)
+                                  rl.pad_slope_max, tol_g, rl.max_over_cap_factor)
 
 
 def _certificate_rounds(pm: PlanarMap, cs: ConstraintSet, law: Law, weights: Weights,

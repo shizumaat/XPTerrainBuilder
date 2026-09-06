@@ -20,15 +20,28 @@ THE RULE, per face of a role in ``emit.within_shape.junction_mesh_roles``:
   polyline, strictest on a tie, the face's own cap when no stretch
   crosses the face (``stretches.nearest_line_cap``).  A mesh edge with a
   PAD endpoint holds the pad's cap (the frontage rule, 09-01g).
-* A TRIANGLE's plane gradient is bound at the cap of the crossing
-  stretch NEAREST ITS CENTROID (the 16 half-plane linearisation of
-  ``taxi.plane_rows``): the plane is what X-Plane renders.  Triangles on
-  the A side of a face crossed by an A and a D stretch are at 3 %, on the
-  D side at 1.5 %.  A triangle STRADDLING the two is at its centroid's
-  stretch while each of its edges keeps its own cap — a plane bound is
-  isotropic, so binding a straddling triangle at the stricter letter
-  would forbid the ruling's own example (X ↔ the next G node at 3 % is
-  the G edge of a triangle whose third edge lies on the D stretch).
+* A TRIANGLE's plane gradient is bound ANISOTROPICALLY (RULINGS
+  2026-09-06k (2), superseding 04y's isotropic cone): the component of
+  ``∇z`` ALONG the serving centreline's direction at that stretch's
+  LONGITUDINAL cap and the component ACROSS it at the stretch's
+  TRANSVERSE cap (``rulesets.<authority>.taxi`` by letter) — TWO
+  two-sided rows per triangle (``taxi.box_rows``), a BOX, never the
+  16-half-plane cone.  The serving stretch is the crossing stretch
+  NEAREST the triangle's centroid (strictest on a tie), its direction
+  the nearest segment of that stretch's polyline there; a face no
+  stretch crosses is served by the nearest stretch of the map at the
+  face's own caps (the ``_junction_letter`` inheritance: the nearest
+  through-route minted it); a map with no taxi stretch states no plane
+  row (the mesh edges alone price the body).  Why: the isotropic cone
+  bounds ANY two points of a junction by cap × their STRAIGHT distance —
+  the chord law the owner withdrew (05aa) re-entering through the
+  bounded cells (HECA pav132's 695 m of planes carried +10.05 m of the
+  05C/23C hard chain); the box lets the body fall across the serving
+  taxiway at the transverse cap (04t-2/3) while holding the taxi grade
+  along it.  Triangles on the A side of a face crossed by an A and a D
+  stretch are boxed at A's caps, on the D side at D's; a triangle
+  STRADDLING the two takes its centroid's stretch while each of its
+  edges keeps its own cap.
 * THE COMMON-STRETCH PAIRS (both vertices on one stretch) are the
   verify reader's population at that stretch's cap over the ROUTE
   (``taxi.taxi_pair_routes`` with ``common_only``, RULINGS 2026-09-05ab);
@@ -44,6 +57,7 @@ same mesh edges at the same nearest-stretch cap
 """
 from __future__ import annotations
 
+import math
 import typing as _t
 
 from ..law import Law
@@ -51,14 +65,15 @@ from ..law.tables import role_cap, snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
-from .geometry import chords_covered, face_cover
+from .geometry import chords_covered, face_cover, project_to_chain
 from .precedence import View, view
 from .stretches import Stretches, nearest_line_cap, stretches
-from .taxi import pad_vertices, plane_rows
+from .taxi import box_rows, pad_vertices
 
 __all__ = ["junction_mesh", "face_triangles", "face_mesh_edges",
-           "mesh_edge_caps", "triangle_caps", "mesh_edges_ll", "junction_roles",
-           "crossing_lines"]
+           "mesh_edge_caps", "triangle_caps", "triangle_boxes", "mesh_edges_ll",
+           "junction_roles", "crossing_lines", "crossing_axes", "stretch_axes",
+           "nearest_axis"]
 
 GEN = "junction_mesh"
 XY = tuple[float, float]
@@ -151,9 +166,75 @@ def mesh_edge_caps(vw: View, lines: _t.Sequence[tuple[_t.Sequence[XY], float]],
     return out
 
 
+#: A stretch as the box law reads it: ``(polyline m, cap_l, cap_t)``.
+Axis = tuple[list[XY], float, float]
+
+
+def crossing_axes(vw: View, st: Stretches, fid: int) -> list[Axis]:
+    """The stretches crossing ``fid`` as ``(polyline m, cap_l, cap_t)``."""
+    return [([vw.xy[v] for v in st.items[sid].vertices],
+             st.items[sid].cap_l, st.items[sid].cap_t)
+            for sid in st.face_stretches.get(fid, ())]
+
+
+def stretch_axes(vw: View, st: Stretches) -> list[Axis]:
+    """Every stretch of the map as ``(polyline m, cap_l, cap_t)`` — the
+    fallback population of a face no stretch crosses."""
+    return [([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t) for s in st.items]
+
+
+def nearest_axis(p: XY, axes: _t.Sequence[Axis], tie_m: float = 1e-6
+                 ) -> tuple[tuple[float, float], float, float] | None:
+    """The serving stretch at ``p``: ``(unit direction, cap_l, cap_t)`` of
+    the axis nearest ``p`` by perpendicular distance — the direction of
+    its nearest segment; the STRICTEST longitudinal cap among axes tied
+    within ``tie_m`` (the direction of that one); ``None`` with no
+    axis."""
+    best: tuple[float, float, float, tuple[float, float]] | None = None
+    for pts, cap_l, cap_t in axes:
+        if len(pts) < 2:
+            continue
+        d, k, _t_, _s = project_to_chain(p, pts)
+        (ax, ay), (bx, by) = pts[k], pts[k + 1]
+        n = math.hypot(bx - ax, by - ay)
+        if n < 1e-12:
+            continue
+        u = ((bx - ax) / n, (by - ay) / n)
+        if best is None or d < best[0] - tie_m or \
+                (abs(d - best[0]) <= tie_m and cap_l < best[1]):
+            best = (d, float(cap_l), float(cap_t), u)
+    if best is None:
+        return None
+    return best[3], best[1], best[2]
+
+
+def triangle_boxes(vw: View, axes: _t.Sequence[Axis],
+                   tris: _t.Iterable[tuple[int, int, int]],
+                   fallback: _t.Sequence[Axis] = (),
+                   face_caps: tuple[float, float] | None = None
+                   ) -> dict[tuple[int, int, int], tuple[tuple[float, float], float, float]]:
+    """Each triangle's box: ``(unit axis, cap_along, cap_across)`` from the
+    crossing stretch nearest its centroid; with no crossing stretch, the
+    nearest of ``fallback`` (the map's stretches) for the DIRECTION at
+    the face's own ``face_caps``; a triangle with no serving stretch at
+    all has no box."""
+    out: dict[tuple[int, int, int], tuple[tuple[float, float], float, float]] = {}
+    for a, b, c in tris:
+        (ax, ay), (bx, by), (cx, cy) = vw.xy[a], vw.xy[b], vw.xy[c]
+        cen = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0)
+        hit = nearest_axis(cen, axes)
+        if hit is None and fallback and face_caps is not None:
+            fb = nearest_axis(cen, fallback)
+            if fb is not None:
+                hit = (fb[0], face_caps[0], face_caps[1])
+        if hit is not None:
+            out[(a, b, c)] = hit
+    return out
+
+
 def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """Mesh-edge rows and triangle-plane rows for every junction-mesh
-    face (module docstring)."""
+    """Mesh-edge rows and triangle BOX rows for every junction-mesh face
+    (module docstring)."""
     vw = view(planar, law)
     st = stretches(planar, law)
     roles = junction_roles(law)
@@ -162,6 +243,7 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     pads = pad_vertices(vw)
     pad_cap = law.tables.common.roles["building"].longitudinal
+    all_axes: list[Axis] | None = None
     rows: list[Row] = []
     for f in vw.faces_of_role(roles):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
@@ -175,7 +257,8 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                        (f"face:{f.id}", f.ref))
         src_pad = Source(GEN, "common.roles.building frontage pair (09-01g)",
                          (f"face:{f.id}", f.ref))
-        src_t = Source(GEN, "junction triangle plane_gradient at the stretch cap (04y)",
+        src_t = Source(GEN, "junction triangle plane box along the serving stretch "
+                            "(06k-2: longitudinal along, transverse across)",
                        (f"face:{f.id}", f.ref))
         for (a, b), c in sorted(caps.items()):
             d = vw.dist(a, b)
@@ -185,15 +268,25 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 rows.append(Diff(a, b, min(c, pad_cap), d, src_pad))
             else:
                 rows.append(Diff(a, b, c, d, src_e))
-        for tri, tcap in triangle_caps(vw, lines, tris, cap.longitudinal).items():
-            rows.extend(plane_rows(list(tri), vw.xy, tcap, src_t))
+        axes = crossing_axes(vw, st, f.id)
+        if not axes and tris:
+            if all_axes is None:
+                all_axes = stretch_axes(vw, st)
+            fallback = all_axes
+        else:
+            fallback = ()
+        boxes = triangle_boxes(vw, axes, tris, fallback, (cap.longitudinal, cap.transverse))
+        for tri, (axis, cl, ct) in boxes.items():
+            rows.extend(box_rows(list(tri), vw.xy, axis, cl, ct, src_t))
     return rows
 
 
 def triangle_caps(vw: View, lines: _t.Sequence[tuple[_t.Sequence[XY], float]],
                   tris: _t.Iterable[tuple[int, int, int]], base_cap: float
                   ) -> dict[tuple[int, int, int], float]:
-    """Each triangle's plane cap: the crossing stretch nearest its centroid."""
+    """Each triangle's LONGITUDINAL cap: the crossing stretch nearest its
+    centroid (the box's along-axis cap; ``triangle_boxes`` carries the
+    axis and the transverse cap)."""
     out: dict[tuple[int, int, int], float] = {}
     for a, b, c in tris:
         (ax, ay), (bx, by), (cx, cy) = vw.xy[a], vw.xy[b], vw.xy[c]

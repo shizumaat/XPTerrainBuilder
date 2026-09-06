@@ -45,14 +45,15 @@ infeasibility, and inside ``emit.relaxation.iis_time_budget_s``:
    the pavement (``d`` the chord, ``D`` the pad's extent): its optimum is
    the UNIFORM over-cap along the whole site, the spread the ruling asks
    for (a plain ``Σ g²`` would load the long chords, ``Σ metres²`` the
-   short edges) — PLUS (RULINGS 2026-09-06h (b)/(c)) the RUNWAY
-   family's L1 DEM-fit term at the preference ladder's runway weight and
-   the runway ridge's smoothness λ (``variance.model`` ``fit`` /
-   ``smooth``, from the same ``Weights`` the solve uses), so the slack is
-   placed where it costs the runway nothing before the runway is sunk:
-   blind to the runway, stage 1 sank HECA 05C/23C 2.7 m to spare apron
-   pav132's chords (the binding chain ran through the RELAXED apron
-   chords at 1.17–1.52 % and junction planes instead of along taxiway G).
+   short edges) — PLUS, only at a positive ``[relaxation]
+   runway_fit_weight`` (RULINGS 2026-09-06k (1); OFF by default), the
+   06h (b)/(c) RUNWAY family's L1 DEM-fit term at the preference
+   ladder's runway weight and the runway ridge's smoothness λ
+   (``variance.model`` ``fit`` / ``smooth``, from the same ``Weights``
+   the solve uses).  Measured at HECA (v2bow 7aeb747e) that term moved
+   the 05C/23C bow 11.04 → 10.12 m at 2.8× the relief (Σ 3,804 →
+   10,680 m) and minted a ``pad_flat`` row, so the owner keeps it off;
+   the bow's mechanism was the junction mesh's isotropic cone (06k (2)).
    Backend: ``highspy``'s QP under
    ``Options.time_limit_s`` when the wheel is present — measured: exact
    at twin scale, and at HECA's 1.8 M rows it did not finish in five
@@ -346,15 +347,25 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
     """The variance program (module docstring, step 3).  ``backend``
     forces ``"qp"`` / ``"pwl"``; by default the QP runs under
     ``qp_time_limit_s`` and the approximation takes over past it.
-    ``weights`` (RULINGS 2026-09-06h b/c): the objective carries the
-    RUNWAY family's DEM-fit term at the ladder's runway weight and the
-    runway ridge's smoothness λ beside the slack variance (the pipeline
-    always passes them; ``None`` is the pure-variance program of 04t(1)
-    alone, the twins' control)."""
+    ``weights`` (RULINGS 2026-09-06h b/c, gated by 06k (1)): when
+    ``[relaxation] runway_fit_weight`` > 0 the objective carries the
+    RUNWAY family's DEM-fit term at the ladder's runway weight × that
+    scale and the runway ridge's smoothness λ likewise, beside the slack
+    variance (the pipeline always passes the weights); at the table's
+    default 0, or with ``None``, it is the pure-variance program of
+    04t(1) alone (the 06e relaxation)."""
     opt = options or Options()
     rl = law.tables.emit.relaxation
-    fit = runway_fit(pm, law, weights) if weights is not None else None
-    smooth = roughness_stations(pm, weights) if weights is not None else ()
+    # RULINGS 2026-09-06k (1): the runway term enters ONLY at a positive
+    # [relaxation] runway_fit_weight, scaled by it; at 0 (the table's
+    # default) the program is 04t(1)'s pure variance — the 06e relaxation
+    fit: dict[int, tuple[float, float]] | None = None
+    smooth: _t.Sequence[tuple[int, int, int, float, float, float]] = ()
+    if weights is not None and rl.runway_fit_weight > 0.0:
+        fit = {v: (w * rl.runway_fit_weight, tgt)
+               for v, (w, tgt) in runway_fit(pm, law, weights).items()}
+        smooth = [(a, m, c, dp, dn, lam * rl.runway_fit_weight)
+                  for a, m, c, dp, dn, lam in roughness_stations(pm, weights)]
     m = model(pm, cs, relaxed, rl.pad_slope_max, rl.max_over_cap_factor, fit, smooth)
     be = backend or ("qp" if qp_available() else "pwl")
     note = ""
@@ -555,7 +566,8 @@ class RelaxReport:
                 f"worst over-cap factor {self.certificate.get('over_cap_factor_max_seen', 0):.3f} "
                 f"(bound {self.certificate.get('max_over_cap_factor')}); "
                 f"stage1 {self.stage1_wall_s:.1f} s (runway fit + smoothness: "
-                f"{self.linear_cols} columns, {self.linear_rows} rows, 06h) "
+                f"{self.linear_cols} columns, {self.linear_rows} rows, 06h; "
+                f"{'ON' if self.linear_cols else 'OFF'} by [relaxation] runway_fit_weight, 06k) "
                 f"stage2 {self.stage2_wall_s:.1f} s; "
                 f"certificate {'OK' if self.certificate.get('ok') else 'FAILED'}")
 

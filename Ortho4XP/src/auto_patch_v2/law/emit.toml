@@ -142,6 +142,7 @@ relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one m
 # grade excess g <= (factor - 1) x cap; a Linear's metre slack <= (factor - 1)
 # x its own bound magnitude (cap x d + the reader's envelope); a pad keeps
 # pad_slope_max.  At 2.0 a 1 % apron chord may reach 2 %, a 2.55 m edge 0.04 m.
+runway_fit_weight   = 0.0   # RULINGS 2026-09-06k (1), gating 06h (b): the RUNWAY family's DEM-fit term (and the runway ridge's smoothness λ) enter the stage-1 relaxation objective beside the slack variance ONLY when this is > 0, scaled by it (1.0 = the preference ladder's own runway weight). OFF by default: measured at HECA (v2bow 7aeb747e) the term moved the 05C/23C bow 11.04 → 10.12 m at 2.8× the relief (Σ 3,804 → 10,680 m, max 7.16 m), census 42 → 92, and relaxed a pad exactly to pad_slope_max. 0 restores the 06e pure-variance program (04t-1 alone); the owner may turn it on
 max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core needs (2.00, 2.05] — 2.0 demoted the apron; 2.5 leaves margin, the objective keeps rows near 1x
 # NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
 # relaxation-without-certificate-spec.md): HECA's certificate search expired

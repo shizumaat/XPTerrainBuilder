@@ -55,7 +55,8 @@ from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
 from .stretches import edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
-           "all_pairs", "pad_vertices", "plane_rows", "PricedPair",
+           "all_pairs", "pad_vertices", "plane_rows", "box_rows",
+           "plane_gradient_terms", "PricedPair",
            "taxi_pair_routes", "chain_ruling"]
 
 GEN = "taxi"
@@ -265,17 +266,28 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
     return rows
 
 
+def plane_gradient_terms(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]]
+                         ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    """The plane gradient of a triangle as LINEAR forms in its corner
+    elevations: ``∇z = (Σ gx_i·z_i, Σ gy_i·z_i)`` (barycentric); ``None``
+    for a degenerate triangle."""
+    (x1, y1), (x2, y2), (x3, y3) = (xy[v] for v in tri)
+    det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
+    if abs(det) < 1e-9:
+        return None
+    gx = ((y2 - y3) / det, (y3 - y1) / det, (y1 - y2) / det)
+    gy = ((x3 - x2) / det, (x1 - x3) / det, (x2 - x1) / det)
+    return gx, gy
+
+
 def plane_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
                cap: float, src: Source) -> list[Row]:
     """``|∇z| ≤ cap`` over one triangle as 16 half-plane ``Linear`` rows
     (module docstring); none for a degenerate triangle."""
-    (x1, y1), (x2, y2), (x3, y3) = (xy[v] for v in tri)
-    det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
-    if abs(det) < 1e-9:
+    g = plane_gradient_terms(tri, xy)
+    if g is None:
         return []
-    # ∇z = M · (z1, z2, z3): gx = Σ gi·zi, gy = Σ hi·zi (barycentric)
-    gx = ((y2 - y3) / det, (y3 - y1) / det, (y1 - y2) / det)
-    gy = ((x3 - x2) / det, (x1 - x3) / det, (x2 - x1) / det)
+    gx, gy = g
     bound = cap * math.cos(math.pi / _GRADIENT_DIRECTIONS)
     rows: list[Row] = []
     for k in range(_GRADIENT_DIRECTIONS):
@@ -284,3 +296,25 @@ def plane_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
         terms = tuple((tri[i], c * gx[i] + s * gy[i]) for i in range(3))
         rows.append(Linear(terms, None, bound, src))
     return rows
+
+
+def box_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
+             axis: tuple[float, float], cap_along: float, cap_across: float,
+             src: Source) -> list[Row]:
+    """THE ANISOTROPIC plane bound (RULINGS 2026-09-06k (2)): over one
+    triangle, the gradient component ALONG the unit ``axis`` (the serving
+    centreline's direction) within ``±cap_along`` and the component
+    ACROSS it within ``±cap_across`` — TWO two-sided ``Linear`` rows, a
+    box, never the isotropic cone (which bounds any two points of the
+    body by the cap × their STRAIGHT distance: the withdrawn chord law
+    05aa).  None for a degenerate triangle or a zero axis."""
+    g = plane_gradient_terms(tri, xy)
+    n = math.hypot(axis[0], axis[1])
+    if g is None or n < 1e-12:
+        return []
+    gx, gy = g
+    ux, uy = axis[0] / n, axis[1] / n
+    along = tuple((tri[i], ux * gx[i] + uy * gy[i]) for i in range(3))
+    across = tuple((tri[i], -uy * gx[i] + ux * gy[i]) for i in range(3))
+    return [Linear(along, -cap_along, cap_along, src),
+            Linear(across, -cap_across, cap_across, src)]

@@ -519,6 +519,9 @@ class Relaxation:
     #: the tier ladder answers last; a governed family it demotes is a NAMED FAILURE
     tier_ladder_last: bool
     max_over_cap_factor: float   # 05ae(2): a relaxed row's slack <= (factor - 1) x cap x d
+    #: 06k(1): the runway DEM-fit (+ ridge smoothness) term's scale in the stage-1
+    #: relaxation objective; enters only when > 0 (0 = the 06e pure-variance program)
+    runway_fit_weight: float
 
 
 @_dc.dataclass(frozen=True)

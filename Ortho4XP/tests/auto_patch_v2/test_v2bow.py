@@ -219,7 +219,12 @@ def test_relaxation_objective_keeps_the_runway_on_the_dem(hangar_slack, law):
     tol = law.tables.emit.materiality.elevation_m
     control = relax.stage1(pm, cs, cand, law, backend="pwl")
     assert control.status == "optimal" and control.linear_cols == 0
-    ruled = relax.stage1(pm, cs, cand, law, backend="pwl", weights=w)
+    # RULINGS 2026-09-06k (1): the term enters only at a positive
+    # [relaxation] runway_fit_weight (OFF by default; test_v2bow2 twins the default)
+    rl = _dc.replace(law.tables.emit.relaxation, runway_fit_weight=1.0)
+    law_on = Law(tables=_dc.replace(law.tables, emit=_dc.replace(law.tables.emit, relaxation=rl)),
+                 ruleset_key=law.ruleset_key)
+    ruled = relax.stage1(pm, cs, cand, law_on, backend="pwl", weights=w)
     assert ruled.status == "optimal"
     assert ruled.linear_cols > 0 and ruled.linear_rows == 2 * ruled.linear_cols
     apron = [x for x in cand if x.kind == "diff" and relax.stated_role(x.row, law.tables.precedence.roles) == "apron"

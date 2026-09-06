@@ -296,7 +296,7 @@ def test_slack_bound_never_lets_a_short_edge_carry_a_metre(law):
     short = Diff(0, 1, 0.01, 2.55, src)              # the HECA edge that carried 1.33 m
     g = variance.slack_bound(_relaxed("diff", short), factor)
     assert g == pytest.approx((factor - 1.0) * 0.01)
-    assert g * short.d == pytest.approx(0.0255, abs=1e-9)       # 0.03 m, never 1.33 m
+    assert g * short.d == pytest.approx((factor - 1.0) * 0.01 * 2.55, abs=1e-9)   # 0.04 m at 2.5x, never 1.33 m
     lin = Linear(((0, 1.0), (1, -1.0)), -0.015 * 20.0 - 0.1, 0.015 * 20.0 + 0.1, src)
     s = variance.slack_bound(_relaxed("linear", lin), factor)
     assert s == pytest.approx((factor - 1.0) * (0.015 * 20.0 + 0.1))

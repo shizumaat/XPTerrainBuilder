@@ -1,14 +1,10 @@
-"""THE LAW — typed schema and loader for the ``law/*.toml`` tables.
-
-RULINGS 2026-09-03d: v2's ``law/`` is v2's own single source, cross-validated
-against v1's census; owner amendment 2026-09-03: the VALUES live in
-human-editable TOML, never in Python.  This module holds the SHAPE of the
-law (frozen dataclasses, one per table) and the loader that validates the
-files — unknown key, missing required key, non-numeric cap, unit sanity,
-a family pointing at a parameter that does not exist — and fails loudly.
-No numeric value appears here.
-
-Dependency direction: ``law`` imports nothing from the rest of v2.
+"""THE LAW — typed schema and loader for the ``law/*.toml`` tables
+(RULINGS 2026-09-03d; owner amendment 2026-09-03: the VALUES live in
+TOML, never in Python).  The SHAPE of the law (frozen dataclasses, one per
+table) and the loader that validates the files — unknown / missing key,
+non-numeric cap, unit sanity, a family pointing at a parameter that does
+not exist — and fails loudly.  No numeric value appears here; ``law``
+imports nothing from the rest of v2.
 """
 from __future__ import annotations
 
@@ -254,10 +250,8 @@ class Zones:
 @_dc.dataclass(frozen=True)
 class TunnelObject:
     """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1,
-    round 2 05n; ``structures.toml [tunnel.object]``): the object's own
-    geometry referenced to the GROUND — plate = ground (re-seated), floor
-    at the mouth = ground − plate height, the ramp inside the walls, the
-    trench between the walls' inner faces, precedence per mouth."""
+    05n; ``[tunnel.object]``): plate = ground (re-seated), floor at the
+    mouth = ground − plate height, the ramp inside the walls."""
 
     source_precedence: tuple[str, ...]
     plate_datum: str
@@ -366,12 +360,9 @@ class Basin:
 
 @_dc.dataclass(frozen=True)
 class Cutout:
-    """Every below-grade OBJECT's trench (RULINGS 2026-09-06b (1);
-    ``structures.toml [cutout]``): the floor overlaps the object's inner
-    perimeter by ``floor_overlap_m``, the at-grade rim stands
-    ``rim_gap_m`` outside its outer perimeter, and no wall face is
-    emitted between them (``emit_wall_band`` — only ``false`` is
-    generated): the mesh makes the near-vertical wall."""
+    """Every below-grade OBJECT's trench (RULINGS 2026-09-06b (1); ``[cutout]``):
+    the floor overlaps the inner perimeter by ``floor_overlap_m``, the rim
+    stands ``rim_gap_m`` outside the outer one, no wall face between."""
 
     floor_overlap_m: float
     rim_gap_m: float
@@ -455,11 +446,9 @@ class Materiality:
 
 @_dc.dataclass(frozen=True)
 class NoStep:
-    """Airside no-step pairs (RULINGS 2026-08-27; 2026-09-04o/04q re-derive
-    the window and K as ROUTE distances).  ``metric`` names the distance
-    the pairs are formed and priced over: ``"route"`` = along the taxi
-    network through airside pavement (the only lawful value; a chord
-    metric is the refuted 08-27 reading)."""
+    """Airside no-step pairs (RULINGS 2026-08-27; 2026-09-04o/04q: the window
+    and K are ROUTE distances).  ``metric`` = ``"route"`` (along the taxi
+    network; a chord metric is the refuted 08-27 reading)."""
 
     window_m: float
     k: int

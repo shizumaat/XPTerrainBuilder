@@ -108,6 +108,8 @@ class LoadReport:
     #: the pack's tile DSF is newer than every cached text dump (refused)
     dsf_dump_stale: bool = False
     dsf_pavements: int = 0
+    #: DSF pavement pages refused as another airport's (beyond the admission gate)
+    dsf_pavements_far: int = 0
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
     objects_resolved: int = 0
@@ -272,12 +274,22 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "before the build).")
     n_fac = n_obj = n_pol = 0
     dsf_pavements: list[Pavement] = []
+    # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
+    # airport's pavement pages; a page is this airport's only within
+    # ``identity.dsf_pavement_admission_m`` of its own apt.dat extent.
+    own_extent = _own_extent(runways, pavements, boundaries,
+                             law.tables.emit.identity.dsf_pavement_admission_m)
+    n_far = 0
     if dump_path and os.path.isfile(dump_path):
         dump = _dsf.read_dump(
             dump_path, lambda p: _dsf.building_role_for_def(p) is not None
             or _dsf.is_pavement_def(p))
         for i, poly in enumerate(dump.polygons):
             if _dsf.is_pavement_def(poly.def_path):
+                if own_extent is not None and not own_extent.intersects(
+                        _shape_of(_ring(poly.windings[0], to_xy))):
+                    n_far += 1
+                    continue
                 # Draped stock/material pavement pages ARE pavement (v1
                 # ``read_dsf_pavements``): 136k m2 of CYXY's aprons ship
                 # only as ``.pol`` polygons in the custom pack's DSF.
@@ -332,6 +344,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 f"dsf:obj{i}", pl.def_path, to_xy(pl.lon, pl.lat),
                 pl.heading_deg, None, False, None, agl, resolved, pl.kind))
     rep.dsf_pavements = n_pol
+    rep.dsf_pavements_far = n_far
     pavements = pavements + tuple(dsf_pavements)
     cache_path = inputs.footprint_cache_path or (
         os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
@@ -424,4 +437,40 @@ def _int_or_none(s: str | None) -> int | None:
         return int(float(s)) if s else None
     except ValueError:
         return None
+
+
+def _shape_of(ring):
+    from shapely.geometry import Polygon, LineString, Point
+    pts = list(ring)
+    if len(pts) >= 3:
+        p = Polygon(pts)
+        return p if p.is_valid else p.buffer(0)
+    return LineString(pts) if len(pts) == 2 else Point(pts[0])
+
+
+def _own_extent(runways, pavements, boundaries, margin_m: float):
+    """The airport's OWN apt.dat extent (runway rectangles, 110 pavements,
+    130 boundaries) buffered by ``margin_m``; ``None`` with no geometry."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    parts = []
+    for rw in runways:
+        try:
+            (ax, ay), (bx, by) = rw.ends[0].xy, rw.ends[1].xy
+            w = float(rw.width_m or 60.0) / 2.0
+            import math as _m
+            L = _m.hypot(bx - ax, by - ay) or 1.0
+            nx, ny = -(by - ay) / L * w, (bx - ax) / L * w
+            parts.append(Polygon([(ax + nx, ay + ny), (bx + nx, by + ny),
+                                  (bx - nx, by - ny), (ax - nx, ay - ny)]))
+        except Exception:
+            continue
+    for coll in (pavements, boundaries):
+        for it in coll:
+            if len(it.outer) >= 3:
+                p = Polygon(list(it.outer))
+                parts.append(p if p.is_valid else p.buffer(0))
+    if not parts:
+        return None
+    return unary_union(parts).buffer(float(margin_m))
 

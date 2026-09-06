@@ -336,3 +336,32 @@ def test_find_text_dump_prefers_the_keyed_fresh_dump_and_refuses_stale(tmp_path)
     assert S.find_text_dump(str(root), "OTHH Pack", 25, 51, dsf_path=str(dsf)) == str(keyed)
     # a fixture dir with no DSF path: the newest by mtime, never by name
     assert S.find_text_dump(str(root), "OTHH Pack", 25, 51) == str(keyed)
+
+
+def test_uv_mapped_pol_columns_are_texture_coordinates(tmp_path):
+    """``BEGIN_POLYGON idx 65535 4``: lon lat u v — a 4-point junction
+    marking stays a 4-point quad (RULINGS 2026-09-06a: read as beziers it
+    spanned 23° and LEGT sampled a cold tile 1,300 km away)."""
+    text = "\n".join([
+        "POLYGON_DEF lib/airport/ground/roads/asphalt/junctions.pol",
+        "BEGIN_POLYGON 0 65535 4", "BEGIN_WINDING",
+        "POLYGON_POINT -3.883824960 40.521518082 0.015594720 0.406286717",
+        "POLYGON_POINT -3.883962768 40.521478504 0.578088045 0.406286717",
+        "POLYGON_POINT -3.883932250 40.521416037 0.578088045 0.609399557",
+        "POLYGON_POINT -3.883794442 40.521455615 0.015594720 0.609399557",
+        "END_WINDING", "END_POLYGON",
+        "BEGIN_POLYGON 0 0 4", "BEGIN_WINDING",       # a heading-param polygon: columns 2-3 ARE a control point
+        "POLYGON_POINT -3.8838 40.5215 -3.8839 40.5216",
+        "POLYGON_POINT -3.8840 40.5215 -3.8840 40.5215",
+        "POLYGON_POINT -3.8840 40.5213 -3.8840 40.5213",
+        "END_WINDING", "END_POLYGON", ""])
+    p = tmp_path / "t.dsf.text"
+    p.write_text(text)
+    d = S.read_dump(str(p))
+    uv, bez = d.polygons[0], d.polygons[1]
+    lons = [pt[0] for pt in uv.windings[0]]; lats = [pt[1] for pt in uv.windings[0]]
+    assert len(uv.windings[0]) == 4
+    assert max(lons) - min(lons) < 0.001 and max(lats) - min(lats) < 0.001
+    assert len(bez.windings[0]) > 3                    # the bezier polygon still flattens
+    blons = [pt[0] for pt in bez.windings[0]]
+    assert max(blons) - min(blons) < 0.01

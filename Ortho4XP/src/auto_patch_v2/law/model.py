@@ -426,7 +426,7 @@ class Identity:
     coordinate_dp: int
     min_distinct_spacing_m: float
     weld_spacing_m: float
-
+    dsf_pavement_admission_m: float
 
 @_dc.dataclass(frozen=True)
 class Materiality:

@@ -166,7 +166,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
                 windings.append(winding)
                 winding = None
             elif kw == "END_POLYGON" and cur_def is not None:
-                rings = tuple(r for r in (_flatten(w, cur_cpp) for w in windings)
+                rings = tuple(r for r in (_flatten(w, cur_cpp, cur_param) for w in windings)
                               if len(r) >= 3)
                 if rings:
                     polygons.append(DsfPolygon(polygon_defs[cur_def],
@@ -189,12 +189,29 @@ def _placement(out: list[DsfPlacement], defs: list[str], toks: list[str],
         out.append(DsfPlacement(defs[oi], lon, lat, heading, elev, kind))
 
 
-def _flatten(points: list[list[str]], cpp: int) -> tuple[LonLat, ...]:
+#: ``BEGIN_POLYGON idx 65535 4``: a UV-MAPPED draped polygon — its four
+#: columns are ``lon lat u v`` (texture coordinates in 0..1), NEVER a
+#: control point.  Read as beziers, HECA-tile junction markings flattened
+#: 23° tall (RULINGS 2026-09-06a: LEGT/LERM/LETO refused a cold tile
+#: 1,300 km south of Madrid).
+UV_MAPPED_PARAM = 65535
+
+
+def _flatten(points: list[list[str]], cpp: int, param: int = 0) -> tuple[LonLat, ...]:
     """A winding's points; ``cpp >= 4`` carries a control point per
-    node (quadratic bezier into the NEXT node, mirrored like apt.dat)."""
+    node (quadratic bezier into the NEXT node, mirrored like apt.dat) —
+    except a UV-mapped polygon (``param == UV_MAPPED_PARAM``), whose
+    columns 2-3 are texture coordinates: cpp 4 = ``lon lat u v`` (no
+    control), cpp 6 = ``lon lat ctrl_lon ctrl_lat u v``."""
     n = len(points)
     if n < 3:
         return ()
+    if param == UV_MAPPED_PARAM:
+        if cpp <= 4:
+            cpp = 2
+        elif cpp >= 6:
+            points = [p[:4] for p in points]
+            cpp = 4
     try:
         xy = [(float(p[0]), float(p[1])) for p in points]
         # the control point is the LAST two columns: a facade point is

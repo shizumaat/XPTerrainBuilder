@@ -22,7 +22,7 @@ from ..model.constraints import Diff, Flat, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import view
 
-__all__ = ["pad_flats", "rigid_roles", "frontage_near_miss"]
+__all__ = ["pad_flats", "rigid_roles", "frontage_near_miss", "frontage_contacts"]
 
 GEN = "pads"
 
@@ -53,22 +53,15 @@ def pad_flats(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
-                       ) -> list[Row]:
-    """THE NEAR-MISS FRONTAGE LAW (Appendix A §1 ``frontage_near_miss``;
-    RULINGS 2026-08-08, cycle-5 instrument-fix item 6; v1
-    ``near_miss_building_frontage_edges`` / ``check_grade._check_frontage_
-    near_miss``, the one reader).  A pad outline and the soft pavement it
-    fronts can be offset by a sub-metre SOURCE mismatch (SPJC building29
-    vs its SW apron: 0.68 m — a DSF facade against an apt.dat apron),
-    leaving a sliver no identity join closes.  The frontage binds ACROSS
-    it: for a ``frontage_soft_roles`` ring edge within
-    ``frontage_near_miss_m`` of a pad, with BOTH endpoints unshared with
-    that pad, each endpoint unshared with ANY pad holds
-    ``|z_endpoint − z_pad(nearest pad vertex)| ≤ apron cap · d`` with
-    ``d`` its own distance to the pad polygon.  Under 03h the pad is the
-    junior side: the row levels the pad by its frontage exactly as a
-    shared vertex would, never the apron by the pad."""
+def frontage_contacts(planar: PlanarMap, law: Law
+                      ) -> list[tuple[int, int, int, float, float, int]]:
+    """THE NEAR-MISS FRONTAGE PAIRS as data: ``(soft endpoint, nearest
+    pad vertex, pad face, distance to the pad polygon, apron cap, soft
+    face)`` per
+    fired endpoint (module rule below; :func:`frontage_near_miss` mints
+    the rows, ``routes`` the pad's CONTACT edge — RULINGS 2026-09-05ab:
+    a pad attaches to the route graph at its contact, the frontage
+    row's apron vertex).  A soft endpoint fires once per pad."""
     vw = view(planar, law)
     bp = law.tables.structures.building_pad
     near = bp.frontage_near_miss_m
@@ -95,7 +88,7 @@ def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
     if not pads:
         return []
     tree = STRtree([p[1] for p in pads])
-    rows: list[Row] = []
+    out: list[tuple[int, int, int, float, float, int]] = []
     for f in vw.faces_of_role(tuple(bp.frontage_soft_roles)):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             n = len(ring)
@@ -125,9 +118,31 @@ def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
                         d = float(ppoly.distance(Point(x, y)))
                         j = min(pverts, key=lambda v: (vw.xy[v][0] - x) ** 2
                                 + (vw.xy[v][1] - y) ** 2)
-                        rows.append(Diff(e, j, budget, d, Source(
-                            GEN, "structures.building_pad frontage_near_miss "
-                            "(2026-08-08; 09-01g weld = value; 03h pads yield)",
-                            (f"face:{f.id}", f.ref, f"pad:{pid}", planar.faces[pid].ref))))
-    return rows
+                        out.append((e, j, pid, d, budget, f.id))
+    return out
 
+
+def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
+                       ) -> list[Row]:
+    """THE NEAR-MISS FRONTAGE LAW (Appendix A §1 ``frontage_near_miss``;
+    RULINGS 2026-08-08, cycle-5 instrument-fix item 6; v1
+    ``near_miss_building_frontage_edges`` / ``check_grade._check_frontage_
+    near_miss``, the one reader).  A pad outline and the soft pavement it
+    fronts can be offset by a sub-metre SOURCE mismatch (SPJC building29
+    vs its SW apron: 0.68 m — a DSF facade against an apt.dat apron),
+    leaving a sliver no identity join closes.  The frontage binds ACROSS
+    it: for a ``frontage_soft_roles`` ring edge within
+    ``frontage_near_miss_m`` of a pad, with BOTH endpoints unshared with
+    that pad, each endpoint unshared with ANY pad holds
+    ``|z_endpoint − z_pad(nearest pad vertex)| ≤ apron cap · d`` with
+    ``d`` its own distance to the pad polygon.  Under 03h the pad is the
+    junior side: the row levels the pad by its frontage exactly as a
+    shared vertex would, never the apron by the pad."""
+    rows: list[Row] = []
+    for e, j, pid, d, budget, fid in frontage_contacts(planar, law):
+        f = planar.faces[fid]
+        rows.append(Diff(e, j, budget, d, Source(
+            GEN, "structures.building_pad frontage_near_miss "
+            "(2026-08-08; 09-01g weld = value; 03h pads yield)",
+            (f"face:{f.id}", f.ref, f"pad:{pid}", planar.faces[pid].ref))))
+    return rows

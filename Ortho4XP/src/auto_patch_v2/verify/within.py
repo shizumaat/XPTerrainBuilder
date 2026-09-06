@@ -9,7 +9,11 @@ tables (``check_grade.iter_shape_grade_constraints`` +
   user 2026-07-08); a TAXI-FAMILY ring crossed by published ``stretches``
   is priced per stretch exactly as the generator priced it
   (``constraints.stretches.compose_pairs``, RULINGS 2026-09-04t-3), and a
-  pair with a pad vertex at the pad's cap (the frontage rule);
+  pair with a pad vertex at the pad's cap (the frontage rule) — BOTH
+  overlaid by the published ``taxi_route_pairs`` (RULINGS 2026-09-05ab):
+  a published budget is the pair's allowance (``Σ cap·len`` over the
+  centreline route, the reading the solve priced), a published null is
+  no law edge (no route joins the pair: no row);
 * SOFT shapes (apron, junction, service_junction, service_road): ring
   edges, spine chords (a published-axis vertex) and pad-frontage chords
   at the cap; an apron interior body chord within
@@ -107,6 +111,24 @@ def stretch_pair_caps(sh: Shape, lines: list[tuple[tuple[int, ...], float]],
             compose_pairs(xy, list(sh.ids), crossing, cap, min_d, common_only)}
 
 
+def route_pair_budgets(p: Patch) -> dict[tuple[int, int], tuple[float, float] | None]:
+    """Published ``taxi_route_pairs`` joined to vertices by identity key:
+    ``(min, max) -> (budget, dist)``, or ``None`` for a pair no route
+    joins (RULINGS 2026-09-05ab)."""
+    pub = p.publication.get("taxi_route_pairs")
+    if not pub:
+        return {}
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out: dict[tuple[int, int], tuple[float, float] | None] = {}
+    for a, b, budget, dist in pub:
+        va = key_of.get((round(float(a[0]), 7), round(float(a[1]), 7)))
+        vb = key_of.get((round(float(b[0]), 7), round(float(b[1]), 7)))
+        if va is None or vb is None or va == vb:
+            continue
+        out[(min(va, vb), max(va, vb))] = None if budget is None else (float(budget), float(dist))
+    return out
+
+
 def mesh_pairs(p: Patch) -> set[tuple[int, int]] | None:
     """Published ``mesh_edges`` joined to vertices by identity key, as
     ``(min, max)`` pairs; ``None`` when the patch publishes none."""
@@ -178,6 +200,7 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     pad_cap = law.tables.common.roles["building"].longitudinal
     mesh_roles = set(ws.junction_mesh_roles)
     mesh = mesh_pairs(p)
+    routed = route_pair_budgets(p)
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
@@ -225,8 +248,15 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                 if meshed and (a, b) not in pc and (b, a) not in pc:
                     continue                       # not a law edge (04y)
                 pair_cap = pc.get((a, b), pc.get((b, a), cap))
-                if sh.role in taxi and (a in rigid_v or b in rigid_v):
-                    pair_cap = min(pair_cap, pad_cap)      # frontage (09-01g)
+                route = None
+                if sh.role in taxi:
+                    if a in rigid_v or b in rigid_v:
+                        pair_cap = min(pair_cap, pad_cap)      # frontage (09-01g)
+                    key = (min(a, b), max(a, b))
+                    if key in routed:
+                        route = routed[key]
+                        if route is None:
+                            continue                   # no route: no law edge (05ab)
                 if sh.role in soft and not adjacent and a not in strict \
                         and b not in strict:
                     if sh.role == "apron":
@@ -241,6 +271,9 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     pair_cap = min(pair_cap, cap_t)
                 dz = sh.z[i] - sh.z[j]
                 de = abs(dz - _offset(drops, a, b, dz))
+                if route is not None:                  # the route reading (05ab)
+                    budget, d = route
+                    pair_cap = budget / d
                 allowance = pair_cap * d + q
                 if de <= allowance:
                     continue

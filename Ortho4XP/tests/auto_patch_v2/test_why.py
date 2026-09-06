@@ -158,10 +158,16 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     singles = {f: why.relax_family(prepared, f, verts) for f in fams}
     for f, r in singles.items():
         assert r.status == "optimal", (f, r)
-        # relaxing RAISES a held-down apron: its median never falls (one
-        # corner may settle a few dm as the L1 fit re-balances — measured
-        # 0.2 m at (50, 250) under RULINGS 2026-09-05aa's hop pairs)
-        assert r.dz_median >= -1e-6 and r.dz_max > 0.0, (f, r)
+        # relaxing never LOWERS a held-down apron: its median never falls
+        # (one corner may settle a few dm as the L1 fit re-balances —
+        # measured 0.2 m at (50, 250) under RULINGS 2026-09-05aa's hop
+        # pairs).  A single family may raise NOTHING: the taxi within-shape
+        # rows and the no_step pairs now price the shared taxi/apron rim
+        # over the same route at the same budget (RULINGS 2026-09-05ab),
+        # so either alone is redundant — measured 2026-09-05: dropping
+        # both moves the apron 0.001 m; the old ``dz_max > 0`` read 1e-13
+        # of solver noise as a rise
+        assert r.dz_median >= -1e-6 and r.dz_max >= -1e-6, (f, r)
         assert r.dz_median <= r.dz_max + 1e-9
     # all binding families together: the ceiling no single arm exceeds
     rows = [r for r in prepared.cs.rows() if why.family_of(r) not in set(fams)]

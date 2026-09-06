@@ -182,16 +182,24 @@ def pad_only_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
 
 
 def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:
-    """Pad face id -> its CONTACT vertices (rim vertices shared with
-    airside pavement, the no-step roles), sorted; a pad with none is
-    DETACHED and absent.  A rim vertex a groundside lot shares and no
+    """Pad face id -> its CONTACT vertices, sorted: the rim vertices
+    shared with airside pavement (the no-step roles), and — RULINGS
+    2026-09-05ab — the rim vertices a ``frontage_near_miss`` row binds
+    to an airside soft vertex (``pads.frontage_contacts``: the pad's
+    doorway onto the route graph, ``routes`` CONTACT).  A pad with none
+    is DETACHED and absent.  A rim vertex a groundside lot shares and no
     airside pavement does is the lot's (09-01g) and is no contact."""
+    from .pads import frontage_contacts
     vw = view(planar, law)
     pav = _airside_vertices(vw, no_step_roles(law))
     rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
+    near: dict[int, set[int]] = {}
+    for e, j, pid, _d, _cap, _sf in frontage_contacts(planar, law):
+        if e in pav:
+            near.setdefault(pid, set()).add(j)
     out: dict[int, list[int]] = {}
     for f in vw.faces_of_role(rigid):
-        seen: set[int] = set()
+        seen: set[int] = set(near.get(f.id, ()))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             seen.update(v for v in ring if v in pav)
         if seen:

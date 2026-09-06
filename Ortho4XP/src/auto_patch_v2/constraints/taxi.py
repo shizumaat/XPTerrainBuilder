@@ -3,18 +3,23 @@
 150/5300-13B §4 through ``rulesets.<authority>.taxi``).
 
 * every taxi-family face (``precedence.taxi_family.members``) is a PLANE
-  shape in the census (all vertex pairs at the role's longitudinal cap by
-  code letter) — the same population here, as ``Diff`` rows, priced PER
-  STRETCH where taxi centrelines of different letters cross the face
-  (RULINGS 2026-09-04t-3; ``stretches.pair_caps``) — EXCEPT a JUNCTION
-  BODY (``emit.within_shape.junction_mesh_roles``, RULINGS 2026-09-04y):
-  its pairs here are the common-stretch pairs only; the body is priced
-  by its triangle mesh in ``junction_mesh`` and a chord across stretches
-  of different letters produces no row; a pair with a PAD
-  endpoint holds the pad's cap (the building seat the census prices at
-  the strict cap — ``grade_law.classify_pair``'s frontage rule on every
-  soft shape, 2026-08-08 / 09-01g; measured 2026-09-04: every SPJC 8 /
-  KCLT 33 / HECA 18 ``junction|junction cap=1.0`` row has a pad endpoint);
+  shape in the census (all vertex pairs) — the same PAIR POPULATION here
+  (``stretches.pair_caps``: every distinct pair; a JUNCTION BODY's
+  common-stretch pairs only, RULINGS 2026-09-04y, its body priced by the
+  triangle mesh in ``junction_mesh``), each pair PRICED OVER THE
+  CENTRELINE ROUTE (RULINGS 2026-09-05ab, spec §9): the row is
+  ``|z_a − z_b| ≤ Σ cap·len`` along the route graph's shortest path
+  between the two vertices — a's lateral hop, the centreline stretches at
+  their own caps, b's hop (``routes.route_pairs``) — never ``cap × chord``
+  (HECA pav101 v2632↔v2831: a 1,463 m chord at 1.5 % where the route is
+  3,326 m; the chord was the last shortcut across open pavement).  A
+  pair on one straight stretch is unchanged (chord = route); a pair no
+  route joins gets NO row (the transverse law, the junction mesh and
+  no_step govern adjacency); a pad endpoint reaches the route through
+  its contact (05ab: welded rim = the pavement vertex) and is priced the
+  same way — the pad-cap chord (09-01g's frontage reading) was the
+  1,175 m hangar-rim shortcut measured 2026-09-05.  The verify reader
+  prices exactly the published budgets (``taxi_route_pairs``);
 * every ``taxi_centerline`` breakline chord at ITS STRETCH's cap, tightened
   by a governed non-taxi face it bounds (an apron lane is apron, RULINGS
   2026-09-03j; "reach follows centrelines": the profile an aircraft
@@ -30,16 +35,20 @@ from __future__ import annotations
 import math
 import typing as _t
 
+import dataclasses as _dc
+
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
+from .routes import route_pairs, routes
 from .stretches import edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_within_shape", "taxi_centerlines", "triangle_planes",
-           "all_pairs", "pad_vertices", "plane_rows"]
+           "all_pairs", "pad_vertices", "plane_rows", "PricedPair",
+           "taxi_pair_routes"]
 
 GEN = "taxi"
 _GRADIENT_DIRECTIONS = 16
@@ -74,39 +83,89 @@ def pad_vertices(vw: View) -> frozenset[int]:
     return frozenset(out)
 
 
-def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
-                      ) -> list[Row]:
-    """All pairs of every taxi-family ring, per stretch (04t-3), a pad
-    endpoint at the pad's cap (frontage)."""
+@_dc.dataclass(frozen=True)
+class PricedPair:
+    """One taxi-family within-shape pair: the face, the pair, the CHORD
+    reading (``cap_chord × d_chord``, the census's plane rule) and the
+    ROUTE reading (``dist`` / ``budget``, ``None`` when no route joins
+    the two — the pair then has no row).  ``pad``: a pad endpoint."""
+
+    face: int
+    a: int
+    b: int
+    cap_chord: float
+    d_chord: float
+    dist: float | None
+    budget: float | None
+    pad: bool
+
+    @property
+    def routed(self) -> bool:
+        return self.dist is not None
+
+
+_PAIR_CACHE: dict[int, tuple[PlanarMap, Law, list[PricedPair]]] = {}
+
+
+def taxi_pair_routes(planar: PlanarMap, law: Law, airport: Airport | None
+                     ) -> list[PricedPair]:
+    """Every taxi-family within-shape pair with its chord and route
+    readings (module docstring; cached per map — the generator and the
+    publication read one computation)."""
+    hit = _PAIR_CACHE.get(id(planar))
+    if hit is not None and hit[0] is planar and hit[1] is law:
+        return hit[2]
     vw = view(planar, law)
     st = stretches(planar, law)
     members = law.tables.precedence.taxi_family.members
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     pads = pad_vertices(vw)
-    pad_cap = law.tables.common.roles["building"].longitudinal
     mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
-    rows: list[Row] = []
+    chord: list[tuple[int, int, int, float, float]] = []
+    groups: list[list[int]] = []
     for f in vw.faces_of_role(members):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
         if cap is None:
             continue
         common_only = f.role in mesh_roles
-        src = Source(GEN, "rulesets.taxi.longitudinal within_shape",
-                     (f"face:{f.id}", f.ref))
-        src_st = Source(GEN, "rulesets.taxi.longitudinal per stretch (04t-3)",
-                        (f"face:{f.id}", f.ref))
-        src_pad = Source(GEN, "common.roles.building frontage pair (09-01g)",
-                         (f"face:{f.id}", f.ref))
-        crossed = bool(st.face_stretches.get(f.id))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            groups.append(list(ring))
             for a, b, c, d in pair_caps(planar, law, st, f.id, ring,
                                         cap.longitudinal, min_d, common_only):
-                if a in pads or b in pads:
-                    rows.append(Diff(a, b, min(c, pad_cap), d, src_pad))
-                elif crossed and c != cap.longitudinal:
-                    rows.append(Diff(a, b, c, d, src_st))
-                else:
-                    rows.append(Diff(a, b, c, d, src))
+                chord.append((f.id, a, b, c, d))
+    table = route_pairs(routes(planar, law, airport), groups)
+    out: list[PricedPair] = []
+    for fid, a, b, c, d in chord:
+        key = (a, b) if a < b else (b, a)
+        hit_r = table.get(key)
+        out.append(PricedPair(fid, a, b, c, d,
+                              None if hit_r is None else hit_r[0],
+                              None if hit_r is None else hit_r[1],
+                              a in pads or b in pads))
+    _PAIR_CACHE.clear()
+    _PAIR_CACHE[id(planar)] = (planar, law, out)
+    return out
+
+
+def taxi_within_shape(planar: PlanarMap, law: Law, airport: Airport
+                      ) -> list[Row]:
+    """All pairs of every taxi-family ring, each priced over the centreline
+    route (05ab); a pair no route joins has no row."""
+    rows: list[Row] = []
+    faces = planar.faces
+    src_of: dict[tuple[int, bool], Source] = {}
+    for pp in taxi_pair_routes(planar, law, airport):
+        if not pp.routed:
+            continue
+        key = (pp.face, pp.pad)
+        src = src_of.get(key)
+        if src is None:
+            f = faces[pp.face]
+            src = Source(GEN, "rulesets.taxi.longitudinal within_shape over the "
+                         "centreline route" + (" from the pad's contact" if pp.pad else "")
+                         + " (2026-09-05ab)", (f"face:{f.id}", f.ref))
+            src_of[key] = src
+        rows.append(Diff(pp.a, pp.b, pp.budget / pp.dist, pp.dist, src))
     return rows
 
 

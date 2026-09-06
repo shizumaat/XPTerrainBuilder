@@ -35,11 +35,17 @@ stretches splitting or touching (through a ring vertex) every other
 face — over the PERPENDICULAR distance (the foot on the polyline) at
 the face's TRANSVERSE cap: ``runway.transverse_max`` for a runway edge,
 the taxi transverse cap for a taxiway edge, the apron cap for an apron
-vertex.  A pad vertex is an apron vertex where its rim meets the apron
-(the frontage row's apron vertex) and attaches as one; the rest of the
-pad is rigid and no node.  A vertex with nothing to attach to is NO
-NODE: it has no reach band and no no_step route distance — the shape
-laws alone govern it.  SERVICE ROADS ARE EXCLUDED from airside reach
+vertex.  A PAD attaches at its CONTACT (RULINGS 2026-09-05ab, spec §9):
+a rim vertex welded to the pavement IS that pavement vertex and attaches
+as one; a rim vertex bound by a ``frontage_near_miss`` row (a sub-metre
+source gap, ``pads.frontage_contacts``) joins its apron vertex by ONE
+CONTACT edge over that gap at the frontage row's own cap — a walk from
+the pad passes THROUGH its contact onto the network (the contact is the
+pad's doorway, not a leaf it stops at), so ``no_step.pad_pavement_
+edges`` finds the pavement from the pad exactly as from a welded rim.
+The rest of the pad is rigid and no node.  A vertex with nothing to
+attach to is NO NODE: it has no reach band and no no_step route
+distance — the shape laws alone govern it.  SERVICE ROADS ARE EXCLUDED from airside reach
 (v1 ``config.REACH_NO_SERVICE_SPINES``): the groundside roles never
 contribute a node or an edge, and a ``road_centerline`` breakline adds
 nothing.
@@ -83,14 +89,15 @@ from .geometry import project_to_chain
 from .stretches import edge_cap, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
-           "route_neighbours", "reach", "route_path"]
+           "route_neighbours", "route_pairs", "reach", "route_path"]
 
 #: Edge provenance codes (``RouteGraph.kind``).  CENTRELINE: a taxi
 #: stretch edge or a runway ridge edge (a split ridge's bridge too);
 #: CROSSING: a 1202 taxi route across a runway slab (05z b); LATERAL: a
 #: pavement ring vertex's ONE hop to the nearest station of its own
-#: face's centreline (05aa).
-CENTRELINE, CROSSING, LATERAL = 0, 1, 2
+#: face's centreline (05aa); CONTACT: a near-miss pad rim vertex's edge to
+#: its frontage apron vertex (05ab).
+CENTRELINE, CROSSING, LATERAL, CONTACT = 0, 1, 2, 3
 RIDGE_KIND = "runway_profile"
 
 
@@ -114,6 +121,8 @@ class RouteGraph:
     kind: np.ndarray                        # CENTRELINE / CROSSING / LATERAL
     station: np.ndarray                     # bool per planar vertex: on a centreline
     stats: dict[str, int] = _dc.field(default_factory=dict)
+    #: near-miss pad rim vertex -> its frontage apron vertex (CONTACT edges)
+    contact_of: dict[int, int] = _dc.field(default_factory=dict)
 
     @property
     def budget(self) -> np.ndarray:
@@ -137,10 +146,23 @@ class RouteGraph:
         edge longer than a window can lie on no path inside it)."""
         w = self.length if weight == "length" else self.budget
         keep = np.ones(len(w), bool) if max_len is None else self.length <= max_len
-        a, b, w = self.a[keep], self.b[keep], w[keep]
-        m = csr_matrix((np.concatenate([w, w]),
-                        (np.concatenate([a, b]),
-                         np.concatenate([self.inbound(b), self.inbound(a)]))),
+        contact = self.kind == CONTACT
+        w_all = w
+        a, b, w = self.a[keep & ~contact], self.b[keep & ~contact], w_all[keep & ~contact]
+        rows = [a, b]
+        cols = [self.inbound(b), self.inbound(a)]
+        data = [w, w]
+        # THE CONTACT ARCS (05ab): pad p, contact e.  p leaves through e's
+        # OUT id (the walk continues onto e's hop), p reaches e itself, e
+        # reaches p, and a walk ARRIVING at e continues into p.
+        ca, cb, cw = self.a[keep & contact], self.b[keep & contact], w_all[keep & contact]
+        if len(ca):
+            pad = np.array([x if int(x) in self.contact_of else y for x, y in zip(ca, cb)], np.int64)
+            con = np.where(pad == ca, cb, ca).astype(np.int64)
+            rows += [pad, pad, con, self.inbound(con)]
+            cols += [con, self.inbound(con), self.inbound(pad), self.inbound(pad)]
+            data += [cw, cw, cw, cw]
+        m = csr_matrix((np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
                        shape=(2 * self.n, 2 * self.n))
         m.sum_duplicates()
         return m
@@ -544,6 +566,20 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
             A.append(np.minimum(src, dst)); B.append(np.maximum(src, dst))
             C.append(bud / length); K.append(np.full(int(ok.sum()), LATERAL, np.int8))
             LEN.append(length)
+    # THE PAD CONTACTS (05ab): every near-miss frontage pair joins the pad
+    # rim vertex to its apron vertex over the gap at the frontage row's
+    # cap (the row the solve already holds — the walk from the pad prices
+    # nothing the frontage law does not); a gap below the identity
+    # spacing reads as the spacing (a zero-length edge is no edge)
+    from .pads import frontage_contacts
+    attached = set(np.concatenate(A + B).tolist()) if A else set()
+    contact_of: dict[int, int] = {}
+    for e_v, pad_v, _fid, dist, cap, _sf in sorted(frontage_contacts(pm, law),
+                                                   key=lambda c: (c[3], c[0])):
+        if pad_v in contact_of or e_v not in attached or pad_v in attached:
+            continue                      # one doorway per rim vertex: the least gap
+        contact_of[pad_v] = e_v
+        add(pad_v, e_v, cap, CONTACT, max(dist, min_d))
     station = np.zeros(n_v, bool)
     for chs in ridge_by_ref.values():
         for ch in chs:
@@ -557,9 +593,9 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         return RouteGraph(n_v, frozenset(), z, z, np.zeros(0), np.zeros(0),
                           np.zeros(0, np.int8), station,
                           {"nodes": 0, "edges": 0, "faces": n_faces,
-                                                  "centreline": 0, "crossing": 0, "lateral": 0,
-                                                  "unattached": len(unattached),
-                                                  "crossing_unmatched": n_unmatched})
+                           "centreline": 0, "crossing": 0, "lateral": 0, "contact": 0,
+                           "unattached": len(unattached),
+                           "crossing_unmatched": n_unmatched})
     a = np.concatenate(A); b = np.concatenate(B); cap = np.concatenate(C); kind = np.concatenate(K)
     ln = np.concatenate(LEN)
     keep = a != b
@@ -581,9 +617,11 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
              "stretch_edges": n_stretch_edges,
              "crossing": int(np.sum(kind == CROSSING)),
              "lateral": int(np.sum(kind == LATERAL)),
+             "contact": int(np.sum(kind == CONTACT)),
              "unattached": len(unattached - nodes),
              "crossing_unmatched": n_unmatched}
-    return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats)
+    return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats,
+                      {p: e for p, e in contact_of.items() if p in nodes})
 
 
 _CACHE: dict[int, tuple[PlanarMap, Law, Airport | None, RouteGraph]] = {}
@@ -662,6 +700,68 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
                     continue
                 seen.add(key)
                 out.append((key[0], key[1], float(row[c]), bud[c]))
+    return out
+
+
+def _path_budgets(wb: csr_matrix, P: np.ndarray) -> np.ndarray:
+    """``Σ cap·len`` along the length-shortest path to every walk id, from
+    the predecessor matrix ``P`` of a Dijkstra (one row per source): the
+    budget of the arc into each id, summed up the predecessor tree by
+    pointer jumping (``log₂ depth`` vectorised passes, never a Python
+    walk per pair).  ``wb`` is :meth:`RouteGraph.csr` with budget
+    weights — the same arcs the walk took."""
+    none = P < 0
+    acc = np.zeros(P.shape, float)
+    ok = ~none
+    if ok.any():
+        rows, cols = np.nonzero(ok)
+        acc[rows, cols] = np.asarray(wb[P[rows, cols], cols]).ravel()
+    ptr = np.where(none, -1, P)
+    while True:
+        valid = ptr >= 0
+        if not valid.any():
+            return acc
+        pj = np.where(valid, ptr, 0)
+        acc = acc + np.where(valid, np.take_along_axis(acc, pj, axis=1), 0.0)
+        ptr = np.where(valid, np.take_along_axis(ptr, pj, axis=1), -1)
+
+
+def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
+                chunk: int = 128) -> dict[tuple[int, int], tuple[float, float]]:
+    """THE WITHIN-SHAPE ROUTE PRICING (RULINGS 2026-09-05ab, spec §9):
+    for every distinct pair inside each group (a face ring) the ROUTE
+    distance — a's hop + the centreline path + b's hop, the shortest by
+    length — and the budget ``Σ cap·len`` along that very path, as
+    ``(a, b) -> (dist, budget)`` with ``a < b``.  A pair no route joins
+    is ABSENT (it gets no row); a vertex that is no node pairs with
+    nothing.  One Dijkstra per source over the whole graph (no window:
+    a route may be many times its chord — HECA pav101: 3,326 m for a
+    1,463 m chord), chunked so the dense distance rows stay small."""
+    members: dict[int, list[int]] = {}
+    grp = [sorted({v for v in gr if v in g.nodes}) for gr in groups]
+    for k, gr in enumerate(grp):
+        for v in gr:
+            members.setdefault(v, []).append(k)
+    srcs = sorted(members)
+    out: dict[tuple[int, int], tuple[float, float]] = {}
+    if not srcs:
+        return out
+    m = g.csr("length")
+    wb = g.csr("budget")
+    for c0 in range(0, len(srcs), chunk):
+        idx = srcs[c0:c0 + chunk]
+        D, P = dijkstra(m, directed=True, indices=idx, return_predecessors=True)
+        B = _path_budgets(wb, P)
+        for i, s in enumerate(idx):
+            for k in members[s]:
+                tg = [t for t in grp[k] if t > s]
+                if not tg:
+                    continue
+                cols = g.inbound(np.array(tg, np.int64))
+                d, b = D[i, cols], B[i, cols]
+                for t, dv, bv in zip(tg, d, b):
+                    if np.isfinite(dv) and dv > 0.0:
+                        out[(s, t)] = (float(dv), float(bv))
     return out
 
 

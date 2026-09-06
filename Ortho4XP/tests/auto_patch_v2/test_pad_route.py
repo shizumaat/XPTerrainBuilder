@@ -204,3 +204,89 @@ def test_sidecar_and_verify_read_the_pad_population(site, law):
                            airport.frame.crs, {})
     rows = no_step_direct(Patch.of(surf2, law, pub, {}))
     assert rows and all(r["family"] == "airside_no_step" for r in rows)
+
+
+@pytest.fixture(scope="module")
+def near_miss(law):
+    """The ``site`` plus ``pad3``: a pad 0.7 m NORTH of the apron's edge
+    (a sub-metre source gap inside ``frontage_near_miss_m``, welded to
+    nothing) — RULINGS 2026-09-05ab: it attaches to the route graph at
+    its CONTACT, the frontage row's apron vertex, so its pair rows reach
+    the pavement through the apron exactly as a welded rim's do."""
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                      (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
+    gap = 0.7
+    assert gap < law.tables.structures.building_pad.frontage_near_miss_m
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "stub", "stubE", _rect(488.5, 22.5, 511.5, 190), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(2, "primary_parallel", "taxiA", _rect(-120, 190, 520, 213), (), None,
+             "D", "airside", "taxi", {}),
+        Cell(3, "stub", "stubW", _rect(-111.5, 140, -88.5, 190), (), None, "D",
+             "airside", "taxi", {}),
+        Cell(4, "apron", "apron1", _dense_rect(-200, 40, 0, 140, 5.0), (), None, None,
+             "airside", "apron", {}),
+        Cell(5, "building", "pad3", _rect(-60, 140 + gap, -30, 160), (), None, None,
+             "airside", "pad", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "stubE", ((500.0, 0.0), (500.0, 201.5))),
+            CutLine("taxi_centerline", "taxiA", ((-100.0, 201.5), (500.0, 201.5))),
+            CutLine("taxi_centerline", "stubW", ((-100.0, 40.0), (-100.0, 201.5))))
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    return airport, pm
+
+
+def test_near_miss_pad_attaches_at_its_contact_and_keeps_its_pair_rows(near_miss, law):
+    """§9 twin (RULINGS 2026-09-05ab): the near-miss pad's rim vertices
+    on the frontage are CONTACTS; the graph joins each to its apron
+    vertex by one CONTACT edge; the pad's pair rows leave through it
+    along the pavement; a walk from the pad passes THROUGH the contact."""
+    from auto_patch_v2.constraints.pads import frontage_contacts
+    from auto_patch_v2.constraints.routes import CONTACT, route_path
+    airport, pm = near_miss
+    pad = next(f.id for f in pm.faces.values() if f.ref == "pad3")
+    fc = [c for c in frontage_contacts(pm, law) if c[2] == pad]
+    assert fc, "the 0.7 m gap is a near-miss frontage"
+    pad_v = {c[1] for c in fc}
+    apron_v = {c[0] for c in fc}
+    assert pad_v <= _verts(pm, "pad3") and apron_v <= _role_verts(pm, "apron")
+    assert not (_verts(pm, "pad3") & _role_verts(pm, "apron"))       # welded to nothing
+    contacts = no_step.pad_contacts(pm, law)
+    assert pad in contacts and set(contacts[pad]) == pad_v
+    g = routes(pm, law, airport)
+    assert pad_v <= g.nodes
+    expect = {}
+    for e, j, _pid, d, _cap, _sf in sorted(fc, key=lambda c: (c[3], c[0])):
+        expect.setdefault(j, e)                       # the least gap is the doorway
+    assert {p: g.contact_of[p] for p in pad_v} == expect and set(g.contact_of) >= pad_v
+    n_contact = sum(1 for k in g.kind if k == CONTACT)
+    assert n_contact == len(pad_v) == g.stats["contact"]
+    # the doorway is the least gap (the endpoint straight across the
+    # 0.7 m sliver); the same ring edge's far endpoint fires 5 m away
+    gap_m = max(c[3] for c in fc if c[0] == expect[c[1]] and c[1] in pad_v)
+    assert 0.4 < gap_m < 0.8              # the map snaps the 0.7 m gap to its identity grid
+    pav = no_step.no_step_edges(pm, law, airport)
+    pairs = no_step.pad_pavement_edges(pm, law, pav, airport)
+    mine = [(a, b, c, d) for a, b, c, d in pairs if a in pad_v or b in pad_v]
+    assert mine, "the near-miss pad's contacts pair along the pavement"
+    taxi_v = _role_verts(pm, "primary_parallel") | _role_verts(pm, "stub")
+    assert any((a in taxi_v) or (b in taxi_v) for a, b, _c, _d in mine), \
+        "the pad reaches the taxiway through its apron"
+    # a walk from the pad starts through its contact and never returns
+    p0 = min(pad_v)
+    far = max(taxi_v & g.nodes, key=lambda v: pm.vertices[v].xy[0])
+    d, bud, path = route_path(g, p0, far)
+    assert path[0] == p0 and path[1] == g.contact_of[p0] and p0 not in path[1:]
+    assert d >= gap_m - 1e-6
+    # every pad pair is priced exactly as a pavement pair along its path
+    for a, b, cap, dd in mine:
+        r = route_path(g, a, b)
+        assert r is not None and r[0] == pytest.approx(dd, abs=1e-6)
+        assert cap * dd == pytest.approx(r[1], abs=1e-6)

@@ -136,7 +136,13 @@ def test_the_next_g_node_may_differ_by_three_percent_from_the_intersection(site,
     cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
     rows = [r for r in taxi.taxi_within_shape(pm, law, airport) if {r.a, r.b} == {X, nxt}]
     assert rows and all(r.cap == cap_a for r in rows)
-    assert {r.source.ruling for r in rows} == {"rulesets.taxi.longitudinal per stretch (04t-3)"}
+    # the pair lies on one stretch: the route IS the stretch, priced at
+    # its cap over the centreline route (RULINGS 2026-09-05ab)
+    assert {r.source.ruling for r in rows} == {
+        "rulesets.taxi.longitudinal within_shape over the centreline route (2026-09-05ab)"}
+    assert all(r.d == pytest.approx(math.hypot(pm.vertices[X].xy[0] - pm.vertices[nxt].xy[0],
+                                               pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1]),
+                                    abs=1e-6) for r in rows)
     # the same price in the route graph (no-step budgets follow the stretch)
     g_ = routes(pm, law)
     key = (min(X, nxt), max(X, nxt))
@@ -306,15 +312,32 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
                    pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1])
     assert abs(sol.z[X] - sol.z[nxt]) > cap_d * d + 0.01, "3 % is used, not just allowed"
     # the v1 oracle reads the same patch (its mesh = v2's published mesh,
-    # its stretch caps = v2's published stretches): zero within-shape rows
+    # its stretch caps = v2's published stretches) — its plane rule still
+    # prices every taxi pair at cap × CHORD; under RULINGS 2026-09-05ab a
+    # taxi pair is priced over the centreline ROUTE, so every oracle
+    # within-shape row must be a taxi-family pair whose published route
+    # budget (``taxi_route_pairs``) forgives it, and nothing else
     sys.path.insert(0, str(ROOT / "tools"))
     cg = pytest.importorskip("check_grade")
     ctx = cg.law_context_from_sidecar(paths.patch)
     assert ctx["stretches_ll"] and ctx["mesh_edges_ll"]
     fam: dict = {}
     cg.run_checks_law_true(paths.patch, family_out=fam, quiet=True, top_n=0)
-    assert not fam.get("within_shape"), [
-        (v.way_a.tags.get("role"), round(v.grade_pct, 2), v.cap_pct) for v in fam["within_shape"]]
+    from auto_patch_v2.verify.within import route_pair_budgets
+    patch = Patch.of(surf, law, pub, {})
+    routed = route_pair_budgets(patch)
+    taxi_roles = set(law.tables.precedence.taxi_family.members)
+    q = law.tables.emit.instrument.rounding_noise_m
+    mids = [((0.5 * (patch.ll[a][0] + patch.ll[b][0]), 0.5 * (patch.ll[a][1] + patch.ll[b][1])), r)
+            for (a, b), r in routed.items() if r is not None]
+    for v in fam.get("within_shape", []):
+        assert v.way_a.tags.get("role") in taxi_roles, v
+        # the oracle names a row's site by its midpoint: the published
+        # route pair at that site must forgive the reading
+        cands = [r for (la, lo), r in mids
+                 if abs(la - v.lat) < 2e-6 and abs(lo - v.lon) < 4e-6]
+        assert cands, ("an oracle taxi row with no published route pair at its site", v)
+        assert any(v.de_m <= r[0] + q for r in cands), (v, cands)
 
 
 def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site, law, tmp_path):

@@ -1,4 +1,12 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-06 APP 1.0.291 BUILT: v1 contact-cluster seating (06g/i), OTHH
+#   trench/basin laws, LEMD 970 basin + 1088 Bridge4 corridor, runway K,
+#   strip tie, anisotropic junction planes, lexicographic last resort as a
+#   TABLE VALUE shipped "variance". HECA bow floor ≈ −7.9 m under the law
+#   (v1 −9.3): OWNER Q 06m-1 (order trade). Owed: pad requests consumer,
+#   stub-mouth step, LEMD strip_seam_tear 3, HECA lateral_contiguity 26,
+#   SPJC -12-078 refresh, ship-gate perf review (cluster plan 24 s).
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 (night) v2fix288 MERGED 4d79dc59 (05ae/af/ag): apron chords
 #   inside their face, over-cap factor 2.5 (max slack 0.015 m at HECA),
 #   strip population unified, CYXY way-88 gate. HECA optimal/relaxable,

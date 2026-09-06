@@ -117,9 +117,17 @@ class PricedPair:
 
     @property
     def priced(self) -> bool:
-        """The pair has a row: the plane rule inside the face, the route
-        where the chord leaves it (none without a route)."""
-        return self.in_face or self.routed
+        """The pair has a ROW: the plane rule inside the face; a leaving
+        chord only where the route is STRICTER than the plane reading (a
+        stricter letter on the way).  A leaving chord whose route budget
+        is looser is implied by the route's own edge rows — the centreline
+        chords, the transverse hops, the crossings, the reach bands — and
+        stating it again as a long-range row is what stalled the last
+        resort: measured HECA 2026-09-05, stage-1 PWL over the relaxable
+        scope optimal in 79.5 s without the 160k route rows, past 240 s
+        (and a 34-min build) with them.  The reader still prices every
+        leaving pair at its published budget."""
+        return self.in_face or (self.routed and self.budget < self.cap_chord * self.d_chord)
 
     @property
     def bound_m(self) -> float:

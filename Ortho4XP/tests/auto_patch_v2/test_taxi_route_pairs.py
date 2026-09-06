@@ -87,19 +87,17 @@ def test_bent_stub_prices_the_centreline_never_the_chord(hook, law):
     centre = polyline_length(HOOK)
     assert chord < 0.5 * centre
     rows = [r for r in taxi.taxi_within_shape(pm, law, airport) if {r.a, r.b} == {start, end}]
-    # the centreline cut splits the stub into a face per side; both hold
-    # the pair, both price it over the one route
+    assert rows == [], "no chord row across open ground, and a looser route states none"
+    # the centreline cut splits the stub into a face per side; both hold the pair
     hook_faces = [f.id for f in pm.faces.values() if f.ref == "hook"]
-    assert 1 <= len(rows) == len(hook_faces), (rows, hook_faces)
-    assert len({(round(r.d, 6), round(r.bound_m, 6)) for r in rows}) == 1
-    r = rows[0]
-    assert isinstance(r, Diff)
-    assert r.d == pytest.approx(centre, abs=1.0)                 # the route, not the chord
-    assert r.bound_m == pytest.approx(cap * centre, abs=cap * 1.0)
-    assert r.bound_m > cap * chord * 2.0
-    assert "within_shape" in r.source.ruling and "05ab" in r.source.ruling
-    # every pair of the hook is routed: a's hop + the centreline + b's hop,
-    # never shorter than the chord
+    pps = [pp for pp in taxi.taxi_pair_routes(pm, law, airport)
+           if {pp.a, pp.b} == {start, end} and pp.face in set(hook_faces)]
+    assert 1 <= len(pps) == len(hook_faces)
+    for pp in pps:
+        assert pp.routed and not pp.in_face and not pp.priced
+        assert pp.dist == pytest.approx(centre, abs=1.0)            # the route, not the chord
+        assert pp.budget == pytest.approx(cap * centre, abs=cap * 1.0)
+        assert pp.budget > cap * chord * 2.0
     hook_ids = set(hook_faces)
     pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face in hook_ids]
     assert pairs and all(pp.routed for pp in pairs)
@@ -113,9 +111,13 @@ def test_bent_stub_prices_the_centreline_never_the_chord(hook, law):
     for pp in staying:                       # the plane rule, unchanged
         r = by_pair[(min(pp.a, pp.b), max(pp.a, pp.b))]
         assert r.d == pytest.approx(pp.d_chord) and r.cap == pytest.approx(pp.cap_chord)
-    for pp in leaving:                       # the route
-        r = by_pair[(min(pp.a, pp.b), max(pp.a, pp.b))]
-        assert r.d == pytest.approx(pp.dist) and r.bound_m == pytest.approx(pp.budget, abs=1e-6)
+    for pp in leaving:                       # the route: a row only where stricter
+        r = by_pair.get((min(pp.a, pp.b), max(pp.a, pp.b)))
+        if pp.budget < pp.cap_chord * pp.d_chord:
+            assert r is not None and r.d == pytest.approx(pp.dist) \
+                and r.bound_m == pytest.approx(pp.budget, abs=1e-6)
+        else:
+            assert r is None
 
 
 def test_a_pair_no_route_joins_has_no_row_and_publishes_null(hook, law):
@@ -174,13 +176,16 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     routed = route_pair_budgets(Patch.of(surf, law, pub, {}))
     by_pair = {(min(r.a, r.b), max(r.a, r.b)): r for r in taxi.taxi_within_shape(pm, law, airport)}
+    pps = {(min(pp.a, pp.b), max(pp.a, pp.b)): pp for pp in taxi.taxi_pair_routes(pm, law, airport)}
     start, end = _vid(pm, 0.0, 22.5), _vid(pm, 300.0, 100.0)
     key = (min(start, end), max(start, end))
     assert key in routed and routed[key] is not None
-    assert routed[key][0] == pytest.approx(by_pair[key].bound_m, abs=1e-5)
+    assert routed[key][0] == pytest.approx(pps[key].budget, abs=1e-5)
     for k, rec in routed.items():
         if rec is not None:
-            assert k in by_pair and rec[0] == pytest.approx(by_pair[k].bound_m, abs=1e-5)
+            assert k in pps and rec[0] == pytest.approx(pps[k].budget, abs=1e-5)
+            if k in by_pair:
+                assert rec[0] == pytest.approx(by_pair[k].bound_m, abs=1e-5)
     assert routed, "the hook's leaving chords are published"
     # a pair of consecutive stations on the straight first leg: chord = route
     a, b = _vid(pm, 0.0, 22.5), None

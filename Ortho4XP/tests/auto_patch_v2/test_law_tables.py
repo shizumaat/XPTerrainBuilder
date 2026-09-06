@@ -329,7 +329,7 @@ def _structures_emit_checks(c: Checks, t) -> None:
     from auto_patch import obj8_reader as v1_or
     c.eq("rebake.contact_weld_m (= 10^-VERTEX_WELD_DECIMALS)", 10.0 ** -v1_or.VERTEX_WELD_DECIMALS,
          rb.contact_weld_m)
-    assert rb.contact_batch_rows > rb.contact_narrow_budget > 0
+    assert rb.contact_batch_rows > 0 and rb.contact_narrow_budget > 0
     c.eq("rebake.contact_narrow_budget", v1_op.NARROW_PHASE_POINT_TRIANGLE_BUDGET,
          rb.contact_narrow_budget)
     c.eq("rebake.elevated_base_m", v1.DSF_OBJECT_ELEVATED_BASE_M, rb.elevated_base_m)

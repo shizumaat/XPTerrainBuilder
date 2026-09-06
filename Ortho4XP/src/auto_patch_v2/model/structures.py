@@ -99,6 +99,12 @@ class Tunnel:
     resource: str = ""
     objects: tuple[str, ...] = ()
     depth_m: float = 0.0
+    #: The crest plate's height above the seat — the SEAT datum (05n-4:
+    #: crest flush at grade); equals ``depth_m`` for a full wall, the
+    #: low crest for an EDGE WALL whose depth is the bore law's
+    #: (RULINGS 2026-09-06c (2), ``edge_wall``).
+    plate_y_m: float = 0.0
+    edge_wall: bool = False
     hull_length_m: float = 0.0
     hull_width_m: float = 0.0
     ends: str = ""

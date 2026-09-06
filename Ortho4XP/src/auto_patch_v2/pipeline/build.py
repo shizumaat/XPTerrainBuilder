@@ -104,7 +104,9 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
             ax = _LS(tn.axis)
             pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
         for oid in tn.objects:
-            out[oid] = (float(tn.depth_m), pts)
+            # the seat reads the CREST (plate_y_m): an edge wall's depth
+            # is the bore law's, its crest still goes flush (2026-09-06c)
+            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts)
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:

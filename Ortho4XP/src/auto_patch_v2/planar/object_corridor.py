@@ -151,7 +151,7 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
             return max(tl - _ov, 0.0) + _g, max(tr - _ov, 0.0) + _g
 
         path = axis if c.flat else axis + climb_path(axis[-1], u_end, c.width_m, osm, reach)[1:]
-        needed = c.plate_y / max(L, 1e-9)
+        needed = c.depth_m / max(L, 1e-9)
         out.append(Group([], axis[0], inward, c.width_m, path, c, c.id, L, not c.flat,
                          c.mouth_closed, c.far_closed, half_fn, rim_fn,
                          max(c.mouth_thickness_m - overlap, 0.0) + rim_gap if c.mouth_closed

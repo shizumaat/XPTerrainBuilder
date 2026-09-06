@@ -321,8 +321,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             obj_ivals = [d for d in obj_ivals if d[1] >= g.hull_s]
             e = axis_fn(g.hull_s)
             chord = math.hypot(e[0] - mouth[0], e[1] - mouth[1]) - 2.0 * half
-            fits = (g.hull_s * tn.ramp_max_grade >= c.plate_y - 1e-9
-                    and chord * tn.ramp_max_grade >= c.plate_y - 1e-9)
+            fits = (g.hull_s * tn.ramp_max_grade >= c.depth_m - 1e-9
+                    and chord * tn.ramp_max_grade >= c.depth_m - 1e-9)
             if fits:
                 deck_ivals, obj_ivals = [], []
             else:
@@ -347,7 +347,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         elif g.climbs:
             if c is not None and c.far_closed:
                 stats.refused.append(f"{tid}: the {tn.ramp_max_grade:.0%} climb cannot reach the "
-                                     f"ground inside the walls ({c.plate_y:.2f} m over "
+                                     f"ground inside the walls ({c.depth_m:.2f} m over "
                                      f"{g.hull_s:.0f} m) and the far end is a wall")
                 continue
             s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing, half)
@@ -519,11 +519,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             outside = trench_outside_m(ramp_parts, c, co.floor_overlap_m, grid)
             expect = _reseat_expect(c, mouth_z, design_grade, s_top, airport)
             notes.append(f"tunnel wall object {c.resource} (2026-09-05n): floor at the mouth "
-                         f"{mouth_z:.2f} = ground {mouth_dem:.2f} − plate {c.plate_y:.2f}, ends "
-                         f"{c.ends}, mouth by {c.mouth_kind}")
+                         f"{mouth_z:.2f} = ground {mouth_dem:.2f} − depth {c.depth_m:.2f} "
+                         f"({'edge wall, bore_datum_m' if c.edge_wall else 'plate'}; crest "
+                         f"{c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             notes.extend(c.notes)
             extra = dict(source="object", crest=tn.crest, crest_z=mouth_dem,
-                         resource=c.resource, objects=tuple(c.objects), depth_m=c.plate_y,
+                         resource=c.resource, objects=tuple(c.objects), depth_m=c.depth_m,
+                         plate_y_m=c.plate_y, edge_wall=c.edge_wall,
                          hull_length_m=c.length_m, hull_width_m=c.width_m, ends=c.ends,
                          replaced_ways=tuple(replaced_ways.get(c.id, ())),
                          capped=g.capped, far_capped=g.far_capped,

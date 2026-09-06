@@ -36,7 +36,19 @@ skirt_min_depth_m   = 3.0           # genuine solids must reach this far BELOW t
 plate_normal_y_min  = 0.7           # reuse of deck_plate_normal_y_min: a crest face is near-horizontal
 plate_bin_m         = 0.5           # crest plane = the largest-area bin of plate faces at or above the seat
 plate_min_area_m2   = 100.0         # below this the object is not a wall (a bollard, a kerb)
-plate_min_height_m  = 2.0           # crest must stand this far above the seat (a 0.3 m kerb is not a tunnel wall)
+plate_min_height_m  = 2.0           # a FULL tunnel wall's crest stands this far above the seat (its plate height is the depth: mouth_depth = "plate")
+# THE EDGE WALL (RULINGS 2026-09-06c (2)): an object with a wall skirt
+# (skirt_min_depth_m), a crest plate LOWER than this above the seat, no
+# floor plate and no roof is an EDGE-WALL object — it gives the ramp its
+# PLAN (the curve, the width between the walls) with the crest FLUSH at
+# grade (05n-4, the re-seat), and the DEPTH comes from the tunnel law:
+# the OSM bore's bore_datum_m at the mouth, since the wall does not state
+# it.  Precedence per mouth (05n-3) unchanged: the bore mouth inside the
+# edge walls is the object's.  An edge wall with NO bore mouth has no
+# depth authority and is refused by name.  Below this the object is an
+# edge wall, at/above plate_min_height_m a full wall; a crest between the
+# two (only when this key is set under plate_min_height_m) is a kerb.
+edge_wall_max_plate_m = 2.0
 floor_plate_max_m2  = 0.0           # any floor plate below the seat disqualifies (that is a basin — basins.py owns it)
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
@@ -126,6 +138,7 @@ contact_band_m      = 1.0          # the ground-contact band half width: geometr
 footprint_close_m   = 2.0          # the below-grade union is morphologically closed at this (AT_GRADE_FOOTPRINT_CLOSE_M; 08-26)
 min_area_m2         = 1000.0       # DIAGNOSTIC ONLY (04i): v1's facility floor (TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2; 08-26 recipe step 5); a basin under it is admitted and NOTED — it refused OTHH's six Drainage bowls (closed regions 54–544 m² under the 2.5 m clip), which the owner ruled a defect
 rim_sample_step_m   = 10.0         # R_est = the MEDIAN DEM sampled this far apart along the region ring (rim-flush spec §2.1 item 2; _BASIN_RIM_SAMPLE_STEP_M)
+basement_cover_min  = 0.9          # THE BASEMENT TEST (RULINGS 2026-09-06c (1)): a region whose floor lies under the SAME object's above-grade solids for at least this fraction of its area is a BASEMENT (the pad governs, no pit); anything less covered is a PIT — covered or open — cut to its floor plate, the cover being the object (cuts_pads).  Measured LEMD building16 on 1.0.288: the 04i erosion test ("wholly covered to within a footprint_close_m / 2 sliver") fired at 38 % / 37 % own cover on two 2 m² regions (basins 26/27) because a sliver-wide remainder erodes to nothing; the fraction never does.
 max_covered_fraction = 0.5         # DIAGNOSTIC ONLY (04i): cover above the contact band by the pack's own geometry is REPORTED per basin against this, never a refusal — a covered region is a COVERED PIT (the cover is the object; the terrain still needs the cutout under it) unless it is a BASEMENT (floor wholly under the same object's above-grade solid: the building's pad governs, no pit).  v1's founding constant 0.02 (BOWL_MAX_ABOVE_GRADE_AREA_FRACTION) was never exercised; M4b stated 0.5 for ratification; 04i made the question moot.
 floor_disagreement_m = 2.0         # basin_floor_declaration: |solid_minimum_y + body_depth| beyond this is a floor its own geometry does not evidence (BASIN_FLOOR_DISAGREEMENT_M; 08-26 §2.2)
 rim                 = "ground"     # the at-grade rim (outer perimeter + cutout.rim_gap_m): the ground's value where its edge is shared with governed ground (rim LEVEL with the apron, 2026-08-28c item 3), the DEM where bare (09-03b)

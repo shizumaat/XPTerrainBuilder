@@ -42,12 +42,13 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    REPORTED against ``max_covered_fraction`` (a diagnostic, never a
    refusal).  A covered region is a COVERED PIT — the cover is the
    object, the terrain still needs the cutout under it — UNLESS it is a
-   BASEMENT: the floor lies wholly (to within a ``footprint_close_m / 2``
-   sliver) under solid geometry the floor-owning objects THEMSELVES hold
-   at or above the ground (a roof, a lid flush with the ground: LEMD's
-   v1-sunk cargo sheds) — then no pit: the terrain there is the
-   building's pad and the pad law governs (``building_pad``); REFUSED
-   naming the pads.
+   BASEMENT: the floor lies under solid geometry the floor-owning
+   objects THEMSELVES hold at or above the ground (a roof, a lid flush
+   with the ground: LEMD's v1-sunk cargo sheds) over at least
+   ``basement_cover_min`` of the region (RULINGS 2026-09-06c (1): a
+   fraction, never an erosion test) — then no pit: the terrain there is
+   the building's pad and the pad law governs (``building_pad``);
+   REFUSED naming the pads.  Anything less covered is a pit.
 5. KEPT — the runway family is never cut (``cuts_runway_family``), a
    tunnel structure is never cut (overlap refuses), the ring must have a
    DEM, survive the identity grid and clear its wall band by the gap.
@@ -320,12 +321,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         own = unary_union(owning) if owning else None
         if own is not None:
             cov_own = own.intersection(ring).area / ring.area
-        if own is not None and \
-                ring.difference(own).buffer(-bl.footprint_close_m / 2, **_MITRE).is_empty:
+        # THE BASEMENT TEST IS A FRACTION (RULINGS 2026-09-06c (1)): own
+        # cover of at least basement_cover_min = a basement; less = a pit,
+        # covered or open.  The 04i erosion test ("wholly covered to
+        # within a sliver") fired at 38 % on LEMD building16's 2 m2
+        # regions — a sliver-wide remainder erodes to nothing.
+        if own is not None and cov_own >= bl.basement_cover_min:
             pad_refs = sorted(ref for p, ref in pads if p.intersects(ring))
             stats.refused.append(
                 f"{bid}: {ring.area:.0f} m2, floor plate {plate:.0f} m2, {cov_own:.0%} under its own "
-                f"objects' solids at or above the ground — a BASEMENT, not a pit: the terrain there is the "
+                f"objects' solids at or above the ground (>= basement_cover_min "
+                f"{bl.basement_cover_min:.0%}) — a BASEMENT, not a pit: the terrain there is the "
                 f"building's pad ({', '.join(pad_refs) if pad_refs else 'no pad cell'}) under the "
                 f"pad law (04i rule 4) at {site}")
             continue

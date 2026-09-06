@@ -249,9 +249,7 @@ class Zones:
 
 @_dc.dataclass(frozen=True)
 class TunnelObject:
-    """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1,
-    05n; ``[tunnel.object]``): plate = ground (re-seated), floor at the
-    mouth = ground − plate height, the ramp inside the walls."""
+    """Tunnel wall OBJECTS as the tunnel authority (05k-1, 05n, 06c; ``[tunnel.object]``)."""
 
     source_precedence: tuple[str, ...]
     plate_datum: str
@@ -267,6 +265,7 @@ class TunnelObject:
     plate_bin_m: float
     plate_min_area_m2: float
     plate_min_height_m: float
+    edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
     floor_plate_max_m2: float
     hull_min_length_m: float
     end_cap_open_m: float
@@ -349,6 +348,7 @@ class Basin:
     min_area_m2: float                 # diagnostic only (04i)
     rim_sample_step_m: float
     max_covered_fraction: float        # diagnostic only (04i)
+    basement_cover_min: float          # 2026-09-06c (1): own cover at or above this = a BASEMENT; less = a PIT
     floor_disagreement_m: float
     rim: str
     shell_reaches_grade: bool
@@ -671,7 +671,7 @@ def _sane(path: str, name: str, value: float) -> None:
         if value < 0 and name not in _SIGNED_METRES:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
         return
-    if name in ("max_covered_fraction", "floor_plate_normal_y_min"):
+    if name in ("max_covered_fraction", "floor_plate_normal_y_min", "basement_cover_min"):
         if not 0.0 <= value <= 1.0:
             raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return

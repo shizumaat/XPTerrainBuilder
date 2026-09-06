@@ -189,7 +189,11 @@ def test_signature_and_wall_lines(objs, law):
 
 def test_refusals_name_their_reason(objs, law):
     assert "floor plate below the seat" in _sig(objs, law, "floored")
-    assert "kerb" in _sig(objs, law, "kerb")
+    # RULINGS 2026-09-06c (2): a low crest over a real (12 m) skirt is an
+    # EDGE WALL signature, not a kerb refusal (test_v2lemd3 reads it);
+    # the kerb refusal stays for a crest between the two keys
+    kerb = _sig(objs, law, "kerb")
+    assert not isinstance(kerb, str) and kerb.edge_wall and kerb.plate_y == pytest.approx(0.3)
     assert "no wall skirt" in _sig(objs, law, "shallow")
     assert "stub" in _sig(objs, law, "stub")
 

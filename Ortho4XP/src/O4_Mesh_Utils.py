@@ -430,17 +430,9 @@ def patch_valued_vertex_indices(tile, vertices):
                         "for this tile and interior vertices keep the DEM.")
                     return None
         indices = set()
-        with open(FNAMES.input_poly_file(tile)) as handle:
-            line = handle.readline()
-            while line.strip() == "" or line.startswith("0 2"):
-                line = handle.readline()
-            nbr_edges = int(line.split()[0])
-            for _ in range(nbr_edges):
-                columns = handle.readline().split()
-                if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
-                    continue
-                indices.add(int(columns[1]) - 1)
-                indices.add(int(columns[2]) - 1)
+        for a, b in _patch_ring_edges(tile):
+            indices.add(a)
+            indices.add(b)
         return indices
     except Exception as error:
         UI.lvprint(
@@ -449,6 +441,124 @@ def patch_valued_vertex_indices(tile, vertices):
             "patch-valued vertices — the free-interior interpolation "
             "(R18-1b) is disabled:", str(error))
         return None
+
+
+# ── R18-1b amendment (lane v2lemd3, 2026-09-06): A VERTEX THE MESHER
+# INSERTED ON A PATCH RING SEGMENT CARRIES THE RING'S VALUE THERE ──────
+#
+# THE DEFECT, measured on the OTHH +25+051 tile (lane v2othh3's build,
+# 2026-09-06 08:45): every emitted basin floor ring is flat (z spread
+# 0.000 on all 12 faces) and NO free vertex stands inside any floor face,
+# yet the mesh inside 6 of the 12 floors is not flat — on the Drainage
+# floors (shapeIDs 863/865/867/869/874/879/881) mesher-inserted vertices
+# stand +1.09..+1.80 m above the floor, on the two Dewatering floors
+# (871/876) +6.28 / +7.78 m.  Every one of them lies ON a floor ring
+# SEGMENT: Triangle4XP runs with ``-Y`` (no Steiner points on the OUTER
+# boundary only), so it may split an interior constrained segment to
+# meet the quality bound, and the split vertex is (a) not an endpoint of
+# any input ``PATCH_RING_MARKER`` edge, hence FREE under
+# ``patch_valued_vertex_indices``, and (b) adjacent to the triangles on
+# BOTH sides of the ring — the floor face and the at-grade void outside
+# it.  The harmonic extension then averages the floor's value with the
+# rim's, and the split vertex (and the floor triangles it belongs to)
+# stands up to half the trench depth above the floor: the object plate
+# seated on the floor is poked through.
+#
+# THE LAW: such a vertex IS on the patch ring — it takes the ring's own
+# value at that point, the linear interpolation between the segment's
+# two authored endpoints (what a constrained edge means), and joins the
+# Dirichlet set.  Nothing is written for any vertex the vector map
+# authored; a vertex the mesher inserted OFF every ring segment (a
+# circumcenter) stays free exactly as before.  The membership test is
+# GEOMETRIC (Triangle's ``-B`` drops the output boundary markers and
+# ``-P`` the output poly): a candidate is on a segment when it lies
+# within ``PATCH_SEGMENT_SPLIT_TOLERANCE`` of it — 1e-9 degrees, ~0.1 mm,
+# against a split point Triangle computes on the segment to 1e-16 and
+# writes at 17 significant digits.
+PATCH_SEGMENT_SPLIT_TOLERANCE = 1e-9
+
+
+def _patch_ring_edges(tile):
+    """The ``PATCH_RING_MARKER`` edges of the input ``.poly`` as 0-based
+    ``(a, b)`` endpoint pairs, or ``None`` when unreadable."""
+    edges = []
+    with open(FNAMES.input_poly_file(tile)) as handle:
+        line = handle.readline()
+        while line.strip() == "" or line.startswith("0 2"):
+            line = handle.readline()
+        nbr_edges = int(line.split()[0])
+        for _ in range(nbr_edges):
+            columns = handle.readline().split()
+            if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
+                continue
+            edges.append((int(columns[1]) - 1, int(columns[2]) - 1))
+    return edges
+
+
+def patch_segment_split_values(tile, vertices, triangles, patch_valued,
+                               tolerance=PATCH_SEGMENT_SPLIT_TOLERANCE):
+    """``{vertex index: ring value}`` for every vertex of ``triangles``
+    that is NOT patch-valued, was INSERTED by the mesher (index at or
+    beyond the input vertex count) and lies on a ``PATCH_RING_MARKER``
+    segment of the input ``.poly`` — the value is the linear
+    interpolation of the segment's two endpoints' carried altitudes
+    (column 5) at the vertex's projection onto the segment.  Empty when
+    there is nothing to do; ``None`` (with one loud line) when the
+    inputs cannot be read.  Writes nothing."""
+    if not triangles or not patch_valued:
+        return {}
+    import numpy as _np
+    import shapely as _sh
+    try:
+        with open(FNAMES.input_node_file(tile)) as handle:
+            count = int(handle.readline().split()[0])
+        edges = _patch_ring_edges(tile)
+    except Exception as error:
+        UI.lvprint(
+            1,
+            "WARNING: could not read the vector inputs to find the "
+            "mesher-inserted vertices on patch ring segments — they keep "
+            "the free-interior treatment:", str(error))
+        return None
+    if not edges:
+        return {}
+    tri = _np.asarray(sorted(triangles), dtype=_np.int64)
+    touched = _np.unique(tri)
+    fixed = _np.asarray(sorted(patch_valued), dtype=_np.int64)
+    mask = _np.zeros(int(touched.max()) + 1, dtype=bool)
+    mask[fixed[(fixed >= 0) & (fixed < mask.size)]] = True
+    candidates = touched[(touched >= count) & ~mask[touched]]
+    if candidates.size == 0:
+        return {}
+    ends = _np.asarray(edges, dtype=_np.int64)
+    ax, ay = vertices[6 * ends[:, 0]], vertices[6 * ends[:, 0] + 1]
+    bx, by = vertices[6 * ends[:, 1]], vertices[6 * ends[:, 1] + 1]
+    segments = _sh.linestrings(
+        _np.stack([_np.stack([ax, ay], axis=1), _np.stack([bx, by], axis=1)], axis=1))
+    points = _sh.points(vertices[6 * candidates], vertices[6 * candidates + 1])
+    tree = _sh.STRtree(segments)
+    hit_pt, hit_seg = tree.query(points, predicate="dwithin", distance=tolerance)
+    out = {}
+    best = {}
+    for k, s in zip(hit_pt.tolist(), hit_seg.tolist()):
+        index = int(candidates[k])
+        px, py = vertices[6 * index], vertices[6 * index + 1]
+        dx, dy = bx[s] - ax[s], by[s] - ay[s]
+        length2 = dx * dx + dy * dy
+        if length2 <= 0.0:
+            continue
+        t = ((px - ax[s]) * dx + (py - ay[s]) * dy) / length2
+        t = min(1.0, max(0.0, t))
+        # the distance to the segment decides between two hits (a
+        # vertex near a ring corner): the nearer segment is its own
+        off = abs((px - ax[s]) * dy - (py - ay[s]) * dx) / (length2 ** 0.5)
+        if index in best and best[index] <= off:
+            continue
+        best[index] = off
+        za = vertices[6 * ends[s, 0] + 5]
+        zb = vertices[6 * ends[s, 1] + 5]
+        out[index] = float(za + t * (zb - za))
+    return out
 
 
 # ── R18-1c — THE PATCH VALUE STOPS AT THE PATCH ────────────────────────
@@ -812,6 +922,28 @@ def post_process_nodes_altitudes(tile):
                 "rings and take the patch value; the rest are levelled "
                 "road ribbons / seawall bands and keep their own (R18-1c).")
     if _interp_alt_only_tris:
+        # R18-1b amendment (2026-09-06): a mesher-inserted vertex ON a
+        # patch ring segment takes the ring's value there and joins the
+        # Dirichlet set — see ``patch_segment_split_values``.  Written
+        # BEFORE the solve, column 5 only, for those vertices only.
+        try:
+            split = patch_segment_split_values(
+                tile, vertices, _interp_alt_only_tris, patch_valued)
+        except Exception as error:
+            split = None
+            UI.lvprint(
+                1, "WARNING: the patch ring segment-split reading failed; "
+                   "inserted vertices on ring segments keep the "
+                   "free-interior treatment:", str(error))
+        if split:
+            for index, value in split.items():
+                vertices[6 * index + 5] = value
+            patch_valued = set(patch_valued) | set(split)
+            UI.vprint(
+                1,
+                f"   Patch rings: {len(split)} mesher-inserted vertex(es) "
+                "lie on a patch ring segment and take the ring's value "
+                "there (R18-1b amendment 2026-09-06).")
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)

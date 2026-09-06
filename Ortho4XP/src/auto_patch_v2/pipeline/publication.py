@@ -200,7 +200,8 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
         out.append({
             "id": tn.id, "resource": tn.resource, "objects": list(tn.objects),
             "floor_m": round(tn.mouth_z, 3), "crest_m": round(float(tn.crest_z or 0.0), 3),
-            "depth_m": round(tn.depth_m, 3), "length_m": round(tn.hull_length_m, 1),
+            "depth_m": round(tn.depth_m, 3), "plate_y_m": round(tn.plate_y_m, 3),
+            "edge_wall": bool(tn.edge_wall), "length_m": round(tn.hull_length_m, 1),
             "width_m": round(tn.hull_width_m, 1), "ends": tn.ends, "crest_law": tn.crest,
             "replaced_ways": list(tn.replaced_ways), "top_s": round(tn.top_s, 1),
             "wall_length_m": round(tn.wall_length_m, 1),

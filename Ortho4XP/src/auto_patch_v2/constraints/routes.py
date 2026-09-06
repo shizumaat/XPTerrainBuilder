@@ -118,11 +118,16 @@ class RouteGraph:
     b: np.ndarray
     length: np.ndarray                      # plan metres
     cap: np.ndarray                         # grade fraction along the edge
-    kind: np.ndarray                        # CENTRELINE / CROSSING / LATERAL
+    kind: np.ndarray                        # CENTRELINE / CROSSING / LATERAL / CONTACT
     station: np.ndarray                     # bool per planar vertex: on a centreline
     stats: dict[str, int] = _dc.field(default_factory=dict)
     #: near-miss pad rim vertex -> its frontage apron vertex (CONTACT edges)
     contact_of: dict[int, int] = _dc.field(default_factory=dict)
+    #: the FACE an edge belongs to: the face whose ring vertex hops (LATERAL),
+    #: the pad face (CONTACT); ``-1`` for a centreline or crossing edge (the
+    #: network's own, no single face) — the chain rows (``taxi.taxi_chain``,
+    #: RULINGS 2026-09-05ac) cite it so the relaxation reads the row's tier
+    face: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, np.int64))
 
     @property
     def budget(self) -> np.ndarray:
@@ -412,10 +417,13 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         xy[vid] = v.xy
     A, B, C, K = [], [], [], []
     LEN: list[np.ndarray] = []        # explicit lengths (crossings, hops); NaN = plan chord
+    FACE: list[np.ndarray] = []       # the edge's face (-1: the network's own)
 
-    def add(a: int, b: int, cap: float, kind: int, length: float = np.nan) -> None:
+    def add(a: int, b: int, cap: float, kind: int, length: float = np.nan,
+            face: int = -1) -> None:
         A.append(np.array([min(a, b)], np.int64)); B.append(np.array([max(a, b)], np.int64))
         C.append(np.full(1, cap)); K.append(np.full(1, kind, np.int8)); LEN.append(np.full(1, length))
+        FACE.append(np.full(1, face, np.int64))
 
     # (ii) THE RUNWAY CENTRELINES: the ridge chains by runway at the runway
     # longitudinal cap by code; the runway ring vertices by runway
@@ -565,7 +573,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
             bud = cap_t * d[ok] + cap_l[ok] * along[ok]
             A.append(np.minimum(src, dst)); B.append(np.maximum(src, dst))
             C.append(bud / length); K.append(np.full(int(ok.sum()), LATERAL, np.int8))
-            LEN.append(length)
+            LEN.append(length); FACE.append(np.full(int(ok.sum()), f.id, np.int64))
     # THE PAD CONTACTS (05ab): every near-miss frontage pair joins the pad
     # rim vertex to its apron vertex over the gap at the frontage row's
     # cap (the row the solve already holds — the walk from the pad prices
@@ -574,12 +582,12 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     from .pads import frontage_contacts
     attached = set(np.concatenate(A + B).tolist()) if A else set()
     contact_of: dict[int, int] = {}
-    for e_v, pad_v, _fid, dist, cap, _sf in sorted(frontage_contacts(pm, law),
-                                                   key=lambda c: (c[3], c[0])):
+    for e_v, pad_v, pad_fid, dist, cap, _sf in sorted(frontage_contacts(pm, law),
+                                                      key=lambda c: (c[3], c[0])):
         if pad_v in contact_of or e_v not in attached or pad_v in attached:
             continue                      # one doorway per rim vertex: the least gap
         contact_of[pad_v] = e_v
-        add(pad_v, e_v, cap, CONTACT, max(dist, min_d))
+        add(pad_v, e_v, cap, CONTACT, max(dist, min_d), pad_fid)
     station = np.zeros(n_v, bool)
     for chs in ridge_by_ref.values():
         for ch in chs:
@@ -595,22 +603,23 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
                           {"nodes": 0, "edges": 0, "faces": n_faces,
                            "centreline": 0, "crossing": 0, "lateral": 0, "contact": 0,
                            "unattached": len(unattached),
-                           "crossing_unmatched": n_unmatched})
+                           "crossing_unmatched": n_unmatched}, {}, z)
     a = np.concatenate(A); b = np.concatenate(B); cap = np.concatenate(C); kind = np.concatenate(K)
-    ln = np.concatenate(LEN)
+    ln = np.concatenate(LEN); face = np.concatenate(FACE)
     keep = a != b
-    a, b, cap, kind, ln = a[keep], b[keep], cap[keep], kind[keep], ln[keep]
+    a, b, cap, kind, ln, face = a[keep], b[keep], cap[keep], kind[keep], ln[keep], face[keep]
     plan = np.hypot(xy[a, 0] - xy[b, 0], xy[a, 1] - xy[b, 1])
     ln = np.where(np.isnan(ln), plan, ln)
     key = _pack(a, b, n_v)
     # one edge per pair: the least BUDGET (the budget the solve grants
     # along a shared edge); a centreline beats a hop of equal budget
     order = np.lexsort((kind, cap * ln, key))
-    key, a, b, cap, kind, ln = key[order], a[order], b[order], cap[order], kind[order], ln[order]
+    key, a, b, cap, kind, ln, face = (key[order], a[order], b[order], cap[order],
+                                      kind[order], ln[order], face[order])
     _u, first = np.unique(key, return_index=True)
-    a, b, cap, kind, ln = a[first], b[first], cap[first], kind[first], ln[first]
+    a, b, cap, kind, ln, face = a[first], b[first], cap[first], kind[first], ln[first], face[first]
     keep = ln > 0.0
-    a, b, cap, kind, length = a[keep], b[keep], cap[keep], kind[keep], ln[keep]
+    a, b, cap, kind, length, face = a[keep], b[keep], cap[keep], kind[keep], ln[keep], face[keep]
     nodes = frozenset(int(v) for v in np.unique(np.concatenate([a, b])))
     stats = {"nodes": len(nodes), "edges": int(len(a)), "faces": n_faces,
              "centreline": int(np.sum(kind == CENTRELINE)),
@@ -621,7 +630,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
              "unattached": len(unattached - nodes),
              "crossing_unmatched": n_unmatched}
     return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats,
-                      {p: e for p, e in contact_of.items() if p in nodes})
+                      {p: e for p, e in contact_of.items() if p in nodes}, face)
 
 
 _CACHE: dict[int, tuple[PlanarMap, Law, Airport | None, RouteGraph]] = {}

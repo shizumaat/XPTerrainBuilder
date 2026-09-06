@@ -29,14 +29,19 @@ vertices' canonical lat/lon identity so the census joins exactly.
   node (measured SPJC: 70 false 7.2 m rows); v2 verify prices it by
   identity;
 * ``taxi_route_pairs``: ``[[lat, lon], [lat, lon], budget_m, dist_m]`` per
-  taxi-family within-shape pair whose chord LEAVES its face (RULINGS
-  2026-09-05ab, ``constraints.taxi.taxi_pair_routes``): the pair's
-  least ``Σ cap·len`` over the centreline routes where that differs
-  from ``cap × chord`` by more than the elevation materiality, and
-  ``[a, b, null, null]`` for a leaving pair no route joins (no law
-  edge) — v2 verify overlays them on its chord composition; a pair
-  absent from the list reads at the chord (inside the face: the plane
-  rule; a straight stretch is unchanged);
+  taxi-family within-shape pair priced over the CENTRELINE ROUTE
+  (RULINGS 2026-09-05ab, ``constraints.taxi.taxi_pair_routes``; 05ac:
+  the solve states the law by the chain, the reader prices every pair
+  over its route): the pair's least ``Σ cap·len`` over the routes, and
+  ``[a, b, null, null]`` for a pair no route joins (no law edge).
+  PUBLISHED WHERE THE READER NEEDS IT — a pair whose route budget is
+  TIGHTER than ``cap × chord`` by more than the elevation materiality
+  always; a pair whose route budget is LOOSER only where the solved
+  surface exceeds the chord reading (the reader would otherwise mint a
+  chord row the chain permits); every other pair reads at the chord,
+  which the route budget then bounds too — the reader's rows are
+  IDENTICAL to publishing every pair (twin ``test_taxi_route_pairs``),
+  at a fraction of the sidecar (HECA: every taxi pair is ~400k);
 * ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
   (``constraints.seams``) — the census skips pin↔pin pairs and prices
   pin↔free pairs at the body cap (user 2026-07-04);
@@ -119,14 +124,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             stations.append([round(la, 8), round(lo, 8), st.cap])
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
-    taxi_pairs = []
-    for pp in taxi_pair_routes(planar, law, airport):
-        if pp.in_face:
-            continue                              # the plane rule: the reader's own chord
-        if not pp.routed:
-            taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
-        elif abs(pp.budget - pp.cap_chord * pp.d_chord) > tol:
-            taxi_pairs.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
+    taxi_pairs = taxi_route_pairs(planar, law, airport, z, ll, tol)
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh_edges_ll(planar, law),
@@ -136,6 +134,29 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "station_caps": stations,
             "basin_facilities": basin_facilities(planar, law, z),
             "tunnel_objects": tunnel_objects(planar, airport)}
+
+
+def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
+                     z: _t.Sequence[float] | None,
+                     ll: _t.Mapping[int, _t.Sequence[float]], tol: float
+                     ) -> list[list[_t.Any]]:
+    """The ``taxi_route_pairs`` publication (module docstring): every
+    unrouted pair as ``null``; every routed pair whose route budget is
+    tighter than the chord reading by more than ``tol``; a looser one
+    only where the solved surface (``z``; every looser pair when ``z``
+    is absent) exceeds the chord reading."""
+    out: list[list[_t.Any]] = []
+    for pp in taxi_pair_routes(planar, law, airport):
+        if not pp.routed:
+            out.append([ll[pp.a], ll[pp.b], None, None])
+            continue
+        gap = pp.budget - pp.chord_bound_m
+        if abs(gap) <= tol:
+            continue
+        if gap > 0.0 and z is not None and abs(z[pp.a] - z[pp.b]) <= pp.chord_bound_m:
+            continue        # the chord reading passes (the reader's own rounding noise covers emit); the route bounds it too
+        out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
+    return out
 
 
 def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:

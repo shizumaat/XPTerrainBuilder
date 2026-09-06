@@ -126,8 +126,10 @@ def test_runway_generator_pins_profile_and_crown(synthetic, law):
 
 def test_taxi_apron_road_pair_populations(synthetic, law):
     airport, pm, _ = synthetic
-    t = taxi.taxi_within_shape(pm, law, airport)
-    assert t and {r.cap for r in t} == {0.015}
+    taxi_roles = set(law.tables.precedence.taxi_family.members)
+    t = [r for r in taxi.taxi_chain(pm, law, airport)
+         if pm.faces[int(r.source.inputs[0][5:])].role in taxi_roles]
+    assert t and {round(r.cap, 9) for r in t} == {0.015}   # budget / length: a hop's blend of two equal caps
     c = taxi.taxi_centerlines(pm, law, airport)
     assert c and all(isinstance(r, Diff) for r in c)
     a = apron.apron_within_shape(pm, law, airport)

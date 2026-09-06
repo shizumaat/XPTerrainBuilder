@@ -1392,6 +1392,55 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
     }
 
 
+def taxi_family_roles() -> frozenset:
+    """The v2 law's taxi family (``precedence.toml [taxi_family]
+    members``), read from the law tables — never a role literal here."""
+    for p in (ROOT / "src",):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from auto_patch_v2.law import Law
+    return frozenset(Law.load().tables.precedence.taxi_family.members)
+
+
+def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
+    """THE WITHDRAWN CHORD LAW (RULINGS 2026-09-05aa/ab/ac).
+
+    When the patch's sidecar carries ``taxi_route_pairs`` — a v2 patch
+    built under the route law, where a taxi-family within-shape pair is
+    priced over its CENTRELINE ROUTE and the solve states the law by the
+    chain — every ``within_shape`` row whose two ways are BOTH taxi-family
+    roles (the v2 law's ``precedence.taxi_family.members``) prices the
+    chord reading the owner withdrew, and is stamped
+    ``check_grade.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``: counted in its
+    family, reported under the out-of-scope heading, never adjudicated.
+    A row already out of scope (relaxed, disconnected, ...) keeps its
+    stamp.  A pair with a pad endpoint (the frontage law, 09-01g), a
+    junction mesh edge the v1 oracle prices as a chord and a v1 patch
+    (no key) are NOT distinguished here beyond the role pair — the
+    per-role-pair counts are returned so the reader sees them apart.
+    Returns ``{"stamped", "by_roles", "key_present"}``."""
+    side_path = Path(str(osm) + ".axes.json")
+    try:
+        side = json.loads(side_path.read_text())
+    except (OSError, ValueError):
+        return {"stamped": 0, "by_roles": {}, "key_present": False}
+    if "taxi_route_pairs" not in side:
+        return {"stamped": 0, "by_roles": {}, "key_present": False}
+    taxi = taxi_family_roles()
+    by_roles = Counter()
+    n = 0
+    for r in families.get("within_shape") or []:
+        if getattr(r, "out_of_scope", None) is not None:
+            continue
+        roles = cg.row_roles(r)
+        if all(role in taxi for role in roles):
+            r.out_of_scope = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
+            by_roles["|".join(sorted(roles))] += 1
+            n += 1
+    return {"stamped": n, "by_roles": dict(by_roles.most_common()),
+            "key_present": True}
+
+
 def census_one(osm: Path, cg, *, want_bare: bool = False,
                top: int = 10, want_zone_split: bool = False,
                band_edges=None, frame: str = "own",
@@ -1415,6 +1464,12 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     # carried in the report rather than through a module global, so a
     # reporter that runs later cannot read a tally some other frame reset.
     crown_gap = dict(getattr(cg, "_CROWN_UNKNOWN_PAIRS", {}) or {})
+    # THE WITHDRAWN CHORD LAW (RULINGS 2026-09-05aa/ab/ac): on a patch
+    # built under the route law the oracle's taxi-family chord rows are
+    # stamped out of scope BEFORE adjudication — reported under their own
+    # heading, never dropped, never adjudicated (the v2 verify is the taxi
+    # family's instrument).
+    withdrawn = stamp_withdrawn_taxi_chords(osm, cg, families)
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -1528,6 +1583,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "provenance_reason": prov["reason"],
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
         "crown_gap": crown_gap,
+        "withdrawn_law": withdrawn,
         # THE AXIS FRAME, always stamped — "own" for every default run, so
         # a report without the key is simply an older one and a report WITH
         # it can never be mistaken for the other frame.
@@ -1688,6 +1744,12 @@ def print_report(rep: dict, top: int) -> None:
         # heading means the census predates the class and never a
         # silently dropped population.
         oos = adj.get("out_of_scope_classes") or {}
+        wl = rep.get("withdrawn_law") or {}
+        if wl.get("key_present"):
+            print(f"    WITHDRAWN LAW (05aa) taxi chord rows: {wl['stamped']} "
+                  f"— by role pair: "
+                  + (", ".join(f"{k} {v}" for k, v in wl["by_roles"].items()) or "none")
+                  + " (sidecar taxi_route_pairs present: the v2 verify is the taxi family's instrument)")
         print(f"    OUT OF SCOPE (reported, NOT adjudicated) "
               f"{adj.get('out_of_scope_total', 0)}"
               + (":" if oos else "  [no class fired]"))

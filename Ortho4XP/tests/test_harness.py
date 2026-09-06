@@ -7571,3 +7571,51 @@ def test_a_rect_pair_on_a_looser_stretch_reads_that_stretchs_cap(cg, tmp_path):
     fo = _families(cg, _rect_stretch_patch(tmp_path, step_grade=0.025, stretch_cap=0.015, name="RS2"))
     rows2 = [v for v in (fo.get("within_shape") or []) if v.way_a.tags.get("role") == "cross_connector"]
     assert len(rows2) == len(rows0)
+
+
+# ── THE WITHDRAWN CHORD LAW (RULINGS 2026-09-05aa/ab/ac) ────────────
+
+def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar(
+        census_mod, cg, tmp_path):
+    """A taxi-family chord row on a patch whose sidecar carries
+    ``taxi_route_pairs`` is stamped ``WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``
+    — registered in ``OUT_OF_SCOPE_CLASSES`` (the heading and its why
+    come from the one register), counted in its family and reported
+    under the heading, never adjudicated; a mixed pair (a pad frontage),
+    an apron pair, a row already out of scope, and a v1 patch (no key)
+    are untouched.  The taxi family is read from the v2 law tables."""
+    key = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
+    assert key in cg.OUT_OF_SCOPE_CLASSES
+    assert cg.OUT_OF_SCOPE_CLASSES[key].startswith("withdrawn law (05aa)")
+    assert "taxi_route_pairs" in cg.SIDECAR_EVIDENCE_KEYS
+    taxi = census_mod.taxi_family_roles()
+    assert "stub" in taxi and "apron" not in taxi and "building" not in taxi
+    osm = tmp_path / "p.osm"
+    osm.write_text("<osm version='0.6'></osm>")
+    rows = [
+        _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="stub", wa="1"),
+        _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="junction", wa="2"),
+        _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="apron", wa="3"),
+        _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="stub", wa="4",
+                  out_of_scope=cg.RELAXED_OUT_OF_SCOPE),
+    ]
+    mixed = _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="stub", wa="5")
+    mixed.way_b = _FloorRow._W("6", "building")
+    rows.append(mixed)
+    fam = {"within_shape": rows}
+    # a v1 patch: no key, nothing stamped
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": []}))
+    got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam)
+    assert got == {"stamped": 0, "by_roles": {}, "key_present": False}
+    assert [r.out_of_scope for r in rows] == [None, None, None, cg.RELAXED_OUT_OF_SCOPE, None]
+    # a v2 patch under the route law
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": [], "taxi_route_pairs": []}))
+    got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam)
+    assert got["key_present"] and got["stamped"] == 2
+    assert got["by_roles"] == {"stub|stub": 1, "junction|junction": 1}
+    assert [r.out_of_scope for r in rows] == [key, key, None, cg.RELAXED_OUT_OF_SCOPE, None]
+    adj = cg.adjudication([("within_shape", r) for r in rows])
+    assert adj["out_of_scope_classes"][key]["n"] == 2
+    assert adj["out_of_scope_classes"][key]["why"] == cg.OUT_OF_SCOPE_CLASSES[key]
+    assert adj["adjudicated_total"] == 2          # the apron pair and the frontage pair
+    assert not cg.row_adjudicated("within_shape", rows[0])

@@ -134,13 +134,11 @@ def test_the_next_g_node_may_differ_by_three_percent_from_the_intersection(site,
     g = next(s for s in st.items if s.code_letter == "A")
     nxt = g.vertices[1] if g.vertices[0] == X else g.vertices[-2]
     cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
-    rows = [r for r in taxi.taxi_within_shape(pm, law, airport) if {r.a, r.b} == {X, nxt}]
+    # the pair is a CENTRELINE EDGE of G's stretch: the chain's own row at
+    # the stretch's cap (RULINGS 2026-09-05ac: no pair row, the edge is the law)
+    rows = [r for r in taxi.taxi_centerlines(pm, law, airport) if {r.a, r.b} == {X, nxt}]
     assert rows and all(r.cap == cap_a for r in rows)
-    # the pair lies on one stretch inside the face: the plane rule at the
-    # stretch's cap, unchanged (RULINGS 2026-09-05ab: a chord inside the
-    # face is a path an aircraft can roll)
-    assert {r.source.ruling for r in rows} == {
-        "rulesets.taxi.longitudinal within_shape, chord inside the face (05ab)"}
+    assert {r.source.ruling for r in rows} == {"rulesets.taxi.longitudinal centreline"}
     assert all(r.d == pytest.approx(math.hypot(pm.vertices[X].xy[0] - pm.vertices[nxt].xy[0],
                                                pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1]),
                                     abs=1e-6) for r in rows)
@@ -193,15 +191,17 @@ def test_a_junction_across_a_letter_change_prices_per_stretch_region(site, law):
     # ACROSS: a G vertex <-> an A vertex is no law edge (04y): no row at all
     assert (min(g_v[0], a_v[0]), max(g_v[0], a_v[0])) not in by_pair
     # every priced pair of the body is a ring edge, a mesh edge or a
-    # common-stretch pair; the all-pairs superset is gone
+    # lateral hop of the chain (05ac: a ring vertex to its station); the
+    # all-pairs superset is gone, and so are the common-stretch pair rows
     from auto_patch_v2.constraints import junction_mesh as JM
+    hops = {(min(r.a, r.b), max(r.a, r.b)) for r in taxi.taxi_chain(pm, law, airport)}
     for f in faces:
         mesh = JM.face_mesh_edges(vw, f.id)
         on = {v: set(st.on.get(v, ())) for v in vw.rings[f.id]}
         n = len(vw.rings[f.id])
         priced = {k for k in by_pair if k[0] in on and k[1] in on}
         for a, b in priced:
-            assert (a, b) in mesh or (on[a] & on[b]), (a, b)
+            assert (a, b) in mesh or (a, b) in hops, (a, b)
         assert len(priced) < n * (n - 1) // 2
 
 
@@ -248,11 +248,18 @@ def test_two_stretches_of_one_letter_read_as_one_plane(site, law):
     does not turn into a relaxation (the ceiling)."""
     airport, pm = site
     cap_d = law.ruleset.taxi.longitudinal.value(None, "D")
+    cap_t = law.ruleset.taxi.transverse.value(None, "D")
+    assert cap_t == cap_d
+    vw = view(pm, law)
+    chain = taxi.taxi_chain(pm, law, airport)
+    centre = taxi.taxi_centerlines(pm, law, airport)
     for ref in ("taxiA_w", "taxiA_e"):
         fid = _face(pm, ref).id
-        rows = [r for r in taxi.taxi_within_shape(pm, law, airport)
-                if r.source.inputs[0] == f"face:{fid}"]
-        assert rows and {round(r.cap, 12) for r in rows} == {round(cap_d, 12)}
+        ring = set(vw.rings[fid])
+        hops = [r for r in chain if r.source.inputs[0] == f"face:{fid}"]
+        edges = [r for r in centre if r.a in ring and r.b in ring]
+        assert hops and edges
+        assert {round(r.cap, 12) for r in hops + edges} == {round(cap_d, 12)}
 
 
 # ── (2) cap by edge portion vs the mouth ─────────────────────────────────

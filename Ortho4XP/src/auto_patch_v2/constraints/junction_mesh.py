@@ -25,9 +25,12 @@ THE RULE, per face of a role in ``emit.within_shape.junction_mesh_roles``:
   isotropic, so binding a straddling triangle at the stricter letter
   would forbid the ruling's own example (X ↔ the next G node at 3 % is
   the G edge of a triangle whose third edge lies on the D stretch).
-* THE COMMON-STRETCH PAIRS (both vertices on one stretch) stay all-pairs
-  at that stretch's cap — ``taxi.taxi_within_shape`` with
-  ``common_only``; every other chord of the face is NOT a law edge and
+* THE COMMON-STRETCH PAIRS (both vertices on one stretch) are the
+  verify reader's population at that stretch's cap over the ROUTE
+  (``taxi.taxi_pair_routes`` with ``common_only``, RULINGS 2026-09-05ab);
+  the solve states them by the CHAIN (05ac: the stretch's centreline
+  edges and the vertices' lateral hops, ``taxi.taxi_chain``), never as
+  pair rows; every other chord of the face is NOT a law edge and
   produces no row anywhere.
 
 The verify reader (``verify/within.py``) prices the same population from

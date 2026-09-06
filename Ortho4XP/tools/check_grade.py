@@ -6725,7 +6725,25 @@ RETIRED_LAWS: Dict[str, dict] = {
 OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
 #: The ``out_of_scope`` stamp of a row the last resort relaxed (04x-2).
 RELAXED_OUT_OF_SCOPE = "relaxed_by_04t1"
+#: The ``out_of_scope`` stamp of a taxi-family CHORD row on a patch built
+#: under the route law (RULINGS 2026-09-05aa/ab/ac) — stamped by
+#: ``harness/census.py::stamp_withdrawn_taxi_chords`` from the sidecar's
+#: ``taxi_route_pairs`` key, never inside ``run_checks``.
+WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE = "withdrawn_law_05aa"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE:
+        "withdrawn law (05aa): the row prices a TAXI-FAMILY pair by its "
+        "CHORD (cap x straight distance), the reading the owner WITHDREW "
+        "for the taxi family — RULINGS 2026-09-05aa (the route graph "
+        "follows every curve of the taxi routes, never a chord across open "
+        "pavement), 05ab (a taxi within-shape pair is priced over the "
+        "CENTRELINE ROUTE between its attachment stations, never the "
+        "chord) and 05ac (the law is expressed by the chain; the v2 verify's "
+        "pair-over-route reading is the taxi family's instrument, and the "
+        "oracle's taxi chord rows are reported apart as withdrawn law).  "
+        "Stamped only on a patch whose sidecar carries ``taxi_route_pairs`` "
+        "(a v2 patch under that law); a v1 patch is untouched.  Counted in "
+        "its family, reported under this heading, never adjudicated",
     "role_less_host_duplicate":
         "every way of the row is ROLE-LESS ARTICULATION geometry (an "
         "o4_feature way with no role tag) whose HOST shape's vertex set "
@@ -7163,6 +7181,13 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # THE TAXI ROUTE PAIRS (RULINGS 2026-09-05ab/ac): the v2 verify's own
+    # population — every taxi-family pair priced over its centreline
+    # route.  EVIDENCE here: ``run_checks`` never consumes it (the oracle
+    # prices the chord law the owner withdrew for the taxi family);
+    # ``harness/census.py`` reads its PRESENCE to stamp the oracle's taxi
+    # chord rows ``WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``.
+    "taxi_route_pairs",
     # THE LAW-BAND CONTRADICTION LEDGER (spec unified-law-band Amendment
     # 1, owner ruling "3", 2026-08-27).  EVIDENCE, deliberately: a row
     # here is a site where the narrowed band admitted NO elevation at all

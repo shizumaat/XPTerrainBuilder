@@ -791,14 +791,12 @@ def _build(cls: type, data: object, path: str) -> object:
     fields = {f.name: f for f in _dc.fields(cls)}
     unknown = set(data) - set(fields)
     if unknown:
-        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} "
-                       f"(allowed: {sorted(fields)})")
+        raise LawError(f"{path}: unknown key(s) {sorted(unknown)} (allowed: {sorted(fields)})")
     kw: dict[str, object] = {}
     for name, f in fields.items():
         optional, inner = _is_optional(hints[name])
         if name not in data:
-            if f.default is _dc.MISSING and \
-                    f.default_factory is _dc.MISSING:  # type: ignore[misc]
+            if f.default is _dc.MISSING and f.default_factory is _dc.MISSING:  # type: ignore[misc]
                 raise LawError(f"{path}: missing required key {name!r}")
             continue
         kw[name] = _convert(path, name, inner if optional else hints[name],

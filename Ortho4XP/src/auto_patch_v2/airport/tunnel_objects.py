@@ -59,6 +59,7 @@ import numpy as np
 from shapely import affinity as _affinity
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import Airport
@@ -337,6 +338,20 @@ def _seat(o: _obj8.PlacedObject, msl: _t.Mapping[str, float]) -> float:
     return float(o.anchor_z + o.agl_m)
 
 
+def _bore_near(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, tree: STRtree | None,
+               tol: float) -> bool:
+    """A mapped tunnel way touches the placement's plan bounding box
+    (``tol`` around) — the edge-wall candidate's cheap discriminator."""
+    if tree is None:
+        return False
+    _vmin, _vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
+    if x0 == math.inf or x1 == -math.inf:
+        return False
+    corners = [_obj8._to_frame(o.xy, o.heading_deg, x, z) for x in (x0, x1) for z in (z0, z1)]
+    box = Polygon(corners).convex_hull.buffer(tol)
+    return len(tree.query(box, predicate="intersects")) > 0
+
+
 def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
                   ) -> tuple[list[int], list[int]]:
     """Per end ``(0, 1)``: the ids of the OSM tunnel ways whose mapped END
@@ -567,9 +582,11 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     admission = law.tables.structures.basin.admission_depth_m
     least_skirt = min(ob.skirt_min_depth_m, ob.edge_wall_min_skirt_m)
     tunnel_ways = [w for w in airport.osm_ways if is_tunnel_way(w.tags) and len(w.points) >= 2]
+    bore_tree = STRtree([LineString(w.points) for w in tunnel_ways]) if tunnel_ways else None
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
     admitted: list[tuple[WallSignature, _obj8.PlacedObject]] = []
+    no_bore: set[str] = set()
     for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
@@ -578,6 +595,15 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.witnesses:
             sigs.setdefault(o.path, "the basin pass witnessed a floor in it (basins.py owns it)")
             continue
+        if o.path not in sigs and cache.y_range(o.resolved)[0] > -ob.skirt_min_depth_m:
+            # A SHALLOW-SEAT resource is an edge-wall candidate only around a
+            # BORE (06c: the bore mouth inside it is its discriminator; 06f):
+            # its signature is read once a placement's plan holds a mapped
+            # tunnel way — OTHH: 1,350 resources, 219 signatures otherwise
+            # (21 s), the 8 corridors all full-skirt
+            if not _bore_near(o, cache, bore_tree, ob.end_cap_open_m):
+                no_bore.add(o.path)
+                continue
         if o.path not in sigs:
             stats.resources += 1
             # THE PRE-SCREEN (the basin reader's O(n) step): a wall's skirt
@@ -618,6 +644,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                  f"tunnel floor")
             continue
         admitted.append((sig, o))
+    for path in no_bore - set(sigs):
+        sigs[path] = ("no wall skirt under the seat and no mapped bore within the plan: not an "
+                      "edge-wall candidate (2026-09-06f)")
     stats.signatures = sum(1 for s in sigs.values() if not isinstance(s, str))
     for path, sig in sigs.items():
         if isinstance(sig, str) and not sig.startswith("no wall skirt") \

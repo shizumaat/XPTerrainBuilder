@@ -383,6 +383,25 @@ def test_taxiway_spanning_the_corridor_is_a_deck_never_a_cut(wall_objs, law):
     assert top and max(top) == pytest.approx(_PlaneDem().z(*tt.axis[-1]), abs=0.05)
 
 
+def test_structures_stage_records(wall_objs, law):
+    """``python -m auto_patch_v2.planar ICAO --stage structures``: the
+    structure stages alone as records (the lane's site replay, promoted
+    on its second use) — the corridor, its tunnel, the refusals."""
+    from auto_patch_v2.planar.__main__ import structure_records
+    airport = _wall_airport(wall_objs, law, [("standing", (0.0, 0.0), 180.0, None, "OBJECT")],
+                            _bore(y_in=-70.0, y_open=80.0))
+    cl = Classification(tuple(_wall_cells(-200, -300, 200, 200)), (), {}, ())
+    rec = structure_records(airport, cl, law)
+    assert rec["icao"] == "ZZZZ" and rec["objects"]["placements"] == 1
+    assert len(rec["corridors"]) == 1 and rec["corridors"][0]["edge_wall"]
+    assert rec["corridors"][0]["mouth_ll"] != rec["corridors"][0]["far_ll"]
+    t = [t for t in rec["tunnels"] if t["source"] == "object"]
+    assert len(t) == 1 and t[0]["top_s"] == pytest.approx(t[0]["wall_length_m"])
+    assert isinstance(rec["corridor_refused"], list) and isinstance(rec["basin_refused"], list)
+    import json
+    json.dumps(rec, default=str)
+
+
 def test_law_register(law):
     """Every key read through the model, no literal in Python."""
     bl = law.tables.structures.basin

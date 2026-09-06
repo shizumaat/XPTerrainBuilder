@@ -92,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     add_dem_frame_args(ap)
     ap.add_argument("--grid-m", type=float, default=None,
                     help="identity snap grid (default: law min_distinct_spacing_m)")
+    ap.add_argument("--stage", choices=("planar", "structures"), default="planar",
+                    help="structures: STOP after the structure stages (objects, "
+                         "corridors, tunnels, basins) and write structures.json — the "
+                         "synthetic-first replay of a site's structure readings, no "
+                         "arrangement, no solve (lane v2lemd4, 2026-09-06)")
     args = ap.parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
 
@@ -103,6 +108,30 @@ def main(argv: list[str] | None = None) -> int:
     t1 = time.perf_counter()
     cl = classify(airport, law, load_rules())
     t2 = time.perf_counter()
+    if args.stage == "structures":
+        rec = structure_records(airport, cl, law)
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        rec["wall_s"] = {"load": round(t1 - t0, 3), "classify": round(t2 - t1, 3),
+                         "structures": round(time.perf_counter() - t2, 3)}
+        (out / "structures.json").write_text(json.dumps(rec, indent=1, default=str))
+        print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  tunnels "
+              f"{len(rec['tunnels'])}  basins {len(rec['basins'])}  corridor refusals "
+              f"{len(rec['corridor_refused'])}  tunnel refusals {len(rec['tunnel_refused'])}  "
+              f"basin refusals {len(rec['basin_refused'])}  -> {out / 'structures.json'}")
+        for c in rec["corridors"]:
+            print(f"  corridor {c['id']}: edge_wall {c['edge_wall']}  mouth {c['mouth_kind']}  "
+                  f"ends {c['ends']}  length {c['length_m']:.1f} m  width {c['width_m']:.1f} m  "
+                  f"depth {c['depth_m']:.2f}  crest {c['plate_y']:+.2f}  mouth ground "
+                  f"{c['mouth_dem_z']:.2f}  floor {c['floor_z']:.2f}")
+        for t in rec["tunnels"]:
+            print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
+                  f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
+                  f"decks {t['decks']}")
+        for b in rec["basins"]:
+            print(f"  basin {b['id']}: floor {b['floor_z']:.2f}  area {b['area_m2']:.0f} m2  "
+                  f"{b['kind']}  {', '.join(o.split('/')[-1] for o in b['objects'])}")
+        return 0
     pm, stats = build(airport, cl, law, args.grid_m)
     t3 = time.perf_counter()
 
@@ -137,6 +166,60 @@ def main(argv: list[str] | None = None) -> int:
           f"planar {t3 - t2:.2f} s  write {t4 - t3:.2f} s  total {t4 - t0:.2f} s")
     print(f"  wrote {out / 'faces.geojson'}, breaklines.geojson, report.json")
     return 0
+
+
+def structure_records(airport, cl, law) -> dict:
+    """The structure stages alone — objects read, corridors, tunnels,
+    basins — as plain records with every refusal (the ``--stage
+    structures`` replay: what a site's objects state, before any
+    arrangement or solve).  Runs the same passes in the same order as
+    ``planar.build.build``."""
+    from ..airport import obj8
+    from ..airport.tunnel_objects import read_corridors
+    from .basins import build_basins, read_objects
+    from .structures import build_structures
+    to_ll = airport.frame.transformers()[1]
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, orep = read_objects(airport, law, cache)
+    corridors, tstats = read_corridors(airport, objects, cache, law)
+    cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors)
+    cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
+
+    def ll(p):
+        la, lo = to_ll(p[0], p[1])
+        return (round(la, 7), round(lo, 7))
+    return {
+        "icao": airport.icao,
+        "objects": {"placements": orep.placements, "below_grade": orep.below_grade_objects,
+                    "through_grade": {k.split("/")[-1]: v for k, v in orep.through_grade.items()},
+                    "no_floor": {k.split("/")[-1]: v for k, v in orep.no_floor.items()},
+                    "rim_protrusions": {k.split("/")[-1]: v
+                                        for k, v in orep.rim_protrusions.items()}},
+        "corridors": [{"id": c.id, "resource": c.resource, "objects": list(c.objects),
+                       "edge_wall": c.edge_wall, "mouth_kind": c.mouth_kind, "ends": c.ends,
+                       "length_m": c.length_m, "width_m": c.width_m, "depth_m": c.depth_m,
+                       "plate_y": c.plate_y, "mouth_dem_z": c.mouth_dem_z, "floor_z": c.floor_z,
+                       "mouth_ll": ll(c.axis[0]), "far_ll": ll(c.axis[-1]),
+                       "notes": list(c.notes)} for c in corridors],
+        "corridor_refused": list(tstats.refused),
+        "tunnel_object_stats": {k: v for k, v in _dc.asdict(tstats).items()
+                                if not isinstance(v, list)},
+        "tunnels": [{"id": t.id, "source": t.source, "mouth_z": t.mouth_z,
+                     "mouth_dem_z": t.mouth_dem_z, "top_s": t.top_s,
+                     "climb_from_s": t.climb_from_s, "design_grade": t.design_grade,
+                     "wall_length_m": t.wall_length_m, "decks": [d.ref for d in t.decks],
+                     "replaced_ways": list(t.replaced_ways), "notes": list(t.notes)}
+                    for t in tunnels],
+        "tunnel_refused": list(sstats.refused),
+        "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
+                            if not isinstance(v, list)},
+        "basins": [{"id": b.id, "objects": list(b.objects), "floor_z": b.floor_z,
+                    "rim_estimate_m": b.rim_estimate_m, "area_m2": b.area_m2, "kind": b.kind,
+                    "covered_fraction": b.covered_fraction, "site_ll": list(b.anchor_ll),
+                    "notes": list(b.notes)} for b in basins],
+        "basin_refused": list(bstats.refused),
+        "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},
+    }
 
 
 def _count(items) -> dict[str, int]:

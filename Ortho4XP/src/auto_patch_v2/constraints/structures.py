@@ -22,16 +22,17 @@ THE ROWS (law ``structures.toml``; RULINGS 2026-08-30, 2026-08-30c/d/f,
   the first group beyond it.  The top group is pinned at the DEM
   (``top_pinned``); a ramp a building pad clipped short ends free
   (08-07 ruling 3: the pad's face is the portal).
-* WALL — every ``retaining_wall`` vertex is PINNED at the DEM sampled
-  at its projection onto the band's centreline (09-03b L1 "crest = DEM
-  by station"; ``tunnel.crest = "dem"``): the inner and outer edge at
-  one station project to one point and carry ONE value (09-01c), the
-  end cap likewise (its projection is the cap's own centreline at the
-  mouth, so the cap crest is ``DEM(mouth)`` — ``bore_datum_m`` above the
-  mouth node exactly).  Nothing else touches a wall value: no transition
-  law, no ramp-side grading (09-03b L2: the wall IS the discontinuity).
-  The gap between ramp and wall has no vertices: the mesh triangulates
-  it (09-01c: "the triangulated gap IS the face").
+* RIM — every vertex of the at-grade RIM (the ``retaining_wall`` VOID
+  face's exterior ring; RULINGS 2026-09-06b (1), no wall band) is PINNED
+  at the DEM sampled at its own station on the rim (09-03b L1 "crest =
+  DEM by station"; ``tunnel.crest = "dem"``) where bare, and carries the
+  governed ground's value where shared with the pavement the structure
+  cut; the end cap likewise (the cap's centre is the MOUTH WALL NODE:
+  its crest is ``DEM(mouth)`` — ``bore_datum_m`` above the mouth node
+  exactly).  Nothing else touches a rim value: no transition law, no
+  ramp-side grading (09-03b L2: the wall IS the discontinuity).  The
+  void between ramp and rim has no vertices of its own: the mesh
+  triangulates the wall (09-01c: "the triangulated gap IS the face").
 * DECK — every terrain-deck vertex is PINNED at the DEM (08-30d: the
   deck spans the crossing AT ROAD LEVEL; v2's road level is the ground)
   and an ``Offset`` holds it ``bridge.clearance_m`` above the ramp
@@ -44,14 +45,14 @@ THE ROWS (law ``structures.toml``; RULINGS 2026-08-30, 2026-08-30c/d/f,
   every ramp vertex under its footprint is bounded ABOVE by ``deck top −
   bridge.clearance_m`` (a ``Band``; 08-30f: the cut stays at bore datum
   under the bridge — the datum satisfies it or the IIS names the object).
-* BASIN (M4b; RULINGS 2026-08-26; ``structures.toml [basin]``) — every
-  floor-face vertex is PINNED at the facility's floor (``Basin.floor_z``,
-  the R_est + deepest-solid − margins arithmetic the planar builder
-  did once); the wall band round it carries the ground exactly as the
-  tunnel wall does (the ground rule: the governed ground's value where
-  its edge is shared — the rim LEVEL with the apron, 2026-08-28c item 3
-  — the DEM by station where bare), one value per station across the
-  band (09-01c).  The gap between floor and wall has no vertices.
+* BASIN (M4b; RULINGS 2026-08-26, 2026-09-06b (3); ``structures.toml
+  [basin]``) — every floor-face vertex is PINNED at the facility's floor
+  (``Basin.floor_z``: the rendered deepest solid the planar builder read
+  once); the rim round it carries the ground exactly as the tunnel rim
+  does (the ground rule: the governed ground's value where its edge is
+  shared — the rim LEVEL with the apron, 2026-08-28c item 3 — the DEM by
+  station where bare).  The void between floor and rim has no vertices
+  of its own.
 
 The 08-30l consumer rows this generator's geometry settles: the zone
 regions stop at the wall (``planar.zones`` keep-outs); the ramp is its
@@ -120,7 +121,8 @@ def _faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel], role: str, ref: s
 
 
 def wall_faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel]) -> dict[str, list[Face]]:
-    """Tunnel id -> its ``retaining_wall`` faces."""
+    """Tunnel id -> its ``retaining_wall`` (void) faces; the rim is each
+    face's exterior ring."""
     return _faces_of(planar, tunnels, "retaining_wall", WALL_REF, lambda tn: tn.wall_path)
 
 
@@ -204,6 +206,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 return True
         return False
 
+    def on_floor(v: int) -> bool:
+        """A ramp / floor face touches ``v``: a U void's exterior runs along
+        the ramp's own edges — those vertices are the ramp's, never rim."""
+        return any(planar.faces[fid].role in ("tunnel_ramp", "tunnel_trench")
+                   for fid in vw.vertex_faces[v])
+
     walls = wall_faces_of(planar, tunnels)
     ramps = ramp_faces_of(planar, tunnels)
     faces_by_ref: dict[str, list[Face]] = {}
@@ -215,8 +223,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_mouth = Source(GEN, "tunnel.bore_datum_m (2026-09-03b)", inputs)
         src_flat = Source(GEN, "tunnel_ramp laterally flat (road_cross_section 0 %)", inputs)
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
-        src_wall = Source(GEN, "tunnel.crest = dem (2026-09-03b L1; 2026-09-01c)", inputs)
-        src_band = Source(GEN, "one corridor-top value per station (2026-09-01c)", inputs)
+        src_wall = Source(GEN, "tunnel.crest = dem: the rim at the DEM by station "
+                          "(2026-09-03b L1; 2026-09-06b no band)", inputs)
         if tn.source == "object":
             # THE OBJECT CORRIDOR (RULINGS 2026-09-05n): the band's crest is
             # the GROUND by station (``plate_datum = "ground"`` — the object
@@ -227,14 +235,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               "(2026-09-03b L1; 2026-09-05n-4) under an object corridor", inputs)
             src_mouth = Source(GEN, "tunnel.object.mouth_depth = plate: ground(mouth) − plate "
                               "height (2026-09-05n-1)", inputs)
-        # ── the wall band: crest = the ground, one value per station ──
+        # ── the rim: the ground by station (the void's exterior ring) ──
         path = LineString(tn.wall_path) if len(tn.wall_path) >= 2 else None
         cap_reps: list[int] = []
         if path is not None:
             wall_vs = sorted({v for f in walls.get(tn.id, ())
-                              for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
-            groups = _wall_rows(planar, airport, path, wall_vs, shared_with_ground, rows, pin,
-                                src_wall, src_band)
+                              for v in planar.ring_vertices(f.ring) if not on_floor(v)})
+            groups = _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -353,54 +360,45 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-def _wall_rows(planar: PlanarMap, airport: Airport, path: LineString, wall_vs: list[int],
-               shared_with_ground: _t.Callable[[int], bool], rows: list[Row],
-               pin: _t.Callable[..., None], src_wall: Source, src_band: Source,
-               src_tie: Source | None = None) -> list[tuple[float, list[int]]]:
-    """THE WALL CREST BY STATION (2026-09-03b L1; 2026-09-01c; the ground
-    rule): the band's vertices grouped by station along ``path`` — one
-    ``Flat`` per station across the band; a station the governed ground
-    shares carries the ground's value, a bare one the DEM at its own
-    station on the centreline (an object corridor's band likewise: its
-    crest is the ground, 2026-09-05n-4).  With ``src_tie`` a shared
-    station's ``Flat`` is sourced as THE RIM TIE (2026-08-28c item 3:
-    the rim LEVEL with the apron — the hard row binding the whole band
-    station to the pavement vertex it shares).  Returns the groups."""
+def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: list[int],
+              shared_with_ground: _t.Callable[[int], bool], pin: _t.Callable[..., None],
+              src_rim: Source) -> list[tuple[float, list[int]]]:
+    """THE RIM BY STATION (2026-09-03b L1; 2026-09-06b (1); the ground
+    rule): the rim's vertices grouped by station along ``path`` (the rim
+    ring itself); a vertex the governed ground shares carries the
+    ground's value — the rim LEVEL with the apron, 2026-08-28c item 3,
+    by the shared vertex itself (one node per coordinate) — a bare one
+    is pinned at the DEM at its own station on the rim (an object
+    corridor's rim likewise: the ground, 2026-09-05n-4).  No ``Flat``
+    across a band: there is no band.  Returns the groups."""
     closed = len(path.coords) > 2 and path.coords[0] == path.coords[-1]
-    groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in wall_vs],
+    groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in rim_vs],
                       _STATION_CLUSTER_M)
     if closed and len(groups) > 1 and \
             groups[0][0] + path.length - groups[-1][0] <= _STATION_CLUSTER_M:
-        # a closed band: the station at s ≈ 0 and at s ≈ length is one
+        # a closed rim: the station at s ≈ 0 and at s ≈ length is one
         first, last = groups[0], groups.pop()
         groups[0] = (first[0], first[1] + last[1])
     for u, vs in groups:
-        shared = any(shared_with_ground(v) for v in vs)
-        if len(vs) > 1:
-            rows.append(Flat(tuple(vs), src_tie if (shared and src_tie is not None) else src_band))
-        if shared:
-            continue                      # the ground's value carries the crest
-        # ONE value per station: the DEM at the group's own station on
-        # the band's centreline (inner and outer edge project millimetres
-        # apart — two samples were an IIS)
-        u_mean = sum(path.project(Point(planar.vertices[v].xy)) for v in vs) / len(vs)
-        p = path.interpolate(u_mean)
-        z = _dem_at(airport, p.x, p.y)
-        if not math.isnan(z):
-            for v in vs:
-                pin(v, z, src_wall, senior=True)
+        for v in vs:
+            if shared_with_ground(v):
+                continue                  # the ground's value carries the rim
+            p = path.interpolate(path.project(Point(planar.vertices[v].xy)))
+            z = _dem_at(airport, p.x, p.y)
+            if not math.isnan(z):
+                pin(v, z, src_rim, senior=True)
     return groups
 
 
 def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """Every basin row (M4b): the floor pinned at the facility's floor,
-    the wall band's crest by the ground rule."""
+    the rim by the ground rule."""
     if not planar.basins:
         return []
     bl = law.tables.structures.basin
-    if bl.floor != "deepest_solid" or bl.rim != "ground":
-        raise ValueError(f"basin.floor {bl.floor!r} / rim {bl.rim!r}: only "
-                         "'deepest_solid' / 'ground' are generated")
+    if bl.floor != "deepest_solid" or bl.rim != "ground" or bl.seat != "floor_plate":
+        raise ValueError(f"basin.floor {bl.floor!r} / rim {bl.rim!r} / seat {bl.seat!r}: only "
+                         "'deepest_solid' / 'ground' / 'floor_plate' are generated")
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
 
@@ -423,22 +421,21 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
     for b in planar.basins:
         inputs = (b.id, *(f"obj:{o}" for o in b.objects[:8]))
-        src_floor = Source(GEN, "basin.floor = deepest_solid: R_est + min solid − "
-                           "(floor_below_object_deck_m + seat_margin_m) (2026-08-26)", inputs)
-        src_wall = Source(GEN, "basin.rim = ground: crest = DEM where bare (2026-09-03b L1; "
-                          "2026-09-04d)", inputs)
-        src_band = Source(GEN, "one crest value per station (2026-09-01c)", inputs)
-        src_tie = Source(GEN, "basin.rim = ground: the rim LEVEL with the apron it shares "
-                         "(2026-08-28c item 3) — the station tied to the pavement vertex", inputs)
+        src_floor = Source(GEN, "basin.floor = deepest_solid: the rendered floor plate "
+                           "(2026-08-26; 2026-09-06b (3))", inputs)
+        src_wall = Source(GEN, "basin.rim = ground: the rim at the DEM where bare (2026-09-03b "
+                          "L1; 2026-09-04d), the apron's value where shared (2026-08-28c "
+                          "item 3)", inputs)
         for f in faces_by_ref.get(b.floor_ref, ()):
             for v in set(planar.ring_vertices(f.ring)):
                 pin(v, b.floor_z, src_floor, senior=True)
         if len(b.wall_path) >= 3:
             path = LineString(list(b.wall_path) + [b.wall_path[0]])
+            floor_vs = {v for f in faces_by_ref.get(b.floor_ref, ())
+                        for v in planar.ring_vertices(f.ring)}
             wall_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
-                              for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
-            _wall_rows(planar, airport, path, wall_vs, shared_with_ground, rows, pin,
-                       src_wall, src_band, src_tie)
+                              for v in planar.ring_vertices(f.ring)} - floor_vs)
+            _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
     rows.extend(pins.values())
     return rows
 

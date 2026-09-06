@@ -416,3 +416,100 @@ class TestScopeIsPinned:
             vertices, triangles, {0, 1, 2}, report=report) == 0
         assert report["isolated"] == 4
         assert (vertices == before).all()
+
+
+class TestSplitVerticesOnPatchRings(TestPatchValuedVertexIdentification):
+    """R18-1b amendment (lane v2lemd3, 2026-09-06): a vertex the mesher
+    INSERTED ON a patch ring segment (Triangle4XP's ``-Y`` protects the
+    outer boundary only; an interior constrained segment may be split)
+    is not an endpoint of any input marker edge, so the discriminator
+    above leaves it FREE — and the harmonic extension averages the ring's
+    two sides through it.  Measured on OTHH +25+051 (lane v2othh3's
+    build): every basin floor ring flat, no free vertex inside any floor,
+    split vertices on the floor rings +1.09..+1.80 m (Drainage) and
+    +6.28 / +7.78 m (Dewatering) above the floor.
+
+    THE LAW: such a vertex takes the ring's value at that point (the
+    linear interpolation between the segment's endpoints) and joins the
+    Dirichlet set.  A vertex OFF every ring segment, and every INPUT
+    vertex, is untouched."""
+
+    #: A floor ring (0-3, z 10) inside an at-grade rim ring (4-7, z 20);
+    #: vertex 8 is a mesher split on the floor edge 0-1, 9 a free vertex
+    #: inside the floor, 10 a free vertex in the void between the rings.
+    FLOOR, RIM = 10.0, 20.0
+
+    def _fixture(self, monkeypatch, tmp_path, floor=None):
+        floor_ring = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        rim_ring = [(-1.0, -1.0), (2.0, -1.0), (2.0, 2.0), (-1.0, 2.0)]
+        self._bind(monkeypatch, tmp_path, floor_ring + rim_ring,
+                   [(1, 2, MESH.PATCH_RING_MARKER), (2, 3, MESH.PATCH_RING_MARKER),
+                    (3, 4, MESH.PATCH_RING_MARKER), (4, 1, MESH.PATCH_RING_MARKER),
+                    (5, 6, MESH.PATCH_RING_MARKER), (6, 7, MESH.PATCH_RING_MARKER),
+                    (7, 8, MESH.PATCH_RING_MARKER), (8, 5, MESH.PATCH_RING_MARKER)])
+        fz = floor or (lambda x, y: self.FLOOR)
+        rows = [(x, y, fz(x, y)) for x, y in floor_ring]
+        rows += [(x, y, self.RIM) for x, y in rim_ring]
+        rows += [(0.5, 0.0, DEM_SENTINEL),       # 8: ON the floor edge 0-1
+                 (0.5, 0.5, DEM_SENTINEL),       # 9: inside the floor
+                 (0.5, -0.5, DEM_SENTINEL)]      # 10: in the void
+        triangles = [(0, 8, 9), (8, 1, 9), (1, 2, 9), (2, 3, 9), (3, 0, 9),
+                     (0, 4, 8), (8, 4, 10), (8, 10, 5), (8, 5, 1), (4, 10, 5)]
+        return build(rows), triangles, set(range(8))
+
+    def test_the_defect_without_the_amendment(self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(monkeypatch, tmp_path)
+        MESH.interpolate_free_interior_altitudes(vertices, triangles, authored)
+        # the split vertex is pulled toward the rim, and the floor's own
+        # interior with it — the floor is not flat
+        assert carried(vertices, 8) > self.FLOOR + 1.0
+        assert carried(vertices, 9) > self.FLOOR + 0.5
+
+    def test_a_split_vertex_takes_the_ring_value_and_the_floor_is_flat(
+            self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(monkeypatch, tmp_path)
+        split = MESH.patch_segment_split_values(
+            object(), vertices, triangles, authored)
+        assert split == {8: pytest.approx(self.FLOOR)}
+        for index, value in split.items():
+            vertices[STRIDE * index + VECTOR_COLUMN] = value
+        MESH.interpolate_free_interior_altitudes(
+            vertices, triangles, authored | set(split))
+        assert carried(vertices, 8) == pytest.approx(self.FLOOR, abs=1e-9)
+        assert carried(vertices, 9) == pytest.approx(self.FLOOR, abs=1e-9)
+        # the void vertex still interpolates between the two rings
+        assert self.FLOOR < carried(vertices, 10) < self.RIM
+
+    def test_a_tilted_ring_gives_the_linear_value(self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(
+            monkeypatch, tmp_path, floor=lambda x, y: 10.0 + 4.0 * x)
+        split = MESH.patch_segment_split_values(
+            object(), vertices, triangles, authored)
+        assert split == {8: pytest.approx(12.0)}
+
+    def test_off_segment_and_input_vertices_are_never_captured(
+            self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(monkeypatch, tmp_path)
+        # 9 and 10 are off every segment (checked above); move 8 a
+        # micron off the edge: no longer ON the ring
+        vertices[STRIDE * 8 + 1] = 1e-6
+        assert MESH.patch_segment_split_values(
+            object(), vertices, triangles, authored) == {}
+        # an INPUT vertex (index below the input count) is never a split
+        # point even when it lies on a segment: 3 lies on the rim edge?
+        # no — so put a free input vertex there: shrink the patch set
+        vertices[STRIDE * 8 + 1] = 0.0
+        assert MESH.patch_segment_split_values(
+            object(), vertices, triangles, authored - {1}) == {8: pytest.approx(self.FLOOR)}
+
+    def test_nothing_to_do_is_empty(self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(monkeypatch, tmp_path)
+        assert MESH.patch_segment_split_values(object(), vertices, [], authored) == {}
+        assert MESH.patch_segment_split_values(object(), vertices, triangles, set()) == {}
+
+    def test_unreadable_inputs_disable_it_loudly(self, tmp_path, monkeypatch):
+        vertices, triangles, authored = self._fixture(monkeypatch, tmp_path)
+        monkeypatch.setattr(MESH.FNAMES, "input_poly_file",
+                            lambda tile: str(tmp_path / "missing.poly"))
+        assert MESH.patch_segment_split_values(
+            object(), vertices, triangles, authored) is None

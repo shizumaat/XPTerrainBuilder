@@ -6294,6 +6294,10 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
     assert set(cg.ROLE_LESS_FEATURE_CLASSES) == {
         "shape_interior_ring", "gap_interior_ring", "gap_drainage_spine",
         "crown_spine",
+        # THE STRUCTURE RIM (RULINGS 2026-09-06b (1); auto_patch_v2
+        # ``emit.osm_adapter.RIM_FEATURE``): the at-grade ring round a
+        # below-grade structure's void, in place of the retired wall band.
+        "structure_rim",
         # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
         # §1b).  Role-less for the spines' reason: it is an OPEN
         # constrained breakline inside an apron face, so a phantom

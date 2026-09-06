@@ -21,6 +21,10 @@ THE PATCH v2 WRITES:
     inside it) is NOT written — the ring would be a coincident duplicate
     carrying the parent's shapeID, which read in the sim as "shapeID 718
     gap_interior_ring" over what is apron 730 (owner, OTHH 2026-09-04);
+  * one closed way per STRUCTURE RIM (``emit.graded.RIM_KIND``; RULINGS
+    2026-09-06b (1)): the void face's exterior at the ground, tagged
+    ``o4_feature=structure_rim`` with the structure's ``ref`` — a
+    constrained ring the mesh makes the wall up to (no wall face);
   * one open way per ``runway_profile`` breakline tagged
     ``o4_feature=crown_spine`` — the ridge the census's ``runway_crown``
     reader measures the declared drops against (a ``DUMMY`` constrained
@@ -79,6 +83,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).
 HOLE_FEATURE = "gap_interior_ring"
+#: The structure rim's feature tag (a role-less closed way; the census
+#: skips it as it skips the hole rings — ``check_grade.ROLE_LESS_FEATURE_CLASSES``).
+RIM_FEATURE = "structure_rim"
 #: Feature class of the runway ridge open way.
 RIDGE_FEATURE = "crown_spine"
 #: Breakline kinds emitted as open ways (the others are ring edges already).
@@ -155,9 +162,15 @@ def render_patch(surface: GradedSurface, law: Law,
             lines.append(f"    <tag k={_q(k)} v={_q(val)} />")
         lines.append("  </way>")
 
+    from .graded import RIM_KIND
     ring_edges: set[tuple[int, int]] = set()
     for f in surface.faces:
         ring_edges.update(_edges(f.ring))
+    for b in surface.breaklines:
+        if b.kind == RIM_KIND:
+            # a cut pavement's hole ring IS the rim: covered by it
+            ring_edges.update(_edges(b.vertices[:-1] if b.vertices[0] == b.vertices[-1]
+                                     else b.vertices))
 
     for f in surface.faces:
         spec = reg.get(f.role)
@@ -193,6 +206,14 @@ def render_patch(surface: GradedSurface, law: Law,
                 continue                    # covered: the inner faces constrain it
             way(h, [("o4_feature", HOLE_FEATURE), ("shapeID", str(f.id))], True)
     for b in surface.breaklines:
+        if b.kind == RIM_KIND and len(b.vertices) >= 3:
+            # the rim: closed where the run is the whole ring (the first
+            # vertex repeated), an open constrained chain where a tile
+            # piece holds only part of it
+            closed = b.vertices[0] == b.vertices[-1]
+            way(b.vertices[:-1] if closed else b.vertices,
+                [("o4_feature", RIM_FEATURE), ("ref", b.ref.split("@")[0])], closed)
+            continue
         feat = _OPEN_WAY_KINDS.get(b.kind)
         if feat is None or len(b.vertices) < 2:
             continue

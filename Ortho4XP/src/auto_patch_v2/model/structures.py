@@ -99,6 +99,12 @@ class Tunnel:
     resource: str = ""
     objects: tuple[str, ...] = ()
     depth_m: float = 0.0
+    #: The crest plate's height above the seat — the SEAT datum (05n-4:
+    #: crest flush at grade); equals ``depth_m`` for a full wall, the
+    #: low crest for an EDGE WALL whose depth is the bore law's
+    #: (RULINGS 2026-09-06c (2), ``edge_wall``).
+    plate_y_m: float = 0.0
+    edge_wall: bool = False
     hull_length_m: float = 0.0
     hull_width_m: float = 0.0
     ends: str = ""
@@ -133,25 +139,34 @@ class Tunnel:
 @_dc.dataclass(frozen=True)
 class Basin:
     """A below-grade FACILITY derived from the pack's own objects
-    (RULINGS 2026-08-26; ``structures.toml [basin]``; M4b): ONE floor
-    face at ``floor_z`` (role ``tunnel_trench``, ref ``floor_ref``), the
-    ``wall_gap_m`` unowned gap round it, ONE wall band (role
-    ``retaining_wall``, ref ``wall_ref``) whose crest is the ground
-    (the DEM where bare, the governed ground's value where shared — the
+    (RULINGS 2026-08-26; 2026-09-06b (1)/(3); ``structures.toml [basin]``,
+    ``[cutout]``; M4b): the floor face(s) at ``floor_z`` (role
+    ``tunnel_trench``, ref ``floor_ref`` / ``floor_ref#j``) — the
+    members' floor plates ⊕ ``floor_overlap_m`` — and ONE void face
+    (role ``retaining_wall``, ref ``wall_ref``; never a surface) whose
+    exterior is the at-grade RIM (the shells' footprint ⊕ ``rim_gap_m``;
+    the DEM where bare, the governed ground's value where shared — the
     rim LEVEL with the apron, 2026-08-28c item 3).
 
-    ``ring`` is the admitted region (the floor face's outline before the
-    arrangement); ``wall_path`` the band's centreline as a closed ring
-    (crest by station along it); ``rim_estimate_m`` is ``R_est`` (the
-    median DEM around the ring, ``rim_sample_step_m`` apart);
-    ``solid_min_z`` the RENDERED elevation of the facility's deepest
-    genuine solid (``DEM(anchor) + agl + y``, thickness-gated) and
-    ``solid_min_y_m`` the same relative to ``R_est`` (the sidecar's
-    ``solid_minimum_y_m``, so ``floor_z == rim_estimate_m +
-    solid_min_y_m − margins`` holds exactly); ``covered_fraction`` the
-    cover reading (the pack's own geometry above the contact band over
-    the ring — reported, never a refusal: 04i); ``anchor_ll`` a
-    representative point inside the ring."""
+    ``ring`` is the largest floor face's outline; ``wall_path`` the rim
+    ring (ground by station along it); ``region`` the admitted region
+    (the shells' footprint below the ground, before the rim gap);
+    ``rim_estimate_m`` is ``R_est`` (the median DEM around the region,
+    ``rim_sample_step_m`` apart); ``solid_min_z`` the RENDERED elevation
+    of the facility's deepest genuine solid (``DEM(anchor) + agl + y``,
+    thickness-gated) — the floor itself (``floor_z == solid_min_z``) —
+    and ``solid_min_y_m`` the same relative to ``R_est`` (the sidecar's
+    ``solid_minimum_y_m``); ``covered_fraction`` the cover reading (the
+    pack's own geometry above the contact band over the region —
+    reported, never a refusal: 04i); ``anchor_ll`` a representative
+    point inside the region.  THE SEAT (2026-09-06b (3)): ``member_ids``
+    the placements the plate seat plans, ``plate_y_m`` the deepest
+    member's plate y relative to its rendered y = 0 plane,
+    ``anchor_inside_floor`` whether that member's anchor lies on the
+    floor (it renders ON the trench floor after the mesh), and
+    ``seat_expect_m`` the delta the design implies (``floor − (mesh(anchor)
+    + agl + plate_y)``, the mesh at the anchor predicted as the floor
+    inside, the DEM outside) — the post-mesh seat measures the real one."""
 
     id: str
     objects: tuple[str, ...]
@@ -172,3 +187,9 @@ class Basin:
     #: (cover above the contact band over it; the cover is the object).
     floor_plate_m2: float = 0.0
     kind: str = "pit"
+    region: tuple[XY, ...] = ()
+    member_ids: tuple[str, ...] = ()
+    plate_y_m: float = 0.0
+    anchor_inside_floor: bool = False
+    seat_expect_m: float = 0.0
+    agl_m: float = 0.0

@@ -35,13 +35,16 @@ class Shape:
     ids: tuple[int, ...]         # vertex ids, open
     xy: tuple[tuple[float, float], ...]
     z: tuple[float, ...]
-    feature: str | None = None   # gap_interior_ring | crown_spine
+    feature: str | None = None   # gap_interior_ring | crown_spine | structure_rim
     code_letter: str | None = None
     code_number: int | None = None
     single_poly: bool = False
     law_cap: float | None = None  # o4_grade_law_cap (lateral contiguity)
     #: a hole feature's host face id (``key`` of the shape it is cut from)
     host: int | None = None
+    #: a ``structure_rim`` feature: a closed ring (True) or an open chain
+    #: whose ends stand on the ramp's top corners (a U void)
+    feature_closed: bool = True
 
     @property
     def closed_ring(self) -> tuple[tuple[float, float, float], ...]:
@@ -120,6 +123,16 @@ class Patch:
                 feats.append(Shape(-k, "", b.ref, tuple(b.vertices),
                                    tuple(xy[i] for i in b.vertices),
                                    tuple(z[i] for i in b.vertices), "crown_spine"))
+            elif b.kind == "structure_rim" and len(b.vertices) >= 3:
+                # the at-grade rim of a structure's void (2026-09-06b):
+                # the ring open (its closing vertex dropped), the ref the
+                # structure's (``tunnel_wall`` / ``basin_wall:<k>``)
+                k += 1
+                closed = b.vertices[0] == b.vertices[-1]
+                ids = b.vertices[:-1] if closed else b.vertices
+                feats.append(Shape(-k, "", b.ref.split("@")[0], tuple(ids),
+                                   tuple(xy[i] for i in ids), tuple(z[i] for i in ids),
+                                   "structure_rim", feature_closed=closed))
         return cls(law, lat0, lon0, xy, z, ll, tuple(shapes), tuple(feats),
                    dict(publication or {}))
 

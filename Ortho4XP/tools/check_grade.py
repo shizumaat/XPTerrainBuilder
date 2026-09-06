@@ -374,7 +374,8 @@ def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
                                       "gap_drainage_spine",
                                       "gap_interior_ring",
                                       "apron_lattice",
-                                      "apron_spine_station"):
+                                      "apron_spine_station",
+                                      "structure_rim"):
             if feature_out is not None:
                 feature_out.setdefault(tags["o4_feature"], []).append(Way(
                     wid=wid, role=tags.get("role", ""),
@@ -1330,6 +1331,15 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     # sidecar publication, because the lattice and the stations are ONE
     # membrane (RULINGS 2026-08-26b item 4, "join seamlessly").
     "apron_spine_station",
+    # THE STRUCTURE RIM (auto_patch_v2 ``emit.osm_adapter.RIM_FEATURE``;
+    # RULINGS 2026-09-06b (1)): the at-grade ring round a below-grade
+    # structure's void (a tunnel trench, a basin) — a closed constrained
+    # way the mesh makes the wall up to, in place of the retired
+    # ``retaining_wall`` band.  Role-less like the hole rings and for the
+    # same reason: it is articulation geometry (the ground's own edge),
+    # not a surface; its vertices are the cut pavement's own where it
+    # shares them and the DEM where bare.  Judged by no ring law.
+    "structure_rim",
 )
 
 #: The subset of :data:`ROLE_LESS_FEATURE_CLASSES` whose members are judged

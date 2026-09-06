@@ -269,27 +269,37 @@ def test_basin_pass_cells_records_and_refusals(basin_map, law):
         any("min_area_m2" in n for n in small.notes)
     b = basins[0]
     assert b.kind == "pit" and b.floor_plate_m2 == pytest.approx(60 * 40, rel=0.1)
-    # the floor law: R_est + (deepest solid − R_est) − margins == rendered deepest − margins
-    assert b.floor_z == pytest.approx(b.solid_min_z - br.floor_below_object_deck_m - bl.seat_margin_m)
-    assert b.floor_z == pytest.approx(b.rim_estimate_m + b.solid_min_y_m
-                                      - br.floor_below_object_deck_m - bl.seat_margin_m)
+    # THE FLOOR LAW (2026-09-06b (3)): the floor IS the rendered deepest
+    # solid — the floor plate — no margin; the family is plate-seated onto it
+    co = law.tables.structures.cutout
+    assert b.floor_z == pytest.approx(b.solid_min_z)
+    assert b.floor_z == pytest.approx(b.rim_estimate_m + b.solid_min_y_m)
     assert b.solid_min_z == pytest.approx(700.0 - 6.0, abs=0.3)
+    assert b.plate_y_m == pytest.approx(-6.0, abs=0.3) and b.anchor_inside_floor
+    assert b.seat_expect_m == pytest.approx(-b.plate_y_m, abs=1e-6)      # agl 0, anchor on the floor
     assert b.covered_fraction == 0.0 and b.area_m2 == pytest.approx(60 * 40, rel=0.1)
     roles = [c.role for c in cl3.cells]
     assert roles.count("tunnel_trench") == 2 and roles.count("retaining_wall") == 2
     floor = next(c for c in cl3.cells if c.ref == b.floor_ref)
     wall = next(c for c in cl3.cells if c.ref == b.wall_ref)
     assert floor.ref == b.floor_ref and wall.ref == b.wall_ref and len(wall.holes) == 1
-    # the gap: floor and wall clear each other by the law's gap
+    # THE TRENCH (2026-09-06b (1)): the floor = the plate ⊕ floor_overlap_m
+    # (on the identity grid); the void's hole IS the floor; the rim (its
+    # exterior) = the shell's footprint ⊕ rim_gap_m, clearing the floor by it
     fp, wp = Polygon(floor.ring), Polygon(wall.ring, wall.holes)
-    assert fp.distance(wp) >= law.tables.structures.tunnel.wall_gap_m - 1e-6
-    # the pad inside the pit is gone, the one beside it untouched, the apron cut
+    from shapely import affinity as _aff
+    plate = _aff.affine_transform(Polygon([(-30, -20), (30, -20), (30, 20), (-30, 20)]),
+                                  obj8.placement_affine((0.0, 0.0), 30.0))
+    assert fp.contains(plate) and fp.exterior.distance(plate.exterior) >= co.floor_overlap_m - 1e-6
+    assert Polygon(wall.holes[0]).equals(fp)
+    assert wp.exterior.distance(fp) >= co.rim_gap_m - 1e-6
+    assert Polygon(wall.ring).contains(plate.buffer(co.rim_gap_m - 1e-6))
+    # the pad inside the pit is gone, the one beside it untouched, the apron cut at the rim
     refs = [c.ref for c in cl3.cells]
     assert "padIn" not in refs and "padOut" in refs
     apron = [c for c in cl3.cells if c.role == "apron"]
     assert apron and all("basin_cut" in c.evidence for c in apron)
-    assert Polygon(apron[0].ring, apron[0].holes).distance(fp) >= \
-        law.tables.structures.tunnel.wall_gap_m - 1e-6
+    assert Polygon(apron[0].ring, apron[0].holes).distance(fp) >= co.rim_gap_m - 1e-6
     assert len(cl3.keepouts) == 2
     # the planar map carries the record; 0 T-vertices
     assert pm.basins and pm.basins[0].id == b.id and stats.t_vertices == 0
@@ -382,16 +392,16 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     floor_pins = {p.v: p.z for p in pins if p.v in floor_vs}
     assert floor_pins and set(floor_pins) == floor_vs
     assert all(z == pytest.approx(b.floor_z) for z in floor_pins.values())
-    # every wall vertex pinned at the DEM or carried by the apron it shares
-    flat_vs = {v for r in rows if isinstance(r, Flat) for v in r.group}
+    # every rim vertex (the void's exterior) pinned at the DEM or carried
+    # by the apron it shares; no Flat across a band (there is none)
+    assert not any(isinstance(r, Flat) for r in rows)
     pinned = {p.v for p in pins}
     for f in pm.faces.values():
         if f.ref.startswith(b.wall_ref):
-            for cyc in (f.ring, *f.holes):
-                for v in pm.ring_vertices(cyc):
-                    ground = any(pm.faces[x].role not in ("tunnel_trench", "retaining_wall")
-                                 for x in pm.vertices[v].incident_faces)
-                    assert v in pinned or v in flat_vs or ground
+            for v in pm.ring_vertices(f.ring):
+                ground = any(pm.faces[x].role not in ("tunnel_trench", "retaining_wall")
+                             for x in pm.vertices[v].incident_faces)
+                assert v in pinned or ground
     cs, counts, _w = generate(pm, law, airport)
     assert counts["basins"] == len(rows)
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
@@ -402,14 +412,16 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     pub = publication(pm, law, airport, sol.z)
     rec = [r for r in pub["basin_facilities"] if r["floor_ref"] == b.floor_ref]
     assert len(pub["basin_facilities"]) == 2 and len(rec) == 1
-    bl, br = law.tables.structures.basin, law.tables.structures.bridge
     assert rec[0]["floor_m"] == pytest.approx(
-        rec[0]["rim_law_m"] + rec[0]["solid_minimum_y_m"]
-        - (br.floor_below_object_deck_m + bl.seat_margin_m), abs=0.002)
+        rec[0]["rim_law_m"] + rec[0]["solid_minimum_y_m"], abs=0.002)
+    assert rec[0]["margins_m"] == 0.0 and rec[0]["anchor_inside_floor"] is True
+    assert rec[0]["seat_expect_m"] == pytest.approx(-rec[0]["plate_y_m"], abs=0.002)
     assert rec[0]["body_depth_m"] == pytest.approx(-rec[0]["solid_minimum_y_m"])
     assert rec[0]["emitted_rim_parts_m"] and rec[0]["emitted_rim_min_m"] > rec[0]["floor_m"]
+    # the rim parts are the RIM's values (the ground), never the floor's
+    assert all(v > rec[0]["floor_m"] + 1.0 for v in rec[0]["emitted_rim_parts_m"])
     rows_v = census(surf, law, pub, {})
-    for key in ("basin_floor_declaration", "basin_floor_at_declaration", "basin_wall_gap",
+    for key in ("basin_floor_declaration", "basin_floor_at_declaration", "structure_rim_gap",
                 "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])
     # steps / cross-shape: nothing between the floor and the wall or the apron

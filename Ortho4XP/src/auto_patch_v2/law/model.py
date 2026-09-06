@@ -1,14 +1,10 @@
-"""THE LAW — typed schema and loader for the ``law/*.toml`` tables.
-
-RULINGS 2026-09-03d: v2's ``law/`` is v2's own single source, cross-validated
-against v1's census; owner amendment 2026-09-03: the VALUES live in
-human-editable TOML, never in Python.  This module holds the SHAPE of the
-law (frozen dataclasses, one per table) and the loader that validates the
-files — unknown key, missing required key, non-numeric cap, unit sanity,
-a family pointing at a parameter that does not exist — and fails loudly.
-No numeric value appears here.
-
-Dependency direction: ``law`` imports nothing from the rest of v2.
+"""THE LAW — typed schema and loader for the ``law/*.toml`` tables
+(RULINGS 2026-09-03d; owner amendment 2026-09-03: the VALUES live in
+TOML, never in Python).  The SHAPE of the law (frozen dataclasses, one per
+table) and the loader that validates the files — unknown / missing key,
+non-numeric cap, unit sanity, a family pointing at a parameter that does
+not exist — and fails loudly.  No numeric value appears here; ``law``
+imports nothing from the rest of v2.
 """
 from __future__ import annotations
 
@@ -253,11 +249,7 @@ class Zones:
 
 @_dc.dataclass(frozen=True)
 class TunnelObject:
-    """Tunnel wall OBJECTS as the tunnel authority (RULINGS 2026-09-05k-1,
-    round 2 05n; ``structures.toml [tunnel.object]``): the object's own
-    geometry referenced to the GROUND — plate = ground (re-seated), floor
-    at the mouth = ground − plate height, the ramp inside the walls, the
-    trench between the walls' inner faces, precedence per mouth."""
+    """Tunnel wall OBJECTS as the tunnel authority (05k-1, 05n, 06c; ``[tunnel.object]``)."""
 
     source_precedence: tuple[str, ...]
     plate_datum: str
@@ -273,6 +265,7 @@ class TunnelObject:
     plate_bin_m: float
     plate_min_area_m2: float
     plate_min_height_m: float
+    edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
     floor_plate_max_m2: float
     hull_min_length_m: float
     end_cap_open_m: float
@@ -293,6 +286,8 @@ class Tunnel:
     wall_band_width_m: float
     lane_width_m: float
     default_lanes: int
+    ramp_width_source: tuple[str, ...]      # 2026-09-06b (2): ["pavement", "lanes"]
+    ramp_pavement_max_offset_m: float
     dual_carriageway_max_separation_m: float
     max_ramp_length_m: float
     object: TunnelObject
@@ -307,7 +302,6 @@ class Bridge:
     deck_datum: str
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool
-    floor_below_object_deck_m: float
     # the deck signature by geometry (04k; M6b)
     deck_plate_normal_y_min: float
     deck_plane_bin_m: float
@@ -346,7 +340,7 @@ class Basin:
     """Basin facility law (RULINGS 2026-08-26; M4b)."""
 
     floor: str
-    seat_margin_m: float
+    seat: str                          # "floor_plate": the family seats its plate on the floor (2026-09-06b)
     min_solid_thickness_m: float
     admission_depth_m: float
     contact_band_m: float
@@ -354,6 +348,7 @@ class Basin:
     min_area_m2: float                 # diagnostic only (04i)
     rim_sample_step_m: float
     max_covered_fraction: float        # diagnostic only (04i)
+    basement_cover_min: float          # 2026-09-06c (1): own cover at or above this = a BASEMENT; less = a PIT
     floor_disagreement_m: float
     rim: str
     shell_reaches_grade: bool
@@ -361,6 +356,15 @@ class Basin:
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     rim_reaches_grade: bool            # 04i: the closed-region test
+
+
+@_dc.dataclass(frozen=True)
+class Cutout:
+    """Below-grade object trench: floor ⊕ overlap, rim ⊕ gap, no band (2026-09-06b (1))."""
+
+    floor_overlap_m: float
+    rim_gap_m: float
+    emit_wall_band: bool
 
 
 @_dc.dataclass(frozen=True)
@@ -373,9 +377,7 @@ class RetainingWall:
 
 @_dc.dataclass(frozen=True)
 class Rebake:
-    """Object re-seat law (RULINGS 2026-09-04i 04f-1: restore before
-    read, re-bake after the mesh; memory ``othh-bridge-deck-datum-r12``,
-    ``shared-datum-pack-authoring``; the reseat-threshold spec)."""
+    """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
 
     restore_before_read: bool
     ground_datum: str
@@ -404,6 +406,7 @@ class Structures:
     bridge: Bridge
     building_pad: BuildingPad
     basin: Basin
+    cutout: Cutout
     retaining_wall: RetainingWall
     rebake: Rebake
 
@@ -439,11 +442,9 @@ class Materiality:
 
 @_dc.dataclass(frozen=True)
 class NoStep:
-    """Airside no-step pairs (RULINGS 2026-08-27; 2026-09-04o/04q re-derive
-    the window and K as ROUTE distances).  ``metric`` names the distance
-    the pairs are formed and priced over: ``"route"`` = along the taxi
-    network through airside pavement (the only lawful value; a chord
-    metric is the refuted 08-27 reading)."""
+    """Airside no-step pairs (RULINGS 2026-08-27; 2026-09-04o/04q: the window
+    and K are ROUTE distances).  ``metric`` = ``"route"`` (along the taxi
+    network; a chord metric is the refuted 08-27 reading)."""
 
     window_m: float
     k: int
@@ -510,9 +511,7 @@ class LateralContiguity:
 
 @_dc.dataclass(frozen=True)
 class RoadProfile:
-    """The core's road clamp constants (RULINGS 2026-09-04t-4: the core
-    smooths first; ``airport/road_profile.py`` reproduces its profile as
-    the road family's fit target)."""
+    """The core's road clamp constants (RULINGS 2026-09-04t-4; ``airport/road_profile.py``)."""
 
     station_m: float
     lane_width_m: float
@@ -672,7 +671,7 @@ def _sane(path: str, name: str, value: float) -> None:
         if value < 0 and name not in _SIGNED_METRES:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
         return
-    if name in ("max_covered_fraction", "floor_plate_normal_y_min"):
+    if name in ("max_covered_fraction", "floor_plate_normal_y_min", "basement_cover_min"):
         if not 0.0 <= value <= 1.0:
             raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return

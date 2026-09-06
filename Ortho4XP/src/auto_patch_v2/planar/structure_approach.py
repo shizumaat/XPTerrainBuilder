@@ -12,14 +12,17 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-from shapely.geometry import LineString
+import shapely
+from shapely.geometry import LineString, Point
+from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import OsmWay
 from ..model.frame import XY
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 
-__all__ = ["carriageway_width_m", "Bore", "Mouth", "chains", "approach", "resample",
+__all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
+           "resample",
            "mouths", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL"]
 
@@ -59,6 +62,79 @@ def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
     except ValueError:
         n = tn.default_lanes
     return max(1, n) * tn.lane_width_m
+
+
+def pavement_half_widths(axis_fn, ss: _t.Sequence[float], cells, polys, law: Law,
+                         half_default: float) -> "tuple[dict[float, tuple[float, float]], list[str]]":
+    """THE RAMP WIDTH FROM THE PAVEMENT (RULINGS 2026-09-06b (2); ``tunnel.
+    ramp_width_source``): per station ``s`` the ramp's half widths ``(left,
+    right)`` read from the pavement cell that TRACES the road there — a
+    value cell (never the runway family, never a pad) containing the
+    station whose across-axis centre lies within
+    ``ramp_pavement_max_offset_m`` of the axis and which runs ALONG the
+    axis (it contains the neighbouring stations too).  Stations no
+    pavement traces are absent (the caller's lanes width stands).
+    Returns the map and the cells' refs used."""
+    from ..law.tables import is_value_role
+    tn = law.tables.structures.tunnel
+    if not tn.ramp_width_source or tn.ramp_width_source[0] != "pavement":
+        return {}, []
+    max_off = tn.ramp_pavement_max_offset_m
+    cand = [(p, c) for p, c in zip(polys, cells)
+            if is_value_role(law, c.role) and c.role not in ("runway", "runway_crossing",
+                                                              "building")]
+    if not cand:
+        return {}, []
+    # a station ON the pavement's edge (the mouth where the traced road
+    # ends at the bore) counts: containment within one identity-grid step
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    hulls = [p.buffer(grid) for p, _c in cand]
+    tree = STRtree(hulls)
+    out: dict[float, tuple[float, float]] = {}
+    refs: list[str] = []
+    n = len(ss)
+    reach = 10.0 * max(half_default, 1.0)
+    for i, s in enumerate(ss):
+        p = axis_fn(s)
+        a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
+        u = unit(a, b)
+        nv = (-u[1], u[0])
+        prev_pt = axis_fn(ss[i - 1]) if i > 0 else None
+        next_pt = axis_fn(ss[i + 1]) if i + 1 < n else None
+        best = None
+        for j in tree.query(Point(p), predicate="within"):
+            poly, c = cand[int(j)]
+            hull = hulls[int(j)]
+            along = all(hull.contains(Point(q)) for q in (prev_pt, next_pt) if q is not None)
+            if not along:
+                continue
+            ray_l = LineString([p, (p[0] + nv[0] * reach, p[1] + nv[1] * reach)])
+            ray_r = LineString([p, (p[0] - nv[0] * reach, p[1] - nv[1] * reach)])
+            hl = _ray_hit(ray_l, poly, p)
+            hr = _ray_hit(ray_r, poly, p)
+            if hl is None or hr is None:
+                continue
+            off = abs(hl - hr) / 2.0
+            if off > max_off:
+                continue
+            if best is None or off < best[0]:
+                best = (off, hl, hr, c.ref)
+        if best is not None:
+            out[s] = (best[1], best[2])
+            if best[3] not in refs:
+                refs.append(best[3])
+    return out, refs
+
+
+def _ray_hit(ray: LineString, poly, p: XY) -> float | None:
+    """The distance from ``p`` along ``ray`` to the polygon's boundary."""
+    x = ray.intersection(poly.boundary)
+    if x.is_empty:
+        return None
+    pts = [g for g in shapely.get_parts(x) if g.geom_type == "Point"]
+    if not pts:
+        return None
+    return min(math.hypot(g.x - p[0], g.y - p[1]) for g in pts)
 
 
 # ── bores (chains of tunnel ways) ────────────────────────────────────────

@@ -83,24 +83,41 @@ class BuildResult:
 
 
 def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
-    """Placement id -> ``(plate height, wall-band stations in frame xy)``
-    for every tunnel wall object (RULINGS 2026-09-05n-4): the band's
-    centreline points inside the object's own walls (the ramp's bands
-    beyond the walls are the OSM law's)."""
-    from shapely.geometry import Point as _Pt
-    tol = (law.tables.structures.tunnel.wall_band_width_m
-           + 2.0 * law.tables.emit.identity.min_distinct_spacing_m)
+    """Placement id -> ``(plate y, stations in frame xy)`` for every
+    PLATE-seated structure member: a tunnel wall object (RULINGS
+    2026-09-05n-4: plate height above its seat, the rim's points inside
+    the object's own walls — the ramp's rim beyond the walls is the OSM
+    law's) and a basin member (RULINGS 2026-09-06b (3), ``basin.seat =
+    "floor_plate"``: the family's floor-plate y — NEGATIVE, under the
+    rendered y = 0 plane — and points ON the trench floor face, so the
+    seat's delta = floor − (mesh(anchor) + agl + plate y) lands the plate
+    on the floor).  ``emit/rebake._plate_reading`` reads both alike."""
+    from shapely.geometry import LineString as _LS, Point as _Pt, Polygon as _Poly
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    tol = law.tables.structures.tunnel.wall_band_width_m + 2.0 * grid
     out: dict[str, tuple[float, list]] = {}
     for tn in pm.structures:
         if tn.source != "object" or not tn.objects:
             continue
         pts = list(tn.wall_path)
         if tn.wall_length_m > 0.0 and tn.top_s > tn.wall_length_m + 1e-6:
-            from shapely.geometry import LineString as _LS
             ax = _LS(tn.axis)
             pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
         for oid in tn.objects:
-            out[oid] = (float(tn.depth_m), pts)
+            # the seat reads the CREST (plate_y_m): an edge wall's depth
+            # is the bore law's, its crest still goes flush (2026-09-06c)
+            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts)
+    if law.tables.structures.basin.seat != "floor_plate":
+        return out
+    for b in pm.basins:
+        floor = _Poly(b.ring)
+        inner = floor.buffer(-2.0 * grid)
+        pts = list((inner if not inner.is_empty and inner.geom_type == "Polygon"
+                    else floor).exterior.coords)[:-1]
+        if not pts:
+            continue
+        for oid in b.member_ids:
+            out.setdefault(oid, (float(b.plate_y_m), pts))
     return out
 
 
@@ -109,7 +126,7 @@ def _basin_polygon(b):
     below-grade spanning evidence, 04k), ``None`` when degenerate."""
     from shapely.geometry import Polygon
     try:
-        p = Polygon(b.ring)
+        p = Polygon(b.region or b.ring)
         return p if p.is_valid and not p.is_empty else p.buffer(0)
     except (ValueError, TypeError):
         return None
@@ -265,8 +282,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused {r}", out)
         for b in pm.basins:
             _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
-                 f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  area {b.area_m2:.0f} m2  "
-                 f"at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  {'; '.join(b.notes)}", out)
+                 f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  floor area {b.area_m2:.0f} m2  "
+                 f"seat expect {b.seat_expect_m:+.2f} (anchor "
+                 f"{'inside' if b.anchor_inside_floor else 'outside'} the floor, plate y "
+                 f"{b.plate_y_m:+.2f})  at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  "
+                 f"{'; '.join(b.notes)}", out)
     # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; ``airport/flat_site.py``):
     # measured here, after the planar stage read the pack's objects (S4),
     # on the production raster already in memory; the datum is a
@@ -439,10 +459,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         rplan = None
         if objects_out:
             _to_xy = airport.frame.transformers()[0]
+            # a basin family is PLATE-seated onto its floor (2026-09-06b (3)),
+            # never excluded; ``exclude`` stays for any other caller
+            plates = _plate_seats(pm, law)
+            excluded = set() if law.tables.structures.basin.seat == "floor_plate" \
+                else {oid for b in pm.basins for oid in b.objects}
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
-                                exclude={oid for b in pm.basins for oid in b.objects},
-                                tunnel_objects=_plate_seats(pm, law),
+                                exclude=excluded,
+                                tunnel_objects=plates,
                                 below_grade=[(_basin_polygon(b), tuple(b.objects))
                                              for b in pm.basins])
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"

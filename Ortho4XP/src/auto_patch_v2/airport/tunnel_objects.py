@@ -84,13 +84,18 @@ class WallSignature:
     plate: Polygon
     length_m: float
     width_m: float
+    #: RULINGS 2026-09-06c (2): the crest stands under ``edge_wall_max_
+    #: plate_m`` — an EDGE WALL: the plan is the walls', the depth the
+    #: bore law's (``tunnel.bore_datum_m`` at the mouth).
+    edge_wall: bool = False
 
 
 @_dc.dataclass(frozen=True)
 class Corridor:
     """One tunnel corridor in the AIRPORT frame (round 2).  ``axis`` runs
-    from the MOUTH (s = 0; ``wall_gap_m`` inside a closed end's inner
-    face) to the far end; ``stations`` give the inner faces left / right
+    from the MOUTH (s = 0; ``cutout.floor_overlap_m`` OUTSIDE a closed
+    end's inner face — the floor overlaps the end wall's footprint,
+    2026-09-06b) to the far end; ``stations`` give the inner faces left / right
     of it and the walls' thickness by station; ``trench`` is the region
     between the inner faces, ``walls`` the walls' plan footprint,
     ``footprint`` their union (what a bore mouth is INSIDE of)."""
@@ -129,9 +134,12 @@ class Corridor:
     def ground_kind(self) -> str:
         return "bore" if self.flat else ("closed" if self.far_closed else "open")
 
-    @property
-    def depth_m(self) -> float:
-        return self.plate_y
+    #: The trench DEPTH at the mouth: the plate height for a full wall
+    #: (``mouth_depth = "plate"``), ``tunnel.bore_datum_m`` for an EDGE
+    #: WALL (2026-09-06c (2)) — ``plate_y`` stays the crest's height for
+    #: the seat (crest flush at grade, 05n-4).
+    depth_m: float = 0.0
+    edge_wall: bool = False
 
 
 @_dc.dataclass
@@ -245,9 +253,16 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     if plate_area < ob.plate_min_area_m2:
         return (f"not a wall: crest plate {plate_area:.0f} m2 at {plate_y:.2f} m "
                 f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f})")
+    edge_wall = False
     if plate_y < ob.plate_min_height_m:
-        return (f"a kerb, not a tunnel wall: crest plate at {plate_y:.2f} m above the seat "
-                f"(< plate_min_height_m {ob.plate_min_height_m})")
+        # THE EDGE WALL (2026-09-06c (2)): a low crest over a real skirt
+        # states the ramp's PLAN; the depth is the bore law's
+        if plate_y < ob.edge_wall_max_plate_m:
+            edge_wall = True
+        else:
+            return (f"a kerb, not a tunnel wall: crest plate at {plate_y:.2f} m above the "
+                    f"seat (< plate_min_height_m {ob.plate_min_height_m}, not under "
+                    f"edge_wall_max_plate_m {ob.edge_wall_max_plate_m})")
     # NO FLOOR PLATE (``floor_plate_max_m2``): a near-horizontal face
     # below the seat that runs ALONG the corridor's axis is a floor
     below = horiz & (ymax < 0.0)
@@ -270,7 +285,8 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     plate = unary_union([f for f in faces if f.area > 1e-9]).buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
-    return WallSignature(geom.path, plate_y, float(plate_area), float(skirt), plate, length, width)
+    return WallSignature(geom.path, plate_y, float(plate_area), float(skirt), plate, length, width,
+                         edge_wall)
 
 
 # ── placements → corridors ───────────────────────────────────────────────
@@ -348,18 +364,19 @@ def _faces_other(axis: list[XY], k: int, others: _t.Sequence[Polygon]) -> bool:
 
 
 def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
-              gap: float, sample: float) -> tuple[list[XY], list[Station]]:
+              overlap: float, sample: float) -> tuple[list[XY], list[Station]]:
     """The axis and stations re-based with s = 0 at the MOUTH end, the
     stations resampled every ``sample`` (the last ON the far end), a
-    closed end's station standing ``gap`` inside its inner face."""
+    closed end's station standing ``overlap`` OUTSIDE its inner face
+    (the trench floor overlaps the end wall, ``cutout.floor_overlap_m``)."""
     ln = LineString(axis)
     s0, s1 = sts[0].s, sts[-1].s
     if mouth == 1:
         s0, s1 = s1, s0
     closed_m, closed_f = walls.closed[mouth], walls.closed[1 - mouth]
     sign = 1.0 if mouth == 0 else -1.0
-    start = s0 + sign * (gap if closed_m else 0.0)
-    end = s1 - sign * (gap if closed_f else 0.0)
+    start = s0 - sign * (overlap if closed_m else 0.0)
+    end = s1 + sign * (overlap if closed_f else 0.0)
     total = abs(end - start)
     ss = [sample * k for k in range(int(total // sample) + 1)]
     if total - ss[-1] > 1e-6:
@@ -380,8 +397,18 @@ def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
     out_st: list[Station] = []
     for s in ss:
         so = start + sign * s
-        p = ln.interpolate(min(max(so, 0.0), ln.length))
-        out_axis.append((p.x, p.y))
+        # beyond the midline's ends (the overlap into an end wall) the
+        # axis continues straight along its end direction
+        if so < 0.0 or so > ln.length:
+            e = ln.interpolate(0.0 if so < 0.0 else ln.length)
+            q = ln.interpolate(min(ln.length, 1.0) if so < 0.0 else max(0.0, ln.length - 1.0))
+            ux, uy = e.x - q.x, e.y - q.y
+            L = math.hypot(ux, uy) or 1.0
+            d = (-so) if so < 0.0 else (so - ln.length)
+            out_axis.append((e.x + ux / L * d, e.y + uy / L * d))
+        else:
+            p = ln.interpolate(so)
+            out_axis.append((p.x, p.y))
         st = interp(so)
         if mouth == 1:          # travelling the other way: left and right swap
             st = Station(s, st.half_r, st.half_l, st.thick_r, st.thick_l)
@@ -435,14 +462,28 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         return (f"the mouth is undetermined: no bore at either end, no facing placement, "
                 f"ends {walls.kind} {'closed' if walls.closed[0] else 'open'}/"
                 f"{'closed' if walls.closed[1] else 'open'}")
-    axis2, sts2 = _oriented(walls, axis, sts, mouth, tn.wall_gap_m, ob.wall_sample_m)
+    axis2, sts2 = _oriented(walls, axis, sts, mouth,
+                            law.tables.structures.cutout.floor_overlap_m, ob.wall_sample_m)
     if len(axis2) < 2:
         return "the corridor is shorter than one station"
     far = 1 - mouth
     mouth_dem = float(airport.dem.z(*axis2[0]))
     if math.isnan(mouth_dem):
         return "no DEM at the mouth"
-    floor = mouth_dem - sig.plate_y
+    # THE DEPTH (05n-1 / 2026-09-06c (2)): a full wall's plate height; an
+    # EDGE WALL states no depth — the bore law's bore_datum_m at the
+    # mouth, so it needs a BORE mouth (no bore, no depth authority)
+    if sig.edge_wall:
+        if kind != "bore":
+            return (f"an edge wall (crest {sig.plate_y:.2f} m < edge_wall_max_plate_m "
+                    f"{ob.edge_wall_max_plate_m}) with no bore mouth: the depth is the bore "
+                    f"law's and nothing states it (2026-09-06c (2))")
+        depth = float(tn.bore_datum_m)
+        notes.append(f"edge wall (2026-09-06c (2)): crest {sig.plate_y:.2f} m flush at grade, "
+                     f"depth {depth:.2f} m = tunnel.bore_datum_m at the mouth")
+    else:
+        depth = float(sig.plate_y)
+    floor = mouth_dem - depth
     trench = Polygon(list(walls.inner_a) + list(reversed(walls.inner_b)))
     if not trench.is_valid:
         trench = trench.buffer(0)
@@ -457,7 +498,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
                     tuple(sts2), float(sts2[-1].s), width, walls.closed[mouth], walls.closed[far],
                     walls.end_thickness_m[mouth], walls.end_thickness_m[far], kind, flat,
                     mouth_dem, floor, walls.plate, trench, footprint, o.xy, float(o.anchor_z),
-                    float(o.agl_m), tuple(notes))
+                    float(o.agl_m), tuple(notes), depth, bool(sig.edge_wall))
 
 
 def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
@@ -502,8 +543,12 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         seat = _seat(o, msl)
         # THE SEAT IS BELOW GRADE (the basin family's admission depth): a
         # wall object seated AT grade is a fence or a compound wall
-        # (measured OTHH: a fuel-farm wall and a terminal kerb wall)
-        if seat > o.anchor_z - admission:
+        # (measured OTHH: a fuel-farm wall and a terminal kerb wall).  An
+        # EDGE WALL (2026-09-06c (2)) is placed with its low crest at the
+        # ground — its seat stands one crest under grade, never the
+        # admission depth; its discriminator is the BORE mouth inside it
+        # (read in _corridor), and the re-seat puts the crest flush.
+        if not sig.edge_wall and seat > o.anchor_z - admission:
             stats.refused.append(f"{o.id} {os.path.basename(o.path)}: seat {seat:.2f} is not "
                                  f"{admission:.1f} m (basin.admission_depth_m) under the ground "
                                  f"at the placement ({o.anchor_z:.2f}) — a wall at grade, not a "

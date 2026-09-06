@@ -399,6 +399,7 @@ def _decision_from_seats(plan_, result, measure_only: bool):
     anchors: dict[str, tuple[float, float, float]] = {}
     kinds: dict[str, str] = {}
     datums: dict[str, float] = {}
+    notes: dict[str, str] = {}
     skipped: list[tuple[str, str]] = []
     for u, us in zip(plan_.units, result.units):
         if us.held:
@@ -406,6 +407,11 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             # the live bytes exactly as they are (reported, never reverted)
             continue
         facility = {s.resource: s for s in us.members if s.facility}
+        # RULINGS 2026-09-06b law 3: a member seated APART bakes by its own
+        # delta, whatever its family does (the family may even be below
+        # the threshold); one outside the coalition but under the
+        # threshold stays
+        apart = {s.resource: s for s in us.members if s.seated_apart or s.apart_stays}
         for m in u.members:
             r = m.resource
             anchors[r] = (u.anchor[0], u.anchor[1], m.heading_deg)
@@ -414,7 +420,21 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             if measure_only:
                 skipped.append((r, "measure-only: modify_custom_airports is off"))
                 continue
-            if r in facility:
+            delta_r: float | None = None
+            kind_r = "v2_" + us.datum
+            if r in apart and apart[r].apart_stays:
+                a_ = apart[r]
+                skipped.append((r, f"seated apart (2026-09-06b law 3): own delta {a_.delta_m:+.3f} m "
+                                   f"under min_delta_m, family {a_.family_delta_m:+.3f} m — stays "
+                                   f"at its authored y ({us.unit_id})"))
+                continue
+            if r in apart:
+                a_ = apart[r]
+                delta_r = float(a_.delta_m)
+                kind_r = "v2_feet_apart"
+                notes[r] = (f"seated_apart (2026-09-06b law 3): coalition {a_.family_delta_m:+.3f} m, "
+                            f"own {delta_r:+.3f} m ({us.unit_id})")
+            elif r in facility:
                 # RULINGS 2026-09-05p: a facility member keeps its authored
                 # y whatever its family does — the excluded path, so v1's
                 # reversion pass restores an earlier bake and the
@@ -424,9 +444,11 @@ def _decision_from_seats(plan_, result, measure_only: bool):
                                    f"mesh — keeps its authored y; the cutout is the basin "
                                    f"pass's affair ({us.unit_id})"))
                 continue
-            if not us.bakes:
+            elif not us.bakes:
                 skipped.append((r, us.skip_reason or "no seat"))
                 continue
+            else:
+                delta_r = float(us.delta_m)
             try:
                 geom = obj8_reader.load_object_file(m.authored_path)
             except (OSError, ValueError) as exc:
@@ -437,7 +459,7 @@ def _decision_from_seats(plan_, result, measure_only: bool):
                 skipped.append((r, "no solid triangle: nothing to seat"))
                 continue
             vids = sorted({i for t in tris for i in t})
-            deltas[r] = {i: float(us.delta_m) for i in vids}
+            deltas[r] = {i: delta_r for i in vids}
             ys = [geom.vertices[i][1] for i in vids]
             structures.append(Structure(
                 triangles_by_resource={r: tris}, surface_area_square_metres=0.0,
@@ -445,13 +467,15 @@ def _decision_from_seats(plan_, result, measure_only: bool):
                 minimum_base_y_by_resource={r: min(ys)}, is_ground_touching=True,
                 ground_span_metres=None, needs_pad=False, skip_reason=None,
                 inherited_from_structure_index=None))
-            kinds[r] = "v2_" + us.datum
-            if us.seat_datum_m is not None:
+            kinds[r] = kind_r
+            if r in apart and us.anchor_ground_m is not None:
+                datums[r] = float(us.anchor_ground_m) + u.agl_m + delta_r
+            elif us.seat_datum_m is not None:
                 datums[r] = float(us.seat_datum_m)
     return RebakeDecision(structures=structures, delta_by_resource_and_vertex=deltas,
                           anchor_ground_by_resource=ground, skipped=skipped,
                           anchor_by_resource=anchors, decision_kind_by_resource=kinds,
-                          seat_datum_by_resource=datums)
+                          seat_datum_by_resource=datums, seat_note_by_resource=notes)
 
 
 def rebake_after_mesh(tile) -> dict:
@@ -471,7 +495,7 @@ def rebake_after_mesh(tile) -> dict:
 
     counts = {"airports": 0, "units": 0, "units_baked": 0, "units_below_threshold": 0,
               "units_skipped": 0, "units_held": 0, "objects_written": 0,
-              "objects_reverted": 0,
+              "objects_reverted": 0, "units_split": 0, "members_apart": 0,
               "vertices_offset": 0, "findings": 0, "airports_failed": 0,
               "packs_written": 0}
     try:
@@ -544,6 +568,8 @@ def rebake_after_mesh(tile) -> dict:
                 counts["units_below_threshold"] += rc["below_threshold"]
                 counts["units_skipped"] += rc["skipped"]
                 counts["units_held"] += rc["held"]
+                counts["units_split"] += rc["units_split"]
+                counts["members_apart"] += rc["members_apart"]
                 counts["findings"] += rc["findings"]
                 counts["objects_written"] += len(report.objects_written)
                 counts["objects_reverted"] += len(report.objects_reverted)
@@ -571,7 +597,8 @@ def rebake_after_mesh(tile) -> dict:
                              f"{report.vertices_offset_total} vertices), "
                              f"{rc['below_threshold']} below the {law.tables.structures.rebake.min_delta_m} m "
                              f"threshold, {rc['held']} held (no land witness: current "
-                             f"bytes kept), {rc['skipped']} unseatable, "
+                             f"bytes kept), {rc['skipped']} unseatable, {rc['units_split']} "
+                             f"family(ies) split ({rc['members_apart']} member(s) seated apart), "
                              f"{len(report.objects_reverted)} reverted, "
                              f"{rc['findings']} finding(s) -> {os.path.basename(rp)}")
                 for u in res.units:

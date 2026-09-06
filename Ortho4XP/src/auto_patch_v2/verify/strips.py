@@ -20,7 +20,13 @@ v1 ``_check_strip_longitudinal_grade`` / ``_check_strip_arc_rate`` /
 * ``strip_seam_tear``: two different strip rings' vertices within the
   seam radius, a metre-plus step at ≥ 50 % (wall exemptions vacuous:
   v2 emits no walls; the open-ground 15 m floor is NOT modelled — v2 has
-  no ungraded ground inside its strips).
+  no ungraded ground inside its strips);
+* ``strip_transverse`` (RULINGS 2026-09-06b law 2): a strip-only vertex
+  inside a runway's lateral rectangle and runway zone, standing further
+  from its nearest runway-family ring edge (interpolated at the foot)
+  than ``tables.strip_transverse_bound(d)`` either way, beyond the
+  quantum — the generator ``constraints.zones.strip_transverse`` states
+  the same bound in the strip's tier.
 """
 from __future__ import annotations
 
@@ -29,12 +35,15 @@ import math
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
 from ..constraints.strips import pavement_ring_vertices, strip_longitudinal_pairs
-from ..law.tables import zone2_half_width_m
+from ..law.tables import strip_transverse_bound, zone2_half_width_m
 from .frame import Patch, Row, Shape, row
 from .no_step import rate_breaches
 
 __all__ = ["groups", "strip_longitudinal", "strip_arc", "resa_transverse",
-           "raoa", "adjacent_ground_tear", "strip_seam_tear"]
+           "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse"]
+
+FAMILY_STRIP_TRANSVERSE = "strip_transverse"
+RUNWAY_FAMILY = ("runway", "runway_crossing")
 
 #: The census's seam-tear knobs (``strip_seam_law``): the instrument's own.
 SEAM_RADIUS_M = 6.0
@@ -287,3 +296,111 @@ def strip_seam_tear(p: Patch) -> list[Row]:
                                    (x, y), (x2, y2), key, key2))
     out.sort(key=lambda r: -r["magnitude_m"])
     return out
+
+
+def strip_transverse(p: Patch) -> list[Row]:
+    """The strip tie read on the built surface (module docstring).  The
+    population is the STRIP-ONLY vertices (a vertex on any other ring —
+    pavement, pad rim, wall, road — carries that shape's law, the
+    generator's own exemptions); the reference is the nearest
+    runway-family ring edge whose runway's lateral rectangle holds the
+    vertex, inside the class's zone-2 half width."""
+    law = p.law
+    q = law.tables.emit.instrument.coarse_noise_m
+    # the corridor's OUTER ring sits at the half width to the identity
+    # floor: the census frame and the planar frame disagree there by the
+    # frame's own rounding (measured 74.93 vs 75.08 m on the crown twin),
+    # so the reader stops one identity floor short of the generator's edge
+    edge_tol = law.tables.emit.identity.min_distinct_spacing_m
+    strips = _strips(p)
+    if not strips:
+        return []
+    other: set[int] = set()
+    for sh in p.shapes:
+        if sh.role != "graded_strip":
+            other.update(sh.ids)
+    for sh in p.features:
+        if sh.feature != "crown_spine":
+            other.update(sh.ids)
+    # ABEAM is along the axis only (the generator's ``abeam``: 0 ≤ s ≤ L);
+    # the lateral extent is the class's own zone-2 half width below
+    axis: dict[str, tuple] = {}
+    for rings, unit, _code, L, _letter, a, _b in groups(p):
+        axis[_ref_of(p, rings)] = (a, unit, L)
+    # ring edges of the runway family with their class and runway ref
+    edges: list[tuple[tuple[float, float, float], tuple[float, float, float], str,
+                      int | None, str | None]] = []
+    for sh in p.shapes:
+        if sh.role not in RUNWAY_FAMILY:
+            continue
+        ref = sh.ref.split("+")[0]
+        n = len(sh.ids)
+        for i in range(n):
+            j = (i + 1) % n
+            edges.append(((*sh.xy[i], sh.z[i]), (*sh.xy[j], sh.z[j]), ref,
+                          sh.code_number, sh.code_letter))
+    if not edges:
+        return []
+    cell = max(zone2_half_width_m(law, "runway", e[3], e[4]) or 0.0 for e in edges)
+    if cell <= 0.0:
+        return []
+    grid: dict[tuple[int, int], list[int]] = {}
+    for k, (a, b, *_r) in enumerate(edges):
+        for gx in range(int(min(a[0], b[0]) // cell), int(max(a[0], b[0]) // cell) + 1):
+            for gy in range(int(min(a[1], b[1]) // cell), int(max(a[1], b[1]) // cell) + 1):
+                grid.setdefault((gx, gy), []).append(k)
+    out: list[Row] = []
+    seen: set[int] = set()
+    for sh in strips:
+        for i, vid in enumerate(sh.ids):
+            if vid in other or vid in seen:
+                continue
+            seen.add(vid)
+            x, y = sh.xy[i]
+            cx, cy = int(x // cell), int(y // cell)
+            best = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for k in grid.get((cx + dx, cy + dy), ()):
+                        a, b, ref, cn, cl = edges[k]
+                        half = zone2_half_width_m(law, "runway", cn, cl)
+                        if half is None:
+                            continue
+                        vx, vy = b[0] - a[0], b[1] - a[1]
+                        l2 = vx * vx + vy * vy
+                        t = 0.0 if l2 < 1e-18 else max(0.0, min(1.0, ((x - a[0]) * vx + (y - a[1]) * vy) / l2))
+                        d = math.hypot(x - (a[0] + t * vx), y - (a[1] + t * vy))
+                        if d > half - edge_tol or d <= 0.0:
+                            continue
+                        ax_ = axis.get(ref)
+                        if ax_ is not None:
+                            (a0x, a0y), (ux, uy), L = ax_
+                            s_ = (x - a0x) * ux + (y - a0y) * uy
+                            if not (0.0 <= s_ <= L):
+                                continue
+                        if best is None or d < best[0]:
+                            best = (d, a[2] + t * (b[2] - a[2]), cn, cl, (a[0] + t * vx, a[1] + t * vy))
+            if best is None:
+                continue
+            d, z_foot, cn, cl, foot = best
+            bound = strip_transverse_bound(law, d, cn, cl)
+            if bound is None:
+                continue
+            dz = sh.z[i] - z_foot
+            if abs(dz) <= bound + q:
+                continue
+            r = row(FAMILY_STRIP_TRANSVERSE, ("graded_strip", "runway"), p.side("graded_strip"),
+                    abs(dz), 100 * dz / d, 100 * bound / d, d, (x, y), foot, sh.key, sh.key)
+            r.update({"reading": "strip_transverse", "direction": "above" if dz > 0.0 else "below"})
+            out.append(r)
+    out.sort(key=lambda r: -r["magnitude_m"])
+    return out
+
+
+def _ref_of(p: Patch, rings) -> str:
+    """The runway ref whose ``runway`` rings lie in ``rings[0]`` (the
+    lateral rectangle ``groups`` built from them)."""
+    for sh in p.shapes:
+        if sh.role == "runway" and all(point_in_rect_ring(x, y, rings[0]) for x, y in sh.xy[:3]):
+            return sh.ref
+    return ""

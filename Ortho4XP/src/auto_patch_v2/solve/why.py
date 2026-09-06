@@ -99,6 +99,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # (generator, substring of the ruling, family label)
     ("taxi", "chain", "taxi_chain"),
     ("apron", "chain", "apron_chain"),
+    ("runway_profile", "vertical_curve", "runway_vertical_curve"),
     ("runway_profile", "chain", "runway_chain"),
     ("taxi", "longitudinal centreline", "taxi_centreline"),
     ("taxi", "plane_gradient", "plane_gradient"),
@@ -113,6 +114,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("runway_profile", "crown", "runway_crown"),
     ("runway_profile", "end_zone", "runway_end_zone"),
     ("runway_profile", "", "runway_profile"),
+    ("zones", "strip tie", "strip_transverse"),
     ("zones", "", "zone_bands"),
     ("strips", "strip.longitudinal", "strip_longitudinal"),
     ("strips", "arc_rate", "strip_arc"),

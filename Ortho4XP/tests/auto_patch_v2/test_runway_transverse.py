@@ -148,7 +148,11 @@ def test_generator_states_a_two_sided_hard_band_in_the_runway_tier(shared_edge, 
 #: routes — a deeper pin is refused by the band before any cross-slope
 #: law is asked); the deep pull is diagnosed with the bands withdrawn,
 #: as the last resort does (``relax.envelope_free``).
-PULL_M = 3.0
+#: 1.0 m since RULINGS 2026-09-06b law 1 (the vertical curve is hard): the
+#: profile of this 1,200 m code-3 fixture can dip at most ≈ 1.5 m under
+#: K = 150 m per 1 % within the 1.5 % cap (h = ℓ²/K with ℓ ≤ 150 m), so
+#: the 3.0 m pull the twin first used is now the refused class below.
+PULL_M = 1.0
 DEEP_PULL_M = 14.0
 
 
@@ -234,4 +238,9 @@ def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):
     assert sol.status not in (Status.OPTIMAL, Status.FEASIBLE)
     named = {s.generator for _r, s in sol.iis}
     assert PIN_SRC.generator in named, named
-    assert any(s.ruling.startswith("rulesets.runway.transverse_max") for _r, s in sol.iis)
+    # the runway law that refuses the pull: the transverse maximum, or —
+    # since RULINGS 2026-09-06b law 1 — the vertical curve the profile
+    # would have to break to follow the edge down 14 m
+    assert any(s.ruling.startswith("rulesets.runway.transverse_max")
+               or s.ruling.startswith("rulesets.runway.vertical_curve_k_m")
+               for _r, s in sol.iis)

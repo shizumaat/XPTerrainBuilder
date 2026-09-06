@@ -220,6 +220,22 @@ class MemberSeat:
     #: basin pass's affair, never the seat's).  OTHH unit:21: the sunken
     #: TerminalRoads/Parking founded the 399-member terminal +1.888 m.
     facility: bool = False
+    #: SEATED APART (RULINGS 2026-09-06b law 3): a founding-eligible
+    #: member whose own delta lies outside the family's agreeing
+    #: coalition (``agreement_window_m``) bakes by ITS OWN ``delta_m``,
+    #: not the family's — HECA's 133-member family took one −35.6 m over
+    #: 85 m of relief.  ``family_delta_m`` records the coalition delta it
+    #: left.  A member whose own delta is under ``min_delta_m`` STAYS at
+    #: its authored y instead (``apart_stays``).
+    seated_apart: bool = False
+    apart_stays: bool = False
+    family_delta_m: float | None = None
+    #: The GROUND under the member's land feet (median mesh z, absolute):
+    #: a member whose feet are above the family's band stands on ANOTHER
+    #: member when this is the family's own ground (OTHH unit:21's roof
+    #: piece at y = 6.4 over flat ground), and on the LAND when it is not
+    #: (HECA's buildings on 85 m of relief around one anchor).
+    ground_m: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -253,10 +269,18 @@ class SeatResult:
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
              "held": 0, "skipped": 0, "resources_baked": 0, "findings": 0,
-             "deck_units": 0, "facility_members": 0, "plate_units": 0}
+             "deck_units": 0, "facility_members": 0, "plate_units": 0,
+             "units_split": 0, "members_apart": 0, "members_apart_stay": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
             c["facility_members"] += sum(1 for m in u.members if m.facility)
+            n_apart = sum(1 for m in u.members if m.seated_apart)
+            c["members_apart"] += n_apart
+            c["members_apart_stay"] += sum(1 for m in u.members if m.apart_stays)
+            if n_apart:
+                c["units_split"] += 1
+                if not u.bakes:
+                    c["resources_baked"] += n_apart     # apart members of a staying unit
             if u.datum == DATUM_DECK_TOP:
                 c["deck_units"] += 1
             if u.datum == DATUM_PLATE:

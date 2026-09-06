@@ -23,7 +23,7 @@ __all__ = [
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
-    "runway_transverse_max",
+    "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
     "flat_source_class", "flat_relief_floor_m",
 ]
@@ -276,6 +276,47 @@ def zone_bounds(law: Law, role: str, d_m: float,
         floor -= bmax * band
         ceil -= zc.band_min_down * band
     return (floor, ceil)
+
+
+def runway_vertical_curve_bound(law: Law, spacing_m: float,
+                                code_number: int | None = None,
+                                code_letter: str | None = None) -> float | None:
+    """THE VERTICAL-CURVE BOUND (RULINGS 2026-09-06b law 1; spec
+    ``heca-read-20260906-spec.md`` §2): the largest lawful change of
+    grade (a fraction) between two consecutive runway profile chords
+    whose mean spacing is ``spacing_m`` — ``min(max_grade_change,
+    spacing / vertical_curve_k_m × common.vertical_curve_k_grade_unit)``
+    by code (Annex 14 §3.1.15/16: K is metres per 1 % of change), raised
+    to ``vertical_curve_min_change`` where the authority states that no
+    curve is needed under it (FAA AAC A/B).  ``None`` where the authority
+    states neither number."""
+    rs = law.ruleset.runway
+    mgc = rs.max_grade_change.value(code_number, code_letter)
+    k = rs.vertical_curve_k_m.value(code_number, code_letter)
+    bound: float | None = mgc
+    if k is not None and k > 0.0:
+        kb = spacing_m / k * law.tables.common.vertical_curve_k_grade_unit
+        bound = kb if bound is None else min(bound, kb)
+    if bound is None:
+        return None
+    if rs.vertical_curve_min_change is not None:
+        mc = rs.vertical_curve_min_change.value(code_number, code_letter)
+        if mc is not None:
+            bound = max(bound, mc)
+    return bound
+
+
+def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
+                           code_letter: str | None = None) -> float | None:
+    """THE STRIP TIE (RULINGS 2026-09-06b law 2; spec §3): how far (m) a
+    graded-strip vertex ``d_m`` off a runway-family edge may stand from
+    the edge, EITHER way — the runway zone class's own transverse cap
+    accumulated over the corridor (``zones.adjacent_ground.lip_max_down``
+    over zone 1, ``zones.adjacent_ground.runway.band_max_down`` by code
+    over zone 2: the magnitude of :func:`zone_bounds`' floor, the ONE
+    derivation site of the corridor, 08-30l).  ``None`` in zone 3."""
+    floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter)
+    return None if floor is None else -floor
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

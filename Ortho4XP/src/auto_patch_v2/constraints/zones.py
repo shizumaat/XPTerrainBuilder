@@ -23,14 +23,33 @@ edge's own class — a runway zone-2 vertex 3 m from a parallel taxiway is
 bound to the taxiway's lip, not to a 2 m cut below the runway (measured
 CYXY: an IIS of the two bands and the no-step pairs between the
 pavements).  The drainage spine of a filled pocket is M3.
+
+THE STRIP TIE (RULINGS 2026-09-06b law 2, family ``strip_transverse``;
+:func:`strip_transverse`): the corridor rows are "no deeper than" the
+DEM corridor and, for the NEAREST pavement only, "no higher than" its
+mandatory-down — nothing bound a strip vertex ABOVE a runway edge that
+was not its nearest pavement (HECA 05C/23C on 1.0.288: the graded strip
+stood 5.6 m above the ridge within 60 m).  Every graded-strip vertex
+abeam a runway-family edge, inside the runway zone (``d ≤ zone-2 half
+width``), is TIED to that edge's foot: ``|z_v − z_foot| ≤
+strip_transverse_bound(d)`` — the runway zone class's own transverse cap
+accumulated over the corridor (``adjacent_ground.lip_max_down``,
+``adjacent_ground.runway.band_max_down``), both ways: the fall side is
+the corridor floor :func:`zone_bands` states for the same edge, the rise
+side is :func:`strip_transverse`'s own row.  The row's
+vertices are the strip vertex and the edge's ends, so the tier machinery
+holds it in the STRIP's tier: junior to the runway (whose profile never
+flexes to the strip), senior to the DEM pull in the objective.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import is_value_role, role_side, zone2_half_width_m, zone_bounds
+from ..law.tables import (is_value_role, role_side, strip_transverse_bound,
+                          zone2_half_width_m, zone_bounds)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -38,7 +57,7 @@ from .precedence import View, view
 from .roads import road_family_roles
 from .strips import runway_groups
 
-__all__ = ["zone_bands"]
+__all__ = ["zone_bands", "strip_transverse"]
 
 GEN = "zones"
 
@@ -113,27 +132,32 @@ def _face_class(f) -> tuple[str, int | None, str | None] | None:
     return parts[1], f.code_number, f.code_letter
 
 
-def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """The corridor rows per graded-strip vertex.
+@_dc.dataclass
+class _Context:
+    """The zone law's reading of one map, shared by :func:`zone_bands`
+    and :func:`strip_transverse` (one derivation of membership, feet
+    and exemptions — never two)."""
 
-    MEMBERSHIP IS THE MAP'S: a vertex of a zone face of class ``C`` is
-    in ``C``'s corridor (the planar zones are mitred buffers, so an
-    outer-ring vertex can sit past the nominal half-width at a convex
-    corner — ``d`` is clamped to the half-width there, never dropped:
-    measured CYXY, 11 seam tears from bandless outer-ring vertices).
+    vw: View
+    edges: list
+    by_family: dict
+    cell: float
+    reach: float
+    half_of: _t.Callable
+    abeam: _t.Callable[[int, int], bool]
+    member: dict[int, set[tuple]]
+    own_law: set[int]
+    wall_vertices: set[int]
+    pad_rim: dict[int, int]
+    found: _t.Callable[[int, set], list]
 
-    THE POCKET RULE: of the vertex's own zone classes the NEAREST
-    pavement contributes the full band (floor and mandatory-down
-    ceiling); every other class / family whose corridor holds the vertex
-    contributes its FLOOR only ("no deeper than") — between a runway and
-    a parallel taxiway the ground fills toward the nearer surface instead
-    of being cut to the farther one's band (08-01 clarification), and the
-    ceiling reference changes continuously with the nearest edge so no
-    seam tear is minted."""
+
+def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
+    """The shared setup (module docstring); ``None`` with no pavement."""
     vw = view(planar, law)
     edges = _pavement_edges(vw)
     if not edges:
-        return []
+        return None
     # THE LATERAL LAW ONLY (v1 ``adjacent_ground_envelope``: "runway ENDS
     # are explicitly out of scope — the runway-end skirt law owns terrain
     # beyond a runway end"): a runway-family edge binds a strip vertex
@@ -315,6 +339,33 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                  or any(_face_class_of(edges[f_[1]]) == c for c in classes)]
         return found
 
+    return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
+                    wall_vertices, pad_rim, _found)
+
+
+def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """The corridor rows per graded-strip vertex.
+
+    MEMBERSHIP IS THE MAP'S: a vertex of a zone face of class ``C`` is
+    in ``C``'s corridor (the planar zones are mitred buffers, so an
+    outer-ring vertex can sit past the nominal half-width at a convex
+    corner — ``d`` is clamped to the half-width there, never dropped:
+    measured CYXY, 11 seam tears from bandless outer-ring vertices).
+
+    THE POCKET RULE: of the vertex's own zone classes the NEAREST
+    pavement contributes the full band (floor and mandatory-down
+    ceiling); every other class / family whose corridor holds the vertex
+    contributes its FLOOR only ("no deeper than") — between a runway and
+    a parallel taxiway the ground fills toward the nearer surface instead
+    of being cut to the farther one's band (08-01 clarification), and the
+    ceiling reference changes continuously with the nearest edge so no
+    seam tear is minted."""
+    ctx = _context(planar, law, airport)
+    if ctx is None:
+        return []
+    vw, edges, member, own_law = ctx.vw, ctx.edges, ctx.member, ctx.own_law
+    wall_vertices, pad_rim, _found = ctx.wall_vertices, ctx.pad_rim, ctx.found
+    rows: list[Row] = []
     pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
     pad_d: dict[int, float] = {}
     for v, fid in pad_rim.items():
@@ -350,4 +401,81 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             else:
                 terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
             rows.append(Linear(terms, lo, hi, src))
+    return rows
+
+
+def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """THE STRIP TIE rows (module docstring): for every graded-strip
+    vertex ``v`` the zone law binds (its own membership, exemptions and
+    pad rule — :func:`_context`) whose nearest ABEAM runway-family edge
+    holds it in the runway zone (``_nearest_edge`` over the runway
+    family, ``d ≤`` the class's zone-2 half width), with foot ``(a, b,
+    t)`` at lateral distance ``d``:
+
+        z_v − ((1 − t)·z_a + t·z_b) ≤ bound,
+        bound = strip_transverse_bound(law, d, code)
+
+    — the RISE side.  The FALL side of the same tie, ``−bound ≤ …``, is
+    the corridor FLOOR :func:`zone_bands` already states for that very
+    edge (``zone_bounds`` is the one derivation: the floor's magnitude IS
+    ``strip_transverse_bound``), so it is not minted twice — a duplicate
+    row is what HiGHS's QP factorisation refused on the relax twin
+    (kNotset over 66 duplicate pairs, measured 2026-09-06).  A detached
+    rigid pad carries the tie on its nearest rim vertex only (the
+    ``Flat`` carries the level; per-vertex rows on one plane are the
+    v2padflat contradiction)."""
+    ctx = _context(planar, law, airport)
+    if ctx is None:
+        return []
+    vw, edges = ctx.vw, ctx.edges
+    grid = ctx.by_family.get("runway")
+    if not grid:
+        return []
+    pad_nearest: dict[int, int] = {}
+    pad_d: dict[int, float] = {}
+    for v, fid in ctx.pad_rim.items():
+        if v not in ctx.member or v in ctx.own_law or v in ctx.wall_vertices:
+            continue
+        fv = ctx.found(v, ctx.member[v])
+        if not fv:
+            continue
+        if fid not in pad_nearest or fv[0][3] < pad_d[fid]:
+            pad_nearest[fid], pad_d[fid] = v, fv[0][3]
+    rows: list[Row] = []
+    src = Source(GEN, "zones.adjacent_ground.runway.band_max_down strip tie "
+                 "(2026-09-06b law 2)", ())
+    for v, classes in ctx.member.items():
+        if v in ctx.own_law or v in ctx.wall_vertices:
+            continue
+        if v in ctx.pad_rim and pad_nearest.get(ctx.pad_rim[v]) != v:
+            continue
+        near = _nearest_edge(vw, v, edges, grid, ctx.cell, ctx.half_of, ctx.reach,
+                             lambda k: ctx.abeam(v, k))
+        if near is None:
+            continue
+        k, t, d = near
+        # NOT MINTED WHERE THE CORRIDOR ALREADY HOLDS IT: when this runway
+        # edge is the vertex's NEAREST pavement, ``zone_bands`` states its
+        # mandatory-down ceiling (the vertex must sit BELOW the edge), which
+        # dominates the tie; the tie binds exactly where the nearest
+        # pavement is another surface and the runway contributes a floor
+        # only (the pocket rule) — HECA's strip between 05C/23C and the
+        # parallel stub pav101.  A dominated duplicate beside the ceiling
+        # is also what tipped HiGHS's QP into its approximation on the
+        # relax twin (measured 2026-09-06: 1,080 candidates, kNotset).
+        found = ctx.found(v, classes)
+        if found and found[0][1] == k and found[0][0] <= (ctx.half_of(edges[k]) or 0.0):
+            continue
+        a, b, _fam, cn, cl = edges[k]
+        bound = strip_transverse_bound(law, d, cn, cl)
+        if bound is None or d <= 0.0:
+            continue
+        if t <= 0.0:
+            terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
+        elif t >= 1.0:
+            terms = ((v, 1.0), (b, -1.0))
+        else:
+            terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
+        rows.append(Linear(terms, None, bound, Source(src.generator, src.ruling,
+                                                     (f"vertex:{v}",))))
     return rows

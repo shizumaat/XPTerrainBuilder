@@ -39,9 +39,24 @@ founds the family and keeps its authored y (the terrain's cutout is the
 basin pass's affair); the founding band is the lowest band among the
 AT-GRADE eligible members, and a member floating ABOVE the mesh stays
 eligible (HECA's authored plane over a cut apron is what the seat exists
-for).  OTHH unit:21: the sunken TerminalRoads/Parking (feet 1.9–2.5 m
-under grade, their pits refused as roofed/basement) founded the
-399-member terminal family and lifted it +1.888 m.
+for) — and a facility member stands BELOW THE MESH by more than the band
+in its own right (the rule's stated meaning here, in ``model/rebake.py``
+and in ``structures.toml``): measured HECA 2026-09-06, a family whose
+coalition floated 35.6 m over a cut had 58 of 133 at-grade members
+floating 7–25 m branded "facility" by the relative test alone and left
+floating on their authored y.  OTHH unit:21: the sunken TerminalRoads/
+Parking (feet 1.9–2.5 m under grade, their pits refused as
+roofed/basement) founded the 399-member terminal family and lifted it
++1.888 m.  SEATED APART (RULINGS 2026-09-06b law 3; spec
+``heca-read-20260906-spec.md`` §4): the family seats as ONE unit only
+for the members that AGREE — a founding-eligible member (over the witness
+floor, feet in the family's band, not a facility) whose own delta lies
+outside the winning coalition's ``agreement_window_m`` is seated by ITS
+OWN delta (``MemberSeat.seated_apart``, the coalition delta recorded),
+or stays where that delta is under ``min_delta_m``; a member whose feet
+are on another member (out of the band: OTHH unit:21's roof piece at
+y = 6.4) or under the witness floor (04k) still follows the family.  A
+family whose members all agree is unchanged.
 
 Nothing here writes: the delta per unit is handed to the v1 driver hook
 (``engine_v2.rebake_after_mesh``), which rewrites the pack's OBJ8 vertex
@@ -239,8 +254,22 @@ def _facility(seats: _t.Sequence[MemberSeat], depth_m: float, window_m: float
         return [False] * len(seats)
     coal, _why = _coalition(vals, window_m)
     d0 = float(statistics.median(coal if coal else vals))
+    # ...and below the mesh in its own right: a member 28 m "deeper" than
+    # a coalition floating 35 m over a cut is floating 7 m, not sunken
     return [s.datum == DATUM_FEET and s.delta_m is not None and s.delta_m > d0 + depth_m
-            for s in seats]
+            and s.delta_m > depth_m for s in seats]
+
+
+def _eligible(seats: _t.Sequence[MemberSeat], rb, facility: _t.Sequence[bool]) -> list[bool]:
+    """The members over the WITNESS FLOOR (04k): land witnesses ≥
+    ``founding_min_witnesses`` (relative: never more than the unit's
+    largest member carries) and ≥ ``founding_min_share`` of the largest
+    member's; a facility member never."""
+    n = [s.witnesses if s.datum == DATUM_FEET and not fac else 0
+         for s, fac in zip(seats, facility)]
+    largest = max(n, default=0)
+    floor = min(rb.founding_min_witnesses, largest) if largest > 0 else 0
+    return [k >= floor and k >= rb.founding_min_share * largest and k > 0 for k in n]
 
 
 def _founders(u: Unit, seats: list[MemberSeat], rb, facility: _t.Sequence[bool]
@@ -251,14 +280,10 @@ def _founders(u: Unit, seats: list[MemberSeat], rb, facility: _t.Sequence[bool]
     members (05p), whose feet reach the unit's lowest band over the
     eligible AT-GRADE members (v1 I-8 — a railing's feet are on the deck,
     it inherits)."""
-    n = [s.witnesses if s.datum == DATUM_FEET and not fac else 0
-         for s, fac in zip(seats, facility)]
-    largest = max(n, default=0)
     # the floor is RELATIVE: it demotes a small piece beside a larger
     # member; a unit whose every member is small (a sign on four feet)
     # still seats on what it has
-    floor = min(rb.founding_min_witnesses, largest) if largest > 0 else 0
-    eligible = [k >= floor and k >= rb.founding_min_share * largest and k > 0 for k in n]
+    eligible = _eligible(seats, rb, facility)
     min_y = [min((f.y for f in m.feet), default=math.inf) for m in u.members]
     band_min = min((my for my, e in zip(min_y, eligible) if e), default=math.inf)
     return [e and my <= band_min + rb.foot_band_m for my, e in zip(min_y, eligible)]
@@ -266,6 +291,7 @@ def _founders(u: Unit, seats: list[MemberSeat], rb, facility: _t.Sequence[bool]
 
 def _feet_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat:
     rs: list[float] = []
+    zs: list[float] = []
     water = off = 0
     for f in m.feet:
         s = sampler(f.lat, f.lon)
@@ -275,11 +301,13 @@ def _feet_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat:
             water += 1
         else:
             rs.append(float(s[0]) - base - f.y)
+            zs.append(float(s[0]))
     delta = float(statistics.median(rs)) if rs else None
     outliers = sum(1 for r in rs if abs(r - delta) > rb.residual_report_m) \
         if delta is not None else 0
     return MemberSeat(m.resource, DATUM_FEET, delta, len(rs), water, off, outliers,
-                      "" if rs else "no foot on land within the mesh")
+                      "" if rs else "no foot on land within the mesh",
+                      ground_m=float(statistics.median(zs)) if zs else None)
 
 
 def _plate_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat | None:
@@ -492,6 +520,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                                     f"{len(vals)} members, spread "
                                     f"{max(vals) - min(vals):.3f} m")
         seats = [_dc_replace(s, founding=f) for s, f in zip(seats, founding)]
+        if datum == DATUM_FEET and delta is not None and math.isfinite(delta):
+            seats = _seat_apart(seats, delta, rb, findings, facility)
         n_out = sum(s.outliers for s in seats)
         if n_out:
             findings.append(f"{n_out} foot witness(es) further than "
@@ -510,22 +540,90 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
     return SeatResult(plan_.icao, tuple(_one_file_one_delta(out, rb)))
 
 
+def _seat_apart(seats: list[MemberSeat], delta: float, rb, findings: list[str],
+                facility: _t.Sequence[bool]) -> list[MemberSeat]:
+    """RULINGS 2026-09-06b law 3 (module docstring): every foot member
+    whose feet are WITNESSED ON LAND — over the witness floor, not a
+    facility, and either in the family's band (a founder) or standing on
+    ground that is NOT the family's (``ground_m`` off the coalition's by
+    more than ``foot_band_m``: HECA's buildings on their own relief; a
+    roof piece over the family's own ground is ON the family, v1 I-8, and
+    follows) — and whose own delta lies outside ``agreement_window_m``
+    of ``delta`` is seated apart by its own delta, or stays under
+    ``min_delta_m``; the rest follow ``delta``."""
+    eligible = _eligible(seats, rb, facility)
+    fam_ground = [s.ground_m for s in seats
+                  if s.founding and s.ground_m is not None and s.delta_m is not None
+                  and abs(s.delta_m - delta) <= rb.agreement_window_m]
+    if not fam_ground:
+        fam_ground = [s.ground_m for s in seats if s.founding and s.ground_m is not None]
+    g0 = float(statistics.median(fam_ground)) if fam_ground else None
+    out: list[MemberSeat] = []
+    n_apart = n_stay = 0
+    for s, el in zip(seats, eligible):
+        on_land = s.founding or (el and g0 is not None and s.ground_m is not None
+                                 and abs(s.ground_m - g0) > rb.foot_band_m)
+        if not (on_land and s.datum == DATUM_FEET and s.delta_m is not None
+                and not s.facility) or abs(s.delta_m - delta) <= rb.agreement_window_m:
+            out.append(s)
+            continue
+        if abs(s.delta_m) < rb.min_delta_m:
+            n_stay += 1
+            out.append(_dc_replace(s, apart_stays=True, family_delta_m=delta,
+                                   note=(f"outside the coalition ({delta:+.3f} m) by more than "
+                                         f"{rb.agreement_window_m} m; own delta {s.delta_m:+.3f} m "
+                                         f"under min_delta_m {rb.min_delta_m}: stays at its "
+                                         "authored y (2026-09-06b law 3)")))
+            continue
+        n_apart += 1
+        out.append(_dc_replace(s, seated_apart=True, family_delta_m=delta,
+                               note=(f"seated_apart (2026-09-06b law 3): own delta "
+                                     f"{s.delta_m:+.3f} m, the coalition's {delta:+.3f} m")))
+    if n_apart or n_stay:
+        vals = [s.delta_m for s in out if s.seated_apart]
+        findings.append(f"family split (2026-09-06b law 3): {n_apart} member(s) seated apart "
+                        f"by their own delta" + (f" ({min(vals):+.2f} … {max(vals):+.2f} m)"
+                                                 if vals else "")
+                        + f", {n_stay} outside the coalition but under min_delta_m (stay); "
+                        f"the coalition {delta:+.3f} m seats the rest")
+    return out
+
+
 def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:
     """A resource planned at SEVERAL anchors (a plate-seated wall object
     placed twice: OTHH tunnel1) has ONE file: its units bake only when
     their deltas agree within ``agreement_window_m``; otherwise every
     one of them is HELD with a finding naming the spread (never the last
     writer's delta)."""
+    import dataclasses as _dc
     by_res: dict[str, list[int]] = {}
+    # (unit, member) -> the delta that member would bake at: its own when
+    # seated apart (2026-09-06b law 3), the unit's otherwise
+    eff: dict[str, list[tuple[int, int, float]]] = {}
     for i, u in enumerate(units):
         for r in u.resources:
             by_res.setdefault(r, []).append(i)
+        for j, m in enumerate(u.members):
+            if m.seated_apart and m.delta_m is not None:
+                eff.setdefault(m.resource, []).append((i, j, float(m.delta_m)))
+            elif u.bakes and not m.facility and not m.apart_stays:
+                eff.setdefault(m.resource, []).append((i, j, float(u.delta_m)))
     held: dict[int, str] = {}
+    own_median: dict[tuple[int, int], tuple[float, str]] = {}
     for r, idx in by_res.items():
         if len(idx) < 2:
             continue
-        vals = [units[i].delta_m for i in idx if units[i].bakes]
+        lst = eff.get(r, [])
+        vals = [d for _i, _j, d in lst]
         if len(vals) >= 2 and max(vals) - min(vals) > rb.agreement_window_m:
+            if all(units[i].members[j].seated_apart for i, j, _d in lst):
+                # a resource seated apart at several anchors takes its
+                # OWN median (spec §4: one file, one delta)
+                med = float(statistics.median(vals))
+                for i, j, _d in lst:
+                    own_median[(i, j)] = (med, f"own median over {len(lst)} anchors "
+                                               f"(spread {max(vals) - min(vals):.3f} m)")
+                continue
             for i in idx:
                 held[i] = (f"held: {r.rsplit('/', 1)[-1]} is placed at {len(idx)} anchors and its "
                            f"seats disagree (spread {max(vals) - min(vals):.3f} m > "
@@ -533,11 +631,16 @@ def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:
     out = []
     for i, u in enumerate(units):
         if i in held:
-            import dataclasses as _dc
             out.append(_dc.replace(u, delta_m=None, seat_datum_m=None, skip_reason=held[i],
                                    findings=u.findings + (held[i],), held=True))
-        else:
-            out.append(u)
+            continue
+        if any((i, j) in own_median for j in range(len(u.members))):
+            members = tuple(
+                _dc_replace(m, delta_m=own_median[(i, j)][0],
+                            note=m.note + "; " + own_median[(i, j)][1])
+                if (i, j) in own_median else m for j, m in enumerate(u.members))
+            u = _dc.replace(u, members=members)
+        out.append(u)
     return out
 
 

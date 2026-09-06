@@ -1522,6 +1522,9 @@ def apply(
         ).get(resource_path)
         if decision_kind:
             provenance_entry["decision_kind"] = decision_kind
+        seat_note = getattr(decision, "seat_note_by_resource", {}).get(resource_path)
+        if seat_note:
+            provenance_entry["seat_note"] = seat_note
         # THE APPLIED OFFSET AND ITS DATUM (basin-group-seat spec §2.5,
         # trap T6).  A group seat's whole content is "every member landed
         # on ONE plane G", and until now nothing survived the write to

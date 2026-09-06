@@ -30,6 +30,7 @@ parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026
 apron_fan_ramp_max = 0.050          # interior apron fan cap (FAN_RAMP_CAP; 08-08 fabric model)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)
+vertical_curve_k_grade_unit = 0.01  # the UNIT of every ruleset's vertical_curve_k_m: K is metres per THIS much grade change (one per cent, Annex 14 §3.1.16 / AC 150/5300-13 §3.16); a spacing s admits a change of s / K × this (2026-09-06b law 1)
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────
 [icao]

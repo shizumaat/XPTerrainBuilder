@@ -12,14 +12,20 @@ CURVES; (3) an OSM tunnel ramp is still built wherever OSM says there is
 one, objects or not (precedence PER MOUTH); (4) the top of the wall
 object is FLUSH with the ground (the object is re-seated to it).
 
-THE SIGNATURE (round-1 §3.1, unchanged), per resource, over the geometry
-the basin pass already parsed (``obj8.ResourceCache`` — never a second
-parse): a WALL SKIRT (genuine solids ``skirt_min_depth_m`` or more
-below the seat plane), a CREST PLATE (near-horizontal faces at the
-largest-area ``plate_bin_m`` bin at or above the seat, ``plate_min_
-area_m2``, ``plate_min_height_m`` above the seat), NO FLOOR PLATE below
-the seat and NO ROOF along the axis, and per placement a seat
-``basin.admission_depth_m`` or more under the ground.
+THE SIGNATURE (round-1 §3.1), per resource, over the geometry the basin
+pass already parsed (``obj8.ResourceCache`` — never a second parse): a
+WALL SKIRT (genuine solids ``skirt_min_depth_m`` or more below the seat
+plane), a CREST PLATE (near-horizontal faces at the largest-area
+``plate_bin_m`` bin at or above the seat, ``plate_min_area_m2``,
+``plate_min_height_m`` above the seat), NO FLOOR PLATE below the seat
+and NO ROOF along the axis, and per placement a seat
+``basin.admission_depth_m`` or more under the ground.  THE EDGE WALL
+(RULINGS 2026-09-06c (2) / 06f): a crest under ``edge_wall_max_plate_m``
+— the TOP BAND wherever it lies against the seat (LEMD's Bridge4.obj:
+y −2.88 … −0.86, wholly below its seat; the seat is the author's
+handle, 05n-4 re-seats the crest flush at grade) — over a skirt of
+``edge_wall_min_skirt_m`` below that crest gives the ramp its PLAN; the
+depth is the bore law's (``tunnel.bore_datum_m`` at a BORE mouth).
 
 THE WALLS (round 2 §3.1; ``tunnel_walls.py``): the crest plate's plan
 union IS the walls' footprint — a U / an O / two bands (measured OTHH:
@@ -223,10 +229,8 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     tris = np.concatenate([c.tris for c in genuine])
     v = geom.vertices
     ny, area, cy, ymax = _faces(v, tris)
-    skirt = -min(c.min_y for c in genuine)
-    if skirt < ob.skirt_min_depth_m:
-        return (f"no wall skirt: genuine solids reach only {skirt:.2f} m under the seat "
-                f"(< skirt_min_depth_m {ob.skirt_min_depth_m})")
+    y_low = min(c.min_y for c in genuine)
+    skirt = -y_low                        # a FULL wall's skirt: below the seat
     horiz = ny >= ob.plate_normal_y_min
     pts = v[np.unique(tris.reshape(-1))]
     hull = Polygon([(float(x), float(z)) for x, z in zip(pts[:, 0], pts[:, 2])]).convex_hull
@@ -239,23 +243,52 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     if length < ob.hull_min_length_m:
         return (f"a stub: the hull's long side is {length:.1f} m "
                 f"(< hull_min_length_m {ob.hull_min_length_m})")
+    # THE CREST.  A FULL wall (skirt_min_depth_m of skirt below the seat:
+    # the seat is its datum, the plate height its depth) reads the
+    # largest-area bin of near-horizontal faces at or above the seat
+    # (round 1).  With a shallower skirt the seat is the author's HANDLE,
+    # not a datum (2026-09-06f: LEMD's Bridge4.obj is authored y 0 … 2.02
+    # and was baked to −2.88 … −0.86 by v1): the crest is the TOP BAND
+    # wherever it lies — the topmost bin holding plate_min_area_m2 of
+    # near-horizontal faces — and the wall is an EDGE WALL when its skirt
+    # below THAT crest reaches edge_wall_min_skirt_m.
+    full_skirt = skirt >= ob.skirt_min_depth_m
+    binned = np.floor(cy / ob.plate_bin_m).astype(int)
     above = horiz & (cy >= 0.0)
-    if not above.any():
-        return "no crest plate: no near-horizontal solid face at or above the seat"
     bins: dict[int, float] = {}
-    for y, ar in zip(cy[above].tolist(), area[above].tolist()):
-        k = int(math.floor(y / ob.plate_bin_m))
+    for k, ar in zip(binned[above].tolist(), area[above].tolist()):
         bins[k] = bins.get(k, 0.0) + ar
-    best = max(bins, key=lambda k: bins[k])
-    plate_area = bins[best]
-    in_bin = above & (np.floor(cy / ob.plate_bin_m).astype(int) == best)
+    best = max(bins, key=lambda k: bins[k]) if bins else None
+    if full_skirt and best is not None and bins[best] >= ob.plate_min_area_m2:
+        in_bin = above & (binned == best)
+        plate_area = bins[best]
+    else:
+        all_bins: dict[int, float] = {}
+        for k, ar in zip(binned[horiz].tolist(), area[horiz].tolist()):
+            all_bins[k] = all_bins.get(k, 0.0) + ar
+        tops = [k for k, ar in all_bins.items() if ar >= ob.plate_min_area_m2]
+        if not tops:
+            if best is None:
+                return ("no crest plate: no near-horizontal solid face at or above the seat, "
+                        f"none of plate_min_area_m2 {ob.plate_min_area_m2:.0f} below it")
+            plate_y = float(ymax[above & (binned == best)].max())
+            return (f"not a wall: crest plate {bins[best]:.0f} m2 at {plate_y:.2f} m "
+                    f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f})")
+        best = max(tops)
+        in_bin = horiz & (binned == best)
+        plate_area = all_bins[best]
     plate_y = float(ymax[in_bin].max())
-    if plate_area < ob.plate_min_area_m2:
-        return (f"not a wall: crest plate {plate_area:.0f} m2 at {plate_y:.2f} m "
-                f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f})")
     edge_wall = False
-    if plate_y < ob.plate_min_height_m:
-        # THE EDGE WALL (2026-09-06c (2)): a low crest over a real skirt
+    if not full_skirt:
+        edge_skirt = plate_y - y_low
+        if edge_skirt < ob.edge_wall_min_skirt_m:
+            return (f"no wall skirt: genuine solids reach only {skirt:.2f} m under the seat "
+                    f"(< skirt_min_depth_m {ob.skirt_min_depth_m}) and {edge_skirt:.2f} m under "
+                    f"the crest at {plate_y:+.2f} m (< edge_wall_min_skirt_m "
+                    f"{ob.edge_wall_min_skirt_m})")
+        edge_wall = True
+    elif plate_y < ob.plate_min_height_m:
+        # THE EDGE WALL over a full skirt (2026-09-06c (2)): a low crest
         # states the ramp's PLAN; the depth is the bore law's
         if plate_y < ob.edge_wall_max_plate_m:
             edge_wall = True
@@ -264,8 +297,9 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
                     f"seat (< plate_min_height_m {ob.plate_min_height_m}, not under "
                     f"edge_wall_max_plate_m {ob.edge_wall_max_plate_m})")
     # NO FLOOR PLATE (``floor_plate_max_m2``): a near-horizontal face
-    # below the seat that runs ALONG the corridor's axis is a floor
-    below = horiz & (ymax < 0.0)
+    # below the seat — below the crest's band for a crest under the seat
+    # — that runs ALONG the corridor's axis is a floor
+    below = horiz & (ymax < min(0.0, plate_y - ob.plate_bin_m))
     floor_area = _axis_crossing_area(v, tris[below], area[below], a, b, ob.end_cap_open_m)
     if floor_area > ob.floor_plate_max_m2:
         return (f"a floor plate below the seat ({floor_area:.0f} m2 along the axis > "
@@ -285,8 +319,12 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     plate = unary_union([f for f in faces if f.area > 1e-9]).buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
-    return WallSignature(geom.path, plate_y, float(plate_area), float(skirt), plate, length, width,
-                         edge_wall)
+    # skirt_depth_m: below the seat for a full-skirt wall (round 1, 06c's
+    # edge wall included); below the CREST for a shallow-seat edge wall
+    # (06f: the seat is no datum there)
+    return WallSignature(geom.path, plate_y, float(plate_area),
+                         float(plate_y - y_low if (edge_wall and not full_skirt) else skirt),
+                         plate, length, width, edge_wall)
 
 
 # ── placements → corridors ───────────────────────────────────────────────
@@ -467,9 +505,21 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     if len(axis2) < 2:
         return "the corridor is shorter than one station"
     far = 1 - mouth
-    mouth_dem = float(airport.dem.z(*axis2[0]))
-    if math.isnan(mouth_dem):
+    # THE MOUTH GROUND is the ground AT THE MOUTH WALL (09-03b: "the mouth
+    # wall node stands bore_datum_m above the ramp's mouth node"; 05n-4:
+    # the crest is flush with the ground at the wall): the MEDIAN DEM
+    # along the mouth end's inner faces — the end wall's polyline and the
+    # side walls' ends — never the axis sample.  LEMD's Bridge4 stands in
+    # a cutting the SPAIN5M DEM already carries: the axis sample reads
+    # 585.2 and the cap centre 590.5 against the walls' 593.7-594.6
+    # (2026-09-06f); on flat ground (OTHH) every reading is the same.
+    a_end, b_end = walls.end_line(mouth)
+    pts = list(walls.end_walls[mouth]) + [a_end, b_end]
+    samples = [float(airport.dem.z(*q)) for q in pts]
+    samples = [z for z in samples if not math.isnan(z)]
+    if not samples:
         return "no DEM at the mouth"
+    mouth_dem = float(np.median(samples))
     # THE DEPTH (05n-1 / 2026-09-06c (2)): a full wall's plate height; an
     # EDGE WALL states no depth — the bore law's bore_datum_m at the
     # mouth, so it needs a BORE mouth (no bore, no depth authority)
@@ -484,9 +534,13 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     else:
         depth = float(sig.plate_y)
     floor = mouth_dem - depth
-    trench = Polygon(list(walls.inner_a) + list(reversed(walls.inner_b)))
+    # the trench closes along the END WALLS' inner faces (2026-09-06f:
+    # Bridge4's three-segment far end), never along the side walls' chord
+    trench = Polygon(walls.trench_ring())
     if not trench.is_valid:
         trench = trench.buffer(0)
+    if trench.geom_type != "Polygon":
+        trench = max((g for g in trench.geoms if g.geom_type == "Polygon"), key=lambda g: g.area)
     footprint = unary_union([walls.plate, trench])
     if footprint.geom_type != "Polygon":
         footprint = footprint.convex_hull
@@ -509,8 +563,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     t0 = time.perf_counter()
     stats = TunnelObjectStats()
     msl = {o.id: o.y_offset_m for o in airport.dsf_objects if o.kind == "OBJECT_MSL"}
+    ob = law.tables.structures.tunnel.object
     admission = law.tables.structures.basin.admission_depth_m
-    skirt = law.tables.structures.tunnel.object.skirt_min_depth_m
+    least_skirt = min(ob.skirt_min_depth_m, ob.edge_wall_min_skirt_m)
     tunnel_ways = [w for w in airport.osm_ways if is_tunnel_way(w.tags) and len(w.points) >= 2]
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
@@ -525,14 +580,22 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.path not in sigs:
             stats.resources += 1
-            # THE PRE-SCREEN (the basin reader's O(n) step): a skirt reaches
-            # skirt_min_depth_m under the seat, so a resource whose lowest
-            # authored vertex does not is refused before its components
-            # are built (OTHH: 1,350 resources, 7 tunnels)
-            vmin = cache.y_range(o.resolved)[0]
-            if vmin > -skirt:
-                sigs[o.path] = (f"no wall skirt: the lowest vertex is {-vmin:.2f} m under the "
-                                f"seat (< skirt_min_depth_m {skirt})")
+            # THE PRE-SCREEN (the basin reader's O(n) step): a wall's skirt
+            # spans at least the lesser of skirt_min_depth_m (a full wall,
+            # below the seat) and edge_wall_min_skirt_m (an edge wall, below
+            # ITS crest wherever that lies — 2026-09-06f), and its plan is
+            # hull_min_length_m long, so a resource whose authored extent
+            # has neither is refused before its components are built
+            # (OTHH: 1,350 resources, 7 tunnels)
+            vmin, vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
+            if vmax - vmin < least_skirt:
+                sigs[o.path] = (f"no wall skirt: the solids span only {vmax - vmin:.2f} m "
+                                f"vertically (< {least_skirt} = the lesser of skirt_min_depth_m "
+                                f"and edge_wall_min_skirt_m)")
+                continue
+            if max(x1 - x0, z1 - z0) < ob.hull_min_length_m:
+                sigs[o.path] = (f"a stub: the plan extent is {max(x1 - x0, z1 - z0):.1f} m "
+                                f"(< hull_min_length_m {ob.hull_min_length_m})")
                 continue
             g = cache.geometry(o.resolved)
             sigs[o.path] = signature(g, cache.genuine(o.resolved), law) if g is not None \
@@ -558,7 +621,8 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     stats.signatures = sum(1 for s in sigs.values() if not isinstance(s, str))
     for path, sig in sigs.items():
         if isinstance(sig, str) and not sig.startswith("no wall skirt") \
-                and not sig.startswith("no genuine") and not sig.startswith("no crest plate"):
+                and not sig.startswith("no genuine") and not sig.startswith("no crest plate") \
+                and not sig.startswith("a stub: the plan extent"):
             stats.refused.append(f"{os.path.basename(path)} x{counts[path]}: {sig}")
     # the other placements of each resource (the family rule reads them)
     plates: dict[str, list[tuple[str, Polygon]]] = {}

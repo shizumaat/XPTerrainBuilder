@@ -58,6 +58,7 @@ __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjRepor
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
+           "area_fraction_above",
            "HARD", "HARD_DECK"]
 
 STOCK_LIBRARY_PREFIX = "lib/"
@@ -455,6 +456,12 @@ class FloorWitness:
     z_top: float
     ground_z: float
     plate_area_m2: float
+    #: RULINGS 2026-09-06f (970): the share of the component's solid face
+    #: area standing ABOVE the contact band (a tower, a vent in the pit —
+    #: cover or protrusion, never the rim) and how high its top reaches
+    #: over the local ground; 0 when the shell tops out in the band.
+    protrusion_fraction: float = 0.0
+    protrusion_top_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -528,6 +535,12 @@ class ObjReport:
     #: slab 5.8 m under the local ground and its walls 15 m above it):
     #: path -> (placements, highest top above the ground, deepest depth).
     through_grade: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
+    #: Resources ADMITTED with solids above the contact band (RULINGS
+    #: 2026-09-06f (970): the rim is the ground-contact ring; a tower or a
+    #: vent of the same component is a protrusion up to
+    #: ``rim_protrusion_max_fraction`` of its face area): path ->
+    #: (placements, largest face-area fraction above the band, highest top).
+    rim_protrusions: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
     #: The deck signature (04k; ``deck_signature.classify``): anchor
     #: families read, families whose plate spans a bridge way (decks),
     #: families with a plate and no spanning evidence (candidates), and
@@ -543,7 +556,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         dem_z: _t.Callable[[float, float], float],
                         admission_depth_m: float, thickness_m: float, contact_band_m: float,
                         cache: ResourceCache | None = None, shell_reaches_grade: bool = True,
-                        *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True
+                        *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True,
+                        rim_protrusion_max_fraction: float = 0.0
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -560,9 +574,15 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     floor_plate_normal_y_min``); with ``rim_reaches_grade`` a floor
     witness's shell must TOP OUT within ``contact_band_m`` of the ground
     (v1's pit seed: ``PIT_SEED_MAX_ABOVE_GRADE_Y_M``) — a shell passing
-    through the ground is a building, reported in ``through_grade``.
-    Returns the readings and the report; an unresolved placement is
-    returned with every reading ``None``."""
+    through the ground is a building, reported in ``through_grade`` —
+    UNLESS the solids above the band are a PROTRUSION (RULINGS
+    2026-09-06f (970): the rim is the shell's ground-contact ring; a
+    control tower or a vent standing in the pit is cover, never the rim):
+    the component's solid face area above the band plane (each triangle
+    clipped there, 3-D area) at most ``rim_protrusion_max_fraction`` of
+    its total still witnesses, the share recorded on the witness and in
+    ``rim_protrusions``.  Returns the readings and the report; an
+    unresolved placement is returned with every reading ``None``."""
     cache = cache or ResourceCache(thickness_m)
     rep = ObjReport(placements=len(placements))
     out: list[PlacedObject] = []
@@ -613,6 +633,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             if vmin < math.inf and base + vmin <= max(grounds) - admission_depth_m:
                 deep_no_floor: tuple[float, float] | None = None
                 through: tuple[float, float] | None = None
+                protruding: tuple[float, float] | None = None
                 for comp in cache.genuine(phys):
                     cx, cy = _to_frame(xy, heading, comp.cx, comp.cz)
                     local = float(dem_z(cx, cy))
@@ -640,13 +661,26 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     # shell that passes through the ground is a building
                     top_above = base + comp.max_y - local
                     if rim_reaches_grade and top_above > contact_band_m:
-                        if through is None or top_above > through[0]:
-                            through = (top_above, depth)
-                        continue
+                        # ...unless what stands above the band is a
+                        # PROTRUSION of the shell (2026-09-06f: LEMD85's
+                        # tower over a 27,000 m2 floor plate, 3.4 % of its
+                        # face area) — the contact ring is still the rim
+                        frac = area_fraction_above(g.vertices, comp,
+                                                   local - base + contact_band_m)
+                        if frac > rim_protrusion_max_fraction:
+                            if through is None or top_above > through[0]:
+                                through = (top_above, depth)
+                            continue
+                        w = _dc.replace(w, protrusion_fraction=frac, protrusion_top_m=top_above)
+                        protruding = (frac, top_above)
                     witnesses.append(w)
                 if witnesses:
                     below = _transformed([w.below for w in witnesses], [1, 0, 0, 1, 0, 0])
                     rep.below_grade_objects += 1
+                    if protruding is not None:
+                        n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
+                        rep.rim_protrusions[dpath] = (n + 1, max(f0, protruding[0]),
+                                                      max(t0, protruding[1]))
                 elif through is not None:
                     n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
                     rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
@@ -670,6 +704,39 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                                 ("ATTR_hard_deck: the primary deck signature",)
                                 if deck is not None else ()))
     return out, rep
+
+
+def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float:
+    """The share of the component's solid FACE AREA (3-D) lying above the
+    authored plane ``y = plane_y`` — each triangle clipped at the plane:
+    an apex above two feet below keeps ``ta·tb`` of its area (the
+    similar triangle at the apex, ``t`` the edge fraction to the plane),
+    two apexes above one foot below keep ``1 − ta·tb`` of it (the
+    2026-09-06f protrusion measure).  0 for a component with no area."""
+    t = comp.tris
+    p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
+    full = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+    total = float(full.sum())
+    if total <= 0.0:
+        return 0.0
+    h = np.stack([p0[:, 1], p1[:, 1], p2[:, 1]], axis=1) - plane_y
+    above = h > 0.0
+    n_above = above.sum(axis=1)
+    out = np.where(n_above == 3, full, 0.0)
+    for k, one_above in ((1, True), (2, False)):
+        sel = n_above == k
+        if not sel.any():
+            continue
+        hs = h[sel]
+        # the lone vertex (above for k = 1, below for k = 2) and its two feet
+        lone = np.argmax(hs > 0.0, axis=1) if one_above else np.argmax(hs <= 0.0, axis=1)
+        idx = np.arange(hs.shape[0])
+        ha = hs[idx, lone]
+        hb = hs[idx, (lone + 1) % 3]
+        hc = hs[idx, (lone + 2) % 3]
+        share = (ha / (ha - hb)) * (ha / (ha - hc))
+        out[sel] = full[sel] * (share if one_above else 1.0 - share)
+    return float(out.sum() / total)
 
 
 def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,

@@ -73,7 +73,7 @@ def cmd_seat(args: argparse.Namespace) -> int:
         print(f"pad requests: {len(res.pad_requests)} (seated {sum(1 for p in res.pad_requests if p.seated)}), "
               f"worst residual {worst.residual_m:+.2f} m on {os.path.basename(worst.resource)} "
               f"({worst.part_count} part(s))")
-    for u in (u for u in res.units if u.datum != R.DATUM_CLUSTER)[:args.top]:
+    for u in [u for u in res.units if u.datum != R.DATUM_CLUSTER][:args.top]:
         print(f"  {u.unit_id} {u.datum} n={len(u.resources)} delta={u.delta_m} "
               + (f"  {u.findings[0]}" if u.findings else ""))
     if args.filter:

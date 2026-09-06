@@ -1,4 +1,12 @@
 # ══════════════════════════════════════════════════════════════════
+# 2026-09-05 (night) v2fix288 MERGED 4d79dc59 (05ae/af/ag): apron chords
+#   inside their face, over-cap factor 2.5 (max slack 0.015 m at HECA),
+#   strip population unified, CYXY way-88 gate. HECA optimal/relaxable,
+#   verify 27 (26 pre-existing lateral_contiguity), oracle 40 airside
+#   (+31k withdrawn chord law apart), runways ≤ 1.53 %. CYXY/OTHH 0/0.
+#   APP 1.0.288 IN BUILD. Owed: HECA lateral_contiguity 26; certificate
+#   budget waste; SPJC -12-078 frame cold (owner refresh).
+# ══════════════════════════════════════════════════════════════════
 # 2026-09-05 HECA SOLVES under the complete law (05ac/05ad, MERGED 43d50a53):
 #   flat runways (transverse max hard), centreline-only route graph (owner
 #   KML verdict 05aa), bounded junctions (05x), taxi law as the CHAIN (no

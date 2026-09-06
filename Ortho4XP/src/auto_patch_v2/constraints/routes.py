@@ -703,40 +703,21 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
     return out
 
 
-def _path_budgets(wb: csr_matrix, P: np.ndarray) -> np.ndarray:
-    """``Σ cap·len`` along the length-shortest path to every walk id, from
-    the predecessor matrix ``P`` of a Dijkstra (one row per source): the
-    budget of the arc into each id, summed up the predecessor tree by
-    pointer jumping (``log₂ depth`` vectorised passes, never a Python
-    walk per pair).  ``wb`` is :meth:`RouteGraph.csr` with budget
-    weights — the same arcs the walk took."""
-    none = P < 0
-    acc = np.zeros(P.shape, float)
-    ok = ~none
-    if ok.any():
-        rows, cols = np.nonzero(ok)
-        acc[rows, cols] = np.asarray(wb[P[rows, cols], cols]).ravel()
-    ptr = np.where(none, -1, P)
-    while True:
-        valid = ptr >= 0
-        if not valid.any():
-            return acc
-        pj = np.where(valid, ptr, 0)
-        acc = acc + np.where(valid, np.take_along_axis(acc, pj, axis=1), 0.0)
-        ptr = np.where(valid, np.take_along_axis(ptr, pj, axis=1), -1)
-
-
 def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
                 chunk: int = 128) -> dict[tuple[int, int], tuple[float, float]]:
     """THE WITHIN-SHAPE ROUTE PRICING (RULINGS 2026-09-05ab, spec §9):
     for every distinct pair inside each group (a face ring) the ROUTE
     distance — a's hop + the centreline path + b's hop, the shortest by
-    length — and the budget ``Σ cap·len`` along that very path, as
-    ``(a, b) -> (dist, budget)`` with ``a < b``.  A pair no route joins
-    is ABSENT (it gets no row); a vertex that is no node pairs with
-    nothing.  One Dijkstra per source over the whole graph (no window:
-    a route may be many times its chord — HECA pav101: 3,326 m for a
-    1,463 m chord), chunked so the dense distance rows stay small."""
+    length — and the pair's BUDGET: the least ``Σ cap·len`` over EVERY
+    route joining them (the reach bands' own metric, :func:`reach`; each
+    route bounds the pair, so their least does — and it is the path
+    budget where one route exists), as ``(a, b) -> (dist, budget)`` with
+    ``a < b``.  A pair no route joins is ABSENT; a vertex that is no node
+    pairs with nothing.  Two Dijkstras per source over the whole graph
+    (no window: a route may be many times its chord — HECA pav101:
+    3,349 m for a 1,463 m chord), chunked so the dense rows stay small;
+    measured HECA 2026-09-05: 7,972 sources, 4.4 s (a per-path budget
+    walk by pointer jumping cost 24 s and was replaced)."""
     members: dict[int, list[int]] = {}
     grp = [sorted({v for v in gr if v in g.nodes}) for gr in groups]
     for k, gr in enumerate(grp):
@@ -750,8 +731,8 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
     wb = g.csr("budget")
     for c0 in range(0, len(srcs), chunk):
         idx = srcs[c0:c0 + chunk]
-        D, P = dijkstra(m, directed=True, indices=idx, return_predecessors=True)
-        B = _path_budgets(wb, P)
+        D = dijkstra(m, directed=True, indices=idx)
+        B = dijkstra(wb, directed=True, indices=idx)
         for i, s in enumerate(idx):
             for k in members[s]:
                 tg = [t for t in grp[k] if t > s]

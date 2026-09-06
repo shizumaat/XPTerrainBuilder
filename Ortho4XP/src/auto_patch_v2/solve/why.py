@@ -103,6 +103,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("apron", "", "apron_within_shape"),
     ("no_step", "§1.1", "no_step_pairs"),
     ("no_step", "§1.2", "no_step_rate"),
+    ("proximity", "", "cross_shape"),
     ("transverse", "", "transverse"),
     ("roads", "longitudinal", "road_within_shape"),
     ("roads", "cross_section", "road_cross_section"),

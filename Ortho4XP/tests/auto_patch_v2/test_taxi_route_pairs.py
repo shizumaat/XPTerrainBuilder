@@ -44,8 +44,9 @@ def law():
 @pytest.fixture(scope="module")
 def hook(law):
     """A runway; the HOOK stub (its centreline every vertex of ``HOOK``);
-    and an ORPHAN stub at x = −300 with NO centreline at all (nothing to
-    attach to: no node, no route, no within-shape row)."""
+    and an L-shaped ORPHAN stub at x = −300 with NO centreline at all
+    (nothing to attach to: no node, no route — a chord that leaves the
+    L has no row, a chord inside it keeps the plane rule)."""
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
             RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
@@ -59,8 +60,11 @@ def hook(law):
         Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
              "airside", "runway", {}),
         Cell(1, "stub", "hook", ring, (), None, "D", "airside", "taxi", {}),
-        Cell(2, "stub", "orphan", _rect(-311.5, 22.5, -288.5, 200), (), None, "D",
-             "airside", "taxi", {}),
+        # an L: north from the runway, then east — its long diagonal leaves
+        # the pavement, its short chords stay inside
+        Cell(2, "stub", "orphan", ((-311.5, 22.5), (-288.5, 22.5), (-288.5, 177.0),
+                                   (-200.0, 177.0), (-200.0, 200.0), (-311.5, 200.0)),
+             (), None, "D", "airside", "taxi", {}),
     )
     cuts = (CutLine("taxi_centerline", "hook", ((0.0, 0.0), *HOOK)),)
     pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
@@ -72,9 +76,10 @@ def _face(pm, ref):
 
 
 def test_bent_stub_prices_the_centreline_never_the_chord(hook, law):
-    """§9 twin: between the hook's start and end stations the within-shape
-    row's bound is cap × the CENTRELINE length (every bend followed),
-    not cap × the chord that is under half of it."""
+    """§9 twin: between the hook's start and end stations — a chord that
+    leaves the pavement — the within-shape row's bound is cap × the
+    CENTRELINE length (every bend followed), not cap × the chord that
+    is under half of it; a chord inside the hook keeps the plane rule."""
     airport, pm = hook
     start, end = _vid(pm, 0.0, 22.5), _vid(pm, 300.0, 100.0)
     cap = role_cap(law, "stub", None, "D").longitudinal
@@ -95,15 +100,29 @@ def test_bent_stub_prices_the_centreline_never_the_chord(hook, law):
     assert "within_shape" in r.source.ruling and "05ab" in r.source.ruling
     # every pair of the hook is routed: a's hop + the centreline + b's hop,
     # never shorter than the chord
-    pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face == _face(pm, "hook").id]
+    hook_ids = set(hook_faces)
+    pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face in hook_ids]
     assert pairs and all(pp.routed for pp in pairs)
     assert all(pp.dist >= pp.d_chord - 1e-6 for pp in pairs)
+    leaving = [pp for pp in pairs if not pp.in_face]
+    staying = [pp for pp in pairs if pp.in_face]
+    assert leaving and staying
+    assert any({pp.a, pp.b} == {start, end} for pp in leaving)
+    by_pair = {(min(r.a, r.b), max(r.a, r.b)): r for r in taxi.taxi_within_shape(pm, law, airport)
+               if r.source.inputs[0] in {f"face:{i}" for i in hook_ids}}
+    for pp in staying:                       # the plane rule, unchanged
+        r = by_pair[(min(pp.a, pp.b), max(pp.a, pp.b))]
+        assert r.d == pytest.approx(pp.d_chord) and r.cap == pytest.approx(pp.cap_chord)
+    for pp in leaving:                       # the route
+        r = by_pair[(min(pp.a, pp.b), max(pp.a, pp.b))]
+        assert r.d == pytest.approx(pp.dist) and r.bound_m == pytest.approx(pp.budget, abs=1e-6)
 
 
 def test_a_pair_no_route_joins_has_no_row_and_publishes_null(hook, law):
-    """§9 twin: the orphan stub attaches to nothing — no node, no route,
-    so its pairs get no within-shape row; the publication names them as
-    ``null`` and the verify reader skips them."""
+    """§9 twin: the orphan L attaches to nothing — no node, no route: a
+    pair whose chord leaves the L gets no within-shape row (the
+    publication names it ``null``, the verify reader skips it); a pair
+    whose chord stays inside keeps the plane rule."""
     airport, pm = hook
     orphan = _face(pm, "orphan")
     g = routes(pm, law, airport)
@@ -113,13 +132,21 @@ def test_a_pair_no_route_joins_has_no_row_and_publishes_null(hook, law):
     loose = verts - on_runway                     # its own rim: nothing to attach to
     assert loose and not (loose & g.nodes)
     assert verts & on_runway <= g.nodes           # the runway-edge corners hop to the ridge
-    rows = [r for r in taxi.taxi_within_shape(pm, law, airport)
-            if r.a in loose or r.b in loose]
-    assert rows == []
     pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face == orphan.id]
     unrouted = [pp for pp in pairs if not pp.routed]
     assert pairs and unrouted and all(pp.a in loose or pp.b in loose for pp in unrouted)
-    all_unrouted = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if not pp.routed]
+    leaving = [pp for pp in unrouted if not pp.in_face]
+    staying = [pp for pp in unrouted if pp.in_face]
+    assert leaving and staying
+    corner_n, corner_e = _vid(pm, -311.5, 22.5), _vid(pm, -200.0, 177.0)
+    assert any({pp.a, pp.b} == {corner_n, corner_e} for pp in leaving)
+    rows = {(min(r.a, r.b), max(r.a, r.b)): r for r in taxi.taxi_within_shape(pm, law, airport)
+            if r.source.inputs[0] == f"face:{orphan.id}"}
+    assert not any((min(pp.a, pp.b), max(pp.a, pp.b)) in rows for pp in leaving)
+    assert all((min(pp.a, pp.b), max(pp.a, pp.b)) in rows for pp in staying)
+    unrouted = leaving
+    all_unrouted = [pp for pp in taxi.taxi_pair_routes(pm, law, airport)
+                    if not pp.routed and not pp.in_face]
     cs, _c, _w = generate(pm, law, airport)
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
@@ -154,6 +181,7 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     for k, rec in routed.items():
         if rec is not None:
             assert k in by_pair and rec[0] == pytest.approx(by_pair[k].bound_m, abs=1e-5)
+    assert routed, "the hook's leaving chords are published"
     # a pair of consecutive stations on the straight first leg: chord = route
     a, b = _vid(pm, 0.0, 22.5), None
     for v, vv in pm.vertices.items():

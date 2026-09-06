@@ -136,10 +136,11 @@ def test_the_next_g_node_may_differ_by_three_percent_from_the_intersection(site,
     cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
     rows = [r for r in taxi.taxi_within_shape(pm, law, airport) if {r.a, r.b} == {X, nxt}]
     assert rows and all(r.cap == cap_a for r in rows)
-    # the pair lies on one stretch: the route IS the stretch, priced at
-    # its cap over the centreline route (RULINGS 2026-09-05ab)
+    # the pair lies on one stretch inside the face: the plane rule at the
+    # stretch's cap, unchanged (RULINGS 2026-09-05ab: a chord inside the
+    # face is a path an aircraft can roll)
     assert {r.source.ruling for r in rows} == {
-        "rulesets.taxi.longitudinal within_shape over the centreline route (2026-09-05ab)"}
+        "rulesets.taxi.longitudinal within_shape, chord inside the face (05ab)"}
     assert all(r.d == pytest.approx(math.hypot(pm.vertices[X].xy[0] - pm.vertices[nxt].xy[0],
                                                pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1]),
                                     abs=1e-6) for r in rows)

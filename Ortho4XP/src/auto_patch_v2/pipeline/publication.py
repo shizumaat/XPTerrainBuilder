@@ -29,13 +29,14 @@ vertices' canonical lat/lon identity so the census joins exactly.
   node (measured SPJC: 70 false 7.2 m rows); v2 verify prices it by
   identity;
 * ``taxi_route_pairs``: ``[[lat, lon], [lat, lon], budget_m, dist_m]`` per
-  taxi-family within-shape pair the CHORD reading misprices (RULINGS
+  taxi-family within-shape pair whose chord LEAVES its face (RULINGS
   2026-09-05ab, ``constraints.taxi.taxi_pair_routes``): the pair's
-  ``Σ cap·len`` over the centreline route where that differs from
-  ``cap × chord`` by more than the elevation materiality, and
-  ``[a, b, null, null]`` for a pair no route joins (no law edge) —
-  v2 verify overlays them on its chord composition; a pair absent
-  from the list reads at the chord (a straight stretch: chord = route);
+  least ``Σ cap·len`` over the centreline routes where that differs
+  from ``cap × chord`` by more than the elevation materiality, and
+  ``[a, b, null, null]`` for a leaving pair no route joins (no law
+  edge) — v2 verify overlays them on its chord composition; a pair
+  absent from the list reads at the chord (inside the face: the plane
+  rule; a straight stretch is unchanged);
 * ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
   (``constraints.seams``) — the census skips pin↔pin pairs and prices
   pin↔free pairs at the body cap (user 2026-07-04);
@@ -120,6 +121,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     taxi_pairs = []
     for pp in taxi_pair_routes(planar, law, airport):
+        if pp.in_face:
+            continue                              # the plane rule: the reader's own chord
         if not pp.routed:
             taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
         elif abs(pp.budget - pp.cap_chord * pp.d_chord) > tol:

@@ -292,7 +292,7 @@ def _relaxed(kind, row):
 def test_slack_bound_never_lets_a_short_edge_carry_a_metre(law):
     src = Source("apron", "common.roles.apron ring edge (2026-08-21b)", ())
     factor = law.tables.emit.relaxation.max_over_cap_factor
-    assert factor == 2.0
+    assert factor == 2.5      # RULINGS 2026-09-05af
     short = Diff(0, 1, 0.01, 2.55, src)              # the HECA edge that carried 1.33 m
     g = variance.slack_bound(_relaxed("diff", short), factor)
     assert g == pytest.approx((factor - 1.0) * 0.01)

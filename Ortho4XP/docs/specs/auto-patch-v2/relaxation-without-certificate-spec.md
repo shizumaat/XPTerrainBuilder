@@ -231,3 +231,30 @@ length prices the centreline; a pad on an apron keeps its pair rows
 (CYXY building6/7 read 0 rows again: `test_cyxy_verify_matches_v1_
 census` green). Acceptance as §8: offline certificate → KML → ONE HECA
 build → CYXY/OTHH base arms.
+
+## 10. Amendment 2026-09-05 — chords stay inside their face; the relaxation's shape (RULINGS 2026-09-05ae)
+
+1. `constraints/apron.py::apron_within_shape`: a frontage/spine or body
+   chord is a row only if `LineString(a, b)` is covered by the apron
+   face polygon (holes excluded; `shapely.covered_by` with the snap
+   tolerance); a chord leaving the face is dropped (reported in the
+   generator stats as `chords_outside_face`). `constraints/junction_
+   mesh.py`: a Delaunay triangle whose edge leaves the junction face is
+   not a plane row. Twin: an apron with a building hole — the chord
+   across the hole is absent, the ring edges and inside chords remain;
+   CYXY way 88's chord.
+2. `emit.toml [relaxation] max_over_cap_factor = 2.0` (a relaxed row's
+   slack ≤ (factor − 1) × cap × d; a 2.55 m edge can carry at most
+   0.04 m, never 1.33 m); `qp_time_budget_s` sized so the exact QP runs
+   for a certificate scope under `qp_max_rows` (measure HECA's 30k-row
+   scope: exact QP time; if it exceeds 120 s keep the PWL and state it).
+   Twins: the spread twin's max/sum bound restated with the factor; a
+   short edge never carries a metre.
+3. `constraints/strips.py::strip_longitudinal` vs `verify/strips.py`:
+   one population — the generator prices every pair the reader reads
+   (register the population in ONE helper both import; twin asserts
+   equality on a synthetic strip beside a runway end).
+Acceptance: HECA once (site first: pav132's relaxed rows, max slack,
+worst over-cap factor, the 7 transverse + 7 strip rows → 0, runway
+halves, scope, solve wall), CYXY and OTHH base arms (v2-verify 0, CYXY
+way 88 gone), then app 1.0.288.

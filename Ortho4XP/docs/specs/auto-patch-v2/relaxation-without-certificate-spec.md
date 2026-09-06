@@ -209,3 +209,25 @@ edge lies on any face ring. Acceptance as §3/§6/§7: the OFFLINE HECA
 certificate first, then the one HECA build, then CYXY/OTHH base arms
 (0/0 must hold; the pad rims lose their frontage hops — quote the
 building rows if any return).
+
+## 9. Amendment 2026-09-05 — within-shape taxi rows price the centreline route; pads attach by contact (RULINGS 2026-09-05ab)
+
+`constraints/taxi.py::taxi_within_shape` (and the stretch pairing in
+`stretches.py`): for every priced pair (a, b) of a taxi-family face the
+distance is the ROUTE distance through the 05aa graph (a's lateral hop
++ the centreline path + b's hop) at the stretch caps along it — the row
+is `|z_a − z_b| ≤ Σ cap·len` over that route, never `cap × chord`. A
+pair whose attachments have no route between them gets NO within-shape
+row. Pairs on one straight stretch are unchanged (chord = route). The
+junction mesh (plane gradient over Delaunay triangles ≤ a few metres) is
+local and unchanged.
+
+Pads: a building vertex attaches to the graph at its CONTACT — the
+apron/taxi vertex it is welded to (`weld_to_touching_pavement`), or the
+apron vertex of its `frontage_near_miss` row — at 0 m, so
+`pad_pavement_edges` and no_step find the pad through its apron exactly
+as before 05aa. Twins: a bent stub whose chord is half its centreline
+length prices the centreline; a pad on an apron keeps its pair rows
+(CYXY building6/7 read 0 rows again: `test_cyxy_verify_matches_v1_
+census` green). Acceptance as §8: offline certificate → KML → ONE HECA
+build → CYXY/OTHH base arms.

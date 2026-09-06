@@ -84,6 +84,35 @@ def cmd_seat(args: argparse.Namespace) -> int:
                 for m in u.members:
                     print(f"     {os.path.basename(m.resource):48s} {m.datum:8s} delta={m.delta_m if m.delta_m is None else round(m.delta_m, 3)} "
                           f"w={m.witnesses} water={m.water} off={m.off_mesh} out={m.outliers} {m.note}")
+    # THE MEMBER RESIDUALS (06g report metric): per member, the worst
+    # post-seat ground-part residual — rendered ground (the cluster's
+    # median, or the authored base where the cluster stays) + base_y −
+    # the mesh under the part; "within 1 m of its own ground" = worst ≤ 1
+    within = total = 0
+    worst_all = 0.0
+    for u, pu in zip(res.units, plan.units):
+        if u.anchor_ground_m is None:
+            continue
+        base = u.anchor_ground_m + pu.agl_m
+        for ms, m in zip(u.members, pu.members):
+            by_comp = {c: (k, d) for c, k, d in ms.part_deltas}
+            worst = None
+            for p in m.parts:
+                if p.base_y > law.tables.structures.rebake.elevated_base_m:
+                    continue
+                smp = sample(p.lat, p.lon)
+                if smp is None or smp[1]:
+                    continue
+                k, d = by_comp.get(p.comp, (None, None))
+                delta = d if d is not None else (ms.delta_m if ms.delta_m is not None else 0.0)
+                r = abs(base + delta + p.base_y - smp[0])
+                worst = r if worst is None else max(worst, r)
+            if worst is None:
+                continue
+            total += 1
+            within += worst <= 1.0
+            worst_all = max(worst_all, worst)
+    print(f"members within 1 m of their own ground: {within}/{total} (worst {worst_all:.2f} m)")
     ds = [d for u in res.units if u.bakes for m in u.members
           for d in ([m.delta_m] if m.delta_m is not None else [x for _c, _k, x in m.part_deltas if x is not None])]
     if ds:

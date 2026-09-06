@@ -19,13 +19,15 @@ from pathlib import Path
 # 1,000-line file law; RULINGS 2026-09-05k-2) and are re-exported here.
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
+# the [rebake] schema (06g: the contact-cluster law's keys) likewise
+from .rebake_schema import Rebake  # noqa: F401
 
 __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
     "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
-    "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
+    "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
     "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
@@ -373,38 +375,6 @@ class RetainingWall:
 
     allowed_outside_carves: bool
     in_runway_strip: bool
-
-
-@_dc.dataclass(frozen=True)
-class Rebake:
-    """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
-
-    restore_before_read: bool
-    ground_datum: str
-    deck_datum: str
-    # the partition (06g; v1 pools / structures / contact graph)
-    pool_overlap_m: float
-    contact_epsilon_m: float
-    contact_weld_m: float
-    contact_narrow_budget: int
-    contact_batch_rows: int
-    elevated_base_m: float
-    # the cut and the cluster seat (06g; v1 per-cluster seating spec)
-    cluster_seat_tolerance_m: float
-    min_delta_m: float
-    cluster_span_pad_m: float
-    cluster_residual_pad_m: float
-    nobake_pad_floor_m: float
-    pad_max_relief_m: float
-    a3_guard_max_diameter_m: float
-    a3_tolerance_m: float
-    agreement_window_m: float
-    water_founds_seat: bool
-    one_anchor_one_seat: bool
-    structure_family_excluded: bool
-    deck_family_seats_rigid: bool
-    facility_requires_at_grade_coalition: bool
-    structure_seat_threshold_exempt: bool
 
 
 @_dc.dataclass(frozen=True)

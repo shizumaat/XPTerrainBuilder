@@ -19,13 +19,15 @@ from pathlib import Path
 # 1,000-line file law; RULINGS 2026-09-05k-2) and are re-exported here.
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
+# the [rebake] schema (06g: the contact-cluster law's keys) likewise
+from .rebake_schema import Rebake  # noqa: F401
 
 __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
     "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
-    "RetainingWall", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
+    "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
     "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
     "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
@@ -373,29 +375,6 @@ class RetainingWall:
 
     allowed_outside_carves: bool
     in_runway_strip: bool
-
-
-@_dc.dataclass(frozen=True)
-class Rebake:
-    """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
-
-    restore_before_read: bool
-    ground_datum: str
-    deck_datum: str
-    foot_band_m: float
-    foot_samples_per_component: int
-    foot_samples_per_member: int
-    agreement_window_m: float
-    min_delta_m: float
-    residual_report_m: float
-    water_founds_seat: bool
-    one_anchor_one_seat: bool
-    # the founding witness floor and family exclusions (04k; M6b)
-    founding_min_witnesses: int
-    founding_min_share: float
-    structure_family_excluded: bool
-    deck_family_seats_rigid: bool
-    structure_seat_threshold_exempt: bool
 
 
 @_dc.dataclass(frozen=True)

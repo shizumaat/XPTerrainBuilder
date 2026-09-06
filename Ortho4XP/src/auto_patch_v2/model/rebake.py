@@ -1,14 +1,23 @@
-"""THE RE-SEAT PLAN AND RESULT — data only (RULINGS 2026-09-04i 04f-1).
+"""THE RE-SEAT PLAN AND RESULT — data only (RULINGS 2026-09-04i 04f-1;
+the CONTACT-CLUSTER law 2026-09-06g).
 
 A :class:`RebakePlan` is what the tile build writes beside the patch
-(``o4_v2_rebake_<ICAO>.json``) and the post-mesh seat reads: the rigid
-UNITS — one per anchor spelling ``(lat, lon, AGL)``, so a shared-datum
-family (memory ``shared-datum-pack-authoring``) is ONE unit with ONE
-delta — and per member the witnesses its seat is read from (the FEET:
-the object's own lowest band, authored ``y`` + world position; for a
-hard-deck object the deck ring, its deck-top ``y`` and the SOLVED
-surface's value at the deck).  Built by ``airport/rebake_plan.py``,
-seated by ``emit/rebake.py``.  No numpy, no shapely, no I/O here.
+(``o4_v2_rebake_<ICAO>.json``) and the post-mesh seat reads.  Since 06g
+the seat's unit is no longer the anchor family but the CONTACT CLUSTER
+(v1's law as v2 code): every member carries its welded solid PARTS —
+one per genuine component of the authored file: the plan-centroid the
+mesh is read under, the part's lowest authored ``y`` (``base_y``), its
+plan area and box — and the plan carries the ε-CONTACT EDGES among all
+parts of the pack (``airport/contact.py``).  After the mesh
+``emit/clusters.py`` cuts the ground-to-ground edges whose seat targets
+disagree by more than ``cluster_seat_tolerance_m`` and seats every
+cluster on the median ground under its ground parts, PER VERTEX — one
+file may carry several deltas.  Anchor families (``Unit``) survive as
+the SUBTRAHEND (a member's rendered ``y = 0`` plane is the mesh at its
+anchor + AGL) and as the scope of the STRUCTURE seats: a deck plate at
+its abutment grade (R12), a tunnel wall / basin floor plate (05n-4 /
+06b-3).  Built by ``airport/rebake_plan.py``, seated by
+``emit/rebake.py``.  No numpy, no shapely, no I/O here.
 """
 from __future__ import annotations
 
@@ -18,15 +27,18 @@ import typing as _t
 
 from .frame import LL
 
-__all__ = ["Foot", "Member", "Unit", "RebakePlan", "MemberSeat", "UnitSeat",
-           "SeatResult", "PLAN_VERSION", "PLAN_FILENAME", "DATUM_FEET",
-           "DATUM_DECK_TOP", "DATUM_PLATE"]
+__all__ = ["Part", "Member", "Unit", "RebakePlan", "MemberSeat", "UnitSeat",
+           "ClusterSeat", "PadRequest", "SeatResult", "PLAN_VERSION", "PLAN_FILENAME",
+           "DATUM_CLUSTER", "DATUM_DECK_TOP", "DATUM_PLATE"]
 
-PLAN_VERSION = 3       # 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall plates (05n-4)
+#: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
+#: plates (05n-4); 4: parts and contact edges, feet retired (06g).
+PLAN_VERSION = 4
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
-DATUM_FEET = "feet"
+#: A ground object seats by its CONTACT CLUSTERS (06g; v1 ``form_clusters``).
+DATUM_CLUSTER = "cluster"
 DATUM_DECK_TOP = "deck_top"
 #: A tunnel wall object seats its top PLATE on the ground at its wall band
 #: (RULINGS 2026-09-05n-4; ``tunnel.object.plate_datum = "ground"``).
@@ -36,12 +48,21 @@ DATUM_PLATE = "plate"
 # ── the plan ─────────────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
-class Foot:
-    """One contact witness: world position and authored ``y``."""
+class Part:
+    """One welded solid part of a member (a genuine component of the
+    authored file, index ``comp`` into ``obj8.solid_components``): the
+    world position of its plan centroid (the mesh is read there), its
+    lowest authored ``y``, plan area and plan box ``(min_lat, min_lon,
+    max_lat, max_lon)``.  ``pid`` is its index in the plan's contact
+    graph."""
 
+    pid: int
+    comp: int
     lat: float
     lon: float
-    y: float
+    base_y: float
+    area_m2: float
+    box: tuple[float, float, float, float]
 
 
 @_dc.dataclass(frozen=True)
@@ -55,14 +76,15 @@ class Member:
     authored_path: str
     live_path: str
     heading_deg: float
-    feet: tuple[Foot, ...]
+    parts: tuple[Part, ...] = ()
     deck_ring: tuple[LL, ...] | None = None
     deck_top_y: float | None = None
     deck_datum_z: float | None = None
     #: THE DECK SIGNATURE (04k; ``airport/deck_signature.py``): ``"flag"``
     #: (``ATTR_hard_deck``), ``"signature"`` (a plate spanning a bridge
     #: way / below-grade region), ``"family"`` (a member of a deck family
-    #: without a plate: it seats WITH the deck), else ``""``.
+    #: without a plate: its parts in contact with the deck seat WITH it,
+    #: 06g), else ``""``.
     deck_kind: str = ""
     #: A signature deck's abutment END LINES ``((a, b), (c, d))`` in
     #: ``(lat, lon)`` — where the seat reads the ground (R12: deck top at
@@ -89,7 +111,9 @@ class Member:
 
 @_dc.dataclass(frozen=True)
 class Unit:
-    """One rigid unit: every placement sharing one anchor spelling."""
+    """One anchor family: every placement sharing one anchor spelling.
+    The SUBTRAHEND of its members' deltas and the scope of a structure
+    seat (06g) — no longer the seat's rigid unit."""
 
     id: str
     anchor: LL
@@ -99,7 +123,9 @@ class Unit:
 
 @_dc.dataclass(frozen=True)
 class RebakePlan:
-    """What the post-mesh seat reads; JSON round-trips exactly."""
+    """What the post-mesh seat reads; JSON round-trips exactly.
+    ``contacts`` are the ε-contact edges ``(pid, pid)`` over every
+    member's parts (``[rebake] contact_epsilon_m``)."""
 
     icao: str
     pack_name: str
@@ -107,6 +133,7 @@ class RebakePlan:
     units: tuple[Unit, ...]
     skipped: tuple[tuple[str, str], ...]
     counts: _t.Mapping[str, int]
+    contacts: tuple[tuple[int, int], ...] = ()
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -115,9 +142,11 @@ class RebakePlan:
         for u in self.units:
             lats.append(u.anchor[0]); lons.append(u.anchor[1])
             for m in u.members:
-                for f in m.feet:
-                    lats.append(f.lat); lons.append(f.lon)
+                for p in m.parts:
+                    lats.extend((p.box[0], p.box[2])); lons.extend((p.box[1], p.box[3]))
                 for la, lo in (m.deck_ring or ()):
+                    lats.append(la); lons.append(lo)
+                for la, lo in m.plate_stations:
                     lats.append(la); lons.append(lo)
         if not lats:
             return (0.0, 0.0, 0.0, 0.0)
@@ -129,13 +158,15 @@ class RebakePlan:
             "pack_name": self.pack_name, "pack_root": self.pack_root,
             "counts": dict(self.counts),
             "skipped": [list(s) for s in self.skipped],
+            "contacts": [[a, b] for a, b in self.contacts],
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
                     "id": m.id, "resource": m.resource,
                     "authored_path": m.authored_path, "live_path": m.live_path,
                     "heading_deg": m.heading_deg,
-                    "feet": [[f.lat, f.lon, f.y] for f in m.feet],
+                    "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box]
+                              for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
@@ -165,7 +196,10 @@ class RebakePlan:
                 id=str(m["id"]), resource=str(m["resource"]),
                 authored_path=str(m["authored_path"]), live_path=str(m["live_path"]),
                 heading_deg=float(m["heading_deg"]),
-                feet=tuple(Foot(float(a), float(b), float(c)) for a, b, c in m["feet"]),
+                parts=tuple(Part(int(p[0]), int(p[1]), float(p[2]), float(p[3]), float(p[4]),
+                                 float(p[5]), (float(p[6]), float(p[7]), float(p[8]),
+                                               float(p[9])))
+                            for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),
                 deck_top_y=None if m.get("deck_top_y") is None else float(m["deck_top_y"]),
@@ -185,19 +219,24 @@ class RebakePlan:
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,
                    skipped=tuple((str(a), str(b)) for a, b in d.get("skipped", ())),
-                   counts=dict(d.get("counts", {})))
+                   counts=dict(d.get("counts", {})),
+                   contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":
         return cls.from_dict(json.loads(text))
 
 
-
 # ── the seat ─────────────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
 class MemberSeat:
-    """One member's own seat (before the unit's one delta)."""
+    """One member's seat.  ``delta_m`` is the ONE delta applied to the
+    whole file when it has one (a structure seat, or every part in one
+    cluster), else ``None`` with the per-part map in ``part_deltas``:
+    ``(comp, cluster id, delta | None)`` — ``None`` = that part keeps its
+    authored y (its cluster stayed: below threshold, refused, facility,
+    held).  ``witnesses`` counts the member's MEASURED ground parts."""
 
     resource: str
     datum: str
@@ -211,36 +250,76 @@ class MemberSeat:
     #: land samples, samples over water, found) and the mid-span
     #: clearance reading — the evidence trail per member (04k).
     records: tuple[str, ...] = ()
-    #: Whether this member FOUNDED the unit's seat (a deck plate with a
-    #: measured abutment grade; a foot member over the witness floor).
+    #: Whether this member FOUNDED the unit's structure seat (a deck plate
+    #: with a measured abutment grade, a wall plate on its band).
     founding: bool = False
-    #: A FACILITY member (RULINGS 2026-09-05p): its feet stand deeper than
-    #: ``[basin] contact_band_m`` BELOW the built mesh — it never founds
-    #: the family and keeps its authored y (the terrain's cutout is the
-    #: basin pass's affair, never the seat's).  OTHH unit:21: the sunken
-    #: TerminalRoads/Parking founded the 399-member terminal +1.888 m.
+    #: A FACILITY member (RULINGS 2026-09-05p, at cluster level 06g): every
+    #: one of its ground parts lies in a facility cluster — it keeps its
+    #: authored y (the terrain's cutout is the basin pass's affair).
     facility: bool = False
-    #: SEATED APART (RULINGS 2026-09-06b law 3): a founding-eligible
-    #: member whose own delta lies outside the family's agreeing
-    #: coalition (``agreement_window_m``) bakes by ITS OWN ``delta_m``,
-    #: not the family's — HECA's 133-member family took one −35.6 m over
-    #: 85 m of relief.  ``family_delta_m`` records the coalition delta it
-    #: left.  A member whose own delta is under ``min_delta_m`` STAYS at
-    #: its authored y instead (``apart_stays``).
-    seated_apart: bool = False
-    apart_stays: bool = False
-    family_delta_m: float | None = None
-    #: The GROUND under the member's land feet (median mesh z, absolute):
-    #: a member whose feet are above the family's band stands on ANOTHER
-    #: member when this is the family's own ground (OTHH unit:21's roof
-    #: piece at y = 6.4 over flat ground), and on the LAND when it is not
-    #: (HECA's buildings on 85 m of relief around one anchor).
+    #: The GROUND under the member's measured ground parts (median mesh z).
     ground_m: float | None = None
+    part_deltas: tuple[tuple[int, int, float | None], ...] = ()
+
+    @property
+    def bakes(self) -> bool:
+        """Some vertex of this member moves."""
+        return self.delta_m is not None or any(d is not None for _c, _k, d in self.part_deltas)
+
+
+@_dc.dataclass(frozen=True)
+class ClusterSeat:
+    """One contact cluster (06g): ``ground_m`` the median mesh under its
+    measured ground parts, ``lift_m`` the median of their seat deltas
+    (``ground − base_y − base``: positive = the parts stand under the
+    mesh), ``span_m`` the ground relief across them.  ``delta_m`` is per
+    RESOURCE (``ground_m − base(member)``) and lives in the members'
+    ``part_deltas``; ``skip_reason`` says why the cluster stays."""
+
+    id: int
+    structure: int
+    resources: tuple[str, ...]
+    n_parts: int
+    n_ground: int
+    n_measured: int
+    ground_m: float | None
+    lift_m: float | None
+    span_m: float
+    diameter_m: float
+    needs_pad: bool = False
+    facility: bool = False
+    held: bool = False
+    skip_reason: str | None = None
+    residual_parts: int = 0
+
+    @property
+    def bakes(self) -> bool:
+        return self.ground_m is not None and self.skip_reason is None and not self.held
+
+
+@_dc.dataclass(frozen=True)
+class PadRequest:
+    """A maximal connected group of a cluster's ground parts the seat
+    still leaves further than ``cluster_residual_pad_m`` off the mesh
+    (v1 ``ClusterPadRequest``, spec §5.3): the terrain's to close —
+    REPORTED here, consumed by no v2 pass yet (06g)."""
+
+    cluster: int
+    resource: str
+    lat: float
+    lon: float
+    residual_m: float
+    target_ground_m: float
+    part_count: int
+    over_relief_cap: bool
+    seated: bool
 
 
 @_dc.dataclass(frozen=True)
 class UnitSeat:
-    """The unit's ONE delta, or why it has none."""
+    """The unit's structure seat (a deck top, a wall plate: ONE delta for
+    the members it founds), or ``DATUM_CLUSTER``: its members seat by
+    their contact clusters and ``delta_m`` is ``None``."""
 
     unit_id: str
     resources: tuple[str, ...]
@@ -251,51 +330,76 @@ class UnitSeat:
     members: tuple[MemberSeat, ...]
     skip_reason: str | None = None
     findings: tuple[str, ...] = ()
-    #: HELD: v2 cannot judge the unit (no founding witness on land) — the
-    #: pack's CURRENT bytes are kept, neither seated nor reverted; a
-    #: finding, never a silent change to an owner-accepted state.
+    #: HELD: v2 cannot judge the unit (its anchor is off the mesh, or a
+    #: one-file-several-anchors disagreement) — the pack's CURRENT bytes
+    #: are kept, neither seated nor reverted.
     held: bool = False
 
     @property
     def bakes(self) -> bool:
-        return self.delta_m is not None and self.skip_reason is None
+        """Some member of the unit moves."""
+        if self.skip_reason is not None or self.held:
+            return False
+        return self.delta_m is not None or any(m.bakes for m in self.members)
 
 
 @_dc.dataclass(frozen=True)
 class SeatResult:
     icao: str
     units: tuple[UnitSeat, ...]
+    clusters: tuple[ClusterSeat, ...] = ()
+    pad_requests: tuple[PadRequest, ...] = ()
+    cut_edges: int = 0
+    structures: int = 0
 
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
              "held": 0, "skipped": 0, "resources_baked": 0, "findings": 0,
              "deck_units": 0, "facility_members": 0, "plate_units": 0,
-             "units_split": 0, "members_apart": 0, "members_apart_stay": 0}
+             "structures": self.structures, "clusters": len(self.clusters),
+             "clusters_baked": 0, "clusters_below_threshold": 0, "clusters_refused": 0,
+             "clusters_facility": 0, "clusters_held": 0, "clusters_padded": 0,
+             "cut_edges": self.cut_edges, "pad_requests": len(self.pad_requests),
+             "parts": 0, "ground_parts": 0, "members_multi_delta": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
             c["facility_members"] += sum(1 for m in u.members if m.facility)
-            n_apart = sum(1 for m in u.members if m.seated_apart)
-            c["members_apart"] += n_apart
-            c["members_apart_stay"] += sum(1 for m in u.members if m.apart_stays)
-            if n_apart:
-                c["units_split"] += 1
-                if not u.bakes:
-                    c["resources_baked"] += n_apart     # apart members of a staying unit
+            c["resources_baked"] += sum(1 for m in u.members if m.bakes and not u.held)
+            c["members_multi_delta"] += sum(
+                1 for m in u.members if m.delta_m is None
+                and len({d for _c, _k, d in m.part_deltas if d is not None}) > 1)
             if u.datum == DATUM_DECK_TOP:
                 c["deck_units"] += 1
             if u.datum == DATUM_PLATE:
                 c["plate_units"] += 1
             if u.bakes:
                 c["baked"] += 1
-                c["resources_baked"] += len(u.resources)
             elif u.skip_reason and u.skip_reason.startswith("below_threshold"):
                 c["below_threshold"] += 1
             elif u.held:
                 c["held"] += 1
             else:
                 c["skipped"] += 1
+        for k in self.clusters:
+            c["parts"] += k.n_parts
+            c["ground_parts"] += k.n_ground
+            if k.bakes:
+                c["clusters_baked"] += 1
+            elif k.held:
+                c["clusters_held"] += 1
+            elif k.facility:
+                c["clusters_facility"] += 1
+            elif k.skip_reason and k.skip_reason.startswith("below_threshold"):
+                c["clusters_below_threshold"] += 1
+            else:
+                c["clusters_refused"] += 1
+            if k.needs_pad:
+                c["clusters_padded"] += 1
         return c
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"icao": self.icao, "counts": self.counts(),
-                "units": [_dc.asdict(u) for u in self.units]}
+                "cut_edges": self.cut_edges, "structures": self.structures,
+                "units": [_dc.asdict(u) for u in self.units],
+                "clusters": [_dc.asdict(k) for k in self.clusters],
+                "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

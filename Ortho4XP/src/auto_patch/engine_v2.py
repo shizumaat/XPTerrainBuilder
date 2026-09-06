@@ -386,12 +386,19 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
 
 
 def _decision_from_seats(plan_, result, measure_only: bool):
-    """A v1 ``RebakeDecision`` carrying v2's ONE delta per unit: one
-    structure per resource over all its solid triangles, every vertex the
-    same delta; a resource whose unit has no bake (below threshold, off
-    the mesh, measure-only) is listed in ``skipped`` and still registered
-    by anchor, so v1's reversion pass puts an earlier bake back."""
-    from . import obj8_reader
+    """A v1 ``RebakeDecision`` carrying v2's seat PER VERTEX (RULINGS
+    2026-09-06g): a structure-seated member's every solid vertex takes
+    the unit's one delta; a cluster-seated member's vertices take their
+    PART's cluster delta (``MemberSeat.part_deltas``: ``(component,
+    cluster, delta | None)`` — ``None`` keeps the authored y, so one file
+    may carry several deltas and unmoved parts).  The components are
+    v2's own deterministic partition of the AUTHORED file
+    (``auto_patch_v2.airport.obj8.solid_components``), the same the plan
+    was built from.  A resource with no bake (below threshold, held,
+    facility, off the mesh, measure-only) is listed in ``skipped`` and
+    still registered by anchor, so v1's reversion pass puts an earlier
+    bake back."""
+    from auto_patch_v2.airport import obj8 as _obj8
     from .object_anchor import RebakeDecision, Structure
     structures = []
     deltas: dict[str, dict[int, float]] = {}
@@ -406,72 +413,71 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             # HELD: unknown to the decision, so v1's reversion pass leaves
             # the live bytes exactly as they are (reported, never reverted)
             continue
-        facility = {s.resource: s for s in us.members if s.facility}
-        # RULINGS 2026-09-06b law 3: a member seated APART bakes by its own
-        # delta, whatever its family does (the family may even be below
-        # the threshold); one outside the coalition but under the
-        # threshold stays
-        apart = {s.resource: s for s in us.members if s.seated_apart or s.apart_stays}
+        by_res = {s.resource: s for s in us.members}
         for m in u.members:
             r = m.resource
+            ms = by_res[r]
             anchors[r] = (u.anchor[0], u.anchor[1], m.heading_deg)
             if us.anchor_ground_m is not None:
                 ground[r] = float(us.anchor_ground_m)
             if measure_only:
                 skipped.append((r, "measure-only: modify_custom_airports is off"))
                 continue
-            delta_r: float | None = None
-            kind_r = "v2_" + us.datum
-            if r in apart and apart[r].apart_stays:
-                a_ = apart[r]
-                skipped.append((r, f"seated apart (2026-09-06b law 3): own delta {a_.delta_m:+.3f} m "
-                                   f"under min_delta_m, family {a_.family_delta_m:+.3f} m — stays "
-                                   f"at its authored y ({us.unit_id})"))
-                continue
-            if r in apart:
-                a_ = apart[r]
-                delta_r = float(a_.delta_m)
-                kind_r = "v2_feet_apart"
-                notes[r] = (f"seated_apart (2026-09-06b law 3): coalition {a_.family_delta_m:+.3f} m, "
-                            f"own {delta_r:+.3f} m ({us.unit_id})")
-            elif r in facility:
-                # RULINGS 2026-09-05p: a facility member keeps its authored
-                # y whatever its family does — the excluded path, so v1's
+            if ms.facility:
+                # RULINGS 2026-09-05p (at cluster level 06g): a facility
+                # member keeps its authored y — the excluded path, so v1's
                 # reversion pass restores an earlier bake and the
                 # provenance records the exclusion
-                fs = facility[r]
-                skipped.append((r, f"facility member (05p): feet {fs.delta_m:.2f} m below the "
-                                   f"mesh — keeps its authored y; the cutout is the basin "
-                                   f"pass's affair ({us.unit_id})"))
+                skipped.append((r, f"facility member (05p): stands more than the contact band "
+                                   f"below the mesh — keeps its authored y; the cutout is the "
+                                   f"basin pass's affair ({us.unit_id})"))
                 continue
-            elif not us.bakes:
-                skipped.append((r, us.skip_reason or "no seat"))
+            if not (us.bakes and ms.bakes):
+                skipped.append((r, us.skip_reason or ms.note or "no seat"))
                 continue
-            else:
-                delta_r = float(us.delta_m)
             try:
-                geom = obj8_reader.load_object_file(m.authored_path)
+                geom = _obj8.parse_obj8(m.authored_path)
             except (OSError, ValueError) as exc:
                 skipped.append((r, f"authored file unreadable: {exc}"))
                 continue
-            tris = list(geom.solid_triangles)
-            if not tris:
+            comps = _obj8.solid_components(geom)
+            if not comps:
                 skipped.append((r, "no solid triangle: nothing to seat"))
                 continue
-            vids = sorted({i for t in tris for i in t})
-            deltas[r] = {i: delta_r for i in vids}
-            ys = [geom.vertices[i][1] for i in vids]
+            per_vertex: dict[int, float] = {}
+            if ms.delta_m is not None and not ms.part_deltas:
+                for c in comps:
+                    for i in set(c.tris.reshape(-1).tolist()):
+                        per_vertex[i] = float(ms.delta_m)
+            else:
+                for comp, _k, d in ms.part_deltas:
+                    if d is None or comp >= len(comps):
+                        continue
+                    for i in set(comps[comp].tris.reshape(-1).tolist()):
+                        per_vertex[i] = float(d)
+            if not per_vertex:
+                skipped.append((r, ms.note or "no part seated"))
+                continue
+            deltas[r] = per_vertex
+            ys = [float(geom.vertices[i][1]) for i in per_vertex]
+            tris = [tuple(int(x) for x in t) for c in comps for t in c.tris]
             structures.append(Structure(
                 triangles_by_resource={r: tris}, surface_area_square_metres=0.0,
                 centroid_latitude=u.anchor[0], centroid_longitude=u.anchor[1],
                 minimum_base_y_by_resource={r: min(ys)}, is_ground_touching=True,
                 ground_span_metres=None, needs_pad=False, skip_reason=None,
                 inherited_from_structure_index=None))
-            kinds[r] = kind_r
-            if r in apart and us.anchor_ground_m is not None:
-                datums[r] = float(us.anchor_ground_m) + u.agl_m + delta_r
-            elif us.seat_datum_m is not None:
+            kinds[r] = "v2_" + ms.datum
+            if ms.note:
+                notes[r] = ms.note
+            if us.datum != "cluster" and us.seat_datum_m is not None:
                 datums[r] = float(us.seat_datum_m)
+            elif ms.delta_m is not None and us.anchor_ground_m is not None:
+                datums[r] = float(us.anchor_ground_m) + u.agl_m + float(ms.delta_m)
+            elif us.anchor_ground_m is not None:
+                # several deltas in one file: the datum is the base, the
+                # provenance records the spread (delta_range_m)
+                datums[r] = float(us.anchor_ground_m) + u.agl_m
     return RebakeDecision(structures=structures, delta_by_resource_and_vertex=deltas,
                           anchor_ground_by_resource=ground, skipped=skipped,
                           anchor_by_resource=anchors, decision_kind_by_resource=kinds,
@@ -495,7 +501,7 @@ def rebake_after_mesh(tile) -> dict:
 
     counts = {"airports": 0, "units": 0, "units_baked": 0, "units_below_threshold": 0,
               "units_skipped": 0, "units_held": 0, "objects_written": 0,
-              "objects_reverted": 0, "units_split": 0, "members_apart": 0,
+              "objects_reverted": 0, "clusters": 0, "clusters_baked": 0, "pad_requests": 0,
               "vertices_offset": 0, "findings": 0, "airports_failed": 0,
               "packs_written": 0}
     try:
@@ -568,8 +574,9 @@ def rebake_after_mesh(tile) -> dict:
                 counts["units_below_threshold"] += rc["below_threshold"]
                 counts["units_skipped"] += rc["skipped"]
                 counts["units_held"] += rc["held"]
-                counts["units_split"] += rc["units_split"]
-                counts["members_apart"] += rc["members_apart"]
+                counts["clusters"] += rc["clusters"]
+                counts["clusters_baked"] += rc["clusters_baked"]
+                counts["pad_requests"] += rc["pad_requests"]
                 counts["findings"] += rc["findings"]
                 counts["objects_written"] += len(report.objects_written)
                 counts["objects_reverted"] += len(report.objects_reverted)
@@ -591,14 +598,17 @@ def rebake_after_mesh(tile) -> dict:
                 with open(rp + ".tmp", "w") as fh:
                     json.dump(out, fh, indent=1, default=str)
                 os.replace(rp + ".tmp", rp)
-                UI.vprint(1, f"  [v2 rebake] {icao}: {rc['units']} unit(s) "
-                             f"({rc['deck_units']} deck-founded): {rc['baked']} seated "
-                             f"({len(report.objects_written)} object(s) written, "
-                             f"{report.vertices_offset_total} vertices), "
-                             f"{rc['below_threshold']} below the {law.tables.structures.rebake.min_delta_m} m "
-                             f"threshold, {rc['held']} held (no land witness: current "
-                             f"bytes kept), {rc['skipped']} unseatable, {rc['units_split']} "
-                             f"family(ies) split ({rc['members_apart']} member(s) seated apart), "
+                UI.vprint(1, f"  [v2 rebake] {icao}: {rc['structures']} structure(s), "
+                             f"{rc['clusters']} cluster(s) ({rc['cut_edges']} edge(s) cut): "
+                             f"{rc['clusters_baked']} seated, {rc['clusters_below_threshold']} "
+                             f"below the {law.tables.structures.rebake.min_delta_m} m threshold, "
+                             f"{rc['clusters_refused']} refused, {rc['clusters_facility']} facility, "
+                             f"{rc['clusters_held']} held, {rc['pad_requests']} pad request(s); "
+                             f"{rc['units']} unit(s) ({rc['deck_units']} deck-founded, "
+                             f"{rc['plate_units']} plate): {rc['baked']} bake, {rc['held']} held; "
+                             f"{len(report.objects_written)} object(s) written "
+                             f"({report.vertices_offset_total} vertices, "
+                             f"{rc['members_multi_delta']} with several deltas), "
                              f"{len(report.objects_reverted)} reverted, "
                              f"{rc['findings']} finding(s) -> {os.path.basename(rp)}")
                 for u in res.units:

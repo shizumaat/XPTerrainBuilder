@@ -151,34 +151,44 @@ allowed_outside_carves = false     # walls only at tunnel/bridge carves; everyth
 in_runway_strip = false            # no wall inside the runway strip keep-out (08-21d :1672)
 
 [rebake]
-# OBJECT RE-SEAT (RULINGS 2026-09-04i 04f-1): every build restores the pack's
-# objects to their authored state before READING and re-bakes them against
-# the terrain the patch produced, after the mesh.  The v1 machinery
-# (post_mesh / object_anchor / object_rebake) is the reference; the bake
-# WRITES the pack's OBJ8 vertex y tokens (never the DSF), keeping the
-# authored file as <name>.anchor_bak.
+# OBJECT RE-SEAT (RULINGS 2026-09-04i 04f-1; THE CONTACT-CLUSTER LAW 2026-09-06g):
+# every build restores the pack's objects to their authored state before
+# READING and re-bakes them against the terrain the patch produced, after the
+# mesh.  The unit is v1's WELDED CONTACT CLUSTER, as v2 code (v2 never imports
+# v1): pools by placed-footprint overlap, structures = connected ε-contact
+# solids, clusters cut where two adjacent GROUND parts' seat targets (mesh
+# under the part − base_y) disagree, seated on the MEDIAN ground under the
+# cluster's ground parts, the delta written PER VERTEX through v1's writer
+# (object_rebake.apply: the OBJ8 vertex y tokens, never the DSF, the authored
+# file kept as <name>.anchor_bak).  Anchor spelling is only the subtrahend.
 restore_before_read = true         # the loader reads <obj>.anchor_bak where one exists — the AUTHORED geometry, never a previous bake (04f-1; m4b-report §9 Q1)
-ground_datum        = "feet"       # an object with no hard deck seats its FEET — its own lowest band over its genuine solid components — on the built mesh (v1 generic y-bake: a rigid unit stands on its ground-touching parts, object_anchor.structure_deltas A3 median)
+ground_datum        = "cluster"    # a ground object seats by its contact clusters (06g; v1 object_clusters.form_clusters + object_anchor._seat_clusters)
 deck_datum          = "deck_top"   # a hard-deck object seats its deck TOP on the solved surface at the deck (bridge.deck_datum; R12: the y=0 datum was the defect)
-foot_band_m         = 0.5          # the contact band: solid vertices within this of the unit's lowest y (DSF_OBJECT_FOOT_BAND_M); a shared-anchor family is founded by the members reaching ITS lowest band, the rest inherit (v1 I-8)
-foot_samples_per_component = 64    # the contact band is thinned to this many witnesses per component before sampling (a measurement budget; the median is what is read)
-foot_samples_per_member    = 256   # ...and to this many per resource over all its components (OTHH: 1,116 members, 1.5 M witnesses uncapped — a plan is a witness set, not the mesh)
-agreement_window_m  = 0.25         # a shared-anchor FAMILY seats on the agreeing coalition of member seats within this window (R12 amendment 3/4, _MEMBER_DELTA_AGREEMENT_WINDOW_M); tie or no ≥2 coalition → the median with a finding
-min_delta_m         = 1.0          # a unit whose seat moves it less than this stays at its authored y and the terrain adapts (DSF_OBJECT_BAKE_MIN_DELTA_M, reseat-threshold spec §2.1)
-residual_report_m   = 0.75         # a foot the rigid seat leaves further than this off the mesh is a FINDING (DSF_OBJECT_FOOT_PAD_RESIDUAL_M), never a split seat
-water_founds_seat   = false        # a foot standing on a WATER mesh triangle never founds a seat (R12: OTHH's canal at 0.00 is not a datum)
-one_anchor_one_seat = true         # every placement sharing one anchor spelling (lat, lon, AGL) is ONE rigid unit with ONE delta (shared-datum-pack-authoring; canonical identity, never proximity)
-# THE FOUNDING WITNESS FLOOR (04k; lane v2deck): a member founds a feet seat
-# only with enough land witnesses — TerminalRoads_03_004 (4 witnesses, its
-# floor 6.3 m under the rest) would otherwise lift a 400-object family.
-founding_min_witnesses = 8         # a founding member carries at least this many land witnesses (when any member of the unit has that many — a sign on four feet still seats on its four)...
-founding_min_share     = 0.25      # ...and at least this share of the unit's LARGEST member's land witnesses (witnesses are thinned to foot_samples_per_member, so a 400-member family's total says nothing; 4 against 256 founds nothing, Bridge_01's plate at 64 against 155 does)
+# THE PARTITION (v1 object_anchor.discover_object_pools / partition_structures, obj8_partition.contact_graph)
+pool_overlap_m      = 0.25         # placements whose placed solid footprints overlap within this pool (transitively) — a pool bounds the contact search (DSF_OBJECT_CONTACT_EPSILON_M: v1 pools by the same ε)
+contact_epsilon_m   = 0.25         # two welded parts within this of each other (3-D, surface to surface) are ONE structure (DSF_OBJECT_CONTACT_EPSILON_M)
+contact_weld_m      = 0.001        # two parts sharing a vertex POSITION to this are welded (v1 weld_parts / obj8_reader.VERTEX_WELD_DECIMALS = 3: the millimetre) — pass 1 of the contact graph, before any triangle test
+contact_narrow_budget = 400000     # point × triangle operations per part pair after which the pair cannot be proved apart and KEEPS its contact (obj8_partition.NARROW_PHASE_POINT_TRIANGLE_BUDGET; I-20 merge on doubt)
+contact_batch_rows  = 50000        # point × triangle rows stacked per numpy call in the narrow phase (a performance knob: memory ≈ rows × 200 B; smaller batches union contacts sooner, so more pairs skip as already joined)
+elevated_base_m     = 0.5          # a part whose lowest authored y is above this is ELEVATED: it never votes on the cut and inherits the cluster it contacts most (DSF_OBJECT_ELEVATED_BASE_M; v1 I-8)
+# THE CUT AND THE SEAT (per-cluster seating spec §3.2 / §4)
+cluster_seat_tolerance_m = 0.5     # a ground-to-ground contact edge whose two ends' seat targets differ by more than this is CUT; the connected components of what remains are the clusters (DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M)
+min_delta_m         = 1.0          # a cluster whose largest per-resource correction is under this stays at its authored y and the terrain adapts (DSF_OBJECT_BAKE_MIN_DELTA_M, reseat-threshold spec §2.1)
+cluster_span_pad_m  = 3.0          # a cluster whose ground relief across its ground parts exceeds this is BAKED AND PADDED: seated at its median, flagged for pads (DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M; spec §4.3)
+cluster_residual_pad_m = 0.75      # a ground part the rigid seat leaves further than this off the mesh raises a PAD REQUEST for its connected group (DSF_OBJECT_FOOT_PAD_RESIDUAL_M; spec §5.3)
+nobake_pad_floor_m  = 0.15         # ...and the materiality floor of the requests a cluster that STAYS (below the threshold) raises against its authored base (DSF_OBJECT_NOBAKE_PAD_FLOOR_M)
+pad_max_relief_m    = 3.0          # a request asking the terrain for more than this is recorded flagged over the cap, never promised (DSF_OBJECT_PAD_MAX_RELIEF_M)
+a3_guard_max_diameter_m = 100.0    # a cluster no wider than this is refused when its single offset would WORSEN the mean ground-part residual (v1 amendment A3, bounded by A19: object_anchor.A3_GUARD_MAXIMUM_DIAMETER_METRES)
+a3_tolerance_m      = 0.000001     # ...by more than this (object_anchor.RESIDUAL_COMPARISON_TOLERANCE_METRES)
+agreement_window_m  = 0.25         # a STRUCTURE seat (deck members of one family; a plate resource at several anchors) takes the agreeing coalition within this window (R12 amendment 3/4, _MEMBER_DELTA_AGREEMENT_WINDOW_M); tie or no ≥2 coalition → refused with a finding
+water_founds_seat   = false        # a ground part whose centroid stands on a WATER mesh triangle is UNMEASURED: it never votes on the cut nor founds a seat (R12: OTHH's canal at 0.00 is not a datum)
+one_anchor_one_seat = false        # since 06g the anchor family is the SUBTRAHEND, not the seat's unit: members of one family seat by their own contact clusters (was: one rigid unit per anchor spelling)
 structure_family_excluded = true   # a STRUCTURE the terrain adapted to excludes its WHOLE anchor family from the re-seat, never just the below-grade member (m6a Q3).  Since 2026-09-06b (3) NO structure is excluded: a basin family is PLATE-seated onto its trench floor (basin.seat = "floor_plate") and a tunnel wall object onto the ground at its rim (tunnel.object.reseat) — the key keeps the family rule for any excluded id a caller still passes
-deck_family_seats_rigid = true     # in a deck family a member with below-grade solids (a pier footing under the canal bed) is SEATED with its deck, never left behind (R12-2 member-set completeness: v1 wrote all 12 Bridge_01 members)
-# THE FACILITY RULE (RULINGS 2026-09-05p) reads [basin] contact_band_m: a
-# member whose feet stand deeper than that band BELOW the built mesh is a
-# FACILITY member — never founds the family, keeps its authored y (the
-# cutout is the basin pass's affair); the founding band is the lowest band
-# among the AT-GRADE eligible members; a member floating ABOVE the mesh stays
-# eligible (HECA's authored plane over a cut apron is what the seat is for).
-structure_seat_threshold_exempt = true  # a STRUCTURE-founded seat (a deck top, a tunnel wall plate: 05n-4) bakes at any |delta|: it is a law datum (deck top at the abutment grade), not a drape correction the terrain could absorb — v1's bridge_abutment_seat wrote OTHH's interchange at +0.9576 under the same 1.0 m generic threshold, the state the owner accepted; min_delta_m keeps governing feet seats
+deck_family_seats_rigid = true     # a deck-family member's parts IN CONTACT with the deck plate (a pier, a railing, a footing under the canal bed) seat WITH the deck; a part-less member takes the deck's delta (R12-2 completeness: v1 wrote all 12 Bridge_01 members); the deck never founds the ground parts around or under it (06g)
+# THE FACILITY RULE (RULINGS 2026-09-05p, at cluster level 06g) reads [basin]
+# contact_band_m: a cluster whose parts stand deeper than that band BELOW the
+# built mesh AND outside its structure's agreeing coalition of cluster lifts
+# is a FACILITY cluster — never seated, authored y kept (the cutout is the
+# basin pass's affair); a structure sunk uniformly lifts as one (05q).
+facility_requires_at_grade_coalition = true  # the coalition a facility cluster is measured against must itself stand within contact_band_m of the mesh (05q: "the family's AT-GRADE coalition"); a structure whose coalition is buried or floating beyond the band (a row on a slope) has no at-grade reference — every cluster lifts by its own ground, v1's law.  false = the strict relative reading: any cluster deeper than the band beyond its structure's coalition is a facility
+structure_seat_threshold_exempt = true  # a STRUCTURE-founded seat (a deck top, a tunnel wall plate: 05n-4) bakes at any |delta|: it is a law datum (deck top at the abutment grade), not a drape correction the terrain could absorb — v1's bridge_abutment_seat wrote OTHH's interchange at +0.9576 under the same 1.0 m generic threshold, the state the owner accepted; min_delta_m keeps governing cluster seats

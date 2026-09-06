@@ -19,6 +19,7 @@ import math
 
 import pytest
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
@@ -268,26 +269,33 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
     walls = [Polygon(x.ring, x.holes) for x in cl2.cells if x.role == "retaining_wall"
              and near.contains(Polygon(x.ring).centroid)]
     assert ramps and walls
-    # 05n-2 as the build measures it: no trench vertex outside the inner
-    # lines (0.0 above); and none further than one identity-grid step
-    # past the walls' END line either (the snapped end-line vertices)
+    # 05n-2 as 2026-09-06b (1) amends it: no trench vertex outside the
+    # inner lines ⊕ floor_overlap_m (0.0 above); and none further than one
+    # identity-grid step past that either (the snapped end-line vertices)
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    region = c.trench.buffer(grid + 1e-6)
+    co = law.tables.structures.cutout
+    region = c.trench.buffer(co.floor_overlap_m + grid * math.sqrt(2.0) + 1e-6,
+                             join_style="mitre", mitre_limit=2.0)
     for r in ramps:
         for p in r.exterior.coords:
             assert region.contains(Point(p)), p
-    # every band vertex stands on the wall's footprint: the band's inner
-    # edge is the inner face rounded AWAY from the ramp and cleared off it
-    # by the gap in grid steps (09-01e), its outer edge that plus the
-    # wall's thickness — so it may overhang the wall's outer face by those
-    # grid steps, never more (a hull rectangle would be tens of metres)
-    plate = c.walls.buffer(4 * grid + 1e-6)
+    # the floor OVERLAPS the inner faces: the ramp is wider than the trench
+    assert max(r.area for r in ramps) > c.trench.area
+    # every RIM vertex (the void's exterior) stands on the walls' outer
+    # face ⊕ rim_gap_m, rounded AWAY from the ramp in grid steps — never
+    # more (a hull rectangle would be tens of metres); the void's holes
+    # are the ramp itself (shared vertices, no band between)
+    plate = c.walls.buffer(co.rim_gap_m + 4 * grid + 1e-6)
+    ramp_u = unary_union(ramps)
+    n_rim = 0
     for w in walls:
-        for cyc in (w.exterior, *w.interiors):
-            for p in cyc.coords:
-                assert plate.contains(Point(p)), p
-    # and the band's outer edge is NOT a rectangle round the object: its
-    # area is the walls' (1 m bands), not a hull's
+        for p in w.exterior.coords:
+            if ramp_u.exterior.distance(Point(p)) < 1e-6:
+                continue                  # the U void's exterior runs along the ramp too
+            n_rim += 1
+            assert plate.contains(Point(p)), p
+            assert ramp_u.exterior.distance(Point(p)) >= co.rim_gap_m - 1e-6
+    assert n_rim > 10
     assert sum(w.area for w in walls) < 1.5 * c.walls.area
 
 
@@ -451,8 +459,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
     assert json.loads(paths.sidecar.read_text())["tunnel_objects"][0]["ground_end"] == "open"
     rows_v = census(surf, law, pub, {})
-    for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "tunnel_mouth_canonical",
-                "wall_in_runway_strip"):
+    for key in ("structure_rim_gap", "tunnel_mouth_canonical", "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])
 
 
@@ -538,6 +545,15 @@ def test_law_register(law):
     assert ob.wall_face_max_thickness_m > 0.0 and ob.wall_sample_m > 0.0
     assert ob.plate_normal_y_min == law.tables.structures.bridge.deck_plate_normal_y_min
     assert ob.plate_bin_m == law.tables.structures.bridge.deck_plane_bin_m
+    # THE CUTOUT (RULINGS 2026-09-06b (1)): both keys ≤ half the thinnest
+    # wall the identity grid can express (OTHH: 0.75 m drainage shells,
+    # 1.0 m tunnel walls); no band is ever emitted
+    co = law.tables.structures.cutout
+    thinnest = 2.0 * law.tables.emit.identity.min_distinct_spacing_m * 0.75
+    assert 0.0 < co.floor_overlap_m <= thinnest / 2.0
+    assert 0.0 < co.rim_gap_m <= thinnest / 2.0
+    assert co.emit_wall_band is False
+    assert law.tables.structures.basin.seat == "floor_plate"
     assert ob.floor_plate_max_m2 == 0.0
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):

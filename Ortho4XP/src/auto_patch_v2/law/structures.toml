@@ -5,15 +5,20 @@
 
 [tunnel]
 bore_datum_m      = 5.1     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
-wall_gap_m        = 0.6     # ramp edge -> wall inner edge; the triangulated gap IS the face (09-01c/e; never ON a weld tolerance)
+wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 ramp_max_grade    = 0.040   # descent grade of the ramp (common.roles.tunnel_ramp; user 2026-05-08)
 bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
 ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
-wall_band_width_m = 1.0     # the wall band's plan width, inner edge to outer edge; both edges carry the crest (09-01c "wall band whose INNER AND OUTER edges both carry the same corridor-top elevation"; M0 Q2 — no v1 constant, stated here 2026-09-04 as the LEMD §F1 read "a band is ~1 m wide")
+wall_band_width_m = 1.0     # an OSM BORE's rim stands wall_gap_m + this off the ramp edge (the mesh wall's plan thickness where no object states a wall; 09-01c's band width, kept as the rim stand-off since [cutout] emit_wall_band = false, 2026-09-06)
 lane_width_m      = 3.5     # carriageway width per mapped lane when the way carries no `width` tag (the ramp footprint is the carriageway, 2026-08-30 "ONE ramp surface")
 default_lanes     = 2       # lanes assumed for a mapped way with neither `lanes` nor `width`
+# THE RAMP WIDTH FROM THE PAVEMENT (RULINGS 2026-09-06b (2)): where an apt.dat /
+# DSF pavement traces the road through an OSM ramp, that pavement's width IS
+# the ramp width per station — wider or narrower than lanes × lane_width_m.
+ramp_width_source = ["pavement", "lanes"]   # in order: a pavement cell containing the station whose across-axis centre lies within ramp_pavement_max_offset_m of the axis and which runs ALONG the axis (contains the neighbouring stations) sets the station's edges; else the way's width / lanes
+ramp_pavement_max_offset_m = 2.0            # the axis stands this close to the pavement's across-axis centre at the station (the pack traced THIS road; a pavement the axis merely crosses or skirts is not the ramp)
 dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
 max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
 
@@ -37,13 +42,26 @@ hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a st
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
 merge_gap_m         = 3.0           # two corridors whose ground ends face within this are reported as one site (they are refused as overlapping structures, never merged into a hull)
 
+[cutout]                            # RULINGS 2026-09-06b (1): every below-grade OBJECT's trench = floor + at-grade rim, NO wall band
+# The owner's law: the trench floor slightly OVERLAPS the object's inner
+# perimeter (walls have width), a very small gap, and the surrounding at-grade
+# terrain follows the object's OUTER perimeter at its outside edge; nothing is
+# emitted between them — the mesh makes the near-vertical wall.  Measured
+# OTHH 2026-09-06 (this lane): tunnel side walls 1.00 m plan thickness, end
+# walls 2.00-2.53 m, the box 2.00 m; drainage pit shells 0.75-0.77 m
+# (Drainage_0x_001, area/perimeter of the at-grade ring); the two Dewatering
+# shells read 0.25/0.55 m by the same estimate, under what the 0.5 m identity
+# grid can express.  Both keys <= half the thinnest expressible wall (0.75 m).
+floor_overlap_m = 0.3               # the floor extends this far OUTWARD past the object's inner perimeter, into the wall's own footprint
+rim_gap_m       = 0.3               # the at-grade rim stands this far OUTSIDE the object's outer perimeter
+emit_wall_band  = false             # no wall face is emitted between floor and rim: the rim is a constrained ring (o4_feature=structure_rim), the mesh triangulates the wall (only false is generated)
+
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
 clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful
 deck_datum          = "deck_top"   # object seating datum = deck TOP (memory othh-bridge-deck-datum-r12)
 mapped_deck_cuttable = false       # a mapped road bridge over emitted below-grade is a deck, not cuttable (08-28 :1908)
 terrain_deck_without_object = true # no object => terrain deck at road level cutting the ramp (08-28 :1920)
-floor_below_object_deck_m = 0.5    # tunnel floor under an object deck (TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
 # THE DECK SIGNATURE BY GEOMETRY (RULINGS 2026-09-04k; lane v2deck, M6b) for
 # objects carrying NO ATTR_hard_deck (OTHH's Bridge_0x: 0 hard triangles):
 # ATTR_hard_deck stays the PRIMARY signature; a family (one anchor spelling)
@@ -82,10 +100,12 @@ frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a 
 frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)
 
 [basin]
-# THE FLOOR LAW (RULINGS 2026-08-26 :1847, supersedes Amendment 3's deck-face
-# clause): floor = R_est + (deepest genuine solid, thickness-gated) −
-# (bridge.floor_below_object_deck_m + seat_margin_m), open pits as bores;
-# "err deep" — depth is occluded by the shell, shallowness is the poke-through.
+# THE FLOOR LAW (RULINGS 2026-09-06b (3), superseding 08-26's err-deep
+# margins): floor = the RENDERED floor plate — DEM(anchor) + agl + the deepest
+# genuine solid's y (thickness-gated) — and the anchor family is re-seated
+# after the mesh so the plate lands ON that floor (seat = "floor_plate").
+# The trench = the floor plate ⊕ cutout.floor_overlap_m; the rim = the shell's
+# at-grade footprint ⊕ cutout.rim_gap_m; no wall band (cutout.emit_wall_band).
 # ADMISSION IS BY THE OBJECT'S OWN GEOMETRY (RULINGS 2026-09-04i, 04f-2/3):
 # a region is admitted when it is a CLOSED below-grade region (its rim reaches
 # grade all round) with a GENUINE SOLID FLOOR (a thickness-gated component
@@ -96,8 +116,8 @@ frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles th
 # family, a tunnel structure.  min_area_m2 and max_covered_fraction are
 # REPORTED DIAGNOSTICS, never refusals ("an area floor or covered-fraction
 # constant that refuses a real drainage bowl is a defect, not a law").
-floor = "deepest_solid"            # the floor key: the facility's deepest genuine solid, never a pack's authored pit depth (08-26)
-seat_margin_m       = 1.0          # covers R_est's estimate error against the SOLVED rim (TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M; 0.79 m measured OTHH Drainage_04)
+floor = "deepest_solid"            # the floor key: the facility's deepest genuine solid AS RENDERED (DEM(anchor) + agl + y) — the floor plate itself, no margin (RULINGS 2026-09-06b (3): "the floor = the rendered floor plate"; 08-26's err-deep margins retired with the plate seat below)
+seat  = "floor_plate"              # the basin's anchor FAMILY is re-seated after the mesh so its rendered floor plate lands ON the trench floor (delta = floor − (mesh(anchor) + agl + plate y)); an anchor INSIDE its own trench otherwise renders the object sunk by the trench depth (measured OTHH 873/879: plate −5.17 vs floor −1.35; 877 outside its ring was right) — 2026-09-06b (3)
 min_solid_thickness_m = 0.3        # a solid part thinner than this is a ground DECAL, never a floor witness (MIN_SOLID_PART_THICKNESS_M; 08-26 §2.1, LEMD VOR quads at −50 m)
 admission_depth_m   = 2.5          # THE FLOOR GATE: a floor plate must lie this far below the LOCAL terrain to witness a pit (TRENCH_SPINE_MIN_DEPTH_M; 08-26 region recipe; 04i — a depth gate on the floor, never on the cut's outline: the region is the shell's footprint below the ground)
 floor_plate_normal_y_min = 0.7     # a solid face is a FLOOR PLATE when |normal_y| reaches this (NEAR_HORIZONTAL_NORMAL_Y_MIN; 04i "a genuine solid floor")
@@ -108,7 +128,7 @@ min_area_m2         = 1000.0       # DIAGNOSTIC ONLY (04i): v1's facility floor 
 rim_sample_step_m   = 10.0         # R_est = the MEDIAN DEM sampled this far apart along the region ring (rim-flush spec §2.1 item 2; _BASIN_RIM_SAMPLE_STEP_M)
 max_covered_fraction = 0.5         # DIAGNOSTIC ONLY (04i): cover above the contact band by the pack's own geometry is REPORTED per basin against this, never a refusal — a covered region is a COVERED PIT (the cover is the object; the terrain still needs the cutout under it) unless it is a BASEMENT (floor wholly under the same object's above-grade solid: the building's pad governs, no pit).  v1's founding constant 0.02 (BOWL_MAX_ABOVE_GRADE_AREA_FRACTION) was never exercised; M4b stated 0.5 for ratification; 04i made the question moot.
 floor_disagreement_m = 2.0         # basin_floor_declaration: |solid_minimum_y + body_depth| beyond this is a floor its own geometry does not evidence (BASIN_FLOOR_DISAGREEMENT_M; 08-26 §2.2)
-rim                 = "ground"     # the wall crest: the ground's value where the band's edge is shared with governed ground (rim LEVEL with the apron, 2026-08-28c item 3), the DEM where bare (09-03b)
+rim                 = "ground"     # the at-grade rim (outer perimeter + cutout.rim_gap_m): the ground's value where its edge is shared with governed ground (rim LEVEL with the apron, 2026-08-28c item 3), the DEM where bare (09-03b)
 shell_reaches_grade = true         # a solid part witnesses a pit only if its rendered TOP reaches within contact_band_m of the ground over it (v1 pit seed: PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground-contact band); geometry wholly under the terrain is buried, never a pit (LEMD: v1-baked grass clumps 20–44 m under grade)
 cuts_pads           = true         # inside a below-grade region the trench is SENIOR to every pad/building authority (08-26; building_pad.in_basin_sits_at_floor)
 cuts_runway_family  = false        # a region reaching the runway family is refused, never cut (08-25 tunnel analogue)
@@ -140,7 +160,7 @@ one_anchor_one_seat = true         # every placement sharing one anchor spelling
 # floor 6.3 m under the rest) would otherwise lift a 400-object family.
 founding_min_witnesses = 8         # a founding member carries at least this many land witnesses (when any member of the unit has that many — a sign on four feet still seats on its four)...
 founding_min_share     = 0.25      # ...and at least this share of the unit's LARGEST member's land witnesses (witnesses are thinned to foot_samples_per_member, so a 400-member family's total says nothing; 4 against 256 founds nothing, Bridge_01's plate at 64 against 155 does)
-structure_family_excluded = true   # a STRUCTURE the terrain adapted to — a basin facility (m6a Q3: Dewatering_01_000's rim pieces go with the pit) — excludes its WHOLE anchor family from the re-seat, never just the below-grade member (was basin_family_excluded); a tunnel wall object is NOT excluded: it is re-SEATED to the ground at its plate (tunnel.object.reseat, RULINGS 2026-09-05n-4)
+structure_family_excluded = true   # a STRUCTURE the terrain adapted to excludes its WHOLE anchor family from the re-seat, never just the below-grade member (m6a Q3).  Since 2026-09-06b (3) NO structure is excluded: a basin family is PLATE-seated onto its trench floor (basin.seat = "floor_plate") and a tunnel wall object onto the ground at its rim (tunnel.object.reseat) — the key keeps the family rule for any excluded id a caller still passes
 deck_family_seats_rigid = true     # in a deck family a member with below-grade solids (a pier footing under the canal bed) is SEATED with its deck, never left behind (R12-2 member-set completeness: v1 wrote all 12 Bridge_01 members)
 # THE FACILITY RULE (RULINGS 2026-09-05p) reads [basin] contact_band_m: a
 # member whose feet stand deeper than that band BELOW the built mesh is a

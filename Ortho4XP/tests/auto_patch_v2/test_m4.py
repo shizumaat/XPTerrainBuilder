@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import generate
@@ -119,15 +119,35 @@ def test_dual_bore_is_one_ramp_per_mouth_with_gap_wall_cap(synthetic, law):
         # the mouth line stands at the bore's mapped end (x = ±80)
         assert abs(abs(t.axis[0][0]) - 80.0) < 1.0
         assert t.half_width_m == pytest.approx((12.0 + 2 * 3.5 * 2 / 2) / 2, abs=0.6)
-    # the gap: no ramp vertex touches a wall face, and the gap is ≥ the law
-    for v in pm.vertices.values():
-        rs = {pm.faces[f].role for f in v.incident_faces}
-        assert not ({"tunnel_ramp", "retaining_wall"} <= rs)
+    # THE RIM (RULINGS 2026-09-06b (1)): the void face's exterior stands
+    # wall_gap_m + wall_band_width_m off the ramp edge (an OSM bore), its
+    # hole IS the ramp (shared vertices), and no ramp vertex lies on the rim
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m
     ramps = [Polygon([pm.vertices[i].xy for i in pm.ring_vertices(f.ring)])
              for f in pm.faces.values() if f.role == "tunnel_ramp"]
-    walls = [Polygon([pm.vertices[i].xy for i in pm.ring_vertices(f.ring)])
-             for f in pm.faces.values() if f.role == "retaining_wall"]
-    assert min(r.distance(w) for r in ramps for w in walls) >= tn.wall_gap_m - 1e-6
+    voids = [f for f in pm.faces.values() if f.role == "retaining_wall"]
+    assert voids
+    ramp_ids = {v for f in pm.faces.values() if f.role == "tunnel_ramp"
+                for v in pm.ring_vertices(f.ring)}
+    for f in voids:
+        # a U void: its exterior runs round the rim AND along the ramp's
+        # own edges (the ramp climbs out of it); the rim vertices are the
+        # ones no ramp face touches
+        ring = pm.ring_vertices(f.ring)
+        rim_vs = [v for v in ring if v not in ramp_ids]
+        assert rim_vs
+        if len(rim_vs) == len(ring):
+            # the pad-clipped ramp: its portal strip closes the rim round
+            # it (08-07 ruling 3) — the ramp is the void's hole
+            assert f.holes and set(v for h in f.holes for v in pm.ring_vertices(h)) <= ramp_ids
+        for v in rim_vs:
+            x, y = pm.vertices[v].xy
+            d = min(r.exterior.distance(Point(x, y)) for r in ramps)
+            # the side rims stand rim_off off the carriageway; the vertices
+            # inside the corridor's width are the cap (rim_off), the deck's
+            # edge and the pad-clipped portal strip (the gap + a grid step)
+            half = max(t.half_width_m for t in tunnels)
+            assert d >= (rim_off if abs(y) > half + rim_off - 1.0 else tn.wall_gap_m) - 1e-6, (x, y, d)
     assert stats.t_vertices == 0
     # the apron was CUT by the structure: no apron vertex inside a ramp
     apron = [f for f in pm.faces.values() if f.role == "apron"]
@@ -206,29 +226,50 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     assert dz - east.mouth_z >= law.tables.structures.bridge.clearance_m - 1e-6
     # emit + verify: the acceptance families read 0, wall_in_runway_strip 0
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
+    # the void is NOT a surface: its rim is a closed breakline (2026-09-06b)
+    assert not any(f.role == "retaining_wall" for f in surf.faces)
+    rims = [b for b in surf.breaklines if b.kind == "structure_rim"]
+    assert len(rims) >= sum(1 for f in pm.faces.values() if f.role == "retaining_wall")
+    # an OSM bore's rim is an OPEN chain from the ramp's top corner round
+    # the cap and back (a U) — closed round a pad-clipped ramp; its
+    # interior vertices are no ramp's
+    ramp_ids = {v for f in surf.faces if f.role == "tunnel_ramp" for v in f.ring}
+    assert any(b.vertices[0] != b.vertices[-1] for b in rims)
+    for b in rims:
+        assert b.ref.startswith("tunnel_wall")
+        assert not (set(b.vertices[1:-1]) & ramp_ids)
     pub = publication(pm, law, airport, sol.z)
     rows_v = census(surf, law, pub, {})
-    for key in ("tunnel_wall_top_flat", "tunnel_ramp_wall_gap", "tunnel_mouth_canonical",
+    for key in ("structure_rim_gap", "tunnel_mouth_canonical",
                 "tunnel_deck_clearance", "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])
+    # the emitted patch carries the rim as a role-less feature way
+    from auto_patch_v2.emit.osm_adapter import write_patch
+    paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
+    txt = paths.patch.read_text()
+    assert txt.count("k='o4_feature' v='structure_rim'") == len(rims)
+    assert "k='role' v='retaining_wall'" not in txt
     assert rows_v["within_shape"] == [] or all(
         r["roles"] != "tunnel_ramp|tunnel_ramp" for r in rows_v["within_shape"])
 
 
 def test_verify_readers_fire_on_a_broken_structure(synthetic, law):
-    """The readers are not vacuous: a wall crest bent toward the ramp
-    and a ramp welded to its wall are rows."""
+    """The readers are not vacuous: a rim welded to its ramp (a shared
+    vertex id) and a rim standing inside the gap are rows."""
     airport, cl2, tunnels, st, pm, stats = synthetic
     import dataclasses as _dc
-    rows = structures(pm, law, airport)
     cs, counts, _w = generate(pm, law, airport)
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
-    z = list(sol.z)
+    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     east = next(t for t in tunnels if t.axis[0][0] > 0)
-    wf = wall_faces_of(pm, tunnels)[east.id][0]
-    ids = pm.ring_vertices(wf.ring)
-    z[ids[0]] -= 1.0                        # one crest node bent down
-    sol2 = _dc.replace(sol, z=tuple(z))
-    surf = graded_surface(pm, law, sol2, airport.frame.origin, airport.frame.crs, {})
-    rows_v = census(surf, law, publication(pm, law, airport, sol2.z), {})
-    assert rows_v["tunnel_wall_top_flat"]
+    rf = ramp_faces_of(pm, tunnels)[east.id][0]
+    ramp_v = pm.ring_vertices(rf.ring)[0]
+    bls = list(surf.breaklines)
+    k = next(i for i, b in enumerate(bls) if b.kind == "structure_rim")
+    vs = list(bls[k].vertices)
+    vs[1] = ramp_v                          # the rim welded to the ramp
+    bls[k] = _dc.replace(bls[k], vertices=tuple(vs))
+    surf2 = _dc.replace(surf, breaklines=tuple(bls))
+    rows_v = census(surf2, law, publication(pm, law, airport, sol.z), {})
+    assert rows_v["structure_rim_gap"] and \
+        any("shared" in r.get("out_of_scope", "") for r in rows_v["structure_rim_gap"])

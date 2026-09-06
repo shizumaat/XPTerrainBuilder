@@ -247,8 +247,6 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("bridge.clearance_m", v1.BRIDGE_ROAD_CLEARANCE_M, s.bridge.clearance_m)
     c.eq("bridge.clearance_minimum_m", v1.BRIDGE_ROAD_CLEARANCE_MINIMUM_M,
          s.bridge.clearance_minimum_m)
-    c.eq("bridge.floor_below_object_deck_m", v1.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
-         s.bridge.floor_below_object_deck_m)
     c.eq("building_pad.min_area_m2", v1.PAD_MIN_AREA_M2, s.building_pad.min_area_m2)
     c.eq("chords.pavement_max_chord_m (emit_decimate)", v1_dec.MAX_CHORD_M,
          e.chords.pavement_max_chord_m)
@@ -279,7 +277,6 @@ def _structures_emit_checks(c: Checks, t) -> None:
     # M4b: the basin law (RULINGS 2026-08-26) and the object reader gates
     from auto_patch import object_terrain_assembly as v1_ota
     from auto_patch import object_terrain_features as v1_otf
-    c.eq("basin.seat_margin_m", v1.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M, s.basin.seat_margin_m)
     c.eq("basin.min_solid_thickness_m", v1.MIN_SOLID_PART_THICKNESS_M,
          s.basin.min_solid_thickness_m)
     c.eq("basin.admission_depth_m", v1_otf.TRENCH_SPINE_MIN_DEPTH_M, s.basin.admission_depth_m)

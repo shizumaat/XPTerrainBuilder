@@ -221,14 +221,12 @@ def basin_facilities(planar: PlanarMap, law: Law,
     out: list[dict[str, _t.Any]] = []
     if not planar.basins:
         return out
-    br = law.tables.structures.bridge
-    bl = law.tables.structures.basin
     by_ref: dict[str, list[int]] = {}
     for f in planar.faces.values():
-        for cyc in (f.ring, *f.holes):
-            by_ref.setdefault(f.ref.split("#")[0], []).extend(planar.ring_vertices(cyc))
+        # the rim = the void face's EXTERIOR (its holes are the floors)
+        by_ref.setdefault(f.ref.split("#")[0], []).extend(planar.ring_vertices(f.ring))
     for b in planar.basins:
-        wall_vs = sorted(set(by_ref.get(b.wall_ref, ())))
+        wall_vs = sorted(set(by_ref.get(b.wall_ref, ())) - set(by_ref.get(b.floor_ref, ())))
         rim_parts = sorted({round(float(z[v]), 2) for v in wall_vs}) if z is not None else []
         lat, lon = b.anchor_ll
         out.append({
@@ -244,7 +242,13 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "solid_minimum_y_m": round(b.solid_min_y_m, 3),
             "body_depth_m": round(-b.solid_min_y_m, 3),
             "rendered_solid_min_m": round(b.solid_min_z, 3),
-            "margins_m": round(br.floor_below_object_deck_m + bl.seat_margin_m, 3),
+            "margins_m": 0.0,
+            # THE SEAT (RULINGS 2026-09-06b (3)): the family's plate y, the
+            # anchor's place and the delta the design implies
+            "plate_y_m": round(b.plate_y_m, 3),
+            "anchor_inside_floor": bool(b.anchor_inside_floor),
+            "seat_expect_m": round(b.seat_expect_m, 3),
+            "member_ids": list(b.member_ids),
             "covered_fraction": round(b.covered_fraction, 4),
             "area_m2": round(b.area_m2, 1),
             "floor_ref": b.floor_ref,

@@ -21,9 +21,13 @@ crest = DEM; law ``structures.toml [tunnel]``):
   with parallel approaches are ONE ramp spanning both (31h); the ramp
   ends where a ``ramp_max_grade`` climb from the mouth datum meets the
   DEM (the top edge is DEM);
-* ``wall_gap_m`` of UNOWNED ground round the ramp (three sides), then
-  the WALL BAND (``wall_band_width_m``) on both sides and an END CAP
-  across the mouth — one U-shaped face whose crest is the DEM;
+* the at-grade RIM (RULINGS 2026-09-06b (1); ``[cutout]``): for an OSM
+  bore ``wall_gap_m + wall_band_width_m`` off the ramp edge on both
+  sides and across the mouth (an END CAP), for an object corridor the
+  walls' outer faces ⊕ ``rim_gap_m``; the region between ramp and rim is
+  a VOID face (role ``retaining_wall``, never emitted as a surface —
+  its exterior IS the rim, emitted as a constrained ring) and the mesh
+  makes the wall.  No crest band exists (``emit_wall_band = false``);
 * the structure CUTS every pavement it runs through (08-07 ruling 4)
   except the runway family and building pads (``ramp_cuts_runway_family
   = false``, ``ramp_crosses_pad = false``): a ramp that would need to
@@ -48,8 +52,9 @@ crest = DEM; law ``structures.toml [tunnel]``):
 * a TUNNEL WALL OBJECT (RULINGS 2026-09-05k-1, round 2 05n; ``airport/
   tunnel_objects``, ``planar/object_corridor``; law ``[tunnel.object]``)
   is the tunnel AUTHORITY where it stands: the trench is the region
-  between its walls' inner faces following their curves, the band each
-  wall's own footprint, the floor at the mouth = ground − plate height,
+  between its walls' inner faces ⊕ ``floor_overlap_m`` following their
+  curves, the rim its outer faces ⊕ ``rim_gap_m`` (2026-09-06b), the
+  floor at the mouth = ground − plate height,
   the ramp climbs inside the walls to the ground at the wall end (beyond
   only at ``ramp_max_grade``), the crest = the ground and the object is
   re-seated to it; every OSM bore MOUTH inside its footprint is the
@@ -79,7 +84,7 @@ from ..model.structures import Deck, Tunnel
 from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .structure_approach import (carriageway_width_m, chains, is_bridge, is_tunnel,
-                                 merge_duals, mouths, unit)
+                                 merge_duals, mouths, pavement_half_widths, unit)
 from .structure_geometry import geometry
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
@@ -176,6 +181,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats = StructureStats()
     odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
+    co = law.tables.structures.cutout
+    if co.emit_wall_band:
+        raise ValueError("cutout.emit_wall_band = true: only false is generated (RULINGS "
+                         "2026-09-06b (1): no wall band, the mesh makes the wall)")
     corridors = list(corridors)
     tunnel_ways = [w for w in airport.osm_ways if is_tunnel(w) and len(w.points) >= 2]
     if (not tunnel_ways and not corridors) or not classification.cells:
@@ -203,7 +212,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
     if corridors and tn.object.source_precedence[0] == "object":
-        tol = tn.wall_gap_m + tn.wall_band_width_m + tn.object.end_cap_open_m
+        tol = co.rim_gap_m + tn.object.end_cap_open_m
         kept = []
         by_bore: dict[int, list[str | None]] = {}
         for m in mouth_list:
@@ -253,7 +262,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     bridge_tree = STRtree(bridge_lines) if bridge_lines else None
 
     spacing = law.tables.emit.chords.station_spacing_m
-    gap, bw = tn.wall_gap_m, tn.wall_band_width_m
+    gap = tn.wall_gap_m
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m      # an OSM bore's rim stand-off
     grid = law.tables.emit.identity.min_distinct_spacing_m
     tunnels: list[Tunnel] = []
     new_cells: list[tuple[str, str, Polygon, str]] = []
@@ -278,22 +288,22 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             return (p.x, p.y)
 
         # THE MOUTH DATUM is the MOUTH WALL NODE's DEM − bore_datum_m
-        # (09-03b): the end cap's centre, gap + half the band in front of
+        # (09-03b): the rim's cap centre, the rim stand-off in front of
         # the mouth line — not the axis point's sample (measured LEMD
         # -15327+-5980: a cutting whose cap stands 2 m above the axis
         # sample; the ramp planned from the axis sample was 0.2 % over cap).
         # An OBJECT corridor's datum is ground(mouth) − plate height
         # (05n-1, ``mouth_depth = "plate"``), read by the corridor reader.
-        cap_c = (mouth[0] + inward[0] * (gap + bw / 2), mouth[1] + inward[1] * (gap + bw / 2))
+        cap_c = (mouth[0] + inward[0] * rim_off, mouth[1] + inward[1] * rim_off)
         mouth_dem = _dem(airport, cap_c) if c is None else c.mouth_dem_z
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
         # decks across the corridor (a first pass over the full reach)
-        deck_ivals = _deck_intervals(axis_ln, half + gap + bw, bridges, bridge_lines,
+        deck_ivals = _deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
                                      bridge_tree, law)
-        obj_ivals = _object_deck_intervals(axis_ln, half + gap + bw, odecks)
+        obj_ivals = _object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a
             # mapped bridge way over it mints no terrain deck (08-30d)
@@ -375,9 +385,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         clipped_by = ""
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = _beyond(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
+        half_fn = g.half_fn
+        traced: list[str] = []
+        if c is None:
+            # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
+            # tracing the road sets the ramp's edges per station
+            pav_hw, traced = pavement_half_widths(axis_fn, ss, cells, polys, law, half)
+            if pav_hw:
+                def half_fn(s: float, _hw=pav_hw, _h=half) -> tuple[float, float]:
+                    return _hw.get(s, (_h, _h))
         while True:
-            geom = geometry(axis_fn, ss, half, gap, bw, inward, grid, g.capped, g.far_capped,
-                            g.half_fn, g.bw_fn, g.cap_bw, g.far_bw)
+            geom = geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
+                            half_fn, g.rim_fn, g.cap_off, g.far_off)
             if geom is None:
                 stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
                                      f"(ramp or wall ring self-intersects)")
@@ -396,17 +415,21 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             s_top = ss[-1]
         if geom is None:
             continue
-        axis, nrm, left, right = geom.axis, geom.normals, geom.left, geom.right
-        ramp, wall, outer, cap_in, cap_out = geom.ramp, geom.wall, geom.outer, geom.cap_in, geom.cap_out
+        axis, left, right = geom.axis, geom.left, geom.right
+        ramp, outer, cap_out = geom.ramp, geom.outer, geom.cap_out
         if c is not None and not g.capped:
             # an OPEN mouth (the bore continues under the covering ground):
-            # the gap strip beyond the mouth line cuts that ground back, so
-            # the mouth edge shares no vertex with it (09-01c/e)
+            # the rim-gap strip beyond the mouth line cuts that ground back,
+            # so the mouth edge shares no vertex with it (09-01c/e)
             a, b = left[0], right[0]
-            strip_m = LineString([a, b]).buffer(gap + grid, cap_style="flat", **_MITRE)
+            strip_m = LineString([a, b]).buffer(co.rim_gap_m + grid, cap_style="flat", **_MITRE)
             outer = unary_union([outer, strip_m])
             if outer.geom_type != "Polygon":
                 outer = outer.convex_hull
+        # THE VOID between the ramp and the rim (2026-09-06b): one face
+        # whose exterior is the rim and whose hole is the ramp — never a
+        # surface, the mesh triangulates the wall inside it
+        wall = outer.difference(ramp)
         # refusals: a runway-family crossing, the runway strip keep-out
         if runway_u is not None and outer.intersects(runway_u) and \
                 outer.intersection(runway_u).area > 1e-6:
@@ -453,7 +476,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if deck_polys:
             du = unary_union(deck_polys)
             ramp_geom = ramp.difference(du.buffer(gap + grid, **_MITRE))
-            wall_geom = wall.difference(du)
+            # the void is severed at the deck like the ramp; the gap strip
+            # between a ramp piece and the deck stays unowned (the portal
+            # under the bridge the mesh triangulates), never void
+            wall_geom = outer.difference(unary_union([ramp, du]))
         ramp_parts = _parts(ramp_geom)
         for part in ramp_parts:
             ramp_refs.append("tunnel_ramp")
@@ -464,25 +490,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         for d, dp in zip(decks, deck_polys):
             for k, part in enumerate(_parts(dp)):
                 new_cells.append(("service_road", d.ref + (f"#{k}" if k else ""), part, tid))
-        cap_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2) for ci, co in zip(cap_in, cap_out)]
-        far_mid = [((ci[0] + co[0]) / 2, (ci[1] + co[1]) / 2)
-                   for ci, co in zip(geom.far_in, geom.far_out)]
-        # the band's centreline, ANALYTIC (the generator groups the band's
-        # stations by projection onto it — the snapped edges' middle moved
-        # LEMD's OSM stations and broke the byte-identity arm): axis ±
-        # (half + gap + bw / 2) by station (an object's half-widths and
-        # band widths vary by station; constant for an OSM bore)
-        hl_s = [g.half_fn(s)[0] if g.half_fn else half for s in ss]
-        hr_s = [g.half_fn(s)[1] if g.half_fn else half for s in ss]
-        bl_s = [g.bw_fn(s)[0] if g.bw_fn else bw for s in ss]
-        br_s = [g.bw_fn(s)[1] if g.bw_fn else bw for s in ss]
-        left_mid = [(p[0] + nv[0] * (h + gap + b / 2), p[1] + nv[1] * (h + gap + b / 2))
-                    for p, nv, h, b in zip(axis, nrm, hl_s, bl_s)]
-        right_mid = [(p[0] - nv[0] * (h + gap + b / 2), p[1] - nv[1] * (h + gap + b / 2))
-                     for p, nv, h, b in zip(axis, nrm, hr_s, br_s)]
-        wall_path = list(reversed(left_mid)) + cap_mid + right_mid + far_mid
+        # THE RIM PATH: the rim ring itself (left rim top→mouth, the cap,
+        # right rim mouth→top, the far cap) — the generator groups the
+        # rim's vertices by projection onto it and pins the bare ones at
+        # the DEM there (2026-09-06b: no band, no analytic centreline)
+        cap_mid = list(cap_out)
+        far_mid = list(geom.far_out)
+        wall_path = list(reversed(geom.left_rim)) + cap_mid + list(geom.right_rim) + far_mid
         if far_mid and cap_mid:
-            wall_path.append(wall_path[0])          # the O: a closed centreline
+            wall_path.append(wall_path[0])          # the O: a closed rim
         notes = []
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
@@ -492,9 +508,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if clipped_by:
             notes.append(f"clipped at building pad {clipped_by} at {s_top:.1f} m "
                          f"(08-07 ruling 3)")
+        if traced:
+            hws = [half_fn(s) for s in ss if half_fn is not None]
+            notes.append(f"ramp width from the pavement tracing the road (2026-09-06b (2)): "
+                         f"{', '.join(traced)} — {min(a + b for a, b in hws):.1f}-"
+                         f"{max(a + b for a, b in hws):.1f} m over {len(hws)} stations "
+                         f"(lanes default {width:.1f} m)")
         extra: dict = {}
         if c is not None:
-            outside = trench_outside_m(ramp_parts, c)
+            outside = trench_outside_m(ramp_parts, c, co.floor_overlap_m, grid)
             expect = _reseat_expect(c, mouth_z, design_grade, s_top, airport)
             notes.append(f"tunnel wall object {c.resource} (2026-09-05n): floor at the mouth "
                          f"{mouth_z:.2f} = ground {mouth_dem:.2f} − plate {c.plate_y:.2f}, ends "
@@ -521,7 +543,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # too — an unowned strip the mesh triangulates as the face
             dx, dy = right[-1][0] - left[-1][0], right[-1][1] - left[-1][1]
             L = math.hypot(dx, dy) or 1.0
-            ext = gap + 3 * grid + bw + grid
+            ext = rim_off + 4 * grid
             a = (left[-1][0] - dx / L * ext, left[-1][1] - dy / L * ext)
             b = (right[-1][0] + dx / L * ext, right[-1][1] + dy / L * ext)
             top = LineString([a, b]).buffer(gap + grid, cap_style="flat", **_MITRE)

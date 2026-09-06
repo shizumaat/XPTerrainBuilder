@@ -1,20 +1,29 @@
-"""THE RAMP / WALL-BAND GEOMETRY of a tunnel structure (M4; split out of
+"""THE RAMP / RIM GEOMETRY of a tunnel structure (M4; split out of
 ``planar/structures.py`` for lane v2tunnelobj so that file stays under
-its line budget — no behaviour moved with it).
+its line budget).
 
-One corridor = a RAMP polygon (the carriageway, ``half`` each side of
-the axis), ``gap`` of unowned ground, and a WALL BAND ``bw`` wide on
-both sides, closed across the mouth (s = 0) by an END CAP — the U of
-2026-08-30 / 2026-09-01c.  Every vertex is born ON the identity grid,
-the band's rounded AWAY from the ramp (``snap_out``) so the gap
-survives the arrangement's snap-rounding.
+THE MODEL (RULINGS 2026-09-06b (1); law ``structures.toml [cutout]``,
+``emit_wall_band = false``): one corridor = a RAMP polygon (the trench
+floor — for an object corridor the walls' inner faces ⊕ ``floor_overlap_m``,
+for an OSM bore the carriageway), and an at-grade RIM ring standing
+``rim_off`` outside the ramp edge by station — for an object corridor the
+wall's own thickness − ``floor_overlap_m`` + ``rim_gap_m`` (= the outer
+face ⊕ ``rim_gap_m``), for an OSM bore ``wall_gap_m + wall_band_width_m``.
+The rim closes across the mouth (s = 0) by an END CAP and, for a corridor
+closed at both ends, across the far end too.  The region between ramp
+and rim is the VOID: a planar face (role ``retaining_wall``, never
+emitted as a surface) whose exterior IS the rim and whose hole IS the
+ramp, so the rim is noded with the ground it cuts and the mesh
+triangulates the wall between floor and rim.  Nothing stands between the
+ramp edge and the rim; no crest band exists (the 09-01c band is retired).
 
-Lane v2tunnelobj (RULINGS 2026-09-05k-1) adds two shapes for the object
-corridors, both the SAME faces and refs: ``capped=False`` leaves s = 0
-open (an open+open corridor is two capless halves meeting at its
-midpoint — the halves' mid-line vertices coincide, born from one axis
-point) and ``far_capped=True`` closes the far end too (a corridor
-closed at both ends: the band is an O with the ramp in its hole).
+Every vertex is born ON the identity grid; the rim is snapped AWAY from
+the ramp (``snap_out``) and pushed out by grid steps until it clears the
+ramp by ``rim_off`` everywhere — the gap is the law, never welded.
+
+``capped=False`` leaves s = 0 open (an open+open corridor is two capless
+halves meeting at its midpoint); ``far_capped=True`` closes the far end
+(the void is an O with the ramp in its hole).
 """
 from __future__ import annotations
 
@@ -32,10 +41,12 @@ __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_o
 @_dc.dataclass(frozen=True)
 class RampGeometry:
     """The stations' axis points and normals, the ramp's left / right
-    edges, the ramp, the wall band (a Polygon, or a MultiPolygon of two
-    side bands when capless), the outer footprint, and the cap points
-    (inner / outer, ``[left, centre, right]``; empty when capless) and
-    the far cap's (``[right, centre, left]``; empty unless far-capped)."""
+    edges, the ramp, the VOID (a Polygon with the ramp as its hole, or a
+    MultiPolygon of two side pieces when capless), the outer footprint
+    (= the rim ring), and the rim's cap points (``[left, centre,
+    right]``; empty when capless) and far cap's (``[right, centre,
+    left]``; empty unless far-capped).  ``left_rim`` / ``right_rim`` are
+    the rim by station (the object's plate stations)."""
 
     axis: list[XY]
     normals: list[XY]
@@ -48,12 +59,8 @@ class RampGeometry:
     cap_out: list[XY]
     far_in: list[XY]
     far_out: list[XY]
-    #: The band's inner / outer edges per station (round 2: an object
-    #: corridor's ``wall_path`` is their middle; empty for round-1 callers).
-    left_in: list[XY] = _dc.field(default_factory=list)
-    left_out: list[XY] = _dc.field(default_factory=list)
-    right_in: list[XY] = _dc.field(default_factory=list)
-    right_out: list[XY] = _dc.field(default_factory=list)
+    left_rim: list[XY] = _dc.field(default_factory=list)
+    right_rim: list[XY] = _dc.field(default_factory=list)
 
 
 def normals(axis: _t.Sequence[XY]) -> list[XY]:
@@ -80,11 +87,11 @@ def snap(p: XY, grid: float) -> XY:
 
 def snap_out(p: XY, origin: XY, grid: float) -> XY:
     """``p`` snapped to the identity grid AWAY from ``origin`` on both
-    axes, so a designed stand-off (the 0.6 m gap, 09-01e "never ON a
-    weld tolerance") survives the arrangement's snap-rounding: two
-    points 0.85 m apart both round to ONE 0.5 m grid point (measured
-    OTHH: the ramp's mouth corner and the cap's inner corner merged into
-    vertex 14058 — an IIS of its two pins)."""
+    axes, so a designed stand-off survives the arrangement's
+    snap-rounding (09-01e "never ON a weld tolerance": two points 0.85 m
+    apart both round to ONE 0.5 m grid point — measured OTHH, the ramp's
+    mouth corner and the cap's corner merged into vertex 14058, an IIS
+    of its two pins)."""
     out = []
     for c, o in zip(p, origin):
         k = c / grid
@@ -119,115 +126,120 @@ def _clear(p: XY, direction: XY, ramp: Polygon, gap: float, grid: float) -> XY:
     return q
 
 
-def _cap(m: XY, lin: XY, rin: XY, lbase: XY, rbase: XY, d: XY, nv: XY, ramp: Polygon,
-         gap: float, bw: float, grid: float) -> tuple[list[XY], list[XY]]:
-    """An end cap across the axis point ``m`` in direction ``d`` (away
-    from the ramp): inner points ``[+nv corner, centre, −nv corner]``
-    cleared off the ramp by the gap, and their outer points ``bw`` on."""
+def _cap(m: XY, lin: XY, rin: XY, d: XY, nv: XY, ramp: Polygon, off: float, grid: float
+         ) -> list[XY]:
+    """The rim's end cap across the axis point ``m`` in direction ``d``
+    (away from the ramp): ``[+nv corner, centre, −nv corner]``, each
+    ``off`` beyond the ramp's end edge and cleared off the ramp by it."""
     dirs = [(d[0] + nv[0], d[1] + nv[1]), d, (d[0] - nv[0], d[1] - nv[1])]
-    cin = [_clear(snap_out((lin[0] + d[0] * gap, lin[1] + d[1] * gap), lbase, grid),
-                  dirs[0], ramp, gap, grid),
-           _clear(snap_out((m[0] + d[0] * gap, m[1] + d[1] * gap), m, grid), d, ramp, gap, grid),
-           _clear(snap_out((rin[0] + d[0] * gap, rin[1] + d[1] * gap), rbase, grid),
-                  dirs[2], ramp, gap, grid)]
-    cout = [snap_out((c[0] + dd[0] * bw, c[1] + dd[1] * bw), c, grid) for c, dd in zip(cin, dirs)]
-    return cin, cout
+    return [_clear(snap_out((lin[0] + dirs[0][0] * off, lin[1] + dirs[0][1] * off), lin, grid),
+                   dirs[0], ramp, off, grid),
+            _clear(snap_out((m[0] + d[0] * off, m[1] + d[1] * off), m, grid), d, ramp, off, grid),
+            _clear(snap_out((rin[0] + dirs[2][0] * off, rin[1] + dirs[2][1] * off), rin, grid),
+                   dirs[2], ramp, off, grid)]
 
 
-def _geometry_at(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
-                 grid: float, capped: bool, far_capped: bool, half_fn=None, bw_fn=None,
-                 cap_bw: float | None = None, far_bw: float | None = None
+def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
+                 grid: float, capped: bool, far_capped: bool, half_fn=None, rim_fn=None,
+                 cap_off: float | None = None, far_off: float | None = None
                  ) -> RampGeometry | None:
-    """The ramp, the wall band and the outer footprint for stations
-    ``ss`` (see the module doc).  ``None`` when a bend tighter than the
-    offsets folds a ring over itself (a buffer would repair it with
-    off-grid vertices — the merge class).  ``half_fn(s) -> (left,
-    right)`` / ``bw_fn(s) -> (left, right)`` give a corridor whose ramp
-    edges and band widths vary by station (a wall object's inner faces
-    and its walls' thickness, round 2); ``cap_bw`` / ``far_bw`` the end
-    caps' thickness (an object's end wall)."""
+    """The ramp, the void and the rim for stations ``ss`` (see the module
+    doc).  ``None`` when a bend tighter than the offsets folds a ring
+    over itself (a buffer would repair it with off-grid vertices — the
+    merge class).  ``half_fn(s) -> (left, right)`` / ``rim_fn(s) ->
+    (left, right)`` give a corridor whose ramp edges and rim stand-offs
+    vary by station (a wall object's inner faces and its walls'
+    thickness); ``cap_off`` / ``far_off`` the end caps' stand-off (an
+    object's end wall)."""
     axis = [axis_fn(s) for s in ss]
     nrm = normals(axis)
     hl = [half_fn(s)[0] for s in ss] if half_fn is not None else [half] * len(ss)
     hr = [half_fn(s)[1] for s in ss] if half_fn is not None else [half] * len(ss)
-    bl = [bw_fn(s)[0] for s in ss] if bw_fn is not None else [bw] * len(ss)
-    br = [bw_fn(s)[1] for s in ss] if bw_fn is not None else [bw] * len(ss)
-    left = [snap((p[0] + nv[0] * h, p[1] + nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hl)]
-    right = [snap((p[0] - nv[0] * h, p[1] - nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hr)]
+    rl = [rim_fn(s)[0] for s in ss] if rim_fn is not None else [rim_off] * len(ss)
+    rr = [rim_fn(s)[1] for s in ss] if rim_fn is not None else [rim_off] * len(ss)
+    # an object corridor's floor edges (``half_fn``: inner face + overlap)
+    # snap AWAY from the axis — the overlap is a stand-off, never rounded
+    # under; an OSM bore's carriageway snaps nearest
+    if half_fn is not None:
+        left = [snap_out((p[0] + nv[0] * h, p[1] + nv[1] * h), p, grid)
+                for p, nv, h in zip(axis, nrm, hl)]
+        right = [snap_out((p[0] - nv[0] * h, p[1] - nv[1] * h), p, grid)
+                 for p, nv, h in zip(axis, nrm, hr)]
+    else:
+        left = [snap((p[0] + nv[0] * h, p[1] + nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hl)]
+        right = [snap((p[0] - nv[0] * h, p[1] - nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hr)]
     ramp = Polygon(left + list(reversed(right)))
     if not ramp.is_valid or ramp.area < 1.0:
         return None
-    # the band's inner points: offset, snapped away, then PUSHED one grid
-    # step further along their direction until each clears the ramp by
-    # the gap (a component-wise outward snap can shorten a diagonal
-    # offset's projection; the law is the plan distance to the ramp)
-    left_in = [_clear(p, d, ramp, gap, grid) for p, d in
-               zip(_offset_out(left, nrm, gap, left, grid), nrm)]
-    right_in = [_clear(p, (-d[0], -d[1]), ramp, gap, grid) for p, d in
-                zip(_offset_out(right, nrm, -gap, right, grid), nrm)]
-    left_out = _offset_out(left_in, nrm, bl, left_in, grid)
-    right_out = _offset_out(right_in, nrm, [-b for b in br], right_in, grid)
-    cap_in: list[XY] = []
+    # the rim: offset, snapped away, then PUSHED out by grid steps until
+    # each point clears the ramp by its stand-off (a component-wise
+    # outward snap can shorten a diagonal offset's projection; the law is
+    # the plan distance to the ramp)
+    left_rim = [_clear(p, d, ramp, o, grid) for p, d, o in
+                zip(_offset_out(left, nrm, rl, left, grid), nrm, rl)]
+    right_rim = [_clear(p, (-d[0], -d[1]), ramp, o, grid) for p, d, o in
+                 zip(_offset_out(right, nrm, [-r for r in rr], right, grid), nrm, rr)]
     cap_out: list[XY] = []
-    far_in: list[XY] = []
     far_out: list[XY] = []
     if capped:
         # the cap: left corner, CENTRE (the mouth wall node, 09-03b), right corner
-        cap_in, cap_out = _cap(axis[0], left_in[0], right_in[0], left[0], right[0], inward,
-                               nrm[0], ramp, gap, cap_bw if cap_bw is not None else bw, grid)
+        cap_out = _cap(axis[0], left[0], right[0], inward, nrm[0], ramp,
+                       cap_off if cap_off is not None else rim_off, grid)
     if far_capped:
         a, b = axis[-2], axis[-1]
         L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
         outward = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-        # in ring order after the right band's top: right corner, centre, left corner
-        far_in, far_out = _cap(axis[-1], right_in[-1], left_in[-1], right[-1], left[-1], outward,
-                               (-nrm[-1][0], -nrm[-1][1]), ramp, gap,
-                               far_bw if far_bw is not None else bw, grid)
-    outer_ring = (list(reversed(left_out)) + list(cap_out) + list(right_out) + list(far_out))
-    if capped and not far_capped:
-        # the U: back along the inner edge
-        ring = (outer_ring + list(reversed(right_in)) + list(reversed(cap_in)) + list(left_in))
-        wall: Polygon | MultiPolygon = Polygon(ring)
-    elif capped and far_capped:
-        # the O: the band with the ramp in its hole
-        inner_ring = (list(left_in) + list(reversed(far_in)) + list(reversed(right_in))
-                      + list(reversed(cap_in)))
-        wall = Polygon(outer_ring, [inner_ring])
+        # in ring order after the right rim's top: right corner, centre, left corner
+        far_out = _cap(axis[-1], right[-1], left[-1], outward, (-nrm[-1][0], -nrm[-1][1]),
+                       ramp, far_off if far_off is not None else rim_off, grid)
+    outer_ring = list(reversed(left_rim)) + cap_out + right_rim + far_out
+    if not capped and not far_capped:
+        # capless: two side pieces — the rim is two lines, the void the
+        # two strips between them and the ramp
+        wall: Polygon | MultiPolygon = MultiPolygon([
+            Polygon(list(left) + list(reversed(left_rim))),
+            Polygon(list(right) + list(reversed(right_rim)))])
+        outer = Polygon(list(reversed(left_rim)) + list(right_rim))
     else:
-        # capless: two side bands (a far cap alone is the same two bands
-        # joined across the far end — one polygon)
-        if far_capped:
-            # a U facing the other way: right outer mouth→far, the far
-            # cap, left outer far→mouth, left inner mouth→far, the far
-            # cap's inner, right inner far→mouth (closes across the
-            # band's open end at the mouth)
-            wall = Polygon(list(right_out) + list(far_out) + list(reversed(left_out))
-                           + list(left_in) + list(reversed(far_in)) + list(reversed(right_in)))
-        else:
-            wall = MultiPolygon([Polygon(list(left_in) + list(reversed(left_out))),
-                                 Polygon(list(right_in) + list(reversed(right_out)))])
-    outer = Polygon(outer_ring)
-    if not wall.is_valid or not outer.is_valid:
+        outer = Polygon(outer_ring)
+        if not outer.is_valid:
+            return None
+        wall = outer.difference(ramp)
+        if wall.geom_type == "MultiPolygon":
+            parts = [g for g in wall.geoms if g.area > 1e-6]
+            wall = parts[0] if len(parts) == 1 else MultiPolygon(parts)
+    if not wall.is_valid or not outer.is_valid or wall.is_empty:
         return None
-    return RampGeometry(axis, nrm, left, right, ramp, wall, outer, cap_in, cap_out,
-                        far_in, far_out, left_in, left_out, right_in, right_out)
+    return RampGeometry(axis, nrm, left, right, ramp, wall, outer, [], cap_out, [], far_out,
+                        left_rim, right_rim)
 
 
-def geometry(axis_fn, ss: list[float], half: float, gap: float, bw: float, inward: XY,
+def geometry(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
              grid: float, capped: bool = True, far_capped: bool = False, half_fn=None,
-             bw_fn=None, cap_bw: float | None = None, far_bw: float | None = None
+             rim_fn=None, cap_off: float | None = None, far_off: float | None = None
              ) -> RampGeometry | None:
-    """:func:`_geometry_at` with the gap widened by grid steps (at most
-    three) until the ramp and the wall rings clear each other by the
-    law's gap everywhere — the snapped rings are jagged by up to half a
-    grid step, so an edge can stand closer than its vertices do.  THE GAP
-    IS THE LAW: a bend that cannot be cleared this way is refused, never
-    welded."""
+    """:func:`_geometry_at` with the stand-off widened by grid steps (at
+    most three) until the ramp and the rim clear each other by the law's
+    stand-off everywhere — the snapped rings are jagged by up to half a
+    grid step, so an edge can stand closer than its vertices do.  THE
+    GAP IS THE LAW: a bend that cannot be cleared this way is refused,
+    never welded."""
     for k in range(4):
-        g = _geometry_at(axis_fn, ss, half, gap + k * grid, bw, inward, grid, capped, far_capped,
-                         half_fn, bw_fn, cap_bw, far_bw)
+        extra = k * grid
+        rf = (lambda s, _f=rim_fn, _e=extra: (_f(s)[0] + _e, _f(s)[1] + _e)) \
+            if rim_fn is not None else None
+        g = _geometry_at(axis_fn, ss, half, rim_off + extra, inward, grid, capped, far_capped,
+                         half_fn, rf, None if cap_off is None else cap_off + extra,
+                         None if far_off is None else far_off + extra)
         if g is None:
             return None
-        if g.ramp.distance(g.wall) >= gap - 1e-6:
+        side_want = rim_off if rim_fn is None else min(min(rim_fn(s)) for s in ss)
+        lines = [(LineString(g.left_rim), side_want), (LineString(g.right_rim), side_want)]
+        if g.cap_out:
+            lines.append((LineString(g.cap_out), cap_off if cap_off is not None else rim_off))
+        if g.far_out:
+            lines.append((LineString(g.far_out), far_off if far_off is not None else rim_off))
+        edge = g.ramp.exterior
+        if all(edge.distance(ln) >= want - 1e-6 for ln, want in lines):
             return g
     return None

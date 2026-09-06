@@ -52,21 +52,26 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    tunnel structure is never cut (overlap refuses), the ring must have a
    DEM, survive the identity grid and clear its wall band by the gap.
 
-THE FLOOR: ``R_est`` (the median DEM along the ring) + the deepest
-genuine solid of the members relative to it − (``bridge.
-floor_below_object_deck_m`` + ``seat_margin_m``) — err deep (08-26); the
-floor is ONE face (role ``tunnel_trench``).  ``tunnel.wall_gap_m`` of
-UNOWNED ground round the floor, then the WALL BAND (``tunnel.
-wall_band_width_m``, role ``retaining_wall``) whose crest is the ground:
-the DEM where bare, the governed ground's value where its outer edge is
-shared (the rim LEVEL with the apron, 08-28c item 3 — the generator's
-station tie).  The facility CUTS every pavement and pad it lies under
-(08-26: inside a below-grade region the trench is senior to every
-pad/building authority; ``cuts_pads``).
+THE FLOOR AND THE RIM (RULINGS 2026-09-06b (1)/(3); ``[cutout]``,
+``basin.seat``): the floor is the RENDERED deepest genuine solid of the
+members (``DEM(anchor) + agl + y``: the floor plate itself, no margin —
+the anchor family is re-seated after the mesh so the plate lands ON it,
+``basin.seat = "floor_plate"``); the floor face(s) (role
+``tunnel_trench``) are the members' floor plates ⊕ ``floor_overlap_m``
+(closed at ``footprint_close_m``); the at-grade RIM is the admitted
+region (the shells' footprint below the ground) ⊕ ``rim_gap_m``; the
+VOID between them is one face (role ``retaining_wall``, exterior = the
+rim, holes = the floors) never emitted as a surface — its rim is
+emitted as a constrained ring at the ground (the DEM where bare, the
+governed ground's value where shared: the rim LEVEL with the apron,
+08-28c item 3) and the mesh makes the wall.  The facility CUTS every
+pavement and pad it lies under at the rim (08-26: inside a below-grade
+region the trench is senior to every pad/building authority;
+``cuts_pads``).
 
-Every vertex is born on the identity grid, the band snapped AWAY from
+Every vertex is born on the identity grid, the rim snapped AWAY from
 the floor so the gap survives the arrangement's rounding (the M4
-``_snap_out`` precedent).
+``snap_out`` precedent).
 """
 from __future__ import annotations
 
@@ -154,26 +159,45 @@ def _snap_ring(poly: Polygon, grid: float) -> Polygon | None:
     return Polygon(p.exterior.coords) if p.is_valid else None
 
 
-def _band(floor: Polygon, gap: float, bw: float, grid: float
-          ) -> tuple[Polygon, Polygon, Polygon] | None:
-    """``(band polygon with its hole, outer footprint, centreline ring)``
-    — the inner edge buffered ``gap`` + one grid step off the floor and
-    snapped, widened by grid steps until the snapped floor and band
-    clear each other by the law's gap; ``None`` when they cannot."""
+def _floors(plates, overlap: float, close: float, grid: float) -> list[Polygon]:
+    """The floor face(s): the plates ⊕ ``overlap``, closed at ``close``,
+    snapped to the grid and widened by grid steps until every snapped
+    part stands ≥ ``overlap`` outside the plates it covers (the overlap
+    is a stand-off: never rounded under), largest first."""
+    for k in range(4):
+        g = plates.buffer(overlap + k * grid, **_MITRE)
+        g = g.buffer(close, **_MITRE).buffer(-close, **_MITRE)
+        out: list[Polygon] = []
+        ok = True
+        for fp in sorted(_parts(g), key=lambda q: -q.area):
+            f = _snap_ring(fp.simplify(grid / 2.0), grid)
+            if f is None or f.area < grid * grid:
+                continue
+            inside = plates.intersection(fp)
+            if not inside.is_empty and (not f.contains(inside.buffer(-1e-6))
+                                        or inside.distance(f.exterior) < overlap - 1e-6):
+                ok = False
+            out.append(f)
+        if ok or k == 3:
+            return out
+    return []
+
+
+def _rim(region: Polygon, floors: list[Polygon], gap: float, grid: float
+         ) -> Polygon | None:
+    """The at-grade rim: ``region`` (the shells' footprint below the
+    ground) buffered ``gap`` + one grid step and snapped, widened by grid
+    steps until it contains every floor and every floor clears it by the
+    law's gap; ``None`` when it cannot (a floor at the shell's edge)."""
     for k in range(4):
         g = gap + grid * (1 + k)
-        inner = _snap_ring(floor.buffer(g, **_MITRE), grid)
-        outer = _snap_ring(floor.buffer(g + bw, **_MITRE), grid)
-        if inner is None or outer is None:
+        rim = _snap_ring(region.buffer(g, **_MITRE), grid)
+        if rim is None:
             return None
-        if not inner.contains(floor) or not outer.contains(inner):
+        if not all(rim.contains(f) for f in floors):
             continue
-        band = outer.difference(inner)
-        if band.is_empty or band.geom_type != "Polygon" or not band.is_valid:
-            continue
-        if floor.distance(band) >= gap - 1e-6:
-            centre = floor.buffer(g + bw / 2, **_MITRE)
-            return band, outer, centre
+        if all(f.distance(rim.exterior) >= gap - 1e-6 for f in floors):
+            return rim
     return None
 
 
@@ -227,11 +251,13 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     without its reason."""
     stats = BasinStats()
     bl = law.tables.structures.basin
-    tn = law.tables.structures.tunnel
-    br = law.tables.structures.bridge
-    if bl.floor != "deepest_solid" or bl.rim != "ground":
-        raise ValueError(f"basin.floor {bl.floor!r} / rim {bl.rim!r}: only "
-                         "'deepest_solid' / 'ground' are generated")
+    co = law.tables.structures.cutout
+    if bl.floor != "deepest_solid" or bl.rim != "ground" or bl.seat != "floor_plate":
+        raise ValueError(f"basin.floor {bl.floor!r} / rim {bl.rim!r} / seat {bl.seat!r}: only "
+                         "'deepest_solid' / 'ground' / 'floor_plate' are generated")
+    if co.emit_wall_band:
+        raise ValueError("cutout.emit_wall_band = true: only false is generated (RULINGS "
+                         "2026-09-06b (1): no wall band, the mesh makes the wall)")
     stats.refused.extend(_no_floor_refusals(report, bl))
     witnessed = [o for o in objects if o.witnesses]
     if not witnessed:
@@ -255,8 +281,6 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     cover_cache: dict[str, object] = {}
     grade_cache: dict[str, tuple] = {}
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    gap, bw = tn.wall_gap_m, tn.wall_band_width_m
-    margins = br.floor_below_object_deck_m + bl.seat_margin_m
     basins: list[Basin] = []
     new_cells: list[tuple[str, str, Polygon, tuple[tuple[XY, ...], ...]]] = []
     knives: list[Polygon] = []
@@ -316,40 +340,66 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         if rest is None:
             stats.refused.append(f"{bid}: no DEM along the ring at {site}")
             continue
-        smin_z = min(o.solid_min_z for o in members if o.solid_min_z is not None)
-        floor_z = rest + (smin_z - rest) - margins
-        floor = _snap_ring(ring.simplify(grid / 2.0), grid)
-        if floor is None or floor.area < grid * grid:
-            stats.refused.append(f"{bid}: {ring.area:.0f} m2 does not survive the identity grid "
-                                 f"({grid} m) at {site}")
+        # THE FLOOR = the rendered deepest genuine solid: the floor plate
+        # itself (2026-09-06b (3); the plate seat below puts it there)
+        deepest = min((o for o in members if o.solid_min_z is not None),
+                      key=lambda o: o.solid_min_z)
+        smin_z = float(deepest.solid_min_z)
+        floor_z = smin_z
+        # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
+        # closed at footprint_close_m, on the identity grid
+        plates_u = unary_union([w.plate for w in wits]).intersection(ring)
+        floors = _floors(plates_u, co.floor_overlap_m, bl.footprint_close_m, grid)
+        if not floors:
+            stats.refused.append(f"{bid}: {ring.area:.0f} m2 — no floor plate ({plate:.0f} m2) "
+                                 f"survives the identity grid ({grid} m) at {site}")
             continue
-        geom = _band(floor, gap, bw, grid)
-        if geom is None:
-            stats.refused.append(f"{bid}: the wall band cannot clear the floor by the gap "
-                                 f"(a bend tighter than the band) at {site}")
+        # the rim: the shells' footprint ⊕ rim_gap_m; the void between
+        rim = _rim(ring, floors, co.rim_gap_m, grid)
+        if rim is None:
+            stats.refused.append(f"{bid}: the rim cannot clear the floor plate by "
+                                 f"cutout.rim_gap_m {co.rim_gap_m} (a plate at the shell's "
+                                 f"edge) at {site}")
             continue
-        band, outer, centre = geom
-        if tunnel_u is not None and outer.buffer(grid).intersects(tunnel_u):
+        if tunnel_u is not None and rim.buffer(grid).intersects(tunnel_u):
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 overlaps a tunnel structure "
                                  f"(structures are never cut) at {site}")
             continue
+        void = rim.difference(unary_union(floors))
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"
-        new_cells.append((FLOOR_ROLE, floor_ref, floor, ()))
-        new_cells.append((WALL_ROLE, wall_ref, band,
-                          tuple(tuple(h.coords)[:-1] for h in band.interiors)))
-        knives.append(outer)
+        for j, f in enumerate(floors):
+            new_cells.append((FLOOR_ROLE, floor_ref if j == 0 else f"{floor_ref}#{j}", f, ()))
+        for part in _parts(void):
+            new_cells.append((WALL_ROLE, wall_ref, part,
+                              tuple(tuple(h.coords)[:-1] for h in part.interiors)))
+        knives.append(rim)
         kind = "covered pit" if cov > 0.0 else "pit"
+        floor_area = sum(f.area for f in floors)
+        # THE SEAT THE DESIGN IMPLIES (2026-09-06b (3)): the family's plate
+        # y (the deepest member's, relative to its rendered y = 0 plane);
+        # an anchor INSIDE the floor renders on the floor after the mesh,
+        # one outside on its own ground — the post-mesh seat measures it
+        plate_y = smin_z - deepest.anchor_z - deepest.agl_m
+        a_pt = Point(deepest.xy)
+        inside = any(f.contains(a_pt) for f in floors)
+        mesh_pred = floor_z if inside else float(deepest.anchor_z)
+        seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
-                 rim_note, f"rendered deepest solid {smin_z:.2f}"]
-        if floor.area < bl.min_area_m2:
+                 rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
+                 f"floor faces {len(floors)} ({floor_area:.0f} m2 of {ring.area:.0f} m2 region)",
+                 f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
+                 f"seat expect {seat_expect:+.2f} m"]
+        if ring.area < bl.min_area_m2:
             notes.append(f"under the diagnostic min_area_m2 {bl.min_area_m2:.0f} (admitted, 04i)")
-            stats.small_regions.append(f"{bid} {floor.area:.0f} m2 at {site}")
+            stats.small_regions.append(f"{bid} {ring.area:.0f} m2 at {site}")
         basins.append(Basin(bid, tuple(sorted({o.path for o in members})), floor_z,
-                            floor_ref, wall_ref, tuple(floor.exterior.coords)[:-1],
-                            tuple(centre.exterior.coords)[:-1], rest, smin_z, smin_z - rest,
-                            cov, float(floor.area), _ll_pair(airport, ring), tuple(notes),
-                            float(plate), kind))
+                            floor_ref, wall_ref, tuple(floors[0].exterior.coords)[:-1],
+                            tuple(rim.exterior.coords)[:-1], rest, smin_z, smin_z - rest,
+                            cov, float(floor_area), _ll_pair(airport, ring), tuple(notes),
+                            float(plate), kind, tuple(ring.exterior.coords)[:-1],
+                            tuple(o.id for o in members), float(plate_y), inside,
+                            float(seat_expect), float(deepest.agl_m)))
     stats.basins = len(basins)
     if not basins:
         return classification, (), stats

@@ -1,16 +1,20 @@
 """The STRUCTURE readers (M4) over the emitted product — the law family
-``wall_in_runway_strip`` (registered in ``families.toml``) and the tunnel
-ACCEPTANCE checks the oracle ``tools/tunnel_portal_acceptance.py``
-adjudicates (``wall_top_flat``, ``ramp_wall_gap``, the canonical mouth
-of RULINGS 2026-08-30, deck clearance), each as a pure function over
-:class:`Patch` returning rows in the census row shape.  The acceptance
-checks are NOT law families (the v1 register has none — the twin
-``test_every_v1_family_has_a_v2_family`` holds the two registers equal)
-and are published under their own ``tunnel_*`` keys beside the families.
+``wall_in_runway_strip`` (registered in ``families.toml``) and the
+ACCEPTANCE checks (the canonical mouth of RULINGS 2026-08-30, deck
+clearance, the basin floor at its declaration, the rim gap), each as a
+pure function over :class:`Patch` returning rows in the census row
+shape.  The acceptance checks are NOT law families (the v1 register has
+none — the twin ``test_every_v1_family_has_a_v2_family`` holds the two
+registers equal) and are published under their own keys beside the
+families.
 
 Populations are the ORACLE's own: ramps are the ``tunnel_ramp`` ROLE,
-walls the ``retaining_wall`` role carrying ref ``tunnel_wall`` exactly,
-decks the ``bridge_deck:`` refs.
+floors the ``tunnel_trench`` role, decks the ``bridge_deck:`` refs, and
+the RIMS the ``structure_rim`` FEATURE ways (RULINGS 2026-09-06b (1):
+the at-grade ring round a structure's void, ref ``tunnel_wall`` for a
+tunnel, ``basin_wall:<k>`` for a basin; no wall band exists — the
+``tunnel_wall_top_flat`` / ``tunnel_ramp_wall_gap`` / ``basin_wall_gap``
+readers of the band retired with it).
 """
 from __future__ import annotations
 
@@ -20,19 +24,26 @@ from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
 from .frame import Patch, Row, Shape, row
 
-__all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_wall_top_flat",
-           "tunnel_ramp_wall_gap", "tunnel_mouth_canonical", "tunnel_deck_clearance",
-           "basin_floor_at_declaration", "basin_wall_gap", "ACCEPTANCE"]
+__all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_mouth_canonical",
+           "tunnel_deck_clearance", "basin_floor_at_declaration", "structure_rim_gap",
+           "ACCEPTANCE"]
 
 _WALL_REF = "tunnel_wall"
+_RIM_FEATURE = "structure_rim"
 
 
 def _ramps(p: Patch) -> list[Shape]:
     return [sh for sh in p.shapes if sh.role == "tunnel_ramp"]
 
 
+def _rims(p: Patch) -> list[Shape]:
+    """Every structure rim (the ``structure_rim`` feature ways)."""
+    return [sh for sh in p.features if sh.feature == _RIM_FEATURE]
+
+
 def _walls(p: Patch) -> list[Shape]:
-    return [sh for sh in p.shapes if sh.role == "retaining_wall" and sh.ref == _WALL_REF]
+    """The tunnel rims (ref ``tunnel_wall`` exactly)."""
+    return [sh for sh in _rims(p) if sh.ref == _WALL_REF]
 
 
 def _decks(p: Patch) -> list[Shape]:
@@ -66,13 +77,15 @@ def _inside(px: float, py: float, ring) -> bool:
 # ── the law family ───────────────────────────────────────────────────────
 
 def wall_in_runway_strip(p: Patch) -> list[Row]:
-    """Every ``retaining_wall`` vertex inside a runway-family ring's
-    strip keep-out (``zones.adjacent_ground`` runway half width for the
-    runway's code; RULINGS 2026-08-21d, ``retaining_wall.in_runway_strip
-    = false``) is a row."""
+    """Every structure RIM vertex (the ``structure_rim`` feature ways —
+    the void's at-grade edge, in place of the retired ``retaining_wall``
+    band) inside a runway-family ring's strip keep-out
+    (``zones.adjacent_ground`` runway half width for the runway's code;
+    RULINGS 2026-08-21d, ``retaining_wall.in_runway_strip = false``) is
+    a row; the family's roles stay the register's."""
     law = p.law
     runways = [sh for sh in p.shapes if sh.role in ("runway", "runway_crossing")]
-    walls = [sh for sh in p.shapes if sh.role == "retaining_wall"]
+    walls = _rims(p) + [sh for sh in p.shapes if sh.role == "retaining_wall"]
     if not runways or not walls:
         return []
     out: list[Row] = []
@@ -137,10 +150,6 @@ def _basin_floors(p: Patch) -> list[Shape]:
     return [sh for sh in p.shapes if sh.role == "tunnel_trench" and sh.ref.startswith("basin_floor:")]
 
 
-def _basin_walls(p: Patch) -> list[Shape]:
-    return [sh for sh in p.shapes if sh.role == "retaining_wall" and sh.ref.startswith("basin_wall:")]
-
-
 def basin_floor_at_declaration(p: Patch) -> list[Row]:
     """M4b acceptance: every vertex of a basin floor face carries the
     facility's PUBLISHED ``floor_m`` (within the materiality floor) — the
@@ -170,65 +179,55 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
     return out
 
 
-def basin_wall_gap(p: Patch) -> list[Row]:
-    """M4b acceptance (2026-09-01c/e): the floor is NOT welded to its
-    wall — a vertex id shared between a basin floor ring and a basin
-    wall ring is a row."""
+def structure_rim_gap(p: Patch) -> list[Row]:
+    """RULINGS 2026-09-06b (1): the rim is the at-grade ring OUTSIDE the
+    structure — a rim vertex never shares an id with a floor / ramp
+    vertex, and stands at least ``cutout.rim_gap_m`` off every floor and
+    ramp vertex in plan (the void the mesh makes the wall in).  Each miss
+    is a row naming the rim and the floor."""
+    gap = p.law.tables.structures.cutout.rim_gap_m
+    floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp")]
+    if not floors:
+        return []
+    floor_ids = {v: sh for sh in floors for v in sh.ids}
+    cell = max(gap, 1.0)
+    g = _grid_pts([(sh.xy[k], sh, k) for sh in floors for k in range(len(sh.ids))], cell)
     out: list[Row] = []
-    wall_ids = {v: w for w in _basin_walls(p) for v in w.ids}
-    for f in _basin_floors(p):
-        for k, v in enumerate(f.ids):
-            w = wall_ids.get(v)
-            if w is not None:
-                out.append(row("basin_wall_gap", ("tunnel_trench", "retaining_wall"), "airside",
-                               0.0, None, None, 0.0, f.xy[k], f.xy[k], f.key, w.key,
-                               lat=p.ll[v][0], lon=p.ll[v][1]))
-    return out
-
-
-def tunnel_wall_top_flat(p: Patch) -> list[Row]:
-    """§F1 / 2026-09-01c: two wall vertices closer than the band span in
-    plan are ACROSS the band and carry one value; a pair differing by
-    more than the materiality floor is a row (the oracle reports the
-    worst delta; ``span`` is the oracle's ``wall_band_span_m`` = 2 m)."""
-    span = 2.0
-    # the reader's envelope is the rate readers' quantum
-    # (``emit.instrument.coarse_noise_m``): the oracle REPORTS the worst
-    # delta with no bar; a crest that follows the ground across two
-    # stations differs by the ground's own slope over the span
-    tol = p.law.tables.emit.instrument.coarse_noise_m
-    out: list[Row] = []
-    for w in _walls(p):
-        pts = list({(w.xy[k], w.z[k], w.ids[k]) for k in range(len(w.ids))})
-        for i in range(len(pts)):
-            (a, za, ia) = pts[i]
-            for j in range(i + 1, len(pts)):
-                (b, zb, ib) = pts[j]
-                if abs(a[0] - b[0]) > span or abs(a[1] - b[1]) > span or _dist(a, b) > span:
-                    continue
-                dz = abs(za - zb)
-                if dz > tol + 1e-9:
-                    out.append(row("tunnel_wall_top_flat", ("retaining_wall",) * 2, "airside",
-                                   dz, None, None, _dist(a, b), a, b, w.key, w.key,
-                                   lat=p.ll[ia][0], lon=p.ll[ia][1]))
-    return out
-
-
-def tunnel_ramp_wall_gap(p: Patch) -> list[Row]:
-    """2026-08-28c item 1 / 2026-09-01c: the ramp is NOT welded to the
-    wall — a vertex id shared between a ``tunnel_ramp`` ring and a
-    ``tunnel_wall`` ring is a row."""
-    out: list[Row] = []
-    walls = _walls(p)
-    wall_ids = {v: w for w in walls for v in w.ids}
-    for r in _ramps(p):
+    for r in _rims(p):
+        closed = r.feature_closed
         for k, v in enumerate(r.ids):
-            w = wall_ids.get(v)
-            if w is not None:
-                out.append(row("tunnel_ramp_wall_gap", ("tunnel_ramp", "retaining_wall"),
-                               "mixed", 0.0, None, None, 0.0, r.xy[k], r.xy[k], r.key, w.key,
-                               lat=p.ll[v][0], lon=p.ll[v][1]))
+            if not closed and k in (0, len(r.ids) - 1):
+                continue                  # an open rim chain ends on the ramp's top corners
+            sh = floor_ids.get(v)
+            if sh is not None:
+                out.append(row("structure_rim_gap", ("retaining_wall", sh.role), "airside",
+                               0.0, None, None, 0.0, r.xy[k], r.xy[k], r.key, sh.key,
+                               lat=p.ll[v][0], lon=p.ll[v][1],
+                               out_of_scope=f"{r.ref}: rim vertex shared with {sh.ref}"))
+                continue
+            x, y = r.xy[k]
+            cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+            worst = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for (q, fsh, fk) in g.get((cx + dx, cy + dy), ()):
+                        d = _dist((x, y), q)
+                        if d < gap - 1e-6 and (worst is None or d < worst[0]):
+                            worst = (d, fsh, q)
+            if worst is not None:
+                d, fsh, q = worst
+                out.append(row("structure_rim_gap", ("retaining_wall", fsh.role), "airside",
+                               gap - d, None, None, d, (x, y), q, r.key, fsh.key,
+                               lat=p.ll[v][0], lon=p.ll[v][1],
+                               out_of_scope=f"{r.ref}: rim {d:.2f} m off {fsh.ref} < {gap}"))
     return out
+
+
+def _grid_pts(items, cell: float):
+    g: dict[tuple[int, int], list] = {}
+    for (x, y), sh, k in items:
+        g.setdefault((int(math.floor(x / cell)), int(math.floor(y / cell))), []).append(((x, y), sh, k))
+    return g
 
 
 def _ends(r: Shape) -> list[tuple[tuple[float, float], float]]:
@@ -251,7 +250,32 @@ def _ends(r: Shape) -> list[tuple[tuple[float, float], float]]:
     return out
 
 
-def _mouth_end(r: Shape, others: list[Shape] = (), walls: list[Shape] = ()
+def _rim_edges(w: Shape, decks: list[Shape] = (), deck_reach: float = 0.0
+               ) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """A rim's edges: every edge of a closed rim; an OPEN chain (a U: it
+    ends on the ramp's top corners) without its two end chords — those
+    stand at the ramp's top, not at a mouth.  With ``decks`` the edges
+    within ``deck_reach`` of a deck ring are left out too: a deck severs
+    the ramp and the void alike, and the void's edge along the ramp's
+    line up to the deck is the portal under the bridge, never a cap."""
+    n = len(w.xy)
+    if w.feature_closed:
+        edges = [(w.xy[k], w.xy[(k + 1) % n]) for k in range(n)]
+    else:
+        edges = [(w.xy[k], w.xy[k + 1]) for k in range(1, n - 2)]
+    if not decks:
+        return edges
+    out = []
+    for a, b in edges:
+        m = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        if all(min(_seg_dist(m[0], m[1], d.xy[i], d.xy[(i + 1) % len(d.xy)])
+                   for i in range(len(d.xy))) > deck_reach for d in decks):
+            out.append((a, b))
+    return out
+
+
+def _mouth_end(r: Shape, others: list[Shape] = (), walls: list[Shape] = (),
+               decks: list[Shape] = (), deck_reach: float = 0.0
                ) -> tuple[tuple[float, float], float]:
     """The ramp's mouth end: the end the wall's END CAP stands across —
     the end whose centre is nearest a wall edge (the cap at the gap; the
@@ -269,9 +293,8 @@ def _mouth_end(r: Shape, others: list[Shape] = (), walls: list[Shape] = ()
         def near(pt):
             best = 1e9
             for w in walls:
-                n = len(w.xy)
-                for k in range(n):
-                    best = min(best, _seg_dist(pt[0], pt[1], w.xy[k], w.xy[(k + 1) % n]))
+                for a, b in _rim_edges(w, decks, deck_reach):
+                    best = min(best, _seg_dist(pt[0], pt[1], a, b))
             return best
         da, db = near(pa), near(pb)
         if abs(da - db) > 0.5:
@@ -286,15 +309,17 @@ def _mouth_end(r: Shape, others: list[Shape] = (), walls: list[Shape] = ()
 def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     """THE CANONICAL MOUTH (RULINGS 2026-08-30): per tunnel id (the ramp
     ref's ``tunnel_ramp:<id>``), ONE ramp piece reaches the mouth line
-    (the lowest piece), ONE wall band answers it on BOTH sides and
-    across the mouth (a wall vertex within ``wall_gap_m + wall_band_width_m
-    + 1`` of the mouth edge's centre on the far side — the END CAP), and
-    the mouth wall stands ``bore_datum_m`` above the mouth node
-    (2026-09-03b).  Each miss is a row naming the tunnel."""
+    (the lowest piece), ONE rim answers it on BOTH sides and across the
+    mouth (a rim vertex within ``wall_gap_m + wall_band_width_m + 1`` of
+    the mouth edge's centre on the far side — the END CAP), and the
+    mouth wall node (the rim's cap) stands ``bore_datum_m`` above the
+    mouth node (2026-09-03b).  Each miss is a row naming the tunnel."""
     tn = p.law.tables.structures.tunnel
     tol = p.law.tables.emit.materiality.elevation_m
     reach = tn.wall_gap_m + tn.wall_band_width_m + 1.0
     walls = _walls(p)
+    decks = _decks(p)
+    deck_reach = tn.wall_gap_m + p.law.tables.emit.identity.min_distinct_spacing_m + 1.0
     out: list[Row] = []
     # sites: ramp pieces within the oracle's ``mouth_cluster_m`` (25 m)
     # of each other are one place a bore surfaces
@@ -336,10 +361,11 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
         if obj_axes and all(on_object(q) for r in ramps for q in r.xy[:1]):
             continue
         # the mouth piece: the one whose cap-side end is nearest a wall
-        cand = [(r, _mouth_end(r, [o for o in ramps if o is not r], walls)) for r in ramps]
+        cand = [(r, _mouth_end(r, [o for o in ramps if o is not r], walls, decks, deck_reach))
+                for r in ramps]
         low, (mouth, zmouth) = min(cand, key=lambda c: min(
-            (_seg_dist(c[1][0][0], c[1][0][1], w.xy[k], w.xy[(k + 1) % len(w.xy)])
-             for w in walls for k in range(len(w.xy))), default=1e9))
+            (_seg_dist(c[1][0][0], c[1][0][1], a, b)
+             for w in walls for a, b in _rim_edges(w, decks, deck_reach)), default=1e9))
         # the END CAP: a wall EDGE within reach of the mouth line's centre
         # (the cap's vertices stand at the corners, its edge crosses the
         # centre); the wall pieces at the mouth are those with an edge
@@ -347,15 +373,17 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
         near: list[tuple[Shape, int]] = []
         cap: list[tuple[Shape, int]] = []
         for w in walls:
-            n = len(w.xy)
-            for k in range(n):
-                d = _seg_dist(mouth[0], mouth[1], w.xy[k], w.xy[(k + 1) % n])
+            idx = {(a, b): k for k, (a, b) in enumerate(_rim_edges(w))}
+            for (a, b) in _rim_edges(w, decks, deck_reach):
+                k = idx[(a, b)]
+                d = _seg_dist(mouth[0], mouth[1], a, b)
+                kk = k if w.feature_closed else k + 1        # the edge's first vertex index
                 if d <= 2.0 * reach + 30.0:
-                    near.append((w, k))
-                    near.append((w, (k + 1) % n))
+                    near.append((w, kk))
+                    near.append((w, (kk + 1) % len(w.xy)))
                 if d <= reach + 1.0:
-                    cap.append((w, k))
-                    cap.append((w, (k + 1) % n))
+                    cap.append((w, kk))
+                    cap.append((w, (kk + 1) % len(w.xy)))
         pieces = {w.key for w, _k in near}
         if not cap:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp", "retaining_wall"), "mixed",
@@ -391,8 +419,8 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
                            float(len(pieces)), None, None, None, mouth, mouth, low.key, None,
                            out_of_scope=f"{tid}: {len(pieces)} wall pieces at the mouth"))
         at_mouth = [r for r in ramps
-                    if _dist(_mouth_end(r, [o for o in ramps if o is not r], walls)[0],
-                             mouth) <= 25.0]
+                    if _dist(_mouth_end(r, [o for o in ramps if o is not r], walls, decks,
+                                        deck_reach)[0], mouth) <= 25.0]
         if len(at_mouth) > 1:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp",) * 2, "groundside",
                            float(len(at_mouth)), None, None, None, mouth, mouth, low.key, None,
@@ -429,10 +457,8 @@ def tunnel_deck_clearance(p: Patch) -> list[Row]:
 
 #: The acceptance readers, keyed as the census publishes them.
 ACCEPTANCE = {
-    "tunnel_wall_top_flat": tunnel_wall_top_flat,
-    "tunnel_ramp_wall_gap": tunnel_ramp_wall_gap,
     "tunnel_mouth_canonical": tunnel_mouth_canonical,
     "tunnel_deck_clearance": tunnel_deck_clearance,
     "basin_floor_at_declaration": basin_floor_at_declaration,
-    "basin_wall_gap": basin_wall_gap,
+    "structure_rim_gap": structure_rim_gap,
 }

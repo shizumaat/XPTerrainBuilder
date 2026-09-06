@@ -89,8 +89,9 @@ class WallSignature:
 @_dc.dataclass(frozen=True)
 class Corridor:
     """One tunnel corridor in the AIRPORT frame (round 2).  ``axis`` runs
-    from the MOUTH (s = 0; ``wall_gap_m`` inside a closed end's inner
-    face) to the far end; ``stations`` give the inner faces left / right
+    from the MOUTH (s = 0; ``cutout.floor_overlap_m`` OUTSIDE a closed
+    end's inner face — the floor overlaps the end wall's footprint,
+    2026-09-06b) to the far end; ``stations`` give the inner faces left / right
     of it and the walls' thickness by station; ``trench`` is the region
     between the inner faces, ``walls`` the walls' plan footprint,
     ``footprint`` their union (what a bore mouth is INSIDE of)."""
@@ -348,18 +349,19 @@ def _faces_other(axis: list[XY], k: int, others: _t.Sequence[Polygon]) -> bool:
 
 
 def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
-              gap: float, sample: float) -> tuple[list[XY], list[Station]]:
+              overlap: float, sample: float) -> tuple[list[XY], list[Station]]:
     """The axis and stations re-based with s = 0 at the MOUTH end, the
     stations resampled every ``sample`` (the last ON the far end), a
-    closed end's station standing ``gap`` inside its inner face."""
+    closed end's station standing ``overlap`` OUTSIDE its inner face
+    (the trench floor overlaps the end wall, ``cutout.floor_overlap_m``)."""
     ln = LineString(axis)
     s0, s1 = sts[0].s, sts[-1].s
     if mouth == 1:
         s0, s1 = s1, s0
     closed_m, closed_f = walls.closed[mouth], walls.closed[1 - mouth]
     sign = 1.0 if mouth == 0 else -1.0
-    start = s0 + sign * (gap if closed_m else 0.0)
-    end = s1 - sign * (gap if closed_f else 0.0)
+    start = s0 - sign * (overlap if closed_m else 0.0)
+    end = s1 + sign * (overlap if closed_f else 0.0)
     total = abs(end - start)
     ss = [sample * k for k in range(int(total // sample) + 1)]
     if total - ss[-1] > 1e-6:
@@ -380,8 +382,18 @@ def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
     out_st: list[Station] = []
     for s in ss:
         so = start + sign * s
-        p = ln.interpolate(min(max(so, 0.0), ln.length))
-        out_axis.append((p.x, p.y))
+        # beyond the midline's ends (the overlap into an end wall) the
+        # axis continues straight along its end direction
+        if so < 0.0 or so > ln.length:
+            e = ln.interpolate(0.0 if so < 0.0 else ln.length)
+            q = ln.interpolate(min(ln.length, 1.0) if so < 0.0 else max(0.0, ln.length - 1.0))
+            ux, uy = e.x - q.x, e.y - q.y
+            L = math.hypot(ux, uy) or 1.0
+            d = (-so) if so < 0.0 else (so - ln.length)
+            out_axis.append((e.x + ux / L * d, e.y + uy / L * d))
+        else:
+            p = ln.interpolate(so)
+            out_axis.append((p.x, p.y))
         st = interp(so)
         if mouth == 1:          # travelling the other way: left and right swap
             st = Station(s, st.half_r, st.half_l, st.thick_r, st.thick_l)
@@ -435,7 +447,8 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         return (f"the mouth is undetermined: no bore at either end, no facing placement, "
                 f"ends {walls.kind} {'closed' if walls.closed[0] else 'open'}/"
                 f"{'closed' if walls.closed[1] else 'open'}")
-    axis2, sts2 = _oriented(walls, axis, sts, mouth, tn.wall_gap_m, ob.wall_sample_m)
+    axis2, sts2 = _oriented(walls, axis, sts, mouth,
+                            law.tables.structures.cutout.floor_overlap_m, ob.wall_sample_m)
     if len(axis2) < 2:
         return "the corridor is shorter than one station"
     far = 1 - mouth

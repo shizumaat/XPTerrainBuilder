@@ -293,6 +293,8 @@ class Tunnel:
     wall_band_width_m: float
     lane_width_m: float
     default_lanes: int
+    ramp_width_source: tuple[str, ...]      # 2026-09-06b (2): ["pavement", "lanes"]
+    ramp_pavement_max_offset_m: float
     dual_carriageway_max_separation_m: float
     max_ramp_length_m: float
     object: TunnelObject
@@ -307,7 +309,6 @@ class Bridge:
     deck_datum: str
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool
-    floor_below_object_deck_m: float
     # the deck signature by geometry (04k; M6b)
     deck_plate_normal_y_min: float
     deck_plane_bin_m: float
@@ -346,7 +347,7 @@ class Basin:
     """Basin facility law (RULINGS 2026-08-26; M4b)."""
 
     floor: str
-    seat_margin_m: float
+    seat: str                          # "floor_plate": the family seats its plate on the floor (2026-09-06b)
     min_solid_thickness_m: float
     admission_depth_m: float
     contact_band_m: float
@@ -361,6 +362,20 @@ class Basin:
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     rim_reaches_grade: bool            # 04i: the closed-region test
+
+
+@_dc.dataclass(frozen=True)
+class Cutout:
+    """Every below-grade OBJECT's trench (RULINGS 2026-09-06b (1);
+    ``structures.toml [cutout]``): the floor overlaps the object's inner
+    perimeter by ``floor_overlap_m``, the at-grade rim stands
+    ``rim_gap_m`` outside its outer perimeter, and no wall face is
+    emitted between them (``emit_wall_band`` — only ``false`` is
+    generated): the mesh makes the near-vertical wall."""
+
+    floor_overlap_m: float
+    rim_gap_m: float
+    emit_wall_band: bool
 
 
 @_dc.dataclass(frozen=True)
@@ -404,6 +419,7 @@ class Structures:
     bridge: Bridge
     building_pad: BuildingPad
     basin: Basin
+    cutout: Cutout
     retaining_wall: RetainingWall
     rebake: Rebake
 

@@ -18,6 +18,10 @@ tables (``check_grade.iter_shape_grade_constraints`` +
   edges, spine chords (a published-axis vertex) and pad-frontage chords
   at the cap; an apron interior body chord within
   ``within_shape.apron_body_chord_max_m`` at ``common.apron_fan_ramp_max``;
+  an APRON CHORD ONLY WHEN IT STAYS INSIDE ITS FACE (RULINGS
+  2026-09-05ae(1): the ring with its holes at the snap tolerance,
+  ``constraints.geometry.face_cover`` — the generator's own gate); a
+  chord across a hole or the exterior is no law edge;
 * JUNCTION BODIES (``within_shape.junction_mesh_roles``, RULINGS
   2026-09-04y) with published ``mesh_edges``: the population is the ring
   edges, the published mesh edges and the common-stretch pairs — a
@@ -39,9 +43,10 @@ from __future__ import annotations
 import itertools
 import math
 
-from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
+from ..constraints.geometry import (chords_covered, face_cover, long_axis,
+                                    pair_is_transverse, station_indices)
 from ..constraints.stretches import compose_pairs, nearest_line_cap
-from ..law.tables import role_cap
+from ..law.tables import role_cap, snap_margin_m
 from .frame import Patch, Row, Shape, noise_m, row
 
 __all__ = ["within_shape", "plane_gradient", "crown_by_vertex"]
@@ -184,6 +189,27 @@ def _offset(drops: dict[int, float], a: int, b: int, dz: float) -> float:
     return lo if dz < lo else (hi if dz > hi else dz)
 
 
+def chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int]]:
+    """The index pairs of ``sh``'s NON-ADJACENT chords that leave the face
+    (its ring with its hole features, ``face_cover`` at the snap
+    tolerance) — RULINGS 2026-09-05ae(1); empty for a degenerate face."""
+    holes = [f.xy for f in p.features if f.feature == "gap_interior_ring" and f.host == sh.key]
+    cover = face_cover(sh.xy, holes, snap_margin_m(p.law))
+    if cover is None:
+        return set()
+    n = len(sh.xy)
+    pairs: list[tuple[int, int]] = []
+    for i in range(n):
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
+            if math.hypot(xa - xb, ya - yb) >= min_d:
+                pairs.append((i, j))
+    ok = chords_covered(cover, [(sh.xy[i], sh.xy[j]) for i, j in pairs])
+    return {pr for pr, k in zip(pairs, ok) if not k}
+
+
 def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     """``(within_shape rows, road_cross_section rows)``."""
     law = p.law
@@ -234,6 +260,7 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
             ax = long_axis(sh.xy)
             axis = ax[0] if ax else None
         strict = spine | rigid_v
+        outside = chords_outside_face(p, sh, min_d) if sh.role == "apron" else set()
         for i in range(n):
             a = sh.ids[i]
             for j in range(i + 1, n):
@@ -244,6 +271,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     continue
                 if st is not None and abs(st[i] - st[j]) > 1:
                     continue
+                if (i, j) in outside:
+                    continue                       # a chord leaving its face (05ae-1)
                 adjacent = (j == i + 1) or (i == 0 and j == n - 1)
                 if meshed and (a, b) not in pc and (b, a) not in pc:
                     continue                       # not a law edge (04y)

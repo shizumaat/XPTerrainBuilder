@@ -11,6 +11,10 @@ THE RULE, per face of a role in ``emit.within_shape.junction_mesh_roles``:
   the ring's vertices, triangles whose centroid lies inside the face) and
   PUBLISHED as sidecar ``mesh_edges`` so the oracle consumes v2's mesh
   1:1 (``MeshEdgesExact``) instead of re-triangulating the emitted ring.
+  A TRIANGLE WITH AN EDGE LEAVING ITS FACE IS NOT A PLANE ROW and its
+  edges are not mesh edges (RULINGS 2026-09-05ae(1), the same rule as
+  the apron chord's: a chord across a hole or a re-entrant is not a
+  surface path; ``geometry.face_cover`` at the snap tolerance).
 * A MESH EDGE (ring edges included) is priced at the cap of the crossing
   stretch NEAREST its midpoint — perpendicular distance to the stretch
   polyline, strictest on a tie, the face's own cap when no stretch
@@ -43,10 +47,11 @@ from __future__ import annotations
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap
+from ..law.tables import role_cap, snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
+from .geometry import chords_covered, face_cover
 from .precedence import View, view
 from .stretches import Stretches, nearest_line_cap, stretches
 from .taxi import pad_vertices, plane_rows
@@ -90,7 +95,7 @@ def face_triangles(vw: View, fid: int) -> list[tuple[int, int, int]]:
         tris = triangulate(poly)
     except Exception:  # a bad triangulation never aborts a build (oracle rule)
         return []
-    out: list[tuple[int, int, int]] = []
+    cand: list[tuple[int, int, int]] = []
     for t in tris:
         if not poly.contains(t.centroid):
             continue
@@ -98,8 +103,15 @@ def face_triangles(vw: View, fid: int) -> list[tuple[int, int, int]]:
                for x, y in list(t.exterior.coords)[:-1]]
         if any(i is None for i in ids) or len(set(ids)) != 3:
             continue
-        out.append((ids[0], ids[1], ids[2]))  # type: ignore[arg-type]
-    return out
+        cand.append((ids[0], ids[1], ids[2]))  # type: ignore[arg-type]
+    if not cand:
+        return []
+    # every edge inside the face, or the triangle is not a row (05ae-1)
+    cover = face_cover(vw.face_ring_xy(fid), [[vw.xy[v] for v in h] for h in holes],
+                       snap_margin_m(vw.law))
+    segs = [(vw.xy[u], vw.xy[w]) for a, b, c in cand for u, w in ((a, b), (b, c), (c, a))]
+    ok = chords_covered(cover, segs)
+    return [tri for k, tri in enumerate(cand) if ok[3 * k] and ok[3 * k + 1] and ok[3 * k + 2]]
 
 
 def face_mesh_edges(vw: View, fid: int,

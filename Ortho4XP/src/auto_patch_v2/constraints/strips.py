@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
+import typing as _t
 
 from ..law import Law
 from ..law.tables import zone2_half_width_m
@@ -59,8 +60,13 @@ from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
 from .precedence import View, view
 
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
+           "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
            "end_corridor_longitudinal", "raoa"]
+
+#: A strip pair shorter than this ALONG the axis carries more rounding
+#: than signal (the census's own floor, ``check_grade`` strip readers).
+MIN_ALONG_M = 1.0
 
 GEN = "strips"
 
@@ -137,6 +143,50 @@ def _along(u: XY, p: XY, q: XY) -> float:
     return abs((q[0] - p[0]) * u[0] + (q[1] - p[1]) * u[1])
 
 
+def pavement_ring_vertices(faces: _t.Iterable[tuple[object, _t.Sequence[int]]]
+                           ) -> frozenset[int]:
+    """THE STRIP LAW'S PAVEMENT POPULATION (RULINGS 2026-09-05ae(3)) — ONE
+    helper the generator and the verify reader import: every vertex on the
+    OUTER ring of a face the law caps (``(cap, outer ring ids)`` pairs; a
+    ``None`` cap is ungoverned ground).  A HOLE ring's vertex is not
+    pavement here: the census reads the emitted ways' nids
+    (``check_grade._STRIP_PAVEMENT_ROLES``) and a covered hole ships no
+    way, so a strip face filling a taxiway's hole is priced along its
+    ring by the strip law — measured HECA 43d50a53: the generator read
+    ``View.pavement_vertices`` (incident faces, holes included) and
+    stated 2 rows where the reader priced 133 pairs, 7 of them over cap
+    (strip #15 inside stub pav93's hole, #24/#25 inside pav73's)."""
+    out: set[int] = set()
+    for cap, ids in faces:
+        if cap is not None:
+            out.update(ids)
+    return frozenset(out)
+
+
+def strip_longitudinal_pairs(ids: _t.Sequence[int], xy: _t.Sequence[XY], unit: XY,
+                             rect: _t.Sequence[XY], pavement: _t.Container[int]
+                             ) -> list[tuple[int, int, float]]:
+    """THE STRIP-LONGITUDINAL PAIR POPULATION of one strip ring (RULINGS
+    2026-09-05ae(3): the generator prices every pair the reader reads):
+    consecutive vertices of an along-axis run inside the lateral
+    rectangle (:func:`geometry.longitudinal_runs`), not both pavement,
+    at least ``MIN_ALONG_M`` apart along the axis — as ``(i, j, ds)``
+    ring indices with the along-axis distance."""
+    inside = [point_in_rect_ring(x, y, rect) for x, y in xy]
+    if not any(inside):
+        return []
+    out: list[tuple[int, int, float]] = []
+    for run in longitudinal_runs(xy, unit, inside):
+        for i, j in zip(run, run[1:]):
+            if ids[i] in pavement and ids[j] in pavement:
+                continue
+            ds = _along(unit, xy[i], xy[j])
+            if ds < MIN_ALONG_M:
+                continue
+            out.append((i, j, ds))
+    return out
+
+
 def _across(u: XY, p: XY, q: XY) -> float:
     return abs((q[0] - p[0]) * -u[1] + (q[1] - p[1]) * u[0])
 
@@ -146,6 +196,8 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     vw = view(planar, law)
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
+    # the reader's population helper, on the reader's pavement (05ae-3)
+    pav = pavement_ring_vertices((vw.caps[fid], vw.rings[fid]) for fid in planar.faces)
     for g in runway_groups(vw, airport):
         cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
         if cap is None:
@@ -154,21 +206,14 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
         src = Source(GEN, "rulesets.strip.longitudinal (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
-            inside = [point_in_rect_ring(x, y, g.rings[0]) for x, y in xy]
-            if not any(inside):
-                continue
-            for run in longitudinal_runs(xy, g.unit, inside):
-                for i, j in zip(run, run[1:]):
-                    a, b = ids[i], ids[j]
-                    if a in vw.pavement_vertices and b in vw.pavement_vertices:
-                        continue
-                    ds = _along(g.unit, xy[i], xy[j])
-                    key = (min(a, b), max(a, b))
-                    if ds < 1.0 or key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
-                                       cap * ds + q, src))
+            for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav):
+                a, b = ids[i], ids[j]
+                key = (min(a, b), max(a, b))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
+                                   cap * ds + q, src))
     return rows
 
 

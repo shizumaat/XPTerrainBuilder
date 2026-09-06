@@ -8,7 +8,10 @@ v1 ``_check_strip_longitudinal_grade`` / ``_check_strip_arc_rate`` /
   rectangle, end corridors), code from the emitted extent;
 * ``strip_longitudinal`` / ``strip_arc``: along-axis runs inside the
   lateral rectangle, pavement-pavement pairs skipped, the strip
-  reader's coarse envelope / rate blind spot, one row per physical site;
+  reader's coarse envelope / rate blind spot, one row per physical site
+  — the ``strip_longitudinal`` PAIR POPULATION and its pavement set are
+  the generator's own helpers (``constraints.strips.strip_longitudinal_
+  pairs`` / ``pavement_ring_vertices``, RULINGS 2026-09-05ae(3));
 * ``resa_transverse``: across pairs inside an end corridor;
 * ``raoa`` (ICAO): the s-sorted rate law inside the RAOA rectangle,
   EXACTLY as the census walks it (cross-width neighbours included — the
@@ -25,6 +28,7 @@ import math
 
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
+from ..constraints.strips import pavement_ring_vertices, strip_longitudinal_pairs
 from ..law.tables import zone2_half_width_m
 from .frame import Patch, Row, Shape, row
 from .no_step import rate_breaches
@@ -79,12 +83,10 @@ def _strips(p: Patch) -> list[Shape]:
     return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2]
 
 
-def _pavement_ids(p: Patch) -> set[int]:
-    out: set[int] = set()
-    for sh in p.shapes:
-        if p.cap(sh) is not None:
-            out.update(sh.ids)
-    return out
+def _pavement_ids(p: Patch) -> frozenset[int]:
+    """The generator's own pavement population (``constraints.strips.
+    pavement_ring_vertices``, RULINGS 2026-09-05ae(3))."""
+    return pavement_ring_vertices((p.cap(sh), sh.ids) for sh in p.shapes)
 
 
 def strip_longitudinal(p: Patch) -> list[Row]:
@@ -98,28 +100,19 @@ def strip_longitudinal(p: Patch) -> list[Row]:
         if cap is None:
             continue
         for sh in _strips(p):
-            inside = [point_in_rect_ring(x, y, rings[0]) for x, y in sh.xy]
-            if not any(inside):
-                continue
-            for run in longitudinal_runs(sh.xy, unit, inside):
-                for i, j in zip(run, run[1:]):
-                    if sh.ids[i] in pav and sh.ids[j] in pav:
-                        continue
-                    ds = abs((sh.xy[j][0] - sh.xy[i][0]) * unit[0]
-                             + (sh.xy[j][1] - sh.xy[i][1]) * unit[1])
-                    if ds < 1.0:
-                        continue
-                    site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
-                                         tuple(round(c, 3) for c in sh.xy[j]))))
-                    if site in seen:
-                        continue
-                    seen.add(site)
-                    dz = abs(sh.z[j] - sh.z[i])
-                    if dz <= cap * ds + q:
-                        continue
-                    out.append(row("strip_longitudinal", ("graded_strip",) * 2,
-                                   p.side("graded_strip"), dz, 100 * dz / ds, 100 * cap,
-                                   ds, sh.xy[i], sh.xy[j], sh.key, sh.key))
+            # ONE population with the generator (05ae-3)
+            for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav):
+                site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
+                                     tuple(round(c, 3) for c in sh.xy[j]))))
+                if site in seen:
+                    continue
+                seen.add(site)
+                dz = abs(sh.z[j] - sh.z[i])
+                if dz <= cap * ds + q:
+                    continue
+                out.append(row("strip_longitudinal", ("graded_strip",) * 2,
+                               p.side("graded_strip"), dz, 100 * dz / ds, 100 * cap,
+                               ds, sh.xy[i], sh.xy[j], sh.key, sh.key))
     return out
 
 

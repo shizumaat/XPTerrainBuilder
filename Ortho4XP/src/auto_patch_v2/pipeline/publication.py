@@ -11,6 +11,10 @@ vertices' canonical lat/lon identity so the census joins exactly.
   the per-stretch pair law v2 verify re-composes (v1's oracle reads the
   stretch caps through ``axes``);
 * ``mesh_edges``: every junction-mesh face's triangle-mesh edges
+* ``face_holes``: every face's holes as ``[[lat, lon], ...]`` rings by
+  face id — the way's ``shapeID`` — so the v1 oracle's visibility polygon
+  is the face WITH its holes (RULINGS 2026-09-05ae(1)); a covered hole
+  ships no way of its own, so this is the oracle's only sight of it
   (RULINGS 2026-09-04y, ``constraints.junction_mesh``) as
   ``[[lat, lon], [lat, lon]]`` — the v1 oracle's JUNCTION MESH RULE
   consumes them 1:1 (``MeshEdgesExact``) and v2 verify prices exactly
@@ -88,6 +92,25 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
             for fid, cap in road_law_caps(planar, law, airport).items()}
 
 
+
+def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
+    """Sidecar ``face_holes``: ``{face id: [hole ring [[lat, lon], ...], ...]}``
+    for every face that has a hole (module docstring; RULINGS
+    2026-09-05ae(1))."""
+    out: dict[str, list[list[list[float]]]] = {}
+    for fid, f in sorted(planar.faces.items()):
+        if not f.holes:
+            continue
+        rings = []
+        for h in f.holes:
+            ids = list(planar.ring_vertices(h))
+            if len(ids) >= 3:
+                rings.append([[planar.vertices[v].key[0], planar.vertices[v].key[1]]
+                              for v in ids])
+        if rings:
+            out[str(fid)] = rings
+    return out
+
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
@@ -130,6 +153,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh_edges_ll(planar, law),
+            "face_holes": face_holes_ll(planar),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
             "seam_pins": [ll[v] for v in pins],

@@ -304,7 +304,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["constraints"] = time.perf_counter() - t
     _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
     for name, n in counts.items():
-        _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s", out)
+        # a ``<generator>.<stat>`` key is a statistic, not a timed generator
+        _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s" if name in gwalls
+             else f"    {name:28s} {n:8d}", out)
     t = time.perf_counter()
     size: dict[str, int] = {}
     sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)

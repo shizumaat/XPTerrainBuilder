@@ -31,8 +31,53 @@ __all__ = [
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
-    "polyline_length",
+    "polyline_length", "face_cover", "chords_covered",
 ]
+
+
+# ── the face's own cover (RULINGS 2026-09-05ae(1)) ───────────────────────
+
+def face_cover(ring: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
+               tol_m: float):
+    """THE FACE POLYGON A CHORD MUST STAY INSIDE (RULINGS 2026-09-05ae(1):
+    an apron chord — frontage / spine or body — is a row only when the
+    straight chord lies entirely inside the apron face, crossing no hole
+    and no exterior; a junction triangle edge leaving its face is not a
+    row): the ring with its holes, grown by the snap tolerance ``tol_m``
+    (``tables.snap_margin_m``) so a chord along the boundary reads inside
+    while a hole narrower than twice the tolerance — a sliver, never a
+    road or a building — closes.  ``None`` for a degenerate face (fewer
+    than three vertices, empty after repair): the caller keeps every
+    chord, as before the rule."""
+    if len(ring) < 3:
+        return None
+    try:
+        from shapely.geometry import Polygon
+        from shapely.validation import make_valid
+        poly = Polygon(ring, [h for h in holes if len(h) >= 3])
+        if not poly.is_valid:
+            poly = make_valid(poly)
+        poly = poly.buffer(tol_m)
+        if poly.is_empty:
+            return None
+        return poly
+    except Exception:  # a bad polygon never aborts a build (the oracle's rule)
+        return None
+
+
+def chords_covered(poly, segments: _t.Sequence[tuple[XY, XY]]) -> list[bool]:
+    """Which of ``segments`` (``((x0, y0), (x1, y1))`` each) ``poly``
+    covers — one vectorised GEOS predicate for the whole list; every
+    chord when ``poly`` is ``None``."""
+    if not segments:
+        return []
+    if poly is None:
+        return [True] * len(segments)
+    import numpy as np
+    import shapely
+    lines = shapely.linestrings(np.asarray(segments, float))
+    shapely.prepare(poly)
+    return [bool(b) for b in shapely.covered_by(lines, poly)]
 
 
 # ── ring walks ───────────────────────────────────────────────────────────

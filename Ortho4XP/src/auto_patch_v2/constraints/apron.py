@@ -25,6 +25,18 @@ and so does every pair with a vertex off the run.  v1's oracle applied
 the apron cap to the junction's whole body (``grade_graph.
 _body_cap_unbounded``); the oracle now follows the same portion rule.
 
+A CHORD STAYS INSIDE ITS FACE (RULINGS 2026-09-05ae(1), the owner's KML
+read at 30°07'40.66"N 31°24'45.73"E): a frontage / spine or body chord is
+a row ONLY when the straight chord lies entirely inside the apron face —
+crossing no hole and no exterior (:func:`geometry.face_cover` at the snap
+tolerance, ``shapely.covered_by``).  HECA pav132's 585–770 m frontage
+chords left the pavement through the face's hole where a road and a
+building stand, and 21 km of the relaxation's 26.5 km of relief rode on
+them; the ring edges and the inside chords carry the apron law around
+the obstacle.  A dropped chord is counted in ``STATS["chords_outside_
+face"]`` (published by ``generate`` under ``apron_within_shape.chords_
+outside_face``).  A ring edge is never a chord and is never dropped.
+
 Lattice / membrane (``emit.chords.apron_interior_spacing_m``): the M1 map
 has no interior vertices (M0 open question 3); the membrane family is
 therefore vacuous on v2's own publication — recorded in the M2 report,
@@ -33,16 +45,21 @@ nothing minted here.
 from __future__ import annotations
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap
+from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
-from .geometry import principal_axis, project_to_chain
+from .geometry import chords_covered, face_cover, principal_axis, project_to_chain
 from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
-           "face_width"]
+           "face_width", "STATS"]
+
+#: The last run's generator statistics by generator function name
+#: (``generate`` publishes them as ``<generator>.<stat>``):
+#: ``chords_outside_face`` — chords dropped for leaving their face (05ae-1).
+STATS: dict[str, dict[str, int]] = {}
 
 GEN = "apron"
 #: The edge-portion rows' generator: they bind a NON-apron face's rim
@@ -83,7 +100,9 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                 if project_to_chain(vw.xy[v], ch)[0] <= min_d:
                     strict.add(v)
                     break
+    tol = snap_margin_m(law)
     rows: list[Row] = []
+    outside = 0
     for f in vw.faces_of_role(("apron",)):
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
@@ -91,6 +110,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                            (f"face:{f.id}", f.ref))
         src_body = Source(GEN, "apron body chord, strict (2026-08-24 amends 08-21c)",
                           (f"face:{f.id}", f.ref))
+        # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
+        chords: list[Row] = []
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             n = len(ring)
             for i in range(n):
@@ -105,14 +126,31 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     if adjacent:
                         rows.append(Diff(a, b, cap.longitudinal, d, src_ring))
                     elif a_strict or b in strict:
-                        rows.append(Diff(a, b, cap.longitudinal, d, src_spine))
-                    elif d <= gate:
+                        chords.append(Diff(a, b, cap.longitudinal, d, src_spine))
+                    elif d <= gate + min_d:
+                        # the body gate is read in the CENSUS'S OWN frame
+                        # (equirectangular, ~0.2 % off this one at CYXY's
+                        # latitude): inflated by the identity spacing, as
+                        # the strip footprints are — measured CYXY way 88
+                        # (lane v2fix288): a 60.10 m body chord here read
+                        # 59.97 m there and was the one v2-verify row
                         # THE 5 % CLASS IS ONLY THE BACK-EDGE ZONES BETWEEN
                         # BUILDINGS (owner 2026-08-24, amends 08-21c): v2
                         # models no fan-ramp zone yet, so every body chord
                         # inside the gate holds the STRICT cap; ``fan`` is
                         # the back-edge zones' cap when M3b generates them
-                        rows.append(Diff(a, b, cap.longitudinal, d, src_body))
+                        chords.append(Diff(a, b, cap.longitudinal, d, src_body))
+        if not chords:
+            continue
+        cover = face_cover(vw.face_ring_xy(f.id),
+                           [[vw.xy[v] for v in h] for h in vw.holes[f.id]], tol)
+        inside = chords_covered(cover, [(vw.xy[c.a], vw.xy[c.b]) for c in chords])
+        for c, ok in zip(chords, inside):
+            if ok:
+                rows.append(c)
+            else:
+                outside += 1
+    STATS["apron_within_shape"] = {"chords_outside_face": outside}
     return rows
 
 

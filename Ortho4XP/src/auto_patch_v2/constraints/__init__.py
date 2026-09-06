@@ -6,6 +6,7 @@ generators — plan §1 "the solver only stacks rows").
 """
 from __future__ import annotations
 
+import sys as _sys
 import time
 import typing as _t
 
@@ -79,6 +80,12 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         walls[name] = time.perf_counter() - t0
         counts[name] = len(got)
         rows.extend(got)
+        # a generator's own statistics (its module's ``STATS[fn name]``):
+        # published beside its count as ``<name>.<stat>`` (apron_within_shape:
+        # chords_outside_face, RULINGS 2026-09-05ae(1))
+        stats = (getattr(_sys.modules.get(fn.__module__), "STATS", None) or {}).get(fn.__name__)
+        for k, v in (stats or {}).items():
+            counts[f"{name}.{k}"] = int(v)
     rows, n_exempt = seam_exempt(rows, seam_honoured)
     counts["seam_pin_pair_exempt"] = n_exempt
     walls["seam_pin_pair_exempt"] = 0.0

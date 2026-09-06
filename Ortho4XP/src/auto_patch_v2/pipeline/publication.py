@@ -34,14 +34,16 @@ vertices' canonical lat/lon identity so the census joins exactly.
   the solve states the law by the chain, the reader prices every pair
   over its route): the pair's least ``Σ cap·len`` over the routes, and
   ``[a, b, null, null]`` for a pair no route joins (no law edge).
-  PUBLISHED WHERE THE READER NEEDS IT — a pair whose route budget is
-  TIGHTER than ``cap × chord`` by more than the elevation materiality
-  always; a pair whose route budget is LOOSER only where the solved
-  surface exceeds the chord reading (the reader would otherwise mint a
-  chord row the chain permits); every other pair reads at the chord,
-  which the route budget then bounds too — the reader's rows are
-  IDENTICAL to publishing every pair (twin ``test_taxi_route_pairs``),
-  at a fraction of the sidecar (HECA: every taxi pair is ~400k);
+  EVERY routed pair whose route budget differs from ``cap × chord`` by
+  more than the elevation materiality is published, in BOTH directions
+  — a looser route too, or the reader mints a chord row the chain
+  permits.  A z-aware pruning (looser pairs only where the SOLVED
+  surface exceeded the chord) was measured at HECA 2026-09-05 and
+  withdrawn: one stub pair on the 05C/23C edge sat 0.1 mm inside its
+  chord bound at the solve and read 0.035 m over it in the emitted
+  patch (the emit quantum and the crown-lifted reading) — the prune
+  cannot mirror the reader, so it does not try (HECA: 237k pairs,
+  ~10 MB of sidecar beside the 87k the prune kept);
 * ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
   (``constraints.seams``) — the census skips pin↔pin pairs and prices
   pin↔free pairs at the body cap (user 2026-07-04);
@@ -124,7 +126,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             stations.append([round(la, 8), round(lo, 8), st.cap])
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
-    taxi_pairs = taxi_route_pairs(planar, law, airport, z, ll, tol)
+    taxi_pairs = taxi_route_pairs(planar, law, airport, ll, tol)
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh_edges_ll(planar, law),
@@ -137,25 +139,23 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
 
 
 def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
-                     z: _t.Sequence[float] | None,
                      ll: _t.Mapping[int, _t.Sequence[float]], tol: float
                      ) -> list[list[_t.Any]]:
     """The ``taxi_route_pairs`` publication (module docstring): every
-    unrouted pair as ``null``; every routed pair whose route budget is
-    tighter than the chord reading by more than ``tol``; a looser one
-    only where the solved surface (``z``; every looser pair when ``z``
-    is absent) exceeds the chord reading."""
+    unrouted pair as ``null``; every routed pair whose route budget
+    differs from the chord reading by more than ``tol``."""
     out: list[list[_t.Any]] = []
+    seen: set[tuple[int, int]] = set()
     for pp in taxi_pair_routes(planar, law, airport):
+        key = (min(pp.a, pp.b), max(pp.a, pp.b))
+        if key in seen:
+            continue                      # a pair two faces share (a split stub): once
         if not pp.routed:
+            seen.add(key)
             out.append([ll[pp.a], ll[pp.b], None, None])
-            continue
-        gap = pp.budget - pp.chord_bound_m
-        if abs(gap) <= tol:
-            continue
-        if gap > 0.0 and z is not None and abs(z[pp.a] - z[pp.b]) <= pp.chord_bound_m:
-            continue        # the chord reading passes (the reader's own rounding noise covers emit); the route bounds it too
-        out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
+        elif abs(pp.budget - pp.chord_bound_m) > tol:
+            seen.add(key)
+            out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
     return out
 
 

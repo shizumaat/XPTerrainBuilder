@@ -241,10 +241,10 @@ def test_an_orphan_has_no_hop_and_no_taxi_row(hook, law):
 
 def test_verify_reads_the_solvers_route_budgets(hook, law):
     """The reader prices exactly the solver's budgets: every published
-    routed pair carries the route budget of ``taxi_pair_routes``; the
-    pruned publication (tighter pairs always, looser pairs only where the
-    surface exceeds the chord) reads IDENTICALLY to publishing every pair
-    — on the solved surface and on a surface pushed to the route bound."""
+    routed pair carries the route budget of ``taxi_pair_routes``, and
+    EVERY routed pair whose route differs from the chord is published
+    (looser too) — on a surface pushed to a pair's route bound the reader
+    still reads no taxi row."""
     airport, pm = hook
     cs, _c, _w = generate(pm, law, airport)
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
@@ -257,22 +257,25 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
         if rec is not None:
             assert k in pps and rec[0] == pytest.approx(pps[k].budget, abs=1e-5)
     ll = {v: pub_ll for v, pub_ll in _ll_of(pm, airport).items()}
-    full = [[ll[pp.a], ll[pp.b], None, None] if not pp.routed
-            else [ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)]
-            for pp in pps.values() if not pp.routed or abs(pp.budget - pp.chord_bound_m) > tol]
-    pruned = taxi_route_pairs(pm, law, airport, sol.z, ll, tol)
-    assert len(pruned) < len(full)
+    want = {k for k, pp in pps.items() if not pp.routed or abs(pp.budget - pp.chord_bound_m) > tol}
+    key_of = {tuple(v): k for k, v in ll.items()}
+    published = {(min(key_of[tuple(a)], key_of[tuple(b)]), max(key_of[tuple(a)], key_of[tuple(b)])): (bud, dist)
+                 for a, b, bud, dist in taxi_route_pairs(pm, law, airport, ll, tol)}
+    assert set(published) == want                     # every differing pair, once
+    for k, (bud, dist) in published.items():
+        assert (bud is None) == (not pps[k].routed)
+        if bud is not None:
+            assert bud == pytest.approx(pps[k].budget, abs=1e-5) and dist == pytest.approx(pps[k].dist, abs=1e-3)
     tighter = {(min(pp.a, pp.b), max(pp.a, pp.b)) for pp in pps.values()
                if pp.routed and pp.budget < pp.chord_bound_m - tol}
-    assert tighter <= set(routed), "every tighter pair is published"
+    looser = {(min(pp.a, pp.b), max(pp.a, pp.b)) for pp in pps.values()
+              if pp.routed and pp.budget > pp.chord_bound_m + tol}
+    assert tighter | looser <= set(routed), "every differing pair is published"
+    taxi_roles = set(law.tables.precedence.taxi_family.members)
     for z in (sol.z, _pushed_surface(pm, law, airport, sol.z)):
         s2 = graded_surface(pm, law, _with_z(sol, z), airport.frame.origin, airport.frame.crs)
-        p_full = dict(pub); p_full["taxi_route_pairs"] = full
-        p_pruned = dict(pub); p_pruned["taxi_route_pairs"] = taxi_route_pairs(pm, law, airport, z, ll, tol)
-        w_full, _x = within_shape(Patch.of(s2, law, p_full, {}))
-        w_pruned, _x = within_shape(Patch.of(s2, law, p_pruned, {}))
-        assert sorted((r["magnitude_m"], r["distance_m"]) for r in w_full) == \
-            sorted((r["magnitude_m"], r["distance_m"]) for r in w_pruned)
+        w, _x = within_shape(Patch.of(s2, law, pub, {}))
+        assert not [r for r in w if set(r["roles"].split("|")) <= taxi_roles], w[:3]
 
 
 def _ll_of(pm, airport):

@@ -25,11 +25,11 @@ v1 ``_check_strip_longitudinal_grade`` / ``_check_strip_arc_rate`` /
   THE RUNWAY-EDGE TIE, read GEOMETRICALLY over EVERY vertex): every
   vertex of every ring and hole — any role but the runway family's own
   and a retaining wall's — inside a runway's lateral rectangle and
-  runway zone, standing ABOVE its nearest runway-family ring edge
-  (interpolated at the foot) by more than
-  ``tables.strip_transverse_bound(d)`` plus the quantum; a STRIP-ONLY
-  vertex is read either way (its fall side is the zone floor, the
-  06b reading).  Generator-independent by construction: the reader
+  runway zone, standing ABOVE or BELOW its nearest runway-family ring
+  edge (interpolated at the foot) by more than
+  ``tables.strip_transverse_bound(d)`` plus the quantum — TWO-WAY for
+  every vertex (RULINGS 2026-09-06q (2); the 06b strip-only reading
+  generalised).  Generator-independent by construction: the reader
   never consults a published pair list (06o: both instruments read only
   the pairs the generators published and were blind to a pair never
   priced).  :func:`runway_edge_tie` is the one geometric core — the v2
@@ -96,9 +96,10 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
     everywhere) inside that class's zone-2 half width less ``edge_tol``
     (the corridor's outer ring sits at the half width to the identity
     floor); the foot interpolates the edge's elevation; the vertex is a
-    hit when ``dz = z − z_foot > bound + q`` — or, for a ``both_ways``
-    point, ``|dz| > bound + q`` — with ``bound =
-    strip_transverse_bound(law, d, code)``.  ``all_hits`` returns every
+    hit when ``|dz| = |z − z_foot| > bound + q`` — EITHER way, for every
+    point (RULINGS 2026-09-06q (2); ``both_ways`` is a label now: the 06b
+    strip-only reading it named is the reading of every vertex) — with
+    ``bound = strip_transverse_bound(law, d, code)``.  ``all_hits`` returns every
     point in reach with its reading (the harness tool's table)."""
     if not edges:
         return []
@@ -147,7 +148,10 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
         if bound is None:
             continue
         dz = z - z_foot
-        over = (abs(dz) if both else dz) > bound + q
+        # TWO-WAY for every point (RULINGS 2026-09-06q (2)): neither above
+        # nor below the foot by more than the bound; ``both`` (a strip-
+        # only point) is carried as a label only
+        over = abs(dz) > bound + q
         if over or all_hits:
             out.append(TieHit(vid, x, y, z, d, z_foot, dz, bound, foot, ref, cn, cl, label))
     return out
@@ -409,8 +413,8 @@ def strip_transverse(p: Patch) -> list[Row]:
     """The tie read on the built surface (module docstring): EVERY
     vertex of every shape and feature — the runway family's own and the
     wall crests excluded — against its nearest abeam runway-family ring
-    edge; a strip-only vertex either way, any other vertex on the rise
-    side (06p (1)); one row per vertex, the roles ``(vertex's role,
+    edge, EITHER way (06p (1) the rise side for every vertex; 06q (2)
+    the fall side too); one row per vertex, the roles ``(vertex's role,
     runway)``."""
     law = p.law
     q = law.tables.emit.instrument.coarse_noise_m

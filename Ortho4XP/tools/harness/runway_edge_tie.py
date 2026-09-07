@@ -10,8 +10,8 @@ Every vertex of every way — ANY role but the runway family's own and a
 that runway's zone-2 half width, against the edge foot (the elevation
 interpolated along the edge): the rise ``z_v − z_foot`` judged at
 ``strip_transverse_bound(d)`` (the strip corridor's transverse cap
-accumulated over ``d``) plus the census's coarse quantum; a graded-strip-
-only vertex either way.  Generator-independent by construction — it never
+accumulated over ``d``) plus the census's coarse quantum, EITHER way for
+every vertex (RULINGS 2026-09-06q (2)).  Generator-independent by construction — it never
 reads a published pair list (owner 2026-09-06o: both instruments passed
 HECA's 05C/23C ridges because no pair had been minted to the runway edge
 7 m away).  Prints, per ROLE SET of the vertex's ways, the vertices in
@@ -64,7 +64,7 @@ class TieReading:
     rise: float              # z − z_foot (signed)
     bound: float
     over: bool
-    both_ways: bool          # a graded-strip-only vertex (read either way)
+    both_ways: bool          # a graded-strip-only vertex (the 06b label; every vertex reads either way since 06q)
 
 
 def read_ties(patch: str | Path, icao: str | None = None, *, rwy: str | None = None,
@@ -95,7 +95,9 @@ def read_ties(patch: str | Path, icao: str | None = None, *, rwy: str | None = N
         lat, lon = nodes[h.vid]
         rs = "+".join(sorted(roles_at.get(h.vid, {"?"})))
         both = roles_at.get(h.vid) == {"graded_strip"}
-        over = (abs(h.dz) if both else h.dz) > h.bound + q
+        # two-way for every vertex (RULINGS 2026-09-06q (2)); ``both`` is
+        # the strip-only label the 06b reading named
+        over = abs(h.dz) > h.bound + q
         readings.append(TieReading(h.vid, rs, h.ref, lat, lon, h.z, h.z_foot, h.d, h.dz,
                                    h.bound, over, both))
     return readings
@@ -109,7 +111,7 @@ def table(readings: _t.Sequence[TieReading]) -> list[str]:
         cnt[r.roles] += 1
         if r.over:
             over[r.roles] += 1
-            if r.roles not in worst or r.rise > worst[r.roles].rise:
+            if r.roles not in worst or abs(r.rise) > abs(worst[r.roles].rise):
                 worst[r.roles] = r
     lines = ["vertices in reach of a runway-family edge, by role set:"]
     for k, n in cnt.most_common():
@@ -132,7 +134,7 @@ def main(argv: _t.Sequence[str] | None = None) -> int:
     for ln in table(readings):
         print(ln)
     if a.worst:
-        for r in sorted((r for r in readings if r.over), key=lambda r: -r.rise)[:a.worst]:
+        for r in sorted((r for r in readings if r.over), key=lambda r: -abs(r.rise))[:a.worst]:
             print(f"  +{r.rise:.2f} m at d {r.d:.1f} (bound {r.bound:.2f}) node {r.nid} "
                   f"{r.roles} {r.ref} z {r.z:.2f} edge {r.z_foot:.2f} @ {r.lat:.6f},{r.lon:.6f}")
     if a.json:

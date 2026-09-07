@@ -42,9 +42,16 @@ THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1), the same family and the
 same row): the rise side binds EVERY vertex of ANY role — ring or hole,
 any owner except the runway family's own faces and a retaining wall's
 crest — lying abeam a runway-family ring edge within that runway's
-zone-2 half width: ``z_v − z_foot ≤ strip_transverse_bound(d)``; the
-fall side stays the vertex's own law (its zone floor, its route reach,
-its pad level).  ``own_law`` exempts NOTHING from this row: the 06b
+zone-2 half width: ``z_v − z_foot ≤ strip_transverse_bound(d)``.
+THE FALL SIDE (RULINGS 2026-09-06q (2)) is the SAME row's other bound,
+``z_foot − z_v ≤ strip_transverse_bound(d)``: the tie is TWO-WAY against
+the runway for every vertex it covers (HECA 05C/23C after 06p: 15
+strip-hole vertices 0.35–1.25 m BELOW the edge within 3 m — cliffs the
+rise-only row let stand as the stub's "own law"); where :func:`zone_bands`
+already states that edge's floor the row carries the rise side alone.
+The pocket rule's nearest-pavement floor STAYS beside a runway (06q (2)'s
+second clause measured and not applied: see :func:`zone_bands`).
+``own_law`` exempts NOTHING from this row: the 06b
 population was the strip-only vertices, and HECA's 05C/23C ridges
 (owner sim read 1.0.291, 06o) were 207 vertices over the bound — stub
 170, primary_parallel 35, junction 2 — every one a ring vertex of an
@@ -427,6 +434,18 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         found = _found(v, classes)
         if not found:
             continue
+        # THE POCKET FLOOR STAYS BESIDE A RUNWAY (RULINGS 2026-09-06q (2)
+        # second clause, measured and NOT applied — lane v2ridge2): voiding
+        # a taxi edge's nearest-pavement floor wherever a runway edge is
+        # within its zone-2 half width tore HECA's strip 3.1–3.3 m in 3 m
+        # at the runway corridor's OUTER ring (05L/23R zone-2 ring vertex
+        # -9844 at d 74.9, nearest pavement taxiway E's lip 3 m away:
+        # floor 65.15 with the lip, 62.0 with the runway's corridor floor
+        # alone — it fell to its DEM, 12 strip_seam_tear rows, the CYXY
+        # 2026-09-04e class).  The 15 cliffs the clause named were
+        # own-law hole vertices with NO taxi floor: the tie's FALL side
+        # (:func:`strip_transverse`) is what binds them.  Where a taxi
+        # floor and the runway tie truly conflict the strip tier relaxes.
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl = edges[k]
             role = "runway" if fam == "runway" else "junction"
@@ -477,7 +496,7 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
     if not grid:
         return []
     src = Source(GEN, "zones.adjacent_ground.runway.band_max_down strip tie "
-                 "(2026-09-06b law 2; every vertex 2026-09-06p)", ())
+                 "(2026-09-06b law 2; every vertex 2026-09-06p; two-way 2026-09-06q)", ())
 
     def nearest(v: int):
         return _nearest_edge(vw, v, edges, grid, ctx.cell, ctx.half_of, ctx.reach,
@@ -514,6 +533,14 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
         # parallel stub pav101.  A dominated duplicate beside the ceiling
         # is also what tipped HiGHS's QP into its approximation on the
         # relax twin (measured 2026-09-06: 1,080 candidates, kNotset).
+        # THE FALL SIDE (RULINGS 2026-09-06q (2)): the tie is TWO-WAY — a
+        # vertex within the half width may neither rise above nor fall
+        # below the edge foot faster than the strip bound.  Where
+        # ``zone_bands`` already states this very edge's FLOOR (the runway
+        # is a farther pavement of a strip vertex: floor only, the pocket
+        # rule) the row here carries the rise side alone — never the same
+        # floor twice (the duplicate HiGHS's QP factorisation refused).
+        floor_stated = False
         classes = ctx.member.get(v)
         if classes and v not in ctx.own_law and v not in ctx.wall_vertices:
             if v in ctx.pad_rim:
@@ -521,6 +548,7 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             found = ctx.found(v, classes)
             if found and found[0][1] == k and found[0][0] <= (ctx.half_of(edges[k]) or 0.0):
                 continue
+            floor_stated = any(f_[1] == k for f_ in found)
         a, b, _fam, cn, cl = edges[k]
         bound = strip_transverse_bound(law, d, cn, cl)
         if bound is None or d <= 0.0:
@@ -534,5 +562,6 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
         strip_fid = ctx.tie_pop[v]
         inputs = ((f"face:{strip_fid}", f"vertex:{v}") if strip_fid >= 0
                   else (f"vertex:{v}",))
-        rows.append(Linear(terms, None, bound, Source(src.generator, src.ruling, inputs)))
+        rows.append(Linear(terms, None if floor_stated else -bound, bound,
+                           Source(src.generator, src.ruling, inputs)))
     return rows

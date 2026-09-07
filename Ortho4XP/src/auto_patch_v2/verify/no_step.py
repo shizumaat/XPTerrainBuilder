@@ -74,8 +74,13 @@ def no_step_direct(p: Patch) -> list[Row]:
     return out
 
 
-def rate_breaches(pts, zs, closed: bool, rate: float, q: float):
-    """``[(k_prev, k, k_next, change, allowed, dp, dn)]`` over a chain."""
+def rate_breaches(pts, zs, closed: bool, rate: float, q: float, floor: float = 0.0):
+    """``[(k_prev, k, k_next, change, allowed, dp, dn)]`` over a chain.
+
+    ``floor`` is the grade materiality (``emit.materiality.grade``, the
+    2026-08-02 0.01 pp floor, as ``verify/pads.py`` applies it): a grade
+    change over the allowance and the reader's blind spot by less than
+    it is PASS-with-residual, never a row."""
     idx = list(range(len(pts)))
     if closed:
         idx = idx + [0, 1]
@@ -93,7 +98,7 @@ def rate_breaches(pts, zs, closed: bool, rate: float, q: float):
             continue
         change = abs((zs[c] - zs[b]) / dn - (zs[b] - zs[a]) / dp)
         allowed = rate * 0.5 * (dp + dn)
-        if change - allowed <= q * (1.0 / dp + 1.0 / dn):
+        if change - allowed <= q * (1.0 / dp + 1.0 / dn) + floor:
             continue
         out.append((a, b, c, change, allowed, dp, dn))
     return out
@@ -104,13 +109,14 @@ def no_step_rate(p: Patch) -> list[Row]:
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
+    floor = law.tables.emit.materiality.grade
     roles = no_step_roles(law)
     out: list[Row] = []
     seen: set = set()
     for sh in p.shapes:
         if sh.role not in roles or len(sh.ids) < 3:
             continue
-        for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q):
+        for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q, floor):
             site = tuple(sorted((round(sh.xy[a][0], 3), round(sh.xy[a][1], 3),
                                  round(sh.xy[b][0], 3), round(sh.xy[b][1], 3),
                                  round(sh.xy[c][0], 3), round(sh.xy[c][1], 3))))

@@ -2973,14 +2973,25 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
 #: ``q`` is the way's OWN emit quantum — ``_pair_quant_noise_m``, the same
 #: envelope the abeam reader grants — so there is one derivation and no
 #: second constant.
+#: The GRADE materiality floor (owner convergence guard 2026-08-02: a
+#: grade residual under 0.01 pp is PASS-with-residual, never a row) —
+#: the same figure the v2 law table carries as ``emit.materiality.grade``
+#: and ``verify/pads.py`` / ``verify/no_step.py`` apply.  Added to the
+#: rate readers' blind spot 2026-09-06 (RULINGS 2026-09-06u): a CYXY
+#: no_step §1.2 station read 8e-6 over its allowance plus the rounding
+#: blind spot, a knife-edge below materiality.
+GRADE_MATERIALITY = 0.0001
+
+
 def _rate_reader_blind_spot(way: "Way", dp: float, dn: float) -> float:
-    """Grade-change reading below which a rate row is pure emit rounding."""
+    """Grade-change reading below which a rate row is pure emit rounding
+    (plus the grade materiality floor, ``GRADE_MATERIALITY``)."""
     q = _pair_quant_noise_m(way)
     if q < SLOPED_QUAD_ROUNDING_NOISE_M:
         q = SLOPED_QUAD_ROUNDING_NOISE_M
     if dp < 1e-9 or dn < 1e-9:
         return float("inf")
-    return q * (1.0 / dp + 1.0 / dn)
+    return q * (1.0 / dp + 1.0 / dn) + GRADE_MATERIALITY
 
 
 #: Rounding for the physical-site key the strip readers dedupe on (mm).

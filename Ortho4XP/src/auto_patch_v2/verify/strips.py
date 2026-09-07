@@ -251,7 +251,8 @@ def strip_arc(p: Patch) -> list[Row]:
             for run in longitudinal_runs(sh.xy, unit, inside):
                 pts = [(sh.xy[i][0] * unit[0] + sh.xy[i][1] * unit[1], 0.0) for i in run]
                 zs = [sh.z[i] for i in run]
-                for a, b, c, change, allowed, dp, dn in rate_breaches(pts, zs, False, rate, q):
+                for a, b, c, change, allowed, dp, dn in rate_breaches(pts, zs, False, rate, q,
+                                                                        p.law.tables.emit.materiality.grade):
                     A, B, C = run[a], run[b], run[c]
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i]) for i in (A, B, C)))
                     if site in seen:

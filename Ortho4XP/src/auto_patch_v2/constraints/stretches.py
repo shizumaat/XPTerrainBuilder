@@ -300,10 +300,26 @@ class AxisIndex:
                 best = (d, ux, uy, cl, ct)
         return best
 
+    def _tied(self, x: float, y: float, d0: float) -> list[tuple[float, float, float, float]]:
+        """Every segment at the nearest distance ``d0`` (within ``tie_m``):
+        the point projects onto a polyline CORNER shared by two segments,
+        or onto an intersection of two stretches — as ``(ux, uy, cl, ct)``."""
+        out = []
+        for ax, ay, ux, uy, ln, cl, ct in self.segs:
+            t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
+            if abs(math.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
+                out.append((ux, uy, cl, ct))
+        return out
+
     def nearest(self, x: float, y: float
                 ) -> tuple[tuple[float, float], float, float] | None:
         """``((ux, uy), cap_l, cap_t)`` of the serving axis at ``(x, y)``,
         ``None`` only on an index with no segment."""
+        hit = self._nearest(x, y)
+        return None if hit is None else hit[1:]
+
+    def _nearest(self, x: float, y: float
+                 ) -> tuple[float, tuple[float, float], float, float] | None:
         if not self.segs:
             return None
         cx, cy = int(x // self.cell), int(y // self.cell)
@@ -312,21 +328,41 @@ class AxisIndex:
             for dy in (-1, 0, 1):
                 ks.extend(self.grid.get((cx + dx, cy + dy), ()))
         best = self._best(x, y, ks) if ks else None
-        if best is None:
+        # THE GUARANTEED RADIUS: a segment outside the 3x3 block can be
+        # nearer than the block's best only beyond the point's distance to
+        # the block's edge — past it, the whole index decides (measured
+        # HECA pav129 2026-09-06: a 63 m segment binned into a neighbour
+        # cell by its bounding box beat the true nearest at 44.7 m)
+        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
+                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
+        if best is None or best[0] > reach:
             best = self._best(x, y, range(len(self.segs)))
         if best is None:
             return None
-        _d, ux, uy, cl, ct = best
-        return (ux, uy), cl, ct
+        d, ux, uy, cl, ct = best
+        return d, (ux, uy), cl, ct
 
     def box_bound(self, xa: float, ya: float, xb: float, yb: float
                   ) -> tuple[float, float, float] | None:
         """THE BOX of one pair (RULINGS 2026-09-06s): ``(bound_m, cap_l,
         cap_t)`` with ``bound = cap_l·|Δs| + cap_t·|Δt|`` against the axis
-        serving the pair's midpoint; ``None`` with no axis."""
-        hit = self.nearest(0.5 * (xa + xb), 0.5 * (ya + yb))
+        serving the pair's midpoint; ``None`` with no axis.  A TIE — the
+        midpoint projects onto a corner of the polyline (two segments at
+        one distance) or onto two stretches' intersection — takes the
+        STRICTEST bound among the tied axes: the tie set is the same in
+        every frame, the winner of an exact tie is not (measured HECA
+        pav129 2026-09-06: the generator's frame and the census's picked
+        the two segments of taxi25 meeting at the corner 44.7 m away,
+        and three built pairs read 0.03 m over the reader's box)."""
+        x, y = 0.5 * (xa + xb), 0.5 * (ya + yb)
+        hit = self._nearest(x, y)
         if hit is None:
             return None
-        (ux, uy), cl, ct = hit
+        d0, (ux, uy), cl, ct = hit
         dx, dy = xb - xa, yb - ya
-        return cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux), cl, ct
+        best = (cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux), cl, ct)
+        for ux, uy, cl, ct in self._tied(x, y, d0):
+            b = cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
+            if b < best[0]:
+                best = (b, cl, ct)
+        return best

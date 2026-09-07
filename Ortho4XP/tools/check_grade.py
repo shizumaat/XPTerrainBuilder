@@ -5988,9 +5988,30 @@ class _StretchBox:
             for dy in (-2, -1, 0, 1, 2):
                 ks.extend(self.grid.get((cx + dx, cy + dy), ()))
         best = self._best(x, y, ks) if ks else None
-        if best is None:
-            best = self._best(x, y, range(len(self.segs)))  # the whole map (06s)
+        # the guaranteed radius (``stretches.AxisIndex.nearest``): a segment
+        # outside the 5x5 block is nearer only past the point's distance
+        # to the block's edge — then the whole map decides (06s)
+        reach = min(x - (cx - 2) * self.cell, (cx + 3) * self.cell - x,
+                    y - (cy - 2) * self.cell, (cy + 3) * self.cell - y)
+        if best is None or best[0] > reach:
+            best = self._best(x, y, range(len(self.segs)))
         return None if best is None else best[1:]
+
+    def tied(self, x: float, y: float, tie_m: float = 1e-6):
+        """Every segment at the nearest distance (within ``tie_m``) as
+        ``(ux, uy, cL, cT)`` — a corner of one polyline, or two stretches'
+        intersection (``stretches.AxisIndex._tied``)."""
+        near = self.nearest(x, y)
+        if near is None:
+            return []
+        d0 = None
+        out = []
+        ds = []
+        for ax, ay, ux, uy, L, cl, ct in self.segs:
+            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+            ds.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)), ux, uy, cl, ct))
+        d0 = min(d for d, *_r in ds)
+        return [(ux, uy, cl, ct) for d, ux, uy, cl, ct in ds if abs(d - d0) <= tie_m]
 
     def _best(self, x: float, y: float, ks):
         best = None
@@ -6006,14 +6027,18 @@ class _StretchBox:
         """``(box_m, effective_cap)`` for the pair — the box's Δz budget
         and the isotropic cap it amounts to over the chord — or ``None``
         with no axis in reach."""
-        near = self.nearest(0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb))
+        x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
+        near = self.nearest(x, y)
         if near is None:
             return None
-        ux, uy, cl, ct = near
         dx, dy = c.xb - c.xa, c.yb - c.ya
-        ds = abs(dx * ux + dy * uy)
-        dt = abs(dx * uy - dy * ux)
-        box = cl * ds + ct * dt
+        box, cl = None, None
+        # a TIE takes the strictest bound among the tied axes
+        # (``stretches.AxisIndex.box_bound``: one rule, both readers)
+        for ux, uy, cl_k, ct in [near, *self.tied(x, y)]:
+            b = cl_k * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
+            if box is None or b < box:
+                box, cl = b, cl_k
         return box, (box / c.dist if c.dist > 0.0 else cl)
 
 

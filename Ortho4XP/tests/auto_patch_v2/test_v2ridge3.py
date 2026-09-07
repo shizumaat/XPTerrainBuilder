@@ -199,3 +199,37 @@ def test_a_2m_step_between_4m_rim_neighbours_is_refused_by_the_row_and_read_with
         assert abs(sol3.z[r.a] - sol3.z[r.b]) <= r.bound_m + 1e-6
     v2b, oracle_b, _s = _readers(ridge, law, sol3, tmp_path / "held")
     assert v2b == [] and oracle_b == []
+
+
+# ── the axis locator is a true nearest (HECA pav129, 2026-09-06) ─────────
+
+def test_the_axis_index_and_the_oracle_box_agree_with_brute_force(law):
+    """A segment whose bounding box spans a neighbour cell is binned there
+    though its nearest point is far; the true nearest segment may lie
+    outside the searched block.  Both locators (generator/verify
+    ``AxisIndex``, oracle ``_StretchBox``) must return the brute-force
+    nearest on a seeded random field of stretches."""
+    import random
+    from auto_patch_v2.constraints.geometry import project_to_chain
+    from auto_patch_v2.constraints.stretches import AxisIndex
+    rng = random.Random(6)
+    cell = law.tables.emit.within_shape.withdrawn_chord_min_m
+    axes = []
+    for k in range(40):
+        x, y = rng.uniform(0, 600), rng.uniform(0, 600)
+        ang = rng.uniform(0, math.pi)
+        ln = rng.uniform(20, 300)
+        pts = [(x, y), (x + ln * math.cos(ang), y + ln * math.sin(ang))]
+        axes.append((pts, 0.015, 0.015))
+    index = AxisIndex(axes, cell)
+    stretches = [[[[px, py] for px, py in pts], cl, "D", f"s{k}"] for k, (pts, cl, _ct) in enumerate(axes)]
+    box = cg._StretchBox(stretches, lambda la, lo: (la, lo), law)
+    for _ in range(300):
+        p = (rng.uniform(-50, 650), rng.uniform(-50, 650))
+        d_true, k_true = min((project_to_chain(p, pts)[0], k) for k, (pts, _a, _b) in enumerate(axes))
+        (ux, uy), _cl, _ct = index.nearest(*p)
+        (ax, ay), (bx, by) = axes[k_true][0]
+        n = math.hypot(bx - ax, by - ay)
+        assert (ux, uy) == pytest.approx(((bx - ax) / n, (by - ay) / n), abs=1e-9), (p, d_true)
+        oux, ouy, _c1, _c2 = box.nearest(*p)
+        assert (oux, ouy) == pytest.approx(((bx - ax) / n, (by - ay) / n), abs=1e-9), (p, d_true)

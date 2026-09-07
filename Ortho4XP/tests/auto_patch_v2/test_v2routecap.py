@@ -1,22 +1,23 @@
 """A TAXI ROUTE THROUGH AN APRON CARRIES THE TAXIWAY LAW (owner, RULINGS
-2026-09-06t; spec ``docs/specs/auto-patch-v2/apron-route-cap-spec.md``):
+2026-09-06t) AND THE APRON BESIDE IT IS ANISOTROPIC (spec author, RULINGS
+2026-09-06v; spec ``docs/specs/auto-patch-v2/apron-route-cap-spec.md``,
+§3 amended):
 
 * §2 ``stretches.edge_cap``: a stretch edge bounded by apron faces keeps
   the stretch's cap; bounded by a runway slab it is tightened.
-* §3 the apron's short pairs inside the route's corridor (the letter's
-  taxiway half-width) are the BOX against the crossing stretch; pairs
-  outside every corridor keep the apron cap.
+* §3 (amended) within an apron face crossed by a stretch EVERY priced
+  pair is the BOX against the nearest crossing axis at any length —
+  ``|Δz| ≤ cL_stretch·|Δs| + cA·|Δt|``, cA the apron cap: a pair
+  perpendicular to the route reads 1 %, a pair parallel to it 40 m off
+  reads 1.5 %.  The round-1 corridor (short pairs within the taxiway
+  half-width, ``apron_corridor_pair_max_m``) was REFUTED by arithmetic
+  and is deleted: the apron's frontage chords to the route's stations
+  (any vertex with d(P,A) + d(P,B) < 1.5·d(A,B)) re-capped the route.
 * §4 the synthetic apron (200 × 60 m, 1 %) with one letter-E stretch
-  along its middle: a 1.5 m rise between two route vertices 100 m apart;
-  a 1.6 m rise is infeasible and the IIS names the route rows.
-  MEASURED (lane v2routecap 2026-09-06): under the spec's LETTER (the box
-  on pairs under 30 m only) the rise is INFEASIBLE — the apron's long
-  frontage chords (41 / 61 m at 1 %) from the abeam vertex to the route's
-  stations re-cap the route; with the corridor box on every in-corridor
-  pair (``emit.within_shape.apron_corridor_pair_max_m``, the round's
-  experiment knob) the §4 twin holds.  Both arms are recorded here for
-  the ruling; the default is the spec's letter.
-* Oracle / v2 verify LOCKSTEP on the fixture, both arms.
+  along its middle: a 1.5 m rise between two route vertices 100 m apart
+  is FEASIBLE on the full generator set; a 1.6 m rise is INFEASIBLE and
+  the IIS names the route's rows.
+* Oracle / v2 verify LOCKSTEP on a stepped fixture.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import generate, roads
-from auto_patch_v2.constraints.apron import CORRIDOR_RULING, STATS as APRON_STATS
+from auto_patch_v2.constraints.apron import ROUTE_BOX_RULING, STATS as APRON_STATS
 from auto_patch_v2.constraints.precedence import view
 from auto_patch_v2.constraints.stretches import edge_cap, stretches
 from auto_patch_v2.emit.graded import graded_surface
@@ -47,19 +48,21 @@ from auto_patch_v2.verify import census
 from auto_patch_v2.verify.within import FAMILY_TAXI_BOX
 
 ROOT = Path(__file__).resolve().parents[2]
-LITERAL, EXTENDED = "literal-30m", "every-in-corridor-pair"
 sys.path.insert(0, str(ROOT / "tools"))
 import check_grade as cg  # noqa: E402
 
 RISE_OK_M = 1.5           # 1.5 % × 100 m between the two route vertices
 RISE_BAD_M = 1.6
 APRON_CAP = 0.010
+LANE_CAP = 0.015          # letter E
 LANE_Y = 330.0            # the letter-E stretch along the apron's middle
 ROUTE_A = (50.0, LANE_Y)
 ROUTE_B = (150.0, LANE_Y)
 ABEAM_A = (110.0, 340.0)  # two ring vertices 10 m abeam the route, 10 m apart
 ABEAM_B = (120.0, 340.0)
 NOTCH_A = (110.0, 360.0)  # the notch's outer corner: 30 m off the axis
+BAY_A = (60.0, 290.0)     # the south bay's floor: ring edges 40 m off the
+BAY_B = (140.0, 290.0)    # axis, PARALLEL to the route
 
 
 class _Dem:
@@ -81,16 +84,6 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
-def _arm(law, arm):
-    """The law under one arm: the spec's letter (the default) or the
-    corridor box on every in-corridor apron pair."""
-    if arm == LITERAL:
-        return law
-    ws = _dc.replace(law.tables.emit.within_shape, apron_corridor_pair_max_m=1e9)
-    emit = _dc.replace(law.tables.emit, within_shape=ws)
-    return _dc.replace(law, tables=_dc.replace(law.tables, emit=emit))
-
-
 @pytest.fixture(scope="module")
 def site(law):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
@@ -101,9 +94,10 @@ def site(law):
     airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
                       (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
     # the apron: 200 × 60 m with a NOTCH in its north edge whose two inner
-    # corners sit 10 m abeam the lane (inside letter E's 11.5 m corridor)
-    apron = ((0.0, 300.0), (200.0, 300.0), (200.0, 360.0), (120.0, 360.0),
-             ABEAM_B, ABEAM_A, NOTCH_A, (0.0, 360.0))
+    # corners sit 10 m abeam the lane, and a BAY in its south edge whose
+    # floor is a ring edge 40 m off the lane, parallel to it
+    apron = ((0.0, 300.0), (60.0, 300.0), BAY_A, BAY_B, (140.0, 300.0), (200.0, 300.0),
+             (200.0, 360.0), (120.0, 360.0), ABEAM_B, ABEAM_A, NOTCH_A, (0.0, 360.0))
     cells = (
         Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
              "airside", "runway", {}),
@@ -139,8 +133,8 @@ def test_a_stretch_edge_bounded_by_apron_faces_keeps_the_stretch_cap(site, law):
     vw = view(pm, law)
     st = stretches(pm, law)
     lane = next(s for s in st.items if s.ref == "laneE")
-    assert lane.code_letter == "E" and lane.cap_l == pytest.approx(0.015)
-    assert lane.half_width_m == pytest.approx(taxi_half_width_m(law, "E")) == 11.5
+    assert lane.code_letter == "E" and lane.cap_l == pytest.approx(LANE_CAP)
+    assert taxi_half_width_m(law, "E") == 11.5      # the width law key (06t), kept
     for eid in lane.edges:
         e = pm.edges[eid]
         roles = {pm.faces[f].role for f in (e.left_face, e.right_face) if f is not None}
@@ -169,40 +163,72 @@ def test_a_stretch_edge_bounded_by_a_runway_slab_is_tightened(site, law):
     assert seen_runway and seen_stub
 
 
-# ── §3: the corridor box on the apron's short pairs ───────────────────────
+# ── §3 (amended): every pair of a crossed apron face is the route box ─────
 
-def test_short_pairs_in_the_corridor_are_boxed_and_the_rest_keep_the_apron_cap(site, law):
+def test_every_pair_of_the_crossed_apron_is_the_box_with_the_apron_cap_across(site, law):
     airport, pm = site
     cs, counts, _w = generate(pm, law, airport, only={"apron_within_shape"})
+    apron_rows = [r for r in cs.rows() if isinstance(r, Diff) and r.source.generator == "apron"]
+    boxed = [r for r in apron_rows if r.source.ruling == ROUTE_BOX_RULING]
+    # the lane splits the apron into two crossed faces: EVERY apron row is
+    # a box row, none isotropic, at any length
+    assert boxed and len(boxed) == len(apron_rows)
+    assert APRON_STATS["apron_within_shape"]["route_box"] == len(boxed)
+    assert max(r.d for r in boxed) > law.tables.emit.within_shape.withdrawn_chord_min_m
     a, b, c = _vid(pm, ABEAM_A), _vid(pm, ABEAM_B), _vid(pm, NOTCH_A)
-    boxed = [r for r in cs.rows() if isinstance(r, Diff) and r.source.ruling == CORRIDOR_RULING]
-    assert boxed and APRON_STATS["apron_within_shape"]["corridor_box"] == len(boxed)
-    # (a, b): 10 m along the axis, 10 m abeam → the box 1.5 % × 10 = 0.15 m
+    # (a, b): 10 m ALONG the axis → 1.5 % × 10 = 0.15 m
     ab = _pair_rows(cs, a, b)
-    assert len(ab) == 1 and ab[0].source.ruling == CORRIDOR_RULING
-    assert ab[0].bound_m == pytest.approx(0.015 * 10.0, abs=1e-9)
-    # (a, c): 20 m across, midpoint 20 m off the axis → outside the corridor
+    assert len(ab) == 1 and ab[0].bound_m == pytest.approx(LANE_CAP * 10.0, abs=1e-9)
+    # (a, c): 20 m PERPENDICULAR to the route → the apron cap: 1 % × 20
     ac = _pair_rows(cs, a, c)
-    assert len(ac) == 1 and ac[0].source.ruling != CORRIDOR_RULING
-    assert ac[0].cap == pytest.approx(APRON_CAP)
-    # every boxed pair is short and has its midpoint inside the corridor
-    hw = taxi_half_width_m(law, "E")
-    for r in boxed:
-        (xa, ya), (xb, yb) = pm.vertices[r.a].xy, pm.vertices[r.b].xy
-        assert r.d < law.tables.emit.within_shape.withdrawn_chord_min_m
-        assert abs(0.5 * (ya + yb) - LANE_Y) <= hw + 1e-9
-    # no long pair is boxed; a long spine chord from the abeam vertex to a
-    # route vertex is still the apron's 1 % row (the spec's §3 letter)
+    assert len(ac) == 1 and ac[0].cap == pytest.approx(APRON_CAP)
+    # the bay floor: the ring edges PARALLEL to the route, 40 m off it
+    # (outside any taxiway half-width; the planar build nodes the 80 m
+    # edge at its 40 m midpoint) → 1.5 %
+    floor = [r for r in boxed if abs(pm.vertices[r.a].xy[1] - BAY_A[1]) < 1e-6
+             and abs(pm.vertices[r.b].xy[1] - BAY_A[1]) < 1e-6]
+    assert sorted(r.d for r in floor) == pytest.approx([40.0, 40.0]), floor
+    assert all(r.cap == pytest.approx(LANE_CAP) for r in floor)
+    # the abeam vertex's frontage chord to a route station (the chord that
+    # re-capped the route under the corridor): boxed, Δs 60 / Δt 10
     ra = _vid(pm, ROUTE_A)
-    long_rows = _pair_rows(cs, a, ra)
-    assert long_rows and all(r.source.ruling != CORRIDOR_RULING for r in long_rows)
+    fr = _pair_rows(cs, a, ra)
+    assert len(fr) == 1 and fr[0].source.ruling == ROUTE_BOX_RULING
+    assert fr[0].bound_m == pytest.approx(LANE_CAP * 60.0 + APRON_CAP * 10.0, abs=1e-9)
+
+
+def test_an_apron_face_crossed_by_no_stretch_stays_isotropic(law):
+    """The same apron with the lane stopped SHORT of it: no stretch has an
+    edge on its ring, every row is the isotropic 1 % (the round-1 §2 twin
+    of the crossing definition)."""
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                      (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(2, "primary_parallel", "taxiA", _rect(-400, 80, 400, 103), (), None,
+             "D", "airside", "taxi", {}),
+        Cell(3, "apron", "apron1", _rect(0, 300, 200, 360), (), None, None,
+             "airside", "apron", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "taxiA", ((-400.0, 91.5), (400.0, 91.5)), "D"),)
+    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    cs, _c, _w = generate(pm, law, airport, only={"apron_within_shape"})
+    rows = [r for r in cs.rows() if isinstance(r, Diff) and r.source.generator == "apron"]
+    assert rows and all(r.source.ruling != ROUTE_BOX_RULING for r in rows)
+    assert all(r.cap == pytest.approx(APRON_CAP) for r in rows)
+    assert APRON_STATS["apron_within_shape"]["route_box"] == 0
 
 
 # ── §4: the route through the apron carries 1.5 % ─────────────────────────
 
-def _solve(site, law, extra=(), diagnose=False, arm=LITERAL):
+def _solve(site, law, extra=(), diagnose=False):
     airport, pm = site
-    law = _arm(law, arm)
     cs, _c, _w = generate(pm, law, airport)
     if extra:
         cs = ConstraintSet.from_rows([*cs.rows(), *extra])
@@ -220,87 +246,46 @@ def test_the_centreline_rows_through_the_apron_hold_the_taxiway_cap(site, law):
     cs, _c, _w = generate(pm, law, airport, only={"taxi_centerlines"})
     ra, rb = _vid(pm, ROUTE_A), _vid(pm, (100.0, LANE_Y))
     rows = _pair_rows(cs, ra, rb)
-    assert len(rows) == 1 and rows[0].cap == pytest.approx(0.015)
+    assert len(rows) == 1 and rows[0].cap == pytest.approx(LANE_CAP)
     assert rows[0].bound_m == pytest.approx(0.75)
 
 
-def test_the_route_own_rows_carry_1_5pc_and_refuse_1_6pc(site, law):
-    """§2's claim on the route's OWN law: the chain rows (centrelines +
-    hops) admit the 1.5 m rise over 100 m and refuse 1.6 m, the IIS
-    naming the centreline rows through the apron."""
+def test_the_full_generator_set_admits_the_1_5m_rise(site, law):
+    """§4: on EVERY generator (the apron's rows included) the 1.5 m rise
+    over 100 m of route through the apron is feasible — the round-1
+    refutation (the apron's 1 % frontage chords re-capping the route)
+    is gone with the box on every pair of the crossed face."""
     airport, pm = site
     ra, rb = _vid(pm, ROUTE_A), _vid(pm, ROUTE_B)
-    for rise, ok in ((RISE_OK_M, True), (RISE_BAD_M, False)):
-        cs, _c, _w = generate(pm, law, airport, only={"taxi_centerlines", "taxi_chain"})
-        cs = ConstraintSet.from_rows([*cs.rows(), *_pins(pm, rise)])
-        sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-        if ok:
-            assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
-            assert sol.z[rb] - sol.z[ra] == pytest.approx(rise, abs=1e-5)
-        else:
-            assert sol.status == Status.INFEASIBLE, sol.status
-            route = [r for r, _s in sol.iis if isinstance(r, Diff) and r.source.generator == "taxi"
-                     and "centreline" in r.source.ruling]
-            assert len(route) == 2 and all(r.cap == pytest.approx(0.015) for r in route)
+    cs, sol = _solve(site, law, extra=_pins(pm, RISE_OK_M), diagnose=True)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), (sol.status, sol.message, sol.iis)
+    assert sol.z[rb] - sol.z[ra] == pytest.approx(RISE_OK_M, abs=1e-5)
 
 
-@pytest.mark.parametrize("arm, named", [
-    (LITERAL, [("apron", 41.2), ("apron", 60.8)]),
-    (EXTENDED, [("apron", 58.3), ("apron", 58.3)]),
-])
-def test_the_apron_frontage_chords_recap_the_route_under_both_arms(site, law, arm, named):
-    """THE MEASURED REFUTATION of the spec's §4 premise (module docstring),
-    reported to the spec's author, not decided here.  Under the LETTER
-    (the box on pairs under 30 m) the abeam vertex's 41 / 61 m frontage
-    chords to the route's stations bind at 1 %; with the box on EVERY
-    in-corridor pair the south-edge vertex (100, 300) — 30 m off the
-    axis, outside any taxiway half-width — binds through its two 58.3 m
-    chords (Σ 1.17 m < 1.5 m).  Arithmetic: any apron vertex with
-    d(RA) + d(RB) < 150 m re-caps the route under "1 % all directions"."""
+def test_a_1_6m_rise_is_infeasible_and_the_iis_names_the_route_rows(site, law):
     airport, pm = site
-    cs, sol = _solve(site, law, extra=_pins(pm, RISE_OK_M), diagnose=True, arm=arm)
+    ra, rb = _vid(pm, ROUTE_A), _vid(pm, ROUTE_B)
+    lane = {v for v in pm.vertices if abs(pm.vertices[v].xy[1] - LANE_Y) < 1e-6}
+    cs, sol = _solve(site, law, extra=_pins(pm, RISE_BAD_M), diagnose=True)
     assert sol.status == Status.INFEASIBLE, sol.status
-    iis = sorted((r.source.generator, round(r.d, 1)) for r, _s in sol.iis if isinstance(r, Diff))
-    assert iis == named, iis
-    assert all("frontage chord" in r.source.ruling for r, _s in sol.iis if isinstance(r, Diff))
-    # the ring pair 30 m off the axis keeps the apron cap in both arms
-    c = _vid(pm, NOTCH_A)
-    rows = [r for r in cs.rows() if isinstance(r, Diff) and c in (r.a, r.b)
-            and r.source.generator == "apron"]
-    assert rows and all(r.cap == pytest.approx(APRON_CAP) for r in rows
-                        if r.source.ruling != CORRIDOR_RULING)
-
-
-def test_the_extended_arm_boxes_the_long_in_corridor_chords_in_generator_and_verify(site, law, tmp_path):
-    """The knob's population (v2 only: the oracle reads the checked-in
-    default law): every in-corridor pair, the 60.8 m frontage chord from
-    the abeam vertex to ROUTE_A included, and the verify reads it."""
-    airport, pm = site
-    a, ra = _vid(pm, ABEAM_A), _vid(pm, ROUTE_A)
-    ext = _arm(law, EXTENDED)
-    cs, _c, _w = generate(pm, ext, airport, only={"apron_within_shape"})
-    rows = _pair_rows(cs, a, ra)
-    assert len(rows) == 1 and rows[0].source.ruling == CORRIDOR_RULING
-    assert rows[0].bound_m == pytest.approx(0.015 * 60.0 + 0.015 * 10.0, abs=1e-9)
-    cs, sol = _solve(site, law, arm=EXTENDED)
-    z = list(sol.z)
-    z[a] = z[ra] + 2.0
-    surf = graded_surface(pm, ext, _dc.replace(sol, z=tuple(z)), airport.frame.origin,
-                          airport.frame.crs)
-    pub = publication(pm, ext, airport, tuple(z))
-    v2 = census(surf, ext, pub, roads.road_law_caps(pm, ext))[FAMILY_TAXI_BOX]
-    assert [r for r in v2 if r["distance_m"] == pytest.approx(60.8, abs=0.2)], \
-        sorted(round(r["distance_m"], 1) for r in v2)
+    diffs = [r for r, _s in sol.iis if isinstance(r, Diff)]
+    assert diffs
+    # every named row lies ALONG the route (both ends on the lane) at the
+    # lane's 1.5 % — the centreline rows or the apron's box rows on the
+    # same chords — and their bounds sum to the 1.5 m the route admits
+    assert all(r.a in lane and r.b in lane for r in diffs), diffs
+    assert all(r.cap == pytest.approx(LANE_CAP) for r in diffs)
+    assert sum(r.bound_m for r in diffs) == pytest.approx(RISE_OK_M, abs=1e-6)
+    assert {ra, rb} <= {v for r in diffs for v in (r.a, r.b)}
 
 
 # ── lockstep: the oracle and the v2 verify read the same rows ─────────────
 
-def _readers(site, law, sol, out_dir, arm=LITERAL):
+def _readers(site, law, sol, out_dir):
     airport, pm = site
-    law = _arm(law, arm)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)
-    assert all(len(e) == 5 for e in pub["stretches"])
+    assert all(len(e) == 4 for e in pub["stretches"])     # the corridor element is gone
     v2 = census(surf, law, pub, roads.road_law_caps(pm, law))
     paths = write_patch(surf, law, out_dir, pub)
     fam: dict = {}
@@ -308,44 +293,34 @@ def _readers(site, law, sol, out_dir, arm=LITERAL):
     return v2, fam, dict(cg._TAXI_BOX_STATS)
 
 
-def test_oracle_and_verify_read_the_corridor_box_in_lockstep(site, law, tmp_path):
-    arm = LITERAL                 # the oracle reads the checked-in law dir
+def test_oracle_and_verify_read_the_route_box_in_lockstep(site, law, tmp_path):
     airport, pm = site
-    cs, sol = _solve(site, law, arm=arm)
+    cs, sol = _solve(site, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
-    a, b, c = _vid(pm, ABEAM_A), _vid(pm, ABEAM_B), _vid(pm, NOTCH_A)
+    a = _vid(pm, ABEAM_A)
     # the solution itself: both readers read no box row and no apron row
-    v2, fam, stats = _readers(site, law, sol, tmp_path / "held", arm)
+    v2, fam, stats = _readers(site, law, sol, tmp_path / "held")
     assert v2[FAMILY_TAXI_BOX] == [] and list(fam.get(cg.TAXI_BOX_FAMILY) or []) == []
-    apron_within = [r for r in v2["within_shape"] if r["roles"][0] == "apron"] \
-        if v2["within_shape"] and "roles" in v2["within_shape"][0] else \
-        [r for r in v2["within_shape"] if "apron" in str(r)]
-    assert apron_within == [], apron_within[:3]
+    assert [r for r in v2["within_shape"] if "apron" in str(r)] == []
     assert stats.get("pairs", 0) > 0
-    # a 0.5 m step imposed on ABEAM_A: the 10 m pair to ABEAM_B is the box
-    # (0.15 m) in BOTH readers; the 20 m pair to the notch corner is the
-    # apron's 1 % row (0.20 m) in BOTH readers, never the box
+    # a 0.5 m step imposed on ABEAM_A: its 10 m pair along the route (the
+    # box 0.15 m), its 20 m pair across it (the box = 1 % × 20 = 0.20 m)
+    # and its 14.1 m chord to the route station (100, 330) read OVER in
+    # BOTH readers as box rows (its 22.4 m chord to the notch's far corner
+    # crosses the notch: dropped by the 05ae face cover in all three
+    # readers); the crossed face has NO isotropic row anywhere
     z = list(sol.z)
     z[a] = z[a] + 0.5
-    v2s, fams, _st = _readers(site, law, _dc.replace(sol, z=tuple(z)), tmp_path / "step", arm)
-    # (the census frame is equirectangular, ~0.25 % off the solve's)
-    v2_box = [r for r in v2s[FAMILY_TAXI_BOX] if r["distance_m"] == pytest.approx(10.0, abs=0.1)]
-    or_box = [r for r in (fams.get(cg.TAXI_BOX_FAMILY) or [])
-              if r.distance_m == pytest.approx(10.0, abs=0.1)]
-    assert len(v2_box) == 1 and len(or_box) == 1, (len(v2_box), len(or_box))
-    assert v2_box[0]["cap_pct"] == pytest.approx(1.5, abs=1e-6)
-    assert or_box[0].cap_pct == pytest.approx(1.5, abs=1e-3)   # the frame's Δs/Δt split
-    # (the v1 oracle forgives the apron's own 1 % rows here — its apron
-    # envelope, pre-existing and not this lane's population; what this
-    # twin holds is that NEITHER reader boxes the out-of-corridor pair)
-    v2_apron = [r for r in v2s["within_shape"] if r["distance_m"] == pytest.approx(20.0, abs=0.1)]
-    assert len(v2_apron) == 1 and v2_apron[0]["cap_pct"] == pytest.approx(1.0, abs=1e-6)
-    assert not [r for r in v2s[FAMILY_TAXI_BOX] if r["distance_m"] == pytest.approx(20.0, abs=0.1)]
-    assert not [r for r in (fams.get(cg.TAXI_BOX_FAMILY) or [])
-                if r.distance_m == pytest.approx(20.0, abs=0.1)]
-    # the whole box population agrees: the same rows (by distance) over
-    # the step — the 10 m ring edge and the 14.1 m spine chord to the
-    # route vertex (100, 330), both inside the corridor
+    v2s, fams, _st = _readers(site, law, _dc.replace(sol, z=tuple(z)), tmp_path / "step")
     v2_d = sorted(round(r["distance_m"], 1) for r in v2s[FAMILY_TAXI_BOX])
     or_d = sorted(round(r.distance_m, 1) for r in (fams.get(cg.TAXI_BOX_FAMILY) or []))
-    assert v2_d == or_d == [10.0, 14.1], (v2_d, or_d)
+    assert v2_d == or_d, (v2_d, or_d)
+    assert v2_d == [10.0, 14.1, 20.0], v2_d
+    # (the census frame is equirectangular, ~0.25 % off the solve's)
+    caps = {round(r["distance_m"], 1): r["cap_pct"] for r in v2s[FAMILY_TAXI_BOX]}
+    assert caps[10.0] == pytest.approx(1.5, abs=1e-6)     # along the route
+    assert caps[20.0] == pytest.approx(1.0, abs=1e-6)     # across it: the apron cap
+    or_caps = {round(r.distance_m, 1): r.cap_pct for r in fams[cg.TAXI_BOX_FAMILY]}
+    assert or_caps[10.0] == pytest.approx(1.5, abs=1e-3)
+    assert or_caps[20.0] == pytest.approx(1.0, abs=1e-3)
+    assert [r for r in v2s["within_shape"] if "apron" in str(r)] == []

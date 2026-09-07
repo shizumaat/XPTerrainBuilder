@@ -123,9 +123,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     for k, a in enumerate(axes(planar, law)):
         ax_out.append([[ll[v] for v in a.vertices], a.cap_l, a.cap_t, k,
                        bool(a.is_service)])
-    # ``[pts, cap_l, letter, ref, corridor_half_width_m]`` — the fifth
-    # element keys the apron corridor box in both readers (2026-09-06t)
-    st_out = [[[ll[v] for v in s.vertices], s.cap_l, s.code_letter, s.ref, s.half_width_m]
+    # ``[pts, cap_l, letter, ref]``; the readers' apron route box (RULINGS
+    # 2026-09-06v) keys on the stretches' presence, like the taxi box
+    st_out = [[[ll[v] for v in s.vertices], s.cap_l, s.code_letter, s.ref]
               for s in stretches(planar, law).items]
     drops = [[ll[v][0], ll[v][1], d] for v, d in
              sorted(crown_drops(planar, law, airport, z).items())]

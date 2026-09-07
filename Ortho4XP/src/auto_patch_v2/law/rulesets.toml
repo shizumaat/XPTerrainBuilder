@@ -52,7 +52,7 @@ transverse_min    = 0.010                                 # crown minimum (recor
 longitudinal = { by_letter = { "A" = 0.030, "B" = 0.030, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.10
 transverse   = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.11
 transverse_min = 0.010                                    # recorded, not bound (owner question 5)
-width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 18.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m); the corridor half-width of a route through an apron is width_m / 2 (RULINGS 2026-09-06t, spec apron-route-cap §3)
+width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 18.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m) — law key of RULINGS 2026-09-06t; its corridor reading withdrawn 06v
 
 [icao.strip]
 longitudinal = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.0175, "4" = 0.015 }, default = 0.015 }  # §3.4.12 abeam slope (reg-set 08-08)
@@ -97,7 +97,7 @@ transverse_min    = 0.010
 longitudinal = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §4 taxiway family
 transverse   = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min = 0.010
-width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 23.0, "E" = 23.0, "F" = 30.0 }, default = 15.0 }  # AC 150/5300-13B taxiway width by ADG (I 25 ft … VI 100 ft) through the letter proxy; corridor half-width = width_m / 2 (2026-09-06t)
+width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 23.0, "E" = 23.0, "F" = 30.0 }, default = 15.0 }  # AC 150/5300-13B taxiway width by ADG (I 25 ft … VI 100 ft) through the letter proxy (2026-09-06t; corridor reading withdrawn 06v)
 
 [faa.strip]
 longitudinal = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # RSA = runway cap

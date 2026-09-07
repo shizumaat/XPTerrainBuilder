@@ -100,7 +100,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("taxi", "short-pair box", "taxi_box"),
     ("taxi", "chain", "taxi_chain"),
     ("apron", "chain", "apron_chain"),
-    ("apron", "short-pair box", "apron_route_box"),
+    ("apron", "route box", "apron_route_box"),
     ("runway_profile", "vertical_curve", "runway_vertical_curve"),
     ("runway_profile", "chain", "runway_chain"),
     ("taxi", "longitudinal centreline", "taxi_centreline"),

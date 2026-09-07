@@ -121,7 +121,7 @@ class TaxiLaw:
     longitudinal: CodeTable
     transverse: CodeTable
     transverse_min: float
-    width_m: CodeTable | None = None   # pavement width by letter (06t corridor = half)
+    width_m: CodeTable | None = None   # pavement width by letter (2026-09-06t)
 
 
 @_dc.dataclass(frozen=True)
@@ -463,7 +463,6 @@ class WithinShape:
     #: only to taxi-family chords at least this long (m); shorter ones are
     #: priced.
     withdrawn_chord_min_m: float
-    apron_corridor_pair_max_m: float | None = None   # 06t corridor box ceiling (emit.toml)
 
 
 @_dc.dataclass(frozen=True)

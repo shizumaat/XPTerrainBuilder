@@ -24,7 +24,7 @@ __all__ = [
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
-    "taxi_half_width_m", "apron_corridor_pair_max_m",
+    "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
     "flat_source_class", "flat_relief_floor_m",
 ]
@@ -120,23 +120,16 @@ def role_cap(law: Law, role: str, code_number: int | None = None,
 
 
 def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
-    """THE CORRIDOR HALF-WIDTH of a taxi stretch (RULINGS 2026-09-06t; spec
-    ``apron-route-cap`` §3): half the letter's taxiway pavement width
-    (``rulesets.<authority>.taxi.width_m``); ``None`` where the authority
-    states no width (no apron corridor is priced)."""
+    """Half the letter's taxiway pavement width (``rulesets.<authority>.
+    taxi.width_m``, Annex 14 §3.9.3 / AC 150/5300-13B by ADG); ``None``
+    where the authority states no width.  The law key of round 1 (RULINGS
+    2026-09-06t); its corridor reading was withdrawn by 06v — no
+    generator reads it today (the key stays: the taxiway width is law)."""
     tbl = law.ruleset.taxi.width_m
     if tbl is None:
         return None
     w = tbl.value(None, code_letter)
     return None if w is None else float(w) / 2
-
-
-def apron_corridor_pair_max_m(law: Law) -> float:
-    """The apron corridor box's pair ceiling (``emit.within_shape.apron_
-    corridor_pair_max_m``; ``withdrawn_chord_min_m`` when unset)."""
-    ws = law.tables.emit.within_shape
-    m = ws.apron_corridor_pair_max_m
-    return float(ws.withdrawn_chord_min_m if m is None else m)
 
 
 def runway_transverse_max(law: Law, code_letter: str | None,

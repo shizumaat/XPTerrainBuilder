@@ -386,8 +386,7 @@ def short_pairs(xy: _t.Mapping[int, tuple[float, float]], ring: _t.Sequence[int]
 def axis_index(vw: View, st: Stretches) -> AxisIndex:
     """The map's stretches as one :class:`AxisIndex`, cells of the box's
     own floor (``withdrawn_chord_min_m``)."""
-    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t, s.half_width_m)
-                      for s in st.items),
+    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t) for s in st.items),
                      vw.law.tables.emit.within_shape.withdrawn_chord_min_m)
 
 

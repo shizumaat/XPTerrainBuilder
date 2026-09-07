@@ -105,20 +105,65 @@ Readers of `stretches.edge_cap`, of the stretch caps (`Stretch.cap_l` /
 | 5 | `transverse.axes` (`_edge_cap`) → `transverse()` cross-section rows and the `axes` sidecar; `verify/transverse.py` reads `entry[2]` as `cap_t` | an axis through the apron carries (1 %, 1 %): cross-sections across the route priced at 1 % | the stretch's (cL, cT): the TAXI transverse cap across the route through the apron (06t) — flows from #1, both generator and verify (the sidecar carries the value) |
 | 6 | `junction_mesh.nearest_line_cap` / `stretch_lines` / `mesh_edge_caps` / `triangle_boxes` | read `Stretch.cap_l`/`cap_t` directly (never `edge_cap`) | UNCHANGED |
 | 7 | `stretches.pair_caps` / `compose_pairs` (taxi-face per-stretch pairs; verify `stretch_pair_caps`, oracle `_common_stretch_cap` / `_junction_stretch_cap`) | `Stretch.cap_l` directly | UNCHANGED |
-| 8 | `pipeline/publication.py`: `stretches` sidecar `[pts, cap_l, letter, ref]`; `axes` sidecar | stretch caps published un-tightened already; axes carry #5's values | `stretches` gains a 5th element `corridor_half_width_m` (§3, the letter's taxiway half-width); `axes` change per #5 |
-| 9 | `verify/within.py::within_shape` — taxi pairs over `taxi_route_pairs` budgets; apron pairs isotropic at the apron cap | apron ring pairs beside the route at 1 % × d, taxi pairs at the 1 % budgets | taxi pairs flow from #3; an apron pair under `withdrawn_chord_min_m` whose midpoint lies in a crossing stretch's corridor leaves `within_shape` and is read by `taxi_box` (§3) — the SAME gated population (adjacent edges, strict chords, body chords ≤ gate, chords inside the face) |
-| 10 | `verify/within.py::taxi_box` + `published_axis_index` | taxi-family rings only | + apron rings (outer and hosted holes) for the in-corridor short pairs against the crossing stretch's axis (`corridor_box_bound`) |
-| 11 | oracle `check_grade._StretchBox.applies` / `budget` | taxi-role pairs under 30 m against the nearest axis | + apron-role pairs under 30 m whose midpoint lies within the corridor of a stretch with an edge ON THE WAY's ring (identity join), priced against that corridor's axis; keyed on the sidecar's 5th element (a patch without it reads as today) |
+| 8 | `pipeline/publication.py`: `stretches` sidecar `[pts, cap_l, letter, ref]`; `axes` sidecar | stretch caps published un-tightened already; axes carry #5's values | UNCHANGED under §3-amended (round 1's 5th element `corridor_half_width_m` is withdrawn with the corridor — no reader needs it; the apron route box keys, like the taxi box, on the presence of `stretches`); `axes` change per #5 |
+| 9 | `verify/within.py::within_shape` — taxi pairs over `taxi_route_pairs` budgets; apron pairs isotropic at the apron cap | apron ring pairs beside the route at 1 % × d, taxi pairs at the 1 % budgets | taxi pairs flow from #3; an apron face CROSSED by a published stretch (`apron_route_index`: an edge of the stretch on its outer ring or a hosted hole ring) leaves `within_shape` WHOLE and is read by `taxi_box` (§3 amended) over the SAME gated population — ONE enumeration, `apron_pairs` (adjacent edges, strict chords, body chords ≤ gate, chords inside the face), serves both; an uncrossed face reads isotropically as today |
+| 10 | `verify/within.py::taxi_box` + `published_axis_index` | taxi-family rings only | + every `apron_pairs` member of a crossed apron face (any length) and the ring edges of its hosted holes, against the face's own `AxisIndex` of CROSSING stretches with the apron cap as `cT` (`apron_route_index`; the nearest-axis / strictest-tie rule of `AxisIndex.box_bound`, one rule with the taxi box) |
+| 11 | oracle `check_grade._StretchBox.applies` / `budget` | taxi-role pairs under 30 m against the nearest axis | + every apron-role pair (any length) of a way whose FACE — its ring plus the `gap_interior_ring` ways stamped with it as host — carries an edge of a published stretch (identity join on node ids), priced against the nearest CROSSING stretch with the apron cap across; keyed on `stretches` like the taxi box (a 5th element is ignored) |
 | 12 | oracle `taxi_axes` / `routes_ll` / `pair_caps_ll` (published routes and axes) | 1 % budgets through the apron | flow from #3 / #5 through the sidecar |
-| 13 | `apron.apron_within_shape` (ring edges, spine / frontage chords, body chords at 1 %) | every pair isotropic at 1 % | a ring pair under 30 m whose midpoint lies within a crossing stretch's corridor is the BOX row `|Δz| ≤ cL·|Δs| + cT·|Δt|` (the stretch's caps) instead — the 05ae inside-the-face gate still applies to chords; pairs outside every corridor and long pairs unchanged |
+| 13 | `apron.apron_within_shape` (ring edges, spine / frontage chords, body chords at 1 %) | every pair isotropic at 1 % | in a face crossed by a stretch (`stretches.crossing_axes` over `face_stretches`) EVERY priced pair, any length, is the BOX row `|Δz| ≤ cL_stretch·|Δs| + cA·|Δt|` against the nearest crossing axis (`taxi.box_pair_rows` on an `AxisIndex` whose `cT` is the apron cap) — the existing gates (strict chords, body gate, 05ae face cover) select the population exactly as before; a face crossed by no stretch is unchanged |
 | 14 | `apron.apron_edge_portions` (04t-2 alongside) | apron cap on the long shared portion | UNCHANGED (alongside, not through) |
 | 15 | `planar/terraces.py` / 06n terrace joints | a route joins the cells it stations | UNCHANGED (a route never crosses a joint) |
-| 16 | `solve/relax.py::_law_tier` (tier of the new rows) | — | the apron box rows bind apron ring vertices: apron tier by the vertex rule (relaxable under 04t-1, like the apron row they replace); the route's own centreline rows stay taxi tier, hard |
-| 17 | `solve/why.py::_FAMILY_KEYS` | apron rows → `apron_within_shape` | + `("apron", "short-pair box", "apron_route_box")` so the chain trace names the box rows |
+| 16 | `solve/relax.py::_law_tier` (tier of the new rows) | — | the route box rows CITE the apron law (`common.roles.apron route box …`, read by `stated_role`): apron tier, relaxable under 04t-1 like the isotropic row they replace; the route's own centreline rows stay taxi tier, hard |
+| 17 | `solve/why.py::_FAMILY_KEYS` | apron rows → `apron_within_shape` | + `("apron", "route box", "apron_route_box")` so the chain trace names the box rows |
 
-Half-width law key (§3): `[<authority>.taxi] width_m = { by_letter = … }`
+Half-width law key (round 1's §3, kept as law after §3-amended — no
+generator reads it): `[<authority>.taxi] width_m = { by_letter = … }`
 added to `law/rulesets.toml` for BOTH authorities (ICAO Annex 14 §3.9.3
 A 7.5 / B 10.5 / C 15 / D 18 / E 23 / F 25; FAA AC 150/5300-13B ADG
 I 7.5 / II 10.5 / III 15 / IV 23 / V 23 / VI 30 through the letter proxy);
 the corridor half-width is `width_m / 2`, `TaxiLaw.width_m` optional in
 `law/model.py` (no numeric literal there).
+
+## 3 amended (RULINGS 2026-09-06v, the spec author's ruling; owner question 06v-1 open)
+
+§3's corridor box is WITHDRAWN. Round 1 measured it on the §4 fixture:
+a 1.5 % route through a 1 % apron is INFEASIBLE under any taxiway-width
+corridor, because the apron keeps its chords to the route's stations
+(05ab; 05aa withdrew long chords on TAXI faces only) and any apron
+vertex P with d(P,A) + d(P,B) < 1.5·d(A,B) re-caps the route through
+two 1 % chords (a 30 m-abeam vertex against stations 100 m apart:
+58 + 58 < 150 → Σ ≤ 1.17 m over 1.5 m). At HECA the chain still crossed
+cell #364 on 806 m and 311 m apron chords relaxed to 1.47 %.
+
+RULED (the physics of one continuous surface): within an apron face
+CROSSED by a stretch — an edge of the stretch lies on one of the face's
+rings (outer or hole; `stretches.crossing_axes`, one definition for the
+generator, the v2 verify and, on node ids, the oracle) — EVERY priced
+pair (ring edges, spine chords, body chords under their existing gates
+and the 05ae face-cover gate) at ANY length is the BOX against the
+crossing stretch axis NEAREST the pair's midpoint (ties strictest):
+
+    |Δz| ≤ cL_stretch·|Δs| + cA·|Δt|
+
+with cL the stretch's longitudinal cap (1.5 % C–F, 3 % A/B) and cA the
+APRON cap (1 %) across. A face crossed by no stretch stays isotropic.
+The corridor, the sidecar's fifth stretch element and the round-1 knob
+`emit.within_shape.apron_corridor_pair_max_m` are deleted (refuted
+mechanisms are deleted — build economy). The `[*.taxi] width_m` law key
+and `edge_cap`'s §2 change stay. The rows cite the apron law
+(`common.roles.apron route box …`): apron tier, relaxable under 04t-1.
+Consequence: a crossed apron cell may tilt at the route's cap along the
+route's direction EVERYWHERE in the cell; across it stays at 1 %.
+
+Twins (`tests/auto_patch_v2/test_v2routecap.py`): the §4 fixture is
+FEASIBLE on the full generator set at 1.5 m and INFEASIBLE at 1.6 m
+with the IIS naming the route's own rows (Σ bounds = 1.5 m); a pair
+perpendicular to the route reads 1 %, a pair parallel to it 40 m off
+reads 1.5 %; an uncrossed apron stays isotropic; oracle / v2 verify
+lockstep on a stepped fixture (the same rows by distance, the same
+caps).
+
+Open (owner question 06v-1): whether 1.5 % along the route over the
+WHOLE crossed cell is acceptable, or the cell should stay 1 % away from
+the route (which re-caps the route to ~1 %), or terrace at the lane's
+edge. Implemented as ruled pending the answer.

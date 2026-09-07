@@ -37,21 +37,24 @@ the obstacle.  A dropped chord is counted in ``STATS["chords_outside_
 face"]`` (published by ``generate`` under ``apron_within_shape.chords_
 outside_face``).  A ring edge is never a chord and is never dropped.
 
-A ROUTE THROUGH THE APRON (owner, RULINGS 2026-09-06t; spec
-``apron-route-cap`` §3): the taxi centreline stretch crossing an apron
-face keeps the taxiway law (``stretches.edge_cap``), and the apron's
-SHORT pairs beside it compose with the route as the BOX — every pair of
-one ring under ``within_shape.withdrawn_chord_min_m`` whose MIDPOINT
-lies within the crossing stretch's CORRIDOR (the letter's taxiway half-
-width, ``rulesets.taxi.width_m / 2``) carries ``|Δz| ≤ cL·|Δs| +
-cT·|Δt|`` with the STRETCH's caps (``stretches.AxisIndex.corridor_box_
-bound``; 06s's box machinery) INSTEAD of the apron's isotropic row —
-without it an apron ring vertex 10 m abeam the route re-caps two route
-vertices 100 m apart at 1 % × their distance.  Pairs outside every
-corridor and long pairs are unchanged; the 05ae inside-the-face gate
-still applies to a boxed chord.  Counted in ``STATS[...]["corridor_box"]``.
-The v2 verify (``verify/within.py::taxi_box``) and the v1 oracle
-(``check_grade._StretchBox``) read the same population.
+A ROUTE THROUGH THE APRON (owner, RULINGS 2026-09-06t; spec author,
+RULINGS 2026-09-06v; spec ``apron-route-cap`` §3 amended): the taxi
+centreline stretch crossing an apron face keeps the taxiway law
+(``stretches.edge_cap``), and the apron beside it is ANISOTROPIC — within
+a face CROSSED by a stretch (``stretches.crossing_axes``: an edge of the
+stretch on one of the face's rings) EVERY priced pair (ring edges, spine
+chords, body chords under their gates and the 05ae face-cover gate) at
+ANY length is the BOX against the crossing axis nearest its midpoint
+(ties strictest): ``|Δz| ≤ cL_stretch·|Δs| + cA·|Δt|``, cL the
+stretch's longitudinal cap and cA the APRON cap across (06s's
+``AxisIndex`` / ``taxi.box_pair_rows``, the apron cap as the index's
+``cT``).  A face crossed by no stretch stays isotropic.  The round-1
+corridor (short pairs within a taxiway half-width) was REFUTED by
+arithmetic — any apron vertex with d(P,A) + d(P,B) < 1.5·d(A,B) re-caps
+the route through its 1 % chords — and is deleted.  Counted in
+``STATS[...]["route_box"]``.  The v2 verify (``verify/within.py::
+taxi_box``) and the v1 oracle (``check_grade._StretchBox``) read the
+same population (lockstep twin, ``tests/auto_patch_v2/test_v2routecap``).
 
 Lattice / membrane (``emit.chords.apron_interior_spacing_m``): the M1 map
 has no interior vertices (M0 open question 3); the membrane family is
@@ -61,22 +64,27 @@ nothing minted here.
 from __future__ import annotations
 
 from ..law import Law
-from ..law.tables import apron_corridor_pair_max_m, is_rigid_role, role_cap, snap_margin_m
+from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
 from .geometry import chords_covered, face_cover, principal_axis, project_to_chain
 from .precedence import View, view
-from .stretches import corridor_index, stretches
+from .stretches import AxisIndex, crossing_axes, stretches
+from .taxi import box_pair_rows
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
-           "face_width", "STATS", "CORRIDOR_RULING"]
+           "face_width", "STATS", "ROUTE_BOX_RULING"]
 
-#: The corridor box row's citation (module docstring; ``solve.why`` keys
-#: the ``apron_route_box`` family on "short-pair box").
-CORRIDOR_RULING = ("short-pair box in a route's corridor through the apron: "
-                   "|dz| <= cL*|ds| + cT*|dt| vs the crossing stretch (2026-09-06t)")
+#: The route box row's citation (module docstring): it STATES the apron's
+#: law (``solve.relax.stated_role`` reads the ``common.roles.apron``
+#: prefix — apron tier, relaxable under 04t-1 like the isotropic row it
+#: replaces); ``solve.why`` keys the ``apron_route_box`` family on
+#: "route box".
+ROUTE_BOX_RULING = ("common.roles.apron route box in a crossed face: "
+                    "|dz| <= cL_stretch*|ds| + cA*|dt| vs the nearest crossing "
+                    "stretch (2026-09-06v)")
 
 #: The last run's generator statistics by generator function name
 #: (``generate`` publishes them as ``<generator>.<stat>``):
@@ -125,14 +133,23 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     tol = snap_margin_m(law)
     st = stretches(planar, law)
     cell = law.tables.emit.within_shape.withdrawn_chord_min_m
-    max_d = apron_corridor_pair_max_m(law)
     rows: list[Row] = []
     outside = 0
-    boxed = 0
     for f in vw.faces_of_role(("apron",)):
-        src_box = Source(GEN, CORRIDOR_RULING, (f"face:{f.id}", f.ref))
-        lines = [(st.items[sid].vertices, st.items[sid].cap_l, st.items[sid].cap_t,
-                  st.items[sid].half_width_m) for sid in st.face_stretches.get(f.id, ())]
+        # THE CROSSED FACE (06v): its crossing stretches as one axis
+        # index with the APRON cap across; every priced pair below is
+        # the box against the nearest of them
+        src_box = Source(GEN, ROUTE_BOX_RULING, (f"face:{f.id}", f.ref))
+        rings = [vw.rings[f.id], *vw.holes[f.id]]
+        axes = crossing_axes(vw.xy, rings,
+                             [(st.items[sid].vertices, st.items[sid].cap_l, cap.longitudinal)
+                              for sid in st.face_stretches.get(f.id, ())])
+        index = AxisIndex(axes, cell) if axes else None
+
+        def priced(a: int, b: int, d: float, src: Source) -> Row:
+            if index is None:
+                return Diff(a, b, cap.longitudinal, d, src)
+            return box_pair_rows(vw, index, [(a, b, d)], src_box)[0]
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",
@@ -141,9 +158,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                           (f"face:{f.id}", f.ref))
         # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
         chords: list[Row] = []
-        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+        for ring in rings:
             n = len(ring)
-            cidx = corridor_index(vw.xy, ring, lines, cell) if lines else None
             for i in range(n):
                 a = ring[i]
                 a_strict = a in strict
@@ -153,20 +169,10 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     if d < min_d:
                         continue
                     adjacent = (j == i + 1) or (i == 0 and j == n - 1)
-                    if cidx is not None and d < max_d:
-                        # THE ROUTE'S CORRIDOR (06t): the box with the
-                        # stretch's caps replaces the apron's isotropic row
-                        (xa, ya), (xb, yb) = vw.xy[a], vw.xy[b]
-                        bb = cidx.corridor_box_bound(xa, ya, xb, yb)
-                        if bb is not None:
-                            boxed += 1
-                            (rows if adjacent else chords).append(
-                                Diff(a, b, bb[0] / d, d, src_box))
-                            continue
                     if adjacent:
-                        rows.append(Diff(a, b, cap.longitudinal, d, src_ring))
+                        rows.append(priced(a, b, d, src_ring))
                     elif a_strict or b in strict:
-                        chords.append(Diff(a, b, cap.longitudinal, d, src_spine))
+                        chords.append(priced(a, b, d, src_spine))
                     elif d <= gate + min_d:
                         # the body gate is read in the CENSUS'S OWN frame
                         # (equirectangular, ~0.2 % off this one at CYXY's
@@ -179,7 +185,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # models no fan-ramp zone yet, so every body chord
                         # inside the gate holds the STRICT cap; ``fan`` is
                         # the back-edge zones' cap when M3b generates them
-                        chords.append(Diff(a, b, cap.longitudinal, d, src_body))
+                        chords.append(priced(a, b, d, src_body))
         if not chords:
             continue
         cover = face_cover(vw.face_ring_xy(f.id),
@@ -190,7 +196,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                 rows.append(c)
             else:
                 outside += 1
-    STATS["apron_within_shape"] = {"chords_outside_face": outside, "corridor_box": boxed}
+    boxed = sum(1 for r in rows if r.source.ruling == ROUTE_BOX_RULING)
+    STATS["apron_within_shape"] = {"chords_outside_face": outside, "route_box": boxed}
     return rows
 
 

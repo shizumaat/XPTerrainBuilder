@@ -87,3 +87,26 @@ tie 922/0, solve wall vs 198.5 s, relaxation count. CYXY/OTHH
 `--base-arm`: verify 0 must hold; quote any delta by role. Build-time
 statement. Report the KML of the binding chain after (the owner reads
 these — `scratchpad/limiting_kml.py` exists).
+
+## §3 SUPERSEDED — RULINGS 2026-09-06w (owner): the tiered apron cap
+
+§3's corridor box and 06v's any-length box are withdrawn. The law: every
+apron row is HARD at `[*.apron] max` (1.5 % all directions) and carries
+`[*.apron] preferred` (1 %) as a `Diff.soft` preference (one escalation
+group per apron face, `ceiling` = the hard cap), charged junior to the
+runway family's objective and senior to the DEM fit; chords between
+adjacent pads at the back edge (the 08-24 `plan_fan_ramp_zones`
+predicate, ported from v1 `auto_patch`) are hard at `apron_fan_ramp_max`
+(5 %) with the same preference. `rulesets.toml` gains the two keys under
+both authorities (`apron = { longitudinal, transverse }` today IS the
+1 % — rename to `preferred` and add `max`; `role_cap(law, "apron")`
+returns the HARD cap, a new `role_preferred_cap` the preference; the
+oracle's `_role_grade_limit` for apron roles reads the hard cap through
+the sidecar's ruleset and counts rows above the preference as the
+report figure `apron_over_preference`). Twins: a 200 × 60 m apron with
+a 1.5 m rise pinned over 100 m is FEASIBLE with the preference slack
+charged and reported; 1.6 m is INFEASIBLE with the IIS naming apron
+rows at the hard cap; with no rise pinned the surface sits at ≤ 1 %
+(the preference holds when nothing senior needs more); oracle/verify
+lockstep (rows over 1.5 % only). Acceptance §5 unchanged, bow bar:
+shrinks toward 6.1 m — quote.

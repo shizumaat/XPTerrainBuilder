@@ -133,3 +133,25 @@ Amended construction:
 5. Acceptance adds: the chord at HECA crosses within 60 m of 30.127729,
    31.412022 (07e) and no chord is minted at CYXY / OTHH / LEMD (their
    06n joint counts unchanged: CYXY 7, OTHH 55, LEMD quoted).
+
+## §2b AMENDED AGAIN (RULINGS 2026-09-07g) — joints are label boundaries, not cuts
+
+§2a's polygon cut is withdrawn. Mechanics: (1) label every pavement node
+of a welded complex by its SERVING CONTACT (nearest runway-connected
+station by shortest visible in-shape path; reuse `planar/territories.py`
+from lane v2terrace2); (2) extend each node's reach band by the in-shape
+leg (`routes.reach` + apron cap × path); (3) for every adjacent node pair
+(a planar edge, or any row's endpoint pair) whose serving contacts
+disagree under the pairwise predicate, the pair is a JOINT: the
+generators mint no row across it — implement ONCE at the constraint-set
+assembly (`pipeline/build.py` after the generators: drop every row whose
+endpoints straddle a joint, by generator, and report the count per
+family) rather than per generator — and the joint edges are declared in
+`terrace_joints` (points + step) so `check_grade` / `census.py` /
+`verify` read them lawful (06n's declaration path, unchanged); (4) roads
+across a joint: rows dropped, step reported; (5) the feasibility
+fallback: if a runway threshold pin reaches no other runway's pin through
+the network, the shortest in-shape apron path joining the two route
+systems is added to the route graph at the apron cap — report when it
+fires. Acceptance §5 unchanged; the label boundary at HECA crosses
+within 60 m of 30.127729, 31.412022.

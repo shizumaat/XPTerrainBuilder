@@ -167,3 +167,24 @@ Open (owner question 06v-1): whether 1.5 % along the route over the
 WHOLE crossed cell is acceptable, or the cell should stay 1 % away from
 the route (which re-caps the route to ~1 %), or terrace at the lane's
 edge. Implemented as ruled pending the answer.
+
+MEASURED (round 2, HECA `build_airport.py HECA --engine v2`, tag
+`v2routecap2`, 382 s; round 1 in brackets): census adjudicated **43**
+[5], all 43 = oracle `taxi_box::apron|apron` chords of pav132 (#364)
+that the GENERATOR never priced — the oracle's chord-visibility buffer
+is v1's `GRADE_VISIBILITY_BUFFER_M = 1.0 m` (`auto_patch/config.py`,
+`grade_graph._visibility_predicate`) while the generator's and the v2
+verify's 05ae face cover use the snap margin (0.354 m): on the identical
+polygon in the identical frame the oracle admits chords grazing the
+pad's concave corners (17.8 m / 0.51 m … 607 m / 8.66 m) that both v2
+readers drop; the oracle's baked-path floor forgave them until the box
+replaced it. Pre-existing gate divergence, NOT this law — owed to the
+oracle (one tolerance, both readers). v2-verify 26 lateral_contiguity
+[26], `taxi_box` 0 [0]; relaxed rows 1,332 verify-side / 3,242 solve
+[2,006 / 4,319], of which 421 route-box rows; bow −10.38 m at station
+2,708 m [−10.38]; ridge minimum 104.60 m at 2,732 m [104.60]; K
+0.349 %/100 m [0.346]; six halves ≤ 1.53 % [≤ 1.53]; tie 922/0 [922/0];
+solve 241.1 s [248.5]. The binding chain (`why`, 44 hops) still crosses
+cell #364 — now on ONE `apron_route_box` chord (657 m at 1.48 %,
++9.72 m) instead of two relaxed 1.47 % apron chords (806 + 311 m,
++11.85 m). CYXY / OTHH verify 0 / 0, unchanged.

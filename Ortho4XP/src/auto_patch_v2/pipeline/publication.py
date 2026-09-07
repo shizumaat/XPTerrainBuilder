@@ -115,9 +115,16 @@ def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
     return out
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
-                z: _t.Sequence[float] | None = None) -> dict[str, _t.Any]:
+                z: _t.Sequence[float] | None = None, *,
+                label_joints: _t.Sequence[_t.Any] = (),
+                straddles: _t.Callable[[_t.Iterable[int]], bool] | None = None
+                ) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
-    crown drops are the BUILT ones."""
+    crown drops are the BUILT ones.  ``label_joints`` (RULINGS 2026-09-07g)
+    are declared beside the 06n joints; ``straddles`` (the territory
+    stage's predicate) withholds every published pair across a joint —
+    the solve priced none, so the readers price none (a ``taxi_route_pairs``
+    entry becomes the null record: no law edge)."""
     ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
     ax_out = []
     for k, a in enumerate(axes(planar, law)):
@@ -153,11 +160,34 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     pad_edges = [{"a": ll[a], "b": ll[b], "budget_m": round(cap * d, 6),
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     taxi_pairs = taxi_route_pairs(planar, law, airport, ll, tol)
+    mesh = mesh_edges_ll(planar, law)
+    if straddles is not None:
+        id_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in ll.items()}
+
+        def _ids(*pts):
+            return [id_of.get((round(float(q[0]), 7), round(float(q[1]), 7))) for q in pts]
+
+        def _cross(*pts) -> bool:
+            ids = _ids(*pts)
+            return all(i is not None for i in ids) and straddles(ids)
+        edges = [e for e in edges if not _cross(e["a"], e["b"])]
+        pad_edges = [e for e in pad_edges if not _cross(e["a"], e["b"])]
+        mesh = [e for e in mesh if not _cross(e[0], e[1])]
+        taxi_pairs = [[e[0], e[1], None, None] if _cross(e[0], e[1]) else e for e in taxi_pairs]
+        # a routed pair the prune left unpublished (its route reading equals
+        # the chord's) is priced by the reader at the chord: publish it null
+        seen = {(tuple(e[0]), tuple(e[1])) for e in taxi_pairs}
+        for pp in taxi_pair_routes(planar, law, airport):
+            if pp.routed and straddles((pp.a, pp.b)):
+                key = (tuple(ll[pp.a]), tuple(ll[pp.b]))
+                if key not in seen and (key[1], key[0]) not in seen:
+                    seen.add(key)
+                    taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "apron_tier": apron_tier(law),
-            "terrace_joints": terrace_joints_ll(planar, law, z),
+            "terrace_joints": terrace_joints_ll(planar, law, z, label_joints),
             "taxi_route_pairs": taxi_pairs,
-            "mesh_edges": mesh_edges_ll(planar, law),
+            "mesh_edges": mesh,
             "face_holes": face_holes_ll(planar),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
@@ -204,7 +234,8 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
 
 
 def terrace_joints_ll(planar: PlanarMap, law: Law,
-                      z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+                      z: _t.Sequence[float] | None = None,
+                      label_joints: _t.Sequence[_t.Any] = ()) -> list[dict[str, _t.Any]]:
     """Sidecar ``terrace_joints`` (RULINGS 2026-09-06n; ``planar/terraces.py``)
     in v1's record shape (``check_grade._terrace_joints_to_m`` /
     ``terrace_joints_sidecar``): the joint line as the ORIGINAL run's
@@ -230,6 +261,20 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
                     "faced": True, "kind": "apron_terrace", "faces": [j.a, j.b],
                     "pairs": len(j.pairs), "length_m": round(j.length_m, 2),
                     "over_max_step": bool(step > cap)})
+    # THE LABEL-BOUNDARY JOINTS (RULINGS 2026-09-07g (3); ``planar/territories.py``):
+    # the contour is the line, the step the largest |Δz| over the vertex
+    # pairs across it (no split copies: the two nodes ARE the step)
+    for j in label_joints:
+        pts = [[la, lo] for la, lo in j.points_ll]
+        if len(pts) < 2:
+            continue
+        step = 0.0
+        if z is not None and j.pairs:
+            step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
+        out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
+                    "faced": False, "kind": "apron_terrace", "faces": [], "label_boundary": True,
+                    "roles": list(j.roles), "pairs": len(j.pairs),
+                    "length_m": round(j.length_m, 2), "over_max_step": bool(step > cap)})
     return out
 
 

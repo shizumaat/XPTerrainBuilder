@@ -7,6 +7,7 @@ from __future__ import annotations
 from ..constraints.geometry import TransectAxis, TransectShape, walk_transects
 from ..constraints.transverse import priced_roles
 from .frame import Patch, Row, noise_m, row
+from .steps import joint_index
 
 __all__ = ["transverse"]
 
@@ -25,6 +26,7 @@ def transverse(p: Patch) -> list[Row]:
     shapes = [TransectShape(sh.role, sh.closed_ring, sh.key)
               for sh in p.shapes if sh.role in roles and len(sh.ids) >= 3]
     by_key = {sh.key: sh for sh in p.shapes}
+    joints = joint_index(p)      # a cross-section spanning a declared joint has its step (06n / 07g)
     out: list[Row] = []
     for st in walk_transects(shapes, axes, lambda ax: priced_roles(law, ax.is_service),
                              step_m=tw.step_m, half_m=tw.half_width_m,
@@ -32,6 +34,8 @@ def transverse(p: Patch) -> list[Row]:
         cap_t = st.axis_key[1] if isinstance(st.axis_key, tuple) else st.cap_l
         sh = by_key[st.shape_key]
         allow = cap_t * st.width_m + noise_m(law, sh.role)
+        if joints:
+            allow += joints.allowance(st.point_lo(), st.point_hi())
         dz = abs(st.z_hi - st.z_lo)
         if dz <= allow:
             continue

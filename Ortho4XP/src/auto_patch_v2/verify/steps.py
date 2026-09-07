@@ -28,7 +28,7 @@ from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, pair_side, row
 
 __all__ = ["cross_shape", "vertex_to_edge_step", "mid_edge_step", "stacked_nodes",
-           "terrace_joints_m", "declared_step_allowance"]
+           "terrace_joints_m", "declared_step_allowance", "JointIndex", "joint_index"]
 
 
 def _designed_separation(p: Patch, ra: str, rb: str) -> bool:
@@ -126,6 +126,58 @@ def terrace_joints_m(p: Patch) -> list[tuple[list[tuple[float, float]], float]]:
     return out
 
 
+class JointIndex:
+    """The declared joints on a grid: ``allowance(a, b)`` = Σ of the
+    declared steps of the joints the segment crosses (each joint once) —
+    ``declared_step_allowance`` for a reader pricing hundreds of thousands
+    of pairs (the within-shape and box populations at HECA)."""
+
+    def __init__(self, joints, cell: float = 50.0) -> None:
+        self.joints = joints
+        self.cell = cell
+        self.grid: dict[tuple[int, int], list[tuple[int, int]]] = {}
+        for j, (pts, _step) in enumerate(joints):
+            for k in range(len(pts) - 1):
+                (x0, y0), (x1, y1) = pts[k], pts[k + 1]
+                for gx in range(int(math.floor(min(x0, x1) / cell)), int(math.floor(max(x0, x1) / cell)) + 1):
+                    for gy in range(int(math.floor(min(y0, y1) / cell)), int(math.floor(max(y0, y1) / cell)) + 1):
+                        self.grid.setdefault((gx, gy), []).append((j, k))
+
+    def __bool__(self) -> bool:
+        return bool(self.grid)
+
+    def allowance(self, a, b) -> float:
+        if not self.grid:
+            return 0.0
+        cell = self.cell
+        (x0, y0), (x1, y1) = a, b
+        hit: set[int] = set()
+        for gx in range(int(math.floor(min(x0, x1) / cell)), int(math.floor(max(x0, x1) / cell)) + 1):
+            for gy in range(int(math.floor(min(y0, y1) / cell)), int(math.floor(max(y0, y1) / cell)) + 1):
+                for j, k in self.grid.get((gx, gy), ()):
+                    if j in hit:
+                        continue
+                    pts = self.joints[j][0]
+                    if _cross(a, b, pts[k], pts[k + 1]):
+                        hit.add(j)
+        return sum(self.joints[j][1] for j in hit)
+
+
+def joint_index(p: Patch) -> JointIndex:
+    """The patch's declared joints, indexed (cached on the patch's publication id)."""
+    key = id(p.publication)
+    cached = _INDEX.get(key)
+    if cached is not None and cached[0] is p.publication:
+        return cached[1]
+    idx = JointIndex(terrace_joints_m(p))
+    _INDEX.clear()
+    _INDEX[key] = (p.publication, idx)
+    return idx
+
+
+_INDEX: dict = {}
+
+
 def declared_step_allowance(joints, a, b) -> float:
     """Σ of the declared steps of the joints the segment ``a``–``b`` crosses
     (the v1 reader's ``_terrace_step_allowance``)."""
@@ -141,7 +193,7 @@ def declared_step_allowance(joints, a, b) -> float:
 def _step_rows(p: Patch, family: str, probes, edges, search: float,
                ctol: float, step_m: float) -> list[Row]:
     exempt_pad = p.law.tables.structures.building_pad.step_exemption_pad_to_pad
-    joints = terrace_joints_m(p)
+    joints = joint_index(p)
     cell = max(search, 1.0)
     g: dict[tuple[int, int], list[int]] = {}
     for k, (sh, a, b, _za, _zb) in enumerate(edges):
@@ -180,7 +232,7 @@ def _step_rows(p: Patch, family: str, probes, edges, search: float,
         # APRON TERRACE LOCKSTEP (RULINGS 2026-09-06n; v1 ``_declared_step_
         # allowance``): a probe and its foot on opposite sides of a declared
         # joint have the declared step between them — lawful geometry
-        allow = step_m + (declared_step_allowance(joints, (x, y), (px, py)) if joints else 0.0)
+        allow = step_m + (joints.allowance((x, y), (px, py)) if joints else 0.0)
         if step > allow + 1e-5:
             out.append(row(family, (sv.role, se.role), pair_side(p, sv.role, se.role),
                            step, None, None, math.sqrt(_d2), (x, y), (px, py),

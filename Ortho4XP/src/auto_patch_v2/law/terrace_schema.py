@@ -22,15 +22,25 @@ class Terrace:
     neighbour_roles: tuple[str, ...]
     joint_gap_m: float
     max_step_m: float
+    #: RULINGS 2026-09-07f (``planar/territories.py``): the joint
+    #: predicate's materiality, the complex boundary's simplification (×
+    #: the identity spacing), the roles whose cells form a pavement complex.
+    min_step_m: float
+    simplify_factor: float
+    complex_roles: tuple[str, ...]
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], min_spacing_m: float,
                   err: type[Exception]) -> None:
     """Every role registered; a cell role stated; the gap exceeds the
     identity spacing (the retreated copy would re-intern otherwise)."""
-    for r in (*tr.cell_roles, *tr.neighbour_roles):
+    for r in (*tr.cell_roles, *tr.neighbour_roles, *tr.complex_roles):
         if r not in roles:
             raise err(f"emit.terrace: unknown role {r!r}")
+    if not set(tr.cell_roles) <= set(tr.complex_roles):
+        raise err("emit.terrace.complex_roles must include every cell role")
+    if tr.min_step_m < 0.0 or tr.simplify_factor <= 0.0:
+        raise err("emit.terrace: min_step_m must be non-negative and simplify_factor positive")
     if not tr.cell_roles:
         raise err("emit.terrace.cell_roles: empty")
     if tr.joint_gap_m <= min_spacing_m:

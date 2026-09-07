@@ -15,6 +15,7 @@ import math
 
 from ..constraints.no_step import no_step_roles
 from .frame import Patch, Row, noise_m, row
+from .steps import joint_index
 
 __all__ = ["no_step_direct", "no_step_rate", "rate_breaches"]
 
@@ -111,12 +112,16 @@ def no_step_rate(p: Patch) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m
     floor = law.tables.emit.materiality.grade
     roles = no_step_roles(law)
+    joints = joint_index(p)      # a triple across a declared joint reads the step, not a rate (07g)
     out: list[Row] = []
     seen: set = set()
     for sh in p.shapes:
         if sh.role not in roles or len(sh.ids) < 3:
             continue
         for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q, floor):
+            if joints and (joints.allowance(sh.xy[a], sh.xy[b]) > 0.0
+                           or joints.allowance(sh.xy[b], sh.xy[c]) > 0.0):
+                continue
             site = tuple(sorted((round(sh.xy[a][0], 3), round(sh.xy[a][1], 3),
                                  round(sh.xy[b][0], 3), round(sh.xy[b][1], 3),
                                  round(sh.xy[c][0], 3), round(sh.xy[c][1], 3))))

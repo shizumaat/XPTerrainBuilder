@@ -16,7 +16,7 @@ from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
-from ..constraints import generate
+from .territory import joint_steps, territory_constraints, territory_stage
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..emit.graded import graded_surface
@@ -333,9 +333,20 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  DEM fallback {road_rep['dem_fallback']}"
          f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
          out)
+    # THE TERRITORY STAGE (RULINGS 2026-09-07g; ``pipeline/territory.py``):
+    # serving contacts, the label-boundary joints, the fallback links
     t = time.perf_counter()
-    cs, counts, gwalls = generate(pm, law, airport)
+    stage = territory_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
+    pm = stage.pm
+    wall["territories"] = time.perf_counter() - t
+    t = time.perf_counter()
+    cs, counts, gwalls = territory_constraints(pm, law, airport, stage)
     wall["constraints"] = time.perf_counter() - t
+    if stage.dropped:
+        _say(f"[{icao}] joints (07g): {sum(stage.dropped.values())} rows dropped across the label "
+             f"boundary — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
+             + f"; reach bands withdrawn {stage.bands_withdrawn}; flats straddling "
+             f"{stage.flats_straddling}", out)
     _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
     for name, n in counts.items():
         # a ``<generator>.<stat>`` key is a statistic, not a timed generator
@@ -359,7 +370,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 break                 # every seam value held, or a fixed point
             prev = honoured
             t = time.perf_counter()
-            cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
+            cs, counts2, _g = territory_constraints(pm, law, airport, stage,
+                                                    seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
             sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options,
                                               size_out=size)
@@ -433,6 +445,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "road_profile": road_rep,
         "road_profile_agreement": road_agree,
         "seam": report_seam,
+        "territories": stage.as_dict(),
+        "joint_steps": joint_steps(pm, law, stage, sol.z) if sol.z else None,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
                   # RULINGS 2026-09-05u: which scope answered, and the
@@ -452,7 +466,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
-        pub = publication(pm, law, airport, sol.z)
+        pub = publication(pm, law, airport, sol.z, label_joints=stage.joints,
+                          straddles=stage.terr.straddles)
+        js = report["joint_steps"]
+        if js and js["contours"]:
+            worst = max(js["contours"], key=lambda c: c["step_m"])
+            _say(f"[{icao}] joint steps (07g): {len(js['contours'])} contours, max step "
+                 f"{worst['step_m']:.2f} m (contour {worst['id']}, {worst['length_m']:.0f} m, "
+                 f"{'/'.join(worst['roles'])}); by roles " + ", ".join(
+                     f"{k} {v['edges']} edges max {v['max_step_m']:.2f}" for k, v in sorted(js["by_roles"].items()))
+                 + (f"; roads: " + ", ".join(f"#{r['face']} {r['ref']} {r['step_m']:.2f} m"
+                                             for r in js["roads"][:8]) if js["roads"] else ""), out)
         if relaxed_rows:
             pub["relaxed_rows"] = relaxed_rows
         # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,

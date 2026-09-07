@@ -49,6 +49,7 @@ from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
 from ..constraints.taxi import short_pairs
 from ..law.tables import role_cap, snap_margin_m
 from .frame import Patch, Row, Shape, noise_m, row
+from .steps import joint_index
 
 __all__ = ["apron_over_preference", "within_shape", "plane_gradient", "crown_by_vertex", "taxi_box",
            "FAMILY_TAXI_BOX", "published_axis_index"]
@@ -242,6 +243,7 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     xy_all = p.xy
     within: list[Row] = []
     xsec: list[Row] = []
+    joints = joint_index(p)      # APRON TERRACE LOCKSTEP (06n / 07g): the declared step across a joint
     for sh in p.shapes:
         cap = p.cap(sh)
         if cap is None:
@@ -308,6 +310,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     budget, d = route
                     pair_cap = budget / d
                 allowance = pair_cap * d + q
+                if joints:
+                    allowance += joints.allowance(sh.xy[i], sh.xy[j])
                 if de <= allowance:
                     continue
                 grade = de / d
@@ -499,6 +503,7 @@ def taxi_box(p: Patch) -> list[Row]:
     xy_all = p.xy
     host_of = {sh.key: sh for sh in p.shapes}
     out: list[Row] = []
+    joints = joint_index(p)
     rings: list[tuple[Shape, Shape]] = [(sh, sh) for sh in p.shapes if sh.role in taxi]
     rings += [(fe, host_of[fe.host]) for fe in p.features
               if fe.feature == "gap_interior_ring" and fe.host in host_of
@@ -534,7 +539,7 @@ def taxi_box(p: Patch) -> list[Row]:
                 continue
             bound, _cl, _ct = bb
             de = abs(sh.z[pos[a]] - sh.z[pos[b]])
-            if de <= bound + q:
+            if de <= bound + q + (joints.allowance(xy[a], xy[b]) if joints else 0.0):
                 continue
             cap = bound / d
             out.append(row(FAMILY_TAXI_BOX, (host.role, host.role), p.side(host.role), de,

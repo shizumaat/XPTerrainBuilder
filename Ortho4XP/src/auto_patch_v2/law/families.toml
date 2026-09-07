@@ -94,6 +94,14 @@ pairs     = "within"
 ruling    = "2026-08-01"
 solver    = "construction"
 
+[strip_transverse]
+measures  = "THE RUNWAY-EDGE TIE: any vertex (any role but the runway family and wall crests) abeam a runway edge inside the zone-2 half width standing above the edge foot by more than the strip transverse bound; a strip-only vertex either way — read geometrically over every vertex, never from a published pair list"
+parameter = "zones.adjacent_ground.runway.band_max_down"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-06b law 2; 2026-09-06p (1)/(3)"
+solver    = "edge"
+
 [transverse]
 measures  = "cross-corridor grade vs the taxi transverse cap"
 parameter = "ruleset.taxi.transverse"

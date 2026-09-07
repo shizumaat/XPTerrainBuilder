@@ -457,6 +457,10 @@ class WithinShape:
     #: RULINGS 2026-09-04y: roles whose bodies are priced by their triangle
     #: mesh (ring edges, common-stretch pairs, mesh edges), never all-pairs.
     junction_mesh_roles: tuple[str, ...]
+    #: RULINGS 2026-09-06p (3): the oracle's withdrawn-chord stamp applies
+    #: only to taxi-family chords at least this long (m); shorter ones are
+    #: priced.
+    withdrawn_chord_min_m: float
 
 
 @_dc.dataclass(frozen=True)

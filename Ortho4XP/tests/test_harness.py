@@ -7617,9 +7617,25 @@ def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar
     got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam)
     assert got["key_present"] and got["stamped"] == 2
     assert got["by_roles"] == {"stub|stub": 1, "junction|junction": 1}
+    assert got["short_priced"] == 0 and got["min_m"] == census_mod.withdrawn_chord_min_m()
     assert [r.out_of_scope for r in rows] == [key, key, None, cg.RELAXED_OUT_OF_SCOPE, None]
     adj = cg.adjudication([("within_shape", r) for r in rows])
     assert adj["out_of_scope_classes"][key]["n"] == 2
     assert adj["out_of_scope_classes"][key]["why"] == cg.OUT_OF_SCOPE_CLASSES[key]
     assert adj["adjudicated_total"] == 2          # the apron pair and the frontage pair
     assert not cg.row_adjudicated("within_shape", rows[0])
+    # THE FLOOR (RULINGS 2026-09-06p (3)): a 7 m stub|stub chord is PRICED,
+    # a 700 m one stamped withdrawn — the floor is the law table's
+    # ``emit.within_shape.withdrawn_chord_min_m``, never a literal here
+    min_m = census_mod.withdrawn_chord_min_m()
+    assert 7.0 < min_m < 700.0
+    short = _FloorRow(de=0.5, grade=7.0, excess=5.5, dist=7.0, role="stub", wa="7")
+    long_ = _FloorRow(de=10.5, grade=1.5, excess=0.5, dist=700.0, role="stub", wa="8")
+    at_floor = _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=min_m, role="stub", wa="9")
+    fam2 = {"within_shape": [short, long_, at_floor]}
+    got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam2)
+    assert got["stamped"] == 2 and got["short_priced"] == 1
+    assert got["short_by_roles"] == {"stub|stub": 1}
+    assert short.out_of_scope is None and long_.out_of_scope == key and at_floor.out_of_scope == key
+    assert cg.row_adjudicated("within_shape", short)
+    assert not cg.row_adjudicated("within_shape", long_)

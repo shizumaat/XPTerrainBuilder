@@ -36,10 +36,29 @@ strip_transverse_bound(d)`` — the runway zone class's own transverse cap
 accumulated over the corridor (``adjacent_ground.lip_max_down``,
 ``adjacent_ground.runway.band_max_down``), both ways: the fall side is
 the corridor floor :func:`zone_bands` states for the same edge, the rise
-side is :func:`strip_transverse`'s own row.  The row's
-vertices are the strip vertex and the edge's ends, so the tier machinery
-holds it in the STRIP's tier: junior to the runway (whose profile never
-flexes to the strip), senior to the DEM pull in the objective.
+side is :func:`strip_transverse`'s own row.
+
+THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1), the same family and the
+same row): the rise side binds EVERY vertex of ANY role — ring or hole,
+any owner except the runway family's own faces and a retaining wall's
+crest — lying abeam a runway-family ring edge within that runway's
+zone-2 half width: ``z_v − z_foot ≤ strip_transverse_bound(d)``; the
+fall side stays the vertex's own law (its zone floor, its route reach,
+its pad level).  ``own_law`` exempts NOTHING from this row: the 06b
+population was the strip-only vertices, and HECA's 05C/23C ridges
+(owner sim read 1.0.291, 06o) were 207 vertices over the bound — stub
+170, primary_parallel 35, junction 2 — every one a ring vertex of an
+airside value face that ``own_law`` left to its own rows, none of which
+reached the runway edge 7 m away (v2921: one hop 482 m to a crossing
+station, no no_step pair inside the 150 m route window, the ridge IS the
+DEM while the runway is cut 3.4–5.8 m below it).  A rigid pad is ONE
+level and carries the tie on its rim vertex nearest the edge only (the
+``Flat`` carries the level; per-vertex rows on one plane against a
+sloping edge are the v2padflat contradiction).  The row cites the
+graded-strip face the vertex touches (``face:<id>``) so the tier
+machinery holds it in the STRIP's tier — the strip law's row, junior to
+the runway (whose profile never flexes to it), senior to the DEM pull
+in the objective; a vertex touching no strip face reads its own tier.
 """
 from __future__ import annotations
 
@@ -150,6 +169,12 @@ class _Context:
     wall_vertices: set[int]
     pad_rim: dict[int, int]
     found: _t.Callable[[int, set], list]
+    #: THE TIE POPULATION (06p (1)): every vertex of every non-runway-family
+    #: face (ring and holes), the runway family's own vertices and the wall
+    #: crests excluded -> the graded-strip face it touches (or -1)
+    tie_pop: dict[int, int] = _dc.field(default_factory=dict)
+    #: rigid face id -> its rim vertices (attached pads included)
+    rigid_rims: dict[int, list[int]] = _dc.field(default_factory=dict)
 
 
 def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
@@ -276,16 +301,34 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # 2026-09-05: CYXY / SPLP / SPJC / OTHH went hard-infeasible on it.
     pad_rim: dict[int, int] = {}          # vertex -> rigid face id (detached pads)
     attached_rim: set[int] = set()        # rim vertices of pads touching pavement
+    rigid_rims: dict[int, list[int]] = {}
     for f in vw.faces_of_role(tuple(
             r for r, spec in law.tables.precedence.roles.items()
             if getattr(spec, "rigid", False))):
         rim = [v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring]
+        rigid_rims[f.id] = rim
         if any(v in own_law for v in rim):
             attached_rim.update(rim)
             continue
         for v in rim:
             pad_rim.setdefault(v, f.id)
     own_law = own_law | attached_rim
+    # THE TIE POPULATION (06p (1), module docstring): every vertex of every
+    # face outside the runway family, the runway family's own vertices and
+    # the wall crests excluded, with the strip face it touches
+    rw_roles = set(law.tables.precedence.runway_family.members)
+    runway_v = {v for f in vw.faces_of_role(tuple(rw_roles))
+                for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
+    tie_pop: dict[int, int] = {}
+    for f in vw.faces_of_role(tuple(r for r in law.tables.precedence.roles
+                                    if r not in rw_roles and r != "retaining_wall")):
+        strip = f.role == "graded_strip" and _face_class(f) is not None
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            for v in ring:
+                if v in runway_v or v in wall_vertices:
+                    continue
+                if strip or v not in tie_pop:
+                    tie_pop[v] = f.id if strip else tie_pop.get(v, -1)
 
     def _found(v: int, classes: set) -> list:
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)
@@ -340,7 +383,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         return found
 
     return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
-                    wall_vertices, pad_rim, _found)
+                    wall_vertices, pad_rim, _found, tie_pop, rigid_rims)
 
 
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -405,25 +448,27 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 
 
 def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """THE STRIP TIE rows (module docstring): for every graded-strip
-    vertex ``v`` the zone law binds (its own membership, exemptions and
-    pad rule — :func:`_context`) whose nearest ABEAM runway-family edge
-    holds it in the runway zone (``_nearest_edge`` over the runway
-    family, ``d ≤`` the class's zone-2 half width), with foot ``(a, b,
-    t)`` at lateral distance ``d``:
+    """THE STRIP TIE / RUNWAY-EDGE TIE rows (module docstring): for every
+    vertex ``v`` of the tie population (``_Context.tie_pop`` — any role
+    but the runway family's own faces and the wall crests, 06p (1))
+    whose nearest ABEAM runway-family edge holds it in the runway zone
+    (``_nearest_edge`` over the runway family, ``d ≤`` the class's zone-2
+    half width), with foot ``(a, b, t)`` at lateral distance ``d``:
 
         z_v − ((1 − t)·z_a + t·z_b) ≤ bound,
         bound = strip_transverse_bound(law, d, code)
 
-    — the RISE side.  The FALL side of the same tie, ``−bound ≤ …``, is
-    the corridor FLOOR :func:`zone_bands` already states for that very
-    edge (``zone_bounds`` is the one derivation: the floor's magnitude IS
-    ``strip_transverse_bound``), so it is not minted twice — a duplicate
-    row is what HiGHS's QP factorisation refused on the relax twin
-    (kNotset over 66 duplicate pairs, measured 2026-09-06).  A detached
-    rigid pad carries the tie on its nearest rim vertex only (the
-    ``Flat`` carries the level; per-vertex rows on one plane are the
-    v2padflat contradiction)."""
+    — the RISE side.  The FALL side is the vertex's own law: for a
+    graded-strip vertex the corridor FLOOR :func:`zone_bands` already
+    states for that very edge (``zone_bounds`` is the one derivation: the
+    floor's magnitude IS ``strip_transverse_bound``), so it is not minted
+    twice — a duplicate row is what HiGHS's QP factorisation refused on
+    the relax twin (kNotset over 66 duplicate pairs, measured 2026-09-06);
+    for every other vertex its zone floor, reach band or pad level.  A
+    rigid pad carries the tie on its rim vertex nearest the edge only
+    (the ``Flat`` carries the level; per-vertex rows on one plane are the
+    v2padflat contradiction).  The row cites the strip face the vertex
+    touches, so it sits in the strip's tier."""
     ctx = _context(planar, law, airport)
     if ctx is None:
         return []
@@ -431,41 +476,51 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
     grid = ctx.by_family.get("runway")
     if not grid:
         return []
-    pad_nearest: dict[int, int] = {}
-    pad_d: dict[int, float] = {}
-    for v, fid in ctx.pad_rim.items():
-        if v not in ctx.member or v in ctx.own_law or v in ctx.wall_vertices:
-            continue
-        fv = ctx.found(v, ctx.member[v])
-        if not fv:
-            continue
-        if fid not in pad_nearest or fv[0][3] < pad_d[fid]:
-            pad_nearest[fid], pad_d[fid] = v, fv[0][3]
-    rows: list[Row] = []
     src = Source(GEN, "zones.adjacent_ground.runway.band_max_down strip tie "
-                 "(2026-09-06b law 2)", ())
-    for v, classes in ctx.member.items():
-        if v in ctx.own_law or v in ctx.wall_vertices:
-            continue
-        if v in ctx.pad_rim and pad_nearest.get(ctx.pad_rim[v]) != v:
-            continue
-        near = _nearest_edge(vw, v, edges, grid, ctx.cell, ctx.half_of, ctx.reach,
+                 "(2026-09-06b law 2; every vertex 2026-09-06p)", ())
+
+    def nearest(v: int):
+        return _nearest_edge(vw, v, edges, grid, ctx.cell, ctx.half_of, ctx.reach,
                              lambda k: ctx.abeam(v, k))
+
+    # a rigid pad: ONE tie, on the rim vertex nearest a runway edge
+    pad_pick: dict[int, int] = {}
+    for fid, rim in ctx.rigid_rims.items():
+        best: tuple[float, int] | None = None
+        for v in rim:
+            if v not in ctx.tie_pop:
+                continue
+            near = nearest(v)
+            if near is not None and (best is None or near[2] < best[0]):
+                best = (near[2], v)
+        if best is not None:
+            pad_pick[fid] = best[1]
+    rim_of: dict[int, int] = {v: fid for fid, rim in ctx.rigid_rims.items() for v in rim}
+    rows: list[Row] = []
+    for v in sorted(ctx.tie_pop):
+        fid_rigid = rim_of.get(v)
+        if fid_rigid is not None and pad_pick.get(fid_rigid) != v:
+            continue
+        near = nearest(v)
         if near is None:
             continue
         k, t, d = near
         # NOT MINTED WHERE THE CORRIDOR ALREADY HOLDS IT: when this runway
-        # edge is the vertex's NEAREST pavement, ``zone_bands`` states its
-        # mandatory-down ceiling (the vertex must sit BELOW the edge), which
-        # dominates the tie; the tie binds exactly where the nearest
+        # edge is a strip vertex's NEAREST pavement, ``zone_bands`` states
+        # its mandatory-down ceiling (the vertex must sit BELOW the edge),
+        # which dominates the tie; the tie binds exactly where the nearest
         # pavement is another surface and the runway contributes a floor
         # only (the pocket rule) — HECA's strip between 05C/23C and the
         # parallel stub pav101.  A dominated duplicate beside the ceiling
         # is also what tipped HiGHS's QP into its approximation on the
         # relax twin (measured 2026-09-06: 1,080 candidates, kNotset).
-        found = ctx.found(v, classes)
-        if found and found[0][1] == k and found[0][0] <= (ctx.half_of(edges[k]) or 0.0):
-            continue
+        classes = ctx.member.get(v)
+        if classes and v not in ctx.own_law and v not in ctx.wall_vertices:
+            if v in ctx.pad_rim:
+                continue                  # zone_bands' pad rule owns it
+            found = ctx.found(v, classes)
+            if found and found[0][1] == k and found[0][0] <= (ctx.half_of(edges[k]) or 0.0):
+                continue
         a, b, _fam, cn, cl = edges[k]
         bound = strip_transverse_bound(law, d, cn, cl)
         if bound is None or d <= 0.0:
@@ -476,6 +531,8 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             terms = ((v, 1.0), (b, -1.0))
         else:
             terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
-        rows.append(Linear(terms, None, bound, Source(src.generator, src.ruling,
-                                                     (f"vertex:{v}",))))
+        strip_fid = ctx.tie_pop[v]
+        inputs = ((f"face:{strip_fid}", f"vertex:{v}") if strip_fid >= 0
+                  else (f"vertex:{v}",))
+        rows.append(Linear(terms, None, bound, Source(src.generator, src.ruling, inputs)))
     return rows

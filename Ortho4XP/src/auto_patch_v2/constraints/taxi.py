@@ -10,10 +10,13 @@ are NO PAIR ROWS for taxi faces at all —
 * one hard ``Diff`` per CENTRELINE EDGE of every stretch, every polyline
   vertex, at the stretch's cap (:func:`taxi_centerlines`; the runway
   ridge edges are ``runway_profile``'s rows);
-* one hard ``Diff`` per LATERAL HOP — a ring vertex to its attachment
-  station at the face's TRANSVERSE cap over the perpendicular distance
-  plus the centreline walk at the centreline's cap (``routes``' LATERAL
-  edges) — and per runway CROSSING (05z b) (:func:`taxi_chain`);
+* one hard row per LATERAL HOP — a ring vertex to its PERPENDICULAR FOOT
+  on the centreline at the face's TRANSVERSE cap over the perpendicular
+  distance only (RULINGS 2026-09-06p (2); ``routes``' LATERAL edges): a
+  three-term ``Linear`` ``|z_v − (1−t)·z_a − t·z_b| ≤ cap·d`` where the
+  foot is a virtual station ``(a, b, t)`` inside a segment, a two-vertex
+  ``Diff`` where the foot is a station — and one ``Diff`` per runway
+  CROSSING (05z b) (:func:`taxi_chain`);
 * the pad CONTACTS are ``pads.frontage_near_miss``'s own rows (a welded
   rim IS the pavement vertex, 05ab).
 
@@ -215,7 +218,17 @@ def taxi_chain(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             gen, ruling = chain_ruling(law, role, kind)
             src = Source(gen, ruling, inputs)
             src_of[(fid, kind)] = src
-        rows.append(Diff(int(a), int(b), float(cap), float(ln), src))
+        a, b = int(a), int(b)
+        if g.is_foot(b) or g.is_foot(a):
+            # THE FOOT ROW (06p (2)): the vertex against the interpolated
+            # foot ``(fa, fb, t)`` over the perpendicular distance
+            v, ft = (a, b) if g.is_foot(b) else (b, a)
+            fa, fb, t = g.foot[ft]
+            bound = float(cap) * float(ln)
+            rows.append(Linear(((v, 1.0), (fa, -(1.0 - t)), (fb, -t)),
+                               -bound, bound, src))
+            continue
+        rows.append(Diff(a, b, float(cap), float(ln), src))
     return rows
 
 

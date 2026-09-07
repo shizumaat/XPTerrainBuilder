@@ -129,7 +129,14 @@ def test_taxi_apron_road_pair_populations(synthetic, law):
     taxi_roles = set(law.tables.precedence.taxi_family.members)
     t = [r for r in taxi.taxi_chain(pm, law, airport)
          if pm.faces[int(r.source.inputs[0][5:])].role in taxi_roles]
-    assert t and {round(r.cap, 9) for r in t} == {0.015}   # budget / length: a hop's blend of two equal caps
+    # a hop is priced at the face's transverse cap over the perpendicular
+    # distance (06p (2)): a Diff to a station, a three-term Linear to a
+    # virtual foot — the graph's own LATERAL caps say which
+    from auto_patch_v2.constraints.routes import LATERAL, routes
+    g = routes(pm, law, airport)
+    assert t and {round(float(c), 9) for c, k, f in zip(g.cap, g.kind, g.face)
+                  if k == LATERAL and pm.faces[int(f)].role in taxi_roles} == {0.015}
+    assert {round(r.cap, 9) for r in t if isinstance(r, Diff)} <= {0.015}
     c = taxi.taxi_centerlines(pm, law, airport)
     assert c and all(isinstance(r, Diff) for r in c)
     a = apron.apron_within_shape(pm, law, airport)

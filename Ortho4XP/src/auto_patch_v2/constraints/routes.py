@@ -38,13 +38,26 @@ open pavement or grass that the reach bands then made hard.
 
 THE ATTACHMENT: every pavement ring vertex of a runway / taxi / apron
 face that is no station of a centreline of its OWN face attaches by ONE
-LATERAL HOP to the nearest station of the nearest centreline INSIDE or
-TOUCHING that face — the ridge chains on a runway-family face, the
+LATERAL HOP to the PERPENDICULAR FOOT on the nearest centreline INSIDE
+or TOUCHING that face — the ridge chains on a runway-family face, the
 stretches splitting or touching (through a ring vertex) every other
-face — over the PERPENDICULAR distance (the foot on the polyline) at
-the face's TRANSVERSE cap: ``runway.transverse_max`` for a runway edge,
-the taxi transverse cap for a taxiway edge, the apron cap for an apron
-vertex.  A crossing ENTRY whose crossing reaches the ridge IS a station
+face — over the perpendicular distance ONLY, at the face's TRANSVERSE
+cap: ``runway.transverse_max`` for a runway edge, the taxi transverse
+cap for a taxiway edge, the apron cap for an apron vertex (RULINGS
+2026-09-06p (2)).  THE FOOT IS A VIRTUAL STATION ``(a, b, t)`` on the
+centreline segment, interpolated between the segment's ends as the
+crown rows are: a graph node of its own (id ``≥ n_planar``,
+``RouteGraph.foot``), chained into the segment with its neighbouring
+feet at the centreline's cap, so two vertices hopping onto one long
+segment meet along it and not through a station hundreds of metres
+away.  A foot at a segment END is that station.  The hop's ROW is a
+three-term ``Linear`` on the vertex and the segment ends (``taxi.taxi_
+chain``).  The refuted reading — nearest STATION plus the walk along
+the centreline — starved HECA's 05C/23C stubs: pav101's stretches are
+stationed hundreds of metres apart, so v2921's only hop ran 482.56 m to
+crossing station v2682 (bound 7.24 m), its route to the runway edge
+6.94 m away read 956 m, and no no_step pair was ever minted (scout
+``scout_heca_ridges``, 2026-09-06p).  A crossing ENTRY whose crossing reaches the ridge IS a station
 of a centreline inside its runway face (the crossing, 06h a) and hops
 no more on that face: it reaches the ridge along the crossing.  A PAD attaches at its CONTACT (RULINGS 2026-09-05ab, spec §9):
 a rim vertex welded to the pavement IS that pavement vertex and attaches
@@ -105,9 +118,9 @@ __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
 #: Edge provenance codes (``RouteGraph.kind``).  CENTRELINE: a taxi
 #: stretch edge or a runway ridge edge (a split ridge's bridge too);
 #: CROSSING: a 1202 taxi route across a runway slab (05z b); LATERAL: a
-#: pavement ring vertex's ONE hop to the nearest station of its own
-#: face's centreline (05aa); CONTACT: a near-miss pad rim vertex's edge to
-#: its frontage apron vertex (05ab).
+#: pavement ring vertex's ONE hop to the perpendicular foot on its own
+#: face's centreline (05aa, 06p); CONTACT: a near-miss pad rim vertex's
+#: edge to its frontage apron vertex (05ab).
 CENTRELINE, CROSSING, LATERAL, CONTACT = 0, 1, 2, 3
 RIDGE_KIND = "runway_profile"
 
@@ -139,6 +152,23 @@ class RouteGraph:
     #: network's own, no single face) — the chain rows (``taxi.taxi_chain``,
     #: RULINGS 2026-09-05ac) cite it so the relaxation reads the row's tier
     face: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, np.int64))
+    #: the planar vertex count: ids ``< n_planar`` are planar vertices,
+    #: ids in ``[n_planar, n)`` are VIRTUAL FEET (06p (2)) — a hop's
+    #: perpendicular foot on a centreline segment, ``foot[id] = (a, b, t)``
+    #: over the segment's planar ends, ``foot_xy[id - n_planar]`` its plan
+    #: position.  A foot is a station (a walk passes through it) and no
+    #: solve variable: every consumer returning VERTICES filters them out
+    #: (``reach``, ``route_neighbours``); ``route_path`` lists them.
+    n_planar: int = -1
+    foot: dict[int, tuple[int, int, float]] = _dc.field(default_factory=dict)
+    foot_xy: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 2)))
+
+    def __post_init__(self) -> None:
+        if self.n_planar < 0:
+            object.__setattr__(self, "n_planar", self.n)
+
+    def is_foot(self, v: int) -> bool:
+        return int(v) >= self.n_planar
 
     @property
     def budget(self) -> np.ndarray:
@@ -406,42 +436,43 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
     return out, entries, unmatched, ridge_entries
 
 
-def _nearest_station(pts: np.ndarray,
-                     lines: _t.Sequence[tuple[list[int], np.ndarray, np.ndarray]]
-                     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """For every point the nearest STATION of the nearest line: the
-    perpendicular distance to the nearest line (the foot clamped to the
-    polyline), the nearer of the two stations bracketing that foot, the
-    distance ALONG the segment from that station to the foot, and the
-    segment's longitudinal cap — ``(d_perp, station, d_along, cap_l)``;
-    station ``-1`` where no line has a segment.  Vectorised over the
-    points, one pass per segment.  ``lines`` are ``(chain vertex ids,
-    chain xy, per-segment longitudinal cap)``."""
+def _feet(pts: np.ndarray,
+          lines: _t.Sequence[tuple[list[int], np.ndarray, np.ndarray]]
+          ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """For every point its PERPENDICULAR FOOT on the nearest line (RULINGS
+    2026-09-06p (2)): the perpendicular distance (the foot clamped to the
+    polyline), the line index, the segment index on it, the parameter
+    ``t`` along the segment and the segment's longitudinal cap —
+    ``(d_perp, line, segment, t, cap_l)``; line ``-1`` where no line has
+    a segment.  Vectorised over the points, one pass per segment.
+    ``lines`` are ``(chain vertex ids, chain xy, per-segment longitudinal
+    cap)``.  Never the nearest station plus an along-walk (the refuted
+    reading, module docstring)."""
     n = len(pts)
     best_d = np.full(n, np.inf)
-    best_v = np.full(n, -1, np.int64)
-    best_along = np.zeros(n)
+    best_line = np.full(n, -1, np.int64)
+    best_seg = np.zeros(n, np.int64)
+    best_t = np.zeros(n)
     best_cap = np.zeros(n)
     px, py = pts[:, 0], pts[:, 1]
-    for chain, cxy, caps in lines:
+    for li, (chain, cxy, caps) in enumerate(lines):
         for k in range(len(chain) - 1):
             (ax, ay), (bx, by) = cxy[k], cxy[k + 1]
             vx, vy = bx - ax, by - ay
             l2 = vx * vx + vy * vy
             if l2 <= 0.0:
                 continue
-            seg = math.sqrt(l2)
             t = np.clip(((px - ax) * vx + (py - ay) * vy) / l2, 0.0, 1.0)
             d = np.hypot(px - (ax + t * vx), py - (ay + t * vy))
             hit = d < best_d
             if not hit.any():
                 continue
-            near_b = np.hypot(px - bx, py - by) < np.hypot(px - ax, py - ay)
             best_d[hit] = d[hit]
-            best_v[hit] = np.where(near_b[hit], chain[k + 1], chain[k])
-            best_along[hit] = np.where(near_b[hit], (1.0 - t[hit]) * seg, t[hit] * seg)
+            best_line[hit] = li
+            best_seg[hit] = k
+            best_t[hit] = t[hit]
             best_cap[hit] = caps[k]
-    return best_d, best_v, best_along, best_cap
+    return best_d, best_line, best_seg, best_t, best_cap
 
 
 def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> RouteGraph:
@@ -554,19 +585,26 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
             law, airport, xy, ridge_by_ref, ring_by_ref, weld_m)
         for a, b, cap, ln in xing_edges:
             add(a, b, cap, CROSSING, ln)
-    # THE ATTACHMENT (05aa): every ring vertex of a route face that is no
-    # station of one of ITS OWN face's centrelines — the ridge chains on a
-    # runway-family face, the stretches splitting or touching every other
-    # face — hops ONCE to the nearest station of the nearest such line:
-    # the perpendicular distance at the face's TRANSVERSE cap, plus the
-    # walk along the centreline from that station to the foot at the
-    # centreline's own cap (the station is seldom AT the foot: HECA's
-    # ridges are stationed every 12 m, a taxi stretch at its 1202 nodes;
-    # priced at the perpendicular distance alone the band is TIGHTER
-    # than the hard rows by cap × the station offset and cuts a feasible
-    # hard set — measured on the shared-edge twins 2026-09-05, IIS 3 rows)
+    # THE ATTACHMENT (05aa; 06p (2)): every ring vertex of a route face
+    # that is no station of one of ITS OWN face's centrelines — the ridge
+    # chains on a runway-family face, the stretches splitting or touching
+    # every other face — hops ONCE to the PERPENDICULAR FOOT on the
+    # nearest such line, over the perpendicular distance at the face's
+    # TRANSVERSE cap.  The foot is a VIRTUAL STATION on the segment
+    # (``feet``: one node per distinct foot, keyed by line, segment and the
+    # foot's position snapped to the identity spacing), chained into the
+    # segment below at the centreline's cap — so the band along the
+    # segment is exactly the centreline rows' (the earlier reading, the
+    # nearest STATION plus the along-walk, was measured 2026-09-05 to be
+    # what the hard rows state only when the walk is charged; charged to
+    # a station hundreds of metres away it starved HECA's stubs, 06p).
     n_faces = 0
     unattached: set[int] = set()
+    line_reg: dict[tuple, tuple[list[int], np.ndarray, np.ndarray]] = {}
+    feet: dict[tuple[tuple, int, int], int] = {}      # (line key, seg, snap) -> foot id
+    foot_of: dict[int, tuple[int, int, float]] = {}   # foot id -> (a, b, t)
+    foot_xy: list[tuple[float, float]] = []
+    n_total = n_v
     for f in pm.faces.values():
         if f.role not in roles or face_caps[f.id] is None:
             continue
@@ -578,7 +616,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
             for v in pm.ring_vertices(cyc):
                 if v not in seen:
                     seen.add(v); ring_v.append(v)
-        lines: list[tuple[list[int], np.ndarray, np.ndarray]] = []
+        line_keys: list[tuple] = []
         if f.role in rw_fam:
             refs: dict[str, None] = {}
             for cyc in (f.ring, *f.holes):
@@ -592,9 +630,12 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
                 rcap = ref_cap.get(ref)
                 if rcap is None:
                     continue
-                for ch in ridge_by_ref[ref]:
-                    lines.append((ch, xy[np.array(ch, np.int64)],
-                                  np.full(max(len(ch) - 1, 0), rcap)))
+                for ci, ch in enumerate(ridge_by_ref[ref]):
+                    lk = ("ridge", ref, ci)
+                    if lk not in line_reg:
+                        line_reg[lk] = (ch, xy[np.array(ch, np.int64)],
+                                        np.full(max(len(ch) - 1, 0), rcap))
+                    line_keys.append(lk)
         else:
             sids: dict[int, None] = {}
             for sid in st.face_stretches.get(f.id, ()):
@@ -603,8 +644,12 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
                 for sid in st.on.get(v, ()):
                     sids.setdefault(sid)
             for sid in sids:
-                ch = list(st.items[sid].vertices)
-                lines.append((ch, xy[np.array(ch, np.int64)], stretch_caps[sid]))
+                lk = ("stretch", sid)
+                if lk not in line_reg:
+                    ch = list(st.items[sid].vertices)
+                    line_reg[lk] = (ch, xy[np.array(ch, np.int64)], stretch_caps[sid])
+                line_keys.append(lk)
+        lines = [line_reg[lk] for lk in line_keys]
         on_line = {v for ch, _c, _k in lines for v in ch}
         if f.role in rw_fam:
             # an entry whose crossing reaches the ridge is a station of a
@@ -616,16 +661,48 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         if not lines:
             unattached.update(int(v) for v in off)
             continue
-        d, station, along, cap_l = _nearest_station(xy[off], lines)
-        ok = station >= 0
+        d, line_i, seg_k, t, _cap_l = _feet(xy[off], lines)
+        ok = line_i >= 0
         unattached.update(int(v) for v in off[~ok])
-        if ok.any():
-            src, dst = off[ok], station[ok]
-            length = np.maximum(d[ok] + along[ok], min_d)
-            bud = cap_t * d[ok] + cap_l[ok] * along[ok]
-            A.append(np.minimum(src, dst)); B.append(np.maximum(src, dst))
-            C.append(bud / length); K.append(np.full(int(ok.sum()), LATERAL, np.int8))
-            LEN.append(length); FACE.append(np.full(int(ok.sum()), f.id, np.int64))
+        for v, dv, li, k, tv in zip(off[ok], d[ok], line_i[ok], seg_k[ok], t[ok]):
+            lk = line_keys[int(li)]
+            ch, cxy, _caps = line_reg[lk]
+            k = int(k)
+            a_, b_ = ch[k], ch[k + 1]
+            seg = float(math.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
+            snap = int(round(float(tv) * seg / min_d))
+            if snap <= 0:
+                dst = a_
+            elif snap >= int(round(seg / min_d)):
+                dst = b_
+            else:
+                fk = (lk, k, snap)
+                dst = feet.get(fk)
+                if dst is None:
+                    dst = n_total
+                    n_total += 1
+                    feet[fk] = dst
+                    ts = snap * min_d / seg
+                    foot_of[dst] = (a_, b_, ts)
+                    foot_xy.append((cxy[k, 0] + ts * (cxy[k + 1, 0] - cxy[k, 0]),
+                                    cxy[k, 1] + ts * (cxy[k + 1, 1] - cxy[k, 1])))
+            add(int(v), int(dst), cap_t, LATERAL, max(float(dv), min_d), f.id)
+    # THE FEET CHAINED INTO THEIR SEGMENTS: along each segment carrying
+    # feet, station a -> foot_1 -> ... -> foot_m -> station b at the
+    # segment's cap over the arc between them (the segment's own a-b edge
+    # stays: the same length and budget either way)
+    by_seg: dict[tuple[tuple, int], list[tuple[float, int]]] = {}
+    for (lk, k, _snap), fid_ in feet.items():
+        by_seg.setdefault((lk, k), []).append((foot_of[fid_][2], fid_))
+    for (lk, k), lst in by_seg.items():
+        ch, cxy, caps = line_reg[lk]
+        seg = float(math.hypot(cxy[k + 1, 0] - cxy[k, 0], cxy[k + 1, 1] - cxy[k, 1]))
+        chain = [(0.0, ch[k]), *sorted(lst), (1.0, ch[k + 1])]
+        for (t0, u), (t1, w) in zip(chain, chain[1:]):
+            add(u, w, float(caps[k]), CENTRELINE, max((t1 - t0) * seg, min_d))
+    if foot_xy:
+        xy = np.vstack([xy, np.array(foot_xy, float)])
+    n_v = n_total
     # THE PAD CONTACTS (05ab): every near-miss frontage pair joins the pad
     # rim vertex to its apron vertex over the gap at the frontage row's
     # cap (the row the solve already holds — the walk from the pad prices
@@ -648,6 +725,9 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         station[list(s_.vertices)] = True
     if entries:
         station[sorted(entries)] = True
+    station[len(pm.vertices):] = True            # every foot is a station
+    n_planar = len(pm.vertices)
+    fxy = np.array(foot_xy, float) if foot_xy else np.zeros((0, 2))
     if not A:
         z = np.zeros(0, np.int64)
         return RouteGraph(n_v, frozenset(), z, z, np.zeros(0), np.zeros(0),
@@ -655,7 +735,8 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
                           {"nodes": 0, "edges": 0, "faces": n_faces,
                            "centreline": 0, "crossing": 0, "lateral": 0, "contact": 0,
                            "unattached": len(unattached),
-                           "crossing_unmatched": n_unmatched}, {}, z)
+                           "crossing_unmatched": n_unmatched, "feet": 0}, {}, z,
+                          n_planar, {}, fxy)
     a = np.concatenate(A); b = np.concatenate(B); cap = np.concatenate(C); kind = np.concatenate(K)
     ln = np.concatenate(LEN); face = np.concatenate(FACE)
     keep = a != b
@@ -681,9 +762,11 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
              "contact": int(np.sum(kind == CONTACT)),
              "unattached": len(unattached - nodes),
              "crossing_unmatched": n_unmatched,
-             "crossing_ridge_entries": len(ridge_entries)}
+             "crossing_ridge_entries": len(ridge_entries),
+             "feet": len(foot_of)}
     return RouteGraph(n_v, nodes, a, b, length, cap, kind, station, stats,
-                      {p: e for p, e in contact_of.items() if p in nodes}, face)
+                      {p: e for p, e in contact_of.items() if p in nodes}, face,
+                      n_planar, foot_of, fxy)
 
 
 _CACHE: dict[int, tuple[PlanarMap, Law, Airport | None, RouteGraph]] = {}
@@ -731,7 +814,8 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
             row = D[i]
             # a vertex is ARRIVED at by its inbound id only
             cols = np.flatnonzero(np.isfinite(row))
-            cols = cols[(cols == g.inbound(g.vertex(cols))) & (g.vertex(cols) != s)]
+            cols = cols[(cols == g.inbound(g.vertex(cols))) & (g.vertex(cols) != s)
+                        & (g.vertex(cols) < g.n_planar)]        # never a foot
             verts = g.vertex(cols)
             skip = exclude.get(s, ()) if exclude is not None else ()
             if targets is not None or skip:
@@ -829,7 +913,7 @@ def reach(g: RouteGraph, pins: _t.Mapping[int, float]
     lo = np.max(z - Din, axis=0)
     ok = np.isfinite(hi)
     return {int(v): (float(lo[v]), float(hi[v])) for v in np.flatnonzero(ok)
-            if int(v) in g.nodes}
+            if int(v) in g.nodes and int(v) < g.n_planar}
 
 
 def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None
@@ -837,7 +921,8 @@ def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None
     """The shortest route from ``a`` to ``b``: ``(dist, budget,
     vertices)``, or ``None`` when no pavement path joins them (inside
     ``max_len`` when given).  One pair — an instrument, not the
-    population's engine."""
+    population's engine.  The path lists the VIRTUAL FEET it passes
+    (ids ``≥ g.n_planar``; ``g.foot`` resolves them)."""
     if a not in g.nodes or b not in g.nodes:
         return None
     m = g.csr("length", max_len=max_len)

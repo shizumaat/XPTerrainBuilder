@@ -280,6 +280,11 @@ def test_sidecar_and_verify_read_the_same_population(loop, law):
 
 # ── RULINGS 2026-09-05aa: the graph is the centreline network only ──────
 
+def _gxy(g, pm, v):
+    """Plan position of a graph id: a planar vertex or a virtual foot."""
+    return tuple(g.foot_xy[v - g.n_planar]) if g.is_foot(v) else pm.vertices[v].xy
+
+
 def _planar_edges(pm):
     """``(a, b) -> (EdgeKind, on a taxi centreline / ridge breakline)``."""
     on_line = {eid for bl in pm.breaklines.values()
@@ -383,6 +388,15 @@ def test_no_graph_edge_lies_on_any_face_ring(fx, law, request):
     coincident = 0
     for a, b, k, cap in zip(g.a, g.b, g.kind, g.cap):
         key = (int(a), int(b))
+        if g.is_foot(key[0]) or g.is_foot(key[1]):
+            # 06p (2): a hop onto a VIRTUAL FOOT, or the foot's own piece of
+            # the centreline segment it interpolates (a planar on-line edge)
+            ft = key[1] if g.is_foot(key[1]) else key[0]
+            fa, fb, t = g.foot[ft]
+            assert 0.0 < t < 1.0 and (min(fa, fb), max(fa, fb)) in planar
+            assert planar[(min(fa, fb), max(fa, fb))][1]
+            assert k in (LATERAL, CENTRELINE)
+            continue
         if key not in planar:
             assert k in (CROSSING, LATERAL)
             continue
@@ -415,7 +429,7 @@ def test_curved_taxiway_budget_is_cap_times_arc_length_never_the_chord(arc, law)
     d, bud, path = route_path(g, start, end)
     # the route walks the centreline: every polyline vertex is on it (the
     # map snaps to its identity grid and stations the straight run)
-    pxy = [pm.vertices[v].xy for v in path]
+    pxy = [_gxy(g, pm, v) for v in path]
     for cx, cy in chain:
         assert min(math.hypot(x - cx, y - cy) for x, y in pxy) < 1.0, (cx, cy)
     assert all(g.station[v] for v in path)
@@ -427,27 +441,32 @@ def test_curved_taxiway_budget_is_cap_times_arc_length_never_the_chord(arc, law)
     assert band[end][1] - band[start][1] == pytest.approx(cap * built, abs=1e-6)
     assert band[end][1] - band[start][1] > cap * chord + 0.5
     # the taxiway's own edge vertices attach by ONE lateral hop to the
-    # nearest station of the arc: the perpendicular distance (the half
-    # width, up to the mitre diagonal at the 90° bend where the straight
-    # run meets the arc) at the taxi transverse cap, plus the walk along
-    # the centreline from the station to the foot at the stretch cap
+    # PERPENDICULAR FOOT on the arc (06p (2)): the perpendicular distance
+    # (the half width, up to the mitre diagonal at the 90° bend where the
+    # straight run meets the arc) at the taxi transverse cap and nothing
+    # else — the foot is a virtual station on the segment, or the segment
+    # end where the foot clamps to it
     from auto_patch_v2.constraints.geometry import project_to_chain
     ct = role_cap(law, "stub", None, "D").transverse
     rim = [v for v in _verts_of_role(pm, "stub") - _verts_of_role(pm, "runway")
            - _verts_of_role(pm, "apron") if v not in _stations(pm)]
     assert rim
-    ring_chain = [pm.vertices[u].xy for u in path]
-    idx = {k: i for i, k in enumerate(g.a * 0 + np.arange(len(g.a)))}
+    ring_chain = [_gxy(g, pm, u) for u in path if not g.is_foot(u)]
+    snap = law.tables.emit.identity.min_distinct_spacing_m
     for v in rim:
         dd, bb, pth = route_path(g, v, end)
-        assert pth[1] in _stations(pm) and len(pth) >= 2
+        assert len(pth) >= 2 and (g.is_foot(pth[1]) or pth[1] in _stations(pm))
         d_perp, k, tt, _s = project_to_chain(pm.vertices[v].xy, ring_chain)
-        seg = math.hypot(ring_chain[k + 1][0] - ring_chain[k][0], ring_chain[k + 1][1] - ring_chain[k][1])
-        along = min(tt * seg, (1.0 - tt) * seg)
         assert 11.5 - 0.6 <= d_perp <= 11.5 * math.sqrt(2.0) + 0.6
         e = [j for j in range(len(g.a)) if {int(g.a[j]), int(g.b[j])} == {v, pth[1]}][0]
-        assert g.length[e] == pytest.approx(d_perp + along, abs=1e-6)
-        assert g.budget[e] == pytest.approx(ct * d_perp + cap * along, abs=1e-6)
+        assert g.length[e] == pytest.approx(d_perp, abs=1e-6)
+        assert g.budget[e] == pytest.approx(ct * d_perp, abs=1e-6)
+        if g.is_foot(pth[1]):
+            fa, fb, t = g.foot[pth[1]]
+            assert {fa, fb} == {path[k], path[k + 1]} if not any(g.is_foot(u) for u in path) else True
+            fx, fy = g.foot_xy[pth[1] - g.n_planar]
+            assert math.hypot(fx - (ring_chain[k][0] + tt * (ring_chain[k + 1][0] - ring_chain[k][0])),
+                              fy - (ring_chain[k][1] + tt * (ring_chain[k + 1][1] - ring_chain[k][1]))) <= snap
 
 
 def test_apron_beside_the_taxiway_attaches_by_the_hop_never_its_perimeter(arc, law):
@@ -474,18 +493,30 @@ def test_apron_beside_the_taxiway_attaches_by_the_hop_never_its_perimeter(arc, l
     assert band[corner][1] < band[end][1] + apron_cap * perimeter - 0.5
     from auto_patch_v2.constraints.geometry import project_to_chain
     stub_cap = role_cap(law, "stub", None, "D").longitudinal
-    lane = [pm.vertices[u].xy for u in route_path(g, _vid(pm, 0.0, 22.5), end)[2]]
+    lane_ids = [u for u in route_path(g, _vid(pm, 0.0, 22.5), end)[2] if not g.is_foot(u)]
+    lane = [pm.vertices[u].xy for u in lane_ids]
+    snap = law.tables.emit.identity.min_distinct_spacing_m
     for v in apron - {end}:
         dd, bb, pth = route_path(g, v, end)
-        assert len(pth) == 2, (v, pth)
-        # the hop: the perpendicular distance at the apron cap plus the walk
-        # along the lane from the end station to the foot at the stub cap
+        # the hop (06p (2)): the perpendicular distance at the apron cap to
+        # the FOOT on the lane, then the lane itself from the foot to the
+        # end station at the stub cap — a foot at the end IS the end
         d_perp, k, tt, _s = project_to_chain(pm.vertices[v].xy, lane)
         seg = math.hypot(lane[k + 1][0] - lane[k][0], lane[k + 1][1] - lane[k][1])
-        along = min(tt * seg, (1.0 - tt) * seg)
-        assert dd == pytest.approx(d_perp + along, abs=1e-6)
-        assert bb == pytest.approx(apron_cap * d_perp + stub_cap * along, abs=1e-6)
-        assert band[v][1] == pytest.approx(band[end][1] + bb, abs=1e-6)
+        to_end = (1.0 - tt) * seg + sum(math.hypot(lane[j + 1][0] - lane[j][0], lane[j + 1][1] - lane[j][1])
+                                        for j in range(k + 1, len(lane) - 1))
+        if len(pth) == 2:
+            assert pth[1] == end and to_end <= snap, (v, pth)
+        else:
+            assert g.is_foot(pth[1]) and pth[-1] == end and all(g.station[u] for u in pth[1:])
+        assert dd == pytest.approx(d_perp + to_end, abs=snap)
+        assert bb == pytest.approx(apron_cap * d_perp + stub_cap * to_end, abs=stub_cap * snap + 1e-6)
+        # the ceiling reaches the vertex AT ITS FOOT: the lane's ceiling
+        # there (before the end station) plus the hop — never the end's
+        # ceiling plus a walk back (06p (2))
+        assert band[v][1] == pytest.approx(band[end][1] - stub_cap * to_end + apron_cap * d_perp,
+                                           abs=stub_cap * snap + 1e-6)
+        assert band[v][1] <= band[end][1] + bb + 1e-6
     # no apron ring edge is a route: a graph edge on the apron ring is a
     # LATERAL hop into the end station, nothing else
     ring = {e.length_key for f in pm.faces.values() if f.role == "apron"

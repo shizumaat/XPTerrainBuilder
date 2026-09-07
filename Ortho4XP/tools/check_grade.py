@@ -2486,6 +2486,166 @@ def _check_adjacent_ground_edges(ways: List[Way],
     return out
 
 
+# ── THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)) ─────────────
+#: The key of the geometric runway-edge tie family — the SAME key the v2
+#: verify reports under (``auto_patch_v2.verify.strips.FAMILY_STRIP_
+#: TRANSVERSE``) so the two row sets diff by (family, roles, site).
+RUNWAY_EDGE_TIE_FAMILY = "strip_transverse"
+#: The ``ref`` prefix of a v2 graded-strip way (``planar/zones.py``:
+#: ``adjacent_ground:<family>:<class>:zone<k>#<n>``).  The family below is
+#: KEYED on it: a patch carrying no such way (a v1 patch) reads nothing.
+V2_ADJACENT_GROUND_REF_PREFIX = "adjacent_ground:"
+#: The wall crest role — exempt from the tie (06p (1)).
+_TIE_WALL_ROLE = "retaining_wall"
+
+
+def runway_edge_tie_frame(ways: List[Way], nodes: Dict[str, Tuple[float, float]],
+                          ll_to_m, law) -> Tuple[list, list, Dict[str, tuple], Dict[str, Way]]:
+    """The tie's READING FRAME of one parsed patch — ``(points, edges,
+    axes, runway_way_by_ref)`` for ``auto_patch_v2.verify.strips.
+    runway_edge_tie`` — shared by the oracle family below and
+    ``tools/harness/runway_edge_tie.py`` (one derivation of the
+    population, the edges and the abeam axes; the two cannot disagree).
+
+    * ``edges``: every ring edge of every runway-family way (``runway`` /
+      ``runway_crossing``), with the way's ``ref`` (the ``+`` suffix of a
+      split half dropped) and its ``code_number`` / ``code_letter`` tags;
+    * ``axes``: per runway ref the principal axis of its ``runway`` rings
+      (``grade_law.runway_axis_and_width``) as ``(a, unit, L)`` — abeam
+      is ``0 ≤ s ≤ L``;
+    * ``points``: one per node of every OTHER way (the runway family's
+      own and ``retaining_wall`` nodes excluded), the first way naming
+      it; a node on graded-strip ways ONLY reads both ways.  The label is
+      ``(role, way)``."""
+    from auto_patch_v2.verify.strips import RUNWAY_FAMILY
+    rw_way: Dict[str, Way] = {}
+    edges: list = []
+    pts_by_ref: Dict[str, list] = {}
+    for w in ways:
+        role = effective_role(w)
+        if role not in RUNWAY_FAMILY:
+            continue
+        ref = (w.ref or w.wid).split("+")[0]
+        rw_way.setdefault(ref, w)
+        cn = w.tags.get("code_number")
+        cl = w.tags.get("code_letter") or None
+        cn = int(cn) if cn not in (None, "") else None
+        ring = w.nids
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        pts = []
+        for k, nid in enumerate(ring):
+            if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
+                pts = []
+                break
+            x, y = ll_to_m(*nodes[nid])
+            pts.append((x, y, float(w.elevs[k])))
+        if len(pts) < 3:
+            continue
+        if role == "runway":
+            pts_by_ref.setdefault(ref, []).extend((x, y) for x, y, _z in pts)
+        n = len(pts)
+        for i in range(n):
+            edges.append((pts[i], pts[(i + 1) % n], ref, cn, cl))
+    axes: Dict[str, tuple] = {}
+    if _runway_axis_and_width is not None:
+        for ref, pts in pts_by_ref.items():
+            ax = _runway_axis_and_width(pts)
+            if ax is None:
+                continue
+            (ax0, ay0), (bx, by), _w = ax
+            L = math.hypot(bx - ax0, by - ay0)
+            if L >= 1.0:
+                axes[ref] = ((ax0, ay0), ((bx - ax0) / L, (by - ay0) / L), L)
+    first: Dict[str, Tuple[Way, int]] = {}
+    roles_at: Dict[str, set] = {}
+    for w in ways:
+        role = effective_role(w)
+        if role in RUNWAY_FAMILY or role == _TIE_WALL_ROLE:
+            for nid in w.nids:
+                roles_at.setdefault(nid, set()).add("__exempt__")
+            continue
+        for k, nid in enumerate(w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+                                else w.nids):
+            roles_at.setdefault(nid, set()).add(role or "?")
+            first.setdefault(nid, (w, k))
+    points = []
+    for nid, (w, k) in first.items():
+        rs = roles_at.get(nid, set())
+        if "__exempt__" in rs or nid not in nodes:
+            continue
+        if k >= len(w.elevs) or w.elevs[k] is None:
+            continue
+        x, y = ll_to_m(*nodes[nid])
+        points.append((nid, x, y, float(w.elevs[k]), rs == {"graded_strip"},
+                       (effective_role(w) or "?", w)))
+    return points, edges, axes, rw_way
+
+
+def runway_edge_tie_law():
+    """The v2 law bound to the run's active ruleset (the oracle's frame)."""
+    from auto_patch_v2.law import Law
+    return Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower())
+
+
+def _check_runway_edge_tie(ways: List[Way],
+                           nodes: Dict[str, Tuple[float, float]],
+                           ll_to_m) -> List[Violation]:
+    """THE RUNWAY-EDGE TIE, geometric (RULINGS 2026-09-06p (1)/(3); owner
+    sim read 2026-09-06o: ridges on both sides of HECA 05C/23C that both
+    instruments PASSED — each read only the pairs the generators had
+    published, and no pair had been minted to the runway edge 7 m away).
+
+    Every vertex of every way — ANY role but the runway family's own
+    (``runway`` / ``runway_crossing``) and a ``retaining_wall`` crest —
+    lying abeam a runway-family ring edge inside that runway's zone-2
+    half width is read against the edge's foot (the elevation
+    interpolated along the edge): a defect when it stands ABOVE the foot
+    by more than ``strip_transverse_bound(d)`` (the strip corridor's own
+    transverse cap accumulated over ``d``, ``auto_patch_v2.law.tables``)
+    plus the coarse quantum; a vertex of graded-strip ways ONLY is read
+    either way (its fall side is the zone floor, the 06b reading).  The
+    frame is :func:`runway_edge_tie_frame`, the geometry and the bound
+    ``auto_patch_v2.verify.strips.runway_edge_tie`` — ONE core for this
+    oracle, the v2 verify and ``tools/harness/runway_edge_tie.py`` — so
+    the three cannot disagree about where a runway edge is or what it
+    allows.
+
+    KEYED ON v2's REFS: the family runs only on a patch whose graded
+    strips carry ``ref = adjacent_ground:...`` (``V2_ADJACENT_GROUND_REF_
+    PREFIX``).  The older ``adjacent_ground_tear`` family above matches
+    ``w.ref == "adjacent_ground"`` exactly — the v1 emitter's spelling —
+    and so NEVER matches a v2 strip: on every v2 patch that family is
+    EMPTY by construction (measured 2026-09-06p), which is why the tie
+    is a family of its own here rather than a case of it.  The runway
+    code comes from the runway way's own ``code_number`` /
+    ``code_letter`` tags (v2's ``face_tags``); the ruleset is the run's
+    active one."""
+    if not any((w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX) for w in ways):
+        return []
+    from auto_patch_v2.verify.strips import runway_edge_tie
+    law = runway_edge_tie_law()
+    q = law.tables.emit.instrument.coarse_noise_m
+    edge_tol = law.tables.emit.identity.min_distinct_spacing_m
+    points, edges, axes, rw_way = runway_edge_tie_frame(ways, nodes, ll_to_m, law)
+    if not edges:
+        return []
+    out: List[Violation] = []
+    for h in runway_edge_tie(points, edges, axes, law, q, edge_tol):
+        _role, w = h.label
+        out.append(Violation(
+            grade_pct=100.0 * h.dz / h.d,
+            excess_pct=100.0 * (abs(h.dz) - h.bound) / h.d,
+            distance_m=h.d,
+            de_m=abs(h.dz),
+            way_a=w, way_b=rw_way.get(h.ref, w),
+            pt_a=(h.x, h.y), pt_b=h.foot,
+            elev_a=h.z, elev_b=h.z_foot,
+            cap_pct=100.0 * h.bound / h.d))
+    out.sort(key=lambda v: -v.de_m)
+    return out
+
+
 # ── Cross-shape graded-strip SEAM tear thresholds ───────────────
 # MOVED (spec seam-continuity-v2 §1) to ``src/auto_patch/
 # strip_seam_law.py`` — the constants, the graded-domain index, the
@@ -6576,6 +6736,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
+    # THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)): every vertex of
+    # any role abeam a runway edge within the strip's zone-2 half width,
+    # read GEOMETRICALLY against the edge foot at the strip transverse
+    # bound — keyed on v2's ``adjacent_ground:*`` refs (``_check_runway_
+    # edge_tie``); the v2 verify's family of the same key.
+    ("strip_transverse", "RUNWAY-EDGE TIE (any vertex abeam a runway edge)", "within"),
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
     ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
      "within"),
@@ -6763,8 +6929,11 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "pair-over-route reading is the taxi family's instrument, and the "
         "oracle's taxi chord rows are reported apart as withdrawn law).  "
         "Stamped only on a patch whose sidecar carries ``taxi_route_pairs`` "
-        "(a v2 patch under that law); a v1 patch is untouched.  Counted in "
-        "its family, reported under this heading, never adjudicated",
+        "(a v2 patch under that law) and only on a chord at least "
+        "``emit.within_shape.withdrawn_chord_min_m`` long (RULINGS "
+        "2026-09-06p (3): a short stub|stub step is priced); a v1 patch is "
+        "untouched.  Counted in its family, reported under this heading, "
+        "never adjudicated",
     "role_less_host_duplicate":
         "every way of the row is ROLE-LESS ARTICULATION geometry (an "
         "o4_feature way with no role tag) whose HOST shape's vertex set "
@@ -8240,6 +8409,15 @@ def run_checks(
         f"graded→DEM boundary — PROVISIONAL, owner 2026-08-01)",
         strip_seam_tears, top_n)
     within = within + strip_seam_tears
+
+    runway_edge_tie = _fam(RUNWAY_EDGE_TIE_FAMILY,
+                           _check_runway_edge_tie(ways, nodes, ll_to_m))
+    _pv("RUNWAY-EDGE TIE: a vertex of ANY role abeam a runway edge inside "
+        "the strip's zone-2 half width standing ABOVE the edge foot by more "
+        "than the strip transverse bound (RULINGS 2026-09-06p; geometric, "
+        "keyed on v2 adjacent_ground:* refs — empty on a v1 patch)",
+        runway_edge_tie, top_n)
+    within = within + runway_edge_tie
 
     _tr_stations: list = []
     transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(

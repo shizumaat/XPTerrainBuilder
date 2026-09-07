@@ -86,7 +86,36 @@ def _taxi_diffs(pm, law, airport) -> list[Diff]:
     return [*taxi.taxi_chain(pm, law, airport), *taxi.taxi_centerlines(pm, law, airport)]
 
 
-def _push(pm, rows: list[Diff], a: int, b: int) -> float:
+def _terms(r) -> tuple[list[tuple[int, float]], float]:
+    """A chain row as ``(terms, symmetric bound)``: a ``Diff`` or the
+    three-term foot ``Linear`` (06p (2))."""
+    if isinstance(r, Diff):
+        return [(r.a, 1.0), (r.b, -1.0)], r.bound_m
+    assert r.lo == -r.hi
+    return list(r.terms), r.hi
+
+
+def _verts(r) -> set[int]:
+    return {v for v, _c in _terms(r)[0]}
+
+
+def _row_keys(g, rows) -> dict[tuple[int, int], float]:
+    """``(a, b) -> bound`` per chain row, a foot row keyed on its virtual
+    foot id (the graph's own edge)."""
+    foot_id = {ft: fid for fid, ft in g.foot.items()}
+    out = {}
+    for r in rows:
+        terms, bound = _terms(r)
+        if len(terms) == 3:
+            v = terms[0][0]
+            ft = foot_id[(terms[1][0], terms[2][0], -terms[2][1])]
+            out[(min(v, ft), max(v, ft))] = bound
+        else:
+            out[(min(r.a, r.b), max(r.a, r.b))] = bound
+    return out
+
+
+def _push(pm, rows: list, a: int, b: int) -> float:
     """``max z_a − z_b`` subject to the rows alone (an LP over the pair's
     reach through the chain): the bound the chain IMPLIES for the pair."""
     n = len(pm.vertices)
@@ -94,9 +123,10 @@ def _push(pm, rows: list[Diff], a: int, b: int) -> float:
     A = np.zeros((2 * m, n))
     ub = np.zeros(2 * m)
     for k, r in enumerate(rows):
-        A[2 * k, r.a], A[2 * k, r.b] = 1.0, -1.0
-        A[2 * k + 1, r.a], A[2 * k + 1, r.b] = -1.0, 1.0
-        ub[2 * k] = ub[2 * k + 1] = r.bound_m
+        terms, bound = _terms(r)
+        for v, c in terms:
+            A[2 * k, v], A[2 * k + 1, v] = c, -c
+        ub[2 * k] = ub[2 * k + 1] = bound
     c = np.zeros(n)
     c[a], c[b] = -1.0, 1.0
     res = linprog(c, A_ub=A, b_ub=ub, bounds=[(-1e4, 1e4)] * n, method="highs")
@@ -115,11 +145,21 @@ def test_every_taxi_row_is_a_route_edge_and_no_pair_row_exists(hook, law):
              for a, b, cap, ln, k in zip(g.a, g.b, g.cap, g.length, g.kind)}
     chain = taxi.taxi_chain(pm, law, airport)
     assert chain
+    foot_id = {ft: fid for fid, ft in g.foot.items()}
     seen = set()
     for r in chain:
-        key = (min(r.a, r.b), max(r.a, r.b))
+        terms, bound = _terms(r)
+        if len(terms) == 3:
+            # the foot row: the vertex against its virtual foot (06p (2))
+            v = terms[0][0]
+            fa, fb, t = terms[1][0], terms[2][0], -terms[2][1]
+            assert terms[1][1] == pytest.approx(-(1.0 - t))
+            ft = foot_id[(fa, fb, t)]
+            key = (min(v, ft), max(v, ft))
+        else:
+            key = (min(r.a, r.b), max(r.a, r.b))
         assert key in edges and edges[key][1] in (LATERAL, CROSSING), key
-        assert r.bound_m == pytest.approx(edges[key][0], abs=1e-9)
+        assert bound == pytest.approx(edges[key][0], abs=1e-9)
         assert "chain" in r.source.ruling
         role = pm.faces[int(r.source.inputs[0][5:])].role
         assert r.source.generator == ("runway_profile" if role == "runway" else
@@ -151,15 +191,25 @@ def test_bent_stub_the_chain_implies_every_pair_within_its_route_budget(hook, la
     assert pushed == pytest.approx(cap * centre, abs=1e-6)
     assert pushed > 2.0 * cap * chord
     g = routes(pm, law, airport)
-    bound = {(min(r.a, r.b), max(r.a, r.b)): r.bound_m for r in rows}
+    bound = _row_keys(g, rows)
+    wb = g.edge_budget()
+    kinds = {(int(a), int(b)): int(k) for a, b, k in zip(g.a, g.b, g.kind)}
     hook_ids = {f.id for f in pm.faces.values() if f.ref == "hook"}
     pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face in hook_ids]
     assert pairs and all(pp.routed for pp in pairs)
     for pp in pairs:
         dist, budget, path = route_path(g, pp.a, pp.b)
         assert dist == pytest.approx(pp.dist) and budget == pytest.approx(pp.budget)
-        along = sum(bound[(min(u, v), max(u, v))] for u, v in zip(path, path[1:]))
-        assert along == pytest.approx(budget, abs=1e-9)      # every edge of the route is a row
+        keys = [(min(u, v), max(u, v)) for u, v in zip(path, path[1:])]
+        along = sum(wb[k] for k in keys)
+        assert along == pytest.approx(budget, abs=1e-9)
+        # every hop / crossing of the route is a row; a foot's piece of a
+        # centreline segment is the segment's own row through interpolation
+        for k in keys:
+            if kinds[k] in (LATERAL, CROSSING):
+                assert bound[k] == pytest.approx(wb[k], abs=1e-9), k
+            else:
+                assert (k in bound) or g.is_foot(k[0]) or g.is_foot(k[1]), k
     # the pushed bound of a sample of pairs equals its route budget (the
     # chain neither over- nor under-states the route reading)
     for pp in sorted(pairs, key=lambda q: -q.d_chord)[:6]:
@@ -220,7 +270,7 @@ def test_an_orphan_has_no_hop_and_no_taxi_row(hook, law):
     loose = verts - on_runway
     assert loose and not (loose & g.nodes)
     for r in _taxi_diffs(pm, law, airport):
-        assert r.a not in loose and r.b not in loose
+        assert not (_verts(r) & loose)
     pairs = [pp for pp in taxi.taxi_pair_routes(pm, law, airport) if pp.face == orphan.id]
     unrouted = [pp for pp in pairs if not pp.routed]
     assert pairs and unrouted and all(pp.a in loose or pp.b in loose for pp in unrouted)
@@ -303,9 +353,10 @@ def _pushed_surface(pm, law, airport, z0):
     m = len(rows)
     A = np.zeros((2 * m, n)); ub = np.zeros(2 * m)
     for k, r in enumerate(rows):
-        A[2 * k, r.a], A[2 * k, r.b] = 1.0, -1.0
-        A[2 * k + 1, r.a], A[2 * k + 1, r.b] = -1.0, 1.0
-        ub[2 * k] = ub[2 * k + 1] = r.bound_m
+        terms, bound = _terms(r)
+        for v, cf in terms:
+            A[2 * k, v], A[2 * k + 1, v] = cf, -cf
+        ub[2 * k] = ub[2 * k + 1] = bound
     c = np.zeros(n); c[start], c[end] = -1.0, 1.0
     z0 = np.asarray(z0, float)
     res = linprog(c, A_ub=A, b_ub=ub, bounds=[(zi - 50.0, zi + 50.0) for zi in z0], method="highs")

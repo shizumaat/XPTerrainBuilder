@@ -1402,23 +1402,39 @@ def taxi_family_roles() -> frozenset:
     return frozenset(Law.load().tables.precedence.taxi_family.members)
 
 
+def withdrawn_chord_min_m() -> float:
+    """``emit.within_shape.withdrawn_chord_min_m`` (RULINGS 2026-09-06p
+    (3)) from the v2 law tables — never a literal here."""
+    for p in (ROOT / "src",):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from auto_patch_v2.law import Law
+    return float(Law.load().tables.emit.within_shape.withdrawn_chord_min_m)
+
+
 def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
-    """THE WITHDRAWN CHORD LAW (RULINGS 2026-09-05aa/ab/ac).
+    """THE WITHDRAWN CHORD LAW (RULINGS 2026-09-05aa/ab/ac; its floor
+    2026-09-06p (3)).
 
     When the patch's sidecar carries ``taxi_route_pairs`` — a v2 patch
     built under the route law, where a taxi-family within-shape pair is
     priced over its CENTRELINE ROUTE and the solve states the law by the
     chain — every ``within_shape`` row whose two ways are BOTH taxi-family
-    roles (the v2 law's ``precedence.taxi_family.members``) prices the
-    chord reading the owner withdrew, and is stamped
+    roles (the v2 law's ``precedence.taxi_family.members``) AND whose
+    chord is at least ``emit.within_shape.withdrawn_chord_min_m`` long
+    prices the chord reading the owner withdrew, and is stamped
     ``check_grade.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``: counted in its
     family, reported under the out-of-scope heading, never adjudicated.
-    A row already out of scope (relaxed, disconnected, ...) keeps its
-    stamp.  A pair with a pad endpoint (the frontage law, 09-01g), a
-    junction mesh edge the v1 oracle prices as a chord and a v1 patch
-    (no key) are NOT distinguished here beyond the role pair — the
-    per-role-pair counts are returned so the reader sees them apart.
-    Returns ``{"stamped", "by_roles", "key_present"}``."""
+    A SHORTER taxi|taxi chord is PRICED — a 6 m neighbour is not the
+    withdrawn 700 m chord (06o; measured HECA 1.0.291: 13,004 stub|stub
+    rows stamped regardless of length while the 05C/23C ridges stood 6 m
+    over 6 m).  A row already out of scope (relaxed, disconnected, ...)
+    keeps its stamp.  A pair with a pad endpoint (the frontage law,
+    09-01g), a junction mesh edge the v1 oracle prices as a chord and a
+    v1 patch (no key) are NOT distinguished here beyond the role pair —
+    the per-role-pair counts are returned so the reader sees them apart.
+    Returns ``{"stamped", "by_roles", "key_present", "short_priced",
+    "short_by_roles", "min_m"}``."""
     side_path = Path(str(osm) + ".axes.json")
     try:
         side = json.loads(side_path.read_text())
@@ -1427,18 +1443,27 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
     if "taxi_route_pairs" not in side:
         return {"stamped": 0, "by_roles": {}, "key_present": False}
     taxi = taxi_family_roles()
+    min_m = withdrawn_chord_min_m()
     by_roles = Counter()
+    short = Counter()
     n = 0
+    n_short = 0
     for r in families.get("within_shape") or []:
         if getattr(r, "out_of_scope", None) is not None:
             continue
         roles = cg.row_roles(r)
         if all(role in taxi for role in roles):
+            dist = getattr(r, "distance_m", None)
+            if dist is not None and float(dist) < min_m:
+                short["|".join(sorted(roles))] += 1
+                n_short += 1
+                continue
             r.out_of_scope = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
             by_roles["|".join(sorted(roles))] += 1
             n += 1
     return {"stamped": n, "by_roles": dict(by_roles.most_common()),
-            "key_present": True}
+            "key_present": True, "short_priced": n_short,
+            "short_by_roles": dict(short.most_common()), "min_m": min_m}
 
 
 def census_one(osm: Path, cg, *, want_bare: bool = False,
@@ -1750,6 +1775,9 @@ def print_report(rep: dict, top: int) -> None:
                   f"— by role pair: "
                   + (", ".join(f"{k} {v}" for k, v in wl["by_roles"].items()) or "none")
                   + " (sidecar taxi_route_pairs present: the v2 verify is the taxi family's instrument)")
+            print(f"      short taxi chords PRICED (< {wl.get('min_m', 0.0):g} m, 06p): "
+                  f"{wl.get('short_priced', 0)} — by role pair: "
+                  + (", ".join(f"{k} {v}" for k, v in (wl.get("short_by_roles") or {}).items()) or "none"))
         print(f"    OUT OF SCOPE (reported, NOT adjudicated) "
               f"{adj.get('out_of_scope_total', 0)}"
               + (":" if oos else "  [no class fired]"))

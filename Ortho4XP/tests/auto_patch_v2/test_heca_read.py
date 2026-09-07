@@ -188,14 +188,22 @@ def test_strip_tie_rows_bind_strip_vertices_in_the_strip_tier(diagonal, law):
              for v in pm.vertices if f.id in pm.vertices[v].incident_faces}
     runway = {v for f in pm.faces.values() if f.role in ("runway", "runway_crossing")
               for v in pm.vertices if f.id in pm.vertices[v].incident_faces}
+    tied = set()
     for r in rows:
         v = r.terms[0][0]
-        assert v in strip and all(u in runway for u, _c in r.terms[1:])
+        # 06p (1): ANY role but the runway family's own vertices
+        assert v not in runway and all(u in runway for u, _c in r.terms[1:])
         assert r.terms[0][1] == 1.0
+        tied.add(v)
     tt = T.tiers(law)
     tier_of = {r: k for k, t in enumerate(tt) for r in t}
     lowest = len(tt) - 1
-    assert all(row_tier(pm, r, tier_of, lowest) == lowest for r in rows)
+    # the row cites the strip face it touches: the strip's tier
+    for r in rows:
+        if r.source.inputs[0].startswith("face:"):
+            assert pm.faces[int(r.source.inputs[0][5:])].role == "graded_strip"
+            assert row_tier(pm, r, tier_of, lowest) == lowest
+    assert any(r.source.inputs[0].startswith("face:") for r in rows)
     assert {family_of(r) for r in rows} == {"strip_transverse"}
     names = [n for n, _ in GENERATORS]
     assert names.index("strip_transverse") == names.index("zone_bands") + 1

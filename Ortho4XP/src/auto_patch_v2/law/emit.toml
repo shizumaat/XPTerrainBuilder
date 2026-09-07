@@ -65,6 +65,14 @@ apron_edge_portion_min_width_ratio = 1.5
 # of different letters produces no row.  v1: grade_law.JUNCTION_ROLES
 # (service_junction there is the road family here and keeps roads.py).
 junction_mesh_roles = ["junction"]
+# THE WITHDRAWN CHORD LAW'S FLOOR (RULINGS 2026-09-06o/06p (3)): the v1
+# oracle's taxi-family CHORD rows on a route-law patch are stamped
+# ``withdrawn_law_05aa`` (harness/census.py::stamp_withdrawn_taxi_chords)
+# ONLY when the chord is at least this long — a 6 m neighbour is not the
+# withdrawn 700 m chord: a short stub|stub step is PRICED (measured HECA
+# 1.0.291: every taxi|taxi within_shape row was stamped regardless of
+# length, stub|stub 13,004, and a 6 m step over 6 m read as withdrawn law).
+withdrawn_chord_min_m = 30.0
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

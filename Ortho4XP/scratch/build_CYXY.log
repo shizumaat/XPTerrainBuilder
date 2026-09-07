@@ -1,0 +1,103 @@
+[ledger] MISS (tree cab2fcecca10) — running: /Users/noah/XPTerrainBuilder/Ortho4XP/venv/bin/python /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tools/harness/build_airport.py CYXY --engine v2 --base-arm
+  [harness] START CYXY_20260907T125006 argv=CYXY --engine v2 --base-arm
+  [harness] data corpus: 7/7 dir(s) mounted from /Users/noah/XPTerrainBuilderData
+  [harness] DEM cache N60W136: base_raster=True insets=True airports_layer=True overlay=False
+  [harness] solve model: iterative (from default; env=None global_cfg=None)
+  [harness] engine: v2 (law tables 4603f627819a)
+  [harness] env snapshot: HEAD=a98d97254 dirty=True tree=cab2fcecca10 O4_*=['O4_DISABLE_OSM_WARMER', 'O4_HARNESS_IN_LEDGER']
+  [harness] artifact-ledger key 5c2181289a34 (corpus a04b4df903b4, store /Users/noah/.ortho4xp/artifact_ledger)
+  [harness] artifact ledger MISS: tree, variant differ(s) from the newest stored CYXY arm (2026-09-07T09:11:28, tag CYXY_20260907T091120) — BUILDING this arm
+  [harness] shared-repo snapshot: 5431 file(s) across 7 data dir(s)
+  [harness] build input set: {'label': 'CYXY', 'tiles': [[60, -136]], 'tiles_with_neighbours': [[59, -137], [59, -136], [59, -135], [60, -137], [60, -136], [60, -135], [61, -137], [61, -136], [61, -135]], 'icaos': ['CYXY']}
+  [harness] shared-repo write GUARD armed: writes outside any authorised scope are REFUSED at the call, not merely reported afterwards
+  [harness] engine derived-cache roots redirected LANE-LOCAL under /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches (LANE-PERSISTENT: reused across runs, so what this build derives is still there for the next one — the P1 finding that HECA re-ran _compute_dsf_object_buildings, 66.6 s, every lane build; masks stay per-run under /tmp/harness/CYXY_20260907T125006.engine_caches): dump cache=/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches/Default_DSF_cache, mod cache=/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches/Airport_mod_cache (overlay seeded copy-on-write: 0 file(s) — 0 cloned, 0 copied — 0 dir(s)), masks=/tmp/harness/CYXY_20260907T125006.engine_caches/Masks (overlay seeded copy-on-write: 407 file(s) — 407 cloned, 0 copied — 28 dir(s); subtrees=['']).  This closes the DSFTool SUBPROCESS dump hole the write guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED) and the masks step's rewrite of the SHARED mask rasters (HECA tile arm 2026-08-12, 16 blocked removes).
+  [harness] engine v2: law tables 4603f627819a (7 files under /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/law)
+    * Recycling OSM data from /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/OSM_data/+60-140/+60-136/+60-136_airports.osm.bz2
+WARNING: Could not save airport info to file /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/Tiles/zOrtho4XP_+60-136/Data+60-136.apt
+    * Min altitude: 630.29114 , Max altitude: 846.9885 , Mean: 702.02155
+    * Min altitude: 579.0 , Max altitude: 2415.0 , Mean: 1255.1678
+   Airport elevation insets: working grid densified to 1/2 arc-second (worst actionable ideal-bake error 0.461 m).
+   Airport (np.float64(-135.03867549285718), np.float64(60.69076675714286)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport (np.float64(-135.03604783333333), np.float64(60.682701377777775)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Whitehorse/Cousins Airport : smoothing radius 16 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport CYXY : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+  [dem] production frame N60W136: composed: grid 7345x7345, baked_query=True, airports_smoothed=4, insets=CYXY:HRDEM
+  [harness]   [v2] [CYXY] load 2.07 s  runways 3  pavements 75  buildings 96
+  [harness]   [v2] [CYXY] planar 0.77 s  faces 281  edges 4802  vertices 4509  breaklines 70  T-vertices 0  seam bands 0  seam vertices 0  seam-band faces dropped 0
+  [harness]   [v2] [CYXY] terraces: 28 apron-like cells in 15 groups (5 islands)  joints 13 (1,004 m, 51 split vertices, 9 faces retreated)  refused: strip 3 breakline 1 spacing 4 invalid 0 pinch 0 map 0
+  [harness]   [v2] [CYXY] structures: bores 1 (uncovered 1, replaced by objects 0)  mouths 0  duals merged 0  object corridors 0 (signatures 0 of 0 resources, merged 0, 0.00 s)  tunnels 0  decks 0  cells cut 0  refused 0
+  [harness]   [v2] [CYXY] objects: 498 placements, 498 resolved (0 unresolved, 498 stock), 77 resources parsed in 0.25 s, 0 below grade, 0 hard-deck, 0 restored-for-read (.anchor_bak)
+  [harness]   [v2] [flat-site] CYXY: lidar_credible — Z0 697.33 m (cifp; CIFP spread 12.50 m over 6 threshold(s)) | DEM lidar[inset] relief 24.90 m vs floor ? m, slope 1.331 %, sea-excluded 0 % | DEM−Z0 1.23 m | seats no (n=498, off 5.06 m, spread 11.28 m)  (0.03 s)
+  [harness]   [v2] [CYXY] road profile 0.10 s  ways 1500 (osm 1476, route 12, axis 12)  stations 22862  clamped 3259 (max lift 14.86 m, cut 14.86 m)  cap 0.080  vertices 698  preferred 460  DEM fallback 238  off-DEM 395 (max 0.96 m)
+  [harness]   [v2] [CYXY] territories (07g): complexes 18 (6 labelled, 131 contacts)  vertices labelled 783 (unlabelled 0, notch fallback 44 of which isolated 24, pads relabelled 0, road corridor 29)  labels 131  adjacent label pairs 158: joints 3 (floor-only 10)  joint edges 3 (graded_strip|junction 3)  in strip 0  contours 4 (47 m, dangling faces 5)  welded: route 11 strip 0  fallback links 0  0.60 s (graph 0.1 s over 261 nodes, labels 0.4 s)
+  [harness]   [v2] [CYXY] joints (07g): 386 rows dropped across the label boundary — apron 13, junction_mesh 6, no_step 296, taxi 2, transverse 60, zones 9; reach bands withdrawn 414; flats straddling 0
+  [harness]   [v2] [CYXY] constraints 1.49 s  {'pins': 6, 'diffs': 45504, 'flats': 10, 'bands': 1746, 'offsets': 0, 'linears': 10248}
+  [harness]   [v2]     runway_profile                    485  0.001 s
+  [harness]   [v2]     runway_crown                      491  0.023 s
+  [harness]   [v2]     runway_transverse                 483  0.023 s
+  [harness]   [v2]     runway_vertical_curve             476  0.001 s
+  [harness]   [v2]     runway_within_shape              1594  0.001 s
+  [harness]   [v2]     route_links                         0  0.000 s
+  [harness]   [v2]     taxi_chain                       1577  0.002 s
+  [harness]   [v2]     taxi_centerlines                  264  0.000 s
+  [harness]   [v2]     triangle_planes                   176  0.024 s
+  [harness]   [v2]     taxi_box                         2191  0.106 s
+  [harness]   [v2]     taxi_box.pairs                   2191
+  [harness]   [v2]     taxi_box.no_axis                    0
+  [harness]   [v2]     junction_mesh                    2298  0.403 s
+  [harness]   [v2]     junction_mesh.box_pairs           623
+  [harness]   [v2]     apron_within_shape               5848  0.092 s
+  [harness]   [v2]     apron_within_shape.chords_outside_face     5493
+  [harness]   [v2]     apron_within_shape.preference_rows     2924
+  [harness]   [v2]     apron_edge_portions                38  0.004 s
+  [harness]   [v2]     road_within_shape               12167  0.010 s
+  [harness]   [v2]     transverse                        822  0.033 s
+  [harness]   [v2]     no_step_pairs                   21453  0.088 s
+  [harness]   [v2]     no_step_rate                     3388  0.003 s
+  [harness]   [v2]     cross_shape_pairs                  45  0.003 s
+  [harness]   [v2]     reach_bands                      2160  0.002 s
+  [harness]   [v2]     zone_bands                       1369  0.426 s
+  [harness]   [v2]     strip_transverse                  257  0.179 s
+  [harness]   [v2]     strip_longitudinal                154  0.004 s
+  [harness]   [v2]     strip_arc                         536  0.004 s
+  [harness]   [v2]     resa_transverse                    19  0.006 s
+  [harness]   [v2]     end_corridor_longitudinal           4  0.013 s
+  [harness]   [v2]     raoa                                5  0.006 s
+  [harness]   [v2]     pad_flats                          10  0.000 s
+  [harness]   [v2]     frontage_near_miss                  4  0.003 s
+  [harness]   [v2]     seam_pins                           0  0.000 s
+  [harness]   [v2]     flat_datum                          0  0.000 s
+  [harness]   [v2]     structures                          0  0.000 s
+  [harness]   [v2]     basins                              0  0.000 s
+  [harness]   [v2]     seam_pin_pair_exempt                0  0.000 s
+  [harness]   [v2]     structure_datum_withdrawn           0  0.000 s
+  [harness]   [v2]     joint_filter                      386  0.024 s
+  [harness]   [v2]     joint_dropped.apron                13
+  [harness]   [v2]     joint_dropped.junction_mesh         6
+  [harness]   [v2]     joint_dropped.no_step             296
+  [harness]   [v2]     joint_dropped.taxi                  2
+  [harness]   [v2]     joint_dropped.transverse           60
+  [harness]   [v2]     joint_dropped.zones                 9
+  [harness]   [v2]     joint_flats_straddling              0
+  [harness]   [v2]     joint_bands_withdrawn             414
+  [harness]   [v2] [CYXY] solve 0.54 s  status optimal  LP {'columns': 13189, 'z': 4509, 'rows_ub': 121101, 'rows_eq': 218, 'nnz': 271801, 'escalation': {'apron:216:101': 0.000232, 'apron:216:103': 4.7e-05, 'apron:216:104': 0.000116, 'apron:216:105': 0.000802, 'apron:216:113': 0.000821, 'apron:216:120': 0.000923, 'apron:216:126': 0.001611, 'apron:216:131': 0.005, 'apron:216:152': 7.3e-05, 'apron:219:1': 0.000709, 'apron:236:1': 1e-06, 'apron:236:120': 0.005, 'apron:236:143': 1e-06, 'apron:236:59': 0.002477, 'apron:236:78': 0.005, 'apron:236:98': 0.005, 'apron:236:99': 0.005, 'apron:88:5555': 0.004782, 'apron:88:5565': 0.000198, 'crown:256': 0.102337, 'crown:82': 0.017551}, 'preference_groups': 3436}  Optimization terminated successfully. (HiGHS Status 7: Optimal); rows 121101+218; preferences yielded 21/3436: crown:256 0.1023, crown:82 0.0176, apron:216:131 0.0050, apron:236:99 0.0050, apron:236:98 0.0050, apron:236:78 0.0050, apron:236:120 0.0050, apron:88:5555 0.0048, ...
+  [harness]   [v2] [CYXY] law tiers: hard set feasible, no surface yielded
+  [harness]   [v2] [CYXY] off-DEM > 0.5 m by role: runway 49/958 (max 1.10), primary_parallel 28/338 (max 1.08), stub 3/109 (max 0.60), junction 29/265 (max 4.55), cross_connector 7/314 (max 4.62), apron 36/353 (max 4.92), service_road 45/322 (max 2.24), groundside_pavement 3/66 (max 1.38), parking_lot 40/308 (max 2.79), graded_strip 136/1325 (max 5.34), building 30/84 (max 4.76)
+  [harness]   [v2] [CYXY] roads vs core profile: 460 vertices, mean |z-profile| 0.168 m, max 2.503 m, 145 off beyond materiality in 31 of 54 faces
+  [harness]   [v2]     residual: pin 0.0000 diff 0.0000 flat 0.0000 band 0.0000 offset 0.0000 m  objective 5877.84
+  [harness]   [v2] [CYXY] joint steps (07g): 4 contours, max step 0.39 m (contour 2, 9 m, graded_strip/junction); by roles graded_strip|junction 3 edges max 0.39
+  [harness]   [v2] [CYXY] apron preference (06w): 15/2945 rows over 0.01, max grade 0.0150 — faces #216 7/148 (max 0.0150), #236 5/222 (max 0.0150), #88 2/1772 (max 0.0148), #219 1/3 (max 0.0107)
+  [harness]   [v2] [CYXY] emit 0.30 s  ways 297  nodes 4509  patch 897847 B  sidecar 4689011 B
+  [harness]   [v2] [CYXY] rebake plan 0.02 s  units 0  members 0  deck members 0 (signature 0 in 0 deck families)  parts 0  contacts 0  pools 0  structures 0  skipped 80 (stock 498, multi-anchor 0, outside pack 0, msl 0, terrain-adapted 0, below grade 0)  -> /tmp/harness/CYXY_20260907T125006.v2/CYXY.rebake.json
+  [harness]   [v2] [CYXY] verify 0.98 s  rows 0  
+  [harness]   [v2] [CYXY] verify: apron_over_preference 2/2604 (max grade 0.0131; generator-side 15/2945)
+  [harness]   [v2] [CYXY] total 7.14 s  -> /tmp/harness/CYXY_20260907T125006.v2
+  [harness] lock churn allowed (coordination state, never corpus data): 18 operation(s), e.g. os_open Elevation_data/+60-140/.lock_VIEWFINDER3_N60W136.lock
+  [harness] built CYXY_20260907T125006 [v2] in 7.3s  ways=297  nodes=4509  status=optimal  -> /tmp/harness/CYXY_20260907T125006.osm  sidecar=OK  body_sha=3003f214df22  v2-verify rows=0
+  [harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation
+  [harness] artifact ledger STORED 5c2181289a34 (5.6 MB) — a later --base-arm at this tree, env and corpus serves this patch instead of rebuilding it
+  [harness] EXIT CYXY_20260907T125006 rc=0 wall=7.6s
+
+  [harness] artifacts in /tmp/harness: CYXY_20260907T125006.osm(+.axes.json), CYXY_20260907T125006.env.json, CYXY_20260907T125006.frame.json, CYXY_20260907T125006.result.json, CYXY_20260907T125006.progress
+  [harness] next: venv/bin/python tools/harness/census.py /tmp/harness/CYXY_20260907T125006.osm
+[ledger] recorded exit 0 (8.4s) → /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tools/run_ledger.jsonl

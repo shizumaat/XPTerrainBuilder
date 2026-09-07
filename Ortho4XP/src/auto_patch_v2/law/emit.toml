@@ -185,4 +185,22 @@ tier_ladder_last          = true          # the tier ladder (04i) answers only w
 cell_roles      = ["apron"]             # the roles a terrace joint is declared FOR (at least one side)
 neighbour_roles = ["apron", "junction"]  # the apron-like roles a cell may be terraced AGAINST (junction: the 05w hangar apron classified as a junction — HECA pav132 #40 against #363)
 joint_gap_m     = 0.6    # the retreating side's ring steps this far into its own cell along the joint; the mesh makes the wall in the band (v1 STACKED_WALL_RETREAT_M: must exceed identity.min_distinct_spacing_m or the copy re-interns into the vertex it retreats from)
+# THE REACH TERRITORIES — SERVING CONTACTS AND LABEL-BOUNDARY JOINTS
+# (RULINGS 2026-09-07c/07e/07f/07g, spec ``apron-reach-territory-spec.md``
+# §2b; ``planar/territories.py``, ``pipeline/territory.py``): contacts are
+# RUNWAY-CONNECTED stations only; every vertex of a welded pavement complex
+# (the union of the complex_roles faces plus the dead-end taxi faces) is
+# SERVED by the contact it reaches by the shortest visible in-shape path,
+# its reach band the contact's extended by the apron cap × that path; two
+# labels whose route ceilings differ by more than the apron's max cap holds
+# along the in-shape path between the contacts (+ min_step_m) DISAGREE, and
+# every vertex pair across them is a JOINT: no row of any family is priced
+# across it (dropped once at assembly), the boundary contour is declared in
+# the sidecar ``terrace_joints`` and the mesh builds the step between the
+# two nodes (owner 07d) — no polygon cut, no split copy.  HECA 07e: the
+# label boundary of pav132's complex falls across the ~126 m neck at
+# 30.127729, 31.412022.
+min_step_m      = 0.5    # the joint predicate's materiality (= materiality.step_m): a ceiling disagreement the cap cannot hold by less than this is no terrace
+simplify_factor = 40     # the complex boundary is simplified to simplify_factor x identity.min_distinct_spacing_m (20 m) for the in-shape visibility graph (at 10 the HECA graph had 1,111 nodes and the stage took 80 s, 2026-09-07; the path error is the corner depth the simplification drops, under the predicate's min_step_m at the apron cap)
+complex_roles   = ["apron", "junction", "service_road", "service_junction"]  # the faces whose union is a welded pavement complex (the apron-like roles and the road family inside pavement; the dead-end taxi faces join by rule, the runway-connected ones are the routes themselves: with the whole taxi family the union is the WHOLE airside, 2.88 km2 / 95 holes at HECA 2026-09-07); outside-pavement road corridors, runways and pads never
 max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjustable): the declared step one joint carries in v1's law — REPORT ONLY here (a joint whose emitted step exceeds it is counted in the planar report); the joint itself has no grade law (06n: "a lawful step")

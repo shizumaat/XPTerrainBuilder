@@ -1,0 +1,282 @@
+[ledger] MISS (tree cab2fcecca10) — running: /Users/noah/XPTerrainBuilder/Ortho4XP/venv/bin/python /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tools/harness/build_airport.py OTHH --engine v2 --base-arm
+  [harness] START OTHH_20260907T125006 argv=OTHH --engine v2 --base-arm
+  [harness] data corpus: 7/7 dir(s) mounted from /Users/noah/XPTerrainBuilderData
+  [harness] DEM cache N25E051: base_raster=True insets=True airports_layer=True overlay=False
+  [harness] solve model: iterative (from default; env=None global_cfg=None)
+  [harness] engine: v2 (law tables 4603f627819a)
+  [harness] env snapshot: HEAD=a98d97254 dirty=True tree=cab2fcecca10 O4_*=['O4_DISABLE_OSM_WARMER', 'O4_HARNESS_IN_LEDGER']
+  [harness] artifact-ledger key 3168552e3017 (corpus ab11c1b692d8, store /Users/noah/.ortho4xp/artifact_ledger)
+  [harness] artifact ledger MISS: tree, variant differ(s) from the newest stored OTHH arm (2026-09-07T00:11:31, tag OTHH_20260907T000435) — BUILDING this arm
+  [harness] shared-repo snapshot: 5431 file(s) across 7 data dir(s)
+  [harness] build input set: {'label': 'OTHH', 'tiles': [[25, 51]], 'tiles_with_neighbours': [[24, 50], [24, 51], [24, 52], [25, 50], [25, 51], [25, 52], [26, 50], [26, 51], [26, 52]], 'icaos': ['OTHH']}
+  [harness] shared-repo write GUARD armed: writes outside any authorised scope are REFUSED at the call, not merely reported afterwards
+  [harness] engine derived-cache roots redirected LANE-LOCAL under /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches (LANE-PERSISTENT: reused across runs, so what this build derives is still there for the next one — the P1 finding that HECA re-ran _compute_dsf_object_buildings, 66.6 s, every lane build; masks stay per-run under /tmp/harness/OTHH_20260907T125006.engine_caches): dump cache=/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches/Default_DSF_cache, mod cache=/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tmp/engine_caches/Airport_mod_cache (overlay seeded copy-on-write: 0 file(s) — 0 cloned, 0 copied — 0 dir(s)), masks=/tmp/harness/OTHH_20260907T125006.engine_caches/Masks (overlay seeded copy-on-write: 407 file(s) — 407 cloned, 0 copied — 28 dir(s); subtrees=['']).  This closes the DSFTool SUBPROCESS dump hole the write guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED) and the masks step's rewrite of the SHARED mask rasters (HECA tile arm 2026-08-12, 16 blocked removes).
+  [harness] engine v2: law tables 4603f627819a (7 files under /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/law)
+    * Recycling OSM data from /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/OSM_data/+20+050/+25+051/+25+051_airports.osm.bz2
+WARNING: Could not save airport info to file /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/Tiles/zOrtho4XP_+25+051/Data+25+051.apt
+    * Min altitude: 0.0 , Max altitude: 7.3415 , Mean: 2.1780772
+    * Min altitude: 0.049680036 , Max altitude: 19.151804 , Mean: 5.714644
+    * Min altitude: -1.7461671 , Max altitude: 19.992949 , Mean: 6.8856716
+    * Min altitude: 24.93392 , Max altitude: 50.70528 , Mean: 35.70802
+    * Min altitude: 4.8505626 , Max altitude: 41.640507 , Mean: 24.695179
+    * Min altitude: -2.2946591 , Max altitude: 15.504333 , Mean: 2.0005317
+    * Min altitude: 15.344692 , Max altitude: 30.80155 , Mean: 21.757597
+    * Min altitude: 6.053163 , Max altitude: 24.166622 , Mean: 17.577734
+    * Min altitude: -26.0 , Max altitude: 81.0 , Mean: 15.311456
+   Airport elevation insets: working grid densified to 1/3 arc-second (worst actionable ideal-bake error 0.639 m).
+   Airport OTHH : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport OTBD : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Qatar RC Sports Center : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport OTBT : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport OTR6 : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport (np.float64(51.29168617142857), np.float64(25.747622028571424)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Doha International Air Base : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport OTBH : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Al Khawr Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport (np.float64(51.405934450000004), np.float64(25.1848496)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+  [pav-builder] OTBD: no Custom Scenery pack; using /Users/noah/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] OTBD: not_flat — Z0 9.45 m (CIFP spread 2.44 m over 2 threshold(s)) | DEM 1arcsec[inset] relief 6.51 m vs floor 8.0 m, slope 0.184 %, sea-excluded 0 %, dsm-trimmed 4 % | DEM−Z0 3.19 m | pack no_data
+  [pav-builder] OTBH: no Custom Scenery pack; using /Users/noah/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] OTBH: flat_candidate — Z0 38.48 m (CIFP spread 3.96 m over 4 threshold(s)) | DEM 1arcsec[inset] relief 7.80 m vs floor 8.0 m, slope 0.101 %, sea-excluded 0 %, dsm-trimmed 10 % | DEM−Z0 4.27 m | pack no_data
+  [pav-builder] OTHH: using Custom Scenery apt.dat (no pavement analysis): /Users/noah/X-Plane 12/Custom Scenery/OTHH Doha (Aeroscape)/Earth nav data/apt.dat
+  [flat-site] OTHH: flat_candidate — Z0 3.96 m (CIFP spread 0.00 m over 4 threshold(s)) | DEM 1arcsec[inset] relief 3.71 m vs floor 8.0 m, slope 0.035 %, sea-excluded 11 %, dsm-trimmed 1 % | DEM−Z0 0.94 m | pack no_data
+  [pav-builder] OTBD: no Custom Scenery pack; using /Users/noah/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] OTBH: no Custom Scenery pack; using /Users/noah/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] OTHH: using Custom Scenery apt.dat (no pavement analysis): /Users/noah/X-Plane 12/Custom Scenery/OTHH Doha (Aeroscape)/Earth nav data/apt.dat
+   [flat-site] OTBD: 4486 placement(s) in +25+051.dsf reached it by the nearest FALLBACK, not by containment — anchored there; they extend the flat surface only where their cluster clears BOTH guards (within 5.00 km of the apt.dat extent AND the feather-datum check).
+   [flat-site] OTBH: 195 placement(s) in +25+051.dsf reached it by the nearest FALLBACK, not by containment — anchored there; they extend the flat surface only where their cluster clears BOTH guards (within 5.00 km of the apt.dat extent AND the feather-datum check).
+   [flat-site] OTHH: 3399 placement(s) in +25+051.dsf reached it by the nearest FALLBACK, not by containment — anchored there; they extend the flat surface only where their cluster clears BOTH guards (within 5.00 km of the apt.dat extent AND the feather-datum check).
+   [flat-site] OTHH: 11901 claimed object placement(s) outside the apt.dat extent form 1 cluster(s) within the 5.00 km bound — one synthetic inset each (11898 placements (3396 fallback) / 19.29 km2), NEVER one grown bbox (the open water between them stays sea); each still faces the feather-datum check at the bake.
+   [flat-site] OTBH: SYNTHETIC CONSTANT INSET at Z0 38.48 m over 31.02 km2 (feather 60 m) - DEM source substituted.
+   [flat-site] OTHH: SYNTHETIC CONSTANT INSET at Z0 3.96 m over a CLAIMED-OBJECT cluster of 11898 placement(s), 19.29 km2 (feather 60 m).
+   [flat-site] OTHH: SYNTHETIC CONSTANT INSET at Z0 3.96 m over 20.99 km2 (feather 60 m) - DEM source substituted.
+    * Recycling OSM data from /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/OSM_data/+20+050/+25+051/+25+051_coastline.osm.bz2
+   [flat-site] OTHH: no isthmus — mainland (the land component reaches the tile frame).
+  [dem] production frame N25E051: composed: grid 11017x11017, baked_query=True, airports_smoothed=10, insets=Al Khawr Airport:COPERNICUSGLO30,Doha International Air Base:COPERNICUSGLO30,OTBD:COPERNICUSGLO30,OTBH:COPERNICUSGLO30,OTBT:COPERNICUSGLO30,OTHH:COPERNICUSGLO30,OTR6:COPERNICUSGLO30,Qatar RC Sports Center:COPERNICUSGLO30
+  [harness]   [v2] [OTHH] load 6.57 s  runways 2  pavements 103  buildings 2977
+  [harness]   [v2] [OTHH] planar 49.05 s  faces 951  edges 25066  vertices 24156  breaklines 441  T-vertices 0  seam bands 0  seam vertices 0  seam-band faces dropped 0
+  [harness]   [v2] [OTHH] terraces: 81 apron-like cells in 52 groups (38 islands)  joints 80 (11,482 m, 518 split vertices, 41 faces retreated)  refused: strip 3 breakline 1 spacing 31 invalid 0 pinch 0 map 0
+  [harness]   [v2] [OTHH] structures: bores 22 (uncovered 13, replaced by objects 6)  mouths 4  duals merged 1  object corridors 8 (signatures 28 of 90 resources, merged 0, 3.62 s)  tunnels 9  decks 0  cells cut 3  refused 83
+  [harness]   [v2]     refused object dsf:obj14 OTHH_TerminalRoads_Parking_005.obj: seat 3.96 is not 2.5 m (basin.admission_depth_m) under the ground at the placement (3.96) — a wall at grade, not a tunnel floor
+  [harness]   [v2]     refused object dsf:obj2603 OTHH_Fuel_02_LOD0_006.obj: seat 3.96 is not 2.5 m (basin.admission_depth_m) under the ground at the placement (3.96) — a wall at grade, not a tunnel floor
+  [harness]   [v2]     refused object dsf:obj2719 OTHH_Emiri_Terminal_04.obj: seat 3.96 is not 2.5 m (basin.admission_depth_m) under the ground at the placement (3.96) — a wall at grade, not a tunnel floor
+  [harness]   [v2]     refused object OTHH_TerminalRoads_Parking_002.obj x1: roofed along its axis (265 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_Parking_000.obj x1: roofed along its axis (252 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_CLUTTER_03_001.obj x1: not a wall: crest plate 1 m2 at 13.38 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_CLUTTER_03_000.obj x1: not a wall: crest plate 3 m2 at 9.94 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_CLUTTER_02_001.obj x1: not a wall: crest plate 0 m2 at 13.48 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_CLUTTER_02_000.obj x1: not a wall: crest plate 3 m2 at 10.45 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_CLUTTER_01.obj x1: not a wall: crest plate 16 m2 at 13.00 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_03_005.obj x1: not a wall: crest plate 20 m2 at 4.63 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_03_003.obj x1: roofed along its axis (199 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_03_002.obj x1: roofed along its axis (1626 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_03_001.obj x1: not a wall: crest plate 89 m2 at 8.34 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_03_000.obj x1: roofed along its axis (1909 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_02_003.obj x1: roofed along its axis (270 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_02_002.obj x1: roofed along its axis (1096 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_02_001.obj x1: not a wall: crest plate 77 m2 at 8.59 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_TerminalRoads_02_000.obj x1: roofed along its axis (983 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_01_003.obj x1: roofed along its axis (666 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_TerminalRoads_01_001.obj x1: roofed along its axis (297 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_VCN_002.obj x1: roofed along its axis (120 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_VCN_001.obj x1: not a wall: crest plate 3 m2 at 1.81 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_VCN_000.obj x1: roofed along its axis (189 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Right_007.obj x1: not a wall: crest plate 1 m2 at 5.37 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Right_006.obj x1: not a wall: crest plate 0 m2 at 3.41 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Right_005.obj x1: not a wall: crest plate 14 m2 at 10.25 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Right_004.obj x1: not a wall: crest plate 1 m2 at 11.04 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Right_001.obj x1: not a wall: crest plate 29 m2 at 4.09 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Left_007.obj x1: not a wall: crest plate 1 m2 at 5.37 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Left_005.obj x1: not a wall: crest plate 14 m2 at 10.25 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Left_004.obj x1: not a wall: crest plate 1 m2 at 11.04 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_Parking-Left_001.obj x1: not a wall: crest plate 29 m2 at 4.09 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_002.obj x1: roofed along its axis (207 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Terminal_Parking_001.obj x1: roofed along its axis (861 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Qatar_DutyFree_Clutter_006.obj x1: not a wall: crest plate 2 m2 at 1.30 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Qatar_DutyFree_003.obj x1: roofed along its axis (931 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_PowerStation_Clutter_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_PowerStation_001.obj x1: roofed along its axis (171 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Emiri_Terminal_27.obj x1: not a wall: crest plate 2 m2 at 16.28 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Emiri_Terminal_17.obj x1: roofed along its axis (224 m2 of near-horizontal faces run along the corridor axis, a plate's worth: >= plate_min_area_m2 100): a building or a deck, not a wall skirt
+  [harness]   [v2]     refused object OTHH_Emiri_Terminal_15.obj x1: not a wall: crest plate 98 m2 at 6.12 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Emiri_Terminal_12.obj x1: not a wall: crest plate 75 m2 at 13.90 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Drainage_06_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_06_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_05_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_05_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_04_LOD0_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_04_LOD0_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_03_LOD0_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_03_LOD0_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_02_LOD0_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_02_LOD0_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_01_LOD0_001.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Drainage_01_LOD0_000.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Dewatering_02_LOD0_002.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Dewatering_02_LOD0_001.obj x1: a floor plate below the seat (344 m2 along the axis > floor_plate_max_m2 0): a basin, basins.py owns it
+  [harness]   [v2]     refused object OTHH_Dewatering_01_LOD0_002.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Dewatering_01_LOD0_001.obj x1: a floor plate below the seat (567 m2 along the axis > floor_plate_max_m2 0): a basin, basins.py owns it
+  [harness]   [v2]     refused object OTHH_Bridge_03_CLUTTER_LOD0_005.obj x1: not a wall: crest plate 26 m2 at 0.64 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Bridge_02_CLUTTER_LOD0_007.obj x1: not a wall: crest plate 13 m2 at 3.04 m (< plate_min_area_m2 100)
+  [harness]   [v2]     refused object OTHH_Bridge_01_LOD0_003.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object OTHH_Bridge_01_LOD0_002.obj x1: the basin pass witnessed a floor in it (basins.py owns it)
+  [harness]   [v2]     refused object dsf:obj12 OTHH_TerminalRoads_Parking_CLUTTER_001.obj: a plate in 187 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj16 OTHH_TerminalRoads_Parking_003.obj: a plate in 7 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj18 OTHH_TerminalRoads_Parking_001.obj: a plate in 14 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj44 OTHH_TerminalRoads_01_005.obj: a plate in 3 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj45 OTHH_TerminalRoads_01_004.obj: the crest plate is a slab 2.43 m thick in plan (> wall_face_max_thickness_m 2.0): a deck, not walls
+  [harness]   [v2]     refused object dsf:obj47 OTHH_TerminalRoads_01_002.obj: a plate in 6 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj50 OTHH_Terminal_Parking_VCN_006.obj: a plate in 6 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj52 OTHH_Terminal_Parking_VCN_004.obj: a plate in 10 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj62 OTHH_Terminal_Parking_Parking-Right_002.obj: a plate in 710 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj64 OTHH_Terminal_Parking_Parking-Right_000.obj: a plate in 8 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj70 OTHH_Terminal_Parking_Parking-Left_002.obj: a plate in 708 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj72 OTHH_Terminal_Parking_Parking-Left_000.obj: a plate in 8 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj81 OTHH_Terminal_Parking_006.obj: a plate in 276 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj87 OTHH_Terminal_Parking_000.obj: the crest plate is a slab 7.06 m thick in plan (> wall_face_max_thickness_m 2.0): a deck, not walls
+  [harness]   [v2]     refused object dsf:obj2435 OTHH_FuelFarm_03_LOD0_002.obj: a plate in 59 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj2708 OTHH_Emiri_Terminal_16.obj: a plate in 3 pieces (two walls are one U/O piece or two bands)
+  [harness]   [v2]     refused object dsf:obj2715 OTHH_Emiri_Terminal_09.obj: the crest plate is a slab 2.13 m thick in plan (> wall_face_max_thickness_m 2.0): a deck, not walls
+  [harness]   [v2]     refused object dsf:obj2716 OTHH_Emiri_Terminal_07.obj: the crest plate is a slab 3.27 m thick in plan (> wall_face_max_thickness_m 2.0): a deck, not walls
+  [harness]   [v2]     refused tunnel:-8342@0: the mouth stands against building pad building2
+  [harness]   [v2]     refused tunnel:-8342@1: the mouth stands against building pad building2
+  [harness]   [v2]     bore -9170: one mouth inside tunnel-object:tunnel_sw.obj@0, the other keeps its OSM ramp (05n-3)
+  [harness]   [v2]     bore -9169: one mouth inside tunnel-object:tunnel_sw.obj@0, the other keeps its OSM ramp (05n-3)
+  [harness]   [v2]     bore -8342: no object at either mouth — OSM ramps stand
+  [harness]   [v2]     bore -8290: both mouths inside ['tunnel-object:tunnel middle - east.obj@0', 'tunnel-object:tunnel1.obj@0'] — replaced
+  [harness]   [v2]     bore -8289: both mouths inside ['tunnel-object:tunnel middle - east.obj@0', 'tunnel-object:tunnel1.obj@0'] — replaced
+  [harness]   [v2]     bore -8272: both mouths inside ['tunnel-object:tunnel middle - west.obj@0', 'tunnel-object:tunnel1.obj@1'] — replaced
+  [harness]   [v2]     bore -8271: both mouths inside ['tunnel-object:tunnel middle - west.obj@0', 'tunnel-object:tunnel1.obj@1'] — replaced
+  [harness]   [v2]     bore -918: both mouths inside ['tunnel-object:tunnel west 2.obj@0', 'tunnel-object:tunnel west 3.obj@0'] — replaced
+  [harness]   [v2]     bore -917: both mouths inside ['tunnel-object:tunnel west 2.obj@0', 'tunnel-object:tunnel west 3.obj@0'] — replaced
+  [harness]   [v2]     tunnel:-9170+-9169@0: mouth -1.14 (DEM 3.96) top 192 m  half 10.6 m  decks 0  dual carriageway of 2 bores (2026-08-31h)
+  [harness]   [v2]     tunnel-object:tunnel middle - east.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 180.0 m (inside walls 135.9 m, beyond 44.1 m) grade 4.00 % ends mouth=bore ground=open walls closed/open width 16.9 m reseat expect +0.14 trench-outside 0.000 m replaced mouths of [-8290, -8289]  decks 0  tunnel wall object Objects/tunnels/tunnel middle - east.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/open, mouth by bore; mouth = the bore end (ways [-8290, -8289]); walls U: 19 + 17 inner-face vertices, band 1.06 m thick
+  [harness]   [v2]     tunnel-object:tunnel middle - west.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 200.3 m (inside walls 200.3 m, beyond 0.0 m) grade 2.50 % ends mouth=bore ground=open walls closed/open width 17.3 m reseat expect -0.22 trench-outside 0.000 m replaced mouths of [-8272, -8271]  decks 0  tunnel wall object Objects/tunnels/tunnel middle - west.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/open, mouth by bore; mouth = the bore end (ways [-8272, -8271]); walls U: 17 + 19 inner-face vertices, band 1.04 m thick
+  [harness]   [v2]     tunnel-object:tunnel west 1.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 35.6 m (inside walls 35.6 m, beyond 0.0 m) grade 0.00 % ends mouth=bore ground=bore walls closed/closed width 39.5 m reseat expect +3.00 trench-outside 0.000 m replaced mouths of []  decks 0  tunnel wall object Objects/tunnels/tunnel west 1.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/closed, mouth by bore; box oriented along the bore that passes through it; bores at both ends ([-918, -917] / [-918, -917]): two mouths, the trench flat at the mouth depth; walls O: 2 + 2 inner-face vertices, band 2.00 m thick
+  [harness]   [v2]     tunnel-object:tunnel west 2.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 221.3 m (inside walls 221.3 m, beyond 0.0 m) grade 2.26 % ends mouth=bore ground=open walls closed/open width 41.5 m reseat expect +1.34 trench-outside 0.000 m replaced mouths of [-918, -917]  decks 0  tunnel wall object Objects/tunnels/tunnel west 2.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/open, mouth by bore; mouth = the bore end (ways [-918, -917]); walls U: 2 + 2 inner-face vertices, band 1.09 m thick
+  [harness]   [v2]     tunnel-object:tunnel west 3.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 221.3 m (inside walls 221.3 m, beyond 0.0 m) grade 2.26 % ends mouth=bore ground=open walls closed/open width 38.7 m reseat expect +1.34 trench-outside 0.000 m replaced mouths of [-918, -917]  decks 0  tunnel wall object Objects/tunnels/tunnel west 3.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/open, mouth by bore; mouth = the bore end (ways [-918, -917]); walls U: 2 + 2 inner-face vertices, band 1.08 m thick
+  [harness]   [v2]     tunnel-object:tunnel1.obj@0: floor@mouth -5.59 ground 3.96 depth 9.55 m ramp 248.3 m (inside walls 248.3 m, beyond 0.0 m) grade 3.85 % ends mouth=bore ground=open walls closed/open width 14.5 m reseat expect +2.26 trench-outside 0.000 m replaced mouths of [-8290, -8289]  decks 0  tunnel wall object Objects/tunnels/tunnel1.obj (2026-09-05n): floor at the mouth -5.59 = ground 3.96 − depth 9.55 (plate; crest 9.55), ends closed/open, mouth by bore; mouth = the bore end (ways [-8290, -8289]); walls U: 2 + 2 inner-face vertices, band 1.03 m thick
+  [harness]   [v2]     tunnel-object:tunnel1.obj@1: floor@mouth -5.59 ground 3.96 depth 9.55 m ramp 248.3 m (inside walls 248.3 m, beyond 0.0 m) grade 3.85 % ends mouth=bore ground=open walls closed/open width 14.5 m reseat expect +2.26 trench-outside 0.000 m replaced mouths of [-8272, -8271]  decks 0  tunnel wall object Objects/tunnels/tunnel1.obj (2026-09-05n): floor at the mouth -5.59 = ground 3.96 − depth 9.55 (plate; crest 9.55), ends closed/open, mouth by bore; mouth = the bore end (ways [-8272, -8271]); walls U: 2 + 2 inner-face vertices, band 1.03 m thick
+  [harness]   [v2]     tunnel-object:tunnel_sw.obj@0: floor@mouth -1.04 ground 3.96 depth 5.00 m ramp 180.0 m (inside walls 103.3 m, beyond 76.7 m) grade 4.00 % ends mouth=bore ground=open walls closed/open width 31.0 m reseat expect +1.64 trench-outside 0.000 m replaced mouths of [-9170, -9169]  decks 0  tunnel wall object Objects/tunnels/tunnel_sw.obj (2026-09-05n): floor at the mouth -1.04 = ground 3.96 − depth 5.00 (plate; crest 5.00), ends closed/open, mouth by bore; mouth = the bore end (ways [-9170, -9169]); walls U: 2 + 2 inner-face vertices, band 1.13 m thick
+  [harness]   [v2] [OTHH] objects: 11910 placements, 11910 resolved (0 unresolved, 1901 stock), 1373 resources parsed in 40.96 s, 17 below grade, 0 hard-deck, 1246 restored-for-read (.anchor_bak)
+  [harness]   [v2] [OTHH] basins: regions 14  basins 10  cells cut 0  refused 34  under min area 2
+  [harness]   [v2]     refused OTHH_TerminalRoads_Parking_002.obj x1: its floor lies 3.18 m under the local ground but the shell carrying it rises 7.96 m above the ground (> contact_band_m 1.0) over more than rim_protrusion_max_fraction 5% of its face area — a shell through the ground is a building on the pack's plane or a structure standing in a pit, never the pit itself (04i rule 1: a pit's rim tops out at grade; 2026-09-06f: a smaller protrusion is cover)
+  [harness]   [v2]     refused Safedock-T2-24_pole.obj x134: its floor lies 3.99 m under the local ground but the shell carrying it rises 7.47 m above the ground (> contact_band_m 1.0) over more than rim_protrusion_max_fraction 5% of its face area — a shell through the ground is a building on the pack's plane or a structure standing in a pit, never the pit itself (04i rule 1: a pit's rim tops out at grade; 2026-09-06f: a smaller protrusion is cover)
+  [harness]   [v2]     refused OTHH_Dewatering_01_LOD0_001.obj x1: its floor lies 12.86 m under the local ground but the shell carrying it rises 2.84 m above the ground (> contact_band_m 1.0) over more than rim_protrusion_max_fraction 5% of its face area — a shell through the ground is a building on the pack's plane or a structure standing in a pit, never the pit itself (04i rule 1: a pit's rim tops out at grade; 2026-09-06f: a smaller protrusion is cover)
+  [harness]   [v2]     refused OTHH_Dewatering_02_LOD0_001.obj x1: its floor lies 12.86 m under the local ground but the shell carrying it rises 2.84 m above the ground (> contact_band_m 1.0) over more than rim_protrusion_max_fraction 5% of its face area — a shell through the ground is a building on the pack's plane or a structure standing in a pit, never the pit itself (04i rule 1: a pit's rim tops out at grade; 2026-09-06f: a smaller protrusion is cover)
+  [harness]   [v2]     refused tunnel middle - west.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel west 2.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel west 1.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel west 3.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel middle - east.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel_sw.obj x1: genuine solids reach -18.00 m under the local ground (rendered -14.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused tunnel1.obj x2: genuine solids reach -17.00 m under the local ground (rendered -13.04) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Qatar_DutyFree_Clutter_006.obj x1: genuine solids reach -12.21 m under the local ground (rendered -8.24) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Qatar_DutyFree_003.obj x1: genuine solids reach -12.21 m under the local ground (rendered -8.24) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Bridge_02_CLUTTER_LOD0_007.obj x1: genuine solids reach -9.67 m under the local ground (rendered -5.70) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_Parking_005.obj x1: genuine solids reach -9.09 m under the local ground (rendered -5.13) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Bridge_03_CLUTTER_LOD0_005.obj x1: genuine solids reach -8.72 m under the local ground (rendered -4.76) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_02_004.obj x1: genuine solids reach -6.55 m under the local ground (rendered -2.59) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_03_004.obj x1: genuine solids reach -6.35 m under the local ground (rendered -2.38) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_PowerStation_001.obj x1: genuine solids reach -5.89 m under the local ground (rendered -1.93) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Bridge_04_LOD0_003.obj x1: genuine solids reach -5.58 m under the local ground (rendered -1.61) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Bridge_05_LOD0_003.obj x1: genuine solids reach -5.32 m under the local ground (rendered -1.36) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_03_005.obj x1: genuine solids reach -4.73 m under the local ground (rendered -0.76) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Bridge_03_LOD0_003.obj x1: genuine solids reach -4.36 m under the local ground (rendered -0.40) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Fuel_02_LOD0_006.obj x1: genuine solids reach -4.21 m under the local ground (rendered -0.25) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_FuelFarm_03_LOD0_002.obj x1: genuine solids reach -3.81 m under the local ground (rendered 0.15) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_Emiri_Terminal_04.obj x1: genuine solids reach -3.79 m under the local ground (rendered 0.17) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_03_002.obj x1: genuine solids reach -3.76 m under the local ground (rendered 0.20) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_02_002.obj x1: genuine solids reach -3.76 m under the local ground (rendered 0.20) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_TerminalRoads_03_003.obj x1: genuine solids reach -3.17 m under the local ground (rendered 0.79) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused OTHH_FuelFarm_01_CLUTTER_LOD0_002.obj x1: genuine solids reach -2.97 m under the local ground (rendered 0.99) but carry NO floor plate (0 m2 of solid faces with |n_y| >= 0.7 at >= 2.5 m depth) — a skirt, not a pit (04i rule 1)
+  [harness]   [v2]     refused basin:8: 552 m2, floor plate 551 m2, 100% under its own objects' solids at or above the ground (>= basement_cover_min 90%) — a BASEMENT, not a pit: the terrain there is the building's pad (no pad cell) under the pad law (04i rule 4) at 25.256043,51.616797
+  [harness]   [v2]     refused basin:10: 230 m2, floor plate 230 m2, 100% under its own objects' solids at or above the ground (>= basement_cover_min 90%) — a BASEMENT, not a pit: the terrain there is the building's pad (no pad cell) under the pad law (04i rule 4) at 25.255330,51.616821
+  [harness]   [v2]     refused basin:12: 2 m2, floor plate 2 m2, 100% under its own objects' solids at or above the ground (>= basement_cover_min 90%) — a BASEMENT, not a pit: the terrain there is the building's pad (no pad cell) under the pad law (04i rule 4) at 25.256177,51.616658
+  [harness]   [v2]     refused basin:13: 0 m2, floor plate 0 m2, 100% under its own objects' solids at or above the ground (>= basement_cover_min 90%) — a BASEMENT, not a pit: the terrain there is the building's pad (building4) under the pad law (04i rule 4) at 25.259021,51.618016
+  [harness]   [v2]     basin:0: floor -0.24  R_est 3.96  deepest solid -4.20 (rendered -0.24)  floor area 927 m2  seat expect +0.00 (anchor outside the floor, plate y -4.20)  at 25.252755,51.626279  pit; 2 object(s); floor plate 644 m2; covered 0% (own 61%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 79 (0 of 782 m); rendered deepest solid -0.24 = the floor; rim tops out in the contact band; floor faces 1 (927 m2 of 4126 m2 region); anchor outside the floor: plate y -4.20, seat expect +0.00 m
+  [harness]   [v2]     basin:1: floor 0.15  R_est 3.96  deepest solid -3.82 (rendered 0.15)  floor area 1170 m2  seat expect +3.82 (anchor inside the floor, plate y -3.82)  at 25.291944,51.605865  pit; 2 object(s); floor plate 782 m2; covered 0% (own 44%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 55 (0 of 549 m); rendered deepest solid 0.15 = the floor; rim tops out in the contact band; floor faces 1 (1170 m2 of 3548 m2 region); anchor INSIDE the floor: plate y -3.82, seat expect +3.82 m
+  [harness]   [v2]     basin:2: floor 0.15  R_est 3.96  deepest solid -3.82 (rendered 0.15)  floor area 1079 m2  seat expect +3.82 (anchor inside the floor, plate y -3.82)  at 25.295672,51.604575  pit; 2 object(s); floor plate 740 m2; covered 0% (own 53%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 40 (0 of 394 m); rendered deepest solid 0.15 = the floor; rim tops out in the contact band; floor faces 1 (1079 m2 of 3466 m2 region); anchor INSIDE the floor: plate y -3.82, seat expect +3.82 m
+  [harness]   [v2]     basin:3: floor 0.15  R_est 3.96  deepest solid -3.82 (rendered 0.15)  floor area 860 m2  seat expect +3.82 (anchor inside the floor, plate y -3.82)  at 25.296327,51.606389  pit; 2 object(s); floor plate 560 m2; covered 0% (own 54%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 34 (0 of 333 m); rendered deepest solid 0.15 = the floor; rim tops out in the contact band; floor faces 1 (860 m2 of 2638 m2 region); anchor INSIDE the floor: plate y -3.82, seat expect +3.82 m
+  [harness]   [v2]     basin:4: floor -9.18  R_est 3.96  deepest solid -13.14 (rendered -9.18)  floor area 1492 m2  seat expect +0.00 (anchor outside the floor, plate y -13.14)  at 25.295698,51.603557  covered pit; 1 object(s); floor plate 1283 m2; covered 2% (own 26%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 2 of 46 (20 of 450 m, first at 25.295641,51.603943); rendered deepest solid -9.18 = the floor; rim tops out in the contact band; floor faces 2 (1492 m2 of 6217 m2 region); anchor outside the floor: plate y -13.14, seat expect +0.00 m
+  [harness]   [v2]     basin:5: floor 0.15  R_est 3.96  deepest solid -3.82 (rendered 0.15)  floor area 512 m2  seat expect +3.82 (anchor inside the floor, plate y -3.82)  at 25.253708,51.622961  pit; 2 object(s); floor plate 275 m2; covered 0% (own 54%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 26 (0 of 259 m); rendered deepest solid 0.15 = the floor; rim tops out in the contact band; floor faces 1 (512 m2 of 2054 m2 region); anchor INSIDE the floor: plate y -3.82, seat expect +3.82 m
+  [harness]   [v2]     basin:6: floor -9.18  R_est 3.96  deepest solid -13.14 (rendered -9.18)  floor area 1373 m2  seat expect +0.00 (anchor outside the floor, plate y -13.14)  at 25.252080,51.624597  covered pit; 1 object(s); floor plate 1145 m2; covered 2% (own 27%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 2 of 46 (20 of 451 m, first at 25.252751,51.624261); rendered deepest solid -9.18 = the floor; rim tops out in the contact band; floor faces 2 (1373 m2 of 4330 m2 region); anchor outside the floor: plate y -13.14, seat expect +0.00 m
+  [harness]   [v2]     basin:7: floor -0.24  R_est 3.96  deepest solid -4.20 (rendered -0.24)  floor area 634 m2  seat expect +0.00 (anchor outside the floor, plate y -4.20)  at 25.253662,51.624418  pit; 2 object(s); floor plate 455 m2; covered 0% (own 48%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 18 (0 of 177 m); rendered deepest solid -0.24 = the floor; rim tops out in the contact band; floor faces 1 (634 m2 of 1434 m2 region); anchor outside the floor: plate y -4.20, seat expect +0.00 m
+  [harness]   [v2]     basin:9: floor 0.15  R_est 3.96  deepest solid -3.82 (rendered 0.15)  floor area 128 m2  seat expect +3.82 (anchor inside the floor, plate y -3.82)  at 25.253917,51.622124  pit; 2 object(s); floor plate 66 m2; covered 0% (own 74%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 10 (0 of 93 m); rendered deepest solid 0.15 = the floor; rim tops out in the contact band; floor faces 1 (128 m2 of 519 m2 region); anchor INSIDE the floor: plate y -3.82, seat expect +3.82 m; under the diagnostic min_area_m2 1000 (admitted, 04i)
+  [harness]   [v2]     basin:11: floor -0.24  R_est 3.96  deepest solid -4.20 (rendered -0.24)  floor area 119 m2  seat expect +0.00 (anchor outside the floor, plate y -4.20)  at 25.253509,51.623991  pit; 1 object(s); floor plate 85 m2; covered 0% (own 46%; diagnostic max 50%); rim stations beyond 2.0 m of the shells' at-grade geometry: 0 of 6 (0 of 50 m); rendered deepest solid -0.24 = the floor; rim tops out in the contact band; floor faces 1 (119 m2 of 158 m2 region); anchor outside the floor: plate y -4.20, seat expect +0.00 m; under the diagnostic min_area_m2 1000 (admitted, 04i)
+  [harness]   [v2] [flat-site] OTHH: flat_candidate — Z0 3.96 m (cifp; CIFP spread 0.00 m over 4 threshold(s)) | DEM coarse[inset] relief 0.00 m vs floor 8.0 m, slope 0.000 %, sea-excluded 0 %, dsm-trimmed 0 % | DEM−Z0 0.00 m | seats ok (n=11730, off 0.00 m, spread 0.00 m)  (0.12 s)
+  [harness]   [v2] [OTHH] road profile 0.38 s  ways 7176 (osm 7155, route 0, axis 21)  stations 99740  clamped 98 (max lift 0.89 m, cut 0.89 m)  cap 0.080  vertices 238  preferred 180  DEM fallback 58  off-DEM 0 (max 0.00 m)
+  [harness]   [v2] [OTHH] territories (07g): complexes 124 (6 labelled, 585 contacts)  vertices labelled 6390 (unlabelled 0, notch fallback 1614 of which isolated 1087, pads relabelled 18, road corridor 0)  labels 585  adjacent label pairs 818: joints 15 (floor-only 0)  joint edges 42 (apron 31, apron|graded_strip 3, apron|junction 2, cross_connector|graded_strip 1, cross_connector|junction 1, graded_strip|junction 1, junction 2, junction|junction 1)  in strip 1  contours 23 (2,327 m, dangling faces 9)  welded: route 0 strip 1  fallback links 0  23.89 s (graph 2.3 s over 1314 nodes, labels 21.1 s)
+  [harness]   [v2] [OTHH] joints (07g): 4457 rows dropped across the label boundary — apron 1791, apron_edge_portion 2363, junction_mesh 30, no_step 233, taxi 16, transverse 23, zones 1; reach bands withdrawn 4450; flats straddling 0
+  [harness]   [v2] [OTHH] constraints 68.18 s  {'pins': 856, 'diffs': 285568, 'flats': 321, 'bands': 6458, 'offsets': 0, 'linears': 61698}
+  [harness]   [v2]     runway_profile                    864  0.001 s
+  [harness]   [v2]     runway_crown                      731  0.073 s
+  [harness]   [v2]     runway_transverse                 731  0.074 s
+  [harness]   [v2]     runway_vertical_curve             858  0.001 s
+  [harness]   [v2]     runway_within_shape              2455  0.001 s
+  [harness]   [v2]     route_links                         0  0.000 s
+  [harness]   [v2]     taxi_chain                      10929  0.011 s
+  [harness]   [v2]     taxi_centerlines                 2498  0.003 s
+  [harness]   [v2]     triangle_planes                  1376  0.018 s
+  [harness]   [v2]     taxi_box                        21423  9.379 s
+  [harness]   [v2]     taxi_box.pairs                  21423
+  [harness]   [v2]     taxi_box.no_axis                    0
+  [harness]   [v2]     junction_mesh                   11800  14.797 s
+  [harness]   [v2]     junction_mesh.box_pairs          2588
+  [harness]   [v2]     apron_within_shape             138268  39.747 s
+  [harness]   [v2]     apron_within_shape.chords_outside_face   690156
+  [harness]   [v2]     apron_within_shape.preference_rows    69134
+  [harness]   [v2]     apron_edge_portions             21467  0.030 s
+  [harness]   [v2]     road_within_shape                2874  0.003 s
+  [harness]   [v2]     transverse                       2788  0.130 s
+  [harness]   [v2]     no_step_pairs                   82214  0.771 s
+  [harness]   [v2]     no_step_rate                    19873  0.016 s
+  [harness]   [v2]     cross_shape_pairs                 641  0.019 s
+  [harness]   [v2]     reach_bands                     10908  0.011 s
+  [harness]   [v2]     zone_bands                       5572  2.253 s
+  [harness]   [v2]     strip_transverse                 1150  0.352 s
+  [harness]   [v2]     strip_longitudinal                323  0.010 s
+  [harness]   [v2]     strip_arc                         382  0.009 s
+  [harness]   [v2]     resa_transverse                    27  0.014 s
+  [harness]   [v2]     end_corridor_longitudinal          12  0.034 s
+  [harness]   [v2]     raoa                                0  0.015 s
+  [harness]   [v2]     pad_flats                         162  0.000 s
+  [harness]   [v2]     frontage_near_miss                 32  0.165 s
+  [harness]   [v2]     seam_pins                           0  0.000 s
+  [harness]   [v2]     flat_datum                      16084  0.009 s
+  [harness]   [v2]     structures                       6878  0.018 s
+  [harness]   [v2]     basins                            488  0.010 s
+  [harness]   [v2]     seam_pin_pair_exempt                0  0.000 s
+  [harness]   [v2]     structure_datum_withdrawn           0  0.000 s
+  [harness]   [v2]     joint_filter                     4457  0.164 s
+  [harness]   [v2]     joint_dropped.apron              1791
+  [harness]   [v2]     joint_dropped.apron_edge_portion     2363
+  [harness]   [v2]     joint_dropped.junction_mesh        30
+  [harness]   [v2]     joint_dropped.no_step             233
+  [harness]   [v2]     joint_dropped.taxi                 16
+  [harness]   [v2]     joint_dropped.transverse           23
+  [harness]   [v2]     joint_dropped.zones                 1
+  [harness]   [v2]     joint_flats_straddling              0
+  [harness]   [v2]     joint_bands_withdrawn            4450
+  [harness]   [v2] [OTHH] solve 4.56 s  status optimal  LP {'columns': 155463, 'z': 24156, 'rows_ub': 745925, 'rows_eq': 6171, 'nnz': 1780999, 'escalation': {'crown:1884': 0.106193, 'crown:2076': 0.193921, 'crown:2077': 0.219203, 'crown:2078': 0.032262, 'crown:2079': 0.175212, 'crown:2081': 0.000104, 'crown:2633': 0.019709, 'crown:2710': 0.034338, 'crown:2713': 0.07331, 'crown:2898': 0.024185, 'crown:2908': 0.114905, 'crown:461': 0.062505, 'crown:462': 0.12631, 'crown:463': 0.08457, 'crown:542': 0.062464, 'crown:543': 0.112457, 'crown:544': 0.049718, 'crown:658': 0.056966, 'crown:659': 0.01943, 'crown:660': 0.169745, 'crown:662': 0.207457, 'crown:663': 0.147487, 'crown:857': 0.083202, 'crown:858': 0.064525}, 'preference_groups': 104237}  Optimization terminated successfully. (HiGHS Status 7: Optimal); rows 745925+6171; preferences yielded 24/104237: crown:2077 0.2192, crown:662 0.2075, crown:2076 0.1939, crown:2079 0.1752, crown:660 0.1697, crown:663 0.1475, crown:462 0.1263, crown:2908 0.1149, ...
+  [harness]   [v2] [OTHH] law tiers: hard set feasible, no surface yielded
+  [harness]   [v2] [flat-site] OTHH: 16084/16084 datum rows at Z0 3.96 (max off 0.000 m; the law rows outrank the preference where they differ)
+  [harness]   [v2] [OTHH] off-DEM > 0.5 m by role: tunnel_ramp 22/329 (max 1.15), tunnel_trench 191/191 (max 13.14)
+  [harness]   [v2] [OTHH] roads vs core profile: 180 vertices, mean |z-profile| 0.000 m, max 0.000 m, 0 off beyond materiality in 0 of 27 faces
+  [harness]   [v2]     residual: pin 0.0000 diff 0.0000 flat 0.0000 band 0.0000 offset 0.0000 m  objective 12422.79
+  [harness]   [v2] [OTHH] joint steps (07g): 23 contours, max step 0.00 m (contour 0, 226 m, apron/junction); by roles apron|apron 31 edges max 0.00, apron|graded_strip 3 edges max 0.00, apron|junction 2 edges max 0.00, cross_connector|graded_strip 1 edges max 0.00, cross_connector|junction 1 edges max 0.00, graded_strip|junction 1 edges max 0.00, junction|junction 3 edges max 0.00
+  [harness]   [v2] [OTHH] apron preference (06w): 0/87422 rows over 0.01, max grade 0.0027 — faces 
+  [harness]   [v2] [OTHH] emit 2.09 s  ways 1113  nodes 24156  patch 4434014 B  sidecar 26560712 B
+  [harness]   [v2] [OTHH] rebake plan 85.58 s  units 107  members 1118  deck members 26 (signature 26 in 4 deck families)  parts 152086  contacts 140848  pools 78  structures 11238  skipped 256 (stock 1901, multi-anchor 84, outside pack 43, msl 0, terrain-adapted 0, below grade 150)  -> /tmp/harness/OTHH_20260907T125006.v2/OTHH.rebake.json
+  [harness]   [v2] [OTHH] verify 164.85 s  rows 0  
+  [harness]   [v2] [OTHH] verify: apron_over_preference 0/59701 (max grade 0.0000; generator-side 0/87422)
+  [harness]   [v2] [OTHH] total 410.58 s  -> /tmp/harness/OTHH_20260907T125006.v2
+  [harness] lock churn allowed (coordination state, never corpus data): 16 operation(s), e.g. os_open Elevation_data/+20+050/.lock_VIEWFINDER3_N25E051.lock
+  [harness] built OTHH_20260907T125006 [v2] in 519.0s  ways=1113  nodes=24156  status=optimal  -> /tmp/harness/OTHH_20260907T125006.osm  sidecar=OK  body_sha=4a695be3eb13  v2-verify rows=0
+  [harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation
+  [harness] artifact ledger STORED 3168552e3017 (31.0 MB) — a later --base-arm at this tree, env and corpus serves this patch instead of rebuilding it
+  [harness] EXIT OTHH_20260907T125006 rc=0 wall=519.3s
+
+  [harness] artifacts in /tmp/harness: OTHH_20260907T125006.osm(+.axes.json), OTHH_20260907T125006.env.json, OTHH_20260907T125006.frame.json, OTHH_20260907T125006.result.json, OTHH_20260907T125006.progress
+  [harness] next: venv/bin/python tools/harness/census.py /tmp/harness/OTHH_20260907T125006.osm
+[ledger] recorded exit 0 (520.4s) → /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/tools/run_ledger.jsonl

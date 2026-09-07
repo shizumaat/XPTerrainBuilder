@@ -48,19 +48,22 @@ def prepare(icao: str, inputs, law: Law | None = None,
     cl = classify(airport, law, load_rules())
     pm, _ps = build_planar(airport, cl, law)
     wall["classify+planar"] = time.perf_counter() - t
-    return _prepare_solved(icao, airport, pm, law, w, out, drop, wall)
+    return _prepare_solved(icao, airport, pm, law, w, out, drop, wall, cl=cl)
 
 
 def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
                     out: _t.Callable[[str], None] = print, drop: _t.Sequence[str] = (),
-                    wall: dict[str, float] | None = None) -> Prepared:
+                    wall: dict[str, float] | None = None, cl=None) -> Prepared:
     """From a built planar map: the rows, the LP (or the last resort's
     relaxed LP), the seam passes — ``prepare``'s solve half, so a twin
     can drive it on a synthetic airport."""
-    from ..constraints import generate
+    from .territory import territory_constraints, territory_stage
     wall = wall if wall is not None else {"load": 0.0, "classify+planar": 0.0}
     t = time.perf_counter()
-    cs, counts, _g = generate(pm, law, airport)
+    # THE TERRITORY STAGE (2026-09-07g): the LP ``why`` reads is the build's
+    stage = territory_stage(pm, law, airport, cl, out=out)
+    pm = stage.pm
+    cs, counts, _g = territory_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)
     wall["constraints"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -76,7 +79,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
         if len(honoured) == len(pm.seam_vertices) or honoured == prev:
             break
         prev = honoured
-        cs, counts2, _g = generate(pm, law, airport, seam_honoured=honoured)
+        cs, counts2, _g = territory_constraints(pm, law, airport, stage, seam_honoured=honoured)
         cs = _drop(cs, drop)
         counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
         prob, res, cs, relaxation = _solve_or_relax(icao, pm, cs, law, w, out, relaxation)

@@ -1,0 +1,33 @@
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+.................................................s...................... [ 30%]
+........................................................................ [ 40%]
+........................................................................ [ 50%]
+........................................................................ [ 60%]
+........................................................................ [ 70%]
+........................................................................ [ 80%]
+........................................................................ [ 91%]
+................................................................         [100%]
+=============================== warnings summary ===============================
+tests/auto_patch_v2/test_classify_lots.py: 2 warnings
+tests/auto_patch_v2/test_m5.py: 1 warning
+tests/auto_patch_v2/test_round3.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace3.py: 7 warnings
+tests/test_harness.py: 3 warnings
+  /Users/noah/XPTerrainBuilder/Ortho4XP/venv/lib/python3.14/site-packages/shapely/constructive.py:1353: RuntimeWarning: divide by zero encountered in oriented_envelope
+    return lib.oriented_envelope(geometry, **kwargs)
+
+tests/auto_patch_v2/test_classify_lots.py: 2 warnings
+tests/auto_patch_v2/test_m5.py: 1 warning
+tests/auto_patch_v2/test_round3.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace3.py: 7 warnings
+tests/test_harness.py: 3 warnings
+  /Users/noah/XPTerrainBuilder/Ortho4XP/venv/lib/python3.14/site-packages/shapely/constructive.py:1353: RuntimeWarning: invalid value encountered in oriented_envelope
+    return lib.oriented_envelope(geometry, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/auto_patch_v2/test_pad_flat.py:99: the fixture did not relax on this tree (mode tiered)
+711 passed, 1 skipped, 38 warnings in 119.35s (0:01:59)

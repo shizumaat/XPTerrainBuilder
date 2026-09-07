@@ -1,0 +1,17 @@
+START
+Traceback (most recent call last):
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/scratch/why_replay.py", line 21, in <module>
+    prep = _prepare_solved("HECA", airport, pm, law, w, out=stamp, cl=cl)
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/pipeline/why.py", line 64, in _prepare_solved
+    stage = territory_stage(pm, law, airport, cl, out=out)
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/pipeline/territory.py", line 134, in territory_stage
+    terr = label_territories(pm, law, bands, cl)
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/planar/territories.py", line 542, in label_territories
+    _label_outside_roads(pm, law, terr, outside, spacing, tol)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/planar/territories.py", line 585, in _label_outside_roads
+    Dv = _vertex_distances(g, Q, fb)
+  File "/Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/src/auto_patch_v2/planar/territories.py", line 455, in _vertex_distances
+    fallback[1] += int((np.atleast_1d(idx0) != idx).sum())
+    ~~~~~~~~^^^
+IndexError: list index out of range

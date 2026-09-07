@@ -3980,13 +3980,22 @@ def _no_step_polylines(ways, feature_ways, nodes, ll_to_m):
     return out
 
 
-def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m
+def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
+                                terrace_joints_m: Optional[list] = None
                                 ) -> Tuple[List[Violation], int, int]:
     """§1.2 — the RATE-OF-CHANGE rows: airside membrane stations whose
     grade CHANGE per unit length outruns the aerodrome's vertical-curve
     rate.
 
     ``(violations, n_stations, n_ways)``.
+
+    APRON TERRACE LOCKSTEP (06n / 07g): a station triple one of whose two
+    segments crosses a DECLARED joint reads the joint's step, not a rate
+    — the same rule ``auto_patch_v2/verify/no_step.py`` applies.  This
+    was the last joint-blind reader: HECA 2026-09-07 (label-boundary
+    joints, RULINGS 07g) returned 23 ``airside_no_step`` rows up to
+    9.2 m, every one a ring triple straddling a declared 8-9 m joint the
+    solve had priced no row across.
 
     THE MACHINERY IS THE STRIP FAMILY'S, EXTENDED — never forked (spec
     §1.2, "extend that machinery").  The rate comes from
@@ -4037,6 +4046,10 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m
             dn = abs(s[k + 1] - s[k])
             if dp < 1e-6 or dn < 1e-6:
                 continue
+            if terrace_joints_m and (
+                    _terrace_step_allowance(terrace_joints_m, *pts[a], *pts[b]) > 0.0
+                    or _terrace_step_allowance(terrace_joints_m, *pts[b], *pts[c]) > 0.0):
+                continue                    # a declared step, read by its joint
             change = abs((float(zs[c]) - float(zs[b])) / dn
                          - (float(zs[b]) - float(zs[a])) / dp)
             allowed = rate * 0.5 * (dp + dn)
@@ -8805,7 +8818,7 @@ def run_checks(
         ways,
         [w for cls in _NO_STEP_POLYLINE_FEATURES
          for w in open_features.get(cls, [])],
-        nodes, ll_to_m)
+        nodes, ll_to_m, terrace_joints_m=terrace_joints_m)
     no_step_all = no_step_rows + no_step_rate_rows
     _fam("airside_no_step", no_step_all)
     _pv("AIRSIDE NO-STEP: a pair over cap x DIRECT distance, or a "

@@ -38,7 +38,7 @@ import typing as _t
 from .frame import XY, Key
 from .structures import Basin, Tunnel
 
-__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "TerraceJoint",
+__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "TerraceJoint", "LabelJoint",
            "PlanarMap", "PlanarError", "validate", "vertex_tier"]
 
 
@@ -151,6 +151,24 @@ class TerraceJoint:
 
 
 @_dc.dataclass(frozen=True)
+class LabelJoint:
+    """ONE LABEL-BOUNDARY JOINT (RULINGS 2026-09-07g; ``planar/territories.py``):
+    a polyline of the boundary between two serving-contact territories —
+    the contour through the faces' triangulations, the line the sidecar
+    declares (``points`` in the frame, ``points_ll`` as lat/lon) — and the
+    vertex ``pairs`` across it (planar edges and triangulation chords whose
+    labels disagree) whose largest |Δz| is the declared step.  No vertex
+    is split: the mesh builds the step between the two nodes."""
+
+    id: int
+    points: tuple[XY, ...]
+    points_ll: tuple[tuple[float, float], ...]
+    pairs: tuple[tuple[int, int], ...]
+    length_m: float
+    roles: tuple[str, ...]
+
+
+@_dc.dataclass(frozen=True)
 class PlanarMap:
     """The map.  Mappings are id -> record; ids are dense from 0."""
 
@@ -183,6 +201,10 @@ class PlanarMap:
     #: taxi route") for every apron-like face and the pads assigned to
     #: them; a generator prices no row between faces of two groups.
     terrace_group: _t.Mapping[int, int] = _dc.field(default_factory=dict)
+    #: THE FEASIBILITY FALLBACK LINKS (RULINGS 2026-09-07g (1), additive):
+    #: ``(a, b, cap, length_m)`` per apron link the route graph walks
+    #: between two contacts of route systems no centreline joins.
+    route_links: tuple[tuple[int, int, float, float], ...] = ()
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

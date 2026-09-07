@@ -7639,3 +7639,31 @@ def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar
     assert short.out_of_scope is None and long_.out_of_scope == key and at_floor.out_of_scope == key
     assert cg.row_adjudicated("within_shape", short)
     assert not cg.row_adjudicated("within_shape", long_)
+
+
+def test_the_no_step_rate_reader_reads_a_declared_joint_as_a_step(cg):
+    """APRON TERRACE LOCKSTEP for the §1.2 rate reader (RULINGS 06n / 07g):
+    a ring station triple whose segment crosses a DECLARED joint reads the
+    joint's step, not a grade-change rate — HECA 2026-09-07: 23 rows up
+    to 9.2 m, every one a triple straddling a declared 8–9 m joint."""
+    import math
+    lat0, lon0 = 30.0, 31.0
+    cos0 = math.cos(math.radians(lat0))
+
+    def ll(x, y):
+        return (lat0 + math.degrees(y / cg.R_EARTH), lon0 + math.degrees(x / (cg.R_EARTH * cos0)))
+    ring = [(0, 0), (30, 0), (60, 0), (90, 0), (90, 30), (90, 60), (60, 60), (30, 60), (0, 60), (0, 30)]
+    nodes = {f"n{k}": ll(x, y) for k, (x, y) in enumerate(ring)}
+    nids = list(nodes)
+    elevs = [100.0] * 4 + [105.0] * 6          # a 5 m step on n3–n4, and back down on n9–n0
+    way = cg.Way("w1", "apron", "apron", "apron", nids + [nids[0]], elevs + [elevs[0]], {})
+    ll_to_m = cg._ll_to_m_factory(nodes)
+    rows, n_st, _ = cg._check_airside_no_step_rate([way], [], nodes, ll_to_m)
+    assert n_st > 0 and rows, "an undeclared 5 m step must read as a rate breach"
+    joint = cg._terrace_joints_to_m([{"points": [ll(80.0, 15.0), ll(100.0, 15.0)], "step_m": 5.0},
+                                     {"points": [ll(-10.0, 15.0), ll(10.0, 15.0)], "step_m": 5.0}], ll_to_m)
+    rows_j, _, _ = cg._check_airside_no_step_rate([way], [], nodes, ll_to_m, terrace_joints_m=joint)
+    assert not rows_j, [(v.de_m, v.pt_a, v.pt_b) for v in rows_j]
+    elsewhere = cg._terrace_joints_to_m([{"points": [ll(40.0, -10.0), ll(40.0, 10.0)], "step_m": 5.0}], ll_to_m)
+    rows_e, _, _ = cg._check_airside_no_step_rate([way], [], nodes, ll_to_m, terrace_joints_m=elsewhere)
+    assert len(rows_e) == len(rows), "a joint elsewhere forgives nothing"

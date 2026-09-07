@@ -158,7 +158,8 @@ def territory_stage(pm: PlanarMap, law: Law, airport: Airport,
     st = terr.stats
     out(f"[{pm.icao}] territories (07g): complexes {st.complexes} ({st.complexes_labelled} labelled, "
         f"{st.contacts} contacts)  vertices labelled {st.labelled} (unlabelled {st.unlabelled}, "
-        f"pads relabelled {st.pads_relabelled})  labels {st.labels}  adjacent label pairs "
+        f"notch fallback {st.notch_fallback} of which isolated {st.isolated_fallback}, "
+        f"pads relabelled {st.pads_relabelled}, road corridor {st.road_vertices_labelled})  labels {st.labels}  adjacent label pairs "
         f"{st.adjacent_pairs}: joints {st.joint_pairs} (floor-only {st.floor_only_pairs})  "
         f"joint edges {st.joint_edges} " + (
             "(" + ", ".join(f"{k} {n}" for k, n in sorted(st.joint_edges_by_roles.items())) + ")"

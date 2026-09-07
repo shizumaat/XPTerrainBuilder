@@ -28,6 +28,7 @@ from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.pipeline.territory import joint_steps, territory_constraints, territory_stage
 from auto_patch_v2.planar.build import build
+from auto_patch_v2.planar import territories as T
 from auto_patch_v2.planar.territories import NO_LABEL
 from auto_patch_v2.solve import Options, Status, solve
 from auto_patch_v2.verify.census import census_patch
@@ -130,6 +131,7 @@ def test_disagreeing_contacts_make_a_joint_at_the_label_boundary(disagreeing, la
     (apron,) = _faces(pm, "apron")
     ring = list(pm.ring_vertices(apron.ring))
     assert all(terr.label.get(v, NO_LABEL) != NO_LABEL for v in ring)
+    assert st.unlabelled == 0          # labelling is TOTAL over a labelled complex
     west, east = _side_labels(pm, terr)
     assert west and east and not west & east
     for a, b in ((wa, ea) for wa in west for ea in east):
@@ -339,6 +341,34 @@ def test_the_fallback_links_two_runways_whose_only_connection_is_an_apron(law):
     assert counts["route_links"] == 1
     sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+
+
+# ── 7. labelling is TOTAL: the fallback takes the nearest CONNECTED node ─
+
+def test_a_vertex_seeing_no_graph_node_takes_its_nearest_connected_node(law):
+    """HECA 2026-09-07: 74 vertices stayed unlabelled because their
+    Euclidean-nearest graph node was ISOLATED (no path to any contact)."""
+    import numpy as np
+    from shapely.geometry import Polygon
+    poly = Polygon(_rect(0, 0, 200, 100))
+    contacts = {1: (5.0, 50.0), 2: (195.0, 50.0)}
+    g = T._graph(poly, contacts, 10.0, 0.5)
+    assert g is not None and len(g.connected) == len(g.P)
+    # isolate the node nearest the query (a notch node whose arcs failed)
+    q = np.array([[100.0, 30.0]])
+    _d, near = g.tree.query(q[0], k=1)
+    D = g.D.copy(); D[:, near] = np.inf
+    g = T._Graph(g.P, g.n_boundary, g.contacts, D, Polygon(), g.btree, g.tree,
+                 np.flatnonzero(np.isfinite(D).any(axis=0)), None)
+    g.ctree = type(g.tree)(g.P[g.connected])
+    fb = [0, 0]
+    out = T._vertex_distances(g, q, fb)     # the empty cover: nothing is visible
+    assert fb == [1, 1] and np.isfinite(out).all(), (fb, out)
+    _d2, k2 = g.ctree.query(q[0], k=1)
+    node = g.connected[k2]
+    gap = float(np.hypot(*(g.P[node] - q[0])))
+    assert np.allclose(out[0], D[:, node] + gap)
+    assert node != near
 
 
 def test_the_law_table_carries_the_territory_keys(law):

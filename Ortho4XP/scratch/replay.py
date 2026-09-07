@@ -17,12 +17,20 @@ from auto_patch_v2.pipeline.territory import territory_stage, territory_constrai
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, weights_under_law
 from auto_patch_v2.solve import Options, Status
 from auto_patch_v2.solve.tiers import solve_law_ordered
+import auto_patch_v2.solve.tiers as _TI, auto_patch_v2.solve.relax as _RX
+def _wrap(name, fn):
+    def w(*a, **k):
+        stamp(f"{name} START"); t0 = time.perf_counter(); r = fn(*a, **k)
+        st_ = getattr(r, "status", None) if not isinstance(r, tuple) else getattr(r[0], "status", None)
+        stamp(f"{name} END {st_} {time.perf_counter()-t0:.0f} s"); return r
+    return w
+_TI.solve_hard = _wrap("solve_hard", _TI.solve_hard); _RX.solve_relaxed = _wrap("solve_relaxed", _RX.solve_relaxed)
 from auto_patch_v2.constraints.routes import RIDGE_KIND
 cap = pickle.load(open(f"{SP}/HECA_t3_capture.pkl", "rb")); airport, cl, pm = cap["airport"], cap["cl"], cap["pm"]
 law = Law.for_airport("HECA")
 t = time.perf_counter()
 stage = territory_stage(pm, law, airport, cl, out=stamp)
-stamp(f"territory stage {time.perf_counter()-t:.1f} s")
+stamp(f"territory stage {time.perf_counter()-t:.1f} s  notch fallback {stage.terr.stats.notch_fallback} isolated {stage.terr.stats.isolated_fallback} unlabelled {stage.terr.stats.unlabelled}")
 pm = stage.pm; terr = stage.terr; st = terr.stats
 to_xy, to_ll = airport.frame.transformers(); ox, oy = to_xy(31.412022, 30.127729)
 site = Point(ox, oy)
@@ -52,7 +60,7 @@ def bow_05c(z):
         return worst
 t = time.perf_counter()
 size = {}
-sol, tier_rep = solve_law_ordered(pm, cs, law, w, Options(diagnose_iis=False), size_out=size)
+sol, tier_rep = solve_law_ordered(pm, cs, law, w, Options(diagnose_iis=False, verbose=True), size_out=size)
 wall = time.perf_counter() - t
 stamp(f"solve {sol.status} {wall:.0f} s {sol.message[:100]}  LP {size}")
 stamp("tiers: " + tier_rep.line())

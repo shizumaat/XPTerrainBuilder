@@ -128,8 +128,10 @@ class TerritoryStats:
     contacts: int = 0               # runway-connected stations on those complexes
     labelled: int = 0               # vertices served by a contact
     unlabelled: int = 0             # complex vertices no visible chord joins to the graph
-    notch_fallback: int = 0         # vertices labelled through their nearest graph node (no visible chord)
+    notch_fallback: int = 0         # vertices labelled through their nearest connected graph node (no visible chord)
+    isolated_fallback: int = 0      # of those, whose Euclidean-nearest node was ISOLATED (no path to a contact)
     pads_relabelled: int = 0        # rigid faces whose vertices took the majority label
+    road_vertices_labelled: int = 0  # outside-road corridor vertices labelled along the corridor (07g (4))
     labels: int = 0                 # distinct serving contacts
     adjacent_pairs: int = 0         # label pairs met on a planar edge
     joint_pairs: int = 0            # of those, disagreeing under the ceiling predicate
@@ -354,6 +356,10 @@ class _Graph:
     cover: object
     btree: STRtree
     tree: cKDTree
+    #: the CONNECTED nodes (a finite in-shape distance to some contact) and
+    #: their tree — the fallback's targets (module docstring)
+    connected: np.ndarray
+    ctree: cKDTree
 
 
 def _graph(poly: Polygon, contacts: dict[int, XY], spacing: float, tol: float) -> _Graph | None:
@@ -392,7 +398,8 @@ def _graph(poly: Polygon, contacts: dict[int, XY], spacing: float, tol: float) -
                    shape=(n, n))
     m.sum_duplicates()
     D = dijkstra(m, directed=False, indices=np.arange(len(P0), n))
-    return _Graph(P, len(P0), cids, D, cover, btree, tree)
+    connected = np.flatnonzero(np.isfinite(D).any(axis=0))
+    return _Graph(P, len(P0), cids, D, cover, btree, tree, connected, cKDTree(P[connected]))
 
 
 def _vertex_distances(g: _Graph, Q: np.ndarray, fallback: list[int]) -> np.ndarray:
@@ -430,14 +437,22 @@ def _vertex_distances(g: _Graph, Q: np.ndarray, fallback: list[int]) -> np.ndarr
             break
         k *= 4
     if len(pending):
-        # THE NOTCH FALLBACK: a vertex whose every chord to the graph leaves
-        # the polygon (a reflex corner the simplification moved past —
-        # HECA 2026-09-07: 458 vertices, among them the north contact of
-        # #364, v10228) takes its NEAREST graph node's distances plus the
-        # gap (an over-estimate by at most the detour round the notch)
-        d, idx = g.tree.query(Q[pending], k=1)
-        out[pending] = g.D[:, np.atleast_1d(idx)].T + np.atleast_1d(d)[:, None]
+        # THE NOTCH FALLBACK (labelling is TOTAL over a labelled complex):
+        # a vertex whose every chord to the graph leaves the polygon (a
+        # reflex corner the simplification moved past — HECA 2026-09-07:
+        # 458 vertices, among them v10228, the node the binding chain
+        # entered #364 through) takes the distances of its Euclidean-
+        # nearest CONNECTED graph node plus the gap (an over-estimate by at
+        # most the detour round the notch).  Connected, because a
+        # simplified boundary node can be ISOLATED — its ring arcs cut a
+        # notch of the true boundary and every chord failed — and the
+        # nearest node's ``inf`` left 74 HECA vertices unlabelled.
+        d, idx = g.ctree.query(Q[pending], k=1)
+        idx = g.connected[np.atleast_1d(idx)]
+        out[pending] = g.D[:, idx].T + np.atleast_1d(d)[:, None]
         fallback[0] += len(pending)
+        _d0, idx0 = g.tree.query(Q[pending], k=1)
+        fallback[1] += int((np.atleast_1d(idx0) != idx).sum())
     return out
 
 
@@ -492,9 +507,10 @@ def label_territories(pm: PlanarMap, law: Law, bands: _t.Mapping[int, Band],
         verts = sorted({v for fid in members for cyc in (pm.faces[fid].ring, *pm.faces[fid].holes)
                         for v in pm.ring_vertices(cyc)})
         Q = np.array([pm.vertices[v].xy for v in verts], float)
-        fb = [0]
+        fb = [0, 0]
         Dv = _vertex_distances(g, Q, fb)
         stats.notch_fallback += fb[0]
+        stats.isolated_fallback += fb[1]
         cvec = np.array(g.contacts)
         for r, v in enumerate(verts):
             if v in col:
@@ -502,7 +518,7 @@ def label_territories(pm: PlanarMap, law: Law, bands: _t.Mapping[int, Band],
                 terr.path_m[v] = 0.0
                 continue
             row = Dv[r]
-            if not np.isfinite(row).any():
+            if not np.isfinite(row).any():       # unreachable: a contact exists, so never
                 terr.label[v] = NO_LABEL
                 stats.unlabelled += 1
                 continue
@@ -523,6 +539,7 @@ def label_territories(pm: PlanarMap, law: Law, bands: _t.Mapping[int, Band],
                     terr.label[v] = top
             stats.pads_relabelled += 1
         stats.wall_label_s += time.perf_counter() - t_c
+    _label_outside_roads(pm, law, terr, outside, spacing, tol)
     stats.labelled = sum(1 for l in terr.label.values() if l != NO_LABEL)
     stats.labels = len({l for l in terr.label.values() if l != NO_LABEL})
     # THE ROUTE IS NEVER CUT: two contacts on one planar edge (a centreline
@@ -536,6 +553,45 @@ def label_territories(pm: PlanarMap, law: Law, bands: _t.Mapping[int, Band],
     _adjacency_report(pm, terr, bands, cap, tt.min_step_m)
     stats.wall_s = time.perf_counter() - t0
     return terr
+
+
+def _label_outside_roads(pm: PlanarMap, law: Law, terr: Territories, outside: _t.Container[str],
+                         spacing: float, tol: float) -> None:
+    """THE ROADS ACROSS A JOINT (07g (4)): a road corridor OUTSIDE pavement
+    is no apron shape — its vertices are never served through it — but a
+    corridor welded to pavement at both ends bridges two territories with
+    its own profile rows (HECA 2026-09-07: route15, 600 m at 1.5 %, made
+    the K + route chain INFEASIBLE once the apron shortcut was cut).  Each
+    corridor group's unlabelled vertices take the label of the nearest
+    labelled vertex on it by the in-shape path ALONG the corridor, so the
+    boundary falls mid-corridor and the road's rows across it are dropped
+    (the step reported)."""
+    st = terr.stats
+    fids = [fid for fid, f in pm.faces.items() if f.ref in outside]
+    if not fids:
+        return
+    for poly, members in _complexes(pm, fids, tol):
+        verts = sorted({v for fid in members for cyc in (pm.faces[fid].ring, *pm.faces[fid].holes)
+                        for v in pm.ring_vertices(cyc)})
+        seeds = {v: pm.vertices[v].xy for v in verts if terr.label.get(v, NO_LABEL) != NO_LABEL}
+        todo = [v for v in verts if v not in seeds]
+        if len(seeds) < 2 or not todo:
+            continue
+        g = _graph(poly, seeds, spacing, tol)
+        if g is None:
+            continue
+        Q = np.array([pm.vertices[v].xy for v in todo], float)
+        fb = [0]
+        Dv = _vertex_distances(g, Q, fb)
+        svec = np.array(g.contacts)
+        for r, v in enumerate(todo):
+            row = Dv[r]
+            if not np.isfinite(row).any():
+                continue
+            k = int(np.argmin(row))
+            terr.label[v] = terr.label[int(svec[k])]
+            terr.path_m[v] = float(row[k]) + terr.path_m.get(int(svec[k]), 0.0)
+            st.road_vertices_labelled += 1
 
 
 def _adjacency_report(pm: PlanarMap, terr: Territories, bands, cap: float, min_step: float) -> None:

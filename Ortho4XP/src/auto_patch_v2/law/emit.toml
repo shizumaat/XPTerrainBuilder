@@ -161,3 +161,28 @@ max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core need
 # was 04t(1) over the hangar apron and its flat pads.
 scope_without_certificate = "relaxable"   # no certificate inside iis_time_budget_s => 04t(1) runs over EVERY relaxable row (relaxable_from_role's tier and junior, pads as planes <= pad_slope_max) — never the tier ladder for a governed family
 tier_ladder_last          = true          # the tier ladder (04i) answers only when the relaxable scope is still infeasible — and then it names the family it demoted as a FAILURE in the report and the app log
+
+[terrace]
+# THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, the owner's KML verdict on
+# the HECA sag chain: "only taxiway centreline routes count; no apron except
+# a route through it; the red hop crosses two separate aprons with a lawful
+# step").  Two apron-like cells that no taxi route joins are SEPARATE
+# TERRACES: their shared boundary is a lawful step — the vertices along it
+# are split in the planar map (``planar/terraces.py``), no row is priced
+# across it, and the joint is declared in the sidecar ``terrace_joints`` so
+# every census reads the step as lawful (v1's apron terrace law, spec
+# ``apron-terrace-law-spec.md``; the groundside terrace law's machinery).
+# "JOINED BY A TAXI ROUTE": cells are the faces of ``cell_roles`` ∪
+# ``neighbour_roles``; two adjacent cells are joined when a taxi-centreline
+# STATION (a vertex of a ``taxi_centerline`` breakline — the 1202 network
+# the route graph walks, 05aa) lies on their shared boundary, i.e. a route
+# passes from one into the other; the TERRACE GROUPS are the connected
+# components of that relation (A joined to J and J to B ⇒ A, J, B one
+# terrace); a boundary between two groups, at least one side an apron, is a
+# joint.  A joint inside a runway strip is NEVER split (walls at runway
+# edges are never lawful, owner 2026-08-01); a vertex on a breakline or a
+# tile seam stays shared (the step tapers to zero there).
+cell_roles      = ["apron"]             # the roles a terrace joint is declared FOR (at least one side)
+neighbour_roles = ["apron", "junction"]  # the apron-like roles a cell may be terraced AGAINST (junction: the 05w hangar apron classified as a junction — HECA pav132 #40 against #363)
+joint_gap_m     = 0.6    # the retreating side's ring steps this far into its own cell along the joint; the mesh makes the wall in the band (v1 STACKED_WALL_RETREAT_M: must exceed identity.min_distinct_spacing_m or the copy re-interns into the vertex it retreats from)
+max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjustable): the declared step one joint carries in v1's law — REPORT ONLY here (a joint whose emitted step exceeds it is counted in the planar report); the joint itself has no grade law (06n: "a lawful step")

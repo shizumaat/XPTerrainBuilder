@@ -21,7 +21,7 @@ from ..solve.why import Prepared, _drop, solve_with_duals
 from ..solve.why import report as _report
 
 __all__ = ["prepare", "_prepare_solved", "resolve_faces", "taxi_letters",
-           "relaxation_block", "report"]
+           "relaxation_block", "report", "chain_kml"]
 
 
 def prepare(icao: str, inputs, law: Law | None = None,
@@ -269,3 +269,74 @@ def report(prep: Prepared, fid: int, **kw) -> str:
     text = _report(prep, fid, letters=taxi_letters(prep, fid), **kw)
     block = relaxation_block(prep)
     return text + ("\n" + "\n".join(block) if block else "")
+
+
+# ── the chain as a KML (the owner's reading surface) ─────────────────────
+
+_KML_COLOURS = {
+    # aabbggrr — the family classes the owner reads on the ground
+    "taxi_centreline": "ff00ff00", "taxi_chain": "ff00ff00", "no_step_pairs": "ff00ffff",
+    "junction_mesh": "ffff8800", "runway_profile": "ffffffff", "runway_crown": "ffffffff",
+    "runway_vertical_curve": "ffffffff", "runway_chain": "ffffffff", "runway_pins": "ffffffff",
+    "apron_within_shape": "ff0000ff", "apron_chain": "ff0000ff", "apron_edge_portion": "ff0000ff",
+    "pads": "ffff00ff", "zone_bands": "ff888888", "strip_transverse": "ff888888",
+}
+
+
+def chain_kml(prep: Prepared, fid: int, path: str, title: str | None = None,
+              tol: float | None = None) -> _t.Any:
+    """Write the ``why`` CHAIN TRACE of face ``fid`` as a KML — one
+    LineString per binding row from the shape to the nearest hard
+    terminal, named ``i. family length cap dz (faces)`` and coloured by
+    family (taxi green, no_step yellow, junction orange, runway white,
+    apron red), plus the start and terminal points — the owner's reading
+    surface for "which rows hold this shape" (RULINGS 2026-09-05aa /
+    06n were ruled on exactly this artefact).  Returns the trace."""
+    from xml.sax.saxutils import escape
+    from ..model.constraints import Diff
+    from ..solve.why import BIND_TOL_M, chain_trace, face_vertices
+    tr = chain_trace(prep, face_vertices(prep, fid), BIND_TOL_M if tol is None else tol)
+    _to_xy, to_ll = prep.airport.frame.transformers()
+    pm, z = prep.pm, prep.z
+
+    def ll(v: int) -> str:
+        la, lo = to_ll(*pm.vertices[v].xy)
+        return f"{lo:.8f},{la:.8f},0"
+
+    def faces_of(u: int, v: int) -> str:
+        fs = set(pm.vertices[u].incident_faces) | set(pm.vertices[v].incident_faces)
+        names = sorted(f"{pm.faces[f].role}#{f}" for f in fs)
+        return ",".join(names[:3]) + ("…" if len(names) > 3 else "")
+
+    f = pm.faces[fid]
+    L: list[str] = ['<?xml version="1.0" encoding="UTF-8"?>',
+                    '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',
+                    f"<name>{escape(title or f'{prep.icao} why chain: {f.role} {f.ref} (face {fid})')}</name>"]
+    for fam, col in _KML_COLOURS.items():
+        L.append(f'<Style id="{fam}"><LineStyle><color>{col}</color><width>4</width></LineStyle></Style>')
+    L.append('<Style id="other"><LineStyle><color>ffaaaaaa</color><width>4</width></LineStyle></Style>')
+    if tr is None:
+        L.append("<Placemark><name>no terminal reached: nothing binds the shape to a pin</name></Placemark>")
+    else:
+        fams: dict[str, float] = {}
+        for s in tr.steps:
+            fams[s.family] = fams.get(s.family, 0.0) + s.dz
+        L.append("<Folder><name>chain by family: " + escape(", ".join(
+            f"{k} {v:+.2f} m" for k, v in sorted(fams.items(), key=lambda kv: -abs(kv[1])))) + "</name>")
+        for i, s in enumerate(tr.steps):
+            r = s.row
+            geom = (f"{r.d:.0f} m {r.cap:.2%}" if isinstance(r, Diff)
+                    else f"{type(r).__name__} {r.source.ruling[:30]}")
+            name = f"{i + 1}. {s.family} {geom} dz {s.dz:+.3f} ({faces_of(s.v, s.u)})"
+            style = s.family if s.family in _KML_COLOURS else "other"
+            L.append(f"<Placemark><name>{escape(name)}</name><styleUrl>#{style}</styleUrl>"
+                     f"<LineString><coordinates>{ll(s.v)} {ll(s.u)}</coordinates></LineString></Placemark>")
+        L.append("</Folder>")
+        L.append(f"<Placemark><name>{escape(f'START {f.role} {f.ref} v{tr.start} z {z[tr.start]:.2f}')}</name>"
+                 f"<Point><coordinates>{ll(tr.start)}</coordinates></Point></Placemark>")
+        L.append(f"<Placemark><name>{escape(f'TERMINAL {tr.terminal_kind} v{tr.terminal} z {z[tr.terminal]:.2f}: {tr.terminal_note}')}</name>"
+                 f"<Point><coordinates>{ll(tr.terminal)}</coordinates></Point></Placemark>")
+    L.append("</Document></kml>")
+    with open(path, "w") as fh:
+        fh.write("\n".join(L) + "\n")
+    return tr

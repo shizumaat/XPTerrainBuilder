@@ -13,6 +13,11 @@
   are the registered exemption (06-20);
 * ``stacked_nodes``: distinct node ids at one coordinate with
   disagreeing values (impossible by construction: one id per key).
+
+A step across a DECLARED apron terrace joint (sidecar ``terrace_joints``,
+RULINGS 2026-09-06n) is forgiven by the joint's declared step in the two
+step readers — the v1 reader's ``_declared_step_allowance``, one
+declared population, one number.
 """
 from __future__ import annotations
 
@@ -22,7 +27,8 @@ from ..constraints.roads import road_family_roles
 from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, pair_side, row
 
-__all__ = ["cross_shape", "vertex_to_edge_step", "mid_edge_step", "stacked_nodes"]
+__all__ = ["cross_shape", "vertex_to_edge_step", "mid_edge_step", "stacked_nodes",
+           "terrace_joints_m", "declared_step_allowance"]
 
 
 def _designed_separation(p: Patch, ra: str, rb: str) -> bool:
@@ -92,9 +98,50 @@ def _edges(p: Patch):
     return out
 
 
+def _cross(p, q, r, s) -> bool:
+    """Segment intersection (proper or touching) in the census frame — the
+    v1 reader's ``_segments_cross``."""
+    def o(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    d1, d2, d3, d4 = o(r, s, p), o(r, s, q), o(p, q, r), o(p, q, s)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
+        return True
+
+    def on(a, b, c):
+        return (abs(o(a, b, c)) <= 1e-9
+                and min(a[0], b[0]) - 1e-9 <= c[0] <= max(a[0], b[0]) + 1e-9
+                and min(a[1], b[1]) - 1e-9 <= c[1] <= max(a[1], b[1]) + 1e-9)
+    return on(r, s, p) or on(r, s, q) or on(p, q, r) or on(p, q, s)
+
+
+def terrace_joints_m(p: Patch) -> list[tuple[list[tuple[float, float]], float]]:
+    """The published ``terrace_joints`` (RULINGS 2026-09-06n) in the census
+    frame: ``(points, step_m)`` each — the v1 reader's
+    ``_terrace_joints_to_m``."""
+    out = []
+    for rec in p.publication.get("terrace_joints") or []:
+        pts = [p.to_m(float(la), float(lo)) for la, lo in (rec.get("points") or [])]
+        if len(pts) >= 2:
+            out.append((pts, float(rec.get("step_m") or 0.0)))
+    return out
+
+
+def declared_step_allowance(joints, a, b) -> float:
+    """Σ of the declared steps of the joints the segment ``a``–``b`` crosses
+    (the v1 reader's ``_terrace_step_allowance``)."""
+    total = 0.0
+    for pts, step in joints:
+        for k in range(len(pts) - 1):
+            if _cross(a, b, pts[k], pts[k + 1]):
+                total += step
+                break
+    return total
+
+
 def _step_rows(p: Patch, family: str, probes, edges, search: float,
                ctol: float, step_m: float) -> list[Row]:
     exempt_pad = p.law.tables.structures.building_pad.step_exemption_pad_to_pad
+    joints = terrace_joints_m(p)
     cell = max(search, 1.0)
     g: dict[tuple[int, int], list[int]] = {}
     for k, (sh, a, b, _za, _zb) in enumerate(edges):
@@ -130,7 +177,11 @@ def _step_rows(p: Patch, family: str, probes, edges, search: float,
         se, a, b, za, zb = edges[k]
         proj = za + t * (zb - za)
         step = abs(z - proj)
-        if step > step_m + 1e-5:
+        # APRON TERRACE LOCKSTEP (RULINGS 2026-09-06n; v1 ``_declared_step_
+        # allowance``): a probe and its foot on opposite sides of a declared
+        # joint have the declared step between them — lawful geometry
+        allow = step_m + (declared_step_allowance(joints, (x, y), (px, py)) if joints else 0.0)
+        if step > allow + 1e-5:
             out.append(row(family, (sv.role, se.role), pair_side(p, sv.role, se.role),
                            step, None, None, math.sqrt(_d2), (x, y), (px, py),
                            sv.key, se.key))

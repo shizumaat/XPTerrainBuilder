@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     y.add_argument("--drop", help="comma-separated families dropped BEFORE the solve "
                    "(a labelled arm: 'with X relaxed, what binds next?')")
     y.add_argument("--top", type=int, default=3, help="binding rows shown per vertex")
+    y.add_argument("--kml", help="ALSO write the chain trace as a KML here (one line per "
+                   "binding row, coloured by family — the owner's reading surface)")
     y.add_argument("--xplane-root")
     y.add_argument("--cifp-dir")
     y.add_argument("--data-root")
@@ -155,6 +157,11 @@ def why_main(args) -> int:
     relax = args.relax.split(",") if args.relax else None
     for fid in faces:
         print(report(prep, fid, top=args.top, relax=relax, max_relax=args.max_relax))
+        if args.kml:
+            from .why import chain_kml
+            tr = chain_kml(prep, fid, args.kml)
+            print(f"[{icao}] why: chain KML -> {args.kml} "
+                  f"({0 if tr is None else len(tr.steps)} rows)")
     return 0
 
 

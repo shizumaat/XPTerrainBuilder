@@ -102,3 +102,34 @@ apron / junction / road); census adjudicated (joints read lawful, bar
 and the territory build wall. CYXY/OTHH/LEMD: verify 0 must hold; the
 joint counts vs their 06n counts (CYXY 7, OTHH 55 — quote LEMD's).
 Build-time statement.
+
+## §2a AMENDED (RULINGS 2026-09-07f) — the pre-arrangement polygon cut
+
+Lane `v2terrace2` measured that §2's literal metric mints no joint (the
+in-shape path from the other route's contact makes the apron the route)
+and that cutting arranged faces along an interior seam fails on geometry.
+Amended construction:
+
+1. Contacts are RUNWAY-CONNECTED stations only (`routes.reach` reaches
+   them from a threshold pin); dead-end lanes' stations are neither
+   contacts nor joins.
+2. Over each welded pavement complex (the 110 polygon and every
+   pavement it overlaps), label every ring/hole vertex by its nearest
+   runway-connected contact along the in-shape path (07c(2)); the joint
+   PREDICATE is pairwise on adjacent territories:
+   `|ceil(c₁) − ceil(c₂)| > max_cap × d_inshape(c₁, c₂) + terrace.min_step_m`
+   (and the floor-only variant with the floors — report, do not decide,
+   if it fires where the ceiling one does not).
+3. Where the predicate holds, cut the RAW polygon (before
+   `planar` builds the arrangement) along the SHORTEST chord that
+   separates the two contact sets, crosses no runway-connected
+   centreline, and respects holes (shapely `split`; among candidate
+   chords between ring/hole vertices — simplified ring at
+   `simplify_factor` × the identity spacing — take the shortest that
+   separates). Both pieces keep the pavement's ref with a piece suffix;
+   every other pavement overlapping the chord is split by it too.
+4. The arrangement, 06n's grouping (joins through runway-connected
+   stations only), the split copies and the declaration run unchanged.
+5. Acceptance adds: the chord at HECA crosses within 60 m of 30.127729,
+   31.412022 (07e) and no chord is minted at CYXY / OTHH / LEMD (their
+   06n joint counts unchanged: CYXY 7, OTHH 55, LEMD quoted).

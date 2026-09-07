@@ -314,3 +314,49 @@ publication the oracle already reads (`_fan_ramp_pair_cap`), the hard
 — estimate 400–600 lines across `constraints/`, `pipeline/publication.py`,
 `law/emit.toml` (the constants as law) and tests, one round.  Not
 started: 1–2 is the part that moves the runway.
+
+MEASURED (round 3, HECA `build_airport.py HECA --engine v2`, tag
+`v2routecap3`, 362.4 s; round 1 in brackets): bow **−10.38 m at station
+2,708 m** [−10.38 at 2,708] — UNCHANGED; ridge minimum 104.60 m at
+2,732 m [104.60]; K 0.348 %/100 m [0.346], `runway_vertical_curve` 0;
+max |grade| 1.535 % [halves ≤ 1.53]; tie 922/0 [922/0]; census
+adjudicated **6** [5] (5 `strip_seam_tear` + 1 `vertex_to_edge_step`,
+both NEW — deferred lines), v2-verify **32** [26] (26 lateral_contiguity
++ the same 6); relaxed rows **103 verify-side / 184 solve** [2,006 /
+4,319] — the hard set is still infeasible but the IIS certificate now
+arrives (226 rows in 60.5 s) and the relaxation is IIS-scoped (mean
+excess 0.034 pp, max 0.17 pp, no demotion); solve 222.9 s [248.5]; LP
+88,432 columns (37,811 preference groups) / 696,275 rows [51,598 /
+637,091]; `apron_over_preference` generator 5,927 / 36,844 rows, max
+built grade 2.08 % (a relaxed row), largest faces #215 1,010/3,024,
+#264 1,007/3,775, #389 852/1,326, #364 749/5,706 (max 1.67 %), #365
+483/561, #403 300/300; v2 verify 2,328 / 22,050 (max 1.64 %); oracle 992
+/ 182,985 (its population prices every apron pair at any length).
+CYXY `--base-arm` verify 0 (apron_over_preference 2/2,604; generator
+15/2,945; 6.8 s); OTHH verify 0 (0/59,701; hard-feasible; 428 s).
+
+WHY THE BOW DID NOT MOVE (`why HECA --shape 30`, 39 hops [44], Σ dz
++47.24 m from the 05C/23C low vertex v1444 to the 23R CIFP threshold
+pin; KML `scratch/HECA_v2routecap3_binding_chain.kml`): by family along
+the chain no_step_pairs +18.27, **apron_preference +16.03**, junction_mesh
++5.13, taxi_centreline +4.79, transverse +1.73, strip_transverse +1.25.
+The chain crosses #364 on the SAME two chords as rounds 1–2 (806.2 m and
+310.6 m, hops 16–17) — now as PREFERENCE rows built at 1.445 % and 1.41 %,
+under the hard 1.5 %, each binding with dual −18 (the weight).  The
+runway does not buy the remaining 0.055 pp because lifting v1444 needs
+EVERY parallel apron chord between the same regions to escalate (#364
+prices 5,706 rows; the chain shows one) — the per-row charge sums over
+hundreds of rows against a few dozen runway vertices at 20/m, the
+aggregate the twin (58 rows, 163 runway vertices) does not reproduce.
+And the whole tier, fully spent on this chain, is worth **+0.72 m**
+(0.055 pp × 806 m + 0.09 pp × 311 m): −9.66 m, not the owner's 6.1 m —
+the other +31 m of the chain are no-step / junction / taxi rows already
+at their 1.5 % between the 05C/23C low point and the 23R pin.  A single
+weighted stage cannot order runway ≻ apron preference ≻ DEM fit at both
+the fixture's and HECA's row density (measured sweep on the twins:
+w ∈ {0.9 … 0.02} — the DEM fit wins the unpinned apron below w ≈ 0.3,
+the runway loses HECA's parallel rows at every w that holds it); the
+order the ruling states is LEXICOGRAPHIC (the runway family's fit held
+first, the apron preference next, the DEM fit last — the shape of
+`solve/stage1.py`'s last resort, applied to the hard solve).  Reported,
+not decided: owner / spec-author question for round 4.

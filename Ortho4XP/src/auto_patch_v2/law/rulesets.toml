@@ -18,8 +18,14 @@ faa_two_letter_prefixes = ["PA", "PH", "PG", "PJ", "PM", "PW"]  # FAA-jurisdicti
 
 # ── Authority-independent role caps (Appendix A §2, ROLE_GRADE_LIMITS) ──
 [common.roles]
-apron               = { longitudinal = 0.010, transverse = 0.010 }  # all directions (owner 2026-06-18; 08-21b)
-building            = { longitudinal = 0.010, transverse = 0.010 }  # pad = apron law (08-21b)
+# THE TIERED APRON LAW (owner RULINGS 2026-09-06w): every apron row is HARD
+# at `max` (1.5 % all directions — an apron can never drag a runway harder
+# than a taxiway would, 08-24b) and PREFERS `preferred` (1 %, the 06-18 /
+# 08-21b value) — charged in the objective junior to the runway family,
+# senior to the DEM fit (solve/assemble.py, Weights.preference "apron").
+# `role_cap` answers `max`; `role_preferred_cap` answers `preferred`.
+apron               = { preferred = { longitudinal = 0.010, transverse = 0.010 }, max = { longitudinal = 0.015, transverse = 0.015 } }
+building            = { preferred = { longitudinal = 0.010, transverse = 0.010 }, max = { longitudinal = 0.015, transverse = 0.015 } }  # pad = apron law (08-21b): the same two tiers
 tunnel_ramp         = { longitudinal = 0.040, transverse = 0.020 }  # navigable portal ramp (user 2026-05-08); lateral = road
 service_road        = { longitudinal = 0.080, transverse = 0.020 }  # VDOT GS-9 (owner 2026-08-03); laterally flat 2 % (08-25g)
 service_junction    = { longitudinal = 0.080, transverse = 0.020 }  # same car-logic cap as the road body (08-03)
@@ -27,7 +33,7 @@ groundside_pavement = { longitudinal = 0.080, transverse = 0.020 }  # THE road l
 parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026-09-04j: lots 5 %; transverse = the road law's lateral 2 % until the owner states otherwise
 
 [common]
-apron_fan_ramp_max = 0.050          # interior apron fan cap (FAN_RAMP_CAP; 08-08 fabric model)
+apron_fan_ramp_max = 0.050          # the BACK-EDGE class between adjacent pads (owner 08-24; 06w (3): hard, with the apron preference) — v2 models no zone yet (owed, lane v2routecap round 3)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)
 runway_profile_smoothness = 5000.0  # RULINGS 2026-09-06h (c): the runway profile's SMOOTHNESS preference — the charge per metre of |grade change| × station span along a runway ridge (the LP's L1 second-difference term, solve/assemble.py ``r`` columns), in the DEM-fit weights' own units (per metre); ABOVE the runway DEM-fit weight (pipeline/build.py 20/m) so the profile runs straight between its holds instead of humping to the DEM and diving (HECA 05C/23C 1.0.288: −0.24 % straight vs a +0.58 % / −1.41 % hump, 3.3 m of the bow); the K rows stay hard. Ladder: law > flat_datum > seam > end_zone > crown > THIS > runway fit

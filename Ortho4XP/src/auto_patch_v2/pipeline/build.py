@@ -455,6 +455,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         pub = publication(pm, law, airport, sol.z)
         if relaxed_rows:
             pub["relaxed_rows"] = relaxed_rows
+        # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,
+        # the rows the surface holds above 1 % and its max grade
+        from ..constraints.apron import apron_preference_report
+        apron_pref = apron_preference_report(cs, sol.z, law)
+        pub["apron_over_preference"] = apron_pref
+        report["apron_over_preference"] = apron_pref
+        top = sorted(apron_pref["faces"].items(),
+                     key=lambda kv: (-kv[1]["over_preference"], -kv[1]["max_grade"]))[:6]
+        _say(f"[{icao}] apron preference (06w): {apron_pref['over_preference']}/{apron_pref['rows']} "
+             f"rows over {apron_pref['preferred']}, max grade {apron_pref['max_grade']:.4f}"
+             + (" — faces " + ", ".join(f"#{k} {v['over_preference']}/{v['rows']} (max {v['max_grade']:.4f})"
+                                        for k, v in top if v["over_preference"]) if top else ""), out)
         header = {"o4_apt_dat": airport.pack.apt_dat_path,
                   "o4_pack": airport.pack.name}
         header.update(cfg.header_extra or {})
@@ -536,7 +548,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 _say(f"[{icao}] verify: DEFECT {k} {n} — " + "; ".join(
                     f"{r.get('way_a')} {r.get('reading')} {r.get('magnitude_m')} m"
                     for r in vrows[k][:10]) + (" ..." if n > 10 else ""), out)
+            from ..verify.within import apron_over_preference as _v_pref
+            from ..verify.frame import Patch as _Patch
+            v_pref = _v_pref(_Patch.of(surf, law, pub, road_law_caps(pm, law, airport)))
+            _say(f"[{icao}] verify: apron_over_preference {v_pref['over_preference']}/{v_pref['rows']} "
+                 f"(max grade {v_pref['max_grade']:.4f}; generator-side "
+                 f"{apron_pref['over_preference']}/{apron_pref['rows']})", out)
             report["verify"] = {"by_family": summary,
+                                "apron_over_preference": v_pref,
                                 "relaxed_by_04t1": {k: n for k, n in relaxed_v.items() if n},
                                 "defects": defects,
                                 "rows": {k: v for k, v in vrows.items() if v}}

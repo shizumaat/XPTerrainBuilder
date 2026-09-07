@@ -73,9 +73,6 @@ junction_mesh_roles = ["junction"]
 # 1.0.291: every taxi|taxi within_shape row was stamped regardless of
 # length, stub|stub 13,004, and a 6 m step over 6 m read as withdrawn law).
 withdrawn_chord_min_m = 30.0
-# (An apron face crossed by a stretch prices EVERY pair as the route box —
-# RULINGS 2026-09-06v; no length knob: the round-1 corridor ceiling
-# apron_corridor_pair_max_m was refuted and deleted.)
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

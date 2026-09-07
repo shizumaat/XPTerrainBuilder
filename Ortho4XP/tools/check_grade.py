@@ -47,7 +47,7 @@ from collections import defaultdict
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 R_EARTH = 6_378_137.0
 
@@ -5933,6 +5933,55 @@ def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
 #: ``harness/census.py`` beside the withdrawn-law heading; cleared at the
 #: top of every run, like ``_CROWN_UNKNOWN_PAIRS``.
 _TAXI_BOX_STATS: Dict[str, int] = defaultdict(int)
+#: THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): on a patch whose
+#: sidecar carries ``apron_tier``, every apron-law pair is judged at the
+#: HARD cap (``max``) and tallied here against the PREFERRED cap —
+#: ``rows``, ``over_preference`` (built grade over ``preferred`` beyond
+#: the pair's quantisation envelope), ``max_grade``, and the same per
+#: shapeID under ``faces``.  A report figure, never a violation.
+_APRON_PREF_STATS: Dict[str, Any] = {}
+
+
+def _apron_tier_pair(c: "ShapePairConstraint", strict_cap: float, hard_cap: float) -> bool:
+    """Whether ``c`` is priced by the APRON LAW: a pair of an ``apron`` /
+    ``building`` way, or a 04t-2 portion pair of any way
+    (``_apron_portion_pair``), priced between the strict apron cap and
+    the tier's hard cap — the strict cap itself, or the v1 corridor credit
+    (08-24b: an apron pair inside a taxi corridor reads the corridor's
+    1.5 %, ``grade_law.classify_pair``), which the hard cap now equals.  A
+    pair some other law tightened BELOW the strict cap (a frontage
+    minimum, a cross-section) keeps that cap and is not tallied."""
+    if c.cap < strict_cap - 1e-12 or c.cap > hard_cap + 1e-12:
+        return False
+    return law_role(c.way) in ("apron", "building") or \
+        _apron_portion_pair(c.way, c.nid_a, c.nid_b)
+
+
+def _apron_tier_read(c: "ShapePairConstraint", de: float, allowance: float,
+                     tier: dict) -> float:
+    """Judge an apron-law pair at the tier's HARD cap (the allowance
+    shifted by the cap difference, every other envelope term kept) and
+    tally the pair against the PREFERRED cap; returns the allowance."""
+    st = _APRON_PREF_STATS
+    if not st:
+        st.update({"preferred": float(tier["preferred"]), "max": float(tier["max"]),
+                   "rows": 0, "over_preference": 0, "max_grade": 0.0, "faces": {}})
+    hard, pref = st["max"], st["preferred"]
+    if c.cap != hard:
+        allowance += (hard - c.cap) * c.dist
+        c.cap = hard
+    q = _pair_quant_noise_m(c.way)
+    grade = max(0.0, de - q) / c.dist if c.dist > 0.0 else 0.0
+    sid = str(c.way.tags.get("shapeID") or c.way.wid)
+    f = st["faces"].setdefault(sid, {"rows": 0, "over_preference": 0, "max_grade": 0.0})
+    f["rows"] += 1
+    st["rows"] += 1
+    if de > (pref + GRADE_MATERIALITY) * c.dist + q:
+        f["over_preference"] += 1
+        st["over_preference"] += 1
+    f["max_grade"] = max(f["max_grade"], round(grade, 6))
+    st["max_grade"] = max(st["max_grade"], round(grade, 6))
+    return allowance
 #: The family key the box rows are filed under (RULINGS 2026-09-06s):
 #: their own, beside ``within_shape`` — the harness census reads them
 #: apart and the v2 verify's ``taxi_box`` family is its twin.
@@ -5958,50 +6007,14 @@ class _StretchBox:
     whose stretches are all degenerate.
     KEYED ON THE v2 SIDECAR: only a patch publishing ``stretches`` (the v2
     emitter's key; v1 publishes none) builds one — a v1 patch reads
-    exactly as before.
+    exactly as before."""
 
-    THE CROSSED APRON FACE (RULINGS 2026-09-06v; spec ``apron-route-cap``
-    §3 amended; ``auto_patch_v2.constraints.stretches.crossing_axes`` on
-    node ids): an APRON-role pair of a way whose face — its ring and its
-    hole rings (the ``gap_interior_ring`` ways stamped with it as host)
-    — carries an EDGE of a published stretch (two consecutive stretch
-    nodes both nodes of one of those rings: the stretch crosses the apron
-    there) is priced, at ANY length, as the box against the nearest such
-    CROSSING stretch (strictest on a tie) with the APRON cap across:
-    ``cL_stretch·|Δs| + cA·|Δt|``.  A hole ring's pair is judged at its
-    host's face.  Keyed, like the taxi box, on the sidecar's
-    ``stretches``.  The round-1 corridor (a taxiway half-width band, the
-    sidecar's fifth element) was refuted and is gone: a fifth element is
-    ignored."""
-
-    def __init__(self, stretches_ll: list, ll_to_m, law,
-                 nodes: Optional[Dict[str, Tuple[float, float]]] = None,
-                 ways: Optional[List["Way"]] = None) -> None:
-        from auto_patch_v2.constraints.stretches import APRON_ROLE
-        from auto_patch_v2.law.tables import role_cap
+    def __init__(self, stretches_ll: list, ll_to_m, law) -> None:
         self.min_m = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
         self.taxi_roles = frozenset(law.tables.precedence.taxi_family.members)
-        self.apron_roles = frozenset((APRON_ROLE,))
-        _ac = role_cap(law, APRON_ROLE)
-        self.apron_cap = None if _ac is None else float(_ac.longitudinal)
         self.cell = self.min_m
         self.segs: list = []          # (ax, ay, ux, uy, length, cL, cT)
         self.grid: Dict[Tuple[int, int], list] = {}
-        self.stretch_nids: list = []  # per stretch: its node ids (identity join)
-        self.stretch_segs: list = []  # per stretch: its segment indices
-        self._face_crossing: Dict[str, list] = {}
-        # a hole ring's pairs are judged at its HOST's face: the host's
-        # ring nodes plus every hole ring's (``crossing_axes`` over the
-        # face's rings)
-        self._host_of: Dict[str, str] = {}
-        self._face_nids: Dict[str, set] = {}
-        for w in ways or []:
-            host = w.tags.get(HOST_WAY_TAG) if w.tags.get("o4_feature") in \
-                HOST_CAP_FEATURE_CLASSES else None
-            self._host_of[w.wid] = host or w.wid
-            self._face_nids.setdefault(host or w.wid, set()).update(w.nids)
-        key_of = ({(round(la, 7), round(lo, 7)): nid for nid, (la, lo) in nodes.items()}
-                  if nodes else {})
         for entry in stretches_ll or []:
             pts_ll, cap = entry[0], float(entry[1])
             letter = entry[2] if len(entry) > 2 else None
@@ -6009,63 +6022,21 @@ class _StretchBox:
             if ct is None or len(pts_ll) < 2:
                 continue
             pts = [ll_to_m(float(la), float(lo)) for la, lo in pts_ll]
-            self.stretch_nids.append([key_of.get((round(float(la), 7), round(float(lo), 7)))
-                                      for la, lo in pts_ll])
-            ks: list = []
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 L = math.hypot(bx - ax, by - ay)
                 if L < 1e-9:
                     continue
                 k = len(self.segs)
-                ks.append(k)
                 self.segs.append((ax, ay, (bx - ax) / L, (by - ay) / L, L, cap, float(ct)))
                 for gx in range(int(min(ax, bx) // self.cell), int(max(ax, bx) // self.cell) + 1):
                     for gy in range(int(min(ay, by) // self.cell), int(max(ay, by) // self.cell) + 1):
                         self.grid.setdefault((gx, gy), []).append(k)
-            self.stretch_segs.append(ks)
-
-    def _crossing_segs(self, way: "Way") -> list:
-        """The segments of the stretches CROSSING ``way``'s face (its
-        host's, for a hole ring): ``crossing_axes``'s definition on node
-        ids, cached per face."""
-        face = self._host_of.get(way.wid, way.wid)
-        hit = self._face_crossing.get(face)
-        if hit is None:
-            on = self._face_nids.get(face) or set(way.nids)
-            hit = []
-            for nids, ks in zip(self.stretch_nids, self.stretch_segs):
-                if any(u is not None and u in on and w in on for u, w in zip(nids, nids[1:])):
-                    hit.extend(ks)
-            self._face_crossing[face] = hit
-        return hit
-
-    def crossing(self, c: "ShapePairConstraint") -> Optional[list]:
-        """The crossing stretch segments nearest the pair's midpoint (every
-        one tied at that distance) as ``(ux, uy, cL, cA)`` — the APRON cap
-        across; ``None`` for a face crossed by no stretch."""
-        ks = self._crossing_segs(c.way)
-        if not ks or self.apron_cap is None:
-            return None
-        x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
-        best: list = []
-        for k in ks:
-            ax, ay, ux, uy, L, cl, _ct = self.segs[k]
-            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
-            best.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)),
-                         ux, uy, cl, self.apron_cap))
-        d0 = min(b[0] for b in best)
-        return [b[1:] for b in best if abs(b[0] - d0) <= 1e-6]
 
     def applies(self, c: "ShapePairConstraint") -> bool:
         """A taxi-family body pair under the floor (never a road
-        cross-section, which is its own family); an apron pair of a face
-        crossed by a stretch, at any length (2026-09-06v)."""
-        if not self.segs or c.transverse_road:
-            return False
-        role = law_role(c.way)
-        if role in self.taxi_roles:
-            return c.dist < self.min_m
-        return role in self.apron_roles and bool(self._crossing_segs(c.way))
+        cross-section, which is its own family)."""
+        return (bool(self.segs) and not c.transverse_road and c.dist < self.min_m
+                and law_role(c.way) in self.taxi_roles)
 
     def nearest(self, x: float, y: float):
         """``(ux, uy, cL, cT)`` of the nearest stretch segment within two
@@ -6117,20 +6088,14 @@ class _StretchBox:
         and the isotropic cap it amounts to over the chord — or ``None``
         with no axis in reach."""
         x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
-        if law_role(c.way) in self.apron_roles:
-            axes = self.crossing(c)           # the crossed face's axis (06v)
-            if not axes:
-                return None
-        else:
-            near = self.nearest(x, y)
-            if near is None:
-                return None
-            axes = [near, *self.tied(x, y)]
+        near = self.nearest(x, y)
+        if near is None:
+            return None
         dx, dy = c.xb - c.xa, c.yb - c.ya
         box, cl = None, None
         # a TIE takes the strictest bound among the tied axes
         # (``stretches.AxisIndex.box_bound``: one rule, both readers)
-        for ux, uy, cl_k, ct in axes:
+        for ux, uy, cl_k, ct in [near, *self.tied(x, y)]:
             b = cl_k * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
             if box is None or b < box:
                 box, cl = b, cl_k
@@ -6156,6 +6121,7 @@ def _check_within_shape(ways: List[Way],
                         face_holes_m: Optional[dict] = None,
                         taxi_box: Optional["_StretchBox"] = None,
                         taxi_box_out: Optional[List] = None,
+                        apron_tier: Optional[dict] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -6246,6 +6212,13 @@ def _check_within_shape(ways: List[Way],
                                      c.xa, c.ya, c.xb, c.yb)
             if _zc is not None:
                 allowance = max(allowance, _zc * c.dist)
+        if apron_tier and not _box and apron_tier.get("max") is not None \
+                and apron_tier.get("preferred") is not None \
+                and _apron_tier_pair(c, _APRON_MAX_GRADE, float(apron_tier["max"])):
+            # THE TIERED APRON LAW (owner RULINGS 2026-09-06w): the pair is
+            # judged at the HARD cap the sidecar declares and tallied
+            # against the PREFERRED cap (``_APRON_PREF_STATS``)
+            allowance = _apron_tier_read(c, de, allowance, apron_tier)
         if de <= allowance:
             if _box:
                 _TAXI_BOX_STATS["inside"] += 1
@@ -7621,6 +7594,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # never ran under, in both directions.
     "basin_facilities": "basin_facilities",
     "ruleset": "ruleset",
+    # THE TIERED APRON LAW the build priced (owner RULINGS 2026-09-06w):
+    # ``{preferred, max, fan}`` as fractions, published by v2
+    # (``pipeline.publication.apron_tier``).  LAW INPUT: an apron-law pair
+    # (an ``apron`` / ``building`` way, a 04t-2 portion pair) is judged at
+    # ``max`` (1.5 %), and the rows above ``preferred`` (1 %) are the
+    # REPORT FIGURE ``apron_over_preference`` (``_APRON_PREF_STATS``),
+    # never a violation.  A v1 patch has no key and reads exactly as before.
+    "apron_tier": "apron_tier",
     # THE LAST RESORT's relaxed rows (RULINGS 2026-09-04t(1); spawner
     # ruling 04x-2, 2026-09-04): the rows v2's IIS-scoped relaxation gave
     # a slack, with their relaxed caps.  LAW INPUT: a row relaxed under
@@ -7640,6 +7621,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): the generator-
+    # side reading of the built surface against the 1 % preference, per
+    # face (``constraints.apron.apron_preference_report``).  EVIDENCE: the
+    # oracle computes its own from ``apron_tier`` (``_APRON_PREF_STATS``).
+    "apron_over_preference",
     # THE TAXI ROUTE PAIRS (RULINGS 2026-09-05ab/ac): the v2 verify's own
     # population — every taxi-family pair priced over its centreline
     # route.  EVIDENCE here: ``run_checks`` never consumes it (the oracle
@@ -7906,6 +7892,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["basin_facilities"] = data.get("basin_facilities") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
+    ctx["apron_tier"] = data.get("apron_tier") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
               + (" [exact]" if exact else "")
@@ -8325,6 +8312,7 @@ def run_checks(
     stretches_ll: Optional[list] = None,
     family_out: Optional[dict] = None,
     relaxed_rows: Optional[list] = None,
+    apron_tier: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -8351,6 +8339,7 @@ def run_checks(
     """
     _CROWN_UNKNOWN_PAIRS.clear()
     _TAXI_BOX_STATS.clear()
+    _APRON_PREF_STATS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives
     # it from the ICAO identifier: production emits what it did, and the
@@ -8379,6 +8368,10 @@ def run_checks(
         # to prevent.
         family_out["_ruleset_declared"] = ruleset
         family_out["_ruleset_active"] = _active
+        # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w): filled by
+        # ``_check_within_shape`` below on a patch carrying ``apron_tier``;
+        # the same dict object, so the reader sees the final tally
+        family_out["_apron_over_preference"] = _APRON_PREF_STATS
     if not quiet:
         # NUMBERS AND FRAMES, never a cause.  The old line said the patch
         # "predates the FAA/ICAO split" and told the reader to rebuild —
@@ -8459,7 +8452,7 @@ def run_checks(
     stretches_m = _stretches_to_m(stretches_ll, nodes, ll_to_m)
     # THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)), keyed on the v2
     # sidecar's ``stretches``: a v1 patch (no key) builds none.
-    taxi_box = (_StretchBox(stretches_ll, ll_to_m, runway_edge_tie_law(), nodes, ways)
+    taxi_box = (_StretchBox(stretches_ll, ll_to_m, runway_edge_tie_law())
                 if stretches_ll else None)
 
     # SPINE CROWN drop field (sidecar ``crown_drops``, part 30): the
@@ -8546,7 +8539,8 @@ def run_checks(
         interior_zones_m=interior_zones_m,
         transverse_road_out=_road_xsec_rows,
         stretches_m=stretches_m, face_holes_m=face_holes_m,
-        taxi_box=taxi_box, taxi_box_out=_taxi_box_rows))
+        taxi_box=taxi_box, taxi_box_out=_taxi_box_rows,
+        apron_tier=apron_tier))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

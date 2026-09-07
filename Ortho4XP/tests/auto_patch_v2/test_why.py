@@ -186,7 +186,7 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     # family alone is redundant with the others (measured: 1e-13 m each);
     # the travel-path pricing relaxed TOGETHER lifts it materially
     travel = {"no_step_pairs", "taxi_within_shape", "taxi_centreline",
-              "apron_within_shape", "reach_bands"}
+              "apron_within_shape", "apron_preference", "reach_bands"}
     rows2 = [r for r in prepared.cs.rows() if why.family_of(r) not in travel]
     sol2 = solve(prepared.pm, ConstraintSet.from_rows(rows2), prepared.weights)
     z3 = np.asarray(sol2.z, float)

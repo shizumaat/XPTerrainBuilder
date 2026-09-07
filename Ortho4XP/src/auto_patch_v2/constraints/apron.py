@@ -37,24 +37,26 @@ the obstacle.  A dropped chord is counted in ``STATS["chords_outside_
 face"]`` (published by ``generate`` under ``apron_within_shape.chords_
 outside_face``).  A ring edge is never a chord and is never dropped.
 
-A ROUTE THROUGH THE APRON (owner, RULINGS 2026-09-06t; spec author,
-RULINGS 2026-09-06v; spec ``apron-route-cap`` §3 amended): the taxi
-centreline stretch crossing an apron face keeps the taxiway law
-(``stretches.edge_cap``), and the apron beside it is ANISOTROPIC — within
-a face CROSSED by a stretch (``stretches.crossing_axes``: an edge of the
-stretch on one of the face's rings) EVERY priced pair (ring edges, spine
-chords, body chords under their gates and the 05ae face-cover gate) at
-ANY length is the BOX against the crossing axis nearest its midpoint
-(ties strictest): ``|Δz| ≤ cL_stretch·|Δs| + cA·|Δt|``, cL the
-stretch's longitudinal cap and cA the APRON cap across (06s's
-``AxisIndex`` / ``taxi.box_pair_rows``, the apron cap as the index's
-``cT``).  A face crossed by no stretch stays isotropic.  The round-1
-corridor (short pairs within a taxiway half-width) was REFUTED by
-arithmetic — any apron vertex with d(P,A) + d(P,B) < 1.5·d(A,B) re-caps
-the route through its 1 % chords — and is deleted.  Counted in
-``STATS[...]["route_box"]``.  The v2 verify (``verify/within.py::
-taxi_box``) and the v1 oracle (``check_grade._StretchBox``) read the
-same population (lockstep twin, ``tests/auto_patch_v2/test_v2routecap``).
+THE TIERED APRON LAW (owner, RULINGS 2026-09-06w; spec ``apron-route-cap``
+§3 superseded): every apron row this module prices — ring edges, frontage /
+spine chords, body chords under the gate and the 05ae face cover, the
+04t-2 edge portions — is HARD at ``common.roles.apron max`` (1.5 % all
+directions, ``role_cap``) and CARRIES the ``preferred`` tier (1 %,
+``role_preferred_cap``) as a second, PREFERENCE row on the same pair:
+``Diff(cap=preferred, soft="apron:<face>:<k>", ceiling=None)`` — one
+escalation group PER ROW, so the solver spends grade above 1 % only on
+the rows a senior law (the runway's fit, a route's 1.5 %, a pad seat)
+needs, and pays for exactly the relief it uses (``solve/assemble.py``
+charges ``Weights.preference["apron"] × the largest DEM-fit weight`` per
+metre of relief: below the runway family's fit and smoothness, above
+every other role's fit).  Two rows, not one, because the relaxation
+(``solve/relax.py``) admits only HARD rows and prices a preference row
+at its ceiling: the hard row is the one an IIS names and 04t(1) relaxes
+above 1.5 %, the preference row (no ceiling) constrains nothing there.
+:func:`apron_preference_report` reads the built surface against the
+preference: per face the rows over 1 % and the max grade (the sidecar's
+``apron_over_preference``, ``why``).  The 5 % back-edge class between
+adjacent pads (08-24, 06w (3)) is NOT modelled yet — owed.
 
 Lattice / membrane (``emit.chords.apron_interior_spacing_m``): the M1 map
 has no interior vertices (M0 open question 3); the membrane family is
@@ -64,27 +66,25 @@ nothing minted here.
 from __future__ import annotations
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap, snap_margin_m
+from ..law.tables import is_rigid_role, role_cap, role_preferred_cap, snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
 from .geometry import chords_covered, face_cover, principal_axis, project_to_chain
 from .precedence import View, view
-from .stretches import AxisIndex, crossing_axes, stretches
-from .taxi import box_pair_rows
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
-           "face_width", "STATS", "ROUTE_BOX_RULING"]
+           "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
+           "tiered_rows", "preference_face", "apron_preference_report"]
 
-#: The route box row's citation (module docstring): it STATES the apron's
-#: law (``solve.relax.stated_role`` reads the ``common.roles.apron``
-#: prefix — apron tier, relaxable under 04t-1 like the isotropic row it
-#: replaces); ``solve.why`` keys the ``apron_route_box`` family on
-#: "route box".
-ROUTE_BOX_RULING = ("common.roles.apron route box in a crossed face: "
-                    "|dz| <= cL_stretch*|ds| + cA*|dt| vs the nearest crossing "
-                    "stretch (2026-09-06v)")
+#: The preference rows' escalation-group prefix (``Weights.preference``
+#: key; ``solve/assemble.preference_weight``): ``apron:<face>:<k>``.
+PREFERENCE_GROUP = "apron"
+#: The preference row's citation: it states the apron law's PREFERRED
+#: tier (``solve.relax.stated_role`` reads the ``common.roles.apron``
+#: prefix; the row is never admitted to the relaxation — it is soft).
+PREFERENCE_RULING = "common.roles.apron preferred tier (2026-09-06w)"
 
 #: The last run's generator statistics by generator function name
 #: (``generate`` publishes them as ``<generator>.<stat>``):
@@ -98,14 +98,95 @@ GEN = "apron"
 GEN_EDGE = "apron_edge_portion"
 
 
+class _Tier:
+    """One face's row minter: the hard row at ``hard`` and, where the
+    law states a preference, the preference row on the same pair in its
+    own group ``apron:<face>:<k>``."""
+
+    def __init__(self, fid: int, ref: str, hard: float | None, preferred: float | None,
+                 generator: str = GEN) -> None:
+        self.fid, self.hard, self.preferred = fid, hard, preferred
+        self.k = 0
+        self.generator = generator
+
+    def rows(self, a: int, b: int, d: float, src: Source) -> tuple[Row, ...]:
+        """The hard row (none when ``hard`` is ``None``: the face's own cap
+        already holds it, an edge portion of a taxi face) and the
+        preference row on the same pair, citing the hard row's inputs."""
+        out: list[Row] = []
+        if self.hard is not None:
+            out.append(Diff(a, b, self.hard, d, src))
+        if self.preferred is not None:
+            g = f"{PREFERENCE_GROUP}:{self.fid}:{self.k}"
+            self.k += 1
+            out.append(Diff(a, b, self.preferred, d,
+                            Source(self.generator, PREFERENCE_RULING, src.inputs),
+                            soft=g, ceiling=None))
+        return tuple(out)
+
+
+def tiered_rows(fid: int, ref: str, hard: float | None, preferred: float | None,
+                generator: str = GEN) -> _Tier:
+    """A face's tiered-row minter (module docstring)."""
+    return _Tier(fid, ref, hard, preferred, generator)
+
+
+def preference_face(row: Row) -> int | None:
+    """The face an apron PREFERENCE row belongs to (its group's second
+    field), ``None`` for any other row."""
+    g = getattr(row, "soft", None)
+    if not g or not g.startswith(PREFERENCE_GROUP + ":"):
+        return None
+    try:
+        return int(g.split(":", 2)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def apron_preference_report(cs, z, law: Law) -> dict:
+    """THE BUILT SURFACE AGAINST THE PREFERENCE (RULINGS 2026-09-06w (2)):
+    over every apron preference row — per face and in all — the rows
+    whose built grade exceeds the preferred cap by more than the grade
+    materiality, and the max built grade.  A report figure, never a
+    violation (the hard cap is the law)."""
+    tol = law.tables.emit.materiality.grade
+    pref = role_preferred_cap(law, "apron")
+    hard = role_cap(law, "apron")
+    faces: dict[int, dict] = {}
+    rows = over = 0
+    gmax = 0.0
+    for r in cs.diffs:
+        fid = preference_face(r)
+        if fid is None or r.d <= 0.0:
+            continue
+        g = abs(float(z[r.a]) - float(z[r.b])) / r.d
+        f = faces.setdefault(fid, {"rows": 0, "over_preference": 0, "max_grade": 0.0})
+        f["rows"] += 1
+        rows += 1
+        if g > r.cap + tol:
+            f["over_preference"] += 1
+            over += 1
+        f["max_grade"] = max(f["max_grade"], g)
+        gmax = max(gmax, g)
+    for f in faces.values():
+        f["max_grade"] = round(f["max_grade"], 6)
+    return {"preferred": None if pref is None else pref.longitudinal,
+            "max": None if hard is None else hard.longitudinal,
+            "rows": rows, "over_preference": over, "max_grade": round(gmax, 6),
+            "faces": {str(k): v for k, v in sorted(faces.items())}}
+
+
 def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                        ) -> list[Row]:
-    """Ring edges and spine chords at the apron cap; body chords within
-    the body gate at the interior fan cap."""
+    """Ring edges and spine chords HARD at the apron cap (1.5 %, 06w)
+    with the 1 % preference row beside each; body chords within the body
+    gate likewise (the 5 % back-edge class is not modelled — owed)."""
     vw = view(planar, law)
     cap = role_cap(law, "apron")
     if cap is None:
         return []
+    pref = role_preferred_cap(law, "apron")
+    pref_l = None if pref is None else pref.longitudinal
     fan = law.tables.common.apron_fan_ramp_max
     gate = law.tables.emit.within_shape.apron_body_chord_max_m
     min_d = law.tables.emit.identity.min_distinct_spacing_m
@@ -131,25 +212,11 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     strict.add(v)
                     break
     tol = snap_margin_m(law)
-    st = stretches(planar, law)
-    cell = law.tables.emit.within_shape.withdrawn_chord_min_m
     rows: list[Row] = []
     outside = 0
+    n_pref = 0
     for f in vw.faces_of_role(("apron",)):
-        # THE CROSSED FACE (06v): its crossing stretches as one axis
-        # index with the APRON cap across; every priced pair below is
-        # the box against the nearest of them
-        src_box = Source(GEN, ROUTE_BOX_RULING, (f"face:{f.id}", f.ref))
-        rings = [vw.rings[f.id], *vw.holes[f.id]]
-        axes = crossing_axes(vw.xy, rings,
-                             [(st.items[sid].vertices, st.items[sid].cap_l, cap.longitudinal)
-                              for sid in st.face_stretches.get(f.id, ())])
-        index = AxisIndex(axes, cell) if axes else None
-
-        def priced(a: int, b: int, d: float, src: Source) -> Row:
-            if index is None:
-                return Diff(a, b, cap.longitudinal, d, src)
-            return box_pair_rows(vw, index, [(a, b, d)], src_box)[0]
+        tier = _Tier(f.id, f.ref, cap.longitudinal, pref_l)
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",
@@ -157,8 +224,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
         src_body = Source(GEN, "apron body chord, strict (2026-08-24 amends 08-21c)",
                           (f"face:{f.id}", f.ref))
         # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
-        chords: list[Row] = []
-        for ring in rings:
+        chords: list[tuple[Row, ...]] = []
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             n = len(ring)
             for i in range(n):
                 a = ring[i]
@@ -170,9 +237,9 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         continue
                     adjacent = (j == i + 1) or (i == 0 and j == n - 1)
                     if adjacent:
-                        rows.append(priced(a, b, d, src_ring))
+                        rows.extend(tier.rows(a, b, d, src_ring))
                     elif a_strict or b in strict:
-                        chords.append(priced(a, b, d, src_spine))
+                        chords.append(tier.rows(a, b, d, src_spine))
                     elif d <= gate + min_d:
                         # the body gate is read in the CENSUS'S OWN frame
                         # (equirectangular, ~0.2 % off this one at CYXY's
@@ -185,19 +252,21 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # models no fan-ramp zone yet, so every body chord
                         # inside the gate holds the STRICT cap; ``fan`` is
                         # the back-edge zones' cap when M3b generates them
-                        chords.append(priced(a, b, d, src_body))
+                        chords.append(tier.rows(a, b, d, src_body))
+        n_pref += tier.k
         if not chords:
             continue
         cover = face_cover(vw.face_ring_xy(f.id),
                            [[vw.xy[v] for v in h] for h in vw.holes[f.id]], tol)
-        inside = chords_covered(cover, [(vw.xy[c.a], vw.xy[c.b]) for c in chords])
+        inside = chords_covered(cover, [(vw.xy[c[0].a], vw.xy[c[0].b]) for c in chords])
         for c, ok in zip(chords, inside):
             if ok:
-                rows.append(c)
+                rows.extend(c)
             else:
                 outside += 1
-    boxed = sum(1 for r in rows if r.source.ruling == ROUTE_BOX_RULING)
-    STATS["apron_within_shape"] = {"chords_outside_face": outside, "route_box": boxed}
+                n_pref -= len(c) - 1
+    STATS["apron_within_shape"] = {"chords_outside_face": outside,
+                                   "preference_rows": n_pref}
     return rows
 
 
@@ -266,11 +335,17 @@ def shared_apron_runs(vw: View, fid: int, apron_v: frozenset[int],
 def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
                         ) -> list[Row]:
     """Every pair inside a LONG shared apron run of a governed non-apron,
-    non-rigid face at the apron's cap (module docstring)."""
+    non-rigid face at the apron's cap (module docstring) — under the
+    tiered law (06w) the HARD row only where the face's own cap is looser
+    than the apron's hard cap (a road, a lot; a taxi face at 1.5 % already
+    holds it), the PREFERENCE row wherever the face's cap is looser than
+    the preference."""
     vw = view(planar, law)
     cap = role_cap(law, "apron")
     if cap is None:
         return []
+    pref = role_preferred_cap(law, "apron")
+    pref_l = None if pref is None else pref.longitudinal
     ratio = law.tables.emit.within_shape.apron_edge_portion_min_width_ratio
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     apron_v: set[int] = set()
@@ -283,18 +358,22 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
     for fid, f in planar.faces.items():
         if f.role == "apron" or vw.caps[fid] is None or is_rigid_role(law, f.role):
             continue
-        if vw.caps[fid][0] <= cap.longitudinal:
-            continue                        # already at or under the apron cap
+        face_cap = vw.caps[fid][0]
+        hard_here = cap.longitudinal if face_cap > cap.longitudinal else None
+        pref_here = pref_l if pref_l is not None and face_cap > pref_l else None
+        if hard_here is None and pref_here is None:
+            continue                        # already at or under the apron's tiers
         runs = shared_apron_runs(vw, fid, apron_fv, ratio)
         if not runs:
             continue
         src = Source(GEN_EDGE, "common.roles.apron on the shared edge portion (04t-2)",
                      (f"face:{fid}", f.ref))
+        tier = _Tier(fid, f.ref, hard_here, pref_here, GEN_EDGE)
         for run in runs:
             for i in range(len(run)):
                 for j in range(i + 1, len(run)):
                     a, b = run[i], run[j]
                     d = vw.dist(a, b)
                     if d >= min_d:
-                        rows.append(Diff(a, b, cap.longitudinal, d, src))
+                        rows.extend(tier.rows(a, b, d, src))
     return rows

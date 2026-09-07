@@ -145,10 +145,20 @@ def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
     ``d`` its own distance to the pad polygon.  Under 03h the pad is the
     junior side: the row levels the pad by its frontage exactly as a
     shared vertex would, never the apron by the pad."""
+    # THE TIERED APRON LAW (RULINGS 2026-09-06w): the budget is the HARD
+    # apron cap; the 1 % preference rides beside it (``apron.tiered_rows``)
+    from .apron import tiered_rows
+    from ..law.tables import role_preferred_cap
+    pref = role_preferred_cap(law, "apron")
+    pref_l = None if pref is None else pref.longitudinal
     rows: list[Row] = []
+    tiers: dict[int, object] = {}
     for e, j, pid, d, budget, fid in frontage_contacts(planar, law):
         f = planar.faces[fid]
-        rows.append(Diff(e, j, budget, d, Source(
+        tier = tiers.get(fid)
+        if tier is None:
+            tier = tiers[fid] = tiered_rows(fid, f.ref, budget, pref_l, GEN)
+        rows.extend(tier.rows(e, j, d, Source(
             GEN, "structures.building_pad frontage_near_miss "
             "(2026-08-08; 09-01g weld = value; 03h pads yield)",
             (f"face:{f.id}", f.ref, f"pad:{pid}", planar.faces[pid].ref))))

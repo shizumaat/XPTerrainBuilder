@@ -21,7 +21,7 @@ from ..solve.why import Prepared, _drop, solve_with_duals
 from ..solve.why import report as _report
 
 __all__ = ["prepare", "_prepare_solved", "resolve_faces", "taxi_letters",
-           "relaxation_block", "report", "chain_kml"]
+           "relaxation_block", "apron_preference_block", "report", "chain_kml"]
 
 
 def prepare(icao: str, inputs, law: Law | None = None,
@@ -263,11 +263,35 @@ def relaxation_block(prep: Prepared) -> list[str]:
     return L
 
 
+def apron_preference_block(prep: Prepared, fid: int) -> list[str]:
+    """THE APRON PREFERENCE (RULINGS 2026-09-06w (2)) as ``why`` states it:
+    the whole map's figure and, for an apron face, its own rows over 1 %
+    and max grade; the faces over the preference that the shape's chain
+    touches are read off the report's bindings."""
+    from ..constraints.apron import apron_preference_report
+    rep = apron_preference_report(prep.cs, prep.z, prep.law)
+    if not rep["rows"]:
+        return []
+    L = [f"-- apron preference (06w): {rep['over_preference']}/{rep['rows']} apron rows over "
+         f"{rep['preferred']} (hard {rep['max']}), max grade {rep['max_grade']:.4f}"]
+    f = rep["faces"].get(str(fid))
+    if f is not None:
+        L.append(f"   this face: {f['over_preference']}/{f['rows']} rows over the preference, "
+                 f"max grade {f['max_grade']:.4f}")
+    top = sorted(rep["faces"].items(),
+                 key=lambda kv: (-kv[1]["over_preference"], -kv[1]["max_grade"]))
+    L.append("   largest faces over the preference: " + ", ".join(
+        f"#{k} {v['over_preference']}/{v['rows']} (max {v['max_grade']:.4f})"
+        for k, v in top[:8] if v["over_preference"]))
+    return L
+
+
 def report(prep: Prepared, fid: int, **kw) -> str:
-    """``solve.why.report`` with the code-letter evidence attached, and
-    the relaxed-mode block when the hard set was infeasible."""
+    """``solve.why.report`` with the code-letter evidence attached, the
+    apron preference figure (06w) and the relaxed-mode block when the
+    hard set was infeasible."""
     text = _report(prep, fid, letters=taxi_letters(prep, fid), **kw)
-    block = relaxation_block(prep)
+    block = apron_preference_block(prep, fid) + relaxation_block(prep)
     return text + ("\n" + "\n".join(block) if block else "")
 
 
@@ -280,6 +304,7 @@ _KML_COLOURS = {
     "junction_mesh": "ffff8800", "runway_profile": "ffffffff", "runway_crown": "ffffffff",
     "runway_vertical_curve": "ffffffff", "runway_chain": "ffffffff", "runway_pins": "ffffffff",
     "apron_within_shape": "ff0000ff", "apron_chain": "ff0000ff", "apron_edge_portion": "ff0000ff",
+    "apron_preference": "ff0000ff",
     "pads": "ffff00ff", "zone_bands": "ff888888", "strip_transverse": "ff888888",
 }
 

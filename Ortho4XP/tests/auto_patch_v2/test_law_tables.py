@@ -393,7 +393,24 @@ def test_every_value_equals_v1(tables, capsys):
         "groundside partition": (set(v1_cg._GROUNDSIDE_ROLES),
                                  set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot"},
                                  "owner 2026-09-04j"),
+        # owner 2026-09-06w: THE TIERED APRON LAW — the apron (and the pad,
+        # 08-21b) is HARD at 1.5 % and PREFERS v1's 1 % (`preferred`, the
+        # tier `role_preferred_cap` answers and the solver charges); v1's
+        # value is the preference, not the cap
+        "common.roles.apron.longitudinal": (0.01, 0.015, "owner 2026-09-06w"),
+        "common.roles.apron.transverse": (0.01, 0.015, "owner 2026-09-06w"),
+        "common.roles.building.longitudinal": (0.01, 0.015, "owner 2026-09-06w"),
+        "common.roles.building.transverse": (0.01, 0.015, "owner 2026-09-06w"),
+        "icao stand == apron": (0.01, 0.015, "owner 2026-09-06w"),
+        "faa stand == apron": (0.01, 0.015, "owner 2026-09-06w"),
+        "role_cap(apron, FAA/C).longitudinal": (0.01, 0.015, "owner 2026-09-06w"),
+        "role_cap(building, FAA/C).longitudinal": (0.01, 0.015, "owner 2026-09-06w"),
     }
+    # the PREFERRED tier is v1's value exactly (06w: "aprons prefer 1 %")
+    from auto_patch_v2.law.tables import role_preferred_cap
+    for role in ("apron", "building"):
+        pref = role_preferred_cap(Law(tables=tables, ruleset_key="icao"), role)
+        assert (pref.longitudinal, pref.transverse) == (0.01, 0.01), role
     bad = [(n, a, b) for n, a, b in c.mismatches()
            if not (n in RULED and RULED[n][0] == a and RULED[n][1] == b)]
     assert not bad, "law drift vs v1:\n" + "\n".join(

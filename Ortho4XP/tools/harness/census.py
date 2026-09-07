@@ -1524,6 +1524,10 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     evidence = cg.sidecar_evidence(osm)
     declared = families.get("_ruleset_declared")
     active = families.get("_ruleset_active")
+    # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): the oracle's
+    # own tally of apron-law pairs above the 1 % preference on a patch
+    # priced under the tiered law — a report figure, never adjudicated
+    apron_pref = dict(families.get("_apron_over_preference") or {})
 
     rows_by_family = {}
     for key, title, bucket in cg.LAW_FAMILIES:
@@ -1627,6 +1631,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
         "crown_gap": crown_gap,
         "withdrawn_law": withdrawn,
+        "apron_over_preference": apron_pref,
         # THE AXIS FRAME, always stamped — "own" for every default run, so
         # a report without the key is simply an older one and a report WITH
         # it can never be mistaken for the other frame.
@@ -1787,6 +1792,17 @@ def print_report(rep: dict, top: int) -> None:
         # heading means the census predates the class and never a
         # silently dropped population.
         oos = adj.get("out_of_scope_classes") or {}
+        ap = rep.get("apron_over_preference") or {}
+        if ap.get("rows") is not None:
+            faces = sorted((ap.get("faces") or {}).items(),
+                           key=lambda kv: (-kv[1]["over_preference"], -kv[1]["max_grade"]))
+            print(f"    APRON PREFERENCE (06w, report figure, never adjudicated): "
+                  f"apron_over_preference {ap['over_preference']} of {ap['rows']} apron-law "
+                  f"pairs over {ap['preferred']:g} (hard cap {ap['max']:g}); max grade "
+                  f"{ap['max_grade']:.4f}"
+                  + ("; largest faces by shapeID: " + ", ".join(
+                      f"#{k} {v['over_preference']}/{v['rows']} (max {v['max_grade']:.4f})"
+                      for k, v in faces[:8] if v["over_preference"]) if faces else ""))
         wl = rep.get("withdrawn_law") or {}
         if wl.get("key_present"):
             print(f"    WITHDRAWN LAW (05aa) taxi chord rows: {wl['stamped']} "

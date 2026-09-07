@@ -123,8 +123,6 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     for k, a in enumerate(axes(planar, law)):
         ax_out.append([[ll[v] for v in a.vertices], a.cap_l, a.cap_t, k,
                        bool(a.is_service)])
-    # ``[pts, cap_l, letter, ref]``; the readers' apron route box (RULINGS
-    # 2026-09-06v) keys on the stretches' presence, like the taxi box
     st_out = [[[ll[v] for v in s.vertices], s.cap_l, s.code_letter, s.ref]
               for s in stretches(planar, law).items]
     drops = [[ll[v][0], ll[v][1], d] for v, d in
@@ -156,6 +154,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     taxi_pairs = taxi_route_pairs(planar, law, airport, ll, tol)
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+            "apron_tier": apron_tier(law),
             "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh_edges_ll(planar, law),
@@ -166,6 +165,21 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "station_caps": stations,
             "basin_facilities": basin_facilities(planar, law, z),
             "tunnel_objects": tunnel_objects(planar, airport)}
+
+
+def apron_tier(law: Law) -> dict[str, float | None]:
+    """THE TIERED APRON LAW the build priced (owner RULINGS 2026-09-06w),
+    for the oracle: ``preferred`` (1 %), ``max`` (1.5 %, the hard cap) and
+    ``fan`` (the back-edge class, ``common.apron_fan_ramp_max``) as
+    fractions — ``check_grade`` reads apron rows against ``max`` and
+    counts rows above ``preferred`` as the report figure
+    ``apron_over_preference``, never a violation."""
+    from ..law.tables import role_cap, role_preferred_cap
+    hard = role_cap(law, "apron")
+    pref = role_preferred_cap(law, "apron")
+    return {"preferred": None if pref is None else pref.longitudinal,
+            "max": None if hard is None else hard.longitudinal,
+            "fan": law.tables.common.apron_fan_ramp_max}
 
 
 def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,

@@ -21,6 +21,7 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Rebake  # noqa: F401
+from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 
 __all__ = [
@@ -90,10 +91,11 @@ class Rate:
 
 @_dc.dataclass(frozen=True)
 class RoleCap:
-    """A role's grade caps (fractions)."""
+    """A role's HARD caps; ``preferred`` its two-tier preference (2026-09-06w)."""
 
     longitudinal: float
     transverse: float
+    preferred: "RoleCap | None" = None
 
 
 # ── rulesets.toml ────────────────────────────────────────────────────────
@@ -735,6 +737,8 @@ def _is_optional(tp: object) -> tuple[bool, object]:
 def _convert(path: str, name: str, tp: object, raw: object) -> object:
     """Coerce one TOML value to the annotated type, validating."""
     origin = _t.get_origin(tp)
+    if tp is RoleCap:
+        return _role_cap_schema(path, name, raw, _build, RoleCap, LawError)
     if tp is float:
         return _num(path, name, raw)
     if tp is int:

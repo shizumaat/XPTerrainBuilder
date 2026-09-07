@@ -121,8 +121,15 @@ def test_near_miss_frontage_rows_bind_the_offset_pad_only(synthetic, law):
     # distance, which exceeds the recognition radius on a long edge that
     # grazes the pad mid-span (the oracle's SPJC 49 m specimen)
     assert any(r.d <= near for r in rows) and all(r.d >= 0.0 for r in rows)
+    # THE TIERED APRON LAW (RULINGS 2026-09-06w): the hard rows at the
+    # apron's hard cap, each with its 1 % preference row on the same pair
+    hard = [r for r in rows if r.soft is None]
+    pref = [r for r in rows if r.soft is not None]
+    assert hard and len(pref) == len(hard)
     assert all(r.cap == pytest.approx(law.tables.common.roles["apron"].longitudinal)
-               for r in rows)
+               for r in hard)
+    assert all(r.cap == pytest.approx(law.tables.common.roles["apron"].preferred.longitudinal)
+               for r in pref)
 
 
 def test_station_walk_reads_the_apron_beside_the_road(synthetic, law):

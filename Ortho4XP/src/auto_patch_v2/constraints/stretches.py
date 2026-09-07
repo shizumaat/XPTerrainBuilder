@@ -37,19 +37,11 @@ carry the cap of the stretch(es) they belong to; strictest-of-chains
 * A CENTRELINE CHORD (:func:`edge_cap`) holds its stretch's cap, tightened
   by any governed NON-taxi, NON-apron face it bounds (a runway slab, a
   road, a structure).  A ROUTE THROUGH AN APRON KEEPS THE TAXIWAY LAW
-  (owner, RULINGS 2026-09-06t; spec ``apron-route-cap`` §2): an apron-
-  family face never tightens a stretch edge — 09-03j's "1202 edges inside
+  (owner, RULINGS 2026-09-06t and 06w; spec ``apron-route-cap`` §2): an
+  apron face never tightens a stretch edge — 09-03j's "1202 edges inside
   an apron are APRON" stands for the ROLE and is withdrawn for the CAP.
-  The apron beside the route is ANISOTROPIC (spec author, RULINGS
-  2026-09-06v; owner question 06v-1): within an apron face CROSSED by a
-  stretch (an edge of the stretch on one of the face's rings,
-  :func:`crossing_axes`) every priced pair is the BOX against the
-  crossing axis nearest its midpoint — ``|Δz| ≤ cL_stretch·|Δs| +
-  cA·|Δt|`` with the APRON cap across (``apron.apron_within_shape``;
-  06s's :class:`AxisIndex` with the apron cap as its ``cT``).  The round-1
-  corridor (a taxiway-half-width band) was REFUTED by arithmetic and is
-  deleted: any apron vertex with d(P,A) + d(P,B) < 1.5·d(A,B) re-capped
-  the route through its 1 % chords.
+  The apron beside the route is under the TIERED apron law (06w: hard
+  1.5 %, preferred 1 %) — no box, no corridor (both refuted, 06v / 06w).
 * JUNCTION BODIES (RULINGS 2026-09-04y, ``constraints.junction_mesh``): a
   junction face's pairs are its common-stretch pairs ONLY
   (``compose_pairs(common_only=True)``); a chord whose endpoints lie on
@@ -72,8 +64,7 @@ from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
-           "compose_pairs", "nearest_line_cap", "AxisIndex", "crossing_axes",
-           "APRON_ROLE"]
+           "compose_pairs", "nearest_line_cap", "AxisIndex", "APRON_ROLE"]
 
 #: THE APRON the route passes through (RULINGS 2026-09-06t): the emitted
 #: ``apron`` role — the tables register it in the ``common`` family (the
@@ -278,28 +269,6 @@ def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
     return compose_pairs(xy, verts, lines, base_cap, min_d, common_only)
 
 
-def crossing_axes(xy: _t.Mapping[int, XY], rings: _t.Iterable[_t.Sequence[int]],
-                  chains: _t.Iterable[tuple[_t.Sequence[int], float, float]]
-                  ) -> list[tuple[list[XY], float, float]]:
-    """THE STRETCHES CROSSING ONE FACE (RULINGS 2026-09-06v; spec ``apron-
-    route-cap`` §3 amended), pure: of ``chains`` — ``(vertex chain, cL,
-    cap across)`` — those with an EDGE ON one of the face's ``rings``
-    (two consecutive chain vertices both vertices of that ring: the
-    stretch bounds the face there), as :class:`AxisIndex` axes ``(points,
-    cL, cap across)``; empty when no stretch crosses.  The generator
-    (``apron.apron_within_shape``), the verify reader
-    (``verify/within.py``) and — on node ids — the v1 oracle
-    (``check_grade._StretchBox``) share this one definition."""
-    on: set[int] = set()
-    for ring in rings:
-        on.update(ring)
-    out = []
-    for chain, cl, ca in chains:
-        if len(chain) >= 2 and any(u in on and w in on for u, w in zip(chain, chain[1:])):
-            out.append(([xy[v] for v in chain], cl, ca))
-    return out
-
-
 class AxisIndex:
     """THE NEAREST STRETCH AXIS, grid-indexed (RULINGS 2026-09-06s; the
     generator's and the verify reader's one locator, the shape of the v1
@@ -310,10 +279,7 @@ class AxisIndex:
     neighbours first and, when they hold no segment, the WHOLE index —
     every point on a map with a stretch has a serving axis (the oracle
     tallied such pairs ``no_axis`` and read the chord; the ruling prices
-    the nearest axis).  The strictest longitudinal cap wins a tie.  An
-    apron face crossed by a stretch (RULINGS 2026-09-06v) builds one from
-    its crossing stretches with the APRON cap as ``cT``
-    (:func:`crossing_axes`)."""
+    the nearest axis).  The strictest longitudinal cap wins a tie."""
 
     def __init__(self, axes: _t.Iterable[tuple[_t.Sequence[XY], float, float]],
                  cell: float, tie_m: float = 1e-6) -> None:
@@ -348,22 +314,6 @@ class AxisIndex:
                 best = (d, ux, uy, cl, ct)
         return best
 
-    def _block(self, x: float, y: float) -> tuple[list[int], float]:
-        """The 3x3 grid block's segments around ``(x, y)`` and the
-        GUARANTEED RADIUS: a segment outside the block can be nearer than
-        the block's best only beyond the point's distance to the block's
-        edge (measured HECA pav129 2026-09-06: a 63 m segment binned into
-        a neighbour cell by its bounding box beat the true nearest at
-        44.7 m)."""
-        cx, cy = int(x // self.cell), int(y // self.cell)
-        ks: list[int] = []
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
-        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
-                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
-        return ks, reach
-
     def _tied(self, x: float, y: float, d0: float) -> list[tuple[float, float, float, float]]:
         """Every segment at the nearest distance ``d0`` (within ``tie_m``):
         the point projects onto a polyline CORNER shared by two segments,
@@ -386,8 +336,19 @@ class AxisIndex:
                  ) -> tuple[float, tuple[float, float], float, float] | None:
         if not self.segs:
             return None
-        ks, reach = self._block(x, y)
+        cx, cy = int(x // self.cell), int(y // self.cell)
+        ks: list[int] = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
         best = self._best(x, y, ks) if ks else None
+        # THE GUARANTEED RADIUS: a segment outside the 3x3 block can be
+        # nearer than the block's best only beyond the point's distance to
+        # the block's edge — past it, the whole index decides (measured
+        # HECA pav129 2026-09-06: a 63 m segment binned into a neighbour
+        # cell by its bounding box beat the true nearest at 44.7 m)
+        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
+                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
         if best is None or best[0] > reach:
             best = self._best(x, y, range(len(self.segs)))
         if best is None:

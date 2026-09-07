@@ -150,16 +150,21 @@ def test_pair_budget_is_the_sum_of_cap_times_length_along_the_path(loop, law):
     mixed = [p for p in pairs if (p[0] in apron) != (p[1] in apron) and (p[0] in taxi or p[1] in taxi)]
     assert mixed, "apron↔stub pairs must exist along the lane"
     caps = {round(c, 6) for _a, _b, c, _d in pairs}
-    assert {0.01, 0.015} <= caps, caps                   # apron-only, taxi-only paths
+    # the apron's HARD cap is the taxiway's (1.5 %, RULINGS 2026-09-06w):
+    # an apron-only and a taxi-only path price alike; the stub is letter A
+    assert 0.015 in caps, caps
     for a, b, cap, d in pairs[:400] + mixed[:50]:
         rp = route_path(g, a, b, max_len=law.tables.emit.no_step.window_m)
         assert rp is not None
         dist, bud, _path = rp
         assert dist == pytest.approx(d, abs=1e-6)
         assert cap * d == pytest.approx(bud, abs=1e-6)     # Diff.bound_m == Σ cap_e · len_e
-    # a mixed pair's cap is BETWEEN the two roles' caps: the path's own
-    # mix, never the strictest endpoint over a chord
-    assert any(0.01 < cap < 0.015 for _a, _b, cap, _d in mixed), sorted({round(c, 5) for *_x, c, _d in mixed})
+    # a mixed pair's cap is the path's own mix of the two roles' caps,
+    # never the strictest endpoint over a chord (the apron's hard cap and
+    # the letter-D taxi cap coincide at 1.5 % since 06w; the letter-A stub
+    # at 3 % still mixes)
+    assert all(0.015 - 1e-9 <= cap <= 0.03 + 1e-9 for _a, _b, cap, _d in mixed), \
+        sorted({round(c, 5) for *_x, c, _d in mixed})
 
 
 def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):

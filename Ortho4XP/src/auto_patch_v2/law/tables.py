@@ -22,7 +22,7 @@ __all__ = [
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
-    "tier_of_roles",
+    "tier_of_roles", "role_preferred_cap",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
@@ -117,6 +117,20 @@ def role_cap(law: Law, role: str, code_number: int | None = None,
     if lon is None or tr is None:
         return None
     return RoleCap(longitudinal=lon, transverse=tr)
+
+
+def role_preferred_cap(law: Law, role: str) -> RoleCap | None:
+    """THE PREFERENCE TIER (owner RULINGS 2026-09-06w): the caps ``role``
+    PREFERS where its table states two tiers (``common.roles.<role> = {
+    preferred, max }`` — the apron and the pad), ``None`` for an untiered
+    role.  :func:`role_cap` answers the HARD cap; the generators price
+    every apron row hard at it and carry this one as a ``Diff.soft``
+    preference."""
+    fam = role_family(law, role)
+    if fam != "common":
+        return None
+    rc = law.tables.common.roles.get(role)
+    return None if rc is None else rc.preferred
 
 
 def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:

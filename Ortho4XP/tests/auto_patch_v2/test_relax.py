@@ -475,19 +475,21 @@ def test_relaxed_pad_slope_is_bounded_by_the_table(hangar, law):
     loose = _with_relaxation(law, pad_slope_max=0.05)
     s0 = relax.stage1(pm, cs, rel, loose, backend="qp")
     assert max(s1.excess[x.index] for x in pads) <= max(s0.excess[x.index] for x in pads) + tol
-    tight = _with_relaxation(law, pad_slope_max=0.005)
+    # (under the tiered apron law, RULINGS 2026-09-06w — the apron hard at
+    # 1.5 % — the unbounded pad slopes 0.43 % here: the arm tightens to 0.3 %)
+    tight = _with_relaxation(law, pad_slope_max=0.003)
     # the default backend: highspy's QP reports kSolveError at this bound on
     # this fixture (measured 2026-09-05) and the approximation answers
     s2 = relax.stage1(pm, cs, rel, tight)
     assert s2.status == "optimal", s2
-    assert all(s2.excess[x.index] <= 0.005 + tol for x in pads)
-    assert max(s2.excess[x.index] for x in pads) >= 0.9 * 0.005   # ACTIVE here
+    assert all(s2.excess[x.index] <= 0.003 + tol for x in pads)
+    assert max(s2.excess[x.index] for x in pads) >= 0.9 * 0.003   # ACTIVE here
     chords = [x for x in rel if x.kind != "pad"]
     assert sum(s2.slack[x.index] for x in chords) > sum(s1.slack[x.index] for x in chords)
     # the same on the approximation, and the certificate reads the bound
     s3 = relax.stage1(pm, cs, rel, tight, backend="pwl")
-    assert all(s3.excess[x.index] <= 0.005 + tol for x in pads)
+    assert all(s3.excess[x.index] <= 0.003 + tol for x in pads)
     sol2, rep, _cs2 = relax.solve_relaxed(pm, cs, tight, DEFAULT_WEIGHTS, Options())
     assert sol2 is not None and rep.certificate["ok"]
-    assert rep.certificate["pad_slope_max"] == 0.005
+    assert rep.certificate["pad_slope_max"] == 0.003
     assert rep.certificate["pad_slope_max_seen"] <= 0.005 + tol

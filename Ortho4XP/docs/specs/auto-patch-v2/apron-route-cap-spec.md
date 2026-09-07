@@ -211,3 +211,106 @@ rows at the hard cap; with no rise pinned the surface sits at ≤ 1 %
 (the preference holds when nothing senior needs more); oracle/verify
 lockstep (rows over 1.5 % only). Acceptance §5 unchanged, bow bar:
 shrinks toward 6.1 m — quote.
+
+### Implemented (lane `v2routecap` round 3, 2026-09-07)
+
+REMOVED (06w withdraws both boxes): round 2's two commits' code and
+round 1's corridor box — `apron.py` (`ROUTE_BOX_RULING`, the per-face
+`AxisIndex`, `priced`), `stretches.py` (`crossing_axes`, `_block`),
+`verify/within.py` (`apron_route_index`, `apron_pairs`, `hole_rings`, the
+apron branch of `taxi_box`), `check_grade._StretchBox`'s apron reading
+(node-id crossing, hosted holes), `solve/why.py`'s `apron_route_box` key,
+`families.toml`'s route-box clause, the `emit.toml` note — each file
+restored from main and the §2 `edge_cap` change re-applied by hand (the
+two round-2 commits are not `git revert`ed: the merge of main sat above
+them).  KEPT: `edge_cap` not tightened by an apron face (06t), `APRON_ROLE`,
+`[*.taxi] width_m` + `tables.taxi_half_width_m`, `test_pad_route`'s
+premise.
+
+THE TIERED LAW AS BUILT.  `rulesets.toml [common.roles] apron` /
+`building` = `{ preferred = {0.010, 0.010}, max = {0.015, 0.015} }`
+(the v1 value is the preference — `test_law_tables` RULED register);
+`RoleCap.preferred`, parsed by the sibling `law/role_cap_schema.py`
+(`model.py` sits at the 1,000-line law); `role_cap` = the hard cap,
+`role_preferred_cap` the preference.  Every apron row generator emits
+TWO rows per pair (`apron.tiered_rows`): the HARD `Diff(cap = max)` — the
+row an IIS names and 04t(1) relaxes above 1.5 % — and the PREFERENCE
+`Diff(cap = preferred, soft = "apron:<face>:<k>", ceiling = None)`.
+Two rows, not one (the brief's fallback): `solve/relax.py` admits only
+hard rows and `to_sparse(soft="ceiling")` prices a preference row at its
+ceiling — a one-row form with `ceiling = max` would be un-relaxable, and
+a preference twin with `ceiling = max` would re-cap a relaxed hard twin;
+with no ceiling the preference row constrains nothing in the IIS, the
+certificate and the variance program (it is charged only in the hard
+solve and in stage 2).  DEVIATION (reported): the group is PER ROW, not
+per face — `assemble` charges one slack per group at `weight × Σ chord
+metres`, so a per-face group would price a 214,000 m² junction's whole
+chord population against one escalation and free every row of the face
+at once; per row the charge is exactly the metres of relief used.
+Generators: `apron_within_shape` (ring edges, spine / frontage chords,
+body chords under the gate and the 05ae cover), `apron_edge_portions`
+(the hard row only where the host face's cap is looser than 1.5 % — a
+road, a lot; a taxi face's own 1.5 % already holds it — the preference
+row wherever the face's cap is looser than 1 %), `pads.frontage_near_
+miss` (the stand entries).  UNCHANGED at the (new) hard cap without a
+preference row, stated: the `routes.py` hops and route edges through
+apron faces (reach, no_step distances — 1.5 % now), the `taxi.py` /
+`junction_mesh.py` pad-frontage pairs on taxi faces (`min(c, pad_cap)`
+is now the taxi cap itself), `transverse.py` (no apron-cap rows: the
+cross-sections carry the axis's taxi transverse cap), `proximity.py`,
+`verify/contiguity.py` (the lateral-contiguity strictest class is 1.5 %
+for an apron now).
+
+OBJECTIVE PLACEMENT (single weighted stage, `solve/assemble.py`;
+`Weights.preference["apron"] = 0.9`): the preference is charged `0.9 ×
+max(DEM-fit weight) = 18 per metre of relief` above 1 % — below the
+runway family's fit (20 per metre per vertex) and its profile
+smoothness (5,000 per metre of |Δgrade|·span), above every other role's
+fit (taxi 8, apron 4, pad 1) and the most junior preference on the
+ladder (crown 1e2, end_zone 1e3, seam 1e4, law 1e5).  The lexicographic
+stages of `solve/stage1.py` are the LAST RESORT's (they run only on an
+infeasible hard set) and price soft rows at their ceiling — the
+preference lives in the hard solve and in stage 2.  Demonstrated on the
+twins (`tests/auto_patch_v2/test_v2routecap.py`): a runway free to sag
+beside an apron chain seated 2.2 m below the DEM keeps its ridge at the
+DEM and its edge at the crown datum while three apron rows go to 1.5 %;
+the labelled arm with the apron preference at 1e6 holds the apron at
+1 % and sags the runway edge 0.09 m below its crown.  The 200 × 60 m
+apron with the letter-E stretch: 1.5 m over 100 m FEASIBLE with 18/114
+rows over 1 % (escalation ≤ 0.005); 1.6 m INFEASIBLE, the IIS naming
+hard 1.5 % rows along the lane summing to 1.5 m, never a preference
+row; nothing pinned → 0/114 over 1 % on a 2 % DEM.
+
+REPORT FIGURE `apron_over_preference`: sidecar (evidence) + `report.json`
+from `apron.apron_preference_report(cs, z, law)` (per face: rows, rows
+over 1 % + materiality, max grade); the v2 verify's own reading
+`verify/within.apron_over_preference` over its within-shape apron
+population (same row count; one row within the emit quantum may read
+either side); `why` prints it (`apron_preference_block`); the oracle
+reads the sidecar's `apron_tier` (LAW INPUT `{preferred, max, fan}`,
+`SIDECAR_LAW_KEYS`): an apron-law pair (an `apron` / `building` way, or
+a 04t-2 portion pair) priced between the strict cap and the hard cap —
+the strict 1 %, or v1's corridor credit (08-24b) which now equals the
+hard cap — is judged at `max` and tallied in `_APRON_PREF_STATS`
+(`family_out["_apron_over_preference"]`); `harness/census.py` prints it
+beside the withdrawn-law heading and writes it to the census JSON.  The
+oracle is NOT keyed on the `o4_grade_law_cap` tag (the tag composes as a
+minimum and cannot raise a cap).  Lockstep on the fixture: both readers
+read the same apron rows over 1.5 % on the population both price; v2
+additionally prices EVERY spine chord of a ring vertex where the oracle
+prices the nearest-spine chord only (families.toml) — a pre-existing
+population difference, one row on the fixture (ABEAM_A ↔ ROUTE_A,
+60.7 m), owed to the oracle beside round 2's visibility-buffer note.
+
+OWED (06w (3), the 5 % back-edge class): v1's `plan_fan_ramp_zones`
+(`auto_patch/elevation_per_surface/route_profile/apron_terrace.py`:
+pad-pair reach hulls cut back along the pair axis, ∩ apron, − the
+lattice-coarse corridor cover, area / two-building filters) is ~250
+lines of shapely geometry plus `corridor_cover` / `lattice_coarse_cover`
+and five constants; the port is a zone generator over the planar map
+(pads, apron faces, the stretch corridors), a `fan_ramp_zones` sidecar
+publication the oracle already reads (`_fan_ramp_pair_cap`), the hard
+5 % + 1 % preference rows on chords inside a zone, a twin per predicate
+— estimate 400–600 lines across `constraints/`, `pipeline/publication.py`,
+`law/emit.toml` (the constants as law) and tests, one round.  Not
+started: 1–2 is the part that moves the runway.

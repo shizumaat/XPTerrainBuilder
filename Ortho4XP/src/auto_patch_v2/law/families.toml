@@ -31,7 +31,7 @@ ruling    = "2026-08-25g"
 solver    = "edge"
 
 [taxi_box]
-measures  = "THE SHORT-PAIR BOX: a taxi-family pair of one ring (outer or hole; a junction's mesh edges and common-stretch pairs) under emit.within_shape.withdrawn_chord_min_m vs cL*|ds| + cT*|dt| against the nearest stretch axis (generator law, taxi tier); + THE ROUTE BOX (RULINGS 2026-09-06v): every within-shape pair of an apron face crossed by a stretch, any length, vs cL_stretch*|ds| + cA*|dt| against the nearest CROSSING stretch, the apron cap across (apron tier)"
+measures  = "THE SHORT-PAIR BOX: a taxi-family pair of one ring (outer or hole; a junction's mesh edges and common-stretch pairs) under emit.within_shape.withdrawn_chord_min_m vs cL*|ds| + cT*|dt| against the nearest stretch axis (generator law, taxi tier)"
 parameter = "emit.within_shape.withdrawn_chord_min_m"
 roles     = ["taxi_family"]
 pairs     = "within"

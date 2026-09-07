@@ -292,9 +292,14 @@ def test_a_long_shared_edge_takes_the_apron_cap_and_a_mouth_keeps_its_own(site, 
     airport, pm = site
     vw = view(pm, law)
     cap_apron = law.tables.common.roles["apron"].longitudinal
+    pref_apron = law.tables.common.roles["apron"].preferred.longitudinal
     ratio = law.tables.emit.within_shape.apron_edge_portion_min_width_ratio
     rows = apron.apron_edge_portions(pm, law, airport)
-    assert rows and {r.cap for r in rows} == {cap_apron}
+    # THE TIERED LAW (RULINGS 2026-09-06w): a taxi face's own 1.5 % already
+    # holds the apron's HARD cap (no hard row minted), so the long shared
+    # edge carries the apron's 1 % PREFERENCE rows alone
+    assert rows and {r.cap for r in rows} == {pref_apron}
+    assert all(r.soft is not None and r.cap < cap_apron for r in rows)
     assert {r.source.generator for r in rows} == {apron.GEN_EDGE}
     along = _face(pm, "alongJ")
     mouth = _face(pm, "mouthJ")

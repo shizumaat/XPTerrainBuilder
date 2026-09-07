@@ -140,17 +140,20 @@ def test_taxi_apron_road_pair_populations(synthetic, law):
     c = taxi.taxi_centerlines(pm, law, airport)
     assert c and all(isinstance(r, Diff) for r in c)
     a = apron.apron_within_shape(pm, law, airport)
-    caps = {r.cap for r in a}
-    # every apron chord holds the STRICT cap (owner 2026-08-24 amends
-    # 08-21c: the 5 % fan class is only the back-edge zones between
-    # buildings, which v2 does not model yet); body chords stop at the gate
-    assert caps == {0.01} and law.tables.common.apron_fan_ramp_max not in caps
+    # THE TIERED APRON LAW (owner 2026-09-06w): every apron pair is HARD at
+    # 1.5 % and carries the 1 % PREFERENCE row beside it; no 5 % (the
+    # back-edge class is not modelled yet); body chords stop at the gate
+    hard = [r for r in a if r.soft is None]
+    pref = [r for r in a if r.soft is not None]
+    assert {r.cap for r in hard} == {0.015} and {r.cap for r in pref} == {0.01}
+    assert len(hard) == len(pref) and all(r.ceiling is None for r in pref)
+    assert law.tables.common.apron_fan_ramp_max not in {r.cap for r in a}
     body = [r for r in a if r.source.ruling.startswith("apron body chord")]
     assert body and all(r.d <= law.tables.emit.within_shape.apron_body_chord_max_m for r in body)
     rd = roads.road_within_shape(pm, law, airport)
     # the road touches the apron (1 %) and the taxiway (1.5 %): lateral
     # contiguity binds each road face at the strictest touching class
-    assert {r.cap for r in rd} <= {0.08, 0.02, 0.015, 0.01}
+    assert {r.cap for r in rd} <= {0.08, 0.02, 0.015}
     assert roads.road_law_caps(pm, law)
     assert any(r.source.ruling.startswith("road_cross_section") for r in rd)
 

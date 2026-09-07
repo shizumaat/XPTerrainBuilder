@@ -58,9 +58,18 @@ class Weights:
     #: tiers rank each other: seam DEM values (owner 2026-07-24 "at ALL
     #: points") above the end-zone cap (owner 2026-07-08, yields minimally)
     #: above the crown floor (M0 Q5, v2's own minimum).  M3a, additive.
+    #: THE APRON PREFERENCE (owner RULINGS 2026-09-06w): the ``apron``
+    #: prefix (one group per apron row, ``constraints/apron.py``) is
+    #: charged ``0.9 × the largest DEM-fit weight`` per metre of relief
+    #: above 1 % — JUNIOR to the runway family's own objective terms (its
+    #: DEM fit at the ladder's runway weight, its profile smoothness) and
+    #: SENIOR to every other role's DEM fit (taxi 8, apron 4, pad 1 per
+    #: metre in ``pipeline.build.DEFAULT_WEIGHTS``): the runway's minimal
+    #: sag buys apron grade, the DEM never does.  The most junior
+    #: preference on the ladder (crown 1e2, end_zone 1e3, seam 1e4, law 1e5).
     preference: _t.Mapping[str, float] = _dc.field(
         default_factory=lambda: {"law": 1.0e5, "seam": 1.0e4, "end_zone": 1.0e3,
-                                 "crown": 1.0e2})
+                                 "crown": 1.0e2, "apron": 0.9})
     #: THE LAW LADDER (RULINGS 2026-09-04i; ``solve/tiers.py``): the
     #: ``law`` prefix charges the MOST JUNIOR yielding tier (the ungoverned
     #: and rigid surfaces), above the seam DEM preference — the DEM yields

@@ -111,7 +111,7 @@ def _over_cap(cs, sol, generators: set[str]) -> float:
     a grade path, apron.py)."""
     worst = 0.0
     for d in cs.diffs:
-        if d.source.generator in generators:
+        if d.source.generator in generators and d.soft is None:   # a preference row is no cap (06w)
             worst = max(worst, abs(sol.z[d.a] - sol.z[d.b]) - d.cap * d.d)
     return worst
 

@@ -33,6 +33,7 @@ from collections import deque
 
 import numpy as np
 from scipy.optimize import linprog
+import types as _types
 
 from ..law import Law
 from ..model.airport import Airport
@@ -74,6 +75,9 @@ class Prepared:
     #: infeasible, the last resort's report (``relax.RelaxReport``) and
     #: ``cs`` is the RELAXED hard set the LP above solved
     relaxation: _t.Any = None
+    #: RULINGS 2026-09-06x: under the lexicographic order ``z`` is STAGE A's
+    #: point (the duals' own); the build's final point (stage C) is here
+    final_z: np.ndarray | None = None
 
     @property
     def dem(self) -> np.ndarray:
@@ -87,6 +91,20 @@ def solve_with_duals(pm: PlanarMap, cs: ConstraintSet, weights: Weights
     scipy result kept, so the row duals (``res.ineqlin.marginals``) can
     be read back against ``Problem.ub_rows``."""
     prob = assemble(pm, cs, weights)
+    if weights.lexicographic is not None:
+        # RULINGS 2026-09-06x: STAGE A's LP is the reading — its point and
+        # its duals are the chain that holds the runway at its best; the
+        # final point (stage C) rides along as ``final_x`` for the figures
+        from .lexi import solve_stages
+        stg = solve_stages(pm, prob, weights)
+        n_ub = prob.A_ub.shape[0]
+        rd = stg.row_dual_a
+        return prob, _types.SimpleNamespace(
+            x=stg.x_a, final_x=stg.x, fun=stg.fun, message=stg.message,
+            status={"optimal": 0, "feasible": 0, "infeasible": 2}.get(stg.status, 1),
+            staged=stg,
+            ineqlin=_types.SimpleNamespace(marginals=None if rd is None else rd[:n_ub]),
+            eqlin=_types.SimpleNamespace(marginals=None if rd is None else rd[n_ub:]))
     res = linprog(prob.c, A_ub=prob.A_ub, b_ub=prob.b_ub, A_eq=prob.A_eq,
                   b_eq=prob.b_eq, bounds=prob.bounds, method="highs",
                   options={"disp": False, "presolve": True})

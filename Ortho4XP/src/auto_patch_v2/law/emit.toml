@@ -162,6 +162,23 @@ max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core need
 scope_without_certificate = "relaxable"   # no certificate inside iis_time_budget_s => 04t(1) runs over EVERY relaxable row (relaxable_from_role's tier and junior, pads as planes <= pad_slope_max) — never the tier ladder for a governed family
 tier_ladder_last          = true          # the tier ladder (04i) answers only when the relaxable scope is still infeasible — and then it names the family it demoted as a FAILURE in the report and the app log
 
+[objective]
+# THE BASE SOLVE'S OBJECTIVE ORDER (RULINGS 2026-09-06x, the owner's 04i law
+# order applied to the hard solve; ``solve/lexi.py``): the RUNWAY family's
+# own terms (profile fit, ridge smoothness, the crown / end-zone / seam /
+# law preferences that outrank it) FIRST, the APRON preference (06w (2))
+# SECOND, the DEM fit of every other role and its smoothness LAST.
+# "lexicographic" = three LPs, stage B/C holding every runway-family vertex
+# within [relaxation] runway_hold_tolerance_m of stage A and each earlier
+# stage's objective within that materiality; "weighted" = the single
+# weighted stage (the round's OFF arm — measured at HECA the apron's
+# hundreds of parallel preference rows at 18/m outweigh the runway's few
+# dozen vertices at 20/m and hold the binding chain at 1.445 % of an
+# allowed 1.5 %; fully spent the tier lifts the chain +0.72 m).
+order          = "lexicographic"
+stage_b_prefix = "apron"      # the preference prefix stage B minimises (constraints/apron.py PREFERENCE_GROUP)
+warm_start     = true         # stages B and C start from the previous stage's HiGHS basis (measured: see the lane's build-time statement)
+
 [terrace]
 # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, the owner's KML verdict on
 # the HECA sag chain: "only taxiway centreline routes count; no apron except

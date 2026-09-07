@@ -36,12 +36,13 @@ def prepare(icao: str, inputs, law: Law | None = None,
     from ..airport.load import load_with_report
     from ..classify import classify, load_rules
     from ..constraints import generate
-    from .build import DEFAULT_WEIGHTS
+    from .build import DEFAULT_WEIGHTS, weights_under_law
     from ..planar.build import build as build_planar
-    w = weights or DEFAULT_WEIGHTS
     wall: dict[str, float] = {}
     t = time.perf_counter()
     law = law or Law.for_airport(icao)
+    # the build's own objective (the ridge's λ, the flat datum, the 06x order)
+    w = weights_under_law(weights or DEFAULT_WEIGHTS, law)
     airport, _lrep = load_with_report(icao, inputs, law)
     wall["load"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -70,7 +71,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
     for _n in range(6):                     # the pipeline's seam passes
         if not pm.seam_vertices:
             break
-        z = res.x[:prob.n]
+        z = getattr(res, "final_x", res.x)[:prob.n]
         honoured = frozenset(v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
                              and abs(z[v] - pm.vertices[v].dem_z) <= tol)
         if len(honoured) == len(pm.seam_vertices) or honoured == prev:
@@ -83,6 +84,11 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
     wall["solve"] = time.perf_counter() - t
     z = np.asarray(res.x[:prob.n], float)
     esc = {g: float(res.x[col]) for g, col in prob.soft_cols.items()}
+    final_x = getattr(res, "final_x", None)
+    final_z = None if final_x is None else np.asarray(final_x[:prob.n], float)
+    if final_z is not None:
+        out(f"[{icao}] why: LEXICOGRAPHIC ORDER (06x) — bindings read on STAGE A's point "
+            f"(the runway's own LP); {res.message}")
     if drop:
         out(f"[{icao}] why: ARM — families dropped before the solve: {list(drop)}")
     out(f"[{icao}] why: load {wall['load']:.2f} s  classify+planar "
@@ -92,7 +98,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
     if relaxation is not None:
         out(f"[{icao}] why: RELAXED MODE — {relaxation.line()}")
     return Prepared(icao, airport, law, pm, cs, counts, w, prob, res, z, esc, wall,
-                    relaxation)
+                    relaxation, final_z)
 
 
 def _solve_or_relax(icao: str, pm: PlanarMap, cs, law: Law, w: Weights,
@@ -269,7 +275,8 @@ def apron_preference_block(prep: Prepared, fid: int) -> list[str]:
     and max grade; the faces over the preference that the shape's chain
     touches are read off the report's bindings."""
     from ..constraints.apron import apron_preference_report
-    rep = apron_preference_report(prep.cs, prep.z, prep.law)
+    rep = apron_preference_report(prep.cs, prep.z if prep.final_z is None else prep.final_z,
+                                  prep.law)
     if not rep["rows"]:
         return []
     L = [f"-- apron preference (06w): {rep['over_preference']}/{rep['rows']} apron rows over "

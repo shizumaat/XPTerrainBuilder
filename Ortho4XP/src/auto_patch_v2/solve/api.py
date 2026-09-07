@@ -21,7 +21,7 @@ import typing as _t
 from ..model.constraints import ConstraintSet, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["Backend", "Status", "Weights", "Options", "Residual",
+__all__ = ["Backend", "Status", "Lexicographic", "Weights", "Options", "Residual",
            "Solution", "solve"]
 
 
@@ -39,6 +39,26 @@ class Status(str, enum.Enum):
     FEASIBLE = "feasible"          # feasible, objective not converged to tolerance
     INFEASIBLE = "infeasible"      # IIS populated
     ERROR = "error"                # backend failure; message in ``Solution.message``
+
+
+@_dc.dataclass(frozen=True)
+class Lexicographic:
+    """THE OBJECTIVE ORDER (RULINGS 2026-09-06x; ``law/emit.toml
+    [objective]``, bound by ``pipeline.build.weights_under_law``;
+    ``solve/lexi.py``): the base solve runs THREE stages — A the runway
+    family's own terms (its DEM fit on ``runway_roles`` vertices, the
+    smoothness of ``runway_kinds`` breaklines, every preference group
+    whose prefix is not ``stage_b_prefix``), B the ``stage_b_prefix``
+    preference (the apron's 1 %) holding every runway-family vertex
+    within ``hold_m`` of stage A and stage A's objective within its
+    materiality, C everything, both held.  ``None`` on ``Weights`` is the
+    single weighted stage (the OFF arm)."""
+
+    runway_roles: frozenset[str]
+    runway_kinds: frozenset[str]
+    stage_b_prefix: str
+    hold_m: float
+    warm_start: bool = True
 
 
 @_dc.dataclass(frozen=True)
@@ -91,6 +111,10 @@ class Weights:
     #: a charge above the runway DEM-fit weight so the profile runs
     #: straight between its holds; the vertical-curve rows stay hard.
     smoothness_by_kind: _t.Mapping[str, float] = _dc.field(default_factory=dict)
+    #: RULINGS 2026-09-06x: the base solve's objective ORDER — ``None`` is
+    #: the single weighted stage; a :class:`Lexicographic` (from the law
+    #: table, ``weights_under_law``) runs the ruled three-stage order.
+    lexicographic: Lexicographic | None = None
 
 
 @_dc.dataclass(frozen=True)

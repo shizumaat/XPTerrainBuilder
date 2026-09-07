@@ -2,6 +2,12 @@
 2026-09-03g: feasibility is answered by the real solve; a zero-objective
 phase 1 is 9× slower).  Infeasible ⇒ the IIS names ``(row, source)``
 (``iis.py``), run ONLY then.  The solver never invents a value.
+
+THE ORDER (RULINGS 2026-09-06x): with ``Weights.lexicographic`` set (the
+law's ``[objective] order = "lexicographic"``) the same assembled LP is
+solved in three stages by ``lexi.solve_stages`` — the runway family's
+terms, then the apron preference, then everything — on one HiGHS model;
+``None`` (``"weighted"``) is the single weighted stage below.
 """
 from __future__ import annotations
 
@@ -72,6 +78,20 @@ def residual(planar: PlanarMap, cs: ConstraintSet, z: np.ndarray,
                     max_band_m=mb, max_offset_m=mo, objective=objective)
 
 
+class _Res:
+    """``lexi.Staged`` in ``linprog``'s result shape (``x``, ``fun``,
+    ``status`` 0 optimal / 2 infeasible / 1 otherwise, ``nit``,
+    ``message``) so one post-processing reads both paths."""
+
+    def __init__(self, stg) -> None:
+        self.staged = stg
+        self.x = stg.x
+        self.fun = stg.fun
+        self.nit = stg.iterations
+        self.message = stg.message
+        self.status = {"optimal": 0, "feasible": 0, "infeasible": 2}.get(stg.status, 1)
+
+
 def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
           options: Options | None = None, *,
           size_out: dict | None = None) -> Solution:
@@ -86,12 +106,24 @@ def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
     prob = assemble(planar, constraints, weights)
     if size_out is not None:
         size_out.update(lp_size(prob))
-    lp_opts = {"disp": bool(opt.verbose), "presolve": True}
-    if opt.time_limit_s is not None:
-        lp_opts["time_limit"] = float(opt.time_limit_s)
-    res = linprog(prob.c, A_ub=prob.A_ub, b_ub=prob.b_ub, A_eq=prob.A_eq,
-                  b_eq=prob.b_eq, bounds=prob.bounds, method="highs",
-                  options=lp_opts)
+    if weights.lexicographic is not None:
+        from .lexi import solve_stages
+        stg = solve_stages(planar, prob, weights, opt)
+        res = _Res(stg)
+        if size_out is not None:
+            size_out["stages"] = [{"stage": s.name, "status": s.status,
+                                   "objective": None if s.objective != s.objective
+                                   else round(s.objective, 4),
+                                   "wall_s": round(s.wall_s, 3), "iterations": s.iterations,
+                                   "charged": s.charged, "held_vertices": s.held_vertices,
+                                   "held_rows": s.held_rows} for s in stg.stages]
+    else:
+        lp_opts = {"disp": bool(opt.verbose), "presolve": True}
+        if opt.time_limit_s is not None:
+            lp_opts["time_limit"] = float(opt.time_limit_s)
+        res = linprog(prob.c, A_ub=prob.A_ub, b_ub=prob.b_ub, A_eq=prob.A_eq,
+                      b_eq=prob.b_eq, bounds=prob.bounds, method="highs",
+                      options=lp_opts)
     wall = time.perf_counter() - t0
     if res.status == 2:
         iis_rows: tuple = ()

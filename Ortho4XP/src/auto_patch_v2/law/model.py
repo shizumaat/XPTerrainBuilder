@@ -20,6 +20,7 @@ from pathlib import Path
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
+from .objective_schema import Objective, check_objective as _check_objective  # noqa: F401
 from .rebake_schema import Rebake  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
@@ -30,10 +31,9 @@ __all__ = [
     "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
-    "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
-    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
-    "Family", "LawTables",
-    "Law", "TABLE_FILES", "load_tables",
+    "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation", "NoStep", "Transect",
+    "WithinShape", "Instrument", "Terrace", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
+    "Family", "LawTables", "Law", "TABLE_FILES", "load_tables", "Objective",
 ]
 
 #: The seven files a law directory must contain (owner amendment
@@ -553,6 +553,7 @@ class EmitLaw:
     road_profile: RoadProfile
     relaxation: Relaxation
     terrace: Terrace
+    objective: Objective   # 06x: the base solve's order (objective_schema.py)
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────
@@ -645,12 +646,10 @@ class LawTables:
 
 # ── the loader ───────────────────────────────────────────────────────────
 
-_GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up",
-                "fan_ramp", "crown", "materiality")
+_GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up", "fan_ramp", "crown", "materiality")
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
 _RELAXATION_SCOPES = ("relaxable",)   # [relaxation] scope_without_certificate (2026-09-05u)
-_SIDES = ("airside", "groundside")
-_PAIRS = ("within", "cross", "steps")
+_SIDES, _PAIRS = ("airside", "groundside"), ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
 _DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
@@ -828,6 +827,7 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
                        f" (allowed: {_RELAXATION_SCOPES})")
     _check_terrace(t.emit.terrace, roles, t.emit.identity.min_distinct_spacing_m, LawError)
+    _check_objective(t.emit.objective, LawError)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

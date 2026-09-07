@@ -254,7 +254,7 @@ def stage1(pm: PlanarMap, cs: ConstraintSet, relaxed: _t.Sequence[Relaxed], law:
         fit = {v: (w * rl.runway_fit_weight, tgt)
                for v, (w, tgt) in runway_fit(pm, law, weights).items()}
         smooth = [(a, m_, c, dp, dn, lam * rl.runway_fit_weight)
-                  for a, m_, c, dp, dn, lam in roughness_stations(pm, weights)]
+                  for a, m_, c, dp, dn, lam, _kind in roughness_stations(pm, weights)]
         m = model(pm, cs, relaxed, rl.pad_slope_max, rl.max_over_cap_factor, fit, smooth)
         st, x, wall, be, note = _run_variance(m, law, opt, backend, qp_time_limit_s)
         if x is None:

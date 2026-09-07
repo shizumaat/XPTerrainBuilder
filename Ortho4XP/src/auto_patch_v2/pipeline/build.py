@@ -147,7 +147,22 @@ def weights_under_law(weights: Weights, law: Law) -> Weights:
     pref[flat_datum_group(law)] = flat_datum_weight(law)
     lam = dict(weights.smoothness_by_kind)
     lam[RIDGE_KIND] = float(law.tables.common.runway_profile_smoothness)
-    return _dc.replace(weights, preference=pref, smoothness_by_kind=lam)
+    # THE OBJECTIVE ORDER (RULINGS 2026-09-06x; ``law/emit.toml
+    # [objective]``): lexicographic — the runway family (its roles from the
+    # precedence register, its ridge's smoothness) first, the apron
+    # preference second, the rest last; "weighted" is the single stage
+    from ..law.tables import role_family
+    from ..solve.api import Lexicographic
+    ob = law.tables.emit.objective
+    lex = None
+    if ob.order == "lexicographic":
+        lex = Lexicographic(
+            runway_roles=frozenset(r for r in law.tables.precedence.roles
+                                   if role_family(law, r) == "runway"),
+            runway_kinds=frozenset((RIDGE_KIND,)), stage_b_prefix=ob.stage_b_prefix,
+            hold_m=float(law.tables.emit.relaxation.runway_hold_tolerance_m),
+            warm_start=bool(ob.warm_start))
+    return _dc.replace(weights, preference=pref, smoothness_by_kind=lam, lexicographic=lex)
 
 
 #: The report's "moved" threshold (metres off the DEM sample) — a report

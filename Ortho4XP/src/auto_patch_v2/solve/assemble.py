@@ -166,6 +166,15 @@ class Problem:
     #: Preference slack columns: group name -> column index (the escalation
     #: of that group's cap, a grade fraction in ``[0, ceiling - cap]``).
     soft_cols: dict[str, int] = _dc.field(default_factory=dict)
+    #: THE COLUMN BOOK for the lexicographic stages (``solve/lexi.py``,
+    #: RULINGS 2026-09-06x): vertex -> its L1 fit column ``t``; the breakline
+    #: KIND of every roughness column ``r`` in column order; and the fit
+    #: scale a DEM-relative preference group is charged against (``max
+    #: DEM-fit weight``, so a per-metre preference charge is
+    #: ``preference_weight × fit_scale``).
+    t_col: dict[int, int] = _dc.field(default_factory=dict)
+    station_kinds: tuple[str, ...] = ()
+    fit_scale: float = 1.0
 
 
 def preference_weight(group: str, weights: Weights) -> float:
@@ -211,13 +220,15 @@ def vertex_weights(planar: PlanarMap, weights: Weights,
 
 
 def roughness_stations(planar: PlanarMap, weights: Weights
-                       ) -> list[tuple[int, int, int, float, float, float]]:
+                       ) -> list[tuple[int, int, int, float, float, float, str]]:
     """The L1 second-difference stations: every interior vertex of every
     breakline chain with its two spacings and its λ — ``smoothness_by_
     kind[kind]`` for the chain's kind (the runway ridge, 06h c), else
     ``smoothness``; a station whose λ is 0 is no station.  ``(a, m, c,
-    dp, dn, λ)``.  ONE enumeration for the solve and the relaxation."""
-    out: list[tuple[int, int, int, float, float, float]] = []
+    dp, dn, λ, kind)`` — the kind names the runway family's stations to
+    the lexicographic stage A (06x).  ONE enumeration for the solve and
+    the relaxation."""
+    out: list[tuple[int, int, int, float, float, float, str]] = []
     by_kind = dict(weights.smoothness_by_kind)
     lam0 = float(weights.smoothness)
     for b in planar.breaklines.values():
@@ -232,7 +243,7 @@ def roughness_stations(planar: PlanarMap, weights: Weights
             (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
             dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
             if dp > 1e-6 and dn > 1e-6:
-                out.append((a, m, c, dp, dn, lam))
+                out.append((a, m, c, dp, dn, lam, b.kind))
     return out
 
 
@@ -300,7 +311,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
         v_ += [1.0, -1.0, -1.0, -1.0]
         b_ += [dem[i], -dem[i]]
         row += 2
-    for j, (a, m, cc, dp, dn, _lam) in enumerate(stations):
+    for j, (a, m, cc, dp, dn, _lam, _kind) in enumerate(stations):
         rc = n + n_t + j
         terms = ((cc, 1.0 / dn), (m, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
         scale = 0.5 * (dp + dn)          # metres of Δgrade·span: comparable to t
@@ -355,4 +366,5 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, weights: Weights) -> Problem:
     bounds += [(0.0, soft_hi[g]) for g in sorted(groups)]
     ub_rows = tuple(S.ub_rows) + (None,) * (row - len(soft_rows)) + tuple(soft_rows)
     return Problem(n, c, A_ub, b_ub, A_eq, S.b_eq, bounds, ub_rows,
-                   tuple(S.eq_rows), S, soft_cols)
+                   tuple(S.eq_rows), S, soft_cols, t_col,
+                   tuple(st_[6] for st_ in stations), float(max(wv.max(), 1.0)))

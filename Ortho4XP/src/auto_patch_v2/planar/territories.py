@@ -581,7 +581,7 @@ def _label_outside_roads(pm: PlanarMap, law: Law, terr: Territories, outside: _t
         if g is None:
             continue
         Q = np.array([pm.vertices[v].xy for v in todo], float)
-        fb = [0]
+        fb = [0, 0]
         Dv = _vertex_distances(g, Q, fb)
         svec = np.array(g.contacts)
         for r, v in enumerate(todo):

@@ -298,7 +298,11 @@ def test_without_the_tie_the_solve_leaves_the_rim_on_its_dem_and_the_readers_see
     airport, pm, _ = ridge
     rim = _far_rim(pm, *RIM_LIFT)
     assert len(rim) >= 2
-    only = {n for n, _ in GENERATORS} - {"strip_transverse"}
+    # the SHORT-PAIR BOX (RULINGS 2026-09-06s, lane v2ridge3) now joins the
+    # stub's far rim to the runway edge across its own 7 m ring pairs, so
+    # this arm — "nothing of the stub's own joins its rim to the edge" —
+    # turns it off too: the twin measures the TIE alone
+    only = {n for n, _ in GENERATORS} - {"strip_transverse", "taxi_box"}
     cs, _c, _w = generate(pm, law, airport, only=only)
     base = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
     assert base.status in (Status.OPTIMAL, Status.FEASIBLE), base.message
@@ -399,7 +403,7 @@ def _taxi_box_rows(patch, role="primary_parallel"):
     centreline — the generator-side gap the lane v2ridge2 reported)."""
     fam: dict = {}
     cg.run_checks_law_true(Path(patch), family_out=fam)
-    rows = [v for v in fam.get("within_shape") or []
+    rows = [v for v in fam.get(cg.TAXI_BOX_FAMILY) or []
             if getattr(v, "reading", None) == "taxi_box" and cg.law_role(v.way_a) == role]
     return rows, dict(cg._TAXI_BOX_STATS)
 

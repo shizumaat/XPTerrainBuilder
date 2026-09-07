@@ -275,7 +275,8 @@ def report(prep: Prepared, fid: int, **kw) -> str:
 
 _KML_COLOURS = {
     # aabbggrr — the family classes the owner reads on the ground
-    "taxi_centreline": "ff00ff00", "taxi_chain": "ff00ff00", "no_step_pairs": "ff00ffff",
+    "taxi_centreline": "ff00ff00", "taxi_chain": "ff00ff00", "taxi_box": "ff00ff00",
+    "no_step_pairs": "ff00ffff",
     "junction_mesh": "ffff8800", "runway_profile": "ffffffff", "runway_crown": "ffffffff",
     "runway_vertical_curve": "ffffffff", "runway_chain": "ffffffff", "runway_pins": "ffffffff",
     "apron_within_shape": "ff0000ff", "apron_chain": "ff0000ff", "apron_edge_portion": "ff0000ff",

@@ -32,6 +32,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("taxi_chain", taxi.taxi_chain),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),
+    ("taxi_box", taxi.taxi_box),
     ("junction_mesh", junction_mesh.junction_mesh),
     ("apron_within_shape", apron.apron_within_shape),
     ("apron_edge_portions", apron.apron_edge_portions),

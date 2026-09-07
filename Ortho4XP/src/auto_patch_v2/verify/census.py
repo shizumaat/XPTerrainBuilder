@@ -28,17 +28,18 @@ from .contiguity import lateral_contiguity
 from .frontage import frontage_near_miss
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
-from .within import plane_gradient, within_shape
+from .within import FAMILY_TAXI_BOX, plane_gradient, taxi_box, within_shape
 
 __all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "RELAXED_KEY", "RELAXED_RULING",
            "DEFECT_KEYS", "FAMILY_PAD_FLAT", "FAMILY_TRANSVERSE", "FAMILY_VERTICAL_CURVE",
-           "FAMILY_STRIP_TRANSVERSE", "mark_relaxed",
+           "FAMILY_STRIP_TRANSVERSE", "FAMILY_TAXI_BOX", "mark_relaxed",
            "census", "census_patch"]
 
 #: family key -> reader (one reader may serve two families: within_shape
 #: yields the road cross-section rows beside its own).
 READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "plane_gradient": plane_gradient,
+    FAMILY_TAXI_BOX: taxi_box,
     "runway_end_skirt": runway_end_skirt,
     "adjacent_ground_tear": adjacent_ground_tear,
     "strip_seam_tear": strip_seam_tear,

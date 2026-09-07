@@ -1469,6 +1469,15 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
             r.out_of_scope = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
             by_roles["|".join(sorted(roles))] += 1
             n += 1
+    # THE BOX ROWS ARE THEIR OWN FAMILY (RULINGS 2026-09-06s,
+    # ``check_grade.TAXI_BOX_FAMILY``): counted here beside any short
+    # taxi chord still filed under ``within_shape`` (a pair the box
+    # could not price — none on a patch with one stretch)
+    for r in families.get(cg.TAXI_BOX_FAMILY) or []:
+        if getattr(r, "out_of_scope", None) is not None:
+            continue
+        short["|".join(sorted(cg.row_roles(r)))] += 1
+        n_short += 1
     return {"stamped": n, "by_roles": dict(by_roles.most_common()),
             "key_present": True, "short_priced": n_short,
             "short_by_roles": dict(short.most_common()), "min_m": min_m,

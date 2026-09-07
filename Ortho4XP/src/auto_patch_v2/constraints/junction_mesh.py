@@ -68,7 +68,8 @@ from ..model.planar import PlanarMap
 from .geometry import chords_covered, face_cover, project_to_chain
 from .precedence import View, view
 from .stretches import Stretches, nearest_line_cap, stretches
-from .taxi import box_rows, pad_vertices
+from .taxi import (BOX_RULING, GEN as TAXI_GEN, PricedPair, axis_index,
+                   box_pair_rows, box_rows, pad_vertices, taxi_pair_routes)
 
 __all__ = ["junction_mesh", "face_triangles", "face_mesh_edges",
            "mesh_edge_caps", "triangle_caps", "triangle_boxes", "mesh_edges_ll",
@@ -77,6 +78,9 @@ __all__ = ["junction_mesh", "face_triangles", "face_mesh_edges",
 
 GEN = "junction_mesh"
 XY = tuple[float, float]
+#: ``generate`` publishes ``junction_mesh.box_pairs``: the short pairs of
+#: the mesh population boxed (RULINGS 2026-09-06s; ``taxi.taxi_box``).
+STATS: dict[str, dict[str, int]] = {}
 #: The oracle's vertex-matching precision for a triangle corner
 #: (``grade_graph.mesh_edge_keys`` rounds to 3 dp).
 _CORNER_DP = 3
@@ -241,9 +245,19 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     if not roles:
         return []
     min_d = law.tables.emit.identity.min_distinct_spacing_m
+    box_max = law.tables.emit.within_shape.withdrawn_chord_min_m
     pads = pad_vertices(vw)
     pad_cap = law.tables.common.roles["building"].longitudinal
     all_axes: list[Axis] | None = None
+    index = axis_index(vw, st)
+    # the junction faces' common-stretch pairs, the publication's own
+    # (cached) population — never a second O(n²) walk of the rings
+    common_pairs: dict[int, list[PricedPair]] = {}
+    if index:
+        for pr in taxi_pair_routes(planar, law, airport):
+            common_pairs.setdefault(pr.face, []).append(pr)
+    stats = STATS.setdefault("junction_mesh", {"box_pairs": 0})
+    stats["box_pairs"] = 0
     rows: list[Row] = []
     for f in vw.faces_of_role(roles):
         cap = role_cap(law, f.role, f.code_number, f.code_letter)
@@ -253,6 +267,20 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         tris = face_triangles(vw, f.id)
         edges = face_mesh_edges(vw, f.id, tris)
         caps = mesh_edge_caps(vw, lines, edges, cap.longitudinal)
+        # THE SHORT-PAIR BOX over the mesh population (RULINGS 2026-09-06s;
+        # ``taxi`` module docstring): every mesh edge and every common-
+        # stretch pair (04y) under ``withdrawn_chord_min_m``, a taxi row
+        pop: dict[tuple[int, int], float] = {}
+        for a, b in edges:
+            pop[(a, b)] = vw.dist(a, b)
+        for pr in common_pairs.get(f.id, ()):
+            pop.setdefault((min(pr.a, pr.b), max(pr.a, pr.b)), pr.d_chord)
+        if index:
+            src_box = Source(TAXI_GEN, BOX_RULING, (f"face:{f.id}", f.ref))
+            got = box_pair_rows(vw, index, ((a, b, d) for (a, b), d in sorted(pop.items())
+                                            if min_d <= d < box_max), src_box)
+            stats["box_pairs"] += len(got)
+            rows.extend(got)
         src_e = Source(GEN, "junction mesh edge at the nearest stretch cap (04y)",
                        (f"face:{f.id}", f.ref))
         src_pad = Source(GEN, "common.roles.building frontage pair (09-01g)",

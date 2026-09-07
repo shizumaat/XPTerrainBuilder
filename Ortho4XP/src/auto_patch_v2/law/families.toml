@@ -30,6 +30,14 @@ pairs     = "within"
 ruling    = "2026-08-25g"
 solver    = "edge"
 
+[taxi_box]
+measures  = "THE SHORT-PAIR BOX: a taxi-family pair of one ring (outer or hole; a junction's mesh edges and common-stretch pairs) under emit.within_shape.withdrawn_chord_min_m vs cL*|ds| + cT*|dt| against the nearest stretch axis (generator law, taxi tier)"
+parameter = "emit.within_shape.withdrawn_chord_min_m"
+roles     = ["taxi_family"]
+pairs     = "within"
+ruling    = "2026-09-06q (1); 2026-09-06s"
+solver    = "edge"
+
 [plane_gradient]
 measures  = "triangle-plane slope of the junction mesh vs the role cap"
 parameter = "roles.*.longitudinal"

@@ -5922,6 +5922,10 @@ def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
 #: ``harness/census.py`` beside the withdrawn-law heading; cleared at the
 #: top of every run, like ``_CROWN_UNKNOWN_PAIRS``.
 _TAXI_BOX_STATS: Dict[str, int] = defaultdict(int)
+#: The family key the box rows are filed under (RULINGS 2026-09-06s):
+#: their own, beside ``within_shape`` — the harness census reads them
+#: apart and the v2 verify's ``taxi_box`` family is its twin.
+TAXI_BOX_FAMILY = "taxi_box"
 
 
 class _StretchBox:
@@ -5936,8 +5940,11 @@ class _StretchBox:
     1.5 % transverse fall reads up to 2.1 % on the chord, and the chord
     reading minted 3,722 rows on HECA's lawful diagonals (06q).  A chord
     of ``withdrawn_chord_min_m`` or longer is the census's
-    ``withdrawn_law_05aa`` stamp, not this reading; a pair with no
-    stretch axis within reach keeps the chord (tallied ``no_axis``).
+    ``withdrawn_law_05aa`` stamp, not this reading.  THE AXIS IS THE
+    NEAREST OF THE MAP (RULINGS 2026-09-06s, generator law: "against the
+    nearest stretch axis"): the grid neighbourhood first, the whole index
+    when it holds no segment — ``no_axis`` (the chord) only on a patch
+    whose stretches are all degenerate.
     KEYED ON THE v2 SIDECAR: only a patch publishing ``stretches`` (the v2
     emitter's key; v1 publishes none) builds one — a v1 patch reads
     exactly as before."""
@@ -5976,29 +5983,62 @@ class _StretchBox:
         grid cells (2 × ``withdrawn_chord_min_m``) of ``(x, y)``, or
         ``None``."""
         cx, cy = int(x // self.cell), int(y // self.cell)
-        best = None
+        ks: list = []
         for dx in (-2, -1, 0, 1, 2):
             for dy in (-2, -1, 0, 1, 2):
-                for k in self.grid.get((cx + dx, cy + dy), ()):
-                    ax, ay, ux, uy, L, cl, ct = self.segs[k]
-                    t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
-                    d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
-                    if best is None or d < best[0]:
-                        best = (d, ux, uy, cl, ct)
+                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
+        best = self._best(x, y, ks) if ks else None
+        # the guaranteed radius (``stretches.AxisIndex.nearest``): a segment
+        # outside the 5x5 block is nearer only past the point's distance
+        # to the block's edge — then the whole map decides (06s)
+        reach = min(x - (cx - 2) * self.cell, (cx + 3) * self.cell - x,
+                    y - (cy - 2) * self.cell, (cy + 3) * self.cell - y)
+        if best is None or best[0] > reach:
+            best = self._best(x, y, range(len(self.segs)))
         return None if best is None else best[1:]
+
+    def tied(self, x: float, y: float, tie_m: float = 1e-6):
+        """Every segment at the nearest distance (within ``tie_m``) as
+        ``(ux, uy, cL, cT)`` — a corner of one polyline, or two stretches'
+        intersection (``stretches.AxisIndex._tied``)."""
+        near = self.nearest(x, y)
+        if near is None:
+            return []
+        d0 = None
+        out = []
+        ds = []
+        for ax, ay, ux, uy, L, cl, ct in self.segs:
+            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+            ds.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)), ux, uy, cl, ct))
+        d0 = min(d for d, *_r in ds)
+        return [(ux, uy, cl, ct) for d, ux, uy, cl, ct in ds if abs(d - d0) <= tie_m]
+
+    def _best(self, x: float, y: float, ks):
+        best = None
+        for k in ks:
+            ax, ay, ux, uy, L, cl, ct = self.segs[k]
+            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+            d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+            if best is None or d < best[0]:
+                best = (d, ux, uy, cl, ct)
+        return best
 
     def budget(self, c: "ShapePairConstraint"):
         """``(box_m, effective_cap)`` for the pair — the box's Δz budget
         and the isotropic cap it amounts to over the chord — or ``None``
         with no axis in reach."""
-        near = self.nearest(0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb))
+        x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
+        near = self.nearest(x, y)
         if near is None:
             return None
-        ux, uy, cl, ct = near
         dx, dy = c.xb - c.xa, c.yb - c.ya
-        ds = abs(dx * ux + dy * uy)
-        dt = abs(dx * uy - dy * ux)
-        box = cl * ds + ct * dt
+        box, cl = None, None
+        # a TIE takes the strictest bound among the tied axes
+        # (``stretches.AxisIndex.box_bound``: one rule, both readers)
+        for ux, uy, cl_k, ct in [near, *self.tied(x, y)]:
+            b = cl_k * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
+            if box is None or b < box:
+                box, cl = b, cl_k
         return box, (box / c.dist if c.dist > 0.0 else cl)
 
 
@@ -6020,6 +6060,7 @@ def _check_within_shape(ways: List[Way],
                         stretches_m: Optional[list] = None,
                         face_holes_m: Optional[dict] = None,
                         taxi_box: Optional["_StretchBox"] = None,
+                        taxi_box_out: Optional[List] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -6047,7 +6088,9 @@ def _check_within_shape(ways: List[Way],
     stretch axis instead of ``cap × distance``; built only from a v2
     sidecar's ``stretches``, so a v1 patch reads exactly as before.  The
     reading is tallied in ``_TAXI_BOX_STATS`` and a surviving row carries
-    ``reading = "taxi_box"``.
+    ``reading = "taxi_box"``; with ``taxi_box_out`` passed the box rows
+    land THERE — their own family, :data:`TAXI_BOX_FAMILY` (RULINGS
+    2026-09-06s) — never in the return value.
     """
     out: List[Violation] = []
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
@@ -6144,6 +6187,8 @@ def _check_within_shape(ways: List[Way],
             v.reading = "taxi_box"
         if transverse_road_out is not None and c.transverse_road:
             transverse_road_out.append(v)
+        elif _box and taxi_box_out is not None:
+            taxi_box_out.append(v)
         else:
             out.append(v)
     return out
@@ -6843,6 +6888,13 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # at the chord cap and the ACROSS ones landing here at the road's
     # transverse limit.  One pair, one family, never both.
     ("road_cross_section", "ROAD CROSS-SECTION (lateral) grade", "within"),
+    # THE TAXI SHORT-PAIR BOX (RULINGS 2026-09-06q (1) / 06s): the same
+    # pair walk again — a taxi-family pair under ``withdrawn_chord_min_m``
+    # priced as ``cL·|Δs| + cT·|Δt|`` against the nearest published
+    # stretch axis (``_StretchBox``) lands HERE, never in ``within_shape``:
+    # generator law on v2 (``constraints.taxi.taxi_box``), read in
+    # lockstep by ``auto_patch_v2.verify.within.taxi_box``.
+    (TAXI_BOX_FAMILY, "TAXI SHORT-PAIR BOX (pairs under withdrawn_chord_min_m vs cL*|ds| + cT*|dt|)", "within"),
     ("plane_gradient", "PLANE GRADIENT (triangle surface)", "within"),
     ("runway_end_skirt", "RUNWAY-END SKIRT edge grade", "within"),
     ("terrace_joint_route", "APRON TERRACE JOINT crossing a taxi ROUTE",
@@ -8388,6 +8440,7 @@ def run_checks(
     # walk: one enumeration, split by the law's own classifier into the
     # along-road rows (``within_shape``) and the across-road rows.
     _road_xsec_rows: List[Violation] = []
+    _taxi_box_rows: List[Violation] = []
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
@@ -8398,7 +8451,7 @@ def run_checks(
         interior_zones_m=interior_zones_m,
         transverse_road_out=_road_xsec_rows,
         stretches_m=stretches_m, face_holes_m=face_holes_m,
-        taxi_box=taxi_box))
+        taxi_box=taxi_box, taxi_box_out=_taxi_box_rows))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -8430,6 +8483,12 @@ def run_checks(
     _pv(f"ROAD CROSS-SECTION (lateral) grade > "
         f"{SERVICE_ROAD_MAX_TRANSVERSE * 100:g}%", road_xsec, top_n)
     within = within + road_xsec
+
+    # ── THE TAXI SHORT-PAIR BOX FAMILY (RULINGS 2026-09-06q (1) / 06s) ──
+    box_rows = _fam(TAXI_BOX_FAMILY, _taxi_box_rows)
+    _pv("TAXI SHORT-PAIR BOX (pairs under withdrawn_chord_min_m over "
+        "cL*|ds| + cT*|dt|)", box_rows, top_n)
+    within = within + box_rows
 
     plane = _fam("plane_gradient", _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,

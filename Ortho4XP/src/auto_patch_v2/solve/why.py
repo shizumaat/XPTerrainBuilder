@@ -97,6 +97,7 @@ def solve_with_duals(pm: PlanarMap, cs: ConstraintSet, weights: Weights
 
 _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # (generator, substring of the ruling, family label)
+    ("taxi", "short-pair box", "taxi_box"),
     ("taxi", "chain", "taxi_chain"),
     ("apron", "chain", "apron_chain"),
     ("runway_profile", "vertical_curve", "runway_vertical_curve"),

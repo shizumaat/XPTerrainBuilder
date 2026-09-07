@@ -252,7 +252,11 @@ def test_junction_triangles_are_capped_by_the_stretch_nearest_them(site, law):
             assert cap == pytest.approx(cap_a if abs(mx) < my - 91.5 else cap_d)
     assert seen == {round(cap_a, 6), round(cap_d, 6)}
     rows = JM.junction_mesh(pm, law, airport)
-    assert {round(r.cap, 6) for r in rows if hasattr(r, "cap")} <= {round(cap_a, 6), round(cap_d, 6)}
+    # the mesh-edge rows only: the short-pair BOX rows (RULINGS 2026-09-06s,
+    # ``taxi.BOX_RULING``) carry the box's effective cap over the chord
+    from auto_patch_v2.constraints.taxi import BOX_RULING
+    assert {round(r.cap, 6) for r in rows
+            if hasattr(r, "cap") and r.source.ruling != BOX_RULING} <= {round(cap_a, 6), round(cap_d, 6)}
     # the published mesh is the oracle's population: every junction-mesh
     # face's edges, by identity key
     pub = publication(pm, law, airport)

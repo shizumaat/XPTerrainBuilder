@@ -29,7 +29,26 @@ chord only where "stricter" (38k) under-constrained 393 pairs past 2 %
 along their routes; the chain is ~8k rows.  A vertex no centreline
 attaches (no hop) has no taxi row: the transverse law, the junction
 mesh (inside the bounded junction territory only, 05x) and no_step
-govern it.  The verify reader keeps its 05ab pair-over-route reading
+govern it — PLUS the SHORT-PAIR BOX below.
+
+THE SHORT-PAIR BOX (RULINGS 2026-09-06s, generator law): the chain
+prices a rim pair through its feet there-and-back (hop + along + hop:
+HECA stub pav78's two rim neighbours 4.04 m apart carried Δz 2.16 m
+under a 21.4 m budget over 1,427 route-metres; pav73 27 m across carried
+6.9 m), so every taxi-family pair of ONE RING (the outer ring, or a hole
+ring — the oracle's population: a hole is its own way judged at its
+host's role) closer than ``emit.within_shape.withdrawn_chord_min_m``
+(30 m) carries a hard ``Diff`` ``|Δz| ≤ cL·|Δs| + cT·|Δt|`` against the
+NEAREST stretch axis of the map at the pair's midpoint (``Δs`` along
+it, ``Δt`` across; ``cL`` that stretch's longitudinal cap, ``cT`` its
+letter's transverse cap — ``junction_mesh.box_rows``'s anisotropic
+form on a pair; ``stretches.AxisIndex``), taxi tier, never relaxable
+(:func:`taxi_box`; a junction-mesh face's population — its mesh edges
+and common-stretch pairs, 04y — is boxed inside ``junction_mesh``).  A
+pair of ``withdrawn_chord_min_m`` or longer stays route-priced (05ac).
+The v2 verify (``verify/within.py::taxi_box``) and the v1 oracle
+(``check_grade._StretchBox``, family ``taxi_box``) read the same
+population against the same bound.  The verify reader keeps its 05ab pair-over-route reading
 from the published ``taxi_route_pairs`` (:func:`taxi_pair_routes`: every
 pair of every taxi-family ring with its route distance and budget) —
 the taxi family's instrument; the v1 oracle's chord rows are the
@@ -55,17 +74,26 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
-from .stretches import edge_cap, pair_caps, stretches
+from .stretches import AxisIndex, Stretches, edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
            "all_pairs", "pad_vertices", "plane_rows", "box_rows",
            "plane_gradient_terms", "PricedPair",
-           "taxi_pair_routes", "chain_ruling"]
+           "taxi_pair_routes", "chain_ruling",
+           "taxi_box", "short_pairs", "box_pair_rows", "axis_index",
+           "BOX_RULING", "STATS"]
 
 GEN = "taxi"
 #: ``runway_profile.GEN`` (stated here: ``runway_profile`` imports this module)
 RUNWAY_GEN = "runway_profile"
 _GRADIENT_DIRECTIONS = 16
+#: The short-pair box row's citation (module docstring); ``solve.why``
+#: keys the ``taxi_box`` family on it.
+BOX_RULING = "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis (2026-09-06s)"
+#: Per-generator statistics ``generate`` publishes as ``<name>.<stat>``:
+#: ``taxi_box``: ``pairs`` (short pairs boxed), ``no_axis`` (a map with
+#: no stretch: no row).
+STATS: dict[str, dict[str, int]] = {}
 
 
 def all_pairs(vw: View, ring: list[int], cap_l: float, src: Source,
@@ -331,3 +359,77 @@ def box_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
     across = tuple((tri[i], -uy * gx[i] + ux * gy[i]) for i in range(3))
     return [Linear(along, -cap_along, cap_along, src),
             Linear(across, -cap_across, cap_across, src)]
+
+
+def short_pairs(xy: _t.Mapping[int, tuple[float, float]], ring: _t.Sequence[int],
+                min_d: float, max_d: float) -> list[tuple[int, int, float]]:
+    """Every distinct pair ``(a, b, d)`` of ``ring`` with ``min_d <= d <
+    max_d`` — the box's population over one ring (vectorised: a HECA
+    junction ring runs to thousands of vertices)."""
+    n = len(ring)
+    if n < 2:
+        return []
+    import numpy as np
+    ids = np.asarray(ring, dtype=np.int64)
+    pts = np.array([xy[v] for v in ring], dtype=float)
+    out: list[tuple[int, int, float]] = []
+    for i in range(n - 1):
+        dd = np.hypot(pts[i + 1:, 0] - pts[i, 0], pts[i + 1:, 1] - pts[i, 1])
+        hit = np.nonzero((dd >= min_d) & (dd < max_d))[0]
+        a = int(ids[i])
+        for j in hit:
+            out.append((a, int(ids[i + 1 + j]), float(dd[j])))
+    return out
+
+
+def axis_index(vw: View, st: Stretches) -> AxisIndex:
+    """The map's stretches as one :class:`AxisIndex`, cells of the box's
+    own floor (``withdrawn_chord_min_m``)."""
+    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t) for s in st.items),
+                     vw.law.tables.emit.within_shape.withdrawn_chord_min_m)
+
+
+def box_pair_rows(vw: View, index: AxisIndex,
+                  pairs: _t.Iterable[tuple[int, int, float]], src: Source) -> list[Row]:
+    """One hard ``Diff`` per pair at the BOX's bound over the pair's
+    distance (module docstring): ``cap = (cL·|Δs| + cT·|Δt|) / d``."""
+    rows: list[Row] = []
+    for a, b, d in pairs:
+        if d <= 0.0:
+            continue
+        (xa, ya), (xb, yb) = vw.xy[a], vw.xy[b]
+        bb = index.box_bound(xa, ya, xb, yb)
+        if bb is None:
+            continue
+        rows.append(Diff(a, b, bb[0] / d, d, src))
+    return rows
+
+
+def taxi_box(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """THE SHORT-PAIR BOX (module docstring; RULINGS 2026-09-06s) on every
+    taxi-family PLANE face (a junction-mesh face is boxed in
+    ``junction_mesh`` over its mesh population): every pair of each of
+    its rings under ``withdrawn_chord_min_m``."""
+    vw = view(planar, law)
+    st = stretches(planar, law)
+    stats = STATS.setdefault("taxi_box", {"pairs": 0, "no_axis": 0})
+    stats["pairs"] = stats["no_axis"] = 0
+    index = axis_index(vw, st)
+    members = law.tables.precedence.taxi_family.members
+    mesh_roles = frozenset(law.tables.emit.within_shape.junction_mesh_roles)
+    min_d = law.tables.emit.identity.min_distinct_spacing_m
+    max_d = law.tables.emit.within_shape.withdrawn_chord_min_m
+    rows: list[Row] = []
+    for f in vw.faces_of_role(members):
+        if f.role in mesh_roles or vw.caps[f.id] is None:
+            continue
+        src = Source(GEN, BOX_RULING, (f"face:{f.id}", f.ref))
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            pairs = short_pairs(vw.xy, ring, min_d, max_d)
+            if not index:
+                stats["no_axis"] += len(pairs)
+                continue
+            got = box_pair_rows(vw, index, pairs, src)
+            stats["pairs"] += len(got)
+            rows.extend(got)
+    return rows

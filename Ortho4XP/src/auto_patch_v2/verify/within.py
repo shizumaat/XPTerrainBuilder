@@ -45,11 +45,15 @@ import math
 
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
-from ..constraints.stretches import compose_pairs, nearest_line_cap
+from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
+from ..constraints.taxi import short_pairs
 from ..law.tables import role_cap, snap_margin_m
 from .frame import Patch, Row, Shape, noise_m, row
 
-__all__ = ["within_shape", "plane_gradient", "crown_by_vertex"]
+__all__ = ["within_shape", "plane_gradient", "crown_by_vertex", "taxi_box",
+           "FAMILY_TAXI_BOX", "published_axis_index"]
+
+FAMILY_TAXI_BOX = "taxi_box"
 
 
 def crown_by_vertex(p: Patch) -> dict[int, float]:
@@ -394,3 +398,90 @@ def _plane_reading(pts, drops, cap: float, noise: float, half_q: float):
         if best is None or excess < best[0]:
             best = (excess, (grad, dist, de, proj[0][2], proj[-1][2]))
     return None if best is None else best[1]
+
+
+def published_axis_index(p: Patch) -> AxisIndex:
+    """The published ``stretches`` (``[[[lat, lon]…], cL, letter, ref]``)
+    as the box's :class:`AxisIndex` in the census frame — ``cT`` the
+    letter's taxi transverse cap, exactly as the generator and the v1
+    oracle (``_StretchBox``) read it."""
+    law = p.law
+    taxi_role = law.tables.precedence.taxi_family.members[0]
+    axes = []
+    for entry in p.publication.get("stretches") or []:
+        letter = entry[2] if len(entry) > 2 else None
+        rc = role_cap(law, taxi_role, None, letter)
+        if rc is None or len(entry[0]) < 2:
+            continue
+        axes.append(([p.to_m(float(la), float(lo)) for la, lo in entry[0]],
+                     float(entry[1]), rc.transverse))
+    return AxisIndex(axes, law.tables.emit.within_shape.withdrawn_chord_min_m)
+
+
+def taxi_box(p: Patch) -> list[Row]:
+    """THE SHORT-PAIR BOX reader (RULINGS 2026-09-06s; ``constraints.taxi``
+    module docstring): every taxi-family pair of one ring — a face's
+    outer ring, a hole ring hosted by a taxi-family face (judged at the
+    host's role, the oracle's population), a junction-mesh face's mesh
+    edges and common-stretch pairs (04y) — under ``withdrawn_chord_min_m``
+    against ``cL·|Δs| + cT·|Δt|`` on the nearest published stretch axis,
+    forgiven the role's instrument envelope.  Lockstep with the oracle's
+    ``taxi_box`` family and with the generator's population; a patch
+    publishing no ``stretches`` reads none."""
+    law = p.law
+    ws = law.tables.emit.within_shape
+    index = published_axis_index(p)
+    if not index:
+        return []
+    min_d = law.tables.emit.identity.min_distinct_spacing_m
+    max_d = ws.withdrawn_chord_min_m
+    taxi = set(law.tables.precedence.taxi_family.members)
+    mesh_roles = set(ws.junction_mesh_roles)
+    mesh = mesh_pairs(p)
+    lines = stretch_lines(p)
+    xy_all = p.xy
+    host_of = {sh.key: sh for sh in p.shapes}
+    out: list[Row] = []
+    rings: list[tuple[Shape, Shape]] = [(sh, sh) for sh in p.shapes if sh.role in taxi]
+    rings += [(fe, host_of[fe.host]) for fe in p.features
+              if fe.feature == "gap_interior_ring" and fe.host in host_of
+              and host_of[fe.host].role in taxi]
+    for sh, host in rings:
+        if p.cap(host) is None or len(sh.ids) < 2:
+            continue
+        pos = {v: k for k, v in enumerate(sh.ids)}
+        xy = {v: sh.xy[k] for k, v in enumerate(sh.ids)}
+        meshed = host.role in mesh_roles and mesh is not None
+        if meshed:
+            pop: dict[tuple[int, int], float] = {}
+            n = len(sh.ids)
+            for i in range(n):
+                a, b = sh.ids[i], sh.ids[(i + 1) % n]
+                if a != b:
+                    pop[(min(a, b), max(a, b))] = math.dist(xy[a], xy[b])
+            for a, b in mesh:
+                if a in xy and b in xy:
+                    pop.setdefault((a, b), math.dist(xy[a], xy[b]))
+            if host is sh:
+                for (a, b), _c in stretch_pair_caps(sh, lines, xy_all, p.cap(host), min_d,
+                                                    common_only=True).items():
+                    pop.setdefault((min(a, b), max(a, b)), math.dist(xy[a], xy[b]))
+            pairs = [(a, b, d) for (a, b), d in pop.items() if min_d <= d < max_d]
+        else:
+            pairs = short_pairs(xy, list(sh.ids), min_d, max_d)
+        q = noise_m(law, host.role)
+        for a, b, d in pairs:
+            (xa, ya), (xb, yb) = xy[a], xy[b]
+            bb = index.box_bound(xa, ya, xb, yb)
+            if bb is None:
+                continue
+            bound, _cl, _ct = bb
+            de = abs(sh.z[pos[a]] - sh.z[pos[b]])
+            if de <= bound + q:
+                continue
+            cap = bound / d
+            out.append(row(FAMILY_TAXI_BOX, (host.role, host.role), p.side(host.role), de,
+                           100 * de / d, 100 * cap, d, xy[a], xy[b], host.key, host.key,
+                           lat=0.5 * (p.ll[a][0] + p.ll[b][0]),
+                           lon=0.5 * (p.ll[a][1] + p.ll[b][1])))
+    return out

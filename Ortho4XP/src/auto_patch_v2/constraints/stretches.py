@@ -59,7 +59,7 @@ from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
-           "compose_pairs", "nearest_line_cap"]
+           "compose_pairs", "nearest_line_cap", "AxisIndex"]
 
 XY = tuple[float, float]
 
@@ -253,3 +253,116 @@ def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
             xy.setdefault(v, pm.vertices[v].xy)
         lines.append((s.vertices, s.cap_l))
     return compose_pairs(xy, verts, lines, base_cap, min_d, common_only)
+
+
+class AxisIndex:
+    """THE NEAREST STRETCH AXIS, grid-indexed (RULINGS 2026-09-06s; the
+    generator's and the verify reader's one locator, the shape of the v1
+    oracle's ``check_grade._StretchBox``): every stretch as
+    ``(polyline m, cap_l, cap_t)``, its segments binned in ``cell``-sized
+    squares; :meth:`nearest` returns the unit direction and the caps of
+    the segment nearest a point, searching the point's cell and its
+    neighbours first and, when they hold no segment, the WHOLE index —
+    every point on a map with a stretch has a serving axis (the oracle
+    tallied such pairs ``no_axis`` and read the chord; the ruling prices
+    the nearest axis).  The strictest longitudinal cap wins a tie."""
+
+    def __init__(self, axes: _t.Iterable[tuple[_t.Sequence[XY], float, float]],
+                 cell: float, tie_m: float = 1e-6) -> None:
+        self.cell = float(cell)
+        self.tie_m = tie_m
+        self.segs: list[tuple[float, float, float, float, float, float, float]] = []
+        self.grid: dict[tuple[int, int], list[int]] = {}
+        for pts, cap_l, cap_t in axes:
+            for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+                ln = math.hypot(bx - ax, by - ay)
+                if ln <= 0.0:
+                    continue
+                k = len(self.segs)
+                self.segs.append((ax, ay, (bx - ax) / ln, (by - ay) / ln, ln,
+                                  float(cap_l), float(cap_t)))
+                for gx in range(int(min(ax, bx) // self.cell), int(max(ax, bx) // self.cell) + 1):
+                    for gy in range(int(min(ay, by) // self.cell), int(max(ay, by) // self.cell) + 1):
+                        self.grid.setdefault((gx, gy), []).append(k)
+
+    def __bool__(self) -> bool:
+        return bool(self.segs)
+
+    def _best(self, x: float, y: float, ks: _t.Iterable[int]
+              ) -> tuple[float, float, float, float, float] | None:
+        best = None
+        for k in ks:
+            ax, ay, ux, uy, ln, cl, ct = self.segs[k]
+            t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
+            d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+            if best is None or d < best[0] - self.tie_m or \
+                    (abs(d - best[0]) <= self.tie_m and cl < best[3]):
+                best = (d, ux, uy, cl, ct)
+        return best
+
+    def _tied(self, x: float, y: float, d0: float) -> list[tuple[float, float, float, float]]:
+        """Every segment at the nearest distance ``d0`` (within ``tie_m``):
+        the point projects onto a polyline CORNER shared by two segments,
+        or onto an intersection of two stretches — as ``(ux, uy, cl, ct)``."""
+        out = []
+        for ax, ay, ux, uy, ln, cl, ct in self.segs:
+            t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
+            if abs(math.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
+                out.append((ux, uy, cl, ct))
+        return out
+
+    def nearest(self, x: float, y: float
+                ) -> tuple[tuple[float, float], float, float] | None:
+        """``((ux, uy), cap_l, cap_t)`` of the serving axis at ``(x, y)``,
+        ``None`` only on an index with no segment."""
+        hit = self._nearest(x, y)
+        return None if hit is None else hit[1:]
+
+    def _nearest(self, x: float, y: float
+                 ) -> tuple[float, tuple[float, float], float, float] | None:
+        if not self.segs:
+            return None
+        cx, cy = int(x // self.cell), int(y // self.cell)
+        ks: list[int] = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
+        best = self._best(x, y, ks) if ks else None
+        # THE GUARANTEED RADIUS: a segment outside the 3x3 block can be
+        # nearer than the block's best only beyond the point's distance to
+        # the block's edge — past it, the whole index decides (measured
+        # HECA pav129 2026-09-06: a 63 m segment binned into a neighbour
+        # cell by its bounding box beat the true nearest at 44.7 m)
+        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
+                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
+        if best is None or best[0] > reach:
+            best = self._best(x, y, range(len(self.segs)))
+        if best is None:
+            return None
+        d, ux, uy, cl, ct = best
+        return d, (ux, uy), cl, ct
+
+    def box_bound(self, xa: float, ya: float, xb: float, yb: float
+                  ) -> tuple[float, float, float] | None:
+        """THE BOX of one pair (RULINGS 2026-09-06s): ``(bound_m, cap_l,
+        cap_t)`` with ``bound = cap_l·|Δs| + cap_t·|Δt|`` against the axis
+        serving the pair's midpoint; ``None`` with no axis.  A TIE — the
+        midpoint projects onto a corner of the polyline (two segments at
+        one distance) or onto two stretches' intersection — takes the
+        STRICTEST bound among the tied axes: the tie set is the same in
+        every frame, the winner of an exact tie is not (measured HECA
+        pav129 2026-09-06: the generator's frame and the census's picked
+        the two segments of taxi25 meeting at the corner 44.7 m away,
+        and three built pairs read 0.03 m over the reader's box)."""
+        x, y = 0.5 * (xa + xb), 0.5 * (ya + yb)
+        hit = self._nearest(x, y)
+        if hit is None:
+            return None
+        d0, (ux, uy), cl, ct = hit
+        dx, dy = xb - xa, yb - ya
+        best = (cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux), cl, ct)
+        for ux, uy, cl, ct in self._tied(x, y, d0):
+            b = cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
+            if b < best[0]:
+                best = (b, cl, ct)
+        return best

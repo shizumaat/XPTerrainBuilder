@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import typing as _t
 
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
@@ -222,23 +223,32 @@ def _offset(drops: dict[int, float], a: int, b: int, dz: float) -> float:
     return lo if dz < lo else (hi if dz > hi else dz)
 
 
-def chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int]]:
+def chords_outside_face(p: Patch, sh: Shape, min_d: float,
+                        only: _t.Iterable[tuple[int, int]] | None = None
+                        ) -> set[tuple[int, int]]:
     """The index pairs of ``sh``'s NON-ADJACENT chords that leave the face
     (its ring with its hole features, ``face_cover`` at the snap
-    tolerance) — RULINGS 2026-09-05ae(1); empty for a degenerate face."""
+    tolerance) — RULINGS 2026-09-05ae(1); empty for a degenerate face.
+    ``only`` restricts the test to those index pairs (the corridor box's
+    few candidates, never the ring's O(n²) again)."""
     holes = [f.xy for f in p.features if f.feature == "gap_interior_ring" and f.host == sh.key]
     cover = face_cover(sh.xy, holes, snap_margin_m(p.law))
     if cover is None:
         return set()
     n = len(sh.xy)
     pairs: list[tuple[int, int]] = []
-    for i in range(n):
-        for j in range(i + 2, n):
-            if i == 0 and j == n - 1:
-                continue
-            (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
-            if math.hypot(xa - xb, ya - yb) >= min_d:
-                pairs.append((i, j))
+    if only is not None:
+        pairs = [(i, j) for i, j in only if j != i + 1 and not (i == 0 and j == n - 1)]
+    else:
+        for i in range(n):
+            for j in range(i + 2, n):
+                if i == 0 and j == n - 1:
+                    continue
+                (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
+                if math.hypot(xa - xb, ya - yb) >= min_d:
+                    pairs.append((i, j))
+    if not pairs:
+        return set()
     ok = chords_covered(cover, [(sh.xy[i], sh.xy[j]) for i, j in pairs])
     return {pr for pr, k in zip(pairs, ok) if not k}
 
@@ -509,14 +519,20 @@ def taxi_box(p: Patch) -> list[Row]:
             if cidx is None:
                 continue
             n = len(sh.ids)
-            # a hosted HOLE ring reads its ring edges only (its chords'
-            # face gate is the host's cover, not re-derived here)
-            outside = chords_outside_face(p, host, min_d) if host is sh else None
-            pairs = []
+            # the candidates first (a grid test each), then ONLY those
+            # chords through the face cover (05ae-1); a hosted HOLE ring
+            # reads its ring edges only (its chords' gate is the host's)
+            cand = []
             for a, b, d in short_pairs(xy, list(sh.ids), min_d, apron_corridor_pair_max_m(law)):
-                i, j = pos[a], pos[b]
+                (xa, ya), (xb, yb) = xy[a], xy[b]
+                if cidx.in_corridor(0.5 * (xa + xb), 0.5 * (ya + yb)):
+                    cand.append((a, b, d))
+            idx = [(min(pos[a], pos[b]), max(pos[a], pos[b])) for a, b, _d in cand]
+            outside = chords_outside_face(p, host, min_d, only=idx) if host is sh else None
+            pairs = []
+            for (a, b, d), (i, j) in zip(cand, idx):
                 adjacent = (j == i + 1) or (i == 0 and j == n - 1)
-                if not adjacent and (outside is None or (min(i, j), max(i, j)) in outside):
+                if not adjacent and (outside is None or (i, j) in outside):
                     continue                       # a chord leaving its face (05ae-1)
                 pairs.append((a, b, d))
         elif meshed:

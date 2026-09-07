@@ -54,6 +54,9 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``station_caps``: ``[lat, lon, cap]`` per road station
   (``constraints.contiguity``) — the lateral-contiguity fourth reader
   (2026-08-28 Amendment 2);
+* ``terrace_joints`` (RULINGS 2026-09-06n): one record per apron terrace
+  joint the planar map split (``planar/terraces.py``), v1's record shape
+  — the joint line, the emitted step — ``terrace_joints_ll``;
 * ``basin_facilities`` (M4b): one record per basin the map carries, in
   the v1 emitter's key shape (``check_grade._basin_facilities_declared``
   reads ``floor_m`` / ``rim_law_m`` / ``body_depth_m`` /
@@ -151,6 +154,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     taxi_pairs = taxi_route_pairs(planar, law, airport, ll, tol)
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+            "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh_edges_ll(planar, law),
             "face_holes": face_holes_ll(planar),
@@ -180,6 +184,36 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
         elif abs(pp.budget - pp.chord_bound_m) > tol:
             seen.add(key)
             out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
+    return out
+
+
+def terrace_joints_ll(planar: PlanarMap, law: Law,
+                      z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """Sidecar ``terrace_joints`` (RULINGS 2026-09-06n; ``planar/terraces.py``)
+    in v1's record shape (``check_grade._terrace_joints_to_m`` /
+    ``terrace_joints_sidecar``): the joint line as the ORIGINAL run's
+    ``points`` and ``step_m`` = the EMITTED step — the largest |Δz| over
+    the split pairs of the solved surface (0 before a solve) — which is
+    what the oracle forgives across the line and judges the actual step
+    against; ``declared_step_m`` the same (a joint has no grade law of its
+    own: the declared step IS the emitted one); ``faced`` true (the mesh
+    makes the wall in the gap band, as inside a structure rim); ``kind``
+    ``apron_terrace`` (never the basin trench-wall kind: no ``carried``
+    flags); ``faces`` the two cells; ``over_max_step`` whether the step
+    exceeds v1's ``terrace.max_step_m`` (report only)."""
+    out: list[dict[str, _t.Any]] = []
+    cap = law.tables.emit.terrace.max_step_m
+    for j in planar.terrace_joints:
+        pts = [[planar.vertices[v].key[0], planar.vertices[v].key[1]] for v in j.run]
+        if len(pts) < 2:
+            continue
+        step = 0.0
+        if z is not None and j.pairs:
+            step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
+        out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
+                    "faced": True, "kind": "apron_terrace", "faces": [j.a, j.b],
+                    "pairs": len(j.pairs), "length_m": round(j.length_m, 2),
+                    "over_max_step": bool(step > cap)})
     return out
 
 

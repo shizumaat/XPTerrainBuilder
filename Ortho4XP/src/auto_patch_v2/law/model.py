@@ -21,6 +21,7 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Rebake  # noqa: F401
+from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 
 __all__ = [
     "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
@@ -29,7 +30,7 @@ __all__ = [
     "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
     "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
     "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
-    "NoStep", "Transect", "WithinShape", "Instrument", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
+    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
     "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables",
 ]
@@ -544,6 +545,7 @@ class EmitLaw:
     lateral_contiguity: LateralContiguity
     road_profile: RoadProfile
     relaxation: Relaxation
+    terrace: Terrace
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────
@@ -816,6 +818,7 @@ def _check_cross_refs(t: LawTables) -> None:
     if rl.scope_without_certificate not in _RELAXATION_SCOPES:
         raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
                        f" (allowed: {_RELAXATION_SCOPES})")
+    _check_terrace(t.emit.terrace, roles, t.emit.identity.min_distinct_spacing_m, LawError)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

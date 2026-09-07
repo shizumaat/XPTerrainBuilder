@@ -38,7 +38,7 @@ import typing as _t
 from .frame import XY, Key
 from .structures import Basin, Tunnel
 
-__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline",
+__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "TerraceJoint",
            "PlanarMap", "PlanarError", "validate", "vertex_tier"]
 
 
@@ -133,6 +133,24 @@ class Breakline:
 
 
 @_dc.dataclass(frozen=True)
+class TerraceJoint:
+    """ONE APRON TERRACE JOINT (RULINGS 2026-09-06n; ``planar/terraces.py``):
+    the shared boundary of two apron-like faces ``a`` / ``b`` that no taxi
+    route joins.  ``run`` is the boundary's vertex chain in order — the
+    ORIGINAL vertices, the line the sidecar declares; ``pairs`` the split
+    identities along it as ``(vertex on a's side, vertex on b's side)`` —
+    two ids where the vertices were split, absent where a vertex stayed
+    shared (a breakline / seam / refused vertex: the step tapers to zero
+    there).  No row is ever priced between the two ids of a pair."""
+
+    a: int
+    b: int
+    run: tuple[int, ...]
+    pairs: tuple[tuple[int, int], ...]
+    length_m: float
+
+
+@_dc.dataclass(frozen=True)
 class PlanarMap:
     """The map.  Mappings are id -> record; ids are dense from 0."""
 
@@ -158,6 +176,13 @@ class PlanarMap:
     #: absent here and keeps ``Vertex.dem_z``.  ``dem_z`` itself stays the
     #: DEM sample: seams, reports and readers compare against terrain.
     preferred_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, additive): the
+    #: declared steps between apron-like cells no taxi route joins.
+    terrace_joints: tuple[TerraceJoint, ...] = ()
+    #: Face id -> terrace group (the connected component of "joined by a
+    #: taxi route") for every apron-like face and the pads assigned to
+    #: them; a generator prices no row between faces of two groups.
+    terrace_group: _t.Mapping[int, int] = _dc.field(default_factory=dict)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

@@ -88,6 +88,10 @@ def frontage_contacts(planar: PlanarMap, law: Law
     if not pads:
         return []
     tree = STRtree([p[1] for p in pads])
+    # A PAD NEVER FRONTS ACROSS A TERRACE JOINT (RULINGS 2026-09-06n): a pad
+    # belongs to its own cell's terrace group (``planar.terrace_group``);
+    # a soft face of another group across the joint gap is no frontage
+    grp = planar.terrace_group
     out: list[tuple[int, int, int, float, float, int]] = []
     for f in vw.faces_of_role(tuple(bp.frontage_soft_roles)):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
@@ -102,6 +106,9 @@ def frontage_contacts(planar: PlanarMap, law: Law
                 continue
             for pi in cand:
                 pid, ppoly, pverts = pads[int(pi)]
+                gp, gf = grp.get(pid), grp.get(f.id)
+                if gp is not None and gf is not None and gp != gf:
+                    continue
                 pset = set(pverts)
                 fired: set[int] = set()
                 for i in range(n):

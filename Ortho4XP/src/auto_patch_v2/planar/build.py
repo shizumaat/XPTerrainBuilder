@@ -30,7 +30,9 @@ from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
+from .edges import EdgeTable
 from .overlay import Arrangement, build_arrangement
+from .terraces import TerraceStats, split_terraces
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
@@ -67,6 +69,7 @@ class BuildStats:
     basins: BasinStats = _dc.field(default_factory=BasinStats)
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
+    terraces: TerraceStats = _dc.field(default_factory=TerraceStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -101,10 +104,8 @@ def build(airport: Airport, classification: Classification, law: Law,
 
     vid_of: dict[XY, int] = {}
     vertices_xy: list[XY] = []
-    edges: dict[tuple[int, int], Edge] = {}
-    edge_list: list[Edge] = []
+    table = EdgeTable()
     faces: dict[int, Face] = {}
-    incident: dict[int, set[int]] = {}
 
     def vertex(p: XY) -> int:
         v = vid_of.get(p)
@@ -112,36 +113,15 @@ def build(airport: Airport, classification: Classification, law: Law,
             v = len(vertices_xy)
             vid_of[p] = v
             vertices_xy.append(p)
-            incident[v] = set()
+            table.incident.setdefault(v, set())
         return v
 
     def walk(coords: _t.Sequence[XY], fid: int) -> tuple[int, ...]:
         """Ring edges in walking order; the face is on the LEFT."""
-        ids: list[int] = []
         pts = [(float(x), float(y)) for x, y in coords]
         if pts[0] == pts[-1]:
             pts.pop()
-        vs = [vertex(p) for p in pts]
-        for a, b in zip(vs, vs[1:] + vs[:1]):
-            if a == b:
-                continue
-            key = (a, b) if a < b else (b, a)
-            e = edges.get(key)
-            if e is None:
-                e = Edge(len(edge_list), key[0], key[1], None, None,
-                         EdgeKind.BOUNDARY)
-                edges[key] = e
-                edge_list.append(e)
-            if (a, b) == key:
-                e = _dc.replace(e, left_face=fid)
-            else:
-                e = _dc.replace(e, right_face=fid)
-            edges[key] = e
-            edge_list[e.id] = e
-            ids.append(e.id)
-            incident[a].add(fid)
-            incident[b].add(fid)
-        return tuple(ids)
+        return table.walk([vertex(p) for p in pts], fid)
 
     for fid, (poly, region) in enumerate(arr.faces):
         poly = orient(poly, sign=1.0)
@@ -153,6 +133,8 @@ def build(airport: Airport, classification: Classification, law: Law,
         stats.area_by_role_m2[region.role] = \
             stats.area_by_role_m2.get(region.role, 0.0) + poly.area
 
+    edge_list = table.edges
+    incident = table.incident
     # ── breaklines: chains of existing edges along each source ─────
     breaklines, kinds, dropped, split = _breaklines(arr, edge_list, vertices_xy)
     stats.dropped_source_edges = dropped
@@ -185,11 +167,14 @@ def build(airport: Airport, classification: Classification, law: Law,
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins)
     validate(pm)
+    # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n): split the vertices
+    # along every boundary between apron-like cells no taxi route joins
+    pm, stats.terraces = split_terraces(pm, law, airport, classification)
     stats.seam_bands = len(arr.seam_bands)
     stats.seam_vertices = len(seam)
     stats.dropped_seam_faces = arr.dropped_seam_faces
-    stats.faces, stats.edges = len(faces), len(edge_list)
-    stats.vertices, stats.breaklines = len(vertices), len(breaklines)
+    stats.faces, stats.edges = len(pm.faces), len(pm.edges)
+    stats.vertices, stats.breaklines = len(pm.vertices), len(pm.breaklines)
     stats.t_vertices = _t_vertices(pm)
     stats.min_vertex_spacing_m, stats.max_chord_m = _spacing(pm)
     return pm, stats

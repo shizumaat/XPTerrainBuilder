@@ -35,8 +35,15 @@ carry the cap of the stretch(es) they belong to; strictest-of-chains
   pair at the way cap, un-tightening the frontage reading).  Oracle
   equality on the published population is the twin.
 * A CENTRELINE CHORD (:func:`edge_cap`) holds its stretch's cap, tightened
-  by any governed NON-taxi face it bounds (an apron lane is apron,
-  RULINGS 2026-09-03j).
+  by any governed NON-taxi, NON-apron face it bounds (a runway slab, a
+  road, a structure).  A ROUTE THROUGH AN APRON KEEPS THE TAXIWAY LAW
+  (owner, RULINGS 2026-09-06t; spec ``apron-route-cap`` §2): an apron-
+  family face never tightens a stretch edge — 09-03j's "1202 edges inside
+  an apron are APRON" stands for the ROLE and is withdrawn for the CAP.
+  The apron beside the route stays under the apron law; its short pairs
+  inside the stretch's CORRIDOR (the letter's taxiway half-width,
+  ``Stretch.half_width_m``) compose with the route as the BOX
+  (:meth:`AxisIndex.corridor_box_bound`; ``apron.apron_within_shape``).
 * JUNCTION BODIES (RULINGS 2026-09-04y, ``constraints.junction_mesh``): a
   junction face's pairs are its common-stretch pairs ONLY
   (``compose_pairs(common_only=True)``); a chord whose endpoints lie on
@@ -54,12 +61,19 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap, role_family
+from ..law.tables import role_cap, role_family, taxi_half_width_m
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
-           "compose_pairs", "nearest_line_cap", "AxisIndex"]
+           "compose_pairs", "nearest_line_cap", "AxisIndex", "corridor_index",
+           "APRON_ROLE"]
+
+#: THE APRON the route passes through (RULINGS 2026-09-06t): the emitted
+#: ``apron`` role — the tables register it in the ``common`` family (the
+#: spec's ``role_family == "apron"`` names no table family); a pad
+#: (``building``) is rigid and no route passes through it.
+APRON_ROLE = "apron"
 
 XY = tuple[float, float]
 
@@ -76,6 +90,9 @@ class Stretch:
     cap_t: float
     vertices: tuple[int, ...]
     edges: tuple[int, ...]
+    #: the corridor half-width of a route through an apron (06t; ``None``
+    #: where the authority states no taxiway width)
+    half_width_m: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -132,7 +149,8 @@ def build_stretches(pm: PlanarMap, law: Law) -> Stretches:
             if len(vs) < 2:
                 continue
             sid = len(items)
-            items.append(Stretch(sid, bid, b.ref, b.code_letter, cap_l, cap_t, vs, es))
+            items.append(Stretch(sid, bid, b.ref, b.code_letter, cap_l, cap_t, vs, es,
+                                 taxi_half_width_m(law, b.code_letter)))
             for v in vs:
                 on.setdefault(v, []).append(sid)
             for eid in es:
@@ -162,8 +180,10 @@ def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
              face_caps: _t.Mapping[int, tuple[float, float] | None]
              ) -> tuple[float, float] | None:
     """A centreline edge's ``(cL, cT)``: its stretch's cap, tightened by
-    every governed non-taxi face it bounds (09-03j); an edge on no stretch
-    (a road centreline, a plain edge) reads the strictest bounding face."""
+    every governed non-taxi, NON-APRON face it bounds (a route through an
+    apron keeps the taxiway law, RULINGS 2026-09-06t); an edge on no
+    stretch (a road centreline, a plain edge) reads the strictest
+    bounding face, apron included."""
     e = pm.edges[eid]
     sid = st.by_edge.get(eid)
     bounding = [(f, face_caps.get(f)) for f in (e.left_face, e.right_face)
@@ -175,7 +195,8 @@ def edge_cap(pm: PlanarMap, law: Law, st: Stretches, eid: int,
     s = st.items[sid]
     cl, ct = s.cap_l, s.cap_t
     for f, c in bounding:
-        if role_family(law, pm.faces[f].role) != "taxi":
+        role = pm.faces[f].role
+        if role != APRON_ROLE and role_family(law, role) != "taxi":
             cl, ct = min(cl, c[0]), min(ct, c[1])
     return cl, ct
 
@@ -255,6 +276,28 @@ def pair_caps(pm: PlanarMap, law: Law, st: Stretches, fid: int,
     return compose_pairs(xy, verts, lines, base_cap, min_d, common_only)
 
 
+def corridor_index(xy: _t.Mapping[int, XY], ring: _t.Sequence[int],
+                   lines: _t.Iterable[tuple[_t.Sequence[int], float, float, float | None]],
+                   cell: float) -> "AxisIndex | None":
+    """THE CORRIDORS OF ONE RING (RULINGS 2026-09-06t; spec ``apron-route-
+    cap`` §3), pure: of ``lines`` — stretches as ``(vertex chain, cap_l,
+    cap_t, half_width_m)`` — those with an EDGE ON ``ring`` (two
+    consecutive chain vertices both ring vertices: the stretch crosses
+    the ring's face there) and a stated half-width, as one
+    :class:`AxisIndex`; ``None`` when no stretch crosses the ring.  The
+    generator (``apron.apron_within_shape``) and the verify reader build
+    it from the same definition; the v1 oracle applies it to the way's
+    node ids."""
+    on = set(ring)
+    axes = []
+    for chain, cl, ct, hw in lines:
+        if hw is None or len(chain) < 2:
+            continue
+        if any(u in on and w in on for u, w in zip(chain, chain[1:])):
+            axes.append(([xy[v] for v in chain], cl, ct, hw))
+    return AxisIndex(axes, cell) if axes else None
+
+
 class AxisIndex:
     """THE NEAREST STRETCH AXIS, grid-indexed (RULINGS 2026-09-06s; the
     generator's and the verify reader's one locator, the shape of the v1
@@ -265,22 +308,32 @@ class AxisIndex:
     neighbours first and, when they hold no segment, the WHOLE index —
     every point on a map with a stretch has a serving axis (the oracle
     tallied such pairs ``no_axis`` and read the chord; the ruling prices
-    the nearest axis).  The strictest longitudinal cap wins a tie."""
+    the nearest axis).  The strictest longitudinal cap wins a tie.
 
-    def __init__(self, axes: _t.Iterable[tuple[_t.Sequence[XY], float, float]],
-                 cell: float, tie_m: float = 1e-6) -> None:
+    THE CORRIDOR (RULINGS 2026-09-06t; spec ``apron-route-cap`` §3): an
+    axis may carry a fourth element, its corridor HALF-WIDTH (the letter's
+    taxiway pavement half-width); :meth:`corridor_box_bound` prices a pair
+    against the nearest axis whose corridor CONTAINS the pair's midpoint
+    and returns ``None`` for a midpoint outside every corridor — the
+    apron short pairs beside a route through the apron."""
+
+    def __init__(self, axes: _t.Iterable[tuple], cell: float, tie_m: float = 1e-6) -> None:
         self.cell = float(cell)
         self.tie_m = tie_m
-        self.segs: list[tuple[float, float, float, float, float, float, float]] = []
+        self.segs: list[tuple[float, float, float, float, float, float, float, float]] = []
         self.grid: dict[tuple[int, int], list[int]] = {}
-        for pts, cap_l, cap_t in axes:
+        self.max_half_width = 0.0
+        for entry in axes:
+            pts, cap_l, cap_t = entry[0], entry[1], entry[2]
+            hw = float(entry[3]) if len(entry) > 3 and entry[3] is not None else -1.0
+            self.max_half_width = max(self.max_half_width, hw)
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 ln = math.hypot(bx - ax, by - ay)
                 if ln <= 0.0:
                     continue
                 k = len(self.segs)
                 self.segs.append((ax, ay, (bx - ax) / ln, (by - ay) / ln, ln,
-                                  float(cap_l), float(cap_t)))
+                                  float(cap_l), float(cap_t), hw))
                 for gx in range(int(min(ax, bx) // self.cell), int(max(ax, bx) // self.cell) + 1):
                     for gy in range(int(min(ay, by) // self.cell), int(max(ay, by) // self.cell) + 1):
                         self.grid.setdefault((gx, gy), []).append(k)
@@ -292,7 +345,7 @@ class AxisIndex:
               ) -> tuple[float, float, float, float, float] | None:
         best = None
         for k in ks:
-            ax, ay, ux, uy, ln, cl, ct = self.segs[k]
+            ax, ay, ux, uy, ln, cl, ct, _hw = self.segs[k]
             t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
             d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
             if best is None or d < best[0] - self.tie_m or \
@@ -300,12 +353,28 @@ class AxisIndex:
                 best = (d, ux, uy, cl, ct)
         return best
 
+    def _block(self, x: float, y: float) -> tuple[list[int], float]:
+        """The 3x3 grid block's segments around ``(x, y)`` and the
+        GUARANTEED RADIUS: a segment outside the block can be nearer than
+        the block's best only beyond the point's distance to the block's
+        edge (measured HECA pav129 2026-09-06: a 63 m segment binned into
+        a neighbour cell by its bounding box beat the true nearest at
+        44.7 m)."""
+        cx, cy = int(x // self.cell), int(y // self.cell)
+        ks: list[int] = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
+        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
+                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
+        return ks, reach
+
     def _tied(self, x: float, y: float, d0: float) -> list[tuple[float, float, float, float]]:
         """Every segment at the nearest distance ``d0`` (within ``tie_m``):
         the point projects onto a polyline CORNER shared by two segments,
         or onto an intersection of two stretches — as ``(ux, uy, cl, ct)``."""
         out = []
-        for ax, ay, ux, uy, ln, cl, ct in self.segs:
+        for ax, ay, ux, uy, ln, cl, ct, _hw in self.segs:
             t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
             if abs(math.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
                 out.append((ux, uy, cl, ct))
@@ -322,19 +391,8 @@ class AxisIndex:
                  ) -> tuple[float, tuple[float, float], float, float] | None:
         if not self.segs:
             return None
-        cx, cy = int(x // self.cell), int(y // self.cell)
-        ks: list[int] = []
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                ks.extend(self.grid.get((cx + dx, cy + dy), ()))
+        ks, reach = self._block(x, y)
         best = self._best(x, y, ks) if ks else None
-        # THE GUARANTEED RADIUS: a segment outside the 3x3 block can be
-        # nearer than the block's best only beyond the point's distance to
-        # the block's edge — past it, the whole index decides (measured
-        # HECA pav129 2026-09-06: a 63 m segment binned into a neighbour
-        # cell by its bounding box beat the true nearest at 44.7 m)
-        reach = min(x - (cx - 1) * self.cell, (cx + 2) * self.cell - x,
-                    y - (cy - 1) * self.cell, (cy + 2) * self.cell - y)
         if best is None or best[0] > reach:
             best = self._best(x, y, range(len(self.segs)))
         if best is None:
@@ -364,5 +422,55 @@ class AxisIndex:
         for ux, uy, cl, ct in self._tied(x, y, d0):
             b = cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
             if b < best[0]:
+                best = (b, cl, ct)
+        return best
+
+    def _corridor_nearest(self, x: float, y: float
+                          ) -> tuple[float, list[tuple[float, float, float, float]]] | None:
+        """The nearest segment whose CORRIDOR contains ``(x, y)`` (its
+        distance ``d ≤`` its half-width) — ``(d0, tied)`` with every
+        corridor segment at that distance (a corner, an intersection) as
+        ``(ux, uy, cl, ct)``; ``None`` outside every corridor.  The 3x3
+        block decides when every half-width is within the guaranteed
+        radius; otherwise the whole index."""
+        if not self.segs or self.max_half_width < 0.0:
+            return None
+        ks, reach = self._block(x, y)
+        if self.max_half_width > reach:
+            ks = range(len(self.segs))
+        best: list[tuple[float, float, float, float, float]] = []
+        for k in ks:
+            ax, ay, ux, uy, ln, cl, ct, hw = self.segs[k]
+            if hw < 0.0:
+                continue
+            t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
+            d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+            if d <= hw:
+                best.append((d, ux, uy, cl, ct))
+        if not best:
+            return None
+        d0 = min(b[0] for b in best)
+        return d0, [b[1:] for b in best if abs(b[0] - d0) <= self.tie_m]
+
+    def in_corridor(self, x: float, y: float) -> bool:
+        """Whether ``(x, y)`` lies within some axis's corridor."""
+        return self._corridor_nearest(x, y) is not None
+
+    def corridor_box_bound(self, xa: float, ya: float, xb: float, yb: float
+                           ) -> tuple[float, float, float] | None:
+        """THE CORRIDOR BOX (RULINGS 2026-09-06t; spec ``apron-route-cap``
+        §3): :meth:`box_bound` against the nearest axis whose corridor
+        contains the pair's MIDPOINT (the strictest bound among tied
+        axes); ``None`` for a midpoint outside every corridor — the pair
+        keeps its face's own law."""
+        x, y = 0.5 * (xa + xb), 0.5 * (ya + yb)
+        hit = self._corridor_nearest(x, y)
+        if hit is None:
+            return None
+        dx, dy = xb - xa, yb - ya
+        best: tuple[float, float, float] | None = None
+        for ux, uy, cl, ct in hit[1]:
+            b = cl * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
+            if best is None or b < best[0]:
                 best = (b, cl, ct)
         return best

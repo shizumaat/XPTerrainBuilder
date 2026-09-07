@@ -45,9 +45,10 @@ import math
 
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
-from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
+from ..constraints.stretches import (AxisIndex, compose_pairs, corridor_index,
+                                     nearest_line_cap)
 from ..constraints.taxi import short_pairs
-from ..law.tables import role_cap, snap_margin_m
+from ..law.tables import apron_corridor_pair_max_m, role_cap, snap_margin_m
 from .frame import Patch, Row, Shape, noise_m, row
 
 __all__ = ["within_shape", "plane_gradient", "crown_by_vertex", "taxi_box",
@@ -92,6 +93,34 @@ def stretch_lines(p: Patch) -> list[tuple[tuple[int, ...], float]]:
         if len(ids) >= 2:
             out.append((ids, float(entry[1])))
     return out
+
+
+def corridor_lines(p: Patch) -> list[tuple[tuple[int, ...], float, float, float | None]]:
+    """Published stretches as ``(vertex chain, cap_l, cap_t, corridor
+    half-width)`` — the half-width is the sidecar's fifth element
+    (``None`` on a patch published before 2026-09-06t: no apron corridor
+    is read, exactly as none was generated)."""
+    law = p.law
+    taxi_role = law.tables.precedence.taxi_family.members[0]
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out = []
+    for entry in p.publication.get("stretches") or []:
+        letter = entry[2] if len(entry) > 2 else None
+        rc = role_cap(law, taxi_role, None, letter)
+        hw = entry[4] if len(entry) > 4 else None
+        ids = tuple(v for v in (key_of.get((round(float(la), 7), round(float(lo), 7)))
+                                for la, lo in entry[0]) if v is not None)
+        if rc is None or len(ids) < 2:
+            continue
+        out.append((ids, float(entry[1]), rc.transverse, None if hw is None else float(hw)))
+    return out
+
+
+def apron_corridor_index(p: Patch, sh: Shape, lines, cell: float) -> AxisIndex | None:
+    """The corridors crossing apron ring ``sh`` (``stretches.corridor_
+    index`` over the patch's whole vertex map — a stretch chain runs
+    through hole-ring vertices too)."""
+    return corridor_index(p.xy, sh.ids, lines, cell)
 
 
 def crossing_stretches(sh: Shape, lines: list[tuple[tuple[int, ...], float]]
@@ -231,6 +260,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     mesh_roles = set(ws.junction_mesh_roles)
     mesh = mesh_pairs(p)
     routed = route_pair_budgets(p)
+    clines = corridor_lines(p)
+    max_box = apron_corridor_pair_max_m(law)
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
@@ -265,6 +296,10 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
             axis = ax[0] if ax else None
         strict = spine | rigid_v
         outside = chords_outside_face(p, sh, min_d) if sh.role == "apron" else set()
+        # THE ROUTE'S CORRIDOR (2026-09-06t): an apron short pair beside a
+        # route through the apron is the box's, read by ``taxi_box``
+        cidx = apron_corridor_index(p, sh, clines, ws.withdrawn_chord_min_m) \
+            if sh.role == "apron" else None
         for i in range(n):
             a = sh.ids[i]
             for j in range(i + 1, n):
@@ -277,6 +312,9 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     continue
                 if (i, j) in outside:
                     continue                       # a chord leaving its face (05ae-1)
+                if cidx is not None and d < max_box and \
+                        cidx.in_corridor(0.5 * (xa + xb), 0.5 * (ya + yb)):
+                    continue                       # the corridor box (06t)
                 adjacent = (j == i + 1) or (i == 0 and j == n - 1)
                 if meshed and (a, b) not in pc and (b, a) not in pc:
                     continue                       # not a law edge (04y)
@@ -427,7 +465,15 @@ def taxi_box(p: Patch) -> list[Row]:
     against ``cL·|Δs| + cT·|Δt|`` on the nearest published stretch axis,
     forgiven the role's instrument envelope.  Lockstep with the oracle's
     ``taxi_box`` family and with the generator's population; a patch
-    publishing no ``stretches`` reads none."""
+    publishing no ``stretches`` reads none.
+
+    + THE APRON CORRIDOR (RULINGS 2026-09-06t; spec ``apron-route-cap``
+    §3): every short pair of an apron ring (outer, or a hole hosted by an
+    apron) that is a within-shape member (adjacent, or a chord inside its
+    face, 05ae) whose midpoint lies within the corridor of a stretch
+    crossing THAT ring, against the corridor's own axis
+    (``AxisIndex.corridor_box_bound``); keyed on the sidecar's fifth
+    stretch element."""
     law = p.law
     ws = law.tables.emit.within_shape
     index = published_axis_index(p)
@@ -446,13 +492,34 @@ def taxi_box(p: Patch) -> list[Row]:
     rings += [(fe, host_of[fe.host]) for fe in p.features
               if fe.feature == "gap_interior_ring" and fe.host in host_of
               and host_of[fe.host].role in taxi]
-    for sh, host in rings:
+    apron_rings: list[tuple[Shape, Shape]] = [(sh, sh) for sh in p.shapes if sh.role == "apron"]
+    apron_rings += [(fe, host_of[fe.host]) for fe in p.features
+                    if fe.feature == "gap_interior_ring" and fe.host in host_of
+                    and host_of[fe.host].role == "apron"]
+    clines = corridor_lines(p)
+    for sh, host in [*rings, *apron_rings]:
         if p.cap(host) is None or len(sh.ids) < 2:
             continue
         pos = {v: k for k, v in enumerate(sh.ids)}
         xy = {v: sh.xy[k] for k, v in enumerate(sh.ids)}
         meshed = host.role in mesh_roles and mesh is not None
-        if meshed:
+        cidx = None
+        if host.role == "apron":
+            cidx = apron_corridor_index(p, sh, clines, max_d)
+            if cidx is None:
+                continue
+            n = len(sh.ids)
+            # a hosted HOLE ring reads its ring edges only (its chords'
+            # face gate is the host's cover, not re-derived here)
+            outside = chords_outside_face(p, host, min_d) if host is sh else None
+            pairs = []
+            for a, b, d in short_pairs(xy, list(sh.ids), min_d, apron_corridor_pair_max_m(law)):
+                i, j = pos[a], pos[b]
+                adjacent = (j == i + 1) or (i == 0 and j == n - 1)
+                if not adjacent and (outside is None or (min(i, j), max(i, j)) in outside):
+                    continue                       # a chord leaving its face (05ae-1)
+                pairs.append((a, b, d))
+        elif meshed:
             pop: dict[tuple[int, int], float] = {}
             n = len(sh.ids)
             for i in range(n):
@@ -472,7 +539,8 @@ def taxi_box(p: Patch) -> list[Row]:
         q = noise_m(law, host.role)
         for a, b, d in pairs:
             (xa, ya), (xb, yb) = xy[a], xy[b]
-            bb = index.box_bound(xa, ya, xb, yb)
+            bb = (cidx.corridor_box_bound(xa, ya, xb, yb) if cidx is not None
+                  else index.box_bound(xa, ya, xb, yb))
             if bb is None:
                 continue
             bound, _cl, _ct = bb

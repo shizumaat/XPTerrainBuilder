@@ -263,8 +263,9 @@ def taxi_chain(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 def taxi_centerlines(planar: PlanarMap, law: Law, airport: Airport
                      ) -> list[Row]:
     """Longitudinal cap along every taxi centreline chord: its stretch's
-    cap (04t-3), tightened by a governed non-taxi face it bounds (an apron
-    lane is apron, RULINGS 2026-09-03j)."""
+    cap (04t-3), tightened by a governed non-taxi, non-apron face it
+    bounds (a route through an apron keeps the taxiway law, RULINGS
+    2026-09-06t; ``stretches.edge_cap``)."""
     vw = view(planar, law)
     st = stretches(planar, law)
     rows: list[Row] = []
@@ -385,7 +386,8 @@ def short_pairs(xy: _t.Mapping[int, tuple[float, float]], ring: _t.Sequence[int]
 def axis_index(vw: View, st: Stretches) -> AxisIndex:
     """The map's stretches as one :class:`AxisIndex`, cells of the box's
     own floor (``withdrawn_chord_min_m``)."""
-    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t) for s in st.items),
+    return AxisIndex((([vw.xy[v] for v in s.vertices], s.cap_l, s.cap_t, s.half_width_m)
+                      for s in st.items),
                      vw.law.tables.emit.within_shape.withdrawn_chord_min_m)
 
 

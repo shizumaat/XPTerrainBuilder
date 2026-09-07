@@ -163,7 +163,13 @@ def test_pad_pairs_leave_the_contact_only_along_pavement(site, law):
     on_apron = [cap for a, b, cap, _d in pad
                 if (a in apron and b in apron) and a not in _role_verts(pm, "stub")
                 and b not in _role_verts(pm, "stub")]
-    assert on_apron and all(c == pytest.approx(0.01) for c in on_apron)   # the apron's cap
+    # the apron's cap along the apron's own edges; a path walking the
+    # lane THROUGH the apron carries the lane's taxiway cap on that part
+    # (RULINGS 2026-09-06t, lane v2routecap) — never below the apron cap,
+    # never above the lane's letter
+    lane_cap = law.ruleset.taxi.longitudinal.value(None, None)
+    assert on_apron and all(0.01 - 1e-9 <= c <= lane_cap + 1e-9 for c in on_apron), on_apron
+    assert any(c == pytest.approx(0.01) for c in on_apron)
 
 
 def test_pad_pairs_are_apron_law_in_the_solve(site, law):

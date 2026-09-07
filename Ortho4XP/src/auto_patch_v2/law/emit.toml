@@ -73,6 +73,14 @@ junction_mesh_roles = ["junction"]
 # 1.0.291: every taxi|taxi within_shape row was stamped regardless of
 # length, stub|stub 13,004, and a 6 m step over 6 m read as withdrawn law).
 withdrawn_chord_min_m = 30.0
+# THE APRON CORRIDOR (RULINGS 2026-09-06t; spec apron-route-cap §3): an apron
+# pair whose midpoint lies inside a crossing route's corridor (the letter's
+# taxiway half-width, rulesets.taxi.width_m / 2) is the BOX against that
+# stretch when shorter than this — the spec's letter is withdrawn_chord_min_m
+# (30 m).  EXPERIMENT KNOB of the v2routecap round (owner question): at 30 m
+# the apron's long frontage chords to the route's stations (1 %) still re-cap
+# the route (§4 twin INFEASIBLE); a large value boxes every in-corridor pair.
+apron_corridor_pair_max_m = 30.0
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

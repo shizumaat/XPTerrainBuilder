@@ -24,6 +24,7 @@ __all__ = [
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
+    "taxi_half_width_m", "apron_corridor_pair_max_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
     "flat_source_class", "flat_relief_floor_m",
 ]
@@ -116,6 +117,26 @@ def role_cap(law: Law, role: str, code_number: int | None = None,
     if lon is None or tr is None:
         return None
     return RoleCap(longitudinal=lon, transverse=tr)
+
+
+def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
+    """THE CORRIDOR HALF-WIDTH of a taxi stretch (RULINGS 2026-09-06t; spec
+    ``apron-route-cap`` §3): half the letter's taxiway pavement width
+    (``rulesets.<authority>.taxi.width_m``); ``None`` where the authority
+    states no width (no apron corridor is priced)."""
+    tbl = law.ruleset.taxi.width_m
+    if tbl is None:
+        return None
+    w = tbl.value(None, code_letter)
+    return None if w is None else float(w) / 2
+
+
+def apron_corridor_pair_max_m(law: Law) -> float:
+    """The apron corridor box's pair ceiling (``emit.within_shape.apron_
+    corridor_pair_max_m``; ``withdrawn_chord_min_m`` when unset)."""
+    ws = law.tables.emit.within_shape
+    m = ws.apron_corridor_pair_max_m
+    return float(ws.withdrawn_chord_min_m if m is None else m)
 
 
 def runway_transverse_max(law: Law, code_letter: str | None,

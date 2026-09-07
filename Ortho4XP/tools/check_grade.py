@@ -5958,36 +5958,103 @@ class _StretchBox:
     whose stretches are all degenerate.
     KEYED ON THE v2 SIDECAR: only a patch publishing ``stretches`` (the v2
     emitter's key; v1 publishes none) builds one — a v1 patch reads
-    exactly as before."""
+    exactly as before.
 
-    def __init__(self, stretches_ll: list, ll_to_m, law) -> None:
+    THE APRON CORRIDOR (RULINGS 2026-09-06t; spec ``apron-route-cap`` §3;
+    ``auto_patch_v2.constraints.stretches.corridor_index`` /
+    ``AxisIndex.corridor_box_bound``): an APRON-role pair under the floor
+    whose MIDPOINT lies within the corridor (the sidecar's fifth stretch
+    element, the letter's taxiway half-width) of a stretch with an edge
+    ON THE WAY's ring (two consecutive stretch nodes both ring nodes —
+    the stretch crosses the apron there) is priced as the box against
+    that corridor's axis (the nearest corridor containing the midpoint,
+    strictest on a tie) instead of the apron's isotropic cap.  Keyed on
+    the fifth element: a patch published without it reads as before."""
+
+    def __init__(self, stretches_ll: list, ll_to_m, law,
+                 nodes: Optional[Dict[str, Tuple[float, float]]] = None) -> None:
+        from auto_patch_v2.constraints.stretches import APRON_ROLE
+        from auto_patch_v2.law.tables import apron_corridor_pair_max_m
         self.min_m = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
+        self.apron_max_m = apron_corridor_pair_max_m(law)
         self.taxi_roles = frozenset(law.tables.precedence.taxi_family.members)
+        self.apron_roles = frozenset((APRON_ROLE,))
         self.cell = self.min_m
-        self.segs: list = []          # (ax, ay, ux, uy, length, cL, cT)
+        self.segs: list = []          # (ax, ay, ux, uy, length, cL, cT, half_width)
         self.grid: Dict[Tuple[int, int], list] = {}
+        self.stretch_nids: list = []  # per stretch: its node ids (identity join)
+        self.stretch_segs: list = []  # per stretch: its segment indices
+        self._way_corridor: Dict[str, list] = {}
+        key_of = ({(round(la, 7), round(lo, 7)): nid for nid, (la, lo) in nodes.items()}
+                  if nodes else {})
         for entry in stretches_ll or []:
             pts_ll, cap = entry[0], float(entry[1])
             letter = entry[2] if len(entry) > 2 else None
+            hw = entry[4] if len(entry) > 4 else None
             ct = law.ruleset.taxi.transverse.value(None, letter)
             if ct is None or len(pts_ll) < 2:
                 continue
             pts = [ll_to_m(float(la), float(lo)) for la, lo in pts_ll]
+            self.stretch_nids.append([key_of.get((round(float(la), 7), round(float(lo), 7)))
+                                      for la, lo in pts_ll])
+            ks: list = []
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 L = math.hypot(bx - ax, by - ay)
                 if L < 1e-9:
                     continue
                 k = len(self.segs)
-                self.segs.append((ax, ay, (bx - ax) / L, (by - ay) / L, L, cap, float(ct)))
+                ks.append(k)
+                self.segs.append((ax, ay, (bx - ax) / L, (by - ay) / L, L, cap, float(ct),
+                                  -1.0 if hw is None else float(hw)))
                 for gx in range(int(min(ax, bx) // self.cell), int(max(ax, bx) // self.cell) + 1):
                     for gy in range(int(min(ay, by) // self.cell), int(max(ay, by) // self.cell) + 1):
                         self.grid.setdefault((gx, gy), []).append(k)
+            self.stretch_segs.append(ks)
+
+    def _corridor_segs(self, way: "Way") -> list:
+        """The corridor segments of the stretches crossing ``way``'s
+        ring (``corridor_index``'s definition on node ids), cached."""
+        hit = self._way_corridor.get(way.wid)
+        if hit is None:
+            on = set(way.nids)
+            hit = []
+            for nids, ks in zip(self.stretch_nids, self.stretch_segs):
+                if any(u is not None and u in on and w in on for u, w in zip(nids, nids[1:])):
+                    hit.extend(k for k in ks if self.segs[k][7] >= 0.0)
+            self._way_corridor[way.wid] = hit
+        return hit
+
+    def corridor(self, c: "ShapePairConstraint") -> Optional[list]:
+        """The corridor segments containing the pair's midpoint — the
+        nearest, with every one tied at that distance — as
+        ``(ux, uy, cL, cT)``; ``None`` outside every corridor."""
+        ks = self._corridor_segs(c.way)
+        if not ks:
+            return None
+        x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
+        best: list = []
+        for k in ks:
+            ax, ay, ux, uy, L, cl, ct, hw = self.segs[k]
+            t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+            d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+            if d <= hw:
+                best.append((d, ux, uy, cl, ct))
+        if not best:
+            return None
+        d0 = min(b[0] for b in best)
+        return [b[1:] for b in best if abs(b[0] - d0) <= 1e-6]
 
     def applies(self, c: "ShapePairConstraint") -> bool:
         """A taxi-family body pair under the floor (never a road
-        cross-section, which is its own family)."""
-        return (bool(self.segs) and not c.transverse_road and c.dist < self.min_m
-                and law_role(c.way) in self.taxi_roles)
+        cross-section, which is its own family); an apron pair under the
+        floor inside a crossing route's corridor (2026-09-06t)."""
+        if not self.segs or c.transverse_road:
+            return False
+        role = law_role(c.way)
+        if role in self.taxi_roles:
+            return c.dist < self.min_m
+        return (role in self.apron_roles and c.dist < self.apron_max_m
+                and self.corridor(c) is not None)
 
     def nearest(self, x: float, y: float):
         """``(ux, uy, cL, cT)`` of the nearest stretch segment within two
@@ -6018,7 +6085,7 @@ class _StretchBox:
         d0 = None
         out = []
         ds = []
-        for ax, ay, ux, uy, L, cl, ct in self.segs:
+        for ax, ay, ux, uy, L, cl, ct, _hw in self.segs:
             t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
             ds.append((math.hypot(x - (ax + t * ux), y - (ay + t * uy)), ux, uy, cl, ct))
         d0 = min(d for d, *_r in ds)
@@ -6027,7 +6094,7 @@ class _StretchBox:
     def _best(self, x: float, y: float, ks):
         best = None
         for k in ks:
-            ax, ay, ux, uy, L, cl, ct = self.segs[k]
+            ax, ay, ux, uy, L, cl, ct, _hw = self.segs[k]
             t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
             d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
             if best is None or d < best[0]:
@@ -6039,14 +6106,20 @@ class _StretchBox:
         and the isotropic cap it amounts to over the chord — or ``None``
         with no axis in reach."""
         x, y = 0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb)
-        near = self.nearest(x, y)
-        if near is None:
-            return None
+        if law_role(c.way) in self.apron_roles:
+            axes = self.corridor(c)           # the corridor's axis (06t)
+            if not axes:
+                return None
+        else:
+            near = self.nearest(x, y)
+            if near is None:
+                return None
+            axes = [near, *self.tied(x, y)]
         dx, dy = c.xb - c.xa, c.yb - c.ya
         box, cl = None, None
         # a TIE takes the strictest bound among the tied axes
         # (``stretches.AxisIndex.box_bound``: one rule, both readers)
-        for ux, uy, cl_k, ct in [near, *self.tied(x, y)]:
+        for ux, uy, cl_k, ct in axes:
             b = cl_k * abs(dx * ux + dy * uy) + ct * abs(dx * uy - dy * ux)
             if box is None or b < box:
                 box, cl = b, cl_k
@@ -8375,7 +8448,7 @@ def run_checks(
     stretches_m = _stretches_to_m(stretches_ll, nodes, ll_to_m)
     # THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)), keyed on the v2
     # sidecar's ``stretches``: a v1 patch (no key) builds none.
-    taxi_box = (_StretchBox(stretches_ll, ll_to_m, runway_edge_tie_law())
+    taxi_box = (_StretchBox(stretches_ll, ll_to_m, runway_edge_tie_law(), nodes)
                 if stretches_ll else None)
 
     # SPINE CROWN drop field (sidecar ``crown_drops``, part 30): the

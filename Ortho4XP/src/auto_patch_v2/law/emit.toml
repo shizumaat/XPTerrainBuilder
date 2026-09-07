@@ -177,7 +177,7 @@ tier_ladder_last          = true          # the tier ladder (04i) answers only w
 # allowed 1.5 %; fully spent the tier lifts the chain +0.72 m).
 order          = "lexicographic"
 stage_b_prefix = "apron"      # the preference prefix stage B minimises (constraints/apron.py PREFERENCE_GROUP)
-warm_start     = true         # stages B and C start from the previous stage's HiGHS basis (measured: see the lane's build-time statement)
+warm_start     = false        # stages B and C from the previous stage's HiGHS basis: MEASURED SLOWER (lane v2lexi replays — HECA relaxed set: stage B 118 s warm vs 26 s cold, whole solve 143 vs 62 s; CYXY 4.3 vs 1.5 s): a basis left by one objective under new bounds is a poor start for the next; cold each stage (presolve on) is the default
 
 [terrace]
 # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, the owner's KML verdict on

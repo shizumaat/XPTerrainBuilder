@@ -360,3 +360,121 @@ order the ruling states is LEXICOGRAPHIC (the runway family's fit held
 first, the apron preference next, the DEM fit last — the shape of
 `solve/stage1.py`'s last resort, applied to the hard solve).  Reported,
 not decided: owner / spec-author question for round 4.
+
+### Implemented (lane `v2lexi`, RULINGS 2026-09-06x: the objective order is LEXICOGRAPHIC)
+
+MECHANISM.  `law/emit.toml [objective]` (`order = "lexicographic" |
+"weighted"`, `stage_b_prefix = "apron"`, `warm_start`; schema
+`law/objective_schema.py`, `model.py` held at 1,000 lines) is bound to
+`Weights.lexicographic` by `pipeline.build.weights_under_law` (runway
+roles from the precedence register, the ridge's breakline kind, the hold
+= `[relaxation] runway_hold_tolerance_m` 0.01 m).  `solve/lexi.py` runs
+the SAME assembled LP three times on one `highspy` model (`highs.solve`
+dispatches; `"weighted"` is the single scipy stage as before): **A** the
+runway family's terms (the DEM fit of every runway-family vertex, the
+ridge's smoothness stations, and every preference group whose prefix is
+not `apron` — crown, end zone, seam, the law ladder, the flat datum: the
+groups the single stage already ranked above the runway; demoting them
+would let the runway buy an end-zone or seam escalation, which no
+ruling asked for — REPORTED as the reading of "every other preference
+last"); **B** the apron preference alone, every runway-family vertex
+bounded to its stage-A value ± 0.01 m and every column stage A charged
+bounded at its stage-A value + 0.01 m in its own unit; **C** the whole
+objective, stage B's columns held likewise.  Holds are BOUNDS, never a
+row: the first form (one dense objective-hold row per stage, thousands
+of coefficients spanning 20 … 1e5) ended HECA's stage C in
+`kUnknown` / `kSolveError`; per-column bounds solve every stage.  Stage
+A infeasible = the hard set's infeasibility (the IIS runs as before);
+`why` reads STAGE A's point and duals (the chain that holds the runway)
+with the final point carried for the figures; `Prepared.final_z`.
+
+BUILD TIME (three LPs).  CYXY (hard-feasible, 122k rows): weighted 0.6 s
+→ lexicographic 1.5 s cold (A 0.7 / B 0.5 / C 0.2), 4.3 s warm-started —
++0.9 s = 1.5 % of the 60 s budget (the per-change Fable optimisation
+review is SUSPENDED, RULINGS 2026-08-04; the ledger tripwire stands);
+harness solve 0.57 → 1.20 s.  HECA (the relaxed set, 696k rows): weighted
+69.7 s → lexicographic 62.2 s cold (A 16.3 / B 26.3 / C 18.8), 142.6 s
+warm (B 118 s) — three objectives converge faster than one; the closing
+build's solve 222.9 → 156.4 s (the last resort's stages included).  OTHH
+5.30 → 4.79 s.  `warm_start = false` is the measured default (a basis
+left by one objective under new bounds is a poor start for the next).
+
+TWINS (`tests/auto_patch_v2/test_v2lexi.py`, 6): the round-3 fixture
+DENSIFIED — a 300 × 50 m apron abutting the runway edge with a ring
+vertex every 5 m (3,981 parallel apron preference rows against 216
+runway vertices), its far edge pinned 1.44 % below the crown datum:
+weighted sags the ridge 0.105 m and spends 73 rows; lexicographic holds
+the ridge on the DEM (0.001 m), the edge at its crown datum, and spends
+774 rows to 1.5 % (an L1 stage concentrates relief at the cap — the
+variance spread is the last resort's, not ruled here); no runway vertex
+moves > 0.01 m between stage A and the final point; a free apron off a
+second stub (unpriced in A and B) lands on its DEM at stage C; the law
+table, the OFF arm, `why` reading stage A.  Suite: 705 passed, 1 skipped.
+
+MEASURED (HECA `build_airport.py HECA --engine v2`, tag `v2lexi`, 299.4 s;
+round 3 in brackets): bow **−10.38 m at 2,708 m** [−10.38] — UNCHANGED;
+ridge minimum 104.60 at 2,732 m [104.60]; chain start v1444 z 107.89
+[107.89]; K 0.346 [0.348]; max |grade| 1.535 % [1.535]; relaxed 184
+[184]; solve 156.4 s [222.9]; census adjudicated **14** [6]: strip_seam_
+tear 11 [5], terrace_actual_step 2 [0], vertex_to_edge_step 1 [1]; v2-
+verify 40 [32] (26 lateral_contiguity + 12 strip_seam_tear + 1
+adjacent_ground_tear + 1 step); apron over preference generator
+7,059/36,844 max 2.08 % [5,927; max 2.08 %], #364 726/5,706 max 1.67 %
+[749], #264 1,378 [1,007], #215 1,353 [1,010]; oracle 986/182,985 [992].
+Other runways: 05L/23R bow −2.23 [−2.08], 05R/23L −9.74 [−9.72] — stage A
+minimises the family's L1 sum with the crown preference above it, not
+each runway's minimum.  CYXY verify 0 [0], generator 13/2,945 over
+preference [15], oracle 2 [2]; OTHH verify 0 [0], 0/90,574 [0].
+
+WHY THE BOW STILL DID NOT MOVE — the round-3 mechanism is REFUTED.  The
+ceiling probe (maximise z[v1444] over every HARD row with every
+preference slack free — stage A's feasible region) returns **107.890**,
+exactly the built value: the runway's low point is held by HARD rows
+alone; the apron preference rows never held it.  Round 3's "+0.72 m
+fully spent" read hop 16's preference row (806 m at 1.445 %) as the
+limit; the hard twin of the same chord (1.5 %) and the apron's own
+within-shape chords across #364 (06x (2): 1,117 m at 1.5 % = 16.8 m; the
+chain's hops 16 + 17 = 11.65 + 4.65 = 16.3 m) hold the same 16 m in
+parallel — the LP had a degenerate choice of which tight row to price,
+and the trace showed the priced one.  `why HECA --shape 30` on stage A
+(39 hops, Σ +47.24 m; KML `scratch/HECA_v2lexi_binding_chain.kml` in
+the lane worktree, written by `why --kml`): by family no_step +18.27,
+apron_preference +11.65 (hop 16, 806 m, 1.445 %), junction_mesh +4.86,
+taxi_centreline +4.79, apron_within_shape +4.65 (hop 17, 309 m at 1.5 %),
+transverse +1.73, strip_transverse +1.25; the priced duals sit on hops
+1–4, 6–8 (the 23C stub / parallel-taxiway no-step and centreline rows at
+1.5 %) and 18–22, 24–34, 39 (junction #365/#366/#359 mesh and the strip
+into the 23R pin) — hops 9–17 (the #381/#389 no-step run and the #364
+crossing) carry zero dual: tight, not binding.  What binds next is the
+owner's question 06x-1 (is the #364 crossing the intended coupling?) —
+under 06w it is lawful and it is the shortest path.
+
+THE NEW CENSUS ROWS (round 3's 6, now 14; read-only attribution, no fix —
+the class is a generator population, not ≤ 20 lines).  All strip_seam_
+tear rows are the same class: an apron ring vertex that is ALSO a
+vertex of the adjacent-ground strip ring (`adjacent_ground:taxi:E:zone1`)
+sits at the apron's surface while the strip's other vertices (zone1 /
+zone2 boundary) are tied to the taxi junction beside them — no row
+joins the two (06p: `zones.py` `own_law` exempts every ring vertex of an
+airside value face; no_step pairs are pavement|pavement), so the strip
+ring tears by the apron-vs-junction difference over 3 m.  Round 3
+(pav131 rose ~1 m): pav131 #215 at the taxi-E stub rose +1.75 m (13
+joined vertices; +2.7 at the strip site, its junction #221 +4.5) when
+the tiered cap freed its rows (relaxed 4,319 → 184; the apron follows
+the junction up toward the 05C/23C low at 1.5 % where 1 % held it
+lower), and the strip vertex it shares rose with it against the zone
+vertices at the junction (100.87 → 103.55 vs 105.29: 1.7 m over 3 m).
+This round the same class grows at pav47 #95 (the apron rose a further
++2.1 … +2.6 m: 103.57 → 105.66 against a junction at 101.4; tear 4.15 m)
+and at strip #19 / the pav47 terrace joint (terrace_actual_step 1.62):
+under the lexicographic order pav47's apron vertices (DEM 101.4) sit at
+105.66 — stage A leaves them unpriced (105.86), stage B holds every
+apron row at ≤ 1 % where it can, and stage C's DEM fit (4/m) may not
+lower them past the held apron slacks: the apron preference is now
+SENIOR to the apron's own DEM fit, exactly as ruled, and an apron over
+relief (03k) sits farther from its DEM than the weighted trade left it.
+The `vertex_to_edge_step` (apron|building 0.63 → 0.86): building201's
+pad dropped 87.15 → 86.93 → 85.73 while the apron vertex 0.8 m from its
+edge stays — the pad frontage weld class.  OWED: a strip ↔ apron-ring
+tie (or the apron ring vertex admitted to the zone tie) — one table
+before any consumer edit (30l).

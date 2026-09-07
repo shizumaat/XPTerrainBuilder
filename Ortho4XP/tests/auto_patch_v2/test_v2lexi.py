@@ -218,7 +218,8 @@ def test_lexicographic_holds_the_runway_and_spends_the_apron_to_the_cap(dense, l
     assert [s["stage"] for s in stages] == ["A", "B", "C"]
     assert all(s["status"] == "optimal" for s in stages)
     assert stages[1]["held_vertices"] == len(runway_vertices(dense[1], w.lexicographic))
-    assert stages[1]["held_rows"] == 1 and stages[2]["held_rows"] == 1
+    assert stages[1]["held_columns"] == stages[0]["charged"]
+    assert stages[2]["held_columns"] == stages[1]["charged"]
     assert "lexicographic A:optimal" in sol.message
 
 
@@ -236,10 +237,12 @@ def test_the_hold_tolerance_is_respected_and_the_dem_fit_acts_at_stage_c(dense, 
     assert set(stg.hold) == set(rv)
     moved = max(abs(stg.x[v] - stg.x_a[v]) for v in rv)
     assert moved <= lex.hold_m + 1e-9, moved
-    # stage A's objective held within its materiality at the final point
+    # stage A's and B's objectives held at the final point: each charged
+    # column within hold_m (in its unit) of its solved value
     c_a, c_b, _rv = partition(pm, prob, w)
-    assert float(c_a @ stg.x) <= stg.stages[0].objective + lex.hold_m * 20.0 + 1e-6
-    assert float(c_b @ stg.x) <= stg.stages[1].objective + lex.hold_m * 18.0 * prob.fit_scale + 1e-6
+    assert float(c_a @ stg.x) <= stg.stages[0].objective + lex.hold_m * float(c_a.sum()) + 1e-6
+    assert float(c_b @ stg.x) <= stg.stages[1].objective + lex.hold_m * 18.0 * prob.fit_scale * len(
+        [g for g in prob.soft_cols if g.startswith(PREFERENCE_GROUP + ":")]) + 1e-6
     free = _free_apron(pm)
     assert len(free) >= 4
     tol = law.tables.emit.materiality.elevation_m

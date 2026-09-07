@@ -116,7 +116,7 @@ def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
                                    else round(s.objective, 4),
                                    "wall_s": round(s.wall_s, 3), "iterations": s.iterations,
                                    "charged": s.charged, "held_vertices": s.held_vertices,
-                                   "held_rows": s.held_rows} for s in stg.stages]
+                                   "held_columns": s.held_columns} for s in stg.stages]
     else:
         lp_opts = {"disp": bool(opt.verbose), "presolve": True}
         if opt.time_limit_s is not None:

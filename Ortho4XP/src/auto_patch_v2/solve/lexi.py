@@ -23,10 +23,18 @@ columns ``assemble`` stacks, three objectives in turn on one HiGHS model
   end-zone or seam escalation, which no ruling asked for);
 * **stage B** — the ``stage_b_prefix`` preference (the apron's 1 %) alone,
   with every runway-family vertex bounded to its stage-A value ±
-  ``hold_m`` (the elevation materiality) and stage A's objective held
-  within ``hold_m`` at its own scale (one row);
+  ``hold_m`` (the elevation materiality) and every column stage A charged
+  bounded at its stage-A value + ``hold_m`` in its own unit (a fit or
+  curvature column in metres, a preference slack in metres over its
+  chord) — BOUNDS, never a row: a single dense objective-hold row over
+  thousands of columns spanning 20 … 1e5 in coefficient was measured at
+  HECA to end stage C in ``kUnknown`` / ``kSolveError`` (696k rows);
 * **stage C** — the whole objective (the DEM fit of every other role, its
-  smoothness), stage B's objective held likewise.
+  smoothness), stage B's columns held likewise.  Holding each column
+  rather than the stage's sum is stricter than the lexicographic minimum
+  by the tie-break only (a later stage may not redistribute a senior
+  stage's relief between rows at equal total) — a per-row hold, which is
+  also what the elevation materiality means.
 
 A stage with no charged column is skipped (no aprons: two LPs; no runway:
 one).  Stage A infeasible is the hard set's infeasibility (the IIS runs as
@@ -69,7 +77,8 @@ class Stage:
     iterations: int
     charged: int
     held_vertices: int = 0
-    held_rows: int = 0
+    #: the previous stages' columns bounded at their solved values (+ hold)
+    held_columns: int = 0
 
 
 @_dc.dataclass
@@ -177,31 +186,37 @@ def solve_stages(planar: PlanarMap, prob: Problem, weights: Weights,
     h.passModel(_model(highspy, prob))
     ncol = int(prob.c.shape[0])
     all_cols = np.arange(ncol, dtype=np.int32)
+    lo = np.array([-highspy.kHighsInf if b[0] is None else b[0] for b in prob.bounds], float)
+    hi = np.array([highspy.kHighsInf if b[1] is None else b[1] for b in prob.bounds], float)
+    # the hold of a charged column in ITS unit: a fit / curvature column is
+    # metres; a preference slack is a grade over its chord metres (its
+    # charge is weight × chord metres), so ``hold_m`` of relief is
+    # ``hold_m / chord`` of grade
+    unit = np.ones(ncol)
+    for g, col in prob.soft_cols.items():
+        per_m = preference_weight(g, weights) * (1.0 if g.startswith("law:") else prob.fit_scale)
+        chord = prob.c[col] / per_m if per_m > 0.0 else 0.0
+        unit[col] = 1.0 / chord if chord > 0.0 else 1.0
     out = Staged(None, "error", float("nan"), [])
     prev_cost: np.ndarray | None = None
-    prev_obj = 0.0
-    # the per-metre scale of each stage's hold: stage A's objective is
-    # metres of runway departure at the runway's fit weight; stage B's is
-    # metres of apron relief at the apron's per-metre charge
-    fit_w = max([float(prob.c[prob.t_col[v]]) for v in rv if v in prob.t_col] or [1.0])
-    pref_w = preference_weight(f"{lex.stage_b_prefix}{_SEP}", weights) * prob.fit_scale
-    scale = {"A": max(fit_w, 1.0), "B": max(pref_w, 1.0), "C": 1.0}
+    prev_x: np.ndarray | None = None
     for name, cost in plan:
         st = Stage(name, "", float("nan"), 0.0, 0, int(np.count_nonzero(cost)))
-        if prev_cost is not None:
-            # hold the previous stage's objective within its materiality
+        changed = False
+        if prev_cost is not None and prev_x is not None:
+            # hold every column the previous stage charged at its value
             nz = np.flatnonzero(prev_cost)
-            h.addRow(-highspy.kHighsInf, prev_obj + lex.hold_m * scale[out.stages[-1].name],
-                     len(nz), nz.astype(np.int32), prev_cost[nz].astype(float))
-            st.held_rows = 1
+            hi[nz] = np.minimum(hi[nz], prev_x[nz] + lex.hold_m * unit[nz])
+            st.held_columns = int(len(nz))
+            changed = True
         if name == "B" and out.x_a is not None:
-            lo = np.array([-highspy.kHighsInf if b[0] is None else b[0] for b in prob.bounds])
-            hi = np.array([highspy.kHighsInf if b[1] is None else b[1] for b in prob.bounds])
             for v in rv:
                 lo[v] = max(lo[v], out.x_a[v] - lex.hold_m)
                 hi[v] = min(hi[v], out.x_a[v] + lex.hold_m)
-            h.changeColsBounds(ncol, all_cols, lo.astype(float), hi.astype(float))
             st.held_vertices = len(rv)
+            changed = True
+        if changed:
+            h.changeColsBounds(ncol, all_cols, lo.astype(float), hi.astype(float))
         h.changeColsCost(ncol, all_cols, cost.astype(float))
         if not lex.warm_start:
             h.clearSolver()
@@ -227,7 +242,7 @@ def solve_stages(planar: PlanarMap, prob: Problem, weights: Weights,
             out.x_a = x.copy()
             out.row_dual_a = np.asarray(sol.row_dual, float)
             out.hold = {v: float(x[v]) for v in rv}
-        prev_cost, prev_obj = cost, st.objective
+        prev_cost, prev_x = cost, x
     if out.x_a is None and out.x is not None and out.status == "optimal":
         # no stage A ran (no runway family): the single stage's duals are the reading
         out.x_a = out.x

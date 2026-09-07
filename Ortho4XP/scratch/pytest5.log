@@ -1,0 +1,150 @@
+...........................................F............................ [ 10%]
+........................................................................ [ 20%]
+.................................................s...................... [ 30%]
+........................................................................ [ 40%]
+........................................................................ [ 50%]
+........................................................................ [ 60%]
+........................................................................ [ 70%]
+........................................................................ [ 81%]
+........................................................................ [ 91%]
+..............................................................           [100%]
+=================================== FAILURES ===================================
+______________________ test_cyxy_verify_matches_v1_census ______________________
+
+tmp_path = PosixPath('/private/var/folders/p4/rkk6fmls1z7f2js4bstdqnnm0000gn/T/pytest-of-noah/pytest-893/test_cyxy_verify_matches_v1_ce0')
+
+    @pytest.mark.skipif(not (DATA / "Elevation_data").is_dir(), reason="shared data repo")
+    def test_cyxy_verify_matches_v1_census(tmp_path):
+        from auto_patch_v2.pipeline.build import Config, build as build_v2
+        from auto_patch_v2.planar.__main__ import default_inputs
+        res = build_v2("CYXY", default_inputs(), tmp_path, Config())
+        assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
+        assert res.wall["total"] < 10.0
+        sys.path.insert(0, str(ROOT / "tools" / "harness"))
+        sys.path.insert(0, str(ROOT / "tools"))
+        cg = pytest.importorskip("check_grade")
+        fam: dict = {}
+        cg.run_checks_law_true(res.paths.patch, family_out=fam, quiet=True, top_n=0)
+        v1 = {k: len(v) for k, v in fam.items() if not k.startswith("_") and v}
+        v2 = {k: len(v) for k, v in res.verify_rows.items() if v}
+        # the families v2 reads must agree with the oracle's counts wherever
+        # both read the same population; a v1 family v2 has no reader for is
+        # listed in verify.census.NOT_IMPLEMENTED
+        from auto_patch_v2.verify.census import NOT_IMPLEMENTED
+        for k, n in v1.items():
+            if k in NOT_IMPLEMENTED:
+                continue
+            assert v2.get(k, 0) == n or k in ("within_shape",), (k, n, v2.get(k, 0))
+>       assert sum(n for k, n in v1.items() if k not in ("raoa", "within_shape",
+                                                          "strip_seam_tear")) == 0, v1
+E       AssertionError: {'within_shape': 730, 'airside_no_step': 1}
+E       assert 1 == 0
+E        +  where 1 = sum(<generator object test_cyxy_verify_matches_v1_census.<locals>.<genexpr> at 0x112b64c80>)
+
+tests/auto_patch_v2/test_constraints.py:382: AssertionError
+----------------------------- Captured stdout call -----------------------------
+    * Recycling OSM data from /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/OSM_data/+60-140/+60-136/+60-136_airports.osm.bz2
+WARNING: Could not save airport info to file /Users/noah/XPTerrainBuilder/.claude/worktrees/v2terrace3/Ortho4XP/Tiles/zOrtho4XP_+60-136/Data+60-136.apt
+    * Min altitude: 630.29114 , Max altitude: 846.9885 , Mean: 702.02155
+    * Min altitude: 579.0 , Max altitude: 2415.0 , Mean: 1255.1678
+   Airport elevation insets: working grid densified to 1/2 arc-second (worst actionable ideal-bake error 0.461 m).
+   Airport (np.float64(-135.03867549285718), np.float64(60.69076675714286)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport (np.float64(-135.03604783333333), np.float64(60.682701377777775)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Whitehorse/Cousins Airport : smoothing radius 16 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport CYXY : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+  [dem] production frame N60W136: composed: grid 7345x7345, baked_query=True, airports_smoothed=4, insets=CYXY:HRDEM
+[CYXY] load 3.52 s  runways 3  pavements 75  buildings 96
+[CYXY] planar 0.79 s  faces 281  edges 4802  vertices 4509  breaklines 70  T-vertices 0  seam bands 0  seam vertices 0  seam-band faces dropped 0
+[CYXY] terraces: 28 apron-like cells in 15 groups (5 islands)  joints 13 (1,004 m, 51 split vertices, 9 faces retreated)  refused: strip 3 breakline 1 spacing 4 invalid 0 pinch 0 map 0
+[CYXY] structures: bores 1 (uncovered 1, replaced by objects 0)  mouths 0  duals merged 0  object corridors 0 (signatures 0 of 0 resources, merged 0, 0.00 s)  tunnels 0  decks 0  cells cut 0  refused 0
+[CYXY] objects: 498 placements, 498 resolved (0 unresolved, 498 stock), 77 resources parsed in 0.27 s, 0 below grade, 0 hard-deck, 0 restored-for-read (.anchor_bak)
+[flat-site] CYXY: lidar_credible — Z0 697.33 m (cifp; CIFP spread 12.50 m over 6 threshold(s)) | DEM lidar[inset] relief 24.90 m vs floor ? m, slope 1.331 %, sea-excluded 0 % | DEM−Z0 1.23 m | seats no (n=498, off 5.06 m, spread 11.28 m)  (0.03 s)
+[CYXY] road profile 0.10 s  ways 1500 (osm 1476, route 12, axis 12)  stations 22862  clamped 3259 (max lift 14.86 m, cut 14.86 m)  cap 0.080  vertices 698  preferred 460  DEM fallback 238  off-DEM 395 (max 0.96 m)
+[CYXY] territories (07g): complexes 18 (6 labelled, 131 contacts)  vertices labelled 783 (unlabelled 0, notch fallback 44 of which isolated 24, pads relabelled 0, road corridor 29)  labels 131  adjacent label pairs 158: joints 3 (floor-only 10)  joint edges 3 (graded_strip|junction 3)  in strip 0  contours 4 (47 m, dangling faces 5)  welded: route 11 strip 0  fallback links 0  0.59 s (graph 0.1 s over 261 nodes, labels 0.4 s)
+[CYXY] joints (07g): 441 rows dropped across the label boundary — apron 13, junction_mesh 7, no_step 348, taxi 2, transverse 62, zones 9; reach bands withdrawn 414; flats straddling 0
+[CYXY] constraints 1.46 s  {'pins': 6, 'diffs': 45504, 'flats': 10, 'bands': 1746, 'offsets': 0, 'linears': 10193}
+    runway_profile                    485  0.000 s
+    runway_crown                      491  0.023 s
+    runway_transverse                 483  0.022 s
+    runway_vertical_curve             476  0.000 s
+    runway_within_shape              1594  0.001 s
+    route_links                         0  0.000 s
+    taxi_chain                       1577  0.002 s
+    taxi_centerlines                  264  0.000 s
+    triangle_planes                   176  0.024 s
+    taxi_box                         2191  0.107 s
+    taxi_box.pairs                   2191
+    taxi_box.no_axis                    0
+    junction_mesh                    2298  0.398 s
+    junction_mesh.box_pairs           623
+    apron_within_shape               5848  0.091 s
+    apron_within_shape.chords_outside_face     5493
+    apron_within_shape.preference_rows     2924
+    apron_edge_portions                38  0.004 s
+    road_within_shape               12167  0.009 s
+    transverse                        822  0.022 s
+    no_step_pairs                   21453  0.093 s
+    no_step_rate                     3388  0.003 s
+    cross_shape_pairs                  45  0.003 s
+    reach_bands                      2160  0.003 s
+    zone_bands                       1369  0.421 s
+    strip_transverse                  257  0.179 s
+    strip_longitudinal                154  0.004 s
+    strip_arc                         536  0.004 s
+    resa_transverse                    19  0.006 s
+    end_corridor_longitudinal           4  0.012 s
+    raoa                                5  0.006 s
+    pad_flats                          10  0.000 s
+    frontage_near_miss                  4  0.003 s
+    seam_pins                           0  0.000 s
+    flat_datum                          0  0.000 s
+    structures                          0  0.000 s
+    basins                              0  0.000 s
+    seam_pin_pair_exempt                0  0.000 s
+    structure_datum_withdrawn           0  0.000 s
+    joint_filter                      441  0.017 s
+    joint_dropped.apron                13
+    joint_dropped.junction_mesh         7
+    joint_dropped.no_step             348
+    joint_dropped.taxi                  2
+    joint_dropped.transverse           62
+    joint_dropped.zones                 9
+    joint_flats_straddling              0
+    joint_bands_withdrawn             414
+[CYXY] solve 0.55 s  status optimal  LP {'columns': 13189, 'z': 4509, 'rows_ub': 120991, 'rows_eq': 218, 'nnz': 271471, 'escalation': {'apron:216:101': 0.000232, 'apron:216:103': 4.7e-05, 'apron:216:104': 0.000116, 'apron:216:105': 0.000802, 'apron:216:113': 0.000821, 'apron:216:120': 0.000923, 'apron:216:126': 0.001611, 'apron:216:131': 0.005, 'apron:216:152': 7.3e-05, 'apron:219:1': 0.000709, 'apron:236:1': 1e-06, 'apron:236:120': 0.005, 'apron:236:143': 1e-06, 'apron:236:59': 0.002477, 'apron:236:78': 0.005, 'apron:236:98': 0.005, 'apron:236:99': 0.005, 'apron:88:5555': 0.004782, 'apron:88:5565': 0.000198, 'crown:256': 0.102337, 'crown:82': 0.017551}, 'preference_groups': 3436}  Optimization terminated successfully. (HiGHS Status 7: Optimal); rows 120991+218; preferences yielded 21/3436: crown:256 0.1023, crown:82 0.0176, apron:216:131 0.0050, apron:236:99 0.0050, apron:236:98 0.0050, apron:236:78 0.0050, apron:236:120 0.0050, apron:88:5555 0.0048, ...
+[CYXY] law tiers: hard set feasible, no surface yielded
+[CYXY] off-DEM > 0.5 m by role: runway 49/958 (max 1.10), primary_parallel 28/338 (max 1.08), stub 3/109 (max 0.60), junction 29/265 (max 4.55), cross_connector 7/314 (max 4.62), apron 36/353 (max 4.92), service_road 45/322 (max 2.24), groundside_pavement 3/66 (max 1.40), parking_lot 40/308 (max 2.79), graded_strip 136/1325 (max 5.34), building 30/84 (max 4.76)
+[CYXY] roads vs core profile: 460 vertices, mean |z-profile| 0.168 m, max 2.503 m, 145 off beyond materiality in 33 of 54 faces
+    residual: pin 0.0000 diff 0.0000 flat 0.0000 band 0.0000 offset 0.0000 m  objective 5877.33
+[CYXY] joint steps (07g): 4 contours, max step 0.39 m (contour 2, 9 m, graded_strip/junction); by roles graded_strip|junction 3 edges max 0.39
+[CYXY] apron preference (06w): 15/2945 rows over 0.01, max grade 0.0150 — faces #216 7/148 (max 0.0150), #236 5/222 (max 0.0150), #88 2/1772 (max 0.0148), #219 1/3 (max 0.0107)
+[CYXY] emit 0.33 s  ways 297  nodes 4509  patch 897847 B  sidecar 4689011 B
+[CYXY] rebake plan 0.02 s  units 0  members 0  deck members 0 (signature 0 in 0 deck families)  parts 0  contacts 0  pools 0  structures 0  skipped 80 (stock 498, multi-anchor 0, outside pack 0, msl 0, terrain-adapted 0, below grade 0)  -> /private/var/folders/p4/rkk6fmls1z7f2js4bstdqnnm0000gn/T/pytest-of-noah/pytest-893/test_cyxy_verify_matches_v1_ce0/CYXY.rebake.json
+[CYXY] verify 0.99 s  rows 1  airside_no_step 1
+[CYXY] verify: apron_over_preference 2/2604 (max grade 0.0131; generator-side 15/2945)
+[CYXY] total 8.61 s  -> /private/var/folders/p4/rkk6fmls1z7f2js4bstdqnnm0000gn/T/pytest-of-noah/pytest-893/test_cyxy_verify_matches_v1_ce0
+  [transverse-bind] priced 821 / bound 0 / unbound 821 / broken_by_emit 0  — this patch carries NO bound spans (built before the law, or O4_TRANSVERSE_HYPER=0)
+=============================== warnings summary ===============================
+tests/auto_patch_v2/test_classify_lots.py: 2 warnings
+tests/auto_patch_v2/test_m5.py: 1 warning
+tests/auto_patch_v2/test_round3.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace3.py: 7 warnings
+tests/test_harness.py: 3 warnings
+  /Users/noah/XPTerrainBuilder/Ortho4XP/venv/lib/python3.14/site-packages/shapely/constructive.py:1353: RuntimeWarning: divide by zero encountered in oriented_envelope
+    return lib.oriented_envelope(geometry, **kwargs)
+
+tests/auto_patch_v2/test_classify_lots.py: 2 warnings
+tests/auto_patch_v2/test_m5.py: 1 warning
+tests/auto_patch_v2/test_round3.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace.py: 3 warnings
+tests/auto_patch_v2/test_v2terrace3.py: 7 warnings
+tests/test_harness.py: 3 warnings
+  /Users/noah/XPTerrainBuilder/Ortho4XP/venv/lib/python3.14/site-packages/shapely/constructive.py:1353: RuntimeWarning: invalid value encountered in oriented_envelope
+    return lib.oriented_envelope(geometry, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/auto_patch_v2/test_pad_flat.py:99: the fixture did not relax on this tree (mode tiered)
+FAILED tests/auto_patch_v2/test_constraints.py::test_cyxy_verify_matches_v1_census
+1 failed, 708 passed, 1 skipped, 38 warnings in 130.11s (0:02:10)

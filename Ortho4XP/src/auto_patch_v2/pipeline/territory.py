@@ -40,7 +40,7 @@ from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row
 from ..model.planar import LabelJoint, PlanarMap
 from ..planar.terraces import strip_keepout
 from ..planar.territories import (NO_LABEL, Territories, fallback_links, joint_planar_edges,
-                                  label_joints, label_territories, row_vertices)
+                                  label_joints, label_territories, row_test_pairs, row_vertices)
 
 __all__ = ["TerritoryStage", "territory_stage", "territory_constraints", "apply_joints",
            "joint_steps"]
@@ -193,7 +193,9 @@ def apply_joints(cs: ConstraintSet, stage: TerritoryStage) -> ConstraintSet:
                 and r.v not in terr.contacts and terr.label.get(r.v, NO_LABEL) != NO_LABEL:
             withdrawn += 1          # withdrawn (module docstring)
             continue
-        if len(ids) >= 2 and terr.straddles(ids):
+        pairs = row_test_pairs(r)       # a chain row by its segments (territories.py)
+        if (terr.straddles_pairs(pairs) if pairs is not None
+                else len(ids) >= 2 and terr.straddles(ids)):
             dropped[r.source.generator] = dropped.get(r.source.generator, 0) + 1
             continue
         out.append(r)

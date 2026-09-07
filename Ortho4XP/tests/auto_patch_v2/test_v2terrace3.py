@@ -371,6 +371,27 @@ def test_a_vertex_seeing_no_graph_node_takes_its_nearest_connected_node(law):
     assert node != near
 
 
+# ── 8. a chain row is read by its segments, never by its ends ───────────
+
+def test_a_rate_triple_is_dropped_only_when_a_segment_straddles(law):
+    """CYXY 2026-09-07: labels agree pairwise, not transitively — a §1.2
+    rate row whose ends disagreed while both segments agreed was dropped,
+    no contour crossed either segment, and the census priced the rate."""
+    from auto_patch_v2.model.constraints import Source
+    src = Source("no_step", "airside_no_step §1.2 rate")
+    rate = Linear(((3, 1.0 / 12.5), (2, -(1.0 / 12.5 + 1.0 / 36.5)), (1, 1.0 / 36.5)), -1.0, 1.0, src)
+    assert T.row_test_pairs(rate) == [(3, 2), (2, 1)]
+    interp = Linear(((5, 1.0), (1, -0.4), (3, -0.6)), -1.0, 1.0, src)       # two negatives: not a chain
+    assert T.row_test_pairs(interp) is None
+    assert T.row_test_pairs(Diff(1, 3, 0.015, 1.0, src)) is None
+    # non-transitive labels: ends 1 and 3 disagree, both segments agree
+    terr = T.Territories({1: 10, 2: 20, 3: 30}, {}, frozenset({10, 20, 30}), T.TerritoryStats(),
+                         verdict={(10, 20): False, (20, 30): False, (10, 30): True})
+    assert terr.straddles((1, 2, 3))
+    assert not terr.straddles_pairs(T.row_test_pairs(rate))
+    assert terr.straddles_pairs([(1, 3)])
+
+
 def test_the_law_table_carries_the_territory_keys(law):
     tt = law.tables.emit.terrace
     assert tt.min_step_m >= 0.0 and tt.simplify_factor > 0.0

@@ -11,7 +11,7 @@ from auto_patch_v2.planar.territories import row_vertices, NO_LABEL
 cap = pickle.load(open(f"{SP}/HECA_t3_capture.pkl", "rb")); airport, cl, pm = cap["airport"], cap["cl"], cap["pm"]
 law = Law.for_airport("HECA"); w = weights_under_law(DEFAULT_WEIGHTS, law)
 stage = territory_stage(pm, law, airport, cl, out=print); pm = stage.pm; terr = stage.terr
-pickle.dump(stage, open(f"{SP}/HECA_t3_stage.pkl", "wb"))
+pickle.dump(stage, open(f"{SP}/HECA_t3_stage_i2.pkl", "wb"))
 cs, counts, walls = territory_constraints(pm, law, airport, stage)
 print("dropped", stage.dropped, flush=True)
 t = time.perf_counter(); sol = solve_hard(pm, cs, w, Options(diagnose_iis=True))

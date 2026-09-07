@@ -99,7 +99,7 @@ from ..model.planar import LabelJoint, PlanarMap
 from .terraces import STATION_KIND
 
 __all__ = ["Territories", "TerritoryStats", "reached_stations", "label_territories",
-           "joint_planar_edges", "label_joints", "fallback_links", "row_vertices"]
+           "joint_planar_edges", "label_joints", "fallback_links", "row_vertices", "row_test_pairs"]
 
 Band = tuple[float, float]
 #: The slice kind of a service-road cell built OUTSIDE pavement
@@ -197,6 +197,11 @@ class Territories:
         """Two labels ruled one terrace whatever the predicate says."""
         if la != lb and la != NO_LABEL and lb != NO_LABEL:
             self.verdict[(la, lb) if la < lb else (lb, la)] = False
+
+    def straddles_pairs(self, pairs: _t.Iterable[tuple[int, int]]) -> bool:
+        """Whether any of the vertex ``pairs`` carries disagreeing labels."""
+        return any(self.joint(self.label.get(a, NO_LABEL), self.label.get(b, NO_LABEL))
+                   for a, b in pairs)
 
     def straddles(self, ids: _t.Iterable[int]) -> bool:
         """Whether any two of ``ids`` carry disagreeing labels."""
@@ -631,6 +636,30 @@ def row_vertices(row) -> tuple[int, ...]:
     if hasattr(row, "a"):
         return (row.a, row.b)
     return (row.v,)
+
+
+def row_test_pairs(row) -> list[tuple[int, int]] | None:
+    """The vertex pairs the census READS a row by (``None``: every pair of
+    its vertices).  A second-difference CHAIN row — three terms, one
+    negative coefficient equal to the sum of the other two: the §1.2 rate,
+    the strip arc rate — is read by its two consecutive segments, never by
+    its ends: labels agree pairwise and not transitively, so a triple
+    whose ENDS disagree while both segments agree crosses no declared
+    contour, and dropping it leaves the surface free where the census
+    still prices the rate (CYXY 2026-09-07: junction #126 ring
+    2658-2659-2660, 348 no_step rows dropped, one 3.0 % rate read)."""
+    terms = getattr(row, "terms", None)
+    if terms is None or len(terms) != 3:
+        return None
+    neg = [i for i, (_v, c) in enumerate(terms) if c < 0.0]
+    if len(neg) != 1:
+        return None
+    pos = [i for i in range(3) if i != neg[0]]
+    scale = max(abs(c) for _v, c in terms)
+    if abs(terms[neg[0]][1] + terms[pos[0]][1] + terms[pos[1]][1]) > 1e-9 * scale:
+        return None
+    b = terms[neg[0]][0]
+    return [(terms[pos[0]][0], b), (b, terms[pos[1]][0])]
 
 
 def joint_planar_edges(pm: PlanarMap, terr: Territories, keepout=None

@@ -18,8 +18,9 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import apron, generate, stretches as S, taxi
 from auto_patch_v2.constraints.precedence import view
-from auto_patch_v2.constraints.routes import routes
+from auto_patch_v2.constraints.routes import LATERAL, routes
 from auto_patch_v2.constraints.transverse import axes
+from auto_patch_v2.model.constraints import Linear
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import write_patch
 from auto_patch_v2.law import Law
@@ -194,7 +195,16 @@ def test_a_junction_across_a_letter_change_prices_per_stretch_region(site, law):
     # lateral hop of the chain (05ac: a ring vertex to its station); the
     # all-pairs superset is gone, and so are the common-stretch pair rows
     from auto_patch_v2.constraints import junction_mesh as JM
-    hops = {(min(r.a, r.b), max(r.a, r.b)) for r in taxi.taxi_chain(pm, law, airport)}
+    # a hop is a Diff to a station or a three-term Linear to a virtual
+    # foot (06p (2)); either way the pair the row prices is the vertex
+    # against the pair of ring vertices it is charged at
+    hops = set()
+    for r in taxi.taxi_chain(pm, law, airport):
+        if isinstance(r, Linear):
+            v = r.terms[0][0]
+            hops |= {(min(v, u), max(v, u)) for u, _c in r.terms[1:]}
+        else:
+            hops.add((min(r.a, r.b), max(r.a, r.b)))
     for f in faces:
         mesh = JM.face_mesh_edges(vw, f.id)
         on = {v: set(st.on.get(v, ())) for v in vw.rings[f.id]}
@@ -259,7 +269,10 @@ def test_two_stretches_of_one_letter_read_as_one_plane(site, law):
         hops = [r for r in chain if r.source.inputs[0] == f"face:{fid}"]
         edges = [r for r in centre if r.a in ring and r.b in ring]
         assert hops and edges
-        assert {round(r.cap, 12) for r in hops + edges} == {round(cap_d, 12)}
+        g = routes(pm, law, airport)
+        assert {round(float(c), 12) for c, k, f_ in zip(g.cap, g.kind, g.face)
+                if k == LATERAL and int(f_) == fid} == {round(cap_d, 12)}
+        assert {round(r.cap, 12) for r in edges} == {round(cap_d, 12)}
 
 
 # ── (2) cap by edge portion vs the mouth ─────────────────────────────────

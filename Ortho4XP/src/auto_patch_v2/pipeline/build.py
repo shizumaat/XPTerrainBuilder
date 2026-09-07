@@ -239,6 +239,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}", out)
+    tj = pstats.terraces
+    if tj.cells:
+        # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n; ``planar/terraces.py``)
+        _say(f"[{icao}] terraces: {tj.cells} apron-like cells in {tj.groups} groups "
+             f"({tj.islands} islands)  joints {tj.joints} ({tj.joint_length_m:,.0f} m, "
+             f"{tj.split_vertices} split vertices, {tj.faces_retreated} faces retreated)  "
+             f"refused: strip {tj.refused_strip} breakline {tj.refused_breakline} "
+             f"spacing {tj.refused_spacing} invalid {tj.refused_invalid} pinch {tj.refused_pinch} "
+             f"map {tj.refused_map}", out)
     ss = pstats.structures
     ts = pstats.tunnel_objects
     if ss.bores or ss.object_corridors or ts.refused:

@@ -89,7 +89,14 @@ def site(law):
     )
     cuts = (CutLine("taxi_centerline", "stubS", ((0.0, 0.0), (0.0, 91.5)), "D"),
             CutLine("taxi_centerline", "taxiA", ((-400.0, 91.5), (400.0, 91.5)), "D"),
-            CutLine("taxi_centerline", "taxiG", ((0.0, 91.5), (0.0, 320.0)), "A"))
+            CutLine("taxi_centerline", "taxiG", ((0.0, 91.5), (0.0, 320.0)), "A"),
+            # RULINGS 2026-09-06n: a junction takes the apron's cap along a
+            # shared edge only where the two are ONE terrace — a taxilane
+            # ALONG each junction's shared edge (stations on the boundary:
+            # the route passes between them) joins them; without it the
+            # edge is a terrace joint (test_v2terrace)
+            CutLine("taxi_centerline", "laneL", ((150.0, 150.0), (300.0, 150.0)), "D"),
+            CutLine("taxi_centerline", "laneM", ((340.0, 150.0), (360.0, 150.0)), "D"))
     pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
     return airport, pm
 

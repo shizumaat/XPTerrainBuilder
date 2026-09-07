@@ -82,7 +82,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Classification
 from ..law import Law
-from ..law.tables import is_rigid_role, zone2_half_width_m
+from ..law.tables import is_rigid_role, is_structure_role, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model.planar import (Breakline, EdgeKind, Face, PlanarError, PlanarMap,
@@ -93,6 +93,8 @@ __all__ = ["TerraceStats", "split_terraces", "strip_keepout", "terrace_groups"]
 
 #: Which breakline kind is the 1202 network (the route graph's stations).
 STATION_KIND = "taxi_centerline"
+#: The adjacent-ground zone faces (``planar/zones.py``): corridor cover.
+ZONE_ROLE = "graded_strip"
 #: Retry bound of the validity pass (owner 2026-08-02 attempt cap), never a law value.
 MAX_PASSES = 2
 
@@ -108,8 +110,8 @@ class TerraceStats:
     joint_length_m: float = 0.0
     split_vertices: int = 0        # copies made
     faces_retreated: int = 0
-    refused_strip: int = 0         # joint EDGES inside a runway strip (kept welded)
-    refused_breakline: int = 0     # joint vertices on a breakline / seam (kept shared)
+    refused_strip: int = 0         # joint edges inside a runway strip (kept welded)
+    refused_breakline: int = 0     # joint vertices on a breakline / seam / structure rim (kept shared)
     refused_spacing: int = 0       # copies inside the identity spacing of another vertex
     refused_invalid: int = 0       # copies withdrawn for an invalid retreated ring
     refused_pinch: int = 0         # a group meeting a joint vertex in two wedges
@@ -261,13 +263,41 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
                                             for v in pm.ring_vertices(cyc)):
             stats.islands += 1
     rank = {g: k for k, g in enumerate(sorted(area, key=lambda g: (-area[g], g)))}
-    # ── the joints: shared edges between two groups, an apron on one side ─
+    # ── the joints: shared edges between two groups, an apron on one side;
+    #    and an apron cell's edges against a ZONE FACE owned by another
+    #    group (the corridor cover of a taxiway the cell is not joined to —
+    #    the zone reads its band from ITS corridor's pavement only,
+    #    ``constraints.zones._pavement_edges``, so the cell retreats from it
+    #    exactly as from that pavement; measured HECA 2026-09-06: with the
+    #    zone vertices left shared, taxi-E zone #362 between junction #40
+    #    and island #363 carried a 6.37 m tear over 3.4 m — 11
+    #    ``strip_seam_tear`` rows in both readers)
+    zone_owner: dict[int, int] = {}
+    for e in pm.edges.values():
+        a, b = e.left_face, e.right_face
+        if a is None or b is None:
+            continue
+        for z_, f_ in ((a, b), (b, a)):
+            if pm.faces[z_].role == ZONE_ROLE and f_ in group:
+                cur = zone_owner.get(z_)
+                if cur is None or rank[group[f_]] < rank[cur]:
+                    zone_owner[z_] = group[f_]
     joint_edges: dict[tuple[int, int], list[tuple[int, int]]] = {}
     for e in pm.edges.values():
         a, b = e.left_face, e.right_face
-        if a is None or b is None or a not in soft or b not in soft or group[a] == group[b]:
+        if a is None or b is None:
             continue
-        if pm.faces[a].role not in cell_roles and pm.faces[b].role not in cell_roles:
+        ra, rb = pm.faces[a].role, pm.faces[b].role
+        if a in soft and b in soft:
+            if group[a] == group[b] or (ra not in cell_roles and rb not in cell_roles):
+                continue
+        elif ra == ZONE_ROLE and b in soft and rb in cell_roles:
+            if zone_owner.get(a) in (None, group[b]):
+                continue
+        elif rb == ZONE_ROLE and a in soft and ra in cell_roles:
+            if zone_owner.get(b) in (None, group[a]):
+                continue
+        else:
             continue
         joint_edges.setdefault((min(a, b), max(a, b)), []).append((e.a, e.b))
     if not joint_edges:
@@ -293,6 +323,11 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
             return pm, stats
     for b in pm.breaklines.values():
         blocked.update(b.vertices(pm))
+    # a structure's rim / floor vertex is level with the ground it touches
+    # (09-03b): never split from it
+    for v, vert in pm.vertices.items():
+        if any(is_structure_role(law, pm.faces[f].role) for f in vert.incident_faces):
+            blocked.add(v)
     joint_vertices: set[int] = set()
     for es in joint_edges.values():
         for a, b in es:
@@ -334,9 +369,13 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
         if v in blocked:
             stats.refused_breakline += 1
             continue
-        present = sorted({group[f] for f in pm.vertices[v].incident_faces if f in group},
-                         key=lambda g: rank[g])
-        for g in present[1:]:
+        fs = pm.vertices[v].incident_faces
+        present = sorted({group[f] for f in fs if f in group}, key=lambda g: rank[g])
+        owners = {zone_owner.get(f) for f in fs if pm.faces[f].role == ZONE_ROLE} - {None}
+        need = list(present[1:])
+        if present and any(o != present[0] for o in owners):
+            need.insert(0, present[0])             # a zone's corridor outranks it here
+        for g in need:
             n = boundary_normal(v, g)
             if n is None:
                 stats.refused_pinch += 1

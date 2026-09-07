@@ -270,3 +270,22 @@ def test_the_law_table_carries_the_terrace_keys(law):
     assert tt.cell_roles == ("apron",) and "junction" in tt.neighbour_roles
     assert tt.joint_gap_m > law.tables.emit.identity.min_distinct_spacing_m
     assert tt.max_step_m > 0.0
+
+
+# ── the chain KML (why --kml): the owner's reading surface ───────────────
+
+def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
+    from test_why import prepared as _prepared, law as _law, _apron_face  # noqa: F401
+    import test_why
+    law_ = test_why.law.__wrapped__()
+    prep = test_why.prepared.__wrapped__(law_)
+    fid = _apron_face(prep)
+    from auto_patch_v2.pipeline.why import chain_kml
+    out = tmp_path / "chain.kml"
+    tr = chain_kml(prep, fid, str(out))
+    text = out.read_text()
+    assert tr is not None and tr.steps
+    assert text.count("<LineString>") == len(tr.steps)
+    assert "TERMINAL" in text and "START" in text
+    for s in tr.steps:
+        assert f"{s.family}" in text

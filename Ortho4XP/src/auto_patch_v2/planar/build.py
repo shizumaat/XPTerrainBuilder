@@ -33,6 +33,7 @@ from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
 from .edges import EdgeTable
 from .overlay import Arrangement, build_arrangement
 from .terraces import TerraceStats, split_terraces
+from .territories import TerritoryStats
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
@@ -70,6 +71,9 @@ class BuildStats:
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
     terraces: TerraceStats = _dc.field(default_factory=TerraceStats)
+    #: THE REACH TERRITORIES (RULINGS 2026-09-07c; ``planar/territories.py``):
+    #: filled by the pipeline after the route graph exists.
+    territories: TerritoryStats = _dc.field(default_factory=TerritoryStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,

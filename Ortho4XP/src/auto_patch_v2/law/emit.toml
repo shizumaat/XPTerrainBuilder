@@ -185,4 +185,18 @@ tier_ladder_last          = true          # the tier ladder (04i) answers only w
 cell_roles      = ["apron"]             # the roles a terrace joint is declared FOR (at least one side)
 neighbour_roles = ["apron", "junction"]  # the apron-like roles a cell may be terraced AGAINST (junction: the 05w hangar apron classified as a junction — HECA pav132 #40 against #363)
 joint_gap_m     = 0.6    # the retreating side's ring steps this far into its own cell along the joint; the mesh makes the wall in the band (v1 STACKED_WALL_RETREAT_M: must exceed identity.min_distinct_spacing_m or the copy re-interns into the vertex it retreats from)
+# THE REACH TERRITORIES INSIDE A CELL (RULINGS 2026-09-07c, spec
+# ``apron-reach-territory-spec.md``; ``planar/territories.py``): an apron
+# point's route is a visible path INSIDE its cell to a contact (a reached
+# taxi-centreline station on the cell's boundary), then centrelines only.
+# The cell is partitioned by NEAREST contact along the in-shape path; two
+# adjacent territories whose contacts' route CEILINGS differ by more than
+# the cell's max cap can hold along the in-shape path between the contacts
+# (+ min_step_m) are separate terraces — the cell is CUT along the in-shape
+# path between the two ring vertices where the label changes and the 06n
+# split declares the joint.  HECA #364 (07a): contacts 81.9 / 125.2 m,
+# 472 m apart in-shape, hold 7.6 m — a joint; every other HECA cell agrees.
+min_step_m      = 0.5    # the joint predicate's materiality (= materiality.step_m): a ceiling disagreement the cap cannot hold by less than this is no terrace
+continue_roles  = ["service_road", "service_junction"]  # the non-cell roles the joint CONTINUES through (07c(3)): a face of one of these touching both terraces of a cut cell is cut by the same construction and ramps at its own cap on each side; pads are rigid (one territory), taxi faces carry routes (never cut), strips/zones are keep-outs
+simplify_factor = 10     # the visibility graph is built on the cycle vertices thinned to simplify_factor x identity.min_distinct_spacing_m apart (contacts and corners kept); a dropped vertex takes its nearest kept neighbour's label along the cycle
 max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjustable): the declared step one joint carries in v1's law — REPORT ONLY here (a joint whose emitted step exceeds it is counted in the planar report); the joint itself has no grade law (06n: "a lawful step")

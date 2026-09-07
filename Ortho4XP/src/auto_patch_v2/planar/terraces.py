@@ -85,11 +85,11 @@ from ..law import Law
 from ..law.tables import is_rigid_role, is_structure_role, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY, Key
-from ..model.planar import (Breakline, EdgeKind, Face, PlanarError, PlanarMap,
+from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarError, PlanarMap,
                             TerraceJoint, Vertex, validate)
 from .edges import EdgeTable
 
-__all__ = ["TerraceStats", "split_terraces", "strip_keepout", "terrace_groups"]
+__all__ = ["TerraceStats", "reassemble", "split_terraces", "strip_keepout", "terrace_groups"]
 
 #: Which breakline kind is the 1202 network (the route graph's stations).
 STATION_KIND = "taxi_centerline"
@@ -157,10 +157,26 @@ def strip_keepout(classification: Classification, law: Law):
     return unary_union(polys) if polys else None
 
 
-def terrace_groups(pm: PlanarMap, law: Law) -> tuple[dict[int, int], set[int], set[int]]:
+def terrace_groups(pm: PlanarMap, law: Law, cut_faces: _t.Container[int] = frozenset(),
+                   reached: _t.Container[int] | None = None,
+                   sides: _t.Mapping[int, int] | None = None
+                   ) -> tuple[dict[int, int], set[int], set[int]]:
     """``(group of face, apron-like faces, station vertices)`` — the
     connected components of "joined by a taxi route" (module docstring);
-    pads assigned to the cell they share most vertices with."""
+    pads assigned to the cell they share most vertices with, and so is
+    every non-cell piece of a territory cut (``cut_faces``, RULINGS
+    2026-09-07c(3): a road piece belongs to the terrace it fronts).  On a
+    boundary touching a cut piece only a REACHED station joins
+    (``reached``: the route graph's banded vertices) — a dead-end lane
+    carries no route to the runways and joins nothing there (measured
+    HECA 2026-09-07: the hangar lead-ins taxi202/205/206 on #364's south
+    boundary re-welded the north and south pieces through junction #389).
+    Two faces on different SIDES of a territory seam (``sides``, the
+    face's terrace side) are never joined: where the route crosses the
+    seam its station stays a shared vertex (the split's breakline block)
+    and couples the two terraces THERE only — 06n(4), "a taxi route
+    through an apron couples only the apron vertices along that route,
+    never the whole cell to another route"."""
     tt = law.tables.emit.terrace
     roles = set(tt.cell_roles) | set(tt.neighbour_roles)
     soft = {fid for fid, f in pm.faces.items() if f.role in roles}
@@ -180,14 +196,19 @@ def terrace_groups(pm: PlanarMap, law: Law) -> tuple[dict[int, int], set[int], s
         a, b = e.left_face, e.right_face
         if a is None or b is None or a not in soft or b not in soft:
             continue
-        if e.a in station or e.b in station:
+        joins = station if (reached is None or (a not in cut_faces and b not in cut_faces)) \
+            else {v for v in (e.a, e.b) if v in station and v in reached}
+        if sides is not None and sides.get(a) is not None and sides.get(b) is not None \
+                and sides[a] != sides[b]:
+            continue
+        if e.a in joins or e.b in joins:
             ra, rb = find(a), find(b)
             if ra != rb:
                 parent[max(ra, rb)] = min(ra, rb)
     group = {fid: find(fid) for fid in soft}
-    # pads: the group of the cell they share most vertices with
+    # pads (and cut road pieces): the group of the cell they share most vertices with
     for fid, f in pm.faces.items():
-        if fid in soft or not is_rigid_role(law, f.role):
+        if fid in soft or not (is_rigid_role(law, f.role) or fid in cut_faces):
             continue
         count: dict[int, int] = {}
         for cyc in (f.ring, *f.holes):
@@ -239,13 +260,89 @@ def _chains(edges: list[tuple[int, int]]) -> list[list[int]]:
     return out
 
 
+def reassemble(pm: PlanarMap, airport: Airport, cycles: dict[int, list[list[int]]],
+               protos: dict[int, Face], new_xy: dict[int, XY],
+               origin: dict[int, int] | None = None
+               ) -> tuple[dict[int, Vertex], dict[int, Edge], dict[int, Face], dict[int, Breakline]]:
+    """THE MAP RE-ASSEMBLED from vertex cycles (shared by the joint split
+    and the territory cut, ``planar/territories.py`` — stated once):
+    ``cycles[fid]`` is every face's ring and holes as vertex ids (a face
+    absent keeps its old cycles); ``protos`` the ``Face`` record of a NEW
+    face id (role / ref / code / side; ring and holes ignored); ``new_xy``
+    the plan position of every vertex id not in ``pm`` (its identity key
+    and DEM sample are made here; ``origin[vid]`` names the vertex whose
+    DEM a copy falls back to where its own sample is void).  Breakline edges are never
+    substituted: a breakline vertex stays; an edge a breakline lost is a
+    ``PlanarError``."""
+    allxy: dict[int, XY] = {vid: v.xy for vid, v in pm.vertices.items()}
+    allxy.update(new_xy)
+    table = EdgeTable()
+    for vid in allxy:
+        table.incident.setdefault(vid, set())
+    faces: dict[int, Face] = {}
+    for fid in sorted(set(pm.faces) | set(protos)):
+        f = pm.faces.get(fid) or protos[fid]
+        cycs = cycles.get(fid)
+        if cycs is None:
+            cycs = _face_cycles(pm, fid)
+        if not cycs:
+            continue
+        ring = table.walk(cycs[0], fid)
+        holes = tuple(table.walk(h, fid) for h in cycs[1:])
+        faces[fid] = _dc.replace(f, id=fid, ring=ring, holes=holes)
+    breaklines: dict[int, Breakline] = {}
+    kinds: dict[int, EdgeKind] = {}
+    old_kind = {(min(e.a, e.b), max(e.a, e.b)): e.kind for e in pm.edges.values()}
+    for bid, b in pm.breaklines.items():
+        eids = []
+        for old in b.edges:
+            u, w = pm.edges[old].a, pm.edges[old].b
+            eid = table.edge_id(u, w)         # never substituted: breakline vertices stay
+            if eid is None:
+                raise PlanarError(f"terraces: breakline {bid} lost edge {u}-{w}")
+            eids.append(eid)
+            kinds[eid] = old_kind.get((min(u, w), max(u, w)), EdgeKind.BREAKLINE)
+        breaklines[bid] = _dc.replace(b, edges=tuple(eids))
+    edges: dict[int, Edge] = {}
+    for e in table.edges:
+        k = kinds.get(e.id)
+        if k is None:
+            roles = {faces[f].role for f in (e.left_face, e.right_face) if f is not None}
+            k = EdgeKind.ZONE if roles and roles <= {ZONE_ROLE} else EdgeKind.BOUNDARY
+        edges[e.id] = _dc.replace(e, kind=k)
+    # the new vertices' identity and DEM
+    _to_xy, to_ll = airport.frame.transformers()
+    dp = airport.frame.identity_dp
+    dem = airport.dem
+    vertices: dict[int, Vertex] = {}
+    for vid, v in pm.vertices.items():
+        vertices[vid] = _dc.replace(v, incident_faces=tuple(sorted(table.incident.get(vid, ()))))
+    for vid, (x, y) in new_xy.items():
+        la, lo = to_ll(x, y)
+        key: Key = (round(float(la), dp), round(float(lo), dp))
+        z = float(dem.z(x, y))
+        if math.isnan(z) and origin is not None and vid in origin:
+            oz = pm.vertices[origin[vid]].dem_z
+            z = float("nan") if oz is None else oz
+        vertices[vid] = Vertex(vid, (x, y), key, None if math.isnan(z) else z,
+                               tuple(sorted(table.incident.get(vid, ()))))
+    return vertices, edges, faces, breaklines
+
+
 def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
-                   classification: Classification) -> tuple[PlanarMap, TerraceStats]:
+                   classification: Classification,
+                   cut_faces: _t.Container[int] = frozenset(),
+                   reached: _t.Container[int] | None = None,
+                   sides: _t.Mapping[int, int] | None = None) -> tuple[PlanarMap, TerraceStats]:
     """``pm`` with the terrace joints split (module docstring), validated;
-    the unchanged map when there is nothing to split."""
+    the unchanged map when there is nothing to split.  ``cut_faces`` are
+    the pieces of a territory cut (``planar/territories.py``): a boundary
+    between two groups with a piece on either side is a joint whatever
+    the roles (a junction's or a road's own cut), and a rigid pad
+    straddling a cut keeps its terrace while the other piece retreats."""
     stats = TerraceStats()
     tt = law.tables.emit.terrace
-    group, soft, station = terrace_groups(pm, law)
+    group, soft, station = terrace_groups(pm, law, cut_faces, reached, sides)
     stats.cells = len(soft)
     if not soft:
         return pm, stats
@@ -278,7 +375,7 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
         if a is None or b is None:
             continue
         for z_, f_ in ((a, b), (b, a)):
-            if pm.faces[z_].role == ZONE_ROLE and f_ in group:
+            if pm.faces[z_].role == ZONE_ROLE and f_ in soft:
                 cur = zone_owner.get(z_)
                 if cur is None or rank[group[f_]] < rank[cur]:
                     zone_owner[z_] = group[f_]
@@ -288,7 +385,12 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
         if a is None or b is None:
             continue
         ra, rb = pm.faces[a].role, pm.faces[b].role
-        if a in soft and b in soft:
+        if (a in cut_faces or b in cut_faces) and a in group and b in group:
+            # a territory cut (07c): the pieces' own boundary, and a rigid
+            # pad or a road piece against a piece of the other terrace
+            if group[a] == group[b]:
+                continue
+        elif a in soft and b in soft:
             if group[a] == group[b] or (ra not in cell_roles and rb not in cell_roles):
                 continue
         elif ra == ZONE_ROLE and b in soft and rb in cell_roles:
@@ -439,53 +541,12 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
     if not copies:
         return pm, stats
     # ── re-assemble the map ────────────────────────────────────────────
-    table = EdgeTable()
-    for vid in allxy:
-        table.incident.setdefault(vid, set())
-    faces: dict[int, Face] = {}
-    for fid, f in pm.faces.items():
-        cycs = subs[fid]
-        ring = table.walk(cycs[0], fid)
-        holes = tuple(table.walk(h, fid) for h in cycs[1:])
-        faces[fid] = _dc.replace(f, ring=ring, holes=holes)
-        if cycs != cycles[fid]:
+    vertices, edges, faces, breaklines = reassemble(
+        pm, airport, subs, {}, {vid: copies[k] for k, vid in new_id.items()},
+        {vid: k[0] for k, vid in new_id.items()})
+    for fid in subs:
+        if subs[fid] != cycles[fid]:
             stats.faces_retreated += 1
-    breaklines: dict[int, Breakline] = {}
-    kinds: dict[int, EdgeKind] = {}
-    old_kind = {(min(e.a, e.b), max(e.a, e.b)): e.kind for e in pm.edges.values()}
-    for bid, b in pm.breaklines.items():
-        eids = []
-        for old in b.edges:
-            u, w = pm.edges[old].a, pm.edges[old].b
-            eid = table.edge_id(u, w)         # never substituted: breakline vertices stay
-            if eid is None:
-                raise PlanarError(f"terraces: breakline {bid} lost edge {u}-{w}")
-            eids.append(eid)
-            kinds[eid] = old_kind.get((min(u, w), max(u, w)), EdgeKind.BREAKLINE)
-        breaklines[bid] = _dc.replace(b, edges=tuple(eids))
-    edges = {}
-    for e in table.edges:
-        k = kinds.get(e.id)
-        if k is None:
-            roles = {faces[f].role for f in (e.left_face, e.right_face) if f is not None}
-            k = EdgeKind.ZONE if roles and roles <= {"graded_strip"} else EdgeKind.BOUNDARY
-        edges[e.id] = _dc.replace(e, kind=k)
-    # the copies' identity and DEM
-    _to_xy, to_ll = airport.frame.transformers()
-    dp = airport.frame.identity_dp
-    dem = airport.dem
-    vertices: dict[int, Vertex] = {}
-    for vid, v in pm.vertices.items():
-        vertices[vid] = _dc.replace(v, incident_faces=tuple(sorted(table.incident.get(vid, ()))))
-    for k, vid in new_id.items():
-        x, y = copies[k]
-        la, lo = to_ll(x, y)
-        key: Key = (round(float(la), dp), round(float(lo), dp))
-        z = float(dem.z(x, y))
-        if math.isnan(z):
-            z = pm.vertices[k[0]].dem_z if pm.vertices[k[0]].dem_z is not None else float("nan")
-        vertices[vid] = Vertex(vid, (x, y), key, None if math.isnan(z) else z,
-                               tuple(sorted(table.incident.get(vid, ()))))
     # ── the joint records ──────────────────────────────────────────────
     joints: list[TerraceJoint] = []
     for (a, b), es in sorted(joint_edges.items()):
@@ -504,9 +565,12 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
             stats.joints_by_pair.append([a, b, len(pairs), round(length, 1)])
     stats.joints = len(joints)
     stats.split_vertices = len(new_id)
+    # joints already on the map (a territory cut's earlier pass, RULINGS
+    # 2026-09-07c) stay declared: their vertices are distinct already and
+    # no shared edge would re-find them
     pm2 = PlanarMap(pm.icao, vertices, edges, faces, breaklines, pm.seam_vertices,
-                    pm.structures, pm.basins, dict(pm.preferred_z), tuple(joints),
-                    dict(group))
+                    pm.structures, pm.basins, dict(pm.preferred_z),
+                    tuple(pm.terrace_joints) + tuple(joints), dict(group))
     try:
         validate(pm2)
     except PlanarError:

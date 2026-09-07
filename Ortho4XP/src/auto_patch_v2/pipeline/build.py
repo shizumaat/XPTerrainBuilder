@@ -28,6 +28,8 @@ from ..law.tables import flat_datum_group, flat_datum_weight
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
+from ..planar.territories import terrace_territories
+from ..constraints.no_step import reach_band_values
 from ..solve import Options, Solution, Weights
 from ..solve.tiers import TierReport, solve_law_ordered
 from .publication import face_tags, publication
@@ -248,6 +250,34 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"refused: strip {tj.refused_strip} breakline {tj.refused_breakline} "
              f"spacing {tj.refused_spacing} invalid {tj.refused_invalid} pinch {tj.refused_pinch} "
              f"map {tj.refused_map}", out)
+    # THE REACH TERRITORIES (RULINGS 2026-09-07c; ``planar/territories.py``):
+    # the route graph's bands over the 06n-split map, then every apron-like
+    # cell partitioned by nearest in-shape contact and cut where two
+    # terraces meet inside it; the pieces split and declared by 06n
+    t = time.perf_counter()
+    pm, pstats.territories = terrace_territories(
+        pm, law, airport, cl, reach_band_values(pm, law, airport))
+    wall["territories"] = time.perf_counter() - t
+    tr = pstats.territories
+    pstats.faces, pstats.edges, pstats.vertices = len(pm.faces), len(pm.edges), len(pm.vertices)
+    _say(f"[{icao}] territories {wall['territories']:.2f} s (partition {tr.wall_partition_s:.2f}, "
+         f"cut {tr.wall_cut_s:.2f}): {tr.cells} cells / {tr.contacts} contacts / {tr.territories} territories / {tr.joint_pairs} disagreeing pairs"
+         f"  cuts {tr.cut_cells} cells + {tr.cut_continue} continue faces = {tr.pieces} pieces "
+         f"({tr.cut_length_m:,.0f} m; by role {tr.cut_by_role})  refused: strip {tr.refused_strip} "
+         f"hole {tr.refused_hole} geometry {tr.refused_geometry} map {tr.refused_map}  "
+         f"cut vertices {tr.cut_vertices} (welded after the split {tr.welded_cut_vertices}, on a breakline {tr.welded_breakline})  straddling uncut {tr.straddling_uncut}", out)
+    for sp in tr.seam_pairs:
+        _say(f"[{icao}] territory seam: contacts {sp[0]} ({sp[2]} m) | {sp[1]} ({sp[3]} m), "
+             f"{sp[4]} m beyond what the cap holds in-shape; {tr.joint_pairs} disagreeing pairs in all, "
+             f"{tr.residual_pairs} lesser ones not cut", out)
+    tj2 = tr.terraces_split
+    if tj2.cells:
+        _say(f"[{icao}] terraces (after the territory cut): {tj2.cells} cells in {tj2.groups} groups "
+             f"({tj2.islands} islands)  joints {tj2.joints} ({tj2.joint_length_m:,.0f} m, "
+             f"{tj2.split_vertices} split vertices, {tj2.faces_retreated} faces retreated)  "
+             f"refused: strip {tj2.refused_strip} breakline {tj2.refused_breakline} "
+             f"spacing {tj2.refused_spacing} invalid {tj2.refused_invalid} pinch {tj2.refused_pinch} "
+             f"map {tj2.refused_map}", out)
     ss = pstats.structures
     ts = pstats.tunnel_objects
     if ss.bores or ss.object_corridors or ts.refused:

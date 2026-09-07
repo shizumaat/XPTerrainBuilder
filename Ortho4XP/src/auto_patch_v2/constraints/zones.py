@@ -49,9 +49,9 @@ the runway for every vertex it covers (HECA 05C/23C after 06p: 15
 strip-hole vertices 0.35–1.25 m BELOW the edge within 3 m — cliffs the
 rise-only row let stand as the stub's "own law"); where :func:`zone_bands`
 already states that edge's floor the row carries the rise side alone.
-The pocket rule's nearest-pavement floor (a taxiway lip's "no deeper
-than") applies only where NO runway edge is within its zone-2 half
-width.  ``own_law`` exempts NOTHING from this row: the 06b
+The pocket rule's nearest-pavement floor STAYS beside a runway (06q (2)'s
+second clause measured and not applied: see :func:`zone_bands`).
+``own_law`` exempts NOTHING from this row: the 06b
 population was the strip-only vertices, and HECA's 05C/23C ridges
 (owner sim read 1.0.291, 06o) were 207 vertices over the bound — stub
 170, primary_parallel 35, junction 2 — every one a ring vertex of an
@@ -415,7 +415,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         return []
     vw, edges, member, own_law = ctx.vw, ctx.edges, ctx.member, ctx.own_law
     wall_vertices, pad_rim, _found = ctx.wall_vertices, ctx.pad_rim, ctx.found
-    half_of = ctx.half_of
     rows: list[Row] = []
     pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
     pad_d: dict[int, float] = {}
@@ -435,18 +434,18 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         found = _found(v, classes)
         if not found:
             continue
-        # THE POCKET FLOOR YIELDS TO THE RUNWAY (RULINGS 2026-09-06q (2)):
-        # the nearest-pavement floor of a TAXI edge applies only where NO
-        # runway edge is within its zone-2 half width of the vertex — a
-        # strip vertex within reach of a runway is tied to that edge BOTH
-        # ways (the runway's own floor here, the tie's rise row), and a
-        # taxiway lip's "no deeper than" beside it is the cliff the owner
-        # read (HECA 05C/23C: 15 strip-hole vertices 0.35–1.25 m below the
-        # edge within 3 m, held at the stub's level as "own law").  The
-        # taxi edge's CEILING (mandatory-down from its lip) still binds.
-        runway_in_reach = any(
-            edges[f_[1]][2] == "runway" and f_[3] <= (half_of(edges[f_[1]]) or 0.0)
-            for f_ in found)
+        # THE POCKET FLOOR STAYS BESIDE A RUNWAY (RULINGS 2026-09-06q (2)
+        # second clause, measured and NOT applied — lane v2ridge2): voiding
+        # a taxi edge's nearest-pavement floor wherever a runway edge is
+        # within its zone-2 half width tore HECA's strip 3.1–3.3 m in 3 m
+        # at the runway corridor's OUTER ring (05L/23R zone-2 ring vertex
+        # -9844 at d 74.9, nearest pavement taxiway E's lip 3 m away:
+        # floor 65.15 with the lip, 62.0 with the runway's corridor floor
+        # alone — it fell to its DEM, 12 strip_seam_tear rows, the CYXY
+        # 2026-09-04e class).  The 15 cliffs the clause named were
+        # own-law hole vertices with NO taxi floor: the tie's FALL side
+        # (:func:`strip_transverse`) is what binds them.  Where a taxi
+        # floor and the runway tie truly conflict the strip tier relaxes.
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl = edges[k]
             role = "runway" if fam == "runway" else "junction"
@@ -455,10 +454,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             if rank > 0:
                 hi = None            # a farther pavement: floor only
-            if fam == "taxi" and runway_in_reach:
-                lo = None            # 06q (2): the runway's tie is the floor here
-            if lo is None and hi is None:
-                continue
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
                 continue             # a pad's far rim: no row (the Flat carries the level)
             if t <= 0.0:

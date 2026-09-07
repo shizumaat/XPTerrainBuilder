@@ -182,7 +182,10 @@ def test_strip_bound_is_the_zone_tables_transverse_cap(law):
 def test_strip_tie_rows_bind_strip_vertices_in_the_strip_tier(diagonal, law):
     airport, pm, _ = diagonal
     rows = zones.strip_transverse(pm, law, airport)
-    assert rows and all(isinstance(r, Linear) and r.lo is None and r.hi is not None
+    # TWO-WAY since RULINGS 2026-09-06q (2): ``lo`` is ``-hi`` wherever
+    # ``zone_bands`` does not already state the edge's floor, else ``None``
+    assert rows and all(isinstance(r, Linear) and r.hi is not None
+                        and (r.lo is None or r.lo == pytest.approx(-r.hi))
                         and r.soft is None for r in rows)
     strip = {v for f in pm.faces.values() if f.role == "graded_strip"
              for v in pm.vertices if f.id in pm.vertices[v].incident_faces}

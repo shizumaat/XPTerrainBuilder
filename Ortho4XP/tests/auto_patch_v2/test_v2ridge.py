@@ -367,33 +367,23 @@ def test_a_rim_a_metre_below_the_edge_is_flagged_both_ways_and_infeasible(ridge,
     assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE)
 
 
-def test_the_pocket_floor_yields_only_where_a_runway_edge_is_in_reach(ridge, law):
-    """06q (2): the pocket rule's nearest-pavement FLOOR from a taxi edge
-    binds only a strip vertex with NO runway edge inside the runway's
-    zone-2 half width; a vertex a runway edge reaches carries the
-    runway's floor (or the tie's) instead.  Every taxi floor in the
-    fixture lies beyond the runway zone, and taxi floors DO still exist
-    (the strip beyond the parallel taxiway)."""
+def test_the_pocket_floor_stays_beside_a_runway_and_the_tie_is_two_way(ridge, law):
+    """06q (2), as measured at HECA (zone_bands' note): a strip vertex
+    beside a taxiway keeps the taxiway lip's floor whether or not a
+    runway edge is within reach — voiding it tore HECA's strip 3 m at
+    the runway corridor's outer ring — and every vertex the runway
+    reaches beside the taxiway carries the two-way tie."""
     airport, pm, _ = ridge
     rw = next(f for f in pm.faces.values() if f.role == "runway")
     half = T.zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
     runway = _verts_of_role(pm, "runway")
-    taxi_floors = []
-    for r in zones.zone_bands(pm, law, airport):
-        v = r.terms[0][0]
-        feet = [u for u, _c in r.terms[1:]]
-        if r.lo is not None and not any(u in runway for u in feet):
-            taxi_floors.append(v)
-            x, y = pm.vertices[v].xy
-            d_rw = abs(y) - HALF_WIDTH
-            # beyond the runway zone, or beyond the runway's END (not abeam:
-            # the end corridor's law, never the lateral tie's)
-            assert d_rw > half or abs(x) > 600.0, (v, x, d_rw)
+    taxi_floors = [r.terms[0][0] for r in zones.zone_bands(pm, law, airport)
+                   if r.lo is not None and not any(u in runway for u, _c in r.terms[1:])]
     assert taxi_floors
-    # ...and the vertices the runway reaches beside the taxiway are floored by the runway
     tie = {r.terms[0][0]: r for r in zones.strip_transverse(pm, law, airport)}
     beside = [v for v in _verts_of_role(pm, "primary_parallel") - runway
-              if 0.0 < abs(pm.vertices[v].xy[1]) - HALF_WIDTH < half]
+              if 0.0 < abs(pm.vertices[v].xy[1]) - HALF_WIDTH < half
+              and abs(pm.vertices[v].xy[0]) < 600.0]
     assert beside and all(v in tie and tie[v].lo is not None for v in beside)
 
 

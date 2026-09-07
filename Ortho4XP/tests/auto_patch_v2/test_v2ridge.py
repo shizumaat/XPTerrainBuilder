@@ -211,7 +211,10 @@ def test_the_tie_binds_the_stub_rim_7m_off_the_edge(ridge, law):
     for v in rim:
         r = by_v.get(v)
         assert r is not None, f"no tie row on stub rim vertex {v}"
-        assert r.lo is None and r.hi == pytest.approx(bound, abs=0.03 * 0.6)
+        # TWO-WAY (RULINGS 2026-09-06q (2)): the rim may neither rise
+        # above nor fall below the edge foot faster than the strip bound
+        assert r.hi == pytest.approx(bound, abs=0.03 * 0.6)
+        assert r.lo == pytest.approx(-bound, abs=0.03 * 0.6)
         assert all(u in runway for u, _c in r.terms[1:])
         # the strip's row: it cites the strip face and sits in the strip's tier
         assert r.source.inputs[0].startswith("face:")
@@ -319,3 +322,161 @@ def test_without_the_tie_the_solve_leaves_the_rim_on_its_dem_and_the_readers_see
     sol2 = solve(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), DEFAULT_WEIGHTS,
                  Options(diagnose_iis=False))
     assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE)
+
+
+# ── (3) RULINGS 2026-09-06q: the tie is two-way; short chords are the box ──
+
+DROP_M = 1.0              # the cliff: the rim 1 m BELOW the edge (HECA 05C/23C: 15 strip-hole vertices 0.35-1.25 m under it)
+
+
+def test_a_rim_a_metre_below_the_edge_is_flagged_both_ways_and_infeasible(ridge, law, tmp_path):
+    """06q (2): the same rim 1 m BELOW the runway edge (bound 0.27 m at
+    7 m) — the v2 verify, the oracle's ``strip_transverse`` family and
+    the harness tool all flag it, direction ``below``; a hard solve
+    pinning the rim there is INFEASIBLE with the tie ON."""
+    from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
+    airport, pm, _ = ridge
+    rim = _far_rim(pm, *RIM_LIFT)
+    _cs, sol = _solve(ridge, law)
+    z2 = list(sol.z)
+    for v in rim:
+        z2[v] -= DROP_M
+    rows, patch = _emit(ridge, law, _dc.replace(sol, z=tuple(z2)), tmp_path / "cliff")
+    below = [r for r in rows if r["direction"] == "below"]
+    assert len(below) >= len(rim)
+    assert max(r["magnitude_m"] for r in below) == pytest.approx(DROP_M, abs=0.3)
+    ora = _oracle(patch)
+    assert len(ora) >= len(rim)
+    assert max(v.de_m for v in ora) == pytest.approx(DROP_M, abs=0.3)
+    assert all(v.elev_a < v.elev_b for v in ora[:len(rim)])       # below the foot
+    got = [r for r in tool.read_ties(patch, "ZZZZ") if r.over]
+    assert len(got) >= len(rim) and min(r.rise for r in got) == pytest.approx(-DROP_M, abs=0.3)
+    assert tool.main([str(patch), "--icao", "ZZZZ", "--worst", "3"]) == 1
+    # the fall side is a HARD row: the runway held on its profile and the
+    # rim pinned a metre under the edge, INFEASIBLE (the mirror of the
+    # ridge test above: without the profile held the runway would follow)
+    from auto_patch_v2.constraints.runway_profile import ridge_chains
+    held = [u for chs in ridge_chains(view(pm, law)).values() for c in chs for u in c
+            if RIDGE_HOLD[0] <= pm.vertices[u].xy[0] <= RIDGE_HOLD[1]]
+    assert held
+    cs_tie, _c, _w = generate(pm, law, airport)
+    pins = [Pin(v, float(sol.z[v]) - DROP_M, Source("test", "the cliff", ())) for v in rim] + \
+        [Pin(u, float(sol.z[u]), Source("test", "the profile held", ())) for u in held]
+    sol2 = solve(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), DEFAULT_WEIGHTS,
+                 Options(diagnose_iis=False))
+    assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE)
+
+
+def test_the_pocket_floor_yields_only_where_a_runway_edge_is_in_reach(ridge, law):
+    """06q (2): the pocket rule's nearest-pavement FLOOR from a taxi edge
+    binds only a strip vertex with NO runway edge inside the runway's
+    zone-2 half width; a vertex a runway edge reaches carries the
+    runway's floor (or the tie's) instead.  Every taxi floor in the
+    fixture lies beyond the runway zone, and taxi floors DO still exist
+    (the strip beyond the parallel taxiway)."""
+    airport, pm, _ = ridge
+    rw = next(f for f in pm.faces.values() if f.role == "runway")
+    half = T.zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
+    runway = _verts_of_role(pm, "runway")
+    taxi_floors = []
+    for r in zones.zone_bands(pm, law, airport):
+        v = r.terms[0][0]
+        feet = [u for u, _c in r.terms[1:]]
+        if r.lo is not None and not any(u in runway for u in feet):
+            taxi_floors.append(v)
+            x, y = pm.vertices[v].xy
+            d_rw = abs(y) - HALF_WIDTH
+            # beyond the runway zone, or beyond the runway's END (not abeam:
+            # the end corridor's law, never the lateral tie's)
+            assert d_rw > half or abs(x) > 600.0, (v, x, d_rw)
+    assert taxi_floors
+    # ...and the vertices the runway reaches beside the taxiway are floored by the runway
+    tie = {r.terms[0][0]: r for r in zones.strip_transverse(pm, law, airport)}
+    beside = [v for v in _verts_of_role(pm, "primary_parallel") - runway
+              if 0.0 < abs(pm.vertices[v].xy[1]) - HALF_WIDTH < half]
+    assert beside and all(v in tie and tie[v].lo is not None for v in beside)
+
+
+TAXI_PLANE = 0.015        # a lawful plane over the parallel taxiway: 1.5 % along AND 1.5 % across
+STEP_M = 1.0              # the step one interior vertex takes
+
+
+def _taxi_box_rows(patch, role="primary_parallel"):
+    """The ``taxi_box`` rows on the ways of ``role`` (the parallel taxiway
+    under test — the fixture's shoulder stub carries a box row of its
+    own from the solve: its west rim, 4 m across, steps 0.17 m under a
+    route budget of 17.8 m over the 1,184 m there-and-back to its only
+    centreline — the generator-side gap the lane v2ridge2 reported)."""
+    fam: dict = {}
+    cg.run_checks_law_true(Path(patch), family_out=fam)
+    rows = [v for v in fam.get("within_shape") or []
+            if getattr(v, "reading", None) == "taxi_box" and cg.law_role(v.way_a) == role]
+    return rows, dict(cg._TAXI_BOX_STATS)
+
+
+def test_a_short_diagonal_inside_the_box_is_lawful_and_a_step_is_a_defect(ridge, law, tmp_path):
+    """06q (1): the oracle's SHORT-CHORD reader prices the BOX.  The
+    parallel taxiway set on a plane sloping 1.5 % along its axis AND
+    1.5 % across it is lawful under the box, though a diagonal ring pair
+    reads up to 2.1 % on the isotropic chord: zero ``taxi_box`` rows.
+    One interior vertex stepped 1 m: its short pairs are defects, read
+    under the box (``reading == "taxi_box"``, under 30 m)."""
+    airport, pm, _ = ridge
+    _cs, sol = _solve(ridge, law)
+    taxi = sorted(_verts_of_role(pm, "primary_parallel") - _verts_of_role(pm, "runway"))
+    x0, y0 = pm.vertices[taxi[0]].xy
+    z0 = float(sol.z[taxi[0]])
+    z2 = list(sol.z)
+    for v in taxi:
+        x, y = pm.vertices[v].xy
+        z2[v] = z0 + TAXI_PLANE * (x - x0) + TAXI_PLANE * (y - y0)
+    _rows, patch = _emit(ridge, law, _dc.replace(sol, z=tuple(z2)), tmp_path / "plane")
+    rows, stats = _taxi_box_rows(patch)
+    assert stats.get("pairs", 0) > 0, stats
+    assert rows == [], [(r.distance_m, r.grade_pct) for r in rows[:3]]
+    min_m = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
+    # the step
+    mid = min(taxi, key=lambda v: abs(pm.vertices[v].xy[0]) + abs(pm.vertices[v].xy[1] - 91.5))
+    z2[mid] += STEP_M
+    _rows, patch = _emit(ridge, law, _dc.replace(sol, z=tuple(z2)), tmp_path / "step")
+    rows, stats = _taxi_box_rows(patch)
+    assert rows and stats.get("over", 0) >= len(rows)
+    assert all(r.distance_m < min_m and r.cap_pct is not None for r in rows)
+    # the step plus, on the longer pairs, the plane's own lawful fall
+    assert STEP_M - 0.05 <= max(r.de_m for r in rows) <= STEP_M + 2 * TAXI_PLANE * min_m
+    # the box is KEYED on the v2 sidecar: with no ``stretches`` the same
+    # patch reads the chord and the tally stays empty
+    side = Path(str(patch) + ".axes.json")
+    import json as _json
+    data = _json.loads(side.read_text())
+    data.pop("stretches")
+    side.write_text(_json.dumps(data))
+    rows_v1, stats_v1 = _taxi_box_rows(patch)
+    assert rows_v1 == [] and stats_v1 == {}
+
+
+def test_the_box_budget_is_the_anisotropic_sum(law):
+    """``_StretchBox.budget``: a 10 m pair at (8, 6) to a code-D axis is
+    ``0.015·8 + 0.015·6 = 0.21`` (a 2 % chord inside it); a code-B axis
+    prices ``0.03·8 + 0.02·6 = 0.36``; a pair across only reads the
+    transverse cap alone."""
+    # a metre frame that is its own lat/lon frame: ll_to_m is the identity
+    stretches = [[[[0.0, 0.0], [100.0, 0.0]], 0.015, "D", "d"],
+                 [[[0.0, 500.0], [100.0, 500.0]], 0.03, "B", "b"]]
+    box = cg._StretchBox(stretches, lambda la, lo: (la, lo), law)
+
+    class _W:
+        tags = {"role": "primary_parallel"}
+        ref = "x"
+        wid = "1"
+        role = "primary_parallel"
+    c = cg.ShapePairConstraint(_W(), "a", "b", 10.0, 0.0, 0.0, 18.0, 6.0, 0.2, 10.0, 0.015, 0.16)
+    assert box.applies(c)
+    b, cap = box.budget(c)
+    assert b == pytest.approx(0.21) and cap == pytest.approx(0.021)
+    c = cg.ShapePairConstraint(_W(), "a", "b", 10.0, 500.0, 0.0, 18.0, 506.0, 0.2, 10.0, 0.03, 0.31)
+    assert box.budget(c)[0] == pytest.approx(0.36)
+    c = cg.ShapePairConstraint(_W(), "a", "b", 10.0, 0.0, 0.0, 10.0, 7.0, 0.2, 7.0, 0.015, 0.115)
+    assert box.budget(c)[0] == pytest.approx(0.015 * 7.0)
+    c = cg.ShapePairConstraint(_W(), "a", "b", 10.0, 0.0, 0.0, 50.0, 0.0, 0.2, 40.0, 0.015, 0.61)
+    assert not box.applies(c)          # 40 m: the withdrawn-law stamp's, not the box's

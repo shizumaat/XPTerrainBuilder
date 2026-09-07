@@ -932,6 +932,9 @@ def row_record(cg, family: str, r) -> dict:
         "way_a": getattr(wa, "wid", None),
         "way_b": getattr(wb, "wid", None),
         "out_of_scope": getattr(r, "out_of_scope", None),
+        # WHICH READING priced it where a family has more than one — the
+        # short-chord BOX (RULINGS 2026-09-06q (1)) or the family default
+        "reading": getattr(r, "reading", None),
     }
 
 
@@ -1428,13 +1431,18 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
     A SHORTER taxi|taxi chord is PRICED — a 6 m neighbour is not the
     withdrawn 700 m chord (06o; measured HECA 1.0.291: 13,004 stub|stub
     rows stamped regardless of length while the 05C/23C ridges stood 6 m
-    over 6 m).  A row already out of scope (relaxed, disconnected, ...)
+    over 6 m) — and priced AS THE BOX (RULINGS 2026-09-06q (1)):
+    ``check_grade._StretchBox`` reads it as ``cL·|Δs| + cT·|Δt|`` against
+    the nearest stretch axis inside ``run_checks``, so the short rows
+    reaching here are the pairs OVER the box, never the isotropic chord's
+    (3,722 HECA rows on lawful diagonals, 06q); the reader's tally
+    (``check_grade._TAXI_BOX_STATS``) is returned as ``box``.  A row already out of scope (relaxed, disconnected, ...)
     keeps its stamp.  A pair with a pad endpoint (the frontage law,
     09-01g), a junction mesh edge the v1 oracle prices as a chord and a
     v1 patch (no key) are NOT distinguished here beyond the role pair —
     the per-role-pair counts are returned so the reader sees them apart.
     Returns ``{"stamped", "by_roles", "key_present", "short_priced",
-    "short_by_roles", "min_m"}``."""
+    "short_by_roles", "min_m", "box"}``."""
     side_path = Path(str(osm) + ".axes.json")
     try:
         side = json.loads(side_path.read_text())
@@ -1463,7 +1471,8 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
             n += 1
     return {"stamped": n, "by_roles": dict(by_roles.most_common()),
             "key_present": True, "short_priced": n_short,
-            "short_by_roles": dict(short.most_common()), "min_m": min_m}
+            "short_by_roles": dict(short.most_common()), "min_m": min_m,
+            "box": dict(getattr(cg, "_TAXI_BOX_STATS", {}) or {})}
 
 
 def census_one(osm: Path, cg, *, want_bare: bool = False,
@@ -1775,9 +1784,12 @@ def print_report(rep: dict, top: int) -> None:
                   f"— by role pair: "
                   + (", ".join(f"{k} {v}" for k, v in wl["by_roles"].items()) or "none")
                   + " (sidecar taxi_route_pairs present: the v2 verify is the taxi family's instrument)")
-            print(f"      short taxi chords PRICED (< {wl.get('min_m', 0.0):g} m, 06p): "
-                  f"{wl.get('short_priced', 0)} — by role pair: "
-                  + (", ".join(f"{k} {v}" for k, v in (wl.get("short_by_roles") or {}).items()) or "none"))
+            bx = wl.get("box") or {}
+            print(f"      short taxi chords PRICED AS THE BOX (< {wl.get('min_m', 0.0):g} m, 06p/06q): "
+                  f"{wl.get('short_priced', 0)} over — by role pair: "
+                  + (", ".join(f"{k} {v}" for k, v in (wl.get("short_by_roles") or {}).items()) or "none")
+                  + f"  [box reader: {bx.get('pairs', 0)} pairs, {bx.get('inside', 0)} inside, "
+                  f"{bx.get('over', 0)} over, {bx.get('no_axis', 0)} no axis (chord)]")
         print(f"    OUT OF SCOPE (reported, NOT adjudicated) "
               f"{adj.get('out_of_scope_total', 0)}"
               + (":" if oos else "  [no class fired]"))

@@ -601,6 +601,10 @@ class Violation:
     #: FAIL depending on which law priced them.  Set by every within-shape
     #: row; ``None`` on families that carry no per-pair cap.
     cap_pct: Optional[float] = None
+    #: WHICH READING PRICED IT when the family has more than one:
+    #: ``"taxi_box"`` for a within-shape row priced as the short-chord
+    #: BOX (RULINGS 2026-09-06q (1)); ``None`` for the family's default.
+    reading: Optional[str] = None
 
 
 @dataclass
@@ -5911,6 +5915,93 @@ def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
     return max(body, max(common))
 
 
+#: THE TAXI BOX TALLY (RULINGS 2026-09-06q (1)) — per ``run_checks``:
+#: how many taxi-family within-shape pairs under ``withdrawn_chord_min_m``
+#: were priced as the BOX, how many lay inside it, how many over it and
+#: how many found no stretch axis (priced as the chord).  Read by
+#: ``harness/census.py`` beside the withdrawn-law heading; cleared at the
+#: top of every run, like ``_CROWN_UNKNOWN_PAIRS``.
+_TAXI_BOX_STATS: Dict[str, int] = defaultdict(int)
+
+
+class _StretchBox:
+    """THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)): a taxi-family
+    within-shape pair SHORTER than ``emit.within_shape.withdrawn_chord_
+    min_m`` is priced against the nearest published stretch AXIS
+    (sidecar ``stretches``: ``[[[lat, lon]…], cL, letter, ref]``) as the
+    box ``|Δz| ≤ cL·|Δs| + cT·|Δt|`` — ``Δs`` along the axis, ``Δt``
+    across it, ``cL`` the stretch's own longitudinal cap, ``cT`` the
+    letter's transverse cap (``ruleset.taxi.transverse``) — never the
+    isotropic chord ``cap × distance``: a lawful 1.5 % diagonal across a
+    1.5 % transverse fall reads up to 2.1 % on the chord, and the chord
+    reading minted 3,722 rows on HECA's lawful diagonals (06q).  A chord
+    of ``withdrawn_chord_min_m`` or longer is the census's
+    ``withdrawn_law_05aa`` stamp, not this reading; a pair with no
+    stretch axis within reach keeps the chord (tallied ``no_axis``).
+    KEYED ON THE v2 SIDECAR: only a patch publishing ``stretches`` (the v2
+    emitter's key; v1 publishes none) builds one — a v1 patch reads
+    exactly as before."""
+
+    def __init__(self, stretches_ll: list, ll_to_m, law) -> None:
+        self.min_m = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
+        self.taxi_roles = frozenset(law.tables.precedence.taxi_family.members)
+        self.cell = self.min_m
+        self.segs: list = []          # (ax, ay, ux, uy, length, cL, cT)
+        self.grid: Dict[Tuple[int, int], list] = {}
+        for entry in stretches_ll or []:
+            pts_ll, cap = entry[0], float(entry[1])
+            letter = entry[2] if len(entry) > 2 else None
+            ct = law.ruleset.taxi.transverse.value(None, letter)
+            if ct is None or len(pts_ll) < 2:
+                continue
+            pts = [ll_to_m(float(la), float(lo)) for la, lo in pts_ll]
+            for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+                L = math.hypot(bx - ax, by - ay)
+                if L < 1e-9:
+                    continue
+                k = len(self.segs)
+                self.segs.append((ax, ay, (bx - ax) / L, (by - ay) / L, L, cap, float(ct)))
+                for gx in range(int(min(ax, bx) // self.cell), int(max(ax, bx) // self.cell) + 1):
+                    for gy in range(int(min(ay, by) // self.cell), int(max(ay, by) // self.cell) + 1):
+                        self.grid.setdefault((gx, gy), []).append(k)
+
+    def applies(self, c: "ShapePairConstraint") -> bool:
+        """A taxi-family body pair under the floor (never a road
+        cross-section, which is its own family)."""
+        return (bool(self.segs) and not c.transverse_road and c.dist < self.min_m
+                and law_role(c.way) in self.taxi_roles)
+
+    def nearest(self, x: float, y: float):
+        """``(ux, uy, cL, cT)`` of the nearest stretch segment within two
+        grid cells (2 × ``withdrawn_chord_min_m``) of ``(x, y)``, or
+        ``None``."""
+        cx, cy = int(x // self.cell), int(y // self.cell)
+        best = None
+        for dx in (-2, -1, 0, 1, 2):
+            for dy in (-2, -1, 0, 1, 2):
+                for k in self.grid.get((cx + dx, cy + dy), ()):
+                    ax, ay, ux, uy, L, cl, ct = self.segs[k]
+                    t = max(0.0, min(L, (x - ax) * ux + (y - ay) * uy))
+                    d = math.hypot(x - (ax + t * ux), y - (ay + t * uy))
+                    if best is None or d < best[0]:
+                        best = (d, ux, uy, cl, ct)
+        return None if best is None else best[1:]
+
+    def budget(self, c: "ShapePairConstraint"):
+        """``(box_m, effective_cap)`` for the pair — the box's Δz budget
+        and the isotropic cap it amounts to over the chord — or ``None``
+        with no axis in reach."""
+        near = self.nearest(0.5 * (c.xa + c.xb), 0.5 * (c.ya + c.yb))
+        if near is None:
+            return None
+        ux, uy, cl, ct = near
+        dx, dy = c.xb - c.xa, c.yb - c.ya
+        ds = abs(dx * ux + dy * uy)
+        dt = abs(dx * uy - dy * ux)
+        box = cl * ds + ct * dt
+        return box, (box / c.dist if c.dist > 0.0 else cl)
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -5928,6 +6019,7 @@ def _check_within_shape(ways: List[Way],
                         transverse_road_out: Optional[List] = None,
                         stretches_m: Optional[list] = None,
                         face_holes_m: Optional[dict] = None,
+                        taxi_box: Optional["_StretchBox"] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -5948,6 +6040,14 @@ def _check_within_shape(ways: List[Way],
     counting it under both caps would be pricing one pair twice.  With no
     list passed (a caller that predates the family) every row returns as
     before.
+
+    ``taxi_box`` (RULINGS 2026-09-06q (1)): the SHORT-CHORD BOX reader,
+    :class:`_StretchBox` — a taxi-family pair under ``withdrawn_chord_
+    min_m`` is priced as ``cL·|Δs| + cT·|Δt|`` against the nearest
+    stretch axis instead of ``cap × distance``; built only from a v2
+    sidecar's ``stretches``, so a v1 patch reads exactly as before.  The
+    reading is tallied in ``_TAXI_BOX_STATS`` and a surviving row carries
+    ``reading = "taxi_box"``.
     """
     out: List[Violation] = []
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
@@ -5976,6 +6076,19 @@ def _check_within_shape(ways: List[Way],
         if _sc is not None and _sc != c.cap:
             allowance += (_sc - c.cap) * c.dist
             c.cap = _sc
+        _box = False
+        if taxi_box is not None and taxi_box.applies(c):
+            # THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)): the chord's
+            # ``cap × distance`` is REPLACED by the box against the nearest
+            # stretch axis, the quantisation envelope kept as it was.
+            _bb = taxi_box.budget(c)
+            if _bb is None:
+                _TAXI_BOX_STATS["no_axis"] += 1
+            else:
+                _TAXI_BOX_STATS["pairs"] += 1
+                allowance = _bb[0] + _pair_quant_noise_m(c.way)
+                c.cap = _bb[1]
+                _box = True
         if terrace_joints_m:
             # APRON TERRACE LAW (spec §5a): a within-pair edge crossing a
             # DECLARED joint is judged by the step law, not by the grade
@@ -5996,7 +6109,11 @@ def _check_within_shape(ways: List[Way],
             if _zc is not None:
                 allowance = max(allowance, _zc * c.dist)
         if de <= allowance:
+            if _box:
+                _TAXI_BOX_STATS["inside"] += 1
             continue
+        if _box:
+            _TAXI_BOX_STATS["over"] += 1
         grade = de / c.dist
         v = Violation(
             grade_pct=grade * 100,
@@ -6023,6 +6140,8 @@ def _check_within_shape(ways: List[Way],
         if _lla is not None and _llb is not None:
             v.lat = (_lla[0] + _llb[0]) / 2.0
             v.lon = (_lla[1] + _llb[1]) / 2.0
+        if _box:
+            v.reading = "taxi_box"
         if transverse_road_out is not None and c.transverse_road:
             transverse_road_out.append(v)
         else:
@@ -8084,6 +8203,7 @@ def run_checks(
     cm-noisy where emit repaired a junction ring).
     """
     _CROWN_UNKNOWN_PAIRS.clear()
+    _TAXI_BOX_STATS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives
     # it from the ICAO identifier: production emits what it did, and the
@@ -8190,6 +8310,10 @@ def run_checks(
     # cap and its ring-node identities (rounded lat/lon, the sidecar's
     # own identity join) for the JUNCTION STRETCH CAPS reading.
     stretches_m = _stretches_to_m(stretches_ll, nodes, ll_to_m)
+    # THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)), keyed on the v2
+    # sidecar's ``stretches``: a v1 patch (no key) builds none.
+    taxi_box = (_StretchBox(stretches_ll, ll_to_m, runway_edge_tie_law())
+                if stretches_ll else None)
 
     # SPINE CROWN drop field (sidecar ``crown_drops``, part 30): the
     # within-shape law re-centres every pair's budget on the designed
@@ -8273,7 +8397,8 @@ def run_checks(
         fan_ramp_zones_m=fan_ramp_zones_m,
         interior_zones_m=interior_zones_m,
         transverse_road_out=_road_xsec_rows,
-        stretches_m=stretches_m, face_holes_m=face_holes_m))
+        stretches_m=stretches_m, face_holes_m=face_holes_m,
+        taxi_box=taxi_box))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

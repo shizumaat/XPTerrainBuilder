@@ -489,11 +489,12 @@ def split_terraces(pm: PlanarMap, law: Law, airport: Airport,
     # ── the joint records ──────────────────────────────────────────────
     joints: list[TerraceJoint] = []
     for (a, b), es in sorted(joint_edges.items()):
-        ga, gb = group[a], group[b]
+        ga, gb = group.get(a), group.get(b)          # a zone side has no group: it keeps the original
         for chain in _chains(es):
             pairs = []
             for v in chain:
-                ia, ib = new_id.get((v, ga), v), new_id.get((v, gb), v)
+                ia = new_id.get((v, ga), v) if ga is not None else v
+                ib = new_id.get((v, gb), v) if gb is not None else v
                 if ia != ib:
                     pairs.append((ia, ib))
             length = sum(math.hypot(xy[q][0] - xy[p][0], xy[q][1] - xy[p][1])

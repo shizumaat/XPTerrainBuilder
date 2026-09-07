@@ -6358,7 +6358,8 @@ def _check_cross_shape_proximity(
     return out
 
 
-def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
+def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
+                              apron_tier: Optional[dict] = None
                               ) -> List[Violation]:
     """NEAR-MISS BUILDING FRONTAGE — the validator twin of the solve's
     near-miss frontage LAW EDGES (cycle-5 instrument-fix spec item 6).
@@ -6418,6 +6419,15 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
         return []
     near_m = float(_BUILDING_FRONTAGE_NEAR_MISS_M)
     cap = float(_near_miss_frontage_budget(1.0))           # the apron cap
+    # THE TIERED APRON LAW (owner RULINGS 2026-09-06w): a frontage row is an
+    # apron-law row (a stand entry) — on a patch declaring ``apron_tier``
+    # it is judged at the HARD cap and tallied against the PREFERRED cap
+    # (``_APRON_PREF_STATS``, the same figure as the within-shape pairs')
+    tier_hard = tier_pref = None
+    if apron_tier and apron_tier.get("max") is not None \
+            and apron_tier.get("preferred") is not None:
+        tier_hard, tier_pref = float(apron_tier["max"]), float(apron_tier["preferred"])
+        cap = tier_hard
 
     def _rings(roles):
         out = []
@@ -6524,8 +6534,26 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
                     if pz is None:
                         continue
                     de = abs(float(ez) - float(pz))
-                    if de <= _near_miss_frontage_budget(d) \
-                            + ELEV_ROUNDING_NOISE_M:
+                    if tier_hard is not None:
+                        budget = tier_hard * d
+                        st = _APRON_PREF_STATS
+                        if not st:
+                            st.update({"preferred": tier_pref, "max": tier_hard, "rows": 0,
+                                       "over_preference": 0, "max_grade": 0.0, "faces": {}})
+                        sid = str(ways[s_idx].tags.get("shapeID") or ways[s_idx].wid)
+                        f = st["faces"].setdefault(
+                            sid, {"rows": 0, "over_preference": 0, "max_grade": 0.0})
+                        g = max(0.0, de - ELEV_ROUNDING_NOISE_M) / d if d > 1e-9 else 0.0
+                        f["rows"] += 1
+                        st["rows"] += 1
+                        if de > (tier_pref + GRADE_MATERIALITY) * d + ELEV_ROUNDING_NOISE_M:
+                            f["over_preference"] += 1
+                            st["over_preference"] += 1
+                        f["max_grade"] = max(f["max_grade"], round(g, 6))
+                        st["max_grade"] = max(st["max_grade"], round(g, 6))
+                    else:
+                        budget = _near_miss_frontage_budget(d)
+                    if de <= budget + ELEV_ROUNDING_NOISE_M:
                         continue
                     grade = (de / d) if d > 1e-9 else float("inf")
                     out.append(Violation(
@@ -8922,7 +8950,8 @@ def run_checks(
     # at SHARED_VERTEX_TOL_M (0.5 m) and reads 0 everywhere, while this binds
     # out to BUILDING_FRONTAGE_NEAR_MISS_M against the pad's own node.
     near_miss = _fam("frontage_near_miss",
-                     _check_frontage_near_miss(ways, nodes, ll_to_m))
+                     _check_frontage_near_miss(ways, nodes, ll_to_m,
+                                               apron_tier=apron_tier))
     _pv(f"NEAR-MISS BUILDING FRONTAGE (soft pavement within "
         f"{_BUILDING_FRONTAGE_NEAR_MISS_M:g} m of a pad, across the sliver, "
         f"vs the pad's own node at the apron cap)",

@@ -87,6 +87,16 @@ def _door_obj(path):
     return _write(path, vt, tris)
 
 
+def _wide_well_obj(path):
+    """The same building with a 12 m WIDE well at its south face — a
+    sunken yard, not a door (RULINGS 2026-09-08j ``sill_max_width_m``)."""
+    vt: list = []
+    tris: list = []
+    _building(vt, tris)
+    _well(vt, tris, 0.0, 10.0, width=12.0)
+    return _write(path, vt, tris)
+
+
 def _roofed_well_obj(path):
     """The same well INSIDE the building (under its roof)."""
     vt: list = []
@@ -145,6 +155,7 @@ def objs(tmp_path_factory):
     return {"dir": d,
             "door": _door_obj(d / "door.obj"),
             "roofed": _roofed_well_obj(d / "roofed.obj"),
+            "wide": _wide_well_obj(d / "wide.obj"),
             "road": _road_obj(d / "road.obj"),
             "road_level": _road_obj(d / "road_level.obj", level=True),
             "road_open": _road_obj(d / "road_open.obj", roof=False)}
@@ -292,6 +303,15 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and "v='door_ramp'" in text
     assert "k='o4_grade_law' v='service_road'" in text and "k='o4_grade_law_cap' v='0.08'" in text
+
+
+def test_a_wide_well_is_a_yard_not_a_door(objs, law):
+    """RULINGS 2026-09-08j: a sill wider than ``sill_max_width_m`` is a
+    service yard or a parking pit — refused loudly, no ramp."""
+    airport, cache, objects = _read(objs, law, [("wide", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
+    wells, ds = read_door_wells(airport, objects, cache, law)
+    assert ds.wells == 0 and not wells
+    assert any("sill_max_width_m" in r for r in ds.refused), ds.refused
 
 
 def test_well_under_the_roof_is_a_basement(objs, law):

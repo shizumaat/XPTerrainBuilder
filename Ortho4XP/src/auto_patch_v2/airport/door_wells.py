@@ -377,6 +377,10 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                 stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
                                      f"(< sill_min_width_m {dl.sill_min_width_m})")
                 continue
+            if width > dl.sill_max_width_m:
+                stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
+                                     f"(> sill_max_width_m {dl.sill_max_width_m}: a yard or a pit, not a door)")
+                continue
             mid = (mid[0] + face_dir[0] * (lo_f + hi_f) / 2.0, mid[1] + face_dir[1] * (lo_f + hi_f) / 2.0)
             _lo_n, plate_out = _extent(plate, mid, n)
             _lo_w, well_out = _extent(region, mid, n)

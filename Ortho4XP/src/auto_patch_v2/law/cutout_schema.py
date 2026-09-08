@@ -26,6 +26,7 @@ class Door:
 
     sill_min_depth_m: float      # the door's own gate, separate from basin.admission_depth_m
     sill_min_width_m: float      # narrower is a drain, not a door
+    sill_max_width_m: float      # wider is a service yard / a parking pit, not a door (spawner 2026-09-08j; the owner's doors are 3.7-5.7 m)
     exit_max_fraction: float     # the side opposite the face may run along the building over at most this share of its length (else enclosed)
     ramp_grade: float            # the climb beyond the well (the owner's "small ramp")
     max_length_m: float          # a climb longer than this is refused loudly

@@ -506,14 +506,15 @@ def test_reseat_plate_to_ground(corridor_map, objs, law):
 
     def sampler(lat, lon):
         if (round(lat, 7), round(lon, 7)) == (round(unit.anchor[0], 7), round(unit.anchor[1], 7)):
-            return ground - 2.0, False
+            return ground - 3.5, False
         return ground, False
     res = seat(pl2, sampler, law)
     us = res.units[0]
     assert us.datum == DATUM_PLATE and us.bakes
-    # rendered plate = (ground − 2.0) + agl(−3.0) + 5.0 = ground; delta = 0 … exempt
-    # from the threshold either way; with the cut the delta is what lifts it
-    expect = ground - ((ground - 2.0) + unit.agl_m + 5.0)
+    # rendered plate = (ground − 3.5) + agl(−3.0) + 5.0 = ground − 1.5: the cut
+    # under the anchor is what the delta compensates (+1.5); a plate seat
+    # under min_delta_m would STAY (RULINGS 2026-09-08d d)
+    expect = ground - ((ground - 3.5) + unit.agl_m + 5.0)
     assert us.delta_m == pytest.approx(expect)
     assert us.skip_reason is None
     assert res.counts()["plate_units"] == 1
@@ -573,4 +574,4 @@ def test_law_register(law):
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
-    assert law.tables.structures.rebake.structure_seat_threshold_exempt is True
+    assert law.tables.structures.rebake.structure_seat_threshold_exempt is False   # 08d (d)

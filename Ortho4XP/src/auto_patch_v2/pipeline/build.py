@@ -86,24 +86,32 @@ class BuildResult:
 def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
     """Placement id -> ``(plate y, stations in frame xy)`` for every
     PLATE-seated structure member: a tunnel wall object (RULINGS
-    2026-09-05n-4: plate height above its seat, the rim's points inside
-    the object's own walls — the ramp's rim beyond the walls is the OSM
-    law's) and a basin member (RULINGS 2026-09-06b (3), ``basin.seat =
+    2026-09-05n-4: plate height above its seat; the stations stand at the
+    walls' OUTER FACE + ``emit.identity.min_distinct_spacing_m`` outward,
+    every ``bridge.abutment_sample_step_m`` along the object's own
+    footprint — RULINGS 2026-09-08d (c): never on the rim ring, whose
+    vertices sample the trench drop (OTHH tunnels middle-west/-east
+    −2.30 / −2.09), and whichever side of the outer face the rim stands
+    on) and a basin member (RULINGS 2026-09-06b (3), ``basin.seat =
     "floor_plate"``: the family's floor-plate y — NEGATIVE, under the
     rendered y = 0 plane — and points ON the trench floor face, so the
     seat's delta = floor − (mesh(anchor) + agl + plate y) lands the plate
     on the floor).  ``emit/rebake._plate_reading`` reads both alike."""
     from shapely.geometry import LineString as _LS, Point as _Pt, Polygon as _Poly
     grid = law.tables.emit.identity.min_distinct_spacing_m
+    step = law.tables.structures.bridge.abutment_sample_step_m
     tol = law.tables.structures.tunnel.wall_band_width_m + 2.0 * grid
     out: dict[str, tuple[float, list]] = {}
     for tn in pm.structures:
         if tn.source != "object" or not tn.objects:
             continue
-        pts = list(tn.wall_path)
-        if tn.wall_length_m > 0.0 and tn.top_s > tn.wall_length_m + 1e-6:
-            ax = _LS(tn.axis)
-            pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
+        pts = plate_stations(tn.footprint, grid, step)
+        if not pts:
+            # no footprint recorded: the rim ring inside the walls (pre-08d)
+            pts = list(tn.wall_path)
+            if tn.wall_length_m > 0.0 and tn.top_s > tn.wall_length_m + 1e-6:
+                ax = _LS(tn.axis)
+                pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
         for oid in tn.objects:
             # the seat reads the CREST (plate_y_m): an edge wall's depth
             # is the bore law's, its crest still goes flush (2026-09-06c)
@@ -120,6 +128,28 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
         for oid in b.member_ids:
             out.setdefault(oid, (float(b.plate_y_m), pts))
     return out
+
+
+def plate_stations(footprint, standoff_m: float, step_m: float) -> list:
+    """RULINGS 2026-09-08d (c): the plate seat's stations for a wall
+    object of plan ``footprint`` (its walls' outer faces, a ring in frame
+    xy): the footprint grown by ``standoff_m`` (mitred, so the corners
+    stay corners), sampled every ``step_m`` along its exterior — points
+    at the OUTER face + the stand-off, outward, on the at-grade ground
+    whichever side of the face the trench rim stands.  ``[]`` without a
+    footprint."""
+    import math as _m
+    from shapely.geometry import Polygon as _Poly
+    if not footprint or len(footprint) < 3:
+        return []
+    poly = _Poly(footprint)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty or poly.geom_type != "Polygon":
+        return []
+    ring = poly.buffer(standoff_m, join_style="mitre").exterior
+    n = max(4, int(_m.ceil(ring.length / step_m)))
+    return [tuple(ring.interpolate(k * ring.length / n).coords[0]) for k in range(n)]
 
 
 def _basin_polygon(b):

@@ -40,3 +40,8 @@ class Rebake:
     deck_family_seats_rigid: bool
     facility_requires_at_grade_coalition: bool
     structure_seat_threshold_exempt: bool
+    # the flat-site datum at the seat (RULINGS 2026-09-08d; spec
+    # othh-seat-artefacts-spec.md §3)
+    anchor_water_founds_seat: bool
+    flat_site_anchor_datum: bool
+    flat_site_ground_datum: bool

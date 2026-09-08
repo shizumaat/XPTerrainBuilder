@@ -24,7 +24,8 @@ crest = DEM; law ``structures.toml [tunnel]``):
 * the at-grade RIM (RULINGS 2026-09-06b (1); ``[cutout]``): for an OSM
   bore ``wall_gap_m + wall_band_width_m`` off the ramp edge on both
   sides and across the mouth (an END CAP), for an object corridor the
-  walls' outer faces ⊕ ``rim_gap_m``; the region between ramp and rim is
+  walls' outer faces ⊖ ``rim_inset_fraction`` × their thickness (09-08a);
+  the region between ramp and rim is
   a VOID face (role ``retaining_wall``, never emitted as a surface —
   its exterior IS the rim, emitted as a constrained ring) and the mesh
   makes the wall.  No crest band exists (``emit_wall_band = false``);
@@ -53,7 +54,7 @@ crest = DEM; law ``structures.toml [tunnel]``):
   tunnel_objects``, ``planar/object_corridor``; law ``[tunnel.object]``)
   is the tunnel AUTHORITY where it stands: the trench is the region
   between its walls' inner faces ⊕ ``floor_overlap_m`` following their
-  curves, the rim its outer faces ⊕ ``rim_gap_m`` (2026-09-06b), the
+  curves, the rim inside its outer faces (2026-09-06b, 09-08a), the
   floor at the mouth = ground − plate height,
   the ramp climbs inside the walls to the ground at the wall end (beyond
   only at ``ramp_max_grade``), the crest = the ground and the object is
@@ -220,7 +221,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
     if corridors and tn.object.source_precedence[0] == "object":
-        tol = co.rim_gap_m + tn.object.end_cap_open_m
+        tol = tn.object.end_cap_open_m          # the rim stands inside the footprint (09-08a)
         kept = []
         by_bore: dict[int, list[str | None]] = {}
         for m in mouth_list:
@@ -453,10 +454,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         ramp, outer, cap_out = geom.ramp, geom.outer, geom.cap_out
         if c is not None and not g.capped:
             # an OPEN mouth (the bore continues under the covering ground):
-            # the rim-gap strip beyond the mouth line cuts that ground back,
-            # so the mouth edge shares no vertex with it (09-01c/e)
+            # a one-spacing strip beyond the mouth line cuts that ground back,
+            # so the mouth edge shares no vertex with it (09-01c/e; 09-08a)
             a, b = left[0], right[0]
-            strip_m = LineString([a, b]).buffer(co.rim_gap_m + grid, cap_style="flat", **_MITRE)
+            strip_m = LineString([a, b]).buffer(grid, cap_style="flat", **_MITRE)
             outer = unary_union([outer, strip_m])
             if outer.geom_type != "Polygon":
                 outer = outer.convex_hull
@@ -581,7 +582,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          capped=g.capped, far_capped=g.far_capped,
                          wall_length_m=c.length_m, mouth_kind=c.mouth_kind,
                          ground_kind=c.ground_kind, reseat_expect_m=expect,
-                         trench_outside_max_m=outside)
+                         trench_outside_max_m=outside,
+                         footprint=tuple((float(x), float(y)) for x, y in
+                                         c.footprint.exterior.coords[:-1])
+                         if c.footprint.geom_type == "Polygon" else ())
         tunnels.append(Tunnel(tid, tuple(i for m in members for i in m.ways),
                               tuple(axis), half, mouth_dem, mouth_z, s_top, climb_from,
                               tuple(ramp_refs), wall_ref, tuple(wall_path), tuple(decks),

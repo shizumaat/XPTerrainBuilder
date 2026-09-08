@@ -100,7 +100,7 @@ def test_plan_carries_parts_and_contacts(row):
     assert all(p.base_y == pytest.approx(0.0) for m in by.values() if m.resource != "objects/e.obj"
                for p in m.parts)
     back = R.RebakePlan.from_json(pl.to_json())
-    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 4
+    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 5
 
 
 def test_four_welded_objects_on_a_slope_cut_into_three_clusters(row, law):
@@ -176,11 +176,13 @@ def test_below_threshold_and_unmeasured_clusters_stay(row, law):
     assert not fam.bakes and fam.skip_reason.startswith("below_threshold")
     assert res.counts()["clusters_below_threshold"] == 2 and res.cut_edges == 0
     assert all(d is None for m in fam.members for _c, _k, d in m.part_deltas)
-    # water everywhere: unmeasured — HELD, the current bytes kept
+    # water everywhere and no site datum: the anchor founds nothing (08d a)
+    # — HELD, the current bytes kept, every cluster held
     res = R.seat(pl, lambda la, lo: (700.0, True), law)
     fam = next(u for u in res.units if len(u.members) == 4)
-    assert fam.held and res.counts()["clusters_held"] == 2
-    assert rb.water_founds_seat is False
+    assert fam.held and "anchor on water" in fam.skip_reason
+    assert res.counts()["clusters_held"] == res.counts()["clusters"]
+    assert rb.water_founds_seat is False and rb.anchor_water_founds_seat is False
 
 
 # ── 2. hand-built plans: the facility rule, the plate, inheritance, pads ──
@@ -269,11 +271,11 @@ def test_plate_seat_holds_at_cluster_level(law):
     shed = _member("shed", [(2, 0.002, 0.0, 0.0)])            # a neighbour in contact
     pl = _plan_of([R.Unit("u:wall", (0.0, 0.0), 0.0, (wall, kerb)),
                    R.Unit("u:shed", (0.0, 0.0), 0.0, (shed,))], [(0, 1), (0, 2)])
-    # the ground at the band reads 711.5: plate (base 710 + 2) must land there → −0.5
-    res = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 711.5, 0.0015: 711.5, 0.002: 710.0}), law)
+    # the ground at the band reads 710.5: plate (base 710 + 2) must land there → −1.5
+    res = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 710.5, 0.0015: 710.5, 0.002: 710.0}), law)
     w, s = res.units
-    assert w.datum == R.DATUM_PLATE and w.bakes and w.delta_m == pytest.approx(-0.5)
-    assert all(m.delta_m == pytest.approx(-0.5) for m in w.members)      # exempt from min_delta_m
+    assert w.datum == R.DATUM_PLATE and w.bakes and w.delta_m == pytest.approx(-1.5)
+    assert all(m.delta_m == pytest.approx(-1.5) for m in w.members)
     assert s.datum == R.DATUM_CLUSTER and not s.bakes
     assert s.skip_reason.startswith("below_threshold")
     assert s.members[0].part_deltas[0][1] != w.members[0].part_deltas[0][1]

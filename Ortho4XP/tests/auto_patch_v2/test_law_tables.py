@@ -317,7 +317,10 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("rebake facility depth (= basin.contact_band_m, 05p)",
          v1_otf.GROUND_CONTACT_BAND_HALF_WIDTH_M, s.basin.contact_band_m)
     assert s.basin.contact_band_m > 0.0
-    assert s.rebake.structure_seat_threshold_exempt is True     # 05n-4: the plate seat, like a deck seat
+    assert s.rebake.structure_seat_threshold_exempt is False    # 08d (d): 05n-4's exemption withdrawn
+    # RULINGS 2026-09-08d: the flat-site datum at the seat (spec othh-seat-artefacts-spec.md)
+    assert s.rebake.anchor_water_founds_seat is False
+    assert s.rebake.flat_site_anchor_datum is True and s.rebake.flat_site_ground_datum is True
     # RULINGS 2026-09-06g (lane v2seatclusters): THE CONTACT-CLUSTER LAW — v1's
     # pools / structures / clusters as data, every number cited to its v1 constant
     from auto_patch import obj8_partition as v1_op

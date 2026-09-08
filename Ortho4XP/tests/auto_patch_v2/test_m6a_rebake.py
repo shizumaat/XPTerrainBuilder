@@ -357,9 +357,12 @@ def test_deck_top_datum(planned, law):
                        (R.Unit(unit.id, unit.anchor, unit.agl_m, (m2,)),), (), {})
     u = R.seat(pl2, _flat(710.0), law).units[0]
     assert u.bakes and u.datum == "deck_top" and u.delta_m == pytest.approx(-11.0)
-    # without a solved value the deck ring's mesh samples found it
+    # without a solved value the deck ring's mesh samples are read — and a
+    # ring that samples FLAT has no abutment relief: not a bridge over a
+    # cut, no deck seat, the cluster law governs (RULINGS 2026-09-08d b)
     u = R.seat(pl, _flat(710.0), law).units[[x.id for x in pl.units].index(unit.id)]
-    assert u.datum == "deck_top" and u.delta_m == pytest.approx(-4.0)
+    assert u.datum == R.DATUM_CLUSTER and u.delta_m is None
+    assert any("ring samples flat" in m.note for m in u.members)
 
 
 def test_family_takes_the_agreeing_coalition(law):

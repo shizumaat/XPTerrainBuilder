@@ -134,6 +134,11 @@ class Tunnel:
     #: OUTSIDE the walls' inner faces (the 05n-2 assertion, expect 0).
     reseat_expect_m: tuple[float, ...] = ()
     trench_outside_max_m: float = 0.0
+    #: THE OBJECT'S FOOTPRINT (RULINGS 2026-09-08d c): the walls' plan
+    #: union (their OUTER faces) as a ring in frame xy — the plate seat's
+    #: stations stand outside it by the identity spacing, whichever side
+    #: of the outer face the trench rim is on; empty for an OSM bore.
+    footprint: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -144,7 +149,8 @@ class Basin:
     ``tunnel_trench``, ref ``floor_ref`` / ``floor_ref#j``) — the
     members' floor plates ⊕ ``floor_overlap_m`` — and ONE void face
     (role ``retaining_wall``, ref ``wall_ref``; never a surface) whose
-    exterior is the at-grade RIM (the shells' footprint ⊕ ``rim_gap_m``;
+    exterior is the at-grade RIM (inside the shells' footprint by
+    ``rim_inset_fraction`` × their thickness, 09-08a;
     the DEM where bare, the governed ground's value where shared — the
     rim LEVEL with the apron, 2026-08-28c item 3).
 

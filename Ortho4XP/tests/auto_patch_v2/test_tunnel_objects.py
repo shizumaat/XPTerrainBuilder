@@ -292,11 +292,14 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
             assert region.contains(Point(p)), p
     # the floor OVERLAPS the inner faces: the ramp is wider than the trench
     assert max(r.area for r in ramps) > c.trench.area
-    # every RIM vertex (the void's exterior) stands on the walls' outer
-    # face ⊕ rim_gap_m, rounded AWAY from the ramp in grid steps — never
-    # more (a hull rectangle would be tens of metres); the void's holes
-    # are the ramp itself (shared vertices, no band between)
-    plate = c.walls.buffer(co.rim_gap_m + 4 * grid + 1e-6)
+    # every RIM vertex (the void's exterior) stands INSIDE the walls'
+    # footprint (09-08a: rim_standoff of the 1 m wall = the identity
+    # spacing off the ramp), rounded AWAY from the ramp in grid steps —
+    # never more (a hull rectangle would be tens of metres); the void's
+    # holes are the ramp itself (shared vertices, no band between)
+    from auto_patch_v2.planar.structure_geometry import rim_standoff
+    _inset, standoff = rim_standoff(c.stations[0].thick_l, co, grid)
+    plate = c.walls.buffer(4 * grid + 1e-6)
     ramp_u = unary_union(ramps)
     n_rim = 0
     for w in walls:
@@ -305,7 +308,7 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
                 continue                  # the U void's exterior runs along the ramp too
             n_rim += 1
             assert plate.contains(Point(p)), p
-            assert ramp_u.exterior.distance(Point(p)) >= co.rim_gap_m - 1e-6
+            assert ramp_u.exterior.distance(Point(p)) >= standoff - 1e-6
     assert n_rim > 10
     assert sum(w.area for w in walls) < 1.5 * c.walls.area
 
@@ -503,14 +506,15 @@ def test_reseat_plate_to_ground(corridor_map, objs, law):
 
     def sampler(lat, lon):
         if (round(lat, 7), round(lon, 7)) == (round(unit.anchor[0], 7), round(unit.anchor[1], 7)):
-            return ground - 2.0, False
+            return ground - 3.5, False
         return ground, False
     res = seat(pl2, sampler, law)
     us = res.units[0]
     assert us.datum == DATUM_PLATE and us.bakes
-    # rendered plate = (ground − 2.0) + agl(−3.0) + 5.0 = ground; delta = 0 … exempt
-    # from the threshold either way; with the cut the delta is what lifts it
-    expect = ground - ((ground - 2.0) + unit.agl_m + 5.0)
+    # rendered plate = (ground − 3.5) + agl(−3.0) + 5.0 = ground − 1.5: the cut
+    # under the anchor is what the delta compensates (+1.5); a plate seat
+    # under min_delta_m would STAY (RULINGS 2026-09-08d d)
+    expect = ground - ((ground - 3.5) + unit.agl_m + 5.0)
     assert us.delta_m == pytest.approx(expect)
     assert us.skip_reason is None
     assert res.counts()["plate_units"] == 1
@@ -556,17 +560,18 @@ def test_law_register(law):
     assert ob.wall_face_max_thickness_m > 0.0 and ob.wall_sample_m > 0.0
     assert ob.plate_normal_y_min == law.tables.structures.bridge.deck_plate_normal_y_min
     assert ob.plate_bin_m == law.tables.structures.bridge.deck_plane_bin_m
-    # THE CUTOUT (RULINGS 2026-09-06b (1)): both keys ≤ half the thinnest
-    # wall the identity grid can express (OTHH: 0.75 m drainage shells,
-    # 1.0 m tunnel walls); no band is ever emitted
+    # THE CUTOUT (RULINGS 2026-09-06b (1), 2026-09-08a): the overlap ≤
+    # half the thinnest wall the identity grid can express (OTHH: 0.75 m
+    # drainage shells, 1.0 m tunnel walls); the rim inside the outer face
+    # by a fraction of the thickness; no band is ever emitted
     co = law.tables.structures.cutout
     thinnest = 2.0 * law.tables.emit.identity.min_distinct_spacing_m * 0.75
     assert 0.0 < co.floor_overlap_m <= thinnest / 2.0
-    assert 0.0 < co.rim_gap_m <= thinnest / 2.0
+    assert 0.0 < co.rim_inset_fraction <= 1.0
     assert co.emit_wall_band is False
     assert law.tables.structures.basin.seat == "floor_plate"
     assert ob.floor_plate_max_m2 == 0.0
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
-    assert law.tables.structures.rebake.structure_seat_threshold_exempt is True
+    assert law.tables.structures.rebake.structure_seat_threshold_exempt is False   # 08d (d)

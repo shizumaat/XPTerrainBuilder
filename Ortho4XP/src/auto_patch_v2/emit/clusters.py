@@ -189,12 +189,20 @@ def _diameter(parts: _t.Sequence[_P]) -> float:
 
 def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.Mapping[MemberKey, float | None],
                   fixed: _t.Mapping[MemberKey, tuple[str, float]],
-                  family: _t.Mapping[MemberKey, str]) -> Outcome:
+                  family: _t.Mapping[MemberKey, str],
+                  authored: _t.Mapping[int, float] | None = None,
+                  stay: _t.Collection[str] = ()) -> Outcome:
     """The cluster seat (module doc).  ``base_by_member`` is each
     member's rendered ``y = 0`` plane (``None``: its anchor is off the
     mesh, its parts are held); ``fixed`` maps a structure-seated member
     to ``(unit id, delta)``; ``family`` maps a deck-family member to the
-    unit id of the deck it may attach to."""
+    unit id of the deck it may attach to; ``authored`` (RULINGS
+    2026-09-08d e, the flat-site datum under the footprint) maps a part
+    id to the ground it reads INSTEAD of the mesh — its object's authored
+    ``y = 0`` plane, so the seat lands the plane where the pack put it
+    (delta 0) and the pack's seat stands; ``stay`` names the fixed units
+    that STAY (a structure seat under the threshold, 08d d): their parts
+    and whatever inherits their cluster carry no delta."""
     rb = law.tables.structures.rebake
     band = law.tables.structures.basin.contact_band_m
     ps: dict[int, _P] = {}
@@ -209,6 +217,9 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     # ── the samples: ground parts only ──────────────────────────────────
     for p in ps.values():
         if not p.ground or p.fixed or p.base is None:
+            continue
+        if authored and p.pid in authored:
+            p.z = float(authored[p.pid])
             continue
         s = sampler(p.part.lat, p.part.lon)
         if s is None:
@@ -361,8 +372,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         if fixed_uid is not None:
             # a structure seat: ONE delta for every part it holds
             delta = next(d for key, (uid, d) in fixed.items() if uid == fixed_uid)
+            if fixed_uid in stay:
+                delta = None
             seats.append(ClusterSeat(k, struct_of[pids[0]], res, len(parts), len(ground_parts),
-                                     0, None, None, span, diam, False, False, False, None, 0))
+                                     0, None, None, span, diam, False, False, False,
+                                     "structure stays (below its threshold)" if delta is None
+                                     else None, 0))
             for p in parts:
                 mp = members[p.key]
                 mp.part_deltas.append((p.part.comp, k, delta))

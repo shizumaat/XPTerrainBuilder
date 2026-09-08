@@ -27,13 +27,14 @@ import typing as _t
 
 from .frame import LL
 
-__all__ = ["Part", "Member", "Unit", "RebakePlan", "MemberSeat", "UnitSeat",
+__all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "UnitSeat",
            "ClusterSeat", "PadRequest", "SeatResult", "PLAN_VERSION", "PLAN_FILENAME",
            "DATUM_CLUSTER", "DATUM_DECK_TOP", "DATUM_PLATE"]
 
 #: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
-#: plates (05n-4); 4: parts and contact edges, feet retired (06g).
-PLAN_VERSION = 4
+#: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
+#: flat-site datum and its region (08d).
+PLAN_VERSION = 5
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -121,11 +122,50 @@ class Unit:
     members: tuple[Member, ...]
 
 
+#: A ring of ``(lat, lon)`` points.
+RingLL = tuple[LL, ...]
+
+
+@_dc.dataclass(frozen=True)
+class FlatDatum:
+    """THE FLAT-SITE DATUM AT THE SEAT (RULINGS 2026-09-08d; spec
+    ``othh-seat-artefacts-spec.md``): the verdict the pipeline measured
+    (``airport/flat_site.py``, 05k-2), its datum ``z0_m`` and the REGION
+    the datum is priced over (pavement ∪ boundary ⊕ margin) as
+    ``(outer, holes)`` rings in ``(lat, lon)``.  ``substitutes`` mirrors
+    ``FlatVerdict.substitutes``: only then does the datum reach the
+    anchor and the ground the seat reads."""
+
+    verdict: str
+    z0_m: float | None
+    source: str
+    region: tuple[tuple[RingLL, tuple[RingLL, ...]], ...] = ()
+
+    @property
+    def substitutes(self) -> bool:
+        return self.z0_m is not None and self.verdict in ("flat_candidate", "flat_declared")
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"verdict": self.verdict, "z0_m": self.z0_m, "source": self.source,
+                "region": [[[list(p) for p in outer], [[list(p) for p in h] for h in holes]]
+                           for outer, holes in self.region]}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "FlatDatum":
+        ring = lambda r: tuple((float(a), float(b)) for a, b in r)      # noqa: E731
+        return cls(str(d["verdict"]), None if d.get("z0_m") is None else float(d["z0_m"]),
+                   str(d.get("source", "")),
+                   tuple((ring(outer), tuple(ring(h) for h in holes))
+                         for outer, holes in d.get("region", ())))
+
+
 @_dc.dataclass(frozen=True)
 class RebakePlan:
     """What the post-mesh seat reads; JSON round-trips exactly.
     ``contacts`` are the ε-contact edges ``(pid, pid)`` over every
-    member's parts (``[rebake] contact_epsilon_m``)."""
+    member's parts (``[rebake] contact_epsilon_m``); ``flat`` the
+    flat-site datum the seat honours (08d), ``None`` when the pipeline
+    measured none."""
 
     icao: str
     pack_name: str
@@ -134,6 +174,7 @@ class RebakePlan:
     skipped: tuple[tuple[str, str], ...]
     counts: _t.Mapping[str, int]
     contacts: tuple[tuple[int, int], ...] = ()
+    flat: FlatDatum | None = None
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -159,6 +200,7 @@ class RebakePlan:
             "counts": dict(self.counts),
             "skipped": [list(s) for s in self.skipped],
             "contacts": [[a, b] for a, b in self.contacts],
+            "flat": None if self.flat is None else self.flat.to_dict(),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
                 "members": [{
@@ -220,7 +262,8 @@ class RebakePlan:
                    pack_root=str(d["pack_root"]), units=units,
                    skipped=tuple((str(a), str(b)) for a, b in d.get("skipped", ())),
                    counts=dict(d.get("counts", {})),
-                   contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())))
+                   contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())),
+                   flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]))
 
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":

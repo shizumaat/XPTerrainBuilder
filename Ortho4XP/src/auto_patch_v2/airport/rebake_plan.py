@@ -18,7 +18,7 @@ import numpy as np
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.rebake import Member, Part, RebakePlan, Unit
+from ..model.rebake import FlatDatum, Member, Part, RebakePlan, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
 from . import obj8 as _obj8
@@ -287,5 +287,16 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         units.append(Unit(f"unit:{i}", (key[0], key[1]), key[2], ms))
         counts["members"] += len(ms)
     counts["units"] = len(units)
+    # THE FLAT-SITE DATUM (RULINGS 2026-09-08d; spec othh-seat-artefacts-spec.md
+    # §2): the verdict, Z0 and the datum region in lat/lon travel with the
+    # plan — the post-mesh seat founds anchors and ground on Z0 inside it
+    fv = airport.flat_site
+    flat = None
+    if fv is not None:
+        flat = FlatDatum(fv.verdict, fv.z0_m, fv.source,
+                         tuple((tuple(to_ll(x, y) for x, y in outer),
+                                tuple(tuple(to_ll(x, y) for x, y in h) for h in holes))
+                               for outer, holes in fv.region))
+        counts["flat_site"] = int(flat.substitutes)
     return RebakePlan(airport.icao, airport.pack.name, pack_root, tuple(units),
-                      tuple(sorted(skipped.items())), counts, part.contacts)
+                      tuple(sorted(skipped.items())), counts, part.contacts, flat)

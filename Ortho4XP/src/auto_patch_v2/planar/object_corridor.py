@@ -16,12 +16,14 @@ the OSM approach at ``ramp_max_grade`` (the existing ``_ramp_top`` /
 ``max_ramp_length_m`` refusal).  A corridor with a bore at both ends is
 FLAT at the mouth depth.
 
-THE TRENCH (RULINGS 2026-09-06b (1); ``[cutout]``): the ramp's edges are
-the walls' inner faces PLUS ``floor_overlap_m`` (the floor overlaps the
-wall's own footprint), the at-grade rim stands ``rim_gap_m`` outside the
-walls' OUTER faces — by station, each wall's own thickness − overlap +
-gap off the ramp edge — and the end cap the end wall's; no wall band is
-emitted between them (the 09-01c/e ``wall_gap_m`` is superseded here).
+THE TRENCH (RULINGS 2026-09-06b (1), 2026-09-08a; ``[cutout]``): the
+ramp's edges are the walls' inner faces PLUS ``floor_overlap_m`` (the
+floor overlaps the wall's own footprint), the at-grade rim stands INSIDE
+the walls' OUTER faces by ``rim_inset_fraction`` of their measured
+thickness — by station, ``structure_geometry.rim_standoff`` of each
+wall's own thickness off the ramp edge (never under the identity
+spacing) — and the end cap the end wall's; no wall band is emitted
+between them (the 09-01c/e ``wall_gap_m`` is superseded here).
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ from ..law import Law
 from ..model.airport import OsmWay
 from ..model.frame import XY
 from .structure_approach import PARALLEL_COS, approach, is_tunnel, unit
+from .structure_geometry import rim_standoff
 
 __all__ = ["Group", "object_groups", "mouth_covered_by", "trench_outside_m", "climb_path"]
 
@@ -49,8 +52,8 @@ class Group:
     inside them), ``climbs`` whether the far end climbs to the ground,
     ``capped`` / ``far_capped`` the rim's shape, ``half_fn`` /
     ``rim_fn`` the ramp half-widths and rim stand-offs by station,
-    ``cap_off`` / ``far_off`` the end caps' stand-off (the end wall's
-    thickness − overlap + gap), ``design_grade`` the ramp's design
+    ``cap_off`` / ``far_off`` the end caps' stand-off (``rim_standoff``
+    of the end wall's thickness), ``design_grade`` the ramp's design
     grade."""
 
     members: list
@@ -124,8 +127,12 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
     straight on) so a climb the walls cannot hold has a centreline."""
     tn = law.tables.structures.tunnel
     co = law.tables.structures.cutout
-    overlap, rim_gap = co.floor_overlap_m, co.rim_gap_m
+    overlap = co.floor_overlap_m
+    spacing = law.tables.emit.identity.min_distinct_spacing_m
     osm_rim = tn.wall_gap_m + tn.wall_band_width_m
+
+    def standoff(thickness_m: float) -> float:
+        return rim_standoff(thickness_m, co, spacing)[1]
     out: list[Group] = []
     for c in corridors:
         axis = list(c.axis)
@@ -140,24 +147,21 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
             hl, hr = _interp(_sts, "half_l", "half_r", s, None)
             return hl + _ov, hr + _ov
 
-        def rim_fn(s: float, _sts=sts, _ov=overlap, _g=rim_gap, _beyond=osm_rim
-                   ) -> tuple[float, float]:
-            # the rim = the outer face + rim_gap_m: the wall's thickness
-            # less the overlap plus the gap off the ramp edge; beyond the
+        def rim_fn(s: float, _sts=sts, _beyond=osm_rim) -> tuple[float, float]:
+            # the rim INSIDE the outer face (09-08a): rim_standoff of the
+            # wall's measured thickness off the ramp edge; beyond the
             # walls the OSM law's stand-off
             if s > _sts[-1].s + 1e-6:
                 return _beyond, _beyond
             tl, tr = _interp(_sts, "thick_l", "thick_r", s, None)
-            return max(tl - _ov, 0.0) + _g, max(tr - _ov, 0.0) + _g
+            return standoff(tl), standoff(tr)
 
         path = axis if c.flat else axis + climb_path(axis[-1], u_end, c.width_m, osm, reach)[1:]
         needed = c.depth_m / max(L, 1e-9)
         out.append(Group([], axis[0], inward, c.width_m, path, c, c.id, L, not c.flat,
                          c.mouth_closed, c.far_closed, half_fn, rim_fn,
-                         max(c.mouth_thickness_m - overlap, 0.0) + rim_gap if c.mouth_closed
-                         else None,
-                         max(c.far_thickness_m - overlap, 0.0) + rim_gap if c.far_closed
-                         else None,
+                         standoff(c.mouth_thickness_m) if c.mouth_closed else None,
+                         standoff(c.far_thickness_m) if c.far_closed else None,
                          min(tn.ramp_max_grade, needed) if not c.flat else 0.0))
     return out
 

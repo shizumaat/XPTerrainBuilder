@@ -64,9 +64,11 @@ members (``DEM(anchor) + agl + y``: the floor plate itself, no margin —
 the anchor family is re-seated after the mesh so the plate lands ON it,
 ``basin.seat = "floor_plate"``); the floor face(s) (role
 ``tunnel_trench``) are the members' floor plates ⊕ ``floor_overlap_m``
-(closed at ``footprint_close_m``); the at-grade RIM is the admitted
-region (the shells' footprint below the ground) ⊕ ``rim_gap_m``; the
-VOID between them is one face (role ``retaining_wall``, exterior = the
+(closed at ``footprint_close_m``); the at-grade RIM stands INSIDE the
+admitted region (the shells' footprint below the ground) by
+``rim_inset_fraction`` × the shell's mean plan thickness, never closer
+to the floors than the identity spacing (2026-09-08a,
+``structure_geometry.rim_standoff``); the VOID between them is one face (role ``retaining_wall``, exterior = the
 rim, holes = the floors) never emitted as a surface — its rim is
 emitted as a constrained ring at the ground (the DEM where bare, the
 governed ground's value where shared: the rim LEVEL with the apron,
@@ -98,6 +100,7 @@ from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.structures import Basin, Tunnel
+from .structure_geometry import rim_standoff
 
 __all__ = ["BasinStats", "read_objects", "build_basins", "FLOOR_ROLE", "WALL_ROLE"]
 
@@ -190,20 +193,47 @@ def _floors(plates, overlap: float, close: float, grid: float) -> list[Polygon]:
     return []
 
 
-def _rim(region: Polygon, floors: list[Polygon], gap: float, grid: float
+def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
+                      max_m: float | None = None) -> float:
+    """A basin shell's plan WALL thickness: the smallest distance from the
+    floor ``plates``' edges (sampled every ``step_m``) to the shells'
+    at-grade footprint ``region``'s edge — the thinnest wall between
+    floor and footprint (OTHH's drainage shells: a plate inset 0.75 m
+    all round reads 0.75).  A plate reaching the footprint's edge reads
+    0 (no wall to hide the rim in); thicker than ``max_m``
+    (``tunnel.object.wall_face_max_thickness_m``: a plan solid past it
+    is a slab, not a wall) is capped there — an area ratio is NOT a
+    thickness (LEMD basin:3, a 366 m² plate in a 452 m² region, read
+    29 m by one)."""
+    if plates.is_empty:
+        return 0.0
+    ext = region.exterior
+    best = None
+    for part in _parts(plates):
+        ring = part.exterior
+        n = max(4, int(math.ceil(ring.length / max(step_m, 1e-6))))
+        for i in range(n):
+            d = float(ext.distance(ring.interpolate(ring.length * i / n)))
+            best = d if best is None else min(best, d)
+    t = best or 0.0
+    return min(t, max_m) if max_m is not None else t
+
+
+def _rim(region: Polygon, floors: list[Polygon], inset: float, standoff: float, grid: float
          ) -> Polygon | None:
-    """The at-grade rim: ``region`` (the shells' footprint below the
-    ground) buffered ``gap`` + one grid step and snapped, widened by grid
-    steps until it contains every floor and every floor clears it by the
-    law's gap; ``None`` when it cannot (a floor at the shell's edge)."""
-    for k in range(4):
-        g = gap + grid * (1 + k)
+    """The at-grade rim (2026-09-08a): ``region`` (the shells' footprint
+    below the ground) buffered INWARD by ``inset`` and snapped, widened
+    by grid steps until it contains every floor and every floor clears it
+    by ``standoff`` (``structure_geometry.rim_standoff``); ``None`` when
+    it cannot (a floor at the shell's edge)."""
+    for k in range(6):
+        g = -inset + grid * k
         rim = _snap_ring(region.buffer(g, **_MITRE), grid)
         if rim is None:
-            return None
+            continue
         if not all(rim.contains(f) for f in floors):
             continue
-        if all(f.distance(rim.exterior) >= gap - 1e-6 for f in floors):
+        if all(f.distance(rim.exterior) >= standoff - 1e-6 for f in floors):
             return rim
     return None
 
@@ -368,12 +398,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 — no floor plate ({plate:.0f} m2) "
                                  f"survives the identity grid ({grid} m) at {site}")
             continue
-        # the rim: the shells' footprint ⊕ rim_gap_m; the void between
-        rim = _rim(ring, floors, co.rim_gap_m, grid)
+        # the rim INSIDE the shells' footprint by rim_inset_fraction of
+        # their thickness (09-08a), clearing the floors by the stand-off;
+        # the void between
+        shell_t = shell_thickness_m(ring, plates_u, grid,
+                                    law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+        inset, standoff = rim_standoff(shell_t, co, grid)
+        rim = _rim(ring, floors, inset, standoff, grid)
         if rim is None:
-            stats.refused.append(f"{bid}: the rim cannot clear the floor plate by "
-                                 f"cutout.rim_gap_m {co.rim_gap_m} (a plate at the shell's "
-                                 f"edge) at {site}")
+            stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, inset "
+                                 f"{inset:.2f}) cannot clear the floor plate by the stand-off "
+                                 f"{standoff:.2f} m (a plate at the shell's edge) at {site}")
             continue
         if tunnel_u is not None and rim.buffer(grid).intersects(tunnel_u):
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 overlaps a tunnel structure "
@@ -400,6 +435,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
+                 f"shell {shell_t:.2f} m thick: rim inset {inset:.2f} m inside its footprint, "
+                 f"stand-off {standoff:.2f} m off the floor (09-08a)",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
                  (f"rim protrusion {prot.protrusion_fraction:.1%} of the shell's face area above "

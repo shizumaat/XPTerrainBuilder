@@ -2,13 +2,15 @@
 ``planar/structures.py`` for lane v2tunnelobj so that file stays under
 its line budget).
 
-THE MODEL (RULINGS 2026-09-06b (1); law ``structures.toml [cutout]``,
-``emit_wall_band = false``): one corridor = a RAMP polygon (the trench
-floor — for an object corridor the walls' inner faces ⊕ ``floor_overlap_m``,
-for an OSM bore the carriageway), and an at-grade RIM ring standing
-``rim_off`` outside the ramp edge by station — for an object corridor the
-wall's own thickness − ``floor_overlap_m`` + ``rim_gap_m`` (= the outer
-face ⊕ ``rim_gap_m``), for an OSM bore ``wall_gap_m + wall_band_width_m``.
+THE MODEL (RULINGS 2026-09-06b (1), 2026-09-08a; law ``structures.toml
+[cutout]``, ``emit_wall_band = false``): one corridor = a RAMP polygon (the
+trench floor — for an object corridor the walls' inner faces ⊕
+``floor_overlap_m``, for an OSM bore the carriageway), and an at-grade RIM
+ring standing ``rim_off`` outside the ramp edge by station — for an object
+corridor :func:`rim_standoff` of the wall's own measured thickness (the
+rim INSIDE the outer face by ``rim_inset_fraction`` of it, never closer
+to the floor ring than the identity spacing), for an OSM bore
+``wall_gap_m + wall_band_width_m``.
 The rim closes across the mouth (s = 0) by an END CAP and, for a corridor
 closed at both ends, across the far end too.  The region between ramp
 and rim is the VOID: a planar face (role ``retaining_wall``, never
@@ -35,7 +37,30 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 
 from ..model.frame import XY
 
-__all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out"]
+__all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
+           "rim_standoff"]
+
+
+def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
+    """RULINGS 2026-09-08a (spec ``othh-read-20260906-spec.md`` §1a): the
+    at-grade rim of a below-grade object's trench — ``(inset_m,
+    standoff_m)`` for a wall (or basin shell) of MEASURED plan thickness
+    ``thickness_m``.  ``inset_m`` is how far INSIDE the wall's outer face
+    the rim stands (``cutout.rim_inset_fraction × t``: the terrain drop
+    happens within the wall's thickness, hidden by the object);
+    ``standoff_m`` is the rim's plan distance from the floor ring (the
+    inner face ⊕ ``cutout.floor_overlap_m``) = the width of the mesh
+    wall band: ``t − overlap − inset``, floored at ``spacing_m``
+    (``emit.identity.min_distinct_spacing_m``) — a rim vertex is never
+    closer to the floor ring than two distinct vertices may be.  Where
+    the floor binds (``t < overlap + spacing``, a thin shell) the rim
+    stands ``overlap + spacing`` outside the inner face: at the outer
+    face of a 0.8 m wall, outside it for thinner ones.  One law for
+    tunnel walls and basins (06b)."""
+    t = max(float(thickness_m), 0.0)
+    inset = cutout.rim_inset_fraction * t
+    standoff = max(t - cutout.floor_overlap_m - inset, spacing_m)
+    return inset, standoff
 
 
 @_dc.dataclass(frozen=True)

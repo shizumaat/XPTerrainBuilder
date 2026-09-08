@@ -370,10 +370,10 @@ class Basin:
 
 @_dc.dataclass(frozen=True)
 class Cutout:
-    """Below-grade object trench: floor ⊕ overlap, rim ⊕ gap, no band (2026-09-06b (1))."""
+    """Below-grade object trench: floor ⊕ overlap, rim INSIDE the wall, no band (06b (1), 09-08a)."""
 
     floor_overlap_m: float
-    rim_gap_m: float
+    rim_inset_fraction: float
     emit_wall_band: bool
 
 
@@ -671,7 +671,7 @@ def _sane(path: str, name: str, value: float) -> None:
         if value < 0 and name not in _SIGNED_METRES:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
         return
-    if name in ("max_covered_fraction", "floor_plate_normal_y_min", "basement_cover_min"):
+    if name.endswith("_fraction") or name in ("floor_plate_normal_y_min", "basement_cover_min"):
         if not 0.0 <= value <= 1.0:
             raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return

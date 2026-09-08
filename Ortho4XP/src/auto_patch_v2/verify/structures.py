@@ -180,12 +180,14 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
 
 
 def structure_rim_gap(p: Patch) -> list[Row]:
-    """RULINGS 2026-09-06b (1): the rim is the at-grade ring OUTSIDE the
-    structure — a rim vertex never shares an id with a floor / ramp
-    vertex, and stands at least ``cutout.rim_gap_m`` off every floor and
-    ramp vertex in plan (the void the mesh makes the wall in).  Each miss
-    is a row naming the rim and the floor."""
-    gap = p.law.tables.structures.cutout.rim_gap_m
+    """RULINGS 2026-09-06b (1), 2026-09-08a: the rim is the at-grade ring
+    around the floor (inside the wall's footprint) — a rim vertex never
+    shares an id with a floor / ramp vertex, and stands at least the
+    identity spacing (``emit.identity.min_distinct_spacing_m``, the
+    stand-off's floor: the per-wall value is planar's, not the patch's)
+    off every floor and ramp vertex in plan (the void the mesh makes the
+    wall in).  Each miss is a row naming the rim and the floor."""
+    gap = p.law.tables.emit.identity.min_distinct_spacing_m
     floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp")]
     if not floors:
         return []

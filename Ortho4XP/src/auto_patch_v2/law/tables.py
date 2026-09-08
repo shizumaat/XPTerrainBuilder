@@ -26,7 +26,8 @@ __all__ = [
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
-    "flat_source_class", "flat_relief_floor_m",
+    "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "yield_law",
+    "yield_ceiling",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -463,3 +464,24 @@ def flat_relief_floor_m(law: Law, source_class: str | None) -> float | None:
     if source_class == FLAT_CLASS_COARSE:
         return rf.coarse
     return None
+
+
+# ── the priority model (RULINGS 2026-09-08d; spec heca-v1-parity) ─────────
+
+def runway_chord_fit_weight(law: Law) -> float:
+    """The runway family's fit weight per metre of |z − threshold chord|
+    (``rulesets.toml [common] runway_chord_fit``, change 1)."""
+    return float(law.tables.common.runway_chord_fit)
+
+
+def yield_law(law: Law):
+    """``emit.toml [yield]``: the yielding families and their ceilings."""
+    return law.tables.emit.yielding
+
+
+def yield_ceiling(law: Law, family: str) -> float | None:
+    """The escalation ceiling (a grade) of a yielding ``family``, ``None``
+    for a family the table does not name (its rows stay hard)."""
+    y = law.tables.emit.yielding
+    cls = y.families.get(family)
+    return None if cls is None else y.ceiling(cls)

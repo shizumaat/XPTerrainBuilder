@@ -55,7 +55,15 @@ class _StepDem:
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    """The 07g mechanics under a law WITHOUT the joint step cap: RULINGS
+    2026-09-08d (3) makes a boundary predicted over ``terrace.max_step_m``
+    (2 m) NOT a joint — these fixtures disagree by ≈ 23 m (a joint under
+    07g alone).  The cap's own twins are ``test_v2chord.py``."""
+    import dataclasses as _dc
+    base = Law.for_airport("ZZZZ")
+    emit = _dc.replace(base.tables.emit,
+                       terrace=_dc.replace(base.tables.emit.terrace, max_step_m=float("inf")))
+    return Law(tables=_dc.replace(base.tables, emit=emit), ruleset_key=base.ruleset_key)
 
 
 def _airport(law, cells, cuts, runways=None):

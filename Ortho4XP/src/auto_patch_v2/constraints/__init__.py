@@ -16,7 +16,7 @@ from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Row
 from ..model.planar import PlanarMap
 from . import (apron, flat_site, junction_mesh, no_step, pads, proximity,
                roads, routes, runway_profile, seams, strips, structures, taxi,
-               transverse, zones)
+               transverse, yielding, zones)
 
 __all__ = ["GENERATORS", "generate", "stack", "seam_exempt"]
 
@@ -38,6 +38,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("apron_within_shape", apron.apron_within_shape),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),
+    ("groundside_ramp", yielding.groundside_ramps),
     ("transverse", transverse.transverse),
     ("no_step_pairs", no_step.no_step_pairs),
     ("no_step_rate", no_step.no_step_rate),

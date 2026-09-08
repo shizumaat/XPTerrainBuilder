@@ -80,6 +80,9 @@ class Arrangement:
     #: The sliver weld (``weld.py``, RULINGS 2026-09-04u) applied to the
     #: cells BEFORE the zones are derived and the rings noded.
     weld: WeldStats = _dc.field(default_factory=WeldStats)
+    #: RULINGS 2026-09-08d (4a): same-region faces under the sliver area
+    #: merged into their neighbour (``merge_slivers``).
+    slivers_merged: int = 0
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -158,8 +161,54 @@ def build_arrangement(airport: Airport, classification: Classification,
             dropped += 1
             continue
         faces.append((poly, best))
+    ident = law.tables.emit.identity.min_distinct_spacing_m
+    faces, merged = merge_slivers(faces, (ident * law.tables.emit.yielding.sliver_area_factor) ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
-                       bands, dropped_seam, weld)
+                       bands, dropped_seam, weld, merged)
+
+
+def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
+                  ) -> tuple[list[tuple[Polygon, Region]], int]:
+    """THE SLIVER MERGE (RULINGS 2026-09-08d (4a); spec heca-v1-parity §4 /
+    §6.3): a face under ``area_max`` (``(identity.min_distinct_spacing_m ×
+    yield.sliver_area_factor)²``) whose ring shares a boundary run with a
+    face of the SAME region (same role, same ref — one cell the noding cut
+    twice) is a classification artefact, never a cell of its own: it is
+    unioned into that neighbour (the largest sharing one).  HECA pav131
+    face 269 (3 nodes, 9.8 m², 47 m along face 215's edge) became a
+    terrace joint of 6.2 m at the owner's site.  Returns the faces and
+    the number merged."""
+    if area_max <= 0.0 or len(faces) < 2:
+        return faces, 0
+    polys = [p for p, _r in faces]
+    tree = STRtree(polys)
+    keep = list(faces)
+    merged = 0
+    for i, (poly, region) in enumerate(faces):
+        if keep[i] is None or poly.area >= area_max:
+            continue
+        best = None
+        best_len = 0.0
+        for j in tree.query(poly, predicate="intersects"):
+            j = int(j)
+            if j == i or keep[j] is None:
+                continue
+            pj, rj = keep[j]
+            if rj.role != region.role or rj.ref != region.ref:
+                continue
+            shared = poly.boundary.intersection(pj.boundary).length
+            if shared > best_len:
+                best, best_len = j, shared
+        if best is None or best_len <= 0.0:
+            continue
+        pj, rj = keep[best]
+        u = pj.union(poly)
+        if u.geom_type != "Polygon":
+            u = max(shapely.get_parts(u), key=lambda g: g.area)
+        keep[best] = (u, rj)
+        keep[i] = None
+        merged += 1
+    return [f for f in keep if f is not None], merged
 
 
 def seam_bands(airport: Airport, regions: list[Region], half_width_m: float

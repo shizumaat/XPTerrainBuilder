@@ -204,3 +204,36 @@ min_step_m      = 0.5    # the joint predicate's materiality (= materiality.step
 simplify_factor = 40     # the complex boundary is simplified to simplify_factor x identity.min_distinct_spacing_m (20 m) for the in-shape visibility graph (at 10 the HECA graph had 1,111 nodes and the stage took 80 s, 2026-09-07; the path error is the corner depth the simplification drops, under the predicate's min_step_m at the apron cap)
 complex_roles   = ["apron", "junction", "service_road", "service_junction"]  # the faces whose union is a welded pavement complex (the apron-like roles and the road family inside pavement; the dead-end taxi faces join by rule, the runway-connected ones are the routes themselves: with the whole taxi family the union is the WHOLE airside, 2.88 km2 / 95 holes at HECA 2026-09-07); outside-pavement road corridors, runways and pads never
 max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjustable): the declared step one joint carries in v1's law — REPORT ONLY here (a joint whose emitted step exceeds it is counted in the planar report); the joint itself has no grade law (06n: "a lawful step")
+
+[yield]
+# THE PRIORITY MODEL (owner RULINGS 2026-09-08d; spec ``heca-v1-parity-spec.md``
+# §2-§4): v1 anchors the runway to the threshold chord and lets every surface
+# family beyond the runway-connected route graph YIELD where the runway
+# demands (v1 junction max 9.1 % at HECA); v2 held them all hard and the
+# redundant 1.5 % surfaces dragged (05C/23C) or lifted (05L/23R +7.5 m) the
+# runway.  Every HARD row of a family named in ``families`` is minted as a
+# PREFERENCE at assembly (``constraints/yielding.py``: one escalation group
+# per row, ``yield:<family>:<face>:<k>``, charged ``Weights.preference
+# ["yield"]`` × the largest fit weight per metre of relief — junior to the
+# runway chord fit, senior to every other DEM fit) with the escalation
+# CEILING of its class below.  The runway family, the taxi CHAIN (05ac
+# centreline + lateral hops + crossings), the reach bands, K, the runway
+# transverse law, pads, structures, zones, strips and seams stay HARD.
+# A yielded row is read by the census as a violation at its cap (v1's
+# reading) and counted apart under ``yielded_rows`` (sidecar / report /
+# census heading ``yielded_by_08d``).
+taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise)
+apron_yield_max     = 0.03    # ceiling of the apron class: within-shape chords / ring edges / edge portions (the 06w hard cap 1.5 % becomes the row's cap, this its ceiling)
+road_yield_max      = 0.08    # ceiling of the road class = the core clamp (common.roles.service_road.longitudinal): a road row bound to a stricter contiguous class may yield up to its own cap
+sliver_area_factor  = 8.0     # change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m × this)² = 16 m² is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m², 47 m long)
+groundside_ramp_max = 0.05    # change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade as a preference (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
+[yield.families]
+# family -> class (a family is a generator, or a ruling-selected subset:
+# taxi_box = the ``taxi`` generator's box rows, no_step_pairs = ``no_step``'s
+# §1.1 pairs; the §1.2 rate rows stay hard)
+junction_mesh      = "taxi"
+taxi_box           = "taxi"
+no_step_pairs      = "taxi"
+apron              = "apron"
+apron_edge_portion = "apron"
+roads              = "road"

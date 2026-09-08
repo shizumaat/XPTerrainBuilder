@@ -16,15 +16,18 @@ from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
-from .territory import joint_steps, territory_constraints, territory_stage
+from .territory import (joint_steps, territory_constraints, territory_stage,
+                        weld_built_steps)
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
+from ..constraints.runway_chord import ChordReport, with_runway_chord
+from ..constraints.runway_profile import RUNWAY_FAMILY
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
-from ..law.tables import flat_datum_group, flat_datum_weight
+from ..law.tables import flat_datum_group, flat_datum_weight, runway_chord_fit_weight
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
@@ -56,6 +59,10 @@ class Config:
     #: Seam passes after the first solve (the exemption set = the seam
     #: vertices the previous solve held on the DEM), to a fixed point.
     seam_passes_max: int = 6
+    #: THE JOINT STEP PASSES (RULINGS 2026-09-08d (3)): after a solve, joints
+    #: the built surface steps by more than ``terrace.max_step_m`` are
+    #: welded and the set re-solved, to a fixed point or this many passes.
+    joint_passes_max: int = 2
     #: Extra ``<osm>`` root attributes for the emitted patch (and every
     #: tile piece): a HOSTING tile build's rebuild-freshness stamps
     #: (the v1 tile driver reads them back through ``read_patch_source``
@@ -147,7 +154,13 @@ def weights_under_law(weights: Weights, law: Law) -> Weights:
     pref[flat_datum_group(law)] = flat_datum_weight(law)
     lam = dict(weights.smoothness_by_kind)
     lam[RIDGE_KIND] = float(law.tables.common.runway_profile_smoothness)
-    return _dc.replace(weights, preference=pref, smoothness_by_kind=lam)
+    # THE CHORD FIT (RULINGS 2026-09-08d (1)): the runway family's fit
+    # weight is the law's ``runway_chord_fit`` — its target the threshold
+    # chord (``constraints/runway_chord.py``), the DEM where no chord exists
+    by_role = dict(weights.by_role)
+    for role in RUNWAY_FAMILY:
+        by_role[role] = runway_chord_fit_weight(law)
+    return _dc.replace(weights, by_role=by_role, preference=pref, smoothness_by_kind=lam)
 
 
 #: The report's "moved" threshold (metres off the DEM sample) — a report
@@ -238,7 +251,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
          f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
-         f"  seam-band faces dropped {pstats.dropped_seam_faces}", out)
+         f"  seam-band faces dropped {pstats.dropped_seam_faces}"
+         f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
     tj = pstats.terraces
     if tj.cells:
         # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n; ``planar/terraces.py``)
@@ -323,6 +337,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
     pm = _dc.replace(pm, preferred_z=road_pref)
     wall["road_profile"] = time.perf_counter() - t
+    # THE RUNWAY CHORD (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``):
+    # every runway-family vertex of a two-pin runway fits the threshold
+    # chord at ``runway_chord_fit``; the DEM fit stays for every other role
+    chord_rep: ChordReport = {}
+    pm = with_runway_chord(pm, law, airport, chord_rep)
+    lrep.runway_chord = dict(chord_rep)
+    _say(f"[{icao}] runway chord (08d-1): {chord_rep.get('runways', 0)} runways with two pins "
+         f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
+         f"{chord_rep.get('vertices', 0)}  chord above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
+         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m  weight "
+         f"{runway_chord_fit_weight(law):g}/m", out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -356,6 +381,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     size: dict[str, int] = {}
     sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
+    # THE JOINT STEP PASS (RULINGS 2026-09-08d (3); ``territory.weld_built_steps``):
+    # a declared joint the built surface steps by more than terrace.max_step_m
+    # is not a joint — welded, the rows restored, ONE more solve
+    for n_pass in range(1, 1 + cfg.joint_passes_max):
+        if sol.status.value not in ("optimal", "feasible") or not (stage.joints or pm.terrace_joints):
+            break
+        stage2, n_label, n_terrace = weld_built_steps(stage, law, airport, cl, sol.z)
+        if not (n_label or n_terrace):
+            break
+        stage = stage2
+        pm = stage.pm
+        t = time.perf_counter()
+        cs, counts2, _g = territory_constraints(pm, law, airport, stage)
+        counts.update({k: v for k, v in counts2.items()
+                       if k.startswith(("joint_", "yield", "terrace_weld"))})
+        sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
+        wall[f"solve_joint_pass{n_pass}"] = time.perf_counter() - t
+        _say(f"[{icao}] joint step pass {n_pass} (08d-3, max {law.tables.emit.terrace.max_step_m:g} m): "
+             f"un-jointed {n_label} label contours and {n_terrace} 06n joints on the built "
+             f"surface; re-solved in {wall[f'solve_joint_pass{n_pass}']:.2f} s, status {sol.status.value}",
+             out)
     # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
     # FREE, so the pairs the previous pass exempted as pin↔pin around it
     # come back as law rows (the census prices them) and the LP runs
@@ -479,6 +525,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                              for r in js["roads"][:8]) if js["roads"] else ""), out)
         if relaxed_rows:
             pub["relaxed_rows"] = relaxed_rows
+        # THE YIELDED ROWS FIGURE (RULINGS 2026-09-08d (2); ``constraints/yielding.py``):
+        # per family the rows the built surface holds above their cap, and the
+        # published list both readers count apart (``yielded_by_08d``)
+        from ..constraints.yielding import yielded_rows
+        yr = yielded_rows(cs, sol.z, law, pm)
+        pub["yielded_rows"] = yr.pop("published")
+        report["yielded_rows"] = yr
+        _say(f"[{icao}] yielded rows (08d): {yr['yielded']}/{yr['rows']} over their cap — "
+             + ", ".join(f"{k} {v['yielded']}/{v['rows']} (max grade {v['max_grade']:.4f}, "
+                         f"max over {v['max_over_m']:.2f} m)" for k, v in yr["families"].items()), out)
         # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,
         # the rows the surface holds above 1 % and its max grade
         from ..constraints.apron import apron_preference_report
@@ -556,9 +612,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             from ..verify import census
             vrows = census(surf, law, pub, road_law_caps(pm, law, airport))
             wall["verify"] = time.perf_counter() - t
-            from ..verify.census import RELAXED_KEY
+            from ..verify.census import RELAXED_KEY, YIELDED_KEY
             relaxed_v = {k: sum(1 for r in v if r.get(RELAXED_KEY)) for k, v in vrows.items()}
-            summary = {k: len(v) - relaxed_v[k] for k, v in vrows.items()}
+            yielded_v = {k: sum(1 for r in v if r.get(YIELDED_KEY) and not r.get(RELAXED_KEY))
+                         for k, v in vrows.items()}
+            summary = {k: len(v) - relaxed_v[k] - yielded_v[k] for k, v in vrows.items()}
             _say(f"[{icao}] verify {wall['verify']:.2f} s  rows "
                  f"{sum(summary.values())}  " + ", ".join(
                      f"{k} {n}" for k, n in summary.items() if n), out)
@@ -566,6 +624,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 _say(f"[{icao}] verify: relaxed by 04t(1) (lawful last-resort rows, counted "
                      f"apart): {sum(relaxed_v.values())}  " + ", ".join(
                          f"{k} {n}" for k, n in relaxed_v.items() if n), out)
+            if any(yielded_v.values()):
+                _say(f"[{icao}] verify: yielded (08d, rows of the yielding families over their "
+                     f"cap — violations under the law-true reading, counted apart): "
+                     f"{sum(yielded_v.values())}  " + ", ".join(
+                         f"{k} {n}" for k, n in yielded_v.items() if n), out)
             from ..verify.census import DEFECT_KEYS
             defects = {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}
             for k, n in defects.items():
@@ -581,6 +644,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             report["verify"] = {"by_family": summary,
                                 "apron_over_preference": v_pref,
                                 "relaxed_by_04t1": {k: n for k, n in relaxed_v.items() if n},
+                                "yielded_by_08d": {k: n for k, n in yielded_v.items() if n},
                                 "defects": defects,
                                 "rows": {k: v for k, v in vrows.items() if v}}
     else:

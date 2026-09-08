@@ -23,25 +23,21 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
 from .rebake_schema import Rebake  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
+from .yield_schema import Yield, check_yield as _check_yield  # noqa: F401
 
-__all__ = [
-    "LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw",
-    "StripLaw", "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw",
-    "Ruleset", "CommonLaw", "Resolution", "ZoneClass", "AdjacentGround",
-    "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge", "BuildingPad", "Basin",
-    "RetainingWall", "Rebake", "Structures", "ReliefFloor", "FlatDetector", "FlatDatum",
-    "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Relaxation",
-    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence",
-    "Family", "LawTables",
-    "Law", "TABLE_FILES", "load_tables",
-]
+__all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
+    "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "Ruleset", "CommonLaw", "Resolution",
+    "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
+    "BuildingPad", "Basin", "RetainingWall", "Rebake", "Structures", "ReliefFloor",
+    "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
+    "Relaxation", "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Yield",
+    "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
+    "Law", "TABLE_FILES", "load_tables"]
 
 #: The seven files a law directory must contain (owner amendment
 #: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2).
-TABLE_FILES: tuple[str, ...] = (
-    "rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
-    "precedence.toml", "families.toml", "flat_site.toml",
-)
+TABLE_FILES: tuple[str, ...] = ("rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
+                                "precedence.toml", "families.toml", "flat_site.toml")
 
 
 class LawError(ValueError):
@@ -199,6 +195,7 @@ class CommonLaw:
     runway_crown_transverse: float
     vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
     runway_profile_smoothness: float       # 06h (c): λ per metre of |Δgrade| × span on a runway ridge (above the runway DEM-fit weight)
+    runway_chord_fit: float                # 08d (1): the runway family's fit weight per metre of |z − threshold chord| (senior to every DEM fit)
 
 
 @_dc.dataclass(frozen=True)
@@ -553,6 +550,7 @@ class EmitLaw:
     road_profile: RoadProfile
     relaxation: Relaxation
     terrace: Terrace
+    yielding: Yield        # [yield]: the v1 priority model's yielding families (RULINGS 2026-09-08d)
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────
@@ -828,6 +826,7 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
                        f" (allowed: {_RELAXATION_SCOPES})")
     _check_terrace(t.emit.terrace, roles, t.emit.identity.min_distinct_spacing_m, LawError)
+    _check_yield(t.emit.yielding, LawError)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order
@@ -933,7 +932,7 @@ def load_tables(law_dir: str | Path) -> LawTables:
         zones=_build(Zones, _read(d, "zones.toml"), "zones"),
         structures=_build(Structures, _read(d, "structures.toml"),
                           "structures"),
-        emit=_build(EmitLaw, _read(d, "emit.toml"), "emit"),
+        emit=_build(EmitLaw, {("yielding" if k == "yield" else k): v for k, v in _read(d, "emit.toml").items()}, "emit"),
         precedence=_build(Precedence, _read(d, "precedence.toml"),
                           "precedence"),
         families=families,

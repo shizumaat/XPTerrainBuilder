@@ -33,17 +33,21 @@ from ..constraints.precedence import view
 from ..constraints.roads import road_family_roles
 from ..constraints.routes import routes
 from ..constraints.runway_profile import ridge_chains, threshold_pins
+from ..constraints.yielding import YieldStats, yield_rows
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
-from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row
-from ..model.planar import LabelJoint, PlanarMap
+from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row, Source
+from ..model.planar import LabelJoint, PlanarMap, TerraceJoint
 from ..planar.terraces import strip_keepout
 from ..planar.territories import (NO_LABEL, Territories, fallback_links, joint_planar_edges,
                                   label_joints, label_territories, row_test_pairs, row_vertices)
 
 __all__ = ["TerritoryStage", "territory_stage", "territory_constraints", "apply_joints",
-           "joint_steps"]
+           "joint_steps", "terrace_welds", "weld_built_steps", "WELD_GEN"]
+
+#: The generator name of the copy welds (an un-jointed 06n boundary).
+WELD_GEN = "terrace_weld"
 
 
 @_dc.dataclass
@@ -61,6 +65,13 @@ class TerritoryStage:
     dropped: dict[str, int] = _dc.field(default_factory=dict)
     flats_straddling: int = 0
     bands_withdrawn: int = 0        # reach bands withdrawn (labelled non-station vertices)
+    #: RULINGS 2026-09-08d (3): the 06n joints whose BUILT step exceeded
+    #: ``terrace.max_step_m`` (``weld_built_steps``) — NOT joints: their
+    #: split copies are welded (``terrace_welds``) and the sidecar declares
+    #: them not.  (A pre-solve predictor from the copies' reach ceilings was
+    #: REFUTED at CYXY — 8.10 m predicted, 0.002 m built — and deleted.)
+    welded_terraces: tuple[TerraceJoint, ...] = ()
+    welded_steps: tuple[float, ...] = ()
 
     def as_dict(self) -> dict[str, _t.Any]:
         st = _dc.asdict(self.terr.stats)
@@ -68,6 +79,9 @@ class TerritoryStage:
         st["flats_straddling"] = self.flats_straddling
         st["bands_withdrawn"] = self.bands_withdrawn
         st["route_links"] = [list(map(float, l)) for l in self.pm.route_links]
+        st["terraces_unjointed"] = [{"faces": [j.a, j.b], "predicted_step_m": round(s, 2),
+                                     "pairs": len(j.pairs)}
+                                    for j, s in zip(self.welded_terraces, self.welded_steps)]
         st["wall_s"] = round(self.wall_s, 3)
         return st
 
@@ -140,21 +154,7 @@ def territory_stage(pm: PlanarMap, law: Law, airport: Airport,
             bands = reach_band_values(pm, law, airport)
             terr = label_territories(pm, law, bands, cl)
             terr.stats.links = [[a, b, round(d, 1)] for a, b, _c, d in links]
-    keep = strip_keepout(cl, law) if cl is not None else None
-    edges = joint_planar_edges(pm, terr, keep)
-    faces: list[int] = []
-    for fid, f in pm.faces.items():
-        labels = {terr.label.get(v, NO_LABEL) for cyc in (f.ring, *f.holes)
-                  for v in pm.ring_vertices(cyc)} - {NO_LABEL}
-        if len(labels) < 2:
-            continue
-        ls = sorted(labels)
-        if any(terr.joint(ls[i], ls[j]) for i in range(len(ls)) for j in range(i + 1, len(ls))):
-            faces.append(fid)
-    _to_xy, to_ll = airport.frame.transformers()
-    joints = label_joints(pm, terr, faces, lambda x, y: tuple(map(float, to_ll(x, y))),
-                          extend_m=snap_margin_m(law))
-    stage = TerritoryStage(pm, terr, edges, joints, bands, time.perf_counter() - t0)
+    stage = _declare(pm, law, airport, cl, terr, bands, t0, [], [])
     st = terr.stats
     out(f"[{pm.icao}] territories (07g): complexes {st.complexes} ({st.complexes_labelled} labelled, "
         f"{st.contacts} contacts)  vertices labelled {st.labelled} (unlabelled {st.unlabelled}, "
@@ -170,7 +170,89 @@ def territory_stage(pm: PlanarMap, law: Law, airport: Airport,
         f"(graph {st.wall_graph_s:.1f} s over {st.graph_nodes} nodes, labels {st.wall_label_s:.1f} s)")
     for a, b, d, *_rest in st.links:
         out(f"    FALLBACK LINK (07g (1)): contacts {a}–{b} joined across an apron, {d:.1f} m")
+    out(f"[{pm.icao}] joint step law (08d-3, max {law.tables.emit.terrace.max_step_m:g} m): "
+        f"label pairs un-jointed {st.over_max_pairs} (joints {st.joint_pairs}); 06n joints "
+        f"{len(pm.terrace_joints)} declared — read on the BUILT surface after the solve "
+        f"(``weld_built_steps``)")
     return stage
+
+
+def _declare(pm: PlanarMap, law: Law, airport: Airport, cl: Classification | None,
+             terr: Territories, bands, t0: float, welded, wsteps) -> TerritoryStage:
+    """The joint planar edges and the declared contours of ``terr`` on
+    ``pm`` (the stage's product; re-run after a built-step weld)."""
+    keep = strip_keepout(cl, law) if cl is not None else None
+    edges = joint_planar_edges(pm, terr, keep)
+    faces: list[int] = []
+    for fid, f in pm.faces.items():
+        labels = {terr.label.get(v, NO_LABEL) for cyc in (f.ring, *f.holes)
+                  for v in pm.ring_vertices(cyc)} - {NO_LABEL}
+        if len(labels) < 2:
+            continue
+        ls = sorted(labels)
+        if any(terr.joint(ls[i], ls[j]) for i in range(len(ls)) for j in range(i + 1, len(ls))):
+            faces.append(fid)
+    _to_xy, to_ll = airport.frame.transformers()
+    joints = label_joints(pm, terr, faces, lambda x, y: tuple(map(float, to_ll(x, y))),
+                          extend_m=snap_margin_m(law))
+    return TerritoryStage(pm, terr, edges, joints, bands, time.perf_counter() - t0,
+                          welded_terraces=tuple(welded), welded_steps=tuple(wsteps))
+
+
+def weld_built_steps(stage: TerritoryStage, law: Law, airport: Airport,
+                     cl: Classification | None, z: _t.Sequence[float]
+                     ) -> tuple[TerritoryStage, int, int]:
+    """THE JOINT STEP LAW ON THE BUILT SURFACE (RULINGS 2026-09-08d (3); v1
+    reads ``APRON_TERRACE_MAX_STEP_M`` on the emitted step): after a solve,
+    every declared joint whose BUILT step exceeds ``terrace.max_step_m`` is
+    not a joint — a label-boundary contour's label pairs are WELDED (the
+    predicate answers "one terrace", its rows come back at the next
+    assembly), a 06n split joint's copies are welded (``terrace_welds``) and
+    it leaves ``pm.terrace_joints``.  Returns the re-declared stage and the
+    counts (label contours, 06n joints) it un-jointed; ``(stage, 0, 0)``
+    when every joint holds under the cap (no second solve needed)."""
+    cap = law.tables.emit.terrace.max_step_m
+    terr = stage.terr
+    n_label = 0
+    for j in stage.joints:
+        if max((abs(float(z[a]) - float(z[b])) for a, b in j.pairs), default=0.0) <= cap:
+            continue
+        n_label += 1
+        for a, b in j.pairs:
+            terr.weld(terr.label.get(a, NO_LABEL), terr.label.get(b, NO_LABEL))
+    pm = stage.pm
+    kept: list[TerraceJoint] = []
+    welded = list(stage.welded_terraces)
+    wsteps = list(stage.welded_steps)
+    n_terrace = 0
+    for j in pm.terrace_joints:
+        step = max((abs(float(z[a]) - float(z[b])) for a, b in j.pairs), default=0.0)
+        if step > cap:
+            welded.append(j)
+            wsteps.append(step)
+            n_terrace += 1
+        else:
+            kept.append(j)
+    if not n_label and not n_terrace:
+        return stage, 0, 0
+    pm = _dc.replace(pm, terrace_joints=tuple(kept))
+    t0 = time.perf_counter()
+    new = _declare(pm, law, airport, cl, terr, stage.bands, t0, welded, wsteps)
+    terr.stats.over_max_pairs += n_label
+    return new, n_label, n_terrace
+
+
+def terrace_welds(stage: TerritoryStage) -> list[Row]:
+    """One ``Flat`` per split pair of every un-jointed 06n joint: the two
+    copies carry ONE value (never dropped, never demoted, never relaxed —
+    the boundary is continuous)."""
+    rows: list[Row] = []
+    for j in stage.welded_terraces:
+        src = Source(WELD_GEN, "2026-09-08d (3): a joint over terrace.max_step_m is not a joint",
+                     (f"face:{j.a}", f"face:{j.b}"))
+        for a, b in j.pairs:
+            rows.append(Flat((a, b), src))
+    return rows
 
 
 def apply_joints(cs: ConstraintSet, stage: TerritoryStage) -> ConstraintSet:
@@ -212,10 +294,26 @@ def territory_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: Terr
     unchanged, the filter runs once; the counts carry
     ``joint_dropped.<generator>`` beside the generators' own."""
     cs, counts, walls = generate(pm, law, airport, seam_honoured=seam_honoured)
+    welds = terrace_welds(stage)
+    if welds:
+        cs = cs.merged(ConstraintSet.from_rows(welds))
+    counts[WELD_GEN] = len(welds)
+    walls[WELD_GEN] = 0.0
     t = time.perf_counter()
     cs = apply_joints(cs, stage)
     walls["joint_filter"] = time.perf_counter() - t
     counts["joint_filter"] = sum(stage.dropped.values())
+    # THE YIELDING FAMILIES (RULINGS 2026-09-08d (2); ``constraints/yielding.py``):
+    # the selected hard rows become preferences with escalation ceilings
+    t = time.perf_counter()
+    ys = YieldStats()
+    cs = yield_rows(cs, pm, law, ys)
+    walls["yield"] = time.perf_counter() - t
+    counts["yield"] = sum(ys.by_family.values())
+    for fam, n in sorted(ys.by_family.items()):
+        counts[f"yield.{fam}"] = n
+    for fam, n in sorted(ys.at_ceiling.items()):
+        counts[f"yield.{fam}.at_ceiling"] = n
     for gen, n in sorted(stage.dropped.items()):
         counts[f"joint_dropped.{gen}"] = n
     counts["joint_flats_straddling"] = stage.flats_straddling

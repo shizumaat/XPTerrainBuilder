@@ -1513,6 +1513,17 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     # heading, never dropped, never adjudicated (the v2 verify is the taxi
     # family's instrument).
     withdrawn = stamp_withdrawn_taxi_chords(osm, cg, families)
+    # THE YIELDED ROWS FIGURE (RULINGS 2026-09-08d (2)): the solve's own
+    # sidecar list, summarised per family — the same rows the oracle has
+    # just stamped ``yielded_by_08d`` (a report figure beside the law-true
+    # count of the same rows in their families)
+    yielded = {}
+    for rec in (cg.law_context_from_sidecar(osm, announce=False).get("yielded_rows") or []):
+        fam = str(rec.get("family", "?"))
+        f = yielded.setdefault(fam, {"rows": 0, "max_grade": 0.0})
+        f["rows"] += 1
+        if rec.get("cap_after") is not None:
+            f["max_grade"] = max(f["max_grade"], float(rec["cap_after"]))
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -1632,6 +1643,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "crown_gap": crown_gap,
         "withdrawn_law": withdrawn,
         "apron_over_preference": apron_pref,
+        "yielded_rows": yielded,
         # THE AXIS FRAME, always stamped — "own" for every default run, so
         # a report without the key is simply an older one and a report WITH
         # it can never be mistaken for the other frame.
@@ -1792,6 +1804,12 @@ def print_report(rep: dict, top: int) -> None:
         # heading means the census predates the class and never a
         # silently dropped population.
         oos = adj.get("out_of_scope_classes") or {}
+        yr = rep.get("yielded_rows") or {}
+        if yr:
+            print(f"    YIELDED ROWS (08d, the yielding families' rows over their cap, reported "
+                  f"under 'yielded_by_08d' and counted law-true in their families): "
+                  + ", ".join(f"{k} {v['rows']} (max grade {v['max_grade']:.4f})"
+                              for k, v in sorted(yr.items())))
         ap = rep.get("apron_over_preference") or {}
         if ap.get("rows") is not None:
             faces = sorted((ap.get("faces") or {}).items(),

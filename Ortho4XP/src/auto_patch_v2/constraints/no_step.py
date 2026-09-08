@@ -85,6 +85,9 @@ __all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
            "reach_band_values"]
 
 GEN = "no_step"
+#: The §1.1 pair rows' ruling prefix (both the pavement and the pad-contact
+#: pairs): the yielding transform selects them by it (``constraints/yielding.py``).
+PAIR_RULING_PREFIX = "airside_no_step §1.1"
 
 
 def no_step_roles(law: Law) -> frozenset[str]:

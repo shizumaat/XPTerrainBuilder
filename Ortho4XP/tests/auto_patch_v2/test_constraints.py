@@ -369,8 +369,15 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
     cg = pytest.importorskip("check_grade")
     fam: dict = {}
     cg.run_checks_law_true(res.paths.patch, family_out=fam, quiet=True, top_n=0)
-    v1 = {k: len(v) for k, v in fam.items() if not k.startswith("_") and v}
-    v2 = {k: len(v) for k, v in res.verify_rows.items() if v}
+    # RULINGS 2026-09-08d (2): a row a yielding family holds above its cap
+    # is counted APART on both readers (oracle: ``yielded_by_08d`` out of
+    # scope; v2 verify: ``yielded_by``) — the lockstep is over the rest
+    from auto_patch_v2.verify.census import YIELDED_KEY
+    v1 = {k: n for k, n in ((k, sum(1 for r in v if getattr(r, "out_of_scope", None)
+                                    != cg.YIELDED_OUT_OF_SCOPE))
+                            for k, v in fam.items() if not k.startswith("_") and v) if n}
+    v2 = {k: n for k, n in ((k, sum(1 for r in v if not r.get(YIELDED_KEY)))
+                            for k, v in res.verify_rows.items() if v) if n}
     # the families v2 reads must agree with the oracle's counts wherever
     # both read the same population; a v1 family v2 has no reader for is
     # listed in verify.census.NOT_IMPLEMENTED

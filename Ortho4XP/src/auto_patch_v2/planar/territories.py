@@ -135,6 +135,7 @@ class TerritoryStats:
     labels: int = 0                 # distinct serving contacts
     adjacent_pairs: int = 0         # label pairs met on a planar edge
     joint_pairs: int = 0            # of those, disagreeing under the ceiling predicate
+    over_max_pairs: int = 0         # disagreeing pairs whose predicted step exceeds terrace.max_step_m: NOT a joint (RULINGS 2026-09-08d (3)), the rows stay
     floor_only_pairs: int = 0       # pairs the FLOOR variant separates and the ceiling one does not (report)
     joint_edges: int = 0            # planar edges across a joint
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
@@ -171,6 +172,10 @@ class Territories:
     _bands: dict[int, Band] = _dc.field(default_factory=dict)
     _cap: float = 0.0
     _min_step: float = 0.0
+    #: RULINGS 2026-09-08d (3): the largest step a joint may carry (v1
+    #: APRON_TERRACE_MAX_STEP_M, ``terrace.max_step_m``); a boundary whose
+    #: predicted step exceeds it is NOT a joint — the cell grades through
+    _max_step: float = float("inf")
 
     def joint(self, la: int, lb: int) -> bool:
         """Whether two labels disagree (a joint between their nodes)."""
@@ -191,7 +196,7 @@ class Territories:
         if not math.isfinite(d):
             return False
         gap = abs(self._bands[key[0]][1] - self._bands[key[1]][1])
-        return gap > self._cap * d + self._min_step
+        return self._min_step < gap - self._cap * d <= self._max_step
 
     def weld(self, la: int, lb: int) -> None:
         """Two labels ruled one terrace whatever the predicate says."""
@@ -472,7 +477,7 @@ def label_territories(pm: PlanarMap, law: Law, bands: _t.Mapping[int, Band],
     caps = [role_cap(law, r) for r in tt.cell_roles]
     cap = max((max(rc.longitudinal, rc.transverse) for rc in caps if rc is not None), default=0.0)
     terr = Territories({}, {}, frozenset(), stats, _bands=dict(bands), _cap=cap,
-                       _min_step=tt.min_step_m)
+                       _min_step=tt.min_step_m, _max_step=tt.max_step_m)
     stations = reached_stations(pm, bands)
     terr.contacts = stations
     if len(stations) < 2:
@@ -622,6 +627,8 @@ def _adjacency_report(pm: PlanarMap, terr: Territories, bands, cap: float, min_s
         st.pairs.append([a, b, round(gap, 2), round(d, 1), round(hold, 2), round(fgap, 2), j])
         if j:
             st.joint_pairs += 1
+        elif math.isfinite(d) and gap - cap * d > terr._max_step:
+            st.over_max_pairs += 1
         elif math.isfinite(d) and fgap > hold:
             st.floor_only_pairs += 1
 

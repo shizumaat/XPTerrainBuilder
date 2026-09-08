@@ -7192,6 +7192,10 @@ RETIRED_LAWS: Dict[str, dict] = {
 OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
 #: The ``out_of_scope`` stamp of a row the last resort relaxed (04x-2).
 RELAXED_OUT_OF_SCOPE = "relaxed_by_04t1"
+#: The ``out_of_scope`` stamp of a row a YIELDING FAMILY holds above its cap
+#: (RULINGS 2026-09-08d (2); sidecar ``yielded_rows``): read as lawful
+#: yield under this heading, a VIOLATION under the law-true reading.
+YIELDED_OUT_OF_SCOPE = "yielded_by_08d"
 #: The ``out_of_scope`` stamp of a taxi-family CHORD row on a patch built
 #: under the route law (RULINGS 2026-09-05aa/ab/ac) — stamped by
 #: ``harness/census.py::stamp_withdrawn_taxi_chords`` from the sidecar's
@@ -7247,6 +7251,17 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "``relaxed_rows`` publication, joined by the emitted node "
         "identities; a relaxed row over even its relaxed cap stays a "
         "violation.  Counted in its family, reported under this heading",
+    YIELDED_OUT_OF_SCOPE:
+        "the pair is a row of a YIELDING FAMILY (owner RULINGS 2026-09-08d "
+        "(2), v1's priority model in v2: junction mesh, short-pair box, "
+        "no-step route pairs, apron chords / edge portions, road profiles "
+        "are PREFERENCES with an escalation ceiling, junior to the runway "
+        "chord fit — they yield where the runway demands, as v1's per-edge "
+        "caps did) and it holds at its BUILT grade published in the sidecar "
+        "``yielded_rows`` (``cap_after``), joined by the emitted node "
+        "identities.  The law-true reading (v1's) counts the same row as a "
+        "violation at its cap: the census reports BOTH — counted in its "
+        "family, reported under this heading, never adjudicated",
     "disconnected_ring":
         "the row lies wholly inside a groundside ring the ONE route graph "
         "does not reach — no route, frontage or weld coupling to the "
@@ -7650,6 +7665,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # RELAXED cap and reports it under the ``relaxed_by_04t1`` heading,
     # never as a violation; an airport with only relaxed rows is at zero.
     "relaxed_rows": "relaxed_rows",
+    # THE YIELDED ROWS (RULINGS 2026-09-08d (2)): the rows the yielding
+    # families hold above their cap, with their built grade.  LAW INPUT:
+    # priced at the built grade and reported under ``yielded_by_08d``;
+    # the law-true count of the same rows is the family's own.
+    "yielded_rows": "yielded_rows",
     # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
     # AMENDMENT A1 section 8b).  LAW INPUT, not evidence: the census
     # re-walks the emitted ring and joins these to report priced / bound /
@@ -7933,6 +7953,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["basin_facilities"] = data.get("basin_facilities") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
+    ctx["yielded_rows"] = data.get("yielded_rows") or None
     ctx["apron_tier"] = data.get("apron_tier") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
@@ -7959,6 +7980,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
               + f", ruleset={ctx['ruleset']!r}"
               + (f", {len(ctx['relaxed_rows'])} relaxed row(s) [04t(1)]"
                  if ctx["relaxed_rows"] else "")
+              + (f", {len(ctx['yielded_rows'])} yielded row(s) [08d]"
+                 if ctx["yielded_rows"] else "")
               + " — law-true check)")
     return ctx
 
@@ -8240,7 +8263,8 @@ def row_magnitude(row) -> float:
     return 0.0
 
 
-def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> int:
+def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m,
+                       tag: str = RELAXED_OUT_OF_SCOPE) -> int:
     """THE RELAXED-CAP PRICING (spawner ruling 04x-2; RULINGS 2026-09-04t(1)).
 
     ``relaxed_rows`` is the sidecar publication of ``auto_patch_v2.solve.
@@ -8318,7 +8342,7 @@ def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m) -> in
                 (float(v.grade_pct) - float(v.excess_pct)) / 100.0
             lawful = de - cap * dist <= val + ELEV_ROUNDING_NOISE_M
         if lawful:
-            v.out_of_scope = RELAXED_OUT_OF_SCOPE
+            v.out_of_scope = tag
             n += 1
     return n
 
@@ -8354,6 +8378,7 @@ def run_checks(
     family_out: Optional[dict] = None,
     relaxed_rows: Optional[list] = None,
     apron_tier: Optional[dict] = None,
+    yielded_rows: Optional[list] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -9034,6 +9059,14 @@ def run_checks(
             print(f"  ({len(relaxed_rows)} relaxed row(s) in the sidecar [04t(1)]; "
                   f"{n_relaxed_stamped} census row(s) hold at their relaxed cap "
                   f"and are reported under {RELAXED_OUT_OF_SCOPE!r})")
+    # ── OUT OF SCOPE: THE YIELDING FAMILIES' ROWS (RULINGS 2026-09-08d) ──
+    if yielded_rows:
+        n_yielded_stamped = stamp_relaxed_rows(within + cross, yielded_rows, ll_to_m,
+                                               tag=YIELDED_OUT_OF_SCOPE)
+        if not quiet:
+            print(f"  ({len(yielded_rows)} yielded row(s) in the sidecar [08d]; "
+                  f"{n_yielded_stamped} census row(s) hold at their built grade "
+                  f"and are reported under {YIELDED_OUT_OF_SCOPE!r})")
 
     # ── OUT OF SCOPE: ONE GEOMETRY, ONE ROW SET ───────────────────────
     # Lead ruling 2026-08-07 ("Role-less feature ways side with their

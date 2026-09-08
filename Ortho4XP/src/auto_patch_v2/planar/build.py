@@ -70,6 +70,7 @@ class BuildStats:
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
     terraces: TerraceStats = _dc.field(default_factory=TerraceStats)
+    slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -98,7 +99,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
-                       structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats)
+                       structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
+                       slivers_merged=arr.slivers_merged)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

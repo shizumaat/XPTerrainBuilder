@@ -411,6 +411,12 @@ def test_governed_demotion_is_a_named_failure(law):
 
 
 def test_why_runs_in_relaxed_mode(hangar, law):
+    # under the yielding families (RULINGS 2026-09-08d (2)) the hangar row
+    # is FEASIBLE (its apron rows yield to 3 %); the relaxed-mode ``why``
+    # read is exercised under a law whose [yield] names no family
+    import dataclasses as _dc
+    emit = _dc.replace(law.tables.emit, yielding=_dc.replace(law.tables.emit.yielding, families={}))
+    law = Law(tables=_dc.replace(law.tables, emit=emit), ruleset_key=law.ruleset_key)
     airport, pm, cs = hangar
     lines: list[str] = []
     prep = pwhy._prepare_solved("ZZZZ", airport, pm, law, DEFAULT_WEIGHTS, lines.append)

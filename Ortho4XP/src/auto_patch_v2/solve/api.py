@@ -67,9 +67,14 @@ class Weights:
     #: metre in ``pipeline.build.DEFAULT_WEIGHTS``): the runway's minimal
     #: sag buys apron grade, the DEM never does.  The most junior
     #: preference on the ladder (crown 1e2, end_zone 1e3, seam 1e4, law 1e5).
+    #: THE YIELDING FAMILIES (owner RULINGS 2026-09-08d (2); ``constraints/
+    #: yielding.py``): the ``yield`` prefix — junction mesh, short-pair box,
+    #: no-step §1.1 pairs, apron chords / portions, road profiles — is
+    #: charged like the apron preference: junior to the runway CHORD fit
+    #: (``[common] runway_chord_fit``), senior to every other DEM fit.
     preference: _t.Mapping[str, float] = _dc.field(
         default_factory=lambda: {"law": 1.0e5, "seam": 1.0e4, "end_zone": 1.0e3,
-                                 "crown": 1.0e2, "apron": 0.9})
+                                 "crown": 1.0e2, "apron": 0.9, "yield": 0.9})
     #: THE LAW LADDER (RULINGS 2026-09-04i; ``solve/tiers.py``): the
     #: ``law`` prefix charges the MOST JUNIOR yielding tier (the ungoverned
     #: and rigid surfaces), above the seam DEM preference — the DEM yields

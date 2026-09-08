@@ -123,6 +123,8 @@ class LoadReport:
     #: The flat-site verdict record (``airport/flat_site.record``; set by
     #: the pipeline once the detector ran — ``report.load.flat_site``).
     flat_site: dict | None = None
+    #: the runway chord fit's coverage (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``)
+    runway_chord: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

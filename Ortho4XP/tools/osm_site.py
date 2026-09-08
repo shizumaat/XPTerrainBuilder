@@ -342,8 +342,15 @@ def _library_rings(path: str, probe: tuple[float, float]) -> list:
         from pathlib import Path as _Path
 
         import check_grade as _cg
-        nodes, ways = _cg._parse_osm(_Path(path))
+        features: dict = {}
+        nodes, ways = _cg._parse_osm(_Path(path), feature_out=features)
         source = [(w.wid, w.role, w.ref, w.nids) for w in ways]
+        # the role-less FEATURE ways the census skips (a structure's
+        # ``structure_rim`` ring, a gap interior ring) are rings too:
+        # they join as role ``feature:<o4_feature>`` so ``--relate`` can
+        # read a rim against the ramp it surrounds (2026-09-08a)
+        for feat, fws in features.items():
+            source += [(w.wid, f"feature:{feat}", w.ref, w.nids) for w in fws]
         coordinates = nodes
     except Exception:
         raw_nodes, raw_ways = read_osm(path)
@@ -404,6 +411,26 @@ def contains_at(rings: list, point_xy: tuple[float, float],
     return out
 
 
+def _vertex_gap(a_poly, b_poly) -> tuple:
+    """``(min, median A→B, median B→A)``: the distances from the vertices
+    of one polygon to the OTHER's exterior, over the vertices not ON that
+    exterior (1 mm) — the minimum over both directions and each
+    direction's median (a rim's typical stand-off off its ramp); 0.0
+    where every vertex touches."""
+    from shapely.geometry import Point
+
+    meds = []
+    best = None
+    for src, other in ((a_poly, b_poly), (b_poly, a_poly)):
+        ext = other.exterior
+        ds = sorted(d for d in (ext.distance(Point(xy)) for xy in src.exterior.coords)
+                    if d > 1e-3)
+        meds.append(ds[len(ds) // 2] if ds else 0.0)
+        if ds:
+            best = ds[0] if best is None else min(best, ds[0])
+    return (best if best is not None else 0.0), meds[0], meds[1]
+
+
 def relate_rings(rings: list, way_ids: list) -> list:
     """``[{a, b, ...}, ...]`` — the PAIRWISE relation between the selected
     rings: overlap area, shared-boundary length, containment.
@@ -418,6 +445,16 @@ def relate_rings(rings: list, way_ids: list) -> list:
     BOUNDARIES: two surfaces that merely abut score a long shared edge
     with ~0 overlap area, which is exactly the "wraps around and
     edge-shares" shape the mouth law forbids.
+
+    ``boundary_gap_m`` is the smallest distance from a VERTEX of either
+    ring to the OTHER ring's exterior, over the vertices that do not lie
+    on it, and ``a_off_b_median_m`` / ``b_off_a_median_m`` each
+    direction's median — ``gap_m`` reads 0 for a ring around another (a
+    ``structure_rim`` around its ramp; a U rim's chain even ends on the
+    ramp's top corners), and the question there is how far the rim's own
+    vertices stand off the ramp edge: the mesh wall band's width
+    (RULINGS 2026-09-08a; the median is the typical side stand-off, the
+    minimum a corner's).  0 where every vertex touches.
     """
     index = {way_id: (role, ref, polygon)
              for role, ref, way_id, polygon in rings}
@@ -434,6 +471,7 @@ def relate_rings(rings: list, way_ids: list) -> list:
                 a_in_b = b_poly.buffer(1e-6).covers(a_poly)
                 b_in_a = a_poly.buffer(1e-6).covers(b_poly)
                 gap = a_poly.distance(b_poly)
+                bgap, med_ab, med_ba = _vertex_gap(a_poly, b_poly)
             except Exception:                          # pragma: no cover
                 continue
             if overlap <= 0.0 and edge <= 0.0 and gap > 0.5:
@@ -446,6 +484,9 @@ def relate_rings(rings: list, way_ids: list) -> list:
                 "overlap_m2": round(overlap, 2),
                 "shared_edge_m": round(edge, 2),
                 "gap_m": round(gap, 3),
+                "boundary_gap_m": round(bgap, 3),
+                "a_off_b_median_m": round(med_ab, 3),
+                "b_off_a_median_m": round(med_ba, 3),
                 "a_inside_b": bool(a_in_b),
                 "b_inside_a": bool(b_in_a),
             })
@@ -610,7 +651,10 @@ def main(argv: list[str] | None = None) -> int:
                       f"{pair['b_ref']}, {pair['b_area_m2']} m2)  "
                       f"overlap={pair['overlap_m2']} m2  "
                       f"shared_edge={pair['shared_edge_m']} m  "
-                      f"gap={pair['gap_m']} m  {verdict}")
+                      f"gap={pair['gap_m']} m  "
+                      f"boundary_gap={pair['boundary_gap_m']} m "
+                      f"(median A off B {pair['a_off_b_median_m']}, "
+                      f"B off A {pair['b_off_a_median_m']})  {verdict}")
         elif args.dump is not None:
             entry["dump"] = dump_way(nodes, ways, args.dump, probe)
             print(f"=== {path}: way {args.dump}")

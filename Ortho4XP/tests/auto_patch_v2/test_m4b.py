@@ -283,23 +283,25 @@ def test_basin_pass_cells_records_and_refusals(basin_map, law):
     floor = next(c for c in cl3.cells if c.ref == b.floor_ref)
     wall = next(c for c in cl3.cells if c.ref == b.wall_ref)
     assert floor.ref == b.floor_ref and wall.ref == b.wall_ref and len(wall.holes) == 1
-    # THE TRENCH (2026-09-06b (1)): the floor = the plate ⊕ floor_overlap_m
-    # (on the identity grid); the void's hole IS the floor; the rim (its
-    # exterior) = the shell's footprint ⊕ rim_gap_m, clearing the floor by it
+    # THE TRENCH (2026-09-06b (1), 09-08a): the floor = the plate ⊕
+    # floor_overlap_m (on the identity grid); the void's hole IS the floor;
+    # the rim (its exterior) stands inside the shell's footprint, clearing
+    # the floor by rim_standoff (the identity spacing at least)
     fp, wp = Polygon(floor.ring), Polygon(wall.ring, wall.holes)
     from shapely import affinity as _aff
     plate = _aff.affine_transform(Polygon([(-30, -20), (30, -20), (30, 20), (-30, 20)]),
                                   obj8.placement_affine((0.0, 0.0), 30.0))
     assert fp.contains(plate) and fp.exterior.distance(plate.exterior) >= co.floor_overlap_m - 1e-6
     assert Polygon(wall.holes[0]).equals(fp)
-    assert wp.exterior.distance(fp) >= co.rim_gap_m - 1e-6
-    assert Polygon(wall.ring).contains(plate.buffer(co.rim_gap_m - 1e-6))
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    assert wp.exterior.distance(fp) >= grid - 1e-6
+    assert Polygon(wall.ring).contains(plate.buffer(co.floor_overlap_m - 1e-6))
     # the pad inside the pit is gone, the one beside it untouched, the apron cut at the rim
     refs = [c.ref for c in cl3.cells]
     assert "padIn" not in refs and "padOut" in refs
     apron = [c for c in cl3.cells if c.role == "apron"]
     assert apron and all("basin_cut" in c.evidence for c in apron)
-    assert Polygon(apron[0].ring, apron[0].holes).distance(fp) >= co.rim_gap_m - 1e-6
+    assert Polygon(apron[0].ring, apron[0].holes).distance(fp) >= grid - 1e-6
     assert len(cl3.keepouts) == 2
     # the planar map carries the record; 0 T-vertices
     assert pm.basins and pm.basins[0].id == b.id and stats.t_vertices == 0

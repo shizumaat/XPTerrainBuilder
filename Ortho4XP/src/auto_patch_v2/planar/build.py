@@ -37,6 +37,9 @@ from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
+from ..airport.door_wells import DoorStats, read_door_wells
+from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
+from .door_ramps import door_groups, sunken_groups
 
 __all__ = ["BuildStats", "build"]
 
@@ -69,6 +72,9 @@ class BuildStats:
     basins: BasinStats = _dc.field(default_factory=BasinStats)
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
+    #: RULINGS 2026-09-08b/c: the door wells and sunken roads read
+    door_wells: DoorStats = _dc.field(default_factory=DoorStats)
+    sunken_roads: SunkenRoadStats = _dc.field(default_factory=SunkenRoadStats)
     terraces: TerraceStats = _dc.field(default_factory=TerraceStats)
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
 
@@ -91,8 +97,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1): read over the
     # geometry the cache already holds, they replace the OSM bores they cover
     corridors, tstats = read_corridors(airport, objects, cache, law)
+    # THE DOOR WELLS AND SUNKEN ROADS (RULINGS 2026-09-08b/c): read over the
+    # same geometry, built through the same structure machinery
+    wells, dstats = read_door_wells(airport, objects, cache, law)
+    roads, rstats = read_sunken_roads(airport, objects, cache, law)
+    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
-                                                       corridors)
+                                                       corridors, extra)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep)
     bstats.objects = orep
@@ -100,7 +111,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     arr = build_arrangement(airport, classification, law, grid_m)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
-                       slivers_merged=arr.slivers_merged)
+                       slivers_merged=arr.slivers_merged,
+                       door_wells=dstats, sunken_roads=rstats)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

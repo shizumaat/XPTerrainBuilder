@@ -88,6 +88,8 @@ GEN = "structures"
 #: the verify reader keys the same strings) — the join keys of ``_faces_of``.
 RAMP_REF = "tunnel_ramp"
 WALL_REF = "tunnel_wall"
+#: A door ramp's role AND ref (RULINGS 2026-09-08b/c Law A).
+DOOR_RAMP_REF = "door_ramp"
 #: Two ramp vertices closer than this along the axis are one station.
 _STATION_CLUSTER_M = 1.0
 
@@ -127,8 +129,13 @@ def wall_faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel]) -> dict[str, 
 
 
 def ramp_faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel]) -> dict[str, list[Face]]:
-    """Tunnel id -> its ``tunnel_ramp`` faces."""
-    return _faces_of(planar, tunnels, "tunnel_ramp", RAMP_REF, lambda tn: tn.axis)
+    """Tunnel id -> its ``tunnel_ramp`` faces, and a door's ``door_ramp``
+    faces (RULINGS 2026-09-08b/c: the door ramp is its own role)."""
+    out = _faces_of(planar, tunnels, "tunnel_ramp", RAMP_REF, lambda tn: tn.axis)
+    for k, fs in _faces_of(planar, tunnels, DOOR_RAMP_REF, DOOR_RAMP_REF,
+                           lambda tn: tn.axis).items():
+        out.setdefault(k, []).extend(fs)
+    return out
 
 
 def ramp_groups(planar: PlanarMap, tn: Tunnel, face: Face
@@ -189,13 +196,15 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                          f"'plate' / 'wall_end' are generated")
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
+    co = law.tables.structures.cutout
+    from ..model.structures import profile_z
 
     def pin(v: int, z: float, src: Source, senior: bool = False) -> None:
         if senior or v not in pins:
             pins[v] = Pin(v, z, src)
 
     vw = view(planar, law)
-    structure_roles = ("tunnel_ramp", "retaining_wall")
+    structure_roles = ("tunnel_ramp", DOOR_RAMP_REF, "retaining_wall")
 
     def shared_with_ground(v: int) -> bool:
         """A governed face other than the structure's own touches ``v``
@@ -209,7 +218,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     def on_floor(v: int) -> bool:
         """A ramp / floor face touches ``v``: a U void's exterior runs along
         the ramp's own edges — those vertices are the ramp's, never rim."""
-        return any(planar.faces[fid].role in ("tunnel_ramp", "tunnel_trench")
+        return any(planar.faces[fid].role in ("tunnel_ramp", DOOR_RAMP_REF, "tunnel_trench")
                    for fid in vw.vertex_faces[v])
 
     walls = wall_faces_of(planar, tunnels)
@@ -225,6 +234,9 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
         src_wall = Source(GEN, "tunnel.crest = dem: the rim at the DEM by station "
                           "(2026-09-03b L1; 2026-09-06b no band)", inputs)
+        # the descent law's cap: a door ramp's own (09-08b/c Law A), else the tunnel's
+        ramp_cap = co.door.ramp_grade if tn.source == "door" else tn_law.ramp_max_grade
+        src_profile = None
         if tn.source == "object":
             # THE OBJECT CORRIDOR (RULINGS 2026-09-05n): the band's crest is
             # the GROUND by station (``plate_datum = "ground"`` — the object
@@ -235,6 +247,26 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               "(2026-09-03b L1; 2026-09-05n-4) under an object corridor", inputs)
             src_mouth = Source(GEN, "tunnel.object.mouth_depth = plate: ground(mouth) − plate "
                               "height (2026-09-05n-1)", inputs)
+        elif tn.source == "door":
+            # THE DOOR RAMP (RULINGS 2026-09-08b/c Law A): the well floor
+            # pinned at the SILL, the climb at cutout.door.ramp_grade, the
+            # rim the ground by station inside the well's walls (09-08a)
+            inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
+            src_ramp = Source(GEN, "cutout.door.ramp_grade: the door ramp's descent law "
+                              "(2026-09-08b/c Law A)", inputs)
+            src_mouth = Source(GEN, "cutout.door: the well floor = the sill plate "
+                              "(2026-09-08b/c Law A)", inputs)
+            src_wall = Source(GEN, "cutout.door: the rim at the ground by station inside the "
+                              "well's walls (2026-09-08a; 2026-09-08b/c Law A)", inputs)
+        elif tn.source == "sunken_road":
+            # THE SUNKEN ROAD (Law B): every station at the plate's own y
+            inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
+            src_mouth = Source(GEN, "cutout.sunken_road: the cut at max_depth_m — the plate's "
+                              "floor there (2026-09-08b/c Law B)", inputs)
+            src_wall = Source(GEN, "cutout.sunken_road: the rim at the ground by station inside "
+                              "the walls (2026-09-08a; 2026-09-08b/c Law B)", inputs)
+            src_profile = Source(GEN, "cutout.sunken_road: the floor = the plate's own y per "
+                                 "station (2026-09-08b/c Law B)", inputs)
         # ── the rim: the ground by station (the void's exterior ring) ──
         path = LineString(tn.wall_path) if len(tn.wall_path) >= 2 else None
         cap_reps: list[int] = []
@@ -263,6 +295,16 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for s, vs in groups:
                 if len(vs) > 1:
                     rows.append(Flat(tuple(vs), src_flat))
+            if src_profile is not None and tn.profile:
+                # a sunken road: the floor IS the plate — every station
+                # group pinned at its y (the plate's own grade, under the
+                # ramp cap by ``door_ramps.sunken_groups``); no descent
+                # rows, no DEM top: the pins are the law
+                for s, vs in groups:
+                    z = profile_z(tn.profile, min(s, tn.top_s))
+                    for v in vs:
+                        pin(v, z, src_profile, senior=True)
+                continue
             # THE DESCENT LAW AS THE CENSUS PRICES IT (``within_shape``:
             # every ring vertex pair at the role cap over the DIRECT
             # distance — a curved corridor's chord across the bend is
@@ -275,7 +317,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     (xb, yb) = planar.vertices[ids[j]].xy
                     d = math.hypot(xa - xb, ya - yb)
                     if d > 1e-6:
-                        rows.append(Diff(ids[i], ids[j], tn_law.ramp_max_grade, d, src_ramp))
+                        rows.append(Diff(ids[i], ids[j], ramp_cap, d, src_ramp))
             # the datum: the mouth, every covered stretch, and the resume
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)
@@ -308,7 +350,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             group = tuple(sorted(set(datum_vs)))
             if len(group) > 1:
                 rows.append(Flat(group, src_mouth))
-            if tn.source == "object":
+            if tn.source in ("object", "door", "sunken_road"):
                 pin(group[0], tn.mouth_z, src_mouth, senior=True)
             elif len(cap_reps) == 1:
                 rows.append(Linear(((group[0], 1.0), (cap_reps[0], -1.0)),

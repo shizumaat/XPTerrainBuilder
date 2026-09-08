@@ -24,7 +24,22 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["Deck", "Tunnel", "Basin"]
+__all__ = ["Deck", "Tunnel", "Basin", "profile_z"]
+
+
+def profile_z(profile: "tuple[tuple[float, float], ...]", s: float) -> float:
+    """A sunken road's floor at ``s`` along its axis: linear between the
+    profile's stations ``(s, z)``, the end values beyond them (RULINGS
+    2026-09-08b/c Law B: the floor is the plate's own y per station)."""
+    if s <= profile[0][0]:
+        return float(profile[0][1])
+    if s >= profile[-1][0]:
+        return float(profile[-1][1])
+    for (sa, za), (sb, zb) in zip(profile[:-1], profile[1:]):
+        if sa <= s <= sb:
+            f = (s - sa) / ((sb - sa) or 1.0)
+            return float(za + (zb - za) * f)
+    return float(profile[-1][1])
 
 
 @_dc.dataclass(frozen=True)
@@ -139,6 +154,18 @@ class Tunnel:
     #: stations stand outside it by the identity spacing, whichever side
     #: of the outer face the trench rim is on; empty for an OSM bore.
     footprint: tuple[XY, ...] = ()
+    # ── THE RAMP LAWS (RULINGS 2026-09-08b/c; spec othh-terminal-ramps-spec.md) ──
+    #: ``source`` is ``"door"`` (Law A: the well is the "walls" —
+    #: ``wall_length_m`` its reach ⊕ overlaps, ``mouth_z`` the SILL,
+    #: ``hull_width_m`` the sill width, the climb beyond at
+    #: ``design_grade`` = ``cutout.door.ramp_grade``) or ``"sunken_road"``
+    #: (Law B: ``profile`` the plate's own floor per station ``(s, z)`` from
+    #: the deep-end cut, pinned by the generator; ``mouth_z`` the floor at
+    #: the cut).  Both: ``seat = "none"`` — never plate-seated.
+    profile: tuple[tuple[float, float], ...] = ()
+    #: A door ramp's ground at the top station and the climb's reach
+    #: (``top_s − wall_length_m``: the "small ramp" the owner asked for).
+    top_ground_z: float | None = None
 
 
 @_dc.dataclass(frozen=True)

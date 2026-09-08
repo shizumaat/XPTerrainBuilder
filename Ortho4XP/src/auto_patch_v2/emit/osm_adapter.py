@@ -193,6 +193,12 @@ def render_patch(surface: GradedSurface, law: Law,
                 prior = extra.get("o4_grade_law_cap")
                 cap = rc.longitudinal if prior is None else min(rc.longitudinal, float(prior))
                 extra["o4_grade_law_cap"] = f"{cap:g}"
+            if spec.oracle_law is not None:
+                # THE ORACLE'S LAW OVERRIDE (``oracle_law``): the v1 census
+                # prices ``o4_grade_law=<law>`` at ROLE_GRADE_LIMITS[<law>]
+                # composed with the cap tag — a door ramp under tunnel_ramp
+                # reads service_road's 8 % (spec othh-terminal-ramps §4)
+                extra["o4_grade_law"] = spec.oracle_law
         tags = [("aeroway", spec.aeroway if spec else "apron"),
                 ("ref", f.ref), ("role", role), ("shapeID", str(f.id))]
         if f.code_letter:

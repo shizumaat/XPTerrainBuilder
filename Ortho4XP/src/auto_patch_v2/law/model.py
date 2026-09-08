@@ -21,6 +21,8 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Rebake  # noqa: F401
+# the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
+from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 from .yield_schema import Yield, check_yield as _check_yield  # noqa: F401
@@ -366,15 +368,6 @@ class Basin:
 
 
 @_dc.dataclass(frozen=True)
-class Cutout:
-    """Below-grade object trench: floor ⊕ overlap, rim INSIDE the wall, no band (06b (1), 09-08a)."""
-
-    floor_overlap_m: float
-    rim_inset_fraction: float
-    emit_wall_band: bool
-
-
-@_dc.dataclass(frozen=True)
 class RetainingWall:
     """Where a wall may exist at all (RULINGS 2026-08-07, 2026-08-21d)."""
 
@@ -573,6 +566,10 @@ class RoleSpec:
     #: preference's — the flat datum rows skip every vertex such a face
     #: touches (RULINGS 2026-09-05k-2 amendment: OTHH ramp lifted 3.7 m).
     structure: bool = False
+    #: The v1 grade LAW the oracle prices the alias under (``o4_grade_law``:
+    #: ``ROLE_GRADE_LIMITS[<law>]``) when the alias caps tighter than this
+    #: role (a door ramp under ``tunnel_ramp``, spec othh-terminal-ramps §4).
+    oracle_law: str | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -855,6 +852,9 @@ def _check_cross_refs(t: LawTables) -> None:
     for r in t.common.roles:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")
+    door_cap = t.common.roles.get("door_ramp")
+    _check_cutout(t.structures.cutout, None if door_cap is None else door_cap.longitudinal,
+                  LawError)
     for grp in (t.precedence.taxi_family.members,
                 t.precedence.runway_family.members):
         for r in grp:

@@ -67,9 +67,18 @@ class _Chord:
 
 
 def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
-                         report: ChordReport | None = None) -> dict[int, float]:
+                         report: ChordReport | None = None, *,
+                         fill_roles: tuple[str, ...] = (),
+                         fill_within: str = "graded_strip") -> dict[int, float]:
     """Vertex -> chord target for every runway-family vertex of a runway
-    with two CIFP pins (module docstring)."""
+    with two CIFP pins (module docstring).
+
+    ``fill_roles`` (an EXPERIMENT ARM, lane ``v2chord2`` for owner decision
+    08g-2 — v1's strips and connectors ride the runway's fill): the faces
+    of these roles ALSO take the crown-plane chord target, restricted to
+    vertices incident to a ``fill_within`` face (the strip), so a
+    connector beyond the strip keeps its own target.  A runway-family
+    target always wins on a shared vertex."""
     vw = view(pm, law)
     chains = ridge_chains(vw)
     pins = threshold_pins(pm, law, airport)
@@ -95,12 +104,21 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
         chords[rw.id] = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
     out: dict[int, float] = {}
     above = below = 0.0
-    for f in vw.faces_of_role(RUNWAY_FAMILY):
-        refs = [r for r in ([f.ref] if f.role == "runway" else f.ref.split("+")) if r in chords]
+    faces = [(f, False) for f in vw.faces_of_role(RUNWAY_FAMILY)]
+    if fill_roles:
+        faces += [(f, True) for f in vw.faces_of_role(fill_roles)]
+    for f, is_fill in faces:
+        if is_fill:
+            refs = list(chords)                      # the nearest chain of any chord runway
+        else:
+            refs = [r for r in ([f.ref] if f.role == "runway" else f.ref.split("+")) if r in chords]
         if not refs:
             continue
         for v in vw.rings[f.id]:
             if v in out:
+                continue
+            if is_fill and f.role != fill_within and not any(
+                    pm.faces[g].role == fill_within for g in pm.vertices[v].incident_faces):
                 continue
             best: tuple[float, float] | None = None       # (lateral d, chord z at the foot)
             p = vw.xy[v]
@@ -111,7 +129,10 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                         continue
                     d, k, t, _s = project_to_chain(p, [vw.xy[q] for q in ch])
                     (xa, ya), (xb, yb) = vw.xy[ch[k]], vw.xy[ch[k + 1]]
-                    zc = c.z(c.station(xa + t * (xb - xa), ya + t * (yb - ya)))
+                    sc = c.station(xa + t * (xb - xa), ya + t * (yb - ya))
+                    if is_fill and not (c.s0 <= sc <= c.s1):
+                        continue                 # a fill target never extrapolates past a pin
+                    zc = c.z(sc)
                     if best is None or d < best[0]:
                         best = (d, zc)
             if best is None:
@@ -119,6 +140,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
             d, zc = best
             out[v] = zc - crown * d
             dem = pm.vertices[v].dem_z
+            if is_fill and dem is not None and out[v] < dem:
+                continue                     # a fill target FILLS; where the DEM is higher it stays the target
             if dem is not None:
                 above = max(above, out[v] - dem)
                 below = max(below, dem - out[v])
@@ -129,10 +152,12 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
 
 
 def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
-                      report: ChordReport | None = None) -> PlanarMap:
+                      report: ChordReport | None = None, *,
+                      fill_roles: tuple[str, ...] = ()) -> PlanarMap:
     """``pm`` with the chord targets merged into ``preferred_z`` (on a
-    shared vertex the runway family's target wins: the runway is senior)."""
-    targets = runway_chord_targets(pm, law, airport, report)
+    shared vertex the runway family's target wins: the runway is senior).
+    ``fill_roles``: see ``runway_chord_targets`` (experiment arm)."""
+    targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
     if not targets:
         return pm
     merged = dict(pm.preferred_z)

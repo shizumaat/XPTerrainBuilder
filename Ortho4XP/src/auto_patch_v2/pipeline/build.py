@@ -280,12 +280,25 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"map {tj.refused_map}", out)
     ss = pstats.structures
     ts = pstats.tunnel_objects
-    if ss.bores or ss.object_corridors or ts.refused:
+    ds, rs = pstats.door_wells, pstats.sunken_roads
+    if ds.wells or ds.refused or rs.roads or rs.refused:
+        _say(f"[{icao}] door wells (09-08b/c Law A): {ds.wells} of {ds.regions} regions in "
+             f"{ds.families} families ({ds.sill_witnesses} sill witnesses over {ds.screened} "
+             f"screened placements, {ds.basin_gate_components} basin-gate components left to the "
+             f"basin pass; {ds.read_s:.2f} s)  sunken roads (Law B): {rs.roads} of {rs.plates} "
+             f"plates in {rs.families} families ({rs.read_s:.2f} s)  refused {len(ds.refused)} / "
+             f"{len(rs.refused)}", out)
+        for r in ds.refused[:40]:
+            _say(f"    refused door {r}", out)
+        for r in rs.refused[:40]:
+            _say(f"    refused sunken road {r}", out)
+    if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ts.refused:
         _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered}, replaced by "
              f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths}  duals merged "
              f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
              f"{ts.signatures} of {ts.resources} resources, merged {ts.merged}, "
-             f"{ts.signature_s:.2f} s)  tunnels {ss.tunnels}  decks {ss.decks}  "
+             f"{ts.signature_s:.2f} s)  door ramps {ss.door_ramps}  sunken roads "
+             f"{ss.sunken_roads}  tunnels {ss.tunnels}  decks {ss.decks}  "
              f"cells cut {ss.cells_cut}  refused {len(ss.refused) + len(ts.refused)}", out)
         for r in ts.refused:
             _say(f"    refused object {r}", out)
@@ -305,6 +318,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                      f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
                      f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
                      f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
+                     f"{'; '.join(tn.notes)}", out)
+                continue
+            if tn.source in ("door", "sunken_road"):
+                # RULINGS 2026-09-08b/c: the per-site line the report quotes
+                _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
+                     f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
+                     f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
+                     f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
+                     f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
+                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
                      f"{'; '.join(tn.notes)}", out)
                 continue
             _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
@@ -544,6 +567,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             plates = _plate_seats(pm, law)
             excluded = set() if law.tables.structures.basin.seat == "floor_plate" \
                 else {oid for b in pm.basins for oid in b.objects}
+            # seat = "none" (RULINGS 2026-09-08b/c, spec §2 / §3): a door
+            # ramp's or a sunken road's family is NEVER re-seated by its
+            # trench — the cluster law would sink the well's neighbours into
+            # the ramp (measured OTHH: 8 Parking-Left/Right objects written)
+            excluded |= {oid for tn in pm.structures if tn.source in ("door", "sunken_road")
+                         for oid in tn.objects}
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
                                 exclude=excluded,

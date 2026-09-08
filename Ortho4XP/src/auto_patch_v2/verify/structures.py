@@ -188,7 +188,7 @@ def structure_rim_gap(p: Patch) -> list[Row]:
     off every floor and ramp vertex in plan (the void the mesh makes the
     wall in).  Each miss is a row naming the rim and the floor."""
     gap = p.law.tables.emit.identity.min_distinct_spacing_m
-    floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp")]
+    floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp", "door_ramp")]
     if not floors:
         return []
     floor_ids = {v: sh for sh in floors for v in sh.ids}

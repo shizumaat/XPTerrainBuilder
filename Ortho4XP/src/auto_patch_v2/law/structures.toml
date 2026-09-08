@@ -90,6 +90,43 @@ floor_overlap_m     = 0.3           # the floor extends this far OUTWARD past th
 rim_inset_fraction  = 0.5           # the at-grade rim stands this fraction of the wall's measured plan thickness INSIDE its outer face (09-08a; was rim_gap_m = 0.3 OUTSIDE it)
 emit_wall_band  = false             # no wall face is emitted between floor and rim: the rim is a constrained ring (o4_feature=structure_rim), the mesh triangulates the wall (only false is generated)
 
+[cutout.door]                       # RULINGS 2026-09-08b/c LAW A — THE DOOR RAMP (spec othh-terminal-ramps-spec.md §2)
+# Where a below-grade floor plate of an object REACHES ITS EXTERIOR FACE (the
+# plate boundary leaves the object's own at-grade geometry: a basement access
+# door, not a basement), cut a trench of the sill's width from the sill up to
+# grade at ramp_grade, OUTSIDE the building only, along the outward normal of
+# that face.  The well floor = the sill plate ⊕ floor_overlap_m (flat at the
+# sill); the rim per 09-08a inside the well's walls; beyond the well the OSM
+# ramp law's stand-off (as an object corridor beyond its walls).  Measured
+# OTHH (scout othhterminal): six wells, sills 1.57-1.70 m under the ground,
+# 3.7-5.2 m wide, under the 2.5 m basin gate — nothing was emitted.
+sill_min_depth_m = 0.5              # the door's own gate (a sill shallower than this is a threshold, not a door); separate from basin.admission_depth_m
+sill_min_width_m = 1.0              # narrower is a drain / a duct, not a door
+exit_max_fraction = 0.5             # the well's rectangle side OPPOSITE the face (the ramp's exit) lies under the family's above-band solids (obj8.above_grade_footprint, basin.contact_band_m) over at most this share of its length; more is a covered slot (OTHH Terminal_Parking_006's light slots), never a door.  The FACE is the well's longer side nearer the MASS of the family's above-band solids around it (the building; the ramp leaves away from it).  OPEN (lane v2doorramp): OTHH's car-park wells are closed four-walled boxes hanging from the facade lattice, the door a texture on the building-side wall — no pack geometry names the door side; the building's mass is the last discriminating signal
+ramp_grade       = 0.08             # the climb beyond the well: a 1.70 m sill -> 21 m (the owner's "small ramp"; the pack's own geometry implies >= 7.5 %: the nearest road 22.8 m away); <= the door_ramp role cap (rulesets.toml), checked at load.  ALSO the sill test: a plate descending at or under this over its reach is a ramp of the object's own (OTHH Terminal_Parking_006's 21 m car-park ramp loop at 5 %), never a sill — a well's steps down to its door are far steeper
+max_length_m     = 25.0             # a climb that cannot reach the ground within this is refused loudly, never a shallower ramp
+station_m        = 2.0              # ramp station spacing along the climb (the top station stands one station past where the climb meets the ground)
+seat             = "none"           # the door family is NEVER re-seated by its trench (spec §2: a floor_plate seat would move all 35 members of OTHH unit:22); members standing > basin.contact_band_m under the mesh are facility members (05p/05q) and keep their authored y
+
+[cutout.sunken_road]                # RULINGS 2026-09-08b/c LAW B — THE SUNKEN ROAD under the building (spec §3)
+# A floor plate below the seat that is ROOFED (the tunnel-object signature's
+# and the basin pass's refusal) whose plate reaches within basin.contact_band_m
+# of the ground at one end is a SUNKEN ROAD: that end is the mouth; the trench
+# = the plate ⊕ floor_overlap_m along its axis, the floor = the plate's OWN y
+# per station (OTHH TerminalRoads_03_000 / 02_000: 183 m at 1.7 % down to
+# 3.1-3.2 m), cut only to max_depth_m — deeper is the underground road, the
+# terrain stays (a terrain end wall across the road at that station, hidden
+# by the object's own tube); the rim inside the wall (09-08a); the deck above
+# untouched (the roof is the object).  Read per ANCHOR FAMILY (the roof and
+# the deep continuation are other members of the same anchor).
+max_depth_m      = 4.0              # the cut ends where the plate reaches this depth under the local ground
+top_depth_m      = 0.1              # the trench's top station: the first station (from the deep end) at which the plate lies within this of the ground — the floor there is the plate's y, the rim converges to it
+min_descent_m    = 1.0              # the plate descends at least this between its grade end and its deep end (a kerb dip is not a sunken road)
+min_plate_m2     = 200.0            # a connected near-horizontal plate smaller than this is not a road (a ramp panel, a step)
+roof_min_fraction = 0.5             # the plate lies under the family's own above-band solids (basin.contact_band_m; obj8.above_grade_footprint) over at least this share of its area — a sunken road is ROOFED (spec §3 "a floor plate below the seat that is ROOFED"); less is an open ramp the tunnel / basin laws own (measured OTHH: the bus bridges' bank plates 16-20 % under their decks, 1.8 m deep, would otherwise be cut)
+station_m        = 10.0             # station spacing along the plate's axis (the profile is sampled here; the within-shape law prices every ring pair)
+seat             = "none"           # the family is NEVER re-seated by its trench (spec §3: unit:26's 399 members stay)
+
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
 clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful

@@ -65,15 +65,119 @@ per station from the plate, `climbs = False` at the deep end;
 never a basement (`basement_cover_min` applies to level, closed plates
 only). `seat = "none"` likewise (unit:26's 399 members stay).
 
-## 4. Consumer census (owner 30l) — the lane writes the table before
-editing: `obj8._witness` / `at_grade_geometry`, `basins.py` (the
-basement branch exempts door reaches and varying plates),
-`structure_geometry.py` ramp rings, `structures.py` group builder
-(`_pad_hit` :445 must not refuse a door ramp against its own pad — it
-starts at the face by construction), `object_corridor.py`,
-`precedence.toml`, `emit/rebake.py` facility rule, `verify/structures.py`
-and the oracle's structure readings, `flat_site.py` (structure faces are
-already excluded from the flat datum), the census.
+## 4. Consumer census (owner 30l) — written by lane `v2doorramp` BEFORE editing
+
+The new geometry: two `Tunnel` records per law (`source = "door"` /
+`"sunken_road"`), a door's ramp cells (new role `door_ramp`, ref
+`door_ramp`) and a sunken road's ramp cells (role `tunnel_ramp`), each
+with the void face (`retaining_wall`, ref `tunnel_wall`) whose exterior
+is the rim.  Both enter `build_structures`' ONE group loop (05n's
+object-corridor path), so every consumer of a tunnel structure is a
+consumer here.  Ruled per pass, in one table:
+
+| Pass | Reads | Interaction | Ruling |
+|---|---|---|---|
+| `airport/obj8.py` `_witness` / `at_grade_geometry` / `above_grade_footprint` | the components, the ground-contact linework, the cover | reused READ-ONLY by the two new readers; `FloorWitness` gains `plate_y_min` (the plate faces' own deepest y — the sill) | the 2.5 m basin admission is untouched; the door gate (`sill_min_depth_m`) is the reader's own |
+| `airport/door_wells.py` (new) | sill witnesses ≥ `sill_min_depth_m` under the local ground, the family's own at-grade polygons | a well = a below-ground region whose boundary is partly INSIDE the family's cover (the sill line, ≥ `sill_min_width_m`) and partly outside; own cover ≥ `basement_cover_min` → basement, nothing; a component reaching the basin gate is the basin pass's | the door is read where the plate leaves the object's at-grade geometry (§2), never by proximity |
+| `airport/sunken_roads.py` (new) | every anchor FAMILY's near-horizontal genuine faces at or under the ground | a connected plate ≥ `min_plate_m2` whose station profile reaches within `contact_band_m` of the ground at one end and descends ≥ `min_descent_m` is a sunken road; the trench runs from the top station (`top_depth_m`) to the station where the plate reaches `max_depth_m` | DEVIATION from §3's "third class in `tunnel_objects.signature`": the wall signature is per RESOURCE in the authored frame, the sunken plate is a per-FAMILY reading (03_000's roof is 03_002, the deep continuation another member) — the class lives in its own reader; `signature()` keeps its "roofed" refusal, the line names the reader that owns it |
+| `planar/basins.py` | the witnesses (2.5 m gate), the structures already built | a door well never reaches it (no witness); the sunken road is a STRUCTURE before the basin pass runs — an overlapping region is refused by the existing "overlaps a tunnel structure" rule | the basement branch needs NO exemption: the order settles it (30l: trim at the derivation, no per-consumer veto); `shell_thickness_m` gains `exclude` (sill-line samples are not wall samples) |
+| `planar/structure_geometry.py` | axis, half / rim functions | reused unchanged: a capped U (the cap at the building face / the deep-end cut) | rim = `rim_standoff` of the measured side thickness (08a); beyond the well the OSM stand-off, as an object corridor beyond its walls |
+| `planar/object_corridor.py` `Group` | — | fields added: `kind`, `max_grade`, `max_length_m`, `spacing_m`, `climb_from_s`, `stop_at_pavement`, `profile` | `object_groups` unchanged in behaviour |
+| `planar/structures.py` `build_structures` / `_ramp_top` / `_pad_hit` | the groups | the climb grade / length / spacing are the group's; a door ramp's climb starts at the well's outer edge (the well floor is the sill); `_pad_hit` for a door probes EVERY non-structure cell BEYOND the well except the HOST cell(s) holding the well's outer edge (the pavement the well stands in is cut like any structure; a pavement the ramp would ENTER stops it: `clipped_by`, the ramp steps — §2 "report the case"); the well cuts every cell incl. pads (hull knife, 08-26) | runway-family / strip refusals unchanged |
+| `planar/structures.ramp_targets` | tunnel records | door faces target the design line (flat in the well, 8 % beyond); sunken faces the plate profile | the objective never pulls the ground |
+| `constraints/structures.py` | the ramp / void faces | Diff cap per tunnel: `cutout.door.ramp_grade` for a door, `tunnel.ramp_max_grade` else; the mouth pinned absolute (as an object corridor); a sunken road's EVERY station group pinned at the plate profile (senior); `structure_roles` += `door_ramp` | ids `door:` / `sunken-road:` are outside `[structures] datum_order` — `reconcile_datums` neither withdraws nor ranks them (no shared vertex with a tunnel or basin rim is expected; reported if the build shows one) |
+| `precedence.toml` | — | role `door_ramp` (common, groundside, value, structure, `oracle_role = tunnel_ramp`, `oracle_law = service_road`), NOT in `[authority] order` (tier after the named, as an omitted governed role) | DEVIATION from §2's "`tunnel_ramp`-class face": `tunnel_ramp` is capped 4 % in BOTH instruments (rulesets / v1 `ROLE_GRADE_LIMITS`) — an 8 % ramp emitted under it is a violation by construction; the door ramp is its own role, priced 8 % by v2's verify (`role_cap`) and by the oracle through the existing `o4_grade_law` override (`ROLE_GRADE_LIMITS[service_road]` = 0.08) composed with `o4_grade_law_cap` = 0.08 |
+| `rulesets.toml [common.roles]` | — | `door_ramp = { longitudinal = 0.080, transverse = 0.020 }`; loader cross-check `cutout.door.ramp_grade ≤ door_ramp.longitudinal` | one number, checked at load |
+| `emit/osm_adapter.py` | `RoleSpec.oracle_role` | writes `role=tunnel_ramp class=door_ramp o4_grade_law=service_road o4_grade_law_cap=0.08` (the new `oracle_law` field) | no oracle code change |
+| `emit/graded.py` `FLOOR_ROLES` | floor roles | += `door_ramp` (the void's rim chain drops the edges along the ramp) | |
+| `emit/rebake.py` facility rule, `pipeline/build._plate_seats`, `airport/rebake_plan.py` | `pm.structures` with `source == "object"`, the basins | a door / sunken family is NOT plate-seated (`_plate_seats` skips every other source), NOT excluded, NOT below-grade deck evidence; its members seat by the cluster law with the facility rule (05p/05q: a part > `contact_band_m` under the mesh keeps its authored y) | `seat = "none"` is the only generated value (loader-checked); the deck-promotion evidence stays the basins' (owed if a foreign deck over a sunken road ever needs it) |
+| `verify/structures.py` | ramps by role, rims by feature, `tunnel_objects` axes | `structure_rim_gap` floors += `door_ramp`; `tunnel_mouth_canonical` exempts sites on published object axes — doors and sunken roads are published there with `kind` (their mouth datum is not the 09-03b cap − 5.1) | `tunnel_deck_clearance` unchanged |
+| `verify/within.py`, `steps.py`, `no_step.py`, `contiguity.py` | roles / sides | `door_ramp` is groundside + structure: no airside step pairs; not a road-family role (lateral contiguity binds none of it); within-shape at its own cap | `road_cross_section` binds none of it; the ramp is laterally flat by the generator's `Flat` rows |
+| the oracle (`tools/check_grade.py`) and the harness census | the emitted tags | as the adapter row; partition groundside under `tunnel_ramp`; the rim is a role-less `structure_rim` feature as today | no code change; `terrace_joint_route` pre-existing row untouched |
+| `airport/flat_site.py`, `constraints/flat_site.py` | structure roles | `door_ramp` is `structure = true`: the flat datum skips its vertices (05k-2) | `seat_consensus` unchanged |
+| `pipeline/publication.tunnel_objects` | `pm.structures` | publishes every non-OSM structure with `kind` ("wall" / "door" / "sunken_road") and the door fields (sill z, width, ramp length) | sidecar key set unchanged |
+| `law/model.py` | `Cutout` | moved to `law/cutout_schema.py` with `Door` / `SunkenRoad` (the 1,000-line law) | |
+| `tests/auto_patch_v2/test_law_tables.py` | v1 registers | `groundside partition` RULED drift += `door_ramp` (a v2-only role, aliased for the oracle like `parking_lot`) | `precedence.order` unchanged |
+
+### 4a. What the lane found when it read the pack (v2doorramp, 2026-09-08)
+
+* LAW B HAS NO SITE at OTHH under this tree's reading.  The spec's "floor
+  plates 2,368 / 2,288 m², 183 × 22 m, 1.7 %" of `TerminalRoads_03_000` /
+  `02_000` do not reproduce: those files are 59- and 84-vertex viaduct
+  ramps whose below-ground faces are 139 / 189 m² at 19 % (the ramp feet
+  dipping 1.9 m under), `03_002` / `02_002` carry 293 / 340 m² of faces at
+  10–45 % between −1.8 and −0.7 m, and the scout's own face selection
+  (`n_y ≥ 0.7`, `y_max` in [−3.0, −0.5]) returns NOTHING for the six
+  TerminalRoads resources it named.  The only descending plates near the
+  site are `Terminal_Parking_002`'s car-park ramps (505 / 324 / 152 /
+  140 m² pieces at 12–20 %, 2.4–3.2 m deep).  Under §3 as written (the
+  floor along the plate, priced by the 4 % ramp law) nothing qualifies;
+  the reader is in place and finds level roofed plates (`LEVEL`), unroofed
+  descending plates (the bus bridges' banks, 16–20 % roofed) and the
+  drainage bowls' banks (open), each refused by name.  Two keys the lane
+  added to make §3 decidable: `roof_min_fraction` (0.5 — "roofed" is not
+  quantified in §3) and `min_descent_m` / `min_plate_m2` / `top_depth_m`;
+  a plate steeper than `tunnel.ramp_max_grade` is refused (the ramp law
+  prices every ring pair at that cap).  OPEN to the spawner: whether the
+  car-park ramps (12–20 %) are the owner's "slightly depressed tunnel"
+  and, if so, at what cap (its own role, as the door ramp).
+* LAW A at OTHH (closing tile builds `OTHH_20260908T114527` /
+  `OTHH_20260908T121758`, rc 0): 8 wells read, 7 door ramps emitted —
+  the four `Terminal_Parking_Parking-Left/Right_000` wells the scout named
+  (sill 2.26 = 1.70 m under 3.96, 2.46 m wide along the face, the well
+  2.1 m, the climb 23.9 m at 8 % to the ground at s 26.0) at
+  25.257491,51.613901 / 25.257367,51.613397 / 25.258519,51.616490 /
+  25.258288,51.616033; `Terminal_Parking_006@0` (sill 2.38, 14.7 m wide,
+  well 6.4 m, climb 23.6 m); `TerminalRoads_Parking_000@0/@1` (sill 2.27,
+  8.0 / 10.1 m wide, wells 11.5 / 10.7 m, climbs 24.5 / 23.3 m) — sunken
+  parking pits the letter of §2 admits.  `VCN_003` is refused (the side
+  opposite the face lies under above-band solids); `Parking_006@1`
+  overlaps `@0` (31h's overlap rule).  v2 verify: every family 0 but ONE
+  `structure_rim_gap` row of 0.0004 m (a rim vertex 0.4996 m off a door
+  ramp after the identity snap: under the 0.01 m materiality floor,
+  PASS-with-residual); census `--no-cache` on the patch: every family 0
+  but the pre-existing `terrace_joint_route` 1.  THE FACE IS THE OPEN
+  QUESTION: the wells are closed four-walled boxes hanging from the car
+  parks' facade lattice, the door a texture on the building-side wall;
+  the at-grade band, the above-band cover and the shell's walls all read
+  alike on both long sides.  The lane's rule: the face is the well's
+  longer side nearer the centroid of the family's above-band solids
+  within `max_length_m` (the building's mass), the exit its opposite
+  side, which must lie mostly outside that cover (`exit_max_fraction`); a
+  plate that descends at or under `ramp_grade` over its reach is the
+  object's own ramp, never a sill.  The owner's sim read decides whether
+  the ramps leave the right side.
+* THE SEAT (`seat = "none"`): the first build's post-mesh cluster seat
+  sank 8 objects of the Parking family (`Parking-Left_000/002/006`,
+  `Right_000/005/006`, `VCN_000/001`) by −1.0 … −1.9 m — parts whose
+  ground sample fell inside the new trenches.  The lane reads `seat =
+  "none"` as: a door's / sunken road's anchor family is EXCLUDED from the
+  re-seat (the rebake plan's pre-existing "terrain adapted to it" skip,
+  `structure_family_excluded`).  Second build: 75 objects written
+  (Bridges Bus 45, Dewatering 18, tunnels 8, Emiri 4; 95 on main) — the
+  Parking family 0 AND the 197-member TerminalRoads family 0, the latter
+  because `TerminalRoads_Parking_000` carries two wells: the 08d deck
+  artefact (−10.87 m, 19 writes) is MASKED at OTHH by this exclusion, not
+  fixed — lane `v2othhseat` must know.
+* LEMD `--base-arm` (`LEMD_20260908T121038`): 10 door ramps —
+  `Terminal4SAT_green-LEMD13` ×8 (sills 596.06–596.09 = 1.9 m under
+  598.0, 18 m wide, ramps 26.4 m) and `-VRDCH` ×2 (598.75 = 1.3 m under,
+  38 / 32 m wide, ramps 20 / 18 m): the T4S service yards, "doors" by the
+  letter of §2; v2 verify 19 vs 18 on main (+1 = a 0.0007 m rim-gap
+  residual on a door ramp; taxi_box 2, strip_seam_tear 5, transverse 4,
+  vertex_to_edge_step 1, tunnel_mouth_canonical 6 unchanged).  CYXY
+  `--base-arm` (`CYXY_20260908T121609`): 0 rows, no door, 7.1 s.
+* COST: the door reader is 56 s at OTHH (11,325 placements, 263 screened
+  at the 0.5 m sill gate, 517 sill witnesses, 357 regions) after four
+  rounds of pruning (254 → 174 → 98 → 56 s: cheap plate gates first, bulk
+  triangle clips in `obj8._clip_component` / `_clip_both`, per-region
+  `within` windows on the cover reads with a per-resource component-bounds
+  pre-select — `within` is a new argument of `obj8.above_grade_footprint`
+  / `at_grade_geometry`, `ResourceCache.component_bounds` new); what is
+  left is `solid_components` on the ~166 resources the 0.5 m gate admits
+  that the 2.5 m basin gate never read (30 s) and the witness reads.  The
+  sunken reader is 2 s.  Under the build-time law this is a Fable
+  optimisation-review item, reported, not decided.
 
 ## 5. Twins and acceptance
 

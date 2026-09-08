@@ -72,6 +72,30 @@ class Group:
     cap_off: float | None = None
     far_off: float | None = None
     design_grade: float = 0.0
+    # ── THE RAMP LAWS (RULINGS 2026-09-08b/c; spec othh-terminal-ramps §2/§3) ──
+    #: ``"object"`` (a tunnel wall object, 05n), ``"door"`` (a basement
+    #: access door's ramp) or ``"sunken_road"`` (a roofed descending plate)
+    #: — the ``Tunnel.source`` the group builds.
+    kind: str = "object"
+    #: The climb's grade and length law beyond the walls / the well
+    #: (``None`` = the tunnel law's ``ramp_max_grade`` / ``max_ramp_length_m``).
+    max_grade: float | None = None
+    max_length_m: float | None = None
+    #: Station spacing along the ramp (``None`` = ``emit.chords.station_spacing_m``).
+    spacing_m: float | None = None
+    #: Where the climb starts when the walls cannot hold it (a door: the
+    #: well's outer edge — the well floor stays at the sill); ``None`` = the mouth.
+    climb_from_s: float | None = None
+    #: A door ramp STOPS at a pavement it would enter beyond the well
+    #: (spec §2: "stops at it and steps"); an object corridor's ramp cuts
+    #: through (the tunnel law).
+    stop_at_pavement: bool = False
+    #: A sunken road's floor profile ``((s, z), ...)`` — the plate's own y
+    #: per station, pinned by the generator; empty for every other group.
+    profile: tuple[tuple[float, float], ...] = ()
+    #: The axis is a straight line by construction (a door's outward
+    #: normal): the climb's chord test needs no curved-corridor allowance.
+    straight: bool = False
 
 
 def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float) -> list[XY]:

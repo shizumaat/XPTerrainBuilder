@@ -40,6 +40,15 @@ stub                = { family = "taxi",   side = "airside",    value = true,  a
 cross_connector     = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
 junction            = { family = "taxi",   side = "airside",    value = true,  aeroway = "taxiway" }
 tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true }
+# THE DOOR RAMP (RULINGS 2026-09-08b/c; spec othh-terminal-ramps-spec.md §2 / §4):
+# a basement access door's ramp, a structure face of its own class — the
+# tunnel_ramp cap is 4 % in BOTH instruments and the door law is 8 %.  Omitted
+# from [authority] order (a governed role the order omits follows the named
+# ones); groundside like the tunnel ramp.  The oracle reads it under
+# tunnel_ramp (its partition and structure semantics) and prices it at
+# service_road's 8 % through o4_grade_law (oracle_law) composed with
+# o4_grade_law_cap = this role's cap.
+door_ramp           = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
 apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
 building            = { family = "common", side = "airside",    value = true,  aeroway = "apron", rigid = true }  # a RIGID flat group levelled by its contact (09-01g weld = value; 09-03h pads yield)
 service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }

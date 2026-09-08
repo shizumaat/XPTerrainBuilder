@@ -70,10 +70,14 @@ pass as for any skipped resource. 05n-4's exemption (v1's +0.9576
 precedent) is withdrawn by 08d; the key keeps `true` as a lawful value.
 
 (e) THE GROUND. On a flat-candidate site the datum extends under every
-object footprint inside the datum region (`flat_site_ground_datum =
-true`) and the pack's seat is AUTHORITATIVE there: a CLUSTER ground part
-inside the region reads its object's authored `y = 0` plane as its
-ground (delta 0 — never the canal bank, never the raw inset DEM outside
+object footprint (`flat_site_ground_datum = true`) and the pack's seat is
+AUTHORITATIVE there: a CLUSTER ground part of an object ANCHORED inside
+the datum region — its WHOLE footprint, the parts beyond the region's
+edge included (the closing build's first arm: Terminal_Parking_VCN's two
+ground parts on the canal bank, 2,077 of the unit's 21,215 parts outside
+the region, read the bank's cut at 2.07 and wrote −1.89; instance 2's one
+fix) — and any part standing inside the region reads its object's
+authored `y = 0` plane as its ground (delta 0 — never the canal bank, never the raw inset DEM outside
 the patch, and never `−agl`: a literal "ground = Z0" wrote Bridge_05's
 three AGL −3.5 members +3.50 in the replay), and a DECK unit anchored
 inside the region keeps its authored deck (the ring / abutment reads
@@ -126,11 +130,44 @@ Before: 24 units bake, 96 resources (95 files). After the rules (a, d, e
 Dewatering / Drainage 16 (+3.816 … +13.142) and tunnels 8 (−2.299 …
 +5.397, the two middle corridors still on the old rim stations).
 Bridges Bus 45 → 0, Terminal 20 → 0, Emiri 4 → 0, Drainage_06 → 0. The
-closing build adds (c): middle-west/-east read the at-grade ground →
-−0.92 / −0.71 → stay (d) → 22 files. The brief's target "≤ 18, the
-Dewatering cut compensations" does not count the six tunnel files, which
-are the same class (the anchor on the cut floor the mesh made); they are
-quoted, not suppressed.
+closing build was predicted to add (c): middle-west/-east read the
+at-grade ground → −0.92 / −0.71 → stay (d) → 22 files. The brief's target
+"≤ 18, the Dewatering cut compensations" does not count the six tunnel
+files, which are the same class (the anchor on the cut floor the mesh
+made); they are quoted, not suppressed.
+
+## 6. The closing builds (`OTHH_v2othhseat` 732 s, `OTHH_v2othhseat2` 745 s; verify 0 both, flat_candidate Z0 3.962, 16,221/16,221 datum rows at Z0)
+
+| family | 1.0.293 | arm 1 (rules a–e as §2) | arm 2 (+ the (e) footprint fix) | rule |
+|---|---|---|---|---|
+| Bridges Bus | 45 | 0 (4 units HELD: water anchor, `anchor_water_founds_seat = false` — the units lie OUTSIDE the datum region, so Z0 does not found them; held = no write, the pack's bytes) | 0 | (a) |
+| Terminal (TerminalRoads decks + clutter) | 20 | 0 (unit:28 deck_top: "flat site — the authored deck seat is the seat") | 0 | (e)/(b) |
+| Terminal_Parking_VCN | 2 | 2 (cluster 70, −1.891: two bank parts outside the region) | 0 | (e) footprint |
+| Emiri | 4 | 0 (below_threshold) | 0 | (e) |
+| Drainage_06 | 2 | 0 ("plate seat \|−0.001\| < 1.0 m — stays") | 0 | (d) |
+| tunnels middle-west / -east | 2 | 2 (−2.745 / −2.326) | 2 | (c) REFUTED at this site, see below |
+| tunnels (others: south west 2, tunnel1 ×2 anchors, west 1) | 6 files | 3 files / 4 resources (+1.47 … +3.59) | same | cut compensations (a) |
+| Dewatering 01/02, Drainage 01–05 | 16 | 16 (+3.816 … +13.142) | 16 | cut compensations (a) |
+| **total files** | **95** | **23** | **21** | |
+
+(c) at middle-west / -east, MEASURED on the closing mesh: the new
+stations (90 / 64, every 5 m round the footprint at the outer face +
+0.5 m, the mitred ring 192 × 60 m / 80 × 119 m) read 0.06 … 3.96, median
+2.14 / 2.39 — and probes 1, 2, 3, 5, 8 m further out read medians 2.33 /
+2.45 / 2.61 / 2.88 / 3.14. The transect across middle-west at mid-length
+is a BOWL 63 m wide (4.0 at −39 m, 1.4 from −24 to −9 m, 4.0 at +24 m)
+and along its axis a RAMP (3.0 at +60 m to −0.1 at −60 m): the object
+stands ON the corridor ramp of the bore pair −8272/−8271 (both mouths
+inside `tunnel middle - west` and `tunnel1@1`, replaced by the objects),
+not beside a rim drop. No station placement outside the outer face reads
+at-grade ground here, because the corridor cut is wider than the wall
+object and descends along it — the (c) mechanism the 08d attribution
+named (the rim ring's vertices on the drop) is not what founds these two
+deltas on this tree; a rigid plate crest cannot be flush with ground that
+falls 4 m along the object. Not fixed (attribution cap); owed to the
+corridor geometry (`v2trenchgap`, the rim inside the wall; 08c's sunken
+road law) and reported for the owner's sim read: the delta −2.75 / −2.33
+lowers the crest to the median ground beside it.
 
 Deviations for the spawner / owner: (i) rule (a) narrowed to the datum
 band (§2a); (ii) rule (e) read as "the pack's seat is authoritative"

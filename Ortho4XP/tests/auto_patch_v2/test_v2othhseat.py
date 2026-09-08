@@ -167,11 +167,13 @@ def test_structure_seat_under_the_threshold_stays(law):
 
 def test_the_datum_extends_under_every_footprint_inside_the_region(law):
     """OTHH Emiri / Terminal_Parking_VCN (08d): ground parts reading the
-    canal bank or the raw inset DEM (2 m under Z0) inside the region read
-    their AUTHORED foot — the pack's seat, delta 0 — an AGL-offset unit
-    (Bridge_05 at −3.5) included; a part outside the region reads the
-    mesh; a flat-site DECK unit keeps its authored deck."""
-    inside = _member("emiri", [_part(0, 0.001)])
+    canal bank or the raw inset DEM (2 m under Z0) read their AUTHORED
+    foot — the pack's seat, delta 0 — over the WHOLE footprint of an object
+    anchored inside the region (VCN's bank parts beyond the region's edge
+    included), an AGL-offset unit (Bridge_05 at −3.5) too; a part of an
+    object anchored OUTSIDE the region reads the mesh; a flat-site DECK
+    unit keeps its authored deck."""
+    inside = _member("emiri", [_part(0, 0.001), _part(4, 0.02)])   # a part on the bank, beyond the region
     low = _member("bridge", [_part(2, 0.002)])
     outside = _member("far", [_part(1, 0.02)])
     ring = ((0.003, 0.0), (0.003, 0.0002), (0.0032, 0.0002), (0.0032, 0.0))
@@ -183,6 +185,10 @@ def test_the_datum_extends_under_every_footprint_inside_the_region(law):
     a, b, c, d = res.units
     assert not a.bakes and a.skip_reason.startswith("below_threshold")
     assert a.members[0].ground_m == pytest.approx(Z0)
+    # the WHOLE footprint of an object anchored inside the region reads the
+    # authored plane (OTHH Terminal_Parking_VCN: two parts on the canal bank
+    # beyond the region's edge read 2.07 and wrote −1.89)
+    assert all(d is None for _, _, d in a.members[0].part_deltas)
     assert b.anchor_ground_m == pytest.approx(Z0)            # outside the region: the mesh
     assert b.members[0].ground_m == pytest.approx(Z0 - 2.0) and b.bakes
     assert not c.bakes and c.members[0].ground_m == pytest.approx(Z0 - 3.5)   # −agl is no lift

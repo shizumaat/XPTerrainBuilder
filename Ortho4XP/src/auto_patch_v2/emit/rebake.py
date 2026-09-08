@@ -54,10 +54,11 @@ keeps the mesh (the plate seat compensates it: Dewatering_01 +13.14);
 the band) or the deck seat stands down; (d) a structure seat under
 ``min_delta_m`` stays unless ``structure_seat_threshold_exempt``; (e)
 inside the region the pack's seat is authoritative
-(``flat_site_ground_datum``): a cluster ground part reads its object's
-AUTHORED ``y = 0`` plane as its ground (delta 0 — never the canal bank,
-never the raw inset DEM, never ``−agl``), a deck unit keeps its authored
-deck;
+(``flat_site_ground_datum``): a cluster ground part of an object anchored
+inside the region — its WHOLE footprint, the parts beyond the region's
+edge included — reads its object's AUTHORED ``y = 0`` plane as its ground
+(delta 0 — never the canal bank, never the raw inset DEM, never ``−agl``),
+a deck unit keeps its authored deck;
 plate stations always read the raw mesh (a floor or a rim by
 construction: the cut compensations).
 
@@ -419,10 +420,16 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
             rec["findings"].append(why)
         rec["anchor_ground"] = float(a)
         base = rec["base"] = float(a) + u.agl_m        # the rendered y = 0 plane
+        # rule (e): the datum extends under the WHOLE footprint of an object
+        # anchored inside the region (OTHH Terminal_Parking_VCN: two ground
+        # parts on the canal bank, 2,077 of the unit's 21,215 parts outside
+        # the region, read the bank's cut at 2.07 and wrote −1.89), and
+        # under any part standing inside it
+        anchored_in = datum_.authored(u.anchor[0], u.anchor[1], rb)
         for mi in range(len(u.members)):
             base_by[(ui, mi)] = base
             for p in u.members[mi].parts:
-                if datum_.authored(p.lat, p.lon, rb):
+                if anchored_in or datum_.authored(p.lat, p.lon, rb):
                     # the pack's seat: the part's ground IS its object's
                     # authored y = 0 plane (the cluster seats that plane on
                     # its ground), so its delta is 0 whatever its base_y

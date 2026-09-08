@@ -89,7 +89,7 @@ import os
 import typing as _t
 
 import shapely
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -194,7 +194,7 @@ def _floors(plates, overlap: float, close: float, grid: float) -> list[Polygon]:
 
 
 def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
-                      max_m: float | None = None) -> float:
+                      max_m: float | None = None, exclude=None) -> float:
     """A basin shell's plan WALL thickness: the smallest distance from the
     floor ``plates``' edges (sampled every ``step_m``) to the shells'
     at-grade footprint ``region``'s edge — the thinnest wall between
@@ -204,7 +204,9 @@ def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
     (``tunnel.object.wall_face_max_thickness_m``: a plan solid past it
     is a slab, not a wall) is capped there — an area ratio is NOT a
     thickness (LEMD basin:3, a 366 m² plate in a 452 m² region, read
-    29 m by one)."""
+    29 m by one).  Plate-edge samples inside ``exclude`` are not wall
+    samples (RULINGS 2026-09-08b/c: a door well's sill line, where the
+    plate leaves the well into the building)."""
     if plates.is_empty:
         return 0.0
     ext = region.exterior
@@ -213,7 +215,10 @@ def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
         ring = part.exterior
         n = max(4, int(math.ceil(ring.length / max(step_m, 1e-6))))
         for i in range(n):
-            d = float(ext.distance(ring.interpolate(ring.length * i / n)))
+            q = ring.interpolate(ring.length * i / n)
+            if exclude is not None and exclude.intersects(q):
+                continue
+            d = float(ext.distance(q))
             best = d if best is None else min(best, d)
     t = best or 0.0
     return min(t, max_m) if max_m is not None else t
@@ -411,8 +416,13 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                  f"{standoff:.2f} m (a plate at the shell's edge) at {site}")
             continue
         if tunnel_u is not None and rim.buffer(grid).intersects(tunnel_u):
+            # a sunken road (2026-09-08b/c Law B) is a STRUCTURE before this
+            # pass runs: its plate is never a basement, by ORDER (spec §4)
+            owner = next((t.id for t in tunnels if t.source != "osm" and len(t.axis) >= 2
+                          and LineString(t.axis).buffer(t.half_width_m + grid).intersects(rim)),
+                         None) if len(tunnels) else None
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 overlaps a tunnel structure "
-                                 f"(structures are never cut) at {site}")
+                                 f"({owner or 'a bore ramp'}; structures are never cut) at {site}")
             continue
         void = rim.difference(unary_union(floors))
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"

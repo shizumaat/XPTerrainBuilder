@@ -357,13 +357,53 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     return unary_union(parts) if len(parts) > 1 else parts[0]
 
 
+def _split_at_plane(v: np.ndarray, comp: Component, plane_y: float, below: bool
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """``(wholly-inside triangles, straddling triangles)`` of the
+    component against the plane — the bulk fast path: a mega-shell's
+    triangles are mostly wholly on one side (OTHH's terminal: 254 s of
+    per-triangle Python clips read the car-park wells' cover)."""
+    t = comp.tris
+    ys = v[t][:, :, 1]
+    inside = (ys <= plane_y) if below else (ys >= plane_y)
+    n_in = inside.sum(axis=1)
+    return t[n_in == 3], t[(n_in > 0) & (n_in < 3)]
+
+
+def _bulk_polys(v: np.ndarray, tris: np.ndarray) -> list:
+    """The plan polygons of ``tris`` (authored ``(x, z)``) in bulk."""
+    if tris.shape[0] == 0:
+        return []
+    pts = v[tris][:, :, [0, 2]]
+    polys = shapely.polygons(pts)
+    keep = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9)
+    return [p for p, k in zip(polys, keep.tolist()) if k]
+
+
 def _clip_component(v: np.ndarray, comp: Component, plane_y: float, below: bool):
+    whole, part = _split_at_plane(v, comp, plane_y, below)
     rings = []
-    for t in comp.tris.tolist():
+    for t in part.tolist():
         r = _clip((v[t[0]], v[t[1]], v[t[2]]), plane_y, below)
         if r is not None:
             rings.append(r)
-    return _union_rings(rings)
+    polys = _bulk_polys(v, whole)
+    if not rings:
+        if not polys:
+            return None
+        u = unary_union(polys)
+        if not u.is_valid:
+            u = shapely.make_valid(u)
+        parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > 1e-9]
+        return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+    u = _union_rings(rings)
+    if polys:
+        u2 = unary_union(polys + ([u] if u is not None else []))
+        if not u2.is_valid:
+            u2 = shapely.make_valid(u2)
+        parts = [g for g in shapely.get_parts(u2) if g.geom_type == "Polygon" and g.area > 1e-9]
+        return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+    return u
 
 
 def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
@@ -373,9 +413,10 @@ def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
     vertical wall projects to a line of zero area, which a polygon union
     drops — and a pit's rim IS its vertical walls."""
     from shapely.geometry import LineString
+    whole, part = _split_at_plane(v, comp, plane_y, False)
     lines = []
     rings = []
-    for t in comp.tris.tolist():
+    for t in part.tolist():
         r = _clip((v[t[0]], v[t[1]], v[t[2]]), plane_y, False)
         if r is None:
             continue
@@ -384,10 +425,23 @@ def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
             lines.append(LineString(r + [r[0]]))
         except (ValueError, TypeError):
             continue
+    # the wholly-above triangles in bulk: their rings as linework and polygons
+    if whole.shape[0]:
+        pts = v[whole][:, :, [0, 2]]
+        closed = np.concatenate([pts, pts[:, :1, :]], axis=1)
+        lines.extend(shapely.linestrings(closed).tolist())
+    polys = _bulk_polys(v, whole)
     if not lines:
         return None, None
     u = unary_union(lines)
-    return (None if u.is_empty else u), _union_rings(rings)
+    pg = _union_rings(rings)
+    if polys:
+        pg = unary_union(polys + ([pg] if pg is not None else []))
+        if not pg.is_valid:
+            pg = shapely.make_valid(pg)
+        parts = [g for g in shapely.get_parts(pg) if g.geom_type == "Polygon" and g.area > 1e-9]
+        pg = (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+    return (None if u.is_empty else u), pg
 
 
 class ResourceCache:
@@ -398,6 +452,7 @@ class ResourceCache:
         self._geom: dict[str, ObjGeometry | None] = {}
         self._comps: dict[str, list[Component]] = {}
         self._range: dict[str, tuple[float, float, float, float, float, float]] = {}
+        self._bounds: dict[str, np.ndarray] = {}
 
     def geometry(self, path: str) -> ObjGeometry | None:
         if path not in self._geom:
@@ -418,6 +473,28 @@ class ResourceCache:
     def genuine(self, path: str) -> list[Component]:
         """The thickness-gated components (§2.1: a decal never witnesses)."""
         return [c for c in self.components(path) if c.max_y - c.min_y >= self.thickness_m]
+
+    def component_bounds(self, path: str) -> np.ndarray:
+        """``(n, 4)`` authored plan bounds ``(x0, x1, z0, z1)`` per component
+        — the window pre-select of the cover readings (RULINGS
+        2026-09-08b/c: a car-park well's cover read off a 3,000-component
+        terminal without walking every component)."""
+        b = self._bounds.get(path)
+        if b is None:
+            g = self.geometry(path)
+            comps = self.components(path)
+            if g is None or not comps:
+                b = np.zeros((0, 4))
+            else:
+                v = g.vertices
+                rows = []
+                for c in comps:
+                    pts = v[c.tris.reshape(-1)]
+                    rows.append((float(pts[:, 0].min()), float(pts[:, 0].max()),
+                                 float(pts[:, 2].min()), float(pts[:, 2].max())))
+                b = np.asarray(rows, dtype=float).reshape(-1, 4)
+            self._bounds[path] = b
+        return b
 
     def y_range(self, path: str) -> tuple[float, float, float, float, float, float]:
         """``(min_y, max_y, min_x, max_x, min_z, max_z)`` over ALL authored
@@ -462,6 +539,11 @@ class FloorWitness:
     #: over the local ground; 0 when the shell tops out in the band.
     protrusion_fraction: float = 0.0
     protrusion_top_m: float = 0.0
+    #: The plate faces' own deepest authored y (RULINGS 2026-09-08b/c: a
+    #: door well's SILL — the floor the ramp descends to; ``z_min`` is the
+    #: whole component's, a kerb under the plate included).
+    plate_y_min: float = 0.0
+    plate_y_max: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -764,12 +846,61 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
         return None
     tf = _affinity.affine_transform
     plate_f = tf(plate, mat)
+    y_min = np.minimum(np.minimum(p0[:, 1], p1[:, 1]), p2[:, 1])
     return FloorWitness(tf(below, mat), plate_f, base + comp.min_y, base + comp.max_y, local,
-                        float(plate_f.area))
+                        float(plate_f.area), plate_y_min=float(y_min[deep].min()),
+                        plate_y_max=float(y_max[deep].max()))
+
+
+def _authored_bbox(xy: XY, heading_deg: float, within) -> tuple[float, float, float, float]:
+    """The frame window's bounds taken back to the authored frame
+    ``(x0, x1, z0, z1)`` — the placement affine is an involution."""
+    h = math.radians(heading_deg)
+    s_, c_ = math.sin(h), math.cos(h)
+    x0, y0, x1, y1 = within.bounds
+    xs, zs = [], []
+    for ex, ny in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        dx, dy = ex - xy[0], ny - xy[1]
+        xs.append(c_ * dx - s_ * dy)
+        zs.append(-s_ * dx - c_ * dy)
+    return min(xs), max(xs), min(zs), max(zs)
+
+
+def _windowed(v: np.ndarray, comp: Component, box: tuple[float, float, float, float] | None
+              ) -> Component | None:
+    """``comp`` restricted to the triangles whose plan bounding box
+    overlaps the authored window ``box`` (``None`` when none does); its y
+    range stays the whole component's."""
+    if box is None:
+        return comp
+    ax0, ax1, az0, az1 = box
+    px = v[comp.tris][:, :, 0]
+    pz = v[comp.tris][:, :, 2]
+    m = ((px.max(axis=1) >= ax0) & (px.min(axis=1) <= ax1)
+         & (pz.max(axis=1) >= az0) & (pz.min(axis=1) <= az1))
+    if not m.any():
+        return None
+    return Component(comp.tris[m], comp.min_y, comp.max_y, comp.cx, comp.cz, comp.deck)
+
+
+def _components_near(cache: "ResourceCache", o: "PlacedObject", within
+                     ) -> tuple[list[Component], tuple[float, float, float, float] | None]:
+    """The components whose plan bounds overlap the window, and the
+    window's authored bbox (all of them, ``None``, without a window)."""
+    comps = cache.components(o.resolved)
+    if within is None:
+        return comps, None
+    box = _authored_bbox(o.xy, o.heading_deg, within)
+    b = cache.component_bounds(o.resolved)
+    if b.shape[0] != len(comps):
+        return comps, box
+    m = (b[:, 1] >= box[0]) & (b[:, 0] <= box[1]) & (b[:, 3] >= box[2]) & (b[:, 2] <= box[3])
+    return [c for c, k in zip(comps, m.tolist()) if k], box
 
 
 def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
-                          dem_z: _t.Callable[[float, float], float], contact_band_m: float):
+                          dem_z: _t.Callable[[float, float], float], contact_band_m: float,
+                          within=None):
     """THE COVER READING for one placement: its solid geometry clipped
     ABOVE the local contact band, in the frame (``None`` when nothing
     stands above it).  EVERY solid component, thickness or not: the
@@ -777,7 +908,9 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
     floor) and a roof sheet is cover regardless (LEMD's cargo sheds read
     0 % own cover under the gate, their roofs being single sheets).
     Computed on demand — only for placements whose ``plan_bbox`` reaches
-    a candidate region."""
+    a candidate region; ``within`` (a frame polygon) restricts the read to
+    the triangles near it (RULINGS 2026-09-08b/c: a car-park well's cover
+    read off a 150,000-triangle terminal in milliseconds)."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None
     g = cache.geometry(o.resolved)
@@ -785,13 +918,17 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
         return None
     base = o.anchor_z + o.agl_m
     rings = []
-    for comp in cache.components(o.resolved):
+    comps, box = _components_near(cache, o, within)
+    for comp in comps:
         cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
         local = float(dem_z(cx, cy))
         if math.isnan(local):
             local = o.anchor_z
         plane_above = local - base + contact_band_m
         if comp.max_y >= plane_above:
+            comp = _windowed(g.vertices, comp, box)
+            if comp is None:
+                continue
             u = _clip_component(g.vertices, comp, plane_above, False)
             if u is not None:
                 rings.append(u)
@@ -799,7 +936,8 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
 
 
 def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
-                      dem_z: _t.Callable[[float, float], float], contact_band_m: float):
+                      dem_z: _t.Callable[[float, float], float], contact_band_m: float,
+                      select: _t.Callable[[Component], bool] | None = None, within=None):
     """THE RIM AND OWN-COVER EVIDENCE for one placement (04i rules 3 and
     4): EVERY solid component's geometry from ``contact_band_m`` under
     the local ground upward, in the frame, as ``(linework, polygons)`` —
@@ -807,7 +945,9 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     the polygons what it holds over the ground at or above grade (a lid
     flush with the ground, a roof).  Thickness or burial do not matter
     here: a buried component simply has no geometry up here.  Computed
-    on demand for a candidate region's members only."""
+    on demand for a candidate region's members only.  ``select`` keeps
+    only the components it accepts (RULINGS 2026-09-08b/c: a door well's
+    own shell read apart from the building it is attached to)."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None, None
     g = cache.geometry(o.resolved)
@@ -816,13 +956,19 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     base = o.anchor_z + o.agl_m
     mat = placement_affine(o.xy, o.heading_deg)
     lines, polys = [], []
-    for comp in cache.components(o.resolved):
+    comps, box = _components_near(cache, o, within)
+    for comp in comps:
+        if select is not None and not select(comp):
+            continue
         cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
         local = float(dem_z(cx, cy))
         if math.isnan(local):
             local = o.anchor_z
         plane = local - base - contact_band_m
         if comp.max_y < plane:
+            continue
+        comp = _windowed(g.vertices, comp, box)
+        if comp is None:
             continue
         ln, pg = _clip_both(g.vertices, comp, plane)
         if ln is not None:

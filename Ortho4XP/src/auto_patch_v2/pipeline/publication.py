@@ -290,10 +290,14 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
     _to_xy, to_ll = airport.frame.transformers()
     out: list[dict[str, _t.Any]] = []
     for tn in planar.structures:
-        if tn.source != "object":
+        if tn.source == "osm":
             continue
+        # ``kind`` (RULINGS 2026-09-08b/c): a tunnel wall object, a door ramp
+        # (Law A) or a sunken road (Law B) — the same record, the mouth-law
+        # readers exempt every kind alike (the mouth is the object's)
         out.append({
-            "id": tn.id, "resource": tn.resource, "objects": list(tn.objects),
+            "id": tn.id, "kind": "wall" if tn.source == "object" else tn.source,
+            "resource": tn.resource, "objects": list(tn.objects),
             "floor_m": round(tn.mouth_z, 3), "crest_m": round(float(tn.crest_z or 0.0), 3),
             "depth_m": round(tn.depth_m, 3), "plate_y_m": round(tn.plate_y_m, 3),
             "edge_wall": bool(tn.edge_wall), "length_m": round(tn.hull_length_m, 1),
@@ -307,6 +311,9 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
             "trench_outside_max_m": round(tn.trench_outside_max_m, 3),
             "axis_ll": [[round(la, 8), round(lo, 8)] for la, lo in
                         (to_ll(x, y) for x, y in tn.axis)],
+            "profile": [[round(s, 2), round(z, 3)] for s, z in tn.profile],
+            "top_ground_m": None if tn.top_ground_z is None else round(tn.top_ground_z, 3),
+            "ramp_length_m": round(max(0.0, tn.top_s - tn.climb_from_s), 1),
         })
     return out
 

@@ -25,7 +25,7 @@ VOID_ROLE = "retaining_wall"
 RIM_KIND = "structure_rim"
 #: The floor roles whose vertices a void's ring may run along (a U void's
 #: exterior includes the ramp's own edges — those are the ramp's, not rim).
-FLOOR_ROLES = ("tunnel_ramp", "tunnel_trench")
+FLOOR_ROLES = ("tunnel_ramp", "door_ramp", "tunnel_trench")   # door_ramp: RULINGS 2026-09-08b/c
 
 
 def rim_runs(planar: PlanarMap, face) -> list[tuple[int, ...]]:

@@ -115,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
         rec["wall_s"] = {"load": round(t1 - t0, 3), "classify": round(t2 - t1, 3),
                          "structures": round(time.perf_counter() - t2, 3)}
         (out / "structures.json").write_text(json.dumps(rec, indent=1, default=str))
-        print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  tunnels "
+        print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  door wells "
+              f"{len(rec['door_wells'])} (refused {len(rec['door_refused'])})  sunken roads "
+              f"{len(rec['sunken_roads'])} (refused {len(rec['sunken_refused'])})  tunnels "
               f"{len(rec['tunnels'])}  basins {len(rec['basins'])}  corridor refusals "
               f"{len(rec['corridor_refused'])}  tunnel refusals {len(rec['tunnel_refused'])}  "
               f"basin refusals {len(rec['basin_refused'])}  -> {out / 'structures.json'}")
@@ -124,10 +126,24 @@ def main(argv: list[str] | None = None) -> int:
                   f"ends {c['ends']}  length {c['length_m']:.1f} m  width {c['width_m']:.1f} m  "
                   f"depth {c['depth_m']:.2f}  crest {c['plate_y']:+.2f}  mouth ground "
                   f"{c['mouth_dem_z']:.2f}  floor {c['floor_z']:.2f}")
+        for w in rec["door_wells"]:
+            print(f"  door well {w['id']}: sill {w['sill_z']:.2f} ({w['depth_m']:.2f} m under "
+                  f"{w['ground_z']:.2f}) width {w['sill_width_m']:.2f} m out {w['plate_out_m']:.2f}/"
+                  f"{w['well_out_m']:.2f} m plate cover {w['plate_cover']:.2f} at {w['sill_ll']}")
+        for r in rec["door_refused"]:
+            print(f"  door refused {r}")
+        for r in rec["sunken_roads"]:
+            print(f"  sunken road {r['id']}: cut {r['floor_z']:.2f} ({r['depth_m']:.2f} m under "
+                  f"{r['mouth_dem_z']:.2f}) top {r['top_z']:.2f} length {r['length_m']:.1f} m width "
+                  f"{r['width_m']:.1f} m cover {r['cover']:.2f} "
+                  f"cut at {r['cut_ll']} top at {r['top_ll']}")
+        for r in rec["sunken_refused"]:
+            print(f"  sunken refused {r}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
-                  f"decks {t['decks']}")
+                  f"decks {t['decks']}  clipped '{t['clipped_by']}'  outside "
+                  f"{t['trench_outside_max_m']:.3f}  mouth {t['mouth_ll']} top {t['top_ll']}")
         for b in rec["basins"]:
             print(f"  basin {b['id']}: floor {b['floor_z']:.2f}  area {b['area_m2']:.0f} m2  "
                   f"{b['kind']}  {', '.join(o.split('/')[-1] for o in b['objects'])}")
@@ -181,8 +197,14 @@ def structure_records(airport, cl, law) -> dict:
     to_ll = airport.frame.transformers()[1]
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     objects, orep = read_objects(airport, law, cache)
+    from ..airport.door_wells import read_door_wells
+    from ..airport.sunken_roads import read_sunken_roads
+    from .door_ramps import door_groups, sunken_groups
     corridors, tstats = read_corridors(airport, objects, cache, law)
-    cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors)
+    wells, dstats = read_door_wells(airport, objects, cache, law)
+    roads, rstats = read_sunken_roads(airport, objects, cache, law)
+    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused)
+    cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
 
     def ll(p):
@@ -208,8 +230,29 @@ def structure_records(airport, cl, law) -> dict:
                      "mouth_dem_z": t.mouth_dem_z, "top_s": t.top_s,
                      "climb_from_s": t.climb_from_s, "design_grade": t.design_grade,
                      "wall_length_m": t.wall_length_m, "decks": [d.ref for d in t.decks],
-                     "replaced_ways": list(t.replaced_ways), "notes": list(t.notes)}
+                     "replaced_ways": list(t.replaced_ways), "notes": list(t.notes),
+                     "width_m": t.hull_width_m, "depth_m": t.depth_m, "clipped_by": t.clipped_by,
+                     "top_ground_z": t.top_ground_z, "profile": list(t.profile),
+                     "mouth_ll": ll(t.axis[0]), "top_ll": ll(t.axis[-1]),
+                     "trench_outside_max_m": t.trench_outside_max_m}
                     for t in tunnels],
+        # RULINGS 2026-09-08b/c: the door wells and sunken roads read
+        "door_wells": [{"id": w.id, "resource": w.resource, "objects": list(w.objects),
+                        "sill_z": w.sill_z, "ground_z": w.ground_z, "depth_m": w.depth_m,
+                        "sill_width_m": w.sill_width_m, "plate_out_m": w.plate_out_m,
+                        "well_out_m": w.well_out_m, "plate_cover": w.plate_cover,
+                        "sill_ll": ll(w.sill_mid),
+                        "notes": list(w.notes)} for w in wells],
+        "door_refused": list(dstats.refused),
+        "door_stats": {k: v for k, v in _dc.asdict(dstats).items() if not isinstance(v, list)},
+        "sunken_roads": [{"id": r.id, "resource": r.resource, "objects": list(r.objects),
+                          "floor_z": r.floor_z, "mouth_dem_z": r.mouth_dem_z, "depth_m": r.depth_m,
+                          "top_z": r.top_z, "top_ground_z": r.top_ground_z, "length_m": r.length_m,
+                          "width_m": r.width_m,
+                          "cover": r.cover, "cut_ll": ll(r.axis[0]), "top_ll": ll(r.axis[-1]),
+                          "profile": list(r.profile), "notes": list(r.notes)} for r in roads],
+        "sunken_refused": list(rstats.refused),
+        "sunken_stats": {k: v for k, v in _dc.asdict(rstats).items() if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),
         "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
                             if not isinstance(v, list)},

@@ -390,9 +390,13 @@ def test_every_value_equals_v1(tables, capsys):
         "precedence.order": (tuple(v1_layout.AUTHORITY_PRECEDENCE),
                              tuple(v1_layout.AUTHORITY_PRECEDENCE) + ("parking_lot",),
                              "owner 2026-09-04j"),
+        # RULINGS 2026-09-08b/c: door_ramp is a v2-only role (a basement
+        # access door's 8 % ramp; tunnel_ramp caps 4 % in both instruments),
+        # groundside like the tunnel ramp, omitted from the order; the
+        # oracle reads it under tunnel_ramp at service_road's law (oracle_law)
         "groundside partition": (set(v1_cg._GROUNDSIDE_ROLES),
-                                 set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot"},
-                                 "owner 2026-09-04j"),
+                                 set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot", "door_ramp"},
+                                 "owner 2026-09-04j; 2026-09-08b/c"),
         # owner 2026-09-06w: THE TIERED APRON LAW — the apron (and the pad,
         # 08-21b) is HARD at 1.5 % and PREFERS v1's 1 % (`preferred`, the
         # tier `role_preferred_cap` answers and the solver charges); v1's

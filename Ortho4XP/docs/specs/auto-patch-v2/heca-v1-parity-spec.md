@@ -270,3 +270,73 @@ runway follows the chord: v1 lets the taxi chain yield at the runway
 (08d (2)); v2's chain rows are excluded from the yield transform by §6.1
 ("the taxi CHAIN … untouched (hard)").  That exclusion is the next
 decision (not measured here: the brief's arms were 08g-1 and 08g-2).
+
+## 8. SHAPES (owner RULINGS 2026-09-08k) — consumer census, written by lane `v2shapes` BEFORE editing (owner 30l)
+
+08k withdraws §3 (the 2 m step law and its re-solve passes), 06n's
+station-joined partition (`planar/terraces.py`) and 07g's serving-contact
+territories (`planar/territories.py`, `pipeline/territory.py`, the
+fallback links — measured never fired: `territories.links == []` in the
+latest HECA / CYXY / LEMD / SPJC / OTHH reports).  What replaces them:
+
+* A SHAPE is a connected component of touching / overlapping pavement
+  (`planar/shapes.py::build_shapes`, at the planar build): the union of
+  the `terrace.shape_roles` faces (runway + taxi families, apron, junction
+  — a road is never a member: it is a SEPARATOR), closed by
+  `terrace.separation_m` (0.5 m: pavement closer than this is one shape;
+  the 04u weld already shares the vertices of gaps under its 1.0 m
+  pre-snap tolerance ≈ 0.65 m post-snap, so `separation_m` governs only
+  unwelded pavement between the two — reported as a deviation), and then
+  OPENED by `terrace.narrow_mouth_max_m` (12 m): the bodies of one
+  component are the connected parts of its erosion by half the mouth
+  width; every vertex of a shape-role face takes the body nearest to it
+  (a neck narrower than the mouth width, a point contact, an edge
+  contact shorter than 12 m: two bodies, the boundary across the neck's
+  middle); a component with one body is one shape.  A road-family face's
+  vertices take the label of the nearest labelled vertex (a road between
+  two shapes carries the boundary mid-road, 07g (4) unchanged); a rigid
+  pad's vertices take the pad's majority label (07c (3)); a zone / open
+  vertex shared with pavement carries the pavement's label, any other
+  vertex none.  The runway strip keep-out (06n) welds the two bodies of
+  any boundary edge inside it (union-find: transitive, a shape is an
+  equivalence class).  The record: `PlanarMap.shape_of_vertex`,
+  `shape_of_face` (replacing `terrace_group`), `shape_joints`
+  (`ShapeJoint`, replacing `LabelJoint` / `TerraceJoint`).
+* A JOINT is a boundary between two shapes and nothing else: (a) the
+  label-boundary contour through every face carrying two labels (07g's
+  CDT contour, unchanged construction); (b) a GAP joint — the midline
+  between two shapes whose rings come within `instrument.step_contact_tol_m`
+  (the step readers' own horizon; a wider gap is priced by no reader).
+  Both are declared in the sidecar `terrace_joints` (v1's record shape),
+  the step the built |Δz| over the joint's vertex pairs, no cap.
+* INSIDE a shape no joint exists and no step is lawful: the apron
+  families yield with NO ceiling (`[yield] apron_yield_max` absent →
+  unbounded preference: 1 % preferred (`apron:` groups), 1.5 % the
+  second tier (`yield:apron…`), steeper where the routes demand).
+* The taxi CHAIN yields where it meets a runway-family vertex (08i-1
+  default): the `taxi` generator's chain hops / centreline chords with an
+  endpoint on a runway-family face become preferences at `taxi_yield_max`
+  (family `taxi_chain_at_runway`); crossings (the runway's own cap) and
+  every other chain row stay hard.
+* ONE solve pass: `Config.joint_passes_max`, `weld_built_steps`,
+  `terrace_welds`, `WELD_GEN`, `terrace.max_step_m`, `min_step_m`,
+  `simplify_factor`, `cell_roles`, `neighbour_roles`, `joint_gap_m`,
+  `complex_roles`, `route_links`, `route_link_rows` are DELETED.
+
+| consumer (reader of groups / joints / territories / links / passes) | today | after 08k |
+|---|---|---|
+| `planar/build.py` (`split_terraces`, `BuildStats.terraces`) | 06n split copies at group boundaries | `build_shapes` labels vertices and faces, declares the contours + gap joints; `BuildStats.shapes` |
+| `pipeline/territory.py` → `pipeline/shapes.py` (`territory_stage` / `territory_constraints` / `apply_joints` / `joint_steps`) | labels, predicate, fallback links, the filter, the yield transform, the welds | `shape_stage` (route bands + the withdraw set), `shape_constraints` (generators → filter → yield transform), `apply_joints` unchanged in kind (a row straddles ⇔ its vertices carry two shape ids), `joint_steps` over the declared joints |
+| `pipeline/build.py` (`Config.joint_passes_max`, the joint step loop, the report's `territories` / `joint_steps`) | ≤ 2 re-solves on the built step | one solve; report `shapes` (count, by area, joints, gap joints) |
+| `pipeline/why.py` | `territory_stage` + `territory_constraints` | `shape_stage` + `shape_constraints` (the LP `why` reads is the build's) |
+| `pipeline/publication.py` (`terrace_joints_ll`, `straddles`) | 06n runs + label contours; `over_max_step` | `pm.shape_joints` (contours and gap joints, `shapes: [a, b]`, `gap: bool`); `straddles` read from `pm.shape_of_vertex` — the parameters go |
+| `constraints/pads.py` (`planar.terrace_group`) | a pad never fronts across a group boundary | `planar.shape_of_face` — a pad never fronts a soft face of another shape |
+| `constraints/routes.py` (`pm.route_links`, `route_link_rows`), `constraints/__init__.GENERATORS` | the fallback link rows | deleted (never fired) |
+| `constraints/no_step.reach_band_values` → `REACH` bands | withdrawn for labelled non-station vertices (07g (2) measured infeasible) | withdrawn for the non-station vertices of `terrace.band_roles` faces (the same population: apron / junction / the road family inside pavement) — the kept rows carry the reach |
+| `constraints/yielding.py` (`FAMILY_SELECTORS`, ceilings) | six families, every ceiling a grade | + `taxi_chain_at_runway`; a class without a `<class>_yield_max` key yields unbounded (`ceiling=None`, the groundside-ramp precedent); `yielded_rows` gains `by_shape` (max apron grade per shape) |
+| `law/terrace_schema.py`, `law/yield_schema.py`, `emit.toml`, `tables.yield_ceiling` | the 06n / 07g / 08d keys | `[terrace] separation_m, narrow_mouth_max_m, shape_roles, band_roles`; `[yield] apron_yield_max` absent; `YIELD_FAMILIES` + `taxi_chain_at_runway` |
+| `model/planar.py` | `TerraceJoint`, `LabelJoint`, `terrace_joints`, `terrace_group`, `route_links` | `ShapeJoint`, `shape_joints`, `shape_of_vertex`, `shape_of_face` |
+| `verify/steps.py`, `verify/no_step.py`, `verify/transverse.py`, `tools/check_grade.py`, `tools/harness/census.py` | read the sidecar `terrace_joints` | unchanged (the sidecar key and record shape are the same) |
+| `emit/osm_adapter.py` | lists the sidecar key | unchanged |
+| `tools/v2_solve_replay.py` | `--joint-passes`, the weld loop, `--from territory` | one pass, `--from shapes`, the shapes / joints / by-shape apron grade report |
+| twins `test_v2terrace.py` (06n) / `test_v2terrace3.py` (07g) / `test_v2chord.py` ×3 (the step law) | | RETIRED (the mechanisms are deleted; the `why` KML twin moves to `test_why.py`); `test_v2shapes.py` carries 08k |

@@ -205,7 +205,10 @@ def test_basin_family_seats_its_floor_plate_on_the_trench_floor(objs, law):
     pit, off = by_res["pit.obj"], by_res["offpit.obj"]
     assert pit.datum == R.DATUM_PLATE and pit.bakes and pit.delta_m == pytest.approx(6.0, abs=0.3)
     assert pit.anchor_ground_m == pytest.approx(inside.floor_z, abs=1e-6)
-    assert off.datum == R.DATUM_PLATE and abs(off.delta_m) < 0.05
+    # the off-pit anchor's plate lands within 0.05 m of the floor: under
+    # min_delta_m the structure STAYS (RULINGS 2026-09-08d d)
+    assert off.datum == R.DATUM_PLATE and off.delta_m is None
+    assert off.skip_reason.startswith("below_threshold") and not off.bakes
     # after the seat the rendered plate stands on the trench floor
     m = pit.members[0]
     assert pit.anchor_ground_m + pl.units[0].agl_m + m.delta_m + inside.plate_y_m == \

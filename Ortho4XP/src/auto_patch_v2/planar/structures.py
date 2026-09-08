@@ -581,7 +581,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          capped=g.capped, far_capped=g.far_capped,
                          wall_length_m=c.length_m, mouth_kind=c.mouth_kind,
                          ground_kind=c.ground_kind, reseat_expect_m=expect,
-                         trench_outside_max_m=outside)
+                         trench_outside_max_m=outside,
+                         footprint=tuple((float(x), float(y)) for x, y in
+                                         c.footprint.exterior.coords[:-1])
+                         if c.footprint.geom_type == "Polygon" else ())
         tunnels.append(Tunnel(tid, tuple(i for m in members for i in m.ways),
                               tuple(axis), half, mouth_dem, mouth_z, s_top, climb_from,
                               tuple(ramp_refs), wall_ref, tuple(wall_path), tuple(decks),

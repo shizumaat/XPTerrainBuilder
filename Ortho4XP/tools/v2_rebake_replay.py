@@ -3,7 +3,7 @@
 — the post-mesh half without a tile build, and the pack's current bake
 state without a build at all.
 
-    venv/bin/python tools/v2_rebake_replay.py seat PLAN.json MESH [--filter TOKEN]
+    venv/bin/python tools/v2_rebake_replay.py seat PLAN.json MESH [--filter TOKEN] [--flat Z0]
     venv/bin/python tools/v2_rebake_replay.py disk PACK_ROOT [--filter TOKEN]
 
 ``seat`` reads a tile build's ``o4_v2_rebake_<ICAO>.json`` plan (or the
@@ -12,7 +12,12 @@ every unit exactly as ``auto_patch.engine_v2.rebake_after_mesh`` would
 (``auto_patch_v2.emit.rebake.seat`` over v1's ``MeshElevationSampler``),
 prints the counts, the largest seats and every unit matching ``--filter``
 (member seats, witnesses, water, outliers), and writes
-``PLAN.seat.json`` beside the plan.  It NEVER writes a pack.
+``PLAN.seat.json`` beside the plan, and the resources that would be
+written BY FAMILY (the pack's second path component) with their deltas.
+``--flat Z0`` stamps a flat-site datum (RULINGS 2026-09-08d) over the
+plan's bounds onto a plan that carries none (a pre-08d version-4 plan is
+read as version 5): the what-if of the 08d rules on an older build's plan
+and mesh.  It NEVER writes a pack.
 
 ``disk`` walks a scenery pack for ``<obj>.anchor_bak`` backups and prints,
 per resource matching ``--filter``, the live-minus-authored vertex ``y``
@@ -26,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import json
 import os
 import statistics
@@ -40,7 +46,17 @@ def cmd_seat(args: argparse.Namespace) -> int:
     from auto_patch_v2.emit import rebake as R
     from auto_patch_v2.law import Law
     with open(args.plan) as fh:
-        plan = R.RebakePlan.from_json(fh.read())
+        d = json.load(fh)
+    if d.get("version") == 4:
+        d["version"] = R.PLAN_VERSION          # a pre-08d plan: no datum (--flat supplies one)
+        print("  plan version 4 read as 5 (no flat-site datum recorded)")
+    plan = R.RebakePlan.from_dict(d)
+    if args.flat is not None and plan.flat is None:
+        lo0, la0, lo1, la1 = plan.bounds()
+        sq = ((la0, lo0), (la0, lo1), (la1, lo1), (la1, lo0))
+        plan = dataclasses.replace(plan, flat=R.FlatDatum("flat_candidate", float(args.flat),
+                                                          "replay", ((sq, ()),)))
+        print(f"  --flat {args.flat}: datum stamped over the plan's bounds")
     law = Law.for_airport(plan.icao)
     print(f"{plan.icao} plan: {dict(plan.counts)} skipped {len(plan.skipped)}")
     print("  skip reasons:", collections.Counter(
@@ -117,7 +133,25 @@ def cmd_seat(args: argparse.Namespace) -> int:
           for d in ([m.delta_m] if m.delta_m is not None else [x for _c, _k, x in m.part_deltas if x is not None])]
     if ds:
         print(f"baked deltas: median {statistics.median(ds):+.3f} min {min(ds):+.3f} max {max(ds):+.3f} over {len(ds)} part delta(s)")
-    out = os.path.splitext(args.plan)[0] + ".seat.json"
+    # THE WRITES BY FAMILY (08d): one line per family, the file count and the delta range
+    fam: dict[str, list[tuple[str, float, float]]] = {}
+    for u in res.units:
+        if not u.bakes:
+            continue
+        for m in u.members:
+            if not m.bakes:
+                continue
+            vals = [m.delta_m] if m.delta_m is not None else [x for _c, _k, x in m.part_deltas if x is not None]
+            parts = m.resource.split("/")
+            fam.setdefault(parts[1] if len(parts) > 2 else parts[0], []).append(
+                (m.resource, min(vals), max(vals)))
+    files = {r for rows in fam.values() for r, _lo, _hi in rows}
+    print(f"resources written: {len(files)} file(s) in {len(fam)} famil{'y' if len(fam) == 1 else 'ies'}")
+    for name, rows in sorted(fam.items(), key=lambda kv: -len(kv[1])):
+        lo = min(r[1] for r in rows); hi = max(r[2] for r in rows)
+        n_files = len({r[0] for r in rows})
+        print(f"  {name:28s} {n_files:3d} file(s)  delta {lo:+.3f} … {hi:+.3f}")
+    out = args.out or os.path.splitext(args.plan)[0] + ".seat.json"
     with open(out, "w") as fh:
         json.dump(res.to_dict(), fh, indent=1, default=str)
     print("->", out)
@@ -172,6 +206,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("mesh")
     s.add_argument("--filter", default="", help="print every unit whose resources contain this")
     s.add_argument("--top", type=int, default=12)
+    s.add_argument("--out", default="", help="where to write the seat result (default: beside the plan — "
+                   "pass a lane-local path when the plan lives in the shared data repo)")
+    s.add_argument("--flat", type=float, default=None,
+                   help="stamp a flat-site datum Z0 over the plan's bounds when the plan has none (08d what-if)")
     s.set_defaults(fn=cmd_seat)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")

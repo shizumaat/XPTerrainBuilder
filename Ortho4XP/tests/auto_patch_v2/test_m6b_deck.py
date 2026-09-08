@@ -208,6 +208,23 @@ def test_plan_json_round_trips_the_signature(pack, law):
 
 # ── 3. the seat ──────────────────────────────────────────────────────────
 
+def _water_law(law):
+    """RULINGS 2026-09-08d (a): under the default law an anchor on water
+    with no site datum is HELD; the R12 abutment twins below run the deck
+    reading under ``anchor_water_founds_seat = true`` (1.0.293's law), the
+    water surface founding the base as v1 did."""
+    return _dc.replace(law, tables=_dc.replace(law.tables, structures=_dc.replace(
+        law.tables.structures, rebake=_dc.replace(law.tables.structures.rebake,
+                                                  anchor_water_founds_seat=True))))
+
+
+def _flat_plan(pl, z0: float):
+    """The plan on a FLAT SITE at ``z0`` (RULINGS 2026-09-08d e)."""
+    la, lo = pl.units[0].anchor
+    sq = ((la - 0.01, lo - 0.01), (la - 0.01, lo + 0.01), (la + 0.01, lo + 0.01), (la + 0.01, lo - 0.01))
+    return _dc.replace(pl, flat=R.FlatDatum("flat_candidate", z0, "cifp", ((sq, ()),)))
+
+
 def _span_sampler(land_z: float, water_half_width: float, anchor_ll, m_per_deg):
     """Land at ``land_z`` everywhere except a WATER band ``water_half_width``
     metres either side of the anchor's east-west axis... measured along
@@ -228,10 +245,11 @@ def test_deck_seats_its_top_at_the_abutment_ground(pack, law):
     pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0), ("rail", (0.0, 0.0), 0.0, 0.0)], way)
     u = pl.units[0]
     mpd = R._metres_per_degree(u.anchor[0])
-    # anchor over the canal at 0.0; the banks 20 m either side at 705
-    res = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), law)
+    # anchor over the canal at 0.0 (the water founds the base under
+    # _water_law); the banks 20 m either side at 705
+    res = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), _water_law(law))
     us = res.units[0]
-    assert us.datum == "deck_top" and us.bakes
+    assert us.datum == "deck_top" and us.bakes and us.anchor_ground_m == 0.0
     # deck top (authored 4.0) at the bank: delta = 705 − (0 + 0 + 4) = 701
     assert us.delta_m == pytest.approx(701.0, abs=0.01)
     deck = next(s for s in us.members if s.resource == "objects/plate.obj")
@@ -243,6 +261,13 @@ def test_deck_seats_its_top_at_the_abutment_ground(pack, law):
     assert not rail.founding
     assert rail.part_deltas and all(d == pytest.approx(701.0, abs=0.01)
                                     for _c, _k, d in rail.part_deltas)
+    # the default law: an anchor on water with no site datum founds nothing — HELD (08d a)
+    held = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), law).units[0]
+    assert held.held and "anchor on water" in held.skip_reason
+    # on a FLAT SITE the pack's authored deck is the seat: nothing moves (08d e)
+    flat = R.seat(_flat_plan(pl, 705.0), _span_sampler(705.0, 20.0, u.anchor, mpd), law).units[0]
+    assert flat.anchor_ground_m == 705.0 and not flat.bakes and not flat.held
+    assert flat.datum == "deck_top" and flat.skip_reason.startswith("below_threshold: flat site")
 
 
 def test_abutment_walks_landward_off_the_water(pack, law):
@@ -250,6 +275,7 @@ def test_abutment_walks_landward_off_the_water(pack, law):
     pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0)], way)
     u = pl.units[0]
     mpd = R._metres_per_degree(u.anchor[0])
+    law = _water_law(law)
     # water reaches 12 m past the deck ends (30 + 12): the line must walk
     res = R.seat(pl, _span_sampler(705.0, 42.0, u.anchor, mpd), law)
     us = res.units[0]
@@ -285,7 +311,7 @@ def test_disagreeing_deck_members_stand_down(pack, law):
     pl2 = R.RebakePlan(pl.icao, pl.pack_name, pl.pack_root,
                        (R.Unit("u", pl.units[0].anchor, 0.0, (m, m2)),), (), {})
     mpd = R._metres_per_degree(pl.units[0].anchor[0])
-    res = R.seat(pl2, _span_sampler(705.0, 20.0, pl.units[0].anchor, mpd), law)
+    res = R.seat(pl2, _span_sampler(705.0, 20.0, pl.units[0].anchor, mpd), _water_law(law))
     us = res.units[0]
     assert us.datum == R.DATUM_CLUSTER
     assert any("deck members disagree" in f for f in us.findings)
@@ -298,7 +324,7 @@ def test_family_takes_one_anchor_one_delta(pack, law):
     assert len(pl.units) == 1 and len(pl.units[0].members) == 3
     u = pl.units[0]
     mpd = R._metres_per_degree(u.anchor[0])
-    us = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), law).units[0]
+    us = R.seat(pl, _span_sampler(705.0, 20.0, u.anchor, mpd), _water_law(law)).units[0]
     assert us.bakes and us.datum == "deck_top"
     assert len(us.resources) == 3 and us.delta_m == pytest.approx(701.0, abs=0.01)
 
@@ -331,16 +357,26 @@ def test_a_way_along_a_small_plate_does_not_carry_a_large_family(pack, law):
     assert rep.deck_signature_families == 0
 
 
-def test_deck_seat_is_exempt_from_the_threshold(pack, law):
-    """OTHH's interchange sits at +0.9576 (v1, owner-accepted): a deck
-    seat under 1.0 m still bakes; a feet seat under it stays."""
+def test_deck_seat_under_the_threshold_stays(pack, law):
+    """RULINGS 2026-09-08d (d): a structure seat under ``min_delta_m``
+    STAYS (``structure_seat_threshold_exempt = false``; 05n-4's exemption,
+    v1's +0.9576 precedent, withdrawn).  The anchor over the canal at
+    0.0 (water founds it here), the banks at 4.5, the deck top authored
+    4.0: the top lands 0.5 m under the bank."""
     way = _ways(([(-40.0, 0.0), (40.0, 0.0)], {"highway": "trunk", "bridge": "yes"}))
     pl = _planned(pack, law, [("plate", (0.0, 0.0), 0.0, 0.0)], way)
     u = pl.units[0]
     mpd = R._metres_per_degree(u.anchor[0])
-    # anchor over the canal at 0.0; the banks at 4.5: delta = 4.5 − 4.0 = 0.5
+    law = _water_law(law)
     us = R.seat(pl, _span_sampler(4.5, 20.0, u.anchor, mpd), law).units[0]
-    assert us.datum == "deck_top" and us.delta_m == pytest.approx(0.5, abs=0.01) and us.bakes
+    assert us.datum == "deck_top" and us.delta_m is None and not us.bakes
+    assert us.skip_reason.startswith("below_threshold") and "+0.500" in us.skip_reason
+    assert all(m.delta_m is None and not m.bakes for m in us.members)
+    exempt = _dc.replace(law, tables=_dc.replace(law.tables, structures=_dc.replace(
+        law.tables.structures, rebake=_dc.replace(law.tables.structures.rebake,
+                                                  structure_seat_threshold_exempt=True))))
+    us = R.seat(pl, _span_sampler(4.5, 20.0, u.anchor, mpd), exempt).units[0]
+    assert us.bakes and us.delta_m == pytest.approx(0.5, abs=0.01)
 
 
 def test_basin_exclusion_matches_paths_too(pack, law):

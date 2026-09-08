@@ -134,6 +134,11 @@ class Tunnel:
     #: OUTSIDE the walls' inner faces (the 05n-2 assertion, expect 0).
     reseat_expect_m: tuple[float, ...] = ()
     trench_outside_max_m: float = 0.0
+    #: THE OBJECT'S FOOTPRINT (RULINGS 2026-09-08d c): the walls' plan
+    #: union (their OUTER faces) as a ring in frame xy — the plate seat's
+    #: stations stand outside it by the identity spacing, whichever side
+    #: of the outer face the trench rim is on; empty for an OSM bore.
+    footprint: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

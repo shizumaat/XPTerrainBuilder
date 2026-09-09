@@ -86,8 +86,9 @@ from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (PavementDeck, carriageway_width_m, chains, is_bridge, is_tunnel,
-                                 merge_duals, mouths, pavement_deck_intervals,
+from .structure_approach import (PavementDeck, carriageway_width_m, chains, deck_intervals,
+                                 is_bridge, is_tunnel, merge_duals, mouths,
+                                 object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, unit)
 from .structure_geometry import beyond_strip, corner_distance, geometry
 
@@ -99,8 +100,6 @@ RUNWAY_FAMILY = ("runway", "runway_crossing")
 NODE_TOL = 0.05
 #: Approach ways are followed at most this many hops from the mouth.
 MAX_HOPS = 6
-#: A deck crossing the axis at less than this angle is along it, not over it.
-_DECK_MIN_ANGLE_DEG = 30.0
 #: Two directions within 30° are parallel (31h's dual test; the approach kink test).
 PARALLEL_COS = math.cos(math.radians(30))
 
@@ -361,9 +360,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
         # decks across the corridor (a first pass over the full reach)
-        deck_ivals = _deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
+        deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
                                      bridge_tree, law)
-        obj_ivals = _object_deck_intervals(axis_ln, half + rim_off, odecks)
+        obj_ivals = object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a
             # mapped bridge way over it mints no terrain deck (08-30d)
@@ -941,73 +940,3 @@ def _parts(geom) -> list[Polygon]:
     if geom is None or geom.is_empty:
         return []
     return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
-
-
-def _deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
-                    lines: list[LineString], tree: STRtree | None, law: Law
-                    ) -> list[tuple[OsmWay, float, float, Polygon]]:
-    """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
-    corridor (at ≥ 30° to the axis), ordered by ``s0``."""
-    if tree is None:
-        return []
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for j in tree.query(corridor, predicate="intersects"):
-        w, ln = bridges[int(j)], lines[int(j)]
-        x = ln.intersection(axis_ln)
-        if x.is_empty:
-            continue
-        pts = [g for g in shapely.get_parts(x) if g.geom_type == "Point"]
-        if not pts:
-            continue
-        s_mid = axis_ln.project(pts[0])
-        # crossing angle
-        a = axis_ln.interpolate(max(0.0, s_mid - 1.0))
-        b = axis_ln.interpolate(min(axis_ln.length, s_mid + 1.0))
-        ux, uy = b.x - a.x, b.y - a.y
-        sb = ln.project(pts[0])
-        c = ln.interpolate(max(0.0, sb - 1.0))
-        d = ln.interpolate(min(ln.length, sb + 1.0))
-        vx, vy = d.x - c.x, d.y - c.y
-        den = (math.hypot(ux, uy) * math.hypot(vx, vy)) or 1.0
-        ang = math.degrees(math.acos(max(-1.0, min(1.0, abs(ux * vx + uy * vy) / den))))
-        if ang < _DECK_MIN_ANGLE_DEG:
-            continue
-        wd = carriageway_width_m(w.tags, law)
-        dpoly = ln.intersection(corridor.buffer(2.0)).buffer(wd / 2, cap_style="flat", **_MITRE)
-        if dpoly.is_empty:
-            continue
-        # the covered stretch along the axis
-        seg = axis_ln.intersection(dpoly)
-        if seg.is_empty:
-            continue
-        s_vals = []
-        for g in shapely.get_parts(seg):
-            for q in g.coords:
-                s_vals.append(axis_ln.project(Point(q)))
-        out.append((w, min(s_vals), max(s_vals), dpoly))
-    out.sort(key=lambda t: t[1])
-    return out
-
-
-def _object_deck_intervals(axis_ln: LineString, half_outer: float,
-                           odecks: list[tuple[str, Polygon, float]]
-                           ) -> list[tuple[str, float, float, Polygon, float]]:
-    """``(object id, s0, s1, deck footprint, deck top)`` per hard-deck
-    object footprint crossing the corridor, ordered by ``s0``."""
-    if not odecks:
-        return []
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for oid, dp, top in odecks:
-        if not dp.intersects(corridor):
-            continue
-        seg = axis_ln.intersection(dp)
-        if seg.is_empty:
-            continue
-        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
-        if not s_vals:
-            continue
-        out.append((oid, min(s_vals), max(s_vals), dp, top))
-    out.sort(key=lambda t: t[1])
-    return out

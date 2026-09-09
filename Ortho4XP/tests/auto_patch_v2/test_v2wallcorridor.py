@@ -46,7 +46,7 @@ from auto_patch_v2.model.structures import profile_z
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, _plate_seats, plate_stations
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.planar.structures import build_structures
+from auto_patch_v2.planar.structures import _pad_relief_m as _pad_relief, build_structures
 from auto_patch_v2.planar.wall_corridor_ramps import GARAGE_ROLE, KIND, RAMP_ROLE, wall_corridor_groups
 from auto_patch_v2.solve import Options, Status, solve
 
@@ -430,3 +430,59 @@ def test_generator_rows_solve_and_emit(objs, law):
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and f"v='{RAMP_ROLE}'" in text
     assert "k='o4_grade_law' v='service_road'" in text
+
+
+def _pad(ref, x0, x1, y0=-50.0, y1=70.0):
+    """A building pad standing OVER the corridor (footprint AND the ramp
+    beyond the walls) — OTHH's terminal pad around the owner's bays."""
+    return Cell(3, "building", ref, _rect(x0, y0, x1, y1), (), None, None,
+                "groundside", "building", {})
+
+
+def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
+    """Law C / spec §6a row 16 with the flat-pad host rule (2026-09-08n):
+    beyond the walls the ramp cuts the pads it HOSTS and only those.
+
+    The defect this pins (measured on the OTHH closing tile build): the
+    knife guarded EVERY pad under the ramp, so `building5` — the flat
+    terminal pad the owner's loading bays stand in, a HOST — kept its
+    ``weld_to_touching_pavement`` Flat over the ramp's own vertices.  Five
+    pad flats gripped seven wall-corridor FLOOR vertices; the law ladder
+    demoted ``wall_corridor_ramp`` by 1.392 m (the bays' full depth) and
+    the tile build refused.  A pad cannot both host a ramp and hold it
+    flat.
+    """
+    band = law.tables.structures.basin.contact_band_m
+    airport, cache, objects, recs, st = _corridors(objs, law, "level")
+    groups = wall_corridor_groups(recs, law)
+
+    # FLAT in the fixture DEM's 0.5 %/x plane (0.2 m over 40 m) => a HOST:
+    # it does not stop the ramp, and the ramp cuts it
+    flat = _pad("host_pad", -20.0, 20.0)
+    assert _pad_relief(airport, Polygon(flat.ring)) <= band
+    cl = Classification(tuple(_cells((flat,))), (), {}, ())
+    cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
+    assert not sst.refused, sst.refused
+    assert tunnels and not any(t.clipped_by for t in tunnels)
+    kept = [c for c in cl2.cells if c.ref.startswith("host_pad")]
+    before = Polygon(flat.ring).area
+    after = sum(Polygon(c.ring).area - sum(Polygon(h).area for h in c.holes)
+                for c in kept)
+    assert after < before - 1.0, (before, after)          # the ramp took its bite
+    # ...and NO pad flat may grip a wall-corridor FLOOR vertex (the OTHH row)
+    pm, _stats = build(airport, cl, law)
+    cs, _c, _w = generate(pm, law, airport)
+    floor = {p_.v for p_ in cs.pins if WALL_BOTTOM in p_.source.ruling}
+    assert floor
+    for f in cs.flats:
+        if f.source.generator == "pads":
+            assert not (set(f.group) & floor), (f.source.inputs, set(f.group) & floor)
+
+    # ON RELIEF (1.5 m over 300 m) => NOT a host: it STOPS the ramp
+    # (tunnel.ramp_crosses_pad — the LEMD Cargo-NEWCO@5/a demotion)
+    relief = _pad("relief_pad", -150.0, 150.0)
+    assert _pad_relief(airport, Polygon(relief.ring)) > band
+    cl = Classification(tuple(_cells((relief,))), (), {}, ())
+    _cl3, tunnels3, sst3 = build_structures(airport, cl, law, objects, (), groups)
+    assert not tunnels3, [(t.id, t.clipped_by) for t in tunnels3]
+    assert sst3.refused and all("relief_pad" in r for r in sst3.refused), sst3.refused

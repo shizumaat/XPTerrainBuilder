@@ -753,9 +753,27 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         keepouts.append(outer)
         if c is not None:
             # the walls cut EVERYTHING but the runway family — the pad too
-            # (08-26: the trench is senior to the pad authority); the ramp
-            # beyond the walls never crosses a pad (tunnel.ramp_crosses_pad)
-            hull_knives.append(outer if beyond is None else outer.difference(beyond))
+            # (08-26: the trench is senior to the pad authority).  Beyond the
+            # walls the ramp cuts the pads it HOSTS and only those (spec §6a
+            # row 16; the flat-pad host rule 2026-09-08n): a pad the ramp
+            # merely reaches is guarded (tunnel.ramp_crosses_pad — it stopped
+            # the ramp, LEMD Cargo-NEWCO@5/a), but a HOST pad that keeps its
+            # Flat over the ramp's own vertices is a contradiction the ladder
+            # demotes — measured at OTHH Terminal_Base_2_1: 5 `building5` pad
+            # flats gripped 7 wall-corridor FLOOR vertices, 10 rows demoted at
+            # 1.392 m (the bays' full depth).
+            knife = outer
+            if beyond is not None:
+                guard = []
+                if pad_tree is not None:
+                    for j in pad_tree.query(beyond, predicate="intersects"):
+                        poly, ref = pads[int(j)]
+                        if ref not in host:
+                            guard.append(poly)
+                keep_out = beyond.intersection(unary_union(guard)) if guard else None
+                if keep_out is not None and not keep_out.is_empty:
+                    knife = outer.difference(keep_out)
+            hull_knives.append(knife)
     # TWO STRUCTURES MAY NOT OVERLAP: parallel mouths beyond 31h's test
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly

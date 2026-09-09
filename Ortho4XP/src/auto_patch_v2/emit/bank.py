@@ -45,9 +45,10 @@ than ``bank_toe_break_m`` (:func:`smooth_runs`).
 
 THE BANK FACE IS AUTHORED (09f-1) and its LEVEL RINGS ARE VALID BY
 CONSTRUCTION (owner RULINGS 2026-09-09h).  Between the boundary ring and
-the foot the patch emits a ring every ``[design] bank_ring_spacing_m``
-(10 m) of plan distance, each vertex's z LINEAR between the ring's design z
-and the foot's DEM z.  09f-1 built those as per-vertex inward offsets and
+the foot the patch emits a ring at ``[design] bank_first_ring_m`` (3 m,
+owner RULINGS 2026-09-09i (1)) and then one every ``[design]
+bank_ring_spacing_m`` (10 m) of plan distance, each vertex's z LINEAR
+between the ring's design z and the foot's DEM z.  09f-1 built those as per-vertex inward offsets and
 spec §10.6 attributed the last steep triangle to it: an offset of an
 AIRPORT-SCALE chain self-intersects at concave corners, and
 ``include_patches`` drops an invalid closed way WHOLE (9 of 39 at HECA).
@@ -339,16 +340,19 @@ def daylight_feet(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
     return d, kind
 
 
-def intermediate_offsets(d: float, spacing: float) -> list[float]:
+def intermediate_offsets(d: float, spacing: float,
+                         first: float) -> list[float]:
     """THE PLAN DISTANCES of the intermediate rings on a bank whose foot is
-    ``d`` metres out (09f-1): one every ``spacing`` metres strictly inside
-    the bank.  A foot at or inside one spacing gets NONE — a 5 m minimum
-    bank has no room for a ring, and a foot exactly at 10 m already IS the
-    ring.  ``d = 18.2, spacing = 10`` -> ``[10.0]``; ``d = 59`` -> five."""
-    if spacing <= 0.0 or not d > spacing:
+    ``d`` metres out (09f-1): the FIRST at ``first`` metres, then one every
+    ``spacing`` metres, all strictly inside the bank (owner RULINGS
+    2026-09-09i (1) — the innermost band is where the mesh's harmonic
+    squeeze reads, and a first ring at the full spacing left the transect at
+    46 % against the ring).  ``d = 18.2, spacing = 10, first = 3`` ->
+    ``[3.0, 13.0]``; ``d = 3`` -> none (the foot IS the ring)."""
+    if spacing <= 0.0 or first <= 0.0 or not d > first:
         return []
-    n = int(math.ceil(d / spacing)) - 1
-    return [spacing * (k + 1) for k in range(n)]
+    n = int(math.ceil((d - first) / spacing))
+    return [first + spacing * k for k in range(n)]
 
 
 def smooth_along(d: np.ndarray, s: np.ndarray, w: float,
@@ -689,6 +693,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     ktree = cKDTree(rz[:, :2]) if len(rz) else None
     ztree = STRtree(zsegs) if zsegs else None
     spacing = float(d_law.bank_ring_spacing_m)
+    first_ring = float(d_law.bank_first_ring_m)
 
     def _inner(x: float, y: float) -> tuple[float, float, float, float]:
         """THE INNER END of this foot node's bank: the nearest point of the
@@ -775,8 +780,8 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     # read as an area instead of as a per-vertex test.  Every exterior and
     # interior ring of the result is one CLOSED way; z comes from THE BANK
     # FIELD (:func:`_field_at`), never from a per-vertex ray.
-    levels = max((len(intermediate_offsets(dk, spacing)) for dk in all_dk),
-                 default=0)
+    offsets = max((intermediate_offsets(dk, spacing, first_ring)
+                   for dk in all_dk), key=len, default=[])
     ftree = cKDTree(np.c_[np.asarray(all_fx, float),
                           np.asarray(all_fy, float)]) if all_fx else None
     # THE BANK FIELD IS READ ON THE LOCAL RAY, not from the nearest foot
@@ -793,8 +798,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             bsegs.extend(LineString([cs[i], cs[i + 1]])
                          for i in range(len(cs) - 1))
     btree = STRtree(bsegs) if bsegs else None
-    for lv in range(1, levels + 1):
-        t_out = spacing * lv
+    for lv, t_out in enumerate(offsets, start=1):
         band = cov.buffer(t_out, join_style="mitre",
                           mitre_limit=_MITER_MAX).intersection(banked)
         if band.is_empty:

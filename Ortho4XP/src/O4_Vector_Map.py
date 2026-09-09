@@ -2351,6 +2351,51 @@ def _read_obj8_anchor(objfile_name, alt_lookup):
 
 
 ################################################################################
+# THE DEGENERATE FACE FLOOR (RULINGS 2026-09-09i (2), lane ``v2seedseal``).
+#
+# Both INTERP_ALT seeders place their seed at ``face.representative_point()``
+# of a face of a SHAPELY arrangement (``ops.polygonize`` over the ring
+# boundaries), while :func:`audit_interp_alt_seed_sealing` — and
+# Triangle4XP's own point location after it — reads the arrangement the
+# VECTOR MAP built from the same lines through ``insert_way(check=True)``.
+# The two arrangements agree everywhere a face has room; they disagree, at
+# the last bits of a double, over a face that has none.
+#
+# MEASURED (HECA +30+031, patch of 2026-09-09 14:05, 2,081 patch faces): six
+# coincident bank level rings share a node A exactly, one of them carries an
+# extra node C that the other five pass 2.7 NANOMETRES clear of, and the
+# noders answer that with a TRIANGLE of 2.0e-9 m^2 — A, C, and the foot of C
+# on the other five (B).  Shapely put the seed inside its own version of that
+# triangle; the map's version of B, from ``are_encroached``'s linear solve,
+# stands 1.5e-14 deg away, which leaves the seed 1.7 NANOMETRES OUTSIDE the
+# map's face union and ``audit_interp_alt_seed_sealing`` REFUSES the tile.
+# No way was rejected, split or moved: all 9,336 vertices of the six rings
+# are in the map, and both arrangements hold the sliver.
+#
+# A face this size holds no mesh vertex and no triangle a sim can render, so
+# it needs no seed — and it cannot be located reliably by ANY consumer.  A
+# face below the floor is therefore skipped by both seeders.  The floor is
+# one square MILLIMETRE: fifteen of HECA's 2,081 faces (the largest 1e-6 m^2)
+# fall under it, and the smallest face any airport's mesh can carry is many
+# orders above it.
+INTERP_ALT_MIN_FACE_AREA_M2 = 1.0e-6
+#: Square metres in one square degree at the EQUATOR — the largest such
+#: value, so the same degree-area floor is a smaller (more conservative)
+#: metre floor at every other latitude.  Faces here are in tile-relative
+#: degrees and the seeders carry no latitude.
+_SQ_M_PER_SQ_DEG = 111320.0 ** 2
+INTERP_ALT_MIN_FACE_AREA_DEG2 = (
+    INTERP_ALT_MIN_FACE_AREA_M2 / _SQ_M_PER_SQ_DEG
+)
+
+
+def is_degenerate_interp_alt_face(face):
+    """True when ``face`` is too small to hold a mesh vertex — a noding
+    artifact of two near-coincident ways, not a region to seed."""
+    return face.area < INTERP_ALT_MIN_FACE_AREA_DEG2
+
+
+################################################################################
 def seed_interp_alt_subcells(vector_map):
     """R18-1 — seed every ROAD-CUT SUB-CELL of every patch face.
 
@@ -2411,7 +2456,11 @@ def seed_interp_alt_subcells(vector_map):
             for seed in vector_map.seeds.get("INTERP_ALT", [])]
         existing_tree = STRtree(existing) if existing else None
         added = []
+        degenerate = 0
         for face in ops.polygonize(ops.unary_union(cutters)):
+            if is_degenerate_interp_alt_face(face):
+                degenerate += 1      # a noding artifact, see the floor above
+                continue
             seed_point = face.representative_point()
             if not covered.contains(seed_point):
                 continue
@@ -2427,7 +2476,7 @@ def seed_interp_alt_subcells(vector_map):
             1,
             f"   Patch faces: {len(added)} road-cut sub-cell(s) seeded "
             f"INTERP_ALT beside the {len(existing)} face seed(s) "
-            "already placed.")
+            f"already placed ({degenerate} degenerate face(s) skipped).")
         return len(added)
     except Exception as error:
         UI.vprint(
@@ -2874,6 +2923,11 @@ def include_patches(vector_map, tile):
                     [pol.boundary for pol in interp_alt_patch_polygons]
                 )
             ):
+                # A face with no room holds no mesh vertex and cannot be
+                # located identically by the map's own arrangement — see
+                # INTERP_ALT_MIN_FACE_AREA_M2.
+                if is_degenerate_interp_alt_face(face):
+                    continue
                 seed_point = face.representative_point()
                 if covered.contains(seed_point):
                     interp_alt_seeds.append(

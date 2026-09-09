@@ -73,6 +73,10 @@ class Design:
     #: rings that AUTHOR the bank face (owner RULINGS 2026-09-09f-1) —
     #: the mesh interpolates nothing it has no vertices for.
     bank_ring_spacing_m: float
+    #: ``bank_first_ring_m`` is where the FIRST intermediate ring stands
+    #: (owner RULINGS 2026-09-09i (1)) — inside the first spacing, because
+    #: the innermost band is where the mesh's harmonic squeeze reads.
+    bank_first_ring_m: float
     #: THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11): the foot is
     #: the civil-engineering DAYLIGHT (catch) POINT, not the smooth-ground
     #: fixed point — walking outward in ``bank_sample_m`` stations, the first
@@ -146,6 +150,11 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_ring_spacing_m {d.bank_ring_spacing_m}: at least "
                   f"bank_min_width_m {d.bank_min_width_m} — a narrower spacing would "
                   "author a ring inside the minimum bank (09-09f-1)")
+    if not 0.0 < d.bank_first_ring_m < d.bank_min_width_m:
+        raise err(f"emit.design.bank_first_ring_m {d.bank_first_ring_m}: "
+                  f"positive and inside bank_min_width_m {d.bank_min_width_m} "
+                  "— the first level ring stands within the narrowest bank "
+                  "(09-09i (1))")
     if not d.bank_sample_m > 0.0:
         raise err(f"emit.design.bank_sample_m {d.bank_sample_m}: the daylight "
                   "walk's station, positive metres (09-09g)")

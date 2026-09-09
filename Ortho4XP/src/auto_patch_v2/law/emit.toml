@@ -229,9 +229,14 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # shorter inner boundary.  The patch therefore emits INTERMEDIATE rings
 # every this many metres of plan distance between the boundary ring and
 # the foot, each vertex's z LINEAR between the ring's design z and the
-# foot's DEM z along the outward normal.  A foot at ``bank_min_width_m``
-# gets none (there is no room for one).
+# foot's DEM z along the outward normal.  ``bank_first_ring_m`` is where the
+# FIRST of them stands (owner RULINGS 2026-09-09i (1)): the innermost
+# spacing is the mesh's harmonic squeeze, and at 10 m the transect still
+# read 46 % against the ring where the authored face is 33 %.  The first
+# ring stands 3 m out, then one every ``bank_ring_spacing_m`` (a foot at
+# 18.2 m gets levels at 3 and 13 m).
 bank_ring_spacing_m = 10.0
+bank_first_ring_m   = 3.0
 # THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11).  The fixed
 # point ``d = |z_ring - DEM(foot)| / bank_slope`` is the daylight point only
 # where the ground is smooth; where it is not it erases the very earthworks

@@ -1111,3 +1111,162 @@ against 09h's 145–148 s; the solve is unchanged (29.7 s here, 26.8 s
 there, both inside the ±25 % single-run band, and the surface is
 bit-identical).  Over the 60 s per-airport budget on both sides — the
 standing figure adjudicated once in the final profiling round.
+
+---
+
+## §12 THE UNSEALED SEED, and the FIRST LEVEL RING AT 3 m (RULINGS 2026-09-09i)
+
+Lane `v2seedseal`, on the same branch.  Two items: 09i (2) attributes and
+fixes the one unsealed `INTERP_ALT` seed that made `run_tile_mesh_only.py`
+refuse the HECA tile, and 09i (1) moves the first level ring in to
+`bank_first_ring_m` 3 m.
+
+### 12.1 THE ATTRIBUTION (09i (2))
+
+Reproduced OFFLINE from the shipped patch — no build.  The 1,797 closed
+ways of `Patches/+30+030/+30+031/{HECA,HEAZ}_auto.patch.osm` are read with
+production's own `O4_OSM_Utils.OSM_layer`, inserted into a real
+`O4_Vector_Utils.Vector_Map` with `insert_way(check=True)` under
+`PATCH_RING_MARKER`, seeded exactly as `include_patches` seeds, and audited
+with `audit_interp_alt_seed_sealing`: **1 of 2,081 seeds unsealed, at
+(30.128224345, 31.413671602)** — the tile build's own number.
+
+What owns that seed: **nothing**.  The seed is the
+`representative_point()` of a face of the SHAPELY arrangement that is a
+**triangle of 2.0e-9 m²**, with corners
+
+* `A = (0.41367461122, 0.12822382732)` — an exact node of SIX bank level
+  rings (`o4_feature=bank_foot`, ways −1571, −1546, −1515, −1461, −1367,
+  −1217), which run coincident along this stretch because
+  `cover.buffer(t) ∩ banked` degenerates to the foot where the bank is
+  narrower than `t`;
+* `C = (0.41366859242, 0.12822486347)` — an exact node of ONE of the six
+  (−1367) and of no other;
+* `B` — the foot of `C` on the other five rings' segment, **2.7
+  NANOMETRES** away from `C`, minted by the noder.
+
+What `insert_way(check=True)` does to it: **nothing that is a defect.**
+All 9,336 vertices of the six rings are in the map; no way is rejected,
+split away, snapped or merged.  The map builds the SAME sliver — its `B`
+comes from `are_encroached`'s 2×2 linear solve instead of GEOS's noder,
+and the two answers differ by **1.5e-14 deg**.  That is the whole of the
+difference between the two arrangements, and it is enough to leave the
+seed 1.7 nanometres OUTSIDE the map's face union, where
+`prepared.contains` is False and the audit refuses.  (09i records the
+previous lane's "the offline arrangement seals every seed": it does not —
+tested against the polygonized faces of BOTH arrangements, the offline one
+refuses the same seed.)
+
+### 12.2 THE FIX AT THE CAUSE, and why it is engine-side
+
+The emitter is not at fault: every ring it authored is valid, is held by
+the map exactly as authored, and would be held identically at any
+tolerance.  The fault is that **a seed was placed in a face too small to
+hold a mesh vertex**, where no two point-location implementations can
+agree.  `O4_Vector_Map` therefore gains ONE predicate,
+`is_degenerate_interp_alt_face`, and both seeders skip such a face:
+
+| # | consumer | ruling |
+|---|---|---|
+| G1 | `O4_Vector_Map.include_patches` (per-FACE seeding) | EDITED: a face under `INTERP_ALT_MIN_FACE_AREA_M2` gets no seed. |
+| G2 | `O4_Vector_Map.seed_interp_alt_subcells` (R18-1 road-cut sub-cells) | EDITED: the same floor, counted in its own report line. |
+| G3 | `O4_Vector_Map.audit_interp_alt_seed_sealing` | UNCHANGED — the audit stays strict; it has fewer seeds to check, not looser ones. |
+| G4 | Triangle4XP `regionplague` | UNAFFECTED: a skipped face is 1 mm² at most, holds no mesh vertex and no renderable triangle, so no ground loses its `INTERP_ALT` altitude. |
+| G5 | `emit/bank.py` and every v2 emitter | UNAFFECTED: no patch byte changes because of G1–G2. |
+
+The floor is **one square millimetre** (`INTERP_ALT_MIN_FACE_AREA_M2 =
+1.0e-6`, converted with the equatorial square-degree so the metre floor is
+conservative at every other latitude).  At HECA it skips **12 of 2,081**
+faces, the largest of them 1e-6 m²; the offline replay then reports
+`INTERP_ALT seal: all 2,069 seed(s) enclosed`.  Twin (engine-side, as 09i
+requires for a v1 change): `tests/test_interp_alt_degenerate_face.py` —
+HECA's own `A` and `C` coordinates, the sliver reproduced at 1.1e-9 m²,
+the floor separating it from the real face, `seed_interp_alt_subcells`
+placing exactly one seed, and the audit accepting the result.
+
+### 12.3 THE FIRST LEVEL RING AT 3 m (09i (1))
+
+`[design] bank_first_ring_m = 3.0`, validated `0 < first < bank_min_width_m`
+in `check_design`.  `intermediate_offsets(d, spacing, first)` returns
+`first, first + spacing, …` strictly inside `d`, and `with_bank` iterates
+that schedule instead of `spacing * lv`.  Consumers: the schedule function
+(E2) and its two twins only — the ring kind, the `ref` shape and every
+register are untouched, so §11.2's D-, E- and F-rows all stand.  Twins:
+`intermediate_offsets(18.2, 10, 3) == [3.0, 13.0]` (09i's own), and a
+minimum-width bank now authors ONE level ring at 3 m where 09f-1 authored
+none — `test_a_minimum_width_bank_authors_the_first_ring_only`, re-scoped
+by the ruling, not by the lane.
+
+### 12.4 MEASUREMENTS
+
+HECA `HECA_20260909T144913` (149.8 s, solve 26.8 s, `--engine v2`).  The
+DESIGN SURFACE IS BIT-IDENTICAL to 09i's `HECA_20260909T140533`: 317
+active-set rounds either side, objective 560668.3156424803, residual
+`diff 3.4512962617862946 / band 3.806598709156475 / pin 0 / flat 0 /
+offset 0` to the last figure.  The bank is outside the solve and both
+changes are inside it.
+
+Bank (09g/09i): 175 rings banked, 9,826 boundary vertices -> 5,542 foot
+nodes, 163 repaired, 1,247 skipped; DAYLIGHT 7,219 at the minimum / 2,607
+daylighted / 0 at the maximum; foot distance min 5.0 / mean 7.0 / p95 14.7
+/ max 76.0 m; slope p95 0.350.  FACE: **492 level rings / 12,195 vertices,
+0 INVALID, deepest bank 8 levels, 4.92 s** (09i: 235 rings, 3.9 s — the
+3 m ring adds one level to every bank and one more wherever `d > 3 + 10k`).
+Emit 6.85 s, 1,858 ways, 41,073 nodes.
+
+**THE MESH RUN PASSES.**  `tools/run_tile_mesh_only.py 30 31 1
+--patches-as-is` on this patch, WITHOUT `O4_INTERP_ALT_SEAL=warn`, 2 m 7 s:
+
+```
+Patch faces: 0 road-cut sub-cell(s) seeded INTERP_ALT beside the 2925
+face seed(s) already placed (15 degenerate face(s) skipped).
+INTERP_ALT seal: all 2925 seed(s) enclosed by INTERP_ALT edges
+(14162 bounded face(s), 316506 marked edge(s)).
+```
+
+Base arms, all `--base-arm --engine v2`, all design surfaces BIT-IDENTICAL
+to 09i's (rounds, objective and residual to ten decimals):
+
+| airport | wall | level rings (09i -> now) | invalid | bank pass |
+|---|---|---|---|---|
+| CYXY | 8.3 s | 24 -> **57** | 0 | 0.24 s |
+| OTHH | 408.8 s | 88 -> **308** | 0 | 2.17 s |
+| LEMD | 261.4 s | 118 -> **205** | 0 | 1.00 s |
+
+### 12.5 THE TRANSECT — the bar is MISSED, and the cause is not the emitter
+
+Transect lon 31.3819142, 2.2 m stations across lat 30.11630–30.11680 (26
+samples).  Bar: every triangle <= 0.35.  **MEASURED: 12 stations at
+28.3–28.8 %, then 17.9 %, three at 4.7 %, then 76.0 % and 65.3 %, then
+28.6 % and the DEM.  MAX 0.760** (09i: 13 at 29.2 % then three at 46 %).
+
+THE AUTHORED FACE IS EXACT.  Read straight off the patch, the transect
+crosses the `graded_strip` boundary ring and then five `bank_foot` rings:
+
+| ring | lat | authored z | to the next |
+|---|---|---|---|
+| boundary (`graded_strip` −308) | 30.1166848 | 49.480 | |
+| level 1 (3 m, way −1367) | 30.1166532 | 50.504 | +1.024 m over 3.52 m = **29.1 %** |
+| level 2 (13 m, −1659) | 30.1165479 | 53.922 | +3.419 m over 11.71 m = **29.2 %** |
+| level 3 (23 m, −1736) | 30.1164427 | 57.323 | **29.0 %** |
+| level 4 (33 m, −1782) | 30.1163375 | 60.725 | **29.0 %** |
+| level 5 (43 m, −1810) | 30.1162323 | 64.111 | **28.9 %** |
+
+Every authored band is the 1:3 line to a tenth of a percent, and 09i (1)'s
+own band — the first 3.5 m against the boundary ring — now reads 29.1 % in
+the MESH (09i measured 46 % there).  The 76 % is inside the band between
+level 1 and level 2: at 0.245 m sampling that band reads 4.8 % for its
+outer 7.8 m and then **104 %** for the 3.1 m against level 1.  That is
+09h's own mechanism unmoved — `interpolate_free_interior_altitudes` is a
+GRAPH-harmonic extension over Triangle's annulus vertices, so the isolines
+crowd against the SHORTER INNER boundary of every annulus the mesh puts a
+free vertex inside.  09i (1) moved the first ring in and the squeeze moved
+out one band with it.
+
+REPORTED, NOT DECIDED (the remedy is an owner law value): the only band on
+this transect that reads clean is the one that is 3.5 m wide, and the
+bands that read 104 % are 11.7 m wide.  `[design] bank_ring_spacing_m` at
+`bank_first_ring_m`'s own 3.0 would author every band at the width that
+measured clean, at roughly 3x the level-ring vertices (HECA 12,195 ->
+~40,000, bank pass 4.9 s -> ~12 s).  Not applied: 10.0 is the owner's
+figure from 09f-1 and this lane's ruling changed one value, not two.

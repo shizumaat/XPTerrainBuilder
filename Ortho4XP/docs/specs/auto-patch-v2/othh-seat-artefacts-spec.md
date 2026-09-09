@@ -183,3 +183,83 @@ renders the 45 bridge objects 3.96 m under the banks — the owner's sim
 read decides, the key flips it back; (iv) (d) also stops LEMD's two basin
 plate seats at +0.425 / +0.426 m (units 24/26: cargo terminal, old
 terminal) — bridges/decks there are unaffected.
+
+## 7. The stranded flat planes (owner read 2026-09-09b (5)) — the read
+
+The owner sees "flat floor or ceiling planes floating and separated from
+their objects — extensive at HECA, mostly around bridges at OTHH".
+
+Read against the owner's own rebake results (`o4_v2_rebake_result_HECA.json`
+of the +30+031 tile, `o4_v2_rebake_result_OTHH.json` of the +25+051 tile),
+replaying `engine_v2._decision`'s per-vertex map exactly and grouping by
+the CONNECTED COMPONENTS of the OBJ8 solid mesh:
+
+* HECA — 391 members write a delta; **190 of them leave 15,729 components
+  with no delta at all, 15,716 of those FLAT** (authored y-extent under
+  `min_solid_thickness_m` 0.3 m; most are exactly 0.000 — a pure plane).
+  The object around them moves by up to −45 m, so the plane hangs 45 m
+  above its walls. The stranded component is typically 0.03–0.17 m from
+  the nearest moved component in the authored frame: it is the floor or
+  the ceiling slab of the very room whose walls moved.
+* OTHH — 23 members write; **11 leave 44 stranded components, all flat**,
+  separation +3.816 … +13.142 m, nearest carrier 0.03–0.8 m away. All 11
+  are the Dewatering / Drainage basins of the interchange (anchors
+  25.2957/51.6036, 25.2521/51.6247, 25.2537/51.6230, 25.2920/51.6059,
+  25.2958/51.6048) — the owner's "around bridges".
+* The direction is always the same: **the walls move, the horizontal
+  plane stays at its authored y.** Never the reverse.
+
+Mechanism, two lines:
+
+1. `airport/rebake_plan.py:194` — `comps = [(i, c) for i, c in
+   enumerate(cache.components(o.resolved)) if c.max_y - c.min_y >=
+   cache.thickness_m]`. Only THICKNESS-GATED components become `Part`s
+   (`[structures.basin] min_solid_thickness_m = 0.3`). A horizontal
+   plane has a y-extent of 0.0, so it is never a part, never in a
+   cluster, and `clusters.seat_clusters` never mints a delta for it.
+   The gate is a WITNESS gate (a decal must not found a seat, 08-26
+   §2.1) being used as a WRITE gate.
+2. `auto_patch/engine_v2.py:449–459` (`_decision`) — `comps =
+   _obj8.solid_components(geom)` enumerates ALL components so the
+   indices line up, but `per_vertex` is filled ONLY from
+   `ms.part_deltas`. A component absent from that list gets no entry,
+   and `object_rebake.apply` always rewrites from `.anchor_bak`, so its
+   vertices keep their authored y while the rest of the file moves.
+
+`Part.comp` is 1:1 with a `solid_components` component (`contact.py:118`),
+and `clusters` gives one delta per part, so the ruling's first half —
+one delta per connected component — already holds; what was missing is
+COMPLETENESS: a component with no delta of its own.
+
+### The rule (09b (5))
+
+Every solid component of a written resource follows a CARRIER: the
+component the seat considered that is nearest to it (minimum 3-D
+distance between their authored vertex sets; ties by lowest component
+index) — "the walls that carry it". It takes that carrier's delta, or
+STAYS when the carrier stays: a component the seat RULED to stay (a
+facility cluster 05p, a cluster under `min_delta_m` 08d (d), an A3
+refusal, a structure seat that stays) is never given a delta and carries
+its own planes with it, so 08f's rules and the facility rule are
+untouched. Only a component the seat never CONSIDERED follows at all.
+
+Replayed on the owner's own results (`tools/v2_rebake_replay.py bodies`):
+HECA 15,716 stranded → **2** (both planes whose nearest carrier is a held
+component — lawfully staying with their walls), OTHH 44 → **0**.
+Implemented once, as pure geometry,
+in `airport/rigid.complete_component_deltas` (a new 91-line module: `obj8.py` is at the 1,000-line ceiling); the seat, the
+witness gate and 08f's rules are untouched.
+
+## 8. Consumer census (owner ruling 30l): every reader of the per-vertex deltas
+
+| reader | reads | ruling under 09b (5) |
+|---|---|---|
+| `object_rebake.apply` VT rewrite (`elevation_delta_by_vertex.get(i)`, line 1481) | delta per vertex index | the point of the change: the plane's VT lines now move with their carrier. Backup-sourced rewrite is unchanged, so it stays byte-idempotent |
+| `object_rebake._positional_command_rewrite_plan` (lights, smoke, magnets; I-10) | the deltas THROUGH `_structure_boxes_and_deltas` over `decision.structures` | `Structure.triangles_by_resource` already listed EVERY component's triangles (`engine_v2` line 465), so a command's box already covered the plane; its delta was the median over box vertices — now complete, so a command over a stranded plane stops taking a mixed value. No interface change |
+| `object_rebake._reconcile_animation_blocks` (I-11) | the same per-vertex map | unchanged shape; more vertices carry a delta, which is what an ANIM subtree needs to stay rigid |
+| `object_rebake.apply` provenance `delta_m` / `delta_range_m` (lines 1542–1550) | `set(deltas.values())` | a file whose planes previously stayed at 0 recorded a spurious two-value range; now it records the carriers' range only. Report-only key |
+| `emit/rebake.seat` notes + the `n_multi` finding (lines 526–549) | `MemberParts.part_deltas` | UNCHANGED — the completion is a WRITE-side rule over components the plan never made parts of; the seat's own record still describes the parts it seated |
+| the plan / result JSON (`o4_v2_rebake_*.json`, `part_deltas`) | as above | unchanged; the follower is derived from the authored OBJ8 at write time, so no new field crosses the plan |
+| the app's JSONL (`o4_engine/events.py` → `OrthoEngineClient.swift`) | rebake COUNTS and the summary text only — no per-vertex delta crosses the wire | no wire change; the seat note gains a trailing clause |
+| `tools/v2_rebake_replay.py`, `tools/object_seating_report.py` | `UnitSeat` / v1 decision fields | unchanged (neither reads the per-vertex map) |
+| `emit/clusters.seat_clusters`, `airport/contact.partition`, the witness gate | genuine parts only | UNCHANGED by ruling: a thin plane still never votes, never founds a seat, never joins a cluster |

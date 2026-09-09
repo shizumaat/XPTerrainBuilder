@@ -399,6 +399,7 @@ def _decision_from_seats(plan_, result, measure_only: bool):
     still registered by anchor, so v1's reversion pass puts an earlier
     bake back."""
     from auto_patch_v2.airport import obj8 as _obj8
+    from auto_patch_v2.airport import rigid as _rigid
     from .object_anchor import RebakeDecision, Structure
     structures = []
     deltas: dict[str, dict[int, float]] = {}
@@ -444,17 +445,32 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             if not comps:
                 skipped.append((r, "no solid triangle: nothing to seat"))
                 continue
-            per_vertex: dict[int, float] = {}
             if ms.delta_m is not None and not ms.part_deltas:
-                for c in comps:
-                    for i in set(c.tris.reshape(-1).tolist()):
-                        per_vertex[i] = float(ms.delta_m)
+                by_comp = {i: float(ms.delta_m) for i in range(len(comps))}
             else:
-                for comp, _k, d in ms.part_deltas:
-                    if d is None or comp >= len(comps):
-                        continue
-                    for i in set(comps[comp].tris.reshape(-1).tolist()):
-                        per_vertex[i] = float(d)
+                by_comp = {comp: float(d) for comp, _k, d in ms.part_deltas
+                           if d is not None and 0 <= comp < len(comps)}
+            if not by_comp:
+                skipped.append((r, ms.note or "no part seated"))
+                continue
+            # RULINGS 2026-09-09b (5): an object's CONNECTED geometry moves
+            # as one rigid body, and a horizontal plane is never split from
+            # the walls that carry it.  The seat mints deltas only for the
+            # THICKNESS-GATED components (the witness gate, 08-26 §2.1), so
+            # every floor/ceiling plane came out with none and stayed at its
+            # authored y while its walls moved (HECA 15,716 planes, to 45 m;
+            # OTHH the 44 planes of the interchange drainage basins).  Each
+            # free component follows its NEAREST carrier.
+            # a component the seat RULED to stay (a facility cluster 05p, a
+            # cluster under min_delta_m, an A3 refusal) keeps its authored y:
+            # the completion covers only what the seat never considered
+            held = {comp for comp, _k, d in ms.part_deltas if d is None}
+            n_free = len(comps) - len(by_comp) - len(held - set(by_comp))
+            by_comp = _rigid.complete_component_deltas(geom, comps, by_comp, held)
+            per_vertex: dict[int, float] = {}
+            for ci, d in by_comp.items():
+                for i in set(comps[ci].tris.reshape(-1).tolist()):
+                    per_vertex[i] = d
             if not per_vertex:
                 skipped.append((r, ms.note or "no part seated"))
                 continue
@@ -468,8 +484,13 @@ def _decision_from_seats(plan_, result, measure_only: bool):
                 ground_span_metres=None, needs_pad=False, skip_reason=None,
                 inherited_from_structure_index=None))
             kinds[r] = "v2_" + ms.datum
-            if ms.note:
-                notes[r] = ms.note
+            note = ms.note or ""
+            if n_free:
+                note = (note + "; " if note else "") + (
+                    f"{n_free} free component(s) follow their nearest carrier "
+                    "(09b (5): a plane is never split from its walls)")
+            if note:
+                notes[r] = note
             if us.datum != "cluster" and us.seat_datum_m is not None:
                 datums[r] = float(us.seat_datum_m)
             elif ms.delta_m is not None and us.anchor_ground_m is not None:

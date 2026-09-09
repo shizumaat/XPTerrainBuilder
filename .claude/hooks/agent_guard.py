@@ -30,12 +30,18 @@ if not model:
         file=sys.stderr,
     )
     sys.exit(2)
-if model != "fable":
+if model not in ("fable", "opus"):
+    # Owner amendment 2026-09-03 EVENING (root CLAUDE.md "Lanes", "Fable
+    # limits are finite"): lanes and scouts run on OPUS by default; Fable
+    # 5.1 is reserved for briefs where the judgement is the deliverable.
+    # Both pass explicitly; anything else is refused.  Applied 2026-09-08
+    # when the Fable limit stopped two lanes mid-round.
     print(
-        f"BLOCKED (owner standing rule 2026-09-03): model '{model}' is the "
-        "retired rule. Subagents run on Fable 5.1 at moderate effort: pass "
-        "`model: \"fable\"` (and `subagent_type: \"lane\"` for "
-        "implementation briefs).",
+        f"BLOCKED (owner standing rule 2026-09-03, amended that evening): model "
+        f"'{model}' is not a lane model. Subagents run on Opus by default "
+        "(`model: \"opus\"`) or Fable 5.1 for judgement briefs (`model: "
+        "\"fable\"`), always explicit, with `subagent_type: \"lane\"` / "
+        "\"scout\".",
         file=sys.stderr,
     )
     sys.exit(2)

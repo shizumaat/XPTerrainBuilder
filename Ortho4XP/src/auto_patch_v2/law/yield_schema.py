@@ -35,6 +35,15 @@ class Yield:
     taxi_yield_max: float | None = None
     apron_yield_max: float | None = None
     road_yield_max: float | None = None
+    #: THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2), lane v2shapes
+    #: round 2): the classes whose rows wholly on the taxiway network (the
+    #: vertices of the runway family and of the taxi-family faces carrying a
+    #: runway-connected centreline) stay HARD; the runway-contact chain
+    #: family yields regardless (08i-1).  The round's experiment knob awaiting
+    #: the spawner's ruling on the two replay arms (spec §11): ["taxi"] = the
+    #: brief's literal (HECA bows −4.99 / −9.44 / −0.47), [] = round 1's
+    #: yielding network (−2.21 / −7.10 / −0.36).
+    network_hard_classes: tuple[str, ...] = ("taxi",)
 
     def ceiling(self, cls: str) -> float | None:
         """The escalation ceiling of a yield class, ``None`` = unbounded."""
@@ -50,6 +59,9 @@ def check_yield(y: Yield, err: type[Exception]) -> None:
             raise err(f"emit.yield.families: unknown family {fam!r} (allowed: {YIELD_FAMILIES})")
         if cls not in YIELD_CLASSES:
             raise err(f"emit.yield.families.{fam}: unknown class {cls!r} (allowed: {YIELD_CLASSES})")
+    for cls in y.network_hard_classes:
+        if cls not in YIELD_CLASSES:
+            raise err(f"emit.yield.network_hard_classes: unknown class {cls!r} (allowed: {YIELD_CLASSES})")
     for cls in YIELD_CLASSES:
         v = y.ceiling(cls)
         if v is not None and not 0.0 < v < 1.0:

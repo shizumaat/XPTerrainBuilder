@@ -362,6 +362,7 @@ def test_the_law_table_carries_the_shape_keys(law):
         check_terrace(_dc.replace(good, shape_roles=("zzz",)), {"apron"}, LawError)
     for r in ("junction_mesh", "taxi_box", "no_step_pairs", "roads"):
         assert yield_ceiling(law, r) is not None
+    assert law.tables.emit.yielding.network_hard_classes == ("taxi",)    # 08p: the network's taxi class is hard
 
 
 # ── 10. SHAPES ARE APRON BODIES; THE NETWORK CONNECTS THEM BY ROUTE (08p) ──

@@ -62,7 +62,7 @@ from .taxi import GEN as TAXI_GEN
 
 __all__ = ["GROUP", "FAMILY_SELECTORS", "YieldStats", "yield_family", "yield_rows",
            "yielded_rows", "groundside_ramps", "RAMP_FAMILY", "runway_vertices",
-           "CHAIN_MARK", "CENTRELINE_RULING", "NETWORK_YIELDS", "NETWORK_HARD_CLASSES"]
+           "CHAIN_MARK", "CENTRELINE_RULING", "NETWORK_YIELDS"]
 
 #: The groundside ramp rows' family (their group ``yield:groundside_ramp:…``).
 RAMP_FAMILY = "groundside_ramp"
@@ -155,12 +155,12 @@ def _face_cap(pm: PlanarMap, law: Law, row: Row) -> float | None:
 #: The family that yields on the network too (owner RULINGS 2026-09-08i-1:
 #: the chain yields where it meets the runway).
 NETWORK_YIELDS = frozenset({"taxi_chain_at_runway"})
-#: The yield CLASSES that are the network's own surface law (``[yield.
-#: families]`` class): a row of one of these wholly on the network stays
-#: hard.  The apron class (a frontage chord between two contacts on the
-#: network spans the BODY) and the road class are the body's law and
-#: yield whatever their endpoints touch (08k (3): no ceiling in a shape).
-NETWORK_HARD_CLASSES = frozenset({"taxi"})
+#: The yield CLASSES held hard on the network come from the law table
+#: (``emit.toml [yield] network_hard_classes``, the round's experiment
+#: knob): the taxi class is the network's own surface law; the apron class
+#: (a frontage chord between two contacts on the network spans the BODY)
+#: and the road class are the body's law and yield whatever their
+#: endpoints touch (08k (3): no ceiling in a shape).
 
 
 def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
@@ -172,11 +172,12 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
     vertices of the faces carrying a runway-connected centreline, and the
     runway's) stays hard at its law — the taxiways connect the shapes by
     ROUTE; only the runway-contact chain (:data:`NETWORK_YIELDS`) yields
-    there, and only the taxi class (:data:`NETWORK_HARD_CLASSES`) is held:
+    there, and only the classes ``[yield] network_hard_classes`` names are held:
     an apron chord between two contacts on the network spans the body and
     yields as the body's law.  A row with one end in a body yields (the
     body's weld to the network is a soft edge on the body's side)."""
     classes = dict(yield_law(law).families)
+    hard_classes = frozenset(yield_law(law).network_hard_classes)
     fams = [(name, FAMILY_SELECTORS[name]) for name in classes if name in FAMILY_SELECTORS]
     rw = runway_vertices(pm, law) if any(n == "taxi_chain_at_runway" for n, _s in fams) else frozenset()
     st = stats if stats is not None else YieldStats()
@@ -190,7 +191,7 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
         if fam is None:
             out.append(r)
             continue
-        if (fam not in NETWORK_YIELDS and classes.get(fam) in NETWORK_HARD_CLASSES
+        if (fam not in NETWORK_YIELDS and classes.get(fam) in hard_classes
                 and all(v in network for v in _row_ids(r))):
             st.network_hard[fam] = st.network_hard.get(fam, 0) + 1
             out.append(r)

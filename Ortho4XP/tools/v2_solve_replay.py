@@ -73,6 +73,37 @@ def capture(icao: str, out: Path) -> None:
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
 
+def network_crosscheck(pm, law, airport) -> dict:
+    """THE PREDICATE AGAINST ``routes.reach`` (spec §10 deviation): the
+    taxi-family faces carrying a centreline edge whose endpoints the
+    threshold pins reach along the route graph, against
+    ``planar.shapes.network_faces`` (the breakline graph from the runway
+    roots); prints and returns the two counts and the symmetric difference."""
+    from auto_patch_v2.constraints.no_step import reach_band_values
+    from auto_patch_v2.planar.shapes import STATION_KIND, network_faces
+    net, _N = network_faces(pm, law)
+    rw = set(law.tables.precedence.runway_family.members)
+    taxi = set(law.tables.precedence.taxi_family.members)
+    planar_net = {f for f in net if pm.faces[f].role in taxi}
+    reach = reach_band_values(pm, law, airport)
+    by_reach: set[int] = set()
+    for b in pm.breaklines.values():
+        if b.kind != STATION_KIND:
+            continue
+        for eid in b.edges:
+            e = pm.edges[eid]
+            if e.a in reach and e.b in reach:
+                by_reach.update(f for f in (e.left_face, e.right_face)
+                                if f is not None and pm.faces[f].role in taxi)
+    only_planar = sorted(planar_net - by_reach)
+    only_reach = sorted(by_reach - planar_net)
+    print(f"[{pm.icao}] network cross-check: planar predicate {len(planar_net)} taxi-family faces, "
+          f"routes.reach {len(by_reach)} (reach vertices {len(reach)}); only planar {len(only_planar)} "
+          f"{[(f, pm.faces[f].role, pm.faces[f].ref) for f in only_planar[:8]]}; only reach {len(only_reach)} "
+          f"{[(f, pm.faces[f].role, pm.faces[f].ref) for f in only_reach[:8]]}; runway faces {len(net) - len(planar_net)}")
+    return {"planar": len(planar_net), "reach": len(by_reach), "only_planar": only_planar, "only_reach": only_reach}
+
+
 def runway_read(pm, law, airport, z) -> list[dict]:
     """Per runway with two thresholds: bow, ridge min, z − DEM over the ridge."""
     from auto_patch_v2.constraints.precedence import view
@@ -271,9 +302,16 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     if resume == "shapes":
         from auto_patch_v2.planar.shapes import build_shapes
         pm, sst = build_shapes(pm, law, airport, cl)      # the shapes over the captured map
-        print(f"[{icao}] shapes rebuilt: {sst.faces} faces -> {sst.components} components, {sst.bodies} bodies, "
-              f"{sst.shapes} shapes (strip welds {sst.welded_strip_pairs}); joints {sst.contours} contours "
-              f"({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
+        print(f"[{icao}] network (08p): {sst.network_faces} of {sst.faces} pavement faces "
+              f"({', '.join(f'{k} {n}' for k, n in sorted(sst.network_by_role.items()))}), "
+              f"{sst.network_vertices} vertices, {sst.connected_stations} connected stations, "
+              f"{sst.unconnected_station_edges} unconnected centreline edges; bodies {sst.body_faces} faces "
+              f"({sst.faces_unlabelled} welded whole)")
+        print(f"[{icao}] shapes rebuilt: {sst.body_faces} body faces -> {sst.components} components, {sst.bodies} bodies, "
+              f"{sst.shapes} shapes (strip welds {sst.welded_strip_pairs}, route welds {sst.welded_route_pairs}); "
+              f"joints {sst.contours} contours ({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
+        print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
+    network_crosscheck(pm, law, airport)
     if resume in ("planar", "shapes"):
         pm = with_runway_chord(pm, law, airport, fill_roles=chord_fill)   # change 1 (build.py order)
         stage = shape_stage(pm, law, airport, cl)

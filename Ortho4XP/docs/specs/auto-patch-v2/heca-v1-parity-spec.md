@@ -340,3 +340,55 @@ latest HECA / CYXY / LEMD / SPJC / OTHH reports).  What replaces them:
 | `emit/osm_adapter.py` | lists the sidecar key | unchanged |
 | `tools/v2_solve_replay.py` | `--joint-passes`, the weld loop, `--from territory` | one pass, `--from shapes`, the shapes / joints / by-shape apron grade report |
 | twins `test_v2terrace.py` (06n) / `test_v2terrace3.py` (07g) / `test_v2chord.py` ×3 (the step law) | | RETIRED (the mechanisms are deleted; the `why` KML twin moves to `test_why.py`); `test_v2shapes.py` carries 08k |
+
+## 9. Acceptance — lane `v2shapes` closing build (08k shapes + chord fit + yielding + site ramp), 2026-09-08
+
+Build `v2shapes2` (`/tmp/harness/v2shapes2.osm`, head 775dbec4), HECA
+`--engine v2`, production DEM frame N30E031, status optimal, 280.5 s.
+v1 control `HECA_20260908T073420` (813 s). Base arms at the same tree:
+`CYXY_20260908T175459` (artifact ledger 637ed1003b09),
+`OTHH_20260908T175517` (fd55f056c716), `LEMD_20260908T180428`
+(ee8adb3ec705). Instruments: `tools/rwy_profile.py --binned --compare`,
+`tools/patch_proximity_diff.py`, `tools/harness/census.py --no-cache`,
+the report / sidecar of the build.
+
+| read | bar / reference | v1 control | 1.0.293 | parity before shapes (08g) | **v2shapes2** | verdict |
+|---|---|---|---|---|---|---|
+| 05R/23L bow (m) | v1-like | −4.25 | −9.64 | −3.25 | **−2.17** (s 2,275; z−DEM +6.26 / +1.41 / +9.11; max grade 0.80 %; K 0.46 %/100 m) | PASS |
+| 05C/23C bow (m) | v1-like, owner floor 6.1 m | −9.53 | −9.20 | −6.96 | **−7.08** (s 2,525; z−DEM −0.09 / −3.75 / +2.13; max grade 1.60 % (50 m bin); K 0.52) | PASS |
+| 05L/23R bow (m) | v1-like | −0.28 | −2.02 | +0.01 | **+0.01** (z−DEM +2.71 / +0.52 / +6.23; max grade 1.02 %; K 0.50) | PASS on the bow; hump at s 2,025–2,425 **+3.3 m over v1** (63.6 / 64.8 / 64.8 vs 60.8 / 61.4 / 61.5) STANDS after the chain yield (`taxi_chain_at_runway` 115 of 938 rows yielded at the 3 % ceiling) — owed |
+| \|dz\| > 1 m vs v1 | ≤ 30 % | — | 57 % | 53.3 % | **55.2 %** (11,700 of 21,182) | MISSED |
+| \|dz\| > 6 m vs v1 | ≤ 200 | — | 917 | 250 | **328** | MISSED — the SW strip fill class (sites 1–4, 6, 9, 15, 16: v1 +3–5 m above the DEM, v2 ±0.3; 08i-refuted, needs the fill-only envelope) plus the NEW pav132 class: sites 5, 7, 8, 10 (30.1268,31.4170 / 30.1214,31.4171 / 30.1266,31.4149 / 30.1287,31.4150) where v2 is **+5.7 to +7.3 m above v1** — v1 cut pav132 7–10 m below the DEM, v2's single shape grades through at −4.3 / −0.1 / −3.2 / −0.8 z−DEM |
+| z_v2 − z_v1 by role (mean / p10 / p90) | — | | | | runway +1.40 / −0.44 / +4.17; stub +0.56; primary_parallel +0.65; secondary_parallel −1.87; cross_connector −0.79; junction +0.22; apron +0.28 / −2.97 / +5.44; service_road −1.15; graded_strip −0.49; ALL +0.07 / −2.76 / +2.41 | |
+| owner's site 30.1139552,31.4095465 | 0 pairs ≤ 3 m with \|dz\| > 2 m within 60 m | 2 (3.30, 3.49 m) | 6.2 m joint | 0 | **0** — 8 nodes (service_road 3, service_junction 5, apron 2), z 98.86–101.93, max step over any pair ≤ 3 m **0.03 m**, plane grade 5.73 % (the 5 % groundside ramp + apron yield), max pair grade 1.31 % | PASS |
+| the neck 30.127729,31.412022 | continuous | continuous (1.19 %) | — | — | **continuous**: 9 nodes (junction 3, apron 7, building 3), z 78.95–80.06, max step 0.00 m, plane grade **2.97 %** toward 198° (08k predicted ≈ 3.1 %); steepest 3–30 m pair 6.46 % over 5.6 m (a junction/apron edge beside a pad) | PASS |
+| shapes | 08k | — | — | 06n groups | **1 shape** (354 faces, 4,120,129 m², 11,451 vertices; roles apron, cross_connector, junction, primary_parallel, runway, secondary_parallel, stub) | as ruled: all HECA pavement touches |
+| joints | only at physical separations; `terrace_joint_route` = 0 | 0 | 73 (8 > 2 m) | 42 (≤ 2 m) | **0** contour joints, **0** gap joints, sidecar `terrace_joints` = 0; `terrace_joint_route` 0 / `terrace_joint_strip` 0 / `terrace_actual_step` 0 | PASS (vacuous) |
+| hangar island #363 | 08k: separate only across a gap > 0.5 m or a road | — | — | separate cell, 1,193 m | face 363 (pav132, junction, code E) is **inside shape 0** — no gap, no road: it grades with the shape | as ruled |
+| max apron grade inside the pav132 shape | no ceiling inside a shape (08k (3)) | — | — | — | **13.3 %** (face 336, pav132 apron, at 30.12183,31.41421 over a 1.0 m row; 675 of 5,828 rows over the 1 % preference); face 193 (pav131) 8.4 %; `yielded_rows.by_shape[0]` max 0.1331 | reported |
+| `yielded_rows` per family | — | — | — | 3,797 | **4,008 of 236,224**: apron 1,043 / 27,451 (max 13.3 %, max over 4.86 m); apron_edge_portion 38 / 3,919 (8 %); junction_mesh 654 / 11,807 (3 %); no_step_pairs 400 / 88,873 (3 %); roads 381 / 74,855 (8 %); taxi_box 1,377 / 28,366 (3 %); taxi_chain_at_runway 115 / 938 (3 %); groundside_ramp 0 / 15 | |
+| v2 verify rows | — | — | — | 27 | **51** = within_shape 25 (all stub\|stub, 1.54–1.56 % over 354–414 m of route, 5.5–6.4 m, one cluster at 30.1137,31.4154) + lateral_contiguity 26 (groundside service_road\|service_road, 0.065 m, the 8 % road profile against the 1.5 % strictest class; rows carry no lat/lon — instrument gap) | |
+| oracle census, adjudicated (yielded stamped apart) | — | 1,065 airside | 8 | 42 | **35** airside (within_shape 30,384 of which 29,878 withdrawn-law chords and 1,329 `yielded_by_08d`; airside_no_step 296; taxi_box 551; vertex_to_edge_step 1 (0.95 m); road_cross_section 10 groundside) | FAIL by the letter (35 > 0) |
+| oracle census, law-true | v1's reading | 1,065 + 1,741 gs | — | — | LAW-TRUE TOTAL 31,242 (within 31,241, steps 1); minus the withdrawn taxi chords = **1,364** (35 adjudicated + 1,329 yielded) | |
+| solve wall | 47 s (1.0.293); 357 s (two joint passes) | — | 47 | 248 + 172 + 177 | **152.3 s, ONE pass** (HiGHS optimal, 113,438 iterations; LP 325,594 columns, 697,205 + 6,479 rows, 2.06 M nnz; 275,698 preference groups, 11,311 yielded) | ×3.2 vs 1.0.293 — the build-time law (owner 08g-1) |
+| CYXY base arm | verify 0 (main) | | | 7 (08g) | **4** within_shape: primary_parallel 1.55 / 1.72 / 1.57 % over 111–123 m at 60.7121,−135.0708 (×3), stub 1.54 % over 205 m at 60.7017,−135.0592; 11 joints, max step 0.79 m (cross_connector/service_road contour); 7.7 s | +4 |
+| OTHH base arm | verify 0 (main) | | | 0 | **1** structure_rim_gap = the 08j 0.0004 m door-ramp rim residual (stamped out of scope, under materiality) → effectively 0; hard set INFEASIBLE, 04t-1 relaxed 12 door-ramp descent rows by 0.0007–0.0015 (8.07–8.15 % vs 8 %, certificate OK) — the same Parking-Right door 08j reported; 68 joints max step 0.00 m; 492.7 s (door wells 58 s, verify 111 s) | 0 |
+| LEMD base arm | 16 + the owed 4 transverse (main) | | | 19 | **11**: taxi_box 1 (1.90 % vs 1.79 cap over 30 m at 40.4740,−3.5680), strip_seam_tear 3 (1.59–1.92 m over 3 m), vertex_to_edge_step 1 (0.61 m parking_lot), tunnel_mouth_canonical 6 (site notes, stamped); **transverse 0** (the owed 4 gone); hard set feasible; 231 s | −5 (−9 against the owed) |
+
+Reads not made: SPJC (`ColdDemFrame S12W078`, corpus refresh pending),
+the five-airport sweep (orchestrator), the sim read. Owed: the 05L/23R
+hump (+3.3 m over v1 after the chain yield — a `why` on the ridge with
+the chain already soft), the divergence bars (SW fill envelope 08i;
+the pav132 grade-through class is 08k's own consequence, +5.7–7.3 m
+over v1's cut), the 25 stub\|stub rows at 1.54–1.56 % (0.04–0.06 pp
+over cap, above the 0.01 pp materiality floor), the 26 groundside
+lateral_contiguity rows without lat/lon, the OTHH hard-set
+infeasibility at the 08j door (12 rows, ≤ 0.0015 excess).
+
+Build-time statement (HECA, from `.result.json`, one run — not a timing
+measurement): load 3.6 s, classify 2.1, planar 48.5, flat_site 0.1,
+road_profile 0.6, shapes 0.2, constraints 28.1, solve 152.3, emit 1.6,
+rebake_plan 22.3, verify 17.2, v2 total 276.5, harness wall 280.5 s.
+Solve 152 s in one pass vs 47 s on 1.0.293 (×3.2) and 357 s with the
+deleted joint passes; the ≥ 1 % regression on the auto-patch budget
+stands under the owner's 08g-1 decision.

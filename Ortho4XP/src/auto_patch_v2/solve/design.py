@@ -701,29 +701,30 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          wall_s=time.perf_counter() - t0,
                          message="every vertex fixed"), rep)
 
-    # 10. THE ACTIVE SET: solve, take the violated one-sided rows, re-solve
-    base = (list(rows.r), list(rows.c), list(rows.v), list(rows.b),
-            list(rows.owner))
+    # 10. THE ACTIVE SET: solve, take the violated one-sided rows, re-solve.
+    #     The one-sided rows are stacked ONCE (``_one_matrix``) so a round is
+    #     a row-slice and a matrix-vector product, never a Python re-assembly:
+    #     at HECA that is 210k rows the loop would otherwise rebuild 60 times.
+    A0f, b0f = rows.matrix(red.n_cols)      # the ALWAYS-ON rows (the base)
+    A1, b1 = _one_matrix(one, red)
+    w_law = math.sqrt(d.law)
     x = None
     x_prev: np.ndarray | None = None
     x_full: np.ndarray | None = None
     f_prev = math.inf
     f_last = math.inf
-    A0f, b0f = rows.matrix(red.n_cols)      # the ALWAYS-ON rows (the base)
+    active_i = np.zeros(0, dtype=np.int64)
     active: set[int] = set()
     z = np.zeros(n)
     t_solver = 0.0
-    A = sp.csr_matrix((0, red.n_cols))
-    b = np.zeros(0)
+    A, b = A0f, b0f
     for rnd in range(1, int(d.active_set_max_rounds) + 1):
-        rows.r, rows.c, rows.v, rows.b, rows.owner = ([*base[0]], [*base[1]],
-                                                      [*base[2]], [*base[3]],
-                                                      [*base[4]])
-        for k in sorted(active):
-            terms, hi, row = one[k]
-            rows.add(terms, hi, d.law, ("law", row))
-        A, b = rows.matrix(red.n_cols)
-        rep.rows = rows.n
+        if active_i.size:
+            A = sp.vstack([A0f, w_law * A1[active_i]], format="csr")
+            b = np.concatenate([b0f, w_law * b1[active_i]])
+        else:
+            A, b = A0f, b0f
+        rep.rows = int(A.shape[0])
         t1 = time.perf_counter()
         x = _linear_solve(A, b, x, method, float(d.solver_tol), int(d.solver_max_iter))
         x_full = x
@@ -733,12 +734,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # active sets, and a cycling set is not a solution.  ``F`` is convex
         # and C¹, so a step that does not decrease it is halved.
         if x_prev is not None:
-            f_new = _objective(A0f, b0f, one, d, red, x)
+            f_new = _objective(A0f, b0f, A1, b1, d, x)
             alpha = 1.0
             while f_new > f_prev and alpha > _ALPHA_FLOOR:
                 alpha *= 0.5
                 x = x_prev + alpha * (x_full - x_prev)
-                f_new = _objective(A0f, b0f, one, d, red, x)
+                f_new = _objective(A0f, b0f, A1, b1, d, x)
             if f_new > f_prev:
                 # the step buys nothing: the previous point is the answer
                 x = x_prev
@@ -747,11 +748,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 break
             f_prev = f_new
         else:
-            f_prev = _objective(A0f, b0f, one, d, red, x)
+            f_prev = _objective(A0f, b0f, A1, b1, d, x)
         x_prev = x.copy()
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
-        nxt = {k for k in range(len(one))
-               if _violation(one[k], z) > float(d.active_set_tol_m)}
+        viol = A1 @ x - b1
+        nxt_i = np.flatnonzero(viol > float(d.active_set_tol_m))
+        nxt = set(nxt_i.tolist())
         rep.rounds = rnd
         # SETTLED: the same active set, or an objective that no longer moves
         # (a row hovering at its bound flips label without moving the surface)
@@ -763,19 +765,21 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             print(f"    [design] round {rnd}: F {f_prev:.6g}  active {len(nxt)} "
                   f"(was {len(active)}, changed {len(nxt ^ active)})")
         f_last = f_prev
-        active = nxt
+        active, active_i = nxt, nxt_i
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
     rep.solver_wall_s = t_solver
 
     # 11. the residual per family (a missed TARGET, not a demotion)
     fam: dict[str, dict[str, _t.Any]] = {}
-    for terms, hi, row in one:
+    viol_all = (A1 @ x - b1) if x is not None else np.zeros(len(one))
+    tol = float(d.active_set_tol_m)
+    for k, (_terms, _hi, row) in enumerate(one):
         g = row.source.generator
         rec = fam.setdefault(g, {"rows": 0, "missed": 0, "max_m": 0.0, "energy": 0.0})
         rec["rows"] += 1
-        v = sum(c * float(z[vid]) for vid, c in terms) - hi
-        if v > float(d.active_set_tol_m):
+        v = float(viol_all[k])
+        if v > tol:
             rec["missed"] += 1
             rec["max_m"] = max(rec["max_m"], v)
             rec["energy"] += d.law * v * v
@@ -810,17 +814,41 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                              f"{method}"), rep)
 
 
-def _objective(A0: sp.csr_matrix, b0: np.ndarray, one: _t.Sequence[_Side],
-               d, red: _Reduction, x: np.ndarray) -> float:
+def _one_matrix(one: _t.Sequence[_Side], red: _Reduction
+                ) -> tuple[sp.csr_matrix, np.ndarray]:
+    """Every one-sided law target as ONE sparse matrix over the REDUCED
+    columns, with the fixed vertices' contribution folded into the
+    right-hand side: a row's violation is ``(A1 x − b1)_k``.  Stacked once
+    so the active set costs a row slice, not a re-assembly."""
+    r: list[int] = []
+    c: list[int] = []
+    v: list[float] = []
+    b = np.zeros(len(one))
+    for k, (terms, hi, _row) in enumerate(one):
+        rhs = float(hi)
+        acc: dict[int, float] = {}
+        for vid, coef in terms:
+            col = int(red.col[vid])
+            if col < 0:
+                rhs -= coef * float(red.value[vid])
+            else:
+                acc[col] = acc.get(col, 0.0) + coef
+        for col, coef in acc.items():
+            if coef == 0.0:
+                continue
+            r.append(k)
+            c.append(col)
+            v.append(coef)
+        b[k] = rhs
+    return sp.csr_matrix((v, (r, c)), shape=(len(one), red.n_cols)), b
+
+
+def _objective(A0: sp.csr_matrix, b0: np.ndarray, A1: sp.csr_matrix,
+               b1: np.ndarray, d, x: np.ndarray) -> float:
     """The TRUE objective at ``x``: the always-on rows' squared residual plus
     every one-sided row's ``w_law · max(0, violation)²``."""
-    z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
-    f = float(np.sum((A0 @ x - b0) ** 2))
-    for side in one:
-        v = _violation(side, z)
-        if v > 0.0:
-            f += d.law * v * v
-    return f
+    viol = np.maximum(A1 @ x - b1, 0.0)
+    return float(np.sum((A0 @ x - b0) ** 2) + d.law * np.sum(viol ** 2))
 
 
 def _term_energies(rows: _Rows, A: sp.csr_matrix, b: np.ndarray,

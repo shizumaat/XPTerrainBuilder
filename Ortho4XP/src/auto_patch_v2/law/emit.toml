@@ -178,7 +178,7 @@ detached_mean = 1.0    # a truly detached body (no route, no touching pavement, 
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.
-active_set_max_rounds = 60    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
+active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round
 solver_max_iter       = 20000  # per-round iteration cap of the linear solver

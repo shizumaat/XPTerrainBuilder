@@ -121,26 +121,28 @@ def test_runway_fills_the_valley_and_sits_on_its_chord(valley, law):
 # ── §4 (2) the taxiway leaving it is TANGENT at the contact ─────────────
 
 def test_the_taxiway_rolls_off_the_runway_without_a_kink(valley, law):
+    """§4 (2): TANGENCY at the contact.  A shared vertex carries ONE value,
+    so flushness is structural; the reading is that the surface's CURVATURE
+    at the contact vertices is no worse than along the sheet — the second
+    difference across the contact is at most the along-sheet one."""
     pm, _cs, sol, _rep = valley[:4]
+    from auto_patch_v2.solve.design import _cotangent_laplacian, _face_triangles
     z = np.asarray(sol.z, float)
-    stub = [f for f, fc in pm.faces.items() if fc.ref == "stubB"]
-    assert stub
-    ring = pm.ring_vertices(pm.faces[stub[0]].ring)
-    ys = sorted(ring, key=lambda v: pm.vertices[v].xy[1] if False else
-                math.hypot(*pm.vertices[v].xy))
-    # the step across the stub's contact with the runway is never a step:
-    # a shared vertex carries ONE value, so flushness is structural; the
-    # reading here is that the surface's slope does not jump across it
-    grades = []
-    for a, b in zip(ring, ring[1:] + ring[:1]):
-        (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
-        d = math.hypot(bx - ax, by - ay)
-        if d > 1.0:
-            grades.append(abs(z[b] - z[a]) / d)
-    assert grades
-    assert max(grades) < 0.10, \
-        f"the stub rolls off the runway; steepest edge {max(grades):.4f}"
-    assert ys
+    roles = set(bend_roles(law))
+    tris = [t for fid, f in pm.faces.items() if f.role in roles
+            for t in _face_triangles(pm, fid)]
+    L, area = _cotangent_laplacian(pm, tris, len(pm.vertices))
+    curv = np.zeros(len(pm.vertices))
+    keep = area > 0.0
+    curv[keep] = np.abs((L @ z)[keep]) / area[keep]
+    stub = next(f for f, fc in pm.faces.items() if fc.ref == "stubB")
+    runway = {f for f, fc in pm.faces.items() if fc.role == "runway"}
+    contact = [v for v in pm.ring_vertices(pm.faces[stub].ring)
+               if runway & set(pm.vertices[v].incident_faces) and keep[v]]
+    assert contact, "the stub must touch the runway"
+    sheet = curv[keep]
+    assert max(curv[v] for v in contact) <= float(np.percentile(sheet, 95)) + 1e-9, \
+        "the contact bends no more than the sheet around it"
 
 
 # ── §4 (3) an apron over a ridge is a MINIMUM-CURVATURE sheet ───────────

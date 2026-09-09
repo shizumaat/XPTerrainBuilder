@@ -432,3 +432,78 @@ joint faces the network).
 | `pipeline/build.py`, `tools/v2_solve_replay.py` | the 08k log line / report | + network faces / bodies / shapes counts; the replay cross-checks the predicate against `routes.reach` |
 | `emit.toml [terrace]`, `terrace_schema.py` | `shape_roles` = runway + taxi + apron roles | unchanged keys (the network is a predicate, not a role list: a stub no route reaches is a body) — the comment amended |
 | twins `tests/auto_patch_v2/test_v2shapes.py` | 08k | + 08p: two aprons through a taxiway → two shapes, no joint, the taxiway's rows intact; apron against a taxiway → welded; 0.3 m → one shape; a wider gap → joint (the 04u weld deviation stands: 0.6 m is welded, the twin reads 1.2 m under a 2 m horizon); a hangar junction with no route → body; an unconnected taxilane → body; twin 1's count reads 1 shape (the runway is network) |
+
+## 11. Acceptance — lane `v2shapes` round 2 closing build (08p apron bodies), 2026-09-08
+
+Build `v2shapes3` (`/tmp/harness/v2shapes3.osm`, artifact ledger
+15926ecf77e5), HECA `--engine v2`, production frame N30E031, status
+optimal, harness wall 209.9 s.  v1 control `HECA_20260908T073420`;
+round 1 = `v2shapes2` (§9).  Base arms at this tree:
+`CYXY_20260908T191218` (479c70620319), `LEMD_20260908T191218`
+(62b5efab491b), `OTHH_20260908T191623`.  Replay arms on the recaptured
+`HECA.pkl` (this tree): **A** = the brief's literal (`[yield]
+network_hard_classes = ["taxi"]`, the closing build), **B** = round 1's
+yielding network (`[]`), **C1** = every taxi generator dropped (`taxi`,
+`no_step`, `junction_mesh`), the hump's joint attribution.
+
+THE PREDICATE AT HECA: 232 of 354 pavement faces are NETWORK (runway 6;
+taxi family 226: cross_connector 70, junction 49, primary_parallel 35,
+secondary_parallel 41, stub 31), 8,619 network vertices, 1,275
+runway-connected stations, 965 centreline edges no runway reaches (part
+of a body); the planar predicate and `routes.reach` from the thresholds
+name the SAME 226 taxi-family faces (symmetric difference 0).  The 122
+body faces (24 welded whole: every vertex on the network) form 383
+components → 396 bodies → **60 shapes** (largest 637,504 m² / 13 faces,
+279,133 / 7, 193,228 / 5 = pav132's shape 2); joints **26 contours, 0
+gap** (56 of 63 joint edges service_road|service_road: the 08k road
+separator); `terrace_joint_route` 0 / `terrace_joint_strip` 0 /
+`terrace_actual_step` 0 by construction.
+
+| read | v1 control | round 1 (§9) | **round 2 build (A)** | replay B | verdict |
+|---|---|---|---|---|---|
+| 05R/23L bow | −4.25 | −2.17 | **−4.95** (s 575; z−DEM +4.62 / −0.55 / +8.59; max grade 1.18 %) | −2.21 | 0.70 m DEEPER than v1 — the hard network drags the runway (08d (1)) |
+| 05C/23C bow | −9.53 | −7.08 | **−9.42** (s 2,625; z−DEM −1.27 / −5.91 / +1.28; max grade 1.40 %) | −7.10 | v1-like (the owner's 6.1 m floor missed by 3.3 as v1 misses it) |
+| 05L/23R bow | −0.28 | +0.01 | **+0.01**; hump s 2,025–2,425 63.7 / 64.9 / 64.9 vs v1 60.8 / 61.4 / 61.5 (**+3.4 m**, round 1 +3.3) | −0.36; hump 62.8 / 64.7 / 64.7 | the hump STANDS in both arms |
+| the hump `why` (ridge v3269, s 2,303, z 65.01, chord +5.18, DEM +6.37; binding rows: `runway_vertical_curve` dual 2.2e5, `runway_profile` transverse 22) | | owed | relax-one-family re-solves over 34 ridge vertices (dz median): **taxi_chain −0.81**, strip_transverse −0.71, runway_vertical_curve −0.18, no_step_rate −0.05, junction_mesh −0.04, no_step_pairs −0.03, transverse −0.01, taxi_centreline 0.00, reach 0.00, runway_profile 0.00, zone_bands +0.05, taxi_box +0.12; **C1 (every taxi generator dropped): the runway lands ON THE CHORD (z 59.93 at s 2,423, chord +0.00, z−DEM +0.89; 05R/23L bow 0.00), −5.06 m** | | the hump is held by the taxi NETWORK JOINTLY — its redundant hard forms (chain hops/chords away from the runway, box, pairs, mesh) each cover the others, so no single family releases more than 0.8 m; the network sits on the NW high ground (DEM fit) and the runway-contact chain, yielding to a 3 % CEILING, lifts the runway to it. v1 lets the taxiways fall to the runway. Owner decision 11-1: the chain-at-runway ceiling (3 %) — raise / remove it, or accept the hump |
+| \|dz\| > 1 m vs v1 | — | 55.2 % | **52.5 %** (11,119 of 21,182) | | MISSED (bar 30 %): the SW fill class (sites 1–4, 6, 8, 12: v1 +3–5 m above the DEM, v2 ±0.5) + pav132 (sites 5, 7, 9, 11: v2 **+5.2 to +7.3 m over v1**, v1 cut −7 to −10 z−DEM) |
+| \|dz\| > 6 m vs v1 | — | 328 | **248** | | MISSED (bar 200) |
+| owner's site 30.1139552,31.4095465 | 2 steps 3.3–3.5 m | 0 | **0** pairs ≤ 3 m with \|dz\| > 2 within 60 m: 8 nodes z 101.93–103.81, max short-pair step 0.00, plane grade 3.81 %, max pair grade 0.84 %; z−DEM mean −3.17 (v1 −1.30; v2 1.87 below v1); shape 33 | same | PASS |
+| the neck 30.127729,31.412022 | continuous 1.19 % | continuous 2.97 % | **continuous**: 9 nodes z 77.96–79.12, 0 steps, plane grade 3.37 %, steepest pair 6.80 %; z−DEM −4.73 (v1 −4.26); inside shape 2 (pav132) | z−DEM −3.72 | PASS |
+| pav132 sites 1–4 (30.1268,31.4170 / 30.1214,31.4171 / 30.1266,31.4149 / 30.1287,31.4150) | z−DEM −8.0 / −7.4 / −9.2 / −6.5 | +5.7–7.3 over v1 | z−DEM **−3.50 / +0.14 / −4.11 / −1.33**, vs v1 **+4.5 / +7.6 / +5.1 / +5.1**; 0 steps within 60 m at every site (site 2 is a building pad at the DEM, no shape) | −2.96 / +0.14 / −3.58 / −0.90 | the grade-through class stands: the 08p bodies do not cut as v1 did |
+| max apron grade inside pav132 (shape 2) | — | 13.3 % (face 336, one 1 m row) | **13.8 %** face 336 at 30.121835,31.414211 over 1.0 m (381 of 5,794 rows over cap); shape 33 (pav131, face 193) 12.7 % over 2.2 m; rows on the network (shape −1) 16.5 % face 242 over 1.4 m at 30.131685,31.399931 | 13.3 % | attributed: the 1–2 m apron ring rows beside a pad / at the network weld carry the body's relief in ONE hop (the apron rows yield unbounded, 08k (3)); the long chords stay ≤ 5 % |
+| joints / walls | 0 | 0 joints | **26 contours, max step 8.82 m**: joints 20/21/22 (shapes 0 ↔ 33, service road `route8`, 30.1155,31.4100–31.4114: 8.82 / 7.25 / 7.67 m); 6 (apron\|parking_lot 2.66 m), 12 (2.51), 25 (2.13), 17 (2.08); 19 under 2 m | 9.02 m | 08k's road separator at HECA: a service road between pav131's shape and the main shape carries an 8.8 m WALL ACROSS THE ROAD (road rows dropped at the joint: 9,580 road rows straddle). Owner decision 11-2: does a road between two shapes STEP (08k literal) or RAMP through at its 8 % law? |
+| `yielded_rows` | — | 4,008 / 236,224 | **1,594 / 117,344**: apron 969 / 27,395 (max 16.4 %), apron_edge_portion 29 / 3,689 (5.0 %), junction_mesh 29 / 2,019 (3 %), no_step_pairs 211 / 13,762 (3 %), roads 155 / 66,425 (8 %), taxi_box 136 / 3,101 (3 %), taxi_chain_at_runway 63 / 938 (1.72 %), groundside_ramp 2 / 15 (33.9 % over a 1.0 m row, face 54 at 30.108465,31.399576 — owed); network-hard: no_step_pairs 75,111, taxi_box 25,265, junction_mesh 9,788 rows stay hard | 4,000-class | |
+| v2 verify rows | — | 51 | **829 = service_road\|service_road 829** (within_shape 449 at 1.5–22.7 %, road_cross_section 348 at up to 28.2 %, transverse 6, lateral_contiguity 26): the roads cut at the 26 joints; airside 0 (the round-1 stub\|stub 25 read yielded / withdrawn now) | | the v2 verify does not honour a ROAD joint (instrument gap, owed) |
+| oracle census, adjudicated | 1,065 airside | 35 | **67** (airside 57 = stub\|stub 1.51–1.55 % over 26 m at 30.1070,31.4178 + kin; groundside 10) | | FAIL by the letter |
+| oracle census, law-true | 1,065 + 1,741 gs | 1,364 (net of withdrawn) | LAW-TRUE TOTAL 28,051 − withdrawn taxi chords 27,427 = **624** (67 adjudicated + 557 `yielded_by_08d`) | | |
+| solve wall | 47 s (1.0.293) | 152.3 s | **82.3 s, ONE pass** (LP 206,428 columns, 676,643 + 6,479 rows, 1.78 M nnz) | 127.7 s (replay) | ×1.75 vs 1.0.293, −70 s vs round 1 (the hard network is 110,164 fewer preference groups) |
+| CYXY base arm | 0 (main) | 4 | **45** = service_road\|service_road 38 (1.55–1.77 % over 85 m at the 6 road joints, max joint step 1.07 m) + primary_parallel 3 + stub 4 (round 1's class); 6 shapes, 63 of 76 faces network; 7.4 s | | +41, all the road-joint class |
+| OTHH base arm | 0 | 1 | **1** (the 08j 0.0004 m rim residual, hard set INFEASIBLE at the door as in round 1, 12 rows ≤ 0.0015); 101 shapes, 95 contours, max step 0.00 m; 492.7 s | | 0 |
+| LEMD base arm | 16 | 11 | **12** (taxi_box 2, strip_seam_tear 3, vertex_to_edge_step 1, tunnel_mouth_canonical 6); 53 shapes, 8 contours max 0.86 m; 230.6 s | | +1 (one taxi_box) |
+
+Reads not made: SPJC (`ColdDemFrame S12W078`, corpus refresh pending),
+the five-airport sweep (orchestrator), the sim read.  DEVIATIONS reported
+(not decided): (1) the predicate is the planar breakline graph from the
+runway roots, not `routes.reach` from the pins (the dependency law;
+cross-checked equal at HECA); (2) the network is the TAXI FAMILY + runway
+faces only — an apron a 1202 taxilane runs onto stays a body (the twin
+`two_contacts` reads network aprons otherwise: every apron with a dangling
+route would harden); (3) only the TAXI class is held hard on the network
+(`network_hard_classes`): an apron frontage chord between two contacts
+on the network spans the body — held hard it made the pinned twin
+INFEASIBLE; (4) the brief's "0.6 m → joint" twin stands at 1.2 m under a
+2 m horizon (the 04u weld shares vertices under ≈ 1 m, round 1's
+deviation); (5) `network_hard_classes` is the round's experiment knob
+(arm A vs B) awaiting the spawner's ruling — the closing build is A.
+OWED: the hump (owner 11-1), the road-joint walls (owner 11-2), the v2
+verify's road-joint reading, the 33.9 % groundside ramp row, the
+divergence bars (the SW fill envelope 08i + pav132), SPJC.
+
+Build-time statement (HECA `v2shapes3`, one run, `report.wall_s` — not a
+timing measurement): load 3.6 s, classify 2.0, planar 46.4, flat_site 0.1,
+road_profile 0.6, shapes 0.2, constraints 27.4, solve 82.3, emit 2.0,
+rebake_plan 21.2, verify 19.8, v2 total 205.6, harness wall 209.9 s
+(round 1 280.5 s; 1.0.293 193 s).  The network predicate costs < 0.1 s
+inside `shapes` (0.23 s total).  Solve 82 s in one pass vs 47 s on 1.0.293
+(×1.75): the ≥ 1 % regression on the auto-patch budget stands under the
+owner's 08g-1 decision, 70 s better than round 1.

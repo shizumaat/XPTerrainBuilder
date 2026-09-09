@@ -5564,12 +5564,19 @@ def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
     to metres by the caller (``taxi_axes`` carries the same polylines with
     their per-segment caps, and every route ordinal indexes into it).  Cap
     ZERO — this is inadmissible geometry, not an over-cap grade, so the
-    reported ``de_m`` carries nothing but the fact of the crossing."""
+    reported ``de_m`` carries nothing but the fact of the crossing.  A
+    SERVICE axis (slot 5, ``is_service``) is not a taxi route: a joint
+    across a service road is the owner's ruled separator (RULINGS
+    2026-09-08k: "only separated by narrow mouths / service roads") and
+    prices nothing here (lane v2shapes; before this the flag was never
+    read and every road joint read as a severed route)."""
     if not terrace_joints_m or not taxi_axes:
         return []
     out: List[Violation] = []
     for j, (pts, step) in enumerate(terrace_joints_m):
         for entry in taxi_axes:
+            if len(entry) > 4 and bool(entry[4]):
+                continue                     # a service road: the lawful separator (08k)
             poly = entry[0]
             for a in range(len(poly) - 1):
                 hit = False

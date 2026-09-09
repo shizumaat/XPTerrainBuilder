@@ -282,7 +282,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if sh.faces:
         # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
         _say(f"[{icao}] shapes (08k): {sh.faces} pavement faces -> {sh.components} components, "
-             f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}); "
+             f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}, route welds {sh.welded_route_pairs}); "
              f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled}, pads relabelled "
              f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
              f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "

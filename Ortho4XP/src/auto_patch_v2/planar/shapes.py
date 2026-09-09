@@ -88,6 +88,7 @@ class ShapeStats:
     road_vertices_labelled: int = 0
     pads_relabelled: int = 0
     welded_strip_pairs: int = 0     # body pairs welded by a boundary edge inside the runway strip
+    welded_route_pairs: int = 0     # body pairs welded by a boundary edge on a taxi centreline (a mouth a route passes through)
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -207,6 +208,11 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
     reach: dict[int, Polygon] = {}
     for comp in comps:
         parts = [b for b in polygon_parts(comp.buffer(-half)) if b.area > 0.0]
+        # a BODY is wider than a mouth on its own account: a part that does
+        # not survive a second erosion by the same half-width is the remnant
+        # of a spur a hair wider than the mouth, not a body (measured HECA
+        # 2026-09-08: 85 / 51 / 42 m2 remnants beside the 3.7 km2 airside)
+        parts = [b for b in parts if not b.buffer(-half).is_empty]
         if len(parts) >= 2:
             for b in parts:
                 bodies[len(bodies)] = b
@@ -315,8 +321,22 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], stats: ShapeSt
 
 
 def _weld_strip(pm: PlanarMap, label: dict[int, int], keep, stats: ShapeStats) -> None:
-    """THE STRIP KEEP-OUT: a boundary edge inside it welds its two bodies."""
+    """THE STRIP KEEP-OUT: a boundary edge inside it welds its two bodies.
+    THE ROUTE IS NEVER CUT (RULINGS 2026-09-07g, kept): a boundary edge
+    lying on a taxi centreline — a mouth a route passes through — welds
+    its two bodies too: the route's chain rows are hard on both sides, so
+    the connecting taxiway serves both (08k: "solved by what their
+    connecting taxiways can serve"), and a declared step across a route
+    is the oracle's ``terrace_joint_route`` violation."""
     uf = _Union()
+    for b in pm.breaklines.values():
+        if b.kind != STATION_KIND:
+            continue
+        for eid in b.edges:
+            e = pm.edges[eid]
+            la, lb = label.get(e.a, NO_SHAPE), label.get(e.b, NO_SHAPE)
+            if la != lb and la != NO_SHAPE and lb != NO_SHAPE and uf.union(la, lb):
+                stats.welded_route_pairs += 1
     if keep is not None and not keep.is_empty:
         shapely.prepare(keep)
         for e in pm.edges.values():

@@ -7667,3 +7667,15 @@ def test_the_no_step_rate_reader_reads_a_declared_joint_as_a_step(cg):
     elsewhere = cg._terrace_joints_to_m([{"points": [ll(40.0, -10.0), ll(40.0, 10.0)], "step_m": 5.0}], ll_to_m)
     rows_e, _, _ = cg._check_airside_no_step_rate([way], [], nodes, ll_to_m, terrace_joints_m=elsewhere)
     assert len(rows_e) == len(rows), "a joint elsewhere forgives nothing"
+
+
+def test_terrace_joint_route_never_prices_a_service_axis(cg):
+    """RULINGS 2026-09-08k (lane v2shapes): a joint across a SERVICE road is
+    the owner's ruled separator — ``_check_terrace_joint_crosses_route``
+    reads the axis's ``is_service`` slot and prices only taxi routes."""
+    joint = [([(0.0, -10.0), (0.0, 10.0)], 1.5)]
+    taxi = [([(-20.0, 0.0), (20.0, 0.0)], [0.015], 0.015, 0, False)]
+    service = [([(-20.0, 0.0), (20.0, 0.0)], [0.08], 0.08, 1, True)]
+    assert len(cg._check_terrace_joint_crosses_route(joint, None, taxi)) == 1
+    assert cg._check_terrace_joint_crosses_route(joint, None, service) == []
+    assert len(cg._check_terrace_joint_crosses_route(joint, None, service + taxi)) == 1

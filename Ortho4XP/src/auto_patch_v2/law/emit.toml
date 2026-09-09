@@ -195,6 +195,33 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
+# THE PAD PLANE (owner RULINGS 2026-09-09c, "building pads are targeting
+# flat, with up to 1 % allowance where no other solution exists"): a pad
+# is no longer a hard ``Flat`` group (one merged column, which dragged
+# every surface welded to it to one level).  It is ONE PLANE: its
+# flatness is a STRONG TARGET priced at ``pad_flat``, and its tilt is
+# bounded HARD at ``emit.within_shape.pad_slope_max`` (1 %) by a ruling
+# head listed in ``hard_rulings`` above.  ``pad_flat_rulings`` names the
+# heads priced at ``pad_flat`` instead of ``law`` (the same shape as
+# ``hard_rulings`` / ``one_way_rulings``: one register, no literals).
+pad_flat = 3000.0
+pad_flat_rulings = [
+  "structures.building_pad flat",                        # 09-09c: the pad's flatness target
+]
+# THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
+# Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
+# drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m
+# cliff one triangle wide at HECA).  Outside every patch-boundary ring
+# the patch therefore emits a BANK FOOT ring ON THE DEM at plan distance
+# ``d = max(bank_min_width_m, |z_ring - DEM(foot)| / bank_slope)`` along
+# the outward normal; the mesh triangulates the bank between them (no
+# vertex is emitted in between).  ``bank_foot_smooth`` is the
+# second-difference weight along the foot chain that keeps the toe from
+# zigzagging (spec §9.4 deviation 1: it is applied to the plan distance,
+# the foot's z being the DEM itself).
+bank_slope       = 0.33   # 1:3 — an embankment / cut slope a pilot reads as ground, not a wall
+bank_min_width_m = 5.0    # the narrowest bank: a ring level with its DEM still stands off the drape by this much
+bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on the formula's own distance
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.
@@ -218,6 +245,7 @@ hard_rulings = [
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
   "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
+  "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
 ]
 hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000x the law's target weight), with a multiplier shift between rounds: the augmented Lagrangian that makes the runway laws HELD rather than traded (measured CYXY: 3e4 leaves 0.036 m, 3e5 0.010 m, 1e6 0.012 m, 1e8 breaks the factorisation)
 hard_max_rounds = 12       # the multiplier rounds, each one damped active-set solve (measured CYXY: the runway DEFECT families read zero from round 5)

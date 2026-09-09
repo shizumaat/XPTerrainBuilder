@@ -23,6 +23,7 @@ from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
+from auto_patch_v2.verify.pads import plane_fit
 
 
 class _PlaneDem:
@@ -150,7 +151,10 @@ def test_station_walk_reads_the_apron_beside_the_road(synthetic, law):
 def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_path):
     airport, pm, _s, _cl = synthetic
     cs, counts, _w = generate(pm, law, airport)
-    assert counts["frontage_near_miss"] > 0 and counts["pad_flats"] == 3
+    # 09-09c: a pad is one PLANE — one flatness target and one hard 1 %
+    # ceiling row per rim PAIR, no longer one ``Flat`` per pad
+    assert counts["frontage_near_miss"] > 0 and counts["pad_flats"] > 0
+    assert counts["pad_slope_ceiling"] == counts["pad_flats"]
     sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.message
     pub = publication(pm, law, airport, sol.z)
@@ -162,10 +166,16 @@ def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_pa
     # the near-miss pad sits at its frontage level, not the DEM terrace
     near = next(f for f in pm.faces.values() if f.ref == "pad_near")
     apron = next(f for f in pm.faces.values() if f.ref == "apron1")
-    zn = {round(sol.z[v], 3) for v in pm.ring_vertices(near.ring)}
-    assert len(zn) == 1                              # one flat value
+    # 09-09c: the pad is ONE PLANE targeting flat, tilting at most 1 % — so
+    # the reading is the PLANE, not one value (the merged ``Flat`` is gone)
+    rim = list(pm.ring_vertices(near.ring))
+    zn = [sol.z[v] for v in rim]
+    xy = [pm.vertices[v].xy for v in rim]
+    resid, tilt = plane_fit(xy, zn)
+    assert resid <= law.tables.emit.materiality.elevation_m
+    assert tilt <= law.tables.emit.within_shape.pad_slope_max
     za = [sol.z[v] for v in pm.ring_vertices(apron.ring)]
-    assert min(za) - 0.05 <= zn.pop() <= max(za) + 0.05
+    assert min(za) - 0.05 <= sum(zn) / len(zn) <= max(za) + 0.05
 
 
 def test_verify_reader_flags_a_published_cap_looser_than_the_walk(synthetic, law):

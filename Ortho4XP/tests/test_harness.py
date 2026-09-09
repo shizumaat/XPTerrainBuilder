@@ -6298,6 +6298,13 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
         # ``emit.osm_adapter.RIM_FEATURE``): the at-grade ring round a
         # below-grade structure's void, in place of the retired wall band.
         "structure_rim",
+        # THE BANK FOOT (owner RULINGS 2026-09-09e; auto_patch_v2
+        # ``emit.osm_adapter.BANK_FEATURE``): the ring ON THE DEM outside
+        # every patch-boundary ring, which the mesh triangulates the 1:3
+        # bank up to.  It IS the terrain: no grade law of its own and no
+        # host, so it is registered role-less and stays out of
+        # ``HOST_CAP_FEATURE_CLASSES``.
+        "bank_foot",
         # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
         # §1b).  Role-less for the spines' reason: it is an OPEN
         # constrained breakline inside an apron face, so a phantom

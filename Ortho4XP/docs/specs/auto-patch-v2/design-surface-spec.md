@@ -509,3 +509,169 @@ The owner rules between: (a) the zone-2 outer ring keeps a DEM datum
 engine gains a blend band outside the patch boundary; or (c) the cliff is
 the "bank at the edge" 08t answer 2 accepts and stands.  The lane changed
 nothing on its own judgement.
+
+## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
+
+### 9.1 What is being added
+
+**THE BANK (09e).**  §8.4 measured that Ortho4XP's mesh does not blend:
+it drapes the raw DEM up to the patch's constrained boundary, so the
+patch's outer ring stands mean 3.04 m (max 16.60) above open ground and
+the transect reads a 16.8 m cliff one triangle wide.  The owner's answer
+is a BANK: outside every patch-boundary ring the patch emits a **bank
+foot** ring on the DEM at plan distance
+
+    d = max(bank_min_width_m, |z_ring - DEM(foot)| / bank_slope)
+
+along the outward normal, with `[design] bank_slope = 0.33` (1:3) and
+`bank_min_width_m = 5.0`.  The foot's z IS the DEM at the foot.  The
+foot chain carries a second-difference smoothing target along itself
+(`[design] bank_foot_smooth`) so the toe does not zigzag.  Where the
+foot would cross another patch ring it stops at that ring (the two
+rings share the bank).  **No vertex is emitted between ring and foot:**
+the bank face is the mesh's.  That works because `include_patches`
+polygonizes every closed patch way and seeds each resulting face
+INTERP_ALT (`O4_Vector_Map.py:2868`), and `O4_Mesh_Utils.
+interpolate_free_interior_altitudes` then harmonically extends the two
+rings' authored altitudes across the annulus — a straight bank on a
+planar boundary, smooth elsewhere, and continuous with the DEM outside
+the foot because the foot IS the DEM.
+
+**THE PAD PLANE (09c).**  A pad is currently a `Flat` group, which
+`solve/rows._reduce` merges into ONE column: a pad is exactly flat and
+everything welded to it is dragged to that level.  The owner rules the
+flatness a strong TARGET (`[design] pad_flat`) with a HARD 1 % ceiling
+on the plane's tilt (`emit.within_shape.pad_slope_max`, in
+`[design] hard_rulings` beside the runway rows and the 5 % pavement
+ceiling).  The pad-to-apron weld (05t) is vertex identity and is
+untouched.
+
+### 9.2 CONSUMER TABLE (owner 2026-08-30l) — every pass that reads the
+### affected geometry, and its ruling
+
+A. THE NEW `bank_foot` RING (new `SurfaceVertex` ids + a closed
+`SurfaceBreakline` of kind `bank_foot`; present ONLY in the surface the
+adapter renders, never in the surface the solve or the rebake reads):
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| A1 | `solve/design.py`, `solve/rows.py`, every `constraints/*` generator | the `PlanarMap` | UNAFFECTED — the bank is built AFTER the solve, from the solution; no planar face, edge or vertex is added, so no law row, no bending triangle, no zone membership changes. |
+| A2 | `emit/graded.graded_surface` | planar + solution | unchanged; `emit/bank.with_bank` returns a NEW surface with the extra vertices and breaklines appended. |
+| A3 | `emit/osm_adapter.render_patch` | `surface.faces` / `.breaklines` / `.vertices` | EDITED: emits one closed way per `bank_foot` breakline, tags `o4_feature=bank_foot` only (no `role`, no `aeroway`, no `shapeID`) — articulation geometry, exactly as `structure_rim`.  The foot vertices are ordinary nodes with `alt_abs`. |
+| A4 | `emit/osm_adapter.render_patch` `ring_edges` | face ring edges + rim runs | UNAFFECTED: a foot ring shares no edge with any face ring (it is strictly outside the coverage), so the hole-coverage test is unchanged. |
+| A5 | `emit/osm_adapter.write_tile_pieces` | faces by tile, breakline runs | the foot vertices travel with the tile they fall on; a foot ring straddling a tile seam becomes an OPEN chain in each piece (a DUMMY constrained line: the altitudes still hold, the annulus is not closed on that piece).  DEVIATION, recorded in §9.4. |
+| A6 | `emit/surface.GradedSurface.to_json` / `SCHEMA` | vertices + breaklines | UNAFFECTED — a breakline kind is a free string and vertices are `[id, lat, lon, z]`. |
+| A7 | `emit/rebake.deck_datum_from_surface`, `airport/rebake_plan` | `surface.vertices` inside a deck ring | UNAFFECTED BY CONSTRUCTION: `pipeline/build` keeps the PRE-bank surface for the rebake plan and passes the banked one to `write_patch` / `write_tile_pieces` only. |
+| A8 | `verify/frame.Patch.of` | `surface.faces`, `.holes`, and breaklines of kind `runway_profile` / `structure_rim` | UNAFFECTED: a `bank_foot` breakline matches neither branch, so v2's census never sees it.  Stated here so the next reader does not rediscover it. |
+| A9 | `verify/*` (every family), `verify/census.DEFECT_KEYS` | `Patch.shapes` / `.features` | UNAFFECTED via A8 — the bank carries NO grade law of its own: it IS the DEM. |
+| A10 | `tools/check_grade.py::_parse_osm` | every closed way in the patch | EDITED: `bank_foot` joins the feature classes routed to `feature_out`, so it never enters `ways` and mints no ring row.  Without this it would be judged a role-less surface at the caller's default 1.5 % cap and mint a row per 33 % bank chord. |
+| A11 | `tools/check_grade.py::ROLE_LESS_FEATURE_CLASSES` | the role-less register | EDITED: `bank_foot` registered (not in `HOST_CAP_FEATURE_CLASSES` — it has no host; it is the terrain). |
+| A12 | `tools/harness/census.py`, `tests/test_harness.py` twins | `check_grade`'s one code path | follows A10/A11; no family added, `LAW_FAMILIES` untouched. |
+| A13 | `O4_Vector_Map.include_patches` | every closed way | reads it as a patch ring: `patches_area_polys` (blocks the water/sea floods over the bank — correct, it is land), `interp_alt_patch_polygons` (the annulus is polygonized and seeded).  NOT in `graded_area_polys`: it carries no `role`, so the seawall admission is unchanged. |
+| A14 | `O4_Mesh_Utils.interpolate_free_interior_altitudes` | INTERP_ALT triangles + patch-valued vertices | the mechanism the bank relies on; unchanged. |
+| A15 | `pipeline/publication.py`, the sidecar | faces and centrelines | UNAFFECTED: the bank publishes nothing (no axis, no pair, no cap). |
+
+B. THE PAD PLANE (`constraints/pads.pad_flats` stops minting `Flat`):
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| B1 | `solve/rows._reduce` | `cs.flats` | a pad no longer merges to one column: +N-1 unknowns per pad.  Cost reported in §9.4. |
+| B2 | `solve/design.py:546,570` (the sheet/body datum: "a rigid group is one sheet") | `cs.flats` | a pad's vertices are now separate columns; each is already part of its face's bending sheet through `_face_triangles`, so a detached pad still takes the `detached_mean` plane datum through its own sheet. |
+| B3 | `solve/why.py:221` | `cs.flats` | reports one fewer row kind for pads; the pad's rows now appear as `pads` diffs.  No code change needed. |
+| B4 | `constraints/zones.py` (`pad_rim`, `pad_nearest`, `rigid_rims`, `strip_transverse`'s `pad_pick`) | "A RIGID PAD IS ONE LEVEL, SO IT CARRIES ONE BAND" | HELD AS IS: the one-band-per-pad rule is what keeps the pad's zone rows mutually satisfiable, and the flatness target (not the `Flat`) now carries the level to the far rim.  The rule is now a TARGET-consistency rule rather than an exact one — stated, not changed. |
+| B5 | `constraints/ceiling.pavement_ceiling` | every `Diff` over pavement vertices | EDITED: skips rows whose ruling head is the pad ceiling's, so a pad pair is not twinned at 5 % beside its own 1 %. |
+| B6 | `verify/pads.pad_flat` | `relaxed_rows` (a retired publication) vs "spread" | EDITED: EVERY pad is read as ONE PLANE now (residual ≤ `emit.materiality.elevation_m`, slope ≤ `pad_slope_max` + grade materiality + the 06k(3) quantum).  The `relaxed_faces` branch is deleted with the relaxation it named. |
+| B7 | `verify/census.DEFECT_KEYS` | family list | UNCHANGED — 08v already withdrew `pad_flat` from the DEFECT gate; the gate reads the runway family. |
+| B8 | `constraints/pads.frontage_near_miss`, `constraints/routes` (the pad CONTACT edge) | pad vertices | UNAFFECTED: both name vertices, not the group. |
+| B9 | `constraints/structures.py:318,388` (`Flat` for structure mouths/floors) | `Flat` | UNAFFECTED: those are structures, not rigid pads; they keep the hard merge. |
+| B10 | `airport/rigid.py`, `rebake_plan` (objects seat on the pad) | the emitted surface under the object | a pad may now tilt up to 1 %; the seat reads the surface, so a tilted pad seats its objects on the tilted plane.  That is 09c's intent. |
+| B11 | `emit/clusters.py` | solved z per vertex | UNAFFECTED. |
+
+### 9.3 The law values
+
+`emit.toml [design]`: `bank_slope = 0.33`, `bank_min_width_m = 5.0`,
+`bank_foot_smooth` (the second-difference weight along the foot chain),
+`pad_flat` (the flatness target weight), `pad_flat_rulings` (the ruling
+heads priced at `pad_flat` instead of `law` — the same shape as
+`hard_rulings` / `one_way_rulings`), and `hard_rulings` gains
+`structures.building_pad pad_slope_max ceiling`.
+`emit.within_shape.pad_slope_max` (0.01) already exists and is the
+ceiling's cap: one derivation site, read by the generator and by
+`verify/pads`.
+
+### 9.4 Deviations to report (never decided by the lane)
+
+1. THE FOOT'S SMOOTHING IS ON THE PLAN DISTANCE, NOT AN LP ROW.  The
+   foot's z IS the DEM (09e), so it is not an unknown of the solve; a
+   second-difference target on its z would fight that equality.  The
+   zigzag the ruling names is the TOE — a plan phenomenon: `d` varies
+   along the ring because `z_ring` and the DEM do.  The smoothing is
+   therefore the same second-difference least-squares, applied to `d`
+   along the foot chain at `[design] bank_foot_smooth`, after which the
+   DEM is re-sampled at the smoothed position (so `z = DEM(foot)` holds
+   exactly).  Reported for the owner's ruling.
+2. A FOOT RING STRADDLING A TILE SEAM is emitted as an open chain per
+   tile piece (A5): its altitudes hold, but the annulus is not a closed
+   polygon on that piece, so the mesh's INTERP_ALT seeding of the bank
+   is not guaranteed there.  Single-tile airports are unaffected.
+3. THE FOOT RING IS MADE VALID BY CONSTRUCTION: the per-vertex offset
+   can self-intersect at a concave corner, so the ring is closed through
+   shapely (`unary_union` with the patch component, then the exterior),
+   which can move a foot vertex off its own normal.  Every emitted foot
+   vertex is DEM-sampled at its final position, so `z = DEM` still holds
+   exactly; only `d` may differ from the formula there.
+4. THE BANK IS ONE REGION, NOT ONE RING PER BODY.  Banked per body (the
+   ruling's literal shape), a foot ring lands inside — even exactly ON — a
+   neighbouring body's ring wherever two patch bodies stand closer than a
+   bank is wide: MEASURED at HECA, 184 of 8,242 foot nodes within 1 m of a
+   design node, one of them coincident and 12.34 m below it, and 301 with
+   a foot-to-design pseudo-slope over 1:1 — the very cliff the bank exists
+   to remove, minted at a node.  The construction therefore unions the
+   coverage with every bank piece and emits the boundary of THAT: one
+   region, every boundary vertex at least ``bank_min_width_m`` from the
+   design surface, and a gap too narrow for a bank simply swallowed — which
+   is 09e's "the two rings share the bank" read as an area rather than as a
+   pair of lines.  Reported for the owner's ruling.
+
+### 9.5 THE TRANSECT, and the second finding the owner must rule on
+
+`tools/run_tile_mesh_only.py 30 31 1 --patches-as-is` on the banked HECA
+patch, the SAME transect as §8.4 (lon 31.3819142, 0.00005 deg = 5.6 m per
+station), read with `tools/mesh_elevation_sampler.py`:
+
+| lat | 1.0.296 (§8.4 control) | 09e (no bank) | THIS (banked) |
+|---|---|---|---|
+| 30.11635 | 66.876 | 66.876 | 63.795 |
+| 30.11660 | 66.133 | 66.133 | 59.572 |
+| 30.11665 | 66.062 | **61.154** | 54.777 |
+| 30.11670 (the boundary) | 65.847 | **49.345** | 49.333 |
+| 30.11675 (inside) | 65.574 | 49.396 | 49.375 |
+
+THE CLIFF IS GONE AS A MAGNITUDE.  09e dropped **16.8 m over ~11 m of
+ground, one triangle wide**.  The banked patch falls from the DEM at the
+toe (66.88 at lat 30.11617, 59 m out) to the patch ring (49.33) — 17.55 m
+over 59 m, an AVERAGE 29.7 %, inside the law's 1:3, spread over 20+ mesh
+stations.
+
+**IT IS NOT YET A CONTINUOUS ≤ 1:3.**  Read at 2.2 m stations the profile
+is 15.2 % over the outer 50 m and then ONE triangle of 9.93 m over 8.9 m
+(**111 %**) against the patch ring.  The steepest 5.6 m station reads
+−5.44 m where 09e read −11.81 m.  MECHANISM: the mesh's blend is
+`interpolate_free_interior_altitudes`' discrete HARMONIC extension over
+whatever vertices Triangle4XP happened to put in the annulus, and it is
+graph-harmonic, not metric-linear — with few free vertices in a 59 m
+annulus the isolines crowd against the shorter (inner) boundary.  A second
+transect at lon 31.3900 over the same boundary is smooth throughout
+(79.93 → 73.30 over 220 m, no station over 12 %), so this is the worst
+site, not the typical one.
+
+09e's "the bank face is left to the mesh (no vertices between ring and
+foot)" is the same shape of assumption 09b (3) was, and the measurement
+refutes it the same way: Ortho4XP will not interpolate a straight bank it
+has no vertices for.  The owner rules between (a) accept the banked
+profile as it stands (the magnitude is 3× better and the site is the
+worst on the airport); (b) the patch emits INTERMEDIATE bank rings — one
+or more constrained rings between the ring and the foot, which authors
+the bank face and contradicts 09e's letter; or (c) the mesher densifies
+inside a patch-bounded annulus.  The lane changed nothing on its own
+judgement.

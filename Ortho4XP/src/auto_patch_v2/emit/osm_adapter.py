@@ -25,6 +25,11 @@ THE PATCH v2 WRITES:
     2026-09-06b (1)): the void face's exterior at the ground, tagged
     ``o4_feature=structure_rim`` with the structure's ``ref`` — a
     constrained ring the mesh makes the wall up to (no wall face);
+  * one closed way per BANK FOOT ring (``emit.bank.BANK_KIND``; owner
+    RULINGS 2026-09-09e, spec §9), tagged ``o4_feature=bank_foot``: the
+    ring ON THE DEM outside every patch-boundary ring, which the mesh
+    triangulates the 1:3 bank up to (no vertex between them).  Role-less
+    articulation geometry, skipped by both censuses;
   * one open way per ``runway_profile`` breakline tagged
     ``o4_feature=crown_spine`` — the ridge the census's ``runway_crown``
     reader measures the declared drops against (a ``DUMMY`` constrained
@@ -88,6 +93,13 @@ HOLE_FEATURE = "gap_interior_ring"
 #: The structure rim's feature tag (a role-less closed way; the census
 #: skips it as it skips the hole rings — ``check_grade.ROLE_LESS_FEATURE_CLASSES``).
 RIM_FEATURE = "structure_rim"
+#: THE BANK FOOT (``emit.bank.BANK_KIND``; owner RULINGS 2026-09-09e, spec
+#: §9): the ring ON THE DEM outside a patch-boundary ring, a closed
+#: constrained way the mesh triangulates the 1:3 bank up to.  Role-less
+#: like the rim and for the same reason: it IS the terrain, it carries no
+#: grade law, and the census skips it
+#: (``check_grade.ROLE_LESS_FEATURE_CLASSES``).
+BANK_FEATURE = "bank_foot"
 #: Feature class of the runway ridge open way.
 RIDGE_FEATURE = "crown_spine"
 #: Breakline kinds emitted as open ways (the others are ring edges already).
@@ -222,7 +234,15 @@ def render_patch(surface: GradedSurface, law: Law,
             if _edges(h) <= ring_edges:
                 continue                    # covered: the inner faces constrain it
             way(h, [("o4_feature", HOLE_FEATURE), ("shapeID", str(f.id))], True)
+    from .bank import BANK_KIND
     for b in surface.breaklines:
+        if b.kind == BANK_KIND and len(b.vertices) >= 3:
+            # THE BANK FOOT (09e): closed where the whole ring is on this
+            # tile piece, an open constrained chain where it is split
+            closed = b.vertices[0] == b.vertices[-1]
+            way(b.vertices[:-1] if closed else b.vertices,
+                [("o4_feature", BANK_FEATURE), ("ref", b.ref)], closed)
+            continue
         if b.kind == RIM_KIND and len(b.vertices) >= 3:
             # the rim: closed where the run is the whole ring (the first
             # vertex repeated), an open constrained chain where a tile

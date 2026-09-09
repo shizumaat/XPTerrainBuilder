@@ -70,8 +70,8 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matri
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "hard_rulings",
-           "one_way_rulings", "is_hard", "ruling_head", "METHODS",
-           "DEFAULT_METHOD"]
+           "one_way_rulings", "pad_flat_rulings", "is_hard", "ruling_head",
+           "METHODS", "DEFAULT_METHOD"]
 
 #: The linear solvers the round may use.  ``normal`` factorises the normal
 #: equations Aᵀ A once per active set (sparse LU); ``cg`` runs conjugate
@@ -129,6 +129,14 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
     follows the pavement edge and never pulls it)."""
     return frozenset(design_law(law).one_way_rulings)
+
+
+def pad_flat_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS whose rows are priced at ``[design] pad_flat`` —
+    the pad's flatness TARGET (owner RULINGS 2026-09-09c): a weight an
+    order above the law's, so a pad comes out flat wherever the geometry
+    admits a flat solution, and tilts (to at most 1 %, hard) where not."""
+    return frozenset(design_law(law).pad_flat_rulings)
 
 
 def hard_rulings(law: Law) -> frozenset[str]:
@@ -310,6 +318,10 @@ class Base:
     #: indices into ``one`` of the HARD rows (``[design] hard_generators``):
     #: constraints of the active set, never penalties (RULINGS 2026-09-08v)
     hard: list[int] = _dc.field(default_factory=list)
+    #: indices into ``one`` of the PAD FLATNESS rows (``[design]
+    #: pad_flat_rulings``): targets priced at ``pad_flat`` instead of ``law``
+    #: (owner RULINGS 2026-09-09c — a pad TARGETS flat, hard only at 1 %)
+    pad_flat: list[int] = _dc.field(default_factory=list)
     #: ``one`` index -> the FOLLOWER vertex of a ONE-WAY row (``[design]
     #: one_way_rulings``): only that vertex keeps its column, the leaders
     #: enter the right-hand side lagged (RULINGS 2026-09-09b (2)/(3))
@@ -475,7 +487,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     dropped_bank = 0
     heads = hard_rulings(law)
     ow_heads = one_way_rulings(law)
+    pf_heads = pad_flat_rulings(law)
     hard: list[int] = []
+    pad_flat_i: list[int] = []
     one_way: dict[int, int] = {}
     for side in one_t:
         terms, hi, row = side
@@ -507,6 +521,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         fv = getattr(row, "follows", None)
         if fv is not None and ruling_head(row) in ow_heads and red.col[fv] >= 0:
             one_way[len(one)] = int(fv)
+        if ruling_head(row) in pf_heads:
+            pad_flat_i.append(len(one))
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
@@ -580,7 +596,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
-    return Base(rows, red, one, eqs, n, hard, one_way, chord_v, road_v)
+    return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
+                chord_v, road_v)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -664,6 +681,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         A1 = A1.tocsr()
     rho = float(d.hard_weight)
     w_row = np.full(len(one), float(d.law))
+    # THE PAD TARGETS FLAT (owner RULINGS 2026-09-09c): its flatness rows are
+    # priced at ``pad_flat``, above the law's target weight and far below the
+    # hard constraint weight — flat wherever a flat solution exists, tilting
+    # (to at most the 1 % hard ceiling) where the contacts leave none.
+    pad_i = np.asarray(base_p.pad_flat, dtype=np.int64)
+    if pad_i.size:
+        w_row[pad_i] = float(d.pad_flat)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it

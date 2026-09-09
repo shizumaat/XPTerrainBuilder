@@ -22,6 +22,7 @@ from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
 from ..constraints.runway_profile import RUNWAY_FAMILY
+from ..emit.bank import BankReport, with_bank
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
@@ -565,10 +566,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         header = {"o4_apt_dat": airport.pack.apt_dat_path,
                   "o4_pack": airport.pack.name}
         header.update(cfg.header_extra or {})
-        paths = write_patch(surf, law, out_dir, pub, header,
+        # THE BANK (owner RULINGS 2026-09-09e; ``emit/bank.py``, spec §9):
+        # the mesh does not blend, so the patch emits its own 1:3 bank out
+        # to the DEM outside every boundary ring.  Only the EMITTED surface
+        # carries it — the rebake plan below reads ``surf``, the pre-bank
+        # one (spec §9.2 A7).
+        brep = BankReport()
+        surf_out = with_bank(surf, pm, law, airport, brep)
+        _say(brep.line(icao), out)
+        report["bank"] = _dc.asdict(brep)
+        paths = write_patch(surf_out, law, out_dir, pub, header,
                             face_tags(pm, law, airport))
         if pm.seam_vertices:
-            pieces = write_tile_pieces(surf, law, out_dir, pub, header,
+            pieces = write_tile_pieces(surf_out, law, out_dir, pub, header,
                                        face_tags(pm, law, airport))
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"

@@ -59,6 +59,14 @@ def read_patch(path: Path) -> tuple[dict[str, list], dict[int, tuple[float, floa
     by_role: dict[str, list] = {}
     for w in root.findall("way"):
         tags = {tg.get("k"): tg.get("v") for tg in w.findall("tag")}
+        if tags.get("o4_feature") == "bank_foot":
+            # THE BANK FOOT IS THE DEM (owner RULINGS 2026-09-09e): the ring
+            # outside the patch boundary carries the terrain's own
+            # undulation, not a designed surface's.  Counted, it swamps the
+            # role-less bucket and the overall figure (measured HECA:
+            # 10,003 stations at RMS 0.036 moved the whole-patch read
+            # 0.0165 -> 0.0229).  The instrument reads DESIGNED pavement.
+            continue
         role = tags.get("role") or tags.get("aeroway") or "unknown"
         refs = [int(nd.get("ref")) for nd in w.findall("nd")]
         by_role.setdefault(role, []).append((w.get("id"), tags.get("ref"), refs))

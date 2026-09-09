@@ -1,14 +1,13 @@
-"""THE PAD-FLAT CHECK over the emitted product (RULINGS 2026-09-03h "a
-pad is a rigid flat group levelled by its apron contact"; 03i; and the
-ONE lawful exception, 04t(1): a pad the last resort relaxed is ONE PLANE,
-published in the sidecar ``relaxed_rows`` with ``kind = "pad"``).
+"""THE PAD-PLANE CHECK over the emitted product (owner RULINGS
+2026-09-09c: "building pads are targeting flat, with up to 1 % allowance
+where no other solution exists"; 03h "levelled by its apron contact";
+03i).  A pad is ONE PLANE whose flatness is a design TARGET
+(``[design] pad_flat``) and whose tilt is bounded HARD at
+``emit.within_shape.pad_slope_max`` (1 %).
 
 Every rigid-role shape (``precedence.toml`` ``rigid``) is read:
 
-* an UNRELAXED pad carries one elevation over its outer ring and holes —
-  a spread above ``emit.materiality.elevation_m`` is a ``pad_flat`` row
-  (a sloped building would ship);
-* a RELAXED pad lies on one plane — its least-squares plane residual
+* a pad lies on ONE PLANE — its least-squares plane residual
   above ``emit.materiality.elevation_m`` is a row (``reading =
   "plane_residual"``) — no steeper than ``emit.within_shape.pad_slope_max``
   (RULINGS 2026-09-05f: 1 %): a plane's gradient over it by more than the
@@ -17,13 +16,11 @@ Every rigid-role shape (``precedence.toml`` ``rigid``) is read:
   is a row (``reading = "plane_slope"``).
 
 Not a law family: an ACCEPTANCE check beside the tunnel / basin ones, so
-the register twins (v1 families == v2 families) hold.  A pad's ``Flat``
-is a hard equality no tier demotes (``solve/tiers.py``) and a plane
-exists only inside the relaxation, so a row here can only come from a
-solver / emit defect: the pipeline reports it as a DEFECT
-a census row of its own family (RULINGS 2026-09-08v withdrew ``pad_flat``
-from ``verify.DEFECT_KEYS``: under the design surface the pad's flatness is
-a TARGET of the one solve, and the gate reads the runway family only).
+the register twins (v1 families == v2 families) hold.  RULINGS
+2026-09-08v withdrew ``pad_flat`` from ``verify.DEFECT_KEYS``: under the
+design surface the pad's flatness is a TARGET of the one solve, and the
+DEFECT gate reads the runway family only.  A ``plane_slope`` row IS a
+missed hard ceiling and the census reports it.
 """
 from __future__ import annotations
 
@@ -83,9 +80,10 @@ def _pad_points(p: Patch, sh: Shape) -> tuple[list[tuple[float, float]], list[fl
 def pad_flat(p: Patch) -> list[Row]:
     """One row per rigid pad that is not one flat value (or, relaxed under
     04t(1), not one plane) — see the module docstring."""
-    rel = p.publication.get("relaxed_rows") or []
-    relaxed_faces = {r.get("face") for r in rel if r.get("kind") == "pad"}
-    flat_tol = p.law.tables.emit.materiality.elevation_m
+    # EVERY PAD IS ONE PLANE (owner RULINGS 2026-09-09c, spec §9.2 B6):
+    # its flatness is a design TARGET and its tilt is bounded hard at
+    # ``pad_slope_max``.  The ``relaxed_rows`` branch went with the
+    # relaxation machinery it named (08t deleted tiers / IIS / relaxation).
     plane_tol = p.law.tables.emit.materiality.elevation_m
     slope_max = p.law.tables.emit.within_shape.pad_slope_max
     grade_tol = p.law.tables.emit.materiality.grade
@@ -102,25 +100,20 @@ def pad_flat(p: Patch) -> list[Row]:
         lo_i = min(range(len(z)), key=z.__getitem__)
         hi_i = max(range(len(z)), key=z.__getitem__)
         spread = z[hi_i] - z[lo_i]
-        slope = None
-        if sh.key in relaxed_faces:
-            resid, slope, sens = plane_fit_quantum(xy, z)
-            quantum = sens * half_q
-            reading, magnitude, tol = "plane_residual", resid, plane_tol
-            if resid <= plane_tol and slope > slope_max + grade_tol + quantum:
-                # one plane, but steeper than the ruling allows (05f)
-                reading, magnitude, tol = "plane_slope", spread, -1.0
-        else:
-            reading, magnitude, tol = "spread", spread, flat_tol
+        resid, slope, sens = plane_fit_quantum(xy, z)
+        quantum = sens * half_q
+        reading, magnitude, tol = "plane_residual", resid, plane_tol
+        if resid <= plane_tol and slope > slope_max + grade_tol + quantum:
+            # one plane, but steeper than the ruling allows (05f / 09c)
+            reading, magnitude, tol = "plane_slope", spread, -1.0
         if magnitude <= tol:
             continue
         lat, lon = p.ll[ids[hi_i]]
         r = row(FAMILY, [sh.role], p.side(sh.role), magnitude, None, None, None,
                 xy[lo_i], xy[hi_i], sh.ref, sh.ref, lat=lat, lon=lon)
         r.update({"reading": reading, "spread_m": round(spread, 4), "face": sh.key,
-                  "relaxed": sh.key in relaxed_faces, "vertices": len(ids)})
-        if slope is not None:
-            r.update({"slope": round(slope, 6), "slope_max": slope_max,
-                      "quantum": round(quantum, 6)})
+                  "relaxed": False, "vertices": len(ids),
+                  "slope": round(slope, 6), "slope_max": slope_max,
+                  "quantum": round(quantum, 6)})
         out.append(r)
     return out

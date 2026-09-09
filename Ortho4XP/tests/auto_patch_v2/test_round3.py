@@ -226,9 +226,11 @@ def test_lot_beside_a_pad_keeps_the_setback_and_its_own_level(law):
     assert min(_face_poly(pm, f).distance(_face_poly(pm, pf)) for f in lf) >= back - 1e-6
     # its own level: the pad's flat group holds no lot vertex, and no
     # frontage row binds the lot to the pad (frontage is apron / junction)
+    # the pad's flatness rows (09-09c: ``Diff`` pairs, not a merged ``Flat``)
+    # hold no lot vertex
     for row in pads.pad_flats(pm, law, a):
         if f"face:{pf.id}" in row.source.inputs:
-            assert not (set(row.group) & lv)
+            assert not ({row.a, row.b} & lv)
     for row in pads.frontage_near_miss(pm, law, a):
         assert f"pad:{pf.id}" not in row.source.inputs or \
             not ({row.a, row.b} & lv)

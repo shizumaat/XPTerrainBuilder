@@ -53,6 +53,22 @@ class Design:
     taxi_profile: float
     road: float
     detached_mean: float
+    #: THE PAD PLANE (owner RULINGS 2026-09-09c): a pad's flatness is a
+    #: STRONG TARGET (it is no longer a hard ``Flat`` merge), and its tilt
+    #: is bounded hard at ``emit.within_shape.pad_slope_max``.
+    #: ``pad_flat_rulings`` names the ruling HEADS priced at ``pad_flat``
+    #: instead of ``law`` — one register, the same shape as
+    #: ``hard_rulings`` / ``one_way_rulings``.
+    pad_flat: float
+    pad_flat_rulings: tuple[str, ...]
+    #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
+    #: embankment out to the DEM, because the mesh does not blend.
+    #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
+    #: the narrowest bank, ``bank_foot_smooth`` the second-difference
+    #: weight along the foot chain that keeps the toe from zigzagging.
+    bank_slope: float
+    bank_min_width_m: float
+    bank_foot_smooth: float
     #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
     #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
     #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
@@ -98,6 +114,18 @@ def check_design(d: Design, err: type[Exception]) -> None:
                   f"under-relaxation factor in (0, 1]")
     if not d.one_way_tol_m > 0.0:
         raise err(f"emit.design.one_way_tol_m {d.one_way_tol_m}: positive metres")
+    if not d.pad_flat_rulings:
+        raise err("emit.design.pad_flat_rulings: at least one ruling "
+                  "(RULINGS 2026-09-09c: the pad's flatness is a target)")
+    if not d.pad_flat > d.law:
+        raise err(f"emit.design.pad_flat {d.pad_flat}: heavier than the law's "
+                  f"target weight {d.law} — a pad targets FLAT (09-09c)")
+    if not 0.0 < d.bank_slope <= 1.0:
+        raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
+    if not d.bank_min_width_m > 0.0:
+        raise err(f"emit.design.bank_min_width_m {d.bank_min_width_m}: positive metres")
+    if not d.bank_foot_smooth > 0.0:
+        raise err(f"emit.design.bank_foot_smooth {d.bank_foot_smooth}: a positive weight")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

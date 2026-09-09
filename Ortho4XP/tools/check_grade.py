@@ -375,7 +375,8 @@ def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
                                       "gap_interior_ring",
                                       "apron_lattice",
                                       "apron_spine_station",
-                                      "structure_rim"):
+                                      "structure_rim",
+                                      "bank_foot"):
             if feature_out is not None:
                 feature_out.setdefault(tags["o4_feature"], []).append(Way(
                     wid=wid, role=tags.get("role", ""),
@@ -1344,6 +1345,16 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     # not a surface; its vertices are the cut pavement's own where it
     # shares them and the DEM where bare.  Judged by no ring law.
     "structure_rim",
+    # THE BANK FOOT (auto_patch_v2 ``emit.osm_adapter.BANK_FEATURE``; owner
+    # RULINGS 2026-09-09e, spec ``auto-patch-v2/design-surface-spec.md``
+    # §9): the ring ON THE DEM outside every patch-boundary ring, which
+    # the mesh triangulates the 1:3 bank up to.  Role-less like the rim and
+    # for a stronger reason — it IS the terrain, it carries NO grade law of
+    # its own, and it has no host to inherit a cap from (so it is
+    # deliberately NOT in ``HOST_CAP_FEATURE_CLASSES``).  Judged as a
+    # surface it would mint one row per 33 % bank chord at the caller's
+    # 1.5 % default.
+    "bank_foot",
 )
 
 #: The subset of :data:`ROLE_LESS_FEATURE_CLASSES` whose members are judged

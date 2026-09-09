@@ -116,7 +116,13 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     src = Source(GEN, RULING, ())
     seen: set[tuple] = set()
     out: list[Row] = []
+    # A PAD'S OWN CEILING IS STRICTER AND ALREADY HARD (owner 2026-09-09c,
+    # spec §9.2 B5): twinning its 1 % rows at 5 % adds one row per pad pair
+    # and constrains nothing.
+    from .pads import CEILING_RULING as _PAD_CEIL
     for row in rows:
+        if row.source.ruling.split(" (")[0].strip() == _PAD_CEIL:
+            continue
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)
             if not 0.0 < row.d <= max_span or not set(vs) <= pav:

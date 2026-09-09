@@ -134,7 +134,9 @@ def test_no_numeric_literal_in_law_python_still_holds():
         body = "\n".join(l for l in (DEFAULT_LAW_DIR / name).read_text().splitlines()
                          if not l.strip().startswith("#"))
         floats = re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", body)
-        assert set(floats) <= {"0.0", "0.2", "1.0"}, (name, floats)
+        # the register's grade-fraction sanity bound is 0.25 since RULINGS
+        # 2026-09-08n (law/units.py); 0.0 / 1.0 are the fraction bounds
+        assert set(floats) <= {"0.0", "0.25", "1.0"}, (name, floats)
 
 
 # ── the synthetic airport (test_constraints' shape, two thresholds close) ─

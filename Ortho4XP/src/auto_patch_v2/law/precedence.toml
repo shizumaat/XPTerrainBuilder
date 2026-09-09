@@ -49,6 +49,18 @@ tunnel_ramp         = { family = "common", side = "groundside", value = true,  a
 # service_road's 8 % through o4_grade_law (oracle_law) composed with
 # o4_grade_law_cap = this role's cap.
 door_ramp           = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
+# THE WALL CORRIDOR (RULINGS 2026-09-08m/08n Law C; spec othh-terminal-ramps-spec.md §6):
+# wall_corridor_ramp = a kerb-wall corridor's floor and its synthetic climb
+# (structures.toml [cutout.wall_corridor] ramp_grade 8 %, steepened to
+# max_ramp_grade 10 % = this cap where airside pavement stops it);
+# garage_ramp = a DESCENDING wall bottom cut as authored (08n: never gated by
+# a ramp law; max_authored_grade 25 % = this cap, a sanity cap).  Both read
+# by the oracle under tunnel_ramp at service_road's 8 % (its largest cap —
+# the alias composes as a minimum, so an 8–10 % climb and every authored
+# garage ramp over 8 % is a v1-census row the v2 verify does not raise: an
+# instrument limit, recorded in the spec §6a row 17).
+wall_corridor_ramp  = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
+garage_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
 apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
 building            = { family = "common", side = "airside",    value = true,  aeroway = "apron", rigid = true }  # a RIGID flat group levelled by its contact (09-01g weld = value; 09-03h pads yield)
 service_road        = { family = "common", side = "groundside", value = true,  aeroway = "apron" }

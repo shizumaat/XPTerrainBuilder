@@ -96,6 +96,22 @@ class Group:
     #: The axis is a straight line by construction (a door's outward
     #: normal): the climb's chord test needs no curved-corridor allowance.
     straight: bool = False
+    # ── LAW C (RULINGS 2026-09-08m/08n; ``planar/wall_corridor_ramps.py``) ──
+    #: Which cells STOP the climb beyond the walls (``stop_at_pavement``):
+    #: ``None`` = every governed cell beyond the host (a door); ``"airside"``
+    #: = airside cells and building pads only — a groundside road across
+    #: the ramp yields onto it (08m (b)).  After a stop the climb steepens
+    #: to ``cutout.wall_corridor.max_ramp_grade`` or is refused.
+    stop_side: str | None = None
+    #: An uncapped mouth cuts a one-spacing strip of ground back beyond
+    #: its line (a bore continuing underground); a level corridor's two
+    #: halves share their mouth line instead.
+    mouth_strip: bool = True
+    #: The id of the sibling half meeting at the mouth line (exempt from
+    #: the overlap refusal), or "".
+    sibling: str = ""
+    #: The ramp faces' role (``None`` = ``tunnel_ramp`` / ``door_ramp`` by kind).
+    ramp_role: str | None = None
 
 
 def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float) -> list[XY]:
@@ -191,9 +207,13 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
 
 
 def mouth_covered_by(pt: XY, corridors: _t.Sequence, tol: float) -> str | None:
-    """The id of the object corridor whose footprint (walls ∪ trench,
-    ``tol`` around) an OSM bore mouth stands inside (05n-3: that mouth
-    is the object's), or ``None`` — the mouth keeps its OSM ramp."""
+    """The id of the object corridor an OSM bore mouth belongs to (05n-3:
+    that mouth is the object's), or ``None`` — the mouth keeps its OSM
+    ramp: the mouth stands inside the footprint (walls ∪ trench) ⊕
+    ``tol`` — ``bore_end_tolerance_m`` (RULINGS 2026-09-08o: OTHH's deep
+    mouth stood 4.1–4.5 m outside the plate), the same reach by which the
+    corridor reader took that end as its mouth, so the pairing is one
+    reading in both passes."""
     p = Point(pt)
     for c in corridors:
         if c.footprint.buffer(tol).contains(p):

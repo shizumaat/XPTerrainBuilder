@@ -131,10 +131,19 @@ def test_plate_stations_stand_outside_the_outer_face(law):
                                    depth_m=5.0, footprint=rect, wall_path=rim,
                                    wall_length_m=40.0, top_s=40.0, axis=((0.0, 6.0), (40.0, 6.0)))
         return types.SimpleNamespace(structures=[tn], basins=[])
-    outside = _plate_seats(pm_with(tuple(Polygon(rect).buffer(0.3).exterior.coords)), law)
+    # RULINGS 2026-09-08o (rule (c) restated): the stations stand OUTSIDE
+    # the EMITTED rim ring, whichever side of the outer face it is on — a
+    # rim inside the wall leaves them at the footprint's stand-off; a rim
+    # the arrangement pushed 0.3 m OUTSIDE the outer face pushes them out
+    # with it (none inside the ring, all the stand-off off it)
+    rim_out = Polygon(rect).buffer(0.3, join_style="mitre")
+    outside = _plate_seats(pm_with(tuple(rim_out.exterior.coords)), law)
     inside = _plate_seats(pm_with(tuple(Polygon(rect).buffer(-0.5).exterior.coords)), law)
-    assert outside == inside and outside["dsf:obj0"][0] == 5.0
-    assert outside["dsf:obj0"][1] == pts
+    assert inside["dsf:obj0"] == (5.0, pts)
+    assert outside["dsf:obj0"][0] == 5.0
+    o_pts = outside["dsf:obj0"][1]
+    assert o_pts and all(not rim_out.contains(Point(p)) for p in o_pts)
+    assert all(rim_out.exterior.distance(Point(p)) >= grid - 1e-6 for p in o_pts)
 
 
 # ── (d) the threshold ────────────────────────────────────────────────────

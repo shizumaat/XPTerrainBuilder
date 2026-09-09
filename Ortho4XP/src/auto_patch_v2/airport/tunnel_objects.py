@@ -41,9 +41,19 @@ end facing the other placement of the same resource; else the closed
 end.  Two bore ends (a box on the bore: OTHH ``tunnel west 1``) are two
 mouths and the trench is FLAT at the mouth depth.
 
-THE DATUMS (§3.3, ``mouth_depth = "plate"``): floor at the mouth =
-ground(mouth) − plate height; the ramp climbs inside the walls
-(``planar/object_corridor.py``).
+THE DATUMS (RULINGS 2026-09-08l / 08o, ``mouth_depth = "floor_slab"``):
+the trench depth is the object's FLOOR SLAB when it carries one (a near-
+horizontal plate below the crest running along the axis, ``plate_min_
+area_m2``: depth = crest − slab), else ``tunnel.bore_datum_m`` for EVERY
+mouth kind (bore / closed / family) — never the crest's height above the
+ANCHOR (``plate_y`` is the author's origin handle: OTHH's two mouths of
+ONE bore read 5.0 and 10.0 m by it, both crests +2 m over ground, both
+skirts to −18 m).  ``plate_y`` stays the crest for the SEAT (05n-4).  A
+bore END within ``bore_end_tolerance_m`` of the plate makes the object
+that bore's mouth (the OSM mouth pairs with it, ``bore_ways``); a
+closed-end fallback with no mapped road through the trench is refused by
+name.  Floor at the mouth = ground(mouth) − depth; the ramp climbs inside
+the walls (``planar/object_corridor.py``).
 
 Every number is a law-table value; nothing here reads the environment.
 """
@@ -95,6 +105,10 @@ class WallSignature:
     #: plate_m`` — an EDGE WALL: the plan is the walls', the depth the
     #: bore law's (``tunnel.bore_datum_m`` at the mouth).
     edge_wall: bool = False
+    #: RULINGS 2026-09-08l: the FLOOR SLAB's top (authored y, below the
+    #: crest) when the model carries one along its axis — the depth is
+    #: ``plate_y − floor_y``; ``None`` for a skirt (the bore law's depth).
+    floor_y: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -141,12 +155,17 @@ class Corridor:
     def ground_kind(self) -> str:
         return "bore" if self.flat else ("closed" if self.far_closed else "open")
 
-    #: The trench DEPTH at the mouth: the plate height for a full wall
-    #: (``mouth_depth = "plate"``), ``tunnel.bore_datum_m`` for an EDGE
-    #: WALL (2026-09-06c (2)) — ``plate_y`` stays the crest's height for
-    #: the seat (crest flush at grade, 05n-4).
+    #: The trench DEPTH at the mouth (RULINGS 2026-09-08l/08o, ``mouth_depth
+    #: = "floor_slab"``): crest − floor slab when the model carries one,
+    #: else ``tunnel.bore_datum_m`` — ``plate_y`` stays the crest's height
+    #: for the seat (crest flush at grade, 05n-4).
     depth_m: float = 0.0
     edge_wall: bool = False
+    #: The floor slab's authored y under the crest (``None`` = a skirt).
+    floor_y: float | None = None
+    #: The OSM tunnel way ids whose END stands at a mouth of this corridor
+    #: (08o: those mouths PAIR with the corridor in ``planar/structures``).
+    bore_ways: tuple[int, ...] = ()
 
 
 @_dc.dataclass
@@ -202,22 +221,29 @@ def _rect_axis(poly: Polygon) -> tuple[float, float, XY, XY] | None:
     return float(length), float(width), (float(a[0]), float(a[1])), (float(b[0]), float(b[1]))
 
 
-def _axis_crossing_area(v: np.ndarray, tris: np.ndarray, area: np.ndarray, a: XY, b: XY,
-                        wall_m: float) -> float:
-    """The plan area of the faces whose plan RUNS ALONG the axis segment
-    ``a``–``b`` (authored x, z) for more than ``wall_m``: a floor does,
-    an end wall's underside (a slab ``end_cap_open_m`` thick at most)
-    does not."""
+def _axis_crossing_mask(v: np.ndarray, tris: np.ndarray, a: XY, b: XY, wall_m: float
+                        ) -> np.ndarray:
+    """Per triangle: its plan RUNS ALONG the axis segment ``a``–``b``
+    (authored x, z) for more than ``wall_m`` — a floor does, an end
+    wall's underside (a slab ``end_cap_open_m`` thick at most) does not."""
+    out = np.zeros(tris.shape[0], dtype=bool)
     if tris.shape[0] == 0:
-        return 0.0
+        return out
     axis = LineString([a, b])
-    total = 0.0
-    for t, ar in zip(tris.tolist(), area.tolist()):
+    for k, t in enumerate(tris.tolist()):
         pts = [(float(v[i][0]), float(v[i][2])) for i in t]
         tri = Polygon(pts)
         if tri.area > 1e-9 and tri.intersection(axis).length > wall_m:
-            total += ar
-    return float(total)
+            out[k] = True
+    return out
+
+
+def _axis_crossing_area(v: np.ndarray, tris: np.ndarray, area: np.ndarray, a: XY, b: XY,
+                        wall_m: float) -> float:
+    """The plan area of the faces :func:`_axis_crossing_mask` selects."""
+    if tris.shape[0] == 0:
+        return 0.0
+    return float(area[_axis_crossing_mask(v, tris, a, b, wall_m)].sum())
 
 
 def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], law: Law
@@ -297,19 +323,31 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
             return (f"a kerb, not a tunnel wall: crest plate at {plate_y:.2f} m above the "
                     f"seat (< plate_min_height_m {ob.plate_min_height_m}, not under "
                     f"edge_wall_max_plate_m {ob.edge_wall_max_plate_m})")
-    # NO FLOOR PLATE (``floor_plate_max_m2``): a near-horizontal face
-    # below the seat — below the crest's band for a crest under the seat
-    # — that runs ALONG the corridor's axis is a floor
+    # THE FLOOR SLAB (RULINGS 2026-09-08l, ``mouth_depth = "floor_slab"``):
+    # near-horizontal faces below the crest's band that run ALONG the
+    # corridor's axis, a plate's worth (plate_min_area_m2), are the
+    # model's floor — its TOP (the largest-area bin's ceiling) states the
+    # depth under the crest.  Less than a plate's worth is a skirt: the
+    # bore law's depth.  (A floor the basin pass witnessed never reaches
+    # this reader: ``read_corridors`` routes it to basins.py by witness.)
     below = horiz & (ymax < min(0.0, plate_y - ob.plate_bin_m))
-    floor_area = _axis_crossing_area(v, tris[below], area[below], a, b, ob.end_cap_open_m)
-    if floor_area > ob.floor_plate_max_m2:
-        return (f"a floor plate below the seat ({floor_area:.0f} m2 along the axis > "
-                f"floor_plate_max_m2 {ob.floor_plate_max_m2:.0f}): a basin, basins.py owns it")
-    # ...and OPEN ALONG ITS AXIS at every height: a near-horizontal face
-    # running along the axis above the seat is a roof or a deck (measured
-    # OTHH: the skirt + plate + hull signature alone admitted the Emiri
-    # terminal, a fuel building and three terminal road slabs)
-    roof_area = _axis_crossing_area(v, tris[horiz], area[horiz], a, b, ob.end_cap_open_m)
+    floor_y: float | None = None
+    if below.any():
+        b_idx = np.nonzero(below)[0]
+        on_axis = b_idx[_axis_crossing_mask(v, tris[below], a, b, ob.end_cap_open_m)]
+        if on_axis.size and float(area[on_axis].sum()) >= ob.plate_min_area_m2:
+            fb: dict[int, float] = {}
+            for k, ar in zip(binned[on_axis].tolist(), area[on_axis].tolist()):
+                fb[k] = fb.get(k, 0.0) + ar
+            fbest = max(fb, key=lambda k: fb[k])
+            floor_y = float(ymax[on_axis[binned[on_axis] == fbest]].max())
+    # ...and OPEN ALONG ITS AXIS above the floor: a near-horizontal face
+    # running along the axis at or above the crest's band is a roof or a
+    # deck (measured OTHH: the skirt + plate + hull signature alone
+    # admitted the Emiri terminal, a fuel building and three terminal road
+    # slabs); the floor slab below it is depth evidence, never a roof
+    roof_sel = horiz & ~below
+    roof_area = _axis_crossing_area(v, tris[roof_sel], area[roof_sel], a, b, ob.end_cap_open_m)
     if roof_area >= ob.plate_min_area_m2:
         return (f"roofed along its axis ({roof_area:.0f} m2 of near-horizontal faces run "
                 f"along the corridor axis, a plate's worth: >= plate_min_area_m2 "
@@ -325,7 +363,7 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     # (06f: the seat is no datum there)
     return WallSignature(geom.path, plate_y, float(plate_area),
                          float(plate_y - y_low if (edge_wall and not full_skirt) else skirt),
-                         plate, length, width, edge_wall)
+                         plate, length, width, edge_wall, floor_y)
 
 
 # ── placements → corridors ───────────────────────────────────────────────
@@ -355,10 +393,12 @@ def _bore_near(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, tree: STRtree 
 def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
                   ) -> tuple[list[int], list[int]]:
     """Per end ``(0, 1)``: the ids of the OSM tunnel ways whose mapped END
-    stands inside the corridor nearer that end (the bore dips under the
-    ground there: OTHH's bores end 3–20 m inside the closed end), or —
-    for a bore with NO end inside, one passing through — whose LINE
-    crosses that end's line (a box on the bore)."""
+    stands inside the corridor ⊕ ``tol`` nearer that end (the bore dips
+    under the ground there: OTHH's bores end 3–20 m inside the closed
+    end, and 4.1–4.5 m OUTSIDE the deep object's plate — RULINGS
+    2026-09-08o: ``tol`` = ``bore_end_tolerance_m``), or — for a bore
+    with NO end inside, one passing through — whose LINE crosses that
+    end's line (a box on the bore)."""
     region = unary_union([walls.plate, Polygon(list(walls.inner_a) + list(reversed(walls.inner_b)))
                           ]).buffer(tol)
     ln = LineString(axis)
@@ -471,6 +511,17 @@ def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
     return out_axis, out_st
 
 
+def _road_through(trench: Polygon, ways) -> list[int]:
+    """The mapped highway / railway ways (tunnel or not) whose line runs
+    through the trench — a closed-end fallback needs one (2026-09-08o)."""
+    out = []
+    for w in ways:
+        if ("highway" in w.tags or "railway" in w.tags) and len(w.points) >= 2 \
+                and LineString(w.points).intersects(trench):
+            out.append(w.id)
+    return out
+
+
 def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airport,
               tunnel_ways, others: _t.Sequence[Polygon], law: Law) -> Corridor | str:
     """The placement's corridor, or the reason it has none."""
@@ -483,7 +534,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     if isinstance(walls, str):
         return walls
     axis = midline(walls, ob.wall_sample_m)
-    bores = _bore_ends_at(walls, axis, tunnel_ways, ob.end_cap_open_m)
+    bores = _bore_ends_at(walls, axis, tunnel_ways, ob.bore_end_tolerance_m)
     notes: list[str] = []
     if walls.kind == "O" and not (bores[0] or bores[1]):
         # A BOX reads its long sides as the side walls; a near-square box
@@ -491,7 +542,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         # ALONG the bore — the walls the bore crosses are its end walls
         alt = _rotated_box(walls)
         axis_alt = midline(alt, ob.wall_sample_m)
-        bores_alt = _bore_ends_at(alt, axis_alt, tunnel_ways, ob.end_cap_open_m)
+        bores_alt = _bore_ends_at(alt, axis_alt, tunnel_ways, ob.bore_end_tolerance_m)
         if bores_alt[0] or bores_alt[1]:
             walls, axis, bores = alt, axis_alt, bores_alt
             notes.append("box oriented along the bore that passes through it")
@@ -535,20 +586,6 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     if not samples:
         return "no DEM at the mouth"
     mouth_dem = float(np.median(samples))
-    # THE DEPTH (05n-1 / 2026-09-06c (2)): a full wall's plate height; an
-    # EDGE WALL states no depth — the bore law's bore_datum_m at the
-    # mouth, so it needs a BORE mouth (no bore, no depth authority)
-    if sig.edge_wall:
-        if kind != "bore":
-            return (f"an edge wall (crest {sig.plate_y:.2f} m < edge_wall_max_plate_m "
-                    f"{ob.edge_wall_max_plate_m}) with no bore mouth: the depth is the bore "
-                    f"law's and nothing states it (2026-09-06c (2))")
-        depth = float(tn.bore_datum_m)
-        notes.append(f"edge wall (2026-09-06c (2)): crest {sig.plate_y:.2f} m flush at grade, "
-                     f"depth {depth:.2f} m = tunnel.bore_datum_m at the mouth")
-    else:
-        depth = float(sig.plate_y)
-    floor = mouth_dem - depth
     # the trench closes along the END WALLS' inner faces (2026-09-06f:
     # Bridge4's three-segment far end), never along the side walls' chord
     trench = Polygon(walls.trench_ring())
@@ -556,6 +593,29 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         trench = trench.buffer(0)
     if trench.geom_type != "Polygon":
         trench = max((g for g in trench.geoms if g.geom_type == "Polygon"), key=lambda g: g.area)
+    # THE DEPTH (RULINGS 2026-09-08l / 08o, ``mouth_depth = "floor_slab"``):
+    # the model's floor slab under the crest when it carries one, else the
+    # bore law's bore_datum_m for every mouth kind — never the crest's
+    # height above the anchor.  A CLOSED-end fallback (no bore, no facing
+    # placement) needs a mapped road through the trench, else it is a
+    # wall around nothing and is refused by name.
+    if sig.floor_y is not None:
+        depth = float(sig.plate_y - sig.floor_y)
+        notes.append(f"depth {depth:.2f} m = crest {sig.plate_y:.2f} − floor slab "
+                     f"{sig.floor_y:.2f} (2026-09-08l)")
+    else:
+        depth = float(tn.bore_datum_m)
+        notes.append(f"depth {depth:.2f} m = tunnel.bore_datum_m (no floor slab: a skirt; "
+                     f"crest {sig.plate_y:.2f} is the seat's handle, 2026-09-08l/08o)")
+    if kind == "closed":
+        roads = _road_through(trench, airport.osm_ways)
+        if not roads:
+            return (f"the closed-end fallback has no mapped road through the trench: a wall "
+                    f"around nothing, not a tunnel mouth (2026-09-08o)")
+        notes.append(f"closed-end mouth with road(s) {roads} through the trench")
+    if sig.edge_wall:
+        notes.append(f"edge wall (2026-09-06c (2)): crest {sig.plate_y:.2f} m flush at grade")
+    floor = mouth_dem - depth
     footprint = unary_union([walls.plate, trench])
     if footprint.geom_type != "Polygon":
         footprint = footprint.convex_hull
@@ -567,7 +627,8 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
                     tuple(sts2), float(sts2[-1].s), width, walls.closed[mouth], walls.closed[far],
                     walls.end_thickness_m[mouth], walls.end_thickness_m[far], kind, flat,
                     mouth_dem, floor, walls.plate, trench, footprint, o.xy, float(o.anchor_z),
-                    float(o.agl_m), tuple(notes), depth, bool(sig.edge_wall))
+                    float(o.agl_m), tuple(notes), depth, bool(sig.edge_wall), sig.floor_y,
+                    tuple(sorted(set(bores[0]) | set(bores[1]))))
 
 
 def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
@@ -601,7 +662,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             # its signature is read once a placement's plan holds a mapped
             # tunnel way — OTHH: 1,350 resources, 219 signatures otherwise
             # (21 s), the 8 corridors all full-skirt
-            if not _bore_near(o, cache, bore_tree, ob.end_cap_open_m):
+            if not _bore_near(o, cache, bore_tree, ob.bore_end_tolerance_m):
                 no_bore.add(o.path)
                 continue
         if o.path not in sigs:

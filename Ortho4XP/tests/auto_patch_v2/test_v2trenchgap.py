@@ -123,10 +123,13 @@ def test_corridor_rim_inside_the_wall_floor_untouched(objs, law):
     t = [x for x in tunnels if x.source == "object"][0]
     assert t.trench_outside_max_m == 0.0                       # the floor ring: inner ⊕ overlap
     near = c.footprint.buffer(5.0)
+    # the object's own pieces: the ones INTERSECTING the footprint (a void's
+    # centroid drifts with the ramp beyond the walls — 2026-09-08l moved the
+    # depth to bore_datum_m and the climb 2.5 m further out)
     ramps = [Polygon(x.ring) for x in cl2.cells if x.role == "tunnel_ramp"
-             and near.contains(Polygon(x.ring).centroid)]
+             and near.intersects(Polygon(x.ring))]
     walls = [Polygon(x.ring, x.holes) for x in cl2.cells if x.role == "retaining_wall"
-             and near.contains(Polygon(x.ring).centroid)]
+             and near.intersects(Polygon(x.ring, x.holes))]
     assert ramps and walls
     ramp_u = unary_union(ramps)
     # the floor overlaps the inner faces by the overlap (and the grid's outward snap)

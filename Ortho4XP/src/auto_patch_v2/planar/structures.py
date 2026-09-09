@@ -758,9 +758,21 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 continue
             if siblings.get(tunnels[i].id) == tunnels[j].id:
                 continue            # two halves of one corridor meet at their mouth line
-            if footprints[i].intersects(footprints[j]) and \
-                    footprints[i].intersection(footprints[j]).area > 1.0:
-                drop = i if footprints[i].area < footprints[j].area else j
+            if not footprints[i].intersects(footprints[j]):
+                continue
+            inter = footprints[i].intersection(footprints[j])
+            wall_i, wall_j = tunnels[i].source == WALL_KIND, tunnels[j].source == WALL_KIND
+            # a WALL CORRIDOR may not even TOUCH another structure (Law C):
+            # a shared ring vertex carries the other's pin into its rows
+            # (measured OTHH: a Parking_004 corridor's vertex on the door
+            # ramp Parking-Right_000@1's ring — its 8 % rows over 1.6 m
+            # yielded 13 mm); the OTHER structure is senior
+            touches = (wall_i or wall_j) and (inter.area > 1e-9 or inter.length > grid)
+            if inter.area > 1.0 or touches:
+                if wall_i != wall_j:
+                    drop = i if wall_i else j
+                else:
+                    drop = i if footprints[i].area < footprints[j].area else j
                 other = j if drop == i else i
                 keep[drop] = False
                 stats.refused.append(f"{tunnels[drop].id}: its corridor overlaps "

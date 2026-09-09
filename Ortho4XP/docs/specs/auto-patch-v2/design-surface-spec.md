@@ -328,3 +328,45 @@ either the strip's outer ring stops standing on the DEM (which amends 08t
 answer 3), or the undulation read is taken per-role with the strip judged on
 its own terms, or the bar is set from what a design surface with the runway
 laws held can actually reach.
+
+### 7.6 The closing builds (round 2)
+
+**HECA `HECA_20260909T001908`** (`build_airport.py HECA --engine v2`, total
+**132.25 s**, solve **4.91 s**, verify 19.65 s, 16,172 verify rows):
+
+* the **runway DEFECT families read ZERO** (`runway_transverse`,
+  `runway_vertical_curve`); the solve's own hard residual is 0.0184 m and it
+  needed **no multiplier round** — the constraint weight alone put it inside
+  `hard_tol_m`;
+* bows (`rwy_profile --binned --compare` vs v1 `HECA_20260908T073420`):
+  **05R/23L −0.04** (v1 −4.25, round 1 −0.04), **05C/23C −2.14** (v1 −9.53,
+  round 1 −1.81), **05L/23R +0.01** (v1 −0.28, round 1 +0.01) — every bow
+  within 0.33 m of round 1's;
+  z−DEM mean +6.70 / +1.35 / +1.36 (v1 +4.70 / −2.63 / +1.99); max grade
+  change 0.08 / 1.36 / 1.40 %/100 m (v1 1.71 / 1.90 / 1.42);
+* the undulation read (RMS 2nd difference / p95 per 100 m):
+
+  | role | v1 | 1.0.295 (the bar) | round 1 | **round 2** |
+  |---|---|---|---|---|
+  | runway | (no runway way) | 0.00305 / 0.028 | 0.00637 / 0.111 | **0.00395 / 0.021** |
+  | apron | 0.06627 / 0.798 | 0.00803 / 0.199 | 0.01256 / 0.273 | **0.01276 / 0.262** |
+  | graded_strip | 0.28669 / 1.378 | 0.03190 / 0.807 | 0.14082 / 1.138 | **0.14065 / 1.127** |
+  | overall | 0.21171 | — | 0.10 | **0.07979** |
+
+* the owner's site 30.1139552,31.4095465 and the neck 30.127729,31.412022:
+  **no step** (max step over a short edge 0.00 m at both, 45 m radius);
+* census (`--no-cache`): LAW-TRUE 42,773, adjudicated 4,726 (airside 4,659),
+  with the new heading — `DESIGN TARGETS (08t) ... taxi 3,099 (max miss
+  3.719 m), no_step 2,904 (1.592), apron 2,875 (1.040), ... runway_profile
+  141 (0.764)` — the rows counted law-true in their families.
+
+**The base arms** (`--base-arm`, this tree):
+
+| airport | verify rows (round 1) | runway DEFECTs | solve | rounds | undulation runway / apron / strip |
+|---|---|---|---|---|---|
+| CYXY | 505 (1,129) | **0** (was 7 + 9) | 1.55 s | 205 + 5 multiplier | 0.01189 / 0.00798 / 0.03360 |
+| OTHH | 24 (14) | **0** | 5.43 s | 20 | 0.00166 / 0.00000 / 0.00999 |
+| LEMD | 304 (3,805) | **0** (was 3) | 8.87 s | 74 | 0.00178 / 0.00695 / 0.05683 |
+
+LEMD's active set now SETTLES in 74 rounds (round 1 hit the 200-round cap),
+and its hard residual is 0.0048 m at multiplier round 0.

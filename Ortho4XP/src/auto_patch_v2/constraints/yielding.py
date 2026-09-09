@@ -207,12 +207,20 @@ def groundside_ramps(pm: PlanarMap, law: Law, airport=None) -> list[Row]:
     charged like any yield, a ramp is free — the groundside (DEM fit 1/m)
     lifts or cuts to meet the apron edge and grades away at its own cap.
     A generator (``constraints.GENERATORS``): its rows are soft from birth."""
-    from ..law.tables import is_value_role, role_side, snap_margin_m
+    from ..law.tables import is_structure_role, is_value_role, role_side, snap_margin_m
     from .precedence import view
     vw = view(pm, law)
     y = yield_law(law)
     reg = law.tables.precedence.roles
-    ground = tuple(r for r in reg if role_side(law, r) == "groundside" and is_value_role(law, r))
+    # the groundside PAVEMENT only: a structure's role (a tunnel ramp, a door
+    # ramp, a retaining wall — groundside value roles too) is no lot the
+    # apron ramps to; its rim stands at the ground by station and its
+    # descent rows are its own law (``constraints/structures.py``).  Measured
+    # 2026-09-08 (lane v2shapes): six rows apron <-> tunnel_ramp rim at
+    # 1.0-1.4 m lifted a ramp 8 mm over its descent law and pulled the apron
+    # 0.46 m under the DEM at a door well
+    ground = tuple(r for r in reg if role_side(law, r) == "groundside" and is_value_role(law, r)
+                   and not is_structure_role(law, r))
     gv: dict[int, tuple[float, float]] = {}
     for f in vw.faces_of_role(ground):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

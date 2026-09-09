@@ -1170,6 +1170,7 @@ agree.  `O4_Vector_Map` therefore gains ONE predicate,
 |---|---|---|
 | G1 | `O4_Vector_Map.include_patches` (per-FACE seeding) | EDITED: a face under `INTERP_ALT_MIN_FACE_AREA_M2` gets no seed. |
 | G2 | `O4_Vector_Map.seed_interp_alt_subcells` (R18-1 road-cut sub-cells) | EDITED: the same floor, counted in its own report line. |
+| G2b | the criterion itself | AREA **AND CLEARANCE**: `interp_alt_seed_point(face)` returns the seed or `None`.  MEASURED on a second arm of the same patch (level rings 5 m apart instead of 10, `HECA_20260909T151309`): a NEEDLE of **1.14 m²** — four corners spanning 50 m, a couple of centimetres wide — put its representative point on the map's own line and the audit refused again at (30.126121378, 31.418229091).  Area is only a proxy for what actually breaks; the criterion is that the seed stands clear of its own face's boundary by more than `INTERP_ALT_SEED_CLEARANCE_DEG` (1e-11 deg, one micrometre).  An honest face's representative point stands metres clear. |
 | G3 | `O4_Vector_Map.audit_interp_alt_seed_sealing` | UNCHANGED — the audit stays strict; it has fewer seeds to check, not looser ones. |
 | G4 | Triangle4XP `regionplague` | UNAFFECTED: a skipped face is 1 mm² at most, holds no mesh vertex and no renderable triangle, so no ground loses its `INTERP_ALT` altitude. |
 | G5 | `emit/bank.py` and every v2 emitter | UNAFFECTED: no patch byte changes because of G1–G2. |
@@ -1218,11 +1219,15 @@ Emit 6.85 s, 1,858 ways, 41,073 nodes.
 --patches-as-is` on this patch, WITHOUT `O4_INTERP_ALT_SEAL=warn`, 2 m 7 s:
 
 ```
-Patch faces: 0 road-cut sub-cell(s) seeded INTERP_ALT beside the 2925
-face seed(s) already placed (15 degenerate face(s) skipped).
-INTERP_ALT seal: all 2925 seed(s) enclosed by INTERP_ALT edges
+Patch faces: 0 road-cut sub-cell(s) seeded INTERP_ALT beside the 2899
+face seed(s) already placed (41 degenerate face(s) skipped).
+INTERP_ALT seal: all 2899 seed(s) enclosed by INTERP_ALT edges
 (14162 bounded face(s), 316506 marked edge(s)).
 ```
+
+(The area floor alone already passed this run at 2,925 seeds / 15 skipped;
+the clearance of G2b takes 26 more knife-edge seeds out and the mesh is
+otherwise identical — the transect below is unchanged to the decimal.)
 
 Base arms, all `--base-arm --engine v2`, all design surfaces BIT-IDENTICAL
 to 09i's (rounds, objective and residual to ten decimals):
@@ -1270,3 +1275,13 @@ bands that read 104 % are 11.7 m wide.  `[design] bank_ring_spacing_m` at
 measured clean, at roughly 3x the level-ring vertices (HECA 12,195 ->
 ~40,000, bank pass 4.9 s -> ~12 s).  Not applied: 10.0 is the owner's
 figure from 09f-1 and this lane's ruling changed one value, not two.
+
+MEASURED ARM (`HECA_20260909T151309`, `bank_ring_spacing_m = 5.0`, the
+smallest the schema allows since it must be at least `bank_min_width_m`;
+NOT landed, the law value is back at 10.0): 746 level rings / 18,330
+vertices, 0 invalid, 15 levels deep, bank pass 7.55 s, emit 2,112 ways /
+47,208 nodes, design surface again bit-identical.  Its mesh run REFUSED —
+and that refusal is what found G2b's needle class.  The transect was not
+read on that arm (the run stopped at the audit); with the clearance in
+place it seals offline (2,692 seeds, 199 skipped).  Whether 5 m meets the
+0.35 bar is therefore still unmeasured, and is the owner's call to order.

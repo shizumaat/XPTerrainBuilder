@@ -80,6 +80,33 @@ def test_two_nanometre_apart_ways_node_into_a_sliver_face():
     assert areas[-1] > 1000.0     # the real face
 
 
+def test_a_needle_over_the_area_floor_is_refused_on_CLEARANCE():
+    """The area is only a proxy.  MEASURED on a second arm of the same
+    patch (level rings 5 m apart instead of 10): a NEEDLE of 1.14 m^2 —
+    four corners spanning 50 m, a couple of centimetres wide — put its
+    representative point on the map's own line and the audit refused
+    again.  Its own coordinates, from that arm's patch."""
+    needle = geometry.Polygon([
+        (0.41822324592771959, 0.12614235266942569),
+        (0.41823185575000110, 0.12611145576000027),
+        (0.41822450708000147, 0.12613782693999909),
+        (0.41817944277000052, 0.12613129950999991),
+    ])
+    assert needle.area * VMAP._SQ_M_PER_SQ_DEG > 1.0    # over the area floor
+    seed = needle.representative_point()
+    assert needle.exterior.distance(seed) < VMAP.INTERP_ALT_SEED_CLEARANCE_DEG
+    assert VMAP.interp_alt_seed_point(needle) is None
+
+
+def test_a_real_face_keeps_its_seed():
+    """The clearance refuses needles, never rooms: a 100 m square's
+    representative point stands metres clear of its own boundary."""
+    room = geometry.Polygon([(0.10, 0.10), (0.101, 0.10),
+                             (0.101, 0.101), (0.10, 0.101)])
+    seed = VMAP.interp_alt_seed_point(room)
+    assert seed is not None and room.contains(seed)
+
+
 def test_the_floor_separates_the_sliver_from_the_real_face():
     _polys, faces = _faces(_rings())
     flags = sorted(VMAP.is_degenerate_interp_alt_face(f) for f in faces)

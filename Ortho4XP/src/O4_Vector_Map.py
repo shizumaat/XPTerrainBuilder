@@ -2387,12 +2387,34 @@ _SQ_M_PER_SQ_DEG = 111320.0 ** 2
 INTERP_ALT_MIN_FACE_AREA_DEG2 = (
     INTERP_ALT_MIN_FACE_AREA_M2 / _SQ_M_PER_SQ_DEG
 )
+#: AND THE CLEARANCE, which is the criterion the area is only a proxy for
+#: (MEASURED on a second arm of the same patch, with the level rings 5 m
+#: apart instead of 10: a NEEDLE of 1.14 m^2 — four corners spanning 50 m,
+#: a couple of centimetres wide — put its representative point on the map's
+#: own line and the audit refused again).  A seed nearer its own face's
+#: boundary than this is not reliably inside ANY implementation's version
+#: of that face, so it is no seed at all.  One MICROMETRE in degrees: an
+#: honest face's representative point stands metres clear.
+INTERP_ALT_SEED_CLEARANCE_DEG = 1.0e-11
+
+
+def interp_alt_seed_point(face):
+    """The point to seed ``face`` at, or ``None`` when the face cannot
+    hold one — too small to hold a mesh vertex, or so thin that its own
+    representative point lands on its boundary.  Either way it is a noding
+    artifact of two near-coincident ways, not a region to seed."""
+    if face.area < INTERP_ALT_MIN_FACE_AREA_DEG2:
+        return None
+    seed_point = face.representative_point()
+    if face.exterior.distance(seed_point) < INTERP_ALT_SEED_CLEARANCE_DEG:
+        return None
+    return seed_point
 
 
 def is_degenerate_interp_alt_face(face):
-    """True when ``face`` is too small to hold a mesh vertex — a noding
-    artifact of two near-coincident ways, not a region to seed."""
-    return face.area < INTERP_ALT_MIN_FACE_AREA_DEG2
+    """True when ``face`` can hold no INTERP_ALT seed (see
+    :func:`interp_alt_seed_point`)."""
+    return interp_alt_seed_point(face) is None
 
 
 ################################################################################
@@ -2458,10 +2480,10 @@ def seed_interp_alt_subcells(vector_map):
         added = []
         degenerate = 0
         for face in ops.polygonize(ops.unary_union(cutters)):
-            if is_degenerate_interp_alt_face(face):
+            seed_point = interp_alt_seed_point(face)
+            if seed_point is None:
                 degenerate += 1      # a noding artifact, see the floor above
                 continue
-            seed_point = face.representative_point()
             if not covered.contains(seed_point):
                 continue
             if existing_tree is not None:
@@ -2926,10 +2948,8 @@ def include_patches(vector_map, tile):
                 # A face with no room holds no mesh vertex and cannot be
                 # located identically by the map's own arrangement — see
                 # INTERP_ALT_MIN_FACE_AREA_M2.
-                if is_degenerate_interp_alt_face(face):
-                    continue
-                seed_point = face.representative_point()
-                if covered.contains(seed_point):
+                seed_point = interp_alt_seed_point(face)
+                if seed_point is not None and covered.contains(seed_point):
                     interp_alt_seeds.append(
                         numpy.array(seed_point.coords[0])
                     )

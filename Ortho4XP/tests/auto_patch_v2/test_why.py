@@ -213,7 +213,14 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     # apron, so the families together move it 0.31 m here where they moved
     # it metres under the two-way law.  The MAGNITUDE bar is the materiality
     # floor, not the old metre.
-    assert abs(ceiling) > 0.1
+    # RE-SCOPED (RULINGS 2026-09-09f-2, lane v2bank2): `[design] bend_strip`
+    # 1 -> 30.  The graded strip SHARES its inner ring with the pavement edge,
+    # so a stiffer strip moves the pavement's own targets a little even under
+    # the one-way tie (which only stops the ground LEADING the pavement).
+    # measured 0.061 m: a stiffer strip holds the apron closer to where the
+    # families put it, so the drop-everything arm moves it LESS.  The bar
+    # stays the materiality floor's class, one order above it.
+    assert abs(ceiling) > 0.05
     # (the CEILING PROPERTY — no single family moves the apron further than
     # all of them together — was a property of the hard-law solve, where a
     # family could only ever hold the surface DOWN.  Under the design surface

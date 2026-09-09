@@ -675,3 +675,157 @@ or more constrained rings between the ring and the foot, which authors
 the bank face and contradicts 09e's letter; or (c) the mesher densifies
 inside a patch-bounded annulus.  The lane changed nothing on its own
 judgement.
+
+## §10 THE BANK FACE IS AUTHORED, and `bend_strip` (RULINGS 2026-09-09f)
+
+### 10.1 What is being added (09f-1)
+
+§9.5 measured that leaving the bank face to the mesh does not give a
+continuous 1:3: `interpolate_free_interior_altitudes` is a discrete
+GRAPH-harmonic extension over whatever vertices Triangle4XP put in the
+annulus, so with few free vertices in a 59 m bank the isolines crowd
+against the shorter (inner) boundary — one triangle of 9.93 m over
+8.9 m (111 %) against the patch ring.  The owner rules option (b): the
+patch AUTHORS the face.
+
+Between the boundary ring and the foot the patch emits INTERMEDIATE
+RINGS every `[design] bank_ring_spacing_m` = 10 m of plan distance
+along the bank (a foot 59 m out gets five, at 10/20/30/40/50 m), each
+vertex's z LINEAR between the ring's design z and the foot's DEM z
+along the outward normal.  A foot at the `bank_min_width_m` 5 m
+minimum gets none — and neither does one exactly at the spacing.
+
+Geometry, per foot node: its ray runs from the NEAREST POINT of the
+design coverage to the foot (never to the nearest ring VERTEX — a
+runway edge runs hundreds of metres between vertices, and the segment
+from a point to its nearest point of a closed set meets that set only
+there, so the authored face can never re-enter the patch).  The
+ray's inner z is the design ring's z INTERPOLATED along the boundary
+edge the nearest point lands on.
+
+Closure: the ray lengths vary along a ring, so a level exists only
+where the bank is wider than it.  A level covering the whole ring is
+emitted as a CLOSED way; otherwise one OPEN constrained chain per
+contiguous run, its two ends being the FOOT NODES either side (shared
+vertex ids, so the constrained geometry stays connected and the
+annulus is still subdivided).
+
+### 10.2 CONSUMER TABLE (owner 2026-08-30l)
+
+The intermediate rings are `SurfaceBreakline`s of the SAME kind
+`bank_foot` (`emit.bank.BANK_KIND`) carrying new `SurfaceVertex` ids,
+appended by `emit/bank.with_bank` to the EMITTED surface only.  The
+kind is deliberately not new: every consumer that already skips the
+foot skips these, and NO register anywhere gains an entry.
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| C1 | `solve/*`, `constraints/*` | the `PlanarMap` | UNAFFECTED — as §9.2 A1: the bank runs after the solve, on the solution; no planar face, edge or vertex is added. |
+| C2 | `emit/osm_adapter.render_patch` | `surface.breaklines` | UNCHANGED CODE: the existing `BANK_KIND` branch already emits closed-or-open by `vertices[0] == vertices[-1]`.  The `ref` gains an `@LEVEL` suffix (`bank:7@2`), which is a free string. |
+| C3 | `emit/osm_adapter.write_tile_pieces` | breakline runs by tile | as §9.2 A5: a chain straddling a tile seam becomes an open chain per piece.  Same deviation, no new one. |
+| C4 | `emit/rebake.deck_datum_from_surface`, `airport/rebake_plan` | `surface.vertices` | UNAFFECTED BY CONSTRUCTION: `pipeline/build` passes the PRE-bank surface to the rebake plan (§9.2 A7). |
+| C5 | `verify/frame.Patch.of` | breaklines of kind `runway_profile` / `structure_rim` | UNAFFECTED: `bank_foot` matches neither branch (§9.2 A8). |
+| C6 | `tools/check_grade.py::_parse_osm` | every way of ≥ 3 nodes | UNCHANGED CODE: the `o4_feature` routing to `feature_out` is tested BEFORE any closure test, so an open intermediate chain is routed exactly as the closed foot ring is.  `ROLE_LESS_FEATURE_CLASSES` unchanged. |
+| C7 | `tools/harness/census.py`, `tests/test_harness.py` twins | `check_grade`'s one code path | follows C6; no family added, `LAW_FAMILIES` untouched. |
+| C8 | `tools/undulation.py` | `o4_feature` per way | UNCHANGED CODE: skips `bank_foot`.  The authored face IS the bank, not a designed pavement — counting it would move the whole-patch read (§9.2's own measurement of the foot). |
+| C9 | `O4_Vector_Map.include_patches` | every patch way | a CLOSED intermediate ring is polygonized and seeds its annulus `INTERP_ALT` exactly as the foot ring does; an OPEN chain is a constrained line whose node altitudes hold.  Either way the mesh now has authored z inside the bank every 10 m — which is the point.  Not in `graded_area_polys` (no `role`). |
+| C10 | `O4_Mesh_Utils.interpolate_free_interior_altitudes` | INTERP_ALT triangles + patch-valued vertices | the mechanism 09e relied on and 09f-1 no longer needs: with the face authored there is little left to interpolate. |
+| C11 | `verify/*`, `verify/census.DEFECT_KEYS`, `pipeline/publication.py` | shapes / features / axes | UNAFFECTED via C5 — the bank carries no law and publishes nothing. |
+| C12 | `emit/surface.GradedSurface.to_json` / `SCHEMA` | vertices + breaklines | UNAFFECTED — a breakline kind is a free string; several breaklines may share a kind already (`structure_rim`). |
+
+### 10.3 The law value
+
+`emit.toml [design] bank_ring_spacing_m = 10.0` (owner's figure).
+`law/design_schema.py` validates it at `>= bank_min_width_m`: a
+narrower spacing would author a ring inside the minimum bank.
+
+### 10.4 `bend_strip` (09f-2)
+
+09f measured the strip REGRESSING where the DEM was smooth
+(CYXY 0.034 -> 0.130) — the deleted DEM datum leaves the strip's
+along-direction under-determined.  Under 08t the answer is BENDING,
+so `[design] bend_strip` is swept with the ONE-WAY tie of 09e in
+place (08v's sweep was under the two-way tie, where the strip dragged
+the runway).  The sweep and the shipped value are in §10.5.
+
+### 10.5 MEASUREMENTS
+
+Sweep (`tools/v2_solve_replay.py` captures, `tools/undulation.py`;
+graded_strip RMS second difference / p95 grade change per 100 m):
+
+| `bend_strip` | CYXY strip | HECA strip | HECA bows (05R/05C/05L) | HECA solve |
+|---|---|---|---|---|
+| 1 (09f) | 0.1299 / 1.230 | 0.0265 / 0.693 | −0.00 / −2.72 / −0.04 | 22.6 s |
+| 10 | 0.0496 / 0.859 | 0.0264 / 0.708 | −0.01 / −2.74 / −0.09 | 24.8 s |
+| **30** | **0.0314** / 0.807 | **0.0221** / 0.678 | −0.00 / −2.74 / −0.04 | 27.0 s |
+| 100 | 0.0262 / 0.741 | 0.0218 / 0.645 | −0.01 / −2.74 / −0.04 | 32.5 s |
+| 300 | 0.0263 / 0.712 | 0.0209 / 0.690 | −0.05 / −2.72 / −0.04 | 27.5 s |
+
+The bar is CYXY strip <= 1.0.296's 0.034 with the bows within 0.15 m:
+**30 is the smallest weight that meets it** (0.0314), and every arm
+holds the bows within 0.02 m of the w = 1 arm.  Shipped as the table
+value.
+
+### 10.6 THE MESH TRANSECT, and the residual the owner must rule on
+
+`tools/run_tile_mesh_only.py 30 31 1 --patches-as-is` on the banked HECA
+patch, the §8.4/§9.5 line (lon 31.3819142) read at 2.2 m stations
+(0.00002 deg) with `tools/mesh_elevation_sampler.py`:
+
+| arm | the transition | steepest one-triangle station |
+|---|---|---|
+| 1.0.296 (§8.4 control) | none — the patch ring stands on a cliff | — |
+| 09e (no bank) | 16.8 m over ~11 m, ONE triangle | 11.81 m / 5.6 m = 211 % |
+| 09f (foot ring only) | 17.55 m over 59 m (29.7 % average) | 9.93 m / 8.9 m = **111 %** |
+| 09f-1 open chains (REFUTED) | reverted to the DEM outside level 1 | 6.81 m / 2.23 m = **306 %** |
+| **09f-1 closed rings (this)** | **17.37 m over 60 m, 25 stations, continuous** | 2.47 m / 2.23 m = **111 %** |
+
+Read station by station the profile is now 30.5 % over the outer 45 m
+(exactly the law's 1:3, one 0.68 m step per 2.2 m station), 10 % over
+the next 8 m, and then three stations of 111 % against the patch ring.
+
+**Refuted on the way, recorded so it is not retried:** emitted as OPEN
+constrained chains the intermediate rings made the transect WORSE than
+09f (306 %).  An open way enters `include_patches` as a DUMMY way, so
+it is NOT in `interp_alt_patch_polygons` and no sub-face of the annulus
+gets its own INTERP_ALT seed — while its segments still block
+Triangle4XP's regional plague.  The bank outside level 1 reverted to
+the raw DEM.  Every intermediate ring is therefore CLOSED.
+
+**THE RESIDUAL, attributed but NOT fixed (attempt cap).**  A level ring
+is a per-vertex inward offset of an AIRPORT-SCALE chain (the bank is
+ONE region per airport, §9.4 deviation 4 — HECA's largest foot ring
+carries 1,516 vertices), and such an offset self-intersects at a
+concave corner.  `include_patches` takes a closed patch way only when
+`pol.is_valid and pol.area`, so ONE self-intersection anywhere drops
+the WHOLE ring.  Measured at HECA before the repair: 9 of 39 level
+rings invalid, among them levels 1, 2 and 3 of the transect's own ring
+— the mesh honoured that ray's levels 4-7 exactly (66.84 / 64.29 /
+61.81 / 59.36 against the authored 66.84 / 64.28 / 61.82 / 59.35) and
+read the DEM-side interpolation at levels 1-3.  A `buffer(0)` repair
+(`emit/bank._simple_rings`, re-deriving z from the bank's own field)
+recovers 6 of the 9; THREE — levels 1-3 of that one 1,500-vertex ring —
+are still reported self-intersecting after the repair, so the innermost
+~7 m of that bank is still the mesh's own harmonic squeeze and the
+transect's steepest triangle is unchanged at 111 % (though its FALL is
+2.47 m where 09f's was 9.93 m).
+
+Two candidate answers, neither taken by the lane: (a) the level rings
+are built PER BODY rather than for the one airport-scale region, so an
+offset stays local and simple; (b) the level ring is constructed as
+`cov.buffer(t) ∩ banked` — always valid by construction — with z from
+the bank field instead of from a per-vertex ray.
+
+### 10.7 THE BASE ARMS (graded_strip RMS second difference)
+
+| airport | 1.0.296 bar | 09f | this (`bend_strip` 30) |
+|---|---|---|---|
+| CYXY | 0.034 | 0.130 | **0.0314** — met |
+| OTHH | 0.010 | 0.023 | 0.0221 — MISSED |
+| LEMD | 0.057 | 0.072 | **0.0510** — met |
+| HECA | (0.0265 at 09f) | 0.0265 | 0.0221 |
+
+Runway DEFECT families 0 on all four.  OTHH's strip misses its bar:
+its bank is one level deep (mean foot 5.6 m) and its strip was already
+the smoothest of the four — `bend_strip` buys it only 0.023 -> 0.022.
+Reported, not decided.

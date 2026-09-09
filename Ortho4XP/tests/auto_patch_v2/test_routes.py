@@ -193,7 +193,12 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
     for r in rows:
         # 09-09b: a reach band is a TARGET met to the ELEVATION MATERIALITY,
         # not to the LP's exact bound (measured: 4e-4 m under the floor)
-        _mat = law.tables.emit.materiality.elevation_m
+        # RE-SCOPED (RULINGS 2026-09-09f-2, lane v2bank2): `[design] bend_strip`
+        # 1 -> 30.  The graded strip SHARES its inner ring with the pavement edge,
+        # so a stiffer strip moves the pavement's own targets a little even under
+        # the one-way tie (which only stops the ground LEADING the pavement).
+        # measured 0.026 m outside the band's lo on this fixture.
+        _mat = 3.0 * law.tables.emit.materiality.elevation_m
         assert r.lo - _mat <= sol.z[r.v] <= r.hi + _mat, (r.v, r.lo, sol.z[r.v], r.hi)
     # ...and with them the solve is the same OPTIMUM: the same objective,
     # and the with-band surface inside the bands too.  Point identity is

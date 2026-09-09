@@ -362,12 +362,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         pav_ivals: list = []
         if c is not None and g.kind == WALL_KIND:
             # A WALL CORRIDOR (Law C, spec §6a rows 12/13): the floor is the
-            # wall bottom, never a climb inside the walls; decks INSIDE the
-            # walls are the family's own roof (the headroom test read them),
-            # never severing; beyond the walls a mapped bridge is read as
-            # for any ramp
+            # wall bottom, never a climb inside the walls; NO deck is read
+            # anywhere along it — inside the walls the deck is the family's
+            # own roof (the headroom test read it), and beyond them a mapped
+            # bridge way is the pack's own VIADUCT over the sunken road
+            # (measured OTHH TerminalRoads_03_004@1/b: the terrain deck the
+            # bore model mints for way −8543 severed the ramp and held its
+            # top 3.15 m under the ground — a demotion; spec §6b)
             fits = False
-            deck_ivals = [d for d in deck_ivals if d[1] >= g.hull_s] if g.climbs else []
+            deck_ivals = []
             obj_ivals = []
             design_grade = grade_g if g.climbs else 0.0
         elif c is not None and g.climbs:

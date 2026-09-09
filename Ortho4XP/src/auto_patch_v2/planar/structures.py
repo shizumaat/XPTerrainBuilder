@@ -237,7 +237,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # OSM ramp at the other.
     replaced_ways: dict[str, list[int]] = {}
     if corridors and tn.object.source_precedence[0] == "object":
-        tol = tn.object.end_cap_open_m          # the rim stands inside the footprint (09-08a)
+        tol = tn.object.bore_end_tolerance_m    # 2026-09-08o: a bore end within it PAIRS
         kept = []
         by_bore: dict[int, list[str | None]] = {}
         for m in mouth_list:
@@ -330,8 +330,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # the mouth line — not the axis point's sample (measured LEMD
         # -15327+-5980: a cutting whose cap stands 2 m above the axis
         # sample; the ramp planned from the axis sample was 0.2 % over cap).
-        # An OBJECT corridor's datum is ground(mouth) − plate height
-        # (05n-1, ``mouth_depth = "plate"``), read by the corridor reader.
+        # An OBJECT corridor's datum is ground(mouth) − depth (the floor
+        # slab or the bore law, ``mouth_depth = "floor_slab"``, 2026-09-08l),
+        # read by the corridor reader.
         cap_c = (mouth[0] + inward[0] * rim_off, mouth[1] + inward[1] * rim_off)
         mouth_dem = _dem(airport, cap_c) if c is None else c.mouth_dem_z
         if math.isnan(mouth_dem):
@@ -622,10 +623,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 if g.kind == "object" else ()
             top_ground = None
             if g.kind == "object":
-                notes.append(f"tunnel wall object {c.resource} (2026-09-05n): floor at the mouth "
-                             f"{mouth_z:.2f} = ground {mouth_dem:.2f} − depth {c.depth_m:.2f} "
-                             f"({'edge wall, bore_datum_m' if c.edge_wall else 'plate'}; crest "
-                             f"{c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
+                notes.append(f"tunnel wall object {c.resource} (2026-09-05n; depth 2026-09-08l): "
+                             f"floor at the mouth {mouth_z:.2f} = ground {mouth_dem:.2f} − depth "
+                             f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'bore_datum_m'}; "
+                             f"crest {c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             elif g.kind == "door":
                 top_ground = _dem(airport, axis_fn(s_top))
                 notes.append(f"door ramp (2026-09-08b/c Law A) of {c.resource}: sill {mouth_z:.2f} "

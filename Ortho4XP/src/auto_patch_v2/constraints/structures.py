@@ -190,10 +190,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     if tn_law.crest != "dem":
         raise ValueError(f"tunnel.crest {tn_law.crest!r}: only 'dem' is generated")
     ob = tn_law.object
-    if ob.plate_datum != "ground" or ob.mouth_depth != "plate" or ob.ramp_end != "wall_end":
+    if ob.plate_datum != "ground" or ob.mouth_depth != "floor_slab" or ob.ramp_end != "wall_end":
         raise ValueError(f"tunnel.object plate_datum {ob.plate_datum!r} / mouth_depth "
                          f"{ob.mouth_depth!r} / ramp_end {ob.ramp_end!r}: only 'ground' / "
-                         f"'plate' / 'wall_end' are generated")
+                         f"'floor_slab' / 'wall_end' are generated")
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
     co = law.tables.structures.cutout
@@ -241,12 +241,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # THE OBJECT CORRIDOR (RULINGS 2026-09-05n): the band's crest is
             # the GROUND by station (``plate_datum = "ground"`` — the object
             # is re-seated to it), the mouth datum ground − plate height
-            # (``mouth_depth = "plate"``), absolute — never the cap − 5.1
+            # (``mouth_depth = "floor_slab"``: the slab or the bore law,
+            # 2026-09-08l), absolute — never the cap − 5.1
             inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
             src_wall = Source(GEN, "tunnel.object.plate_datum = ground: the ground by station "
                               "(2026-09-03b L1; 2026-09-05n-4) under an object corridor", inputs)
-            src_mouth = Source(GEN, "tunnel.object.mouth_depth = plate: ground(mouth) − plate "
-                              "height (2026-09-05n-1)", inputs)
+            src_mouth = Source(GEN, "tunnel.object.mouth_depth = floor_slab: ground(mouth) − "
+                              "the floor slab or bore_datum_m (2026-09-05n-1; 2026-09-08l)", inputs)
         elif tn.source == "door":
             # THE DOOR RAMP (RULINGS 2026-09-08b/c Law A): the well floor
             # pinned at the SILL, the climb at cutout.door.ramp_grade, the

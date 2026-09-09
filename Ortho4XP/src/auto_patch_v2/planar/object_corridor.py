@@ -191,9 +191,13 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
 
 
 def mouth_covered_by(pt: XY, corridors: _t.Sequence, tol: float) -> str | None:
-    """The id of the object corridor whose footprint (walls ∪ trench,
-    ``tol`` around) an OSM bore mouth stands inside (05n-3: that mouth
-    is the object's), or ``None`` — the mouth keeps its OSM ramp."""
+    """The id of the object corridor an OSM bore mouth belongs to (05n-3:
+    that mouth is the object's), or ``None`` — the mouth keeps its OSM
+    ramp: the mouth stands inside the footprint (walls ∪ trench) ⊕
+    ``tol`` — ``bore_end_tolerance_m`` (RULINGS 2026-09-08o: OTHH's deep
+    mouth stood 4.1–4.5 m outside the plate), the same reach by which the
+    corridor reader took that end as its mouth, so the pairing is one
+    reading in both passes."""
     p = Point(pt)
     for c in corridors:
         if c.footprint.buffer(tol).contains(p):

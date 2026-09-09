@@ -276,9 +276,9 @@ class TunnelObject:
     plate_min_height_m: float
     edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
     edge_wall_min_skirt_m: float       # 2026-09-06f: the edge wall's skirt below ITS crest (the top band, wherever it lies vs the seat)
-    floor_plate_max_m2: float
     hull_min_length_m: float
     end_cap_open_m: float
+    bore_end_tolerance_m: float        # 2026-09-08o: a bore END within this of the plate is that object's mouth
     merge_gap_m: float
 
 
@@ -644,6 +644,12 @@ class LawTables:
 
 _GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up",
                 "fan_ramp", "crown", "materiality")
+#: The register's grade-fraction sanity bound (a percentage typed as a
+#: fraction fails it).  Was 0.2; RULINGS 2026-09-08n states a 0.25 sanity
+#: cap for a pack-authored garage ramp (``cutout.wall_corridor.
+#: max_authored_grade`` = the ``garage_ramp`` role's cap), so the bound is
+#: that cap — still an order under any percentage.
+_GRADE_FRACTION_MAX = 0.25
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
 _RELAXATION_SCOPES = ("relaxable",)   # [relaxation] scope_without_certificate (2026-09-05u)
 _SIDES = ("airside", "groundside")
@@ -651,7 +657,7 @@ _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
 _DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
-           "plate_datum": ("ground",), "mouth_depth": ("plate",),
+           "plate_datum": ("ground",), "mouth_depth": ("floor_slab", "wall_bottom"),
            "ramp_end": ("wall_end",), "trench": ("inner_walls",),
            "mouth_end": ("bore",),
            "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
@@ -662,8 +668,8 @@ _SIGNED_METRES = ("below_grade_base_y_m",)
 
 
 def _sane(path: str, name: str, value: float) -> None:
-    """Unit sanity: grades are fractions in [0, 0.2]; metres, counts and
-    degrees are non-negative."""
+    """Unit sanity: grades are fractions in ``[0, _GRADE_FRACTION_MAX]``;
+    metres, counts and degrees are non-negative."""
     if name.endswith(("_m", "_m2", "_deg", "per_m")) or name == "k":
         if value < 0 and name not in _SIGNED_METRES:
             raise LawError(f"{path}: {name} must be >= 0, got {value}")
@@ -673,9 +679,9 @@ def _sane(path: str, name: str, value: float) -> None:
             raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
         return
     if any(w in name for w in _GRADE_WORDS) or name in ("default",):
-        if not 0.0 <= value <= 0.2:
+        if not 0.0 <= value <= _GRADE_FRACTION_MAX:
             raise LawError(
-                f"{path}: {name}={value} is not a grade fraction in [0, 0.2]"
+                f"{path}: {name}={value} is not a grade fraction in [0, {_GRADE_FRACTION_MAX}]"
                 " (a fraction, never a percentage)")
 
 
@@ -854,8 +860,11 @@ def _check_cross_refs(t: LawTables) -> None:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")
     door_cap = t.common.roles.get("door_ramp")
+    wc_cap = t.common.roles.get("wall_corridor_ramp")
+    gr_cap = t.common.roles.get("garage_ramp")
     _check_cutout(t.structures.cutout, None if door_cap is None else door_cap.longitudinal,
-                  LawError)
+                  LawError, None if wc_cap is None else wc_cap.longitudinal,
+                  None if gr_cap is None else gr_cap.longitudinal)
     for grp in (t.precedence.taxi_family.members,
                 t.precedence.runway_family.members):
         for r in grp:

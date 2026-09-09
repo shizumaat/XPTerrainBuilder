@@ -188,7 +188,11 @@ def test_signature_and_wall_lines(objs, law):
 
 
 def test_refusals_name_their_reason(objs, law):
-    assert "floor plate below the seat" in _sig(objs, law, "floored")
+    # RULINGS 2026-09-08l: a floor slab is DEPTH EVIDENCE, never a refusal
+    # (the basin pass still owns a floor it witnessed, by witness)
+    floored = _sig(objs, law, "floored")
+    assert not isinstance(floored, str), floored
+    assert floored.floor_y == pytest.approx(-12.0) and floored.plate_y == pytest.approx(5.0)
     # RULINGS 2026-09-06c (2): a low crest over a real (12 m) skirt is an
     # EDGE WALL signature, not a kerb refusal (test_v2lemd3 reads it);
     # the kerb refusal stays for a crest between the two keys
@@ -327,7 +331,9 @@ def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
     c = cs[0]
     assert c.mouth_kind == "bore" and c.mouth_closed and not c.far_closed and not c.flat
     assert c.axis[0][1] < c.axis[-1][1]          # the mouth is the −y (closed) end
-    assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - 5.0)
+    # RULINGS 2026-09-08l: no floor slab -> the bore law's depth, never the crest
+    assert c.depth_m == pytest.approx(law.tables.structures.tunnel.bore_datum_m)
+    assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - law.tables.structures.tunnel.bore_datum_m)
     assert c.plate_y == pytest.approx(5.0)
     cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
@@ -336,7 +342,7 @@ def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
     assert t.mouth_z == pytest.approx(c.floor_z) and t.climb_from_s == 0.0
     assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned
     assert 0.0 < t.design_grade < tn.ramp_max_grade
-    assert t.design_grade == pytest.approx(5.0 / t.wall_length_m)
+    assert t.design_grade == pytest.approx(tn.bore_datum_m / t.wall_length_m)   # 2026-09-08l
     assert t.mouth_kind == "bore" and t.ground_kind == "open"
 
 
@@ -442,7 +448,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
                 x, y = pm.vertices[v].xy
                 assert abs(pins[v].z - dem.z(x, y)) < 0.05
     assert bare > 0
-    mouth_pins = [p for p in pins.values() if "mouth_depth = plate" in p.source.ruling]
+    mouth_pins = [p for p in pins.values() if "mouth_depth = floor_slab" in p.source.ruling]
     assert len(mouth_pins) == 1 and mouth_pins[0].z == pytest.approx(t.mouth_z)
     # no 5.1 m mouth relation on the OBJECT's rows (the OSM far mouth keeps its own)
     assert not any(r.source.ruling.startswith("tunnel.bore_datum") for r in rows
@@ -467,7 +473,8 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
     rec = pub["tunnel_objects"][0]
-    assert rec["depth_m"] == pytest.approx(5.0) and rec["mouth"] == "bore"
+    assert rec["depth_m"] == pytest.approx(law.tables.structures.tunnel.bore_datum_m)
+    assert rec["mouth"] == "bore"
     assert rec["ramp_beyond_walls_m"] == 0.0 and rec["trench_outside_max_m"] == 0.0
     from auto_patch_v2.emit.osm_adapter import write_patch
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
@@ -554,7 +561,7 @@ def test_law_register(law):
     """§2: every key read through the model, no literal in Python."""
     ob = law.tables.structures.tunnel.object
     assert ob.source_precedence == ("object", "osm")
-    assert ob.plate_datum == "ground" and ob.mouth_depth == "plate"
+    assert ob.plate_datum == "ground" and ob.mouth_depth == "floor_slab"    # 2026-09-08l
     assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls" and ob.mouth_end == "bore"
     assert ob.reseat is True
     assert ob.wall_face_max_thickness_m > 0.0 and ob.wall_sample_m > 0.0
@@ -570,7 +577,8 @@ def test_law_register(law):
     assert 0.0 < co.rim_inset_fraction <= 1.0
     assert co.emit_wall_band is False
     assert law.tables.structures.basin.seat == "floor_plate"
-    assert ob.floor_plate_max_m2 == 0.0
+    # RULINGS 2026-09-08o: a bore end within this of the plate is the mouth
+    assert ob.bore_end_tolerance_m > ob.end_cap_open_m > 0.0
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key

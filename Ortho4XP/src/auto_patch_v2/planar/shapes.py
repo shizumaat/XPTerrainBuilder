@@ -33,9 +33,12 @@ connected parts of its erosion by half the mouth width, so a neck
 narrower than the mouth, a point contact and a contact edge shorter than
 the mouth all separate two bodies, while a wide neck (HECA pav132's 126 m)
 joins them.  Every vertex of a shape-role face takes the body nearest to
-it (the boundary falls across a neck's middle); a road-family face's
-vertices take the nearest labelled vertex's shape (a road between two
-shapes carries the boundary mid-road, RULINGS 2026-09-07g (4) unchanged);
+it (the boundary falls across a neck's middle); A ROAD BETWEEN TWO SHAPES
+BELONGS TO NEITHER (owner RULINGS 2026-09-08r-2, :func:`_label_roads`):
+along a boundary it takes the level of the shape it is welded to (more
+shared vertices) and the step stands at its far edge; crossing from one
+shape to the other it is unlabelled and RAMPS along its length at its own
+row law, no joint across it (``PlanarMap.road_ramps``);
 a rigid pad's vertices take the pad's majority label (07c (3)); any other
 vertex shared with pavement carries the pavement's label, the rest none.
 A boundary edge inside the RUNWAY STRIP keep-out (06n: walls at runway
@@ -79,7 +82,7 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import PlanarMap, ShapeJoint
+from ..model.planar import PlanarMap, RoadRamp, ShapeJoint
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
@@ -113,6 +116,11 @@ class ShapeStats:
     shapes: int = 0                 # distinct shape ids after the strip welds
     vertices_labelled: int = 0
     road_vertices_labelled: int = 0
+    road_vertices_relabelled: int = 0   # 08r-2: a body's vertex on an along road taking the road's shape
+    road_vertices_unlabelled: int = 0   # 08r-2: a crossing road's contact vertices freed
+    roads_along: int = 0                # road faces running along one shape (its level)
+    roads_crossing: int = 0             # road faces crossing from one shape to another (a ramp)
+    road_ramps: int = 0                 # the ramps declared (crossings whose two shapes stayed distinct)
     pads_relabelled: int = 0
     welded_strip_pairs: int = 0     # body pairs welded by a boundary edge inside the runway strip
     welded_route_pairs: int = 0     # body pairs welded by a boundary edge on a taxi centreline (a mouth a route passes through)
@@ -381,24 +389,148 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats, net: frozenset[i
     return label, bodies
 
 
-def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[int],
-                  stats: ShapeStats) -> None:
-    """Road-family vertices by the nearest labelled vertex; rigid pads by
-    their majority (module docstring); a vertex in ``N`` never."""
-    if not label:
-        return
+def _road_axis(pm: PlanarMap, fid: int) -> tuple[float, float] | None:
+    """The road's own direction (``constraints.geometry.long_axis``'s
+    minimum-area rectangle, re-derived here: the planar layer may not import
+    ``constraints``)."""
+    pts = [pm.vertices[v].xy for v in pm.ring_vertices(pm.faces[fid].ring)]
+    if len(pts) < 3:
+        return None
+    best: tuple[float, tuple[float, float]] | None = None
+    for i in range(len(pts)):
+        (ax, ay), (bx, by) = pts[i], pts[(i + 1) % len(pts)]
+        L = math.hypot(bx - ax, by - ay)
+        if L < 1e-9:
+            continue
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        us = [x * ux + y * uy for x, y in pts]
+        vs = [-x * uy + y * ux for x, y in pts]
+        w, h = max(us) - min(us), max(vs) - min(vs)
+        if best is None or w * h < best[0]:
+            best = (w * h, (ux, uy) if w >= h else (-uy, ux))
+    return None if best is None else best[1]
+
+
+def _label_roads(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[int],
+                 stats: ShapeStats) -> list[RoadRamp]:
+    """A ROAD BETWEEN TWO SHAPES BELONGS TO NEITHER (owner RULINGS
+    2026-09-08r-2).  Per road-family face, its CONTACTS are the vertices
+    the pavement labelling already labelled (shared with a body's face).
+    One contact shape — or none: the nearest labelled vertex's shape, by
+    majority — and the road runs ALONG it: every vertex takes that shape.
+    Two or more: the two most-shared shapes A and B, their contacts
+    projected on the road's long axis.  Overlapping intervals → the road
+    runs ALONG the boundary: every vertex takes A (the more shared), the
+    ones shared with B included, so the step stands at the road's FAR edge
+    (B's faces along it carry two labels and the contour hugs their edge
+    inside B).  Disjoint intervals → the road CROSSES from A to B: every
+    vertex is UNLABELLED — its rows all survive the filter and it RAMPS
+    along its length at its own row law (the ``roads`` yield ceiling = the
+    core clamp), no contour crosses it, the two shapes step elsewhere; a
+    :class:`RoadRamp` records it for the report (a road too short to ramp
+    the difference is named).  A vertex in ``N`` is never labelled."""
     roads = set(family(law, "road_cross_section").roles)
     ids = sorted(label)
-    tree = cKDTree([pm.vertices[v].xy for v in ids])
+    tree = cKDTree([pm.vertices[v].xy for v in ids]) if ids else None
+    tol = law.tables.emit.identity.min_distinct_spacing_m
+    face_vs: dict[int, list[int]] = {}         # road face -> its vertices off the network
+    contacts_of: dict[int, dict[int, list[int]]] = {}   # road face -> shape -> contact vertices
+    choice: dict[int, int] = {}                # road face -> the shape it runs along
+    crossing_faces: set[int] = set()
+    ramps: list[RoadRamp] = []
+
+    def centroid(vs: _t.Sequence[int]) -> XY:
+        xs = [pm.vertices[v].xy for v in vs]
+        return (sum(x for x, _y in xs) / len(xs), sum(y for _x, y in xs) / len(xs))
+
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue
-        for v in _face_vertices(pm, fid):
-            if v in label or v in N:
+        vs = [v for v in _face_vertices(pm, fid) if v not in N]
+        if not vs:
+            continue
+        face_vs[fid] = vs
+        contacts: dict[int, list[int]] = {}
+        for v in vs:
+            if v in label:
+                contacts.setdefault(label[v], []).append(v)
+        contacts_of[fid] = contacts
+        if not contacts:
+            if tree is None:
                 continue
-            _d, j = tree.query(pm.vertices[v].xy)
-            label[v] = label[ids[int(j)]]
-            stats.road_vertices_labelled += 1
+            near = [label[ids[int(tree.query(pm.vertices[v].xy)[1])]] for v in vs]
+            choice[fid] = max(set(near), key=lambda l: (near.count(l), -l))
+            continue
+        ranked = sorted(contacts, key=lambda l: (-len(contacts[l]), l))
+        a = ranked[0]
+        if len(ranked) >= 2:
+            b = ranked[1]
+            axis = _road_axis(pm, fid)
+            if axis is not None:
+                ux, uy = axis
+                pa = [pm.vertices[v].xy[0] * ux + pm.vertices[v].xy[1] * uy for v in contacts[a]]
+                pb = [pm.vertices[v].xy[0] * ux + pm.vertices[v].xy[1] * uy for v in contacts[b]]
+                overlap = min(max(pa), max(pb)) - max(min(pa), min(pb))
+                if overlap < tol:                       # disjoint along the axis: a crossing
+                    crossing_faces.add(fid)
+                    ramps.append(RoadRamp(fid, f.ref, (a, b), tuple(sorted(contacts[a])),
+                                          tuple(sorted(contacts[b])),
+                                          abs(sum(pa) / len(pa) - sum(pb) / len(pb))))
+                    continue
+        choice[fid] = a
+    # A ROAD NEVER CARRIES A JOINT (08r-2): two road faces sharing an edge
+    # or a vertex while running along DIFFERENT shapes would put the step
+    # between them — a wall across the road (HECA route8 in six pieces,
+    # 2026-09-08) — so the pair is a crossing: both unlabelled, the ramp
+    # from the one's contacts to the other's
+    face_of_v: dict[int, list[int]] = {}
+    for fid, vs in face_vs.items():
+        for v in vs:
+            face_of_v.setdefault(v, []).append(fid)
+    pairs: set[tuple[int, int]] = set()
+    for v, fids in face_of_v.items():
+        for fa in fids:
+            for fb in fids:
+                if fa < fb and fa in choice and fb in choice and choice[fa] != choice[fb]:
+                    pairs.add((fa, fb))
+    for fa, fb in sorted(pairs):
+        la, lb = choice[fa], choice[fb]
+        ca = contacts_of[fa].get(la, [])
+        cb = contacts_of[fb].get(lb, [])
+        if fa not in crossing_faces or fb not in crossing_faces:
+            if ca and cb:
+                ga, gb = centroid(ca), centroid(cb)
+                ramps.append(RoadRamp(fa, pm.faces[fa].ref, (la, lb), tuple(sorted(ca)), tuple(sorted(cb)),
+                                      math.hypot(ga[0] - gb[0], ga[1] - gb[1])))
+        crossing_faces.update((fa, fb))
+    crossing: set[int] = {v for fid in crossing_faces for v in face_vs[fid]}
+    stats.roads_crossing += len(crossing_faces)
+    stats.roads_along += sum(1 for fid in choice if fid not in crossing_faces)
+    for fid, l in choice.items():
+        if fid in crossing_faces:
+            continue
+        for v in face_vs[fid]:
+            if v in crossing:
+                continue
+            if v not in label:
+                stats.road_vertices_labelled += 1
+            elif label[v] != l:
+                stats.road_vertices_relabelled += 1
+            label[v] = l
+    for v in crossing:
+        if v in label:
+            del label[v]
+            stats.road_vertices_unlabelled += 1
+    return ramps
+
+
+def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[int],
+                  stats: ShapeStats) -> list[RoadRamp]:
+    """Roads (:func:`_label_roads`); rigid pads by their majority (module
+    docstring); a vertex in ``N`` never."""
+    if not label:
+        return []
+    ramps = _label_roads(pm, law, label, N, stats)
     for fid, f in pm.faces.items():
         if not is_rigid_role(law, f.role):
             continue
@@ -411,9 +543,10 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
+    return ramps
 
 
-def _weld_strip(pm: PlanarMap, label: dict[int, int], keep, stats: ShapeStats) -> None:
+def _weld_strip(pm: PlanarMap, label: dict[int, int], keep, stats: ShapeStats) -> _Union:
     """THE STRIP KEEP-OUT: a boundary edge inside it welds its two bodies.
     THE ROUTE IS NEVER CUT (RULINGS 2026-09-07g, kept): a boundary edge
     lying on a taxi centreline — a mouth a route passes through — welds
@@ -441,6 +574,7 @@ def _weld_strip(pm: PlanarMap, label: dict[int, int], keep, stats: ShapeStats) -
                 stats.welded_strip_pairs += 1
     for v in label:
         label[v] = uf.find(label[v])
+    return uf
 
 
 def straddles(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
@@ -724,9 +858,9 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     if not label:
         stats.wall_s = time.perf_counter() - t0
         return pm, stats
-    _label_others(pm, law, label, N, stats)
+    ramps = _label_others(pm, law, label, N, stats)
     keep = strip_keepout(classification, law) if classification is not None else None
-    _weld_strip(pm, label, keep, stats)
+    uf = _weld_strip(pm, label, keep, stats)
     # the record: dense shape ids in order of first appearance by area rank
     of_face: dict[int, int] = {}
     area: dict[int, float] = {}
@@ -747,6 +881,11 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     dense = {l: k for k, l in enumerate(order)}
     label = {v: dense[l] for v, l in label.items()}
     of_face = {fid: dense[l] for fid, l in of_face.items()}
+    # the ramps' shapes through the welds and the dense ids (a ramp whose
+    # two shapes welded into one is no ramp: the road runs inside it)
+    ramps = [_dc.replace(r, shapes=(dense[uf.find(r.shapes[0])], dense[uf.find(r.shapes[1])]))
+             for r in ramps if uf.find(r.shapes[0]) in dense and uf.find(r.shapes[1]) in dense]
+    ramps = [r for r in ramps if r.shapes[0] != r.shapes[1]]
     stats.shapes = len(order)
     stats.vertices_labelled = len(label)
     nverts: dict[int, int] = {}
@@ -765,6 +904,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     ext = snap_margin_m(law)
     joints = _contour_joints(pm, label, ll, ext, stats)
     joints += _gap_joints(pm, law, label, ll, ext, len(joints), stats, net)
-    pm = _dc.replace(pm, shape_joints=tuple(joints))
+    pm = _dc.replace(pm, shape_joints=tuple(joints), road_ramps=tuple(ramps))
+    stats.road_ramps = len(ramps)
     stats.wall_s = time.perf_counter() - t0
     return pm, stats

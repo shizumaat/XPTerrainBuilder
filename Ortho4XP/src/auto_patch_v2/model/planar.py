@@ -154,6 +154,24 @@ class ShapeJoint:
 
 
 @_dc.dataclass(frozen=True)
+class RoadRamp:
+    """A ROAD CROSSING from one shape to another (owner RULINGS
+    2026-09-08r-2; ``planar/shapes.py::_label_roads``): it belongs to
+    NEITHER shape — every vertex unlabelled, every row kept — and RAMPS
+    along its length at its own row law.  ``contacts_a`` / ``contacts_b``
+    are its vertices shared with the two shapes, ``length_m`` the axis
+    distance between the two contact centroids; the built |Δz| over it is
+    the report's ramp (``pipeline/shapes.py::joint_steps``)."""
+
+    face: int
+    ref: str
+    shapes: tuple[int, int]
+    contacts_a: tuple[int, ...]
+    contacts_b: tuple[int, ...]
+    length_m: float
+
+
+@_dc.dataclass(frozen=True)
 class PlanarMap:
     """The map.  Mappings are id -> record; ids are dense from 0."""
 
@@ -187,6 +205,9 @@ class PlanarMap:
     shape_of_vertex: _t.Mapping[int, int] = _dc.field(default_factory=dict)
     shape_of_face: _t.Mapping[int, int] = _dc.field(default_factory=dict)
     shape_joints: tuple[ShapeJoint, ...] = ()
+    #: The roads crossing from one shape to another (owner RULINGS
+    #: 2026-09-08r-2): unlabelled, ramping, never a joint.
+    road_ramps: tuple[RoadRamp, ...] = ()
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

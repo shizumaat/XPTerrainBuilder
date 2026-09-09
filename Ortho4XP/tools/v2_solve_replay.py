@@ -263,7 +263,9 @@ def _why_hump(icao, pm, law, airport, cs, weights, z, runway: str, s0: float, s1
                          "dz_min": round(rr.dz_min, 3), "dz_max": round(rr.dz_max, 3)}
             out(f"      {fam_name:22s} -{rr.rows_dropped:6d} rows  {rr.status:8s}  dz median {rr.dz_median:+.3f}  "
                 f"min {rr.dz_min:+.3f}  max {rr.dz_max:+.3f}  ({time.perf_counter() - t:.0f} s)")
-    return {"vertex": v, "relax_arms": arms, "hump_vertices": len(hump), "station_m": round(s), "z": round(float(z[v]), 2), "above_chord_m": round(float(above), 2),
+    return {"vertex": v, "relax_arms": arms, "hump_vertices": len(hump),
+            "station_m": None if s != s else round(s), "z": round(float(z[v]), 2),
+            "above_chord_m": None if above != above else round(float(above), 2),
             "z_dem": round(float(z[v] - pm.vertices[v].dem_z), 2),
             "families": {k: {"rows": r["rows"], "sum_abs_dual": round(r["sum_abs_dual"], 2), "example": r["example"]}
                          for k, r in fam.items()}, "trace": trace}
@@ -389,6 +391,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
               f"{[(c['id'], c['step_m'], c['shapes'], 'gap' if c['gap'] else 'contour') for c in worst]}")
         if js["roads"]:
             print(f"    road steps: {[(r['face'], r['ref'], r['step_m']) for r in js['roads'][:8]]}")
+        result["road_ramps"] = js.get("ramps", [])
+        if js.get("ramps"):
+            print(f"    road ramps (08r-2): {len(js['ramps'])}; steepest "
+                  f"{[(r['face'], r['ref'], r['dz_m'], r['length_m'], round(100 * r['grade'], 2)) for r in js['ramps'][:8]]}; "
+                  f"too short {[(r['face'], r['ref']) for r in js['ramps'] if r['too_short']]}")
+        rc = result.get("yielded_rows", {}).get("runway_contacts") or []
+        if rc:
+            print(f"    runway contacts (08r-1): {len(rc)}, {sum(1 for c in rc if c['yielded'])} yielded; steepest "
+                  f"{[(c['vertex'], c['face'], round(100 * c['max_grade'], 2)) for c in rc[:8]]}")
         if sites:
             result["sites"] = _site_read(pm, airport, z, sites, site_radius_m)
             for srec in result["sites"]:

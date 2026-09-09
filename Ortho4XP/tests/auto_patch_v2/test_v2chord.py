@@ -115,8 +115,9 @@ def test_the_law_tables_state_the_priority_model_keys(law):
                                               if r not in ("runway", "runway_crossing"))
     y = law.tables.emit.yielding
     assert set(y.families) <= set(YIELD_FAMILIES)
-    for fam in ("junction_mesh", "taxi_box", "no_step_pairs", "roads", "taxi_chain_at_runway"):
+    for fam in ("junction_mesh", "taxi_box", "no_step_pairs", "roads"):
         assert yield_ceiling(law, fam) is not None
+    assert yield_ceiling(law, "taxi_chain_at_runway") is None      # owner RULINGS 2026-09-08r-1
     # owner RULINGS 2026-09-08k (3): the apron class yields WITHOUT a ceiling
     assert yield_ceiling(law, "apron") is None and yield_ceiling(law, "apron_edge_portion") is None
     assert "apron" in y.families and "apron_edge_portion" in y.families

@@ -14,9 +14,13 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    value) is never dropped — a pad belongs to one shape (07c (3), the
    majority relabel) — and any that would straddle is counted.
 3. THE YIELDING FAMILIES (08d (2), 08k (3)): the transform runs after the
-   filter; a row whose every vertex lies on the NETWORK stays hard (08p
-   (2): the network is hard at its route law), the runway-contact chain
-   excepted (08i-1).
+   filter; a taxi-class row whose every vertex lies on the NETWORK stays
+   hard (08p (2): the network is hard at its route law), the runway-contact
+   chain excepted — it yields with NO ceiling (08i-1, 08r-1).
+4. THE ROAD RAMPS (08r-2): a road crossing from one shape to another is
+   unlabelled — no row of it straddles, it ramps at its own law — and
+   ``joint_steps`` reports the built ramp per crossing, naming a road at
+   its cap (too short to ramp the difference).
 
 ONE solve pass (08k (4)): the joints are geometric, nothing is re-solved
 on a built step.
@@ -33,6 +37,7 @@ from ..constraints.no_step import reach_band_values
 from ..constraints.roads import road_family_roles
 from ..constraints.yielding import YieldStats, yield_rows
 from ..law import Law
+from ..law.tables import role_cap
 from ..model.airport import Airport
 from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row
 from ..model.planar import PlanarMap
@@ -65,6 +70,7 @@ class ShapeStage:
                 "shapes": len({s for s in self.pm.shape_of_vertex.values() if s != NO_SHAPE}),
                 "joints": len(self.pm.shape_joints),
                 "gap_joints": sum(1 for j in self.pm.shape_joints if j.gap),
+                "road_ramps": len(self.pm.road_ramps),
                 "wall_s": round(self.wall_s, 3)}
 
 
@@ -97,6 +103,7 @@ def shape_stage(pm: PlanarMap, law: Law, airport: Airport,
         f"joints {len(pm.shape_joints)} ({len(pm.shape_joints) - n_gap} contours, {n_gap} gap, "
         f"{sum(j.length_m for j in pm.shape_joints):,.0f} m); joint edges {len(edges)}" + (
             " (" + ", ".join(f"{k} {n}" for k, n in sorted(by_roles.items())) + ")" if by_roles else "")
+        + f"; road ramps (08r-2) {len(pm.road_ramps)}"
         + f"; reach bands to withdraw {len(withdraw)} (stations {len(stations)}); {stage.wall_s:.2f} s")
     return stage
 
@@ -186,4 +193,23 @@ def joint_steps(pm: PlanarMap, law: Law, stage: ShapeStage,
                  "shapes": list(j.shapes), "gap": j.gap, "pairs": len(j.pairs),
                  "step_m": round(max((abs(float(z[a]) - float(z[b])) for a, b in j.pairs), default=0.0), 3)}
                 for j in pm.shape_joints]
-    return {"by_roles": by_roles, "roads": road_rows, "contours": contours}
+    # THE ROAD RAMPS (owner RULINGS 2026-09-08r-2): per road crossing from one
+    # shape to another, the built |dz| between its two contact centroids over
+    # its axis length against the road's own cap (the core clamp); at the
+    # cap the road was too short to ramp the difference — the shapes
+    # conformed instead — and it is named
+    tol_g = law.tables.emit.materiality.grade
+    ramps = []
+    for r in pm.road_ramps:
+        f = pm.faces[r.face]
+        rc = role_cap(law, f.role, f.code_number, f.code_letter)
+        cap = rc.longitudinal if rc is not None else None
+        za = sum(float(z[v]) for v in r.contacts_a) / max(1, len(r.contacts_a))
+        zb = sum(float(z[v]) for v in r.contacts_b) / max(1, len(r.contacts_b))
+        dz = abs(za - zb)
+        grade = dz / r.length_m if r.length_m > 0.0 else 0.0
+        ramps.append({"face": r.face, "ref": f.ref, "role": f.role, "shapes": list(r.shapes),
+                      "length_m": round(r.length_m, 1), "dz_m": round(dz, 3), "grade": round(grade, 6),
+                      "cap": cap, "too_short": bool(cap is not None and grade >= cap - tol_g)})
+    ramps.sort(key=lambda d: -d["grade"])
+    return {"by_roles": by_roles, "roads": road_rows, "contours": contours, "ramps": ramps}

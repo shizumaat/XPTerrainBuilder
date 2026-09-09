@@ -288,7 +288,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"({sh.faces_unlabelled} welded whole)", out)
         _say(f"[{icao}] shapes (08k): {sh.body_faces} body faces -> {sh.components} components, "
              f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}, route welds {sh.welded_route_pairs}); "
-             f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled}, pads relabelled "
+             f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled} labelled / "
+             f"{sh.road_vertices_relabelled} relabelled / {sh.road_vertices_unlabelled} freed; road faces "
+             f"{sh.roads_along} along, {sh.roads_crossing} crossing -> {sh.road_ramps} ramps, 08r-2; pads relabelled "
              f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
              f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "
              f"joint edges {sh.joint_edges}; {sh.wall_s:.2f} s", out)
@@ -559,6 +561,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                      f"{k} {v['edges']} edges max {v['max_step_m']:.2f}" for k, v in sorted(js["by_roles"].items()))
                  + (f"; roads: " + ", ".join(f"#{r['face']} {r['ref']} {r['step_m']:.2f} m"
                                              for r in js["roads"][:8]) if js["roads"] else ""), out)
+        if js and js.get("ramps"):
+            short = [r for r in js["ramps"] if r["too_short"]]
+            _say(f"[{icao}] road ramps (08r-2): {len(js['ramps'])} roads crossing between shapes, steepest "
+                 + ", ".join(f"#{r['face']} {r['ref']} {r['dz_m']:.2f} m over {r['length_m']:.0f} m = "
+                             f"{100 * r['grade']:.2f} % (shapes {r['shapes']})" for r in js["ramps"][:6])
+                 + (f"; TOO SHORT (at the cap): " + ", ".join(f"#{r['face']} {r['ref']}" for r in short)
+                    if short else "; none at the cap"), out)
         if relaxed_rows:
             pub["relaxed_rows"] = relaxed_rows
         # THE YIELDED ROWS FIGURE (RULINGS 2026-09-08d (2); ``constraints/yielding.py``):
@@ -576,6 +585,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"[{icao}] apron grade by shape (08k): " + ", ".join(
                 f"shape {k}: max {v['max_grade']:.4f} ({v['yielded']}/{v['rows']} over cap)"
                 for k, v in top_s), out)
+        if yr.get("runway_contacts"):
+            rc = yr["runway_contacts"]
+            _say(f"[{icao}] runway contacts (08r-1, no ceiling): {len(rc)} contacts, "
+                 f"{sum(1 for c in rc if c['yielded'])} yielded; steepest " + ", ".join(
+                     f"v{c['vertex']} face {c['face']} {100 * c['max_grade']:.2f} % at "
+                     f"{c['ll'][0]:.6f},{c['ll'][1]:.6f}" for c in rc[:6]), out)
         # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,
         # the rows the surface holds above 1 % and its max grade
         from ..constraints.apron import apron_preference_report

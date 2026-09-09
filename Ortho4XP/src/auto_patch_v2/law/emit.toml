@@ -205,9 +205,9 @@ band_roles         = ["apron", "junction", "service_road", "service_junction"]  
 # A yielded row is read by the census as a violation at its cap (v1's
 # reading) and counted apart under ``yielded_rows`` (sidecar / report /
 # census heading ``yielded_by_08d``).
-taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs, and the taxi CHAIN where it meets a runway-family vertex (RULINGS 2026-09-08i-1 default: the runway first, 04i — the chain yields at the runway so the 05L/23R hump drops; hard everywhere else) (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise)
+taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise).  THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2); constraints/yielding.py NETWORK_HARD_CLASSES): a taxi-class row whose vertices ALL lie on the taxiway network stays hard at its route law; the apron / road classes span the body and yield whatever their endpoints touch (lane v2shapes round 2 measured the alternative INFEASIBLE)
+# runway_contact_yield_max: NEVER STATED (owner RULINGS 2026-09-08r-1): the taxi CHAIN where it meets a runway-family vertex (family taxi_chain_at_runway) yields with NO ceiling — the taxiway conforms to the runway as v1's does (the 05L/23R hump: the chain at a 3 % ceiling lifted the runway +3.5 m over v1); the max yielded grade at each contact is reported (yielded_rows.runway_contacts).  check_yield refuses the key.
 # apron_yield_max: ABSENT (owner RULINGS 2026-09-08k (3)): inside a shape the apron rows are preferences with NO ceiling — 1 % preferred, 1.5 % the second tier, steeper where the shape's routes demand (HECA pav132's neck: 34 m over 1.1 km ≈ 3.1 %); a step is never lawful inside a shape, a steep grade is.  A class without its ``<class>_yield_max`` key yields unbounded (the groundside-ramp precedent).
-network_hard_classes = ["taxi"]   # THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2); lane v2shapes round 2): a row of one of these classes whose vertices ALL lie on the taxiway network (the runway family + the taxi-family faces carrying a runway-connected centreline, planar/shapes.py network_faces) stays hard; taxi_chain_at_runway yields regardless (08i-1).  The round's experiment knob awaiting the spawner's ruling (spec §11): ["taxi"] = the brief's literal (HECA replay bows -4.99 / -9.44 / -0.47, solve 82 s), [] = round 1's yielding network (-2.21 / -7.10 / -0.36, 128 s)
 road_yield_max      = 0.08    # ceiling of the road class = the core clamp (common.roles.service_road.longitudinal): a road row bound to a stricter contiguous class may yield up to its own cap
 sliver_area_factor  = 8.0     # change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m × this)² = 16 m² is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m², 47 m long)
 groundside_ramp_max = 0.05    # change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade as a preference (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
@@ -215,10 +215,11 @@ groundside_ramp_max = 0.05    # change 4 (b): the apron edge RAMPS to the ground
 # family -> class (a family is a generator, or a ruling-selected subset:
 # taxi_box = the ``taxi`` generator's box rows, no_step_pairs = ``no_step``'s
 # §1.1 pairs, taxi_chain_at_runway = the ``taxi`` generator's chain hops /
-# centreline chords with an endpoint on a runway-family face; the §1.2 rate
-# rows, the crossings and every other chain row stay hard)
+# centreline chords with an endpoint on a runway-family face — class
+# runway_contact, no ceiling (08r-1); the §1.2 rate rows, the crossings and
+# every other chain row stay hard)
 junction_mesh      = "taxi"
-taxi_chain_at_runway = "taxi"
+taxi_chain_at_runway = "runway_contact"   # 08r-1: no ceiling
 taxi_box           = "taxi"
 no_step_pairs      = "taxi"
 apron              = "apron"

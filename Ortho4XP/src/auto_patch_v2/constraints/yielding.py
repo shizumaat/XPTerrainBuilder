@@ -21,7 +21,8 @@ becomes a preference row —
 apron precedent, ``constraints/apron.py``: the solver pays for exactly the
 relief it uses; the group name carries the family and the face for the
 report) — with the escalation CEILING of its class (``taxi_yield_max`` /
-``apron_yield_max`` / ``road_yield_max``): a ``Diff``'s ceiling is that
+``apron_yield_max`` / ``road_yield_max``; the runway-contact class states
+NONE — owner RULINGS 2026-09-08r-1, the taxiway conforms to the runway): a ``Diff``'s ceiling is that
 grade; a ``Linear``'s ceiling is the metres its bound may rise, ``|bound|
 × (ceiling / cap − 1)`` with ``cap`` the row's face's own longitudinal
 cap.  A class whose ``<class>_yield_max`` key is ABSENT yields WITHOUT a
@@ -62,10 +63,14 @@ from .taxi import GEN as TAXI_GEN
 
 __all__ = ["GROUP", "FAMILY_SELECTORS", "YieldStats", "yield_family", "yield_rows",
            "yielded_rows", "groundside_ramps", "RAMP_FAMILY", "runway_vertices",
-           "CHAIN_MARK", "CENTRELINE_RULING", "NETWORK_YIELDS"]
+           "CHAIN_MARK", "CENTRELINE_RULING", "NETWORK_YIELDS", "NETWORK_HARD_CLASSES",
+           "CONTACT_FAMILY"]
 
 #: The groundside ramp rows' family (their group ``yield:groundside_ramp:…``).
 RAMP_FAMILY = "groundside_ramp"
+#: The runway-contact chain family (owner RULINGS 2026-09-08r-1: no ceiling;
+#: ``yielded_rows`` reports the max yielded grade per contact).
+CONTACT_FAMILY = "taxi_chain_at_runway"
 
 #: The escalation-group prefix of a yielding row (``Weights.preference``
 #: key, ``solve/assemble.preference_weight``): ``yield:<family>:<face>:<k>``.
@@ -152,15 +157,27 @@ def _face_cap(pm: PlanarMap, law: Law, row: Row) -> float | None:
     return None if rc is None else rc.longitudinal
 
 
-#: The family that yields on the network too (owner RULINGS 2026-09-08i-1:
-#: the chain yields where it meets the runway).
+#: The family that yields on the network too (owner RULINGS 2026-09-08i-1 /
+#: 08r-1: the chain yields where it meets the runway, with no ceiling).
 NETWORK_YIELDS = frozenset({"taxi_chain_at_runway"})
-#: The yield CLASSES held hard on the network come from the law table
-#: (``emit.toml [yield] network_hard_classes``, the round's experiment
-#: knob): the taxi class is the network's own surface law; the apron class
-#: (a frontage chord between two contacts on the network spans the BODY)
-#: and the road class are the body's law and yield whatever their
-#: endpoints touch (08k (3): no ceiling in a shape).
+#: THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2)): the yield CLASSES
+#: whose rows wholly on the network stay hard — the taxi class is the
+#: network's own surface law.  The apron class (a frontage chord between two
+#: contacts on the network spans the BODY — held hard it made the pinned
+#: two-contact twin INFEASIBLE, lane v2shapes round 2) and the road class
+#: are the body's law and yield whatever their endpoints touch (08k (3)).
+#: Round 2's experiment knob (``[yield] network_hard_classes``, arm B = the
+#: yielding network) was refuted and deleted; this is arm A.
+NETWORK_HARD_CLASSES = frozenset({"taxi"})
+#: MEASURED (lane v2shapes round 3, HECA replay): the chain rows with no
+#: ceiling leave the 05L/23R hump where it was (65.02 m; the contact rows
+#: reach 1.72 %), and widening the contact family to every taxi-class row
+#: touching a runway vertex (box, §1.1 pairs, junction mesh) moved it 0.06 m
+#: (contacts to 4.9 % over sub-metre hops; bows −2.98 / −8.18 against v1's
+#: −4.25 / −9.53) — the contact is held by the §1.1 pairs one station in
+#: and the §1.2 RATE law (``no_step``, not a yield family): a 3 % first hop
+#: is INFEASIBLE in the hard set (twin).  The widening was deleted; the
+#: ruling's literal stands.
 
 
 def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
@@ -172,12 +189,12 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
     vertices of the faces carrying a runway-connected centreline, and the
     runway's) stays hard at its law — the taxiways connect the shapes by
     ROUTE; only the runway-contact chain (:data:`NETWORK_YIELDS`) yields
-    there, and only the classes ``[yield] network_hard_classes`` names are held:
+    there, and only the classes :data:`NETWORK_HARD_CLASSES` names are held:
     an apron chord between two contacts on the network spans the body and
     yields as the body's law.  A row with one end in a body yields (the
     body's weld to the network is a soft edge on the body's side)."""
     classes = dict(yield_law(law).families)
-    hard_classes = frozenset(yield_law(law).network_hard_classes)
+    hard_classes = NETWORK_HARD_CLASSES
     fams = [(name, FAMILY_SELECTORS[name]) for name in classes if name in FAMILY_SELECTORS]
     rw = runway_vertices(pm, law) if any(n == "taxi_chain_at_runway" for n, _s in fams) else frozenset()
     st = stats if stats is not None else YieldStats()
@@ -298,6 +315,10 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
     by_shape: dict[int, dict[str, _t.Any]] = {}        # 08k: the max apron grade inside each shape
     shape_of = pm.shape_of_vertex if pm is not None else {}
     worst: dict[str, list[tuple[float, dict[str, _t.Any]]]] = {}   # per family, the steepest rows
+    # THE RUNWAY CONTACTS (08r-1): per runway-family vertex the chain rows
+    # meet, the max grade the taxiway conformed at
+    rw = runway_vertices(pm, law) if pm is not None else frozenset()
+    contacts: dict[int, dict[str, _t.Any]] = {}
     for r in (*cs.diffs, *cs.linears):
         fam = yield_family(r)
         if fam is None:
@@ -309,6 +330,17 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
                 continue
             g = abs(float(z[r.a]) - float(z[r.b])) / r.d
             rec["max_grade"] = max(rec["max_grade"], g)
+            if fam == CONTACT_FAMILY and rw:
+                for cv in (v for v in (r.a, r.b) if v in rw):
+                    c = contacts.setdefault(cv, {"vertex": cv, "ll": list(pm.vertices[cv].key),
+                                                 "face": _face_of(r), "rows": 0, "yielded": 0,
+                                                 "max_grade": 0.0, "cap": r.cap})
+                    c["rows"] += 1
+                    if g > c["max_grade"]:
+                        c["max_grade"] = g
+                        c["face"] = _face_of(r)
+                    if g > r.cap + tol_g:
+                        c["yielded"] += 1
             if fam.startswith("apron") and shape_of:
                 sid = max(shape_of.get(r.a, -1), shape_of.get(r.b, -1))   # the labelled end (08p: N is unlabelled)
                 sr = by_shape.setdefault(sid, {"rows": 0, "yielded": 0, "max_grade": 0.0})
@@ -346,10 +378,13 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
         rec["max_over_m"] = round(rec["max_over_m"], 4)
     for sr in by_shape.values():
         sr["max_grade"] = round(sr["max_grade"], 6)
+    for c in contacts.values():
+        c["max_grade"] = round(c["max_grade"], 6)
     return {"families": dict(sorted(fams.items())),
             "rows": sum(v["rows"] for v in fams.values()),
             "yielded": sum(v["yielded"] for v in fams.values()),
             "by_shape": dict(sorted(by_shape.items())),
+            "runway_contacts": sorted(contacts.values(), key=lambda c: -c["max_grade"]),
             "worst": {fam: [r for _g, r in sorted(w, key=lambda t: -t[0])[:8]]
                       for fam, w in sorted(worst.items())},
             "published": pub}

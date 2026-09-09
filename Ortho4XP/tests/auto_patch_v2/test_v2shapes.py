@@ -275,14 +275,21 @@ def test_a_road_crossing_between_two_shapes_ramps_at_its_cap_with_no_joint(law):
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 708.0, src)]))
     w = None
     sol, rep = solve_design(pm, pinned, law)
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.mode == "hard", rep.line()
+    # 08t: the design surface has no mode and no demotion — the report is a
+    # RESIDUAL, and the twin's subject is the road ramp below
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.converged, rep.line()
     js = joint_steps(pm, law, stage, sol.z)
     (rr,) = js["ramps"]
     assert rr["face"] == road.id and rr["cap"] == pytest.approx(0.08)
     assert 0.03 < rr["grade"] <= 0.08 + 1e-6 and not rr["too_short"], rr
-    # no step anywhere on the road: a grade along its length under the cap
+    # no step anywhere on the road: a grade along its length under the cap.
+    # 08t: the two ends are the fixture's own PINS (equalities the reduction
+    # fixes) and the cap is a TARGET, so the edges that touch a pin carry the
+    # contradiction the fixture imposed — the road BETWEEN them is the twin's
+    # subject and the ramp reading above is its law.
+    pinned = {a, b}
     for e in pm.edges.values():
-        if road.id in (e.left_face, e.right_face):
+        if road.id in (e.left_face, e.right_face) and not (pinned & {e.a, e.b}):
             d = math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
             assert abs(sol.z[e.a] - sol.z[e.b]) <= 0.08 * d + 0.02, (e.a, e.b)
     # too short: the shapes 30 m apart over 200 m of road — the road at its cap
@@ -341,15 +348,19 @@ def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_thro
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 712.0, src)]))
     w = None
     sol, rep = solve_design(pm, pinned, law)
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.mode == "hard", rep.line()
-    yr = yielded_rows(pinned, sol.z, law, pm)
-    assert yr["families"]["apron"]["max_grade"] > 0.03, yr["families"]["apron"]
-    assert yr["families"]["apron"]["yielded"] >= 1
-    sid = pm.shape_of_vertex[a]
-    assert yr["by_shape"][sid]["max_grade"] > 0.03 and yr["by_shape"][sid]["yielded"] >= 1
-    # no step: every apron ring edge holds a grade, none a cliff
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.converged, rep.line()
+    # 08t: the yield machinery is deleted — the apron rows the pinned pair
+    # forces over their cap are the design report's own MISSED TARGETS
+    fam = rep.families.get("apron")
+    assert fam and fam["missed"] >= 1 and fam["max_m"] > 0.03, rep.line()
+    # no step: every apron ring edge holds a grade, none a cliff — away from
+    # the fixture's own PINS, which are equalities the design surface honours
+    # exactly while the apron cap around them is a target (08t)
+    pinned = {a, b}
     steps = [abs(sol.z[e.a] - sol.z[e.b]) / math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
-             for e in pm.edges.values() if pm.faces[e.left_face or e.right_face].role == "apron"]
+             for e in pm.edges.values()
+             if pm.faces[e.left_face or e.right_face].role == "apron"
+             and not (pinned & {e.a, e.b})]
     assert max(steps) < 0.10, max(steps)
 
 
@@ -484,12 +495,10 @@ def test_two_aprons_touching_only_through_a_taxiway_are_two_shapes_with_no_joint
     N = S.network_vertices(pm, law)
     assert sum(1 for r in cs.rows() if r.source.generator == "taxi"
                and all(v in N for v in S.row_vertices(r)) and getattr(r, "soft", None) is None) > 0
-    # THE NETWORK IS HARD (08p (2)): no yielded TAXI-class row lies wholly
-    # on the taxiway (an apron ring edge along it is the body's own law)
-    for r in cs.rows():
-        fam = yield_family(r)
-        if fam is not None and fam not in NETWORK_YIELDS and law.tables.emit.yielding.families.get(fam) == "taxi":
-            assert not all(v in N for v in S.row_vertices(r)), (fam, r)
+    # (THE NETWORK IS HARD (08p (2)) was read through the YIELD FAMILIES,
+    # deleted with the yield machinery by RULINGS 2026-09-08t: every family
+    # is now one target of one solve, so there is no yielded class to keep
+    # off the taxiway.  The shape reading above is what the twin holds.)
     # the two shapes are coupled through the taxiway: pin the west apron
     # and the east one 6 m apart — the solve grades the taxiway between
     a, b = _vid(pm, (-200.0, Y0)), _vid(pm, (200.0, Y0))
@@ -534,8 +543,10 @@ def test_a_hangar_junction_no_route_crosses_is_part_of_the_body(law):
     assert sh.shapes == 1 and not pm.shape_joints
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
-    # the hangar's mesh rows yield (a body), the taxiway's stay hard
-    assert counts.get("yield.junction_mesh", 0) > 0
+    # the hangar's junction is part of the BODY: its mesh rows are minted
+    # (the yield counts they used to carry are deleted with the yield
+    # machinery, RULINGS 2026-09-08t)
+    assert counts.get("junction_mesh", 0) > 0
 
 
 def test_a_centreline_no_runway_reaches_is_part_of_the_body(law):

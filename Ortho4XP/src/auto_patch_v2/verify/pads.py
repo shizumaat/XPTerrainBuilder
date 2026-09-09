@@ -21,7 +21,9 @@ the register twins (v1 families == v2 families) hold.  A pad's ``Flat``
 is a hard equality no tier demotes (``solve/tiers.py``) and a plane
 exists only inside the relaxation, so a row here can only come from a
 solver / emit defect: the pipeline reports it as a DEFECT
-(``verify.DEFECT_KEYS``), the app driver as a named failure.
+a census row of its own family (RULINGS 2026-09-08v withdrew ``pad_flat``
+from ``verify.DEFECT_KEYS``: under the design surface the pad's flatness is
+a TARGET of the one solve, and the gate reads the runway family only).
 """
 from __future__ import annotations
 

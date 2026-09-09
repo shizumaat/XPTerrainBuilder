@@ -78,6 +78,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon (``publication.face_holes_ll``)
+    "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
+    "design_target",  # RULINGS 2026-09-08t/v: one record per law row the surface missed — the census's ``design_target`` heading
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
 )
 

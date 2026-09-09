@@ -129,6 +129,18 @@ def runway_transverse(p: Patch) -> list[Row]:
     spines = [list(sh.closed_ring) for sh in p.features if sh.feature == "crown_spine"]
     if not spines:
         return []
+    # THE ROW IS AGAINST THE VERTEX'S OWN RUNWAY (RULINGS 2026-09-05o, spec
+    # ``runway-transverse-max-spec.md`` §3: "at lateral distance d on its OWN
+    # ridge chain" — the generator's scope).  Reading the NEAREST spine of any
+    # runway measured a 14L/32R edge against 14R/32L's crown 196 m away and
+    # called the cross-fall between two runways a transverse defect (CYXY,
+    # measured 2026-09-08: 2 of 2 DEFECT rows, up to 1.15 m, on pairs the
+    # solve never states — the two instruments were not twins).  The nearest
+    # spine remains the fallback where a runway ships no crown spine of its own.
+    own: dict[str, list] = {}
+    for sh in p.features:
+        if sh.feature == "crown_spine" and sh.ref not in own:
+            own[sh.ref] = [list(sh.closed_ring)]
     xing: set[int] = set()
     for sh in p.shapes:
         if sh.role == "runway_crossing":
@@ -142,12 +154,13 @@ def runway_transverse(p: Patch) -> list[Row]:
         if cap is None:
             continue
         noise = noise_m(law, sh.role)
+        ridge = own.get(sh.ref, spines)
         for k, v in enumerate(sh.ids):
             if v in xing or v in seen:
                 continue
             seen.add(v)
             x, y = sh.xy[k]
-            dist, ridge_z, foot = _nearest_ridge(x, y, spines)
+            dist, ridge_z, foot = _nearest_ridge(x, y, ridge)
             if ridge_z is None or dist <= 0.0:
                 continue
             fall = ridge_z - sh.z[k]

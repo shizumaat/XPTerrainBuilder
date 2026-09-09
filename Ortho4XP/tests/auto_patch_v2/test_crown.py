@@ -141,8 +141,16 @@ def test_crown_generator_declares_the_built_drop(diagonal, law):
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     built = runway_profile.crown_drops(pm, law, airport, sol.z)
     assert set(built) == set(designed)
+    # THE CROWN FLOOR IS A TARGET (RULINGS 2026-09-08t; it was already a
+    # PREFERENCE under the ladder, M3a): the design surface aims for the
+    # declared drop and the DECLARATION is the surface's own built fall —
+    # what the twin holds is that the two READ THE SAME VERTICES and that the
+    # built drop is the designed one within the census's own envelope, not
+    # that the floor binds.
     edge = [v for v, d in designed.items() if d > 0.0]
-    assert edge and all(built[v] >= designed[v] - 1e-6 for v in edge)
+    noise = law.tables.emit.instrument.rounding_noise_m
+    worst = max(designed[v] - built[v] for v in edge)
+    assert edge and worst <= 4.0 * noise, (worst, noise)
 
 
 def _emit(diagonal, law, out_dir):

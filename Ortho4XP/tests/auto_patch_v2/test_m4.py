@@ -216,7 +216,10 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     lin = [r for r in rows if isinstance(r, Linear) and r.source.ruling.startswith("tunnel.bore_datum")]
     assert lin
     for r in lin:
-        assert sum(c * sol.z[v] for v, c in r.terms) == pytest.approx(-tn.bore_datum_m, abs=1e-6)
+        # 08t: the bore datum is a TARGET of the least-squares solve — met to
+        # the solve's own tolerance, not to the LP's exact equality
+        assert sum(c * sol.z[v] for v, c in r.terms) == pytest.approx(
+            -tn.bore_datum_m, abs=law.tables.emit.materiality.elevation_m)
     wz = [sol.z[v] for f in walls[east.id] for v in pm.ring_vertices(f.ring)]
     assert max(wz) - min(zs) >= tn.bore_datum_m - 1e-6
     # the deck stands the clearance above the ramp beneath

@@ -33,7 +33,7 @@ def shared_edge(law):
 
 
 def _emit(shared_edge, law, tmp_path, with_generator):
-    airport, pm, rw, v, cs, sol = _solve_with_pin(shared_edge, law, PULL_M,
+    airport, pm, rw, v, cs, sol, _rep = _solve_with_pin(shared_edge, law, PULL_M,
                                                   with_generator=with_generator,
                                                   hold_ridge=not with_generator)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message

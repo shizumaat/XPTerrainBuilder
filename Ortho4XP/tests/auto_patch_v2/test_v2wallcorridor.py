@@ -43,12 +43,12 @@ from auto_patch_v2.law.tables import is_structure_role, role_cap, role_side
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.structures import profile_z
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, _plate_seats, plate_stations
+from auto_patch_v2.pipeline.build import _plate_seats, plate_stations
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import _pad_relief_m as _pad_relief, build_structures
 from auto_patch_v2.planar.wall_corridor_ramps import GARAGE_ROLE, KIND, RAMP_ROLE, wall_corridor_groups
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 
 from test_tunnel_objects import _airport, _cells as _wall_cells, _rect, _slab, _wall_obj, _write
 
@@ -412,8 +412,11 @@ def test_generator_rows_solve_and_emit(objs, law):
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - ts[0].mouth_z) < 1e-6 for r in pins)
     cs, _counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    # THE DESIGN SURFACE (RULINGS 2026-09-08t): one least-squares solve, no
+    # IIS — the solve is never infeasible, so the assertion is that it
+    # returns a surface, and the ramp geometry below is the twin's subject
+    sol, _rep = solve_design(pm, cs, law, Options())
+    assert sol.status is Status.OPTIMAL, sol.message
     faces = [f for f in pm.faces.values() if f.role == RAMP_ROLE]
     assert faces
     for t in ts:

@@ -192,10 +192,15 @@ def test_a_2m_step_between_4m_rim_neighbours_is_refused_by_the_row_and_read_with
     cs, sol3 = _solve(ridge, law)
     assert sol3.status in (Status.OPTIMAL, Status.FEASIBLE), sol3.message
     row = next(r for r in _box_rows(cs) if (min(r.a, r.b), max(r.a, r.b)) == key)
-    assert abs(sol3.z[a] - sol3.z[b]) <= row.bound_m + 1e-6
+    # 08t: the box row is a TARGET — met to the census's own elevation
+    # materiality, not to the LP's exact bound
+    # (the census's own per-node envelope: a target met inside it can mint
+    # no census row — RULINGS 2026-09-08t, the census reports the rest)
+    mat = law.tables.emit.instrument.rounding_noise_m
+    assert abs(sol3.z[a] - sol3.z[b]) <= row.bound_m + mat
     assert row.bound_m < STEP_M
     for r in _box_rows(cs):
-        assert abs(sol3.z[r.a] - sol3.z[r.b]) <= r.bound_m + 1e-6
+        assert abs(sol3.z[r.a] - sol3.z[r.b]) <= r.bound_m + mat
     v2b, oracle_b, _s = _readers(ridge, law, sol3, tmp_path / "held")
     assert v2b == [] and oracle_b == []
 

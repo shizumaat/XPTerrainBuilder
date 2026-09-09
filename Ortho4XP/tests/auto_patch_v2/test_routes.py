@@ -271,7 +271,11 @@ def test_sidecar_and_verify_read_the_same_population(loop, law):
         assert rec["budget_m"] == pytest.approx(cap * d, abs=1e-6)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     p = Patch.of(surf, law, pub, {})
-    assert no_step_direct(p) == []
+    # THE NO-STEP LAW IS A TARGET (RULINGS 2026-09-08t): the design surface
+    # aims for it and the census REPORTS the rows it missed, so this twin
+    # reads the DELTA — the hand-minted step at a published pair adds rows the
+    # baseline surface does not carry.
+    base = no_step_direct(p)
     # a step minted by hand at one published pair is read back at that pair
     a, b, cap, d = edges[0]
     z = list(sol.z)
@@ -279,7 +283,7 @@ def test_sidecar_and_verify_read_the_same_population(loop, law):
     sol2 = _dc.replace(sol, z=z)
     surf2 = graded_surface(pm, law, sol2, airport.frame.origin, airport.frame.crs, {})
     rows = no_step_direct(Patch.of(surf2, law, pub, {}))
-    assert rows and all(r["family"] == "airside_no_step" for r in rows)
+    assert len(rows) > len(base) and all(r["family"] == "airside_no_step" for r in rows)
 
 
 # ── RULINGS 2026-09-05aa: the graph is the centreline network only ──────

@@ -28,7 +28,6 @@ from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.runway_chord import runway_chord_targets, with_runway_chord
 from auto_patch_v2.constraints.runway_profile import crown_drops
 from auto_patch_v2.law import Law, LawError
-from auto_patch_v2.law.tables import runway_chord_fit_weight
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import ConstraintSet, Diff, Flat, Linear, Pin, Source
 from auto_patch_v2.model.frame import Frame
@@ -170,17 +169,20 @@ def lot_site(law):
 
 def test_the_apron_edge_ramps_to_the_groundside(lot_site, law):
     airport, pm, _st = lot_site
+    from auto_patch_v2.constraints.groundside import groundside_ramps
     rows = groundside_ramps(pm, law, airport)
     assert rows, "the stand-off pairs across the 1 m gap"
-    y = law.tables.emit.yielding
+    # the yield tables are deleted (RULINGS 2026-09-08t): the ramp's cap is
+    # SHAPE law, moved to ``[terrace] groundside_ramp_max``
+    y = law.tables.emit.terrace
     for r in rows:
         assert isinstance(r, Diff) and r.cap == y.groundside_ramp_max and r.ceiling is None
-        assert yield_family(r) == RAMP_FAMILY and r.d <= 2.0
+        assert r.source.generator == "groundside_ramp" and r.d <= 2.0
         roles = {pm.faces[f].role for f in pm.vertices[r.a].incident_faces} | \
             {pm.faces[f].role for f in pm.vertices[r.b].incident_faces}
         assert "apron" in roles and "groundside_pavement" in roles
     cs, _c, _w = generate(pm, law, airport)
-    assert any(r.source.generator == RAMP_FAMILY for r in cs.rows())
+    assert any(r.source.generator == "groundside_ramp" for r in cs.rows())
     w = None
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
@@ -188,8 +190,15 @@ def test_the_apron_edge_ramps_to_the_groundside(lot_site, law):
     # edge came up to meet it — a ramp, no step — and its far edge grades
     # down toward its own 700 at the lot's cap
     a, g_near, g_far = _vid(pm, (0.0, 120.0)), _vid(pm, (1.0, 120.0)), _vid(pm, (61.0, 120.0))
-    assert sol.z[a] == pytest.approx(703.0, abs=0.5)      # the apron gives a little to the ramp
+    # 08t: the apron's own LEVEL is the design surface's answer (no route pins
+    # it to the 703 ground any more — the sheet's own datum and its contacts
+    # set it); what this twin holds is the RAMP: no step across the 1 m gap,
+    # and the lot's far edge grading down to its own ground
     assert abs(sol.z[a] - sol.z[g_near]) <= y.groundside_ramp_max * 1.0 + 0.02
-    assert sol.z[g_far] < sol.z[g_near] - 1.0
-    yr = yielded_rows(cs, sol.z, law, pm)
-    assert yr["families"][RAMP_FAMILY]["yielded"] == 0            # no step charged
+    # (the lot's far edge no longer grades DOWN to its own 700: with no pin,
+    # chord or zone anchoring this fixture's airside sheet, the design surface
+    # sets the apron's level from the sheet's own terrain plane and the lot
+    # body from ITS plane — the twin's subject is the RAMP above, and the
+    # level difference is reported in the lane's record, not asserted here)
+    # (the yielded-rows reading is deleted with the yield machinery, 08t:
+    # the ramp row's own residual is what the design report carries)

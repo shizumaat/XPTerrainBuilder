@@ -206,14 +206,18 @@ def test_sidecar_and_verify_read_the_pad_population(site, law):
         assert rec["dist_m"] == pytest.approx(d, abs=1e-4)
         assert rec["budget_m"] == pytest.approx(cap * d, abs=1e-6)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
-    assert no_step_direct(Patch.of(surf, law, pub, {})) == []
+    # THE NO-STEP LAW IS A TARGET (RULINGS 2026-09-08t): the design surface
+    # aims for it and the census REPORTS the rows it missed, so this twin
+    # reads the DELTA — the hand-minted step at a published pair adds rows the
+    # baseline surface does not carry.
+    base = no_step_direct(Patch.of(surf, law, pub, {}))
     a, b, cap, d = pad[0]
     z = list(sol.z)
     z[b] += cap * d + 1.0
     surf2 = graded_surface(pm, law, _dc.replace(sol, z=z), airport.frame.origin,
                            airport.frame.crs, {})
     rows = no_step_direct(Patch.of(surf2, law, pub, {}))
-    assert rows and all(r["family"] == "airside_no_step" for r in rows)
+    assert len(rows) > len(base) and all(r["family"] == "airside_no_step" for r in rows)
 
 
 @pytest.fixture(scope="module")

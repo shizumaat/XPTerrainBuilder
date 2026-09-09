@@ -354,8 +354,14 @@ def _structures_emit_checks(c: Checks, t) -> None:
     # IIS / relaxation / yield machinery they priced; [design] replaces them.
     assert not hasattr(e, "relaxation") and not hasattr(e, "yielding")
     d = e.design
-    for term in ("bend", "chord", "law", "dem_zone", "road", "detached_mean"):
+    # the BENDING WEIGHT IS PER CLASS (RULINGS 2026-09-08v)
+    for term in ("bend_runway", "bend_taxi", "bend_apron", "bend_strip",
+                 "bend_road", "chord", "law", "dem_zone", "road", "detached_mean"):
         assert d.weight(term) > 0.0
+    for cls in ("runway", "taxi", "apron", "road", "strip"):
+        assert d.bend(cls) > 0.0
+    # THE RUNWAY FAMILY'S LAWS ARE CONSTRAINTS, not targets
+    assert d.hard_rulings and d.hard_weight > d.law and d.hard_tol_m > 0.0
     assert d.active_set_max_rounds >= 1 and 0.0 < d.active_set_tol_m < 1.0
     assert e.within_shape.pad_slope_max == 0.01      # 05f, moved here from [relaxation]
 

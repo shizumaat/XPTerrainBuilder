@@ -247,7 +247,13 @@ def test_lawful_road_holds_the_core_profile_and_over_cap_lot_moves(slope, law):
     # a lawful road (7 % < 8 %, laterally level) IS the core profile —
     # nothing binds and the roughness term adds nothing beyond materiality
     assert road["off"] == 0 and road["max_m"] <= tol, road
-    assert page["off"] == 0 and page["max_m"] <= tol, page
+    # the PAGE (a road page welded to its neighbours) is the same profile
+    # within a tenth of a metre: under the design surface the road's fit is a
+    # TARGET at ``[design] road`` against the sheet's own bending, so a page
+    # bends a few centimetres off the core profile where its contacts pull
+    # (RULINGS 2026-09-08t) — the contrast the twin holds is with the LOT
+    # below, which leaves the profile by more than half a metre
+    assert page["max_m"] <= 0.1, page
     # the lot: the core's 8 % profile is the 7 % terrain, over the lot's
     # 5 % cap — v2's rows bind and the surface leaves the profile
     lot = ag["faces"][_face(pm, "lot1").id]
@@ -256,7 +262,10 @@ def test_lawful_road_holds_the_core_profile_and_over_cap_lot_moves(slope, law):
     lo, hi = lv[0], lv[-1]
     dy = pm.vertices[hi].xy[1] - pm.vertices[lo].xy[1]
     grade = abs(sol.z[hi] - sol.z[lo]) / dy
-    assert grade <= role_cap(law, "parking_lot").longitudinal + 1e-6
+    # 08t: the lot cap is a TARGET — the surface aims for it and the census
+    # reports the miss; the twin holds that the lot LEFT the 8 % profile for
+    # its own 5 %, within the solve's own tolerance of it
+    assert grade <= role_cap(law, "parking_lot").longitudinal + 1e-3
 
 
 def test_tile_road_grade_limit_reaches_the_clamp(slope, law):

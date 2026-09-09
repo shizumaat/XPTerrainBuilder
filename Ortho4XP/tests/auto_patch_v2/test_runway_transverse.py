@@ -181,8 +181,8 @@ def _solve_with_pin(shared_edge, law, depth_m, *, with_generator, envelope=True,
         cs2 = ConstraintSet.from_rows(
             [r for r in cs2.rows()
              if not (isinstance(r, Band) and r.source.generator == REACH_GENERATOR)])
-    sol = solve_design(pm, cs2, law)[0]
-    return airport, pm, rw, v, cs2, sol
+    sol, rep = solve_design(pm, cs2, law)
+    return airport, pm, rw, v, cs2, sol, rep
 
 
 def _built_falls(pm, law, airport, z):
@@ -202,7 +202,7 @@ def _built_falls(pm, law, airport, z):
 
 
 def test_without_the_generator_the_edge_falls_and_verify_flags_it(shared_edge, law, tmp_path):
-    airport, pm, rw, v, cs, sol = _solve_with_pin(shared_edge, law, PULL_M, with_generator=False,
+    airport, pm, rw, v, cs, sol, rep = _solve_with_pin(shared_edge, law, PULL_M, with_generator=False,
                                                   hold_ridge=True)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     falls = _built_falls(pm, law, airport, sol.z)
@@ -221,10 +221,14 @@ def test_without_the_generator_the_edge_falls_and_verify_flags_it(shared_edge, l
 
 
 def test_with_the_generator_the_edge_holds_within_the_cap(shared_edge, law):
-    airport, pm, rw, v, cs, sol = _solve_with_pin(shared_edge, law, PULL_M, with_generator=True)
+    airport, pm, rw, v, cs, sol, rep = _solve_with_pin(shared_edge, law, PULL_M, with_generator=True)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
+    # THE TRANSVERSE MAXIMUM IS A CONSTRAINT of the design surface (RULINGS
+    # 2026-09-08v): held to the solve's own tolerance (``[design] hard_tol_m``,
+    # inside the census's rounding envelope), not to the LP's exact bound
+    tol_h = law.tables.emit.design.hard_tol_m
     falls = _built_falls(pm, law, airport, sol.z)
-    assert all(abs(f) <= b + 1e-6 for f, b in falls.values()), \
+    assert all(abs(f) <= b + tol_h for f, b in falls.values()), \
         max((abs(f) - b, u) for u, (f, b) in falls.items())
     # the profile flexed to the pinned edge: the ridge foot moved with it
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
@@ -234,14 +238,16 @@ def test_with_the_generator_the_edge_holds_within_the_cap(shared_edge, law):
 
 
 def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):
-    airport, pm, rw, v, cs, sol = _solve_with_pin(shared_edge, law, DEEP_PULL_M,
+    airport, pm, rw, v, cs, sol, rep = _solve_with_pin(shared_edge, law, DEEP_PULL_M,
                                                   with_generator=True, envelope=False)
-    assert sol.residual is not None and sol.residual.max_m > 0.1  # 08t: a residual, not an IIS
-    named = {s.generator for _r, s in sol.iis}
-    assert PIN_SRC.generator in named, named
-    # the runway law that refuses the pull: the transverse maximum, or —
-    # since RULINGS 2026-09-06b law 1 — the vertical curve the profile
-    # would have to break to follow the edge down 14 m
-    assert any(s.ruling.startswith("rulesets.runway.transverse_max")
-               or s.ruling.startswith("rulesets.runway.vertical_curve_k_m")
-               for _r, s in sol.iis)
+    # 08t/08v: there is no IIS.  The pull the fixture adds is a PIN the design
+    # surface cannot honour beside the runway family's CONSTRAINTS, so what
+    # names it is the residual: the pin is off by metres while the runway laws
+    # — the transverse maximum and the vertical curve — are HELD.
+    # 08t/08v: there is no IIS.  The fixture's pin is an EQUALITY the
+    # reduction fixes, so the contradiction lands in the LAW rows around it:
+    # the certificate's ``max_diff_m`` names it, and the design report books
+    # it against the runway family whose rows the pull breaks.
+    assert sol.residual is not None and sol.residual.max_diff_m > 0.1
+    fam = rep.families.get("runway_profile")
+    assert fam and fam["missed"] > 0 and fam["max_m"] > 0.1, rep.line()

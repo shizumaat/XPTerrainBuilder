@@ -165,3 +165,166 @@ and HECA captures, per-round LINEAR-SOLVER wall summed over the active set:
 The HiGHS QP arm is 119k columns / 116k rows at CYXY alone; it did not
 converge in 600 s where the chosen method answers the whole solve stage in
 0.5 s.  HECA is four times the size and was not attempted.
+
+## 7. Round 2 (RULINGS 2026-09-08v): the runway laws hard, the bending per class
+
+### 7.1 The consumer census before editing (owner 30l), items 1 and 4
+
+**Item 1 — the runway family's laws become CONSTRAINTS, and the DEFECT gate
+reads the runway family only.**
+
+| Consumer | What it reads today | Ruling |
+|---|---|---|
+| `solve/design.assemble` (the one-sided rows) | every law row as a penalty at `[design] law` | a row whose `Source.ruling` head is in `[design] hard_rulings` is a CONSTRAINT: priced at `hard_weight` with a multiplier shift, iterated to `hard_tol_m`.  A PREFERENCE among them (the end-zone cap, owner 2026-07-08) is hard AT ITS CEILING and keeps its preferred bound as the target: two sides, one row |
+| `solve/design` bank filter (08t answers 2/3) | drops a law row with one foot on fixed terrain | UNCHANGED, and a dropped row is never hard — the bank stays lawful |
+| `constraints/runway_profile` (the generator) | mints profile / crown / transverse / K / ring-chord / crossing rows, all one generator | UNCHANGED.  Hardness is by RULING, not by generator: the crown floor (a preference, M3a), the ring chords and the crossing feet — which price PAIRS the four hard laws already govern — stay targets.  Hard they were measured mutually unsatisfiable at CYXY (127/1432 ring chords missed by up to 0.77 m under the soft solve) |
+| `verify/census.DEFECT_KEYS` | `pad_flat`, `runway_transverse`, `runway_vertical_curve` | `pad_flat` WITHDRAWN: a rigid pad's flatness is a target of the same solve as every other law, so a pad off its plane is a census row.  The gate reads the runway family only |
+| `pipeline/build.py` (the `DEFECT` log + `report["verify"]["defects"]`) | `DEFECT_KEYS` | unchanged code, new (smaller) population |
+| `tools/harness/build_airport.py` (`verify_defects`, "the app build would fail this airport") | `DEFECT_KEYS` | unchanged code; its comment now names the runway laws |
+| `verify/pads.pad_flat` | reads the built pads | UNCHANGED — it still reports; only its DEFECT status is withdrawn |
+| `verify/runway.runway_transverse` | measured against the NEAREST crown spine of ANY runway | REPAIRED to the vertex's OWN runway (05o §3, the generator's scope).  Measured at CYXY: 2 of 2 remaining DEFECT rows were a 14L/32R edge priced against 14R/32L's crown 196 m away — the two instruments were not twins |
+| `verify/runway.runway_crown`, `runway_vertical_curve` | own-ref / declared drops already | unchanged |
+| `solve/why.py`, `tools/v2_solve_replay.py` | the design report | unchanged (new fields only) |
+| Swift (`Sources/SceneryKit`) | the JSONL events and the patch | no consumer: the app never reads a law family name |
+
+**Item 4 — the `design` and `design_target` sidecar keys.**
+
+| Consumer | What it reads today | Ruling |
+|---|---|---|
+| `pipeline/publication.publication` | the solve's pricing | `pipeline/build.py` adds `design` (the report) and `design_target` (one record per missed row: `family`, `miss_m`, the vertices' `ll`) where the report lives |
+| `emit/osm_adapter.SIDECAR_KEYS` | the register a sidecar key must be in | both keys registered (a key outside it is refused at write time) |
+| `tools/check_grade.SIDECAR_LAW_KEYS` | keys `run_checks` consumes as LAW | neither: nothing re-prices a row.  Under the design surface a missed target IS a census row, counted law-true in its own family |
+| `tools/check_grade.SIDECAR_EVIDENCE_KEYS` | keys the census reports | both registered; `design_target_summary(patch)` is the reading (rows and worst miss per family) |
+| `tools/harness/census.py` | the report and its headings | one heading, `DESIGN TARGETS (08t, ... counted law-true in their families)`, beside the yielded-rows heading it replaces |
+| `tests/test_harness.py` (the classification twin) | every emitted key ∈ LAW ∪ EVIDENCE | passes with the two registrations; it is what makes a silently-ignored key impossible |
+| `law_tiers` (the key `design` replaces) | deleted in round 1 | no reader remained |
+
+**Dead law values deleted** (`blast.py` / grep: no reader outside their own
+accessor): `rulesets.toml [common] runway_profile_smoothness` and
+`runway_chord_fit` (with `law.tables.runway_chord_fit_weight`), and
+`flat_site.toml [datum] weight` (with `law.tables.flat_datum_weight` and the
+schema field) — all three were rungs of the preference LADDER round 1 deleted.
+
+### 7.2 What was built
+
+1. **The runway laws are held, not traded.**  `[design] hard_rulings` names
+   the transverse maximum (05o), the vertical curve K (06b law 1) and the
+   runway's max grade (the body cap, and the end-zone preference at its
+   ceiling); the threshold pins were already equalities.  The rows are scaled
+   to METRES (each divided by `Σ|c|/2`, so a K row's residual is metres of
+   surface rather than a dimensionless grade change), priced at
+   `hard_weight = 3e5`, and driven to `hard_tol_m = 0.02` by an outer
+   AUGMENTED-LAGRANGIAN loop around the damped active set: the inner set runs
+   to its fixed point with the multipliers held, then every violated runway
+   row's multiplier rises by `ρ × violation` and tightens that row's target.
+2. **The bending weight is per class** — `bend_runway` / `bend_taxi` /
+   `bend_apron` / `bend_road` / `bend_strip`, each bending row priced by the
+   senior class of its own vertex (`solve/design.bend_class`).
+3. The twins: 33 red twins re-scoped, 0 deleted (§7.4).
+4. The census stamp and the sidecar keys of §7.1.
+
+### 7.3 Deviations the lane REPORTS (round 2)
+
+7. **The hard rows are an augmented Lagrangian, not a KKT block.**  The
+   exact saddle-point active set was implemented and measured FIRST: it
+   CYCLED — CYXY, 40 rounds, ~40 rows entering and ~40 leaving every round,
+   1.08 m still violated — because releasing every negatively-signed
+   multiplier at once is not a convergent rule and releasing one at a time
+   costs a factorisation per row.  The multiplier iteration converges to the
+   same point and each round is the same sparse solve the objective already
+   pays for.  Measured CYXY: `hard_weight` 3e4 → 0.036 m, 3e5 → 0.010 m,
+   1e6 → 0.012 m, 1e8 → the factorisation breaks (the surface moves 500 m).
+   The residual left is a metre-scaled violation, and both DEFECT readers
+   carry their own envelopes above it (transverse `rounding_noise_m` 0.03 m;
+   K `coarse_noise_m × (1/d₁ + 1/d₂)`, 0.1 m scaled) — so a held row can mint
+   no defect row.  **This is a solver method, not a law change: state it in
+   the ruling if the owner wants the exact program instead.**
+8. **Hardness is by RULING, not by generator** (the census row above): the
+   `runway_profile` generator mints six distinct laws and three of them are
+   the census's own reading of pairs the four hard laws already govern.  The
+   whole generator hard was measured mutually unsatisfiable.
+9. **The hard rows are scaled to metres.**  Without it a K row's penalty was
+   ~1/d² weaker than a transverse row's at the same weight and the K law
+   never closed (CYXY: 0.0093 of grade change left at ρ = 3e6).
+10. **`verify/runway.runway_transverse` was repaired** to the vertex's own
+    runway (§7.1).  It is a VERIFY change inside a DEFECT family — reported,
+    not decided.
+11. **The undulation BAR of 08v is NOT met, and the mechanism the ruling
+    assumed is refuted** (§7.5).
+
+### 7.4 The 33 red twins (31 of 08v + two merge casualties)
+
+All 33 RE-SCOPED to the 08t world; **none deleted**.  Three patterns:
+
+* *"the census reads zero"* → *"the census REPORTS what the solve missed"*:
+  the twin now reads the DELTA a hand-minted step adds over the design
+  surface's own baseline, or the population lockstep between the two readers
+  (`test_routes`, `test_pad_route`, `test_stretches` ×2, `test_taxi_route_pairs`
+  ×2, `test_heca_read` strip, `test_v2ridge` ×2, `test_constraints` ×2).
+* *"the solve holds it exactly"* → *"the runway family holds it"* (to
+  `hard_tol_m`) where the row is a runway law (`test_runway_transverse` ×2,
+  `test_heca_read` K, `test_rwy_xfall` ×2), else *"it is met to the census's
+  own envelope"* (`test_v2ridge3`, `test_m4`, `test_m4b`, `test_v2lemd4`,
+  `test_m3c_roads`, `test_crown`, `test_why` chain step).
+* *the deleted machinery*: `iis`, `mode`, `yielded_rows`, `yield_family`,
+  `solve.highs`, `solve.assemble.preference_weight`, `DEFAULT_WEIGHTS`,
+  `Options(diagnose_iis=)`, `runway_chord_fit_weight`, `flat_datum_weight`
+  (`test_v2shapes` ×4, `test_flat_site` ×4, `test_v2chord`, `test_why`
+  relax, `test_v2wallcorridor`, `test_law_tables`, `test_v2smooth`).
+
+Two twins lost a property that the design surface does not have, each with
+its reason in place: the `why` CEILING (no single family moves the apron
+further than all of them together — measured false: `taxi_chain` alone lifts
+it 6.1 m where all of them settle it 3.9 m lower) and the `v2chord` lot's far
+edge grading down to its own ground (with no pin, chord or zone anchoring
+that fixture's airside sheet, the apron takes the sheet's own terrain plane
+and sits under the lot).
+
+### 7.5 The undulation sweep — the bar is NOT met (HECA capture, replay arms)
+
+Every arm: `tools/v2_solve_replay.py --replay HECA.pkl --verify --emit`, then
+`tools/undulation.py` on the emitted patch.  RMS second difference / p95
+grade change per 100 m, by role; bows per runway; the runway DEFECT families
+read ZERO in every arm below.
+
+| arm | runway | apron | graded_strip | bows 05R/05C/05L | solve |
+|---|---|---|---|---|---|
+| **BAR (1.0.295)** | **0.00305 / 0.028** | **0.00803 / 0.199** | **0.03190 / 0.807** | — | — |
+| round 1 (no hard rows) | 0.00637 / 0.111 | 0.01256 / 0.273 | 0.14082 / 1.138 | −0.07 / −2.18 / −0.00 | 4.5 s |
+| **round 2, all bend = 1 (shipped)** | 0.00395 / 0.021 | 0.01276 / 0.262 | 0.14065 / 1.127 | −0.05 / −2.60 / −0.03 | 4.7 s |
+| bend_strip 30 | 0.00423 / 0.025 | 0.01336 / 0.300 | 0.11057 / 1.015 | −0.37 / −2.58 / −0.03 | 4.0 s |
+| bend_strip 30, bend_apron 5 | 0.00415 / 0.022 | 0.01366 / 0.293 | 0.11054 / 1.046 | −0.35 / −2.55 / −0.03 | 8.6 s |
+| bend_strip 300 | 0.00411 / 0.025 | 0.01889 / 0.393 | 0.06729 / 1.014 | −1.20 / −2.57 / −0.04 | 3.5 s |
+| bend_apron 20 | 0.00394 / 0.021 | 0.01278 / 0.269 | 0.14001 / 1.124 | −0.05 / −2.59 / −0.03 | 5.3 s |
+| all up (rwy/taxi/road 30, apron 100, strip 1000) | 0.00401 / 0.026 | 0.02209 / 0.468 | 0.05262 / 0.987 | −1.75 / −2.52 / −0.04 | 15.2 s |
+| dem_zone 1 (diagnostic) | 0.00408 / 0.021 | 0.01213 / 0.246 | 0.14808 / 1.150 | −0.05 / −2.60 / −0.03 | 4.4 s |
+| law 30 (diagnostic) | 0.00358 / 0.015 | 0.01643 / 0.371 | 0.08857 / 1.055 | −0.01 / −0.53 / −0.00 | 2.6 s |
+| chord 30 (diagnostic) | 0.00455 / 0.029 | 0.01103 / 0.240 | 0.14108 / 1.129 | −0.40 / −5.41 / −0.07 | 17.2 s |
+
+What the sweep says, and it is a REFUTATION of the mechanism 08v assumed
+("the bend weight trades pavement against strip — one weight for the whole
+sheet"):
+
+* The RUNWAY reaches the bar on p95 (0.021 vs 0.028) and is within 30 % of
+  it on RMS (0.00395 vs 0.00305) — and it got there from the HARD LAWS, not
+  from a weight: `bend_runway` moves it by ±5 %.
+* The APRON is INSENSITIVE to `bend_apron` (20× the weight moves its RMS by
+  0.2 %) and gets WORSE when the sheet around it stiffens.  Its read is of
+  the emitted RING chains — the apron's boundary, where its neighbours,
+  joints and law rows meet — not of its interior, which the bending term
+  shapes.
+* The STRIP responds to `bend_strip` only, and only by fighting the DEM fit
+  its outer ring stands on (08t answer 3: at the outer ring the surface IS
+  the terrain).  Every metre of strip smoothness is bought from the pavement:
+  at `bend_strip` 300 the 05R/23L bow moves 1.15 m and the apron and taxiway
+  roughen by 50 %.
+* No arm meets the bar on all three roles, and the arms that come closest on
+  one role miss the bows-within-1-m condition or roughen the others.
+
+The lane therefore ships **all five weights at 1.0** — the mechanism, the law
+knob and the measurement, with the surface unchanged from the hard-rows arm,
+which is the best measured on pavement.  **The bar needs an owner ruling**:
+either the strip's outer ring stops standing on the DEM (which amends 08t
+answer 3), or the undulation read is taken per-role with the strip judged on
+its own terms, or the bar is set from what a design surface with the runway
+laws held can actually reach.

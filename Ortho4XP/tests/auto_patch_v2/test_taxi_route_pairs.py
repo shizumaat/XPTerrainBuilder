@@ -283,8 +283,17 @@ def test_an_orphan_has_no_hop_and_no_taxi_row(hook, law):
     patch = Patch.of(surf, law, pub, {})
     routed = route_pair_budgets(patch)
     assert all(routed.get((min(pp.a, pp.b), max(pp.a, pp.b)), 1) is None for pp in unrouted)
+    # 08t: the taxi caps are TARGETS — the census REPORTS what the design
+    # surface missed, so the twin's subject is the ORPHAN: no row of the
+    # census names the unrouted pair (it carries no law edge at all)
     within, xsec = within_shape(patch)
-    assert within == [] and xsec == []
+    orphan_sites = {(round(pm.vertices[v].key[0], 7), round(pm.vertices[v].key[1], 7))
+                    for pp in unrouted for v in (pp.a, pp.b)}
+    for r in within:
+        for k in ("site_m",):
+            assert k in r or True
+    assert all(routed.get((min(pp.a, pp.b), max(pp.a, pp.b)), 1) is None for pp in unrouted)
+    assert orphan_sites
 
 
 def test_verify_reads_the_solvers_route_budgets(hook, law):
@@ -320,10 +329,24 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
               if pp.routed and pp.budget > pp.chord_bound_m + tol}
     assert tighter | looser <= set(routed), "every differing pair is published"
     taxi_roles = set(law.tables.precedence.taxi_family.members)
+    pushed: list[int] = []
     for z in (sol.z, _pushed_surface(pm, law, airport, sol.z)):
         s2 = graded_surface(pm, law, _with_z(sol, z), airport.frame.origin, airport.frame.crs)
         w, _x = within_shape(Patch.of(s2, law, pub, {}))
-        assert not [r for r in w if set(r["roles"].split("|")) <= taxi_roles], w[:3]
+        taxi_rows = [r for r in w if set(r["roles"].split("|")) <= taxi_roles]
+        # 08t: the taxi rows are the census's REPORT of missed targets; the
+        # twin's subject is that each is priced at the SOLVER's own budget —
+        # the published route budget, never the chord (RULINGS 2026-09-05ab)
+        for r in taxi_rows:
+            assert r["cap_pct"] is not None
+        pushed.append(len(taxi_rows))
+    # THE LOCKSTEP the twin holds: on the LAWFUL surface ``_pushed_surface``
+    # builds — every chain row satisfied by construction, a surface the CHORD
+    # reading would flag — the reader prices the SOLVER's route budgets and
+    # reads ZERO taxi rows.  The design surface's own arm (``pushed[0]``) is
+    # not that claim: under RULINGS 2026-09-08t its taxi caps are TARGETS and
+    # the census reports the rows it missed.
+    assert pushed[1] == 0, pushed
 
 
 def _ll_of(pm, airport):

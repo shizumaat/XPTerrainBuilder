@@ -262,8 +262,14 @@ def test_the_law_tables_carry_no_relaxation_or_yield_block(law):
     assert not hasattr(emit, "relaxation")
     assert not hasattr(emit, "yielding")
     d = emit.design
-    for term in ("bend", "chord", "law", "dem_zone", "road", "detached_mean"):
+    # the BENDING WEIGHT IS PER CLASS (RULINGS 2026-09-08v)
+    for term in ("bend_runway", "bend_taxi", "bend_apron", "bend_strip",
+                 "bend_road", "chord", "law", "dem_zone", "road", "detached_mean"):
         assert d.weight(term) > 0.0
+    for cls in ("runway", "taxi", "apron", "road", "strip"):
+        assert d.bend(cls) > 0.0
+    # THE RUNWAY FAMILY'S LAWS ARE CONSTRAINTS, not targets
+    assert d.hard_rulings and d.hard_weight > d.law and d.hard_tol_m > 0.0
 
 
 def test_the_solve_is_one_call_and_never_infeasible(valley):

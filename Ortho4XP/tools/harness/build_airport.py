@@ -2031,8 +2031,9 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
               f"body_sha={body_sha256(osm)[:12]}  v2-verify rows="
               f"{sum(verify.values()) if verify else 'n/a'}")
     if verify_defects:
-        # a structural defect of the product (verify.DEFECT_KEYS: a pad
-        # that is not one flat value) — the app driver FAILS the airport
+        # a structural defect of the product (verify.DEFECT_KEYS: a RUNWAY
+        # law the solve holds as a constraint, read broken on the emitted
+        # surface — RULINGS 2026-09-08v) — the app driver FAILS the airport
         # on it; the harness measures and says so on every line
         prog.note("v2-verify DEFECT (the app build would fail this airport): "
                   + ", ".join(f"{k} {n}" for k, n in verify_defects.items()))

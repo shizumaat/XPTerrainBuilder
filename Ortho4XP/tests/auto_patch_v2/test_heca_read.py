@@ -53,10 +53,17 @@ def _census(diagonal, law, sol):
     return census(surf, law, pub, roads.road_law_caps(pm, law))
 
 
-def _rows_hold(rows, z) -> bool:
+def _rows_hold(rows, z, tol: float = 1e-9) -> bool:
+    """Every row inside its bounds, to ``tol`` — a HARD row of the design
+    surface is held to ``[design] hard_tol_m`` (RULINGS 2026-09-08v), a
+    stated row exactly."""
     for r in rows:
         v = sum(c * z[i] for i, c in r.terms)
-        if (r.lo is not None and v < r.lo - 1e-9) or (r.hi is not None and v > r.hi + 1e-9):
+        # a row is stated in its own units; the design surface's hard rows
+        # are scaled to metres by their coefficient sum (solve/design.py)
+        scale = 2.0 / max(sum(abs(c) for _i, c in r.terms), 1e-12)
+        eps = max(1e-9, tol / scale)
+        if (r.lo is not None and v < r.lo - eps) or (r.hi is not None and v > r.hi + eps):
             return False
     return True
 
@@ -117,7 +124,10 @@ def test_zigzag_refused_k_curve_passes(diagonal, law, solved):
     rows = runway_profile.runway_vertical_curve(pm, law, airport)
     _cs, sol = solved
     z = list(sol.z)
-    assert _rows_hold(rows, z)
+    # THE K LAW IS A CONSTRAINT of the design surface (RULINGS 2026-09-08v):
+    # it is held to the solve's own tolerance (``[design] hard_tol_m``, under
+    # the census's rounding envelope), not to the row's exact bound
+    assert _rows_hold(rows, z, tol=law.tables.emit.design.hard_tol_m)
     rw = airport.runways[0]
     cap = law.ruleset.runway.longitudinal.value(rw.code_number, rw.code_letter)
     # zigzag: every station gets ±cap × distance from the middle station
@@ -230,7 +240,12 @@ def test_strip_reader_flags_a_vertex_standing_over_the_cap(diagonal, law, solved
     is one row (``direction = "above"``); the hard solve reads none."""
     _cs, sol = solved
     rows = _census(diagonal, law, sol)
-    assert rows[FAMILY_STRIP_TRANSVERSE] == [], rows[FAMILY_STRIP_TRANSVERSE][:2]
+    # THE STRIP TIE IS A TARGET (RULINGS 2026-09-08t): the design surface aims
+    # for it and the census REPORTS what it missed — the twin's subject is
+    # that the reader FIRES on the lifted vertex below and prices the bound,
+    # not that the built strip reads zero.  (Under the hard-law world this
+    # read zero because the solve refused to build anything else.)
+    base_rows = len(rows[FAMILY_STRIP_TRANSVERSE])
     airport, pm, _ = diagonal
     vw = view(pm, law)
     rw = next(f for f in pm.faces.values() if f.role == "runway")
@@ -261,8 +276,17 @@ def test_strip_reader_flags_a_vertex_standing_over_the_cap(diagonal, law, solved
     z2 = list(sol.z)
     z2[v] += 2.0 * bound + 1.0       # from under the mandatory-down to over the cap
     got = _census(diagonal, law, _dc.replace(sol, z=tuple(z2)))[FAMILY_STRIP_TRANSVERSE]
-    assert got and got[0]["direction"] == "above" and got[0]["magnitude_m"] > bound
-    assert got[0]["cap_pct"] == pytest.approx(100 * bound / d, rel=0.05)
+    assert len(got) > base_rows, (len(got), base_rows)
+    # the row of THE LIFTED VERTEX (by its own site: the design surface's
+    # strip carries other reported rows now, so "the first row" is not it)
+    x0, y0 = vw.xy[v]
+    got = sorted((g for g in got if g["direction"] == "above"),
+                 key=lambda g: (g["site_m"][0][0] - x0) ** 2 + (g["site_m"][0][1] - y0) ** 2)
+    assert got and got[0]["magnitude_m"] > bound
+    # the reader prices the bound at ITS OWN lateral distance (measured on the
+    # emitted ring), which differs from the fixture's nearest-segment reading
+    # by up to a grid cell — a tenth of the bound, not a different law
+    assert got[0]["cap_pct"] == pytest.approx(100 * bound / d, rel=0.1)
 
 
 def _seg_dist(p, a, b) -> float:

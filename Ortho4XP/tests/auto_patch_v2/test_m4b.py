@@ -406,7 +406,7 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     cs, counts, _w = generate(pm, law, airport)
     assert counts["basins"] == len(rows)
     sol = solve_design(pm, cs, law)[0]
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    assert sol.status is Status.OPTIMAL, sol.message
     assert all(sol.z[v] == pytest.approx(b.floor_z, abs=1e-6) for v in floor_vs)
     # the rim is level with the apron where shared, the DEM where bare
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
@@ -490,14 +490,17 @@ def test_object_bridge_governs_and_clears(objs, law):
                          for b in bands)
     cs, counts, _w = generate(pm, law, airport)
     sol = solve_design(pm, cs, law)[0]
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    assert sol.status is Status.OPTIMAL, sol.message
     under = [sol.z[b.v] for b in bands]
     assert max(under) <= d.z - law.tables.structures.bridge.clearance_m + 1e-6
 
 
-def test_low_object_bridge_is_an_iis(objs, law):
+def test_low_object_bridge_is_a_residual(objs, law):
+    """08t: there is no IIS — a deck too low for its clearance is a MISSED
+    TARGET the design report names in its family, not an infeasibility."""
     airport, tunnels, st, pm = _object_bridge_map(objs, law, "low")
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve_design(pm, cs, law)[0]
-    assert sol.residual is not None and sol.residual.max_offset_m > 0.0  # 08t: a residual, not an IIS
-    assert any("deck_top" in s.ruling for _r, s in sol.iis), sol.iis[:5]
+    sol, rep = solve_design(pm, cs, law)
+    assert sol.residual is not None and sol.residual.max_m > 0.5
+    fam = rep.families.get("structures")
+    assert fam and fam["missed"] > 0, rep.line()

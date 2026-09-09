@@ -72,8 +72,10 @@ def test_register_equals_v1_constants():
     assert T.flat_relief_floor_m(law, "lidar") is None
     d = law.tables.flat_site.datum
     assert d.source == "cifp" and d.preference == "flat_datum" and d.runway_pins_hard
-    # ranked below the law ladder, above the seam
-    assert d.weight > 0.0     # 08t: a weight, no ladder to rank it against
+    # THE LADDER IS GONE (RULINGS 2026-09-08t/v): the datum's own weight was
+    # its rank in the preference ladder the design surface deleted; the datum
+    # is a target of the one solve, priced at ``[design] law`` like every other
+    assert not hasattr(d, "weight")
     assert law.tables.flat_site.declared == {}
 
 
@@ -233,8 +235,9 @@ def test_flat_candidate_verdict_and_rows(flat_site, law):
     assert rows and all(isinstance(r, Linear) and r.soft == f"flat_datum:{r.terms[0][0]}"
                         and r.lo == r.hi == pytest.approx(100.1) for r in rows)
     assert len({r.soft for r in rows}) == len(rows)
-    from auto_patch_v2.solve.assemble import preference_weight
-    assert preference_weight(rows[0].soft, None) == 5.0e4
+    # (the preference LADDER is deleted with ``solve/assemble.py``, RULINGS
+    # 2026-09-08t: the design solve reads a soft row's own bound as its
+    # target — the group name stays, the ladder weight is gone)
     assert {r.source.generator for r in rows} == {"flat_site"}
     from auto_patch_v2.constraints.precedence import view
     vw = view(pm, law)
@@ -314,8 +317,6 @@ def test_lp_lands_the_apron_at_z0_where_the_law_allows(flat_site, law):
     airport, pm, fv = flat_site
     cs, counts, _w = generate(pm, law, airport)
     assert counts["flat_datum"] > 0
-    w = None
-    assert law.tables.flat_site.datum.weight > 0.0   # 08t: a law value, no ladder
     sol, _rep = solve_design(pm, cs, law)
     assert sol.status.value in ("optimal", "feasible")
     from auto_patch_v2.constraints.precedence import view
@@ -370,10 +371,12 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     pm = _planar(airport, law2)
     cs, counts, _w = generate(pm, law2, airport)
     assert counts["flat_datum"] > 0
-    sol, rep = solve_design(pm, cs, law2,
-                                 Options(diagnose_iis=False))
+    sol, rep = solve_design(pm, cs, law2, Options())
     assert sol.status.value in ("optimal", "feasible")
-    assert rep.mode == "hard", rep.line()           # a preference never demotes the law
+    # THE DESIGN SURFACE has no mode and no demotion (RULINGS 2026-09-08t):
+    # every law is a target, so what the twin reads is the RESIDUAL — the
+    # runway pins below stay CIFP-absolute whatever the datum asks for
+    assert rep.converged, rep.line()
     from auto_patch_v2.constraints.precedence import view
     vw = view(pm, law2)
     tol = law2.tables.emit.materiality.elevation_m
@@ -402,11 +405,16 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
         assert chord_ceiling - tol <= ceiling < 110.0 - tol
         assert sol.z[v] <= ceiling + tol
         assert 110.0 - sol.z[v] > 110.0 - ceiling - tol > tol
-    # nothing overshoots the datum, and the datum rows are the ONLY soft
-    # rows that yielded — no law row did
+    # THE DATUM IS A TARGET (RULINGS 2026-09-08t): the design surface has no
+    # demotion to read, so the twin reads the RESIDUAL — the datum's rows are
+    # reported as missed where the taxi gradient forbids them, and the surface
+    # never climbs to the datum where the law's own ceiling stands below it
+    # (the mouth assertions above).
     datum_v = {r.terms[0][0] for r in cs.linears if r.source.generator == "flat_site"}
-    assert all(sol.z[v] <= 110.0 + tol for v in datum_v)
-    assert not rep.yielded
+    assert datum_v
+    fam = rep.families.get("flat_site")
+    assert fam and fam["rows"] >= len(datum_v)
+    assert any(abs(sol.z[v] - 110.0) > tol for v in datum_v), rep.line()
 
 
 def test_provenance_line_carries_the_datum():
@@ -422,9 +430,10 @@ def test_provenance_line_carries_the_datum():
 # ── 6. plumbing ───────────────────────────────────────────────────────────
 
 def test_weights_carry_the_group_from_the_table(law):
-    w = None
-    assert T.flat_datum_weight(law) == 5.0e4
-    assert flat_datum_group(law) not in ("law", "seam")   # its own group, never a literal
+    # the per-row preference GROUP is still law (it names the row's slack
+    # group); its LADDER WEIGHT is deleted with the ladder (RULINGS 08t/v)
+    assert not hasattr(T, "flat_datum_weight")
+    assert T.flat_datum_group(law) not in ("law", "seam")  # its own group, never a literal
 
 
 def test_dependency_direction_of_the_new_modules():

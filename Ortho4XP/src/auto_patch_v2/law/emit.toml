@@ -169,7 +169,18 @@ groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the gr
 # the objective's WEIGHTS — the relative price of a metre of each residual
 # (bending is metres of integrated curvature, every other term metres) —
 # law-table values, never literals in the code.
-bend          = 1.0    # thin-plate bending over each connected pavement complex (the cotangent Laplacian of its constrained Delaunay triangulation): the shaping term, the unit the rest are priced against
+# THE BENDING WEIGHT IS PER CLASS (RULINGS 2026-09-08v): one weight for the
+# whole sheet traded the pavement against the strip — the strip could not be
+# smoothed without roughening the runway.  A bending row is priced by the
+# class of ITS OWN vertex (the senior class of the faces that touch it, in
+# the order runway > taxi > apron > road > strip); every other term is
+# unchanged.  Units are the same: the price of a metre of integrated
+# curvature, against which chord / law / dem_zone / road are priced.
+bend_runway   = 1.0
+bend_taxi     = 1.0
+bend_apron    = 1.0
+bend_strip    = 1.0
+bend_road     = 1.0
 chord         = 300.0  # the runway's threshold-chord target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its chord and FILLS, it never fits the DEM
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 dem_zone      = 10.0   # the DEM fit on the adjacent-ground / graded-strip zone vertices ONLY, ramped 0 at the pavement edge to this at the zone's outer ring (beyond it the vertex IS the DEM, not an unknown)
@@ -178,6 +189,29 @@ detached_mean = 1.0    # a truly detached body (no route, no touching pavement, 
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.
+# THE RUNWAY FAMILY'S LAWS ARE HARD (owner 05s/06b within 08t, RULINGS
+# 2026-09-08v): CONSTRAINTS of the active set, never targets — the surface
+# holds them or the solve reports it, and the app's DEFECT gate reads exactly
+# these.  The threshold pins are already equalities (the vertex is fixed).
+# A row is hard when the head of its ``Source.ruling`` (everything before the
+# first parenthesis) is listed here; a PREFERENCE row among them is hard at
+# its CEILING, not at its preferred cap (the end-zone cap yields minimally,
+# owner 2026-07-08, and the crown floor yields to a seam pin, M3a) — so the
+# runway's MAX GRADE binds everywhere and the preference stays a preference.
+# The generator's remaining rows (the crown floor, the ring chords and the
+# crossing feet, which the census reads) stay one-sided targets: they price
+# PAIRS the four laws above already govern, and hard they were measured
+# mutually unsatisfiable (CYXY: 127/1432 ring chords missed by up to 0.77 m
+# under the soft solve, spec §6 deviation 8).
+hard_rulings = [
+  "rulesets.runway.transverse_max",                      # 05o: flat laterally within the crown drop
+  "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
+  "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
+  "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
+]
+hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000x the law's target weight), with a multiplier shift between rounds: the augmented Lagrangian that makes the runway laws HELD rather than traded (measured CYXY: 3e4 leaves 0.036 m, 3e5 0.010 m, 1e6 0.012 m, 1e8 breaks the factorisation)
+hard_max_rounds = 12       # the multiplier rounds, each one damped active-set solve (measured CYXY: the runway DEFECT families read zero from round 5)
+hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round

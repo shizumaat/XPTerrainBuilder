@@ -12,8 +12,9 @@ runway_crown_transverse`` × d — the edge's target is the ridge's chord
 minus the crown, so the crown floor and the chord agree).  The station is
 the vertex's FOOT on the crown ridge (the crown reader's own projection),
 so a crossing-ring vertex reads the chord of the ridge it is nearest to.
-The fit weight is ``rulesets.toml [common] runway_chord_fit`` (``law.
-tables.runway_chord_fit_weight``), applied to the runway family's roles by
+The chord is a TARGET of the design surface at ``emit.toml [design] chord``
+(RULINGS 2026-09-08t; the old per-metre ladder weight ``[common]
+runway_chord_fit`` is deleted with the ladder), applied to the runway family's roles by
 ``pipeline.build.weights_under_law``.  A runway with fewer than two pins
 keeps the DEM as its target (never an invented value, plan §2).
 

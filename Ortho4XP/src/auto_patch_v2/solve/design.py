@@ -23,11 +23,23 @@ yield groups — those are deleted.
     subject to  Pin  → the vertex is FIXED (eliminated from the unknowns)
                 Flat → the group is ONE unknown (merged)
                 beyond the zone's outer ring the vertex IS the DEM (fixed)
+                THE RUNWAY FAMILY'S LAW ROWS (``[design] hard_generators``)
+                → CONSTRAINTS, enforced EXACTLY as a KKT block, never a
+                  penalty (owner 05s/06b within 08t, RULINGS 2026-09-08v)
+
+``w_bend`` is PER CLASS (``bend_runway`` / ``bend_taxi`` / ``bend_apron`` /
+``bend_road`` / ``bend_strip``, RULINGS 2026-09-08v): one weight for the
+whole sheet traded the pavement against the strip, so a bending row is
+priced by the class of its own vertex (:func:`bend_class`).
 
 The one-sided penalties are met by an ACTIVE SET iteration (a semismooth
 Newton step): solve, take the rows the surface violates, re-solve with those
-rows active, to a fixed point of the set.  Every weight and limit is a law
-value (``law/emit.toml [design]``, ``law/design_schema.py``).
+rows active, to a fixed point of the set.  The HARD rows run their own active
+set inside the same loop — a violated one enters the KKT block, one whose
+multiplier turns negative leaves it — and a bounded polish after it, so the
+returned surface satisfies every runway law to the solver's tolerance.  Every
+weight and limit is a law value (``law/emit.toml [design]``,
+``law/design_schema.py``).
 
 Joints (08k/08r-2) carry no bending term and no row: the shape stage split
 their vertices and dropped their rows before the set reached here, so the
@@ -45,16 +57,20 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import cg, lsqr, splu
 
 from ..law import Law
+from ..law.design_schema import BEND_CLASSES
 from ..law.tables import (design as design_law, is_structure_role, is_value_role,
                           role_side, zone2_half_width_m, zone_class)
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset,
                                  Pin, Row)
 from ..model.planar import PlanarMap
 from .api import Options, Residual, Solution, Status
+from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
+                   _plane_targets, _reduce, _Reduction, _role_bodies, _Rows,
+                   _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
-           "bend_roles", "pavement_roles",
-           "METHODS", "DEFAULT_METHOD"]
+           "bend_roles", "pavement_roles", "bend_class", "hard_rulings",
+           "is_hard", "METHODS", "DEFAULT_METHOD"]
 
 #: The linear solvers the round may use.  ``normal`` factorises the normal
 #: equations Aᵀ A once per active set (sparse LU); ``cg`` runs conjugate
@@ -87,287 +103,33 @@ def pavement_roles(law: Law) -> tuple[str, ...]:
                  if is_value_role(law, r) and not is_structure_role(law, r))
 
 
-# ── the reduction: pins fix, flats merge ────────────────────────────────
-
-class _Reduction:
-    """Vertex -> column, or a fixed value.  A ``Flat`` group is ONE column
-    (the group is one rigid value, 09-01c); a ``Pin`` fixes it."""
-
-    def __init__(self, n: int) -> None:
-        self.parent = list(range(n))
-        self.fixed: dict[int, float] = {}
-        #: the vertices fixed because they lie BEYOND the zone's outer ring —
-        #: they ARE the terrain (08t answer 3), not a law's own value
-        self.dem_fixed: set[int] = set()
-        self.col = np.full(n, -1, dtype=np.int64)
-        self.value = np.zeros(n)
-        self.n_cols = 0
-
-    def find(self, v: int) -> int:
-        p = self.parent
-        while p[v] != v:
-            p[v] = p[p[v]]
-            v = p[v]
-        return v
-
-    def union(self, a: int, b: int) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[rb] = ra
-
-    def finish(self) -> None:
-        """Roots first: a root carrying a fixed value fixes its class."""
-        n = len(self.parent)
-        root_fixed: dict[int, float] = {}
-        for v, z in self.fixed.items():
-            root_fixed.setdefault(self.find(v), z)
-        root_col: dict[int, int] = {}
-        for v in range(n):
-            r = self.find(v)
-            if r in root_fixed:
-                self.value[v] = root_fixed[r]
-                continue
-            c = root_col.get(r)
-            if c is None:
-                c = root_col[r] = self.n_cols
-                self.n_cols += 1
-            self.col[v] = c
+def bend_class(law: Law, role: str) -> str:
+    """The BENDING CLASS of ``role`` (``design_schema.BEND_CLASSES``, RULINGS
+    2026-09-08v): ``runway`` / ``taxi`` for the two named families,
+    ``road`` for the road cross-section's roles, ``apron`` for every other
+    role that carries its own value, ``strip`` for the rest (the graded
+    strip, the clearances, the cuts — the ground the blend happens in)."""
+    if role in law.tables.precedence.runway_family.members:
+        return "runway"
+    if role in law.tables.precedence.taxi_family.members:
+        return "taxi"
+    if role in law.tables.families["road_cross_section"].roles:
+        return "road"
+    return "apron" if is_value_role(law, role) else "strip"
 
 
-def _reduce(pm: PlanarMap, cs: ConstraintSet, fixed_dem: _t.Mapping[int, float]
-            ) -> _Reduction:
-    red = _Reduction(len(pm.vertices))
-    for f in cs.flats:
-        g = f.group
-        for v in g[1:]:
-            red.union(g[0], v)
-    for v, z in fixed_dem.items():
-        red.fixed[v] = float(z)
-        red.dem_fixed.add(v)
-    for p in cs.pins:                       # a pin outranks a DEM fixing
-        red.fixed[p.v] = float(p.z)
-        red.dem_fixed.discard(p.v)
-    red.finish()
-    return red
+def hard_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS whose rows are HARD CONSTRAINTS of the active set —
+    ``[design] hard_rulings`` (RULINGS 2026-09-08v: the runway family's
+    transverse, vertical curve K and max grade; the threshold pins are
+    already equalities)."""
+    return frozenset(design_law(law).hard_rulings)
 
 
-# ── the geometry: triangulation and the cotangent Laplacian ─────────────
-
-def _face_triangles(pm: PlanarMap, fid: int) -> list[tuple[int, int, int]]:
-    """A triangulation of one face: the Delaunay triangulation of its ring
-    and hole vertices, keeping the triangles whose centroid lies inside the
-    face (so a concave face and a face with holes triangulate correctly)."""
-    from scipy.spatial import Delaunay, QhullError
-    from shapely.geometry import Polygon
-    from shapely.prepared import prep
-    f = pm.faces[fid]
-    ring = pm.ring_vertices(f.ring)
-    holes = [pm.ring_vertices(h) for h in f.holes]
-    ids = list(dict.fromkeys([*ring, *(v for h in holes for v in h)]))
-    if len(ids) < 3:
-        return []
-    pts = np.array([pm.vertices[v].xy for v in ids], float)
-    try:
-        poly = Polygon([pm.vertices[v].xy for v in ring],
-                       [[pm.vertices[v].xy for v in h] for h in holes if len(h) >= 3])
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty:
-            return []
-        tri = Delaunay(pts)
-    except (QhullError, ValueError):
-        return []
-    inside = prep(poly)
-    from shapely.geometry import Point
-    out: list[tuple[int, int, int]] = []
-    for s in tri.simplices:
-        c = pts[s].mean(axis=0)
-        if inside.contains(Point(c[0], c[1])):
-            out.append((ids[s[0]], ids[s[1]], ids[s[2]]))
-    return out
-
-
-def _cotangent_laplacian(pm: PlanarMap, tris: _t.Sequence[tuple[int, int, int]],
-                         n: int) -> tuple[sp.csr_matrix, np.ndarray]:
-    """The assembled cotangent Laplacian over ``tris`` and the barycentric
-    vertex areas.  A row is ``Σ_j w_ij (z_i − z_j)`` — metres of integrated
-    curvature; the caller scales it by ``1/√area`` so the energy is the
-    thin-plate one and mesh-density independent."""
-    rows: list[int] = []
-    cols: list[int] = []
-    vals: list[float] = []
-    area = np.zeros(n)
-    for a, b, c in tris:
-        pa, pb, pc = (np.asarray(pm.vertices[v].xy, float) for v in (a, b, c))
-        ab, bc, ca = pb - pa, pc - pb, pa - pc
-        cross = abs(ab[0] * (-ca[1]) - ab[1] * (-ca[0])) * 0.5
-        if cross <= 0.0:
-            continue
-        area[[a, b, c]] += cross / 3.0
-        # cot of the angle OPPOSITE each edge = (u·v) / (2 * area)
-        for (i, j, u, v) in ((a, b, -ca, bc), (b, c, ab, -ca), (c, a, bc, ab)):
-            w = float(u @ v) / (4.0 * cross)
-            if w <= 0.0:
-                continue                    # obtuse: clamp (keeps the operator PSD)
-            rows += [i, i, j, j]
-            cols += [i, j, j, i]
-            vals += [w, -w, w, -w]
-    L = sp.csr_matrix((vals, (rows, cols)), shape=(n, n))
-    return L, area
-
-
-# ── the objective's rows ────────────────────────────────────────────────
-
-@_dc.dataclass
-class _Rows:
-    """Accumulates weighted rows ``√w · (Σ c z − b)`` over the REDUCED
-    columns; a fixed vertex's contribution moves to the right-hand side."""
-
-    red: _Reduction
-    r: list[int] = _dc.field(default_factory=list)
-    c: list[int] = _dc.field(default_factory=list)
-    v: list[float] = _dc.field(default_factory=list)
-    b: list[float] = _dc.field(default_factory=list)
-    owner: list[_t.Any] = _dc.field(default_factory=list)
-
-    @property
-    def n(self) -> int:
-        return len(self.b)
-
-    def add(self, terms: _t.Sequence[tuple[int, float]], rhs: float, w: float,
-            owner: _t.Any = None) -> bool:
-        """One row; ``False`` when every term is fixed (nothing to solve)."""
-        s = math.sqrt(w)
-        k = self.n
-        acc: dict[int, float] = {}
-        for vid, coef in terms:
-            col = int(self.red.col[vid])
-            if col < 0:
-                rhs -= coef * float(self.red.value[vid])
-            else:
-                acc[col] = acc.get(col, 0.0) + coef
-        acc = {k2: v2 for k2, v2 in acc.items() if v2 != 0.0}
-        if not acc:
-            return False
-        for col, coef in acc.items():
-            self.r.append(k)
-            self.c.append(col)
-            self.v.append(s * coef)
-        self.b.append(s * rhs)
-        self.owner.append(owner)
-        return True
-
-    def matrix(self, ncol: int) -> tuple[sp.csr_matrix, np.ndarray]:
-        A = sp.csr_matrix((self.v, (self.r, self.c)), shape=(self.n, ncol))
-        return A, np.asarray(self.b, float)
-
-
-#: One law row's one-sided target: ``Σ c z ≤ hi`` (a violation is positive).
-_Side = tuple[tuple[tuple[int, float], ...], float, Row]
-
-
-def _law_sides(cs: ConstraintSet) -> tuple[list[_Side], list[_Side]]:
-    """Every law row as ONE-SIDED targets ``Σ c z ≤ hi``, plus the rows the
-    law states as equalities (``lo == hi``), which are two-sided targets."""
-    one: list[_Side] = []
-    eq: list[_Side] = []
-    for d in cs.diffs:
-        bound = d.cap * d.d
-        one.append((((d.a, 1.0), (d.b, -1.0)), bound, d))
-        one.append((((d.b, 1.0), (d.a, -1.0)), bound, d))
-    for o in cs.offsets:
-        one.append((((o.b, 1.0), (o.a, -1.0)), -o.min_delta, o))
-    for ln in cs.linears:
-        if ln.lo is not None and ln.hi is not None and ln.lo == ln.hi:
-            eq.append((tuple(ln.terms), float(ln.hi), ln))
-            continue
-        if ln.hi is not None:
-            one.append((tuple(ln.terms), float(ln.hi), ln))
-        if ln.lo is not None:
-            one.append((tuple((v, -c) for v, c in ln.terms), -float(ln.lo), ln))
-    for bd in cs.bands:
-        if bd.hi is not None:
-            one.append((((bd.v, 1.0),), float(bd.hi), bd))
-        if bd.lo is not None:
-            one.append((((bd.v, -1.0),), -float(bd.lo), bd))
-    return one, eq
-
-
-def _violation(side: _Side, z: np.ndarray) -> float:
-    terms, hi, _row = side
-    return sum(c * float(z[v]) for v, c in terms) - hi
-
-
-# ── the zone ramp ───────────────────────────────────────────────────────
-
-def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int],
-                  free: _t.AbstractSet[int]
-                  ) -> tuple[dict[int, float], dict[int, float]]:
-    """``(ramp, beyond)``: for every vertex OUTSIDE the pavement, its DEM-fit
-    ramp factor — 0 at the pavement edge, 1 at the zone's outer ring — by
-    graph distance (metres) along the planar map from the pavement,
-    normalised by the zone-2 half width THAT pavement's own class states
-    (``law.tables.zone2_half_width_m``: a runway's strip is wide, a
-    taxiway's narrow, and each blends over its own width — 08t answer 3);
-    ``beyond`` holds the vertices past the outer ring, which ARE the DEM
-    (fixed, never unknowns) — ``free`` (the road chains and the structures,
-    which carry their own law far from any pavement) is never fixed."""
-    import heapq
-    width_of: dict[int, float] = {}
-    for f in pm.faces.values():
-        w = zone2_half_width_m(law, f.role, f.code_number, f.code_letter)
-        if not w:
-            continue
-        for ring in (f.ring, *f.holes):
-            for v in pm.ring_vertices(ring):
-                if v in pav:
-                    width_of[v] = max(width_of.get(v, 0.0), float(w))
-    if not width_of:
-        return {}, {}
-    widest = max(width_of.values())
-    adj: dict[int, list[tuple[int, float]]] = {}
-    for e in pm.edges.values():
-        (ax, ay), (bx, by) = pm.vertices[e.a].xy, pm.vertices[e.b].xy
-        d = math.hypot(bx - ax, by - ay)
-        adj.setdefault(e.a, []).append((e.b, d))
-        adj.setdefault(e.b, []).append((e.a, d))
-    # the state a vertex reaches is (distance, the source's own zone width):
-    # the SMALLEST fraction wins — a vertex 20 m from a taxiway and 20 m from
-    # a runway blends over the runway's wider zone (the pocket rule's spirit)
-    best: dict[int, tuple[float, float]] = {}
-    heap: list[tuple[float, int, float]] = []
-    for v, w in width_of.items():
-        best[v] = (0.0, w)
-        heap.append((0.0, v, w))
-    heapq.heapify(heap)
-    while heap:
-        frac, v, w = heapq.heappop(heap)
-        cur = best.get(v)
-        if cur is None or frac > cur[0] / cur[1] + 1e-12:
-            continue
-        d0 = frac * w
-        for nb, step in adj.get(v, ()):
-            nd = d0 + step
-            if nd > w:
-                continue
-            nf = nd / w
-            prev = best.get(nb)
-            if prev is None or nf < prev[0] / prev[1] - 1e-12:
-                best[nb] = (nd, w)
-                heapq.heappush(heap, (nf, nb, w))
-    ramp: dict[int, float] = {}
-    beyond: dict[int, float] = {}
-    for vid, vx in pm.vertices.items():
-        if vid in pav:
-            continue
-        rec = best.get(vid)
-        if rec is None:
-            if vid not in free and vx.dem_z is not None:
-                beyond[vid] = float(vx.dem_z)
-        else:
-            ramp[vid] = min(1.0, rec[0] / rec[1])
-    del widest
-    return ramp, beyond
+def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:
+    """Whether ``row`` states one of the HARD laws: the head of its ruling
+    (everything before the first parenthesis) is one of ``law_heads``."""
+    return row.source.ruling.split(" (")[0].strip() in law_heads
 
 
 # ── the report ──────────────────────────────────────────────────────────
@@ -390,6 +152,23 @@ class DesignReport:
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
+    #: THE HARD ROWS (RULINGS 2026-09-08v): the runway family's law rows as
+    #: constraints — how many exist, how many the settled active set holds,
+    #: how many polish rounds it took and the worst violation left (a
+    #: constraint held exactly reads 0 to the solver's tolerance)
+    hard_rows: int = 0
+    hard_active: int = 0
+    hard_rounds: int = 0
+    hard_max_violation_m: float = 0.0
+    hard_settled: bool = True
+    #: the ruling of the worst-held hard row (empty where every row is held)
+    hard_worst: str = ""
+    bend_rows_by_class: dict[str, int] = _dc.field(default_factory=dict)
+    #: THE MISSED TARGETS (sidecar ``design_target``, RULINGS 2026-09-08t/v):
+    #: one record per law row the design surface did not reach — its family,
+    #: the metres it is out by and the lat/lon identities of its vertices, so
+    #: the census can report the rows it counts under one heading
+    targets: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
     solver_wall_s: float = 0.0
     families: dict[str, dict[str, _t.Any]] = _dc.field(default_factory=dict)
     terms: dict[str, float] = _dc.field(default_factory=dict)
@@ -400,6 +179,12 @@ class DesignReport:
                 "fixed": self.fixed, "rows": self.rows,
                 "triangles": self.triangles, "components": self.components,
                 "detached": self.detached, "bank_rows": self.bank_rows,
+                "hard_rows": self.hard_rows, "hard_active": self.hard_active,
+                "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
+                "hard_max_violation_m": round(self.hard_max_violation_m, 6),
+                "hard_worst": self.hard_worst,
+                "bend_rows_by_class": self.bend_rows_by_class,
+                "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
                 "families": self.families, "terms": self.terms}
 
@@ -410,7 +195,11 @@ class DesignReport:
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
                 f"({self.detached} detached), {self.bank_rows} bank rows off the "
-                f"terrain edge, {self.solver_wall_s:.2f} s solver; "
+                f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
+                f"(max violation {self.hard_max_violation_m:.4f} m in "
+                f"{self.hard_rounds} polish round(s)"
+                f"{'' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
+                f"{self.solver_wall_s:.2f} s solver; "
                 "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
                     for k, v in worst if v["missed"]))
@@ -459,7 +248,7 @@ def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
     if method == "normal":
         # a tiny Tikhonov floor keeps the factorisation non-singular on a
         # column the active set left with only a bending row
-        eps = 1e-9 * max(1.0, float(abs(N.diagonal()).max()))
+        eps = 1e-12 * max(1.0, float(abs(N.diagonal()).max()))
         return np.asarray(splu((N + eps * sp.identity(N.shape[0], format="csc")).tocsc()
                                ).solve(rhs), float)
     diag = N.diagonal().copy()
@@ -483,6 +272,9 @@ class Base:
     one: list["_Side"]
     eqs: list["_Side"]
     n: int
+    #: indices into ``one`` of the HARD rows (``[design] hard_generators``):
+    #: constraints of the active set, never penalties (RULINGS 2026-09-08v)
+    hard: list[int] = _dc.field(default_factory=list)
     chord_vertices: int = 0
     road_fit_vertices: int = 0
     dem_zone_vertices: int = 0
@@ -536,18 +328,36 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     eqs: list[_Side] = []
     chord_v = road_v = dem_v = 0
     if red.n_cols == 0:
-        return Base(rows, red, one, eqs, n)
+        return Base(rows, red, one, eqs, n)      # nothing to solve
 
-    # 4. bending — the shaping term
+    # 4. bending — the shaping term, PER CLASS (RULINGS 2026-09-08v).  A
+    #    bending row is centred on ONE vertex, so it is priced by that
+    #    vertex's own class: the SENIOR class of the faces that touch it
+    #    (``BEND_CLASSES`` order), so a runway edge shared with its strip
+    #    bends at the runway's weight and the strip beside it at the strip's.
+    rank = {c: k for k, c in enumerate(BEND_CLASSES)}
+    v_class: dict[int, str] = {}
+    for f in planar.faces.values():
+        if f.role not in roles:
+            continue
+        cls = bend_class(law, f.role)
+        for ring in (f.ring, *f.holes):
+            for v in planar.ring_vertices(ring):
+                cur = v_class.get(v)
+                if cur is None or rank[cls] < rank[cur]:
+                    v_class[v] = cls
+    rep.bend_rows_by_class = {c: 0 for c in BEND_CLASSES}
     L, area = _cotangent_laplacian(planar, tris, n)
     L = L.tocsr()
     for i in range(n):
         s, e = L.indptr[i], L.indptr[i + 1]
         if e <= s or area[i] <= 0.0:
             continue
+        cls = v_class.get(i, "strip")
         scale = 1.0 / math.sqrt(area[i])
-        rows.add([(int(L.indices[k]), float(L.data[k]) * scale) for k in range(s, e)],
-                 0.0, d.bend, ("bend", i))
+        if rows.add([(int(L.indices[k]), float(L.data[k]) * scale) for k in range(s, e)],
+                    0.0, d.bend(cls), ("bend", i)):
+            rep.bend_rows_by_class[cls] += 1
 
     # 5. the road chains' own bending (second difference along the chain)
     road_kinds = {"road_centerline"}
@@ -600,11 +410,31 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # target; the census still reports it, and the bank it names is the bank
     # the owner asked for.  A PIN's vertex is not terrain: those rows stay.
     dropped_bank = 0
+    heads = hard_rulings(law)
+    hard: list[int] = []
     for side in one_t:
-        vs = {v for v, _c in side[0]}
+        terms, hi, row = side
+        vs = {v for v, _c in terms}
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
+        # THE HARD ROWS (RULINGS 2026-09-08v): the runway family's transverse,
+        # vertical curve and max grade are CONSTRAINTS.  A row whose every
+        # foot is fixed carries no column and constrains nothing — it stays a
+        # reported target.  A PREFERENCE among them is hard AT ITS CEILING and
+        # keeps its preferred bound as the target: two sides, one row.
+        if is_hard(heads, row) and not vs <= red.dem_fixed:
+            hi_hard = hi
+            ceil = getattr(row, "ceiling", None)
+            if getattr(row, "soft", None) is not None and ceil is not None:
+                hi_hard = (float(ceil) * row.d if isinstance(row, Diff)
+                           else hi + float(ceil))
+            if hi_hard > hi:
+                one.append(side)
+                hard.append(len(one))
+                one.append((terms, hi_hard, row))
+                continue
+            hard.append(len(one))
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
@@ -613,6 +443,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             continue
         eqs.append(side)
     rep.bank_rows = dropped_bank
+    rep.hard_rows = len(hard)
     for terms, hi, row in eqs:
         rows.add(terms, hi, d.law, ("law", row))
     # 9. THE BODY'S OWN DATUM (owner 08t answer 6).  A one-sided law row is
@@ -676,7 +507,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
-    return Base(rows, red, one, eqs, n, chord_v, road_v, dem_v)
+    return Base(rows, red, one, eqs, n, hard, chord_v, road_v, dem_v)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -705,67 +536,147 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     The one-sided rows are stacked ONCE (``_one_matrix``) so a round is
     #     a row-slice and a matrix-vector product, never a Python re-assembly:
     #     at HECA that is 210k rows the loop would otherwise rebuild 60 times.
+    #
+    #     THE HARD ROWS (the runway family's transverse, vertical curve K and
+    #     max grade — ``[design] hard_rulings``, RULINGS 2026-09-08v) ride the
+    #     same stack at the CONSTRAINT weight ``ρ = hard_weight`` and are made
+    #     EXACT by an outer AUGMENTED-LAGRANGIAN loop: the inner active set
+    #     runs to its damped fixed point with the multipliers held, then each
+    #     violated runway row's multiplier rises by ``ρ · violation`` and
+    #     tightens that row's target by ``μ/ρ``.  The multipliers converge, so
+    #     the runway laws end HELD, not traded — which a weight alone cannot
+    #     do (RULINGS 2026-09-08v: "a weight cannot buy a law").
     A0f, b0f = rows.matrix(red.n_cols)      # the ALWAYS-ON rows (the base)
     A1, b1 = _one_matrix(one, red)
-    w_law = math.sqrt(d.law)
-    x = None
-    x_prev: np.ndarray | None = None
-    x_full: np.ndarray | None = None
-    f_prev = math.inf
-    f_last = math.inf
-    active_i = np.zeros(0, dtype=np.int64)
-    active: set[int] = set()
+    hard_i = np.asarray(base_p.hard, dtype=np.int64)
+    rep.hard_rows = int(hard_i.size)
+    # THE HARD ROWS ARE SCALED TO METRES.  A law row is stated in its own
+    # units: a grade cap's row is a Δz (metres), but a VERTICAL CURVE row is a
+    # difference of grades (dimensionless), and a rate row a curvature.  One
+    # constraint weight and one tolerance can only price them together if the
+    # residual means the same thing, so each hard row (and its target) is
+    # divided by ``Σ|c| / 2`` — 1 for a two-vertex Δz row, ``≈ d/2`` for a K
+    # row, so every hard violation the report and the multipliers see is
+    # METRES of surface.  Measured: without it a K row's penalty was ~1/d²
+    # weaker than a transverse row's and the K law never closed (CYXY 0.0093
+    # left at ρ = 3e6; spec §6 deviation 9).
+    if hard_i.size:
+        rowsum = np.asarray(abs(A1).sum(axis=1)).ravel()
+        sc = np.ones(A1.shape[0])
+        good = rowsum[hard_i] > 0.0
+        sc[hard_i[good]] = 2.0 / rowsum[hard_i[good]]
+        A1 = sp.diags(sc) @ A1
+        b1 = sc * b1
+        A1 = A1.tocsr()
+    rho = float(d.hard_weight)
+    w_row = np.full(len(one), float(d.law))
+    w_row[hard_i] = rho
+    sw = np.sqrt(w_row)
+    #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it
+    #: tightens the target by the multiplier the constraint has earned
+    shift = np.zeros(len(one))
+    tol = float(d.active_set_tol_m)
+    x: np.ndarray | None = None
     z = np.zeros(n)
     t_solver = 0.0
     A, b = A0f, b0f
-    for rnd in range(1, int(d.active_set_max_rounds) + 1):
-        if active_i.size:
-            A = sp.vstack([A0f, w_law * A1[active_i]], format="csr")
-            b = np.concatenate([b0f, w_law * b1[active_i]])
-        else:
-            A, b = A0f, b0f
-        rep.rows = int(A.shape[0])
-        t1 = time.perf_counter()
-        x = _linear_solve(A, b, x, method, float(d.solver_tol), int(d.solver_max_iter))
-        x_full = x
-        t_solver += time.perf_counter() - t1
-        # DAMPING (a semismooth Newton step with a backtracking line search
-        # on the TRUE objective): the plain fixed point can cycle between two
-        # active sets, and a cycling set is not a solution.  ``F`` is convex
-        # and C¹, so a step that does not decrease it is halved.
-        if x_prev is not None:
-            f_new = _objective(A0f, b0f, A1, b1, d, x)
-            alpha = 1.0
-            while f_new > f_prev and alpha > _ALPHA_FLOOR:
-                alpha *= 0.5
-                x = x_prev + alpha * (x_full - x_prev)
-                f_new = _objective(A0f, b0f, A1, b1, d, x)
-            if f_new > f_prev:
-                # the step buys nothing: the previous point is the answer
-                x = x_prev
+    active_i = np.zeros(0, dtype=np.int64)
+    active: set[int] = set()
+
+    def _stack(sel: np.ndarray) -> tuple[sp.csr_matrix, np.ndarray]:
+        """The base rows plus the ACTIVE one-sided rows at their own weights
+        (the law's for a target, ``ρ`` for a runway constraint) against their
+        shifted targets."""
+        if not sel.size:
+            return A0f, b0f
+        W = sp.diags(sw[sel])
+        return (sp.vstack([A0f, W @ A1[sel]], format="csr"),
+                np.concatenate([b0f, sw[sel] * (b1[sel] - shift[sel])]))
+
+    def _inner(x0: np.ndarray | None) -> np.ndarray:
+        """One damped active-set solve at the CURRENT multipliers."""
+        nonlocal A, b, active, active_i, t_solver
+        x_ = x0
+        x_prev: np.ndarray | None = None
+        f_prev = math.inf
+        f_last = math.inf
+        for rnd in range(1, int(d.active_set_max_rounds) + 1):
+            A, b = _stack(active_i)
+            rep.rows = int(A.shape[0])
+            t1 = time.perf_counter()
+            x_full = _linear_solve(A, b, x_, method, float(d.solver_tol),
+                                   int(d.solver_max_iter))
+            x_ = x_full
+            t_solver += time.perf_counter() - t1
+            # DAMPING (a semismooth Newton step with a backtracking line search
+            # on the TRUE objective): the plain fixed point can cycle between
+            # two active sets, and a cycling set is not a solution.  ``F`` is
+            # convex and C¹, so a step that does not decrease it is halved.
+            if x_prev is not None:
+                f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+                alpha = 1.0
+                while f_new > f_prev and alpha > _ALPHA_FLOOR:
+                    alpha *= 0.5
+                    x_ = x_prev + alpha * (x_full - x_prev)
+                    f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+                if f_new > f_prev:
+                    x_ = x_prev          # the step buys nothing: this is it
+                    rep.converged = True
+                    rep.rounds += rnd
+                    return x_
+                f_prev = f_new
+            else:
+                f_prev = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+            x_prev = x_.copy()
+            viol = A1 @ x_ - (b1 - shift)
+            nxt_i = np.flatnonzero(viol > tol)
+            nxt = set(nxt_i.tolist())
+            # SETTLED: the same active set, or an objective that no longer
+            # moves (a row hovering at its bound flips label without moving
+            # the surface)
+            if nxt == active or (f_prev < math.inf and
+                                 abs(f_last - f_prev) <= 1e-6 * max(1.0, f_prev)):
                 rep.converged = True
-                rep.rounds = rnd
+                rep.rounds += rnd
+                return x_
+            if opt.verbose:
+                print(f"    [design] round {rnd}: F {f_prev:.6g}  active {len(nxt)} "
+                      f"(was {len(active)}, changed {len(nxt ^ active)})")
+            f_last = f_prev
+            active, active_i = nxt, nxt_i
+        rep.converged = False
+        rep.rounds += int(d.active_set_max_rounds)
+        return x_ if x_ is not None else np.zeros(red.n_cols)
+
+    x = _inner(None)
+    if hard_i.size:
+        Ah, bh = A1[hard_i], b1[hard_i]
+        mu = np.zeros(hard_i.size)
+        tol_h = float(d.hard_tol_m)
+        worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
+        best_x, best_worst = x, worst
+        for pr in range(1, int(d.hard_max_rounds) + 1):
+            if worst <= tol_h:
                 break
-            f_prev = f_new
-        else:
-            f_prev = _objective(A0f, b0f, A1, b1, d, x)
-        x_prev = x.copy()
-        z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
-        viol = A1 @ x - b1
-        nxt_i = np.flatnonzero(viol > float(d.active_set_tol_m))
-        nxt = set(nxt_i.tolist())
-        rep.rounds = rnd
-        # SETTLED: the same active set, or an objective that no longer moves
-        # (a row hovering at its bound flips label without moving the surface)
-        if nxt == active or (f_prev < math.inf and
-                             abs(f_last - f_prev) <= 1e-6 * max(1.0, f_prev)):
-            rep.converged = True
-            break
-        if opt.verbose:
-            print(f"    [design] round {rnd}: F {f_prev:.6g}  active {len(nxt)} "
-                  f"(was {len(active)}, changed {len(nxt ^ active)})")
-        f_last = f_prev
-        active, active_i = nxt, nxt_i
+            rep.hard_rounds = pr
+            mu = np.maximum(0.0, mu + rho * (Ah @ x - bh))
+            shift[hard_i] = mu / rho
+            x = _inner(x)
+            worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
+            if worst < best_worst:
+                best_x, best_worst = x, worst
+            if opt.verbose:
+                print(f"    [design/hard] multiplier round {pr}: "
+                      f"{int(np.count_nonzero(mu > 0.0))} runway rows carry a "
+                      f"multiplier, max runway violation {worst:.5f} m")
+        if best_worst < worst:
+            x, worst = best_x, best_worst      # never return a worse surface
+        rep.hard_active = int(np.count_nonzero(mu > 0.0))
+        rep.hard_max_violation_m = worst
+        rep.hard_settled = worst <= tol_h
+        if worst > tol_h:
+            k = int(np.argmax(Ah @ x - bh))
+            rep.hard_worst = one[int(hard_i[k])][2].source.ruling[:70]
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
     rep.solver_wall_s = t_solver
@@ -796,6 +707,19 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rec["max_m"] = round(rec["max_m"], 4)
         rec["energy"] = round(rec["energy"], 3)
     rep.families = dict(sorted(fam.items()))
+    # THE PUBLISHED TARGETS: every row missed beyond the elevation
+    # materiality, with its vertices' canonical identities (RULINGS
+    # 2026-09-08t: "a target missed is a row, the census counts it")
+    mat = float(law.tables.emit.materiality.elevation_m)
+    tgt: list[dict[str, _t.Any]] = []
+    for k, (terms, _hi, row) in enumerate(one):
+        v = float(viol_all[k])
+        if v <= mat:
+            continue
+        tgt.append({"family": row.source.generator, "miss_m": round(v, 4),
+                    "ll": [[planar.vertices[vid].key[0], planar.vertices[vid].key[1]]
+                           for vid, _c in terms]})
+    rep.targets = tgt
     obj = float(np.sum((A @ x - b) ** 2)) if x is not None else 0.0
     rep.terms = _term_energies(rows, A, b, x)
     if size_out is not None:
@@ -814,41 +738,15 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                              f"{method}"), rep)
 
 
-def _one_matrix(one: _t.Sequence[_Side], red: _Reduction
-                ) -> tuple[sp.csr_matrix, np.ndarray]:
-    """Every one-sided law target as ONE sparse matrix over the REDUCED
-    columns, with the fixed vertices' contribution folded into the
-    right-hand side: a row's violation is ``(A1 x − b1)_k``.  Stacked once
-    so the active set costs a row slice, not a re-assembly."""
-    r: list[int] = []
-    c: list[int] = []
-    v: list[float] = []
-    b = np.zeros(len(one))
-    for k, (terms, hi, _row) in enumerate(one):
-        rhs = float(hi)
-        acc: dict[int, float] = {}
-        for vid, coef in terms:
-            col = int(red.col[vid])
-            if col < 0:
-                rhs -= coef * float(red.value[vid])
-            else:
-                acc[col] = acc.get(col, 0.0) + coef
-        for col, coef in acc.items():
-            if coef == 0.0:
-                continue
-            r.append(k)
-            c.append(col)
-            v.append(coef)
-        b[k] = rhs
-    return sp.csr_matrix((v, (r, c)), shape=(len(one), red.n_cols)), b
-
-
 def _objective(A0: sp.csr_matrix, b0: np.ndarray, A1: sp.csr_matrix,
-               b1: np.ndarray, d, x: np.ndarray) -> float:
+               b1: np.ndarray, w_row: np.ndarray, shift: np.ndarray,
+               x: np.ndarray) -> float:
     """The TRUE objective at ``x``: the always-on rows' squared residual plus
-    every one-sided row's ``w_law · max(0, violation)²``."""
-    viol = np.maximum(A1 @ x - b1, 0.0)
-    return float(np.sum((A0 @ x - b0) ** 2) + d.law * np.sum(viol ** 2))
+    every one-sided row's ``w · max(0, violation)²`` at ITS OWN weight (the
+    law's for a target, ``hard_weight`` for a runway constraint) against its
+    shifted target (the augmented Lagrangian's ``b − μ/ρ``)."""
+    viol = np.maximum(A1 @ x - (b1 - shift), 0.0)
+    return float(np.sum((A0 @ x - b0) ** 2) + float(np.sum(w_row * viol ** 2)))
 
 
 def _term_energies(rows: _Rows, A: sp.csr_matrix, b: np.ndarray,
@@ -863,82 +761,3 @@ def _term_energies(rows: _Rows, A: sp.csr_matrix, b: np.ndarray,
         acc[key] = acc.get(key, 0.0) + float(r[k]) ** 2
     return {k: round(v, 3) for k, v in sorted(acc.items())}
 
-
-def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
-                      red: _Reduction) -> dict[int, int]:
-    """Column -> its CONNECTED SHEET (triangles sharing a vertex, over the
-    reduced columns).  A column no triangle reaches is its own sheet: a
-    structure's ring, a lone road station."""
-    parent: dict[int, int] = {c: c for c in range(red.n_cols)}
-
-    def find(v: int) -> int:
-        while parent[v] != v:
-            parent[v] = parent[parent[v]]
-            v = parent[v]
-        return v
-
-    for a, b, c in tris:
-        cols = [int(red.col[v]) for v in (a, b, c) if red.col[v] >= 0]
-        if len(cols) < 2:
-            continue
-        ra = find(cols[0])
-        for other in cols[1:]:
-            parent[find(other)] = ra
-    return {c: find(c) for c in range(red.n_cols)}
-
-
-def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction
-                 ) -> list[list[int]]:
-    """The connected BODIES of the faces of ``roles`` (faces sharing a
-    vertex), each as its unknown vertices carrying a DEM sample."""
-    parent: dict[int, int] = {}
-
-    def find(v: int) -> int:
-        parent.setdefault(v, v)
-        while parent[v] != v:
-            parent[v] = parent[parent[v]]
-            v = parent[v]
-        return v
-
-    members: dict[int, list[int]] = {}
-    for f in pm.faces.values():
-        if f.role not in roles:
-            continue
-        vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
-        if not vs:
-            continue
-        r0 = find(vs[0])
-        for v in vs[1:]:
-            parent[find(v)] = r0
-        members.setdefault(f.id, []).extend(vs)
-    acc: dict[int, set[int]] = {}
-    for vs in members.values():
-        for v in vs:
-            acc.setdefault(find(v), set()).add(v)
-    out: list[list[int]] = []
-    for group in acc.values():
-        keep = sorted(v for v in group
-                      if red.col[v] >= 0 and pm.vertices[v].dem_z is not None)
-        if keep:
-            out.append(keep)
-    return out
-
-
-def _plane_targets(pm: PlanarMap, vs: _t.Sequence[int]
-                   ) -> list[tuple[int, float]]:
-    """``(vertex, target)`` for a detached sheet's OWN TERRAIN PLANE: the
-    least-squares plane through its DEM samples, evaluated at each vertex.
-    Mean and tilt, no undulation — a plane's bending energy is zero, so this
-    datum never fights the design (owner 08t answer 6)."""
-    if not vs:
-        return []
-    P = np.array([[*pm.vertices[v].xy, 1.0] for v in vs], float)
-    y = np.array([float(pm.vertices[v].dem_z) for v in vs], float)
-    if len(vs) < 3:
-        return [(v, float(y.mean())) for v in vs]
-    try:
-        coef, *_ = np.linalg.lstsq(P, y, rcond=None)
-    except np.linalg.LinAlgError:
-        return [(v, float(y.mean())) for v in vs]
-    fit = P @ coef
-    return [(v, float(fit[k])) for k, v in enumerate(vs)]

@@ -1525,6 +1525,12 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         if rec.get("cap_after") is not None:
             f["max_grade"] = max(f["max_grade"], float(rec["cap_after"]))
 
+    # THE DESIGN TARGETS (RULINGS 2026-09-08t/v): the rows the design
+    # surface missed, per family, from the solve's own ``design_target``
+    # publication — a report figure beside the law-true count of exactly
+    # those rows in their families (the census reports, never blocks)
+    design_targets = cg.design_target_summary(osm)
+
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
     # closure in this file AND a second, hand-written closure in
@@ -1644,6 +1650,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "withdrawn_law": withdrawn,
         "apron_over_preference": apron_pref,
         "yielded_rows": yielded,
+        "design_target": design_targets,
         # THE AXIS FRAME, always stamped — "own" for every default run, so
         # a report without the key is simply an older one and a report WITH
         # it can never be mistaken for the other frame.
@@ -1810,6 +1817,12 @@ def print_report(rep: dict, top: int) -> None:
                   f"under 'yielded_by_08d' and counted law-true in their families): "
                   + ", ".join(f"{k} {v['rows']} (max grade {v['max_grade']:.4f})"
                               for k, v in sorted(yr.items())))
+        dt = rep.get("design_target") or {}
+        if dt:
+            print(f"    DESIGN TARGETS (08t, the law rows the design surface missed, reported "
+                  f"under '{cg.DESIGN_TARGET_HEADING}' and counted law-true in their families): "
+                  + ", ".join(f"{k} {v['rows']} (max miss {v['max_miss_m']:.3f} m)"
+                              for k, v in sorted(dt.items())))
         ap = rep.get("apron_over_preference") or {}
         if ap.get("rows") is not None:
             faces = sorted((ap.get("faces") or {}).items(),

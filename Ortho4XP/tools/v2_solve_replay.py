@@ -274,7 +274,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
-           why_hump: tuple[str, float, float] | None = None,
+           why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0) -> int:
     import numpy as np
@@ -384,6 +384,32 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 print(f"    site {srec['lat']:.6f},{srec['lon']:.6f}: {srec['vertices']} vertices within {site_radius_m:g} m, "
                       f"z-DEM mean {srec['z_dem_mean']} min {srec['z_dem_min']} max {srec['z_dem_max']} "
                       f"roles {srec['roles']} shapes {srec['shapes']} max step over a short edge {srec['max_step_m']} m")
+        if verify:
+            # THE VERIFY CENSUS on the solved surface (the build's own reader,
+            # ``pipeline/build.py``): the rows per family and the DEFECT
+            # families the app's driver gates on
+            from auto_patch_v2.constraints.roads import road_law_caps
+            from auto_patch_v2.emit.graded import graded_surface
+            from auto_patch_v2.pipeline.publication import publication
+            from auto_patch_v2.verify import census as run_census
+            from auto_patch_v2.verify.census import DEFECT_KEYS
+            t = time.perf_counter()
+            surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
+                                  {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
+            vrows = run_census(surf, law, publication(pm, law, airport, sol.z),
+                               road_law_caps(pm, law, airport))
+            summary = {k: len(v) for k, v in vrows.items() if v}
+            result["verify"] = {"by_family": summary,
+                                "defects": {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}}
+            print(f"    verify {time.perf_counter() - t:.1f} s: {sum(summary.values())} rows  "
+                  + ", ".join(f"{k} {n}" for k, n in sorted(summary.items())))
+            print(f"    verify DEFECT families ({', '.join(DEFECT_KEYS)}): "
+                  + (", ".join(f"{k} {n}" for k, n in result["verify"]["defects"].items())
+                     or "ALL ZERO"))
+            for k in DEFECT_KEYS:
+                for r in (vrows.get(k) or [])[:6]:
+                    print(f"      {k}: {r}")
+            result["verify"]["defect_rows"] = {k: (vrows.get(k) or [])[:20] for k in DEFECT_KEYS}
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
@@ -438,6 +464,9 @@ def main() -> int:
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
                     help="the --site horizon in metres (default 12; the owner's step horizon is 60)")
     ap.add_argument("--emit", type=Path, metavar="DIR", help="write the patch of the solved surface")
+    ap.add_argument("--verify", action="store_true",
+                    help="run the v2 verify census on the solved surface and print the rows "
+                         "per family and the DEFECT families (the app's gate)")
     ap.add_argument("--chord-fill", nargs="+", default=[], metavar="ROLE",
                     help="experiment arm (08g-2): these roles' vertices within the strip take the "
                          "crown-plane chord as their fit target (constraints.runway_chord fill_roles)")
@@ -475,7 +504,7 @@ def main() -> int:
                       design_weights={k.strip(): float(v)
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
-                      emit_dir=a.emit, why_hump=wh, solved_out=a.solved_out,
+                      emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill))
     ap.error("one of --capture / --replay")
     return 2

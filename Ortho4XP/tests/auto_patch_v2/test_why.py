@@ -131,8 +131,11 @@ def test_chain_trace_reaches_the_runway_pin_through_the_taxi_families(prepared):
     from auto_patch_v2.model.constraints import Diff
     for s in tr.steps:
         assert s.v != s.u, s
-        if isinstance(s.row, Diff):          # a Diff step sits exactly on its bound
-            assert s.dz == pytest.approx(s.bound_m, abs=1e-5), s
+        if isinstance(s.row, Diff):
+            # 08t: a Diff row is a TARGET, so a chain step sits AT its bound to
+            # the solve's own tolerance, not exactly on it
+            assert s.dz == pytest.approx(
+                s.bound_m, abs=prepared.law.tables.emit.materiality.elevation_m), s
 
 
 def test_bindings_have_zero_slack_and_name_successors(prepared):
@@ -174,14 +177,23 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     # all binding families together: the ceiling no single arm exceeds
     rows = [r for r in prepared.cs.rows() if why.family_of(r) not in set(fams)]
     from auto_patch_v2.model.constraints import ConstraintSet
-    from auto_patch_v2.solve.highs import solve
-    sol = solve(prepared.pm, ConstraintSet.from_rows(rows), prepared.weights)
+    from auto_patch_v2.solve import solve_design      # 08t: the ONE solve
+    sol, _rep = solve_design(prepared.pm, ConstraintSet.from_rows(rows), prepared.law)
     import numpy as np
     z2 = np.asarray(sol.z, float)
     ceiling = float(np.median(z2[verts] - prepared.z[verts]))
-    assert ceiling > 0.5
-    for f, r in singles.items():
-        assert r.dz_median <= ceiling + 1e-6, (f, r.dz_median, ceiling)
+    # 08t: dropping every binding family removes TARGETS, so the sheet settles
+    # to its own bending and datum — it may fall as readily as rise.  What the
+    # twin holds is the MAGNITUDE: together the families move the apron
+    # materially, and no single family moves it further than they do together.
+    assert abs(ceiling) > 0.5
+    # (the CEILING PROPERTY — no single family moves the apron further than
+    # all of them together — was a property of the hard-law solve, where a
+    # family could only ever hold the surface DOWN.  Under the design surface
+    # a family is a target that pulls both ways and the arms are not ordered:
+    # measured here, dropping ``taxi_chain`` alone lifts the apron 6.1 m while
+    # dropping every binding family settles it 3.9 m lower.  RULINGS
+    # 2026-09-08t; the magnitude sanity above is what survives.)
     # under the ROUTE law (RULINGS 2026-09-04o) no single family lifts the
     # apron: the route pairs are priced over the same path the taxi
     # centreline / within-shape and apron rows already bound, so each
@@ -190,9 +202,9 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     travel = {"no_step_pairs", "taxi_within_shape", "taxi_centreline",
               "apron_within_shape", "apron_preference", "reach_bands"}
     rows2 = [r for r in prepared.cs.rows() if why.family_of(r) not in travel]
-    sol2 = solve(prepared.pm, ConstraintSet.from_rows(rows2), prepared.weights)
+    sol2, _r2 = solve_design(prepared.pm, ConstraintSet.from_rows(rows2), prepared.law)
     z3 = np.asarray(sol2.z, float)
-    assert float(np.median(z3[verts] - prepared.z[verts])) > 0.05
+    assert abs(float(np.median(z3[verts] - prepared.z[verts]))) > 0.05
 
 
 def test_code_letter_evidence_reads_1202_by_geometry(prepared):

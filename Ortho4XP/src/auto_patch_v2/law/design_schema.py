@@ -12,13 +12,20 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["Design", "DESIGN_TERMS", "check_design"]
+__all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 
 #: The objective's terms, in the order the report prints them.  Each is a
 #: weight: the price of one metre of that residual (bending is metres of
 #: integrated curvature, every other term metres of elevation).
-DESIGN_TERMS: tuple[str, ...] = ("bend", "chord", "law", "dem_zone", "road",
-                                 "detached_mean")
+DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
+                                 "bend_strip", "bend_road", "chord", "law",
+                                 "dem_zone", "road", "detached_mean")
+
+#: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
+#: vertex touched by two of them is priced under: a vertex of a runway face
+#: bends at ``bend_runway`` even where a strip shares it.  Each names the
+#: ``[design] bend_<class>`` weight.
+BEND_CLASSES: tuple[str, ...] = ("runway", "taxi", "apron", "road", "strip")
 
 
 @_dc.dataclass(frozen=True)
@@ -32,7 +39,11 @@ class Design:
     price of a metre of that term's residual, relative to ``bend``.
     """
 
-    bend: float
+    bend_runway: float
+    bend_taxi: float
+    bend_apron: float
+    bend_strip: float
+    bend_road: float
     chord: float
     law: float
     dem_zone: float
@@ -40,6 +51,13 @@ class Design:
     detached_mean: float
     #: the one-sided penalties' active-set iteration (module docstring of
     #: ``solve/design.py``)
+    #: the ruling heads whose rows are HARD constraints of the active set
+    #: (RULINGS 2026-09-08v: the runway family's transverse, vertical curve
+    #: K and max grade), enforced exactly — never one-sided targets
+    hard_rulings: tuple[str, ...]
+    hard_weight: float
+    hard_max_rounds: int
+    hard_tol_m: float
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float
@@ -49,6 +67,10 @@ class Design:
         """The weight of one objective term (``DESIGN_TERMS``)."""
         return float(getattr(self, term))
 
+    def bend(self, cls: str) -> float:
+        """The bending weight of one class (``BEND_CLASSES``)."""
+        return float(getattr(self, f"bend_{cls}"))
+
 
 def check_design(d: Design, err: type[Exception]) -> None:
     """Every weight positive and finite, every limit positive."""
@@ -56,6 +78,16 @@ def check_design(d: Design, err: type[Exception]) -> None:
         w = d.weight(term)
         if not (w > 0.0) or w != w or w in (float("inf"), float("-inf")):
             raise err(f"emit.design.{term} {w}: a positive, finite weight")
+    if not d.hard_rulings:
+        raise err("emit.design.hard_rulings: at least one ruling "
+                  "(RULINGS 2026-09-08v: the runway family's laws are hard)")
+    if d.hard_max_rounds < 1:
+        raise err(f"emit.design.hard_max_rounds {d.hard_max_rounds}: at least 1")
+    if not d.hard_tol_m > 0.0:
+        raise err(f"emit.design.hard_tol_m {d.hard_tol_m}: positive metres")
+    if not d.hard_weight > d.law:
+        raise err(f"emit.design.hard_weight {d.hard_weight}: heavier than the "
+                  f"law's target weight {d.law} — a constraint, not a target")
     if d.active_set_max_rounds < 1:
         raise err(f"emit.design.active_set_max_rounds {d.active_set_max_rounds}: at least 1")
     if not d.active_set_tol_m > 0.0:

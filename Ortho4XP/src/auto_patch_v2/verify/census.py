@@ -96,15 +96,20 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
 
 
 #: Keys of ``census_patch`` whose rows are structural DEFECTS of the
-#: emitted product (a solver / emit invariant broken), not law residuals:
-#: the pipeline reports them apart, the app driver fails the airport.
-#: ``runway_transverse`` (RULINGS 2026-09-05o): the runway transverse
-#: maximum is a hard tier-0 row, so a built cross-fall over it is a defect;
-#: ``runway_vertical_curve`` (2026-09-06b law 1) likewise.  The strip tie
-#: (``strip_transverse``) sits in the strip's tier — the last resort may
-#: relax it — so its rows are residuals, never defects.
+#: emitted product, not law residuals: the pipeline reports them apart, the
+#: app driver fails the airport.
+#:
+#: THE GATE READS THE RUNWAY FAMILY ONLY (owner 05s/06b within 08t, RULINGS
+#: 2026-09-08v): under the design surface every law is a TARGET the surface
+#: aims for and the census REPORTS — except the runway family's, which the
+#: solve holds as CONSTRAINTS (``solve/design.py``, ``[design]
+#: hard_rulings``).  A row here therefore means the solve's own constraints
+#: were not met, which is a defect of the product.  ``pad_flat`` left this
+#: tuple with the hard-law world: a rigid pad's flatness is a target of the
+#: same solve as every other law, so a pad standing off its plane is a
+#: census row like any other (``verify/pads.py`` still reads and reports it).
 FAMILY_PAD_FLAT = "pad_flat"
-DEFECT_KEYS: tuple[str, ...] = (FAMILY_PAD_FLAT, FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE)
+DEFECT_KEYS: tuple[str, ...] = (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE)
 
 
 #: The key a row carries when it sits on a vertex the last resort relaxed

@@ -539,6 +539,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
         pub = publication(pm, law, airport, sol.z)
+        # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
+        # residual per family (``design``, replacing ``law_tiers``) and the
+        # rows the surface missed (``design_target``), which the census
+        # counts law-true in their families and reports under one heading
+        pub["design"] = design_rep.as_dict()
+        pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:
             worst = max(js["contours"], key=lambda c: c["step_m"])

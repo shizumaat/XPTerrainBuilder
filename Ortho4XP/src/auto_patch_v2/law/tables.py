@@ -25,8 +25,8 @@ __all__ = [
     "tier_of_roles", "role_preferred_cap",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
-    "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
-    "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "design",
+    "flat_site", "flat_datum_group", "flat_declared",
+    "flat_source_class", "flat_relief_floor_m", "design",
     "design_weight", "sliver_area_factor",
 ]
 
@@ -425,11 +425,6 @@ def flat_datum_group(law: Law) -> str:
     return law.tables.flat_site.datum.preference
 
 
-def flat_datum_weight(law: Law) -> float:
-    """The charge per metre of relief of one datum row (``[datum] weight``)."""
-    return law.tables.flat_site.datum.weight
-
-
 def flat_declared(law: Law, icao: str) -> Declared | None:
     """The owner's declaration for ``icao`` (option (c)), or ``None`` —
     the ONE declared register; the tile-cfg keys are retired."""
@@ -467,12 +462,6 @@ def flat_relief_floor_m(law: Law, source_class: str | None) -> float | None:
 
 
 # ── the priority model (RULINGS 2026-09-08d; spec heca-v1-parity) ─────────
-
-def runway_chord_fit_weight(law: Law) -> float:
-    """The runway family's fit weight per metre of |z − threshold chord|
-    (``rulesets.toml [common] runway_chord_fit``, change 1)."""
-    return float(law.tables.common.runway_chord_fit)
-
 
 def design(law: Law):
     """``emit.toml [design]``: THE DESIGN SURFACE's objective weights

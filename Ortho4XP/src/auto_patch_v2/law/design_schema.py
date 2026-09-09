@@ -146,10 +146,10 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_min_width_m {d.bank_min_width_m}: positive metres")
     if not d.bank_foot_smooth > 0.0:
         raise err(f"emit.design.bank_foot_smooth {d.bank_foot_smooth}: a positive weight")
-    if not d.bank_ring_spacing_m >= d.bank_min_width_m:
-        raise err(f"emit.design.bank_ring_spacing_m {d.bank_ring_spacing_m}: at least "
-                  f"bank_min_width_m {d.bank_min_width_m} — a narrower spacing would "
-                  "author a ring inside the minimum bank (09-09f-1)")
+    if not d.bank_ring_spacing_m > 0.0:
+        raise err(f"emit.design.bank_ring_spacing_m {d.bank_ring_spacing_m}: positive metres "
+                  "(RULINGS 2026-09-09j: the spacing is the width of the band the mesh "
+                  "interpolates across — measured, only a 3 m band reads the 1:3 cleanly)")
     if not 0.0 < d.bank_first_ring_m < d.bank_min_width_m:
         raise err(f"emit.design.bank_first_ring_m {d.bank_first_ring_m}: "
                   f"positive and inside bank_min_width_m {d.bank_min_width_m} "

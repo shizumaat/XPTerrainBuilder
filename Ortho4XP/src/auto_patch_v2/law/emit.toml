@@ -235,7 +235,7 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # read 46 % against the ring where the authored face is 33 %.  The first
 # ring stands 3 m out, then one every ``bank_ring_spacing_m`` (a foot at
 # 18.2 m gets levels at 3 and 13 m).
-bank_ring_spacing_m = 10.0
+bank_ring_spacing_m = 3.0    # RULINGS 2026-09-09j: the mesh's graph-harmonic interpolation squeezes any band wider than this against its inner ring (measured HECA transect: a 3 m band reads 29 %, the 11.7 m band beyond it 76-104 %); every band authored 3 m wide reads the 1:3
 bank_first_ring_m   = 3.0
 # THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11).  The fixed
 # point ``d = |z_ring - DEM(foot)| / bank_slope`` is the daylight point only

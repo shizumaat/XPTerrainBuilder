@@ -403,14 +403,16 @@ def test_a_six_metre_ring_authors_its_levels_at_three_and_thirteen_metres(apron_
     zof = {v.id: v.z for v in banked.vertices}
     foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
                 and "@" not in b.ref for v in b.vertices}
-    # THERE IS NO THIRD LEVEL: the perpendicular bank is 18.18 m everywhere
-    # on this rectangle, and 3 + 2 x 10 = 23 m is outside it.  (A mitred
-    # corner is the SAME bank seen diagonally — 09f-1's per-vertex
-    # construction authored a deeper level there because it measured the
-    # corner RAY; ``cov.buffer(23) ∩ banked`` is ``banked`` itself, so the
-    # level has no room and is skipped.)
-    assert rep.face_levels == 2
-    assert not [b for b in face if b.ref.endswith("@3")]
+    # RE-SCOPED for RULINGS 2026-09-09j (``bank_ring_spacing_m`` 10 → 3 m):
+    # the levels stand at first + k·spacing while INSIDE the perpendicular
+    # bank (18.18 m on this rectangle); a level with no room (``cov.buffer(t)
+    # ∩ banked`` = ``banked`` itself) is skipped.  (A mitred corner is the
+    # SAME bank seen diagonally — 09f-1's per-vertex construction authored a
+    # deeper level there because it measured the corner RAY.)
+    import math as _m
+    n_inside = 1 + _m.floor((18.18 - d.bank_first_ring_m) / d.bank_ring_spacing_m)
+    assert 2 <= rep.face_levels <= n_inside
+    assert not [b for b in face if b.ref.endswith(f"@{n_inside + 1}")]
     assert foot_ids
     bank_w = 6.0 / d.bank_slope
     for chain, t_out in ((lv1, d.bank_first_ring_m),

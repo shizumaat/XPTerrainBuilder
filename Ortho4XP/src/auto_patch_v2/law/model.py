@@ -572,6 +572,12 @@ class RoleSpec:
     #: ``ROLE_GRADE_LIMITS[<law>]``) when the alias caps tighter than this
     #: role (a door ramp under ``tunnel_ramp``, spec othh-terminal-ramps §4).
     oracle_law: str | None = None
+    #: The cap the ORACLE prices this role's pairs at (``o4_grade_law_cap``),
+    #: in place of the role's own face cap — the pair frame reads a ramp's
+    #: ring diagonals, which the face's longitudinal law does not bound.
+    #: RULINGS 2026-09-08u (2): both structure ramps are read at the ramp
+    #: law's ceiling ``cutout.wall_corridor.max_ramp_grade`` 0.10.
+    oracle_cap: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -828,6 +834,17 @@ def _check_cross_refs(t: LawTables) -> None:
                                "un-aliased role")
             if alias.side != spec.side:
                 raise LawError(f"precedence.roles.{r}.oracle_role: side differs")
+        if spec.oracle_cap is not None and (spec.oracle_role is None or spec.oracle_cap <= 0.0):
+            raise LawError(f"precedence.roles.{r}.oracle_cap: a positive cap, "
+                           "and only on an aliased role")
+    # RULINGS 2026-09-08u (2): the oracle reads BOTH structure ramps at the
+    # ramp law's ceiling — ONE number, ``cutout.wall_corridor.max_ramp_grade``
+    for r in ("door_ramp", "wall_corridor_ramp"):
+        spec = t.precedence.roles.get(r)
+        if spec is not None and spec.oracle_cap != t.structures.cutout.wall_corridor.max_ramp_grade:
+            raise LawError(f"precedence.roles.{r}.oracle_cap {spec.oracle_cap} is not "
+                           "structures.cutout.wall_corridor.max_ramp_grade "
+                           f"{t.structures.cutout.wall_corridor.max_ramp_grade} (08u (2))")
     for r in t.common.roles:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")

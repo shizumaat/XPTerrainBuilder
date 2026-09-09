@@ -189,9 +189,18 @@ def render_patch(surface: GradedSurface, law: Law,
             role = spec.oracle_role
             extra["class"] = f.role
             rc = role_cap(law, f.role, f.code_number, f.code_letter)
-            if rc is not None:
+            # THE ORACLE'S OWN CAP (``oracle_cap``, RULINGS 2026-09-08u (2)):
+            # a structure ramp is priced in the PAIR frame at the ramp law's
+            # ceiling, not at its face's longitudinal cap — the oracle reads
+            # a 2.5 m-wide ramp's ring diagonals, which the face law does
+            # not bound (measured: 181 lawful OTHH wall-corridor rows at
+            # 8.2 % against the service_road alias's 8 %).  v2 verify keeps
+            # the face cap and stays the stricter instrument.
+            longitudinal = spec.oracle_cap if spec.oracle_cap is not None else \
+                (None if rc is None else rc.longitudinal)
+            if longitudinal is not None:
                 prior = extra.get("o4_grade_law_cap")
-                cap = rc.longitudinal if prior is None else min(rc.longitudinal, float(prior))
+                cap = longitudinal if prior is None else min(longitudinal, float(prior))
                 extra["o4_grade_law_cap"] = f"{cap:g}"
             if spec.oracle_law is not None:
                 # THE ORACLE'S LAW OVERRIDE (``oracle_law``): the v1 census

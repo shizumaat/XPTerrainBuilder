@@ -26,7 +26,9 @@ laws share it:
   finding and the cluster law governs its parts.  A tunnel wall object
   seats its top PLATE on the ground at its wall band (05n-4), a basin
   family its floor plate on the trench floor (06b-3): the whole family
-  rigidly.  A structure seat is exempt from ``min_delta_m``.
+  rigidly.  A structure seat is NOT exempt from a threshold (08d (d)):
+  a PLATE seat's is ``plate_seat_min_delta_m``, every other unit's
+  ``min_delta_m``.
 * THE CLUSTER SEAT, for everything else (``emit/clusters.py``): the
   members' welded parts and the pack-wide contact graph, cut where two
   adjacent ground parts' seat targets disagree by more than
@@ -52,7 +54,9 @@ land anchor within ``basin.contact_band_m`` of Z0 takes Z0
 keeps the mesh (the plate seat compensates it: Dewatering_01 +13.14);
 (b) a flag deck's ring needs ABUTMENT RELIEF (water, or a land spread ≥
 the band) or the deck seat stands down; (d) a structure seat under
-``min_delta_m`` stays unless ``structure_seat_threshold_exempt``; (e)
+``min_delta_m`` stays unless ``structure_seat_threshold_exempt`` — a
+PLATE-datum seat's threshold is ``plate_seat_min_delta_m`` 0.05 m
+(2026-09-08u (1): a wall crest 0.49 m under grade is visible); (e)
 inside the region the pack's seat is authoritative
 (``flat_site_ground_datum``): a cluster ground part of an object anchored
 inside the region — its WHOLE footprint, the parts beyond the region's
@@ -453,11 +457,18 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                    findings=rec["findings"] + findings)
         if delta is None:
             continue
-        if not rb.structure_seat_threshold_exempt and abs(delta) < rb.min_delta_m:
-            # RULINGS 2026-09-08d (d): a structure seat under the threshold
+        # THE PLATE SEAT'S OWN THRESHOLD (RULINGS 2026-09-08u (1)): a plate-
+        # datum unit (a tunnel wall's crest plate, a basin's floor plate)
+        # writes any |delta| ≥ plate_seat_min_delta_m — OTHH's deep bore
+        # computed +0.492 and the 1.0 m threshold declined it, leaving the
+        # crest half a metre under grade, which is visible.  Every other
+        # unit (a deck seat) keeps min_delta_m.
+        thresh = rb.plate_seat_min_delta_m if datum == DATUM_PLATE else rb.min_delta_m
+        if not rb.structure_seat_threshold_exempt and abs(delta) < thresh:
+            # RULINGS 2026-09-08d (d): a structure seat under ITS threshold
             # STAYS — its members keep their authored y and are never
             # handed to the cluster law (OTHH Drainage_06 was written +0.001)
-            rec["below"] = (f"below_threshold: {datum} seat |{delta:+.3f}| m < {rb.min_delta_m} m"
+            rec["below"] = (f"below_threshold: {datum} seat |{delta:+.3f}| m < {thresh} m"
                             " — the structure stays at its authored y")
             rec["delta"] = None
             stay.add(u.id)

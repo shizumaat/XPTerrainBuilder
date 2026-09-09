@@ -209,13 +209,24 @@ def _common_checks(c: Checks, t) -> None:
                if cap is None}
     v2_none = {r for r, s in t.precedence.roles.items() if s.family == "none"}
     c.eq("no-cap roles", v1_none - {"terminal"} | {"tunnel_trench"}, v2_none)
-    # value roles: every v1 capped role is registered with a cap
+    # value roles: every v1 capped role is registered with a cap.
+    # ``terminal`` is v1's legacy read alias; ``structure_ramp`` is an
+    # ORACLE LAW NAME, not a shape role (RULINGS 2026-09-08u (2)): no
+    # engine emits it, v2's ramp faces are only PRICED under it through
+    # ``o4_grade_law``, and it carries the v2 ramp ceiling instead.
     for r, cap in v1.ROLE_GRADE_LIMITS.items():
-        if cap is None or r == "terminal":
+        if cap is None or r in ("terminal", "structure_ramp"):
             continue
         law = Law(tables=t, ruleset_key="faa")
         got = T.role_cap(law, r, code_letter="C")
         c.eq(f"role_cap({r}, FAA/C).longitudinal", cap, got.longitudinal)
+    c.eq("v1 structure_ramp law == the v2 ramp ceiling (08u (2))",
+         v1.ROLE_GRADE_LIMITS["structure_ramp"],
+         t.structures.cutout.wall_corridor.max_ramp_grade)
+    for r in ("door_ramp", "wall_corridor_ramp"):
+        c.eq(f"precedence.roles.{r}.oracle_cap", v1.STRUCTURE_RAMP_MAX_GRADE,
+             t.precedence.roles[r].oracle_cap)
+        assert t.precedence.roles[r].oracle_law == "structure_ramp"
     c.eq("precedence.order", tuple(v1_layout.AUTHORITY_PRECEDENCE),
          t.precedence.order)
     gs = {r for r, s in t.precedence.roles.items() if s.side == "groundside"}
@@ -348,6 +359,9 @@ def _structures_emit_checks(c: Checks, t) -> None:
          rb.a3_guard_max_diameter_m)
     c.eq("rebake.a3_tolerance_m", v1_oa.RESIDUAL_COMPARISON_TOLERANCE_METRES, rb.a3_tolerance_m)
     assert 0.0 < rb.contact_epsilon_m <= rb.cluster_seat_tolerance_m < rb.min_delta_m
+    # RULINGS 2026-09-08u (1): a PLATE-datum structure seat has its own,
+    # smaller bar — v2-only (v1 knows one threshold), declared here
+    assert 0.0 < rb.plate_seat_min_delta_m < rb.min_delta_m
     assert rb.nobake_pad_floor_m < rb.cluster_residual_pad_m < rb.cluster_span_pad_m
     assert rb.water_founds_seat is False and rb.deck_family_seats_rigid is True
     # RULINGS 2026-09-05u (lane v2relaxfull): no certificate is not a reason

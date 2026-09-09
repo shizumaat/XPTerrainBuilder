@@ -3,7 +3,8 @@
 
 * the law register: ``[cutout.door]`` / ``[cutout.sunken_road]`` keys,
   the ``door_ramp`` role (8 %, groundside, structure, aliased for the
-  oracle under ``tunnel_ramp`` at ``service_road``'s law), ``seat =
+  oracle under ``tunnel_ramp`` at the STRUCTURE RAMP law's 10 %
+  ceiling — RULINGS 2026-09-08u (2)), ``seat =
   "none"`` the only generated value, the door grade under the role cap;
 * Law A: a box with a 1.7 m well reaching its face → ONE door ramp of the
   sill's width, climbing at 8 % to the ground within 25 m, the well floor
@@ -15,7 +16,8 @@
   never plate-seated; a level roofed plate → nothing (the basin pass's);
   an unroofed one → nothing (an open ramp);
 * the emitted product: ``role=tunnel_ramp class=door_ramp
-  o4_grade_law=service_road o4_grade_law_cap=0.08`` for the oracle.
+  o4_grade_law=structure_ramp o4_grade_law_cap=0.1`` for the oracle
+  (08u (2): the pair frame reads a ramp at the ramp law's ceiling).
 Law values are read from the tables inside the tests, never retyped.
 """
 from __future__ import annotations
@@ -181,7 +183,9 @@ def test_law_register(law):
     assert 0.0 < r.roof_min_fraction <= 1.0
     spec = law.tables.precedence.roles["door_ramp"]
     assert spec.side == "groundside" and spec.structure and spec.value and spec.family == "common"
-    assert spec.oracle_role == "tunnel_ramp" and spec.oracle_law == "service_road"
+    assert spec.oracle_role == "tunnel_ramp" and spec.oracle_law == "structure_ramp"
+    # RULINGS 2026-09-08u (2): the oracle prices it at the RAMP LAW's ceiling
+    assert spec.oracle_cap == law.tables.structures.cutout.wall_corridor.max_ramp_grade
     assert is_structure_role(law, "door_ramp") and role_side(law, "door_ramp") == "groundside"
     cap = role_cap(law, "door_ramp")
     assert cap is not None and d.ramp_grade <= cap.longitudinal
@@ -302,7 +306,8 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and "v='door_ramp'" in text
-    assert "k='o4_grade_law' v='service_road'" in text and "k='o4_grade_law_cap' v='0.08'" in text
+    assert "k='o4_grade_law' v='structure_ramp'" in text and \
+        "k='o4_grade_law_cap' v='0.1'" in text
 
 
 def test_a_wide_well_is_a_yard_not_a_door(objs, law):

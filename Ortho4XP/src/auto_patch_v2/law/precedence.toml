@@ -45,21 +45,27 @@ tunnel_ramp         = { family = "common", side = "groundside", value = true,  a
 # tunnel_ramp cap is 4 % in BOTH instruments and the door law is 8 %.  Omitted
 # from [authority] order (a governed role the order omits follows the named
 # ones); groundside like the tunnel ramp.  The oracle reads it under
-# tunnel_ramp (its partition and structure semantics) and prices it at
-# service_road's 8 % through o4_grade_law (oracle_law) composed with
-# o4_grade_law_cap = this role's cap.
-door_ramp           = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
+# tunnel_ramp (its partition and structure semantics) and prices it at the
+# STRUCTURE RAMP law (RULINGS 2026-09-08u (2): oracle_law "structure_ramp",
+# v1 config STRUCTURE_RAMP_MAX_GRADE 10 %) with o4_grade_law_cap =
+# oracle_cap, the ramp law's ceiling — the oracle's pair frame reads a
+# ramp's ring diagonals, which the face's longitudinal law does not bound,
+# and the owner ruled both structure ramps read there at 10 %.  v2 verify
+# stays the stricter instrument on a door ramp (its face cap, 8 %).
+door_ramp           = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "structure_ramp", oracle_cap = 0.10 }
 # THE WALL CORRIDOR (RULINGS 2026-09-08m/08n Law C; spec othh-terminal-ramps-spec.md §6):
 # wall_corridor_ramp = a kerb-wall corridor's floor and its synthetic climb
 # (structures.toml [cutout.wall_corridor] ramp_grade 8 %, steepened to
 # max_ramp_grade 10 % = this cap where airside pavement stops it);
 # garage_ramp = a DESCENDING wall bottom cut as authored (08n: never gated by
 # a ramp law; max_authored_grade 25 % = this cap, a sanity cap).  Both read
-# by the oracle under tunnel_ramp at service_road's 8 % (its largest cap —
-# the alias composes as a minimum, so an 8–10 % climb and every authored
-# garage ramp over 8 % is a v1-census row the v2 verify does not raise: an
-# instrument limit, recorded in the spec §6a row 17).
-wall_corridor_ramp  = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
+# by the oracle under tunnel_ramp; wall_corridor_ramp at the structure-ramp
+# law + oracle_cap 10 % (08u (2): the 181 lawful 8.2 % rows the service_road
+# alias minted at OTHH).  garage_ramp KEEPS the service_road alias: no
+# oracle law carries 25 %, and it has no site (08u (3)) — an authored ramp
+# over 8 % is still a v1-census row the v2 verify does not raise, an
+# instrument limit recorded in the spec §6a row 17 / §7b row 3.
+wall_corridor_ramp  = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "structure_ramp", oracle_cap = 0.10 }
 garage_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true, oracle_role = "tunnel_ramp", oracle_law = "service_road" }
 apron               = { family = "common", side = "airside",    value = true,  aeroway = "apron" }
 building            = { family = "common", side = "airside",    value = true,  aeroway = "apron", rigid = true }  # a RIGID flat group levelled by its contact (09-01g weld = value; 09-03h pads yield)

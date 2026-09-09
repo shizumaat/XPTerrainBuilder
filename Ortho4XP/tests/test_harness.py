@@ -7679,3 +7679,86 @@ def test_terrace_joint_route_never_prices_a_service_axis(cg):
     assert len(cg._check_terrace_joint_crosses_route(joint, None, taxi)) == 1
     assert cg._check_terrace_joint_crosses_route(joint, None, service) == []
     assert len(cg._check_terrace_joint_crosses_route(joint, None, service + taxi)) == 1
+
+
+# ── THE STRUCTURE-RAMP ORACLE LAW (RULINGS 2026-09-08u (2); spec
+# docs/specs/auto-patch-v2/othh-terminal-ramps-spec.md §7b) ───────────
+# The defect these pin: v2's structure ramps (a basement door's ramp, a
+# kerb-wall corridor's climb) are emitted under the oracle alias
+# ``role=tunnel_ramp``, and their law was ``service_road`` — 8 %, the
+# largest cap v1 knew.  A lawful ramp steepened to the ramp law's 10 %
+# ceiling at an airside stop then read as a within-shape violation: 181
+# groundside rows at OTHH, every one at 8.2 %, against v2 verify's 0.
+# The law name ``structure_ramp`` (v1 ``config.STRUCTURE_RAMP_MAX_GRADE``
+# = the v2 ``cutout.wall_corridor.max_ramp_grade``) is what the emitter
+# now writes, with ``o4_grade_law_cap`` at the same ceiling.
+
+def _ramp_patch(tmp_path: Path, *, grade: float, run_m: float = 25.0,
+                law: str = "structure_ramp", cap: str = "0.1",
+                name: str = "RAMP") -> Path:
+    """One ``run_m``-long ``door_ramp`` face climbing at ``grade``,
+    tagged exactly as ``emit/osm_adapter`` writes it."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+
+    def ll(x, y):
+        return (_TWIN_ANCHOR[0] + math.degrees(y / r),
+                _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+
+    # A WEDGE, so exactly ONE vertex pair runs at ``grade``: the climb
+    # A→B.  The third vertex stands 12 m across at the foot, far enough
+    # that B→C reads 9.5 % even when the climb is 10.5 % — a rectangle
+    # would price the same one law four times (two edges, two diagonals)
+    # and say nothing more.
+    ring = ((0.0, 0.0, 0.0), (run_m, 0.0, grade * run_m), (0.0, 12.0, 0.0))
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-twin'>"]
+    ids = []
+    for i, (x, y, alt) in enumerate(ring):
+        lat, lon = ll(x, y)
+        ids.append(str(-(i + 1)))
+        out.append(f"  <node id='{ids[-1]}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.3f}' /></node>")
+    out.append("  <way id='-100'>")
+    out += [f"    <nd ref='{n}' />" for n in ids + [ids[0]]]
+    for k, v in (("aeroway", "taxiway"), ("ref", "door1"),
+                 ("role", "tunnel_ramp"), ("shapeID", "1"),
+                 ("class", "door_ramp"), ("o4_grade_law", law),
+                 ("o4_grade_law_cap", cap)):
+        out.append(f"    <tag k='{k}' v='{v}' />")
+    out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}))
+    return osm
+
+
+def test_a_structure_ramp_is_priced_at_the_ramp_laws_ceiling(cg, tmp_path):
+    """RULINGS 2026-09-08u (2): the oracle reads a ``door_ramp`` /
+    ``wall_corridor_ramp`` pair at ``max_ramp_grade`` 10 % — OTHH's 8.2 %
+    climbs are lawful and price nothing; a ramp past the ceiling still
+    reports.  The number is the ENGINE's: v1's ``STRUCTURE_RAMP_MAX_GRADE``
+    is asserted equal to v2's ``cutout.wall_corridor.max_ramp_grade`` by
+    ``tests/auto_patch_v2/test_law_tables.py``."""
+    from auto_patch.config import ROLE_GRADE_LIMITS, STRUCTURE_RAMP_MAX_GRADE
+
+    assert ROLE_GRADE_LIMITS["structure_ramp"] == STRUCTURE_RAMP_MAX_GRADE == 0.10
+    lawful = _families(cg, _ramp_patch(tmp_path, grade=0.082, name="OK"))
+    assert lawful["within_shape"] == [], (
+        f"an 8.2 % structure ramp priced {len(lawful['within_shape'])} "
+        f"within-shape row(s) — the OTHH class, 181 of them")
+    steep = _families(cg, _ramp_patch(tmp_path, grade=0.105, name="STEEP"))
+    assert len(steep["within_shape"]) == 1, (
+        f"a 10.5 % ramp priced {len(steep['within_shape'])} row(s): the "
+        f"ceiling must still BIND")
+    assert steep["within_shape"][0].cap_pct == pytest.approx(10.0), (
+        "the row must be priced at the RAMP law, not at tunnel_ramp's 4 % "
+        "nor service_road's 8 %")
+    # and the old law is what minted them: the same 8.2 % ramp under
+    # service_road's 8 % reports
+    old = _families(cg, _ramp_patch(tmp_path, grade=0.082, law="service_road",
+                                    cap="0.08", name="OLD"))
+    assert len(old["within_shape"]) == 1

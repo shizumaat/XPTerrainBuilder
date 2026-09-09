@@ -40,6 +40,9 @@ class Rebake:
     deck_family_seats_rigid: bool
     facility_requires_at_grade_coalition: bool
     structure_seat_threshold_exempt: bool
+    #: RULINGS 2026-09-08u (1): the threshold of a PLATE-datum structure
+    #: seat (tunnel wall crest / basin floor), below ``min_delta_m``.
+    plate_seat_min_delta_m: float
     # the flat-site datum at the seat (RULINGS 2026-09-08d; spec
     # othh-seat-artefacts-spec.md §3)
     anchor_water_founds_seat: bool

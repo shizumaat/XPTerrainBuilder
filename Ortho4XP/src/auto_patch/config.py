@@ -236,6 +236,7 @@ __all__ = [
     "RUNWAY_END_GRADE",
     "RUNWAY_END_FRACTION",
     "TUNNEL_RAMP_MAX_GRADE",
+    "STRUCTURE_RAMP_MAX_GRADE",
     "SKIP_TUNNEL_RAMPS_NEAR_ROADS",
     "TUNNEL_ADJACENT_ROAD_DIST_M",
     "TUNNEL_FORK_THROAT",
@@ -1416,6 +1417,19 @@ RUNWAY_END_FRACTION = 0.25      # extent of each runway end zone (fraction of le
 # (then the solver WARNs loudly with the achieved threshold-band cap).
 RUNWAY_THRESHOLD_STRICT_M = 90.0
 TUNNEL_RAMP_MAX_GRADE = 0.040   # navigable ramp grade for tunnel portals (user 2026-05-08)
+# THE STRUCTURE RAMP LAW (owner RULINGS 2026-09-08m (a) / 08u (2)): a v2
+# structure's own access ramp — a basement door's ramp, a kerb-wall
+# corridor's climb — is a private vehicle ramp, not a portal taxi ramp
+# (4 %) and not a service road (8 %): it may steepen to 10 % where its
+# climb stops at airside pavement.  V1 EMITS NO SUCH SHAPE; the constant
+# exists as the LAW NAME the v2 emitter's oracle alias prices those faces
+# under (``o4_grade_law='structure_ramp'``, precedence.toml
+# ``oracle_law``), so the census judges them at the cap v2 bound them at
+# instead of at ``service_road``'s 8 % (measured: 181 lawful OTHH
+# wall-corridor rows at 8.2 %).  THE NUMBER LIVES ONCE MORE, in
+# ``auto_patch_v2/law/structures.toml [cutout.wall_corridor]
+# max_ramp_grade``, and v2's law loader asserts the two agree at load.
+STRUCTURE_RAMP_MAX_GRADE = 0.100
 # Skip tunnel-portal ramp emission where the tunnel runs under / alongside
 # OTHER roads (user 2026-06-12, LMML): in a dense road interchange the
 # surface walk traces a tangle of parallel carriageways, slip roads and
@@ -1938,6 +1952,11 @@ ROLE_GRADE_LIMITS = {
     # floor; 4% is the navigable taxi grade for ramped portals
     # (per user 2026-05-08).
     "tunnel_ramp":        TUNNEL_RAMP_MAX_GRADE,
+    # THE STRUCTURE RAMP (owner 2026-09-08m (a) / 08u (2)): the oracle's
+    # law name for a v2 structure's own access ramp (a door ramp, a
+    # kerb-wall corridor's climb), 10 %.  No v1 shape carries the role —
+    # it is reached only through a v2 patch's ``o4_grade_law`` tag.
+    "structure_ramp":     STRUCTURE_RAMP_MAX_GRADE,
     # Ground-vehicle service roads (apt.dat 1206) grade along their
     # axis like a taxiway but at 8% — VDOT GS-9 level terrain (owner
     # 2026-08-03; see SERVICE_ROAD_MAX_GRADE above).

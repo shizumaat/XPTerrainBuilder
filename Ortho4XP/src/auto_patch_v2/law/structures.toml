@@ -158,6 +158,7 @@ parallel_max_deg   = 5.0            # two bands of one family are a pair when th
 min_width_m        = 6.0            # inner faces at least this apart (OTHH: 9.75–9.84 m)
 max_width_m        = 20.0           # ...and at most this (wider is a yard between two fences)
 min_wall_length_m  = 5.0            # the bands overlap at least this along the axis (OTHH's shortest bay 6.15 m)
+merge_gap_m        = 10.0           # parallel bands of one family within tunnel.object.wall_face_max_thickness_m of each other laterally and interrupted by at most this along the axis are ONE wall (a kerb split at a crossing or a pier: OTHH TerminalRoads_Parking_004 comp 1 = 80 + 62 m runs; the Terminal_Base_9_6 floor-to-deck panels 0.6–0.9 m inside the 2_5 kerbs are those walls' faces)
 end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open_m of an end line covering this share of it CLOSES the end
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m

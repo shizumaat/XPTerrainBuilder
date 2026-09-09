@@ -328,6 +328,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     ss = pstats.structures
     ts = pstats.tunnel_objects
     ds, rs = pstats.door_wells, pstats.sunken_roads
+    ws = pstats.wall_corridors
+    if ws.corridors or ws.refused:
+        _say(f"[{icao}] wall corridors (09-08m/n Law C): {ws.corridors} corridors "
+             f"({', '.join(f'{k} {n}' for k, n in sorted(ws.by_class.items()))}) from {ws.pairs} "
+             f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  refused "
+             f"{len(ws.refused)}", out)
+        for r in ws.refused[:40]:
+            _say(f"    refused wall corridor {r}", out)
     if ds.wells or ds.refused or rs.roads or rs.refused:
         _say(f"[{icao}] door wells (09-08b/c Law A): {ds.wells} of {ds.regions} regions in "
              f"{ds.families} families ({ds.sill_witnesses} sill witnesses over {ds.screened} "
@@ -339,13 +347,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused door {r}", out)
         for r in rs.refused[:40]:
             _say(f"    refused sunken road {r}", out)
-    if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ts.refused:
+    if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
+            or ts.refused:
         _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered}, replaced by "
              f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths}  duals merged "
              f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
              f"{ts.signatures} of {ts.resources} resources, merged {ts.merged}, "
              f"{ts.signature_s:.2f} s)  door ramps {ss.door_ramps}  sunken roads "
-             f"{ss.sunken_roads}  tunnels {ss.tunnels}  decks {ss.decks}  "
+             f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
+             f"decks {ss.decks}  "
              f"cells cut {ss.cells_cut}  refused {len(ss.refused) + len(ts.refused)}", out)
         for r in ts.refused:
             _say(f"    refused object {r}", out)
@@ -365,6 +375,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                      f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
                      f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
                      f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
+                     f"{'; '.join(tn.notes)}", out)
+                continue
+            if tn.source == "wall_corridor":
+                # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
+                inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
+                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                     f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
+                     f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
+                     f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
+                     f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
+                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
                      f"{'; '.join(tn.notes)}", out)
                 continue
             if tn.source in ("door", "sunken_road"):
@@ -618,7 +639,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             # ramp's or a sunken road's family is NEVER re-seated by its
             # trench — the cluster law would sink the well's neighbours into
             # the ramp (measured OTHH: 8 Parking-Left/Right objects written)
-            excluded |= {oid for tn in pm.structures if tn.source in ("door", "sunken_road")
+            excluded |= {oid for tn in pm.structures
+                         if tn.source in ("door", "sunken_road", "wall_corridor")
                          for oid in tn.objects}
             rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
                                 lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),

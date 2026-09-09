@@ -68,6 +68,7 @@ class WallCorridor:
     min_width_m: float           # inner faces at least this apart
     max_width_m: float           # ...and at most this
     min_wall_length_m: float     # the bands overlap at least this along the axis
+    merge_gap_m: float           # parallel bands within a wall's thickness laterally and this along the axis are one wall
     end_cap_cover_min: float     # a crossing family face covering this share of an end line closes it
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
     ramp_grade: float            # the synthetic climb beyond a mouth
@@ -128,7 +129,8 @@ def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
     if not (0.0 < wc.ramp_grade <= wc.max_ramp_grade):
         raise err("structures.cutout.wall_corridor: 0 < ramp_grade <= max_ramp_grade")
     if not (0.0 < wc.min_width_m < wc.max_width_m) or wc.min_wall_depth_m <= 0.0 \
-            or wc.min_wall_length_m <= 0.0 or wc.station_m <= 0.0 or wc.min_headroom_m <= 0.0:
+            or wc.min_wall_length_m <= 0.0 or wc.station_m <= 0.0 or wc.min_headroom_m <= 0.0 \
+            or wc.merge_gap_m < 0.0:
         raise err("structures.cutout.wall_corridor: widths, depth, length, station and headroom "
                   "must be > 0 with min_width_m < max_width_m")
     if not (0.0 < wc.end_cap_cover_min <= 1.0):

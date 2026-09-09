@@ -96,6 +96,24 @@ class Group:
     #: The axis is a straight line by construction (a door's outward
     #: normal): the climb's chord test needs no curved-corridor allowance.
     straight: bool = False
+    # ── LAW C (RULINGS 2026-09-08m/08n; ``planar/wall_corridor_ramps.py``) ──
+    #: Which cells STOP the climb beyond the walls (``stop_at_pavement``):
+    #: ``None`` = every governed cell beyond the host (a door); ``"airside"``
+    #: = airside cells and building pads only — a groundside road across
+    #: the ramp yields onto it (08m (b)).  After a stop the climb steepens
+    #: to ``cutout.wall_corridor.max_ramp_grade`` or is refused.
+    stop_side: str | None = None
+    #: The whole footprint (walls AND the ramp beyond) cuts building pads.
+    ramp_cuts_pads: bool = False
+    #: An uncapped mouth cuts a one-spacing strip of ground back beyond
+    #: its line (a bore continuing underground); a level corridor's two
+    #: halves share their mouth line instead.
+    mouth_strip: bool = True
+    #: The id of the sibling half meeting at the mouth line (exempt from
+    #: the overlap refusal), or "".
+    sibling: str = ""
+    #: The ramp faces' role (``None`` = ``tunnel_ramp`` / ``door_ramp`` by kind).
+    ramp_role: str | None = None
 
 
 def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float) -> list[XY]:

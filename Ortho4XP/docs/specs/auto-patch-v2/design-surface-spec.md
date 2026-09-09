@@ -115,3 +115,53 @@ this — the owner's complaint in a number), the census (rows stamped
 solve), CYXY/OTHH/LEMD verify and their undulation reads. The sim read
 is the acceptance; the KML of the three runway profiles is not needed —
 the table is. Build-time statement.
+
+
+## 6. Implementation record (lane `v2smooth`, 2026-09-08, branch `claude/v2smooth`)
+
+Deviations and choices the lane REPORTS (they are not ruled here):
+
+1. **The bending sheet includes the graded strip / clearance ground.**  §1
+   names the pavement complex; a strip with no bending term is not a blend
+   (measured: without it the strip's inner vertices float and the strip is
+   dragged flat).  `solve/design.bend_roles` = every role that is not a
+   STRUCTURE's; `pavement_roles` (the value, non-structure roles) is what
+   the zone ramp measures its distance from and what never takes a DEM fit.
+2. **A body's datum is its own terrain PLANE, not only its mean.**  §2 says
+   a truly detached body sits at its own DEM mean; a mean alone leaves the
+   TILT free under bending (a plane has zero bending energy, so the sheet
+   still floats).  Every sheet no pin, chord or zone anchors — and every
+   GROUNDSIDE body, which no route reaches — takes the least-squares plane
+   of its own DEM samples at `detached_mean`.  A rigid `Flat` group is one
+   column whose own bending rows collapse, so it takes the same datum on
+   its members' DEM mean.
+3. **The bank at the edge is not a design target.**  A law row with one foot
+   on a vertex FIXED as the terrain (beyond the zone's outer ring) and one
+   on the design surface reintroduces the per-vertex DEM pull answer 1
+   removed.  Such rows are counted (`DesignReport.bank_rows`) and reported,
+   never chased.  Without this the runway was dragged 8.5 m into a valley
+   it was supposed to fill (the twin `test_runway_fills_the_valley...`).
+4. **Roads fit `preferred_z` at `road`**, not at `chord`: the chord and the
+   core's clamped road profile share the `preferred_z` channel, and only a
+   runway-family vertex takes the chord weight.
+5. **The active set is DAMPED** — a backtracking line search on the true
+   objective, so `F` decreases monotonically.  The plain fixed point cycled
+   (measured CYXY: `F` 2.9e5 -> 3.5e6 -> 2.9e5 over 40 rounds).
+6. `[yield] sliver_area_factor` / `groundside_ramp_max` moved to `[terrace]`
+   and `[relaxation] pad_slope_max` to `[within_shape]`: shape and pad law,
+   never yield or relaxation law.  `solve.tiers.row_tier` moved to
+   `constraints/precedence.py`: the law-order ATTRIBUTION, not the ladder.
+
+Solver (spec §1 "the lane measures both and states the wall"), on the CYXY
+and HECA captures, per-round LINEAR-SOLVER wall summed over the active set:
+
+| method | CYXY | HECA | converges |
+|---|---|---|---|
+| normal equations + sparse LU (**chosen**) | 0.17 s | 1.3-2.4 s | yes |
+| conjugate gradients on the normal equations | 0.33 s | 6.7 s | yes |
+| `lsqr` on A | 6.1 s | 45.4 s | yes |
+| HiGHS QP (the same problem with one slack per one-sided row) | **616.8 s, time limit reached, NO** | not attempted | no |
+
+The HiGHS QP arm is 119k columns / 116k rows at CYXY alone; it did not
+converge in 600 s where the chosen method answers the whole solve stage in
+0.5 s.  HECA is four times the size and was not attempted.

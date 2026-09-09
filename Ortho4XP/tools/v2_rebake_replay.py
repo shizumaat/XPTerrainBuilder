@@ -5,6 +5,7 @@ state without a build at all.
 
     venv/bin/python tools/v2_rebake_replay.py seat PLAN.json MESH [--filter TOKEN] [--flat Z0]
     venv/bin/python tools/v2_rebake_replay.py disk PACK_ROOT [--filter TOKEN]
+    venv/bin/python tools/v2_rebake_replay.py bodies PLAN.json RESULT.json [--top N]
 
 ``seat`` reads a tile build's ``o4_v2_rebake_<ICAO>.json`` plan (or the
 pipeline's ``<ICAO>.rebake.json``) and a built ``Data+XX+YYY.mesh``, seats
@@ -18,6 +19,13 @@ written BY FAMILY (the pack's second path component) with their deltas.
 plan's bounds onto a plan that carries none (a pre-08d version-4 plan is
 read as version 5): the what-if of the 08d rules on an older build's plan
 and mesh.  It NEVER writes a pack.
+
+``bodies`` (RULINGS 2026-09-09b (5)) replays the WRITE half —
+``engine_v2._decision``'s per-component delta map over the plan's authored
+OBJ8s and a seat result — and reports, per written member, the CONNECTED
+COMPONENTS the seat left with no delta (a floor or ceiling PLANE stays at
+its authored y while its walls move) both BEFORE and AFTER
+``airport/rigid.complete_component_deltas``.  Read-only.
 
 ``disk`` walks a scenery pack for ``<obj>.anchor_bak`` backups and prints,
 per resource matching ``--filter``, the live-minus-authored vertex ``y``
@@ -198,6 +206,68 @@ def cmd_disk(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bodies(args: argparse.Namespace) -> int:
+    """The rigid-body completeness read (RULINGS 2026-09-09b (5))."""
+    from auto_patch_v2.airport import obj8 as O
+    from auto_patch_v2.airport import rigid as RG
+    with open(args.plan) as fh:
+        plan = json.load(fh)
+    with open(args.result) as fh:
+        res = json.load(fh)
+    res = res.get("seat", res)
+    auth = {m["resource"]: m["authored_path"]
+            for u in plan["units"] for m in u["members"]}
+    anch = {m["resource"]: u.get("anchor")
+            for u in plan["units"] for m in u["members"]}
+    rows, n_before, n_after, n_flat = [], 0, 0, 0
+    for u in res["units"]:
+        if u.get("held"):
+            continue
+        for m in u["members"]:
+            r = m["resource"]
+            if m.get("facility") or r not in auth:
+                continue
+            pd = m.get("part_deltas") or []
+            dm = m.get("delta_m")
+            try:
+                geom = O.parse_obj8(auth[r])
+            except (OSError, ValueError):
+                continue
+            comps = O.solid_components(geom)
+            if not comps:
+                continue
+            if dm is not None and not pd:
+                by = {i: float(dm) for i in range(len(comps))}
+            else:
+                by = {c: float(d) for c, _k, d in pd
+                      if d is not None and 0 <= c < len(comps)}
+            if not by:
+                continue                       # engine_v2 skips: nothing written
+            held = {c for c, _k, d in pd if d is None} - set(by)
+            free = [i for i in range(len(comps)) if i not in by and i not in held]
+            done = RG.complete_component_deltas(geom, comps, by, held)
+            n_before += len(free)
+            n_after += sum(1 for i in free if i not in done)
+            n_flat += sum(1 for i in free
+                          if comps[i].max_y - comps[i].min_y < args.thickness)
+            if free:
+                vals = list(by.values())
+                rows.append((max(abs(x) for x in vals), r, anch.get(r), len(comps),
+                             len(by), len(free),
+                             sum(1 for i in free
+                                 if comps[i].max_y - comps[i].min_y < args.thickness),
+                             min(vals), max(vals)))
+    rows.sort(reverse=True)
+    print(f"{res.get('icao', '?')}: {n_before} component(s) stranded by the seat "
+          f"({n_flat} of them flat under {args.thickness} m) -> {n_after} after the "
+          f"rigid-body completion; {len(rows)} member(s) affected")
+    for sep, r, a, nc, nm, nf, nff, lo, hi in rows[:args.top]:
+        ll = f"{a[0]:.5f},{a[1]:.5f}" if a else "?"
+        print(f"  {sep:8.3f} m | {r[-52:]:52s} | {ll} | comps {nc:5d} moved {nm:5d} "
+              f"stranded {nf:5d} (flat {nff:5d}) | delta[{lo:+.3f},{hi:+.3f}]")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -211,6 +281,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--flat", type=float, default=None,
                    help="stamp a flat-site datum Z0 over the plan's bounds when the plan has none (08d what-if)")
     s.set_defaults(fn=cmd_seat)
+    b = sub.add_parser("bodies", help="the rigid-body completeness of the write half (09b (5))")
+    b.add_argument("plan")
+    b.add_argument("result", help="the tile build's o4_v2_rebake_result_<ICAO>.json")
+    b.add_argument("--top", type=int, default=10)
+    b.add_argument("--thickness", type=float, default=0.3,
+                   help="[structures.basin] min_solid_thickness_m — the seat's witness gate")
+    b.set_defaults(fn=cmd_bodies)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")

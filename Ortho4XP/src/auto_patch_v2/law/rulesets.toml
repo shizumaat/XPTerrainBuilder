@@ -39,6 +39,15 @@ parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026
 apron_fan_ramp_max = 0.050          # the BACK-EDGE class between adjacent pads (owner 08-24; 06w (3): hard, with the apron preference) — v2 models no zone yet (owed, lane v2routecap round 3)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)
+# THE 5 % CEILING (owner RULINGS 2026-09-09b (4)): "all pavement including
+# groundside has a MAX grade of 5 %; roads are the only exception at 8 %".
+# HARD in the design solve's active set beside the runway rows
+# (`constraints/ceiling.py`, `[design] hard_rulings`); the per-class letter
+# caps (`common.roles.*`, `<ruleset>.taxi.longitudinal`, ...) stay one-sided
+# TARGETS under it.  Region-invariant: no aviation authority regulates a
+# landside ceiling, and every airside class cap is stricter than 5 %.
+pavement_max_grade = 0.05           # every pavement class: airside, groundside pavement, pads, lots, apron, junction, taxi (runway already stricter)
+road_max_grade     = 0.08           # a FREE road only (road-family faces alone): the service-road standard already carried by SERVICE_ROAD_MAX_GRADE (owner 2026-08-03); a road welded into a pavement IS that pavement (free-road ruling) and takes the 5 %
 vertical_curve_k_grade_unit = 0.01  # the UNIT of every ruleset's vertical_curve_k_m: K is metres per THIS much grade change (one per cent, Annex 14 §3.1.16 / AC 150/5300-13 §3.16); a spacing s admits a change of s / K × this (2026-09-06b law 1)
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────

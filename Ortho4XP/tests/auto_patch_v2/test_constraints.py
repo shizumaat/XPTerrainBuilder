@@ -211,7 +211,8 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     cs, counts, _w = generate(pm, law, airport)
     # every generator's count, plus a generator's own ``<name>.<stat>`` keys
     # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
-    assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "structure_datum_withdrawn"}
+    assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "structure_datum_withdrawn",
+                                       "pavement_ceiling"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
@@ -388,6 +389,14 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
         if k in DEFECT_KEYS:
             assert got == 0 == n, (k, n, got)
             continue
-        assert abs(got - n) <= max(2, 0.2 * n) or k in ("within_shape",), (k, n, got)
+        # ``road_cross_section`` joins ``within_shape`` in the exempt list
+        # under RULINGS 2026-09-09b (3) (lane v2ground): the adjacent ground
+        # is a LAW surface with no DEM term, so a service road's cross
+        # section now sits where its own law and its neighbours put it
+        # rather than on the terrain both readers used to agree about
+        # (CYXY: v1 12 rows, v2 28 — the same population, a different
+        # surface).  The DEFECT families still read ZERO on both.
+        assert abs(got - n) <= max(2, 0.2 * n) \
+            or k in ("within_shape", "road_cross_section"), (k, n, got)
     for k in DEFECT_KEYS:
         assert not res.verify_rows.get(k), (k, res.verify_rows.get(k))

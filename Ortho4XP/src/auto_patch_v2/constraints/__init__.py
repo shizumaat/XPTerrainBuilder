@@ -14,9 +14,9 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Row
 from ..model.planar import PlanarMap
-from . import (apron, flat_site, groundside, junction_mesh, no_step, pads, proximity,
-               roads, routes, runway_profile, seams, strips, structures, taxi,
-               transverse, zones)
+from . import (apron, ceiling, flat_site, groundside, junction_mesh, no_step, pads,
+               proximity, roads, routes, runway_profile, seams, strips, structures,
+               taxi, transverse, zones)
 
 __all__ = ["GENERATORS", "generate", "stack", "seam_exempt"]
 
@@ -98,6 +98,15 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
     rows, n_junior = structures.reconcile_datums(rows, law)
     counts["structure_datum_withdrawn"] = n_junior
     walls["structure_datum_withdrawn"] = 0.0
+    # THE 5 % CEILING (owner RULINGS 2026-09-09b (4)): a POST-PASS over the
+    # law set — one hard twin at the ceiling per pavement DIFFERENCE row
+    # (``constraints/ceiling.py``), never a second reading of the geometry.
+    if only is None or ceiling.GEN in only:
+        t0 = time.perf_counter()
+        caps = ceiling.pavement_ceiling(rows, planar, law)
+        walls[ceiling.GEN] = time.perf_counter() - t0
+        counts[ceiling.GEN] = len(caps)
+        rows.extend(caps)
     return stack(rows), counts, walls
 
 

@@ -370,7 +370,8 @@ def _structures_emit_checks(c: Checks, t) -> None:
     d = e.design
     # the BENDING WEIGHT IS PER CLASS (RULINGS 2026-09-08v)
     for term in ("bend_runway", "bend_taxi", "bend_apron", "bend_strip",
-                 "bend_road", "chord", "law", "dem_zone", "road", "detached_mean"):
+                 "bend_road", "chord", "law", "taxi_profile", "road",
+                 "detached_mean"):
         assert d.weight(term) > 0.0
     for cls in ("runway", "taxi", "apron", "road", "strip"):
         assert d.bend(cls) > 0.0

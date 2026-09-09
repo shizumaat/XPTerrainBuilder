@@ -191,9 +191,13 @@ def test_the_apron_over_a_ridge_bends_less_than_the_dem(ridge, law):
                          f"({e_z:.6f} vs {e_dem:.6f})")
 
 
-# ── §4 (4) the graded strip blends INSIDE its zone; the outer ring is DEM
+# ── §4 (4) RE-SCOPED by RULINGS 2026-09-09b (3): the graded strip is a LAW
+#    surface off the pavement edge and its outer ring is NOT the DEM — the
+#    mesh engine blends from the patch boundary outward.  What §4 asked of
+#    this twin (the strip blends INSIDE its zone) is now read as: the strip
+#    runs DOWN from the pavement it serves and is continuous with it.
 
-def test_the_zone_blends_and_its_outer_ring_is_the_dem(ridge, law):
+def test_the_zone_is_a_law_surface_and_its_outer_ring_is_not_the_dem(ridge, law):
     pm, cs, sol, rep = ridge[:4]
     z = np.asarray(sol.z, float)
     strip = [v for v, vx in pm.vertices.items()
@@ -201,25 +205,24 @@ def test_the_zone_blends_and_its_outer_ring_is_the_dem(ridge, law):
              and not any(pm.faces[f].role in set(pavement_roles(law))
                          for f in vx.incident_faces)]
     assert strip, "the fixture must carry a graded strip"
-    off = [abs(z[v] - pm.vertices[v].dem_z) for v in strip
-           if pm.vertices[v].dem_z is not None]
-    # the blend: some strip vertices move (they are the bank), and the ones
-    # the ramp gives full weight sit on the terrain
-    assert min(off) < 0.05, "the outer end of the zone is the DEM"
+    # no vertex is FIXED at its DEM sample any more (09-09b (3))
+    from auto_patch_v2.solve.design import DesignReport
+    base = assemble(pm, cs, law, DesignReport())
+    assert not base.red.dem_fixed, "no vertex is the terrain now"
+    assert all(base.red.col[v] >= 0 for v in strip), \
+        "every strip vertex is an unknown the law shapes"
 
 
-def test_no_pavement_vertex_carries_a_dem_fit(ridge, law):
-    """The DEM is a DATUM, never a per-vertex pull on pavement (08t answer
-    1): the assembled problem has a ``dem_zone`` row for no pavement vertex."""
+def test_no_vertex_at_all_carries_a_dem_fit(ridge, law):
+    """RE-SCOPED (RULINGS 2026-09-09b (3)): the ``dem_zone`` term is
+    DELETED — not "no PAVEMENT vertex takes a DEM fit" but no vertex at
+    all.  The DEM's only entries left are the threshold pins, the tile-seam
+    preference and a detached body's own terrain plane."""
     pm, cs, _sol, _rep = ridge[:4]
     from auto_patch_v2.solve.design import DesignReport
     base = assemble(pm, cs, law, DesignReport())
-    pav = set(pavement_roles(law))
-    for own in base.rows.owner:
-        if own and own[0] == "dem_zone":
-            vid = own[1]
-            roles = {pm.faces[f].role for f in pm.vertices[vid].incident_faces}
-            assert not (roles & pav), f"vertex {vid} ({roles}) took a DEM fit"
+    assert not any(own and own[0] == "dem_zone" for own in base.rows.owner)
+    assert not hasattr(law.tables.emit.design, "dem_zone")
 
 
 # ── §4 (7) a law target is MET where the geometry allows ────────────────
@@ -264,7 +267,8 @@ def test_the_law_tables_carry_no_relaxation_or_yield_block(law):
     d = emit.design
     # the BENDING WEIGHT IS PER CLASS (RULINGS 2026-09-08v)
     for term in ("bend_runway", "bend_taxi", "bend_apron", "bend_strip",
-                 "bend_road", "chord", "law", "dem_zone", "road", "detached_mean"):
+                 "bend_road", "chord", "law", "taxi_profile", "road",
+                 "detached_mean"):
         assert d.weight(term) > 0.0
     for cls in ("runway", "taxi", "apron", "road", "strip"):
         assert d.bend(cls) > 0.0

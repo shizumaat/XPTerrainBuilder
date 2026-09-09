@@ -462,7 +462,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 terms = ((v, 1.0), (b, -1.0))
             else:
                 terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
-            rows.append(Linear(terms, lo, hi, src))
+            # ONE-WAY (owner RULINGS 2026-09-09b (3)): the corridor row
+            # governs the GROUND vertex ``v``; the pavement foot is its
+            # leader, never dragged down to the ground it shapes.
+            rows.append(Linear(terms, lo, hi, src, follows=v))
     return rows
 
 
@@ -563,5 +566,6 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
         inputs = ((f"face:{strip_fid}", f"vertex:{v}") if strip_fid >= 0
                   else (f"vertex:{v}",))
         rows.append(Linear(terms, None if floor_stated else -bound, bound,
-                           Source(src.generator, src.ruling, inputs)))
+                           Source(src.generator, src.ruling, inputs),
+                           follows=v))
     return rows

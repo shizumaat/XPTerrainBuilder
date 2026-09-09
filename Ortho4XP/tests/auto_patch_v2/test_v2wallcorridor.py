@@ -359,7 +359,10 @@ def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
     cl = Classification(tuple(_cells((near,))), (), {}, ())
     _cl3, tunnels2, sst2 = build_structures(airport, cl, law, objects, (), groups)
     assert any("max_ramp_grade" in r and "apron2" in r for r in sst2.refused), sst2.refused
-    assert len(tunnels2) == 1
+    # ...and a level corridor is built WHOLE or not at all: the other half
+    # (its sibling refused) stands down with it, by name
+    assert len(tunnels2) == 0
+    assert any("sibling half" in r for r in sst2.refused), sst2.refused
 
 
 def test_a_descending_wall_bottom_is_a_garage_ramp_cut_as_authored(objs, law):

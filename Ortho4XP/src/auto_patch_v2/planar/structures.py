@@ -738,6 +738,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # polygonised into crumbs; the narrower one is refused loudly
     keep = [True] * len(tunnels)
     siblings = {g.tid: g.sibling for g in groups if g.sibling}
+    # A LEVEL CORRIDOR IS BUILT WHOLE OR NOT AT ALL (Law C, spec §6a row
+    # 15): its two capless halves share their mouth line; a half whose
+    # sibling was refused would stand open against the ground there (the
+    # measured OTHH tile: a 12.2 m demotion at Qatar_DutyFree_003@1/b)
+    built_ids = {t.id for t in tunnels}
+    for i, t in enumerate(tunnels):
+        sib = siblings.get(t.id)
+        if sib and sib not in built_ids:
+            keep[i] = False
+            stats.refused.append(f"{t.id}: its sibling half {sib} was refused — a level corridor "
+                                 f"is built whole or not at all (Law C)")
     for i in range(len(tunnels)):
         for j in range(i + 1, len(tunnels)):
             if not (keep[i] and keep[j]):

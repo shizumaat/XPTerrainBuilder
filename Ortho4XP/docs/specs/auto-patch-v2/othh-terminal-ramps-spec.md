@@ -217,7 +217,7 @@ Every pass that reads the affected geometry, ruled in ONE table. Key: **D** = de
 | 13 | same — decks (`obj_ivals`, `deck_ivals`, `_pavement_deck_intervals`) | decks over the corridor | **C**: object decks and mapped bridges INSIDE the walls are not read (the deck above is the family's own roof — the headroom test replaces `bridge.clearance_m`); beyond the walls they are read as for any ramp; pavement decks as before. |
 | 14 | same — `stop_at_pavement` / `_pad_hit` | door: every governed cell beyond the well | **C**: `stop_side = "airside"`: AIRSIDE cells (non-structure, non-runway) + building pads stop the ramp; groundside cells (a service road) are cut by it (08m (b)); host cells (the ones the corridor stands in) never stop it. After a stop the climb STEEPENS: `g' = rise / (s_top − climb_from)` ≤ `max_ramp_grade` → `design_grade = g'`, top pinned at the ground; else refused loudly. |
 | 15 | same — the uncapped-mouth strip | `not g.capped` → a grid strip beyond the mouth | **C**: only for kind `object` (a bore continuing underground); a level open/open corridor is TWO capless halves meeting at its midpoint (the `Tunnel` doc's own model), sharing the mouth line's vertices, exempt from the overlap refusal as siblings. |
-| 16 | same — `hull_knives` | walls cut pads, the ramp beyond does not | **C**: the whole footprint cuts (walls + ramp), pads included: a pad over a ramp is nonsense; the ramp never crosses a pad it does not host (`_pad_hit` on pads still stops it). |
+| 16 | same — `hull_knives` | walls cut pads, the ramp beyond does not | **C**: the whole footprint cuts (walls + ramp), pads included: a pad over a ramp is nonsense; the ramp never crosses a pad it does not host (`_pad_hit` on pads still stops it). **Closed on the tile build (lane instance 2):** the knife guarded the WHOLE beyond-the-walls strip, so a pad the corridor HOSTS kept its `weld_to_touching_pavement` Flat over the ramp's own vertices — five `building5` pad flats gripped seven wall-corridor FLOOR vertices at OTHH and the ladder demoted `wall_corridor_ramp` by 1.392 m (the bays' full depth); the build refused. The knife now guards only the part of the strip lying in a NON-host pad. A pad cannot both host a ramp and hold it flat. Twin `test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls`. |
 | 17 | same — `ramp_role` | `door_ramp` / `tunnel_ramp` | **C**: `wall_corridor_ramp` (level corridors, bays, their climbs; cap `max_ramp_grade` 0.10) and `garage_ramp` (authored descending floors; cap `max_authored_grade` 0.25) — two new roles (`precedence.toml`, `rulesets.toml [common.roles]`), groundside, structure, oracle alias `tunnel_ramp` at `service_road`'s law. ORACLE LIMIT: v1's largest role cap is 8 % (`service_road`), and the alias composes as a MINIMUM — a wall-corridor ramp between 8 and 10 % and any authored garage ramp over 8 % is reported by the v1 census as `within_shape` although lawful; v2 verify reads the role's own cap. Reported as an instrument limitation, not hidden. |
 | 18 | `constraints/structures.structures` | `source` branches; datum group `Flat` + mouth pin; descent `Diff` rows; top pin | **C**: `source == "wall_corridor"`: stations inside the walls (`s ≤ wall_length_m`) are SENIOR pins at `profile_z` (the wall bottom per station: level or descending, cut as authored); no datum `Flat`; beyond the walls the descent `Diff` rows at `wall_corridor.max_ramp_grade` and the top pin at the ground; the rim rows as for every structure. |
 | 19 | `planar/structures.ramp_targets` | `tn.profile` → target everywhere | **C**: the published profile INCLUDES the climb (design line to the top), so the target is the design along the whole ramp; roles tuple gains the two new roles. |
@@ -230,3 +230,72 @@ Every pass that reads the affected geometry, ruled in ONE table. Key: **D** = de
 | 26 | `law/model.TunnelObject`, `law/cutout_schema`, `law/tables`, `tests/auto_patch_v2/test_law_tables.py`, `test_tunnel_objects.test_law_register` | schema | **D/C**: `floor_plate_max_m2` removed, `bore_end_tolerance_m` added, `mouth_depth` datum `"floor_slab"`; `[cutout.wall_corridor]` schema `WallCorridor` (seat none; `ramp_grade ≤ max_ramp_grade = wall_corridor_ramp` cap; `max_authored_grade = garage_ramp` cap, checked at load). |
 
 Twins re-pointed by the owner's law (not by convenience): `test_tunnel_objects.test_refusals_name_their_reason` (a floored wall is now a wall with a floor-slab depth), `test_v2lemd3.test_edge_wall_without_a_bore_is_refused_by_name` (an edge wall with no bore is no longer refused; the closed-no-road refusal replaces it), `test_law_tables` / `test_tunnel_objects.test_law_register` (the key set).
+
+### §6b Closing measurement — lane `v2wallcorridor` (OTHH tile `+25+051`, engine v2, build tag `v2wc_close2`, rc 0, 739 s)
+
+Head `a6a03ece` (main `188dd728` merged). Suite 743 (lane scope
+`tests/auto_patch_v2` + `tests/test_harness.py`); full `tests/` 9,923 passed
+with 12 pre-existing v1 reds this lane cannot touch (no v1 source edited)
+plus 3 that this lane closed (two line-budget twins, one xdist flake).
+
+**DEPTH (08l/08o) — every mouth kind reads `bore_datum_m` 5.10; no OTHH
+wall object carries a floor slab (all skirts). Floor at the mouth −1.14 =
+ground 3.962 − 5.10 throughout.**
+
+| object | before (1.0.294) | depth now | floor@mouth | ramp total (inside walls / beyond) | grade | crest (seat handle) |
+|---|---|---|---|---|---|---|
+| `tunnel south west 2.obj@0` (the owner's deep site) | 10.0 m, floor −6.04, 196 m ramp | **5.10** | **−1.14** | 204.0 (140.2 / **63.8**) | 4.00 % | 10.00 |
+| `tunnel_sw.obj@0` (its twin) | 5.0 m, floor −1.04 | **5.10** | **−1.14** | 180.0 (103.3 / 76.7) | 4.00 % | 5.00 |
+| `tunnel1.obj@0` / `@1` | 9.55 m | **5.10** | **−1.14** | 248.3 (248.3 / 0.0) | 2.05 % | 9.55 |
+| `tunnel middle - east/west.obj@0` | 5.0 m | **5.10** | **−1.14** | 192.0 / 200.3 | 4.00 / 2.55 % | 5.00 |
+| `tunnel west 1/2/3.obj@0` | 5.0 m | **5.10** | **−1.14** | 35.6 / 221.3 / 221.3 | 0.00 / 2.30 / 2.30 % | 5.00 |
+
+08o's ≈ 65 m expectation for the deep side is met (63.8 m beyond the
+walls). Both bore mouths PAIR with the object (`replaced mouths of
+[-9170, -9169]`); no closed-end fallback fired.
+
+**SEAT STATIONS (08o).** `Z0` 3.962. Seat datum vs `Z0 − plate_y`:
+`tunnel_sw` (unit:17) −1.0419 vs −1.038, **−0.004 m** (inside the 0.05 m
+bar); `tunnel west 2` −0.000; `tunnel west 3` −0.000; `tunnel west 1`
+−0.009. **DEVIATION, reported not decided:** the deep object
+(`tunnel south west 2`, unit:7) computes a plate seat of **+0.492 m** and
+the re-bake's own `below_threshold` rule (|Δ| < 1.0 m ⇒ the structure stays
+at its authored y) declines to write it — so its crest keeps a 0.49 m
+residual against 08o's 0.05 m bar. This is the two rules disagreeing, not a
+depth or station error: on 1.0.294 the same object's datum sat 1.75 m BELOW
+its own floor. The owner rules whether the plate seat is exempt from the
+1.0 m write threshold.
+
+**LAW C (08m/08n) — the inventory at OTHH (11 anchor families, 276 wall
+bands, 73 pairs).**
+
+| class | read | cut into the surface |
+|---|---|---|
+| `level` (open/open, two capless halves) | 30 corridors (60 halves) | — |
+| `bay` (one closed end) | 13 | — |
+| `garage_ramp` (descending wall bottom) | **0** | 0 |
+| total corridors read | **43** | 23 `wall_corridor` tunnels |
+
+Refused by name, 30: headroom under `min_headroom_m` 3.5 — 12; closed at
+both ends (a sunken yard between four kerbs, no mouth) — 11; wall bottom
+shallower than `min_wall_depth_m` 1.0 — 4; not two readable bands (a crest
+plate 3.33 m thick in plan: a deck, not walls) — 2; **wall bottom at
+348.5 % between stations, over `max_authored_grade` 25 % — 1**.
+
+**DEVIATION, reported not decided (08n):** the owner's "a number of garage
+ramps with the same pattern" has **no instance at OTHH** under the
+wall-bottom reading. The one descending candidate,
+`OTHH_Terminal_Parking_VCN_004.obj` at 25.257756, 51.614363, refuses loudly
+at 348.5 % — a step in the authored wall bottom, not a ramp. The
+`garage_ramp` law, role and twin are all in place and unexercised by a real
+site; the owner reads the KML
+(`.../v2wallcorridor/OTHH_wall_corridors.kml`, 163 placemarks) to say
+whether that object is the ramp he means.
+
+**Solve / verify.** Solve 17.6 s optimal; hard set infeasible, the 04t-1
+IIS-scoped relaxation applied — 26 IIS rows, 12 relaxed, excess grade max
+**0.0015** (worst over-cap factor 1.019 against the 2.5 bound), **no tier
+demoted**. v2 verify **0 rows**. Re-bake: 107 units, **22 objects written**
+(6 tunnel objects, 10 Drainage, 6 Dewatering) — **0 terminal-family
+objects**, as the seat law requires. Base arms unmoved: LEMD 23 rows
+(`body_sha 5476dfef821b`, byte-identical to the pre-fix arm), CYXY 0.

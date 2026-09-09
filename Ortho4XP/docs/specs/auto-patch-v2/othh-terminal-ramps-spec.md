@@ -299,3 +299,24 @@ demoted**. v2 verify **0 rows**. Re-bake: 107 units, **22 objects written**
 (6 tunnel objects, 10 Drainage, 6 Dewatering) — **0 terminal-family
 objects**, as the seat law requires. Base arms unmoved: LEMD 23 rows
 (`body_sha 5476dfef821b`, byte-identical to the pre-fix arm), CYXY 0.
+
+**Census (`census.py --no-cache`) — law-true 182.** One `terrace_joint_route`
+(airside, pre-existing — the ONLY acceptance row) + 181 groundside
+`within_shape`, every one `tunnel_ramp|tunnel_ramp`, grades **8.16 %–10.14 %**
+(min/max over all 181; worst |de| 1.82 m).
+
+Two instruments, one population, and the split is fully accounted:
+
+* **8–10 %** is the limitation §6a row 17 pre-registered — the v1 oracle
+  prices `wall_corridor_ramp` through its `tunnel_ramp` alias at
+  `service_road`'s **8 %**, while the role's own cap is `max_ramp_grade`
+  **10 %**. Lawful, mis-priced by the older instrument.
+* **the 0.14 pp above 10 %** is the 04t-1 IIS-scoped relaxation this same
+  build reports: 12 rows relaxed, **excess grade max 0.0015** (0.15 pp),
+  worst over-cap factor **1.019** — i.e. ≤ 10.19 %, which bounds the
+  observed 10.14 %. The v2 verify stamps those rows yielded-with-certificate
+  and so reads **0**; the v1 census has no such stamp and re-reports them.
+
+So the 181 rows are 8 %-alias rows plus the ruled last resort, not a Law C
+defect — but the arithmetic above is the claim, and it should be re-checked
+if the relaxation's excess ever grows.

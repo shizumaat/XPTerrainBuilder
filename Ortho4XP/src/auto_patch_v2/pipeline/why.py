@@ -57,13 +57,13 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
     """From a built planar map: the rows, the LP (or the last resort's
     relaxed LP), the seam passes — ``prepare``'s solve half, so a twin
     can drive it on a synthetic airport."""
-    from .territory import territory_constraints, territory_stage
+    from .shapes import shape_constraints, shape_stage
     wall = wall if wall is not None else {"load": 0.0, "classify+planar": 0.0}
     t = time.perf_counter()
-    # THE TERRITORY STAGE (2026-09-07g): the LP ``why`` reads is the build's
-    stage = territory_stage(pm, law, airport, cl, out=out)
+    # THE SHAPE STAGE (2026-09-08k): the LP ``why`` reads is the build's
+    stage = shape_stage(pm, law, airport, cl, out=out)
     pm = stage.pm
-    cs, counts, _g = territory_constraints(pm, law, airport, stage)
+    cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)
     wall["constraints"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -79,7 +79,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
         if len(honoured) == len(pm.seam_vertices) or honoured == prev:
             break
         prev = honoured
-        cs, counts2, _g = territory_constraints(pm, law, airport, stage, seam_honoured=honoured)
+        cs, counts2, _g = shape_constraints(pm, law, airport, stage, seam_honoured=honoured)
         cs = _drop(cs, drop)
         counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
         prob, res, cs, relaxation = _solve_or_relax(icao, pm, cs, law, w, out, relaxation)

@@ -16,8 +16,7 @@ from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..classify import classify, load_rules
-from .territory import (joint_steps, territory_constraints, territory_stage,
-                        weld_built_steps)
+from .shapes import joint_steps, shape_constraints, shape_stage
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
@@ -59,10 +58,6 @@ class Config:
     #: Seam passes after the first solve (the exemption set = the seam
     #: vertices the previous solve held on the DEM), to a fixed point.
     seam_passes_max: int = 6
-    #: THE JOINT STEP PASSES (RULINGS 2026-09-08d (3)): after a solve, joints
-    #: the built surface steps by more than ``terrace.max_step_m`` are
-    #: welded and the set re-solved, to a fixed point or this many passes.
-    joint_passes_max: int = 2
     #: Extra ``<osm>`` root attributes for the emitted patch (and every
     #: tile piece): a HOSTING tile build's rebuild-freshness stamps
     #: (the v1 tile driver reads them back through ``read_patch_source``
@@ -283,15 +278,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}"
          f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
-    tj = pstats.terraces
-    if tj.cells:
-        # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n; ``planar/terraces.py``)
-        _say(f"[{icao}] terraces: {tj.cells} apron-like cells in {tj.groups} groups "
-             f"({tj.islands} islands)  joints {tj.joints} ({tj.joint_length_m:,.0f} m, "
-             f"{tj.split_vertices} split vertices, {tj.faces_retreated} faces retreated)  "
-             f"refused: strip {tj.refused_strip} breakline {tj.refused_breakline} "
-             f"spacing {tj.refused_spacing} invalid {tj.refused_invalid} pinch {tj.refused_pinch} "
-             f"map {tj.refused_map}", out)
+    sh = pstats.shapes
+    if sh.faces:
+        # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
+        _say(f"[{icao}] shapes (08k): {sh.faces} pavement faces -> {sh.components} components, "
+             f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}); "
+             f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled}, pads relabelled "
+             f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
+             f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "
+             f"joint edges {sh.joint_edges}; {sh.wall_s:.2f} s", out)
+        for sid, nf, a, nv, roles in sh.by_shape[:8]:
+            _say(f"    shape {sid}: {nf} faces, {a:,} m2, {nv} vertices, {'/'.join(roles)}", out)
     ss = pstats.structures
     ts = pstats.tunnel_objects
     ds, rs = pstats.door_wells, pstats.sunken_roads
@@ -411,18 +408,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  DEM fallback {road_rep['dem_fallback']}"
          f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
          out)
-    # THE TERRITORY STAGE (RULINGS 2026-09-07g; ``pipeline/territory.py``):
-    # serving contacts, the label-boundary joints, the fallback links
+    # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
+    # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
-    stage = territory_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
+    stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
     pm = stage.pm
-    wall["territories"] = time.perf_counter() - t
+    wall["shapes"] = time.perf_counter() - t
     t = time.perf_counter()
-    cs, counts, gwalls = territory_constraints(pm, law, airport, stage)
+    cs, counts, gwalls = shape_constraints(pm, law, airport, stage)
     wall["constraints"] = time.perf_counter() - t
     if stage.dropped:
-        _say(f"[{icao}] joints (07g): {sum(stage.dropped.values())} rows dropped across the label "
-             f"boundary — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
+        _say(f"[{icao}] joints (08k): {sum(stage.dropped.values())} rows dropped across shape "
+             f"boundaries — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
              + f"; reach bands withdrawn {stage.bands_withdrawn}; flats straddling "
              f"{stage.flats_straddling}", out)
     _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
@@ -434,27 +431,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     size: dict[str, int] = {}
     sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
-    # THE JOINT STEP PASS (RULINGS 2026-09-08d (3); ``territory.weld_built_steps``):
-    # a declared joint the built surface steps by more than terrace.max_step_m
-    # is not a joint — welded, the rows restored, ONE more solve
-    for n_pass in range(1, 1 + cfg.joint_passes_max):
-        if sol.status.value not in ("optimal", "feasible") or not (stage.joints or pm.terrace_joints):
-            break
-        stage2, n_label, n_terrace = weld_built_steps(stage, law, airport, cl, sol.z)
-        if not (n_label or n_terrace):
-            break
-        stage = stage2
-        pm = stage.pm
-        t = time.perf_counter()
-        cs, counts2, _g = territory_constraints(pm, law, airport, stage)
-        counts.update({k: v for k, v in counts2.items()
-                       if k.startswith(("joint_", "yield", "terrace_weld"))})
-        sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
-        wall[f"solve_joint_pass{n_pass}"] = time.perf_counter() - t
-        _say(f"[{icao}] joint step pass {n_pass} (08d-3, max {law.tables.emit.terrace.max_step_m:g} m): "
-             f"un-jointed {n_label} label contours and {n_terrace} 06n joints on the built "
-             f"surface; re-solved in {wall[f'solve_joint_pass{n_pass}']:.2f} s, status {sol.status.value}",
-             out)
+    # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
+    # nothing is re-solved on a built step
     # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
     # FREE, so the pairs the previous pass exempted as pin↔pin around it
     # come back as law rows (the census prices them) and the LP runs
@@ -469,8 +447,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 break                 # every seam value held, or a fixed point
             prev = honoured
             t = time.perf_counter()
-            cs, counts2, _g = territory_constraints(pm, law, airport, stage,
-                                                    seam_honoured=honoured)
+            cs, counts2, _g = shape_constraints(pm, law, airport, stage,
+                                                seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
             sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options,
                                               size_out=size)
@@ -544,7 +522,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "road_profile": road_rep,
         "road_profile_agreement": road_agree,
         "seam": report_seam,
-        "territories": stage.as_dict(),
+        "shapes": dict(stage.as_dict(), by_shape=pstats.shapes.by_shape),
         "joint_steps": joint_steps(pm, law, stage, sol.z) if sol.z else None,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
@@ -565,13 +543,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
-        pub = publication(pm, law, airport, sol.z, label_joints=stage.joints,
-                          straddles=stage.terr.straddles)
+        pub = publication(pm, law, airport, sol.z)
         js = report["joint_steps"]
         if js and js["contours"]:
             worst = max(js["contours"], key=lambda c: c["step_m"])
-            _say(f"[{icao}] joint steps (07g): {len(js['contours'])} contours, max step "
-                 f"{worst['step_m']:.2f} m (contour {worst['id']}, {worst['length_m']:.0f} m, "
+            _say(f"[{icao}] joint steps (08k): {len(js['contours'])} joints, max step "
+                 f"{worst['step_m']:.2f} m (joint {worst['id']}, {worst['length_m']:.0f} m, "
+                 f"shapes {worst['shapes']}, {'gap' if worst['gap'] else 'contour'}, "
                  f"{'/'.join(worst['roles'])}); by roles " + ", ".join(
                      f"{k} {v['edges']} edges max {v['max_step_m']:.2f}" for k, v in sorted(js["by_roles"].items()))
                  + (f"; roads: " + ", ".join(f"#{r['face']} {r['ref']} {r['step_m']:.2f} m"
@@ -588,6 +566,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"[{icao}] yielded rows (08d): {yr['yielded']}/{yr['rows']} over their cap — "
              + ", ".join(f"{k} {v['yielded']}/{v['rows']} (max grade {v['max_grade']:.4f}, "
                          f"max over {v['max_over_m']:.2f} m)" for k, v in yr["families"].items()), out)
+        if yr.get("by_shape"):
+            top_s = sorted(yr["by_shape"].items(), key=lambda kv: -kv[1]["max_grade"])[:6]
+            _say(f"[{icao}] apron grade by shape (08k): " + ", ".join(
+                f"shape {k}: max {v['max_grade']:.4f} ({v['yielded']}/{v['rows']} over cap)"
+                for k, v in top_s), out)
         # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,
         # the rows the surface holds above 1 % and its max grade
         from ..constraints.apron import apron_preference_report

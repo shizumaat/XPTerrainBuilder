@@ -163,50 +163,33 @@ scope_without_certificate = "relaxable"   # no certificate inside iis_time_budge
 tier_ladder_last          = true          # the tier ladder (04i) answers only when the relaxable scope is still infeasible — and then it names the family it demoted as a FAILURE in the report and the app log
 
 [terrace]
-# THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, the owner's KML verdict on
-# the HECA sag chain: "only taxiway centreline routes count; no apron except
-# a route through it; the red hop crosses two separate aprons with a lawful
-# step").  Two apron-like cells that no taxi route joins are SEPARATE
-# TERRACES: their shared boundary is a lawful step — the vertices along it
-# are split in the planar map (``planar/terraces.py``), no row is priced
-# across it, and the joint is declared in the sidecar ``terrace_joints`` so
-# every census reads the step as lawful (v1's apron terrace law, spec
-# ``apron-terrace-law-spec.md``; the groundside terrace law's machinery).
-# "JOINED BY A TAXI ROUTE": cells are the faces of ``cell_roles`` ∪
-# ``neighbour_roles``; two adjacent cells are joined when a taxi-centreline
-# STATION (a vertex of a ``taxi_centerline`` breakline — the 1202 network
-# the route graph walks, 05aa) lies on their shared boundary, i.e. a route
-# passes from one into the other; the TERRACE GROUPS are the connected
-# components of that relation (A joined to J and J to B ⇒ A, J, B one
-# terrace); a boundary between two groups, at least one side an apron, is a
-# joint.  A joint inside a runway strip is NEVER split (walls at runway
-# edges are never lawful, owner 2026-08-01); a vertex on a breakline or a
-# tile seam stays shared (the step tapers to zero there).
-cell_roles      = ["apron"]             # the roles a terrace joint is declared FOR (at least one side)
-neighbour_roles = ["apron", "junction"]  # the apron-like roles a cell may be terraced AGAINST (junction: the 05w hangar apron classified as a junction — HECA pav132 #40 against #363)
-joint_gap_m     = 0.6    # the retreating side's ring steps this far into its own cell along the joint; the mesh makes the wall in the band (v1 STACKED_WALL_RETREAT_M: must exceed identity.min_distinct_spacing_m or the copy re-interns into the vertex it retreats from)
-# THE REACH TERRITORIES — SERVING CONTACTS AND LABEL-BOUNDARY JOINTS
-# (RULINGS 2026-09-07c/07e/07f/07g, spec ``apron-reach-territory-spec.md``
-# §2b; ``planar/territories.py``, ``pipeline/territory.py``): contacts are
-# RUNWAY-CONNECTED stations only; every vertex of a welded pavement complex
-# (the union of the complex_roles faces plus the dead-end taxi faces) is
-# SERVED by the contact it reaches by the shortest visible in-shape path,
-# its reach band the contact's extended by the apron cap × that path; two
-# labels whose route ceilings differ by more than the apron's max cap holds
-# along the in-shape path between the contacts (+ min_step_m) DISAGREE, and
-# every vertex pair across them is a JOINT: no row of any family is priced
-# across it (dropped once at assembly), the boundary contour is declared in
-# the sidecar ``terrace_joints`` and the mesh builds the step between the
-# two nodes (owner 07d) — no polygon cut, no split copy.  HECA 07e: the
-# label boundary of pav132's complex falls across the ~126 m neck at
-# 30.127729, 31.412022.
-min_step_m      = 0.5    # the joint predicate's materiality (= materiality.step_m): a ceiling disagreement the cap cannot hold by less than this is no terrace
-simplify_factor = 40     # the complex boundary is simplified to simplify_factor x identity.min_distinct_spacing_m (20 m) for the in-shape visibility graph (at 10 the HECA graph had 1,111 nodes and the stage took 80 s, 2026-09-07; the path error is the corner depth the simplification drops, under the predicate's min_step_m at the apron cap)
-complex_roles   = ["apron", "junction", "service_road", "service_junction"]  # the faces whose union is a welded pavement complex (the apron-like roles and the road family inside pavement; the dead-end taxi faces join by rule, the runway-connected ones are the routes themselves: with the whole taxi family the union is the WHOLE airside, 2.88 km2 / 95 holes at HECA 2026-09-07); outside-pavement road corridors, runways and pads never
-max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjustable): the declared step one joint carries in v1's law — REPORT ONLY here (a joint whose emitted step exceeds it is counted in the planar report); the joint itself has no grade law (06n: "a lawful step")
+# THE SHAPES (owner RULINGS 2026-09-08k; spec ``heca-v1-parity-spec.md`` §8;
+# ``planar/shapes.py``): "if pavement is touching, or overlapping, then it
+# should be treated as a single shape, only separated by narrow mouths /
+# service roads; pavement separated by more than 0.5 m is a separate apron
+# or lot and could then have a wall / step between them; no other steps are
+# allowed in aprons — they must be solved by what their connecting taxiways
+# can serve".  A SHAPE is a connected component of the union of the
+# shape_roles faces, closed by separation_m and opened by narrow_mouth_max_m
+# (the bodies of one component are the parts of its erosion by half the
+# mouth width; a neck narrower than the mouth, a point contact, a contact
+# edge shorter than the mouth separate two bodies).  A road is never a
+# member: it SEPARATES (its vertices take the nearest shape's label, the
+# boundary falls mid-road).  A JOINT exists only between two shapes — the
+# label-boundary contour through a face carrying two labels, or the midline
+# of a gap the step readers price (instrument.step_contact_tol_m) — declared
+# in the sidecar ``terrace_joints`` so both instruments read the step as
+# lawful.  Inside a shape no step is lawful and no joint exists: the apron
+# rows yield without a ceiling (``[yield]``).  A joint inside a runway strip
+# is never declared (walls at runway edges are never lawful, owner
+# 2026-08-01): the two bodies weld there.
+separation_m       = 0.5    # pavement closer than this is ONE shape (the owner's number; the 04u weld shares the vertices of gaps under identity.weld_spacing_m already — this governs unwelded pavement)
+narrow_mouth_max_m = 12.0   # a connection narrower than this (a neck, a point contact, a short contact edge) does not join two bodies — wider than any service road, narrower than a code-C taxiway; pending the owner's number
+shape_roles        = ["runway", "runway_crossing", "primary_parallel", "secondary_parallel", "stub", "cross_connector", "junction", "apron"]  # the pavement whose union forms the shapes (the runway and taxi families, the apron-like roles); the road family never (a separator), pads never (07c-3: a pad takes its majority label), groundside never (the stand-off is its own lawful terrace)
+band_roles         = ["apron", "junction", "service_road", "service_junction"]  # the faces whose non-station vertices lose their hop-derived REACH band (RULINGS 2026-09-07g (2): the in-shape band measured INFEASIBLE under pairwise agreement; the kept rows carry the reach) — the taxi / runway faces keep theirs
 
 [yield]
-# THE PRIORITY MODEL (owner RULINGS 2026-09-08d; spec ``heca-v1-parity-spec.md``
+# THE PRIORITY MODEL (owner RULINGS 2026-09-08d, 08k; spec ``heca-v1-parity-spec.md``
 # §2-§4): v1 anchors the runway to the threshold chord and lets every surface
 # family beyond the runway-connected route graph YIELD where the runway
 # demands (v1 junction max 9.1 % at HECA); v2 held them all hard and the
@@ -222,16 +205,19 @@ max_step_m      = 2.0    # v1 APRON_TERRACE_MAX_STEP_M (PROVISIONAL, owner-adjus
 # A yielded row is read by the census as a violation at its cap (v1's
 # reading) and counted apart under ``yielded_rows`` (sidecar / report /
 # census heading ``yielded_by_08d``).
-taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise)
-apron_yield_max     = 0.03    # ceiling of the apron class: within-shape chords / ring edges / edge portions (the 06w hard cap 1.5 % becomes the row's cap, this its ceiling)
+taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs, and the taxi CHAIN where it meets a runway-family vertex (RULINGS 2026-09-08i-1 default: the runway first, 04i — the chain yields at the runway so the 05L/23R hump drops; hard everywhere else) (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise)
+# apron_yield_max: ABSENT (owner RULINGS 2026-09-08k (3)): inside a shape the apron rows are preferences with NO ceiling — 1 % preferred, 1.5 % the second tier, steeper where the shape's routes demand (HECA pav132's neck: 34 m over 1.1 km ≈ 3.1 %); a step is never lawful inside a shape, a steep grade is.  A class without its ``<class>_yield_max`` key yields unbounded (the groundside-ramp precedent).
 road_yield_max      = 0.08    # ceiling of the road class = the core clamp (common.roles.service_road.longitudinal): a road row bound to a stricter contiguous class may yield up to its own cap
 sliver_area_factor  = 8.0     # change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m × this)² = 16 m² is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m², 47 m long)
 groundside_ramp_max = 0.05    # change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade as a preference (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
 [yield.families]
 # family -> class (a family is a generator, or a ruling-selected subset:
 # taxi_box = the ``taxi`` generator's box rows, no_step_pairs = ``no_step``'s
-# §1.1 pairs; the §1.2 rate rows stay hard)
+# §1.1 pairs, taxi_chain_at_runway = the ``taxi`` generator's chain hops /
+# centreline chords with an endpoint on a runway-family face; the §1.2 rate
+# rows, the crossings and every other chain row stay hard)
 junction_mesh      = "taxi"
+taxi_chain_at_runway = "taxi"
 taxi_box           = "taxi"
 no_step_pairs      = "taxi"
 apron              = "apron"

@@ -29,7 +29,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("runway_transverse", runway_profile.runway_transverse),
     ("runway_vertical_curve", runway_profile.runway_vertical_curve),
     ("runway_within_shape", runway_profile.runway_within_shape),
-    ("route_links", routes.route_link_rows),
     ("taxi_chain", taxi.taxi_chain),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),

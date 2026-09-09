@@ -38,7 +38,7 @@ import typing as _t
 from .frame import XY, Key
 from .structures import Basin, Tunnel
 
-__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "TerraceJoint", "LabelJoint",
+__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "ShapeJoint",
            "PlanarMap", "PlanarError", "validate", "vertex_tier"]
 
 
@@ -133,32 +133,15 @@ class Breakline:
 
 
 @_dc.dataclass(frozen=True)
-class TerraceJoint:
-    """ONE APRON TERRACE JOINT (RULINGS 2026-09-06n; ``planar/terraces.py``):
-    the shared boundary of two apron-like faces ``a`` / ``b`` that no taxi
-    route joins.  ``run`` is the boundary's vertex chain in order — the
-    ORIGINAL vertices, the line the sidecar declares; ``pairs`` the split
-    identities along it as ``(vertex on a's side, vertex on b's side)`` —
-    two ids where the vertices were split, absent where a vertex stayed
-    shared (a breakline / seam / refused vertex: the step tapers to zero
-    there).  No row is ever priced between the two ids of a pair."""
-
-    a: int
-    b: int
-    run: tuple[int, ...]
-    pairs: tuple[tuple[int, int], ...]
-    length_m: float
-
-
-@_dc.dataclass(frozen=True)
-class LabelJoint:
-    """ONE LABEL-BOUNDARY JOINT (RULINGS 2026-09-07g; ``planar/territories.py``):
-    a polyline of the boundary between two serving-contact territories —
-    the contour through the faces' triangulations, the line the sidecar
-    declares (``points`` in the frame, ``points_ll`` as lat/lon) — and the
-    vertex ``pairs`` across it (planar edges and triangulation chords whose
-    labels disagree) whose largest |Δz| is the declared step.  No vertex
-    is split: the mesh builds the step between the two nodes."""
+class ShapeJoint:
+    """ONE SHAPE JOINT (owner RULINGS 2026-09-08k; ``planar/shapes.py``):
+    the declared boundary between two SHAPES — the label-boundary contour
+    through the faces whose vertices carry both labels (no vertex is
+    split: the mesh builds the step between the two nodes), or the
+    midline of a GAP the step readers price (``gap``).  ``points`` in the
+    frame, ``points_ll`` as lat/lon (the line the sidecar declares),
+    ``pairs`` the vertex pairs across it whose largest |Δz| is the declared
+    step, ``shapes`` the two shape ids."""
 
     id: int
     points: tuple[XY, ...]
@@ -166,6 +149,8 @@ class LabelJoint:
     pairs: tuple[tuple[int, int], ...]
     length_m: float
     roles: tuple[str, ...]
+    shapes: tuple[int, int] = (-1, -1)
+    gap: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -194,17 +179,14 @@ class PlanarMap:
     #: absent here and keeps ``Vertex.dem_z``.  ``dem_z`` itself stays the
     #: DEM sample: seams, reports and readers compare against terrain.
     preferred_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
-    #: THE APRON TERRACE JOINTS (RULINGS 2026-09-06n, additive): the
-    #: declared steps between apron-like cells no taxi route joins.
-    terrace_joints: tuple[TerraceJoint, ...] = ()
-    #: Face id -> terrace group (the connected component of "joined by a
-    #: taxi route") for every apron-like face and the pads assigned to
-    #: them; a generator prices no row between faces of two groups.
-    terrace_group: _t.Mapping[int, int] = _dc.field(default_factory=dict)
-    #: THE FEASIBILITY FALLBACK LINKS (RULINGS 2026-09-07g (1), additive):
-    #: ``(a, b, cap, length_m)`` per apron link the route graph walks
-    #: between two contacts of route systems no centreline joins.
-    route_links: tuple[tuple[int, int, float, float], ...] = ()
+    #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
+    #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
+    #: -> shape id (a pad's majority shape), and the declared joints — the
+    #: only places a step is lawful.  A generator's row whose vertices carry
+    #: two shape ids is dropped at assembly (``pipeline/shapes.py``).
+    shape_of_vertex: _t.Mapping[int, int] = _dc.field(default_factory=dict)
+    shape_of_face: _t.Mapping[int, int] = _dc.field(default_factory=dict)
+    shape_joints: tuple[ShapeJoint, ...] = ()
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

@@ -32,7 +32,7 @@ from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
 from .overlay import Arrangement, build_arrangement
-from .terraces import TerraceStats, split_terraces
+from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
@@ -75,7 +75,7 @@ class BuildStats:
     #: RULINGS 2026-09-08b/c: the door wells and sunken roads read
     door_wells: DoorStats = _dc.field(default_factory=DoorStats)
     sunken_roads: SunkenRoadStats = _dc.field(default_factory=SunkenRoadStats)
-    terraces: TerraceStats = _dc.field(default_factory=TerraceStats)
+    shapes: ShapeStats = _dc.field(default_factory=ShapeStats)   # owner RULINGS 2026-09-08k (``planar/shapes.py``)
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
 
 
@@ -181,9 +181,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins)
     validate(pm)
-    # THE APRON TERRACE JOINTS (RULINGS 2026-09-06n): split the vertices
-    # along every boundary between apron-like cells no taxi route joins
-    pm, stats.terraces = split_terraces(pm, law, airport, classification)
+    # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
+    # touching pavement, their joints declared — the only lawful steps
+    pm, stats.shapes = build_shapes(pm, law, airport, classification)
     stats.seam_bands = len(arr.seam_bands)
     stats.seam_vertices = len(seam)
     stats.dropped_seam_faces = arr.dropped_seam_faces

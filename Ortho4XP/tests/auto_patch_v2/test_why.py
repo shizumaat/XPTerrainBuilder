@@ -228,3 +228,18 @@ def test_report_renders_every_section(prepared):
     for key in ("== face", "binding rows", "chain trace", "relax one family",
                 "code-letter evidence", "terminal"):
         assert key in text, key
+def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
+    from test_why import prepared as _prepared, law as _law, _apron_face  # noqa: F401
+    import test_why
+    law_ = test_why.law.__wrapped__()
+    prep = test_why.prepared.__wrapped__(law_)
+    fid = _apron_face(prep)
+    from auto_patch_v2.pipeline.why import chain_kml
+    out = tmp_path / "chain.kml"
+    tr = chain_kml(prep, fid, str(out))
+    text = out.read_text()
+    assert tr is not None and tr.steps
+    assert text.count("<LineString>") == len(tr.steps)
+    assert "TERMINAL" in text and "START" in text
+    for s in tr.steps:
+        assert f"{s.family}" in text

@@ -8,12 +8,15 @@ did (v1 junction max 9.1 % at HECA), instead of dragging (05C/23C) or
 lifting (05L/23R +7.5 m) the runway through their redundant 1.5 %
 surfaces (RULINGS 2026-09-07a, 08d).
 
-ONE transform at assembly (:func:`yield_rows`, run by ``pipeline.territory.
-territory_constraints`` after the joint filter, never inside a
-generator): every HARD ``Diff`` / ``Linear`` selected by a family named
-in ``emit.toml [yield] families`` (:data:`FAMILY_SELECTORS`: a generator,
-or a ruling-selected subset of one — the ``taxi`` generator's short-pair
-box rows, ``no_step``'s §1.1 pairs) becomes a preference row —
+ONE transform at assembly (:func:`yield_rows`, run by ``pipeline.shapes.
+shape_constraints`` after the joint filter, never inside a generator):
+every HARD ``Diff`` / ``Linear`` selected by a family named in
+``emit.toml [yield] families`` (:data:`FAMILY_SELECTORS`: a generator, or
+a ruling-selected subset of one — the ``taxi`` generator's short-pair box
+rows, ``no_step``'s §1.1 pairs, the taxi CHAIN's hops / centreline chords
+with an endpoint on a runway-family face — RULINGS 2026-09-08i-1: the
+chain yields where it meets the runway so the runway comes first, 04i)
+becomes a preference row —
 ``soft = "yield:<family>:<face>:<k>"``, ONE escalation group per row (the
 apron precedent, ``constraints/apron.py``: the solver pays for exactly the
 relief it uses; the group name carries the family and the face for the
@@ -21,11 +24,15 @@ report) — with the escalation CEILING of its class (``taxi_yield_max`` /
 ``apron_yield_max`` / ``road_yield_max``): a ``Diff``'s ceiling is that
 grade; a ``Linear``'s ceiling is the metres its bound may rise, ``|bound|
 × (ceiling / cap − 1)`` with ``cap`` the row's face's own longitudinal
-cap.  A row whose cap already reaches its class ceiling has nothing to
-yield and stays hard.  The runway family, the taxi CHAIN (05ac: centreline
-+ lateral hops + crossings), the reach bands, K, the runway transverse
-law, pads, structures, zones, strips, seams, the flat datum and the apron
-1 % preference rows (already soft) are untouched.
+cap.  A class whose ``<class>_yield_max`` key is ABSENT yields WITHOUT a
+ceiling (owner RULINGS 2026-09-08k (3): inside a shape the apron rows are
+preferences — 1 % preferred, 1.5 % the second tier, steeper where the
+routes demand; a step is never lawful there).  A row whose cap already
+reaches a stated ceiling has nothing to yield and stays hard.  The runway
+family, the rest of the taxi CHAIN (05ac: crossings, every hop / chord
+away from the runway), the reach bands, K, the runway transverse law,
+pads, structures, zones, strips, seams, the flat datum and the apron 1 %
+preference rows (already soft) are untouched.
 
 THE REPORT FIGURE (:func:`yielded_rows`): per family the rows, the rows
 the built surface holds above their cap (by more than the grade
@@ -45,7 +52,7 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap, yield_ceiling, yield_law
+from ..law.tables import role_cap, yield_ceiling, yield_law, yields
 from ..model.constraints import ConstraintSet, Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .no_step import GEN as NO_STEP_GEN
@@ -54,7 +61,8 @@ from .taxi import BOX_RULING
 from .taxi import GEN as TAXI_GEN
 
 __all__ = ["GROUP", "FAMILY_SELECTORS", "YieldStats", "yield_family", "yield_rows",
-           "yielded_rows", "groundside_ramps", "RAMP_FAMILY"]
+           "yielded_rows", "groundside_ramps", "RAMP_FAMILY", "runway_vertices",
+           "CHAIN_MARK", "CENTRELINE_RULING"]
 
 #: The groundside ramp rows' family (their group ``yield:groundside_ramp:…``).
 RAMP_FAMILY = "groundside_ramp"
@@ -63,17 +71,48 @@ RAMP_FAMILY = "groundside_ramp"
 #: key, ``solve/assemble.preference_weight``): ``yield:<family>:<face>:<k>``.
 GROUP = "yield"
 
+#: The chain rulings the runway-contact family selects (``taxi.chain_ruling``
+#: / ``taxi_centerlines``): a lateral hop or a centreline chord, never a
+#: crossing (the runway's own cap).
+CHAIN_MARK = "chain (2026-09-05aa / 05ac)"
+CENTRELINE_RULING = "rulesets.taxi.longitudinal centreline"
+
+
+def _chain_at_runway(r: Row, rw: _t.Container[int]) -> bool:
+    if r.source.generator != TAXI_GEN:
+        return False
+    rl = r.source.ruling
+    if rl != CENTRELINE_RULING and not (rl.endswith(CHAIN_MARK) and "crossing" not in rl):
+        return False
+    return any(v in rw for v in _row_ids(r))
+
+
+def _row_ids(r: Row) -> tuple[int, ...]:
+    if isinstance(r, Diff):
+        return (r.a, r.b)
+    return tuple(v for v, _c in r.terms)
+
+
 #: Family name (``emit.toml [yield] families``, ``law/yield_schema.
-#: YIELD_FAMILIES``) -> the predicate selecting its rows.
-FAMILY_SELECTORS: dict[str, _t.Callable[[Row], bool]] = {
-    "junction_mesh": lambda r: r.source.generator == "junction_mesh",
-    "taxi_box": lambda r: r.source.generator == TAXI_GEN and r.source.ruling == BOX_RULING,
-    "no_step_pairs": lambda r: (r.source.generator == NO_STEP_GEN
-                                and r.source.ruling.startswith(PAIR_RULING_PREFIX)),
-    "apron": lambda r: r.source.generator == "apron",
-    "apron_edge_portion": lambda r: r.source.generator == "apron_edge_portion",
-    "roads": lambda r: r.source.generator == "roads",
+#: YIELD_FAMILIES``) -> the predicate selecting its rows, given the set of
+#: runway-family vertices.
+FAMILY_SELECTORS: dict[str, _t.Callable[[Row, _t.Container[int]], bool]] = {
+    "junction_mesh": lambda r, rw: r.source.generator == "junction_mesh",
+    "taxi_box": lambda r, rw: r.source.generator == TAXI_GEN and r.source.ruling == BOX_RULING,
+    "no_step_pairs": lambda r, rw: (r.source.generator == NO_STEP_GEN
+                                    and r.source.ruling.startswith(PAIR_RULING_PREFIX)),
+    "apron": lambda r, rw: r.source.generator == "apron",
+    "apron_edge_portion": lambda r, rw: r.source.generator == "apron_edge_portion",
+    "roads": lambda r, rw: r.source.generator == "roads",
+    "taxi_chain_at_runway": _chain_at_runway,
 }
+
+
+def runway_vertices(pm: PlanarMap, law: Law) -> frozenset[int]:
+    """Every vertex touching a runway-family face."""
+    rw = set(law.tables.precedence.runway_family.members)
+    return frozenset(v for v, vert in pm.vertices.items()
+                     if any(pm.faces[f].role in rw for f in vert.incident_faces))
 
 
 @_dc.dataclass
@@ -117,6 +156,7 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
     """The set with every selected HARD row a preference (module docstring)."""
     fams = [(name, FAMILY_SELECTORS[name]) for name in yield_law(law).families
             if name in FAMILY_SELECTORS]
+    rw = runway_vertices(pm, law) if any(n == "taxi_chain_at_runway" for n, _s in fams) else frozenset()
     st = stats if stats is not None else YieldStats()
     out: list[Row] = []
     k: dict[str, int] = {}
@@ -124,13 +164,13 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
         if not isinstance(r, (Diff, Linear)) or r.soft is not None:
             out.append(r)
             continue
-        fam = next((name for name, sel in fams if sel(r)), None)
+        fam = next((name for name, sel in fams if sel(r, rw)), None)
         if fam is None:
             out.append(r)
             continue
-        ceil = yield_ceiling(law, fam)
+        ceil = yield_ceiling(law, fam)          # None: unbounded (08k (3))
         if isinstance(r, Diff):
-            if ceil is None or r.cap >= ceil:
+            if ceil is not None and r.cap >= ceil:
                 st.at_ceiling[fam] = st.at_ceiling.get(fam, 0) + 1
                 out.append(r)
                 continue
@@ -139,11 +179,14 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
             cap = _face_cap(pm, law, r)
             bound = max(abs(x) for x in (r.lo, r.hi) if x is not None) if (
                 r.lo is not None or r.hi is not None) else None
-            if ceil is None or cap is None or cap >= ceil or bound is None:
+            if ceil is None:
+                ceiling = None
+            elif cap is None or cap >= ceil or bound is None:
                 st.at_ceiling[fam] = st.at_ceiling.get(fam, 0) + 1
                 out.append(r)
                 continue
-            ceiling = bound * (ceil / cap - 1.0)
+            else:
+                ceiling = bound * (ceil / cap - 1.0)
         face = _face_of(r)
         key = f"{fam}:{face}"
         k[key] = k.get(key, 0) + 1
@@ -216,6 +259,9 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
     tol_m = law.tables.emit.materiality.elevation_m
     fams: dict[str, dict[str, _t.Any]] = {}
     pub: list[dict[str, _t.Any]] = []
+    by_shape: dict[int, dict[str, _t.Any]] = {}        # 08k: the max apron grade inside each shape
+    shape_of = pm.shape_of_vertex if pm is not None else {}
+    worst: dict[str, list[tuple[float, dict[str, _t.Any]]]] = {}   # per family, the steepest rows
     for r in (*cs.diffs, *cs.linears):
         fam = yield_family(r)
         if fam is None:
@@ -227,13 +273,26 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
                 continue
             g = abs(float(z[r.a]) - float(z[r.b])) / r.d
             rec["max_grade"] = max(rec["max_grade"], g)
+            if fam.startswith("apron") and shape_of:
+                sid = shape_of.get(r.a, -1)
+                sr = by_shape.setdefault(sid, {"rows": 0, "yielded": 0, "max_grade": 0.0})
+                sr["rows"] += 1
+                sr["max_grade"] = max(sr["max_grade"], g)
+                if g > r.cap + tol_g:
+                    sr["yielded"] += 1
             if g > r.cap + tol_g:
                 rec["yielded"] += 1
                 rec["max_over_m"] = max(rec["max_over_m"], (g - r.cap) * r.d)
                 if pm is not None:
-                    pub.append({"kind": "diff", "family": fam, "face": _face_of(r), "cap": r.cap,
-                                "cap_after": round(g, 6), "distance_m": round(r.d, 4),
-                                "ll": [list(pm.vertices[v].key) for v in (r.a, r.b)]})
+                    row = {"kind": "diff", "family": fam, "face": _face_of(r), "cap": r.cap,
+                           "cap_after": round(g, 6), "distance_m": round(r.d, 4),
+                           "ll": [list(pm.vertices[v].key) for v in (r.a, r.b)]}
+                    pub.append(row)
+                    w = worst.setdefault(fam, [])
+                    w.append((g, dict(row, shape=shape_of.get(r.a, -1), vertices=[r.a, r.b])))
+                    if len(w) > 64:
+                        w.sort(key=lambda t: -t[0])
+                        del w[8:]
             continue
         val = sum(c * float(z[v]) for v, c in r.terms)
         over = max(0.0, val - r.hi if r.hi is not None else 0.0,
@@ -248,7 +307,12 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
     for rec in fams.values():
         rec["max_grade"] = round(rec["max_grade"], 6)
         rec["max_over_m"] = round(rec["max_over_m"], 4)
+    for sr in by_shape.values():
+        sr["max_grade"] = round(sr["max_grade"], 6)
     return {"families": dict(sorted(fams.items())),
             "rows": sum(v["rows"] for v in fams.values()),
             "yielded": sum(v["yielded"] for v in fams.values()),
+            "by_shape": dict(sorted(by_shape.items())),
+            "worst": {fam: [r for _g, r in sorted(w, key=lambda t: -t[0])[:8]]
+                      for fam, w in sorted(worst.items())},
             "published": pub}

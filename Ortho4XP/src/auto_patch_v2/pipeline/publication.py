@@ -54,9 +54,9 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``station_caps``: ``[lat, lon, cap]`` per road station
   (``constraints.contiguity``) — the lateral-contiguity fourth reader
   (2026-08-28 Amendment 2);
-* ``terrace_joints`` (RULINGS 2026-09-06n): one record per apron terrace
-  joint the planar map split (``planar/terraces.py``), v1's record shape
-  — the joint line, the emitted step — ``terrace_joints_ll``;
+* ``terrace_joints`` (owner RULINGS 2026-09-08k): one record per shape
+  joint (``planar/shapes.py``), v1's record shape — the joint line, the
+  emitted step — ``terrace_joints_ll``;
 * ``basin_facilities`` (M4b): one record per basin the map carries, in
   the v1 emitter's key shape (``check_grade._basin_facilities_declared``
   reads ``floor_m`` / ``rim_law_m`` / ``body_depth_m`` /
@@ -115,16 +115,13 @@ def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
     return out
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
-                z: _t.Sequence[float] | None = None, *,
-                label_joints: _t.Sequence[_t.Any] = (),
-                straddles: _t.Callable[[_t.Iterable[int]], bool] | None = None
-                ) -> dict[str, _t.Any]:
+                z: _t.Sequence[float] | None = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
-    crown drops are the BUILT ones.  ``label_joints`` (RULINGS 2026-09-07g)
-    are declared beside the 06n joints; ``straddles`` (the territory
-    stage's predicate) withholds every published pair across a joint —
-    the solve priced none, so the readers price none (a ``taxi_route_pairs``
-    entry becomes the null record: no law edge)."""
+    crown drops are the BUILT ones.  The shape joints (owner RULINGS
+    2026-09-08k, ``planar.shape_joints``) are declared, and every published
+    pair across a joint (``planar.shape_of_vertex``: two shapes) is
+    withheld — the solve priced none, so the readers price none (a
+    ``taxi_route_pairs`` entry becomes the null record: no law edge)."""
     ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
     ax_out = []
     for k, a in enumerate(axes(planar, law)):
@@ -161,7 +158,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                   "dist_m": round(d, 4)} for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)]
     taxi_pairs = taxi_route_pairs(planar, law, airport, ll, tol)
     mesh = mesh_edges_ll(planar, law)
-    if straddles is not None:
+    if planar.shape_joints:
+        from ..planar.shapes import straddles
         id_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in ll.items()}
 
         def _ids(*pts):
@@ -169,7 +167,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
 
         def _cross(*pts) -> bool:
             ids = _ids(*pts)
-            return all(i is not None for i in ids) and straddles(ids)
+            return all(i is not None for i in ids) and straddles(planar, ids)
         edges = [e for e in edges if not _cross(e["a"], e["b"])]
         pad_edges = [e for e in pad_edges if not _cross(e["a"], e["b"])]
         mesh = [e for e in mesh if not _cross(e[0], e[1])]
@@ -178,14 +176,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
         # the chord's) is priced by the reader at the chord: publish it null
         seen = {(tuple(e[0]), tuple(e[1])) for e in taxi_pairs}
         for pp in taxi_pair_routes(planar, law, airport):
-            if pp.routed and straddles((pp.a, pp.b)):
+            if pp.routed and straddles(planar, (pp.a, pp.b)):
                 key = (tuple(ll[pp.a]), tuple(ll[pp.b]))
                 if key not in seen and (key[1], key[0]) not in seen:
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             "apron_tier": apron_tier(law),
-            "terrace_joints": terrace_joints_ll(planar, law, z, label_joints),
+            "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh,
             "face_holes": face_holes_ll(planar),
@@ -234,37 +232,20 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
 
 
 def terrace_joints_ll(planar: PlanarMap, law: Law,
-                      z: _t.Sequence[float] | None = None,
-                      label_joints: _t.Sequence[_t.Any] = ()) -> list[dict[str, _t.Any]]:
-    """Sidecar ``terrace_joints`` (RULINGS 2026-09-06n; ``planar/terraces.py``)
+                      z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """Sidecar ``terrace_joints`` (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
     in v1's record shape (``check_grade._terrace_joints_to_m`` /
-    ``terrace_joints_sidecar``): the joint line as the ORIGINAL run's
-    ``points`` and ``step_m`` = the EMITTED step — the largest |Δz| over
-    the split pairs of the solved surface (0 before a solve) — which is
-    what the oracle forgives across the line and judges the actual step
+    ``terrace_joints_sidecar``): one record per SHAPE JOINT — the contour
+    (or gap midline) as ``points``, ``step_m`` = the EMITTED step, the
+    largest |Δz| over the vertex pairs across it (0 before a solve), which
+    is what the oracle forgives across the line and judges the actual step
     against; ``declared_step_m`` the same (a joint has no grade law of its
-    own: the declared step IS the emitted one); ``faced`` true (the mesh
-    makes the wall in the gap band, as inside a structure rim); ``kind``
-    ``apron_terrace`` (never the basin trench-wall kind: no ``carried``
-    flags); ``faces`` the two cells; ``over_max_step`` whether the step
-    exceeds v1's ``terrace.max_step_m`` (report only)."""
+    own); ``faced`` false (no split copy: the two nodes ARE the step);
+    ``kind`` ``apron_terrace`` (never the basin trench-wall kind: no
+    ``carried`` flags); ``shapes`` the two shape ids; ``gap`` whether it is
+    a gap midline."""
     out: list[dict[str, _t.Any]] = []
-    cap = law.tables.emit.terrace.max_step_m
-    for j in planar.terrace_joints:
-        pts = [[planar.vertices[v].key[0], planar.vertices[v].key[1]] for v in j.run]
-        if len(pts) < 2:
-            continue
-        step = 0.0
-        if z is not None and j.pairs:
-            step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
-        out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
-                    "faced": True, "kind": "apron_terrace", "faces": [j.a, j.b],
-                    "pairs": len(j.pairs), "length_m": round(j.length_m, 2),
-                    "over_max_step": bool(step > cap)})
-    # THE LABEL-BOUNDARY JOINTS (RULINGS 2026-09-07g (3); ``planar/territories.py``):
-    # the contour is the line, the step the largest |Δz| over the vertex
-    # pairs across it (no split copies: the two nodes ARE the step)
-    for j in label_joints:
+    for j in planar.shape_joints:
         pts = [[la, lo] for la, lo in j.points_ll]
         if len(pts) < 2:
             continue
@@ -272,9 +253,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
         if z is not None and j.pairs:
             step = max(abs(float(z[a]) - float(z[b])) for a, b in j.pairs)
         out.append({"points": pts, "step_m": round(step, 4), "declared_step_m": round(step, 4),
-                    "faced": False, "kind": "apron_terrace", "faces": [], "label_boundary": True,
-                    "roles": list(j.roles), "pairs": len(j.pairs),
-                    "length_m": round(j.length_m, 2), "over_max_step": bool(step > cap)})
+                    "faced": False, "kind": "apron_terrace", "faces": [], "shapes": list(j.shapes),
+                    "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),
+                    "length_m": round(j.length_m, 2)})
     return out
 
 

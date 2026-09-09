@@ -822,7 +822,7 @@ def _check_cross_refs(t: LawTables) -> None:
     if rl.scope_without_certificate not in _RELAXATION_SCOPES:
         raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
                        f" (allowed: {_RELAXATION_SCOPES})")
-    _check_terrace(t.emit.terrace, roles, t.emit.identity.min_distinct_spacing_m, LawError)
+    _check_terrace(t.emit.terrace, roles, LawError)
     _check_yield(t.emit.yielding, LawError)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")

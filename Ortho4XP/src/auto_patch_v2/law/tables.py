@@ -27,7 +27,7 @@ __all__ = [
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "yield_law",
-    "yield_ceiling",
+    "yield_ceiling", "yields",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -480,8 +480,14 @@ def yield_law(law: Law):
 
 
 def yield_ceiling(law: Law, family: str) -> float | None:
-    """The escalation ceiling (a grade) of a yielding ``family``, ``None``
-    for a family the table does not name (its rows stay hard)."""
+    """The escalation ceiling (a grade) of a yielding ``family``; ``None``
+    when its class states no ``<class>_yield_max`` (unbounded, RULINGS
+    2026-09-08k (3)).  :func:`yields` says whether the family yields at all."""
     y = law.tables.emit.yielding
     cls = y.families.get(family)
     return None if cls is None else y.ceiling(cls)
+
+
+def yields(law: Law, family: str) -> bool:
+    """Whether ``family`` is a yielding family of the table."""
+    return family in law.tables.emit.yielding.families

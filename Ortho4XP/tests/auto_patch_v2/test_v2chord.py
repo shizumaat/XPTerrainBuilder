@@ -10,8 +10,8 @@
    hard; a 2 % apron rise pinned over a ring edge is FEASIBLE (was
    infeasible at the 1.5 % hard cap) and reported as yielded; 3.5 % is
    refused at the ceiling;
-3. a joint carries ≤ ``terrace.max_step_m`` HARD (``planar/territories``
-   predicate, ``pipeline/territory.weld_built_steps`` on the BUILT surface);
+3. (the joint step law of 08d (3) was WITHDRAWN by owner RULINGS 2026-09-08k:
+   joints exist only between SHAPES — ``test_v2shapes.py``);
 4. the owner's site: same-region slivers merged (``overlay.merge_slivers``),
    the apron edge ramps to the groundside (``yielding.groundside_ramps``).
 """
@@ -36,10 +36,7 @@ from auto_patch_v2.law.yield_schema import Yield, YIELD_FAMILIES, check_yield
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import ConstraintSet, Diff, Flat, Linear, Pin, Source
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.model.planar import LabelJoint, TerraceJoint
-from auto_patch_v2.pipeline import territory as T
 from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, weights_under_law
-from auto_patch_v2.planar import territories as PT
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.overlay import Region, merge_slivers
 from auto_patch_v2.solve import Options, Status
@@ -118,8 +115,11 @@ def test_the_law_tables_state_the_priority_model_keys(law):
                                               if r not in ("runway", "runway_crossing"))
     y = law.tables.emit.yielding
     assert set(y.families) <= set(YIELD_FAMILIES)
-    for fam in ("junction_mesh", "taxi_box", "no_step_pairs", "apron", "apron_edge_portion", "roads"):
+    for fam in ("junction_mesh", "taxi_box", "no_step_pairs", "roads", "taxi_chain_at_runway"):
         assert yield_ceiling(law, fam) is not None
+    # owner RULINGS 2026-09-08k (3): the apron class yields WITHOUT a ceiling
+    assert yield_ceiling(law, "apron") is None and yield_ceiling(law, "apron_edge_portion") is None
+    assert "apron" in y.families and "apron_edge_portion" in y.families
     assert yield_ceiling(law, "zones") is None
     assert 0.0 < y.groundside_ramp_max < 1.0 and y.sliver_area_factor > 0.0
     w = weights_under_law(DEFAULT_WEIGHTS, law)
@@ -128,7 +128,8 @@ def test_the_law_tables_state_the_priority_model_keys(law):
 
 
 def test_the_yield_schema_refuses_an_unknown_family_and_a_bad_ceiling():
-    good = Yield(0.03, 0.03, 0.08, 8.0, 0.05, {"apron": "apron"})
+    good = Yield(8.0, 0.05, {"apron": "apron"}, taxi_yield_max=0.03, apron_yield_max=0.03,
+                 road_yield_max=0.08)
     check_yield(good, LawError)
     with pytest.raises(LawError):
         check_yield(_dc.replace(good, families={"zones": "taxi"}), LawError)
@@ -213,7 +214,7 @@ def test_the_transform_makes_the_selected_hard_rows_preferences_with_ceilings(ap
     assert len(after) == len(hard_before) > 0
     for r in after:
         assert yield_family(r) == "apron"
-        assert r.ceiling == pytest.approx(yield_ceiling(law, "apron")) and r.cap < r.ceiling
+        assert r.ceiling is None                       # 08k (3): no ceiling inside a shape
     # the apron 1 % preference rows keep their own prefix; the taxi CHAIN,
     # the runway family, the pins and the bands are untouched
     assert sum(1 for r in ys.rows() if getattr(r, "soft", "") and r.soft.startswith("apron:")) == \
@@ -222,7 +223,8 @@ def test_the_transform_makes_the_selected_hard_rows_preferences_with_ceilings(ap
         if r.source.generator in ("runway_profile", "reach", "zones", "strips", "pads"):
             assert getattr(r, "soft", None) is None or not r.soft.startswith(GROUP + ":")
         if r.source.generator == "taxi" and "box" not in r.source.ruling:
-            assert r.soft is None
+            # the chain is hard except where it meets the runway (08i-1, test_v2shapes)
+            assert r.soft is None or yield_family(r) == "taxi_chain_at_runway"
     assert len(ys.rows()) == len(cs.rows())
 
 
@@ -243,75 +245,15 @@ def test_a_two_percent_apron_rise_is_feasible_by_yielding_and_reported(apron_sit
     yr = yielded_rows(_pinned(ys, pm, 1.6), sol.z, law, pm)
     assert yr["families"]["apron"]["yielded"] >= 1
     assert yr["families"]["apron"]["max_grade"] >= 0.02 - 1e-6
-    assert yr["families"]["apron"]["max_grade"] <= yield_ceiling(law, "apron") + 1e-6
     assert all(rec["kind"] in ("diff", "linear") and rec["family"] and len(rec["ll"]) >= 2
                for rec in yr["published"])
-    # the ceiling is law: 3.5 % is refused
-    over = solve_hard(pm, _pinned(ys, pm, 2.8), w, Options(diagnose_iis=False))
+    # 08k (3): the apron rows have no ceiling — but lane E runs THROUGH this
+    # apron, and its route law (taxi centreline / transverse / §1.2 rate rows,
+    # the IIS measured 2026-09-08) is hard: 3.5 % across the lane is refused
+    # by the route, never by the apron (the apron-only case: test_v2shapes)
+    over = solve_hard(pm, _pinned(ys, pm, 2.8), w, Options(diagnose_iis=True))
     assert over.status is Status.INFEASIBLE
-
-
-# ── change 3: the joint step law ─────────────────────────────────────
-
-def test_the_territory_predicate_holds_a_joint_only_under_max_step():
-    import numpy as np
-    bands = {10: (690.0, 700.0), 20: (690.0, 701.0), 30: (690.0, 706.0)}
-    terr = PT.Territories({}, {}, frozenset({10, 20, 30}), PT.TerritoryStats(), _bands=bands,
-                          _cap=0.015, _min_step=0.5, _max_step=2.0,
-                          _where={10: (0, 0), 20: (0, 1), 30: (0, 2)},
-                          _dcc=[np.zeros((3, 3))])
-    assert terr.joint(10, 20)                # 1 m over 0 m of path: a joint (0.5 < 1 <= 2)
-    assert not terr.joint(10, 30)            # 6 m: NOT a joint — the cell grades through
-    assert not terr.joint(10, 10)
-
-
-def test_a_06n_joint_built_over_max_step_is_welded_and_undeclared(law):
-    pm_cells = [RUNWAY,
-                Cell(1, "stub", "stubA", _rect(-111.5, 22.5, -88.5, 120), (), None, "D", "airside", "taxi", {}),
-                Cell(2, "apron", "apronA", _rect(-200, 120, 0, 170), (), None, None, "airside", "apron", {}),
-                Cell(3, "apron", "apronB", _rect(0, 120, 200, 170), (), None, None, "airside", "apron", {})]
-    cuts = [CutLine("taxi_centerline", "stubA", ((-100.0, 0.0), (-100.0, 145.0)), "D")]
-    airport, pm, _st = _airport(law, pm_cells, cuts, _Flat())
-    assert pm.terrace_joints, "the 06n joint between the aprons"
-    j = pm.terrace_joints[0]
-    terr = PT.Territories({}, {}, frozenset(), PT.TerritoryStats())
-    stage = T.TerritoryStage(pm, terr, [], (), {})
-    z = [700.0] * len(pm.vertices)
-    for _a, b in j.pairs:
-        z[b] = 705.0                                  # apron B's copies 5 m above A's
-    new, n_label, n_terrace = T.weld_built_steps(stage, law, airport, None, z)
-    assert (n_label, n_terrace) == (0, 1)
-    assert j not in new.pm.terrace_joints and new.welded_terraces == (j,)
-    assert new.welded_steps[0] == pytest.approx(5.0)
-    welds = T.terrace_welds(new)
-    assert len(welds) == len(j.pairs) and all(isinstance(r, Flat) and r.source.generator == T.WELD_GEN
-                                              for r in welds)
-    # under 2 m the joint stays declared (v1 APRON_TERRACE_MAX_STEP_M)
-    for _a, b in j.pairs:
-        z[b] = 701.0
-    same, n_label, n_terrace = T.weld_built_steps(stage, law, airport, None, z)
-    assert (n_label, n_terrace) == (0, 0) and same is stage and j in pm.terrace_joints
-
-
-def test_the_built_step_pass_unjoints_a_contour_over_max_step(law):
-    cells = [RUNWAY, Cell(1, "apron", "apronA", _rect(-200, 120, 200, 170), (), None, None,
-                          "airside", "apron", {})]
-    airport, pm, _st = _airport(law, cells, [], _Flat())
-    a, b = _vid(pm, (-200.0, 120.0)), _vid(pm, (200.0, 120.0))
-    terr = PT.Territories({a: 10, b: 20}, {}, frozenset({10, 20}), PT.TerritoryStats(),
-                          verdict={(10, 20): True})
-    contour = LabelJoint(0, ((0.0, 120.0), (0.0, 170.0)), ((60.5, -135.5), (60.5, -135.5)),
-                         ((a, b),), 50.0, ("apron",))
-    stage = T.TerritoryStage(pm, terr, [(a, b, "apron", "apron")], (contour,), {})
-    z = [700.0] * len(pm.vertices)
-    z[b] = 703.0
-    new, n_label, n_terrace = T.weld_built_steps(stage, law, airport, None, z)
-    assert (n_label, n_terrace) == (1, 0)
-    assert not terr.joint(10, 20)                    # welded: one terrace from now on
-    assert new.joints == () and new.edges == []
-    z[b] = 701.0
-    same, n_label, n_terrace = T.weld_built_steps(stage, law, airport, None, z)
-    assert (n_label, n_terrace) == (0, 0) and same is stage
+    assert {s.generator for _r, s in over.iis} <= {"taxi", "transverse", "no_step", "fixture"}
 
 
 # ── change 4: the owner's site ───────────────────────────────────────

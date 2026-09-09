@@ -549,11 +549,6 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
         for prev, nxt in zip(ordered, ordered[1:]):
             if prev[-1] != nxt[0]:
                 add(prev[-1], nxt[0], cap, CENTRELINE)
-    # THE FEASIBILITY FALLBACK LINKS (RULINGS 2026-09-07g (1)): an apron
-    # path between two route systems no centreline joins, at the apron cap
-    # over its in-shape length (``planar/territories.fallback_links``)
-    for a, b, cap, ln in pm.route_links:
-        add(int(a), int(b), float(cap), CENTRELINE, float(ln))
     # (i) THE TAXI CENTRELINES: every stretch edge, every polyline vertex,
     # at its stretch cap (``edge_cap``: tightened by a governed non-taxi
     # face it splits, 09-03j); a part noded inside a runway slab at the
@@ -944,19 +939,3 @@ def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None
     path = [int(g.vertex(i)) for i in ids]
     bud = sum(wb[(u, v) if u < v else (v, u)] for u, v in zip(path, path[1:]))
     return float(D[0][tgt]), float(bud), path
-
-
-def route_link_rows(pm: PlanarMap, law: Law, airport: Airport | None = None) -> list:
-    """THE FALLBACK LINK ROWS (RULINGS 2026-09-07g (1)): one hard ``Diff``
-    per ``PlanarMap.route_links`` entry at the apron cap over the in-shape
-    path — the chain law along the one apron the routes must cross."""
-    from ..model.constraints import Diff, Source
-    rows = []
-    for k, (a, b, cap, ln) in enumerate(pm.route_links):
-        if ln <= 0.0:
-            continue
-        rows.append(Diff(int(a), int(b), float(cap), float(ln),
-                         Source("route_links", "2026-09-07g (1): apron link where a runway is "
-                                "otherwise unreachable, at the apron cap over the in-shape path",
-                                (f"link:{k}",))))
-    return rows

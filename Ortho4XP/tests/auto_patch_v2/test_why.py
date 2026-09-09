@@ -17,7 +17,6 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack, TaxiEdge, TaxiNode)
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.pipeline import why as pwhy
 from auto_patch_v2.solve import why
@@ -81,13 +80,10 @@ def prepared(law):
     cl = Classification(cells, cuts, {}, ())
     pm, _stats = build(airport, cl, law)
     cs, counts, _w = generate(pm, law, airport)
-    prob, res = why.solve_with_duals(pm, cs, DEFAULT_WEIGHTS)
-    assert res.status == 0, res.message
+    sol, rep, press = why.solve_with_pressure(pm, cs, law)
     import numpy as np
-    z = np.asarray(res.x[:prob.n], float)
-    esc = {g: float(res.x[c]) for g, c in prob.soft_cols.items()}
-    return why.Prepared("ZZZZ", airport, law, pm, cs, counts, DEFAULT_WEIGHTS,
-                        prob, res, z, esc, {})
+    z = np.asarray(sol.z, float)
+    return why.Prepared("ZZZZ", airport, law, pm, cs, counts, rep, z, {}, press)
 
 
 def _apron_face(prep) -> int:
@@ -117,12 +113,16 @@ def test_chain_trace_reaches_the_runway_pin_through_the_taxi_families(prepared):
     touched = set(roles_of(tr.terminal))
     for st in tr.steps:
         touched |= roles_of(st.v) | roles_of(st.u)
-    assert "runway" in touched, (tr.terminal_kind, tr.terminal_note, touched)
+    # RULINGS 2026-09-08t: under THE DESIGN SURFACE a vertex is not held by a
+    # chain of hard rows down to a pin — it is held by the OBJECTIVE (its
+    # sheet's bending, its chord, its body's datum).  The trace therefore ends
+    # FREE far more often, and the chain need not pass through the runway.
+    assert touched, (tr.terminal_kind, tr.terminal_note, touched)
     assert tr.terminal_kind in ("PIN", "FREE"), tr.terminal_kind
     if tr.terminal_kind == "PIN":
         assert "CIFP" in tr.terminal_note
     else:
-        assert "fit weight" in tr.terminal_note        # held by the objective
+        assert "held by" in tr.terminal_note           # 08t: held by the OBJECTIVE
     fams = {s.family for s in tr.steps}
     assert fams & {"no_step_pairs", "taxi_within_shape", "taxi_centreline",
                    "apron_within_shape"}, fams
@@ -167,8 +167,10 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
         # so either alone is redundant — measured 2026-09-05: dropping
         # both moves the apron 0.001 m; the old ``dz_max > 0`` read 1e-13
         # of solver noise as a rise
-        assert r.dz_median >= -1e-6 and r.dz_max >= -1e-6, (f, r)
+        # 08t: dropping a family removes a TARGET, so the sheet may settle
+        # either way — the reading is the magnitude, not a sign
         assert r.dz_median <= r.dz_max + 1e-9
+        assert abs(r.dz_median) < 50.0, (f, r)
     # all binding families together: the ceiling no single arm exceeds
     rows = [r for r in prepared.cs.rows() if why.family_of(r) not in set(fams)]
     from auto_patch_v2.model.constraints import ConstraintSet

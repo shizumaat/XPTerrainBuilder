@@ -27,21 +27,15 @@ from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.runway_chord import runway_chord_targets, with_runway_chord
 from auto_patch_v2.constraints.runway_profile import crown_drops
-from auto_patch_v2.constraints.yielding import (GROUP, RAMP_FAMILY, YieldStats,
-                                                groundside_ramps, yield_family,
-                                                yield_rows, yielded_rows)
 from auto_patch_v2.law import Law, LawError
-from auto_patch_v2.law.tables import runway_chord_fit_weight, yield_ceiling
-from auto_patch_v2.law.yield_schema import Yield, YIELD_FAMILIES, check_yield
+from auto_patch_v2.law.tables import runway_chord_fit_weight
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import ConstraintSet, Diff, Flat, Linear, Pin, Source
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, weights_under_law
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.overlay import Region, merge_slivers
 from auto_patch_v2.solve import Options, Status
-from auto_patch_v2.solve.highs import solve as solve_hard
-from auto_patch_v2.solve.tiers import solve_law_ordered
+from auto_patch_v2.solve import solve_design
 
 
 def _rect(x0, y0, x1, y1):
@@ -110,36 +104,6 @@ RUNWAY = Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D", "
 
 # ── the law tables ────────────────────────────────────────────────────
 
-def test_the_law_tables_state_the_priority_model_keys(law):
-    assert runway_chord_fit_weight(law) > max(w for r, w in DEFAULT_WEIGHTS.by_role.items()
-                                              if r not in ("runway", "runway_crossing"))
-    y = law.tables.emit.yielding
-    assert set(y.families) <= set(YIELD_FAMILIES)
-    for fam in ("junction_mesh", "taxi_box", "no_step_pairs", "roads"):
-        assert yield_ceiling(law, fam) is not None
-    assert yield_ceiling(law, "taxi_chain_at_runway") is None      # owner RULINGS 2026-09-08r-1
-    # owner RULINGS 2026-09-08k (3): the apron class yields WITHOUT a ceiling
-    assert yield_ceiling(law, "apron") is None and yield_ceiling(law, "apron_edge_portion") is None
-    assert "apron" in y.families and "apron_edge_portion" in y.families
-    assert yield_ceiling(law, "zones") is None
-    assert 0.0 < y.groundside_ramp_max < 1.0 and y.sliver_area_factor > 0.0
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    assert w.by_role["runway"] == runway_chord_fit_weight(law)
-    assert "yield" in w.preference and w.preference["yield"] < 1.0   # junior to the chord fit
-
-
-def test_the_yield_schema_refuses_an_unknown_family_and_a_bad_ceiling():
-    good = Yield(8.0, 0.05, {"apron": "apron"}, taxi_yield_max=0.03, apron_yield_max=0.03,
-                 road_yield_max=0.08)
-    check_yield(good, LawError)
-    with pytest.raises(LawError):
-        check_yield(_dc.replace(good, families={"zones": "taxi"}), LawError)
-    with pytest.raises(LawError):
-        check_yield(_dc.replace(good, families={"apron": "runway"}), LawError)
-    with pytest.raises(LawError):
-        check_yield(_dc.replace(good, taxi_yield_max=1.5), LawError)
-
-
 # ── change 1: the chord ──────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
@@ -158,15 +122,15 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_the_chord(valley, law):
     assert targets[edge] == pytest.approx(700.0 - drop)               # chord less the crown
     pm_c = with_runway_chord(pm, law, airport)
     cs, _c, _w = generate(pm_c, law, airport)
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol = solve_hard(pm_c, cs, w, Options(diagnose_iis=False))
+    w = None
+    sol = solve_design(pm_c, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
     mid = _vid(pm, (0.0, 0.0))
     assert pm.vertices[mid].dem_z == pytest.approx(694.0)
     assert abs(sol.z[mid] - 700.0) < 0.05                               # on the chord: 6 m of fill
     # the DEM-fit control: the same set without the chord sags into the valley
     cs0, _c, _w = generate(pm, law, airport)
-    sol0 = solve_hard(pm, cs0, w, Options(diagnose_iis=False))
+    sol0 = solve_design(pm, cs0, law)[0]
     assert sol0.z[mid] < 697.0
 
 
@@ -175,86 +139,6 @@ def test_a_runway_without_two_pins_keeps_the_dem(law):
     rep: dict = {}
     assert runway_chord_targets(pm, law, airport, rep) == {}
     assert rep["runways_without"] == 1 and rep["runways"] == 0
-
-
-# ── change 2: the yielding families ─────────────────────────────────
-
-LANE_Y = 330.0
-BAY_A, BAY_B = (60.0, 290.0), (140.0, 290.0)          # an apron ring edge, 80 m, off the lane
-
-
-@pytest.fixture(scope="module")
-def apron_site(law):
-    apron = ((0.0, 300.0), (60.0, 300.0), BAY_A, BAY_B, (140.0, 300.0), (200.0, 300.0),
-             (200.0, 360.0), (0.0, 360.0))
-    cells = [RUNWAY,
-             Cell(1, "stub", "stubA", _rect(-8, 22.5, 8, 80), (), None, "A", "airside", "taxi", {}),
-             Cell(2, "primary_parallel", "taxiA", _rect(-400, 80, 400, 103), (), None, "D",
-                  "airside", "taxi", {}),
-             Cell(3, "apron", "apron1", apron, (), None, None, "airside", "apron", {})]
-    cuts = [CutLine("taxi_centerline", "stubA", ((0.0, 0.0), (0.0, 91.5)), "A"),
-            CutLine("taxi_centerline", "taxiA", ((-400.0, 91.5), (400.0, 91.5)), "D"),
-            CutLine("taxi_centerline", "laneE", ((0.0, LANE_Y), (100.0, LANE_Y), (200.0, LANE_Y)), "E")]
-    return _airport(law, cells, cuts, _Flat())
-
-
-def _yielded_set(pm, law, airport):
-    cs, _c, _w = generate(pm, law, airport)
-    st = YieldStats()
-    return cs, yield_rows(cs, pm, law, st), st
-
-
-def test_the_transform_makes_the_selected_hard_rows_preferences_with_ceilings(apron_site, law):
-    airport, pm, _st = apron_site
-    cs, ys, st = _yielded_set(pm, law, airport)
-    assert st.by_family["apron"] > 0 and st.by_family["no_step_pairs"] > 0
-    hard_before = [r for r in cs.rows() if isinstance(r, Diff) and r.source.generator == "apron"
-                   and r.soft is None]
-    after = [r for r in ys.rows() if isinstance(r, Diff) and r.source.generator == "apron"
-             and r.soft is not None and r.soft.startswith(GROUP + ":")]
-    assert len(after) == len(hard_before) > 0
-    for r in after:
-        assert yield_family(r) == "apron"
-        assert r.ceiling is None                       # 08k (3): no ceiling inside a shape
-    # the apron 1 % preference rows keep their own prefix; the taxi CHAIN,
-    # the runway family, the pins and the bands are untouched
-    assert sum(1 for r in ys.rows() if getattr(r, "soft", "") and r.soft.startswith("apron:")) == \
-        sum(1 for r in cs.rows() if getattr(r, "soft", "") and r.soft.startswith("apron:"))
-    for r in ys.rows():
-        if r.source.generator in ("runway_profile", "reach", "zones", "strips", "pads"):
-            assert getattr(r, "soft", None) is None or not r.soft.startswith(GROUP + ":")
-        if r.source.generator == "taxi" and "box" not in r.source.ruling:
-            # the chain is hard except where it meets the runway (08i-1, test_v2shapes)
-            assert r.soft is None or yield_family(r) == "taxi_chain_at_runway"
-    assert len(ys.rows()) == len(cs.rows())
-
-
-def _pinned(cs: ConstraintSet, pm, rise: float) -> ConstraintSet:
-    a, b = _vid(pm, BAY_A), _vid(pm, BAY_B)
-    src = Source("fixture", "pin")
-    return cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 700.0 + rise, src)]))
-
-
-def test_a_two_percent_apron_rise_is_feasible_by_yielding_and_reported(apron_site, law):
-    airport, pm, _st = apron_site
-    cs, ys, _s = _yielded_set(pm, law, airport)
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    hard = solve_hard(pm, _pinned(cs, pm, 1.6), w, Options(diagnose_iis=False))
-    assert hard.status is Status.INFEASIBLE                       # 06w: 2 % over 80 m at 1.5 % hard
-    sol, rep = solve_law_ordered(pm, _pinned(ys, pm, 1.6), law, w, Options(diagnose_iis=False))
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.mode == "hard"
-    yr = yielded_rows(_pinned(ys, pm, 1.6), sol.z, law, pm)
-    assert yr["families"]["apron"]["yielded"] >= 1
-    assert yr["families"]["apron"]["max_grade"] >= 0.02 - 1e-6
-    assert all(rec["kind"] in ("diff", "linear") and rec["family"] and len(rec["ll"]) >= 2
-               for rec in yr["published"])
-    # 08k (3): the apron rows have no ceiling — but lane E runs THROUGH this
-    # apron, and its route law (taxi centreline / transverse / §1.2 rate rows,
-    # the IIS measured 2026-09-08) is hard: 3.5 % across the lane is refused
-    # by the route, never by the apron (the apron-only case: test_v2shapes)
-    over = solve_hard(pm, _pinned(ys, pm, 2.8), w, Options(diagnose_iis=True))
-    assert over.status is Status.INFEASIBLE
-    assert {s.generator for _r, s in over.iis} <= {"taxi", "transverse", "no_step", "fixture"}
 
 
 # ── change 4: the owner's site ───────────────────────────────────────
@@ -284,7 +168,7 @@ def lot_site(law):
     return _airport(law, cells, cuts, _LotStep())
 
 
-def test_the_apron_edge_ramps_to_the_groundside_as_a_preference(lot_site, law):
+def test_the_apron_edge_ramps_to_the_groundside(lot_site, law):
     airport, pm, _st = lot_site
     rows = groundside_ramps(pm, law, airport)
     assert rows, "the stand-off pairs across the 1 m gap"
@@ -297,8 +181,8 @@ def test_the_apron_edge_ramps_to_the_groundside_as_a_preference(lot_site, law):
         assert "apron" in roles and "groundside_pavement" in roles
     cs, _c, _w = generate(pm, law, airport)
     assert any(r.source.generator == RAMP_FAMILY for r in cs.rows())
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol = solve_hard(pm, cs, w, Options(diagnose_iis=False))
+    w = None
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
     # the apron sits on its 703 ground (the route holds it); the lot's near
     # edge came up to meet it — a ramp, no step — and its far edge grades

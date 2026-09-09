@@ -104,7 +104,10 @@ def graded_surface(planar: PlanarMap, law: Law, sol: Solution,
         bls.append(SurfaceBreakline(nb + k, RIM_KIND, f"{ref}@{fid}", ring))
     bls = tuple(bls)
     prov = dict(provenance or {})
-    prov.setdefault("solver", {"backend": sol.backend.value, "status": sol.status.value,
+    # RULINGS 2026-09-08t: the design surface's ONE least-squares solve —
+    # no backend to name, the active-set rounds instead
+    prov.setdefault("solver", {"solve": "design_surface",
+                               "rounds": sol.iterations, "status": sol.status.value,
                                "residual_m": None if sol.residual is None
                                else round(sol.residual.max_m, 6)})
     prov.setdefault("planar_sha256", hashlib.sha256(json.dumps(

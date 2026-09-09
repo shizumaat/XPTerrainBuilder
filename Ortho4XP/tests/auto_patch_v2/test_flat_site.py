@@ -36,10 +36,9 @@ from auto_patch_v2.model.airport import (Airport, FlatVerdict, Pavement, Runway,
                                          RunwayEnd, SceneryPack, Surface)
 from auto_patch_v2.model.constraints import Linear
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, weights_under_law
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Options
-from auto_patch_v2.solve.tiers import solve_law_ordered
+from auto_patch_v2.solve import solve_design
 
 from auto_patch import config as v1  # noqa: E402  (the oracle side, test-only)
 
@@ -74,7 +73,7 @@ def test_register_equals_v1_constants():
     d = law.tables.flat_site.datum
     assert d.source == "cifp" and d.preference == "flat_datum" and d.runway_pins_hard
     # ranked below the law ladder, above the seam
-    assert DEFAULT_WEIGHTS.preference["law"] > d.weight > DEFAULT_WEIGHTS.preference["seam"]
+    assert d.weight > 0.0     # 08t: a weight, no ladder to rank it against
     assert law.tables.flat_site.declared == {}
 
 
@@ -233,7 +232,7 @@ def test_flat_candidate_verdict_and_rows(flat_site, law):
                         and r.lo == r.hi == pytest.approx(100.1) for r in rows)
     assert len({r.soft for r in rows}) == len(rows)
     from auto_patch_v2.solve.assemble import preference_weight
-    assert preference_weight(rows[0].soft, weights_under_law(DEFAULT_WEIGHTS, law)) == 5.0e4
+    assert preference_weight(rows[0].soft, None) == 5.0e4
     assert {r.source.generator for r in rows} == {"flat_site"}
     from auto_patch_v2.constraints.precedence import view
     vw = view(pm, law)
@@ -313,9 +312,9 @@ def test_lp_lands_the_apron_at_z0_where_the_law_allows(flat_site, law):
     airport, pm, fv = flat_site
     cs, counts, _w = generate(pm, law, airport)
     assert counts["flat_datum"] > 0
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    assert w.preference["flat_datum"] == law.tables.flat_site.datum.weight
-    sol, _rep = solve_law_ordered(pm, cs, law, w, Options(diagnose_iis=False))
+    w = None
+    assert law.tables.flat_site.datum.weight > 0.0   # 08t: a law value, no ladder
+    sol, _rep = solve_design(pm, cs, law)
     assert sol.status.value in ("optimal", "feasible")
     from auto_patch_v2.constraints.precedence import view
     vw = view(pm, law)
@@ -369,7 +368,7 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     pm = _planar(airport, law2)
     cs, counts, _w = generate(pm, law2, airport)
     assert counts["flat_datum"] > 0
-    sol, rep = solve_law_ordered(pm, cs, law2, weights_under_law(DEFAULT_WEIGHTS, law2),
+    sol, rep = solve_design(pm, cs, law2,
                                  Options(diagnose_iis=False))
     assert sol.status.value in ("optimal", "feasible")
     assert rep.mode == "hard", rep.line()           # a preference never demotes the law
@@ -421,10 +420,9 @@ def test_provenance_line_carries_the_datum():
 # ── 6. plumbing ───────────────────────────────────────────────────────────
 
 def test_weights_carry_the_group_from_the_table(law):
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    assert w.preference["flat_datum"] == 5.0e4 == T.flat_datum_weight(law)
-    assert "flat_datum" not in DEFAULT_WEIGHTS.preference     # never a literal in the config
-    assert w.preference["law"] == DEFAULT_WEIGHTS.preference["law"]
+    w = None
+    assert T.flat_datum_weight(law) == 5.0e4
+    assert flat_datum_group(law) not in ("law", "seam")   # its own group, never a literal
 
 
 def test_dependency_direction_of_the_new_modules():

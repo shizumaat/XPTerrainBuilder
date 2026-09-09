@@ -25,14 +25,14 @@ from .rebake_schema import Rebake  # noqa: F401
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
-from .yield_schema import Yield, check_yield as _check_yield  # noqa: F401
+from .design_schema import Design, check_design as _check_design  # noqa: F401
 
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
     "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
     "BuildingPad", "Basin", "RetainingWall", "Rebake", "Structures", "ReliefFloor",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
-    "Relaxation", "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Yield",
+    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
     "Law", "TABLE_FILES", "load_tables"]
 
@@ -455,6 +455,11 @@ class WithinShape:
     #: only to taxi-family chords at least this long (m); shorter ones are
     #: priced.
     withdrawn_chord_min_m: float
+    #: RULINGS 2026-09-05f, kept when ``[relaxation]`` was deleted (08t): a
+    #: rigid pad is ONE level, so its emitted plane may slope at most this
+    #: (m/m); above it ``verify/pads.py`` reads a ``pad_flat`` DEFECT.  The
+    #: plane's own residual tolerance is ``materiality.elevation_m``.
+    pad_slope_max: float
 
 
 @_dc.dataclass(frozen=True)
@@ -499,35 +504,6 @@ class RoadProfile:
     answer_radius_lane_widths: float
 
 @_dc.dataclass(frozen=True)
-class Relaxation:
-    """THE LAST RESORT (RULINGS 2026-09-04t(1)): the IIS-scoped,
-    least-total-variance relaxation's budgets (``solve/relax.py``)."""
-
-    iis_time_budget_s: float
-    qp_max_rows: int
-    qp_time_budget_s: float
-    max_rounds: int
-    max_pieces: int
-    materiality_m: float
-    #: RULINGS 2026-09-05f: a relaxed pad's plane gradient, at most (m/m)
-    pad_slope_max: float
-    relaxable_from_role: str
-    #: RULINGS 2026-09-05u: 04t(1) over every relaxable row with no certificate in budget
-    scope_without_certificate: str
-    #: the tier ladder answers last; a governed family it demotes is a NAMED FAILURE
-    tier_ladder_last: bool
-    max_over_cap_factor: float   # 05ae(2): a relaxed row's slack <= (factor - 1) x cap x d
-    #: 06k(1): the runway DEM-fit (+ ridge smoothness) term's scale in the stage-1
-    #: relaxation objective; enters only when > 0 (0 = the 06e pure-variance program)
-    runway_fit_weight: float
-    #: 06m: the last-resort program — variance | lexicographic | weighted
-    order: str
-    #: 06l: stage 1b holds every runway-family vertex within this of its
-    #: stage-1a value (the lexicographic last resort; ``solve/relax.py``)
-    runway_hold_tolerance_m: float
-
-
-@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -541,9 +517,11 @@ class EmitLaw:
     seam: Seam
     lateral_contiguity: LateralContiguity
     road_profile: RoadProfile
-    relaxation: Relaxation
     terrace: Terrace
-    yielding: Yield        # [yield]: the v1 priority model's yielding families (RULINGS 2026-09-08d)
+    #: [design]: THE DESIGN SURFACE's objective weights (RULINGS 2026-09-08t) —
+    #: replaces [relaxation] and [yield], deleted with the tier / IIS /
+    #: relaxation / yield machinery they priced.
+    design: Design
 
 
 # ── precedence.toml / families.toml ──────────────────────────────────────
@@ -643,7 +621,6 @@ class LawTables:
 _GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up",
                 "fan_ramp", "crown", "materiality")
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
-_RELAXATION_SCOPES = ("relaxable",)   # [relaxation] scope_without_certificate (2026-09-05u)
 _SIDES = ("airside", "groundside")
 _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
@@ -816,14 +793,8 @@ def _check_cross_refs(t: LawTables) -> None:
     for r in t.precedence.order:
         if r not in roles:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
-    rl = t.emit.relaxation
-    if rl.relaxable_from_role not in roles:
-        raise LawError(f"emit.relaxation.relaxable_from_role: unknown role {rl.relaxable_from_role!r}")
-    if rl.scope_without_certificate not in _RELAXATION_SCOPES:
-        raise LawError(f"emit.relaxation.scope_without_certificate {rl.scope_without_certificate!r}"
-                       f" (allowed: {_RELAXATION_SCOPES})")
     _check_terrace(t.emit.terrace, roles, LawError)
-    _check_yield(t.emit.yielding, LawError)
+    _check_design(t.emit.design, LawError)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order
@@ -932,7 +903,7 @@ def load_tables(law_dir: str | Path) -> LawTables:
         zones=_build(Zones, _read(d, "zones.toml"), "zones"),
         structures=_build(Structures, _read(d, "structures.toml"),
                           "structures"),
-        emit=_build(EmitLaw, {("yielding" if k == "yield" else k): v for k, v in _read(d, "emit.toml").items()}, "emit"),
+        emit=_build(EmitLaw, _read(d, "emit.toml"), "emit"),
         precedence=_build(Precedence, _read(d, "precedence.toml"),
                           "precedence"),
         families=families,

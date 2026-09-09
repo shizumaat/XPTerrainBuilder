@@ -26,8 +26,8 @@ __all__ = [
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
-    "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "yield_law",
-    "yield_ceiling", "yields",
+    "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "design",
+    "design_weight", "sliver_area_factor",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -474,20 +474,22 @@ def runway_chord_fit_weight(law: Law) -> float:
     return float(law.tables.common.runway_chord_fit)
 
 
-def yield_law(law: Law):
-    """``emit.toml [yield]``: the yielding families and their ceilings."""
-    return law.tables.emit.yielding
+def design(law: Law):
+    """``emit.toml [design]``: THE DESIGN SURFACE's objective weights
+    (owner RULINGS 2026-09-08t; ``solve/design.py``)."""
+    return law.tables.emit.design
 
 
-def yield_ceiling(law: Law, family: str) -> float | None:
-    """The escalation ceiling (a grade) of a yielding ``family``; ``None``
-    when its class states no ``<class>_yield_max`` (unbounded, RULINGS
-    2026-09-08k (3)).  :func:`yields` says whether the family yields at all."""
-    y = law.tables.emit.yielding
-    cls = y.families.get(family)
-    return None if cls is None else y.ceiling(cls)
+def design_weight(law: Law, term: str) -> float:
+    """The weight of one objective term (``law/design_schema.DESIGN_TERMS``)."""
+    return law.tables.emit.design.weight(term)
 
 
-def yields(law: Law, family: str) -> bool:
-    """Whether ``family`` is a yielding family of the table."""
-    return family in law.tables.emit.yielding.families
+def sliver_area_factor(law: Law) -> float:
+    """``emit.toml [terrace] sliver_area_factor`` (08d change 4 (a))."""
+    return float(law.tables.emit.terrace.sliver_area_factor)
+
+
+def groundside_ramp_max(law: Law) -> float:
+    """``emit.toml [terrace] groundside_ramp_max`` (08d change 4 (b))."""
+    return float(law.tables.emit.terrace.groundside_ramp_max)

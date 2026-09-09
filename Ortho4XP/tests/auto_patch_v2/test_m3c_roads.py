@@ -26,10 +26,9 @@ from auto_patch_v2.law.tables import role_cap
 from auto_patch_v2.model.airport import (Airport, OsmWay, Runway, RunwayEnd,
                                          SceneryPack)
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Options, Status
-from auto_patch_v2.solve.tiers import solve_law_ordered
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.roads import road_profile_agreement
 
 
@@ -239,7 +238,7 @@ def test_lawful_road_holds_the_core_profile_and_over_cap_lot_moves(slope, law):
     airport, pm, pref, rep, prof = slope
     pm2 = _dc.replace(pm, preferred_z=pref)
     cs, _counts, _w = generate(pm2, law, airport)
-    sol, _rep = solve_law_ordered(pm2, cs, law, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol, _rep = solve_design(pm2, cs, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
     ag = road_profile_agreement(pm2, law, sol.z)
     tol = law.tables.emit.materiality.elevation_m

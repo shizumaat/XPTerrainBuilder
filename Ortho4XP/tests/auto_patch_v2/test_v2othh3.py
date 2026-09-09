@@ -225,15 +225,14 @@ def test_the_product_carries_the_rim_and_no_wall_band(law, tmp_path):
     from auto_patch_v2.constraints import generate
     from auto_patch_v2.emit.graded import graded_surface
     from auto_patch_v2.emit.osm_adapter import write_patch
-    from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
     from auto_patch_v2.pipeline.publication import publication
-    from auto_patch_v2.solve import Options, Status, solve
+    from auto_patch_v2.solve import Options, Status, solve_design
     from auto_patch_v2.verify import census
     airport = _airport(law, _ways())
     cl = Classification(tuple(_cells(True)), (), {}, ())
     pm, stats = build(airport, cl, law)
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)

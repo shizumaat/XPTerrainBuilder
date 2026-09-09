@@ -350,22 +350,14 @@ def _structures_emit_checks(c: Checks, t) -> None:
     assert 0.0 < rb.contact_epsilon_m <= rb.cluster_seat_tolerance_m < rb.min_delta_m
     assert rb.nobake_pad_floor_m < rb.cluster_residual_pad_m < rb.cluster_span_pad_m
     assert rb.water_founds_seat is False and rb.deck_family_seats_rigid is True
-    # RULINGS 2026-09-05u (lane v2relaxfull): no certificate is not a reason
-    # to demote — 04t(1) runs over the whole relaxable scope, the ladder last
-    rl = e.relaxation
-    assert rl.scope_without_certificate == "relaxable"
-    assert rl.tier_ladder_last is True
-    assert rl.relaxable_from_role == "apron"
-    # RULINGS 2026-09-05ae(2) (lane v2fix288): the relaxation's SHAPE — a
-    # relaxed row's slack is bounded by (factor - 1) x cap x d, never a cliff
-    assert rl.max_over_cap_factor == 2.5 and rl.max_over_cap_factor > 1.0    # 05af
-    # RULINGS 2026-09-06k (1) (lane v2bow2): the runway DEM-fit term enters the
-    # stage-1 relaxation objective only at a positive weight — OFF by default
-    assert rl.runway_fit_weight == 0.0 and rl.runway_fit_weight >= 0.0
-    # RULINGS 2026-09-06l (lane v2bow3): the last resort is LEXICOGRAPHIC —
-    # stage 1b holds the runway family within the elevation materiality of
-    # its stage-1a (DEM-fit) value
-    assert rl.runway_hold_tolerance_m == e.materiality.elevation_m == rl.materiality_m
+    # RULINGS 2026-09-08t: [relaxation] and [yield] are DELETED with the tier /
+    # IIS / relaxation / yield machinery they priced; [design] replaces them.
+    assert not hasattr(e, "relaxation") and not hasattr(e, "yielding")
+    d = e.design
+    for term in ("bend", "chord", "law", "dem_zone", "road", "detached_mean"):
+        assert d.weight(term) > 0.0
+    assert d.active_set_max_rounds >= 1 and 0.0 < d.active_set_tol_m < 1.0
+    assert e.within_shape.pad_slope_max == 0.01      # 05f, moved here from [relaxation]
 
 
 def test_every_value_equals_v1(tables, capsys):

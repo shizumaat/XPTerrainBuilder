@@ -25,16 +25,15 @@ from __future__ import annotations
 import pytest
 
 from auto_patch_v2.constraints import GENERATORS, generate, roads, runway_profile
-from auto_patch_v2.constraints.precedence import view
+from auto_patch_v2.constraints.precedence import view, row_tier
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import tables as T
-from auto_patch_v2.model.constraints import ConstraintSet, Linear, Pin, Source
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
+from auto_patch_v2.model.constraints import (REACH_GENERATOR, Band, ConstraintSet,
+                                             Linear, Pin, Source)
 from auto_patch_v2.pipeline.publication import publication
-from auto_patch_v2.solve import Options, Status, solve
-from auto_patch_v2.solve.relax import envelope_free
-from auto_patch_v2.solve.tiers import row_tier
+from auto_patch_v2.solve import Options, Status, solve_design
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify import census
 from auto_patch_v2.verify.census import DEFECT_KEYS, FAMILY_TRANSVERSE
 from tests.auto_patch_v2.test_crown import (HALF_WIDTH, Airport, Cell, Classification,
@@ -171,7 +170,7 @@ def _solve_with_pin(shared_edge, law, depth_m, *, with_generator, envelope=True,
     # the chain (05ac), whose runway hop states the same edge once more
     only = None if with_generator else {n for n, _ in GENERATORS} - {GEN, "no_step_pairs", "taxi_chain"}
     cs, _c, _w = generate(pm, law, airport, only=only)
-    base = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    base = solve_design(pm, cs, law)[0]
     assert base.status in (Status.OPTIMAL, Status.FEASIBLE), base.message
     extra = [Pin(v, float(base.z[v]) - depth_m, PIN_SRC)]
     if hold_ridge:
@@ -179,8 +178,10 @@ def _solve_with_pin(shared_edge, law, depth_m, *, with_generator, envelope=True,
         extra += [Pin(u, float(base.z[u]), RIDGE_SRC) for u in (a, b)]
     cs2 = ConstraintSet.from_rows(list(cs.rows()) + extra)
     if not envelope:
-        cs2 = envelope_free(cs2)
-    sol = solve(pm, cs2, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+        cs2 = ConstraintSet.from_rows(
+            [r for r in cs2.rows()
+             if not (isinstance(r, Band) and r.source.generator == REACH_GENERATOR)])
+    sol = solve_design(pm, cs2, law)[0]
     return airport, pm, rw, v, cs2, sol
 
 
@@ -235,7 +236,7 @@ def test_with_the_generator_the_edge_holds_within_the_cap(shared_edge, law):
 def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):
     airport, pm, rw, v, cs, sol = _solve_with_pin(shared_edge, law, DEEP_PULL_M,
                                                   with_generator=True, envelope=False)
-    assert sol.status not in (Status.OPTIMAL, Status.FEASIBLE)
+    assert sol.residual is not None and sol.residual.max_m > 0.1  # 08t: a residual, not an IIS
     named = {s.generator for _r, s in sol.iis}
     assert PIN_SRC.generator in named, named
     # the runway law that refuses the pull: the transverse maximum, or —

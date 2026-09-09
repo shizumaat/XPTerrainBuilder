@@ -40,13 +40,13 @@ from auto_patch_v2.law.cutout_schema import SEAT_NONE
 from auto_patch_v2.law.tables import is_structure_role, role_cap, role_side
 from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.structures import profile_z
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, _plate_seats
+from auto_patch_v2.pipeline.build import _plate_seats
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.door_ramps import door_groups, sunken_groups
 from auto_patch_v2.planar.structure_geometry import rim_standoff
 from auto_patch_v2.planar.structures import build_structures
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 
 from test_tunnel_objects import _airport, _cells, _prism, _slab, _write
 
@@ -275,7 +275,7 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - t[0].mouth_z) < 1e-6 for r in pins)      # the sill
     cs, _counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     faces = [f for f in pm.faces.values() if f.role == "door_ramp"]
     assert faces

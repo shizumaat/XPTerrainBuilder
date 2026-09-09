@@ -26,10 +26,9 @@ from auto_patch_v2.emit.osm_adapter import write_patch
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve.highs import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify.frame import Patch
 from auto_patch_v2.verify.within import within_shape
 
@@ -330,7 +329,7 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
     airport, pm = site
     cs, counts, _w = generate(pm, law, airport)
     assert counts["apron_edge_portions"] > 0
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)
@@ -386,7 +385,7 @@ def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site
     airport, pm = site
     from auto_patch_v2.constraints import junction_mesh as JM
     cs, *_r = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     st = S.stretches(pm, law)
     vw = view(pm, law)
     cap_a = law.ruleset.taxi.longitudinal.value(None, "A")
@@ -436,7 +435,7 @@ def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site
 def test_a_minted_step_on_the_g_stretch_is_read_at_g_cap(site, law, tmp_path):
     airport, pm = site
     cs, *_r = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     st = S.stretches(pm, law)
     X = _vid(pm, 0.0, 91.5)
     g = next(s for s in st.items if s.code_letter == "A")

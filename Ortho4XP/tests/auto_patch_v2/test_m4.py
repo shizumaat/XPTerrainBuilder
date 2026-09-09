@@ -20,11 +20,10 @@ from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Diff, Flat, Linear, Offset, Pin
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import build_structures, carriageway_width_m
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 
@@ -204,7 +203,7 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
                 assert v in seen or v in flat_vs or ground
     cs, counts, _w = generate(pm, law, airport)
     assert counts["structures"] == len(rows)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     east = next(t for t in tunnels if t.axis[0][0] > 0)
     # the mouth group sits at the datum; the wall stands bore_datum above it
@@ -259,7 +258,7 @@ def test_verify_readers_fire_on_a_broken_structure(synthetic, law):
     airport, cl2, tunnels, st, pm, stats = synthetic
     import dataclasses as _dc
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     east = next(t for t in tunnels if t.axis[0][0] > 0)
     rf = ramp_faces_of(pm, tunnels)[east.id][0]

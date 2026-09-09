@@ -28,10 +28,8 @@ from auto_patch_v2.emit.osm_adapter import write_patch
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import tables as T
 from auto_patch_v2.model.constraints import ConstraintSet, Diff, Pin, Source
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
-from auto_patch_v2.solve import Options, Status, solve
-from auto_patch_v2.solve.relax import _law_tier, stated_role
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 from auto_patch_v2.verify.within import FAMILY_TAXI_BOX
 from tests.auto_patch_v2.test_v2ridge import _verts_of_role, build_ridge
@@ -65,7 +63,7 @@ def _solve(ridge, law, only=None, extra=()):
     cs, _c, _w = generate(pm, law, airport, only=only)
     if extra:
         cs = ConstraintSet.from_rows([*cs.rows(), *extra])
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     return cs, sol
 
 
@@ -140,10 +138,11 @@ def test_the_box_row_is_taxi_tier_and_states_no_relaxable_role(ridge, law):
     tt = T.tiers(law)
     tier_of = {r: k for k, t in enumerate(tt) for r in t}
     stub_tier = tier_of["stub"]
+    from auto_patch_v2.constraints.precedence import row_tier
     for r in _box_rows(cs):
-        assert stated_role(r, tier_of) is None
-        assert _law_tier(pm, r, tier_of, len(tt) - 1) <= stub_tier
-        assert r.soft is None
+        # RULINGS 2026-09-08t: no relaxation ladder any more — the row still
+        # belongs to the taxi tier and is still a TARGET of that surface
+        assert row_tier(pm, r, tier_of, len(tt) - 1) <= stub_tier
 
 
 # ── (2) the lawful plane admits every short pair ──────────────────────────
@@ -189,7 +188,7 @@ def test_a_2m_step_between_4m_rim_neighbours_is_refused_by_the_row_and_read_with
     src = Source("twin", "the imposed step", ())
     z0 = float(sol.z[a])
     cs, sol2 = _solve(ridge, law, extra=(Pin(a, z0, src), Pin(b, z0 + STEP_M, src)))
-    assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE), sol2.status
+    assert sol2.residual is not None and sol2.residual.max_m > 0.1, sol2.residual  # 08t
     cs, sol3 = _solve(ridge, law)
     assert sol3.status in (Status.OPTIMAL, Status.FEASIBLE), sol3.message
     row = next(r for r in _box_rows(cs) if (min(r.a, r.b), max(r.a, r.b)) == key)

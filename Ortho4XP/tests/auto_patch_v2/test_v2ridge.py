@@ -18,7 +18,7 @@ import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import GENERATORS, generate, roads, zones
-from auto_patch_v2.constraints.precedence import view
+from auto_patch_v2.constraints.precedence import view, row_tier
 from auto_patch_v2.constraints.routes import LATERAL, reach, route_path, routes
 from auto_patch_v2.constraints.runway_profile import threshold_pins
 from auto_patch_v2.emit.graded import graded_surface
@@ -28,11 +28,10 @@ from auto_patch_v2.law import tables as T
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Linear
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve import Options, Status, solve
-from auto_patch_v2.solve.tiers import row_tier
+from auto_patch_v2.solve import Options, Status, solve_design
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify import census
 from auto_patch_v2.verify.strips import FAMILY_STRIP_TRANSVERSE
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _PlaneDem, _rect, _rot
@@ -227,7 +226,7 @@ def test_the_tie_binds_the_stub_rim_7m_off_the_edge(ridge, law):
 def _solve(ridge, law, only=None):
     airport, pm, _ = ridge
     cs, _c, _w = generate(pm, law, airport, only=only)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     return cs, sol
 
@@ -304,7 +303,7 @@ def test_without_the_tie_the_solve_leaves_the_rim_on_its_dem_and_the_readers_see
     # turns it off too: the twin measures the TIE alone
     only = {n for n, _ in GENERATORS} - {"strip_transverse", "taxi_box"}
     cs, _c, _w = generate(pm, law, airport, only=only)
-    base = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    base = solve_design(pm, cs, law)[0]
     assert base.status in (Status.OPTIMAL, Status.FEASIBLE), base.message
     src = Source("test", "the ridge", ())
     vw = view(pm, law)
@@ -313,8 +312,7 @@ def test_without_the_tie_the_solve_leaves_the_rim_on_its_dem_and_the_readers_see
     assert held
     pins = [Pin(v, float(base.z[v]) + LIFT_M, src) for v in rim] + \
         [Pin(u, float(base.z[u]), Source("test", "the profile held", ())) for u in held]
-    sol = solve(pm, ConstraintSet.from_rows(list(cs.rows()) + pins), DEFAULT_WEIGHTS,
-                Options(diagnose_iis=False))
+    sol = solve_design(pm, ConstraintSet.from_rows(list(cs.rows()) + pins), law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     rows, patch = _emit(ridge, law, sol, tmp_path / "notie")
     assert len(rows) >= len(rim)
@@ -323,9 +321,8 @@ def test_without_the_tie_the_solve_leaves_the_rim_on_its_dem_and_the_readers_see
     assert len(ora) >= len(rim) and max(v.de_m for v in ora) == pytest.approx(LIFT_M, abs=0.5)
     assert sum(r.over for r in tool.read_ties(patch, "ZZZZ")) >= len(rim)
     cs_tie, _c, _w = generate(pm, law, airport)
-    sol2 = solve(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), DEFAULT_WEIGHTS,
-                 Options(diagnose_iis=False))
-    assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE)
+    sol2 = solve_design(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), law)[0]
+    assert sol2.residual is not None and sol2.residual.max_m > 0.1  # 08t: a residual, not an IIS
 
 
 # ── (3) RULINGS 2026-09-06q: the tie is two-way; short chords are the box ──
@@ -366,9 +363,8 @@ def test_a_rim_a_metre_below_the_edge_is_flagged_both_ways_and_infeasible(ridge,
     cs_tie, _c, _w = generate(pm, law, airport)
     pins = [Pin(v, float(sol.z[v]) - DROP_M, Source("test", "the cliff", ())) for v in rim] + \
         [Pin(u, float(sol.z[u]), Source("test", "the profile held", ())) for u in held]
-    sol2 = solve(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), DEFAULT_WEIGHTS,
-                 Options(diagnose_iis=False))
-    assert sol2.status not in (Status.OPTIMAL, Status.FEASIBLE)
+    sol2 = solve_design(pm, ConstraintSet.from_rows(list(cs_tie.rows()) + pins), law)[0]
+    assert sol2.residual is not None and sol2.residual.max_m > 0.1  # 08t: a residual, not an IIS
 
 
 def test_the_pocket_floor_stays_beside_a_runway_and_the_tie_is_two_way(ridge, law):

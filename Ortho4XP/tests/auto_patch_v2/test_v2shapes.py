@@ -28,23 +28,19 @@ from pathlib import Path
 import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
-from auto_patch_v2.constraints.yielding import (GROUP, NETWORK_HARD_CLASSES, NETWORK_YIELDS, runway_vertices,
-                                                yield_family, yielded_rows)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import write_patch
 from auto_patch_v2.law import Law, LawError
-from auto_patch_v2.law.tables import yield_ceiling
 from auto_patch_v2.law.terrace_schema import Terrace, check_terrace
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import ConstraintSet, Diff, Pin, Source
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, weights_under_law
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.pipeline.shapes import joint_steps, shape_constraints, shape_stage
 from auto_patch_v2.planar import shapes as S
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Options, Status
-from auto_patch_v2.solve.tiers import solve_law_ordered
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.census import census_patch
 from auto_patch_v2.verify.frame import Patch
 
@@ -218,8 +214,8 @@ def test_a_road_along_a_boundary_takes_its_shapes_level_and_the_step_stands_at_i
     a, b = _vid(pm, (-200.0, Y0)), _vid(pm, (200.0, Y1 - 30.0))
     src = Source("fixture", "pin")
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 704.0, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    w = None
+    sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
     zr = [sol.z[v] for v in S._face_vertices(pm, road.id)]
     assert max(zr) - min(zr) < 0.5, "the road at one level (A's)"
@@ -271,15 +267,14 @@ def test_a_road_crossing_between_two_shapes_ramps_at_its_cap_with_no_joint(law):
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     assert stage.dropped == {}, stage.dropped
-    assert yield_ceiling(law, "roads") == pytest.approx(0.08)
     # the two shapes 8 m apart AT THE ROAD's contacts: the road carries the
     # difference over its 200 m (4 %, past the 1.5 % it inherits from the
     # aprons by contiguity, under its own 8 % cap)
     a, b = ramp.contacts_a[0], ramp.contacts_b[0]
     src = Source("fixture", "pin")
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 708.0, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    w = None
+    sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.mode == "hard", rep.line()
     js = joint_steps(pm, law, stage, sol.z)
     (rr,) = js["ramps"]
@@ -338,14 +333,14 @@ def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_thro
     assert not pm.shape_joints, "no joint inside a shape (08k (2))"
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
-    assert stage.dropped == {} and counts["yield.apron"] > 0
+    assert stage.dropped == {}      # 08t: no yield transform, no yield counts
     assert stage.bands_withdrawn > 0                     # the in-shape band is not a row (07g (2))
     # the two contacts 12 m apart over ~300 m of apron: 4 %
     a, b = _vid(pm, (-150.0, Y0 + 25.0)), _vid(pm, (150.0, 180.0 - 25.0))
     src = Source("fixture", "pin")
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 712.0, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    w = None
+    sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.mode == "hard", rep.line()
     yr = yielded_rows(pinned, sol.z, law, pm)
     assert yr["families"]["apron"]["max_grade"] > 0.03, yr["families"]["apron"]
@@ -367,8 +362,8 @@ def test_the_step_across_a_shape_joint_is_lawful_in_both_censuses(law, tmp_path)
     a, b = _vid(pm, (-150.0, Y0)), _vid(pm, (150.0, Y0))
     src = Source("fixture", "pin")
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 705.0, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    w = None
+    sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
     steps = [abs(sol.z[p] - sol.z[q]) for p, q, _r, _s in stage.edges]
     # the two bodies at their own levels: a step across the neck well over
@@ -425,63 +420,6 @@ def test_a_boundary_inside_the_runway_strip_welds_the_bodies(law):
     assert not pm.shape_joints
 
 
-# ── 8. the chain yields at the runway (08i-1) ────────────────────────────
-
-def test_the_taxi_chain_at_the_runway_has_no_ceiling_and_what_holds_the_contact(law):
-    """Owner RULINGS 2026-09-08i-1 / 08r-1: at a runway contact the chain
-    yields with NO ceiling; the ceiling stays everywhere else.  MEASURED
-    (lane v2shapes round 3): the contact still cannot grade past 1.5 % —
-    a 3 % first hop is INFEASIBLE in the hard set, the IIS naming the
-    short-pair BOX (the taxi class, hard on the network — 08p) and, behind
-    it, the ``no_step`` §1.2 RATE law (not a yield family).
-    The twin pins that attribution: when it fails, the contact has been
-    freed and the 05L/23R hump (spec §12) is worth re-measuring."""
-    cells = [RUNWAY,
-             Cell(1, "stub", "stubA", _rect(-111.5, 22.5, -88.5, Y0), (), None, "D", "airside", "taxi", {}),
-             Cell(2, "apron", "apronA", _rect(-200, Y0, 0, Y1), (), None, None, "airside", "apron", {})]
-    cuts = [CutLine("taxi_centerline", "stubA", ((-100.0, 0.0), (-100.0, Y0 + 25.0)), "D")]
-    airport, pm, st, cl = _airport(law, cells, cuts)
-    stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
-    cs, counts, _w = shape_constraints(pm, law, airport, stage)
-    assert counts["yield.taxi_chain_at_runway"] > 0
-    assert yield_ceiling(law, "taxi_chain_at_runway") is None      # 08r-1: no ceiling
-    assert yield_ceiling(law, "taxi_box") == pytest.approx(0.03)   # kept elsewhere
-    rw = runway_vertices(pm, law)
-    at_rw = [r for r in cs.rows() if yield_family(r) == "taxi_chain_at_runway"]
-    assert at_rw and any(isinstance(r, Diff) for r in at_rw)
-    for r in at_rw:
-        assert r.ceiling is None, r
-        assert r.source.generator == "taxi" and "crossing" not in r.source.ruling
-        assert any(v in rw for v in S.row_vertices(r))
-    for r in cs.rows():                                   # every other chain row stays hard
-        if r.source.generator == "taxi" and "box" not in r.source.ruling and yield_family(r) is None:
-            assert getattr(r, "soft", None) is None
-            if isinstance(r, Diff) and "chain" in r.source.ruling:
-                assert not (r.a in rw or r.b in rw) or "crossing" in r.source.ruling
-    # the runway demands 3 % over the first hop (the runway-edge station to
-    # the next): the contact chain would yield, the rate law does not
-    stations = sorted({v for b in pm.breaklines.values() if b.kind == S.STATION_KIND
-                       for v in b.vertices(pm)}, key=lambda v: pm.vertices[v].xy[1])
-    a = [v for v in stations if v in rw][-1]
-    b = stations[stations.index(a) + 1]
-    d = math.dist(pm.vertices[a].xy, pm.vertices[b].xy)
-    src = Source("fixture", "pin")
-    pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 700.0 + 0.03 * d, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=True))
-    assert rep.mode != "hard", rep.line()
-    named = {(u["family"], u["ruling"].split(" (")[0].split(" |")[0]) for u in rep.relaxation["unrelaxed"]}
-    holders = {("taxi", "short-pair box"), ("no_step", "airside_no_step §1.2 rate"),
-               ("no_step", "airside_no_step §1.1 route pairs")}
-    assert named & holders, named                       # the network-hard taxi class / the rate law
-    assert not any("chain" in r or "centreline" in r for _f, r in named), named   # never the (soft) chain
-    # the report reads the contact: a synthetic 5 % hop is the contact's max
-    z = list(sol.z)
-    z[b] = z[a] + 0.05 * d
-    rc = yielded_rows(pinned, z, law, pm)["runway_contacts"]
-    assert rc and rc[0]["vertex"] == a and rc[0]["max_grade"] == pytest.approx(0.05, abs=1e-3)
-
-
 # ── 9. the law tables ────────────────────────────────────────────────────
 
 def test_the_law_table_carries_the_shape_keys(law):
@@ -490,27 +428,18 @@ def test_the_law_table_carries_the_shape_keys(law):
     assert {"apron", "runway", "stub"} <= set(tt.shape_roles)
     assert "service_road" not in tt.shape_roles                 # a road separates
     assert "apron" in tt.band_roles
-    assert yield_ceiling(law, "apron") is None                  # 08k (3): no ceiling inside a shape
-    assert "taxi_chain_at_runway" in law.tables.emit.yielding.families
-    good = Terrace(0.5, 12.0, ("apron",), ("apron",))
+    # RULINGS 2026-09-08t: the sliver factor and the groundside ramp moved
+    # here when [yield] was deleted with the yielding machinery
+    assert tt.sliver_area_factor > 0.0 and 0.0 < tt.groundside_ramp_max < 1.0
+    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05)
     check_terrace(good, {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, narrow_mouth_max_m=0.4), {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, shape_roles=("zzz",)), {"apron"}, LawError)
-    for r in ("junction_mesh", "taxi_box", "no_step_pairs", "roads"):
-        assert yield_ceiling(law, r) is not None
-    # 08r-1: the runway contact states no ceiling; the round-2 knob is gone
-    y = law.tables.emit.yielding
-    assert y.families["taxi_chain_at_runway"] == "runway_contact" and y.ceiling("runway_contact") is None
-    assert not hasattr(y, "network_hard_classes")
-    from auto_patch_v2.law.yield_schema import check_yield
     with pytest.raises(LawError):
-        check_yield(_dc.replace(y, runway_contact_yield_max=0.05), LawError)
-    check_yield(y, LawError)
-
-
-# ── 10. SHAPES ARE APRON BODIES; THE NETWORK CONNECTS THEM BY ROUTE (08p) ──
+        check_terrace(_dc.replace(good, groundside_ramp_max=1.5), {"apron"}, LawError)
+    assert not hasattr(law.tables.emit, "yielding")
 
 def _stub(k, ref, x, y0, y1):
     return Cell(k, "stub", ref, _rect(x - 11.5, y0, x + 11.5, y1), (), None, "D", "airside", "taxi", {})
@@ -555,21 +484,19 @@ def test_two_aprons_touching_only_through_a_taxiway_are_two_shapes_with_no_joint
     N = S.network_vertices(pm, law)
     assert sum(1 for r in cs.rows() if r.source.generator == "taxi"
                and all(v in N for v in S.row_vertices(r)) and getattr(r, "soft", None) is None) > 0
-    assert counts["yield.taxi_box.network_hard"] > 0 and counts["yield.no_step_pairs.network_hard"] > 0
     # THE NETWORK IS HARD (08p (2)): no yielded TAXI-class row lies wholly
     # on the taxiway (an apron ring edge along it is the body's own law)
     for r in cs.rows():
         fam = yield_family(r)
         if fam is not None and fam not in NETWORK_YIELDS and law.tables.emit.yielding.families.get(fam) == "taxi":
             assert not all(v in N for v in S.row_vertices(r)), (fam, r)
-    assert "taxi" in NETWORK_HARD_CLASSES and yield_ceiling(law, "taxi_box") is not None
     # the two shapes are coupled through the taxiway: pin the west apron
     # and the east one 6 m apart — the solve grades the taxiway between
     a, b = _vid(pm, (-200.0, Y0)), _vid(pm, (200.0, Y0))
     src = Source("fixture", "pin")
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 706.0, src)]))
-    w = weights_under_law(DEFAULT_WEIGHTS, law)
-    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    w = None
+    sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
     steps = [abs(sol.z[e.a] - sol.z[e.b]) / max(math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy), 1e-9)
              for e in pm.edges.values()
@@ -591,8 +518,6 @@ def test_an_apron_against_a_taxiway_is_welded_with_no_joint(law):
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     assert stage.dropped == {}, stage.dropped                # welded: no row dropped
-    assert counts["yield.apron"] > 0                        # the body yields
-    assert counts.get("yield.taxi_chain_at_runway", 0) > 0  # the chain still yields at the runway (08i-1)
 
 
 def test_a_hangar_junction_no_route_crosses_is_part_of_the_body(law):

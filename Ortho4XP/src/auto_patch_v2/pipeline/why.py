@@ -16,16 +16,14 @@ import numpy as np
 
 from ..law import Law
 from ..model.planar import PlanarMap
-from ..solve.api import Weights
-from ..solve.why import Prepared, _drop, solve_with_duals
+from ..solve.why import Prepared, _drop, solve_with_pressure
 from ..solve.why import report as _report
 
 __all__ = ["prepare", "_prepare_solved", "resolve_faces", "taxi_letters",
-           "relaxation_block", "apron_preference_block", "report", "chain_kml"]
+           "design_block", "report", "chain_kml"]
 
 
 def prepare(icao: str, inputs, law: Law | None = None,
-            weights: Weights | None = None,
             out: _t.Callable[[str], None] = print,
             drop: _t.Sequence[str] = ()) -> Prepared:
     """Run the pipeline's stages up to the solve (the seam passes
@@ -36,9 +34,7 @@ def prepare(icao: str, inputs, law: Law | None = None,
     from ..airport.load import load_with_report
     from ..classify import classify, load_rules
     from ..constraints import generate
-    from .build import DEFAULT_WEIGHTS
     from ..planar.build import build as build_planar
-    w = weights or DEFAULT_WEIGHTS
     wall: dict[str, float] = {}
     t = time.perf_counter()
     law = law or Law.for_airport(icao)
@@ -48,32 +44,33 @@ def prepare(icao: str, inputs, law: Law | None = None,
     cl = classify(airport, law, load_rules())
     pm, _ps = build_planar(airport, cl, law)
     wall["classify+planar"] = time.perf_counter() - t
-    return _prepare_solved(icao, airport, pm, law, w, out, drop, wall, cl=cl)
+    return _prepare_solved(icao, airport, pm, law, out, drop, wall, cl=cl)
 
 
-def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
+def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
                     out: _t.Callable[[str], None] = print, drop: _t.Sequence[str] = (),
                     wall: dict[str, float] | None = None, cl=None) -> Prepared:
-    """From a built planar map: the rows, the LP (or the last resort's
-    relaxed LP), the seam passes — ``prepare``'s solve half, so a twin
-    can drive it on a synthetic airport."""
+    """From a built planar map: the rows, THE DESIGN SURFACE solve with the
+    per-row pressures, the seam passes — ``prepare``'s solve half, so a twin
+    can drive it on a synthetic airport.  There is no infeasible branch any
+    more (RULINGS 2026-09-08t): the least-squares solve always answers."""
     from .shapes import shape_constraints, shape_stage
     wall = wall if wall is not None else {"load": 0.0, "classify+planar": 0.0}
     t = time.perf_counter()
-    # THE SHAPE STAGE (2026-09-08k): the LP ``why`` reads is the build's
+    # THE SHAPE STAGE (2026-09-08k): the rows ``why`` reads are the build's
     stage = shape_stage(pm, law, airport, cl, out=out)
     pm = stage.pm
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)
     wall["constraints"] = time.perf_counter() - t
     t = time.perf_counter()
-    prob, res, cs, relaxation = _solve_or_relax(icao, pm, cs, law, w, out)
+    sol, rep, press = solve_with_pressure(pm, cs, law)
     tol = law.tables.emit.materiality.elevation_m
     prev: frozenset[int] | None = None
     for _n in range(6):                     # the pipeline's seam passes
         if not pm.seam_vertices:
             break
-        z = res.x[:prob.n]
+        z = np.asarray(sol.z, float)
         honoured = frozenset(v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
                              and abs(z[v] - pm.vertices[v].dem_z) <= tol)
         if len(honoured) == len(pm.seam_vertices) or honoured == prev:
@@ -82,48 +79,17 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law, w: Weights,
         cs, counts2, _g = shape_constraints(pm, law, airport, stage, seam_honoured=honoured)
         cs = _drop(cs, drop)
         counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-        prob, res, cs, relaxation = _solve_or_relax(icao, pm, cs, law, w, out, relaxation)
+        sol, rep, press = solve_with_pressure(pm, cs, law)
     wall["solve"] = time.perf_counter() - t
-    z = np.asarray(res.x[:prob.n], float)
-    esc = {g: float(res.x[col]) for g, col in prob.soft_cols.items()}
+    z = np.asarray(sol.z, float)
     if drop:
         out(f"[{icao}] why: ARM — families dropped before the solve: {list(drop)}")
     out(f"[{icao}] why: load {wall['load']:.2f} s  classify+planar "
         f"{wall['classify+planar']:.2f} s  constraints {wall['constraints']:.2f} s  "
         f"solve {wall['solve']:.2f} s  ({len(pm.vertices)} vertices, "
-        f"{prob.A_ub.shape[0]}+{prob.A_eq.shape[0]} rows)")
-    if relaxation is not None:
-        out(f"[{icao}] why: RELAXED MODE — {relaxation.line()}")
-    return Prepared(icao, airport, law, pm, cs, counts, w, prob, res, z, esc, wall,
-                    relaxation)
-
-
-def _solve_or_relax(icao: str, pm: PlanarMap, cs, law: Law, w: Weights,
-                    out: _t.Callable[[str], None], prior=None):
-    """The LP with duals; on an INFEASIBLE hard set THE LAST RESORT
-    (``solve.relax.solve_relaxed``, RULINGS 2026-09-04t(1)) — the IIS
-    and the relief it applied — and the LP with duals over the RELAXED
-    hard set, so ``why`` reads that set's bindings.  A set the last
-    resort cannot answer (the tier machinery's case) is reported and
-    refused: ``why`` has no preference ladder to read duals from."""
-    from ..solve import Options
-    from ..solve.relax import solve_relaxed
-    prob, res = solve_with_duals(pm, cs, w)
-    if res.status == 0:
-        return prob, res, cs, prior
-    if res.status != 2:
-        raise RuntimeError(f"[{icao}] why: the LP did not solve (status {res.status}: "
-                           f"{res.message}); run `build` for the IIS")
-    out(f"[{icao}] why: the HARD set is INFEASIBLE — running the last resort (04t-1)")
-    sol, rep, cs2 = solve_relaxed(pm, cs, law, w, Options())
-    if sol is None or cs2 is None:
-        raise RuntimeError(f"[{icao}] why: {rep.line()}; the tier machinery answers in "
-                           f"`build` and `why` has no ladder to read — see the report's IIS")
-    prob, res = solve_with_duals(pm, cs2, w)
-    if res.status != 0:
-        raise RuntimeError(f"[{icao}] why: the RELAXED set's LP status {res.status}")
-    return prob, res, cs2, rep
-
+        f"{rep.rows} rows)")
+    out(f"[{icao}] why: {rep.line()}")
+    return Prepared(icao, airport, law, pm, cs, counts, rep, z, wall, press)
 
 
 # ── target resolution ────────────────────────────────────────────────────
@@ -233,68 +199,33 @@ def taxi_letters(prep: Prepared, fid: int, near_m: float = 3.0) -> list[str]:
 
 
 
-def relaxation_block(prep: Prepared) -> list[str]:
-    """THE RELAXED MODE's lines (RULINGS 2026-09-04t(1)): the IIS the hard
-    set produced, every relaxed row with its slack, the spread statistics
-    and the certificate — what ``why`` reports when the LP it read is
-    the relaxed hard set."""
-    rep = prep.relaxation
-    if rep is None:
-        return []
-    d = rep.as_dict() if hasattr(rep, "as_dict") else dict(rep)
-    L = [f"-- relaxed by 04t(1) over the {d.get('scope')} scope: the HARD set was infeasible; "
-         "the IIS and the relief applied "
-         f"(backend {d.get('backend')}{' — piecewise-linear APPROXIMATION of the square' if d.get('approximation') else ''}):"]
-    L.append(f"   IIS {d.get('iis_rows')} rows in {d.get('iis_wall_s', 0):.1f} s; "
-             f"{len(d.get('rows', []))} relaxed, {len(d.get('unrelaxed', []))} held; "
-             f"stage 1 {d.get('stage1_wall_s', 0):.1f} s, stage 2 {d.get('stage2_wall_s', 0):.1f} s")
-    st = d.get("stats") or {}
-    L.append("   slack spread: " + ", ".join(f"{k} {v}" for k, v in st.items()))
-    L.append(f"   certificate: {d.get('certificate')}")
-    for r in d.get("rows", []):
-        if r["kind"] == "pad":
-            L.append(f"   pad   face {r['face']} {r['inputs'][1:2]}  slope {r['slope']:.5f}  "
-                     f"rise {r['slack_m']:.4f} m over {r['extent_m']:.1f} m  vertices {len(r['vertices'])}")
-        elif r["kind"] == "diff":
-            L.append(f"   diff  {r['family']:8s} face {r['face']}  v{r['vertices'][0]}<->v{r['vertices'][1]}  "
-                     f"cap {r['cap']:.4f} -> {r['cap_after']:.5f} over {r['distance_m']:.1f} m  "
-                     f"slack {r['slack_m']:.4f} m")
-        else:
-            L.append(f"   {r['kind']:5s} {r['family']:8s} face {r['face']}  slack {r['slack_m']:.4f} m")
-    for u in d.get("unrelaxed", []):
-        L.append(f"   held  {u['kind']} {u['family']}: {u['ruling'][:70]}")
-    return L
-
-
-def apron_preference_block(prep: Prepared, fid: int) -> list[str]:
-    """THE APRON PREFERENCE (RULINGS 2026-09-06w (2)) as ``why`` states it:
-    the whole map's figure and, for an apron face, its own rows over 1 %
-    and max grade; the faces over the preference that the shape's chain
-    touches are read off the report's bindings."""
-    from ..constraints.apron import apron_preference_report
-    rep = apron_preference_report(prep.cs, prep.z, prep.law)
-    if not rep["rows"]:
-        return []
-    L = [f"-- apron preference (06w): {rep['over_preference']}/{rep['rows']} apron rows over "
-         f"{rep['preferred']} (hard {rep['max']}), max grade {rep['max_grade']:.4f}"]
-    f = rep["faces"].get(str(fid))
-    if f is not None:
-        L.append(f"   this face: {f['over_preference']}/{f['rows']} rows over the preference, "
-                 f"max grade {f['max_grade']:.4f}")
-    top = sorted(rep["faces"].items(),
-                 key=lambda kv: (-kv[1]["over_preference"], -kv[1]["max_grade"]))
-    L.append("   largest faces over the preference: " + ", ".join(
-        f"#{k} {v['over_preference']}/{v['rows']} (max {v['max_grade']:.4f})"
-        for k, v in top[:8] if v["over_preference"]))
+def design_block(prep: Prepared) -> list[str]:
+    """THE DESIGN SURFACE's residual (RULINGS 2026-09-08t) as ``why`` states
+    it: the objective's energy per term, and the law families whose targets
+    the surface missed — the reading that replaced the relaxed-mode and
+    apron-preference blocks (both deleted with the machinery they read)."""
+    rep = prep.design
+    L = [f"-- design surface (08t): {rep.rounds} active-set round(s)"
+         f"{'' if rep.converged else ' — THE SET DID NOT SETTLE'}, {rep.unknowns} unknowns, "
+         f"{rep.triangles} triangles in {rep.components} complexes ({rep.detached} detached)"]
+    L.append("   objective energy by term: " + ", ".join(
+        f"{k} {v:g}" for k, v in sorted(rep.terms.items(), key=lambda kv: -kv[1])))
+    missed = sorted(((v["max_m"], k, v) for k, v in rep.families.items() if v["missed"]),
+                    reverse=True)
+    if not missed:
+        L.append("   every law target met inside the materiality floor")
+        return L
+    L.append("   targets missed (family: missed/rows, worst metres):")
+    for mx, k, v in missed[:12]:
+        L.append(f"   {k:26s} {v['missed']:6d}/{v['rows']:<6d} {mx:.3f} m")
     return L
 
 
 def report(prep: Prepared, fid: int, **kw) -> str:
-    """``solve.why.report`` with the code-letter evidence attached, the
-    apron preference figure (06w) and the relaxed-mode block when the
-    hard set was infeasible."""
+    """``solve.why.report`` with the code-letter evidence attached and the
+    design surface's residual block (08t)."""
     text = _report(prep, fid, letters=taxi_letters(prep, fid), **kw)
-    block = apron_preference_block(prep, fid) + relaxation_block(prep)
+    block = design_block(prep)
     return text + ("\n" + "\n".join(block) if block else "")
 
 

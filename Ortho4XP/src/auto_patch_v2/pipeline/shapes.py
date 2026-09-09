@@ -13,10 +13,10 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    counted per generator.  A ``Flat`` row (a pad, a plate: one rigid
    value) is never dropped — a pad belongs to one shape (07c (3), the
    majority relabel) — and any that would straddle is counted.
-3. THE YIELDING FAMILIES (08d (2), 08k (3)): the transform runs after the
-   filter; a taxi-class row whose every vertex lies on the NETWORK stays
-   hard (08p (2): the network is hard at its route law), the runway-contact
-   chain excepted — it yields with NO ceiling (08i-1, 08r-1).
+3. (RULINGS 2026-09-08t) THE YIELDING TRANSFORM IS DELETED: under the
+   design surface every law row is a one-sided quadratic TARGET, so the
+   priority the yield classes encoded is the objective's, not a re-minting
+   of rows here.
 4. THE ROAD RAMPS (08r-2): a road crossing from one shape to another is
    unlabelled — no row of it straddles, it ramps at its own law — and
    ``joint_steps`` reports the built ramp per crossing, naming a road at
@@ -35,13 +35,12 @@ from ..classify.roles import Classification
 from ..constraints import generate
 from ..constraints.no_step import reach_band_values
 from ..constraints.roads import road_family_roles
-from ..constraints.yielding import YieldStats, yield_rows
 from ..law import Law
 from ..law.tables import role_cap
 from ..model.airport import Airport
 from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row
 from ..model.planar import PlanarMap
-from ..planar.shapes import (NO_SHAPE, STATION_KIND, joint_planar_edges, network_vertices,
+from ..planar.shapes import (NO_SHAPE, STATION_KIND, joint_planar_edges,
                              row_test_pairs, row_vertices, straddles, straddles_pairs)
 
 __all__ = ["ShapeStage", "shape_stage", "shape_constraints", "apply_joints", "joint_steps"]
@@ -150,17 +149,6 @@ def shape_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: ShapeSta
     cs = apply_joints(cs, stage)
     walls["joint_filter"] = time.perf_counter() - t
     counts["joint_filter"] = sum(stage.dropped.values())
-    t = time.perf_counter()
-    ys = YieldStats()
-    cs = yield_rows(cs, pm, law, ys, network=network_vertices(pm, law))
-    walls["yield"] = time.perf_counter() - t
-    counts["yield"] = sum(ys.by_family.values())
-    for fam, n in sorted(ys.network_hard.items()):
-        counts[f"yield.{fam}.network_hard"] = n
-    for fam, n in sorted(ys.by_family.items()):
-        counts[f"yield.{fam}"] = n
-    for fam, n in sorted(ys.at_ceiling.items()):
-        counts[f"yield.{fam}.at_ceiling"] = n
     for gen, n in sorted(stage.dropped.items()):
         counts[f"joint_dropped.{gen}"] = n
     counts["joint_flats_straddling"] = stage.flats_straddling

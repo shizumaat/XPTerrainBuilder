@@ -28,11 +28,10 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack)
 from auto_patch_v2.model.constraints import Linear, Pin
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.chords import stations
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -138,7 +137,7 @@ def test_crown_generator_declares_the_built_drop(diagonal, law):
     assert max(designed.values()) == pytest.approx(rate * HALF_WIDTH, abs=rate * grid + 1e-3)
     # the BUILT declaration equals the surface's own fall at every vertex
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     built = runway_profile.crown_drops(pm, law, airport, sol.z)
     assert set(built) == set(designed)
@@ -149,7 +148,7 @@ def test_crown_generator_declares_the_built_drop(diagonal, law):
 def _emit(diagonal, law, out_dir):
     airport, pm, _ = diagonal
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)
     paths = write_patch(surf, law, out_dir, pub, face_tags=face_tags(pm, law))

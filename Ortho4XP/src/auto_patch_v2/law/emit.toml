@@ -74,6 +74,8 @@ junction_mesh_roles = ["junction"]
 # length, stub|stub 13,004, and a 6 m step over 6 m read as withdrawn law).
 withdrawn_chord_min_m = 30.0
 
+pad_slope_max            = 0.01  # RULINGS 2026-09-05f (moved here from the deleted [relaxation] table, 08t): a rigid pad is ONE level and its EMITTED plane may slope at most this (m/m) — steeper is a ``pad_flat`` DEFECT (verify/pads.py). Owner: "a 2.27 % floor is a visible tilt"
+
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every
 # integer lat/lon line the airport crosses is cut out of the layout as a band
@@ -124,44 +126,6 @@ answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many l
 # the longitudinal cap is `common.roles.service_road.longitudinal` — ONE
 # constant with the core's `road_grade_limit` default (O4_Cfg_Vars); a
 # hosted build passes the tile's own value.
-[relaxation]
-# THE LAST RESORT (RULINGS 2026-09-04t(1)): where the HARD set is infeasible
-# at a site, the solver may relax the three junior populations TOGETHER —
-# a slightly over-cap apron chord, a slightly SLOPING pad contact (the pad
-# becomes one PLANE, never a step), a slightly over-cap slope between
-# buildings — choosing the combination of LEAST TOTAL VARIANCE from law
-# (Σ slack², spread across the rows an IIS names; never L1's concentration
-# on one row), and ONLY for the rows an IIS names.  No terrace minting.
-# ``solve/relax.py``; the tier machinery (04i) answers when the IIS cannot
-# be found inside the budget or names no relaxable row.
-iis_time_budget_s   = 120.0   # wall budget for the IIS search (HECA's took 73 s offline, m5c); past it the tier machinery answers and the report says so
-max_rounds          = 3       # IIS -> relax -> re-solve rounds (a second contradiction at another site) before the tier fallback
-qp_max_rows         = 100000  # RULINGS 2026-09-04x(1): the exact QP runs only when the variance program has at most this many rows; above it the piecewise-linear approximation answers at once (measured: exact in 0.3 s at twin scale, ~10^3 rows; HECA's 1.3-1.8 M rows never finished in the 20 s budget nor in 5 min; SPJC / OTHH burned the budget and fell to the PWL every build)
-qp_time_budget_s    = 20.0    # the exact QP's own wall budget (highspy); past it the piecewise-linear approximation answers (measured: HECA's 1.8 M-row QP did not finish in 5 min; the LP does in ~30 s)
-max_pieces          = 8       # piecewise-linear pieces per slack when the QP backend (highspy) is absent — an APPROXIMATION of the square, stated in the report
-pad_slope_max       = 0.01    # RULINGS 2026-09-05f: a pad relaxed under 04t(1) may SLOPE at most this (gradient of its plane, m/m) — stage 1 bounds every relaxed pad's plane to it and spreads the rest of the relief over the other populations (04t-1); a relaxed pad steeper than this on the emitted product is a ``pad_flat`` DEFECT (verify/pads.py). Owner: "a 2.27 % floor is a visible tilt"; HECA's 1.28 % pad (m5i) comes inside it
-materiality_m       = 0.01    # a relaxed pad's plane residual, or a step between adjacent relaxed elements, above this is a defect (the 2026-08-02 elevation floor)
-relaxable_from_role = "apron" # rows OWNED by this role's tier or a junior one may take a slack (the apron, everything junior, a rigid pad's contact); the runway and taxi families never
-# THE RELAXATION'S SHAPE (RULINGS 2026-09-05ae(2), answering 05ad): a relaxed
-# row's slack is at most (max_over_cap_factor - 1) x its cap x its distance —
-# a "slightly" over-cap row (04t-1), never a cliff on a short edge (measured
-# HECA 43d50a53: a 2.55 m apron ring edge carried 1.33 m, 52 %; transverse
-# rows 0.63-0.78 m; an apron/taxilane seam at 4-6 % over 14 m).  A Diff's
-# grade excess g <= (factor - 1) x cap; a Linear's metre slack <= (factor - 1)
-# x its own bound magnitude (cap x d + the reader's envelope); a pad keeps
-# pad_slope_max.  At 2.0 a 1 % apron chord may reach 2 %, a 2.55 m edge 0.04 m.
-runway_fit_weight   = 0.0   # RULINGS 2026-09-06k (1), gating 06h (b): the RUNWAY family's DEM-fit term (and the runway ridge's smoothness λ) enter the stage-1 relaxation objective beside the slack variance ONLY when this is > 0, scaled by it (1.0 = the preference ladder's own runway weight). OFF by default: measured at HECA (v2bow 7aeb747e) the term moved the 05C/23C bow 11.04 → 10.12 m at 2.8× the relief (Σ 3,804 → 10,680 m, max 7.16 m), census 42 → 92, and relaxed a pad exactly to pad_slope_max. 0 restores the 06e pure-variance program (04t-1 alone); the owner may turn it on
-order = "variance"              # RULINGS 2026-09-06m: which last-resort program answers — "variance" (04t(1) alone: HECA bow −11.0 m, relief Σ 3,416 m, census 33), "lexicographic" (06l: runway first — bow −9.7, relief Σ 10,689 m, census 83), "weighted" (06h b/c at runway_fit_weight > 0). The 5 m bar is INFEASIBLE under the tables (the pav132 taxi-tier chain to the 23R pin holds the ridge at ≈ −7.9 m; v1 bowed −9.3); the owner rules the 1.4 m-vs-7,000 m trade — variance until then
-runway_hold_tolerance_m = 0.01   # RULINGS 2026-09-06l: the last resort is LEXICOGRAPHIC by law order (04i) — stage 1a minimises the RUNWAY family's L1 departure from its DEM fit (the senior family first) subject to every relaxable row inside max_over_cap_factor; stage 1b minimises the slack variance HOLDING every runway-family vertex within this many metres of its stage-1a value (the 2026-08-02 elevation materiality); stage 2 as before. A positive runway_fit_weight instead runs the weighted single-stage alternative
-max_over_cap_factor = 2.5   # RULINGS 2026-09-05af: HECA's certificate core needs (2.00, 2.05] — 2.0 demoted the apron; 2.5 leaves margin, the objective keeps rows near 1x
-# NO CERTIFICATE IS NOT A REASON TO DEMOTE (RULINGS 2026-09-05u; spec
-# relaxation-without-certificate-spec.md): HECA's certificate search expired
-# (120 / 300 s) and the fallback demoted the TAXI tier (3,037 rows, 5 m) —
-# the one family the law order forbids yielding — where the ruled answer
-# was 04t(1) over the hangar apron and its flat pads.
-scope_without_certificate = "relaxable"   # no certificate inside iis_time_budget_s => 04t(1) runs over EVERY relaxable row (relaxable_from_role's tier and junior, pads as planes <= pad_slope_max) — never the tier ladder for a governed family
-tier_ladder_last          = true          # the tier ladder (04i) answers only when the relaxable scope is still infeasible — and then it names the family it demoted as a FAILURE in the report and the app log
-
 [terrace]
 # THE SHAPES (owner RULINGS 2026-09-08k; spec ``heca-v1-parity-spec.md`` §8;
 # ``planar/shapes.py``): "if pavement is touching, or overlapping, then it
@@ -188,40 +152,33 @@ narrow_mouth_max_m = 12.0   # a connection narrower than this (a neck, a point c
 shape_roles        = ["runway", "runway_crossing", "primary_parallel", "secondary_parallel", "stub", "cross_connector", "junction", "apron"]  # the pavement whose union forms the shapes (the runway and taxi families, the apron-like roles); the road family never (a separator), pads never (07c-3: a pad takes its majority label), groundside never (the stand-off is its own lawful terrace)
 band_roles         = ["apron", "junction", "service_road", "service_junction"]  # the faces whose non-station vertices lose their hop-derived REACH band (RULINGS 2026-09-07g (2): the in-shape band measured INFEASIBLE under pairwise agreement; the kept rows carry the reach) — the taxi / runway faces keep theirs
 
-[yield]
-# THE PRIORITY MODEL (owner RULINGS 2026-09-08d, 08k; spec ``heca-v1-parity-spec.md``
-# §2-§4): v1 anchors the runway to the threshold chord and lets every surface
-# family beyond the runway-connected route graph YIELD where the runway
-# demands (v1 junction max 9.1 % at HECA); v2 held them all hard and the
-# redundant 1.5 % surfaces dragged (05C/23C) or lifted (05L/23R +7.5 m) the
-# runway.  Every HARD row of a family named in ``families`` is minted as a
-# PREFERENCE at assembly (``constraints/yielding.py``: one escalation group
-# per row, ``yield:<family>:<face>:<k>``, charged ``Weights.preference
-# ["yield"]`` × the largest fit weight per metre of relief — junior to the
-# runway chord fit, senior to every other DEM fit) with the escalation
-# CEILING of its class below.  The runway family, the taxi CHAIN (05ac
-# centreline + lateral hops + crossings), the reach bands, K, the runway
-# transverse law, pads, structures, zones, strips and seams stay HARD.
-# A yielded row is read by the census as a violation at its cap (v1's
-# reading) and counted apart under ``yielded_rows`` (sidecar / report /
-# census heading ``yielded_by_08d``).
-taxi_yield_max      = 0.03    # ceiling of the taxi class: junction mesh, the short-pair box, the no_step §1.1 pairs (twice the 1.5 % cap; v1 measured 9.1 % max at a junction — the owner may revise).  THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2); constraints/yielding.py NETWORK_HARD_CLASSES): a taxi-class row whose vertices ALL lie on the taxiway network stays hard at its route law; the apron / road classes span the body and yield whatever their endpoints touch (lane v2shapes round 2 measured the alternative INFEASIBLE)
-# runway_contact_yield_max: NEVER STATED (owner RULINGS 2026-09-08r-1): the taxi CHAIN where it meets a runway-family vertex (family taxi_chain_at_runway) yields with NO ceiling — the taxiway conforms to the runway as v1's does (the 05L/23R hump: the chain at a 3 % ceiling lifted the runway +3.5 m over v1); the max yielded grade at each contact is reported (yielded_rows.runway_contacts).  check_yield refuses the key.
-# apron_yield_max: ABSENT (owner RULINGS 2026-09-08k (3)): inside a shape the apron rows are preferences with NO ceiling — 1 % preferred, 1.5 % the second tier, steeper where the shape's routes demand (HECA pav132's neck: 34 m over 1.1 km ≈ 3.1 %); a step is never lawful inside a shape, a steep grade is.  A class without its ``<class>_yield_max`` key yields unbounded (the groundside-ramp precedent).
-road_yield_max      = 0.08    # ceiling of the road class = the core clamp (common.roles.service_road.longitudinal): a road row bound to a stricter contiguous class may yield up to its own cap
-sliver_area_factor  = 8.0     # change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m × this)² = 16 m² is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m², 47 m long)
-groundside_ramp_max = 0.05    # change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade as a preference (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
-[yield.families]
-# family -> class (a family is a generator, or a ruling-selected subset:
-# taxi_box = the ``taxi`` generator's box rows, no_step_pairs = ``no_step``'s
-# §1.1 pairs, taxi_chain_at_runway = the ``taxi`` generator's chain hops /
-# centreline chords with an endpoint on a runway-family face — class
-# runway_contact, no ceiling (08r-1); the §1.2 rate rows, the crossings and
-# every other chain row stay hard)
-junction_mesh      = "taxi"
-taxi_chain_at_runway = "runway_contact"   # 08r-1: no ceiling
-taxi_box           = "taxi"
-no_step_pairs      = "taxi"
-apron              = "apron"
-apron_edge_portion = "apron"
-roads              = "road"
+# THE SHAPE-STAGE CONSTANTS the yield table used to hold (moved here with
+# the yielding machinery's deletion, RULINGS 2026-09-08t): neither is yield
+# law — the sliver merge runs in the planar build, the groundside ramp is a
+# LAW GENERATOR (``constraints/groundside.py``).
+sliver_area_factor  = 8.0     # 08d change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m x this)^2 = 16 m2 is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m2, 47 m long)
+groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
+
+[design]
+# THE DESIGN SURFACE (owner RULINGS 2026-09-08t; spec ``auto-patch-v2/
+# design-surface-spec.md``): pavement is a DESIGNED surface — minimum
+# curvature, unbounded cut and fill, flush and tangent at every contact,
+# the DEM a datum only, every law a TARGET the surface aims for, the sim
+# the acceptance.  ONE sparse least-squares solve (``solve/design.py``)
+# replaces the LP with tiers, IIS, relaxation and yield rows.  These are
+# the objective's WEIGHTS — the relative price of a metre of each residual
+# (bending is metres of integrated curvature, every other term metres) —
+# law-table values, never literals in the code.
+bend          = 1.0    # thin-plate bending over each connected pavement complex (the cotangent Laplacian of its constrained Delaunay triangulation): the shaping term, the unit the rest are priced against
+chord         = 300.0  # the runway's threshold-chord target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its chord and FILLS, it never fits the DEM
+law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
+dem_zone      = 10.0   # the DEM fit on the adjacent-ground / graded-strip zone vertices ONLY, ramped 0 at the pavement edge to this at the zone's outer ring (beyond it the vertex IS the DEM, not an unknown)
+road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
+detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
+# THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
+# the rows the surface violates, re-solve with those rows active, repeat
+# to a fixed point of the active set.
+active_set_max_rounds = 60    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
+active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
+solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round
+solver_max_iter       = 20000  # per-round iteration cap of the linear solver

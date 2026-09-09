@@ -17,13 +17,13 @@ from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import generate, no_step
 from auto_patch_v2.constraints.routes import route_path, routes
 from auto_patch_v2.emit.graded import graded_surface
+from auto_patch_v2.constraints.precedence import row_tier
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve.highs import solve
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.frame import Patch
 from auto_patch_v2.verify.no_step import no_step_direct
 
@@ -180,7 +180,7 @@ def test_pad_pairs_are_apron_law_in_the_solve(site, law):
     """The pad rows belong to the contact's owner (the apron tier), never
     the ungoverned tier the chord population sat in (HECA tier 8)."""
     from auto_patch_v2.law import tables
-    from auto_patch_v2.solve.tiers import row_tier
+    from auto_patch_v2.solve import solve_design
     airport, pm = site
     cs, _c, _w = generate(pm, law, airport)
     tt = tables.tiers(law)
@@ -194,7 +194,7 @@ def test_pad_pairs_are_apron_law_in_the_solve(site, law):
 def test_sidecar_and_verify_read_the_pad_population(site, law):
     airport, pm = site
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS)
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status.value == "optimal"
     pub = publication(pm, law, airport, sol.z)
     pav = no_step.no_step_edges(pm, law)

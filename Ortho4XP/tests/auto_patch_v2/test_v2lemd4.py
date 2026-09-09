@@ -39,11 +39,11 @@ from auto_patch_v2.airport.tunnel_walls import read_wall_lines
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.law import Law
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, _plate_seats
+from auto_patch_v2.pipeline.build import _plate_seats
 from auto_patch_v2.planar.basins import build_basins, read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import build_structures
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 
 from test_m4b import _airport as _basin_airport, _cells as _basin_cells, _rect
 from test_tunnel_objects import (_PlaneDem, _airport as _wall_airport, _bore, _cells as _wall_cells,
@@ -358,7 +358,7 @@ def test_taxiway_spanning_the_corridor_is_a_deck_never_a_cut(wall_objs, law):
     tt = [x for x in pm.structures if x.source == "object"][0]
     assert len(tt.decks) == 1
     cs_all, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs_all, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    sol = solve_design(pm, cs_all, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     deck_faces = [f for f in pm.faces.values() if f.ref.startswith("bridge_deck:twyD")]
     assert deck_faces

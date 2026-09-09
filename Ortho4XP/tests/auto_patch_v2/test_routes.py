@@ -28,10 +28,9 @@ from auto_patch_v2.law.tables import role_cap
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import REACH_GENERATOR, Band, ConstraintSet
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve.highs import solve
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.frame import Patch
 from auto_patch_v2.verify.no_step import no_step_direct
 
@@ -189,7 +188,7 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
     cs, _c, _w = generate(pm, law, airport)
     without = ConstraintSet.from_rows(r for r in cs.rows()
                                       if r.source.generator != REACH_GENERATOR)
-    sol = solve(pm, without, DEFAULT_WEIGHTS)
+    sol = solve_design(pm, without, law)[0]
     assert sol.status.value == "optimal"
     for r in rows:
         assert r.lo - 1e-6 <= sol.z[r.v] <= r.hi + 1e-6, (r.v, r.lo, sol.z[r.v], r.hi)
@@ -200,7 +199,7 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
     # runway edge vertex) HiGHS returns two optima 0.011 m apart on this
     # loop (measured 2026-09-05) — a tie between equal-cost surfaces, not
     # a band that cut the feasible set.
-    sol2 = solve(pm, cs, DEFAULT_WEIGHTS)
+    sol2 = solve_design(pm, cs, law)[0]
     assert sol2.status.value == "optimal"
     o1, o2 = sol.residual.objective, sol2.residual.objective
     assert abs(o1 - o2) <= 1e-6 * max(1.0, abs(o1)), (o1, o2)
@@ -260,7 +259,7 @@ def test_junction_inherits_the_letter_of_the_chains_it_serves():
 def test_sidecar_and_verify_read_the_same_population(loop, law):
     airport, pm = loop
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS)
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status.value == "optimal"
     pub = publication(pm, law, airport, sol.z)
     edges = no_step.no_step_edges(pm, law)

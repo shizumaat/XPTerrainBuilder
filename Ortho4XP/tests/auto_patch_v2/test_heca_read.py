@@ -11,15 +11,14 @@ import math
 import pytest
 
 from auto_patch_v2.constraints import GENERATORS, generate, roads, runway_profile, zones
-from auto_patch_v2.constraints.precedence import view
+from auto_patch_v2.constraints.precedence import view, row_tier
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import tables as T
 from auto_patch_v2.model.constraints import Linear
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
-from auto_patch_v2.solve import Options, Status, solve
-from auto_patch_v2.solve.tiers import row_tier
+from auto_patch_v2.solve import Options, Status, solve_design
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.solve.why import family_of
 from auto_patch_v2.verify import census
 from auto_patch_v2.verify.census import DEFECT_KEYS
@@ -42,7 +41,7 @@ def diagonal(law):
 def solved(diagonal, law):
     airport, pm, _ = diagonal
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     return cs, sol
 

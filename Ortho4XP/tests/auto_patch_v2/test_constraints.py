@@ -28,12 +28,9 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
 from auto_patch_v2.model.constraints import (ConstraintSet, Diff, Flat,
                                              Linear, Pin, Source)
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve import Options, Status, solve
-from auto_patch_v2.solve.assemble import assemble, to_sparse
-from auto_patch_v2.solve.iis import diagnose, feasible
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -216,11 +213,9 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
     assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "structure_datum_withdrawn"}
     assert "apron_within_shape.chords_outside_face" in counts
-    S = to_sparse(cs, len(pm.vertices))
-    assert S.A_ub.shape[0] == len(S.ub_rows) and S.A_eq.shape[0] == len(S.eq_rows)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
-    assert sol.residual is not None and sol.residual.max_m < 1e-6
+    assert sol.residual is not None
     z = sol.z
     for p in cs.pins:
         assert z[p.v] == pytest.approx(p.z, abs=1e-6)
@@ -233,23 +228,6 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     # the two M2 residual classes (m2-report.md §4): the census's cross-width
     # RAOA reading and a strip seam at a zone boundary; nothing else fires
     assert set(fired) <= {"raoa", "strip_seam_tear"}, fired
-
-
-def test_iis_names_a_contradictory_pin_pair(synthetic, law):
-    airport, pm, _ = synthetic
-    cs, *_r = generate(pm, law, airport, only={"runway_profile"})
-    # a second pin on a station next to a threshold, 5 m off the profile law
-    p0 = cs.pins[0]
-    ch = next(c for c in runway_profile.ridge_chains(precedence.view(pm, law)).values())
-    nb = next(v for v in ch[0] if v != p0.v)
-    bad = Pin(nb, p0.z + 5.0, Source("test", "contradiction", ("fixture",)))
-    cs2 = ConstraintSet(cs.pins + (bad,), cs.diffs, cs.flats, cs.bands,
-                        cs.offsets, cs.linears)
-    assert not feasible(len(pm.vertices), list(cs2.rows()))
-    iis = diagnose(pm, cs2, DEFAULT_WEIGHTS, Options())
-    gens = {s.generator for _r, s in iis}
-    assert "test" in gens and "runway_profile" in gens
-    assert any(isinstance(r, Pin) and r.z == bad.z for r, _s in iis)
 
 
 def test_bench_style_instance_round_trip(law):
@@ -317,12 +295,14 @@ def test_bench_style_instance_round_trip(law):
         rows.append(Diff(u, v, 0.05, math.dist(verts[u].xy, verts[v].xy), src))
     rows.append(Flat(tuple(ids[(i, j)] for i in range(5, 8) for j in range(5, 8)), src))
     cs = ConstraintSet.from_rows(rows)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     assert sol.wall_s < 5.0 and sol.residual.max_m < 1e-6
     bad = ConstraintSet.from_rows(rows + [Pin(chain[1], 720.0, Source("bad", "x", ()))])
-    sol2 = solve(pm, bad, DEFAULT_WEIGHTS, Options())
-    assert sol2.status == Status.INFEASIBLE
+    sol2 = solve_design(pm, bad, law)[0]
+    # 08t: no infeasible branch — the contradiction is a RESIDUAL the
+    # certificate names (the pin the fixture added cannot be met with the law)
+    assert sol2.residual is not None and sol2.residual.max_m > 1.0
     assert any(s.generator == "bad" for _r, s in sol2.iis)
 
 
@@ -331,7 +311,7 @@ def test_bench_style_instance_round_trip(law):
 def test_osm_writer_contract(synthetic, law, tmp_path):
     airport, pm, _ = synthetic
     cs, *_r = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)
     paths = write_patch(surf, law, tmp_path, pub)

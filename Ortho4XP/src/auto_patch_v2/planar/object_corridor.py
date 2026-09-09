@@ -103,8 +103,6 @@ class Group:
     #: the ramp yields onto it (08m (b)).  After a stop the climb steepens
     #: to ``cutout.wall_corridor.max_ramp_grade`` or is refused.
     stop_side: str | None = None
-    #: The whole footprint (walls AND the ramp beyond) cuts building pads.
-    ramp_cuts_pads: bool = False
     #: An uncapped mouth cuts a one-spacing strip of ground back beyond
     #: its line (a bore continuing underground); a level corridor's two
     #: halves share their mouth line instead.

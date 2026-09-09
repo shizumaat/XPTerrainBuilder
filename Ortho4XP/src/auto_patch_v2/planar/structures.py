@@ -284,6 +284,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
+    pad_refs = {ref for _p, ref in pads}
     pad_tree = STRtree([p for p, _r in pads]) if pads else None
     # what a DOOR ramp stops at (spec othh-terminal-ramps §2/§4): every
     # governed cell beyond the well but the ones the well itself stands in
@@ -487,6 +488,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if g.stop_at_pavement and stop_tree_g is not None and c is not None:
             near = c.footprint.buffer(grid)
             host = {stop_list[int(j)][1] for j in stop_tree_g.query(near, predicate="intersects")}
+            if g.kind == WALL_KIND:
+                # a building PAD is never a host of a Law C ramp (tunnel.
+                # ramp_crosses_pad = false; a pad is one rigid plane —
+                # measured LEMD Cargo-NEWCO@5/a: its ramp top inside the
+                # pad, pinned at the ground 3.2 m over the pad's plane, a
+                # demotion): the walls cut the pad (08-26), the ramp beyond
+                # them stops at its edge and steepens, or is refused
+                host = {ref for ref in host if ref not in pad_refs}
         half_fn = g.half_fn
         traced: list[str] = []
         if c is None:
@@ -732,10 +741,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         keepouts.append(outer)
         if c is not None:
             # the walls cut EVERYTHING but the runway family — the pad too
-            # (08-26: the trench is senior to the pad authority); a wall
-            # corridor's ramp cuts the pad it leaves through as well
-            hull_knives.append(outer if (beyond is None or g.ramp_cuts_pads)
-                               else outer.difference(beyond))
+            # (08-26: the trench is senior to the pad authority); the ramp
+            # beyond the walls never crosses a pad (tunnel.ramp_crosses_pad)
+            hull_knives.append(outer if beyond is None else outer.difference(beyond))
     # TWO STRUCTURES MAY NOT OVERLAP: parallel mouths beyond 31h's test
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly

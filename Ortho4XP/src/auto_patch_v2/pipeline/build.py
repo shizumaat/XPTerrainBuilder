@@ -176,10 +176,15 @@ def plate_stations(footprint, standoff_m: float, step_m: float, rim_path=(),
             # only the rim's extent AGAINST the object: the rim beyond the
             # walls (an OSM stand-off along the climb) is the ramp's
             near = rim.intersection(poly.buffer(standoff_m * 2.0, join_style="mitre"))
-            region = _uu([poly, near]) if not near.is_empty else poly
-            if region.geom_type != "Polygon":
-                region = max((g for g in region.geoms if g.geom_type == "Polygon"),
-                             key=lambda g: g.area, default=poly)
+            poke = near.difference(poly) if not near.is_empty else near
+            if not poke.is_empty and poke.area > 1e-9:
+                # the rim stands outside the wall somewhere: the region grows
+                # by it (a rim wholly inside the wall leaves the footprint as
+                # it is — the ring keeps its own vertex order)
+                region = _uu([poly, near])
+                if region.geom_type != "Polygon":
+                    region = max((g for g in region.geoms if g.geom_type == "Polygon"),
+                                 key=lambda g: g.area, default=poly)
     ring = region.buffer(standoff_m, join_style="mitre").exterior
     n = max(4, int(_m.ceil(ring.length / step_m)))
     pts = [tuple(ring.interpolate(k * ring.length / n).coords[0]) for k in range(n)]

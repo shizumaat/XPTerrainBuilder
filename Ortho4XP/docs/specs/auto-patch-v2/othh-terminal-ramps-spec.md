@@ -299,3 +299,72 @@ demoted**. v2 verify **0 rows**. Re-bake: 107 units, **22 objects written**
 (6 tunnel objects, 10 Drainage, 6 Dewatering) — **0 terminal-family
 objects**, as the seat law requires. Base arms unmoved: LEMD 23 rows
 (`body_sha 5476dfef821b`, byte-identical to the pre-fix arm), CYXY 0.
+
+## §7 Consumer census (owner 30l) — lane `v2seatfix`, written BEFORE editing (2026-09-08)
+
+Two rulings land together (RULINGS 2026-09-08u (1) and (2)). Key: **P** =
+the plate seat's own threshold (`rebake.plate_seat_min_delta_m` 0.05 m);
+**R** = the oracle's reading of the two ramp roles at `max_ramp_grade`
+0.10.
+
+### §7a Readers of the plate-seat threshold (**P**)
+
+| # | Consumer (file:symbol) | Reads | Ruling |
+|---|---|---|---|
+| 1 | `emit/rebake.seat` (the structure-seat branch) | `min_delta_m` for EVERY structure seat | **P**: the threshold is `plate_seat_min_delta_m` when `datum == DATUM_PLATE` (a tunnel wall's crest plate, a basin's floor plate), `min_delta_m` otherwise. 08f (d) is untouched: a unit under ITS threshold still STAYS at its authored y and is never handed to the cluster law; `structure_seat_threshold_exempt` still short-circuits both. |
+| 2 | `emit/rebake.seat` (the flat-site deck branch, 08f (e)) | writes `below_threshold: flat site …` with no number | **P**: unchanged — that branch is a DECK verdict, not a plate reading. |
+| 3 | `emit/rebake.seat` (the unit-level cluster roll-up, "every cluster moves less than `min_delta_m`") | `min_delta_m` | **P**: unchanged — a cluster is not a plate seat. |
+| 4 | `emit/clusters.py` (`max_delta < rb.min_delta_m`) | `min_delta_m` | **P**: unchanged — the CLUSTER seat keeps the 1.0 m bar (v1's `DSF_OBJECT_BAKE_MIN_DELTA_M`, and the law-table twin still `c.eq`s it). |
+| 5 | `model/rebake.counts` (`below_threshold` / `clusters_below_threshold`) | the `skip_reason` PREFIX | **P**: unchanged — the prefix is still `below_threshold: …`; only the number in the text differs. |
+| 6 | `auto_patch/engine_v2._decision_from_seats` + the `[v2 rebake]` report line | `skip_reason`, and `min_delta_m` for the CLUSTER count in the line | **P**: unchanged (the line counts clusters). |
+| 7 | `auto_patch/object_rebake.apply` | the decision's deltas | **P**: unchanged — the v1 writer applies NO threshold of its own to a v2 decision (`DSF_OBJECT_BAKE_MIN_DELTA_M` is read by v1's `object_anchor` seat pass only, which v2 does not run), so a 0.49 m plate write reaches the pack. |
+| 8 | `law/rebake_schema.Rebake`, `law/structures.toml [rebake]`, `tests/auto_patch_v2/test_law_tables` | the key set | **P**: one new key, `0 < plate_seat_min_delta_m < min_delta_m` asserted. v2-only (v1 knows one threshold). |
+| 9 | `tests/auto_patch_v2/test_v2othhseat` (d), `test_engine_v2_rebake`, `test_m6a_rebake` | the threshold's behaviour | **P**: the (d) twin's plate at +0.001 still stays (under 0.05); the new twin covers +0.492 written / +0.03 stays / a DECK unit at +0.49 stays. |
+
+### §7b Readers of the ramp-role caps (**R**)
+
+| # | Consumer (file:symbol) | Reads | Ruling |
+|---|---|---|---|
+| 1 | `emit/osm_adapter` (the oracle alias block) | `oracle_role`, `oracle_law`, and `role_cap` → `o4_grade_law_cap` | **R**: a role may now declare `oracle_cap` — the cap the ORACLE prices its pairs at, written in place of the role's face cap. The composition with a prior tag stays a MINIMUM. |
+| 2 | `law/model.RoleSpec` + `load_tables` validation | the role fields | **R**: new optional `oracle_cap` (only with an `oracle_role`, > 0); `law/cutout_schema` asserts at load that both ramp roles' `oracle_cap` IS `cutout.wall_corridor.max_ramp_grade` — one number, checked, never a second spelling. |
+| 3 | `law/precedence.toml` roles `door_ramp` / `wall_corridor_ramp` | `oracle_law = "service_road"` (8 %) | **R**: `oracle_law = "structure_ramp"`, `oracle_cap = 0.10`. `garage_ramp` is NOT changed — its authored cap is 25 %, no oracle law carries it and it has no site (08u (3)); its rows stay an instrument limitation, reported. |
+| 4 | `auto_patch/config.ROLE_GRADE_LIMITS` | the v1 role→cap table the oracle judges by | **R**: one new entry `structure_ramp = STRUCTURE_RAMP_MAX_GRADE` 0.10 — the LAW NAME v2's ramp faces are priced under. No v1 shape ever carries the role (v1 emits no structure ramp), so every v1 patch reads exactly as before; no ruleset varies it. |
+| 5 | `tools/check_grade._role_grade_limit` (`o4_grade_law` branch, then `min` with `o4_grade_law_cap`) | `ROLE_GRADE_LIMITS[<law>]` | **R**: no code change — the law name resolves to 0.10 and the cap tag no longer tightens it. Both readers of the resolver (`_check_within_shape`, `_pair_grade_limit`) are covered by construction. |
+| 6 | `tools/check_grade._is_groundside` / `law_role` / `layout.GROUNDSIDE_ROLES` | the emitted `role` tag (`tunnel_ramp`) | **R**: unchanged — the alias keeps the ramps groundside; `structure_ramp` is never an emitted role, only an `o4_grade_law` value. |
+| 7 | `tools/harness/census.py`, `tools/harness/oracle.py`, `check_grade.LAW_FAMILIES` | the census entry points | **R**: unchanged (the brief's constraint); the harness twins stay green. |
+| 8 | v2 `constraints/structures`, `planar/wall_corridor_ramps`, `planar/door_ramps`, `verify/structures` (`role_cap`) | `rulesets.toml [common.roles]` — `door_ramp` 8 %, `wall_corridor_ramp` 10 % | **R**: unchanged. v2 verify stays the STRICTER instrument on a door ramp (8 % vs the oracle's 10 %); the oracle is the pair-frame cross-check, and the owner's ruling prices both ramp roles at the ramp ceiling there. Stated, not hidden. |
+| 9 | `tests/auto_patch_v2/test_v2doorramp`, `test_v2wallcorridor`, `test_law_tables` (the divergence register) | `spec.oracle_law == "service_road"` | **R**: re-pointed to `structure_ramp` + `oracle_cap`. |
+| 10 | `tests/test_harness.py` | the census twins | **R**: new twin — a synthetic `door_ramp` pair at 8.2 % reads 0 rows, at 10.5 % reads 1. |
+
+### §7c Closing measurement — lane `v2seatfix` (OTHH tile `+25+051`, engine v2, build tag `v2sf_close`, rc 0, 630.1 s: vector 459.5 / mesh 11.9 / masks 8.7 / tile 149.5)
+
+**The seat (P).** `unit:7` = `Objects/tunnels/tunnel south west 2.obj` — the
+deep bore's mouth — is now WRITTEN: ground at the wall band (65 stations,
+0 water, 0 off-mesh) 3.957 against the rendered plate (base −6.535 +
+plate 10.000 = 3.465), delta **+0.4919 m**, datum `plate`, no skip. The
+seated crest stands at **3.9569** against the site's Z0 **3.962** —
+**0.005 m**, inside the 08o bar. The two `tunnel1` plate units below the
+new bar STAY, and say so at it: `below_threshold: plate seat |+0.026| m <
+0.05 m` and `|+0.020| m < 0.05 m`. Objects written **23** (main: 22) —
+tunnels **7** (was 6: the one new write is this bore), Dewatering/Drainage
+16, **0 terminal-family**, 0 reverted; 107 units, 14 baked, 90 below
+threshold, 3 held. Shared repo UNCHANGED (full before/after snapshot).
+
+**The oracle (R).** OTHH v2 verify **0 rows**. Census `--no-cache` on
+`OTHH_auto.patch.osm`: **0 rows in all 29 law families** — the 181
+groundside `tunnel_ramp|tunnel_ramp` `within_shape` rows at 8.2 % are
+gone, and (on this base) the airside `terrace_joint_route` row is 0 too.
+
+**LEMD** (`--base-arm` on the lane tree, tag `v2sf_LEMD`, rc 0, 220.6 s,
+`body_sha 7c84e9b98c4a`, v2 verify 14): census **20 adjudicated** (airside
+11, groundside 8, mixed 1). THE SAME PATCH replayed with the pre-fix tag
+(`o4_grade_law=service_road`, the only difference — the geometry is
+byte-identical) censuses **4,933**: **4,913 groundside
+`tunnel_ramp|tunnel_ramp` within-shape rows at 8.02–8.04 % against the
+8.00 % alias**, every one of them a corridor/door ramp built AT the 8 %
+ramp grade and pushed over it by emit quantisation. The OTHH 181 was the
+small end of this class; nobody had censused LEMD since Law C began
+emitting there (v2wallcorridor's LEMD 23 is a BASE arm, cut before the
+corridors existed). Attribution of 23 → 20 against that older base is
+NOT claimed: it is a different tree, and no clean-tree LEMD control at
+319f8700 was built (controls are shared, never rebuilt).

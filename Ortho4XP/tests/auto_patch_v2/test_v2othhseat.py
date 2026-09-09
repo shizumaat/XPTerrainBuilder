@@ -172,6 +172,39 @@ def test_structure_seat_under_the_threshold_stays(law):
     assert res.units[0].bakes and res.units[0].delta_m == pytest.approx(rb.min_delta_m)
 
 
+def test_a_plate_seat_writes_at_its_own_smaller_threshold(law):
+    """RULINGS 2026-09-08u (1): OTHH's deep bore computed +0.492 m and the
+    1.0 m ``min_delta_m`` declined it — a wall crest half a metre under
+    grade is visible.  A PLATE-datum seat writes any |delta| ≥
+    ``plate_seat_min_delta_m`` 0.05; below it the unit still stays (08d
+    (d) unchanged), and an ORDINARY (deck) seat keeps the 1.0 m bar."""
+    rb = law.tables.structures.rebake
+    band = law.tables.structures.basin.contact_band_m
+    assert 0.0 < rb.plate_seat_min_delta_m < rb.min_delta_m
+    plate = _member("wall", [_part(0, 0.001, base_y=2.0)], plate_y=2.0,
+                    plate_stations=((0.001, 0.0),))
+    pl = _plan([R.Unit("u", (0.0, 0.0), 0.0, (plate,))], flat=None)
+    # the deep bore's own number: the ground at the wall band 0.492 over the
+    # rendered crest — written, whole, at the plate datum
+    hit = R.seat(pl, _by_lat({0.0: Z0, 0.001: Z0 + 2.0 + 0.492}), law).units[0]
+    assert hit.datum == R.DATUM_PLATE and hit.bakes
+    assert hit.delta_m == pytest.approx(0.492)
+    # +0.03 is under the plate bar: the structure stays at its authored y
+    miss = R.seat(pl, _by_lat({0.0: Z0, 0.001: Z0 + 2.0 + 0.03}), law).units[0]
+    assert not miss.bakes and miss.delta_m is None
+    assert miss.skip_reason.startswith("below_threshold") and \
+        f"{rb.plate_seat_min_delta_m}" in miss.skip_reason
+    # an ORDINARY unit (a deck seat) at the same +0.49 stays: its bar is 1.0 m
+    ring = ((0.001, 0.0), (0.0012, 0.0), (0.0013, 0.0))
+    deck = _member("deck", deck_ring=ring, deck_top_y=0.0, deck_kind="flag")
+    dpl = _plan([R.Unit("d", (0.0, 0.0), 0.0, (deck,))], flat=None)
+    d = R.seat(dpl, _by_lat({0.0: Z0 - 0.49, 0.001: Z0, 0.0012: Z0,
+                             0.0013: Z0 + 2.0 * band}), law).units[0]
+    assert d.datum == R.DATUM_DECK_TOP and not d.bakes and d.delta_m is None
+    assert d.skip_reason.startswith("below_threshold") and \
+        f"{rb.min_delta_m}" in d.skip_reason
+
+
 # ── (e) the datum under the footprint ────────────────────────────────────
 
 def test_the_datum_extends_under_every_footprint_inside_the_region(law):

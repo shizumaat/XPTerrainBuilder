@@ -150,7 +150,12 @@ def test_law_register(law):
     for role, cap in ((RAMP_ROLE, wc.max_ramp_grade), (GARAGE_ROLE, wc.max_authored_grade)):
         spec = law.tables.precedence.roles[role]
         assert spec.side == "groundside" and spec.structure and spec.value
-        assert spec.oracle_role == "tunnel_ramp" and spec.oracle_law == "service_road"
+        # RULINGS 2026-09-08u (2): the RAMP reads at the structure-ramp law's
+        # 10 % (its own ceiling); the authored garage ramp keeps service_road
+        # (no oracle law carries 25 % — the instrument limit stands, §7b row 3)
+        assert spec.oracle_role == "tunnel_ramp"
+        assert spec.oracle_law == ("structure_ramp" if role == RAMP_ROLE else "service_road")
+        assert spec.oracle_cap == (wc.max_ramp_grade if role == RAMP_ROLE else None)
         assert is_structure_role(law, role) and role_side(law, role) == "groundside"
         assert role_cap(law, role).longitudinal == cap
         assert role not in law.tables.precedence.order
@@ -429,7 +434,8 @@ def test_generator_rows_solve_and_emit(objs, law):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and f"v='{RAMP_ROLE}'" in text
-    assert "k='o4_grade_law' v='service_road'" in text
+    assert "k='o4_grade_law' v='structure_ramp'" in text and \
+        "k='o4_grade_law_cap' v='0.1'" in text
 
 
 def _pad(ref, x0, x1, y0=-50.0, y1=70.0):

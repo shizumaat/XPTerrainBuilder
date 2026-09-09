@@ -175,7 +175,7 @@ groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the gr
 # class of ITS OWN vertex (the senior class of the faces that touch it, in
 # the order runway > taxi > apron > road > strip); every other term is
 # unchanged.  Units are the same: the price of a metre of integrated
-# curvature, against which chord / law / dem_zone / road are priced.
+# curvature, against which chord / law / taxi_profile / road are priced.
 bend_runway   = 1.0
 bend_taxi     = 1.0
 bend_apron    = 1.0
@@ -183,7 +183,16 @@ bend_strip    = 1.0
 bend_road     = 1.0
 chord         = 300.0  # the runway's threshold-chord target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its chord and FILLS, it never fits the DEM
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
-dem_zone      = 10.0   # the DEM fit on the adjacent-ground / graded-strip zone vertices ONLY, ramped 0 at the pavement edge to this at the zone's outer ring (beyond it the vertex IS the DEM, not an unknown)
+# THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
+# `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are
+# DELETED.  The adjacent ground is a LAW surface off the pavement edge —
+# zone 1 the lip draining down, zone 2 the graded strip at the strip
+# transverse law, the runway ends per the end-skirt law — and the outer
+# ring's elevation is whatever those laws give; the MESH ENGINE blends
+# from the patch boundary to the DEM outside it.  The DEM's only entries
+# left are the threshold pins, the tile-seam preference and a detached
+# body's own terrain plane.
+taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
@@ -208,11 +217,33 @@ hard_rulings = [
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
   "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
+  "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
 ]
 hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000x the law's target weight), with a multiplier shift between rounds: the augmented Lagrangian that makes the runway laws HELD rather than traded (measured CYXY: 3e4 leaves 0.036 m, 3e5 0.010 m, 1e6 0.012 m, 1e8 breaks the factorisation)
 hard_max_rounds = 12       # the multiplier rounds, each one damped active-set solve (measured CYXY: the runway DEFECT families read zero from round 5)
 hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
+# THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
+# (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the
+# row's `follows` vertex (the GROUND) keeps its column, and the pavement
+# feet leave the matrix for the right-hand side at their previous
+# outer-round value.  Two-way, the corridor rows dragged the taxiway down
+# to the ground they were meant to shape (the owner's undulation read).
+one_way_rulings = [
+  "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
+  "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
+]
+one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
+one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)
+one_way_tol_m      = 0.01  # the lag has settled when no leader foot moved this far (the elevation materiality)
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round
 solver_max_iter       = 20000  # per-round iteration cap of the linear solver
+# THE RING-FOLLOWS-CENTRELINE TARGET IS REFUTED (lane v2ground, HECA
+# replay arms): an equality `z_ring = z_foot` over the route graph's
+# lateral hops bought 5-12 % of the taxi roles' RMS second difference and
+# cost 0.35 m of the 05R/23L bow and 34 % of the RUNWAY's own RMS
+# (0.00269 -> 0.00361) even with the runway's own vertices excluded.  The
+# ring follows its centreline through the transverse hop LAW
+# (`constraints/taxi.taxi_chain`), which is already a design target, and
+# through the centreline's own `taxi_profile` curvature.

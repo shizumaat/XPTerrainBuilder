@@ -194,6 +194,11 @@ class CommonLaw:
     """Authority-independent caps."""
 
     roles: _t.Mapping[str, RoleCap]
+    #: THE 5 % CEILING (owner RULINGS 2026-09-09b (4)): the hard maximum
+    #: grade of EVERY pavement class, and of a free road; the per-class
+    #: letter caps stay targets under it (``constraints/ceiling.py``)
+    pavement_max_grade: float
+    road_max_grade: float
     apron_fan_ramp_max: float
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float

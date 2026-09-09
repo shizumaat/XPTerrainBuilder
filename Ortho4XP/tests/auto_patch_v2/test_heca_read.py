@@ -276,7 +276,12 @@ def test_strip_reader_flags_a_vertex_standing_over_the_cap(diagonal, law, solved
     z2 = list(sol.z)
     z2[v] += 2.0 * bound + 1.0       # from under the mandatory-down to over the cap
     got = _census(diagonal, law, _dc.replace(sol, z=tuple(z2)))[FAMILY_STRIP_TRANSVERSE]
-    assert len(got) > base_rows, (len(got), base_rows)
+    # RE-SCOPED (RULINGS 2026-09-09b (3), lane v2ground): the adjacent ground
+    # is a LAW surface with no DEM term, so the chosen vertex may ALREADY
+    # carry a reported row — lifting it raises that row's magnitude instead
+    # of adding a new one.  The subject is the reader firing on the lifted
+    # vertex and pricing the bound, below.
+    assert len(got) >= base_rows, (len(got), base_rows)
     # the row of THE LIFTED VERTEX (by its own site: the design surface's
     # strip carries other reported rows now, so "the first row" is not it)
     x0, y0 = vw.xy[v]

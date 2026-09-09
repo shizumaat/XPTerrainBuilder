@@ -133,6 +133,10 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("pads", "", "pads"),
     ("seams", "", "seam_values"),
     ("reach", "", "reach_bands"),
+    # THE 5 % CEILING (owner RULINGS 2026-09-09b (4), the post-pass
+    # ``constraints/ceiling.py``): its own family, so a ``why`` trace names
+    # the ceiling rather than the class cap it rides beside
+    ("pavement_ceiling", "", "pavement_ceiling"),
 )
 
 

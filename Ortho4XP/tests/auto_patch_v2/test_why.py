@@ -98,10 +98,32 @@ def test_apron_is_held_below_its_dem(prepared):
 
 
 def test_chain_trace_reaches_the_runway_pin_through_the_taxi_families(prepared):
+    """RE-SCOPED by RULINGS 2026-09-09b (3) (lane ``v2ground``).  The chain
+    this twin traced ran UP from the apron: the ground around it stood on
+    the DEM and the zone corridor rows, priced TWO-WAY, pulled the apron up
+    with it until the taxi chain to the runway pin held it.  Both of those
+    are now gone — no vertex in the patch is the DEM, and the corridor rows
+    are ONE-WAY (the ground follows the pavement and never pulls it) — so
+    on this fixture NOTHING pulls the apron up and no chain of binding rows
+    leads out of it.  What the twin holds now: where a chain exists it
+    passes through the taxi families to the runway; where none does, the
+    apron is held by the OBJECTIVE (its contacts and the bending sheet),
+    which ``test_apron_is_held_below_its_dem`` reads."""
     fid = _apron_face(prepared)
     verts = why.face_vertices(prepared, fid)
     tr = why.chain_trace(prepared, verts)
-    assert tr is not None, "the apron must be chained to something"
+    if tr is None:
+        # what holds it instead: its CONTACT (08t answers 5/6) — the apron
+        # sits flush with the taxiway it touches, not on its own terrain
+        import numpy as np
+        taxi = [v for v, vx in prepared.pm.vertices.items()
+                if any(prepared.pm.faces[f].role == "primary_parallel"
+                       for f in vx.incident_faces)]
+        assert taxi
+        gap = abs(float(np.median(prepared.z[verts]))
+                  - float(np.median(prepared.z[taxi])))
+        assert gap < 5.0, f"the apron takes its taxiway's level (gap {gap:.2f} m)"
+        return
     # the chain ends AT THE RUNWAY: a CIFP pin, or a runway vertex the
     # objective holds (weight 20) when the profile between pins is slack
     # (under RULINGS 2026-09-05aa the ridge station's lateral-hop pair to
@@ -186,7 +208,12 @@ def test_relax_one_family_numbers_sum_sanely(prepared):
     # to its own bending and datum — it may fall as readily as rise.  What the
     # twin holds is the MAGNITUDE: together the families move the apron
     # materially, and no single family moves it further than they do together.
-    assert abs(ceiling) > 0.5
+    # RE-SCOPED (RULINGS 2026-09-09b (3), lane v2ground): with the corridor
+    # rows ONE-WAY and no DEM in the patch, the ground no longer lifts the
+    # apron, so the families together move it 0.31 m here where they moved
+    # it metres under the two-way law.  The MAGNITUDE bar is the materiality
+    # floor, not the old metre.
+    assert abs(ceiling) > 0.1
     # (the CEILING PROPERTY — no single family moves the apron further than
     # all of them together — was a property of the hard-law solve, where a
     # family could only ever hold the surface DOWN.  Under the design surface
@@ -252,7 +279,10 @@ def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
     out = tmp_path / "chain.kml"
     tr = chain_kml(prep, fid, str(out))
     text = out.read_text()
-    assert tr is not None and tr.steps
+    if tr is None:                    # RULINGS 2026-09-09b (3): see above
+        assert text and "<LineString>" not in text
+        return
+    assert tr.steps
     assert text.count("<LineString>") == len(tr.steps)
     assert "TERMINAL" in text and "START" in text
     for s in tr.steps:

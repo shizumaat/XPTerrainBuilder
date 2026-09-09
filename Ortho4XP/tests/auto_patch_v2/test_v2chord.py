@@ -130,7 +130,12 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_the_chord(valley, law):
     # the DEM-fit control: the same set without the chord sags into the valley
     cs0, _c, _w = generate(pm, law, airport)
     sol0 = solve_design(pm, cs0, law)[0]
-    assert sol0.z[mid] < 697.0
+    # RE-SCOPED (RULINGS 2026-09-09b (3), lane v2ground): with NO DEM term
+    # in the patch the control cannot "sag onto the terrain" — a runway
+    # sheet with no chord takes its own terrain PLANE (08t answer 6).  What
+    # the twin holds is the CHORD's effect: the chord arm sits metres above
+    # the control (measured: 700.00 vs 698.04).
+    assert sol0.z[mid] < sol.z[mid] - 1.0, (sol0.z[mid], sol.z[mid])
 
 
 def test_a_runway_without_two_pins_keeps_the_dem(law):

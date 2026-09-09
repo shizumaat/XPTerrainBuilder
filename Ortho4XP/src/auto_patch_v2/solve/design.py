@@ -70,7 +70,8 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matri
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "hard_rulings",
-           "is_hard", "METHODS", "DEFAULT_METHOD"]
+           "one_way_rulings", "is_hard", "ruling_head", "METHODS",
+           "DEFAULT_METHOD"]
 
 #: The linear solvers the round may use.  ``normal`` factorises the normal
 #: equations Aᵀ A once per active set (sparse LU); ``cg`` runs conjugate
@@ -83,6 +84,11 @@ DEFAULT_METHOD = "normal"
 #: solver, not a law value): below it the Newton direction buys nothing and
 #: the previous point IS the minimiser.
 _ALPHA_FLOOR = 1.0e-6
+
+#: The shift that switches a ONE-WAY row OFF for the warm-up solve (its
+#: leaders have no value before the first solve): a target so far away
+#: that the row can never be violated.  A solver constant, not a law value.
+_LAG_OFF = 1.0e9
 
 
 def bend_roles(law: Law) -> tuple[str, ...]:
@@ -118,6 +124,13 @@ def bend_class(law: Law, role: str) -> str:
     return "apron" if is_value_role(law, role) else "strip"
 
 
+def one_way_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS whose rows are priced ONE-WAY — ``[design]
+    one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
+    follows the pavement edge and never pulls it)."""
+    return frozenset(design_law(law).one_way_rulings)
+
+
 def hard_rulings(law: Law) -> frozenset[str]:
     """The ruling HEADS whose rows are HARD CONSTRAINTS of the active set —
     ``[design] hard_rulings`` (RULINGS 2026-09-08v: the runway family's
@@ -126,10 +139,17 @@ def hard_rulings(law: Law) -> frozenset[str]:
     return frozenset(design_law(law).hard_rulings)
 
 
+def ruling_head(row: Row) -> str:
+    """The HEAD of a row's ruling — everything before the first
+    parenthesis, the key ``[design] hard_rulings`` / ``one_way_rulings``
+    name a law by."""
+    return row.source.ruling.split(" (")[0].strip()
+
+
 def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:
     """Whether ``row`` states one of the HARD laws: the head of its ruling
     (everything before the first parenthesis) is one of ``law_heads``."""
-    return row.source.ruling.split(" (")[0].strip() in law_heads
+    return ruling_head(row) in law_heads
 
 
 # ── the report ──────────────────────────────────────────────────────────
@@ -163,6 +183,14 @@ class DesignReport:
     hard_settled: bool = True
     #: the ruling of the worst-held hard row (empty where every row is held)
     hard_worst: str = ""
+    #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
+    #: corridor and strip-tie rows whose pavement feet are LAGGED — how
+    #: many, how many lag rounds the outer loop paid, whether the lag
+    #: settled and how far the worst leader foot moved in the last round
+    one_way_rows: int = 0
+    one_way_rounds: int = 0
+    one_way_settled: bool = True
+    one_way_move_m: float = 0.0
     bend_rows_by_class: dict[str, int] = _dc.field(default_factory=dict)
     #: THE MISSED TARGETS (sidecar ``design_target``, RULINGS 2026-09-08t/v):
     #: one record per law row the design surface did not reach — its family,
@@ -183,6 +211,10 @@ class DesignReport:
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
                 "hard_max_violation_m": round(self.hard_max_violation_m, 6),
                 "hard_worst": self.hard_worst,
+                "one_way_rows": self.one_way_rows,
+                "one_way_rounds": self.one_way_rounds,
+                "one_way_settled": self.one_way_settled,
+                "one_way_move_m": round(self.one_way_move_m, 6),
                 "bend_rows_by_class": self.bend_rows_by_class,
                 "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
@@ -199,6 +231,9 @@ class DesignReport:
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
                 f"{'' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
+                f"{self.one_way_rows} one-way rows in {self.one_way_rounds} lag "
+                f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
+                f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
                 f"{self.solver_wall_s:.2f} s solver; "
                 "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
@@ -275,9 +310,12 @@ class Base:
     #: indices into ``one`` of the HARD rows (``[design] hard_generators``):
     #: constraints of the active set, never penalties (RULINGS 2026-09-08v)
     hard: list[int] = _dc.field(default_factory=list)
+    #: ``one`` index -> the FOLLOWER vertex of a ONE-WAY row (``[design]
+    #: one_way_rulings``): only that vertex keeps its column, the leaders
+    #: enter the right-hand side lagged (RULINGS 2026-09-09b (2)/(3))
+    one_way: dict[int, int] = _dc.field(default_factory=dict)
     chord_vertices: int = 0
     road_fit_vertices: int = 0
-    dem_zone_vertices: int = 0
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -315,18 +353,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         r for r in law.tables.precedence.roles if is_structure_role(law, r)}
     free = {v for v, vx in planar.vertices.items()
             if any(planar.faces[f].role in free_roles for f in vx.incident_faces)}
-    ramp, beyond = _zone_weights(planar, law, pav, free)
+    del free                       # 09-09b (3): nothing beyond the ring is fixed
+    ramp = _zone_weights(planar, law, pav)
     rwy_v = {v for v, vx in planar.vertices.items()
              if any(planar.faces[f].role in rwy_roles for f in vx.incident_faces)}
 
     # 3. the reduction: pins fix, flats merge, the outer ring is the DEM
-    red = _reduce(planar, cs, beyond)
+    red = _reduce(planar, cs, {})
     rep.unknowns = red.n_cols
     rep.fixed = int((red.col < 0).sum())
     rows = _Rows(red)
     one: list[_Side] = []
     eqs: list[_Side] = []
-    chord_v = road_v = dem_v = 0
+    chord_v = road_v = 0
     if red.n_cols == 0:
         return Base(rows, red, one, eqs, n)      # nothing to solve
 
@@ -377,6 +416,30 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             rows.add(((c, sc / dn), (m, -sc * (1.0 / dn + 1.0 / dp)), (a, sc / dp)),
                      0.0, d.road, ("road", bl.id))
 
+    # 5b. THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2): taxiways
+    #     "should follow terrain less and be more like runways").  A runway
+    #     is designed along its axis — the threshold chord plus the vertical
+    #     curve K — so its profile is smooth by construction.  A taxiway had
+    #     only its grade CAPS, which are silent inside themselves, so it
+    #     draped.  Every taxi CENTRELINE chain now carries the runway's K
+    #     pattern as an objective term: the second difference of z at each
+    #     interior station, at ``[design] taxi_profile``.
+    for bl in planar.breaklines.values():
+        if bl.kind != "taxi_centerline":
+            continue
+        ch = bl.vertices(planar)
+        for k in range(1, len(ch) - 1):
+            a, m, c = ch[k - 1], ch[k], ch[k + 1]
+            if len({a, m, c}) < 3:
+                continue
+            (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
+            dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
+            if dp <= 1e-6 or dn <= 1e-6:
+                continue
+            sc = 0.5 * (dp + dn)
+            rows.add(((c, sc / dn), (m, -sc * (1.0 / dn + 1.0 / dp)), (a, sc / dp)),
+                     0.0, d.taxi_profile, ("taxi_profile", bl.id))
+
     # 6. the runway chord (and the core's road profile) — ``preferred_z``
     #    (a runway-family vertex fits the CHORD; every other published
     #    target is the core's clamped road profile — the road's own term)
@@ -388,16 +451,16 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         elif rows.add(((vid, 1.0),), float(target), d.road, ("road_fit", vid)):
             road_v += 1
 
-    # 7. the DEM fit — ONLY on the zone vertices, ramped to the outer ring
-    for vid, frac in ramp.items():
-        if frac <= 0.0 or vid in pref or vid in pav:
-            continue
-        z_dem = planar.vertices[vid].dem_z
-        if z_dem is None:
-            continue
-        if rows.add(((vid, 1.0),), float(z_dem), d.dem_zone * frac * frac,
-                    ("dem_zone", vid)):
-            dem_v += 1
+    # 7. THE DEM FIT IS DELETED (owner RULINGS 2026-09-09b (3)): "adjacent
+    #    ground should not go directly from airside to the DEM ... not even
+    #    try to match DEM — the engine should automatically smooth between
+    #    whatever elevation we set and the DEM".  Zone 1 is the lip draining
+    #    down from the pavement edge, zone 2 the graded strip continuing at
+    #    the strip transverse law, the runway ends the end-skirt corridor —
+    #    all of them LAW rows of ``constraints/zones.py`` and
+    #    ``constraints/strips.py``, priced ONE-WAY (§8) — and the outer
+    #    ring's elevation is whatever those laws give.  The mesh engine
+    #    drapes from the patch boundary to the DEM outside it.
 
     # 8. the law rows as ONE-SIDED penalties (plus the law's own equalities)
     one_t, eqs_t = _law_sides(cs)
@@ -411,7 +474,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # the owner asked for.  A PIN's vertex is not terrain: those rows stay.
     dropped_bank = 0
     heads = hard_rulings(law)
+    ow_heads = one_way_rulings(law)
     hard: list[int] = []
+    one_way: dict[int, int] = {}
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -435,6 +500,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 one.append((terms, hi_hard, row))
                 continue
             hard.append(len(one))
+        # ONE-WAY (RULINGS 2026-09-09b (2)/(3)): the row governs its
+        # ``follows`` vertex and treats its other feet — the PAVEMENT — as
+        # given.  A row whose follower is itself fixed governs nothing and
+        # stays two-way.
+        fv = getattr(row, "follows", None)
+        if fv is not None and ruling_head(row) in ow_heads and red.col[fv] >= 0:
+            one_way[len(one)] = int(fv)
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
@@ -444,6 +516,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         eqs.append(side)
     rep.bank_rows = dropped_bank
     rep.hard_rows = len(hard)
+    rep.one_way_rows = len(one_way)
     for terms, hi, row in eqs:
         rows.add(terms, hi, d.law, ("law", row))
     # 9. THE BODY'S OWN DATUM (owner 08t answer 6).  A one-sided law row is
@@ -507,7 +580,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
-    return Base(rows, red, one, eqs, n, hard, chord_v, road_v, dem_v)
+    return Base(rows, red, one, eqs, n, hard, one_way, chord_v, road_v)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -523,8 +596,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     n = len(planar.vertices)
     base_p = assemble(planar, cs, law, rep)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
-    chord_v, road_v, dem_v = (base_p.chord_vertices, base_p.road_fit_vertices,
-                              base_p.dem_zone_vertices)
+    chord_v, road_v = base_p.chord_vertices, base_p.road_fit_vertices
     if red.n_cols == 0:
         z = np.array([float(red.value[v]) for v in range(n)])
         return (Solution(z=tuple(z), status=Status.OPTIMAL,
@@ -548,6 +620,28 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     do (RULINGS 2026-09-08v: "a weight cannot buy a law").
     A0f, b0f = rows.matrix(red.n_cols)      # the ALWAYS-ON rows (the base)
     A1, b1 = _one_matrix(one, red)
+    # THE ONE-WAY SPLIT (RULINGS 2026-09-09b (2)/(3)).  A corridor row
+    # ``z_ground − z_foot ≤ bound`` priced two-way pulls the PAVEMENT down
+    # toward the ground it is meant to shape.  For a one-way row only the
+    # FOLLOWER's column stays in ``A1``; its leader coefficients move to
+    # ``A1_lead``, whose product with the previous outer round's ``x``
+    # enters the right-hand side through ``shift`` — the ground follows,
+    # the pavement never feels it.  The lag is iterated to a fixed point
+    # (``one_way_max_rounds`` / ``one_way_tol_m``), exactly as the hard
+    # rows' multipliers are.
+    ow_i = np.asarray(sorted(base_p.one_way), dtype=np.int64)
+    A1_lead: sp.csr_matrix | None = None
+    if ow_i.size:
+        fcol = np.full(len(one), -2, dtype=np.int64)
+        for k, v in base_p.one_way.items():
+            fcol[k] = int(red.col[v])
+        coo = A1.tocoo()
+        lead = (fcol[coo.row] != -2) & (coo.col != fcol[coo.row])
+        A1_lead = sp.csr_matrix((coo.data[lead], (coo.row[lead], coo.col[lead])),
+                                shape=A1.shape)
+        keep = ~lead
+        A1 = sp.csr_matrix((coo.data[keep], (coo.row[keep], coo.col[keep])),
+                           shape=A1.shape)
     hard_i = np.asarray(base_p.hard, dtype=np.int64)
     rep.hard_rows = int(hard_i.size)
     # THE HARD ROWS ARE SCALED TO METRES.  A law row is stated in its own
@@ -648,27 +742,67 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep.rounds += int(d.active_set_max_rounds)
         return x_ if x_ is not None else np.zeros(red.n_cols)
 
+    # THE WARM-UP: the one-way rows are OFF for the first solve (their
+    # leaders have no value yet), then lagged from the surface it gives.
+    if ow_i.size:
+        shift[ow_i] = -_LAG_OFF
+        rep.one_way_settled = False
     x = _inner(None)
+
+    # PHASE B — THE LAG (RULINGS 2026-09-09b (2)/(3)).  The one-way rows'
+    # leader feet are re-read from the current surface, UNDER-RELAXED by
+    # ``one_way_relax`` (the plain fixed point does not contract: measured
+    # HECA, the worst leader move sat at 0.25-0.29 m over six rounds), and
+    # the inner set is re-solved.  It runs to settlement BEFORE the hard
+    # rows' multipliers, so the augmented Lagrangian sees a problem that
+    # stops moving under it — interleaved, each lag round undid the
+    # previous multiplier round and the runway laws drifted OUT (measured
+    # HECA: a 0.52 m ``runway_transverse`` DEFECT).
+    theta = float(d.one_way_relax)
+    for outer in range(1, (int(d.one_way_max_rounds) if ow_i.size else 0) + 1):
+        target = np.asarray(A1_lead @ x).ravel()[ow_i]
+        cur = shift[ow_i]
+        new_shift = target if outer == 1 else cur + theta * (target - cur)
+        move = math.inf if outer == 1 else float(np.max(np.abs(new_shift - cur)))
+        shift[ow_i] = new_shift
+        rep.one_way_rounds = outer
+        rep.one_way_move_m = 0.0 if move == math.inf else move
+        x = _inner(x)                  # always solve AT the shift just set
+        if opt.verbose:
+            print(f"    [design/lag] round {outer}: worst leader move "
+                  f"{rep.one_way_move_m:.4f} m")
+        if move <= float(d.one_way_tol_m):
+            rep.one_way_settled = True
+            break
+
+    # PHASE C — THE HARD ROWS' MULTIPLIERS, the lag now FROZEN (spec §6
+    # deviation 7).  The loop stops when every hard row is held, when the
+    # rounds run out, or when a round buys less than one tolerance of
+    # violation (a round that does not buy the law buys only wall —
+    # measured HECA: rounds 4 and 5 cost 8 s and made the worst row worse).
     if hard_i.size:
         Ah, bh = A1[hard_i], b1[hard_i]
         mu = np.zeros(hard_i.size)
         tol_h = float(d.hard_tol_m)
         worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
         best_x, best_worst = x, worst
+        stall = 0
         for pr in range(1, int(d.hard_max_rounds) + 1):
-            if worst <= tol_h:
+            if worst <= tol_h or stall >= 1:
                 break
             rep.hard_rounds = pr
+            prev = worst
             mu = np.maximum(0.0, mu + rho * (Ah @ x - bh))
             shift[hard_i] = mu / rho
             x = _inner(x)
             worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
+            stall = 0 if worst < prev - tol_h else stall + 1
             if worst < best_worst:
                 best_x, best_worst = x, worst
             if opt.verbose:
                 print(f"    [design/hard] multiplier round {pr}: "
-                      f"{int(np.count_nonzero(mu > 0.0))} runway rows carry a "
-                      f"multiplier, max runway violation {worst:.5f} m")
+                      f"{int(np.count_nonzero(mu > 0.0))} hard rows carry a "
+                      f"multiplier, max hard violation {worst:.5f} m")
         if best_worst < worst:
             x, worst = best_x, best_worst      # never return a worse surface
         rep.hard_active = int(np.count_nonzero(mu > 0.0))
@@ -683,7 +817,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
 
     # 11. the residual per family (a missed TARGET, not a demotion)
     fam: dict[str, dict[str, _t.Any]] = {}
+    # the REPORTED violation is the row's TRUE one — the one-way rows'
+    # leader columns are back for the reading (they are lagged only in the
+    # matrix the solve factorises)
     viol_all = (A1 @ x - b1) if x is not None else np.zeros(len(one))
+    if x is not None and A1_lead is not None:
+        viol_all = viol_all + np.asarray(A1_lead @ x).ravel()
     tol = float(d.active_set_tol_m)
     for k, (_terms, _hi, row) in enumerate(one):
         g = row.source.generator
@@ -726,7 +865,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         size_out.update({"columns": red.n_cols, "z": n, "rows": rep.rows,
                          "nnz": int(A.nnz), "triangles": rep.triangles,
                          "chord_vertices": chord_v, "road_fit_vertices": road_v,
-                         "dem_zone_vertices": dem_v,
+                         "one_way_rows": rep.one_way_rows,
                          "active": len(active), "rounds": rep.rounds})
     cert = residual(cs, z, obj)
     wall = time.perf_counter() - t0

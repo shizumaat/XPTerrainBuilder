@@ -33,7 +33,13 @@ __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
 
 class _Reduction:
     """Vertex -> column, or a fixed value.  A ``Flat`` group is ONE column
-    (the group is one rigid value, 09-01c); a ``Pin`` fixes it."""
+    (the group is one rigid value, 09-01c); a ``Pin`` fixes it.
+
+    ``dem_fixed`` is now always EMPTY: 09-09b (3) deleted the terrain
+    beyond the zone's outer ring as a fixed value.  The field and the
+    ``fixed_dem`` argument stay so the BANK filter in ``solve/design``
+    keeps one code path (a row footed on fixed terrain is still dropped —
+    there is simply no such vertex left)."""
 
     def __init__(self, n: int) -> None:
         self.parent = list(range(n))
@@ -242,18 +248,23 @@ def _violation(side: _Side, z: np.ndarray) -> float:
 
 # ── the zone ramp ───────────────────────────────────────────────────────
 
-def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int],
-                  free: _t.AbstractSet[int]
-                  ) -> tuple[dict[int, float], dict[int, float]]:
-    """``(ramp, beyond)``: for every vertex OUTSIDE the pavement, its DEM-fit
-    ramp factor — 0 at the pavement edge, 1 at the zone's outer ring — by
-    graph distance (metres) along the planar map from the pavement,
-    normalised by the zone-2 half width THAT pavement's own class states
+def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int]
+                  ) -> dict[int, float]:
+    """For every vertex OUTSIDE the pavement, how deep into its zone it
+    lies — 0 at the pavement edge, 1 at the zone's outer ring — by graph
+    distance (metres) along the planar map from the pavement, normalised
+    by the zone-2 half width THAT pavement's own class states
     (``law.tables.zone2_half_width_m``: a runway's strip is wide, a
-    taxiway's narrow, and each blends over its own width — 08t answer 3);
-    ``beyond`` holds the vertices past the outer ring, which ARE the DEM
-    (fixed, never unknowns) — ``free`` (the road chains and the structures,
-    which carry their own law far from any pavement) is never fixed."""
+    taxiway's narrow).
+
+    THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): this was
+    the DEM-fit ramp and it also FIXED every vertex past the outer ring at
+    its DEM sample.  Both are deleted — the adjacent ground is a LAW
+    surface (the lip, the graded strip, the end corridors) and the outer
+    ring's elevation is whatever those laws give; the mesh engine blends
+    from the patch boundary to the DEM outside it.  What is left is used
+    for ONE thing: deciding whether a connected sheet is ANCHORED (a sheet
+    the zone corridor reaches takes no detached-body datum)."""
     import heapq
     width_of: dict[int, float] = {}
     for f in pm.faces.values():
@@ -265,7 +276,7 @@ def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int],
                 if v in pav:
                     width_of[v] = max(width_of.get(v, 0.0), float(w))
     if not width_of:
-        return {}, {}
+        return {}
     widest = max(width_of.values())
     adj: dict[int, list[tuple[int, float]]] = {}
     for e in pm.edges.values():
@@ -298,18 +309,14 @@ def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int],
                 best[nb] = (nd, w)
                 heapq.heappush(heap, (nf, nb, w))
     ramp: dict[int, float] = {}
-    beyond: dict[int, float] = {}
-    for vid, vx in pm.vertices.items():
+    for vid in pm.vertices:
         if vid in pav:
             continue
         rec = best.get(vid)
-        if rec is None:
-            if vid not in free and vx.dem_z is not None:
-                beyond[vid] = float(vx.dem_z)
-        else:
+        if rec is not None:
             ramp[vid] = min(1.0, rec[0] / rec[1])
     del widest
-    return ramp, beyond
+    return ramp
 
 
 

@@ -134,6 +134,14 @@ class Linear:
     #: group, ``ceiling`` how far (metres) ``hi`` may rise / ``lo`` fall.
     soft: str | None = None
     ceiling: float | None = None
+    #: THE ROW IS ONE-WAY (owner RULINGS 2026-09-09b (2)/(3)): the vertex
+    #: this row GOVERNS — the adjacent ground that must follow the pavement
+    #: its other feet lie on.  Where the design solve prices such a row
+    #: one-way (``[design] one_way_rulings``) only this vertex keeps its
+    #: column; the other feet enter the right-hand side at their previous
+    #: outer-round value, so the ground follows and never pulls.  ``None``
+    #: (the default) is the ordinary two-way row.
+    follows: int | None = None
 
 
 Row = _t.Union[Pin, Diff, Flat, Band, Offset, Linear]

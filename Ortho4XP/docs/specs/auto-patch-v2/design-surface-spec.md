@@ -370,3 +370,142 @@ laws held can actually reach.
 
 LEMD's active set now SETTLES in 74 rounds (round 1 hit the 200-round cap),
 and its hard residual is 0.0048 m at multiplier round 0.
+
+## 8. Round 3 (RULINGS 2026-09-09b (2)(3)(4)): taxiways like runways, the
+## adjacent ground as a law surface, the 5 % ceiling — lane `v2ground`
+
+Owner's read of 1.0.296: taxiways still undulate; the adjacent ground must
+be a LAW surface, never the DEM; all pavement caps at 5 % (roads 8 %).
+
+### 8.1 The consumer census BEFORE editing (owner 2026-08-30l)
+
+Every reader found with `tools/blast.py` and repo-wide greps for the keys
+(`dem_zone`, `dem_fixed`, `bank_rows`, `_zone_weights`, `beyond_zone2`,
+`strip_transverse`, `pavement_max_grade`, `road_max_grade`) over `src/`,
+`tools/`, `tests/` and `Sources/`.  **No Swift consumer exists**: the app
+reads the engine's JSONL events and the patch, never a law key or a
+design term.
+
+**Item 3 — the DEM leaves the patch (the deleted keys).**
+
+| Deleted / changed | Consumer | What it read | Ruling |
+|---|---|---|---|
+| `emit.toml [design] dem_zone` (the weight) | `law/design_schema.DESIGN_TERMS`, `Design.dem_zone`, `check_design`; `solve/design.assemble` §7; `tests/auto_patch_v2/test_law_tables.py` (the term list), `test_v2smooth.py` ×2 | the DEM fit on zone vertices | DELETED — the term, the field, the TOML key and the rows.  The two twins are re-scoped to assert the term is GONE (a `dem_zone` row exists for NO vertex) |
+| `Base.dem_zone_vertices` / `size_out["dem_zone_vertices"]` | `solve/design.solve_design`, `tools/v2_solve_replay.py` (prints the size dict generically) | how many zone vertices took a DEM fit | DELETED; the replay's print is dict-generic and needs no edit |
+| `_zone_weights(...) -> (ramp, beyond)`; `_Reduction.dem_fixed` | `solve/design.assemble` (the reduction's `fixed_dem`, the ANCHORED test, the BANK filter), `solve/rows._reduce` | the vertices beyond the zone's outer ring, FIXED at the DEM | The `beyond` half is DELETED (09-09b (3): "the outer ring's elevation is whatever those laws give — the mesh engine blends from the patch boundary to the DEM outside it").  `_zone_weights` returns the ramp only, now used ONLY to decide whether a sheet is anchored.  `_Reduction.dem_fixed` stays as an (always empty) field so `_reduce`'s signature and the bank filter keep one code path; `DesignReport.bank_rows` therefore reads 0 and the spec §6 deviation 3 (the bank filter) becomes vacuous — its motivating failure (the runway dragged into a valley by a row footed on fixed terrain) cannot occur when no vertex is fixed terrain |
+| `zones.toml [adjacent_ground] beyond_zone2 = "dem"` | `law/model._DATUMS` (the value check) | zone 3 is the DEM | KEPT, comment amended: zone 3 is the ground OUTSIDE the patch, which the mesh engine drapes; inside the patch no vertex is the DEM |
+| `DesignReport.bank_rows` | `report["design"]`, the `[v2] design` log line, `tools/v2_solve_replay.py` | rows dropped as bank rows | kept, reads 0 |
+| the DEM's REMAINING entries | — | — | the threshold pins (`Pin`), the tile-seam DEM preference (`constraints/seams.py` — the neighbouring tile's own surface, out of 09-09b's scope), the detached body's own terrain PLANE (`_plane_targets`, ruled), and the core's clamped ROAD profile (`airport/road_profile.py` through `preferred_z`, owner 04t) |
+
+**Item 2 — the taxi design profile and the one-way strip tie.**
+
+| Consumer | What it reads today | Ruling |
+|---|---|---|
+| `solve/design.assemble` §5 (road chains) | `taxi_centerline` is NOT read; only `road_centerline` breaklines carry a chain-bending term | a second-difference DESIGN PROFILE row per interior station of every `taxi_centerline` breakline at `[design] taxi_profile` — the runway K pattern as an objective term |
+| `constraints/taxi.taxi_chain` (LATERAL hops) | mints `|z_v − z_foot| ≤ cap·d` — a one-sided TARGET pair | UNCHANGED.  A new generator `taxi_follow` mints, over the SAME route-graph hops on taxi-family faces, the EQUALITY `z_v − z_foot = 0` priced at `[design] taxi_transverse` (`[design] generator_weights`) — the ring follows its centreline, as a runway's ring follows its crown |
+| `constraints/zones.strip_transverse`, `zones.zone_bands` | two-way rows coupling a GROUND vertex to a PAVEMENT edge foot | the rows now carry `Linear.follows = v` (the ground vertex).  `solve/design` prices such a row ONE-WAY: the leader (pavement) terms leave the matrix and enter the right-hand side at their PREVIOUS outer-round value, so the ground follows the pavement and never pulls it.  The row's own violation reading, the census and the verify readers are unchanged (they read the built surface) |
+| `model/constraints.Linear` | `terms/lo/hi/source/soft/ceiling` | one optional field `follows: int | None = None`, defaulted — every existing construction site is unaffected |
+| `verify/strips.py`, `tools/check_grade.py` (`strip_transverse`, `adjacent_ground_tear`, `strip_seam_tear`) | the BUILT surface | unchanged; they report what the one-way law produced |
+
+**Item 4 — the 5 % ceiling.**
+
+| Consumer | What it reads today | Ruling |
+|---|---|---|
+| `rulesets.toml [common]` / `law/model.CommonLaw` | `apron_fan_ramp_max`, `road_transverse_axis_min_deg`, `runway_crown_transverse`, `vertical_curve_k_grade_unit` | two new fields `pavement_max_grade = 0.05`, `road_max_grade = 0.08` (`_build` is field-driven: adding a field and a key is the whole change) |
+| the per-class letter caps (`common.roles.*`, `icao.taxi.longitudinal`, …) | one-sided targets in the design solve | UNCHANGED — they stay targets under the ceiling |
+| `constraints/__init__.generate` post-passes (`seam_exempt`, `reconcile_datums`) | rows after every generator | a third post-pass `ceiling.pavement_ceiling(rows, planar, law)`: for every DIFFERENCE row of the set (a `Diff`, or a `Linear` of the point-vs-interpolated-point form) whose every vertex belongs to a non-structure VALUE face, one TWIN row at the ceiling — `road_max_grade` where every vertex is road-family only (a free road), else `pavement_max_grade`.  Counted as `pavement_ceiling` |
+| `emit.toml [design] hard_rulings` | the ruling heads whose rows are hard | the ceiling's own head joins it, so the ceiling is enforced in the ACTIVE SET beside the runway rows |
+| `verify/*`, `tools/check_grade.py`, `tools/harness/census.py` | the per-class caps | no new family: every class cap is STRICTER than the ceiling, so a 5 % breach is always already a `within_shape` / `taxi_box` / `lateral_contiguity` row.  The ceiling's validator twin is the class reader that already reports it |
+| `verify/census.DEFECT_KEYS` | the runway families | UNCHANGED — the ceiling is not a DEFECT family (08t (4): the census reports) |
+| `solve/why.py`, `tools/v2_solve_replay.py` | the design report | unchanged (counts only) |
+
+### 8.2 What was built
+
+1. **`[design] taxi_profile = 300`** — one second-difference row per
+   interior station of every `taxi_centerline` breakline (HECA: 1,941
+   rows over 341 chains), the runway K pattern read as an objective term
+   (`solve/design.assemble` §5b).
+2. **`[design] one_way_rulings`** — the zone corridor and the strip tie
+   are priced ONE-WAY: `Linear.follows` names the ground vertex, the
+   solve keeps only that column in the matrix it factorises and the
+   pavement feet enter the right-hand side lagged, under-relaxed at
+   `one_way_relax = 0.5` for `one_way_max_rounds = 3`.
+3. **The DEM has left the patch**: `[design] dem_zone` and the
+   beyond-the-outer-ring DEM FIXING both deleted (HECA: 5,046 vertices
+   freed, `dem_fixed` 0, `bank_rows` 0).
+4. **`[common] pavement_max_grade = 0.05` / `road_max_grade = 0.08`**,
+   hard in the active set through `constraints/ceiling.py` (HECA: 42,928
+   twins, 91,630 hard one-sided rows).
+
+### 8.3 Deviations the lane REPORTS (round 3)
+
+12. **The RING-FOLLOWS-CENTRELINE target is REFUTED and DELETED.**  09-09b
+    (2)'s "its ring vertices follow the centreline transversely" was first
+    built as its own generator (`taxi_follow`: the equality `z_ring =
+    z_foot` over the route graph's lateral hops, priced at its own weight
+    through a `[design.generator_weights]` table).  Measured on the HECA
+    replay: it bought 5-12 % of the taxi roles' RMS second difference
+    (primary_parallel 0.00945 -> 0.00828) and cost **0.35 m of the 05R/23L
+    bow and 34 % of the RUNWAY's own RMS** (0.00269 -> 0.00361), even with
+    the runway's own vertices excluded from the rows.  Deleted with the
+    `generator_weights` machinery (BUILD ECONOMY: a refuted mechanism is
+    deleted, the record is the spec and git).  The ring follows its
+    centreline through the transverse hop LAW, which is already a design
+    target, and through the centreline's own `taxi_profile`.
+13. **The lag and the multiplier loop are SEQUENTIAL, not interleaved.**
+    Interleaved, each lag round undid the previous multiplier round and
+    the runway laws drifted OUT (measured HECA: a 0.52 m
+    `runway_transverse` DEFECT, the violation rising 0.028 -> 0.040 ->
+    0.063 m across rounds).  Phase B runs the lag to settlement, phase C
+    the multipliers with the lag frozen, and phase C stops on a round that
+    buys less than one tolerance (measured: rounds 4 and 5 cost 8 s and
+    made the worst row worse).
+14. **The ceiling is LOCAL** — a twin only over a span shorter than
+    `emit.within_shape.withdrawn_chord_min_m` (30 m).  Over a longer span
+    the grade is read along the ROUTE, never across the chord (05aa).
+    Without the limit the pass mints 201k twins (the no-step route-window
+    pairs), the solve's wall triples and the built grades do not change.
+15. **The lag does not settle at HECA / CYXY / LEMD** (worst leader move
+    0.37 / 0.34 / 0.70 m after 3 rounds; OTHH settles in 2 at 0.001 m).
+    Reported in `DesignReport.one_way_*` and on the `[v2] design` line —
+    the convergence guard reports rather than claiming convergence.
+16. **The hard set does not settle at HECA / CYXY / LEMD** (0.030 /
+    0.055 / 0.023 m against `hard_tol_m` 0.02).  The residual is on the
+    CEILING rows, never the runway family: the runway DEFECT families read
+    ZERO on all four airports, and the census reports 5 `pavement_ceiling`
+    rows at HECA missed by at most 0.030 m.
+
+### 8.4 THE FINDING that needs an owner ruling: the mesh does NOT blend
+
+09-09b (3) rests on "the engine should automatically smooth between
+whatever elevation we set and the DEM".  **Measured, and it does not.**
+
+With the outer-ring DEM fixing deleted, HECA's ground vertices stand a
+mean **3.04 m** (p95 8.92, max 16.60) off their DEM sample at the patch
+boundary ring, where 1.0.296 stood 0.03 m off.  The same tile meshed twice
+through `tools/run_tile_mesh_only.py 30 31 1 --patches-as-is`, one
+transect at lon 31.3819142 (0.00005 deg = 5.6 m per station):
+
+| lat | this patch | 1.0.296 patch |
+|---|---|---|
+| 30.11635 (28 m outside) | 66.876 | 66.876 |
+| 30.11660 (6 m outside) | 66.133 | 66.133 |
+| 30.11665 | **61.154 (-4.98 m)** | 66.062 |
+| 30.11670 (the boundary) | **49.345 (-11.81 m)** | 65.847 |
+| 30.11675 (inside) | 49.396 | 65.574 |
+
+A **16.8 m drop over ~11 m of ground** — a vertical cliff, one triangle
+wide — where the control transect falls smoothly (66.13 -> 62.32 over the
+same span).  Ortho4XP's mesh drapes the DEM right up to the patch's
+constrained boundary; there is no blend band outside it.  The graded
+strip's DEM ramp was the blend (08t answer 3), and 09-09b (3) removed it.
+
+Consequently the STRIP's undulation improves only where the DEM under it
+was rough (HECA 0.1407 -> 0.0275) and REGRESSES where it was smooth
+(CYXY 0.0336 -> 0.1289, OTHH 0.0100 -> 0.0233, LEMD 0.0568 -> 0.0636).
+
+The owner rules between: (a) the zone-2 outer ring keeps a DEM datum
+(08t answer 3 restored, the blend inside the graded strip); (b) the mesh
+engine gains a blend band outside the patch boundary; or (c) the cliff is
+the "bank at the edge" 08t answer 2 accepts and stands.  The lane changed
+nothing on its own judgement.

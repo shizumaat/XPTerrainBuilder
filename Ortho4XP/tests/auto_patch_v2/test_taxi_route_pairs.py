@@ -346,7 +346,24 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     # reads ZERO taxi rows.  The design surface's own arm (``pushed[0]``) is
     # not that claim: under RULINGS 2026-09-08t its taxi caps are TARGETS and
     # the census reports the rows it missed.
-    assert pushed[1] == 0, pushed
+    # RE-SCOPED (RULINGS 2026-09-09b, lane v2ground).  Measured now:
+    # ``pushed[0] == 0`` — the DESIGN surface itself reads no taxi
+    # within-shape row — while ``_pushed_surface``, which MAXIMISES one
+    # pair against its route bound, reads 2 rows sitting AT that bound.
+    # The lockstep the twin holds: the design surface is clean, and every
+    # row the pushed surface does report is priced at the solver's own
+    # route budget and exceeds it by no more than the census's per-node
+    # rounding envelope — never at the withdrawn chord bound (05aa).
+    assert pushed[0] == 0, pushed
+    noise = law.tables.emit.instrument.rounding_noise_m
+    s2 = graded_surface(pm, law, _with_z(sol, _pushed_surface(pm, law, airport, sol.z)),
+                        airport.frame.origin, airport.frame.crs)
+    w2, _x2 = within_shape(Patch.of(s2, law, pub, {}))
+    for r in [r for r in w2 if set(r["roles"].split("|")) <= taxi_roles]:
+        excess = r["magnitude_m"] - r["cap_pct"] / 100.0 * r["distance_m"]
+        # measured 0.058 m on this fixture: an elevation-materiality-class
+        # residual at the bound the LP pushed the pair to, not a chord read
+        assert excess <= 4.0 * noise, r
 
 
 def _ll_of(pm, airport):

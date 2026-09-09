@@ -19,7 +19,7 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 #: integrated curvature, every other term metres of elevation).
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
-                                 "dem_zone", "road", "detached_mean")
+                                 "taxi_profile", "road", "detached_mean")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -46,9 +46,22 @@ class Design:
     bend_road: float
     chord: float
     law: float
-    dem_zone: float
+    #: THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2), "taxiways
+    #: should follow terrain less and be more like runways"): the second
+    #: difference of z along every taxi CENTRELINE chain, as a strong
+    #: curvature target — the runway K pattern read as an objective term
+    taxi_profile: float
     road: float
     detached_mean: float
+    #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
+    #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
+    #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
+    #: other foot enters the right-hand side at its previous outer-round
+    #: value.  ``one_way_max_rounds`` / ``one_way_tol_m`` bound that lag
+    one_way_rulings: tuple[str, ...]
+    one_way_max_rounds: int
+    one_way_tol_m: float
+    one_way_relax: float
     #: the one-sided penalties' active-set iteration (module docstring of
     #: ``solve/design.py``)
     #: the ruling heads whose rows are HARD constraints of the active set
@@ -78,6 +91,13 @@ def check_design(d: Design, err: type[Exception]) -> None:
         w = d.weight(term)
         if not (w > 0.0) or w != w or w in (float("inf"), float("-inf")):
             raise err(f"emit.design.{term} {w}: a positive, finite weight")
+    if d.one_way_max_rounds < 1:
+        raise err(f"emit.design.one_way_max_rounds {d.one_way_max_rounds}: at least 1")
+    if not 0.0 < d.one_way_relax <= 1.0:
+        raise err(f"emit.design.one_way_relax {d.one_way_relax}: an "
+                  f"under-relaxation factor in (0, 1]")
+    if not d.one_way_tol_m > 0.0:
+        raise err(f"emit.design.one_way_tol_m {d.one_way_tol_m}: positive metres")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

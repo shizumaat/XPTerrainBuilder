@@ -422,11 +422,17 @@ def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site
         for v, lst in nbrs.items():
             if v in st.on or any(c < cap_a for _u, c in lst):
                 continue                      # a G-side body vertex only
-            u, _c = max(lst, key=lambda e: vw.dist(v, e[0]))
-            zv = z[u] + 0.025 * vw.dist(v, u)
-            if all(abs(zv - z[w]) <= cap_a * vw.dist(v, w) - 0.02 for w, _c in lst):
-                minted = (f.id, v, u)
-                z[v] = zv
+            # every neighbour is a candidate, not only the farthest: under
+            # the design surface (RULINGS 2026-09-09b) the solved z around a
+            # junction differs and the farthest neighbour's 2.5 % step no
+            # longer clears the other mesh edges on this fixture
+            for u, _c in sorted(lst, key=lambda e: -vw.dist(v, e[0])):
+                zv = z[u] + 0.025 * vw.dist(v, u)
+                if all(abs(zv - z[w]) <= cap_a * vw.dist(v, w) - 0.02 for w, _c in lst):
+                    minted = (f.id, v, u)
+                    z[v] = zv
+                    break
+            if minted:
                 break
         if minted:
             break

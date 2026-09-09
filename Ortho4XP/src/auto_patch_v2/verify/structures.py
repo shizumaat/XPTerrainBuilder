@@ -188,7 +188,13 @@ def structure_rim_gap(p: Patch) -> list[Row]:
     off every floor and ramp vertex in plan (the void the mesh makes the
     wall in).  Each miss is a row naming the rim and the floor."""
     gap = p.law.tables.emit.identity.min_distinct_spacing_m
-    floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp", "door_ramp")]
+    # the reading's floor: a rim standing AT the stand-off reads 0.2–0.3 mm
+    # under it in the patch's own frame (the census reprojects the emitted
+    # lat/lon; measured OTHH 2026-09-08: 22 wall-corridor rims at 0.4997 m)
+    # — a residual under the owner's materiality is no gap (2026-08-02)
+    tol = p.law.tables.emit.materiality.elevation_m
+    floors = [sh for sh in p.shapes if sh.role in ("tunnel_trench", "tunnel_ramp", "door_ramp",
+                                                   "wall_corridor_ramp", "garage_ramp")]
     if not floors:
         return []
     floor_ids = {v: sh for sh in floors for v in sh.ids}
@@ -214,7 +220,7 @@ def structure_rim_gap(p: Patch) -> list[Row]:
                 for dy in (-1, 0, 1):
                     for (q, fsh, fk) in g.get((cx + dx, cy + dy), ()):
                         d = _dist((x, y), q)
-                        if d < gap - 1e-6 and (worst is None or d < worst[0]):
+                        if d < gap - tol and (worst is None or d < worst[0]):
                             worst = (d, fsh, q)
             if worst is not None:
                 d, fsh, q = worst

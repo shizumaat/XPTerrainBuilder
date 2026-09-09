@@ -97,6 +97,11 @@ def main(argv: list[str] | None = None) -> int:
                          "corridors, tunnels, basins) and write structures.json — the "
                          "synthetic-first replay of a site's structure readings, no "
                          "arrangement, no solve (lane v2lemd4, 2026-09-06)")
+    ap.add_argument("--kml", default=None,
+                    help="with --stage structures: also write a KML of every structure "
+                         "reading (wall corridors by class with widths / depths / grades / "
+                         "mouths, object corridors, door wells, sunken roads, basins) for "
+                         "the owner's read (RULINGS 2026-09-08n: the inventory BEFORE a cut)")
     args = ap.parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
 
@@ -115,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
         rec["wall_s"] = {"load": round(t1 - t0, 3), "classify": round(t2 - t1, 3),
                          "structures": round(time.perf_counter() - t2, 3)}
         (out / "structures.json").write_text(json.dumps(rec, indent=1, default=str))
+        if args.kml:
+            write_kml(rec, Path(args.kml))
+            print(f"  KML -> {args.kml}")
         print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  door wells "
               f"{len(rec['door_wells'])} (refused {len(rec['door_refused'])})  sunken roads "
               f"{len(rec['sunken_roads'])} (refused {len(rec['sunken_refused'])})  tunnels "
@@ -139,6 +147,21 @@ def main(argv: list[str] | None = None) -> int:
                   f"cut at {r['cut_ll']} top at {r['top_ll']}")
         for r in rec["sunken_refused"]:
             print(f"  sunken refused {r}")
+        wcs = rec["wall_corridors"]
+        by = {}
+        for w in wcs:
+            by[w["cls"]] = by.get(w["cls"], 0) + 1
+        print(f"  wall corridors (Law C): {len(wcs)} records — "
+              + ", ".join(f"{k} {n}" for k, n in sorted(by.items()))
+              + f"; refused {len(rec['wall_corridor_refused'])}")
+        for w in wcs:
+            print(f"  wall corridor {w['id']}: {w['cls']} ends {w['ends']} length {w['length_m']:.1f} m "
+                  f"width {w['width_m']:.1f} m floor {w['floor_min_z']:.2f}..{w['floor_max_z']:.2f} "
+                  f"(ground {w['mouth_dem_z']:.2f}, depth {w['depth_m']:.2f} m) authored grade "
+                  f"{100.0 * w['max_authored_grade']:.1f} % headroom {w['headroom_m']} "
+                  f"mouth {w['mouth_ll']} far {w['far_ll']}")
+        for r in rec["wall_corridor_refused"]:
+            print(f"  wall corridor refused {r}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
@@ -200,10 +223,14 @@ def structure_records(airport, cl, law) -> dict:
     from ..airport.door_wells import read_door_wells
     from ..airport.sunken_roads import read_sunken_roads
     from .door_ramps import door_groups, sunken_groups
+    from ..airport.wall_corridors import read_wall_corridors
+    from .wall_corridor_ramps import wall_corridor_groups
     corridors, tstats = read_corridors(airport, objects, cache, law)
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused)
+    walls_c, wstats = read_wall_corridors(airport, objects, cache, law)
+    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
+        + wall_corridor_groups(walls_c, law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
 
@@ -253,6 +280,23 @@ def structure_records(airport, cl, law) -> dict:
                           "profile": list(r.profile), "notes": list(r.notes)} for r in roads],
         "sunken_refused": list(rstats.refused),
         "sunken_stats": {k: v for k, v in _dc.asdict(rstats).items() if not isinstance(v, list)},
+        # RULINGS 2026-09-08m/08n Law C: the wall corridors read (the inventory)
+        "wall_corridors": [{"id": w.id, "resource": w.resource, "objects": list(w.objects),
+                            "family": w.family, "cls": w.cls, "ends": w.ends,
+                            "length_m": w.length_m, "width_m": w.width_m,
+                            "floor_z": w.floor_z, "floor_min_z": min(w.floors),
+                            "floor_max_z": max(w.floors), "mouth_dem_z": w.mouth_dem_z,
+                            "depth_m": w.depth_m, "headroom_m": w.headroom_m,
+                            "max_authored_grade": w.max_authored_grade,
+                            "mouth_ll": ll(w.axis[0]), "far_ll": ll(w.axis[-1]),
+                            "axis_ll": [ll(p) for p in w.axis],
+                            "trench_ll": [ll(p) for p in w.trench.exterior.coords]
+                            if w.trench.geom_type == "Polygon" else [],
+                            "profile": list(w.profile), "sibling": w.sibling,
+                            "notes": list(w.notes)} for w in walls_c],
+        "wall_corridor_refused": list(wstats.refused),
+        "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
+                                if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),
         "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
                             if not isinstance(v, list)},
@@ -263,6 +307,85 @@ def structure_records(airport, cl, law) -> dict:
         "basin_refused": list(bstats.refused),
         "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},
     }
+
+
+def _kml_ring(pts) -> str:
+    return " ".join(f"{lo:.7f},{la:.7f},0" for la, lo in pts)
+
+
+def write_kml(rec: dict, path: Path) -> None:
+    """The structure readings as KML placemarks for the owner's read
+    (RULINGS 2026-09-08n: every wall-corridor candidate by class with its
+    widths, depths, grades and mouths; the other structures beside)."""
+    from xml.sax.saxutils import escape
+    styles = {"level": "ff00ff00", "bay": "ff00ffff", "garage_ramp": "ffff00ff",
+              "object": "ffffff00", "door": "ff0088ff", "sunken_road": "ff8800ff",
+              "basin": "ffff8800", "refused": "ff0000ff"}
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',
+           f"<name>{escape(rec['icao'])} structure inventory</name>"]
+    for k, colour in styles.items():
+        out.append(f'<Style id="{k}"><LineStyle><color>{colour}</color><width>3</width></LineStyle>'
+                   f'<PolyStyle><color>66{colour[2:]}</color></PolyStyle></Style>')
+
+    def folder(name: str, items: list[str]) -> None:
+        if items:
+            out.append(f"<Folder><name>{escape(name)}</name>" + "".join(items) + "</Folder>")
+
+    def placemark(name: str, desc: str, style: str, ring=None, line=None, point=None) -> str:
+        geo = ""
+        if ring:
+            geo += (f"<Polygon><outerBoundaryIs><LinearRing><coordinates>{_kml_ring(ring)}"
+                    f"</coordinates></LinearRing></outerBoundaryIs></Polygon>")
+        if line:
+            geo += f"<LineString><coordinates>{_kml_ring(line)}</coordinates></LineString>"
+        if point:
+            geo += f"<Point><coordinates>{_kml_ring([point])}</coordinates></Point>"
+        if ring or line:
+            geo = f"<MultiGeometry>{geo}</MultiGeometry>" if (ring and line) or point else geo
+        return (f"<Placemark><name>{escape(name)}</name><description>{escape(desc)}</description>"
+                f"<styleUrl>#{style}</styleUrl>{geo}</Placemark>")
+    wc_items = []
+    for w in rec["wall_corridors"]:
+        desc = (f"class {w['cls']}; ends {w['ends']}; length {w['length_m']:.1f} m; width "
+                f"{w['width_m']:.1f} m; floor {w['floor_min_z']:.2f}..{w['floor_max_z']:.2f} m "
+                f"(ground {w['mouth_dem_z']:.2f}, depth {w['depth_m']:.2f} m); authored grade "
+                f"{100.0 * w['max_authored_grade']:.1f} %; headroom {w['headroom_m']}; objects "
+                f"{', '.join(o.split('/')[-1] for o in w['objects'])}; " + "; ".join(w["notes"]))
+        wc_items.append(placemark(f"{w['cls']}: {w['id']}", desc, w["cls"], ring=w["trench_ll"],
+                                  line=w["axis_ll"], point=w["mouth_ll"]))
+    folder("wall corridors (Law C)", wc_items)
+    import re as _re
+
+    def site_of(text: str):
+        m = _re.search(r"at (-?\d+\.\d+),(-?\d+\.\d+)", text)
+        return (float(m.group(1)), float(m.group(2))) if m else None
+    folder("wall corridors refused", [placemark(f"refused {i}", r, "refused", point=site_of(r))
+                                      for i, r in enumerate(rec["wall_corridor_refused"])])
+    folder("tunnels refused", [placemark(f"tunnel refused {i}", r, "refused")
+                               for i, r in enumerate(rec["tunnel_refused"])])
+    folder("tunnel wall objects", [placemark(c["id"], f"{c['mouth_kind']} {c['ends']} depth "
+                                             f"{c['depth_m']:.2f} floor {c['floor_z']:.2f}; "
+                                             + "; ".join(c["notes"]), "object",
+                                             line=[c["mouth_ll"], c["far_ll"]], point=c["mouth_ll"])
+                                   for c in rec["corridors"]])
+    folder("tunnels built", [placemark(t["id"], f"{t['source']} mouth_z {t['mouth_z']:.2f} top_s "
+                                       f"{t['top_s']:.1f} grade {100.0 * t['design_grade']:.2f} % "
+                                       f"clipped '{t['clipped_by']}'; " + "; ".join(t["notes"]),
+                                       "object" if t["source"] == "object" else t["source"]
+                                       if t["source"] in styles else "level",
+                                       line=[t["mouth_ll"], t["top_ll"]], point=t["mouth_ll"])
+                             for t in rec["tunnels"]])
+    folder("door wells", [placemark(w["id"], f"sill {w['sill_z']:.2f} width {w['sill_width_m']:.1f}",
+                                    "door", point=w["sill_ll"]) for w in rec["door_wells"]])
+    folder("sunken roads", [placemark(r["id"], f"cut {r['floor_z']:.2f} top {r['top_z']:.2f}",
+                                      "sunken_road", line=[r["cut_ll"], r["top_ll"]])
+                            for r in rec["sunken_roads"]])
+    folder("basins", [placemark(b["id"], f"{b['kind']} floor {b['floor_z']:.2f} area {b['area_m2']:.0f}",
+                                "basin", point=tuple(b["site_ll"])) for b in rec["basins"]])
+    out.append("</Document></kml>")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out))
 
 
 def _count(items) -> dict[str, int]:

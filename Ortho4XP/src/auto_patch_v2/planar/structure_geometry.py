@@ -37,8 +37,14 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 
 from ..model.frame import XY
 
+
+def _unit(a: XY, b: XY) -> XY:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L = math.hypot(dx, dy) or 1.0
+    return (dx / L, dy / L)
+
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
-           "rim_standoff"]
+           "rim_standoff", "corner_distance", "beyond_strip"]
 
 
 def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
@@ -268,3 +274,32 @@ def geometry(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
         if all(edge.distance(ln) >= want - 1e-6 for ln, want in lines):
             return g
     return None
+
+
+def corner_distance(axis_fn, s0: float, s1: float, half_fn, half: float) -> float:
+    """The least direct distance between the ramp's edge corners at
+    station ``s0`` and at ``s1`` (left and right, the half-widths from
+    ``half_fn`` or ``half``) — the shortest ring pair the within-shape
+    law prices between the two lines."""
+    def corners(s: float) -> list[XY]:
+        p = axis_fn(s)
+        a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
+        ux, uy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(ux, uy) or 1.0
+        n = (-uy / L, ux / L)
+        hl, hr = half_fn(s) if half_fn is not None else (half, half)
+        return [(p[0] + n[0] * hl, p[1] + n[1] * hl), (p[0] - n[0] * hr, p[1] - n[1] * hr)]
+    return min(math.hypot(q[0] - r[0], q[1] - r[1]) for q in corners(s0) for r in corners(s1))
+
+
+def beyond_strip(axis_fn, s_end: float, length: float) -> Polygon:
+    """The half-plane strip BEYOND the axis station ``s_end`` (an object
+    corridor's open end line): ``length`` long along the axis, as wide."""
+    a, b = axis_fn(max(0.0, s_end - 1.0)), axis_fn(s_end)
+    ux, uy = _unit(a, b)
+    nx, ny = -uy, ux
+    e = axis_fn(s_end)
+    return Polygon([(e[0] + nx * length, e[1] + ny * length),
+                    (e[0] - nx * length, e[1] - ny * length),
+                    (e[0] - nx * length + ux * length, e[1] - ny * length + uy * length),
+                    (e[0] + nx * length + ux * length, e[1] + ny * length + uy * length)])

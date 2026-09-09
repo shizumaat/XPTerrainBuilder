@@ -224,8 +224,11 @@ def test_edge_wall_follows_its_curve(wall_objs, law):
 
 
 def test_edge_wall_without_a_bore_is_refused_by_name(wall_objs, law):
-    """No bore mouth, no depth authority: refused, naming the edge wall."""
+    """RULINGS 2026-09-08l/08o: the bore law's depth applies to EVERY mouth
+    kind, so an edge wall with no bore is no longer refused for want of a
+    depth — but its closed-end fallback with NO mapped road through the
+    trench is refused by name (a wall around nothing)."""
     airport, objects, cache, cs, st = _corridors(
         wall_objs, law, [("edge", (0.0, 0.0), 180.0, None, "OBJECT")], ())
     assert st.corridors == 0
-    assert any("edge wall" in r and "no bore mouth" in r for r in st.refused), st.refused
+    assert any("closed-end fallback" in r and "no mapped road" in r for r in st.refused), st.refused

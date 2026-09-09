@@ -25,7 +25,7 @@ max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade
 [tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
 source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before
 plate_datum         = "ground"      # the wall's top plate is FLUSH with the ground at the wall (05n-4); the object is re-seated to it
-mouth_depth         = "plate"       # floor at the mouth = ground - plate height (05n-1: "full depth of the wall object")
+mouth_depth         = "floor_slab" # RULINGS 2026-09-08l/08o: the trench depth = the object's FLOOR SLAB (a near-horizontal plate at the model's bottom running along the axis, plate_min_area_m2) when it carries one — depth = crest − slab; else tunnel.bore_datum_m for EVERY mouth kind (bore / closed / family). NEVER the crest-to-anchor height (plate_y is the author's origin handle: OTHH's two mouths of ONE bore read 5.0 and 10.0 by it). The crest stays the seat datum (05n-4).
 ramp_end            = "wall_end"    # the ramp reaches ground at the far end of the wall, extended beyond it only where ramp_max_grade needs the length (05n-1)
 trench              = "inner_walls" # trench = the region between the walls' INNER faces, following their curves; the wall band = each wall's own plan footprint (05n-2); never a hull rectangle
 wall_face_max_thickness_m = 2.0     # a wall solid's plan thickness; thicker plan solids are decks/slabs, not walls (OTHH: 1.0-1.1 m side walls, 2.0 m box walls)
@@ -61,7 +61,7 @@ edge_wall_max_plate_m = 2.0
 # wall's skirt (skirt_min_depth_m) stays measured from the seat, and
 # edge_wall_max_plate_m keeps its 06c meaning over a full skirt.
 edge_wall_min_skirt_m = 1.5
-floor_plate_max_m2  = 0.0           # any floor plate below the seat disqualifies (that is a basin — basins.py owns it)
+bore_end_tolerance_m = 5.0         # RULINGS 2026-09-08o: a mapped bore END within this of the walls' plate is that object's mouth (OTHH: the bore's end stood 4.1–4.5 m outside the deep object's plate, beyond end_cap_open_m, so the object read "closed", the OSM mouth was refused for overlapping it and the closed-end fallback cut the crest-to-anchor depth); the OSM mouth PAIRS with the corridor instead of being refused
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
 merge_gap_m         = 3.0           # two corridors whose ground ends face within this are reported as one site (they are refused as overlapping structures, never merged into a hull)
@@ -127,6 +127,45 @@ min_plate_m2     = 200.0            # a connected near-horizontal plate smaller 
 roof_min_fraction = 0.5             # the plate lies under the family's own above-band solids (basin.contact_band_m; obj8.above_grade_footprint) over at least this share of its area — a sunken road is ROOFED (spec §3 "a floor plate below the seat that is ROOFED"); less is an open ramp the tunnel / basin laws own (measured OTHH: the bus bridges' bank plates 16-20 % under their decks, 1.8 m deep, would otherwise be cut)
 station_m        = 10.0             # station spacing along the plate's axis (the profile is sampled here; the within-shape law prices every ring pair)
 seat             = "none"           # the family is NEVER re-seated by its trench (spec §3: unit:26's 399 members stay)
+
+[cutout.wall_corridor]              # RULINGS 2026-09-08m/08n LAW C — WALL-BOTTOM FLOOR corridors (spec othh-terminal-ramps-spec.md §6)
+# The pack models the terminal's road underpass, its loading bays and its
+# garage entry ramps as KERB WALLS only: components of VERTICAL faces only,
+# reaching under the ground, NO floor at any depth (measured OTHH scout
+# othhunderpass: Terminal_Base_2_5 comps 799/800, two 77.8 m bands y −1.888..
+# +0.587, inner faces 9.84 m apart, a deck at +2.61 over 74 % of them; the
+# loading bay Terminal_Base_2_1 comps 3176/3179 + a Base_4 end wall, 6.3 ×
+# 9.75 m, 1.35 m deep).  Every floor-plate reader sees nothing there.  LAW C:
+# per ANCHOR FAMILY a genuine component of vertical faces only reaching
+# min_wall_depth_m under the ground is a WALL BAND; two bands parallel within
+# parallel_max_deg whose inner faces stand min_width_m..max_width_m apart and
+# overlap min_wall_length_m along the axis form a CORRIDOR (tunnel_walls
+# kind "II"); the FLOOR is the walls' BOTTOM edge PER STATION (08n: level —
+# the underpass, the bays — or DESCENDING — a garage ramp: the wall bottom
+# runs from grade down to the garage floor, cut AS AUTHORED, the mouth where
+# it meets grade, the deep end closed by the garage; the 4 % / 8 % ramp laws
+# do not gate a pack-authored ramp, max_authored_grade refuses loudly above
+# it); an end is CLOSED when a family vertical face crosses it within
+# tunnel.object.end_cap_open_m (over end_cap_cover_min of the end line), else
+# a MOUTH with a synthetic ramp beyond at ramp_grade; a ramp that would enter
+# AIRSIDE pavement STOPS at the pavement edge and steepens up to
+# max_ramp_grade (airside is king); a service road across a ramp yields onto
+# it (the groundside terrace law); the headroom test replaces the basement
+# cover gate; the deck above is untouched; the rim per 09-08a; seat = "none".
+mouth_depth        = "wall_bottom"  # the floor = the walls' bottom edge per station (08m; 08n per station)
+min_wall_depth_m   = 1.0            # a band reaches this far under the local ground (OTHH: 1.35–1.89 m)
+parallel_max_deg   = 5.0            # two bands of one family are a pair when their long axes agree within this
+min_width_m        = 6.0            # inner faces at least this apart (OTHH: 9.75–9.84 m)
+max_width_m        = 20.0           # ...and at most this (wider is a yard between two fences)
+min_wall_length_m  = 5.0            # the bands overlap at least this along the axis (OTHH's shortest bay 6.15 m)
+merge_gap_m        = 10.0           # parallel bands of one family within tunnel.object.wall_face_max_thickness_m of each other laterally and interrupted by at most this along the axis are ONE wall (a kerb split at a crossing or a pier: OTHH TerminalRoads_Parking_004 comp 1 = 80 + 62 m runs; the Terminal_Base_9_6 floor-to-deck panels 0.6–0.9 m inside the 2_5 kerbs are those walls' faces)
+end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open_m of an end line covering this share of it CLOSES the end
+min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
+ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
+max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load
+max_authored_grade = 0.25           # a descending wall bottom steeper than this between stations is refused loudly (08n: a sanity cap, never a ramp law); = the garage_ramp role's cap, checked at load
+station_m          = 2.0            # ramp station spacing beyond the walls (the walls' own stations are tunnel.object.wall_sample_m)
+seat               = "none"         # the family is NEVER re-seated by its trench (the terminal's 399 members)
 
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)

@@ -28,6 +28,8 @@ apron               = { preferred = { longitudinal = 0.010, transverse = 0.010 }
 building            = { preferred = { longitudinal = 0.010, transverse = 0.010 }, max = { longitudinal = 0.015, transverse = 0.015 } }  # pad = apron law (08-21b): the same two tiers
 tunnel_ramp         = { longitudinal = 0.040, transverse = 0.020 }  # navigable portal ramp (user 2026-05-08); lateral = road
 door_ramp           = { longitudinal = 0.080, transverse = 0.020 }  # RULINGS 2026-09-08b/c: a basement access door's ramp (structures.toml [cutout.door] ramp_grade, checked <= this at load); lateral = road
+wall_corridor_ramp  = { longitudinal = 0.100, transverse = 0.020 }  # RULINGS 2026-09-08m Law C: a kerb-wall corridor floor + its climb, steepened to 10 % at an airside stop (structures.toml [cutout.wall_corridor] max_ramp_grade, checked = at load); lateral = road
+garage_ramp         = { longitudinal = 0.250, transverse = 0.020 }  # RULINGS 2026-09-08n: a descending wall bottom cut AS AUTHORED — this is the sanity cap max_authored_grade (checked = at load), never a ramp law; lateral = road
 service_road        = { longitudinal = 0.080, transverse = 0.020 }  # VDOT GS-9 (owner 2026-08-03); laterally flat 2 % (08-25g)
 service_junction    = { longitudinal = 0.080, transverse = 0.020 }  # same car-logic cap as the road body (08-03)
 groundside_pavement = { longitudinal = 0.080, transverse = 0.020 }  # THE road limit, same constant (owner 2026-08-12)

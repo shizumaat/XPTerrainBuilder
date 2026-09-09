@@ -299,7 +299,7 @@ def _structures_emit_checks(c: Checks, t) -> None:
     assert ob.source_precedence == ("object", "osm")
     # RULINGS 2026-09-05n (round 2, lane v2tunnelobj2): the datum is the
     # object's geometry referenced to the GROUND; every key a named value
-    assert ob.plate_datum == "ground" and ob.mouth_depth == "plate"
+    assert ob.plate_datum == "ground" and ob.mouth_depth == "floor_slab"    # 2026-09-08l
     assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls"
     assert ob.mouth_end == "bore" and ob.reseat is True
     assert 0.0 < ob.wall_face_max_thickness_m and 0.0 < ob.wall_sample_m
@@ -307,7 +307,7 @@ def _structures_emit_checks(c: Checks, t) -> None:
          s.bridge.deck_plate_normal_y_min, ob.plate_normal_y_min)
     c.eq("tunnel.object.plate_bin_m (= deck_plane_bin_m)", s.bridge.deck_plane_bin_m,
          ob.plate_bin_m)
-    assert ob.floor_plate_max_m2 == 0.0
+    assert ob.bore_end_tolerance_m > ob.end_cap_open_m > 0.0            # 2026-09-08o
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
@@ -389,9 +389,13 @@ def test_every_value_equals_v1(tables, capsys):
         # access door's 8 % ramp; tunnel_ramp caps 4 % in both instruments),
         # groundside like the tunnel ramp, omitted from the order; the
         # oracle reads it under tunnel_ramp at service_road's law (oracle_law)
+        # RULINGS 2026-09-08m/08n Law C: wall_corridor_ramp (10 %) and
+        # garage_ramp (the 25 % authored sanity cap) are v2-only structure
+        # roles, groundside, aliased for the oracle under tunnel_ramp
         "groundside partition": (set(v1_cg._GROUNDSIDE_ROLES),
-                                 set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot", "door_ramp"},
-                                 "owner 2026-09-04j; 2026-09-08b/c"),
+                                 set(v1_cg._GROUNDSIDE_ROLES) | {"parking_lot", "door_ramp",
+                                                                 "wall_corridor_ramp", "garage_ramp"},
+                                 "owner 2026-09-04j; 2026-09-08b/c; 2026-09-08m/n"),
         # owner 2026-09-06w: THE TIERED APRON LAW — the apron (and the pad,
         # 08-21b) is HARD at 1.5 % and PREFERS v1's 1 % (`preferred`, the
         # tier `role_preferred_cap` answers and the solver charges); v1's
@@ -495,8 +499,11 @@ def test_no_numeric_literal_in_law_python():
         body = "\n".join(l for l in src.splitlines()
                          if not l.strip().startswith("#"))
         floats = re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", body)
-        assert floats in ([], ["0.0", "0.2"]) or \
-            set(floats) <= {"0.0", "0.2", "1.0"}, (name, floats)
+        # the register's own constants: 0/1 fractions and the grade-fraction
+        # sanity bound (0.25 since RULINGS 2026-09-08n's 25 % authored-ramp
+        # cap; was 0.2)
+        assert floats in ([], ["0.0", "0.25"]) or \
+            set(floats) <= {"0.0", "0.25", "1.0"}, (name, floats)
 
 
 def test_accessors(tables):

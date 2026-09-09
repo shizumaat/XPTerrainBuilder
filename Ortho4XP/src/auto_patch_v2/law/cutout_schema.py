@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["Cutout", "Door", "SunkenRoad", "check_cutout", "SEAT_NONE"]
+__all__ = ["Cutout", "Door", "SunkenRoad", "WallCorridor", "check_cutout", "SEAT_NONE",
+           "WALL_BOTTOM"]
 
 #: The only seat law the two ramp families generate: the anchor family
 #: is NEVER re-seated by the trench (spec §2 / §3 ``seat = "none"``).
 SEAT_NONE = "none"
+#: The only floor datum Law C generates: the walls' bottom edge per station.
+WALL_BOTTOM = "wall_bottom"
 
 
 @_dc.dataclass(frozen=True)
@@ -51,6 +54,31 @@ class SunkenRoad:
 
 
 @_dc.dataclass(frozen=True)
+class WallCorridor:
+    """Law C — the WALL-BOTTOM FLOOR corridor (RULINGS 2026-09-08m/08n;
+    spec §6): two parallel kerb-wall bands of one anchor family with no
+    floor; the floor is the walls' bottom per station (level, or a
+    descending garage ramp cut as authored); an open end ramps at
+    ``ramp_grade``, steepening to ``max_ramp_grade`` where airside
+    pavement stops it."""
+
+    mouth_depth: str             # "wall_bottom": the only generated datum
+    min_wall_depth_m: float      # a band reaches this far under the ground
+    parallel_max_deg: float      # two bands pair when their axes agree within this
+    min_width_m: float           # inner faces at least this apart
+    max_width_m: float           # ...and at most this
+    min_wall_length_m: float     # the bands overlap at least this along the axis
+    merge_gap_m: float           # parallel bands within a wall's thickness laterally and this along the axis are one wall
+    end_cap_cover_min: float     # a crossing family face covering this share of an end line closes it
+    min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
+    ramp_grade: float            # the synthetic climb beyond a mouth
+    max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)
+    max_authored_grade: float    # a descending wall bottom steeper than this is refused (= the garage_ramp cap)
+    station_m: float             # ramp station spacing beyond the walls
+    seat: str                    # "none": the family never re-seats
+
+
+@_dc.dataclass(frozen=True)
 class Cutout:
     """Below-grade object trench: floor ⊕ overlap, rim INSIDE the wall,
     no band (06b (1), 09-08a); the door and sunken-road ramp laws."""
@@ -60,9 +88,12 @@ class Cutout:
     emit_wall_band: bool
     door: Door
     sunken_road: SunkenRoad
+    wall_corridor: WallCorridor
 
 
-def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception]) -> None:
+def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
+                 wall_corridor_cap: float | None = None, garage_cap: float | None = None
+                 ) -> None:
     """The cross-file rules of the two ramp laws: the seat law is the only
     generated value; a door ramp's design grade never exceeds the
     ``door_ramp`` role's own longitudinal cap (``rulesets.toml
@@ -81,3 +112,26 @@ def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception]) -> No
         raise err("structures.cutout.door: sill_min_depth_m / max_length_m / station_m must be > 0")
     if co.sunken_road.max_depth_m <= 0.0 or co.sunken_road.station_m <= 0.0:
         raise err("structures.cutout.sunken_road: max_depth_m / station_m must be > 0")
+    wc = co.wall_corridor
+    if wc.seat != SEAT_NONE:
+        raise err(f"structures.cutout.wall_corridor.seat {wc.seat!r}: only {SEAT_NONE!r} is generated")
+    if wc.mouth_depth != WALL_BOTTOM:
+        raise err(f"structures.cutout.wall_corridor.mouth_depth {wc.mouth_depth!r}: only "
+                  f"{WALL_BOTTOM!r} is generated (RULINGS 2026-09-08m/08n)")
+    if wall_corridor_cap is None or garage_cap is None:
+        raise err("rulesets.common.roles: wall_corridor_ramp / garage_ramp carry no cap")
+    if wc.max_ramp_grade != wall_corridor_cap:
+        raise err(f"structures.cutout.wall_corridor.max_ramp_grade {wc.max_ramp_grade} is not the "
+                  f"wall_corridor_ramp role's longitudinal cap {wall_corridor_cap}")
+    if wc.max_authored_grade != garage_cap:
+        raise err(f"structures.cutout.wall_corridor.max_authored_grade {wc.max_authored_grade} is "
+                  f"not the garage_ramp role's longitudinal cap {garage_cap}")
+    if not (0.0 < wc.ramp_grade <= wc.max_ramp_grade):
+        raise err("structures.cutout.wall_corridor: 0 < ramp_grade <= max_ramp_grade")
+    if not (0.0 < wc.min_width_m < wc.max_width_m) or wc.min_wall_depth_m <= 0.0 \
+            or wc.min_wall_length_m <= 0.0 or wc.station_m <= 0.0 or wc.min_headroom_m <= 0.0 \
+            or wc.merge_gap_m < 0.0:
+        raise err("structures.cutout.wall_corridor: widths, depth, length, station and headroom "
+                  "must be > 0 with min_width_m < max_width_m")
+    if not (0.0 < wc.end_cap_cover_min <= 1.0):
+        raise err("structures.cutout.wall_corridor.end_cap_cover_min must lie in (0, 1]")

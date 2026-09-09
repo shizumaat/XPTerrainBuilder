@@ -39,7 +39,9 @@ from .structures import StructureStats, build_structures, ramp_targets
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 from ..airport.door_wells import DoorStats, read_door_wells
 from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
+from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
 from .door_ramps import door_groups, sunken_groups
+from .wall_corridor_ramps import wall_corridor_groups
 
 __all__ = ["BuildStats", "build"]
 
@@ -77,6 +79,8 @@ class BuildStats:
     sunken_roads: SunkenRoadStats = _dc.field(default_factory=SunkenRoadStats)
     shapes: ShapeStats = _dc.field(default_factory=ShapeStats)   # owner RULINGS 2026-09-08k (``planar/shapes.py``)
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
+    #: RULINGS 2026-09-08m/08n Law C: the kerb-wall corridors read
+    wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -101,7 +105,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     # same geometry, built through the same structure machinery
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused)
+    walls_c, wstats = read_wall_corridors(airport, objects, cache, law)
+    extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
+        + wall_corridor_groups(walls_c, law)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
@@ -112,7 +118,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
-                       door_wells=dstats, sunken_roads=rstats)
+                       door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

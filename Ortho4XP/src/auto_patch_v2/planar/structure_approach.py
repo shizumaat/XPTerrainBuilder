@@ -13,15 +13,25 @@ import math
 import typing as _t
 
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.tables import role_family
 from ..model.airport import OsmWay
 from ..model.frame import XY
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
+from ..classify.roles import Cell
 
-__all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+
+def _parts(geom) -> list[Polygon]:
+    if geom is None or geom.is_empty:
+        return []
+    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
+
+__all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "object_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
            "mouths", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL"]
@@ -350,4 +360,125 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
         dy = (centre_lat - lat0) * ny - (s_out - along0) * inward[1]
         axis = [(p[0] + dx, p[1] + dy) for p in axis]
         out.append((members, axis[0], inward, width, axis))
+    return out
+
+
+@_dc.dataclass(frozen=True)
+class PavementDeck:
+    """A pavement cell read as a deck over an object corridor (RULINGS
+    2026-09-06f): ``id`` its cell ref (the deck's ref is
+    ``bridge_deck:<id>``), ``role`` the cell's own role (the deck piece
+    keeps it — the taxiway law governs its surface), ``index`` its cell."""
+
+    id: str
+    role: str
+    index: int
+
+
+def pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float,
+                             cells: list[Cell], polys: list[Polygon], tree: STRtree | None,
+                             law: Law, grid: float
+                             ) -> list[tuple[PavementDeck, float, float, Polygon]]:
+    """``(deck, s0, s1, cell polygon)`` per pavement cell of a
+    ``bridge.pavement_deck_families`` role family that SPANS the corridor
+    within ``s_end`` (an object corridor's walls): its polygon crosses
+    the axis, the corridor strip continues on both sides of it (the cell
+    cuts the strip in two) and neither edge stands at the corridor's
+    ends — a cell holding the mouth is what the ramp cuts, not a deck.
+    Ordered by ``s0``."""
+    if tree is None:
+        return []
+    fams = set(law.tables.structures.bridge.pavement_deck_families)
+    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
+    out = []
+    for j in tree.query(corridor, predicate="intersects"):
+        c, p = cells[int(j)], polys[int(j)]
+        if c.kind == "structure" or role_family(law, c.role) not in fams:
+            continue
+        seg = axis_ln.intersection(p)
+        if seg.is_empty:
+            continue
+        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
+        s0, s1 = min(s_vals), max(s_vals)
+        if s0 <= grid or s1 >= min(s_end, axis_ln.length) - grid:
+            continue
+        rest = corridor.difference(p)
+        if len(_parts(rest)) < 2:
+            continue
+        out.append((PavementDeck(c.ref, c.role, int(j)), s0, s1, p))
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+#: A deck crossing the axis at less than this angle is along it, not over it.
+_DECK_MIN_ANGLE_DEG = 30.0
+
+
+def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
+                    lines: list[LineString], tree: STRtree | None, law: Law
+                    ) -> list[tuple[OsmWay, float, float, Polygon]]:
+    """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
+    corridor (at ≥ 30° to the axis), ordered by ``s0``."""
+    if tree is None:
+        return []
+    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
+    out = []
+    for j in tree.query(corridor, predicate="intersects"):
+        w, ln = bridges[int(j)], lines[int(j)]
+        x = ln.intersection(axis_ln)
+        if x.is_empty:
+            continue
+        pts = [g for g in shapely.get_parts(x) if g.geom_type == "Point"]
+        if not pts:
+            continue
+        s_mid = axis_ln.project(pts[0])
+        # crossing angle
+        a = axis_ln.interpolate(max(0.0, s_mid - 1.0))
+        b = axis_ln.interpolate(min(axis_ln.length, s_mid + 1.0))
+        ux, uy = b.x - a.x, b.y - a.y
+        sb = ln.project(pts[0])
+        c = ln.interpolate(max(0.0, sb - 1.0))
+        d = ln.interpolate(min(ln.length, sb + 1.0))
+        vx, vy = d.x - c.x, d.y - c.y
+        den = (math.hypot(ux, uy) * math.hypot(vx, vy)) or 1.0
+        ang = math.degrees(math.acos(max(-1.0, min(1.0, abs(ux * vx + uy * vy) / den))))
+        if ang < _DECK_MIN_ANGLE_DEG:
+            continue
+        wd = carriageway_width_m(w.tags, law)
+        dpoly = ln.intersection(corridor.buffer(2.0)).buffer(wd / 2, cap_style="flat", **_MITRE)
+        if dpoly.is_empty:
+            continue
+        # the covered stretch along the axis
+        seg = axis_ln.intersection(dpoly)
+        if seg.is_empty:
+            continue
+        s_vals = []
+        for g in shapely.get_parts(seg):
+            for q in g.coords:
+                s_vals.append(axis_ln.project(Point(q)))
+        out.append((w, min(s_vals), max(s_vals), dpoly))
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+def object_deck_intervals(axis_ln: LineString, half_outer: float,
+                           odecks: list[tuple[str, Polygon, float]]
+                           ) -> list[tuple[str, float, float, Polygon, float]]:
+    """``(object id, s0, s1, deck footprint, deck top)`` per hard-deck
+    object footprint crossing the corridor, ordered by ``s0``."""
+    if not odecks:
+        return []
+    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
+    out = []
+    for oid, dp, top in odecks:
+        if not dp.intersects(corridor):
+            continue
+        seg = axis_ln.intersection(dp)
+        if seg.is_empty:
+            continue
+        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
+        if not s_vals:
+            continue
+        out.append((oid, min(s_vals), max(s_vals), dp, top))
+    out.sort(key=lambda t: t[1])
     return out

@@ -1820,7 +1820,7 @@ def print_report(rep: dict, top: int) -> None:
         dt = rep.get("design_target") or {}
         if dt:
             print(f"    DESIGN TARGETS (08t, the law rows the design surface missed, reported "
-                  f"under '{cg.DESIGN_TARGET_HEADING}' and counted law-true in their families): "
+                  f"under 'design_target' and counted law-true in their families): "
                   + ", ".join(f"{k} {v['rows']} (max miss {v['max_miss_m']:.3f} m)"
                               for k, v in sorted(dt.items())))
         ap = rep.get("apron_over_preference") or {}

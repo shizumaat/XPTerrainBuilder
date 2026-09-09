@@ -23,6 +23,8 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
 from .rebake_schema import Rebake  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
+# the unit-sanity register (grades are fractions; RULINGS 2026-09-08n bound)
+from .units import sane as _sane  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 
@@ -642,14 +644,6 @@ class LawTables:
 
 # ── the loader ───────────────────────────────────────────────────────────
 
-_GRADE_WORDS = ("grade", "longitudinal", "transverse", "down", "up",
-                "fan_ramp", "crown", "materiality")
-#: The register's grade-fraction sanity bound (a percentage typed as a
-#: fraction fails it).  Was 0.2; RULINGS 2026-09-08n states a 0.25 sanity
-#: cap for a pack-authored garage ramp (``cutout.wall_corridor.
-#: max_authored_grade`` = the ``garage_ramp`` role's cap), so the bound is
-#: that cap — still an order under any percentage.
-_GRADE_FRACTION_MAX = 0.25
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
 _RELAXATION_SCOPES = ("relaxable",)   # [relaxation] scope_without_certificate (2026-09-05u)
 _SIDES = ("airside", "groundside")
@@ -662,33 +656,12 @@ _DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
            "mouth_end": ("bore",),
            "deck_datum": ("deck_top",), "floor": ("deepest_solid",),
            "rim": ("ground",)}
-#: The one SIGNED metre key: an authored OBJ8 ``base_y`` threshold (a depth
-#: under the placement seat is negative by the file's own convention).
-_SIGNED_METRES = ("below_grade_base_y_m",)
-
-
-def _sane(path: str, name: str, value: float) -> None:
-    """Unit sanity: grades are fractions in ``[0, _GRADE_FRACTION_MAX]``;
-    metres, counts and degrees are non-negative."""
-    if name.endswith(("_m", "_m2", "_deg", "per_m")) or name == "k":
-        if value < 0 and name not in _SIGNED_METRES:
-            raise LawError(f"{path}: {name} must be >= 0, got {value}")
-        return
-    if name.endswith("_fraction") or name in ("floor_plate_normal_y_min", "basement_cover_min"):
-        if not 0.0 <= value <= 1.0:
-            raise LawError(f"{path}: {name}={value} is not a fraction in [0, 1]")
-        return
-    if any(w in name for w in _GRADE_WORDS) or name in ("default",):
-        if not 0.0 <= value <= _GRADE_FRACTION_MAX:
-            raise LawError(
-                f"{path}: {name}={value} is not a grade fraction in [0, {_GRADE_FRACTION_MAX}]"
-                " (a fraction, never a percentage)")
 
 
 def _num(path: str, name: str, raw: object) -> float:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise LawError(f"{path}.{name}: expected a number, got {raw!r}")
-    _sane(path, name, float(raw))
+    _sane(path, name, float(raw), LawError)
     return float(raw)
 
 
@@ -747,7 +720,7 @@ def _convert(path: str, name: str, tp: object, raw: object) -> object:
     if tp is int:
         if isinstance(raw, bool) or not isinstance(raw, int):
             raise LawError(f"{path}.{name}: expected an integer")
-        _sane(path, name, float(raw))
+        _sane(path, name, float(raw), LawError)
         return raw
     if tp is bool:
         if not isinstance(raw, bool):

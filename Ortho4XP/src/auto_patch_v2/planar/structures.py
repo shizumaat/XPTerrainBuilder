@@ -84,10 +84,12 @@ from ..model.frame import XY
 from ..model.structures import Deck, Tunnel
 from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
-from .wall_corridor_ramps import KIND as WALL_KIND
-from .structure_approach import (carriageway_width_m, chains, is_bridge, is_tunnel,
-                                 merge_duals, mouths, pavement_half_widths, unit)
-from .structure_geometry import geometry
+from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
+                                  wall_corridor_note, wall_corridor_profile)
+from .structure_approach import (PavementDeck, carriageway_width_m, chains, is_bridge, is_tunnel,
+                                 merge_duals, mouths, pavement_deck_intervals,
+                                 pavement_half_widths, unit)
+from .structure_geometry import beyond_strip, corner_distance, geometry
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -288,12 +290,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stops = [(p, c.ref) for p, c in zip(polys, cells)
              if c.kind != "structure" and c.role not in RUNWAY_FAMILY]
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
-    # what a WALL-CORRIDOR ramp stops at (RULINGS 2026-09-08m (a)/(b), spec
-    # §6a row 14): AIRSIDE cells and building pads; a groundside road
-    # across the ramp yields onto it
-    stops_air = [(p, c.ref) for p, c in zip(polys, cells)
-                 if c.kind != "structure" and c.role not in RUNWAY_FAMILY
-                 and (role_side(law, c.role) == "airside" or c.role == "building")]
+    # a WALL-CORRIDOR ramp stops at AIRSIDE cells and pads only (Law C)
+    stops_air = airside_stops(cells, polys, law, RUNWAY_FAMILY)
     stop_air_tree = STRtree([p for p, _r in stops_air]) if stops_air else None
     cell_tree = STRtree(polys) if polys else None
     strip: list[Polygon] = []
@@ -386,7 +384,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # walls are not read: the walls are the object's)
             deck_ivals = [d for d in deck_ivals if d[1] >= g.hull_s]
             obj_ivals = [d for d in obj_ivals if d[1] >= g.hull_s]
-            pav_ivals = _pavement_deck_intervals(axis_ln, half + rim_off, g.hull_s, cells, polys,
+            pav_ivals = pavement_deck_intervals(axis_ln, half + rim_off, g.hull_s, cells, polys,
                                                  cell_tree, law, grid)
             resume = max([0.0] + [s1 + gap for _d, _s0, s1, _p in pav_ivals])
             e = axis_fn(g.hull_s)
@@ -399,7 +397,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # the axis chord; LEMD Bridge4: 116 m against a 121 m chord,
             # where the crude chord − width read 102 m and sent the climb
             # 430 m beyond the walls up a 7 % bank)
-            chord = _corner_distance(axis_fn, resume, g.hull_s, g.half_fn, half)
+            chord = corner_distance(axis_fn, resume, g.hull_s, g.half_fn, half)
             run = g.hull_s - resume
             fits = (run * grade_g >= rise - 1e-9 and chord * grade_g >= rise - 1e-9)
             design_grade = min(grade_g, rise / max(run, 1e-9))
@@ -477,7 +475,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         top_pinned = g.climbs
         clipped_by = ""
         ss = [s for s in ss if s <= s_top + 1e-9]
-        beyond = _beyond(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
+        beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
         # any structure); every other cell beyond the well stops the ramp
         host: set[str] = set()
@@ -531,37 +529,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if geom is None:
             continue
         if c is not None and g.kind == WALL_KIND and clipped_by and g.climbs:
-            # RULINGS 2026-09-08m (a): the climb STOPPED at airside pavement
-            # (or a pad) runs to the pavement EDGE (the exact station one
-            # grid step short of where the axis enters the cell — the
-            # stations' 2 m granularity gave up to 2 m of run) and steepens
-            # to reach the ground there — up to max_ramp_grade, else
-            # refused loudly, never a portal face
-            stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
-            if stop_poly is not None and s_top + spacing_g <= axis_ln.length:
-                tail = LineString([axis_fn(s_top), axis_fn(min(axis_ln.length, s_top + spacing_g * 2))])
-                x = tail.intersection(stop_poly.boundary)
-                s_edge = min((s_top + tail.project(pt) for pt in shapely.get_parts(x)
-                              if pt.geom_type == "Point"), default=None)
-                if s_edge is not None and s_edge - grid > s_top + grid / 2.0:
-                    ss_try = ss + [s_edge - grid]
-                    geom_try = geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
-                                        g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off)
-                    if geom_try is not None:
-                        probe = geom_try.ramp.intersection(beyond) if beyond is not None else geom_try.ramp
-                        if probe.is_empty or _pad_hit(probe, stop_list, stop_tree_g, grid, host) is None:
-                            ss, geom, s_top = ss_try, geom_try, ss_try[-1]
-            top_ground = _dem(airport, axis_fn(s_top))
-            run = s_top - climb_from
-            rise = (top_ground - mouth_z) if not math.isnan(top_ground) else math.inf
-            g2 = rise / run if run > 1e-6 else math.inf
-            if not (0.0 <= g2 <= wc_law.max_ramp_grade + 1e-9):
-                stats.refused.append(f"{tid}: the climb stopped by {clipped_by} at s {s_top:.1f} "
-                                     f"would need {100.0 * g2:.1f} % over {run:.1f} m to reach the "
-                                     f"ground {top_ground:.2f} (> max_ramp_grade "
-                                     f"{100.0 * wc_law.max_ramp_grade:.0f} %; 2026-09-08m (a))")
+            # Law C (08m (a)): run to the pavement EDGE and steepen, or refuse
+            ss, geom, s_top, design_grade, why = stop_and_steepen(
+                airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
+                stop_list, stop_tree_g, host, beyond, grid, spacing_g,
+                lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
+                                        g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off))
+            if why:
+                stats.refused.append(f"{tid}: {why}")
                 continue
-            design_grade = g2
             top_pinned = True
         axis, left, right = geom.axis, geom.left, geom.right
         ramp, outer, cap_out = geom.ramp, geom.outer, geom.cap_out
@@ -703,27 +679,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                              f"ground {top_ground:.2f} at s {s_top:.1f}"
                              + (f" — STOPS at {clipped_by} (the ramp steps)" if clipped_by else ""))
             elif g.kind == WALL_KIND:
-                # LAW C (2026-09-08m/08n): the profile published to the
-                # generator INCLUDES the climb — the design line from the
-                # wall end's floor to the ground at the top (spec §6a row 19)
-                prof = list(g.profile)
-                if g.climbs and s_top > g.hull_s + 1e-6:
-                    z_end = prof[-1][1] if prof else mouth_z
-                    top_ground = _dem(airport, axis_fn(s_top))
-                    for s in ss:
-                        if s > g.hull_s + 1e-6:
-                            prof.append((float(s), z_end + design_grade * (s - g.hull_s)))
-                    if not math.isnan(top_ground):
-                        prof[-1] = (prof[-1][0], float(top_ground))
-                profile_out = tuple(prof)
-                notes.append(f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = "
-                             f"the wall bottom per station {min(c.floors):.2f}..{max(c.floors):.2f} "
-                             f"under ground {mouth_dem:.2f} ({c.depth_m:.2f} m at most) over "
-                             f"{g.hull_s:.1f} m, width {c.width_m:.1f} m, ends {c.ends}"
-                             + (f"; climb {s_top - climb_from:.1f} m at {100.0 * design_grade:.2f} % "
-                                f"to the ground {top_ground if top_ground is not None else float('nan'):.2f}"
-                                if g.climbs else "; no climb: the authored ramp meets the ground")
-                             + (f" — STOPPED at {clipped_by} and steepened (08m (a))" if clipped_by else ""))
+                # LAW C (2026-09-08m/08n): the published profile includes the
+                # climb (spec §6a row 19); the site line the report quotes
+                profile_out, top_ground = wall_corridor_profile(
+                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn)
+                notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
+                                                top_ground, clipped_by))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "
@@ -862,35 +823,6 @@ def _reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airpo
     return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
 
 
-def _corner_distance(axis_fn, s0: float, s1: float, half_fn, half: float) -> float:
-    """The least direct distance between the ramp's edge corners at
-    station ``s0`` and at ``s1`` (left and right, the half-widths from
-    ``half_fn`` or ``half``) — the shortest ring pair the within-shape
-    law prices between the two lines."""
-    def corners(s: float) -> list[XY]:
-        p = axis_fn(s)
-        a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
-        ux, uy = b[0] - a[0], b[1] - a[1]
-        L = math.hypot(ux, uy) or 1.0
-        n = (-uy / L, ux / L)
-        hl, hr = half_fn(s) if half_fn is not None else (half, half)
-        return [(p[0] + n[0] * hl, p[1] + n[1] * hl), (p[0] - n[0] * hr, p[1] - n[1] * hr)]
-    return min(math.hypot(q[0] - r[0], q[1] - r[1]) for q in corners(s0) for r in corners(s1))
-
-
-def _beyond(axis_fn, s_end: float, length: float) -> Polygon:
-    """The half-plane strip BEYOND the axis station ``s_end`` (an object
-    corridor's open end line): ``length`` long along the axis, as wide."""
-    a, b = axis_fn(max(0.0, s_end - 1.0)), axis_fn(s_end)
-    ux, uy = unit(a, b)
-    nx, ny = -uy, ux
-    e = axis_fn(s_end)
-    return Polygon([(e[0] + nx * length, e[1] + ny * length),
-                    (e[0] - nx * length, e[1] - ny * length),
-                    (e[0] - nx * length + ux * length, e[1] - ny * length + uy * length),
-                    (e[0] + nx * length + ux * length, e[1] + ny * length + uy * length)])
-
-
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:
     ids = {t.id for t, k in zip(tunnels, keep) if k}
     return cell[3] in ids
@@ -962,53 +894,6 @@ def _parts(geom) -> list[Polygon]:
     if geom is None or geom.is_empty:
         return []
     return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
-
-
-@_dc.dataclass(frozen=True)
-class PavementDeck:
-    """A pavement cell read as a deck over an object corridor (RULINGS
-    2026-09-06f): ``id`` its cell ref (the deck's ref is
-    ``bridge_deck:<id>``), ``role`` the cell's own role (the deck piece
-    keeps it — the taxiway law governs its surface), ``index`` its cell."""
-
-    id: str
-    role: str
-    index: int
-
-
-def _pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float,
-                             cells: list[Cell], polys: list[Polygon], tree: STRtree | None,
-                             law: Law, grid: float
-                             ) -> list[tuple[PavementDeck, float, float, Polygon]]:
-    """``(deck, s0, s1, cell polygon)`` per pavement cell of a
-    ``bridge.pavement_deck_families`` role family that SPANS the corridor
-    within ``s_end`` (an object corridor's walls): its polygon crosses
-    the axis, the corridor strip continues on both sides of it (the cell
-    cuts the strip in two) and neither edge stands at the corridor's
-    ends — a cell holding the mouth is what the ramp cuts, not a deck.
-    Ordered by ``s0``."""
-    if tree is None:
-        return []
-    fams = set(law.tables.structures.bridge.pavement_deck_families)
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for j in tree.query(corridor, predicate="intersects"):
-        c, p = cells[int(j)], polys[int(j)]
-        if c.kind == "structure" or role_family(law, c.role) not in fams:
-            continue
-        seg = axis_ln.intersection(p)
-        if seg.is_empty:
-            continue
-        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
-        s0, s1 = min(s_vals), max(s_vals)
-        if s0 <= grid or s1 >= min(s_end, axis_ln.length) - grid:
-            continue
-        rest = corridor.difference(p)
-        if len(_parts(rest)) < 2:
-            continue
-        out.append((PavementDeck(c.ref, c.role, int(j)), s0, s1, p))
-    out.sort(key=lambda t: t[1])
-    return out
 
 
 def _deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],

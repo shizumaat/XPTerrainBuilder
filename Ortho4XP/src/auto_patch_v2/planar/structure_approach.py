@@ -13,15 +13,25 @@ import math
 import typing as _t
 
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.tables import role_family
 from ..model.airport import OsmWay
 from ..model.frame import XY
 from ..airport.deck_signature import is_bridge_way, is_tunnel_way
+from ..classify.roles import Cell
 
-__all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+
+def _parts(geom) -> list[Polygon]:
+    if geom is None or geom.is_empty:
+        return []
+    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
+
+__all__ = ["PavementDeck", "pavement_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
            "mouths", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL"]
@@ -350,4 +360,51 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
         dy = (centre_lat - lat0) * ny - (s_out - along0) * inward[1]
         axis = [(p[0] + dx, p[1] + dy) for p in axis]
         out.append((members, axis[0], inward, width, axis))
+    return out
+
+
+@_dc.dataclass(frozen=True)
+class PavementDeck:
+    """A pavement cell read as a deck over an object corridor (RULINGS
+    2026-09-06f): ``id`` its cell ref (the deck's ref is
+    ``bridge_deck:<id>``), ``role`` the cell's own role (the deck piece
+    keeps it — the taxiway law governs its surface), ``index`` its cell."""
+
+    id: str
+    role: str
+    index: int
+
+
+def pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float,
+                             cells: list[Cell], polys: list[Polygon], tree: STRtree | None,
+                             law: Law, grid: float
+                             ) -> list[tuple[PavementDeck, float, float, Polygon]]:
+    """``(deck, s0, s1, cell polygon)`` per pavement cell of a
+    ``bridge.pavement_deck_families`` role family that SPANS the corridor
+    within ``s_end`` (an object corridor's walls): its polygon crosses
+    the axis, the corridor strip continues on both sides of it (the cell
+    cuts the strip in two) and neither edge stands at the corridor's
+    ends — a cell holding the mouth is what the ramp cuts, not a deck.
+    Ordered by ``s0``."""
+    if tree is None:
+        return []
+    fams = set(law.tables.structures.bridge.pavement_deck_families)
+    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
+    out = []
+    for j in tree.query(corridor, predicate="intersects"):
+        c, p = cells[int(j)], polys[int(j)]
+        if c.kind == "structure" or role_family(law, c.role) not in fams:
+            continue
+        seg = axis_ln.intersection(p)
+        if seg.is_empty:
+            continue
+        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
+        s0, s1 = min(s_vals), max(s_vals)
+        if s0 <= grid or s1 >= min(s_end, axis_ln.length) - grid:
+            continue
+        rest = corridor.difference(p)
+        if len(_parts(rest)) < 2:
+            continue
+        out.append((PavementDeck(c.ref, c.role, int(j)), s0, s1, p))
+    out.sort(key=lambda t: t[1])
     return out

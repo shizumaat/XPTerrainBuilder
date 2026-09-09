@@ -524,3 +524,76 @@ rebake_plan 21.2, verify 19.8, v2 total 205.6, harness wall 209.9 s
 inside `shapes` (0.23 s total).  Solve 82 s in one pass vs 47 s on 1.0.293
 (×1.75): the ≥ 1 % regression on the auto-patch budget stands under the
 owner's 08g-1 decision, 70 s better than round 1.
+
+## 12. Acceptance — lane `v2shapes` round 3 closing build (owner RULINGS 2026-09-08r), 2026-09-08
+
+Build `v2shapes4` (`/tmp/harness/v2shapes4.osm`, artifact ledger
+`5006181d2c06`, `code_tree_hash` `629084e27335`, harness wall 218.9 s),
+against the v1 control `/tmp/harness/HECA_20260908T073420.osm` and round
+2's `v2shapes3`.  The shape partition is unchanged (60 shapes over 2,351
+vertices); what changed is the ROADS: 45 road faces run ALONG a shape (320
+vertices labelled, 0 relabelled), 22 CROSS between two shapes (74 vertices
+freed) → **8 ramps**, and the joints fall from **26 contours to 7** — no
+joint edge is a road pair any more (apron|apron 2, apron|graded_strip 4,
+parking_lot|parking_lot 1).
+
+| read | v1 control | round 2 | **round 3 (08r)** | verdict |
+|---|---|---|---|---|
+| 05R/23L bow | −4.25 | −4.95 | **−4.95** (s 575; z−DEM +4.62 / −0.55 / +8.59; max grade 1.18 %) | unchanged by 08r |
+| 05C/23C bow | −9.53 | −9.42 | **−9.42** (s 2,625; z−DEM −1.28 / −5.91 / +1.28) | unchanged |
+| 05L/23R bow | −0.28 | +0.01 | **+0.01** | unchanged |
+| the 05L/23R hump | 60.8 / 61.4 / 61.5 at s 2,025 / 2,225 / 2,425 | 63.7 / 64.9 / 64.9 (+3.4) | **64.0 / 65.2 / 65.2 = +3.2 / +3.8 / +3.7 over v1** (round 2 63.7 / 64.9 / 64.9 = +2.9 / +3.5 / +3.4): **0.3 m HIGHER than round 2, not lower** | **08r-1 DID NOT MOVE THE HUMP.** The contact chain's max yielded grade is **1.72 %** — the 3 % ceiling was never binding, so removing it is a no-op. MEASURED: widening the contact family to every taxi-class row touching a runway vertex moved the ridge 0.06 m (contacts to 4.9 % over sub-metre hops, bows −2.98 / −8.18); the contact is held one station in by the `no_step` §1.1 route pairs and the §1.2 RATE law, neither a yield family (twin `…_no_ceiling_and_what_holds_the_contact` pins this: a 3 % first hop is INFEASIBLE in the hard set). The widening was deleted. Owner 11-1 stands: the hump needs the §1.2 rate law, not a yield ceiling |
+| joints / walls | 0 | 26 contours, **max step 8.82 m** (route8, a wall ACROSS the road) | **7 contours, max step 2.66 m** (joint 1, 89.7 m, shapes 1 ↔ 4, apron\|parking_lot, at 30.1216,31.4069); then 2.13 (apron\|apron), 1.65, 0.85, 0.58, 0.26, 0.24. Zero road step rows (`joint_steps.roads == []`) | **route8's 8.8 m wall is GONE** |
+| road ramps (08r-2) | — | — | **8 crossings, none at the cap**: #233 route8 4.92 m over 194 m = **2.54 %**, #181 route8 7.49 / 432 m = 1.73 %, #202 route8 7.67 / 469 = 1.64 %, #202 7.89 / 515 = 1.53 %, #176 6.67 / 601 = 1.11 %, #72 route2 0.89 / 378 = 0.23 %, #145/#144 route5 ≈ 0.02 m | the 8.8 m wall became a 2.5 % ramp, under the 8 % road cap |
+| `runway_contacts` (08r-1) | — | — | **343 contacts, 15 yielded, max 1.72 %** at v3664 face 44 (30.133291,31.398887); then 1.68 % v420 face 7, 1.63 %, 1.61 %, 1.59 %, 1.59 % | reported per contact, as ruled |
+| v2 verify rows | — | **829** (within_shape 449, road_cross_section 348, transverse 6, lateral_contiguity 26) — all service_road | **26 = lateral_contiguity 26** (within_shape 0, road_cross_section 0, transverse 0) | **the 829 road rows are gone.** Not by a new allowance: the joint-step allowance in BOTH instruments (`verify/within.py:313`, `check_grade.py:6218`) is already role-agnostic and applies to a road pair — LEMD joint 1 (roles apron/parking_lot/service_road, step 0.86 m) reads 0 road rows. The 829 were the DROPPED straddling chords of roads cut mid-road by 08k's literal; under 08r-2 no road row is dropped |
+| oracle census, adjudicated | 1,065 airside | 67 (apron\|apron 56, service_road 10, pad 1) | **41** (within_shape apron\|apron **40**, vertex_to_edge_step apron\|building 1; worst 7.86 m at 5.39 %/5.0 % @30.12772,31.41241) | **all 10 service_road rows gone**; the apron class −16 |
+| oracle census, law-true | — | 624 | **LAW-TRUE TOTAL 27,858 − withdrawn taxi chords 27,269 = 589** (41 adjudicated + 548 `yielded_by_08d`) | −35 |
+| `yielded_rows` | — | 1,594 / 117,344 | **1,871 / 125,412**: apron 968 / 27,395 (max 16.68 %, max over 5.66 m), apron_edge_portion 31 / 3,689 (8 %), groundside_ramp 3 / 15 (33.94 %), junction_mesh 34 / 2,019 (3 %), no_step_pairs 213 / 13,762 (3 %), roads **416 / 74,493** (8 %), taxi_box 142 / 3,101 (3 %), taxi_chain_at_runway 64 / 938 (**1.72 %, no ceiling**) | the roads' rows are kept and priced instead of dropped |
+| owner's site 30.1139552,31.4095465 | — | 0 steps | **0 census rows of any family within 60 m** (adjudicated, yielded or withdrawn) | PASS |
+| the neck 30.127729,31.412022 | continuous 1.19 % | continuous, 0 steps, steepest pair 6.80 % | **32 rows within 60 m: 27 `yielded_by_08d` + 5 adjudicated apron\|apron (worst 7.86 m, 5.39 % vs a 5.0 % cap, 6.78 % worst grade)** — the SAME 5 rows round 2 carried (`v2shapes3` re-censused: 56 apron\|apron adjudicated, the identical worst three rows) | no regression; the neck's apron relief is the residual |
+| divergence vs v1 | — | 52.5 % over 1 m, 248 over 6 m | **52.2 %** (bands <0.5 6,309 / 0.5–1 3,799 / 1–3 7,714 / 3–6 3,134 / >6 **226**) | both bars still MISSED (30 % / 200); the class is unchanged (SW fill + pav132) |
+| solve wall | 47 s (1.0.293) | 82.3 s, one pass | **91.3 s, ONE pass** (LP 214,496 columns, 695,313 + 6,479 rows, 1.83 M nnz) | +9 s: the crossing roads' rows are no longer dropped (74,493 road rows vs 66,425) |
+| CYXY base arm | 0 (main) | **45** (service_road\|service_road 38 at 6 road joints + primary_parallel 3 + stub 4) | **0 — PASS** (law-true 800, adjudicated 0); 6 shapes, 13 road faces along / 13 crossing → 0 ramps (both ends in one shape), **0 joints**; 7.6 s | **the 38 road-joint rows are gone, and so are the other 7** |
+| OTHH base arm | 0 | 1 | **1** (`structure_rim_gap`, the 08j 0.0004 m rim residual); 101 shapes, 95 contours, max step **0.00 m**, 0 ramps; 518.4 s | unchanged |
+| LEMD base arm | 16 | 12 | **12** (taxi_box 2, strip_seam_tear 3, vertex_to_edge_step 1, tunnel_mouth_canonical 6); 53 shapes, 6 contours max 0.86 m, 1 ramp (#101 pav145 0.07 m over 63 m); 242.4 s | unchanged |
+
+**The 33.9 % `groundside_ramp` row (face 54, 30.108465,31.399576 —
+attributed, NOT fixed).** ONE LINE: the row pairs an apron ring vertex
+with the nearest groundside-pavement vertex across the stand-off, and that
+stand-off is **1.0 m** — at `groundside_ramp_max` 5 % a 1 m gap buys 5 cm,
+so the 0.339 m by which the apron edge and the DEM-fit groundside actually
+differ reads as 33.9 %.  It is structural, not local: the generator's
+horizon is `groundside_cutback_m 0.6 + weld_spacing_m 1.0 + snap margin
+≈ 1.95 m`, so EVERY one of the 15 rows spans ≤ 2 m and the 5 % GRADE can
+never buy more than ≈ 10 cm — the "ramp" has no ramp length.  The other
+two over-cap rows are 7.1 % over 1.5 m and 7.0 % over 0.5 m; the remaining
+12 agree within 5 cm.  No fix made: the row is a preference with NO
+ceiling by law and both censuses count it apart (`yielded_by_08d`), so
+nothing is violated — what to do about it is an INTENT question for the
+owner (should the allowance across a ≤ 2 m stand-off be a STEP the
+groundside may take, `groundside_ramp_max × <a ramp length>`, rather than
+a grade over the cutback?), not a mechanism defect.  A 20-line change
+cannot answer it.
+
+DEVIATIONS reported (not decided): (1) **the brief's "extend the
+joint-aware allowance to road pairs" was NOT written** — measured
+unnecessary: the allowance is already role-agnostic in both instruments
+and the 829 rows were dropped chords, not joint rows; round 3 reads 0 road
+rows in v2 verify and 0 in the oracle without touching either.  (2) The
+contact family stays the ruling's literal (the chain's hops/chords with an
+endpoint on a runway face); the measured widening to every taxi-class row
+at a runway vertex was deleted (it bought 0.06 m and cost the bows).
+(3) Round 2's deviations (1)–(4) stand; (5) is discharged —
+`network_hard_classes` is deleted, arm A is the mechanism, and
+`NETWORK_HARD_CLASSES = {"taxi"}` now lives in code.
+OWED: the hump (owner 11-1, now attributed to the §1.2 rate law), the
+33.9 % ramp row (owner intent, above), the divergence bars, SPJC, the sim
+read.
+
+Build-time statement (HECA `v2shapes4`, ONE run, `report.wall_s` — not a
+timing measurement, single runs swing ±25 %): load 3.6 s, classify 2.0,
+planar 46.7, flat_site 0.1, road_profile 0.6, shapes 0.2, constraints
+27.4, solve 91.3, emit 2.1, rebake_plan 21.4, verify 19.2, v2 total 214.6,
+harness wall 218.9 s (round 2 209.9 s).  Base arms: CYXY 7.6 s, LEMD
+242.4 s, OTHH 518.4 s.

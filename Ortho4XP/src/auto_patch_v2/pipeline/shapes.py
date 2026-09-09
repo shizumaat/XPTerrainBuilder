@@ -4,7 +4,8 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
 
 1. The route bands (``constraints.no_step.reach_band_values``) and the
    WITHDRAW set: the hop-derived ``reach`` band of every non-station
-   vertex of a ``terrace.band_roles`` face is withdrawn (RULINGS
+   vertex of a ``terrace.band_roles`` face is withdrawn (labelled or not:
+   owner RULINGS 2026-09-08p leaves the network's vertices unlabelled) (RULINGS
    2026-09-07g (2): the in-shape band measured INFEASIBLE under pairwise
    agreement — the kept rows carry the reach).
 2. THE FILTER, ONCE, at assembly: every row of every generator whose
@@ -13,7 +14,9 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    value) is never dropped — a pad belongs to one shape (07c (3), the
    majority relabel) — and any that would straddle is counted.
 3. THE YIELDING FAMILIES (08d (2), 08k (3)): the transform runs after the
-   filter.
+   filter; a row whose every vertex lies on the NETWORK stays hard (08p
+   (2): the network is hard at its route law), the runway-contact chain
+   excepted (08i-1).
 
 ONE solve pass (08k (4)): the joints are geometric, nothing is re-solved
 on a built step.
@@ -33,8 +36,8 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Flat, Row
 from ..model.planar import PlanarMap
-from ..planar.shapes import (NO_SHAPE, STATION_KIND, joint_planar_edges, row_test_pairs,
-                             row_vertices, straddles, straddles_pairs)
+from ..planar.shapes import (NO_SHAPE, STATION_KIND, joint_planar_edges, network_vertices,
+                             row_test_pairs, row_vertices, straddles, straddles_pairs)
 
 __all__ = ["ShapeStage", "shape_stage", "shape_constraints", "apply_joints", "joint_steps"]
 
@@ -76,10 +79,13 @@ def shape_stage(pm: PlanarMap, law: Law, airport: Airport,
         if b.kind == STATION_KIND:
             stations.update(v for v in b.vertices(pm) if v in bands)
     band_roles = set(law.tables.emit.terrace.band_roles)
+    # 08p: the label condition dropped — the population is every non-station
+    # vertex of a band_roles face (a network junction's vertices lost the
+    # band in round 1 too, as labelled; a body's ring on the network is
+    # unlabelled now and loses it the same)
     withdraw = frozenset(
-        v for v, lab in pm.shape_of_vertex.items()
-        if lab != NO_SHAPE and v not in stations
-        and any(pm.faces[f].role in band_roles for f in pm.vertices[v].incident_faces))
+        v for v, vert in pm.vertices.items()
+        if v not in stations and any(pm.faces[f].role in band_roles for f in vert.incident_faces))
     edges = joint_planar_edges(pm)
     stage = ShapeStage(pm, edges, bands, withdraw, time.perf_counter() - t0)
     n_shapes = len({s for s in pm.shape_of_vertex.values() if s != NO_SHAPE})
@@ -139,9 +145,11 @@ def shape_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: ShapeSta
     counts["joint_filter"] = sum(stage.dropped.values())
     t = time.perf_counter()
     ys = YieldStats()
-    cs = yield_rows(cs, pm, law, ys)
+    cs = yield_rows(cs, pm, law, ys, network=network_vertices(pm, law))
     walls["yield"] = time.perf_counter() - t
     counts["yield"] = sum(ys.by_family.values())
+    for fam, n in sorted(ys.network_hard.items()):
+        counts[f"yield.{fam}.network_hard"] = n
     for fam, n in sorted(ys.by_family.items()):
         counts[f"yield.{fam}"] = n
     for fam, n in sorted(ys.at_ceiling.items()):

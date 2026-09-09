@@ -6,9 +6,27 @@ separate apron or lot and could then have a wall / step between them; no
 other steps are allowed in aprons — they must be solved by what their
 connecting taxiways can serve."
 
+THE NETWORK (owner RULINGS 2026-09-08p, amending 08k: "there are
+multiple different aprons connected by taxiways, not a single apron").  A
+face is NETWORK iff its role is of the runway family, or a taxi-centreline
+breakline edge (``STATION_KIND``, the 1202 network) whose endpoints are
+RUNWAY-CONNECTED lies on it (:func:`network_faces`): runway-connected =
+in a connected component of the centreline breakline graph that holds a
+vertex incident to a runway-family face or on a runway ridge — the planar
+reading of ``constraints.routes.reach`` from the thresholds (this layer
+may not import ``constraints``).  The network is never part of a shape:
+it is hard at its route law and connects shapes by ROUTE only.  Every
+vertex incident to a network face (the set ``N``) carries ``NO_SHAPE``:
+an apron body's ring along the network is WELDED flush (its rows to the
+body's interior are never dropped, no contour is drawn there, no gap
+joint faces the network).  A centreline no runway reaches (an apron
+taxilane, the 05w "junction" hangar aprons no route crosses) is part of
+the body it lies in.
+
 THE SHAPES.  A shape is a connected component of touching / overlapping
-pavement: the union of the ``shape_roles`` faces (the runway and taxi
-families, the apron-like roles — never a road, which SEPARATES), CLOSED
+APRON-BODY pavement: the union of the ``shape_roles`` faces that are not
+network (the apron-like roles, a taxi-family face no route reaches —
+never a road, which SEPARATES), CLOSED
 by ``separation_m`` (pavement closer than the owner's 0.5 m is one shape)
 and OPENED by ``narrow_mouth_max_m``: the bodies of one component are the
 connected parts of its erosion by half the mouth width, so a neck
@@ -63,7 +81,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap, ShapeJoint
 
-__all__ = ["NO_SHAPE", "STATION_KIND", "ShapeStats", "build_shapes", "strip_keepout",
+__all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
            "joint_planar_edges"]
 
@@ -71,6 +89,8 @@ __all__ = ["NO_SHAPE", "STATION_KIND", "ShapeStats", "build_shapes", "strip_keep
 NO_SHAPE = -1
 #: Which breakline kind is the 1202 network (the route graph's stations).
 STATION_KIND = "taxi_centerline"
+#: The runway ridge breakline kind (``constraints.routes.RIDGE_KIND``): a root of the network.
+RIDGE_KIND = "runway_profile"
 #: A shape is a surface: fewer vertices than a polygon has is no shape (a
 #: structural bound, never a law value).
 MIN_SHAPE_VERTICES = 3
@@ -80,7 +100,14 @@ MIN_SHAPE_VERTICES = 3
 class ShapeStats:
     """What the labelling found (one line in the build log)."""
 
-    faces: int = 0                  # shape-role faces
+    faces: int = 0                  # shape-role faces (network included)
+    network_faces: int = 0          # 08p: faces carrying a runway-connected centreline, or of the runway family
+    network_by_role: dict[str, int] = _dc.field(default_factory=dict)
+    network_vertices: int = 0       # the set N: every vertex incident to a network face
+    body_faces: int = 0             # shape-role faces that are not network (the apron bodies)
+    faces_unlabelled: int = 0       # body faces whose every vertex lies in N (welded whole)
+    connected_stations: int = 0     # centreline vertices a runway reaches
+    unconnected_station_edges: int = 0   # centreline edges no runway reaches (part of a body)
     components: int = 0             # connected pavement components (after the closing)
     bodies: int = 0                 # bodies after the opening (components with one body count one)
     shapes: int = 0                 # distinct shape ids after the strip welds
@@ -177,7 +204,64 @@ class _Union:
         return True
 
 
-def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[int, int], dict[int, Polygon]]:
+def network_faces(pm: PlanarMap, law: Law, stats: ShapeStats | None = None
+                  ) -> tuple[frozenset[int], frozenset[int]]:
+    """THE NETWORK PREDICATE (module docstring; owner RULINGS 2026-09-08p):
+    ``(network face ids, N)`` — the faces of the runway family and the
+    faces a runway-connected taxi-centreline breakline edge lies on, and
+    every vertex incident to one of them."""
+    st = stats if stats is not None else ShapeStats()
+    rw_fam = set(law.tables.precedence.runway_family.members)
+    roots: set[int] = set()
+    for fid, f in pm.faces.items():
+        if f.role in rw_fam:
+            roots.update(_face_vertices(pm, fid))
+    uf = _Union()
+    station_edges: list[int] = []
+    for b in pm.breaklines.values():
+        if b.kind == RIDGE_KIND:
+            roots.update(b.vertices(pm))
+        if b.kind != STATION_KIND:
+            continue
+        for eid in b.edges:
+            e = pm.edges[eid]
+            uf.union(e.a, e.b)
+            station_edges.append(eid)
+    connected_roots = {uf.find(v) for v in roots if v in uf.parent}
+    # the network is the TAXI FAMILY (08p (2): "taxi-family faces that carry
+    # a runway-connected route — taxiways, real junctions, stubs, connectors")
+    # and the runway's; an apron a route runs onto (a 1202 taxilane ending
+    # inside it) stays a BODY — the route's chain rows are hard through it
+    # and the body conforms (08k (3)); a zone face a dangling end crosses
+    # is nobody's
+    pav = set(law.tables.precedence.taxi_family.members) | rw_fam
+    net: set[int] = {fid for fid, f in pm.faces.items() if f.role in rw_fam}
+    n_conn_v: set[int] = set()
+    for eid in station_edges:
+        e = pm.edges[eid]
+        if uf.find(e.a) in connected_roots and uf.find(e.b) in connected_roots:
+            n_conn_v.update((e.a, e.b))
+            net.update(f for f in (e.left_face, e.right_face)
+                       if f is not None and pm.faces[f].role in pav)
+        else:
+            st.unconnected_station_edges += 1
+    N: set[int] = set()
+    for fid in net:
+        N.update(_face_vertices(pm, fid))
+        st.network_by_role[pm.faces[fid].role] = st.network_by_role.get(pm.faces[fid].role, 0) + 1
+    st.network_faces = len(net)
+    st.network_vertices = len(N)
+    st.connected_stations = len(n_conn_v)
+    return frozenset(net), frozenset(N)
+
+
+def network_vertices(pm: PlanarMap, law: Law) -> frozenset[int]:
+    """The set ``N`` alone (the yield transform's reader)."""
+    return network_faces(pm, law)[1]
+
+
+def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats, net: frozenset[int], N: frozenset[int]
+                    ) -> tuple[dict[int, int], dict[int, Polygon]]:
     """The shape label of every shape-role face vertex (module docstring)
     and each body's polygon.  The connectivity union carries the rigid
     pads too (a hangar floor is level with the apron it stands on, RULINGS
@@ -190,13 +274,15 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
     faces it shares vertices with, never a body across a gap."""
     tt = law.tables.emit.terrace
     roles = set(tt.shape_roles)
-    fids = [fid for fid, f in pm.faces.items() if f.role in roles]
-    stats.faces = len(fids)
+    all_fids = [fid for fid, f in pm.faces.items() if f.role in roles]
+    stats.faces = len(all_fids)
+    fids = [fid for fid in all_fids if fid not in net]           # 08p: the apron bodies only
+    stats.body_faces = len(fids)
     polys = {fid: p for fid in fids if (p := _face_polygon(pm, fid)) is not None}
     if not polys:
         return {}, {}
     rigid = [p for fid, f in pm.faces.items() if is_rigid_role(law, f.role) and fid not in polys
-             if (p := _face_polygon(pm, fid)) is not None]
+             and fid not in net if (p := _face_polygon(pm, fid)) is not None]
     U = unary_union(list(polys.values()) + rigid)
     s = tt.separation_m
     if s > 0.0:
@@ -235,13 +321,14 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
     for fid, hits in hits_of.items():
         if len(hits) == 1:
             for v in _face_vertices(pm, fid):
-                label[v] = hits[0]
+                if v not in N:
+                    label[v] = hits[0]
         elif len(hits) >= 2:
             necks.append((fid, hits))
         else:
             pending.append(fid)
     for fid, hits in necks:
-        vs = [v for v in _face_vertices(pm, fid) if v not in label]
+        vs = [v for v in _face_vertices(pm, fid) if v not in label and v not in N]
         if not vs:
             continue
         btree = STRtree([bodies[i] for i in hits])
@@ -249,6 +336,8 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
         for v, k in zip(vs, near):
             label[v] = hits[int(k)]
     # spurs: inherit through shared vertices, to a fixed point
+    stats.faces_unlabelled = sum(1 for fid in polys if all(v in N for v in _face_vertices(pm, fid)))
+    pending = [fid for fid in pending if not all(v in N for v in _face_vertices(pm, fid))]
     while pending:
         progressed = False
         rest: list[int] = []
@@ -260,7 +349,8 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
                 continue
             top = max(set(ls), key=lambda l: (ls.count(l), -l))
             for v in vs:
-                label.setdefault(v, top)
+                if v not in N:
+                    label.setdefault(v, top)
             progressed = True
         pending = rest
         if not progressed:
@@ -269,7 +359,9 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
         btree = STRtree([bodies[i] for i in sorted(bodies)])
         bids = sorted(bodies)
         for fid in pending:
-            vs = _face_vertices(pm, fid)
+            vs = [v for v in _face_vertices(pm, fid) if v not in N]
+            if not vs:
+                continue
             near = np.asarray(btree.nearest(shapely.points([pm.vertices[v].xy for v in vs]))).reshape(-1)
             for v, k in zip(vs, near):
                 label.setdefault(v, bids[int(k)])
@@ -289,9 +381,10 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats) -> tuple[dict[in
     return label, bodies
 
 
-def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], stats: ShapeStats) -> None:
+def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[int],
+                  stats: ShapeStats) -> None:
     """Road-family vertices by the nearest labelled vertex; rigid pads by
-    their majority (module docstring)."""
+    their majority (module docstring); a vertex in ``N`` never."""
     if not label:
         return
     roads = set(family(law, "road_cross_section").roles)
@@ -301,7 +394,7 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], stats: ShapeSt
         if f.role not in roads:
             continue
         for v in _face_vertices(pm, fid):
-            if v in label:
+            if v in label or v in N:
                 continue
             _d, j = tree.query(pm.vertices[v].xy)
             label[v] = label[ids[int(j)]]
@@ -525,7 +618,7 @@ def _contour_joints(pm: PlanarMap, label: _t.Mapping[int, int], to_ll, extend_m:
 
 
 def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, extend_m: float,
-                start: int, stats: ShapeStats) -> list[ShapeJoint]:
+                start: int, stats: ShapeStats, net: frozenset[int] = frozenset()) -> list[ShapeJoint]:
     """THE GAP JOINTS (module docstring): for two shapes whose ring edges
     come within the readers' contact horizon of each other without
     sharing a face, the Voronoi midline between the facing edges
@@ -537,7 +630,7 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
     edge_label: list[int] = []
     edge_ends: list[tuple[int, int]] = []
     for fid, f in pm.faces.items():
-        if f.role not in roles:
+        if f.role not in roles or fid in net:               # 08p: never between a shape and the network
             continue
         for cyc in (f.ring, *f.holes):
             vs = pm.ring_vertices(cyc)
@@ -626,11 +719,12 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     import time
     t0 = time.perf_counter()
     stats = ShapeStats()
-    label, _bodies = _label_pavement(pm, law, stats)
+    net, N = network_faces(pm, law, stats)
+    label, _bodies = _label_pavement(pm, law, stats, net, N)
     if not label:
         stats.wall_s = time.perf_counter() - t0
         return pm, stats
-    _label_others(pm, law, label, stats)
+    _label_others(pm, law, label, N, stats)
     keep = strip_keepout(classification, law) if classification is not None else None
     _weld_strip(pm, label, keep, stats)
     # the record: dense shape ids in order of first appearance by area rank
@@ -670,7 +764,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     ll = lambda x, y: tuple(map(float, to_ll(x, y)))  # noqa: E731
     ext = snap_margin_m(law)
     joints = _contour_joints(pm, label, ll, ext, stats)
-    joints += _gap_joints(pm, law, label, ll, ext, len(joints), stats)
+    joints += _gap_joints(pm, law, label, ll, ext, len(joints), stats, net)
     pm = _dc.replace(pm, shape_joints=tuple(joints))
     stats.wall_s = time.perf_counter() - t0
     return pm, stats

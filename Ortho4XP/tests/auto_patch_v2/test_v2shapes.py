@@ -25,8 +25,8 @@ from pathlib import Path
 import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
-from auto_patch_v2.constraints.yielding import (GROUP, runway_vertices, yield_family,
-                                                yielded_rows)
+from auto_patch_v2.constraints.yielding import (GROUP, NETWORK_YIELDS, runway_vertices,
+                                                yield_family, yielded_rows)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import write_patch
 from auto_patch_v2.law import Law, LawError
@@ -113,7 +113,8 @@ def test_pavement_under_the_separation_is_one_shape_with_no_joint(law):
     assert _shape_of(pm, (-200.0, Y0)) == _shape_of(pm, (200.0, Y0))
     assert pm.shape_of_face[_face(pm, "apronA").id] == pm.shape_of_face[_face(pm, "apronB").id]
     assert not pm.shape_joints and sh.joint_edges == 0
-    assert sh.shapes == 2                                   # the aprons, and the runway
+    assert sh.shapes == 1                                   # the aprons; the runway is NETWORK (08p)
+    assert sh.network_faces >= 1 and sh.network_by_role.get("runway", 0) >= 1
 
 
 # ── 2. pavement apart is TWO shapes ──────────────────────────────────────
@@ -126,7 +127,7 @@ def test_pavement_apart_is_two_shapes(law):
     after the 0.5 m identity snap)."""
     _ap, pm, st, _cl = _airport(law, _apron_pair(1.6), [])
     assert _shape_of(pm, (-200.0, Y0)) != _shape_of(pm, (200.0, Y0))
-    assert st.shapes.shapes == 3
+    assert st.shapes.shapes == 2
     # wider than the step readers' contact horizon (1 m): no reader prices
     # the gap, no joint is declared
     assert not pm.shape_joints
@@ -161,7 +162,7 @@ def _dumbbell(neck_w: float):
 def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
     _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [])
     assert _shape_of(pm, (-150.0, Y0)) != _shape_of(pm, (150.0, Y0))
-    assert st.shapes.bodies >= 3 and st.shapes.contours == 1
+    assert st.shapes.bodies == 2 and st.shapes.contours == 1   # the runway is no body (08p)
     (j,) = pm.shape_joints
     assert not j.gap and "apron" in j.roles
     xs = [x for x, _y in j.points]
@@ -174,7 +175,7 @@ def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
 def test_a_wide_neck_joins_the_bodies(law):
     _ap, pm, st, _cl = _airport(law, _dumbbell(20.0), [])
     assert _shape_of(pm, (-150.0, Y0)) == _shape_of(pm, (150.0, Y0))
-    assert not pm.shape_joints and st.shapes.shapes == 2
+    assert not pm.shape_joints and st.shapes.shapes == 1
 
 
 # ── 4. a service road between two aprons separates them ─────────────────
@@ -221,7 +222,9 @@ def two_contacts(law):
 
 def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_through(two_contacts, law):
     airport, pm, st, cl = two_contacts
-    assert _shape_of(pm, (-150.0, Y0)) == _shape_of(pm, (150.0, 180.0))
+    assert _shape_of(pm, (-150.0, 180.0)) == _shape_of(pm, (150.0, Y0))
+    for xy in ((-150.0, Y0), (150.0, 180.0)):                # the stub contacts: N (08p)
+        assert pm.shape_of_vertex.get(_vid(pm, xy), S.NO_SHAPE) == S.NO_SHAPE
     assert not pm.shape_joints, "no joint inside a shape (08k (2))"
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
@@ -359,3 +362,147 @@ def test_the_law_table_carries_the_shape_keys(law):
         check_terrace(_dc.replace(good, shape_roles=("zzz",)), {"apron"}, LawError)
     for r in ("junction_mesh", "taxi_box", "no_step_pairs", "roads"):
         assert yield_ceiling(law, r) is not None
+
+
+# ── 10. SHAPES ARE APRON BODIES; THE NETWORK CONNECTS THEM BY ROUTE (08p) ──
+
+def _stub(k, ref, x, y0, y1):
+    return Cell(k, "stub", ref, _rect(x - 11.5, y0, x + 11.5, y1), (), None, "D", "airside", "taxi", {})
+
+
+def _cut(ref, pts):
+    """A centreline that CROSSES its pavement end to end (a line ending
+    inside a face splits nothing: polygonize needs both crossings — the
+    real 1202 network's dangling ends are the arrangement's own affair)."""
+    return CutLine("taxi_centerline", ref, tuple(pts), "D")
+
+
+@pytest.fixture(scope="module")
+def through_taxiway(law):
+    """Two aprons touching only through a runway-connected taxiway: the
+    west apron hangs off the taxiway's west edge, the east apron off its
+    east edge; the taxiway runs from the runway up between them."""
+    cells = [RUNWAY,
+             _stub(1, "taxi", 0.0, 22.5, Y1),
+             Cell(2, "apron", "apronW", _rect(-200, Y0, -11.5, Y1), (), None, None, "airside", "apron", {}),
+             Cell(3, "apron", "apronE", _rect(11.5, Y0, 200, Y1), (), None, None, "airside", "apron", {})]
+    return _airport(law, cells, [_cut("taxi", [(0.0, 0.0), (0.0, Y1 + 5.0)])])
+
+
+def test_two_aprons_touching_only_through_a_taxiway_are_two_shapes_with_no_joint(through_taxiway, law):
+    airport, pm, st, cl = through_taxiway
+    sh = st.shapes
+    taxi = _face(pm, "taxi")
+    assert taxi.id not in pm.shape_of_face                  # the network has no shape
+    assert sh.network_by_role.get("stub") == 2 and sh.connected_stations >= 2   # the centreline splits the stub
+    assert _shape_of(pm, (-200.0, Y0)) != _shape_of(pm, (200.0, Y0))
+    assert sh.shapes == 2 and not pm.shape_joints and sh.joint_edges == 0
+    # every vertex of the taxiway — the aprons' edges on it included — is N
+    for v in (_vid(pm, (-11.5, Y0)), _vid(pm, (11.5, Y1)), _vid(pm, (0.0, 22.5))):
+        assert pm.shape_of_vertex.get(v, S.NO_SHAPE) == S.NO_SHAPE
+    stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
+    cs, counts, _w = shape_constraints(pm, law, airport, stage)
+    # the taxiway's own rows are never dropped: it couples the two shapes
+    # by ROUTE (its chain, its transverse law) — only rows joining the two
+    # bodies directly across it are
+    assert stage.dropped.get("taxi", 0) == 0, stage.dropped
+    N = S.network_vertices(pm, law)
+    assert sum(1 for r in cs.rows() if r.source.generator == "taxi"
+               and all(v in N for v in S.row_vertices(r)) and getattr(r, "soft", None) is None) > 0
+    assert counts["yield.taxi_box.network_hard"] > 0 and counts["yield.no_step_pairs.network_hard"] > 0
+    # THE NETWORK IS HARD (08p (2)): no yielded TAXI-class row lies wholly
+    # on the taxiway (an apron ring edge along it is the body's own law)
+    for r in cs.rows():
+        fam = yield_family(r)
+        if fam is not None and fam not in NETWORK_YIELDS and law.tables.emit.yielding.families.get(fam) == "taxi":
+            assert not all(v in N for v in S.row_vertices(r)), (fam, r)
+    # the two shapes are coupled through the taxiway: pin the west apron
+    # and the east one 6 m apart — the solve grades the taxiway between
+    a, b = _vid(pm, (-200.0, Y0)), _vid(pm, (200.0, Y0))
+    src = Source("fixture", "pin")
+    pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 706.0, src)]))
+    w = weights_under_law(DEFAULT_WEIGHTS, law)
+    sol, rep = solve_law_ordered(pm, pinned, law, w, Options(diagnose_iis=False))
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
+    steps = [abs(sol.z[e.a] - sol.z[e.b]) / max(math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy), 1e-9)
+             for e in pm.edges.values()
+             if any(f is not None and pm.faces[f].role in ("apron", "stub") for f in (e.left_face, e.right_face))]
+    assert max(steps) < 0.10, max(steps)                    # a grade, never a step (welded)
+
+
+def test_an_apron_against_a_taxiway_is_welded_with_no_joint(law):
+    cells = [RUNWAY, _stub(1, "taxi", -100.0, 22.5, Y0),
+             Cell(2, "apron", "apronA", _rect(-200, Y0, 0, Y1), (), None, None, "airside", "apron", {})]
+    airport, pm, st, cl = _airport(law, cells, [_cut("taxi", [(-100.0, 0.0), (-100.0, Y0 + 5.0)])])
+    sh = st.shapes
+    assert sh.shapes == 1 and not pm.shape_joints and sh.joint_edges == 0 and sh.gap_joints == 0
+    assert _face(pm, "taxi").id not in pm.shape_of_face
+    assert pm.shape_of_face[_face(pm, "apronA").id] == 0
+    # the shared vertices are the network's; the apron interior is labelled
+    assert pm.shape_of_vertex.get(_vid(pm, (-111.5, Y0)), S.NO_SHAPE) == S.NO_SHAPE
+    assert pm.shape_of_vertex[_vid(pm, (-200.0, Y1))] == 0
+    stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
+    cs, counts, _w = shape_constraints(pm, law, airport, stage)
+    assert stage.dropped == {}, stage.dropped                # welded: no row dropped
+    assert counts["yield.apron"] > 0                        # the body yields
+    assert counts.get("yield.taxi_chain_at_runway", 0) > 0  # the chain still yields at the runway (08i-1)
+
+
+def test_a_hangar_junction_no_route_crosses_is_part_of_the_body(law):
+    """The 05w 'junction' hangar apron: a junction-role face beside the
+    apron with no centreline through it is an apron body, one shape with
+    the apron it touches; the runway-connected taxiway beside them is not."""
+    cells = [RUNWAY, _stub(1, "taxi", -150.0, 22.5, Y0),
+             Cell(2, "apron", "apronA", _rect(-161.5, Y0, 0, Y1), (), None, None, "airside", "apron", {}),
+             Cell(3, "junction", "hangar", _rect(0, Y0, 120, Y1), (), None, "E", "airside", "taxi", {})]
+    airport, pm, st, cl = _airport(law, cells, [_cut("taxi", [(-150.0, 0.0), (-150.0, Y0 + 5.0)])])
+    sh = st.shapes
+    assert sh.network_by_role.get("stub") == 2 and "junction" not in sh.network_by_role
+    assert pm.shape_of_face[_face(pm, "hangar").id] == pm.shape_of_face[_face(pm, "apronA").id]
+    assert sh.shapes == 1 and not pm.shape_joints
+    stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
+    cs, counts, _w = shape_constraints(pm, law, airport, stage)
+    # the hangar's mesh rows yield (a body), the taxiway's stay hard
+    assert counts.get("yield.junction_mesh", 0) > 0
+
+
+def test_a_centreline_no_runway_reaches_is_part_of_the_body(law):
+    """An apron taxilane (a centreline breakline not connected to the
+    runway) does not make its face network: the stub is a body, one shape
+    with the apron; a connected one is network."""
+    cells = [RUNWAY,
+             Cell(1, "apron", "apronA", _rect(-200, Y0, 200, Y1), (), None, None, "airside", "apron", {}),
+             _stub(2, "lane", 0.0, Y1, Y1 + 80.0)]
+    airport, pm, st, cl = _airport(law, cells, [_cut("lane", [(0.0, Y1 - 5.0), (0.0, Y1 + 85.0)])])
+    sh = st.shapes
+    assert sh.network_by_role == {"runway": sh.network_by_role.get("runway", 0)}
+    assert sh.unconnected_station_edges >= 1 and sh.connected_stations == 0
+    assert pm.shape_of_face[_face(pm, "lane").id] == pm.shape_of_face[_face(pm, "apronA").id]
+    assert sh.shapes == 1 and not pm.shape_joints
+    # the same lane joined to the runway by a connector through the apron
+    # is NETWORK — the apron faces the route runs through are not (08p (2):
+    # the network is the taxi family; the route's chain is hard through them)
+    cells2 = cells + [_stub(3, "conn", 0.0, 22.5, Y0)]
+    _ap2, pm2, st2, _cl2 = _airport(law, cells2, [_cut("conn", [(0.0, 0.0), (0.0, Y1 + 85.0)])])
+    assert st2.shapes.network_by_role.get("stub") == 4 and "apron" not in st2.shapes.network_by_role
+    assert st2.shapes.unconnected_station_edges == 0
+    assert st2.shapes.shapes == 1                            # the apron the route runs through stays a body
+    for ref in ("lane", "conn"):
+        assert all(f.id not in pm2.shape_of_face for f in pm2.faces.values() if f.ref == ref)
+
+
+def test_two_bodies_across_a_gap_beyond_the_separation_take_a_joint_never_the_network(law):
+    """Two apron bodies 1.2 m apart (a gap over the separation; the 04u weld
+    shares vertices under ≈ 1 m — the deviation of twin 2 stands) under a
+    2 m reader horizon: ONE gap joint between the two shapes; the taxiway
+    each touches takes none."""
+    emit = _dc.replace(law.tables.emit,
+                       instrument=_dc.replace(law.tables.emit.instrument, step_contact_tol_m=2.0))
+    wide = Law(tables=_dc.replace(law.tables, emit=emit), ruleset_key=law.ruleset_key)
+    cells = _apron_pair(1.2) + [_stub(3, "taxiW", -150.0, 22.5, Y0), _stub(4, "taxiE", 150.0, 22.5, Y0)]
+    cuts = [_cut("taxiW", [(-150.0, 0.0), (-150.0, Y0 + 5.0)]), _cut("taxiE", [(150.0, 0.0), (150.0, Y0 + 5.0)])]
+    _ap, pm, st, _cl = _airport(wide, cells, cuts)
+    assert st.shapes.shapes == 2 and st.shapes.gap_joints == 1 and st.shapes.contours == 0
+    (j,) = pm.shape_joints
+    assert j.gap and set(j.roles) == {"apron"} and "stub" not in j.roles
+    assert max(abs(x) for x, _y in j.points) < 0.7

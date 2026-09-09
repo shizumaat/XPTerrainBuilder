@@ -62,7 +62,7 @@ from .taxi import GEN as TAXI_GEN
 
 __all__ = ["GROUP", "FAMILY_SELECTORS", "YieldStats", "yield_family", "yield_rows",
            "yielded_rows", "groundside_ramps", "RAMP_FAMILY", "runway_vertices",
-           "CHAIN_MARK", "CENTRELINE_RULING"]
+           "CHAIN_MARK", "CENTRELINE_RULING", "NETWORK_YIELDS", "NETWORK_HARD_CLASSES"]
 
 #: The groundside ramp rows' family (their group ``yield:groundside_ramp:…``).
 RAMP_FAMILY = "groundside_ramp"
@@ -122,6 +122,7 @@ class YieldStats:
 
     by_family: dict[str, int] = _dc.field(default_factory=dict)
     at_ceiling: dict[str, int] = _dc.field(default_factory=dict)
+    network_hard: dict[str, int] = _dc.field(default_factory=dict)   # 08p: rows wholly on the network, left hard
 
 
 def yield_family(row: Row) -> str | None:
@@ -151,11 +152,32 @@ def _face_cap(pm: PlanarMap, law: Law, row: Row) -> float | None:
     return None if rc is None else rc.longitudinal
 
 
+#: The family that yields on the network too (owner RULINGS 2026-09-08i-1:
+#: the chain yields where it meets the runway).
+NETWORK_YIELDS = frozenset({"taxi_chain_at_runway"})
+#: The yield CLASSES that are the network's own surface law (``[yield.
+#: families]`` class): a row of one of these wholly on the network stays
+#: hard.  The apron class (a frontage chord between two contacts on the
+#: network spans the BODY) and the road class are the body's law and
+#: yield whatever their endpoints touch (08k (3): no ceiling in a shape).
+NETWORK_HARD_CLASSES = frozenset({"taxi"})
+
+
 def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
-               stats: YieldStats | None = None) -> ConstraintSet:
-    """The set with every selected HARD row a preference (module docstring)."""
-    fams = [(name, FAMILY_SELECTORS[name]) for name in yield_law(law).families
-            if name in FAMILY_SELECTORS]
+               stats: YieldStats | None = None,
+               network: _t.Container[int] = frozenset()) -> ConstraintSet:
+    """The set with every selected HARD row a preference (module docstring).
+    THE NETWORK IS HARD (owner RULINGS 2026-09-08p (2)): a row whose every
+    vertex lies in ``network`` (``planar.shapes.network_vertices``: the
+    vertices of the faces carrying a runway-connected centreline, and the
+    runway's) stays hard at its law — the taxiways connect the shapes by
+    ROUTE; only the runway-contact chain (:data:`NETWORK_YIELDS`) yields
+    there, and only the taxi class (:data:`NETWORK_HARD_CLASSES`) is held:
+    an apron chord between two contacts on the network spans the body and
+    yields as the body's law.  A row with one end in a body yields (the
+    body's weld to the network is a soft edge on the body's side)."""
+    classes = dict(yield_law(law).families)
+    fams = [(name, FAMILY_SELECTORS[name]) for name in classes if name in FAMILY_SELECTORS]
     rw = runway_vertices(pm, law) if any(n == "taxi_chain_at_runway" for n, _s in fams) else frozenset()
     st = stats if stats is not None else YieldStats()
     out: list[Row] = []
@@ -166,6 +188,11 @@ def yield_rows(cs: ConstraintSet, pm: PlanarMap, law: Law,
             continue
         fam = next((name for name, sel in fams if sel(r, rw)), None)
         if fam is None:
+            out.append(r)
+            continue
+        if (fam not in NETWORK_YIELDS and classes.get(fam) in NETWORK_HARD_CLASSES
+                and all(v in network for v in _row_ids(r))):
+            st.network_hard[fam] = st.network_hard.get(fam, 0) + 1
             out.append(r)
             continue
         ceil = yield_ceiling(law, fam)          # None: unbounded (08k (3))
@@ -282,7 +309,7 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
             g = abs(float(z[r.a]) - float(z[r.b])) / r.d
             rec["max_grade"] = max(rec["max_grade"], g)
             if fam.startswith("apron") and shape_of:
-                sid = shape_of.get(r.a, -1)
+                sid = max(shape_of.get(r.a, -1), shape_of.get(r.b, -1))   # the labelled end (08p: N is unlabelled)
                 sr = by_shape.setdefault(sid, {"rows": 0, "yielded": 0, "max_grade": 0.0})
                 sr["rows"] += 1
                 sr["max_grade"] = max(sr["max_grade"], g)
@@ -297,7 +324,8 @@ def yielded_rows(cs: ConstraintSet, z: _t.Sequence[float], law: Law, pm: PlanarM
                            "ll": [list(pm.vertices[v].key) for v in (r.a, r.b)]}
                     pub.append(row)
                     w = worst.setdefault(fam, [])
-                    w.append((g, dict(row, shape=shape_of.get(r.a, -1), vertices=[r.a, r.b])))
+                    w.append((g, dict(row, shape=max(shape_of.get(r.a, -1), shape_of.get(r.b, -1)),
+                                      vertices=[r.a, r.b])))
                     if len(w) > 64:
                         w.sort(key=lambda t: -t[0])
                         del w[8:]

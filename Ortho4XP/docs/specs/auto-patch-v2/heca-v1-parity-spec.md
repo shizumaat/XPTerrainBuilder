@@ -392,3 +392,43 @@ rebake_plan 22.3, verify 17.2, v2 total 276.5, harness wall 280.5 s.
 Solve 152 s in one pass vs 47 s on 1.0.293 (×3.2) and 357 s with the
 deleted joint passes; the ≥ 1 % regression on the auto-patch budget
 stands under the owner's 08g-1 decision.
+
+## 10. SHAPES = APRON BODIES (owner RULINGS 2026-09-08p) — consumer census, written by lane `v2shapes` round 2 BEFORE editing (owner 30l)
+
+08p amends 08k's membership: the taxiway NETWORK is never part of a
+shape.  THE PREDICATE (`planar/shapes.py::network_faces`): a face is
+NETWORK iff (a) its role is of the runway family, or (b) a taxi-centreline
+breakline edge (`STATION_KIND`, the 1202 network) whose two endpoints are
+RUNWAY-CONNECTED lies on it (the edge's left or right face — a centreline
+along a face boundary makes both faces network).  Runway-connected: the
+vertex lies in a connected component of the taxi-centreline breakline
+graph that contains a vertex incident to a runway-family face or on a
+runway ridge breakline (`RIDGE_KIND`) — the planar reading of
+`constraints.routes.reach` from the thresholds (the route graph's
+CENTRELINE / CROSSING walk from the runway; the planar layer may not
+import `constraints`, so the predicate is the breakline graph's own and
+the replay cross-checks it against `reach` at HECA — DEVIATION reported).
+A centreline no runway reaches (an apron taxilane, a disconnected
+fragment) is part of the body it lies in — the 05w "junction" hangar
+aprons no route crosses are bodies.  THE NETWORK VERTICES `N` = every
+vertex incident to a network face; they carry `NO_SHAPE` always: an
+apron body's ring along the network is WELDED (08p (3): its rows to the
+body's interior are never dropped, no contour is drawn there, no gap
+joint faces the network).
+
+| consumer | today (08k, round 1) | after 08p |
+|---|---|---|
+| `planar/shapes.py::_label_pavement` | the union of every `shape_roles` face | the union of the `shape_roles` faces NOT network (+ rigid pads, 03h) → components → bodies; a vertex in `N` is never labelled; a body face all of whose vertices are in `N` (a sliver between two taxiways) is welded whole (`faces_unlabelled`) |
+| `_label_others` (roads by nearest label, pads by majority) | every road / pad vertex | skips `N` |
+| `_weld_strip` | strip keep-out welds; a boundary edge on ANY taxi centreline welds | unchanged in code: a connected centreline's vertices are in `N` (never a boundary), an unconnected one's still weld their bodies (07g: the route is never cut) |
+| `_contour_joints` | faces with two labels | unchanged: a network face has no labelled vertex; a road between two bodies still carries the contour mid-road (08k separator) |
+| `_gap_joints` | ring edges of `shape_roles` faces | body faces only (a network ring edge has no label anyway) — never between a shape and the network |
+| `build_shapes` record (`shape_of_face`, `by_shape`, stats) | every shape-role face has a shape | a network face has NO `shape_of_face` entry; `ShapeStats` gains `network_faces`, `network_by_role`, `network_vertices`, `body_faces`, `faces_unlabelled`, `connected_stations`, `unconnected_station_edges` |
+| `pipeline/shapes.py::shape_stage` withdraw set | labelled non-station vertices of `band_roles` faces | non-station vertices of `band_roles` faces (the label condition dropped: the same population — a network junction's vertices lost the band in round 1 too, as labelled) |
+| `apply_joints` (the filter) | rows carrying two shapes dropped | unchanged: `N` never straddles, so a body's rows to the network survive (the weld); rows between two bodies across the network are dropped (they connect by ROUTE: the network's hard chain + the body's hop rows) — counted per generator as today |
+| `constraints/yielding.py::yield_rows` | every family row yields | a row whose vertices ALL lie in `N` (a network-only row of `junction_mesh`, `taxi_box`, `no_step_pairs`, `apron`, `apron_edge_portion`, `roads`) STAYS HARD — "the network hard at its route law" (08p (2)); `taxi_chain_at_runway` keeps yielding (08i-1); `YieldStats.network_hard` per family; `yielded_rows.by_shape` reads the LABELLED end of a row |
+| `constraints/pads.py` (`shape_of_face`) | a pad never fronts a soft face of another shape | a network face has no entry → a pad may front it (welded pavement) |
+| `pipeline/publication.py`, `verify/*`, `check_grade.py`, `census.py` | read `shape_of_vertex` / the sidecar `terrace_joints` | unchanged (`terrace_joint_route` reads 0 by construction: no joint touches a connected centreline) |
+| `pipeline/build.py`, `tools/v2_solve_replay.py` | the 08k log line / report | + network faces / bodies / shapes counts; the replay cross-checks the predicate against `routes.reach` |
+| `emit.toml [terrace]`, `terrace_schema.py` | `shape_roles` = runway + taxi + apron roles | unchanged keys (the network is a predicate, not a role list: a stub no route reaches is a body) — the comment amended |
+| twins `tests/auto_patch_v2/test_v2shapes.py` | 08k | + 08p: two aprons through a taxiway → two shapes, no joint, the taxiway's rows intact; apron against a taxiway → welded; 0.3 m → one shape; a wider gap → joint (the 04u weld deviation stands: 0.6 m is welded, the twin reads 1.2 m under a 2 m horizon); a hangar junction with no route → body; an unconnected taxilane → body; twin 1's count reads 1 shape (the runway is network) |

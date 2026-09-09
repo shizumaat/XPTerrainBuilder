@@ -162,7 +162,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             continue
         faces.append((poly, best))
     ident = law.tables.emit.identity.min_distinct_spacing_m
-    faces, merged = merge_slivers(faces, (ident * law.tables.emit.yielding.sliver_area_factor) ** 2)
+    faces, merged = merge_slivers(faces, (ident * law.tables.emit.terrace.sliver_area_factor) ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged)
 
@@ -171,7 +171,7 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
                   ) -> tuple[list[tuple[Polygon, Region]], int]:
     """THE SLIVER MERGE (RULINGS 2026-09-08d (4a); spec heca-v1-parity §4 /
     §6.3): a face under ``area_max`` (``(identity.min_distinct_spacing_m ×
-    yield.sliver_area_factor)²``) whose ring shares a boundary run with a
+    terrace.sliver_area_factor)²``) whose ring shares a boundary run with a
     face of the SAME region (same role, same ref — one cell the noding cut
     twice) is a classification artefact, never a cell of its own: it is
     unioned into that neighbour (the largest sharing one).  HECA pav131

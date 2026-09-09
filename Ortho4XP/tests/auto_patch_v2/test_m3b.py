@@ -19,10 +19,9 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Diff
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import face_tags, publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 
@@ -152,7 +151,7 @@ def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_pa
     airport, pm, _s, _cl = synthetic
     cs, counts, _w = generate(pm, law, airport)
     assert counts["frontage_near_miss"] > 0 and counts["pad_flats"] == 3
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options())
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.message
     pub = publication(pm, law, airport, sol.z)
     assert pub["station_caps"] and all(len(e) == 3 for e in pub["station_caps"])
@@ -172,7 +171,7 @@ def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_pa
 def test_verify_reader_flags_a_published_cap_looser_than_the_walk(synthetic, law):
     airport, pm, _s, _cl = synthetic
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options())
+    sol = solve_design(pm, cs, law)[0]
     pub = publication(pm, law, airport, sol.z)
     loose = dict(pub)
     loose["station_caps"] = [[la, lo, 0.08] for la, lo, _c in pub["station_caps"]]

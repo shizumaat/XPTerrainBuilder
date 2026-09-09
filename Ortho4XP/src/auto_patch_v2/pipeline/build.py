@@ -2,7 +2,8 @@
 planar → constraints → solve → emit → verify, each stage timed, progress
 lines on stdout.  The ONLY package that reads the environment (it does
 not yet: inputs come from ``planar.__main__.default_inputs`` and the
-CLI).  Solver weights are a config object here — preferences, not law.
+CLI).  The objective's weights are LAW (``emit.toml [design]``, RULINGS
+2026-09-08t), not a config object here.
 """
 from __future__ import annotations
 
@@ -26,32 +27,18 @@ from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
-from ..law.tables import flat_datum_group, flat_datum_weight, runway_chord_fit_weight
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
-from ..solve import Options, Solution, Weights
-from ..solve.tiers import TierReport, solve_law_ordered
+from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
 
-__all__ = ["Config", "DEFAULT_WEIGHTS", "BuildResult", "build"]
-
-#: DEM-fit weights by role — the objective's preferences (plan §2:
-#: airside high, groundside 1); a role absent here takes ``default``.
-DEFAULT_WEIGHTS = Weights(
-    by_role={"runway": 20.0, "runway_crossing": 20.0, "primary_parallel": 8.0,
-             "secondary_parallel": 8.0, "stub": 8.0, "cross_connector": 8.0,
-             "junction": 8.0, "apron": 4.0, "building": 1.0,
-             "service_road": 2.0, "service_junction": 2.0,
-             "groundside_pavement": 1.0, "graded_strip": 1.0},
-    zone3=100.0, smoothness=0.5, default=1.0)
-
+__all__ = ["Config", "BuildResult", "build"]
 
 @_dc.dataclass(frozen=True)
 class Config:
     """Build configuration (a schema, never an env gate)."""
 
-    weights: Weights = DEFAULT_WEIGHTS
     options: Options = Options()
     verify: bool = True
     feather_m: float = 60.0
@@ -216,25 +203,6 @@ def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
 
 
-def weights_under_law(weights: Weights, law: Law) -> Weights:
-    """``Weights`` with the flat-site datum's preference group priced from
-    the table (``law/flat_site.toml [datum] weight``; RULINGS 2026-09-05k-2)
-    and the runway ridge's smoothness λ (``rulesets.toml [common]
-    runway_profile_smoothness``; RULINGS 2026-09-06h (c)) — the group
-    name and both weights are law, never a literal here."""
-    pref = dict(weights.preference)
-    pref[flat_datum_group(law)] = flat_datum_weight(law)
-    lam = dict(weights.smoothness_by_kind)
-    lam[RIDGE_KIND] = float(law.tables.common.runway_profile_smoothness)
-    # THE CHORD FIT (RULINGS 2026-09-08d (1)): the runway family's fit
-    # weight is the law's ``runway_chord_fit`` — its target the threshold
-    # chord (``constraints/runway_chord.py``), the DEM where no chord exists
-    by_role = dict(weights.by_role)
-    for role in RUNWAY_FAMILY:
-        by_role[role] = runway_chord_fit_weight(law)
-    return _dc.replace(weights, by_role=by_role, preference=pref, smoothness_by_kind=lam)
-
-
 #: The report's "moved" threshold (metres off the DEM sample) — a report
 #: figure (M3b §4 / M5), not a law value.
 MOVED_M = 0.5
@@ -246,7 +214,7 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
     many vertices sit more than :data:`MOVED_M` off their DEM sample, and
     the largest such displacement — the M5 "what yielded where" figure."""
     from ..law.tables import senior_role, tiers
-    tier_of = {r: k for k, t in enumerate(tiers(law)) for r in t}
+    tier_of = {r: k for k, t in enumerate(tiers(law)) for r in t}  # report order only
     acc: dict[str, dict[str, _t.Any]] = {}
     for vid, v in pm.vertices.items():
         if v.dem_z is None or not v.incident_faces:
@@ -263,41 +231,6 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
     for rec in acc.values():
         rec["max_m"] = round(rec["max_m"], 3)
     return dict(sorted(acc.items(), key=lambda kv: (kv[1]["tier"] is None, kv[1]["tier"])))
-
-
-def relaxed_publication(rep: TierReport) -> list[dict[str, _t.Any]]:
-    """The sidecar ``relaxed_rows`` records (RULINGS 2026-09-04t(1)): one
-    per relaxed row — kind, family, ruling, face, slack metres, the
-    vertices' lat/lon identities — so every census can count the rows on
-    them under the "relaxed by 04t(1)" heading."""
-    if rep.mode != "relaxed" or not rep.relaxation:
-        return []
-    return [{"kind": r["kind"], "family": r["family"], "ruling": r["ruling"],
-             "face": r.get("face"), "slack_m": r["slack_m"], "ll": r["ll"],
-             **({"slope": r["slope"], "extent_m": r["extent_m"]} if r["kind"] == "pad"
-                else {"cap": r.get("cap"), "cap_after": r.get("cap_after"),
-                      "distance_m": r.get("distance_m")})}
-            for r in rep.relaxation.get("rows", [])]
-
-
-def relaxation_lines(rep: TierReport) -> list[str]:
-    """The relaxation's rows for the build log (``relaxed by 04t(1)``)."""
-    rl = rep.relaxation or {}
-    if not rl.get("applied"):
-        return []
-    out = [f"relaxed by 04t(1) over the {rl.get('scope')} scope: {len(rl['rows'])} rows; "
-           f"slack stats {rl.get('stats')}; certificate {rl.get('certificate')}"]
-    for r in rl["rows"]:
-        if r["kind"] == "pad":
-            out.append(f"  pad   face {r['face']} {r['inputs'][1:2]} slope {r['slope']:.5f} "
-                       f"rise {r['slack_m']:.4f} m over {r['extent_m']:.1f} m")
-        else:
-            out.append(f"  {r['kind']:5s} {r['family']:8s} face {r['face']} slack {r['slack_m']:.4f} m"
-                       + (f" cap {r['cap']:.4f} -> {r['cap_after']:.5f} over {r['distance_m']:.1f} m"
-                          if r["kind"] == "diff" else ""))
-    for u in rl.get("unrelaxed", []):
-        out.append(f"  held  {u['kind']} {u['family']} ({u['ruling'][:60]})")
-    return out
 
 
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
@@ -452,7 +385,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(_flat.log_line(icao, fv) + f"  ({wall['flat_site']:.2f} s)", out)
     for ln in _flat.notes(icao, fv):
         _say(ln, out)
-    weights = weights_under_law(cfg.weights, law)
     # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
     # vertex's fit target is the core's clamped, laterally-levelled road
     # profile on this DEM (``airport/road_profile.py``); the cap rows
@@ -471,8 +403,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] runway chord (08d-1): {chord_rep.get('runways', 0)} runways with two pins "
          f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
          f"{chord_rep.get('vertices', 0)}  chord above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
-         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m  weight "
-         f"{runway_chord_fit_weight(law):g}/m", out)
+         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m", out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -504,7 +435,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              else f"    {name:28s} {n:8d}", out)
     t = time.perf_counter()
     size: dict[str, int] = {}
-    sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options, size_out=size)
+    sol, design_rep = solve_design(pm, cs, law, cfg.options, size_out=size)
     wall["solve"] = time.perf_counter() - t
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
@@ -525,8 +456,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             cs, counts2, _g = shape_constraints(pm, law, airport, stage,
                                                 seam_honoured=honoured)
             counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-            sol, tier_rep = solve_law_ordered(pm, cs, law, weights, cfg.options,
-                                              size_out=size)
+            sol, design_rep = solve_design(pm, cs, law, cfg.options,
+                                           size_out=size)
             wall[f"solve_pass{n_pass}"] = time.perf_counter() - t
             _say(f"[{icao}] seam pass {n_pass}: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
                  f"{counts2['seam_pin_pair_exempt']} pairs exempt, "
@@ -535,15 +466,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 break
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
-    _say(f"[{icao}] {tier_rep.line()}", out)
-    if tier_rep.failure:
-        # THE NAMED FAILURE (RULINGS 2026-09-05u): a governed family the
-        # ladder made yield is not a lawful surface — the patch is still
-        # written (the census reads it), the app fails the airport by name
-        _say(f"[{icao}] FAILURE: {tier_rep.failure}", out)
-    relaxed_rows = relaxed_publication(tier_rep)
-    for ln in relaxation_lines(tier_rep):
-        _say(f"    {ln}", out)
+    _say(f"[{icao}] {design_rep.line()}", out)
     if fv.substitutes and sol.z:
         tol = law.tables.emit.materiality.elevation_m
         dz = [abs(sol.z[r.terms[0][0]] - r.hi) for r in cs.linears
@@ -592,7 +515,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},
         "lp": size,
-        "law_tiers": tier_rep.as_dict(),
+        # THE DESIGN SURFACE's residual per family (RULINGS 2026-09-08t):
+        # replaces ``law_tiers`` — a law is a TARGET, so a missed one is a
+        # residual to report, never a demotion to name
+        "design": design_rep.as_dict(),
         "off_dem_by_role": moved,
         "road_profile": road_rep,
         "road_profile_agreement": road_agree,
@@ -601,14 +527,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "joint_steps": joint_steps(pm, law, stage, sol.z) if sol.z else None,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
-                  # RULINGS 2026-09-05u: which scope answered, and the
-                  # governed families the ladder demoted (a NAMED FAILURE)
-                  "scope": tier_rep.scope, "demoted": tier_rep.demoted_governed,
-                  "failure": tier_rep.failure,
-                  "residual": None if sol.residual is None else _dc.asdict(sol.residual),
-                  "iis": [{"row": repr(r), "generator": s.generator,
-                           "ruling": s.ruling, "inputs": list(s.inputs)}
-                          for r, s in sol.iis]},
+                  "rounds": design_rep.rounds, "converged": design_rep.converged,
+                  "residual": None if sol.residual is None else _dc.asdict(sol.residual)},
     }
     paths = None
     vrows = None
@@ -619,6 +539,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
         pub = publication(pm, law, airport, sol.z)
+        # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
+        # residual per family (``design``, replacing ``law_tiers``) and the
+        # rows the surface missed (``design_target``), which the census
+        # counts law-true in their families and reports under one heading
+        pub["design"] = design_rep.as_dict()
+        pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:
             worst = max(js["contours"], key=lambda c: c["step_m"])
@@ -636,41 +562,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                              f"{100 * r['grade']:.2f} % (shapes {r['shapes']})" for r in js["ramps"][:6])
                  + (f"; TOO SHORT (at the cap): " + ", ".join(f"#{r['face']} {r['ref']}" for r in short)
                     if short else "; none at the cap"), out)
-        if relaxed_rows:
-            pub["relaxed_rows"] = relaxed_rows
-        # THE YIELDED ROWS FIGURE (RULINGS 2026-09-08d (2); ``constraints/yielding.py``):
-        # per family the rows the built surface holds above their cap, and the
-        # published list both readers count apart (``yielded_by_08d``)
-        from ..constraints.yielding import yielded_rows
-        yr = yielded_rows(cs, sol.z, law, pm)
-        pub["yielded_rows"] = yr.pop("published")
-        report["yielded_rows"] = yr
-        _say(f"[{icao}] yielded rows (08d): {yr['yielded']}/{yr['rows']} over their cap — "
-             + ", ".join(f"{k} {v['yielded']}/{v['rows']} (max grade {v['max_grade']:.4f}, "
-                         f"max over {v['max_over_m']:.2f} m)" for k, v in yr["families"].items()), out)
-        if yr.get("by_shape"):
-            top_s = sorted(yr["by_shape"].items(), key=lambda kv: -kv[1]["max_grade"])[:6]
-            _say(f"[{icao}] apron grade by shape (08k): " + ", ".join(
-                f"shape {k}: max {v['max_grade']:.4f} ({v['yielded']}/{v['rows']} over cap)"
-                for k, v in top_s), out)
-        if yr.get("runway_contacts"):
-            rc = yr["runway_contacts"]
-            _say(f"[{icao}] runway contacts (08r-1, no ceiling): {len(rc)} contacts, "
-                 f"{sum(1 for c in rc if c['yielded'])} yielded; steepest " + ", ".join(
-                     f"v{c['vertex']} face {c['face']} {100 * c['max_grade']:.2f} % at "
-                     f"{c['ll'][0]:.6f},{c['ll'][1]:.6f}" for c in rc[:6]), out)
-        # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): per face,
-        # the rows the surface holds above 1 % and its max grade
-        from ..constraints.apron import apron_preference_report
-        apron_pref = apron_preference_report(cs, sol.z, law)
-        pub["apron_over_preference"] = apron_pref
-        report["apron_over_preference"] = apron_pref
-        top = sorted(apron_pref["faces"].items(),
-                     key=lambda kv: (-kv[1]["over_preference"], -kv[1]["max_grade"]))[:6]
-        _say(f"[{icao}] apron preference (06w): {apron_pref['over_preference']}/{apron_pref['rows']} "
-             f"rows over {apron_pref['preferred']}, max grade {apron_pref['max_grade']:.4f}"
-             + (" — faces " + ", ".join(f"#{k} {v['over_preference']}/{v['rows']} (max {v['max_grade']:.4f})"
-                                        for k, v in top if v["over_preference"]) if top else ""), out)
         header = {"o4_apt_dat": airport.pack.apt_dat_path,
                   "o4_pack": airport.pack.name}
         header.update(cfg.header_extra or {})
@@ -743,23 +634,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             from ..verify import census
             vrows = census(surf, law, pub, road_law_caps(pm, law, airport))
             wall["verify"] = time.perf_counter() - t
-            from ..verify.census import RELAXED_KEY, YIELDED_KEY
-            relaxed_v = {k: sum(1 for r in v if r.get(RELAXED_KEY)) for k, v in vrows.items()}
-            yielded_v = {k: sum(1 for r in v if r.get(YIELDED_KEY) and not r.get(RELAXED_KEY))
-                         for k, v in vrows.items()}
-            summary = {k: len(v) - relaxed_v[k] - yielded_v[k] for k, v in vrows.items()}
+            # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is
+            # no relaxed / yielded scope any more.  A row here is a DESIGN
+            # TARGET the surface missed; the census reports, never blocks.
+            summary = {k: len(v) for k, v in vrows.items()}
             _say(f"[{icao}] verify {wall['verify']:.2f} s  rows "
                  f"{sum(summary.values())}  " + ", ".join(
                      f"{k} {n}" for k, n in summary.items() if n), out)
-            if any(relaxed_v.values()):
-                _say(f"[{icao}] verify: relaxed by 04t(1) (lawful last-resort rows, counted "
-                     f"apart): {sum(relaxed_v.values())}  " + ", ".join(
-                         f"{k} {n}" for k, n in relaxed_v.items() if n), out)
-            if any(yielded_v.values()):
-                _say(f"[{icao}] verify: yielded (08d, rows of the yielding families over their "
-                     f"cap — violations under the law-true reading, counted apart): "
-                     f"{sum(yielded_v.values())}  " + ", ".join(
-                         f"{k} {n}" for k, n in yielded_v.items() if n), out)
             from ..verify.census import DEFECT_KEYS
             defects = {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}
             for k, n in defects.items():
@@ -770,17 +651,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             from ..verify.frame import Patch as _Patch
             v_pref = _v_pref(_Patch.of(surf, law, pub, road_law_caps(pm, law, airport)))
             _say(f"[{icao}] verify: apron_over_preference {v_pref['over_preference']}/{v_pref['rows']} "
-                 f"(max grade {v_pref['max_grade']:.4f}; generator-side "
-                 f"{apron_pref['over_preference']}/{apron_pref['rows']})", out)
+                 f"(max grade {v_pref['max_grade']:.4f}) — a report figure, the "
+                 f"design surface has no preference ladder", out)
             report["verify"] = {"by_family": summary,
                                 "apron_over_preference": v_pref,
-                                "relaxed_by_04t1": {k: n for k, n in relaxed_v.items() if n},
-                                "yielded_by_08d": {k: n for k, n in yielded_v.items() if n},
                                 "defects": defects,
                                 "rows": {k: v for k, v in vrows.items() if v}}
-    else:
-        for r, s in sol.iis[:50]:
-            _say(f"    IIS {s.generator} [{s.ruling}] {s.inputs}: {r!r}", out)
     wall["total"] = sum(wall.values())
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     Path(out_dir).mkdir(parents=True, exist_ok=True)

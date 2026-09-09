@@ -175,7 +175,7 @@ def _site_read(pm, airport, z, sites, near_m: float = 12.0) -> list[dict]:
     return out
 
 
-def _why_hump(icao, pm, law, airport, cs, weights, z, runway: str, s0: float, s1: float,
+def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
               out=print, relax: list[str] | None = None, vertex: int | None = None) -> dict:
     """``why`` for the highest crown-ridge vertex of ``runway`` in stations
     ``[s0, s1]`` (z − threshold chord): the binding rows by family on the
@@ -185,7 +185,7 @@ def _why_hump(icao, pm, law, airport, cs, weights, z, runway: str, s0: float, s1
     from auto_patch_v2.constraints.precedence import view
     from auto_patch_v2.constraints.runway_profile import ridge_chains
     from auto_patch_v2.model.constraints import Diff, Linear
-    from auto_patch_v2.solve.why import Prepared, bindings, chain_trace, solve_with_duals, _vname, _row_desc
+    from auto_patch_v2.solve.why import Prepared, bindings, chain_trace, solve_with_pressure, _vname, _row_desc
     hump: list[int] = []
     best = None
     if vertex is not None:
@@ -212,14 +212,13 @@ def _why_hump(icao, pm, law, airport, cs, weights, z, runway: str, s0: float, s1
         return {}
     above, v, s = best
     out(f"[{icao}] why-hump {runway}: ridge vertex v{v} at s={s:.0f}  z {z[v]:.2f}  chord+{above:.2f}  "
-        f"DEM {pm.vertices[v].dem_z:.2f} (z-DEM {z[v] - pm.vertices[v].dem_z:+.2f}); duals solve ...")
+        f"DEM {pm.vertices[v].dem_z:.2f} (z-DEM {z[v] - pm.vertices[v].dem_z:+.2f}); pressure solve ...")
     t = time.perf_counter()
-    prob, res = solve_with_duals(pm, cs, weights)
-    zz = np.asarray(res.x[:prob.n], float)
-    esc = {g: float(res.x[col]) for g, col in prob.soft_cols.items()}
-    out(f"    duals solve {time.perf_counter() - t:.0f} s status {res.status}; |z_dual - z_tiers| max "
-        f"{float(np.max(np.abs(zz - np.asarray(z)))):.3f} m")
-    prep = Prepared(icao, airport, law, pm, cs, {}, weights, prob, res, zz, esc, {})
+    sol2, drep, press = solve_with_pressure(pm, cs, law)
+    zz = np.asarray(sol2.z, float)
+    out(f"    pressure solve {time.perf_counter() - t:.0f} s status {sol2.status.value}; "
+        f"|z_pressure - z| max {float(np.max(np.abs(zz - np.asarray(z)))):.3f} m")
+    prep = Prepared(icao, airport, law, pm, cs, {}, drep, zz, {}, press)
     bl = bindings(prep, [v])[v]
     fam: dict[str, dict] = {}
     for b in bl:
@@ -272,20 +271,21 @@ def _why_hump(icao, pm, law, airport, cs, weights, z, runway: str, s0: float, s1
 
 
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
-           z_out: Path | None, weight_overrides: dict[str, float] | None = None,
+           z_out: Path | None, method: str = "normal",
+           design_weights: dict[str, float] | None = None, verbose: bool = False,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
-           why_hump: tuple[str, float, float] | None = None,
+           why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0) -> int:
     import numpy as np
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
     from auto_patch_v2.model.constraints import ConstraintSet
-    from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, displacement_by_role, weights_under_law
+    from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps, shape_constraints, shape_stage
     from auto_patch_v2.planar.build import build as build_planar
     from auto_patch_v2.solve import Options
-    from auto_patch_v2.solve.tiers import solve_law_ordered
+    from auto_patch_v2.solve import solve_design
     with pkl.open("rb") as fh:
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
@@ -320,23 +320,23 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     else:
         stage = _dc.replace(stage, pm=with_runway_chord(stage.pm, law, airport, fill_roles=chord_fill))
     pm = stage.pm
-    base = DEFAULT_WEIGHTS
-    if weight_overrides:
-        by_role = dict(base.by_role)
-        by_role.update(weight_overrides)
-        base = _dc.replace(base, by_role=by_role)
-        print(f"[{icao}] DEM-fit weight overrides (08g-2 arm): {weight_overrides}")
-    weights = weights_under_law(base, law)
+    if design_weights:
+        d0 = law.tables.emit.design
+        law = _dc.replace(law, tables=_dc.replace(
+            law.tables, emit=_dc.replace(law.tables.emit,
+                                         design=_dc.replace(d0, **design_weights))))
+        print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
     size: dict = {}
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     if drop:
         cs = ConstraintSet.from_rows([r for r in cs.rows() if r.source.generator not in drop])
     t = time.perf_counter()
-    sol, rep = solve_law_ordered(pm, cs, law, weights, Options(diagnose_iis=False), size_out=size)
+    sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size, method=method)
     wall = round(time.perf_counter() - t, 1)
     print(f"[{icao}] solve (ONE pass, 08k): {wall:.1f} s status {sol.status.value}")
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
+    print(f"[{icao}] LP size: {size}")
     n_shapes = len({v for v in pm.shape_of_vertex.values() if v >= 0})
     by_shape: dict[int, int] = {}
     for v in pm.shape_of_vertex.values():
@@ -345,12 +345,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
           f"{len(pm.shape_joints)} ({sum(1 for j in pm.shape_joints if j.gap)} gap); largest by vertices "
           f"{sorted(by_shape.items(), key=lambda kv: -kv[1])[:6]}")
     result = {"icao": icao, "resume": resume, "drop": drop, "status": sol.status.value,
-              "weight_overrides": weight_overrides or {},
               "solve_wall_s": wall, "passes": 1,
               "shapes": n_shapes, "shape_vertices": len(pm.shape_of_vertex),
               "shapes_by_vertices": sorted(by_shape.items(), key=lambda kv: -kv[1])[:12],
               "stage_wall_s": round(time.perf_counter() - t0 - wall, 1),
-              "tiers": rep.line(), "counts": {k: v for k, v in counts.items()
+              "design": rep.as_dict(), "counts": {k: v for k, v in counts.items()
                                                if not k.startswith("joint_dropped")},
               "joint_dropped": {k[14:]: v for k, v in counts.items() if k.startswith("joint_dropped.")}}
     if sol.status.value in ("optimal", "feasible"):
@@ -360,23 +359,6 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             print(f"    {r['runway']}: bow {r['bow_m']:+.2f} at s={r['bow_station_m']}  ridge min "
                   f"{r['ridge_min_z']:.2f} at s={r['ridge_min_station_m']}  z-DEM mean "
                   f"{r['z_dem_mean']:+.2f} min {r['z_dem_min']:+.2f} max {r['z_dem_max']:+.2f}")
-        try:
-            from auto_patch_v2.constraints.yielding import yielded_rows
-            yr = yielded_rows(cs, z, law, pm)
-            yr.pop("published", None)
-            result["yielded_rows"] = yr
-            print("    yielded_rows: " + ", ".join(
-                f"{k} {v['yielded']}/{v['rows']} (max grade {v['max_grade']:.4f})"
-                for k, v in sorted(yr.get("families", {}).items())))
-            top_s = sorted(yr.get("by_shape", {}).items(), key=lambda kv: -kv[1]["max_grade"])[:8]
-            print("    apron grade by shape: " + ", ".join(
-                f"shape {k}: max {v['max_grade']:.4f} ({v['yielded']}/{v['rows']} over cap)" for k, v in top_s))
-            for fam, rows in yr.get("worst", {}).items():
-                print(f"    worst {fam}: " + "; ".join(
-                    f"face {r['face']} {r['cap_after']:.4f} over {r['distance_m']:.1f} m at "
-                    f"{r['ll'][0][0]:.6f},{r['ll'][0][1]:.6f} (shape {r['shape']})" for r in rows[:4]))
-        except ImportError:
-            pass
         moved = displacement_by_role(pm, law, sol)
         result["off_dem_by_role"] = moved
         print("    off-DEM by role (max |z-DEM| m, over 0.5 m / vertices): " + ", ".join(
@@ -396,24 +378,46 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             print(f"    road ramps (08r-2): {len(js['ramps'])}; steepest "
                   f"{[(r['face'], r['ref'], r['dz_m'], r['length_m'], round(100 * r['grade'], 2)) for r in js['ramps'][:8]]}; "
                   f"too short {[(r['face'], r['ref']) for r in js['ramps'] if r['too_short']]}")
-        rc = result.get("yielded_rows", {}).get("runway_contacts") or []
-        if rc:
-            print(f"    runway contacts (08r-1): {len(rc)}, {sum(1 for c in rc if c['yielded'])} yielded; steepest "
-                  f"{[(c['vertex'], c['face'], round(100 * c['max_grade'], 2)) for c in rc[:8]]}")
         if sites:
             result["sites"] = _site_read(pm, airport, z, sites, site_radius_m)
             for srec in result["sites"]:
                 print(f"    site {srec['lat']:.6f},{srec['lon']:.6f}: {srec['vertices']} vertices within {site_radius_m:g} m, "
                       f"z-DEM mean {srec['z_dem_mean']} min {srec['z_dem_min']} max {srec['z_dem_max']} "
                       f"roles {srec['roles']} shapes {srec['shapes']} max step over a short edge {srec['max_step_m']} m")
+        if verify:
+            # THE VERIFY CENSUS on the solved surface (the build's own reader,
+            # ``pipeline/build.py``): the rows per family and the DEFECT
+            # families the app's driver gates on
+            from auto_patch_v2.constraints.roads import road_law_caps
+            from auto_patch_v2.emit.graded import graded_surface
+            from auto_patch_v2.pipeline.publication import publication
+            from auto_patch_v2.verify import census as run_census
+            from auto_patch_v2.verify.census import DEFECT_KEYS
+            t = time.perf_counter()
+            surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
+                                  {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
+            vrows = run_census(surf, law, publication(pm, law, airport, sol.z),
+                               road_law_caps(pm, law, airport))
+            summary = {k: len(v) for k, v in vrows.items() if v}
+            result["verify"] = {"by_family": summary,
+                                "defects": {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}}
+            print(f"    verify {time.perf_counter() - t:.1f} s: {sum(summary.values())} rows  "
+                  + ", ".join(f"{k} {n}" for k, n in sorted(summary.items())))
+            print(f"    verify DEFECT families ({', '.join(DEFECT_KEYS)}): "
+                  + (", ".join(f"{k} {n}" for k, n in result["verify"]["defects"].items())
+                     or "ALL ZERO"))
+            for k in DEFECT_KEYS:
+                for r in (vrows.get(k) or [])[:6]:
+                    print(f"      {k}: {r}")
+            result["verify"]["defect_rows"] = {k: (vrows.get(k) or [])[:20] for k in DEFECT_KEYS}
         if solved_out is not None:
-            # the solved set (pm, stage, rows, weights, z) for a later ``--why-from``
+            # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
             with solved_out.open("wb") as fh:
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm, "cs": cs,
-                             "weights": weights, "z": z}, fh)
+                             "z": z}, fh)
         if why_hump is not None:
-            result["why_hump"] = _why_hump(icao, pm, law, airport, cs, weights, z, *why_hump)
+            result["why_hump"] = _why_hump(icao, pm, law, airport, cs, z, *why_hump)
         if z_out is not None:
             np.save(z_out, z)
         if emit_dir is not None:
@@ -427,11 +431,6 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
             pub = publication(pm, law, airport, sol.z)
-            try:
-                yr2 = yielded_rows(cs, sol.z, law, pm)
-                pub["yielded_rows"] = yr2.pop("published")
-            except Exception:  # noqa: BLE001 — the figure is optional on a replay
-                pass
             header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
                       "o4_replay": "v2_solve_replay"}
             paths = write_patch(surf, law, emit_dir, pub, header, face_tags(pm, law, airport))
@@ -453,13 +452,21 @@ def main() -> int:
     ap.add_argument("--drop-generator", action="append", default=[])
     ap.add_argument("--json", type=Path)
     ap.add_argument("--z-out", type=Path)
-    ap.add_argument("--weight", action="append", default=[], metavar="ROLE=W",
-                    help="DEM-fit weight override by role (pipeline.build.DEFAULT_WEIGHTS)")
+    ap.add_argument("--design-weight", action="append", default=[], metavar="TERM=W",
+                    help="MEASUREMENT ARM: override an emit.toml [design] weight for this "
+                         "replay only (never a build); TERM in law/design_schema.DESIGN_TERMS")
+    ap.add_argument("--design-verbose", action="store_true",
+                    help="print the design solve's objective per active-set round")
+    ap.add_argument("--method", default="normal", choices=("normal", "cg", "lsqr"),
+                    help="the design solve's linear solver (solve/design.METHODS)")
     ap.add_argument("--site", action="append", default=[], metavar="LAT,LON",
                     help="report z - DEM on the vertices within --site-radius of the point")
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
                     help="the --site horizon in metres (default 12; the owner's step horizon is 60)")
     ap.add_argument("--emit", type=Path, metavar="DIR", help="write the patch of the solved surface")
+    ap.add_argument("--verify", action="store_true",
+                    help="run the v2 verify census on the solved surface and print the rows "
+                         "per family and the DEFECT families (the app's gate)")
     ap.add_argument("--chord-fill", nargs="+", default=[], metavar="ROLE",
                     help="experiment arm (08g-2): these roles' vertices within the strip take the "
                          "crown-plane chord as their fit target (constraints.runway_chord fill_roles)")
@@ -484,21 +491,20 @@ def main() -> int:
             sv = pickle.load(fh)
         law = Law.for_airport(sv["icao"])
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else ("", 0.0, 0.0)
-        res = _why_hump(sv["icao"], sv["pm"], law, sv["airport"], sv["cs"], sv["weights"], sv["z"], *wh,
+        res = _why_hump(sv["icao"], sv["pm"], law, sv["airport"], sv["cs"], sv["z"], *wh,
                         relax=a.why_relax, vertex=a.why_vertex)
         if a.json:
             a.json.write_text(json.dumps(res, indent=1, default=str))
         return 0
     if a.replay:
-        wo = {}
-        for item in a.weight:
-            k, v = item.split("=")
-            wo[k.strip()] = float(v)
         sites = [tuple(float(x) for x in it.split(",")) for it in a.site]
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None
         return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
-                      weight_overrides=wo, sites=sites, site_radius_m=a.site_radius,
-                      emit_dir=a.emit, why_hump=wh, solved_out=a.solved_out,
+                      method=a.method,
+                      design_weights={k.strip(): float(v)
+                                      for k, v in (it.split("=") for it in a.design_weight)},
+                      verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
+                      emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill))
     ap.error("one of --capture / --replay")
     return 2

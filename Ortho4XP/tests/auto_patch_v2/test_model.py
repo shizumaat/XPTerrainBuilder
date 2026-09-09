@@ -163,7 +163,9 @@ def test_graded_surface_json_round_trip():
 def test_package_imports_and_stubs():
     assert importlib.import_module("auto_patch_v2")
     api = importlib.import_module("auto_patch_v2.solve.api")
-    assert callable(api.solve)                      # M2: implemented (highs.solve)
+    from auto_patch_v2.solve import solve_design
+    assert callable(solve_design)   # 08t: THE DESIGN SURFACE, one least-squares solve
+    assert not hasattr(api, "solve") and not hasattr(api, "Weights")
     osm = importlib.import_module("auto_patch_v2.emit.osm_adapter")
     assert callable(osm.write_patch)                # M2: implemented
     s2 = importlib.import_module("auto_patch_v2.emit.s2_adapter")

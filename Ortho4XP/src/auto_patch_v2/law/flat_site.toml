@@ -27,7 +27,6 @@ margin_m                 = 200.0    # the flat REGION = pavement ∪ boundary �
 [datum]
 source     = "cifp"                 # "cifp" (mean threshold elevation) | "pack_seats" (S4 median) — the verdict's Z0
 preference = "flat_datum"           # the Weights.preference group; ranked below law, above seam
-weight     = 5.0e4                  # law 1e5 > flat_datum 5e4 > seam 1e4 > end_zone 1e3 > crown 1e2
 runway_pins_hard = true             # thresholds stay CIFP-absolute (08-25); the datum NEVER pins pavement
 
 [declared]                          # (c): per-airport overrides — the ONLY airport-specific facts in law/

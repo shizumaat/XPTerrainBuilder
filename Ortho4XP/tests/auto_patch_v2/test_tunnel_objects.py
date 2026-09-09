@@ -34,12 +34,11 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, DsfObject, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import build_structures
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 
@@ -454,7 +453,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     assert not any(r.source.ruling.startswith("tunnel.bore_datum") for r in rows
                    if r.source.inputs and r.source.inputs[0] == t.id)
     cs_all, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs_all, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
+    sol = solve_design(pm, cs_all, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     ln = LineString(t.axis)
     zs = []

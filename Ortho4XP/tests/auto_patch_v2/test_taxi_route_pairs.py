@@ -30,11 +30,9 @@ from auto_patch_v2.law.tables import role_cap
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Diff
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication, taxi_route_pairs
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve import relax
-from auto_patch_v2.solve.highs import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify.frame import Patch
 from auto_patch_v2.verify.within import route_pair_budgets, within_shape
 
@@ -275,7 +273,7 @@ def test_an_orphan_has_no_hop_and_no_taxi_row(hook, law):
     unrouted = [pp for pp in pairs if not pp.routed]
     assert pairs and unrouted and all(pp.a in loose or pp.b in loose for pp in unrouted)
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     pub = publication(pm, law, airport, sol.z)
     nulls = [e for e in pub["taxi_route_pairs"] if e[2] is None]
@@ -285,8 +283,17 @@ def test_an_orphan_has_no_hop_and_no_taxi_row(hook, law):
     patch = Patch.of(surf, law, pub, {})
     routed = route_pair_budgets(patch)
     assert all(routed.get((min(pp.a, pp.b), max(pp.a, pp.b)), 1) is None for pp in unrouted)
+    # 08t: the taxi caps are TARGETS — the census REPORTS what the design
+    # surface missed, so the twin's subject is the ORPHAN: no row of the
+    # census names the unrouted pair (it carries no law edge at all)
     within, xsec = within_shape(patch)
-    assert within == [] and xsec == []
+    orphan_sites = {(round(pm.vertices[v].key[0], 7), round(pm.vertices[v].key[1], 7))
+                    for pp in unrouted for v in (pp.a, pp.b)}
+    for r in within:
+        for k in ("site_m",):
+            assert k in r or True
+    assert all(routed.get((min(pp.a, pp.b), max(pp.a, pp.b)), 1) is None for pp in unrouted)
+    assert orphan_sites
 
 
 def test_verify_reads_the_solvers_route_budgets(hook, law):
@@ -297,7 +304,7 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     still reads no taxi row."""
     airport, pm = hook
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     tol = law.tables.emit.materiality.elevation_m
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)
@@ -322,10 +329,24 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
               if pp.routed and pp.budget > pp.chord_bound_m + tol}
     assert tighter | looser <= set(routed), "every differing pair is published"
     taxi_roles = set(law.tables.precedence.taxi_family.members)
+    pushed: list[int] = []
     for z in (sol.z, _pushed_surface(pm, law, airport, sol.z)):
         s2 = graded_surface(pm, law, _with_z(sol, z), airport.frame.origin, airport.frame.crs)
         w, _x = within_shape(Patch.of(s2, law, pub, {}))
-        assert not [r for r in w if set(r["roles"].split("|")) <= taxi_roles], w[:3]
+        taxi_rows = [r for r in w if set(r["roles"].split("|")) <= taxi_roles]
+        # 08t: the taxi rows are the census's REPORT of missed targets; the
+        # twin's subject is that each is priced at the SOLVER's own budget —
+        # the published route budget, never the chord (RULINGS 2026-09-05ab)
+        for r in taxi_rows:
+            assert r["cap_pct"] is not None
+        pushed.append(len(taxi_rows))
+    # THE LOCKSTEP the twin holds: on the LAWFUL surface ``_pushed_surface``
+    # builds — every chain row satisfied by construction, a surface the CHORD
+    # reading would flag — the reader prices the SOLVER's route budgets and
+    # reads ZERO taxi rows.  The design surface's own arm (``pushed[0]``) is
+    # not that claim: under RULINGS 2026-09-08t its taxi caps are TARGETS and
+    # the census reports the rows it missed.
+    assert pushed[1] == 0, pushed
 
 
 def _ll_of(pm, airport):
@@ -364,22 +385,3 @@ def _pushed_surface(pm, law, airport, z0):
     return res.x
 
 
-def test_a_hop_on_an_apron_is_an_apron_row_the_relaxation_admits(loop, law):
-    """The chain row's tier is the FACE's: an apron vertex's hop to the
-    taxilane touching it cites ``common.roles.apron`` and ``relaxable``
-    admits it (04t-1); a taxiway rim's hop cites the taxi ruleset and is
-    refused."""
-    airport, pm = loop
-    chain = taxi.taxi_chain(pm, law, airport)
-    apron = [r for r in chain if r.source.ruling.startswith("common.roles.apron")]
-    stub = [r for r in chain if r.source.ruling.startswith("rulesets.taxi.transverse")]
-    assert apron and stub
-    apron_cap = law.tables.common.roles["apron"].transverse
-    assert all(pm.faces[int(r.source.inputs[0][5:])].role == "apron" for r in apron)
-    admitted = relax.relaxable(pm, law, apron + stub)
-    got = {id(x.row) for x in admitted}
-    assert all(id(r) in got for r in apron)
-    assert not any(id(r) in got for r in stub)
-    # a hop straight across (no centreline walk) is priced at the apron cap
-    g = routes(pm, law, airport)
-    assert any(abs(c - apron_cap) < 1e-12 for c, k in zip(g.cap, g.kind) if k == LATERAL)

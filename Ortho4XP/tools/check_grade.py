@@ -7689,6 +7689,20 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # THE DESIGN SURFACE's residual per family (RULINGS 2026-09-08t, sidecar
+    # ``design``, replacing ``law_tiers``): rounds, unknowns, rows, the hard
+    # runway rows and per family how many targets were missed and by how
+    # much.  EVIDENCE: nothing here re-prices a row — under the design
+    # surface every law but the runway family's is a TARGET, and a missed
+    # target IS a census row, counted law-true in its own family.
+    "design",
+    # THE MISSED TARGETS (RULINGS 2026-09-08t/v, sidecar ``design_target``):
+    # one record per row the surface did not reach — ``family``, ``miss_m``
+    # and the vertices' ``ll``.  EVIDENCE for the same reason, and the
+    # population ``design_target_summary`` reports under one census heading
+    # so the owner can see WHICH law the surface is buying its smoothness
+    # from.  It never changes an adjudication.
+    "design_target",
     # THE APRON PREFERENCE FIGURE (RULINGS 2026-09-06w (2)): the generator-
     # side reading of the built surface against the 1 % preference, per
     # face (``constraints.apron.apron_preference_report``).  EVIDENCE: the
@@ -7991,6 +8005,38 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["yielded_rows"] else "")
               + " — law-true check)")
     return ctx
+
+
+#: The heading the census reports the missed design targets under
+#: (RULINGS 2026-09-08t: the census reports, never blocks).
+DESIGN_TARGET_HEADING = "design_target"
+DESIGN_TARGET_RULING = "08t"
+
+
+def design_target_summary(osm_path) -> dict:
+    """THE DESIGN-TARGET READING (sidecar ``design_target``, RULINGS
+    2026-09-08t/v): per family the number of law rows the design surface
+    missed and the worst miss in metres.  The rows themselves are counted
+    law-true in their families by ``run_checks`` — this is the heading that
+    names them, not a re-pricing."""
+    import json as _json
+    side = Path(str(osm_path) + ".axes.json")
+    if not side.exists():
+        return {}
+    try:
+        data = _json.loads(side.read_text())
+    except (ValueError, OSError):
+        return {}
+    out: Dict[str, dict] = {}
+    for rec in (data.get("design_target") or []):
+        fam = str(rec.get("family", "?"))
+        f = out.setdefault(fam, {"rows": 0, "max_miss_m": 0.0})
+        f["rows"] += 1
+        try:
+            f["max_miss_m"] = max(f["max_miss_m"], float(rec.get("miss_m") or 0.0))
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def sidecar_evidence(osm_path) -> dict:

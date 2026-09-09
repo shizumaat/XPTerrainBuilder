@@ -9,8 +9,8 @@ Every rigid-role shape (``precedence.toml`` ``rigid``) is read:
   a spread above ``emit.materiality.elevation_m`` is a ``pad_flat`` row
   (a sloped building would ship);
 * a RELAXED pad lies on one plane — its least-squares plane residual
-  above ``emit.relaxation.materiality_m`` is a row (``reading =
-  "plane_residual"``) — no steeper than ``emit.relaxation.pad_slope_max``
+  above ``emit.materiality.elevation_m`` is a row (``reading =
+  "plane_residual"``) — no steeper than ``emit.within_shape.pad_slope_max``
   (RULINGS 2026-09-05f: 1 %): a plane's gradient over it by more than the
   grade materiality PLUS the emit quantum's fit sensitivity (RULINGS
   2026-09-06k (3): ``plane_slope ≤ cap + quantum``, the 04x allowance)
@@ -21,7 +21,9 @@ the register twins (v1 families == v2 families) hold.  A pad's ``Flat``
 is a hard equality no tier demotes (``solve/tiers.py``) and a plane
 exists only inside the relaxation, so a row here can only come from a
 solver / emit defect: the pipeline reports it as a DEFECT
-(``verify.DEFECT_KEYS``), the app driver as a named failure.
+a census row of its own family (RULINGS 2026-09-08v withdrew ``pad_flat``
+from ``verify.DEFECT_KEYS``: under the design surface the pad's flatness is
+a TARGET of the one solve, and the gate reads the runway family only).
 """
 from __future__ import annotations
 
@@ -84,8 +86,8 @@ def pad_flat(p: Patch) -> list[Row]:
     rel = p.publication.get("relaxed_rows") or []
     relaxed_faces = {r.get("face") for r in rel if r.get("kind") == "pad"}
     flat_tol = p.law.tables.emit.materiality.elevation_m
-    plane_tol = p.law.tables.emit.relaxation.materiality_m
-    slope_max = p.law.tables.emit.relaxation.pad_slope_max
+    plane_tol = p.law.tables.emit.materiality.elevation_m
+    slope_max = p.law.tables.emit.within_shape.pad_slope_max
     grade_tol = p.law.tables.emit.materiality.grade
     # RULINGS 2026-09-06k (3): the reading tolerates the EMIT QUANTUM — a
     # pad relaxed exactly to the cap, emitted at the coordinate quantum,

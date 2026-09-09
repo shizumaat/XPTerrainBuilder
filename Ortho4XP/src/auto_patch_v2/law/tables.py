@@ -25,9 +25,9 @@ __all__ = [
     "tier_of_roles", "role_preferred_cap",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
-    "flat_site", "flat_datum_group", "flat_datum_weight", "flat_declared",
-    "flat_source_class", "flat_relief_floor_m", "runway_chord_fit_weight", "yield_law",
-    "yield_ceiling", "yields",
+    "flat_site", "flat_datum_group", "flat_declared",
+    "flat_source_class", "flat_relief_floor_m", "design",
+    "design_weight", "sliver_area_factor",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -425,11 +425,6 @@ def flat_datum_group(law: Law) -> str:
     return law.tables.flat_site.datum.preference
 
 
-def flat_datum_weight(law: Law) -> float:
-    """The charge per metre of relief of one datum row (``[datum] weight``)."""
-    return law.tables.flat_site.datum.weight
-
-
 def flat_declared(law: Law, icao: str) -> Declared | None:
     """The owner's declaration for ``icao`` (option (c)), or ``None`` —
     the ONE declared register; the tile-cfg keys are retired."""
@@ -468,26 +463,22 @@ def flat_relief_floor_m(law: Law, source_class: str | None) -> float | None:
 
 # ── the priority model (RULINGS 2026-09-08d; spec heca-v1-parity) ─────────
 
-def runway_chord_fit_weight(law: Law) -> float:
-    """The runway family's fit weight per metre of |z − threshold chord|
-    (``rulesets.toml [common] runway_chord_fit``, change 1)."""
-    return float(law.tables.common.runway_chord_fit)
+def design(law: Law):
+    """``emit.toml [design]``: THE DESIGN SURFACE's objective weights
+    (owner RULINGS 2026-09-08t; ``solve/design.py``)."""
+    return law.tables.emit.design
 
 
-def yield_law(law: Law):
-    """``emit.toml [yield]``: the yielding families and their ceilings."""
-    return law.tables.emit.yielding
+def design_weight(law: Law, term: str) -> float:
+    """The weight of one objective term (``law/design_schema.DESIGN_TERMS``)."""
+    return law.tables.emit.design.weight(term)
 
 
-def yield_ceiling(law: Law, family: str) -> float | None:
-    """The escalation ceiling (a grade) of a yielding ``family``; ``None``
-    when its class states no ``<class>_yield_max`` (unbounded, RULINGS
-    2026-09-08k (3)).  :func:`yields` says whether the family yields at all."""
-    y = law.tables.emit.yielding
-    cls = y.families.get(family)
-    return None if cls is None else y.ceiling(cls)
+def sliver_area_factor(law: Law) -> float:
+    """``emit.toml [terrace] sliver_area_factor`` (08d change 4 (a))."""
+    return float(law.tables.emit.terrace.sliver_area_factor)
 
 
-def yields(law: Law, family: str) -> bool:
-    """Whether ``family`` is a yielding family of the table."""
-    return family in law.tables.emit.yielding.families
+def groundside_ramp_max(law: Law) -> float:
+    """``emit.toml [terrace] groundside_ramp_max`` (08d change 4 (b))."""
+    return float(law.tables.emit.terrace.groundside_ramp_max)

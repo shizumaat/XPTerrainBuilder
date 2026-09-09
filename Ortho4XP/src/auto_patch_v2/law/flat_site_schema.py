@@ -56,7 +56,6 @@ class FlatDatum:
 
     source: str
     preference: str
-    weight: float
     runway_pins_hard: bool
 
 
@@ -91,8 +90,6 @@ def check_flat_site(fs: FlatSite, error: type[Exception]) -> None:
     if not g or ":" in g or not g.replace("_", "").isalnum():
         raise error(f"flat_site.datum.preference {g!r}: one identifier, "
                     "no ':' (the Weights.preference prefix)")
-    if fs.datum.weight <= 0:
-        raise error("flat_site.datum.weight must be > 0")
     for icao, d in fs.declared.items():
         if len(icao) != 4 or not icao.isalnum() or icao != icao.upper():
             raise error(f"flat_site.declared.{icao}: not a 4-character "

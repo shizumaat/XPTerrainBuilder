@@ -1,119 +1,43 @@
-"""ONE solver — the interface (plan §1 row 6, §2).  M0 freezes the
-signature; M2 implements it.
+"""THE SOLVE's frozen types (plan §1 row 6, §2) — the status, the options,
+the residual certificate and the solution.
 
-    solve(planar, constraints, weights, options) -> Solution
-
-Variables z over planar-map vertices; objective
-``Σ w_i (z_i − dem_i)² + λ · Σ_breaklines (second differences)²``;
-subject to the linear rows of the :class:`ConstraintSet`.  Phase 1 is an
-LP feasibility check; if infeasible the solver extracts an irreducible
-infeasible subsystem and reports it as ``(row, source)`` — the solver
-never invents a value and never smears a contradiction (plan §2).
-Backends: scipy HiGHS (in the freeze) and OSQP (RULINGS 2026-09-03d:
-added to the freeze if it measurably beats HiGHS on the v2 QP).
+THE DESIGN SURFACE (owner RULINGS 2026-09-08t) replaced the LP: the solve
+is ``solve.design.solve_design(planar, constraints, law, options)``, ONE
+sparse least-squares problem that is never infeasible.  ``Backend``,
+``Weights``, the preference ladder and the IIS are DELETED with the tier /
+relaxation / yield machinery they served.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
 import enum
-import typing as _t
 
-from ..model.constraints import ConstraintSet, Row, Source
-from ..model.planar import PlanarMap
-
-__all__ = ["Backend", "Status", "Weights", "Options", "Residual",
-           "Solution", "solve"]
-
-
-class Backend(str, enum.Enum):
-    """Numeric backends the interface admits."""
-
-    HIGHS = "highs"     # scipy.optimize.linprog / milp (LP phase, QP via SLSQP-free path)
-    OSQP = "osqp"       # ADMM QP; adopted only if measured faster (2026-09-03d)
+__all__ = ["Status", "Options", "Residual", "Solution"]
 
 
 class Status(str, enum.Enum):
     """Solve outcome."""
 
-    OPTIMAL = "optimal"
-    FEASIBLE = "feasible"          # feasible, objective not converged to tolerance
-    INFEASIBLE = "infeasible"      # IIS populated
-    ERROR = "error"                # backend failure; message in ``Solution.message``
-
-
-@_dc.dataclass(frozen=True)
-class Weights:
-    """Objective weights.  ``by_role`` maps a law role to the DEM-fit
-    weight of its vertices (airside high, groundside 1); ``zone3`` is the
-    weight of vertices the law leaves to the DEM (large: they are
-    pinned by preference, not by constraint); ``smoothness`` is λ."""
-
-    by_role: _t.Mapping[str, float]
-    zone3: float
-    smoothness: float
-    default: float
-    #: Charge per metre of relief of a PREFERENCE row (``Diff.soft`` /
-    #: ``Linear.soft``), by the group prefix before ``:`` — relative to the
-    #: largest DEM-fit weight, so a preference always beats the fit and the
-    #: tiers rank each other: seam DEM values (owner 2026-07-24 "at ALL
-    #: points") above the end-zone cap (owner 2026-07-08, yields minimally)
-    #: above the crown floor (M0 Q5, v2's own minimum).  M3a, additive.
-    #: THE APRON PREFERENCE (owner RULINGS 2026-09-06w): the ``apron``
-    #: prefix (one group per apron row, ``constraints/apron.py``) is
-    #: charged ``0.9 × the largest DEM-fit weight`` per metre of relief
-    #: above 1 % — JUNIOR to the runway family's own objective terms (its
-    #: DEM fit at the ladder's runway weight, its profile smoothness) and
-    #: SENIOR to every other role's DEM fit (taxi 8, apron 4, pad 1 per
-    #: metre in ``pipeline.build.DEFAULT_WEIGHTS``): the runway's minimal
-    #: sag buys apron grade, the DEM never does.  The most junior
-    #: preference on the ladder (crown 1e2, end_zone 1e3, seam 1e4, law 1e5).
-    #: THE YIELDING FAMILIES (owner RULINGS 2026-09-08d (2); ``constraints/
-    #: yielding.py``): the ``yield`` prefix — junction mesh, short-pair box,
-    #: no-step §1.1 pairs, apron chords / portions, road profiles — is
-    #: charged like the apron preference: junior to the runway CHORD fit
-    #: (``[common] runway_chord_fit``), senior to every other DEM fit.
-    preference: _t.Mapping[str, float] = _dc.field(
-        default_factory=lambda: {"law": 1.0e5, "seam": 1.0e4, "end_zone": 1.0e3,
-                                 "crown": 1.0e2, "apron": 0.9, "yield": 0.9})
-    #: THE LAW LADDER (RULINGS 2026-09-04i; ``solve/tiers.py``): the
-    #: ``law`` prefix charges the MOST JUNIOR yielding tier (the ungoverned
-    #: and rigid surfaces), above the seam DEM preference — the DEM yields
-    #: to every governed surface — and each tier above it costs
-    #: ``tier_ratio`` times more, so the senior surface holds unless the
-    #: junior tiers cannot close the contradiction.  ``tier_top`` caps the
-    #: ladder's top weight (the ratio shrinks to fit): a law group is
-    #: charged ``weight × chord metres`` (≤ the no-step window, 150 m) and
-    #: HiGHS with presolve returns "numerical difficulties" once the
-    #: objective's dynamic range passes ~1e10 (measured M5: a top
-    #: coefficient of 3e10 fails, 4.8e9 solves, against a 0.5 floor).
-    #: M5, additive.
-    tier_ratio: float = 10.0
-    tier_top: float = 2.0e7
-    #: THE RUNWAY SMOOTHNESS (RULINGS 2026-09-06h (c)): λ per BREAKLINE
-    #: KIND, overriding ``smoothness`` for that kind's stations — the
-    #: ``runway_profile`` ridge carries ``rulesets.toml [common]
-    #: runway_profile_smoothness`` (``pipeline.build.weights_under_law``),
-    #: a charge above the runway DEM-fit weight so the profile runs
-    #: straight between its holds; the vertical-curve rows stay hard.
-    smoothness_by_kind: _t.Mapping[str, float] = _dc.field(default_factory=dict)
+    OPTIMAL = "optimal"            # the active set settled
+    FEASIBLE = "feasible"          # solved, the active set had not settled at the cap
+    ERROR = "error"                # solver failure; message in ``Solution.message``
 
 
 @_dc.dataclass(frozen=True)
 class Options:
     """Solver options — a config object, never an env gate."""
 
-    backend: Backend = Backend.HIGHS
     feasibility_tol_m: float = 1e-6
-    max_iterations: int = 20000
     time_limit_s: float | None = None
-    diagnose_iis: bool = True
     verbose: bool = False
 
 
 @_dc.dataclass(frozen=True)
 class Residual:
-    """The certificate: the worst violation of each row kind at the
-    returned ``z`` (metres), and the objective value."""
+    """The certificate: the worst residual of each row kind at the returned
+    ``z`` (metres), and the objective value.  Under the design surface a
+    row is a TARGET, so a residual is a missed target, never a defect of
+    the solve."""
 
     max_pin_m: float
     max_diff_m: float
@@ -131,22 +55,12 @@ class Residual:
 
 @_dc.dataclass(frozen=True)
 class Solution:
-    """``z`` per vertex id (dense tuple in id order), the status, the
-    residual certificate, and — when infeasible — the IIS as
-    ``(row, source)`` pairs naming who minted the contradiction."""
+    """``z`` per vertex id (dense tuple in id order), the status and the
+    residual certificate."""
 
     z: tuple[float, ...]
     status: Status
     residual: Residual | None
-    iis: tuple[tuple[Row, Source], ...] = ()
-    backend: Backend = Backend.HIGHS
     iterations: int = 0
     wall_s: float = 0.0
     message: str = ""
-
-
-def solve(planar: PlanarMap, constraints: ConstraintSet, weights: Weights,
-          options: Options | None = None) -> Solution:
-    """Solve the LP (see module docstring) — ``highs.solve`` (M2)."""
-    from .highs import solve as _solve
-    return _solve(planar, constraints, weights, options)

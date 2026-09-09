@@ -18,10 +18,11 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import role_cap, role_family, role_side
-from ..model.planar import Face, PlanarMap
+from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
+from ..model.planar import Face, PlanarMap, vertex_tier
 from .geometry import ring_vertex_ids
 
-__all__ = ["face_cap", "View", "view"]
+__all__ = ["face_cap", "View", "view", "row_tier"]
 
 
 def face_cap(law: Law, face: Face) -> tuple[float, float] | None:
@@ -104,3 +105,34 @@ def view(pm: PlanarMap, law: Law) -> View:
     _CACHE.clear()
     _CACHE[id(pm)] = (pm, vw)
     return vw
+
+
+
+def row_tier(pm: PlanarMap, row: Row, tier_of: _t.Mapping[str, int], lowest: int) -> int:
+    """THE ROW'S TIER (RULINGS 2026-09-04i): a row minted FOR A FACE
+    (``Source.inputs`` ``face:<id>``) belongs to that face's role — an apron
+    ring edge shared with a taxiway is still the APRON's row; any other row
+    belongs to the most JUNIOR of its vertices, a vertex being owned by the
+    most SENIOR surface touching it (``model.planar.vertex_tier``).
+
+    The LAW-ORDER ATTRIBUTION, kept when the tier LADDER was deleted with the
+    LP (RULINGS 2026-09-08t): the design surface has no ladder, but the
+    reports and the twins still name which surface a row belongs to.
+    """
+    for inp in row.source.inputs:
+        if inp.startswith("face:"):
+            try:
+                return tier_of[pm.faces[int(inp[5:])].role]
+            except (KeyError, ValueError):
+                break
+    if isinstance(row, Pin):
+        vs: tuple[int, ...] = (row.v,)
+    elif isinstance(row, (Diff, Offset)):
+        vs = (row.a, row.b)
+    elif isinstance(row, Linear):
+        vs = tuple(v for v, _c in row.terms)
+    elif isinstance(row, Flat):
+        vs = row.group
+    else:
+        vs = (row.v,)
+    return max((vertex_tier(pm, v, tier_of, lowest) for v in vs), default=lowest)

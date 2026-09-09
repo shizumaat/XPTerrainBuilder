@@ -2,12 +2,14 @@
 (lane v2why, 2026-09-04): ``python -m auto_patch_v2 why ICAO --shape N |
 --at LAT,LON``.
 
-Read-only over the pipeline's own LP (``pipeline/why.py`` rebuilds it:
-load → classify → planar → constraints → the same HiGHS LP, no emit;
+Read-only over the pipeline's own solve (``pipeline/why.py`` rebuilds it:
+load → classify → planar → constraints → the same DESIGN SURFACE solve, no emit;
 this module reads ``law`` and ``model`` only, 04q-3): for the vertices of one face
 it prints the solved z, the DEM, z − dem, the ACTIVE rows touching them
 (zero slack, with generator, ruling, the other endpoint's face / role,
-cap, distance and the HiGHS dual), a CHAIN TRACE of binding rows from
+cap, distance and the row's PRESSURE — the design objective's gradient
+through it, ``2 · w_law · violation``, which is what a dual became when
+the LP became a least-squares problem, RULINGS 2026-09-08t), a CHAIN TRACE of binding rows from
 the shape down to the nearest hard terminal (a CIFP pin, a seam value,
 a band bound, or a vertex the objective holds on its DEM) whose bounds
 sum to the height difference, and a RELAX-ONE-FAMILY table: for each
@@ -32,23 +34,22 @@ import typing as _t
 from collections import deque
 
 import numpy as np
-from scipy.optimize import linprog
 
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin, Row)
 from ..model.planar import PlanarMap
-from .api import Weights
-from .assemble import Problem, assemble
+from .design import DesignReport, solve_design
 
-__all__ = ["Prepared", "prepare", "solve_with_duals", "family_of",
+__all__ = ["Prepared", "prepare", "solve_with_pressure", "family_of",
            "resolve_faces", "Binding", "bindings", "Step", "Trace",
            "chain_trace", "RelaxResult", "relax_family", "taxi_letters",
            "report"]
 
-#: Binding tolerance in metres — the LP sits on its bounds to ~1e-9.
-BIND_TOL_M = 1e-5
+#: Binding tolerance in metres — a design target the surface sits ON.
+#: (The LP sat on its bounds to ~1e-9; a penalty settles near them.)
+BIND_TOL_M = 1e-3
 
 
 # ── the prepared LP ──────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ BIND_TOL_M = 1e-5
 @_dc.dataclass
 class Prepared:
     """Everything one ``why`` reads: the airport, the map, the rows, the
-    assembled LP and its HiGHS result (duals kept)."""
+    design solve's report and the PRESSURE each law row carries."""
 
     icao: str
     airport: Airport
@@ -64,16 +65,12 @@ class Prepared:
     pm: PlanarMap
     cs: ConstraintSet
     counts: dict[str, int]
-    weights: Weights
-    prob: Problem
-    res: _t.Any
+    design: DesignReport
     z: np.ndarray
-    escalation: dict[str, float]
     wall: dict[str, float]
-    #: THE RELAXED MODE (RULINGS 2026-09-04t(1)): when the hard set was
-    #: infeasible, the last resort's report (``relax.RelaxReport``) and
-    #: ``cs`` is the RELAXED hard set the LP above solved
-    relaxation: _t.Any = None
+    #: ``id(row)`` -> the pressure of each of its one-sided sides, in the
+    #: order ``solve.design._law_sides`` states them
+    pressure: dict[int, list[float]] = _dc.field(default_factory=dict)
 
     @property
     def dem(self) -> np.ndarray:
@@ -81,16 +78,26 @@ class Prepared:
                          else math.nan for i in range(len(self.pm.vertices))], float)
 
 
-def solve_with_duals(pm: PlanarMap, cs: ConstraintSet, weights: Weights
-                     ) -> tuple[Problem, _t.Any]:
-    """The pipeline's LP (``solve.assemble.assemble`` + HiGHS) with the
-    scipy result kept, so the row duals (``res.ineqlin.marginals``) can
-    be read back against ``Problem.ub_rows``."""
-    prob = assemble(pm, cs, weights)
-    res = linprog(prob.c, A_ub=prob.A_ub, b_ub=prob.b_ub, A_eq=prob.A_eq,
-                  b_eq=prob.b_eq, bounds=prob.bounds, method="highs",
-                  options={"disp": False, "presolve": True})
-    return prob, res
+def solve_with_pressure(pm: PlanarMap, cs: ConstraintSet, law: Law
+                        ) -> tuple[_t.Any, DesignReport, dict[int, list[float]]]:
+    """The pipeline's own solve (``solve.design.solve_design``) with the
+    PRESSURE of every law row kept: ``2 · w_law · max(0, violation)``, the
+    objective's gradient through that row — what the LP's dual became when
+    the law became a design target (RULINGS 2026-09-08t)."""
+    from .design import _law_sides, _violation
+    from ..law.tables import design as design_law
+    sol, rep = solve_design(pm, cs, law)
+    w = design_law(law).law
+    z = np.asarray(sol.z, float)
+    one, eqs = _law_sides(cs)
+    press: dict[int, list[float]] = {}
+    for side in one:
+        press.setdefault(id(side[2]), []).append(
+            2.0 * w * max(0.0, _violation(side, z)))
+    for terms, hi, row in eqs:
+        v = sum(c * float(z[i]) for i, c in terms) - hi
+        press.setdefault(id(row), []).append(2.0 * w * abs(v))
+    return sol, rep, press
 
 
 # ── families ─────────────────────────────────────────────────────────────
@@ -182,29 +189,18 @@ class Binding:
     note: str = ""
 
 
-def _row_index(prob: Problem) -> dict[int, list[tuple[str, int]]]:
-    """``id(row)`` -> the LP rows it became (kind, index)."""
-    idx: dict[int, list[tuple[str, int]]] = {}
-    for k, r in enumerate(prob.ub_rows):
-        if r is not None:
-            idx.setdefault(id(r), []).append(("ub", k))
-    for k, r in enumerate(prob.eq_rows):
-        if r is not None:
-            idx.setdefault(id(r), []).append(("eq", k))
-    return idx
+def _row_index(prep: "Prepared") -> dict[int, list[float]]:
+    """``id(row)`` -> its sides' pressures (``Prepared.pressure``)."""
+    return prep.pressure
 
 
-def _dual(prep: Prepared, idx: dict[int, list[tuple[str, int]]], row: Row,
+def _dual(prep: "Prepared", idx: dict[int, list[float]], row: Row,
           which: int = 0) -> float | None:
+    """The row's PRESSURE — the design objective's gradient through it."""
     hits = idx.get(id(row), [])
     if not hits or which >= len(hits):
         return None
-    kind, k = hits[which]
-    try:
-        m = prep.res.ineqlin.marginals if kind == "ub" else prep.res.eqlin.marginals
-        return float(m[k])
-    except (AttributeError, IndexError, TypeError):
-        return None
+    return float(hits[which])
 
 
 def _touching(cs: ConstraintSet) -> dict[int, list[Row]]:
@@ -234,19 +230,18 @@ def _touching(cs: ConstraintSet) -> dict[int, list[Row]]:
 def _bindings_of(prep: Prepared, v: int, rows: list[Row], idx, tol: float
                  ) -> list[Binding]:
     """The binding rows of ``v`` with the successors raising ``v`` needs."""
-    z, esc = prep.z, prep.escalation
+    z = prep.z
     out: list[Binding] = []
     for r in rows:
         fam = family_of(r)
         if isinstance(r, Pin):
             out.append(Binding(v, r, fam, 0.0, None, (), _dual(prep, idx, r), "PIN"))
         elif isinstance(r, Diff):
-            cap = r.cap + (esc.get(r.soft, 0.0) if r.soft is not None else 0.0)
-            bound = cap * r.d
+            bound = r.cap * r.d
             other = r.b if r.a == v else r.a
             s_up = bound - (z[v] - z[other])       # v above other by the max
             if s_up <= tol:
-                note = "" if r.soft is None else f"preference {r.soft}"
+                note = "" if r.soft is None else f"target group {r.soft}"
                 out.append(Binding(v, r, fam, s_up, bound, (other,),
                                    _dual(prep, idx, r, 0 if r.a == v else 1), note))
         elif isinstance(r, Flat):
@@ -263,7 +258,7 @@ def _bindings_of(prep: Prepared, v: int, rows: list[Row], idx, tol: float
         elif isinstance(r, Linear):
             s = sum(c * z[u] for u, c in r.terms)
             cv = dict(r.terms).get(v, 0.0)
-            relax = esc.get(r.soft, 0.0) if r.soft is not None else 0.0
+            relax = 0.0        # 08t: no escalation ladder; the row IS its target
             if r.hi is not None and (r.hi + relax) - s <= tol and cv > 0:
                 succ = tuple(u for u, c in r.terms if c < 0 and u != v)
                 out.append(Binding(v, r, fam, (r.hi + relax) - s, r.hi, succ,
@@ -281,7 +276,7 @@ def bindings(prep: Prepared, verts: _t.Iterable[int], tol: float = BIND_TOL_M
              ) -> dict[int, list[Binding]]:
     """Binding rows per vertex of ``verts`` (raising direction)."""
     touching = _touching(prep.cs)
-    idx = _row_index(prep.prob)
+    idx = _row_index(prep)
     return {v: _bindings_of(prep, v, touching.get(v, []), idx, tol) for v in verts}
 
 
@@ -329,11 +324,11 @@ def _terminal_kind(prep: Prepared, v: int, blist: list[Binding]) -> tuple[str, s
             return "SEAM", "seam DEM value held"
     if not any(b.must_rise for b in blist):
         dem = prep.pm.vertices[v].dem_z
-        from .assemble import vertex_weights
-        w = float(vertex_weights(prep.pm, prep.weights)[v])
+        pref = prep.pm.preferred_z.get(v)
         rel = "on" if dem is not None and abs(prep.z[v] - dem) <= 1e-3 else (
             "above" if dem is not None and prep.z[v] > dem else "below")
-        return "FREE", f"no binding row blocks it: {rel} its DEM (fit weight {w:g})"
+        held = "its design target" if pref is not None else "bending alone"
+        return "FREE", f"no binding row blocks it: {rel} its DEM, held by {held}"
     return None
 
 
@@ -343,7 +338,7 @@ def chain_trace(prep: Prepared, start: _t.Iterable[int], tol: float = BIND_TOL_M
     nearest terminal; PIN preferred over SEAM over BAND over FREE when
     several are reached at the same depth."""
     touching = _touching(prep.cs)
-    idx = _row_index(prep.prob)
+    idx = _row_index(prep)
     start = list(start)
     q: deque[int] = deque(start)
     prev: dict[int, tuple[int, Binding] | None] = {v: None for v in start}
@@ -409,11 +404,10 @@ def relax_family(prep: Prepared, family: str, verts: _t.Sequence[int]
                  ) -> RelaxResult:
     """Re-solve with every row of ``family`` dropped (and the reach
     envelope, ``_ENVELOPE``); the shape's rise."""
-    from .highs import solve as _solve
     rows = [r for r in prep.cs.rows() if family_of(r) not in (family, _ENVELOPE)]
     dropped = len(prep.cs.rows()) - len(rows)
     t = time.perf_counter()
-    sol = _solve(prep.pm, ConstraintSet.from_rows(rows), prep.weights)
+    sol, _rep = solve_design(prep.pm, ConstraintSet.from_rows(rows), prep.law)
     wall = time.perf_counter() - t
     if sol.status.value not in ("optimal", "feasible"):
         return RelaxResult(family, dropped, sol.status.value, math.nan, math.nan,

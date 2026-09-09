@@ -26,12 +26,11 @@ from auto_patch_v2.model.airport import (Airport, DsfObject, OsmWay, Runway,
                                          RunwayEnd, SceneryPack)
 from auto_patch_v2.model.constraints import Band, Flat, Pin
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.basins import build_basins, read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import build_structures
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
 
 
@@ -406,8 +405,8 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
                 assert v in pinned or ground
     cs, counts, _w = generate(pm, law, airport)
     assert counts["basins"] == len(rows)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    sol = solve_design(pm, cs, law)[0]
+    assert sol.status is Status.OPTIMAL, sol.message
     assert all(sol.z[v] == pytest.approx(b.floor_z, abs=1e-6) for v in floor_vs)
     # the rim is level with the apron where shared, the DEM where bare
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
@@ -435,7 +434,7 @@ def test_verify_readers_fire(basin_map, law):
     airport, cl3, basins, bs, pm, stats, rep = basin_map
     import dataclasses as _dc
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=False))
+    sol = solve_design(pm, cs, law)[0]
     b = pm.basins[0]
     z = list(sol.z)
     fv = next(v for f in pm.faces.values() if f.ref.startswith(b.floor_ref)
@@ -490,15 +489,18 @@ def test_object_bridge_governs_and_clears(objs, law):
     assert bands and all(b.hi == pytest.approx(d.z - law.tables.structures.bridge.clearance_m)
                          for b in bands)
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    sol = solve_design(pm, cs, law)[0]
+    assert sol.status is Status.OPTIMAL, sol.message
     under = [sol.z[b.v] for b in bands]
     assert max(under) <= d.z - law.tables.structures.bridge.clearance_m + 1e-6
 
 
-def test_low_object_bridge_is_an_iis(objs, law):
+def test_low_object_bridge_is_a_residual(objs, law):
+    """08t: there is no IIS — a deck too low for its clearance is a MISSED
+    TARGET the design report names in its family, not an infeasibility."""
     airport, tunnels, st, pm = _object_bridge_map(objs, law, "low")
     cs, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is not Status.OPTIMAL
-    assert any("deck_top" in s.ruling for _r, s in sol.iis), sol.iis[:5]
+    sol, rep = solve_design(pm, cs, law)
+    assert sol.residual is not None and sol.residual.max_m > 0.5
+    fam = rep.families.get("structures")
+    assert fam and fam["missed"] > 0, rep.line()

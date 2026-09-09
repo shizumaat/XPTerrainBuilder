@@ -57,6 +57,12 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``terrace_joints`` (owner RULINGS 2026-09-08k): one record per shape
   joint (``planar/shapes.py``), v1's record shape — the joint line, the
   emitted step — ``terrace_joints_ll``;
+* ``design`` / ``design_target`` (RULINGS 2026-09-08t/v, added by
+  ``pipeline/build.py`` where the solve's report lives): the design
+  surface's residual per family, and one record per law row the surface
+  MISSED (``family``, ``miss_m``, the vertices' ``ll``) — the census
+  counts those rows law-true in their families and reports them under the
+  ``design_target`` heading;
 * ``basin_facilities`` (M4b): one record per basin the map carries, in
   the v1 emitter's key shape (``check_grade._basin_facilities_declared``
   reads ``floor_m`` / ``rim_law_m`` / ``body_depth_m`` /

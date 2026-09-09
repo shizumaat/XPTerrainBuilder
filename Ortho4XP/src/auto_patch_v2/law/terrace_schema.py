@@ -23,6 +23,13 @@ class Terrace:
     narrow_mouth_max_m: float
     shape_roles: tuple[str, ...]
     band_roles: tuple[str, ...]
+    #: 08d change 4 (a): the sliver-merge area factor the planar build reads
+    #: (``planar/shapes.py``) — moved here from ``[yield]`` with the yielding
+    #: machinery's deletion (RULINGS 2026-09-08t); it never was yield law.
+    sliver_area_factor: float
+    #: 08d change 4 (b): the grade at which the apron edge RAMPS to the
+    #: groundside ring across the stand-off (``constraints/groundside.py``).
+    groundside_ramp_max: float
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -38,3 +45,6 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
         raise err("emit.terrace: separation_m and narrow_mouth_max_m must be positive")
     if tr.narrow_mouth_max_m <= tr.separation_m:
         raise err("emit.terrace: narrow_mouth_max_m must exceed separation_m")
+    if tr.sliver_area_factor <= 0.0 or not 0.0 < tr.groundside_ramp_max < 1.0:
+        raise err("emit.terrace: sliver_area_factor must be positive and "
+                  "groundside_ramp_max a grade fraction in (0, 1)")

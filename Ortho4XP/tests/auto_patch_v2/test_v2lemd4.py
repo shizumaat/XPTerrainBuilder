@@ -39,11 +39,11 @@ from auto_patch_v2.airport.tunnel_walls import read_wall_lines
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.law import Law
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS, _plate_seats
+from auto_patch_v2.pipeline.build import _plate_seats
 from auto_patch_v2.planar.basins import build_basins, read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import build_structures
-from auto_patch_v2.solve import Options, Status, solve
+from auto_patch_v2.solve import Options, Status, solve_design
 
 from test_m4b import _airport as _basin_airport, _cells as _basin_cells, _rect
 from test_tunnel_objects import (_PlaneDem, _airport as _wall_airport, _bore, _cells as _wall_cells,
@@ -358,8 +358,8 @@ def test_taxiway_spanning_the_corridor_is_a_deck_never_a_cut(wall_objs, law):
     tt = [x for x in pm.structures if x.source == "object"][0]
     assert len(tt.decks) == 1
     cs_all, counts, _w = generate(pm, law, airport)
-    sol = solve(pm, cs_all, DEFAULT_WEIGHTS, Options(diagnose_iis=True))
-    assert sol.status is Status.OPTIMAL, sol.iis[:5]
+    sol = solve_design(pm, cs_all, law)[0]
+    assert sol.status is Status.OPTIMAL, sol.message
     deck_faces = [f for f in pm.faces.values() if f.ref.startswith("bridge_deck:twyD")]
     assert deck_faces
     deck_z = [sol.z[v] for f in deck_faces for v in pm.ring_vertices(f.ring)]
@@ -371,7 +371,10 @@ def test_taxiway_spanning_the_corridor_is_a_deck_never_a_cut(wall_objs, law):
     assert len(ramps) == 2                       # severed at the deck
     ramp_near = [sol.z[v] for f in ramps for v in pm.ring_vertices(f.ring)
                  if dpoly.distance(Point(pm.vertices[v].xy)) <= tn.wall_gap_m + 1.0]
-    assert ramp_near and min(deck_z) >= max(ramp_near) + br.clearance_m - 1e-6
+    # 08t: the deck clearance is a TARGET of the one solve — held to the
+    # census's own elevation materiality, not to the LP's exact offset
+    assert ramp_near and min(deck_z) >= (max(ramp_near) + br.clearance_m
+                                         - 2.0 * law.tables.emit.materiality.elevation_m)
     # ...the ramp under the deck sits at the mouth datum (flat) and the
     # piece beyond climbs to the ground at the wall end
     ax = LineString(tt.axis)

@@ -76,7 +76,7 @@ from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
-           "tiered_rows", "preference_face", "apron_preference_report"]
+           "tiered_rows", "preference_face"]
 
 #: The preference rows' escalation-group prefix (``Weights.preference``
 #: key; ``solve/assemble.preference_weight``): ``apron:<face>:<k>``.
@@ -141,39 +141,6 @@ def preference_face(row: Row) -> int | None:
         return int(g.split(":", 2)[1])
     except (IndexError, ValueError):
         return None
-
-
-def apron_preference_report(cs, z, law: Law) -> dict:
-    """THE BUILT SURFACE AGAINST THE PREFERENCE (RULINGS 2026-09-06w (2)):
-    over every apron preference row — per face and in all — the rows
-    whose built grade exceeds the preferred cap by more than the grade
-    materiality, and the max built grade.  A report figure, never a
-    violation (the hard cap is the law)."""
-    tol = law.tables.emit.materiality.grade
-    pref = role_preferred_cap(law, "apron")
-    hard = role_cap(law, "apron")
-    faces: dict[int, dict] = {}
-    rows = over = 0
-    gmax = 0.0
-    for r in cs.diffs:
-        fid = preference_face(r)
-        if fid is None or r.d <= 0.0:
-            continue
-        g = abs(float(z[r.a]) - float(z[r.b])) / r.d
-        f = faces.setdefault(fid, {"rows": 0, "over_preference": 0, "max_grade": 0.0})
-        f["rows"] += 1
-        rows += 1
-        if g > r.cap + tol:
-            f["over_preference"] += 1
-            over += 1
-        f["max_grade"] = max(f["max_grade"], g)
-        gmax = max(gmax, g)
-    for f in faces.values():
-        f["max_grade"] = round(f["max_grade"], 6)
-    return {"preferred": None if pref is None else pref.longitudinal,
-            "max": None if hard is None else hard.longitudinal,
-            "rows": rows, "over_preference": over, "max_grade": round(gmax, 6),
-            "faces": {str(k): v for k, v in sorted(faces.items())}}
 
 
 def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport

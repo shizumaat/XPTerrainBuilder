@@ -17,13 +17,13 @@ from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import generate, no_step
 from auto_patch_v2.constraints.routes import route_path, routes
 from auto_patch_v2.emit.graded import graded_surface
+from auto_patch_v2.constraints.precedence import row_tier
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.pipeline.build import DEFAULT_WEIGHTS
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.solve.highs import solve
+from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.frame import Patch
 from auto_patch_v2.verify.no_step import no_step_direct
 
@@ -180,7 +180,7 @@ def test_pad_pairs_are_apron_law_in_the_solve(site, law):
     """The pad rows belong to the contact's owner (the apron tier), never
     the ungoverned tier the chord population sat in (HECA tier 8)."""
     from auto_patch_v2.law import tables
-    from auto_patch_v2.solve.tiers import row_tier
+    from auto_patch_v2.solve import solve_design
     airport, pm = site
     cs, _c, _w = generate(pm, law, airport)
     tt = tables.tiers(law)
@@ -194,7 +194,7 @@ def test_pad_pairs_are_apron_law_in_the_solve(site, law):
 def test_sidecar_and_verify_read_the_pad_population(site, law):
     airport, pm = site
     cs, _c, _w = generate(pm, law, airport)
-    sol = solve(pm, cs, DEFAULT_WEIGHTS)
+    sol = solve_design(pm, cs, law)[0]
     assert sol.status.value == "optimal"
     pub = publication(pm, law, airport, sol.z)
     pav = no_step.no_step_edges(pm, law)
@@ -206,14 +206,18 @@ def test_sidecar_and_verify_read_the_pad_population(site, law):
         assert rec["dist_m"] == pytest.approx(d, abs=1e-4)
         assert rec["budget_m"] == pytest.approx(cap * d, abs=1e-6)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
-    assert no_step_direct(Patch.of(surf, law, pub, {})) == []
+    # THE NO-STEP LAW IS A TARGET (RULINGS 2026-09-08t): the design surface
+    # aims for it and the census REPORTS the rows it missed, so this twin
+    # reads the DELTA — the hand-minted step at a published pair adds rows the
+    # baseline surface does not carry.
+    base = no_step_direct(Patch.of(surf, law, pub, {}))
     a, b, cap, d = pad[0]
     z = list(sol.z)
     z[b] += cap * d + 1.0
     surf2 = graded_surface(pm, law, _dc.replace(sol, z=z), airport.frame.origin,
                            airport.frame.crs, {})
     rows = no_step_direct(Patch.of(surf2, law, pub, {}))
-    assert rows and all(r["family"] == "airside_no_step" for r in rows)
+    assert len(rows) > len(base) and all(r["family"] == "airside_no_step" for r in rows)
 
 
 @pytest.fixture(scope="module")

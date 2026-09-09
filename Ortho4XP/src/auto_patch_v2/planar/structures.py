@@ -140,6 +140,14 @@ def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
 
 
+def _pad_relief_m(airport: Airport, poly: Polygon) -> float:
+    """The DEM relief across a pad's ring (a flat pad is ground; a pad on
+    relief is a levelled plane)."""
+    zs = [_dem(airport, (x, y)) for x, y in poly.exterior.coords]
+    zs = [z for z in zs if not math.isnan(z)]
+    return (max(zs) - min(zs)) if zs else math.inf
+
+
 def _ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
               spacing: float, half: float, s_min: float = 0.0, grade: float | None = None,
               max_len: float | None = None, straight: bool = False
@@ -285,6 +293,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
+    pad_poly = {ref: p for p, ref in pads}
+    band_m = law.tables.structures.basin.contact_band_m
     pad_tree = STRtree([p for p, _r in pads]) if pads else None
     # what a DOOR ramp stops at (spec othh-terminal-ramps §2/§4): every
     # governed cell beyond the well but the ones the well itself stands in
@@ -489,13 +499,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             near = c.footprint.buffer(grid)
             host = {stop_list[int(j)][1] for j in stop_tree_g.query(near, predicate="intersects")}
             if g.kind == WALL_KIND:
-                # a building PAD is never a host of a Law C ramp (tunnel.
-                # ramp_crosses_pad = false; a pad is one rigid plane —
-                # measured LEMD Cargo-NEWCO@5/a: its ramp top inside the
-                # pad, pinned at the ground 3.2 m over the pad's plane, a
-                # demotion): the walls cut the pad (08-26), the ramp beyond
-                # them stops at its edge and steepens, or is refused
-                host = {ref for ref in host if ref not in pad_refs}
+                # a building PAD hosts a Law C ramp only when it is FLAT
+                # ground (its DEM relief within basin.contact_band_m: the
+                # owner's bays stand inside OTHH's terminal pad on the flat
+                # site, its plane = the ground); a pad on RELIEF is a levelled
+                # plane the ramp's top cannot meet at the DEM (measured LEMD
+                # Cargo-NEWCO@5/a: the top pinned 3.2 m over the pad's plane,
+                # a demotion) — it stops the ramp (tunnel.ramp_crosses_pad),
+                # the walls still cut it (08-26)
+                host = {ref for ref in host
+                        if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = g.half_fn
         traced: list[str] = []
         if c is None:

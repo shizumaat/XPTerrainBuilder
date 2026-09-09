@@ -829,3 +829,285 @@ Runway DEFECT families 0 on all four.  OTHH's strip misses its bar:
 its bank is one level deep (mean foot 5.6 m) and its strip was already
 the smoothest of the four — `bend_strip` buys it only 0.023 -> 0.022.
 Reported, not decided.
+
+## §11 THE DAYLIGHT LINE, and the level rings VALID BY CONSTRUCTION
+## (RULINGS 2026-09-09g / 2026-09-09h) — lane `v2daylight`
+
+### 11.1 What is being added
+
+**THE DAYLIGHT FOOT (09g).**  §9/§10 placed the foot by the fixed point
+`d = max(bank_min_width_m, |z_ring − DEM(foot)| / bank_slope)`.  That is
+the daylight point only where the ground is smooth; where it is not, the
+fixed point erases the very earthworks the owner names.  The owner rules
+the civil-engineering DAYLIGHT (catch) POINT: from each boundary-ring
+vertex, walk OUTWARD along its normal in `bank_sample_m` (2 m) stations
+and carry the 1:3 DESIGN SLOPE LINE with you —
+
+    fill (`z_ring ≥ DEM(ring)`):  z_line(t) = z_ring − bank_slope · t
+    cut  (`z_ring <  DEM(ring)`): z_line(t) = z_ring + bank_slope · t
+
+The FOOT is the first station where `z_line(t)` meets the DEM within
+`bank_daylight_tol_m` (0.3 m) — or, where a station steps over the
+crossing, the crossing itself by linear interpolation — never nearer
+than `bank_min_width_m` (5 m), never farther than `bank_max_width_m`
+(200 m).  Two special cases the ruling names:
+
+* THE GROUND'S OWN BANK.  Where the DEM within the first
+  `bank_min_width_m` already falls (fill) / rises (cut) at ≥ `bank_slope`,
+  the foot is AT THE MINIMUM and the DEM's own bank carries the drop
+  beyond — a real embankment under the pavement edge survives untouched.
+* NEVER DAYLIGHTS.  A ray that reaches `bank_max_width_m` without meeting
+  the DEM takes the maximum and is REPORTED BY NAME (chain, vertex, and
+  its lat/lon) in the planar report and in `report["bank"]`.
+
+Consequences by construction, the owner's own list: a PLATEAU EDGE or
+CLIFF beyond the daylight point is outside the bank and untouched; a real
+TERRACE between the ring and the old fixed-point foot is met where it
+stands and kept.
+
+**THE TOE NEVER SMOOTHS ACROSS A DISCONTINUITY (09g (4)).**  The plan
+smoothing of §9.4 deviation 1 is kept, but the closed foot chain is first
+CUT into runs wherever the RAW daylight distance jumps by more than
+`bank_toe_break_m` (10 m) between neighbours: each run is smoothed as an
+open chain, and the jump — the ground's own discontinuity — survives.
+
+**LEVEL RINGS VALID BY CONSTRUCTION (09h).**  §10.6 attributed the last
+111 % triangle: a level ring built as a per-vertex inward offset of an
+AIRPORT-SCALE chain self-intersects at concave corners, and
+`include_patches` drops an invalid closed way whole (9 of 39 at HECA;
+`buffer(0)` recovered 6).  The owner rules option (b): the level ring at
+plan distance `t` is
+
+    cover.buffer(t) ∩ banked_region
+
+— shapely-constructed, VALID BY CONSTRUCTION, and it degenerates to the
+foot exactly where the bank is narrower than `t` (the intersection's
+boundary is the banked boundary there), which is §10.1's closure rule
+read as an area.  Each exterior and interior ring of the result is one
+CLOSED way.  z per vertex comes from THE BANK FIELD: the design z at the
+nearest point of the coverage boundary (interpolated along that boundary
+edge), the DEM z of the nearest foot node, linear in the plan fraction
+`min(1, dq / dk)`.  `emit/bank._simple_rings` (the `buffer(0)` repair) is
+DELETED with the per-vertex offset it repaired.
+
+### 11.2 CONSUMER TABLE (owner 2026-08-30l)
+
+Neither change adds a shape class, a region, a breakline KIND or a
+register entry: the bank keeps `emit.bank.BANK_KIND` (`o4_feature=
+bank_foot`), the same `ref` shape (`bank:N`, `bank:N@LEVEL`), and still
+runs AFTER the solve on the solution.  Every A-row of §9.2 and C-row of
+§10.2 therefore stands unchanged; what follows is the census of what
+these two changes touch that those tables did not.
+
+D. THE DAYLIGHT FOOT — the foot MOVES; nothing new is emitted.
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| D1 | `emit/bank.foot_distances` | ring z, normals, DEM | REPLACED by the daylight walk (`daylight_feet`), returning `d` AND a per-vertex classification (`MIN` / `DAYLIGHT` / `MAX`).  The fixed-point iteration and its `rounds` argument are DELETED — the walk is not a fixed point. |
+| D2 | `emit/bank.smooth_along` | the closed foot chain | GENERALISED to `closed=False` and wrapped by `smooth_runs`, which cuts at `bank_toe_break_m` jumps.  The closed-chain behaviour is unchanged where no jump exists, so §9's toe twin still holds. |
+| D3 | `emit/bank._ray_limit` (the foot stops at the next patch ring) | coverage segments | UNAFFECTED — it caps `d` after the walk exactly as before; a shared bank is still shared. |
+| D4 | the union `banked = cov.buffer(min_w) ∪ pieces` (§9.4 deviation 4) | the per-chain pieces | UNAFFECTED in kind: only the pieces' outer extent changes.  ONE region per airport still. |
+| D5 | `pipeline/build.py:574` — `BankReport`, `_say`, `report["bank"]` | the report dataclass | EDITED: `BankReport` gains `at_min` / `daylighted` / `at_max` counts and `never_daylight` (the names, capped in the printed line, whole in the JSON).  `_dc.asdict` carries a `list[str]` unchanged; no reader of `report["bank"]` exists outside the build's own log (grep: one write, no read). |
+| D6 | `airport/dem_production.DEM.z_many` | frame points | UNAFFECTED, but now called ~`bank_max_width_m / bank_sample_m` times per pass instead of twice: the walk is VECTORISED over the still-marching vertices, one `z_many` call per station over a shrinking active set. Build-time impact in §11.5. |
+| D7 | `constraints/zones.py` and every other DEM reader | the same DEM | UNAFFECTED: the bank samples the DEM, it never writes it, and it runs after the solve. |
+
+E. THE LEVEL RINGS BY CONSTRUCTION — the same kind, the same ref shape.
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| E1 | `emit/bank._simple_rings` | the raw offset ring | DELETED — the construction is valid by construction, so there is nothing to repair (09h's own words). |
+| E2 | `emit/bank.intermediate_offsets` | `d`, spacing | KEPT as the LEVEL SCHEDULE (which `t` values exist), now read once over the whole bank rather than per ray.  Twin unchanged. |
+| E3 | `emit/osm_adapter.render_patch` | breaklines | UNCHANGED CODE (§10.2 C2): closed-or-open by `vertices[0] == vertices[-1]`; every level ring is closed. |
+| E4 | `O4_Vector_Map.include_patches` | closed patch ways | THE POINT OF THE CHANGE: `pol.is_valid and pol.area` now holds for every level ring, so none is dropped and every annulus band is seeded `INTERP_ALT`.  Verified as a build statistic (rings emitted vs rings dropped). |
+| E5 | vertex identity | coordinates | a level-ring vertex coincident with a foot node REUSES the foot node's id (kd-tree match within the `_SNAP` quantum); the rest are minted.  `insert_way(check=True)` welds by coordinate anyway, so this is economy, not correctness. |
+| E6 | `emit/bank.with_bank`'s `_inner` field | cov / z-segments | REUSED as the level ring's z source (E1 already derived repaired vertices this way); factored into `_field_at` so the foot and the levels read ONE field. |
+| E7 | `verify/*`, `check_grade`, `tools/undulation.py`, the sidecar | `o4_feature` | UNAFFECTED via §9.2 A8–A12 / §10.2 C5–C8 — no register gains an entry. |
+
+F. THE FOUR NEW LAW KEYS (`emit.toml [design]`).
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| F1 | `law/design_schema.Design` | the `[design]` table | EDITED: `bank_sample_m`, `bank_daylight_tol_m`, `bank_max_width_m`, `bank_toe_break_m` as fields, with `check_design` validation.  No numeric literal in `law/*.py`; the file stays under 1,000 lines (154 → ~175). |
+| F2 | `law/model._build` | every key must be a field | the loader REFUSES an unknown key and a missing required one, so the TOML and the schema land together or the law fails to load. |
+| F3 | `law/tables.design`, `solve/design.py` | `DESIGN_TERMS` | UNAFFECTED: the new keys are geometry, not objective weights, so `DESIGN_TERMS` is untouched (as `bank_slope` already is). |
+| F4 | `tests/auto_patch_v2/test_law_tables.py` | the loaded table | UNAFFECTED — it asserts weights and registers, not the key set. |
+
+### 11.3 The law values (owner's figures, 09g)
+
+    bank_sample_m        = 2.0     # the walk's station
+    bank_daylight_tol_m  = 0.3     # the slope line MEETS the DEM within this
+    bank_max_width_m     = 200.0   # a ray that never daylights stops here
+    bank_toe_break_m     = 10.0    # the toe smoothing is cut at a jump this big
+
+`check_design` validates `0 < bank_sample_m`, `0 < bank_daylight_tol_m`,
+`bank_max_width_m > bank_min_width_m`, `bank_toe_break_m > 0`.
+
+### 11.4 Twins (`tests/auto_patch_v2/test_v2daylight.py`)
+
+The five daylight twins are the ruling's own list, each on a synthetic
+DEM with one boundary ring; plus the toe-break twin and the level-ring
+validity twin on a CONCAVE airport-scale cover.
+
+### 11.5 Build-time impact statement
+
+The walk replaces 2 vectorised DEM samples per boundary vertex with up to
+`bank_max_width_m / bank_sample_m` = 100, over a shrinking active set (the
+median ray daylights inside 10 stations).  The level rings replace ~7
+per-vertex offsets + `buffer(0)` repairs with ~7 `buffer` + `intersection`
+calls on the airport-scale cover.  Measured at HECA in §11.6 against 09h's
+1.0 s bank / 145 s total.
+
+### 11.6 MEASUREMENTS and the DEVIATIONS the lane REPORTS
+
+**Deviations (reported, never decided by the lane).**
+
+1. THE FOOT IS THE CROSSING, NOT THE STATION THAT DETECTED IT.  09g says
+   "the FIRST station where the slope line meets the DEM within
+   `bank_daylight_tol_m`".  Taken literally the foot lands at a 2 m grid
+   station, and the realised bank is then up to `tol / d` STEEPER than the
+   law's 1:3 purely because the walk is discrete (6 m of fill on level
+   ground daylights at the 18 m station where the exact meeting is 18.18 m
+   — a realised 0.3333 against a law of 0.33).  The walk therefore uses the
+   tolerance to DETECT the meeting and places the foot at the linear
+   crossing between the bracketing stations (capped at one further
+   station).  On smooth ground this reproduces 09e's fixed point exactly
+   (twin `test_the_foot_follows_the_ground_away_on_sloping_terrain`), and
+   `rep.max_slope` reads 0.3300 on the flat-ground fixture.
+2. `t` IS THE MITERED OFFSET PARAMETER, not arc length along the ray — the
+   same parameter §9 already used, so a mitred right-angle corner's foot
+   NODE stands `t·√2` from the coverage while its perpendicular bank is
+   `t`.  Every distance statistic (`mean_m`, `p95_m`, `max_m`) is the foot
+   node's plan distance to the coverage and carries that √2 at corners;
+   the `bank_max_width_m` clamp is on the parameter.
+3. THE LEVEL RING'S z IS READ ON ITS OWN LOCAL RAY.  09h names "the bank
+   field"; the first arm read it from the NEAREST FOOT NODE's width, and a
+   level vertex whose nearest foot node sat on a narrower stretch took that
+   stretch's width — its z landed ~1 m off the straight bank and the mesh
+   transect read 64 % against the ring.  The field is now the ray from the
+   nearest point of the design coverage THROUGH the vertex to its first
+   crossing of the banked boundary (`emit/bank._local_foot`), which is the
+   bank's width AT THAT VERTEX.  Measured effect on the transect: 64 % ->
+   46 % (below).
+4. TWO GEOMETRIC FLOORS of the construction (not law values): a level ring
+   whose area is under `bank_min_width_m²` is skipped, and a level ring
+   that MINTED NO VERTEX is the foot ring itself and is skipped.  The
+   second is not cosmetic: emitting it put a second closed way on the
+   foot's own nodes (175 of them at HECA).
+5. `rep.face_levels` reports the DEEPEST LEVEL ACTUALLY AUTHORED, never the
+   schedule's own count — deviation 2's mitre makes the schedule name
+   levels the region has no room for.
+
+**HECA `HECA_20260909T140533` (166.5 s total, solve 29.7 s; 09h's build
+`HECA_20260909T125715` served from the artifact ledger as the control,
+key 63984c3cb2fb).**  THE DESIGN SURFACE IS UNTOUCHED, matched instrument:
+
+| | this | 09h control | bar |
+|---|---|---|---|
+| bows 05R / 05C / 05L (`tools/rwy_profile.py`) | −0.05 / −2.73 / −0.08 | −0.04 / −2.73 / −0.08 | within 0.15 m — MET |
+| runway DEFECT families (`verify/census.DEFECT_KEYS`) | 0 / 0 | 0 / 0 | 0 — MET |
+| undulation RMS 2nd difference, EVERY role (`tools/undulation.py`) | runway 0.002681, junction 0.007747, stub 0.008750, primary_parallel 0.009959, apron 0.010362, service_road 0.010765, cross_connector 0.011280, secondary_parallel 0.011907, graded_strip 0.022123, overall 0.015894 | IDENTICAL to 8 significant figures | 09h's — MET |
+
+(The bank runs after the solve and `tools/undulation.py` skips
+`o4_feature=bank_foot`, so identity here is the consumer table's A1/C1
+holding in the measurement.  09h's ruling text quotes a middle-runway bow
+of −2.28; the ledgered control build reads −2.73 under `rwy_profile.py`,
+which is the figure both arms above are measured with — the 0.15 m bar is
+judged on the matched pair, never across instruments.)
+
+THE BANK: 175 rings (9,826 boundary vertices -> 5,542 foot nodes, 163
+repaired, 1,207 skipped), **DAYLIGHT 7,219 at the minimum / 2,607
+daylighted / 0 at the maximum** (`never_daylight` empty), toe in 468
+smoothing runs; foot distance min 5.0 / mean 7.0 / p95 14.7 / max 76.0 m;
+bank slope p95 0.350 / max 1.529 (the max is §9.4's two-bodies instrument,
+not a bank: it reads a foot node against the NEAREST design vertex, which
+at a shared bank belongs to the other body).  FACE: **235 level rings,
+5,491 vertices, 0 INVALID**, deepest bank 7 levels, 3.9 s.  09h emitted 48
+intermediate rings of which 9 were dropped by `include_patches`; this
+emits 235 and **none is dropped** — E4 met.
+
+**THE MESH TRANSECT (`tools/run_tile_mesh_only.py 30 31 1
+--patches-as-is`, lon 31.3819142, 2.2 m stations, lat 30.11630–30.11680).**
+
+| arm | the outer bank | steepest one-triangle station |
+|---|---|---|
+| 09f (foot ring only) | 17.55 m over 59 m | 9.93 / 8.9 m = 111 % |
+| 09h (level rings by per-vertex offset) | 25 stations at 30.5 % | 2.47 / 2.23 m = 111 % |
+| this, arm 1 (nearest-foot-node field) | 5 stations at 29 %, 5 at 38 % | 1.42 / 2.22 m = 64 % |
+| **this, arm 2 (local-ray field)** | **13 continuous stations at 29.2 % — the law's 1:3 exactly, over the outer 29 m** | **1.03 / 2.22 m = 46 %** |
+
+**THE TRANSECT BAR (every triangle ≤ 0.35) IS NOT MET — STOP-AND-REPORT
+at the attempt cap.**  The residual is the innermost ~6.7 m: three
+stations of 1.03 m against the patch ring.  ATTRIBUTED: the first authored
+level stands at `bank_ring_spacing_m` = 10 m, so between the design ring
+and that level there is NO authored vertex and
+`interpolate_free_interior_altitudes`' graph-harmonic extension still
+governs — the same mechanism §10.6 named, now confined to one spacing
+instead of the whole bank.  The candidate answer is a level INSIDE the
+first spacing (a ring at `bank_min_width_m`, or a smaller spacing near the
+ring), which is a LAW VALUE the owner set at 10 m: an intent question,
+not a lane decision.
+
+**THE SECOND TRANSECT — the site the brief asks for DOES NOT EXIST AT
+HECA.**  Scanned: 4,000 foot nodes × 8 directions, the DEM (`Data+30+031.
+alt` through `tools/mesh_elevation_sampler.AltRaster`) at 3 m stations out
+to 30 m.  The STEEPEST near-boundary DEM slope in the whole HECA frame is
+**0.295** (30.11721, 31.38817) — under the bank's own 0.33, so no ring on
+this airport has a DEM terrace or embankment steeper than 1:3 within 30 m
+of it.  (The 1.529 foot-to-design readings are §9.4 deviation 4's
+two-bodies instrument, not terrain: at 30.11061, 31.39565 the `.alt` is
+flat at 93.5 and it is the PATCH that stands 8.6 m up.)  The transect at
+that steepest real site (lon 31.38817, lat 30.11700–30.11760) reads the
+mesh against the DEM raster: **worst +1.06 m, RMS 0.48 m over 31
+stations, no step over 0.65 m (29 % — the DEM's own slope)** — the ground
+beyond the foot is the DEM, untouched, which is 09g's consequence (2).
+The owner's four other consequences (embankment, plateau edge, cliff top,
+rising terrace) are carried by the twins, on synthetic DEMs, because HECA
+has no such ground.
+
+**A DEFECT THE LANE COULD NOT CLOSE — the tile mesh REFUSES.**
+`O4_Vector_Map.audit_interp_alt_seed_sealing` reports **1 of 2,717
+INTERP_ALT seeds in an unbounded face** at (0.413671602, 0.128224345)
+= lat 30.128224, lon 31.413672, and REFUSES the tile; the control patch
+(09h) seals all 2,410 seeds.  Both transects above were therefore read
+under `O4_INTERP_ALT_SEAL=warn`, which the audit itself provides.  What
+was measured and REFUTED on the way: (a) the 175 duplicate level rings
+(a level with no room emitting a second way on the foot's own nodes) —
+fixed, the seed persists unchanged; (b) near-coincident level rings
+annihilated by the map's 1e-7 deg node grid — `shapely.ops.snap` of every
+level ring onto the banked boundary at 0.5 m changed the patch body
+hash NOT AT ALL (`1e8ce88b9290` before and after), so no such vertex
+exists; (c) the arrangement reproduced offline from the patch's own
+closed ways, with and without 1e-7 rounding, seals every seed (0
+unsealed, 1,853 faces) — so the failure lives in the map AFTER
+`insert_way(check=True)`'s edge cutting, not in the emitted geometry.
+The attempt cap is spent.  Reported for the spawner, not decided.
+
+### 11.7 THE BASE ARMS
+
+`graded_strip` RMS second difference (`tools/undulation.py --role
+graded_strip`) and the runway DEFECT families, all three built at this
+tree with `--base-arm`:
+
+| airport | 09h | this | runway DEFECTs | bank |
+|---|---|---|---|---|
+| CYXY | 0.0314 | **0.031443** | 0 / 0 | 20 rings, 980 min / 388 daylighted / 0 max, mean 6.7 m, 24 level rings, 0 invalid, 0.18 s (10.5 s total) |
+| OTHH | 0.0221 | **0.022095** | 0 / 0 | 44 rings, 9,436 min / 7 daylighted / 0 max, mean 5.6 m, 88 level rings, 0 invalid, 1.25 s (356 s total) |
+| LEMD | 0.0510 | **0.050994** | 0 / 0 | 22 rings, 4,311 min / 1,036 daylighted / 0 max, mean 6.4 m, 118 level rings, 0 invalid, 0.76 s (258 s total) |
+
+Every strip reads 09h's own value to four decimals: the daylight foot and
+the level rings move the BANK, and the bank is emitted after the solve.
+OTHH's bank is one level deep and 9,436 of 9,443 rays take the minimum —
+its ground is level with its pavement edge almost everywhere, which is why
+`bend_strip` bought it so little in §10.7.  0 rays anywhere reached
+`bank_max_width_m`, so `never_daylight` is empty on all four airports and
+the by-name report has nothing to name yet (the twin
+`test_the_report_names_a_ray_that_never_daylights` exercises it).
+
+**Build-time (§11.5 answered).**  The bank pass costs 3.9 s at HECA
+against 09h's 1.0 s (+2.9 s on a 166 s build, 1.7 %) — the daylight walk
+(one vectorised DEM call per 2 m station over a shrinking active set) and
+the per-level-vertex ray cast of deviation 3.  Whole-airport wall 166.5 s
+against 09h's 145–148 s; the solve is unchanged (29.7 s here, 26.8 s
+there, both inside the ±25 % single-run band, and the surface is
+bit-identical).  Over the 60 s per-airport budget on both sides — the
+standing figure adjudicated once in the final profiling round.

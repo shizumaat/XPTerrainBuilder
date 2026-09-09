@@ -232,6 +232,25 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # foot's DEM z along the outward normal.  A foot at ``bank_min_width_m``
 # gets none (there is no room for one).
 bank_ring_spacing_m = 10.0
+# THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11).  The fixed
+# point ``d = |z_ring - DEM(foot)| / bank_slope`` is the daylight point only
+# where the ground is smooth; where it is not it erases the very earthworks
+# the owner names.  The foot is instead the CIVIL-ENGINEERING DAYLIGHT
+# (catch) POINT: walking outward along the ring's normal in
+# ``bank_sample_m`` stations, the FIRST station where the 1:3 design slope
+# line (down for fill, up for cut, from the ring's design z) meets the DEM
+# within ``bank_daylight_tol_m``, never nearer than ``bank_min_width_m``,
+# never farther than ``bank_max_width_m`` (a ray that never daylights takes
+# the maximum and is reported by name).  Where the DEM inside the first
+# ``bank_min_width_m`` already slopes at or steeper than ``bank_slope`` in
+# the fill / cut direction the ground has its OWN bank and the foot is at
+# the minimum.  The toe smoothing (09f) is CUT wherever the raw daylight
+# distance jumps by more than ``bank_toe_break_m`` between neighbours: the
+# toe may jump where the ground does.
+bank_sample_m       = 2.0
+bank_daylight_tol_m = 0.3
+bank_max_width_m    = 200.0
+bank_toe_break_m    = 10.0
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.

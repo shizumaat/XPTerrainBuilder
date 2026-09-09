@@ -24,7 +24,7 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate, stack
 from auto_patch_v2.constraints import pads as padgen
 from auto_patch_v2.emit.bank import (BANK_KIND, BankReport, coverage_polygon,
-                                     foot_distances, intermediate_offsets,
+                                     daylight_feet, intermediate_offsets,
                                      smooth_along, with_bank)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import BANK_FEATURE, render_patch
@@ -122,10 +122,14 @@ def test_a_ring_one_metre_up_takes_the_minimum_width(apron_map, law):  # noqa: F
     assert rep.max_slope < d.bank_slope, rep
 
 
-def test_the_formula_is_a_fixed_point_on_sloping_ground(law):   # noqa: F811
-    """:func:`foot_distances` iterates because the foot's own DEM sample
-    decides where the foot lands: on ground falling 10 % away from the
-    ring, a 6 m ring's foot settles FARTHER out than the flat answer."""
+def test_the_foot_follows_the_ground_away_on_sloping_terrain(law):   # noqa: F811
+    """RE-SCOPED for THE DAYLIGHT LINE (owner RULINGS 2026-09-09g, spec
+    §11): the foot is no longer the fixed point of ``|z_ring - DEM(foot)| /
+    bank_slope`` but the DAYLIGHT point of the 1:3 slope line
+    (:func:`daylight_feet`).  On SMOOTH ground the two agree exactly, and
+    this twin is the proof: on ground falling 10 % away from the ring a 6 m
+    ring daylights at ``6 / (0.33 - 0.10)`` — the old fixed point's own
+    answer."""
     class _Slope:
         provenance = {"synthetic": "10 % fall"}
 
@@ -138,11 +142,13 @@ def test_the_formula_is_a_fixed_point_on_sloping_ground(law):   # noqa: F811
     d = law.tables.emit.design
     pts = np.array([[0.0, 0.0]])
     nrm = np.array([[1.0, 0.0]])
-    got = foot_distances(np.array([706.0]), pts, nrm, _Slope(),
-                         d.bank_slope, d.bank_min_width_m, rounds=6)
-    # the fixed point of d = (6 + 0.10 d) / 0.33
+    got, kind = daylight_feet(np.array([706.0]), pts, nrm, _Slope(),
+                              d.bank_slope, d.bank_min_width_m,
+                              d.bank_max_width_m, d.bank_sample_m,
+                              d.bank_daylight_tol_m)
     want = 6.0 / (d.bank_slope - 0.10)
     assert float(got[0]) == pytest.approx(want, rel=0.02)
+    assert int(kind[0]) == 1                             # a true daylight
 
 
 # ── (2) THE FOOT STOPS AT THE NEXT PATCH RING ──────────────────────────
@@ -369,35 +375,38 @@ def test_a_six_metre_ring_authors_one_intermediate_ring_at_the_linear_z(apron_ma
     """A 6 m ring with an 18.2 m foot gets ONE intermediate ring at 10 m of
     plan, its z LINEAR between the ring's design z (706) and the foot's DEM
     z (700): 706 − 6 × 10/18.18 = 702.7.  The chains carry the SAME
-    ``bank_foot`` register as the foot (no new consumer)."""
+    ``bank_foot`` register as the foot (no new consumer).
+
+    RE-SCOPED for 09h (spec §11): the level ring is now
+    ``cover.buffer(t) ∩ banked_region`` — valid by construction — so it no
+    longer carries one vertex per foot node; on this mitred rectangle it is
+    the four corners of the offset rectangle.  Its Z is unchanged: the same
+    bank field, the same linear fraction."""
     airport, pm, _r = apron_map
     banked, _surf, rep = _bank(airport, pm, law, 6.0)
     d = law.tables.emit.design
     assert rep.face_rings >= 1 and rep.face_vertices > 0
+    assert rep.face_rings_invalid == 0                   # 09h's own gate
     face = [b for b in banked.breaklines if b.kind == BANK_KIND and "@" in b.ref]
     lv1 = [b for b in face if b.ref.endswith("@1")]
-    # EVERY intermediate ring is CLOSED and carries one vertex per foot
-    # node — the mesh needs a closed way to seed the band (spec §10.5)
+    # EVERY level ring is CLOSED — the mesh needs a closed way to seed the
+    # band (spec §10.5: open chains reverted the bank to the DEM, 306 %)
     assert len(lv1) == 1 and lv1[0].vertices[0] == lv1[0].vertices[-1]
-    assert len(lv1[0].vertices) - 1 == rep.foot_vertices
     zof = {v.id: v.z for v in banked.vertices}
     foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
                 and "@" not in b.ref for v in b.vertices}
-    # a mitred right-angle corner's ray is 18.18 * sqrt(2) = 25.7 m, so it
-    # alone reaches a SECOND level: that ring is closed too and RUNS ALONG
-    # THE FOOT (the foot's own node ids) everywhere the bank is narrower
-    lv2 = [b for b in face if b.ref.endswith("@2")]
-    assert rep.face_levels == 2 and len(lv2) == 1
-    assert lv2[0].vertices[0] == lv2[0].vertices[-1]
-    assert len(lv2[0].vertices) - 1 == rep.foot_vertices
-    shared = [v for v in lv2[0].vertices[:-1] if v in foot_ids]
-    assert 0 < len(shared) < rep.foot_vertices
+    # THERE IS NO SECOND LEVEL under 09h: the perpendicular bank is 18.18 m
+    # everywhere on this rectangle, and a mitred corner is the SAME bank seen
+    # diagonally — 09f-1's per-vertex construction authored a level 2 there
+    # because it measured the corner RAY (25.7 m).  ``cov.buffer(20) ∩
+    # banked`` is ``banked`` itself, so the level has no room and is skipped.
+    assert rep.face_levels == 1
+    assert not [b for b in face if b.ref.endswith("@2")]
+    assert foot_ids
     inner = [zof[v] for b in lv1 for v in b.vertices if v not in foot_ids]
     want = 706.0 - 6.0 * (d.bank_ring_spacing_m / (6.0 / d.bank_slope))
     assert inner
-    # along a straight edge the ray is exactly the formula's; a mitred
-    # corner's ray is longer, so its level vertex sits higher — every one
-    # of them is strictly between the DEM and the design ring
+    # every level vertex is strictly between the DEM and the design ring
     assert all(700.0 < z <= 706.0 for z in inner)
     assert min(inner) == pytest.approx(want, abs=0.15)
 

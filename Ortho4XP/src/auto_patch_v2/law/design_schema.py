@@ -73,6 +73,18 @@ class Design:
     #: rings that AUTHOR the bank face (owner RULINGS 2026-09-09f-1) —
     #: the mesh interpolates nothing it has no vertices for.
     bank_ring_spacing_m: float
+    #: THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11): the foot is
+    #: the civil-engineering DAYLIGHT (catch) POINT, not the smooth-ground
+    #: fixed point — walking outward in ``bank_sample_m`` stations, the first
+    #: station where the design slope line meets the DEM within
+    #: ``bank_daylight_tol_m``, clamped to ``[bank_min_width_m,
+    #: bank_max_width_m]``.  ``bank_toe_break_m`` is the jump in raw daylight
+    #: distance between neighbours that CUTS the toe's plan smoothing: the
+    #: toe may jump where the ground does.
+    bank_sample_m: float
+    bank_daylight_tol_m: float
+    bank_max_width_m: float
+    bank_toe_break_m: float
     #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
     #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
     #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
@@ -134,6 +146,19 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_ring_spacing_m {d.bank_ring_spacing_m}: at least "
                   f"bank_min_width_m {d.bank_min_width_m} — a narrower spacing would "
                   "author a ring inside the minimum bank (09-09f-1)")
+    if not d.bank_sample_m > 0.0:
+        raise err(f"emit.design.bank_sample_m {d.bank_sample_m}: the daylight "
+                  "walk's station, positive metres (09-09g)")
+    if not d.bank_daylight_tol_m > 0.0:
+        raise err(f"emit.design.bank_daylight_tol_m {d.bank_daylight_tol_m}: "
+                  "the slope line MEETS the DEM within this, positive metres")
+    if not d.bank_max_width_m > d.bank_min_width_m:
+        raise err(f"emit.design.bank_max_width_m {d.bank_max_width_m}: wider "
+                  f"than bank_min_width_m {d.bank_min_width_m} — the daylight "
+                  "walk has to have somewhere to walk (09-09g)")
+    if not d.bank_toe_break_m > 0.0:
+        raise err(f"emit.design.bank_toe_break_m {d.bank_toe_break_m}: the toe "
+                  "smoothing's break, positive metres")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

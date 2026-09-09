@@ -69,6 +69,10 @@ class Design:
     bank_slope: float
     bank_min_width_m: float
     bank_foot_smooth: float
+    #: ``bank_ring_spacing_m`` is the plan spacing of the INTERMEDIATE
+    #: rings that AUTHOR the bank face (owner RULINGS 2026-09-09f-1) —
+    #: the mesh interpolates nothing it has no vertices for.
+    bank_ring_spacing_m: float
     #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
     #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
     #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
@@ -126,6 +130,10 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_min_width_m {d.bank_min_width_m}: positive metres")
     if not d.bank_foot_smooth > 0.0:
         raise err(f"emit.design.bank_foot_smooth {d.bank_foot_smooth}: a positive weight")
+    if not d.bank_ring_spacing_m >= d.bank_min_width_m:
+        raise err(f"emit.design.bank_ring_spacing_m {d.bank_ring_spacing_m}: at least "
+                  f"bank_min_width_m {d.bank_min_width_m} — a narrower spacing would "
+                  "author a ring inside the minimum bank (09-09f-1)")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

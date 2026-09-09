@@ -354,16 +354,23 @@ def test_verify_reads_the_solvers_route_budgets(hook, law):
     # row the pushed surface does report is priced at the solver's own
     # route budget and exceeds it by no more than the census's per-node
     # rounding envelope — never at the withdrawn chord bound (05aa).
-    assert pushed[0] == 0, pushed
+    # RE-SCOPED (RULINGS 2026-09-09f-2, lane v2bank2): `[design] bend_strip`
+    # 1 -> 30.  The graded strip SHARES its inner ring with the pavement edge,
+    # so a stiffer strip moves the pavement's own targets a little even under
+    # the one-way tie (which only stops the ground LEADING the pavement).
+    # measured: the design surface itself now reads ONE taxi within-shape row
+    # (it read none at bend_strip = 1).  A target the census reports (08t (4)).
+    assert pushed[0] <= 1, pushed
     noise = law.tables.emit.instrument.rounding_noise_m
     s2 = graded_surface(pm, law, _with_z(sol, _pushed_surface(pm, law, airport, sol.z)),
                         airport.frame.origin, airport.frame.crs)
     w2, _x2 = within_shape(Patch.of(s2, law, pub, {}))
     for r in [r for r in w2 if set(r["roles"].split("|")) <= taxi_roles]:
         excess = r["magnitude_m"] - r["cap_pct"] / 100.0 * r["distance_m"]
-        # measured 0.058 m on this fixture: an elevation-materiality-class
-        # residual at the bound the LP pushed the pair to, not a chord read
-        assert excess <= 4.0 * noise, r
+        # measured 0.058 m on this fixture, 0.154 at bend_strip = 30
+        # (09-09f-2): an elevation-materiality-class residual at the bound
+        # the LP pushed the pair to, not a chord read
+        assert excess <= 6.0 * noise, r
 
 
 def _ll_of(pm, airport):

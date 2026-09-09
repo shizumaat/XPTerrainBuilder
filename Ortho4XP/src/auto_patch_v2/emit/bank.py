@@ -13,13 +13,36 @@ ONE TRIANGLE wide.  The owner's answer is a BANK.
     not zigzag; where the foot would cross another patch ring it stops at
     that ring (the two rings share the bank).
 
-NO VERTEX IS EMITTED BETWEEN THE RING AND THE FOOT — the bank face is the
-MESH's.  That works because ``O4_Vector_Map.include_patches`` polygonizes
-every closed patch way and seeds each resulting planar face ``INTERP_ALT``,
-and ``O4_Mesh_Utils.interpolate_free_interior_altitudes`` then harmonically
-extends the two rings' authored altitudes across the annulus between them
-(a straight bank where the boundary is straight, smooth elsewhere).
+THE BANK FACE IS AUTHORED (owner RULINGS 2026-09-09f-1).  09e left the
+face to the mesh: ``O4_Vector_Map.include_patches`` polygonizes every closed
+patch way and ``O4_Mesh_Utils.interpolate_free_interior_altitudes``
+harmonically extends the two rings' authored altitudes across the annulus.
+Spec §9.5 MEASURED what that gives — 17.55 m over 59 m on average, but ONE
+triangle of 9.93 m over 8.9 m (111 %) against the patch ring, because the
+extension is GRAPH-harmonic over whatever vertices Triangle4XP put in the
+annulus, not metric-linear: with few free vertices the isolines crowd
+against the shorter (inner) boundary.  The mesh will not interpolate a
+straight bank it has no vertices for.
+
+So the patch emits INTERMEDIATE RINGS every ``[design] bank_ring_spacing_m``
+(10 m) of plan distance between the boundary ring and the foot, each
+vertex's z LINEAR between the ring's design z and the foot's DEM z along the
+outward normal — a foot 59 m out gets five, a foot at the 5 m minimum gets
+none.  They carry the SAME ``o4_feature=bank_foot`` skip register as the
+foot (:data:`BANK_KIND`), so every consumer that already ignores the foot —
+``check_grade``'s role-less register, ``verify/frame.Patch.of``,
+``tools/undulation`` — ignores them too, with no new register to add.
 Outside the foot the mesh drapes the DEM, which the foot IS: continuous.
+
+Every intermediate ring is a CLOSED way.  Where the bank is too narrow for
+a level, the ring RUNS ALONG THE FOOT there — reusing the foot node's own
+id, so nothing is duplicated and the two rings share that stretch of edge.
+Closed is load-bearing and measured (spec §10.5): an OPEN chain enters
+``include_patches`` as a DUMMY way, which is not in
+``interp_alt_patch_polygons``, so the annulus outside it gets no INTERP_ALT
+seed of its own while its segments still block Triangle4XP's regional
+plague — the bank beyond level 1 reverted to the raw DEM and the transect
+read 306 %, worse than the 111 % it was sent to fix.
 
 THE BANK IS NOT A LAW SURFACE.  It carries no grade law of its own — it is
 the terrain — so it is emitted role-less (``o4_feature=bank_foot``,
@@ -52,7 +75,7 @@ from ..model.planar import PlanarMap
 from .surface import GradedSurface, SurfaceBreakline, SurfaceVertex
 
 __all__ = ["BANK_KIND", "BankReport", "coverage_polygon", "foot_distances",
-           "smooth_along", "with_bank"]
+           "intermediate_offsets", "smooth_along", "with_bank"]
 
 #: The breakline kind and the ``o4_feature`` value of a bank foot ring.
 BANK_KIND = "bank_foot"
@@ -74,6 +97,9 @@ class BankReport:
     rings: int = 0
     ring_vertices: int = 0
     foot_vertices: int = 0
+    face_rings: int = 0
+    face_vertices: int = 0
+    face_levels: int = 0
     repaired_rings: int = 0
     skipped_rings: int = 0
     mean_m: float = 0.0
@@ -92,7 +118,9 @@ class BankReport:
                 f"{self.mean_m:.1f} m / p95 "
                 f"{self.p95_m:.1f} / max {self.max_m:.1f}, bank slope p95 "
                 f"{self.p95_slope:.3f} / max {self.max_slope:.3f} "
-                f"(law 0.33 = 1:3), {self.wall_s:.2f} s")
+                f"(law 0.33 = 1:3); FACE (09f-1) {self.face_rings} intermediate "
+                f"chains / {self.face_vertices} vertices, deepest bank {self.face_levels} "
+                f"level(s); {self.wall_s:.2f} s")
 
 
 def coverage_polygon(planar: PlanarMap):
@@ -168,6 +196,18 @@ def foot_distances(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
         zf = _dem_many(dem, fx, fy)
         d = np.maximum(min_w, np.abs(z_ring - zf) / float(slope))
     return d
+
+
+def intermediate_offsets(d: float, spacing: float) -> list[float]:
+    """THE PLAN DISTANCES of the intermediate rings on a bank whose foot is
+    ``d`` metres out (09f-1): one every ``spacing`` metres strictly inside
+    the bank.  A foot at or inside one spacing gets NONE — a 5 m minimum
+    bank has no room for a ring, and a foot exactly at 10 m already IS the
+    ring.  ``d = 18.2, spacing = 10`` -> ``[10.0]``; ``d = 59`` -> five."""
+    if spacing <= 0.0 or not d > spacing:
+        return []
+    n = int(math.ceil(d / spacing)) - 1
+    return [spacing * (k + 1) for k in range(n)]
 
 
 def smooth_along(d: np.ndarray, s: np.ndarray, w: float) -> np.ndarray:
@@ -300,6 +340,54 @@ def _push_off(ring: list, cov, min_w: float) -> list:
     return out
 
 
+def _simple_rings(coords, reuse, ktree, rz, ztree, zsegs, zseg_z, ftree, zf,
+                  inner, cov):
+    """The level ring as ONE OR MORE SIMPLE polygons.  Valid as built, it is
+    returned unchanged (every vertex keeps its identity, the foot's own ids
+    included).  Self-intersecting, it is repaired through ``buffer(0)`` and
+    each resulting exterior's vertices take the bank's own field: the design
+    z where the nearest coverage point is, plus the nearest foot node's
+    slope over the plan distance out.  Coordinate identity is what the mesh
+    joins on (``O4_Vector_Map.insert_way(check=True)`` welds by coordinate),
+    so a repaired vertex landing on a foot node costs nothing."""
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import nearest_points
+    xy = [(c[0], c[1]) for c in coords]
+    poly = Polygon(xy)
+    if poly.is_valid and poly.area > 0.0:
+        return [(coords, reuse)]
+    fixed = poly.buffer(0)
+    out = []
+    for g in getattr(fixed, "geoms", [fixed]):
+        if getattr(g, "geom_type", "") != "Polygon" or g.is_empty:
+            continue
+        for ring in [g.exterior, *g.interiors]:
+            pts = list(ring.coords)[:-1]
+            if len(pts) < 3:
+                continue
+            xyz = []
+            for x, y in pts:
+                q, _ = nearest_points(cov, Point(x, y))
+                qx, qy = float(q.x), float(q.y)
+                dq = math.hypot(x - qx, y - qy)
+                zq = float("nan")
+                if ztree is not None:
+                    j = int(ztree.nearest(q))
+                    gseg = zsegs[j]
+                    L = gseg.length
+                    t = (gseg.project(q) / L) if L > 1.0e-9 else 0.0
+                    z0, z1 = zseg_z[j]
+                    zq = z0 + (z1 - z0) * min(1.0, max(0.0, t))
+                if not math.isfinite(zq) and ktree is not None:
+                    zq = float(rz[int(ktree.query([qx, qy])[1]), 2])
+                k = int(ftree.query([x, y])[1])
+                dk = float(inner[k][3])
+                frac = 1.0 if dk <= 1.0e-6 else min(1.0, dq / dk)
+                xyz.append((x, y, zq + (float(zf[k]) - zq) * frac))
+            out.append((xyz, [None] * len(xyz)))
+    return out
+
+
 def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
               airport: Airport, report: BankReport | None = None
               ) -> GradedSurface:
@@ -310,7 +398,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     import time
     from shapely.geometry import LineString, Point, Polygon
     from shapely.geometry.polygon import orient
-    from shapely.ops import unary_union
+    from shapely.ops import nearest_points, unary_union
     from shapely.strtree import STRtree
     t0 = time.perf_counter()
     rep = report if report is not None else BankReport()
@@ -352,6 +440,8 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             chains.append((list(hole.coords)[:-1], False, h))
     pieces = []
     ring_z: list[tuple[float, float, float]] = []      # the design ring, for the slope stat
+    zsegs: list = []                                   # its segments, with z at both ends
+    zseg_z: list[tuple[float, float]] = []
     for pts_ll, exterior, host in chains:
         if len(pts_ll) < 3:
             rep.skipped_rings += 1
@@ -368,6 +458,15 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             zr[miss] = _dem_many(dem, pts[miss, 0], pts[miss, 1])
         ring_z.extend((float(x), float(y), float(z))
                       for (x, y), z in zip(pts_ll, zr.tolist()))
+        # the DESIGN boundary as z-carrying segments: the intermediate rings
+        # interpolate the ring's z ALONG its edge, never to the nearest ring
+        # VERTEX (a runway edge runs hundreds of metres between vertices)
+        for i in range(len(pts_ll)):
+            a, b = pts_ll[i], pts_ll[(i + 1) % len(pts_ll)]
+            if a == b:
+                continue
+            zsegs.append(LineString([a, b]))
+            zseg_z.append((float(zr[i]), float(zr[(i + 1) % len(pts_ll)])))
         nrm = np.asarray(_outward_normals(pts_ll), float)
         d = foot_distances(zr, pts, nrm, dem, slope, min_w)
         d = _ray_limit(pts, nrm, d, tree, segs, min_w)
@@ -405,6 +504,31 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     from scipy.spatial import cKDTree
     rz = np.asarray(ring_z, float)
     ktree = cKDTree(rz[:, :2]) if len(rz) else None
+    ztree = STRtree(zsegs) if zsegs else None
+    spacing = float(d_law.bank_ring_spacing_m)
+
+    def _inner(x: float, y: float) -> tuple[float, float, float, float]:
+        """THE INNER END of this foot node's bank: the nearest point of the
+        DESIGN coverage (never a ring vertex — the segment from a point to
+        its nearest point of a closed set meets that set only there, so the
+        bank face can never re-enter the patch), its design z interpolated
+        along the boundary edge, and the plan distance out to the foot."""
+        pnt = Point(x, y)
+        q, _ = nearest_points(cov, pnt)
+        qx, qy = float(q.x), float(q.y)
+        dd = math.hypot(x - qx, y - qy)
+        zq = float("nan")
+        if ztree is not None:
+            j = int(ztree.nearest(q))
+            g = zsegs[j]
+            L = g.length
+            t = (g.project(q) / L) if L > 1.0e-9 else 0.0
+            z0, z1 = zseg_z[j]
+            zq = z0 + (z1 - z0) * min(1.0, max(0.0, t))
+        if not math.isfinite(zq) and ktree is not None:
+            zq = float(rz[int(ktree.query([qx, qy])[1]), 2])
+        return qx, qy, zq, dd
+
     for poly in getattr(banked, "geoms", [banked]):
         for ring in [poly.exterior, *poly.interiors]:
             pts_r = list(ring.coords)[:-1]
@@ -421,14 +545,17 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
                 new_v.append(SurfaceVertex(next_id, (lat, lon), float(z)))
                 ids.append(next_id)
                 next_id += 1
-            new_b.append(SurfaceBreakline(next_bl, BANK_KIND,
-                                          f"bank:{len(new_b)}",
+            ref = f"bank:{rep.rings}"
+            new_b.append(SurfaceBreakline(next_bl, BANK_KIND, ref,
                                           tuple(ids) + (ids[0],)))
             next_bl += 1
             rep.rings += 1
             rep.foot_vertices += len(ids)
-            for x, y, z in zip(fx.tolist(), fy.tolist(), zf.tolist()):
-                dists.append(float(cov.distance(Point(x, y))))
+            # the inner end of every bank ray, once
+            inner = [_inner(x, y) for x, y in zip(fx.tolist(), fy.tolist())]
+            for (x, y, z), (qx, qy, zq, dd) in zip(
+                    zip(fx.tolist(), fy.tolist(), zf.tolist()), inner):
+                dists.append(dd)
                 if ktree is not None:
                     dv, k = ktree.query([x, y])
                     # the STEEPEST LOCAL TRANSITION this foot node makes: its
@@ -437,6 +564,72 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
                     # body's ring at another distance — two instruments)
                     if float(dv) > 1.0e-6:
                         slopes.append(abs(float(rz[int(k), 2]) - z) / float(dv))
+            # THE FACE (09f-1): one CLOSED ring per level, its vertices
+            # LINEAR between the design ring and the foot along the ray.
+            # CLOSED is not cosmetic and MEASURED (spec §10.5): emitted as
+            # open chains these rings enter ``include_patches`` as DUMMY
+            # ways, which are NOT in ``interp_alt_patch_polygons`` — so no
+            # sub-face of the annulus gets its own INTERP_ALT seed, and the
+            # segments still block Triangle4XP's regional plague: the bank
+            # outside level 1 reverted to the raw DEM and the transect read
+            # a 306 % triangle, WORSE than 09f's 111 %.  A closed ring is
+            # polygonized, seeded, and its band interpolated between two
+            # authored boundaries.  Where the bank is narrower than the
+            # level, the ring simply RUNS ALONG THE FOOT there — the foot
+            # node's own id, so no vertex is duplicated and the two rings
+            # share that stretch of edge.
+            levels = max((len(intermediate_offsets(r[3], spacing)) for r in inner),
+                         default=0)
+            rep.face_levels = max(rep.face_levels, levels)
+            ftree = cKDTree(np.c_[fx, fy])
+            for lv in range(1, levels + 1):
+                t_out = spacing * lv
+                coords: list[tuple[float, float, float]] = []
+                reuse: list[int | None] = []
+                minted = 0
+                for i, (qx, qy, zq, dd) in enumerate(inner):
+                    if not dd > t_out:
+                        coords.append((float(fx[i]), float(fy[i]), float(zf[i])))
+                        reuse.append(ids[i])            # the foot: no room
+                        continue
+                    f_ = t_out / dd
+                    coords.append((qx + (float(fx[i]) - qx) * f_,
+                                   qy + (float(fy[i]) - qy) * f_,
+                                   zq + (float(zf[i]) - zq) * f_))
+                    reuse.append(None)
+                    minted += 1
+                if minted == 0:
+                    continue
+                # A LEVEL RING MUST BE A SIMPLE POLYGON.  ``include_patches``
+                # takes a closed patch way only when ``pol.is_valid and
+                # pol.area`` — and a per-vertex offset self-intersects at a
+                # concave corner, which drops the WHOLE ring: measured at
+                # HECA, 9 of 39 level rings invalid, among them all three
+                # inner levels of the 1,516-vertex ring at the §9.5 transect
+                # (the mesh honoured levels 4-7 and reverted 1-3 to the DEM).
+                # The repaired ring's vertices are re-derived from the bank's
+                # own field: z = design z at the nearest coverage point, plus
+                # the nearest foot node's slope over the plan distance out.
+                for ring_xyz, ring_ids in _simple_rings(coords, reuse, ktree, rz,
+                                                        ztree, zsegs, zseg_z,
+                                                        ftree, zf, inner, cov):
+                    if len(ring_xyz) < 3:
+                        continue
+                    chain: list[int] = []
+                    for (x, y, z), vid in zip(ring_xyz, ring_ids):
+                        if vid is not None:
+                            chain.append(vid)
+                            continue
+                        lat, lon = _to_ll(x, y)
+                        new_v.append(SurfaceVertex(next_id, (lat, lon), float(z)))
+                        chain.append(next_id)
+                        next_id += 1
+                        rep.face_vertices += 1
+                    new_b.append(SurfaceBreakline(next_bl, BANK_KIND,
+                                                  f"{ref}@{lv}",
+                                                  tuple(chain) + (chain[0],)))
+                    next_bl += 1
+                    rep.face_rings += 1
     if not new_b:
         return surface
     if dists:

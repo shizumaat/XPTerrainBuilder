@@ -24,7 +24,8 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate, stack
 from auto_patch_v2.constraints import pads as padgen
 from auto_patch_v2.emit.bank import (BANK_KIND, BankReport, coverage_polygon,
-                                     foot_distances, smooth_along, with_bank)
+                                     foot_distances, intermediate_offsets,
+                                     smooth_along, with_bank)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import BANK_FEATURE, render_patch
 from auto_patch_v2.model.constraints import Diff, Pin
@@ -96,10 +97,12 @@ def test_a_ring_six_metres_up_puts_its_foot_at_one_in_three(apron_map, law):  # 
     # ``want``), so the mean sits between the two and the max is the miter
     assert rep.max_m == pytest.approx(want * math.sqrt(2.0), abs=0.5), rep
     assert want - 0.5 <= rep.mean_m <= want * math.sqrt(2.0) + 0.5, rep
-    # the foot IS the terrain
-    old = {v.id for v in surf.vertices}
-    feet = [v for v in banked.vertices if v.id not in old]
-    assert feet and all(abs(v.z - 700.0) < 1e-6 for v in feet)
+    # the foot IS the terrain (the FOOT ring's own vertices — the face's
+    # intermediate rings, 09f-1, stand between the design z and this one)
+    zof = {v.id: v.z for v in banked.vertices}
+    foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
+                and "@" not in b.ref for v in b.vertices}
+    assert foot_ids and all(abs(zof[v] - 700.0) < 1e-6 for v in foot_ids)
     # ... and the bank it makes is no steeper than the law's 1:3
     assert rep.max_slope <= d.bank_slope + 1e-3, rep
 
@@ -348,3 +351,61 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     assert 0.30 / span <= cap                       # the fixture asks for < 1 %
     assert resid <= tol, (resid, "one PLANE, not a bowl")
     assert tilt <= cap + law.tables.emit.materiality.grade, tilt
+
+
+# ── (1b) THE BANK FACE IS AUTHORED (owner RULINGS 2026-09-09f-1) ────────
+
+def test_the_offsets_are_one_ring_every_spacing_strictly_inside_the_bank():
+    """09f-1 in one function: a foot 18.2 m out gets ONE intermediate ring
+    at 10 m; a foot 59 m out gets five; a foot at the 5 m minimum gets
+    none, and neither does one exactly at the spacing."""
+    assert intermediate_offsets(18.2, 10.0) == [10.0]
+    assert intermediate_offsets(59.0, 10.0) == [10.0, 20.0, 30.0, 40.0, 50.0]
+    assert intermediate_offsets(5.0, 10.0) == []
+    assert intermediate_offsets(10.0, 10.0) == []
+
+
+def test_a_six_metre_ring_authors_one_intermediate_ring_at_the_linear_z(apron_map, law):  # noqa: F811
+    """A 6 m ring with an 18.2 m foot gets ONE intermediate ring at 10 m of
+    plan, its z LINEAR between the ring's design z (706) and the foot's DEM
+    z (700): 706 − 6 × 10/18.18 = 702.7.  The chains carry the SAME
+    ``bank_foot`` register as the foot (no new consumer)."""
+    airport, pm, _r = apron_map
+    banked, _surf, rep = _bank(airport, pm, law, 6.0)
+    d = law.tables.emit.design
+    assert rep.face_rings >= 1 and rep.face_vertices > 0
+    face = [b for b in banked.breaklines if b.kind == BANK_KIND and "@" in b.ref]
+    lv1 = [b for b in face if b.ref.endswith("@1")]
+    # EVERY intermediate ring is CLOSED and carries one vertex per foot
+    # node — the mesh needs a closed way to seed the band (spec §10.5)
+    assert len(lv1) == 1 and lv1[0].vertices[0] == lv1[0].vertices[-1]
+    assert len(lv1[0].vertices) - 1 == rep.foot_vertices
+    zof = {v.id: v.z for v in banked.vertices}
+    foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
+                and "@" not in b.ref for v in b.vertices}
+    # a mitred right-angle corner's ray is 18.18 * sqrt(2) = 25.7 m, so it
+    # alone reaches a SECOND level: that ring is closed too and RUNS ALONG
+    # THE FOOT (the foot's own node ids) everywhere the bank is narrower
+    lv2 = [b for b in face if b.ref.endswith("@2")]
+    assert rep.face_levels == 2 and len(lv2) == 1
+    assert lv2[0].vertices[0] == lv2[0].vertices[-1]
+    assert len(lv2[0].vertices) - 1 == rep.foot_vertices
+    shared = [v for v in lv2[0].vertices[:-1] if v in foot_ids]
+    assert 0 < len(shared) < rep.foot_vertices
+    inner = [zof[v] for b in lv1 for v in b.vertices if v not in foot_ids]
+    want = 706.0 - 6.0 * (d.bank_ring_spacing_m / (6.0 / d.bank_slope))
+    assert inner
+    # along a straight edge the ray is exactly the formula's; a mitred
+    # corner's ray is longer, so its level vertex sits higher — every one
+    # of them is strictly between the DEM and the design ring
+    assert all(700.0 < z <= 706.0 for z in inner)
+    assert min(inner) == pytest.approx(want, abs=0.15)
+
+
+def test_a_minimum_width_bank_authors_no_intermediate_ring(apron_map, law):  # noqa: F811
+    """09f-1: "where the foot is at the 5 m minimum no intermediate ring" —
+    5 m of plan is inside one 10 m spacing."""
+    airport, pm, _r = apron_map
+    banked, _surf, rep = _bank(airport, pm, law, 1.0)
+    assert rep.face_levels == 0 and rep.face_rings == 0 and rep.face_vertices == 0
+    assert not [b for b in banked.breaklines if b.kind == BANK_KIND and "@" in b.ref]

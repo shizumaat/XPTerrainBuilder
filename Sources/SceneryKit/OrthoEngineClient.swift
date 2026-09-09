@@ -578,6 +578,7 @@ public final class OrthoEngineClient: @unchecked Sendable {
     private func consumeStderr(_ data: Data) {
         for line in splitLines(&stderrBuffer, appending: data) where !line.isEmpty {
             onEvent(.stderr(line))
+            EngineStderrLog.shared.append(line)
         }
     }
 
@@ -609,5 +610,55 @@ public final class OrthoEngineClient: @unchecked Sendable {
         if let event = O4Event.parse(object: object) {
             onEvent(event)
         }
+    }
+}
+
+
+/// THE ENGINE'S STDERR, PERSISTED (2026-09-09): the console pane was the
+/// only place a Python `RuntimeWarning` (shapely, numpy) ever appeared —
+/// nothing wrote it to disk, so a warning the owner saw in the app could
+/// not be read back afterwards.  Every stderr line now also lands in
+/// `~/Library/Logs/XPTerrainBuilder/engine-stderr.log` (appended, one
+/// file, rotated at 20 MB by renaming to `.1`).  Read it with
+/// `grep RuntimeWarning ~/Library/Logs/XPTerrainBuilder/engine-stderr.log`.
+final class EngineStderrLog: @unchecked Sendable {
+    static let shared = EngineStderrLog()
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private let url: URL
+    private let rotateAt = 20 * 1024 * 1024
+
+    private init() {
+        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/XPTerrainBuilder", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        url = dir.appendingPathComponent("engine-stderr.log")
+    }
+
+    func append(_ line: String) {
+        lock.lock(); defer { lock.unlock() }
+        if handle == nil { open() }
+        guard let h = handle, let data = (line + "\n").data(using: .utf8) else { return }
+        h.seekToEndOfFile()
+        h.write(data)
+        if h.offsetInFile > rotateAt { rotate() }
+    }
+
+    private func open() {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        handle = try? FileHandle(forWritingTo: url)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        if let h = handle, let d = ("=== engine session \(stamp) ===\n").data(using: .utf8) {
+            h.seekToEndOfFile(); h.write(d)
+        }
+    }
+
+    private func rotate() {
+        handle?.closeFile(); handle = nil
+        let old = url.deletingPathExtension().appendingPathExtension("1.log")
+        try? FileManager.default.removeItem(at: old)
+        try? FileManager.default.moveItem(at: url, to: old)
     }
 }

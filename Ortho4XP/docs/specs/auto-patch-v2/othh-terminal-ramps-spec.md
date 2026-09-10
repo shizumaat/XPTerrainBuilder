@@ -440,3 +440,52 @@ therefore still open**: on authored depth both packs dig 1.2–2.6 m below their
 separates them (measured, for the ruling): LEMD's pairs are foundations of two SEPARATE
 buildings 3–12 m apart with no roof over 10 of 17 and a floor at one constant plane; OTHH's
 carry a deck at +2.61 over 74 % of their length. Ruling requested before this lands.
+
+## §12a Law C's THREE-PART admission (RULINGS 2026-09-10w) — lane `v2corridor` round 2, 2026-09-10
+
+**The clause.** A Law C corridor is admitted only when ALL THREE hold: **(a)** its walls are
+authored ≥ `min_wall_depth_m` below the object's own zero (§12, kept as NECESSARY); **(b)** a
+ROAD ENTERS A MOUTH — an OSM `highway=*` way (`airport_small_roads` / `big_roads`) or a patch
+road ribbon (`service_road` / `service_junction` / `groundside_pavement` cell) whose plan
+geometry lies within `[cutout.wall_corridor] corridor_mouth_road_m` (15.0) of a mouth point AND
+whose direction there agrees with the corridor axis within `corridor_mouth_road_deg` (45°);
+**(c)** a DECK COVERS IT — the headroom reader's lowest near-horizontal plate over the trench,
+inside Law C's bounds; **OPEN AIR IS NOW A REFUSAL** (it used to pass). One site:
+`airport/wall_corridors.read_wall_corridors`'s pair loop, after the ends are read (the mouths
+are the open ends; a garage ramp's mouth is its shallow end; both ends closed = no mouth).
+`read_wall_corridors(..., classification=None)` takes the classification for the ribbons;
+`_headroom` now returns `(headroom, witness)`; `stats.admission` states (a)/(b)/(c) with the
+witness (way id / plate component) per CANDIDATE and a `nearest:` witness search on a (b)
+refusal; `--stage structures` prints them.
+
+**Consumer table — the rows §12's table touches.** 1 (`_bands_of`) unchanged. 2 (pre-screen)
+unchanged. 3 (pair floor gate) unchanged — (a). NEW rows: 3b the pair loop's mouth/road test
+(the single derivation site of (b)); 3c the headroom gate (the (c) refusal replaces the old
+"open air passes"). 4 (garage `shallow_depth`) unchanged. 5–10 unchanged: fewer records only.
+11 (`--stage structures` / `--kml`) gains `wall_corridor_admission`. `airport/osm.py`,
+`classify/roles.py`, `airport/road_profile.py` are READ-ONLY consumers here (the mouth test
+re-reads `airport.osm_ways` and the classification cells; it never touches `RoadProfiles`,
+which does not exist yet at structure time).
+
+**MEASURED — the OTHH bar FAILS; STOP (structure replays, lane tree, production DEM,
+`--stage structures`; arms neutralise one clause at a time in ONE tree).**
+
+| arm | LEMD corridors | OTHH corridors (records) |
+|---|---|---|
+| (a) only — main's law | 51 | **43** (73: 30 level ×2 + 13 bays) |
+| (a) + (c) | 7 (all bays) | 36 |
+| (a) + (b) + (c) — 10w as ruled | **0** | **25** (47) |
+
+LEMD reaches 0 (bar met) but OTHH loses 18 corridors to (b) and 7 to (c) — the bar "OTHH's 43
+identical" FAILS, so nothing is merged and the test is NOT weakened. WHY (b) fails at OTHH:
+the road that enters those mouths is UNMAPPED (it runs under the terminal deck); what IS
+mapped is the frontage kerb road CROSSING the mouth — witness search at each refused mouth
+(4× the law window): `Terminal_Base_2_5` 432/433 (the 08u 77.8 m underpass) `patch service_road
+cell 378 (route7)` 6.4 m **89° off**, `osm -9214` 11.7 m 90° off; `Terminal_Base_2_1` (the 08u
+loading bays) ×5 at 10–21 m, 85–90° off; `Terminal_Parking_VCN_004/006` ×5 at 5–38 m, 83–89°
+off; `Bridge_03_LOD0_003` ×5 with `osm -490` 50–57 m or nothing within 60 m; `Qatar_DutyFree`
+×2 at 5–12 m, 89° off. The corridors (b) KEEPS are exactly the mapped-road ones
+(`TerminalRoads_02/03/Parking_004`, `Bridge_02/06`: roads 1–15 m, 0–15° off). (c) costs OTHH
+`Bridge_06_LOD0_002` ×5 and `Qatar_DutyFree_003` (no plate over those pairs' trenches).
+Owner/spawner ruling needed before this lands: a loading bay IS entered from a road that runs
+past its mouth, and an underpass's own road is not in OSM.

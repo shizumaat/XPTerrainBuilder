@@ -70,6 +70,8 @@ class WallCorridor:
     min_wall_length_m: float     # the bands overlap at least this along the axis
     merge_gap_m: float           # parallel bands within a wall's thickness laterally and this along the axis are one wall
     end_cap_cover_min: float     # a crossing family face covering this share of an end line closes it
+    corridor_mouth_road_m: float    # RULINGS 2026-09-10w (b): a road within this of a mouth enters it
+    corridor_mouth_road_deg: float  # ...when its direction agrees with the corridor axis within this
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
     ramp_grade: float            # the synthetic climb beyond a mouth
     max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)
@@ -135,3 +137,7 @@ def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
                   "must be > 0 with min_width_m < max_width_m")
     if not (0.0 < wc.end_cap_cover_min <= 1.0):
         raise err("structures.cutout.wall_corridor.end_cap_cover_min must lie in (0, 1]")
+    # RULINGS 2026-09-10w (b): the mouth road test's window and angle
+    if wc.corridor_mouth_road_m <= 0.0 or not (0.0 < wc.corridor_mouth_road_deg < 90.0):
+        raise err("structures.cutout.wall_corridor: corridor_mouth_road_m must be > 0 and "
+                  "corridor_mouth_road_deg in (0, 90)")

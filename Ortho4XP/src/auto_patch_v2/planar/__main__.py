@@ -162,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"mouth {w['mouth_ll']} far {w['far_ll']}")
         for r in rec["wall_corridor_refused"]:
             print(f"  wall corridor refused {r}")
+        # RULINGS 2026-09-10w: the three admission clauses per CANDIDATE
+        for a in rec["wall_corridor_admission"]:
+            print(f"  wall corridor admission {a}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
@@ -228,7 +231,7 @@ def structure_records(airport, cl, law) -> dict:
     corridors, tstats = read_corridors(airport, objects, cache, law)
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    walls_c, wstats = read_wall_corridors(airport, objects, cache, law)
+    walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra)
@@ -295,6 +298,9 @@ def structure_records(airport, cl, law) -> dict:
                             "profile": list(w.profile), "sibling": w.sibling,
                             "notes": list(w.notes)} for w in walls_c],
         "wall_corridor_refused": list(wstats.refused),
+        # RULINGS 2026-09-10w: (a) authored depth / (b) a road at a mouth /
+        # (c) a deck over it — the verdict and witness per candidate
+        "wall_corridor_admission": list(wstats.admission),
         "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
                                 if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),

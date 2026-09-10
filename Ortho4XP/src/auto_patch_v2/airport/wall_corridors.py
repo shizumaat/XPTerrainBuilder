@@ -84,6 +84,7 @@ from .deck_signature import family_key
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
 
 __all__ = ["WallBand", "WallCorridorRecord", "WallCorridorStats", "read_wall_corridors",
+           "MouthRoad", "mouth_roads", "ROAD_ROLES",
            "ID_PREFIX", "CLASS_LEVEL", "CLASS_BAY", "CLASS_GARAGE"]
 
 ID_PREFIX = "wall-corridor"
@@ -205,6 +206,13 @@ class WallCorridorStats:
     corridors: int = 0
     by_class: dict[str, int] = _dc.field(default_factory=dict)
     refused: list[str] = _dc.field(default_factory=list)
+    #: RULINGS 2026-09-10w: one line per CANDIDATE corridor stating each of
+    #: the three admission clauses -- (a) authored depth, (b) a road at a
+    #: mouth, (c) a deck over it -- with its witness or its refusal.
+    admission: list[str] = _dc.field(default_factory=list)
+    roads: int = 0
+    refused_no_road: int = 0
+    refused_no_deck: int = 0
     read_s: float = 0.0
 
 
@@ -362,6 +370,123 @@ def _rect_axis(poly: Polygon) -> tuple[LineString, float, float] | None:
     b = ((q[0] + s_[0]) / 2.0, (q[1] + s_[1]) / 2.0)
     brg = (math.degrees(math.atan2(b[0] - a[0], b[1] - a[1])) + 360.0) % 180.0
     return LineString([a, b]), float(lens[li]), float(brg)
+
+
+# ── the mouth roads (RULINGS 2026-09-10w (b)) ─────────────────────
+
+#: The classification roles whose faces ARE patch road ribbons for the
+#: mouth test: the road cross-section family and the groundside pavement
+#: a kerb road runs over (``classify/roles.py``).
+ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+#: The OSM feeds a ``highway=*`` way is read from (``airport/osm.FEEDS``).
+ROAD_FEEDS = ("airport_small_roads", "big_roads")
+
+
+@_dc.dataclass(frozen=True)
+class MouthRoad:
+    """One road the mouth test reads: its plan geometry (an OSM way's
+    line, a patch ribbon's face), the line whose bearing states its
+    DIRECTION there, and the witness the refusal or admission names."""
+
+    geom: _t.Any
+    axis: LineString
+    witness: str
+
+
+def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRoad]:
+    """Every road a Law C mouth may be entered by: the tile's OSM
+    ``highway=*`` ways (the small-roads / big-roads feeds) and, when the
+    classification is at hand, the patch's own road ribbons
+    (:data:`ROAD_ROLES`).  Frame coordinates throughout."""
+    out: list[MouthRoad] = []
+    for w in airport.osm_ways:
+        if w.kind not in ROAD_FEEDS or not w.tags.get("highway"):
+            continue
+        if len(w.points) < 2:
+            continue
+        ln = LineString(w.points)
+        if ln.length < _MIN_SEG_M:
+            continue
+        out.append(MouthRoad(ln, ln, f"osm way {w.id} ({w.tags.get('highway')})"))
+    for c in getattr(classification, "cells", ()) or ():
+        if c.role not in ROAD_ROLES or len(c.ring) < 3:
+            continue
+        poly = Polygon(c.ring, c.holes)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        ra = _rect_axis(poly)
+        if ra is None:
+            continue
+        out.append(MouthRoad(poly, ra[0], f"patch {c.role} cell {c.id} ({c.ref})"))
+    return out
+
+
+def _road_bearing_at(road: MouthRoad, pt: Point) -> float:
+    """The road's bearing (0..180) at the point on its axis nearest
+    ``pt`` — the segment the projection falls in (a curving way states
+    its direction AT the mouth, not end to end)."""
+    cs = list(road.axis.coords)
+    if len(cs) < 2:
+        return 0.0
+    s = road.axis.project(pt)
+    acc = 0.0
+    for i in range(len(cs) - 1):
+        d = math.dist(cs[i], cs[i + 1])
+        if acc + d >= s or i == len(cs) - 2:
+            return _bearing(LineString([cs[i], cs[i + 1]]))
+        acc += d
+    return _bearing(LineString([cs[0], cs[-1]]))
+
+
+#: The refusal's WITNESS SEARCH probes this multiple of the law window
+#: for the nearest road, so a refusal names what WAS there (diagnostic
+#: only: it admits nothing).
+_ROAD_PROBE_FACTOR = 4.0
+
+
+def _nearest_roads(pt: XY, brg: float, roads: _t.Sequence[MouthRoad], tree: STRtree | None,
+                   max_m: float, n: int = 3) -> str:
+    """The nearest roads within ``_ROAD_PROBE_FACTOR × max_m`` of the
+    mouth with their distance and their angle off the axis — what the
+    refusal searched and found (never an admission)."""
+    if tree is None or not roads:
+        return "no road geometry at all"
+    P = Point(pt)
+    R = max_m * _ROAD_PROBE_FACTOR
+    found: list[tuple[float, str]] = []
+    for idx in tree.query(P.buffer(R), predicate="intersects").tolist():
+        r = roads[int(idx)]
+        d = float(r.geom.distance(P))
+        if d > R:
+            continue
+        found.append((d, f"{r.witness} at {d:.1f} m, "
+                         f"{_angle_diff(_road_bearing_at(r, P), brg):.0f}° off"))
+    found.sort()
+    return "; ".join(t for _d, t in found[:n]) or f"nothing within {R:.0f} m"
+
+
+def _road_at_mouth(pt: XY, brg: float, roads: _t.Sequence[MouthRoad], tree: STRtree | None,
+                   max_m: float, max_deg: float) -> str | None:
+    """Rule 6 (10w (b)): the witness of a road within ``max_m`` of the
+    mouth whose direction there agrees with the corridor axis within
+    ``max_deg`` — it ENTERS the mouth; ``None`` = no such road."""
+    if tree is None or not roads:
+        return None
+    P = Point(pt)
+    best: tuple[float, str] | None = None
+    for idx in tree.query(P.buffer(max_m), predicate="intersects").tolist():
+        r = roads[int(idx)]
+        d = float(r.geom.distance(P))
+        if d > max_m:
+            continue
+        off = _angle_diff(_road_bearing_at(r, P), brg)
+        if off > max_deg:
+            continue
+        if best is None or d < best[0]:
+            best = (d, f"{r.witness} {d:.1f} m from the mouth, {off:.0f}° off the axis")
+    return None if best is None else best[1]
 
 
 def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
@@ -661,13 +786,16 @@ def _trench(axis: _t.Sequence[XY], sts: _t.Sequence[Station]) -> Polygon:
 
 def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
               trench: Polygon, floor_max: float, normal_min: float, grid: float
-              ) -> float | None:
+              ) -> tuple[float | None, str]:
     """Rule 5: the lowest rendered near-horizontal family face OVER the
     trench (a plan overlap of a grid cell at least, inside the trench
     shrunk by the identity spacing — the kerbs' own top caps touch the
     inner-face line and are not a ceiling) above its floor, minus the
-    floor (``None`` = open air)."""
+    floor — and the WITNESS plate (RULINGS 2026-09-10w (c)): the placement
+    and component that lowest face belongs to (``(None, "")`` = open air,
+    no deck)."""
     lowest: float | None = None
+    witness = ""
     inner = trench.buffer(-grid, **_MITRE)
     if inner.is_empty:
         inner = trench
@@ -712,14 +840,19 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
                 if z > floor_max + 1e-6 and (lowest is None or z < lowest) \
                         and polys[k].intersection(inner).area >= min_area:
                     lowest = z
-    return None if lowest is None else lowest - floor_max
+                    witness = f"plate comp {ci} of {os.path.basename(o.path)} ({o.id})"
+    return (None, "") if lowest is None else (lowest - floor_max, witness)
 
 
 def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
-                        cache: _obj8.ResourceCache, law: Law
+                        cache: _obj8.ResourceCache, law: Law, classification: _t.Any = None
                         ) -> tuple[list[WallCorridorRecord], WallCorridorStats]:
     """Every wall corridor the pack's kerb-wall families state (module
-    doc); the stats name every refusal."""
+    doc); the stats name every refusal and, per CANDIDATE, each of the
+    three admission clauses with its witness (``stats.admission``).
+    ``classification``, when given, adds the patch's own road ribbons to
+    the mouth-road test (10w (b)); without it only the OSM ways are
+    read."""
     t0 = time.perf_counter()
     stats = WallCorridorStats()
     wc = law.tables.structures.cutout.wall_corridor
@@ -729,6 +862,9 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
     to_ll = airport.frame.transformers()[1]
+    # RULINGS 2026-09-10w (b): the roads a mouth may be entered by
+    roads = mouth_roads(airport, classification)
+    road_tree = STRtree([r.geom for r in roads]) if roads else None
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
     for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
@@ -833,12 +969,20 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 # MEASUREMENT of an admitted corridor (the mouth at grade,
                 # the notes, ``depth_m``), never the admission.
                 authored_depths = [-y for y in floors_y]
+                head = f"candidate {name} bands {A.comp}/{B.comp} at {site}"
                 if max(authored_depths) < wc.min_wall_depth_m:
-                    stats.refused.append(f"{name} at {site}: the wall bottom is authored at y "
-                                         f"{min(floors_y):+.2f} at its deepest station — never "
-                                         f"min_wall_depth_m {wc.min_wall_depth_m} under the "
-                                         f"object's own zero (10u)")
+                    msg = (f"{name} at {site}: the wall bottom is authored at y "
+                           f"{min(floors_y):+.2f} at its deepest station — never "
+                           f"min_wall_depth_m {wc.min_wall_depth_m} under the "
+                           f"object's own zero (10u)")
+                    stats.refused.append(msg)
+                    stats.admission.append(
+                        f"{head}: (a) REFUSED — deepest authored y {min(floors_y):+.2f} m, "
+                        f"never {wc.min_wall_depth_m} m under the object's zero; (b) not read; "
+                        f"(c) not read")
                     continue
+                clause_a = (f"(a) admitted — wall bottom authored {max(authored_depths):.2f} m "
+                            f"under the object's zero")
                 descending = (zmax - zmin) >= wc.min_wall_depth_m
                 # RULE 4: the ends
                 def end_line(k: int) -> tuple[XY, XY]:
@@ -856,13 +1000,78 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts) / len(sts)
                 thick = sum((s.thick_l + s.thick_r) / 2.0 for s in sts) / len(sts)
                 trench0 = _trench(axis, sts)
-                # RULE 5: headroom over the trench
-                headroom = _headroom(members, cache, trench0, zmax, ob.plate_normal_y_min, grid)
-                if headroom is not None and headroom < wc.min_headroom_m:
-                    stats.refused.append(f"{name} at {site}: headroom {headroom:.2f} m over the floor "
-                                         f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
-                                         f"not a corridor")
+                # RULE 6 (RULINGS 2026-09-10w (b)): A ROAD ENTERS A MOUTH.
+                # Law C is "ramps where kerb roads pass under terminal decks"
+                # (08u-08w): a below-grade wall pair no road drives into is a
+                # building's foundation beside an apron, not a corridor.
+                if descending:
+                    deep0 = 0 if floors[0] <= floors[-1] else 1
+                    mouth_ks = [1 - deep0]
+                else:
+                    mouth_ks = [k for k in (0, 1) if not closed[k]]
+                if not mouth_ks:
+                    msg = (f"{name} at {site}: closed at both ends (covers {covers[0]:.0%} / "
+                           f"{covers[1]:.0%}): no mouth — a sunken yard between four kerbs, not "
+                           f"a corridor")
+                    stats.refused.append(msg)
+                    stats.admission.append(f"{head}: {clause_a}; (b) REFUSED — no mouth (both ends "
+                                           f"closed); (c) not read")
                     continue
+                road_w: str | None = None
+                probe: list[str] = []
+                for k in mouth_ks:
+                    pm_ = axis[0] if k == 0 else axis[-1]
+                    qm_ = axis[1] if k == 0 else axis[-2]
+                    brg_m = _bearing(LineString([qm_, pm_]))
+                    hit = _road_at_mouth(pm_, brg_m, roads, road_tree,
+                                         wc.corridor_mouth_road_m, wc.corridor_mouth_road_deg)
+                    if hit is not None:
+                        road_w = f"end {k}: {hit}"
+                        break
+                    probe.append(f"end {k} at {'%.6f,%.6f' % to_ll(*pm_)}: "
+                                 + _nearest_roads(pm_, brg_m, roads, road_tree,
+                                                  wc.corridor_mouth_road_m))
+                if road_w is None:
+                    msg = (f"{name} at {site}: no road enters its mouth — nothing within "
+                           f"corridor_mouth_road_m {wc.corridor_mouth_road_m} of end"
+                           f"{'s' if len(mouth_ks) > 1 else ''} "
+                           f"{'/'.join(str(k) for k in mouth_ks)} heads along the axis within "
+                           f"corridor_mouth_road_deg {wc.corridor_mouth_road_deg:.0f}° (10w (b)): "
+                           f"a below-grade foundation, not a road underpass")
+                    stats.refused.append(msg)
+                    stats.refused_no_road += 1
+                    stats.admission.append(f"{head}: {clause_a}; (b) REFUSED — no road at "
+                                           f"mouth(s) {'/'.join(str(k) for k in mouth_ks)}; "
+                                           f"nearest: {' | '.join(probe)}; (c) not read")
+                    continue
+                stats.roads += 1
+                clause_b = f"(b) admitted — road at the mouth: {road_w}"
+                # RULE 5 / (c) (RULINGS 2026-09-10w): A DECK COVERS IT —
+                # headroom over the trench inside Law C's bounds; OPEN AIR
+                # (no plate over the axis at all) is a REFUSAL, not a pass
+                # (10 of LEMD's 17 read open air).
+                headroom, deck_w = _headroom(members, cache, trench0, zmax,
+                                             ob.plate_normal_y_min, grid)
+                if headroom is None:
+                    msg = (f"{name} at {site}: open air over the trench — no plate of the "
+                           f"placement covers the corridor axis (10w (c)): a below-grade yard, "
+                           f"not a road underpass")
+                    stats.refused.append(msg)
+                    stats.refused_no_deck += 1
+                    stats.admission.append(f"{head}: {clause_a}; {clause_b}; (c) REFUSED — open air")
+                    continue
+                if headroom < wc.min_headroom_m:
+                    msg = (f"{name} at {site}: headroom {headroom:.2f} m over the floor "
+                           f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
+                           f"not a corridor")
+                    stats.refused.append(msg)
+                    stats.refused_no_deck += 1
+                    stats.admission.append(f"{head}: {clause_a}; {clause_b}; (c) REFUSED — "
+                                           f"headroom {headroom:.2f} m under min_headroom_m "
+                                           f"{wc.min_headroom_m} ({deck_w})")
+                    continue
+                stats.admission.append(f"{head}: {clause_a}; {clause_b}; (c) admitted — deck "
+                                       f"{deck_w}, headroom {headroom:.2f} m -> ADMITTED")
                 notes_common = (
                     f"bands {A.comp} ({A.thickness_m:.2f} m, {A.length_m:.1f} m) / {B.comp} "
                     f"({B.thickness_m:.2f} m, {B.length_m:.1f} m) of {name}, inner faces {gap:.2f} m "
@@ -900,11 +1109,6 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                         notes_common + (f"garage ramp (2026-09-08n): the wall bottom descends "
                                         f"{zmax - zmin:.2f} m from the grade end to the garage, cut as "
                                         f"authored; the deep end closed by the garage",)))
-                elif closed[0] and closed[1]:
-                    stats.refused.append(f"{name} at {site}: closed at both ends (covers "
-                                         f"{covers[0]:.0%} / {covers[1]:.0%}): no mouth — a sunken "
-                                         f"yard between four kerbs, not a corridor")
-                    continue
                 elif closed[0] or closed[1]:
                     m = 0 if closed[0] else 1
                     s_a, s_b = (orig_s[0], orig_s[-1]) if m == 0 else (orig_s[-1], orig_s[0])

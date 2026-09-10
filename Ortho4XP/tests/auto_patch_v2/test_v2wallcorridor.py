@@ -108,7 +108,10 @@ def objs(tmp_path_factory):
         "single": _corridor_obj(d / "single.obj", one_band=True),
         "wide": _corridor_obj(d / "wide.obj", width=25.0),
         "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0),
-        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=None),
+        # RULINGS 2026-09-10w (c): a corridor needs a DECK over it — the
+        # garage ramp's is its own entry canopy at +4 (open air is now a
+        # refusal, so the class needs one to be exercised at all)
+        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=4.0),
         "steep": _corridor_obj(d / "steep.obj", depth=0.2, drop=25.0, deck_y=None),
         "low": _corridor_obj(d / "low.obj", deck_y=1.0),
     }
@@ -262,8 +265,18 @@ def test_plate_stations_stand_outside_the_emitted_rim_and_the_ramp_beyond(law):
 
 # ── LAW C (08m / 08n) ────────────────────────────────────────────────────
 
-def _corridors(objs, law, name):
-    airport, cache, objects = _read(objs, law, [(name, (0.0, 0.0), 0.0, None, "OBJECT")])
+#: RULINGS 2026-09-10w (b): a Law C corridor is admitted only when a ROAD
+#: ENTERS ITS MOUTH.  The fixture corridors run along ±y (their bands span
+#: authored z −40..40 at heading 0), so one service way down that axis
+#: enters both mouths — OTHH's kerb roads under the terminal decks.
+def _axis_road(x: float = 0.0):
+    return (OsmWay(-601, "airport_small_roads", ((x, -300.0), (x, 300.0)), False,
+                   {"highway": "service"}),)
+
+
+def _corridors(objs, law, name, ways=None):
+    airport, cache, objects = _read(objs, law, [(name, (0.0, 0.0), 0.0, None, "OBJECT")],
+                                    _axis_road() if ways is None else ways)
     recs, st = read_wall_corridors(airport, objects, cache, law)
     return airport, cache, objects, recs, st
 
@@ -406,7 +419,8 @@ def test_generator_rows_solve_and_emit(objs, law):
     ``max_ramp_grade``, the top at the ground; the LP solves; the emitted
     faces carry the oracle alias."""
     wc = law.tables.structures.cutout.wall_corridor
-    airport, cache, objects = _read(objs, law, [("level", (0.0, 0.0), 0.0, None, "OBJECT")])
+    airport, cache, objects = _read(objs, law, [("level", (0.0, 0.0), 0.0, None, "OBJECT")],
+                                    _axis_road())
     cl = Classification(tuple(_cells()), (), {}, ())
     pm, stats = build(airport, cl, law)
     ts = [x for x in pm.structures if x.source == KIND]

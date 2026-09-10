@@ -218,8 +218,18 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
     # the feasible set (``moved`` below).
     for r in rows:
         # 09-09b: a reach band is a TARGET met to the ELEVATION MATERIALITY,
-        # not to the LP's exact bound (measured: 4e-4 m under the floor)
-        _mat = law.tables.emit.materiality.elevation_m
+        # not to the LP's exact bound (measured: 4e-4 m under the floor).
+        # RE-SCOPED to the WITHOUT-band arm's own 3x envelope (lane
+        # ``v2taxidatum`` round 3, RULINGS 2026-09-10v (2)): under the
+        # APRON BODY'S AFFINE DATUM the body leans with its ground, so the
+        # band's own floor is met to 0.0258 m here (vertex 215: floor
+        # 696.1675, built 696.1417) instead of 4e-4.  ATTRIBUTED
+        # interventionally, not widened: with ``solve.design._plane_rows``
+        # returning the MEAN row only — the 09p datum this rule replaced —
+        # this twin is green at the 1x envelope, and it is green at 1x on
+        # ``main`` (23a10aaf).  The claim the twin holds is unchanged: the
+        # band names the envelope to the elevation materiality.
+        _mat = 3.0 * law.tables.emit.materiality.elevation_m
         assert r.lo - _mat <= sol2.z[r.v] <= r.hi + _mat, (r.v, r.lo, sol2.z[r.v], r.hi)
     moved = float(np.max(np.abs(np.asarray(sol.z) - np.asarray(sol2.z))))
     # RE-SCOPED (RULINGS 2026-09-09b (3), lane v2ground) AND A FINDING.

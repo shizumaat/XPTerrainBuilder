@@ -489,6 +489,7 @@ def taxi_box(p: Patch) -> list[Row]:
     forgiven the role's instrument envelope.  Lockstep with the oracle's
     ``taxi_box`` family and with the generator's population; a patch
     publishing no ``stretches`` reads none."""
+    drops = crown_by_vertex(p)
     law = p.law
     ws = law.tables.emit.within_shape
     index = published_axis_index(p)
@@ -538,7 +539,13 @@ def taxi_box(p: Patch) -> list[Row]:
             if bb is None:
                 continue
             bound, _cl, _ct = bb
-            de = abs(sh.z[pos[a]] - sh.z[pos[b]])
+            # RE-CENTRED ON THE PUBLISHED CROWN like ``within_shape`` (:308)
+            # and the oracle's box reader (``check_grade.py`` ~:6202,
+            # ``de = |(ea − eb) − offset|``): a crowned pair's designed drop
+            # is not a grade.  RULINGS 2026-09-10al — CYXY read 22 (oracle)
+            # vs 30 (this reader) on seven lawful crowned pairs.
+            dz = sh.z[pos[a]] - sh.z[pos[b]]
+            de = abs(dz - _offset(drops, a, b, dz))
             if de <= bound + q + (joints.allowance(xy[a], xy[b]) if joints else 0.0):
                 continue
             cap = bound / d

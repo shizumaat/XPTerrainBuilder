@@ -1,0 +1,4 @@
+   Loading altitudes from DEM file.
+   Loading curv_tol geographic weights.
+   Computing curvatures from altitudes.
+ERROR:  Cannot access file .poly.

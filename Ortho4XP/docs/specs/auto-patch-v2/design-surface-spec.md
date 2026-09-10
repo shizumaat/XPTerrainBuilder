@@ -510,6 +510,143 @@ engine gains a blend band outside the patch boundary; or (c) the cliff is
 the "bank at the edge" 08t answer 2 accepts and stands.  The lane changed
 nothing on its own judgement.
 
+### 8.5 AMENDMENT — THE TAXI BODY'S DATUM (owner RULINGS 2026-09-10p, closing the 10o attribution; lane `v2taxidatum`)
+
+§8.2 (1) gave every taxi centreline a design PROFILE — a second-difference
+row with RHS 0.  That is curvature, and curvature has no level: 10o
+measured CYXY's 1,664 m parallel `pav28` extrapolating its level from its
+far contact at the apron end while the ground rose 694 → 696.4 m under it
+(z − DEM median −6.17 m, min −10.05, "held by bending alone").
+
+**The datum roles are now the APRON family AND the TAXI family**
+(`solve/design.datum_roles`, replacing the apron-only `apron_roles` at the
+row builder).  A TAXI BODY is a connected group of taxi-family faces —
+faces sharing a vertex, `_role_bodies_faced` exactly as an apron body is
+formed — and the two families are SEPARATE partitions: an apron face and a
+taxi face that touch stay two bodies on two terrain means.  A runway face
+is never in a taxi body (its role is not in the set), so a taxi body may
+TOUCH a runway without joining it.  Each such body carries the SAME ONE
+weak row apron bodies carry (§14): its mean z against the mean production
+DEM under its own vertices, weight `[design] body_datum`, membership from
+the shape partition (09v), accumulated into the low-rank term (09r (1)),
+never per vertex.  The RUNWAY family stays excluded — its threshold chord
+and pins are its datum — its contacts stay hard, and the final projection
+(§16) absorbs any conflict into the body's non-runway vertices.
+
+The report gains `taxi_datum_rows` and `body_datums`: one record per datum
+row — `kind` (apron / taxi), the body's `ll` identity, its vertex count,
+its MEAN DEM and its solved RESIDUAL — and the `[v2] design` line names
+the three worst taxi residuals with their means.  Twins:
+`tests/auto_patch_v2/test_v2taxidatum.py`.
+
+### 8.6 AMENDMENT 2 — THE CHAIN'S TREND AND THE BODY'S PLANE (owner RULINGS 2026-09-10v, REPLACING §8.5/10p; lane `v2taxidatum` round 2)
+
+§8.5 gave every TAXI BODY one mean row.  10v measured it as too coarse: a taxi
+body is the whole connected taxi NETWORK (CYXY: ONE 853-vertex body), so one
+mean is an airport-wide level that cannot fix a local tilt, and the level it
+imposed over 700–705 m of ground RAISED HECA's taxi curvature.  Three rules
+replace it.  **The ground enters pavement only through long-wave trends and
+body planes — never per vertex (08t (1)).**
+
+1. **Every taxi CENTRELINE CHAIN carries a TARGET PROFILE.**  The ground's
+   long-wave trend along that chain — the §21 construction, the SAME helper
+   (`constraints/trend.py`, factored out of `runway_chord.py`) at the SAME
+   window key `[design] runway_profile_window_m` — shifted LINEARLY through
+   the chain's runway contacts (`shift_through`; unshifted where it touches
+   none, piecewise-linear between several).  Derived in
+   `constraints/taxi_trend.py`, published as `PlanarMap.taxi_trend_z` (its
+   own channel: `solve` imports `law` and `model` only), priced per free
+   chain vertex at the NEW weak weight `[design] taxi_trend` = **30** — below
+   `body_datum` (300).  A runway-contact vertex takes NO trend row: the
+   runway owns it and the contact stays hard and flush.  The chain's
+   second-difference rows (`taxi_profile`) stay: the trend says WHERE the
+   chain runs, the curvature row HOW SMOOTHLY.
+   The trend's fit DEGREE is bounded by what its samples resolve (quadratic
+   only where they span at least half the window, else a line): through four
+   points 40 m apart a quadratic is interpolation, i.e. the per-vertex pull
+   again.  Implementation choice of the same kind as 10x's tricube kernel.
+2. **An APRON body's datum is the DEM's AFFINE fit.**  THREE weak rows at
+   `body_datum` (`solve/rows._plane_rows`): the mean and the two FIRST
+   MOMENTS, Gram-Schmidt-orthogonalised in the body's own centred plan frame
+   and each scaled by its RMS half-extent, so satisfying all three IS
+   reproducing the least-squares plane of the DEM under the body — level AND
+   tilt — and every residual reads in METRES.  A plane has zero bending
+   energy, so the datum never fights the designed shape within the body.
+   TAXI bodies carry no datum row at all (rule 1 is their level).
+3. **The within-shape apron rows are STATIONED across the face.**
+   `apron_body_chord_max_m` is a chord LENGTH, not a coverage limit: a body
+   chord past the gate used to get no row, so SPJC's 85.3 m / 5.46 % path
+   was unpriced.  It is now priced at the apron cap over its own distance
+   (`constraints/apron.py`, ruling `apron body chord, stationed across the
+   face`); the 05ae face cover still applies.
+
+Consumer rows touched (the §21.3 table's frame): the census `within_shape`
+family — UNCHANGED, `verify/within.py` keeps the law's own 60 m gate, so v2's
+reading still agrees with v1's (`test_cyxy_verify_matches_v1_census` green);
+the design surface aims PAST what the census counts.  `solve/why.py` — its LP
+now publishes `taxi_trend_z`, so a vertex held by its trend no longer reads
+"held by bending alone"; it still does NOT publish `preferred_z` (a
+pre-existing gap, §21's ground, reported not fixed).  The sidecar `design`
+block gains `taxi_trend` (per chain: length, vertices, pins, target RMS/max,
+mean z − DEM), `taxi_trend_rows`, `body_datum_bodies`, and `tilt_m` on every
+`body_datums` record.  Twins: `tests/auto_patch_v2/test_v2taxidatum.py`.
+
+### 8.6.1 AMENDMENT 3 — THE WHOLE FACE, NOT ONLY ITS SPINE (lane `v2taxidatum` round 3)
+
+§8.6 (1) priced the trend on the CENTRELINE row alone, so a taxi body's
+off-centreline vertices carried no binding at all (`why`: "binding 0 — FREE")
+and the edge lagged where the ground rose across the body's width: CYXY's
+`pav28` read **−1.80 / −1.93 m** against the DEM at the 320 / 330 m stations
+of the owner's 10n transect while its centreline sat inside ±0.9 m.
+
+**Every vertex of a taxi-family face carries the SAME row at the SAME weight**
+(`[design] taxi_trend` = 30), its target the chain's trend value at the
+vertex's OWN STATION — the foot of its perpendicular on the chain. One value
+per vertex, the same the centreline gets there: the cross-section's SHAPE
+stays the transverse law's, which is senior, and the `taxi_profile` curvature
+rows are untouched. Two bounds, both MEASURED (CYXY `taxi_box` short-pair rows,
+v1 oracle / v2 verify, control 6 / 6):
+
+1. **A chain speaks only for the FACES IT OWNS** — the taxi-family faces most
+   of whose chain vertices are its own (`Breakline.ref` is the apt.dat
+   centreline record `taxi57`, `Face.ref` the pavement `pav28`, so the map's
+   own I5 incidence is the join, never a name). A FOREIGN chain projects the
+   wrong direction: valuing a stub's face from the long parallel it meets
+   spreads that parallel's STATION gradient across the stub's width. Nearest
+   long chain over every taxi vertex **22 / 36**; every face the chain merely
+   TOUCHES **34 / 47**; the faces it OWNS **22 / 30**.
+2. **Only a LONG chain speaks across a face** — its stations must span at
+   least half `runway_profile_window_m`, the same test `Trend.at` puts on the
+   fit's DEGREE. A short chain's trend is a line through 100 m of ground, and
+   sideways it asserts a level cross-section over ground it never sampled. On
+   the §8.6 stub fixture the 101 m junction stub's two side vertices, handed
+   its own flat trend while the apron beside them leaned with the ground,
+   pulled the junction 0.63 m down and bent the 1 km parallel **3.78×** its own
+   vertical-curve bound. Bounded, the same build reads 0.009 m of chain
+   residual (control 0.097) at 0.010× the bound (control 0.065).
+
+A vertex the taxi face SHARES with another VALUE surface (a runway contact, an
+apron edge) takes no trend row: two authorities on one vertex is the
+`emit consensus mints violations` class. `[design] taxi_trend_face_reach_m`
+(250 m) is a BACKSTOP on how far a chain may reach inside a face it owns, not
+the scope — CYXY's `pav28` is 160 m wide at the owner's transect, so at 75 m
+the far edge took no row at all.
+
+**MEASURED (patch-only, harness, v2 engine).** CYXY transect at lat 60.71363
+east of the runway: every station past the zone ring inside ±1.5 m — 170 m
++1.36, the owner's point (200 m) +0.99, **320 m +0.15 and 330 m +0.04**
+(round 2: −1.80 / −1.93); the 1.5 m internal drop at 250→270 m is gone. SPJC
+kept: taxi `pav49#22` −0.18 m, terminal apron path 0.38 % (round 2 0.59 %).
+HECA per-role undulation against the merged control — `primary_parallel`
+1.047 → **0.936**, `stub` 1.027 → **0.831**, `cross_connector` 0.967 → 1.015,
+but `junction` 1.084 → **1.128** against a 1.05 bar: MISSED, and the second
+arm the brief named (the apron datum's TILT rows at half `body_datum`)
+REFUTES its own hypothesis — junction 1.160, `taxi_box` 30 → 33 — so that knob
+was not kept. CYXY `taxi_box` reader agreement (`test_cyxy_verify_matches_v1_census`)
+stands RED at v1 22 / v2 30 (control 6 / 6, tolerance 4.4): the same class
+round 1 reported at v1 22 / v2 28 — when a taxi body follows its ground, its
+own short-pair box rows appear. Not widened.
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added
@@ -2893,6 +3030,169 @@ road's outer edge, no station steps more than 1 m, every station past the road w
 1 m of the DEM; DEFECTs 0; the crossings of 09ai unchanged; KML of the edge segments
 sent up. Site-first report.
 
+## §20 THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (RULINGS 2026-09-10l, owner 10k-1 = (A); ROUND 2 RULE: 2026-09-10y) — lane `v2padlevel`
+
+### 20.1 What is being added — THE RULE (round 2, RULINGS 10y)
+
+Owner, verbatim: "Pad takes the apron edge level." A building pad that
+FRONTS pavement (shares a rim vertex with an apron / taxiway / road face)
+is FLUSH with that pavement's edge; the apron never tiers down into the
+terminal it fronts; and its own DEM datum (09p (3)) applies ONLY to a pad
+that fronts no pavement.
+
+**A pad is ONE PLANE (09c stands; 10y refuses round 1's deviation).** Its
+LEVEL and TILT (≤ 1 %) are the LEAST-SQUARES FIT of that plane to its
+FRONTAGE CONTACT vertices' pavement values. Where the frontage would need
+more than 1 % of tilt the pad follows the SENIOR pavement (`precedence.toml`:
+runway family > taxi > apron > road) and the miss against the junior is
+reported. Round 1's per-vertex nearest-frontage following is REMOVED: each
+pad vertex lies on the pad's single plane.
+
+Three pieces, all in `constraints/pads.py` + `solve/design.py` §9b:
+
+1. **THE PLANE IS THE PLATE** — `pad_flats` is 09c's row set again: a cap-0
+   `Diff` over EVERY pair of the pad's rim at `[design] pad_flat`, the
+   vertices it SHARES with its frontage INCLUDED (round 1 dropped exactly
+   those pairs, and that is what stopped the pad being one plane —
+   `pad_flat` rows 5 → 38). At a weight an order above the law's, over
+   every pair, that is a near-rigid plate; `pad_slope_ceiling`'s hard 1 %
+   over the same pairs is its tilt bound. The plate is what turns the
+   rows below into a PLANE FIT rather than a per-vertex pull.
+2. **THE FIT IS A LEVEL ROW** — `pad_frontage_level` mints ONE row per
+   fronting pad and role: the pad's OWN MEAN (every rim vertex at weight
+   `1/n`, so the row moves the pad's LEVEL and warps nothing) against THE
+   PAVEMENT'S OWN VALUE AT ITS CONTACTS, ONE-WAY with the whole pad as
+   the follower (`[design] one_way_rulings`), priced at `pad_flat` for the
+   SENIOR frontage and at the law's own weight for a junior one. The
+   leaders are the pavement's own vertices in a BAND (`_LEADER_MIN_M`
+   10 m … `_LEADER_MAX_M` 50 m, inverse-distance weighted, ≤ `_LEADER_K`
+   8 — solver constants, not law values, with the one-way lag as the fixed
+   point): the pavement's NEAREST own vertex is a metre from the pad and
+   already carries the pad's own pull, so a row against it lifts nothing
+   (measured, §20.4 arm B), and the CONTACT itself is a pad vertex, so a
+   row against it says only that the pad equals itself (arm A).
+3. `solve/design` §9b drops every vertex a `[design] pad_level_rulings`
+   row governs from every per-body DEM datum mean — the followers are the
+   pad's own (non-contact) vertices; its CONTACTS stay in the pavement
+   body's mean, being the pavement's own edge. A pad that fronts nothing
+   mints no level row and keeps its datum, exactly as ruled.
+
+**REFUTED AND DELETED IN ROUND 2** (measured, LEMD replay arms, §20.4):
+(a) stating the plane as HARD coplanarity identities against three basis
+vertices — at `hard_weight` an identity transmits whatever ELSE the rim
+touches (LEMD T4S: 49 rim vertices on a basin retaining wall against 11 on
+the apron it fronts) a hundred times harder than any level row can answer,
+and the pad came out 0.34 m BELOW the round-0 surface; (b) reading the
+pavement's value at a contact by a local affine extrapolation of its
+nearest own vertices (unstable: the fit's weights blow up on a one-sided
+neighbourhood and the airport moved tens of metres); (c) one aggregate
+level row per pad read at the frontage's own CONTACTS (a plane through its
+contacts equals itself — zero effect, measured byte-for-byte); and (d) one
+row per CONTACT against the band (arm G): welded into the plate they are
+the fit in principle, but the plate is finite and they WARP it — the worst
+LEMD pad's residual from its own least-squares plane went 0.077 → 0.569 m
+and the `pad_flat` verify rows 6 → 11, against a ruling whose bar is
+0.01 m of planarity.
+
+### 20.2 CONSUMER TABLE (owner 2026-08-30l) — before editing
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| C1 | `constraints/pads.pad_flats` | pad rim pairs | ROUND 2: BACK TO 09c — every pair of the rim, the contacts included. Round 1's drop is deleted; this row is the PLATE the fit acts on. |
+| C2 | `constraints/pads.pad_slope_ceiling` | the same pairs | UNCHANGED in both rounds — the hard 1 % is the plane's tilt over its whole rim (09c). With the plate restored it is no longer the pad's only weld to its frontage, so it carries no fall of its own. |
+| C3 | `constraints/pads.frontage_near_miss` / `frontage_contacts` | soft-role ring edges within `frontage_near_miss_m` of a pad, BOTH endpoints unshared | UNAFFECTED: that law is the SLIVER case (no shared vertex). A pad with a sliver frontage and no shared vertex mints no level row and keeps its DEM datum — stated, not changed. |
+| C4 | `constraints/no_step.pad_contacts`, `constraints/routes` (the pad's route attachment) | `frontage_contacts` | UNAFFECTED via C3 — both name vertices, and no vertex, face or role moves. |
+| C5 | `constraints/ceiling.pavement_ceiling` | every `Diff` over pavement vertices | EDITED: the two LEVEL heads join the pad ceiling's in the skip set (spec §9.2 B5's reason: a cap-0 one-way row twinned two-way at 5 % is a route by which the pad could pull the pavement). |
+| C6 | `constraints/zones` (`pad_rim`, `pad_nearest`, `rigid_rims`, `strip_transverse`'s `pad_pick`) | "a pad with a rim vertex on pavement takes THAT level" | UNAFFECTED AND NOW TRUE BY CONSTRUCTION: an ATTACHED pad already gets no zone band (2026-09-05: CYXY/SPLP/SPJC/OTHH went hard-infeasible with one); 10l is what finally GIVES it that level. A DETACHED pad still takes its strip band. |
+| C7 | `solve/design` §9b per-body datum (`_role_bodies_faced`, `_shape_bodies`) | apron-role bodies incl. `building` | EDITED (3). A pad's vertices leave the mean; the body itself (its connectivity) is unchanged, so no body appears or disappears. |
+| C8 | `solve/design` §9 `detached_mean` / `cs.flats` | `Flat` groups | UNAFFECTED: 09c already stopped pads minting `Flat`; the only `Flat`s left are `constraints/structures`' tunnel mouths and ramp stations (spec §9.2 B9). |
+| C9 | `solve/design` one-way lag (`one_way_max_rounds`, `_LAG_OFF`) | rows with `follows` | EXTENDED: LEMD 13,831 → 15,641 one-way rows (round 2). `follows` may now be a VERTEX SET (`Diff`/`Linear`), and the split is by (row, column) membership; the level row itself keeps one follower, and the set is what §9b reads. The lag still does not settle in 3 rounds (worst leader move 1.97 m); reported, unchanged from round 0's 0.46 m in kind. |
+| C10 | `solve/why.py` `_FAMILIES` | generator + ruling | EDITED: `pad_level` is its own family, so a `why` on a pad names the pavement edge holding it. |
+| C11 | `solve/design.DesignReport.families` | `row.source.generator` | the residual reporting the ruling asks for — `pad_level` gets its own rows/missed/max_m line. |
+| C12 | `model/constraints.Diff` / `Linear` | frozen dataclass | EDITED: `Diff` gains `follows` (as `Linear` already had), and both accept a TUPLE of followers (round 2). Positional construction is unchanged; `solve/design` and `constraints/__init__.water_exempt` read it through `getattr` and normalise. |
+| C13 | `planar/shapes.py` bodies, `structures.basins` rim sharing | the rim a pad and an apron share | UNAFFECTED: 10k already ruled a shared rim vertex is ONE vertex with ONE value and `basins` pins nothing there. The rim now RISES with the pad — that is 10l's intent ("objects then seat to that ground"). |
+| C14 | `pipeline/build._plate_seats`, `airport/rebake_plan`, `emit/rebake.deck_datum_from_surface` | the emitted surface under an object | UNAFFECTED IN KIND: they read the surface, which now stands where the frontage puts it. Deltas re-measured at LEMD and OTHH (§20.4). |
+| C15 | `verify/pads.pad_flat`, `verify/census.DEFECT_KEYS`, `harness/census.py`, `tools/check_grade.py` | the emitted rings | UNAFFECTED: no new shape class, role, feature class or sidecar key. `pad_flat` is not a DEFECT family (08v). |
+| C16 | `emit/*` (`graded`, `bank`, `osm_adapter`, `clusters`), `pipeline/publication` | solved z, faces, axes | UNAFFECTED — no geometry is added or removed. |
+| C17 | `law/design_schema.check_design` | `[design]` | EDITED: `pad_level_rulings` validated non-empty AND a subset of `one_way_rulings` (the pad FOLLOWS; a level row that is not one-way is the tier again). |
+| C18 | Swift (`SceneryKit`) | JSONL event names | UNTOUCHED: no event, no wire name. |
+
+### 20.3 The law values
+
+`emit.toml [design]`: `pad_level_rulings` (the senior and junior heads),
+the senior head added to `pad_flat_rulings`, both added to
+`one_way_rulings`. No new number: the seniority is `precedence.toml`'s
+order and the two weights are `pad_flat` (3000) and `law` (300), already
+in the table. Round 2 adds NO law key and removes none — the band the
+frontage is read in (`_LEADER_MIN_M` / `_LEADER_MAX_M` / `_LEADER_K`) is a
+solver constant of the leader read, like `_MAX_PAIRWISE` beside it, and is
+named as such in `constraints/pads.py`.
+
+### 20.4 MEASUREMENTS (LEMD T4S, replay arms on the 2026-09-10 capture)
+
+Transect: station 0 at `pav16`'s outer ring node toward the rim vertex
+40.49098918, −3.57037578, 1 m stations, z over the patch's own
+triangulation. Span 23.9 m (the whole distance from the ring node to the
+rim).
+
+| arm | transect fall | max 1 m step | pad z (spread) | pad ← plate? |
+|---|---|---|---|---|
+| round 0 (main) | −0.749 m | 0.033 | 598.488 (0.009) | yes (09c) |
+| every pad row dropped (the pad-free reference) | +0.161 m | 0.007 | 598.919 (2.428) | — |
+| round 1 (plate dropped at the contacts) — REFUTED | −0.345 m | 0.015 | 599.132 (0.342) | NO — 38 `pad_flat` rows |
+| round 2 (A) HARD coplanarity, no plate — REFUTED | −1.395 m | 0.061 | 597.607 (0.054) | yes, hard |
+| round 2 (B) as (A), leader = nearest own vertex — REFUTED | −1.001 m | 0.044 | 598.224 (0.572) | yes, hard |
+| round 2 (C) as (B), leader = affine extrapolation — REFUTED | −3.298 m | 0.143 | 594.868 (0.263) | yes, hard |
+| round 2 (E) as (A) with the level rows dropped | −1.032 m | 0.045 | 598.149 (0.212) | yes, hard |
+| round 2 (G) the plate + one row per CONTACT — REFUTED | −0.494 m | 0.021 | 598.626 (0.073) | yes (09c), but WARPED: worst pad plane residual 0.569 m |
+| round 2 SHIPPED (J): the plate + one LEVEL row per role | **−0.681 m** | 0.030 | 598.524 (0.038) | yes (09c); worst pad plane residual 0.147 m |
+
+Readings that decided the design:
+
+* The pad-free reference says the surface WANTS 598.92 there and the
+  apron's last 24 m to RISE. Every arm that made the plane HARD landed
+  BELOW round 0 — (A) and (E) are byte-identical in the pad's z to
+  4 decimals, i.e. under a hard plane the level rows do nothing at all:
+  the 94 hard identities carry the basin wall's 49 rim vertices at
+  `hard_weight` 300000 while a level row is priced 3000.
+* (B) shows why the leader cannot be the pavement's nearest own vertex:
+  0.5 m from the pad, it reads 598.391 in the very arm whose pad sits at
+  598.224 — the pad reading its own pull back.
+* Arm G lifts the pad most (598.63) but each contact row pulls its own
+  vertex against the plate: the worst pad's residual from its own plane
+  goes 0.077 → 0.569 m and `pad_flat` verify rows 6 → 11. 09c's ONE PLANE
+  outranks the extra 0.19 m of lift, so the SHIPPED arm is J.
+* The SHIPPED arm (J) moves the pad's LEVEL only: +0.04 m over round 0 at
+  the site, worst pad plane residual 0.147 m, transect fall 0.749 →
+  0.681 m, and — the reading that matters beyond the site — the whole
+  LEMD patch improves: verify rows 349 → 268 (`airside_no_step` 124 → 98,
+  `within_shape` 132 → 118, `pad_flat` 6 → 7), census adjudicated
+  268 → 228.
+
+**The transect bar (≤ 0.10 m) is MISSED at 0.681 m** and is reported at
+the attempt cap. ATTRIBUTION, which is the round's real finding: this
+pad's rim is 49 vertices on the basin's RETAINING WALL and 11 on the apron
+it fronts. One plane over that rim is a tug-of-war the frontage loses
+11-to-49, and `why` on a contact reads "held by bending alone" — there is
+no anchor on the pad at all beyond its frontage rows. Lifting it further
+needs one of: the wall top FOLLOWING the pad it retains (a structure
+ruling, not this one), or dropping 09c's one plane (refused by 10y). It is
+an OWNER question, not a lane's.
+
+BUILT ARMS (`build_airport.py LEMD/OTHH --engine v2`, control `--base-arm`
+at `7e6eb5a6`): LEMD 498.8 s, DEFECTs 0 (no `runway_transverse`, no
+`runway_vertical_curve` row in either arm); verify rows 349 → 268;
+`pad_flat` 6 → 7 (bar ≤ 5: MISSED by one row, against round 1's 38);
+census ADJUDICATED 268 → 228; pads 10 of 47 moved beyond 0.05 m (p50
+0.351, p90 1.269, max 2.140; 3 rose, 7 fell), ring spread max 0.070 →
+0.160 m; apron-edge → pad step 0.001 m (bar ≤ 0.05 MET). OTHH 645.0 s:
+0 of 96 pads moved beyond 0.05 m, verify rows 16 → 13, and every rebake
+family identical (43 corridors in 11 families, 4 door wells in 8, units
+111 / members 948 / parts 140,273 / contacts 310,258 / skipped 263).
+
+`pad_level` residual (LEMD): the family is one row per fronting pad and
+role, so its line names the pads whose frontage the plane could not reach
+— the reporting the ruling asks for.
 ---
 
 ## §21 THE RUNWAY PROFILE FOLLOWS THE AIRPORT — long gentle curves through the threshold pins (RULINGS 2026-09-10q/10r/10t) — lane `v2rwycurve`

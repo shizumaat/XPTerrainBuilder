@@ -156,6 +156,17 @@ def test_the_taxi_profile_is_smoother_than_the_terrain_under_it(taxi_map, law): 
 # ── (2)/(3) THE ADJACENT GROUND FOLLOWS AND NEVER PULLS ─────────────────
 
 def test_the_zone_rows_are_one_way_and_name_the_ground_vertex(taxi_map, law):  # noqa: F811
+    """RE-SCOPED to the FOLLOWER SET (owner RULINGS 2026-09-10y/10ah, lane
+    v2green): ``Linear.follows`` is ``int | tuple[int, ...] | None`` since
+    the pad's level row, whose follower is a PLANE (three degrees of
+    freedom, so never one column), and ``Base.one_way`` maps a row index
+    to the tuple of REDUCED COLUMNS that stay in the matrix — not to a
+    vertex id.  This twin read the pre-10y shape (``one_way[k] == the row's
+    ``follows`` INT``) and went red on ``(22,) != 23`` at the merge of
+    b38683d5; every reader in ``src/`` was updated with the model
+    (``solve/design.assemble`` normalises, ``solve/design.solve_design``
+    splits by (row, column) membership, ``constraints/__init__`` resolves a
+    pinned-follower tuple), so the stale expectation was this twin's."""
     pm, cs, _sol, _rep = taxi_map[:4]
     heads = one_way_rulings(law)
     assert heads
@@ -164,12 +175,19 @@ def test_the_zone_rows_are_one_way_and_name_the_ground_vertex(taxi_map, law):  #
     assert zone_rows, "the fixture must carry adjacent-ground rows"
     for r in zone_rows:
         assert r.follows is not None, "a one-way row names the vertex it governs"
-        assert r.follows in {v for v, _c in r.terms}
+        gov = (r.follows,) if isinstance(r.follows, int) else tuple(r.follows)
+        assert gov, "a one-way row governs at least one vertex"
+        assert set(gov) <= {v for v, _c in r.terms}
     base = assemble(pm, cs, law, DesignReport())
     assert base.one_way, "the design solve prices them one-way"
-    for k, v in base.one_way.items():
-        assert ruling_head(base.one[k][2]) in heads
-        assert v == base.one[k][2].follows
+    for k, cols in base.one_way.items():
+        row = base.one[k][2]
+        assert ruling_head(row) in heads
+        gov = (row.follows,) if isinstance(row.follows, int) else tuple(row.follows)
+        # the value IS the governed vertices' surviving columns, in order
+        assert cols == tuple(sorted({int(base.red.col[v]) for v in gov
+                                     if base.red.col[v] >= 0}))
+        assert cols, "a row with no surviving column is never registered one-way"
 
 
 def test_the_pavement_does_not_feel_the_ground_it_shapes(taxi_map, law):  # noqa: F811
@@ -181,13 +199,16 @@ def test_the_pavement_does_not_feel_the_ground_it_shapes(taxi_map, law):  # noqa
     base = assemble(pm, cs, law, DesignReport())
     A1, _b1 = _one_matrix(base.one, base.red)
     A1 = A1.tocsr()
-    for k, v in list(base.one_way.items())[:200]:
+    for k, keep in list(base.one_way.items())[:200]:
+        # RE-SCOPED with the twin above: ``one_way[k]`` is the tuple of
+        # REDUCED COLUMNS the split keeps (10y — a pad plane's follower is
+        # a set), not a vertex id.
         cols = set(A1.indices[A1.indptr[k]:A1.indptr[k + 1]].tolist())
         foot = {int(base.red.col[u]) for u, _c in base.one[k][2].terms
-                if u != v and base.red.col[u] >= 0}
+                if int(base.red.col[u]) not in keep and base.red.col[u] >= 0}
         # the row DOES carry its feet before the split; the split is the
-        # solve's own (``solve_design``), and the follower is always in
-        assert int(base.red.col[v]) in cols or base.red.col[v] < 0
+        # solve's own (``solve_design``), and every follower column is in
+        assert set(keep) <= cols
         assert foot <= cols or not foot
 
 

@@ -19,8 +19,8 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 #: integrated curvature, every other term metres of elevation).
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
-                                 "taxi_profile", "road", "detached_mean",
-                                 "body_datum")
+                                 "taxi_profile", "taxi_trend", "road",
+                                 "detached_mean", "body_datum")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -62,6 +62,23 @@ class Design:
     #: difference of z along every taxi CENTRELINE chain, as a strong
     #: curvature target — the runway K pattern read as an objective term
     taxi_profile: float
+    #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
+    #: spec §8.6): the ground's LONG-WAVE TREND along every taxi centreline
+    #: chain — the §21 construction at the same window key, shifted
+    #: linearly through the chain's runway contacts — as a WEAK level
+    #: target per chain vertex (``constraints/taxi_trend.py``, published
+    #: through ``PlanarMap.taxi_trend_z``).  Below ``body_datum``: the
+    #: trend says WHERE a taxiway runs, and every law, the body plane and
+    #: the curvature row all outrank it.  This REPLACES the taxi body mean
+    #: row of 10p, which 10v measured as too coarse.
+    taxi_trend: float
+    #: THE TREND'S REACH ACROSS THE FACE (spec §8.6.1, round 3): a
+    #: taxi-family vertex OFF the centreline takes the same ``taxi_trend``
+    #: row, valued at the station of its foot on the nearest centreline
+    #: chain — within this plan distance.  Past it the vertex is left free
+    #: rather than pulled to a chain it does not belong to.  It is a REACH,
+    #: not a law value: it bounds which chain may speak for a vertex.
+    taxi_trend_face_reach_m: float
     road: float
     detached_mean: float
     #: THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
@@ -83,6 +100,13 @@ class Design:
     #: ``hard_rulings`` / ``one_way_rulings``.
     pad_flat: float
     pad_flat_rulings: tuple[str, ...]
+    #: THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
+    #: 10k-1 = (A)): the ruling HEADS of a pad's frontage LEVEL rows.  A
+    #: vertex such a row GOVERNS (its ``follows``) is a pad following the
+    #: pavement, so ``solve/design`` §9b takes it out of every per-body
+    #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
+    #: fronts NO pavement.
+    pad_level_rulings: tuple[str, ...]
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -209,6 +233,15 @@ def check_design(d: Design, err: type[Exception],
     if not d.pad_flat > d.law:
         raise err(f"emit.design.pad_flat {d.pad_flat}: heavier than the law's "
                   f"target weight {d.law} — a pad targets FLAT (09-09c)")
+    if not d.pad_level_rulings:
+        raise err("emit.design.pad_level_rulings: at least one ruling "
+                  "(RULINGS 2026-09-10l: the pad takes the pavement's edge "
+                  "level and its own DEM datum only where it fronts none)")
+    missing = [r for r in d.pad_level_rulings if r not in d.one_way_rulings]
+    if missing:
+        raise err(f"emit.design.pad_level_rulings {missing}: every level "
+                  f"ruling must also be in one_way_rulings — the pad FOLLOWS "
+                  f"the pavement and never pulls it (RULINGS 2026-09-10l)")
     if not 0.0 < d.bank_slope <= 1.0:
         raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
     if not d.bank_min_width_m > 0.0:

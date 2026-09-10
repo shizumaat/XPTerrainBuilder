@@ -15,6 +15,7 @@ gone.
 """
 from __future__ import annotations
 
+import collections
 import math
 
 import numpy as np
@@ -302,8 +303,21 @@ def test_the_pad_is_no_longer_a_merged_flat_group(pad_map, law):  # noqa: F811
     assert counts["pad_flats"] > 0
     rep = DesignReport()
     base = assemble(pm, cs, law, rep)
-    # a two-sided ``Diff`` enters the one-sided set as TWO rows
-    assert base.pad_flat and len(base.pad_flat) == 2 * counts["pad_flats"]
+    # RE-SCOPED (owner RULINGS 2026-09-10l/10y, merged 10ah; lane v2green):
+    # ``[design] pad_flat_rulings`` names TWO heads now — the pad's flatness
+    # target AND the SENIOR frontage LEVEL row — so ``Base.pad_flat`` carries
+    # both.  The twin read ``2 x pad_flats`` (the pre-10l register) and went
+    # red on 14 vs 12 at b38683d5.  DERIVED, not hard-coded: a two-sided
+    # ``Diff`` enters the one-sided set as TWO rows, and each level row is
+    # ALREADY one-sided (``constraints.pads._two_sided`` mints the equality
+    # as its two halves, so the generator's own count is the row count).
+    level = counts["pad_frontage_level"]
+    assert level > 0, "the fixture's pad fronts the apron"
+    assert base.pad_flat
+    assert len(base.pad_flat) == 2 * counts["pad_flats"] + level
+    heads = collections.Counter(ruling_head(base.one[i][2]) for i in base.pad_flat)
+    assert heads[padgen.FLAT_RULING] == 2 * counts["pad_flats"]
+    assert heads[padgen.LEVEL_RULING] == level
     assert rep.hard_rows >= counts["pad_slope_ceiling"]
 
 
@@ -334,7 +348,27 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     """09c: "with up to 1 % allowance where no other solution exists".
     Two opposite rim vertices are PINNED 0.30 m apart over the pad's 60 m
     length — no flat plane satisfies both — so the pad tilts, and the hard
-    ceiling holds the tilt under 1 %."""
+    ceiling holds the tilt under 1 %.
+
+    RE-SCOPED for the FRONTAGE LEVEL ROW (owner RULINGS 2026-09-10y, merged
+    10ah; lane v2green).  The pad's residual from its own least-squares
+    plane read 0.0000 before b38683d5 and 0.0249 m after it, and the
+    INTERVENTIONAL arm below attributes every bit of that to 10y's level
+    row, not to a bowl in the plate: with the ``pad_level`` rows dropped and
+    nothing else changed the same solve puts the pad back on ONE plane
+    inside the elevation materiality.
+
+    The mechanism is the fixture's own over-determination, not a defect of
+    the shipped design: this pad's rim is FOUR vertices and the two Pins
+    take the diagonal, so every plane through them has the SAME mean
+    (rotating about the pin axis moves the two free vertices in opposite
+    directions).  10y's row states the pad's mean against its frontage's
+    band value, so it asks for a mean no plane through those pins can
+    have, and the solve trades ``pad_flat`` planarity against it at the
+    same weight.  On a real pad the plate is many pairs against ONE mean
+    row and the trade is ~1/n of this (LEMD, 10ah: ``pad_flat`` verify rows
+    6 -> 7, DEFECTs 0).  ``frontage_near_miss`` is where the same row shows
+    up as surface — see the sibling note in ``test_m3b``."""
     airport, pm, _r = pad_map
     fid = _pad_face(pm).id
     rim = list(dict.fromkeys(pm.ring_vertices(pm.faces[fid].ring)))
@@ -354,8 +388,19 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     cap = law.tables.emit.within_shape.pad_slope_max
     assert spread > tol, "the pins leave no flat solution"
     assert 0.30 / span <= cap                       # the fixture asks for < 1 %
-    assert resid <= tol, (resid, "one PLANE, not a bowl")
     assert tilt <= cap + law.tables.emit.materiality.grade, tilt
+    # THE NUMBER, and its attribution.  0.0249 m of plate residual, all of
+    # it the 10y level row: the arm below is the identical solve with the
+    # ``pad_level`` generator's rows removed and NOTHING else changed.
+    assert resid <= 0.03, (resid, "the level row's trade, not a bowl")
+    rows_no_level = [r for r in cs2.rows()
+                     if r.source.generator != padgen.GEN_LEVEL]
+    assert len(rows_no_level) < len(list(cs2.rows())), "the pad fronts the apron"
+    sol_b, _rb = solve_design(pm, stack(rows_no_level), law)
+    (resid_b, tilt_b), ids_b = _pad_plane(pm, sol_b.z, fid)
+    assert resid_b <= tol, (resid_b, "one PLANE, not a bowl")
+    assert tilt_b <= cap + law.tables.emit.materiality.grade, tilt_b
+    assert max(sol_b.z[v] for v in ids_b) - min(sol_b.z[v] for v in ids_b) > tol
 
 
 # ── (1b) THE LEVEL RINGS ARE DELETED (owner RULINGS 2026-09-09p (1) /

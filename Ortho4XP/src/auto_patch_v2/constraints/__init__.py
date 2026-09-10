@@ -56,6 +56,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("end_corridor_longitudinal", strips.end_corridor_longitudinal),
     ("raoa", strips.raoa),
     ("pad_flats", pads.pad_flats),
+    ("pad_frontage_level", pads.pad_frontage_level),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
     ("frontage_near_miss", pads.frontage_near_miss),
     ("water_pins", water.water_pins),
@@ -157,6 +158,12 @@ def water_exempt(rows: list[Row]) -> tuple[list[Row], int]:
                 n += 1
             continue
         follows = getattr(r, "follows", None)
+        if isinstance(follows, tuple):
+            # a one-way row over a SET of followers (the pad plane's three
+            # degrees of freedom, owner RULINGS 2026-09-10y) governs nothing
+            # once EVERY follower is pinned
+            follows = follows[0] if len(follows) == 1 else (
+                next(iter(follows)) if all(v in pinned for v in follows) else None)
         if follows is not None and follows in pinned:
             n += 1
             continue

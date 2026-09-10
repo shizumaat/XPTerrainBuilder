@@ -368,3 +368,82 @@ owed item (2) (per-placement resources) or a per-COMPONENT ground follow
 (09d's `complete_component_deltas` currently gives every component its
 nearest CARRIER's delta — the same +0.62 — rather than the ground under
 itself). Both are owner/spawner intent.
+
+## 10. RULINGS 2026-09-09s: the plate FAMILY expansion withdrawn; PER-COMPONENT GROUND SEATING (lane `v2lemdseats` round 2)
+
+Two rules land together.
+
+**(1) The plate family expansion is withdrawn (05n-4's "their whole
+anchor family with them").** A tunnel-wall / basin plate seats **its own
+object**: `plate_keys` (`rebake_plan.py:98`) covers the plate's own
+placement ids only, and `emit/rebake.seat`'s `DATUM_PLATE` branch fixes
+the members that CARRY a plate, never every member of the anchor
+spelling. LEMD's pack anchors 300 placements at two origin points, so
+the expansion re-made exactly the body 09q had just broken: two plate
+units of 184 / 95 members, one rigid `+0.6235` / `+0.6010` m each over
+32 m of relief. Deck families (`deck_family_seats_rigid`, R12-2) are
+UNCHANGED — the withdrawal is the plate rule only.
+
+**(2) Per-component ground seating.** The seat's ground reading moves
+from ONE mesh sample under a part's plan centroid to the part's own
+FEET — its lowest solid vertices within `[basin] contact_band_m` of the
+component's own minimum, at most `[rebake] foot_samples_max`, spread by
+farthest-point over the plan. A part's SEAT TARGET (the world elevation
+of its object's `y = 0` plane that lands it on the mesh) becomes
+`median over its feet of (mesh z at the foot − the foot's authored y)`;
+with one foot at the centroid carrying `base_y` this is literally
+today's `z − base_y`, so the CUT law, the facility rule, the A3 guard
+and the pads keep their shape. GROUND is unchanged (`base_y ≤ elevated_base_m`);
+the plan carries the verdict by carrying the feet only for the ground
+parts, so the seat reads it straight off the plan and a 152 k-part plan
+does not grow by an elevated part's feet.
+
+REFUTED AND DELETED in the lane (the record, per BUILD ECONOMY): a
+STRUCTURE-relative ground test — `base_y` within `elevated_base_m` of the
+lowest `base_y` of the part's contact structure — was written to rescue
+an Aerosoft terminal authored wholly at `y = 5.21`
+(`LEMD_OBJ-Airport_Terminal4SAT_Yellow-LEMD23.obj`, 2,346 thick
+components, 927 m span, ZERO ground parts today). It makes a FLOATING
+disconnected part its own structure and therefore a ground part: the
+twin `test_elevated_parts_inherit_the_supporter`'s sign, hanging over
+nothing, seated itself on the ground instead of re-homing to the nearest
+cluster (v1 I-8, spec §4.2b). Whole-file-elevated packs stay inheritors;
+the scout's instrument excludes them too ("elevated base", 406 LEMD
+placements), so the bar does not measure them. RESIDUAL, reported.
+
+A cluster still seats as ONE (05q "a structure sunk uniformly lifts as
+one", twin `test_a_structure_sunk_uniformly_lifts_as_one`) — the ruling's
+own gloss is v1's `ground_under(structure) − ground_under(anchor)` **per
+structure**, and a scatter file's buildings are each their own contact
+structure, so each now lands on its own ground. The cut tolerance
+(`cluster_seat_tolerance_m` 0.5 m) bounds what a shared cluster costs a
+member's feet.
+
+### Consumer census (owner ruling 30l): every reader of the part's ground reading, of `plate_keys` and of the plan's `Part`
+
+| reader | reads | ruling under 09s |
+|---|---|---|
+| `airport/contact.placed_parts` | the placed component | GAINS `feet` — the component's lowest vertices in the frame with their AUTHORED y. Pure addition; `base_y`, centroid, boxes, areas unchanged, so the contact graph, the weld pass and the narrow phase are bit-identical |
+| `airport/contact.partition` | the parts + the union-find | GAINS the ground-candidate cull: a part whose `base_y` exceeds its STRUCTURE's minimum by more than `elevated_base_m` carries no feet (the plan stays small: LEMD 9.1 k of 29.1 k parts, OTHH's 152 k parts likewise culled). The structure roots are already computed there — no second pass |
+| `model.rebake.Part` / the plan JSON | the witness set | GAINS field 10, `feet` = `[[lat, lon, y], …]` (mm-rounded). `PLAN_VERSION` 5 → 6. A version-5 plan read through `--flat`-style promotion has no feet: every part then falls back to ONE foot at its centroid with `base_y`, which IS the pre-09s reading, so an old plan replays unchanged |
+| `emit/clusters.seat_clusters` — `_P.z` | one mesh sample | REPLACED by `_P.target` over the feet. `target`, `lift`, the cut, `lifts[k]`, `grounds_of[k]`, the A3 guard and the pad residuals are all expressed in the same quantity, so their law text is unchanged. `ClusterSeat.ground_m` keeps its meaning (the median seat target = the median `y = 0` plane) — it is what `delta = ground_m − base` already subtracted |
+| `emit/clusters` — the GROUND test | `base_y ≤ elevated_base_m` | REPLACED by "this part carries feet" (the plan's structure-relative verdict), with the flat rule as the fallback for a feet-less plan. Elevated parts still never vote and still inherit (v1 I-8) |
+| `emit/clusters` — the flat-site `authored` override (08f (e)) | part id → the authored `y = 0` plane | UNCHANGED and takes precedence over the feet: an authored part's target IS its base, delta 0. Measured OTHH is the airport this protects |
+| `emit/rebake.seat` `DATUM_PLATE` branch (line 478) | the unit's members | NARROWED to the members carrying `plate_y` (ruling (1)). Every other member of the unit falls to the cluster law, which is where 09q sent it |
+| `emit/rebake._plate_reading` / `_deck_reading` / `_structure_seat` | member plates and deck rings | UNCHANGED — the plate and the deck seats stay PER OBJECT and rigid (ruling (3)); the per-component law is the cluster half only |
+| `airport/rebake_plan.plan` `in_plate_family` (:130, :232) | `plate_keys` | NARROWED to `o.id in plates`: the `below_grade` and `no_parts` skips no longer spare a plate's anchor siblings. `counts["plate_families"]` is retired in favour of `counts["plate_members"]` (already present) |
+| `airport/rigid.complete_component_deltas` (09d) | the seat's per-component deltas + `held` | UNCHANGED — a component the seat never considered (a thin plane, an elevated part in no cluster) still follows its NEAREST carrier. More components now carry a delta of their own, which is the point |
+| `engine_v2._decision_from_seats` / `object_rebake.apply` | `MemberSeat.part_deltas` | UNCHANGED shape. A member whose parts fall in several clusters already wrote per-vertex deltas (06g); more of them now do |
+| `tools/v2_rebake_replay.py` (`seat`, `bodies`) | the plan + the result | UNCHANGED code; `seat` promotes a version-4 plan already — a version-5 plan replays through the feet fallback |
+| `tools/object_seating_report.py`, the app JSONL (`o4_engine/events.py`) | counts and v1 decision fields | UNCHANGED — no per-part field crosses either boundary |
+| the census / `check_grade` / the oracle | the PATCH, never the pack | UNCHANGED — the re-seat writes OBJ8 vertex `y`, never a patch row |
+
+### The twins re-scoped, with the reason
+
+* `tests/auto_patch_v2/test_seat_clusters.py::test_plate_seat_holds_at_cluster_level`
+  pinned "a tunnel wall object's plate seats its FAMILY on the ground at
+  the band" — the anchor sibling `kerb` was asserted rigid with the
+  plate at `−1.5`. RE-SCOPED by ruling (1): the plate member alone takes
+  the plate delta and the kerb falls to the cluster law. The rest of the
+  twin (the plate's own datum, the neighbour never founded by it, the
+  distinct cluster ids) is unchanged and still asserted.

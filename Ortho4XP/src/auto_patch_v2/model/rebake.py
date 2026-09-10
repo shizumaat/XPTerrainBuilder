@@ -33,8 +33,9 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "U
 
 #: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
 #: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
-#: flat-site datum and its region (08d).
-PLAN_VERSION = 5
+#: flat-site datum and its region (08d); 6: the parts' FEET (09s — the
+#: per-component ground reading).
+PLAN_VERSION = 6
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -55,7 +56,18 @@ class Part:
     world position of its plan centroid (the mesh is read there), its
     lowest authored ``y``, plan area and plan box ``(min_lat, min_lon,
     max_lat, max_lon)``.  ``pid`` is its index in the plan's contact
-    graph."""
+    graph.
+
+    ``feet`` (RULINGS 2026-09-09s (2)) are the component's own GROUND
+    FEET — its lowest solid vertices within ``[basin] contact_band_m`` of
+    its own minimum, ``(lat, lon, authored y)``, at most
+    ``[rebake] foot_samples_max`` spread over the plan.  The seat reads
+    the mesh at each and takes the median of ``z − y`` as the part's seat
+    target.  EMPTY means the plan judged the part ELEVATED (its
+    ``base_y`` stands more than ``elevated_base_m`` above the minimum of
+    its contact structure) — or that the plan predates 09s, in which case
+    ``emit/clusters`` falls back to one foot at the centroid carrying
+    ``base_y``, which is the pre-09s reading exactly."""
 
     pid: int
     comp: int
@@ -64,6 +76,7 @@ class Part:
     base_y: float
     area_m2: float
     box: tuple[float, float, float, float]
+    feet: tuple[tuple[float, float, float], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -207,8 +220,8 @@ class RebakePlan:
                     "id": m.id, "resource": m.resource,
                     "authored_path": m.authored_path, "live_path": m.live_path,
                     "heading_deg": m.heading_deg,
-                    "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box]
-                              for p in m.parts],
+                    "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box,
+                               [list(f) for f in p.feet]] for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
@@ -240,7 +253,9 @@ class RebakePlan:
                 heading_deg=float(m["heading_deg"]),
                 parts=tuple(Part(int(p[0]), int(p[1]), float(p[2]), float(p[3]), float(p[4]),
                                  float(p[5]), (float(p[6]), float(p[7]), float(p[8]),
-                                               float(p[9])))
+                                               float(p[9])),
+                                 tuple((float(a), float(b), float(c))
+                                       for a, b, c in (p[10] if len(p) > 10 else ())))
                             for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),
@@ -300,7 +315,8 @@ class MemberSeat:
     #: one of its ground parts lies in a facility cluster — it keeps its
     #: authored y (the terrain's cutout is the basin pass's affair).
     facility: bool = False
-    #: The GROUND under the member's measured ground parts (median mesh z).
+    #: The GROUND under the member's measured ground parts: the median
+    #: SEAT TARGET (09s (2) — the y = 0 plane its feet found).
     ground_m: float | None = None
     part_deltas: tuple[tuple[int, int, float | None], ...] = ()
 
@@ -312,10 +328,11 @@ class MemberSeat:
 
 @_dc.dataclass(frozen=True)
 class ClusterSeat:
-    """One contact cluster (06g): ``ground_m`` the median mesh under its
-    measured ground parts, ``lift_m`` the median of their seat deltas
-    (``ground − base_y − base``: positive = the parts stand under the
-    mesh), ``span_m`` the ground relief across them.  ``delta_m`` is per
+    """One contact cluster (06g): ``ground_m`` the median SEAT TARGET of
+    its measured ground parts (09s (2): the ``y = 0`` plane their own
+    feet found), ``lift_m`` the median of their seat deltas
+    (``target − base``: positive = the parts stand under the mesh),
+    ``span_m`` the relief across those targets.  ``delta_m`` is per
     RESOURCE (``ground_m − base(member)``) and lives in the members'
     ``part_deltas``; ``skip_reason`` says why the cluster stays."""
 

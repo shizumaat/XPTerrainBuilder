@@ -37,12 +37,19 @@ def pack(tmp_path_factory):
     (root / "Earth nav data").mkdir()
     (root / "Earth nav data" / "apt.dat").write_text("I\n1200\n\n1 700 0 0 ZZZZ Synthetic\n")
     d = root / "objects"
-    # four objects in a row along +x, faces touching (welded contact), y 0..5
-    _boxes_obj(d / "a.obj", [(10.0, 0.0, 10.0, 8.0, 0.0, 5.0)])
+    # four objects in a row along +x, faces touching (welded contact), y 0..5.
+    # RULINGS 2026-09-09s (2) re-scope: the seat reads a part's own FEET, so
+    # the SYNTHETIC step terrain below must step BETWEEN the boxes and not
+    # inside one — a's west face is pulled off the anchor (x 1..20 instead of
+    # 0..20) and c / d meet at 80 with a 0.2 m contact gap (still one contact,
+    # ε 0.25 m) so the 706 → 712 step at 79.9 falls between them.  Every
+    # asserted seat value below is the pre-09s value: the law is unchanged,
+    # only the fixture's terrain no longer has a 10 m cliff inside a box.
+    _boxes_obj(d / "a.obj", [(10.5, 0.0, 9.5, 8.0, 0.0, 5.0)])
     # b: TWO components — the second 1 m clear of the first (no weld), touching c
     _boxes_obj(d / "b.obj", [(30.0, 0.0, 10.0, 8.0, 0.0, 5.0), (50.5, 0.0, 9.5, 8.0, 0.0, 5.0)])
-    _boxes_obj(d / "c.obj", [(70.0, 0.0, 10.0, 8.0, 0.0, 5.0)])
-    _boxes_obj(d / "d.obj", [(90.0, 0.0, 10.0, 8.0, 0.0, 5.0)])
+    _boxes_obj(d / "c.obj", [(69.9, 0.0, 9.9, 8.0, 0.0, 5.0)])
+    _boxes_obj(d / "d.obj", [(90.1, 0.0, 10.1, 8.0, 0.0, 5.0)])
     # a flagged deck plate at y 4..4.5 whose west face touches d's east face
     _boxes_obj(d / "e.obj", [(10.0, 0.0, 10.0, 8.0, 4.0, 4.5)], attr="ATTR_hard_deck")
     # a ground box with an ELEVATED box 0.1 m over it (contact, no weld) and a
@@ -100,15 +107,15 @@ def test_plan_carries_parts_and_contacts(row):
     assert all(p.base_y == pytest.approx(0.0) for m in by.values() if m.resource != "objects/e.obj"
                for p in m.parts)
     back = R.RebakePlan.from_json(pl.to_json())
-    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 5
+    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 6
 
 
 def test_four_welded_objects_on_a_slope_cut_into_three_clusters(row, law):
     _a, pl = row
     rb = law.tables.structures.rebake
-    # anchor (x = 0) at 690; a and b1 (x 10, 30) at 700; b2 and c (50.5, 70)
-    # at 706; d (90) and the deck's anchor (100) at 712
-    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (5.0, 700.0), (40.5, 706.0), (80.0, 712.0)]), law)
+    # anchor (x = 0) at 690; a (1..20) and b1 (20..40) at 700; b2 (41..60)
+    # and c (60..79.8) at 706; d (80..100.2) and the deck's anchor at 712
+    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (0.5, 700.0), (40.5, 706.0), (79.9, 712.0)]), law)
     ground = [k for k in res.clusters if k.n_measured]
     assert len(ground) == 3 and res.cut_edges == 1          # c–d cut (706 vs 712 > 0.5)
     assert res.counts()["clusters_baked"] == 3 and res.counts()["structures"] == 2
@@ -133,7 +140,7 @@ def test_four_welded_objects_on_a_slope_cut_into_three_clusters(row, law):
 
 def test_deck_plate_seats_its_own_cluster_and_never_founds_the_ground(row, law):
     _a, pl = row
-    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (5.0, 700.0), (40.5, 706.0), (80.0, 712.0)]), law)
+    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (0.5, 700.0), (40.5, 706.0), (79.9, 712.0)]), law)
     deck = next(u for u in res.units if u.members[0].resource == "objects/e.obj")
     # the solved surface put 720 at the deck: top (authored 4.5) lands there
     # from a base of 712 → +3.5; the deck is exempt from the threshold
@@ -151,7 +158,7 @@ def test_deck_plate_seats_its_own_cluster_and_never_founds_the_ground(row, law):
 def test_decision_writes_per_vertex_deltas(row, law):
     from auto_patch.engine_v2 import _decision_from_seats
     _a, pl = row
-    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (5.0, 700.0), (40.5, 706.0), (80.0, 712.0)]), law)
+    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (0.5, 700.0), (40.5, 706.0), (79.9, 712.0)]), law)
     dec = _decision_from_seats(pl, res, measure_only=False)
     b = dec.delta_by_resource_and_vertex["objects/b.obj"]
     assert sorted(set(b.values())) == [10.0, 16.0] and len(b) == 16
@@ -262,12 +269,21 @@ def test_the_facility_reference_must_be_at_grade(law):
 
 
 def test_plate_seat_holds_at_cluster_level(law):
-    """A tunnel wall object's plate seats its family on the ground at the
-    band (05n-4); a neighbouring ground object in contact with it keeps
-    its own cluster and is never founded by the plate."""
+    """A tunnel wall object's plate seats THAT OBJECT on the ground at the
+    band (05n-4 for the datum; RULINGS 2026-09-09s (1) for the scope);
+    a neighbouring ground object in contact with it keeps its own cluster
+    and is never founded by the plate.
+
+    RE-SCOPED by 09s (1): the anchor sibling ``kerb`` used to be asserted
+    rigid with the plate at −1.5 — "their whole anchor family with them".
+    That expansion is withdrawn (LEMD: two origin anchors carried 300
+    placements as one rigid +0.62 m body over 32 m of relief), so the
+    kerb now falls to the CLUSTER law like any other member; the plate's
+    own datum, the neighbour it never founds and the distinct cluster ids
+    are unchanged and still asserted."""
     wall = _member("tunnel1", [(0, 0.001, 0.0, -3.0)],
                    deck={"plate_y": 2.0, "plate_stations": ((0.001, 0.0), (0.0015, 0.0))})
-    kerb = _member("kerb", [(1, 0.001, 0.0, -3.0)])          # its family: rigid with the plate
+    kerb = _member("kerb", [(1, 0.001, 0.0, -3.0)])          # 09s (1): NOT plate-seated
     shed = _member("shed", [(2, 0.002, 0.0, 0.0)])            # a neighbour in contact
     pl = _plan_of([R.Unit("u:wall", (0.0, 0.0), 0.0, (wall, kerb)),
                    R.Unit("u:shed", (0.0, 0.0), 0.0, (shed,))], [(0, 1), (0, 2)])
@@ -275,7 +291,13 @@ def test_plate_seat_holds_at_cluster_level(law):
     res = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 710.5, 0.0015: 710.5, 0.002: 710.0}), law)
     w, s = res.units
     assert w.datum == R.DATUM_PLATE and w.bakes and w.delta_m == pytest.approx(-1.5)
-    assert all(m.delta_m == pytest.approx(-1.5) for m in w.members)
+    by = {m.resource: m for m in w.members}
+    assert by["objects/tunnel1.obj"].delta_m == pytest.approx(-1.5)
+    assert by["objects/tunnel1.obj"].founding
+    # the kerb: its own cluster, seated by its own feet (ground 710.5 under a
+    # part whose base_y is −3.0 → the y = 0 plane wants 713.5, delta +3.5)
+    k = by["objects/kerb.obj"]
+    assert k.datum == R.DATUM_CLUSTER and k.delta_m == pytest.approx(3.5)
     assert s.datum == R.DATUM_CLUSTER and not s.bakes
     assert s.skip_reason.startswith("below_threshold")
     assert s.members[0].part_deltas[0][1] != w.members[0].part_deltas[0][1]
@@ -309,7 +331,10 @@ def test_a_wide_cluster_bakes_and_pads(pack, law):
     rb = law.tables.structures.rebake
     _a, pl = _planned(pack, law, [("chain", (0.0, 0.0), 0.0, 0.0)])
     assert pl.counts["parts"] == 8 and pl.counts["contacts"] == 7
-    steps = [(-1e9, 690.0)] + [(20.1 * i, 700.0 + 0.45 * i) for i in range(8)]
+    # 09s (2): each 0.45 m step falls in the 0.1 m gap BEFORE its box (the
+    # boxes span 20.1 i … 20 + 20.1 i), so every box reads ONE plateau at
+    # all four of its feet — the pre-09s centroid reading
+    steps = [(-1e9, 690.0)] + [(20.1 * i - 0.05, 700.0 + 0.45 * i) for i in range(8)]
     res = R.seat(pl, _x_sampler(steps), law)
     k = res.clusters[0]
     assert res.cut_edges == 0 and k.bakes and k.needs_pad
@@ -325,7 +350,7 @@ def test_a_wide_cluster_bakes_and_pads(pack, law):
 
 def test_clusters_and_pads_round_trip_the_result(row, law):
     _a, pl = row
-    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (5.0, 700.0), (40.5, 706.0), (80.0, 712.0)]), law)
+    res = R.seat(pl, _x_sampler([(-1e9, 690.0), (0.5, 700.0), (40.5, 706.0), (79.9, 712.0)]), law)
     d = res.to_dict()
     assert d["counts"]["clusters"] == 4 and len(d["clusters"]) == 4
     assert d["cut_edges"] == 1 and d["structures"] == 2

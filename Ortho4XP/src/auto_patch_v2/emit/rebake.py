@@ -25,8 +25,8 @@ laws share it:
   the ground it covers spans nothing, the deck seat is refused with a
   finding and the cluster law governs its parts.  A tunnel wall object
   seats its top PLATE on the ground at its wall band (05n-4), a basin
-  family its floor plate on the trench floor (06b-3): the whole family
-  rigidly.  A structure seat is NOT exempt from a threshold (08d (d)):
+  its floor plate on the trench floor (06b-3): THAT OBJECT rigidly and
+  whole — never its anchor family (RULINGS 2026-09-09s (1)).  A structure seat is NOT exempt from a threshold (08d (d)):
   a PLATE seat's is ``plate_seat_min_delta_m``, every other unit's
   ``min_delta_m``.
 * THE CLUSTER SEAT, for everything else (``emit/clusters.py``): the
@@ -464,20 +464,37 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
         # crest half a metre under grade, which is visible.  Every other
         # unit (a deck seat) keeps min_delta_m.
         thresh = rb.plate_seat_min_delta_m if datum == DATUM_PLATE else rb.min_delta_m
+        # THE SCOPE of a structure seat (RULINGS 2026-09-09s (1)): a PLATE
+        # governs its own objects; a deck governs its family (R12-2)
+        scope = [mi for mi, m in enumerate(u.members)
+                 if m.plate_y is not None and m.plate_stations] \
+            if datum == DATUM_PLATE else list(range(len(u.members)))
         if not rb.structure_seat_threshold_exempt and abs(delta) < thresh:
             # RULINGS 2026-09-08d (d): a structure seat under ITS threshold
             # STAYS — its members keep their authored y and are never
             # handed to the cluster law (OTHH Drainage_06 was written +0.001)
-            rec["below"] = (f"below_threshold: {datum} seat |{delta:+.3f}| m < {thresh} m"
-                            " — the structure stays at its authored y")
+            note = (f"below_threshold: {datum} seat |{delta:+.3f}| m < {thresh} m"
+                    " — the structure stays at its authored y")
             rec["delta"] = None
             stay.add(u.id)
-            for mi in range(len(u.members)):
+            for mi in scope:
                 fixed[(ui, mi)] = (u.id, 0.0)
+            if len(scope) == len(u.members):
+                rec["below"] = note
+                continue
+            # a plate unit whose anchor siblings are NOT plates (09s (1)):
+            # the plate objects stay, the rest fall to the cluster law
+            rec["findings"].append(note)
             continue
         if datum == DATUM_PLATE:
-            # a plate family seats rigidly, whole (05n-4 / 06b-3)
-            for mi in range(len(u.members)):
+            # A PLATE SEATS ITS OWN OBJECT, rigidly and whole (05n-4 /
+            # 06b-3 for the datum; RULINGS 2026-09-09s (1) for the scope:
+            # "their whole anchor family with them" is WITHDRAWN — LEMD's
+            # pack anchors 300 placements at two origin points, so the
+            # family expansion made 184 + 95 members one rigid +0.62 m
+            # over 32 m of relief).  Every other member of the anchor
+            # spelling falls to the cluster law below.
+            for mi in scope:
                 fixed[(ui, mi)] = (u.id, delta)
                 rec["whole"].add(mi)
             continue

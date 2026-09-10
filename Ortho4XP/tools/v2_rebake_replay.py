@@ -55,9 +55,15 @@ def cmd_seat(args: argparse.Namespace) -> int:
     from auto_patch_v2.law import Law
     with open(args.plan) as fh:
         d = json.load(fh)
-    if d.get("version") == 4:
-        d["version"] = R.PLAN_VERSION          # a pre-08d plan: no datum (--flat supplies one)
-        print("  plan version 4 read as 5 (no flat-site datum recorded)")
+    if d.get("version") in (4, 5):
+        was = d["version"]
+        d["version"] = R.PLAN_VERSION
+        # 4: a pre-08d plan carries no flat-site datum (--flat supplies one);
+        # 5: a pre-09s plan carries no part FEET, and every part falls back to
+        # one foot at its centroid with base_y — the pre-09s reading exactly
+        print(f"  plan version {was} read as {R.PLAN_VERSION}"
+              + (" (no flat-site datum recorded)" if was == 4 else
+                 " (no part feet recorded: the centroid fallback, RULINGS 09s (2))"))
     plan = R.RebakePlan.from_dict(d)
     if args.flat is not None and plan.flat is None:
         lo0, la0, lo1, la1 = plan.bounds()

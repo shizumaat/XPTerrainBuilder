@@ -60,6 +60,11 @@ class PlacedPart:
     #: per-triangle boxes ``(m, 3)`` (the narrow phase's prefilter)
     tri_lo: np.ndarray = _dc.field(default=None, repr=False, compare=False)
     tri_hi: np.ndarray = _dc.field(default=None, repr=False, compare=False)
+    #: THE GROUND FEET (RULINGS 2026-09-09s (2)): ``(k, 3)`` rows
+    #: ``(frame x, frame y, AUTHORED y)`` — the component's lowest solid
+    #: vertices within the foot band of its own minimum, spread over the
+    #: plan.  Empty for an ELEVATED part (culled in :func:`partition`).
+    feet: np.ndarray = _dc.field(default=None, repr=False, compare=False)
 
     @property
     def plan_box(self) -> tuple[float, float, float, float]:
@@ -96,7 +101,42 @@ MemberGeometry = tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
                        _t.Sequence[tuple[int, _obj8.Component]]]
 
 
-def placed_parts(members: _t.Sequence[MemberGeometry]) -> list[PlacedPart]:
+def _feet(pts: np.ndarray, min_y: float, base_plane: float, band: float, k_max: int
+          ) -> np.ndarray:
+    """THE GROUND FEET of one placed part (RULINGS 2026-09-09s (2)): its
+    vertices whose AUTHORED y (``rendered − base_plane``) lies within
+    ``band`` of the component's own minimum ``min_y``, thinned to
+    ``k_max`` by farthest-point over the PLAN so a long component's feet
+    span it (a 900 m terminal read at one corner is one sample of a
+    slope).  Rows ``(x, y, authored y)``; deterministic (the lowest
+    vertex, ties by index, starts the walk)."""
+    auth = pts[:, 1] - base_plane
+    sel = np.nonzero(auth <= min_y + band)[0]
+    if sel.shape[0] == 0:
+        sel = np.array([int(np.argmin(auth))])
+    if sel.shape[0] <= k_max:
+        pick = sel
+    else:
+        plan = pts[sel][:, [0, 2]]
+        start = int(np.argmin(auth[sel]))
+        chosen = [start]
+        d2 = ((plan - plan[start]) ** 2).sum(1)
+        while len(chosen) < k_max:
+            nxt = int(np.argmax(d2))
+            if d2[nxt] <= 0.0:
+                break
+            chosen.append(nxt)
+            d2 = np.minimum(d2, ((plan - plan[nxt]) ** 2).sum(1))
+        pick = sel[np.array(sorted(chosen))]
+    out = np.empty((pick.shape[0], 3), dtype=float)
+    out[:, 0] = pts[pick, 0]
+    out[:, 1] = pts[pick, 2]
+    out[:, 2] = auth[pick]
+    return out
+
+
+def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
+                 foot_samples_max: int = 4) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
     member order then component order (deterministic pids)."""
     parts: list[PlacedPart] = []
@@ -117,7 +157,9 @@ def placed_parts(members: _t.Sequence[MemberGeometry]) -> list[PlacedPart]:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
             parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
-                                    np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d)))
+                                    np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
+                                    _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
+                                          foot_band_m, foot_samples_max)))
     return parts
 
 
@@ -349,10 +391,14 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
 
 
 def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, budget: int,
-              pool_overlap_m: float, chunk_rows: int) -> Partition:
+              pool_overlap_m: float, chunk_rows: int, foot_band_m: float = 1.0,
+              foot_samples_max: int = 4, elevated_base_m: float | None = None) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
-    (module doc)."""
-    parts = placed_parts(members)
+    (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
+    (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
+    feet into the plan, and ``emit/clusters`` reads that verdict straight
+    off the plan."""
+    parts = placed_parts(members, foot_band_m, foot_samples_max)
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
     for a, b in _weld_pairs(parts, weld_mm).tolist():
@@ -362,6 +408,13 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
             if uf.find(int(a)) != uf.find(int(b))]
     found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
+    if elevated_base_m is not None and parts:
+        # THE FEET travel in the plan for the GROUND parts only (RULINGS
+        # 2026-09-09s (2)): an ELEVATED part never votes and never founds
+        # a seat, so its feet would be dead weight in a 152 k-part plan
+        parts = [p if p.base_y <= elevated_base_m
+                 else _dc.replace(p, feet=np.zeros((0, 3), dtype=float))
+                 for p in parts]
     return Partition(tuple(parts), tuple(sorted(edges)),
                      _pools(parts, len(members), pool_overlap_m),
                      uf.groups() if parts else 0, len(pend), unproved)

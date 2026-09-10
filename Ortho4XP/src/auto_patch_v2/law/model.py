@@ -278,6 +278,7 @@ class TunnelObject:
     plate_min_height_m: float
     edge_wall_max_plate_m: float       # 2026-09-06c (2): below it an EDGE WALL (plan from the walls, depth from the bore law)
     edge_wall_min_skirt_m: float       # 2026-09-06f: the edge wall's skirt below ITS crest (the top band, wherever it lies vs the seat)
+    skirt_perimeter_min_fraction: float  # 2026-09-09w (2): the skirt must stand under this share of the crest plate's PERIMETER — a slab over a floor is a roof
     hull_min_length_m: float
     end_cap_open_m: float
     bore_end_tolerance_m: float        # 2026-09-08o: a bore END within this of the plate is that object's mouth

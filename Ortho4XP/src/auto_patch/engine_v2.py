@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import traceback
 import typing as _t
@@ -371,6 +372,13 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
 
 REBAKE_RESULT_FILENAME = "o4_v2_rebake_result_{icao}.json"
 
+#: RULINGS 2026-09-09w (3): the pipeline's own plan file names —
+#: ``o4_v2_rebake_<ICAO>.json`` (``model.rebake.PLAN_FILENAME``) and
+#: nothing else in the patch directory.  ``o4_v2_rebake_result_<ICAO>.json``
+#: (this module's own output) and a tool's ``o4_v2_rebake_<ICAO>.seat.json``
+#: are NOT plans.
+_PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$")
+
 
 def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     """Copy the pipeline's plan beside the patch (``Patches/<tile>/``)."""
@@ -527,8 +535,12 @@ def rebake_after_mesh(tile) -> dict:
               "packs_written": 0}
     try:
         patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
-        plans = sorted(glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json")))
-        plans = [p for p in plans if "_result_" not in os.path.basename(p)]
+        # RULINGS 2026-09-09w (3): the engine loads ITS OWN plan files only.
+        # ``o4_v2_rebake_*.json`` also matched a tool's output beside them
+        # (``tools/v2_rebake_replay.py`` writes ``o4_v2_rebake_<ICAO>.seat.
+        # json``), which the loader then tried to read as a plan.
+        plans = sorted(p for p in glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json"))
+                       if _PLAN_NAME_RE.match(os.path.basename(p)))
         if not plans:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)

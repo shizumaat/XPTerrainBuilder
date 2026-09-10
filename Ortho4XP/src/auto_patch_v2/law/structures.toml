@@ -61,6 +61,17 @@ edge_wall_max_plate_m = 2.0
 # wall's skirt (skirt_min_depth_m) stays measured from the seat, and
 # edge_wall_max_plate_m keeps its 06c meaning over a full skirt.
 edge_wall_min_skirt_m = 1.5
+# THE WALL SIGNATURE (RULINGS 2026-09-09w (2)): a crest plate is admitted
+# only when the skirt that admitted it — skirt_min_depth_m under the SEAT
+# for a full wall, edge_wall_min_skirt_m under the CREST for a shallow-seat
+# edge wall (06f) — stands under at least this share of the plate's
+# PERIMETER (every ring of every plate polygon, sampled every wall_sample_m,
+# a wall face within wall_face_max_thickness_m in plan).  A tunnel wall's
+# crest IS the top of its walls, so its skirt runs under all of it (measured
+# OTHH: 8 tunnels at 100 %, LEMD's Bridge4 edge wall 100 %); a terminal slab
+# at +9 m over a floor has deep solids elsewhere in the file and reads 0 %
+# — a roof, refused by name.
+skirt_perimeter_min_fraction = 0.5
 bore_end_tolerance_m = 5.0         # RULINGS 2026-09-08o: a mapped bore END within this of the walls' plate is that object's mouth (OTHH: the bore's end stood 4.1–4.5 m outside the deep object's plate, beyond end_cap_open_m, so the object read "closed", the OSM mouth was refused for overlapping it and the closed-end fallback cut the crest-to-anchor depth); the OSM mouth PAIRS with the corridor instead of being refused
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end

@@ -246,6 +246,49 @@ def _axis_crossing_area(v: np.ndarray, tris: np.ndarray, area: np.ndarray, a: XY
     return float(area[_axis_crossing_mask(v, tris, a, b, wall_m)].sum())
 
 
+def _skirt_perimeter_fraction(v: np.ndarray, tris: np.ndarray, ny: np.ndarray,
+                              plate, plate_y: float, need_m: float, ref_y: float,
+                              ob) -> float:
+    """THE WALL SIGNATURE (RULINGS 2026-09-09w (2)): the share of the crest
+    plate's PERIMETER — every ring of every plate polygon, sampled every
+    ``wall_sample_m`` — with a near-vertical solid face standing under it
+    (within ``wall_face_max_thickness_m`` in plan, its top in the crest's
+    band) that descends to ``ref_y − need_m``.  A tunnel wall's crest is
+    the top of its walls, so its skirt stands under all of it; a terminal
+    SLAB has a skirt under a corner at most — it is a roof."""
+    vert = ny < ob.plate_normal_y_min
+    vt = tris[vert]
+    if vt.shape[0] == 0:
+        return 0.0
+    p = v[vt.reshape(-1)].reshape(-1, 3, 3)
+    # only the faces hanging FROM the crest (a facade's top is its own
+    # crest; a floor slab's walls stand above it, never under it)
+    at_crest = p[:, :, 1].max(axis=1) >= plate_y - ob.plate_bin_m
+    if not at_crest.any():
+        return 0.0
+    p = p[at_crest]
+    y_low = p[:, :, 1].min(axis=1)
+    deep = y_low <= ref_y - need_m
+    if not deep.any():
+        return 0.0
+    p = p[deep]
+    faces = [LineString([(float(q[0]), float(q[2])) for q in t] +
+                        [(float(t[0][0]), float(t[0][2]))]) for t in p]
+    tree = STRtree(faces)
+    polys = list(plate.geoms) if plate.geom_type == "MultiPolygon" else [plate]
+    rings = [r for pg in polys for r in [pg.exterior, *pg.interiors]]
+    total = covered = 0
+    for ring in rings:
+        n = max(1, int(round(ring.length / ob.wall_sample_m)))
+        for k in range(n):
+            q = ring.interpolate(k * ring.length / n)
+            total += 1
+            if len(tree.query(q.buffer(ob.wall_face_max_thickness_m),
+                              predicate="intersects")):
+                covered += 1
+    return covered / total if total else 0.0
+
+
 def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], law: Law
               ) -> WallSignature | str:
     """The resource's wall signature, or the REASON it is not a tunnel
@@ -358,6 +401,21 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     plate = unary_union([f for f in faces if f.area > 1e-9]).buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
+    # A CREST NEEDS A WALL UNDER IT (RULINGS 2026-09-09w (2)): the very
+    # skirt that admitted this reading — ``skirt_min_depth_m`` under the
+    # SEAT for a full wall, ``edge_wall_min_skirt_m`` under the CREST for
+    # a shallow-seat edge wall (06f: the seat is the author's handle
+    # there) — must stand under at least ``skirt_perimeter_min_fraction``
+    # of the plate's perimeter.  A slab at +9 m over a terminal floor has
+    # its deep solids somewhere else in the file: it is a ROOF.
+    need, ref = (ob.skirt_min_depth_m, 0.0) if full_skirt \
+        else (ob.edge_wall_min_skirt_m, plate_y)
+    frac = _skirt_perimeter_fraction(v, tris, ny, plate, plate_y, need, ref, ob)
+    if frac < ob.skirt_perimeter_min_fraction:
+        return (f"roof, not a crest: skirt under {frac:.0%} of the perimeter "
+                f"(< skirt_perimeter_min_fraction "
+                f"{ob.skirt_perimeter_min_fraction:.0%}; a wall face reaching "
+                f"{need:.1f} m under {'the seat' if full_skirt else 'the crest'})")
     # skirt_depth_m: below the seat for a full-skirt wall (round 1, 06c's
     # edge wall included); below the CREST for a shallow-seat edge wall
     # (06f: the seat is no datum there)

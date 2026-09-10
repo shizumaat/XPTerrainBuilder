@@ -589,6 +589,10 @@ class PlacedObject:
     #: end lines and deck-top profile in the airport frame, which the
     #: re-seat's abutment law reads.  ``None`` without a plate.
     deck_plate: object | None = None
+    #: RULINGS 2026-09-09w (1): the genuine components ``admission_depth_m``
+    #: under their OWN ground (into ``ResourceCache.components``) in a
+    #: placement with a FLOOR WITNESS — with none it is no facility.
+    below_grade_comps: tuple[int, ...] = ()
 
 
 @_dc.dataclass
@@ -699,9 +703,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         if stock:
             rep.stock_placements += 1
         g = cache.geometry(phys)
-        below = bbox = deck = None
-        smin_z = smin_d = top = None
+        below = bbox = deck = smin_z = smin_d = top = None
         witnesses: list[FloorWitness] = []
+        deep_comps: list[int] = []
         if g is not None and not stock:
             base = anchor_z + agl               # the rendered y = 0 plane
             vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
@@ -716,7 +720,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                 deep_no_floor: tuple[float, float] | None = None
                 through: tuple[float, float] | None = None
                 protruding: tuple[float, float] | None = None
-                for comp in cache.genuine(phys):
+                for ci, comp in enumerate(cache.components(phys)):
+                    if comp.max_y - comp.min_y < cache.thickness_m:
+                        continue            # a decal never witnesses (§2.1)
                     cx, cy = _to_frame(xy, heading, comp.cx, comp.cz)
                     local = float(dem_z(cx, cy))
                     if math.isnan(local):
@@ -724,6 +730,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     # the component's rendered floor vs the ground under it
                     z_min = base + comp.min_y
                     depth = z_min - local
+                    if depth <= -admission_depth_m:   # 09w (1): a PART
+                        deep_comps.append(ci)
                     if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
                         rep.buried_components += 1
                         continue
@@ -784,7 +792,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                                 below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
                                 "flag" if deck is not None else "",
                                 ("ATTR_hard_deck: the primary deck signature",)
-                                if deck is not None else ()))
+                                if deck is not None else (), None,
+                                tuple(sorted(set(deep_comps))) if witnesses else ()))
     return out, rep
 
 

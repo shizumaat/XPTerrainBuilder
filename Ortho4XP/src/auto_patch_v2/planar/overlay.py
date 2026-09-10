@@ -34,7 +34,8 @@ from .chords import densify, ring_lines, stations
 from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
-__all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands"]
+__all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
+           "merge_slivers", "dissolve_degenerate_holes"]
 
 
 @_dc.dataclass(frozen=True)
@@ -83,6 +84,9 @@ class Arrangement:
     #: RULINGS 2026-09-08d (4a): same-region faces under the sliver area
     #: merged into their neighbour (``merge_slivers``).
     slivers_merged: int = 0
+    #: RULINGS 2026-09-10h (1): degenerate hole rings dissolved into their
+    #: own face (``dissolve_degenerate_holes``) — never a vertex set.
+    holes_dissolved: int = 0
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -163,8 +167,77 @@ def build_arrangement(airport: Airport, classification: Classification,
         faces.append((poly, best))
     ident = law.tables.emit.identity.min_distinct_spacing_m
     faces, merged = merge_slivers(faces, (ident * law.tables.emit.terrace.sliver_area_factor) ** 2)
+    faces, holes_gone = dissolve_degenerate_holes(
+        faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
-                       bands, dropped_seam, weld, merged)
+                       bands, dropped_seam, weld, merged, holes_gone)
+
+
+def dissolve_degenerate_holes(faces: list[tuple[Polygon, Region]], sep_m: float,
+                              area_min_m2: float
+                              ) -> tuple[list[tuple[Polygon, Region]], int]:
+    """THE DEGENERATE HOLE (RULINGS 2026-09-10h (1)): a face's interior ring
+    that is NOWHERE as wide as ``terrace.separation_m`` — the width at which
+    a gap is still one shape, so a hole under it is not a gap at all — or
+    under ``area_min_m2`` (``identity.min_distinct_spacing_m²``, the smallest
+    area two distinct vertices can bound) is DEGENERATE GEOMETRY, dissolved
+    into its own face here.  It never becomes a vertex set.
+
+    WHY, measured at LEMD (RULINGS 2026-09-10h): way −10892, a 35 m × 0.5 m,
+    3-vertex hole in apron ``pav16``, emitted 16.3 m BELOW the apron it sits
+    inside (582.7 against a DEM of 599.0) and coned to over 265 × 240 m of
+    mesh — the owner's "large apron dip".  Such a ring's vertices bound no
+    face law and no design target, and every triangle the face's
+    triangulation gives them is obtuse enough that the cotangent Laplacian
+    CLAMPS its weight (``solve/rows._cotangent_laplacian``): the columns
+    reach the least-squares solve carrying no row at all, so their value is
+    whatever the min-norm solution leaves there — which is why the same
+    three vertices, at byte-identical coordinates, moved 7.6 m between two
+    arms that changed nothing near them.
+
+    A hole is dissolved only when NO kept face lies inside it: a real inner
+    face (a pad, a trench floor) keeps its hole however thin the ring, and
+    the two faces never overlap.  ``buffer(-sep/2)`` empty is the width
+    test — the ring cannot hold a disc of diameter ``sep_m`` anywhere, i.e.
+    it is nowhere as wide as the separation.  Returns the faces and the
+    number of holes dissolved."""
+    if not faces or (sep_m <= 0.0 and area_min_m2 <= 0.0):
+        return faces, 0
+    inner = STRtree([p for p, _r in faces])
+    out: list[tuple[Polygon, Region]] = []
+    gone = 0
+    for i, (poly, region) in enumerate(faces):
+        if not poly.interiors:
+            out.append((poly, region))
+            continue
+        keep: list = []
+        for h in poly.interiors:
+            hp = Polygon(h)
+            if not hp.is_valid:
+                hp = hp.buffer(0)
+            degenerate = (hp.is_empty or hp.area < area_min_m2
+                          or (sep_m > 0.0 and hp.buffer(-0.5 * sep_m).is_empty))
+            if degenerate and not _holds_a_face(hp, faces, inner, i):
+                gone += 1
+                continue
+            keep.append(h)
+        out.append((poly if len(keep) == len(poly.interiors)
+                    else Polygon(poly.exterior, keep), region))
+    return out, gone
+
+
+def _holds_a_face(hole: Polygon, faces: list[tuple[Polygon, Region]],
+                  tree: STRtree, self_i: int) -> bool:
+    """A kept face other than ``faces[self_i]`` lies inside ``hole``."""
+    if hole.is_empty:
+        return False
+    for j in tree.query(hole, predicate="intersects"):
+        j = int(j)
+        if j == self_i:
+            continue
+        if hole.contains(faces[j][0].representative_point()):
+            return True
+    return False
 
 
 def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float

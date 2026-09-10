@@ -79,6 +79,7 @@ class BuildStats:
     sunken_roads: SunkenRoadStats = _dc.field(default_factory=SunkenRoadStats)
     shapes: ShapeStats = _dc.field(default_factory=ShapeStats)   # owner RULINGS 2026-09-08k (``planar/shapes.py``)
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
+    holes_dissolved: int = 0     # RULINGS 2026-09-10h (1): degenerate hole rings dissolved (``overlay.dissolve_degenerate_holes``)
     #: RULINGS 2026-09-08m/08n Law C: the kerb-wall corridors read
     wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
 
@@ -118,6 +119,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
+                       holes_dissolved=arr.holes_dissolved,
                        door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)

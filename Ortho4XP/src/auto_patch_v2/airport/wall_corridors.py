@@ -69,6 +69,14 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    runs unmapped under the deck, so no heading test is made (the 10w
    heading and deck clauses are refuted and deleted).
 
+The ``--stage structures`` replay additionally MEASURES, per candidate,
+the two discriminators RULINGS 2026-09-10ab asked for — the mouth road's
+LEVEL against the floor, and a FLOOR SLAB between the walls
+(``read_wall_corridors(measure=True)``, ``stats.floor_probe``).  Neither
+separates the two packs (spec §12c: the slab is 0 at BOTH; no level
+tolerance keeps OTHH's 43 without keeping 15 of LEMD's), so neither
+gates anything and a build never runs them.
+
 Nothing numeric lives here but geometric epsilons; every law value is a
 table argument.
 """
@@ -222,6 +230,10 @@ class WallCorridorStats:
     #: admission clauses -- (a) authored depth, (b'') the mouth opens onto
     #: groundside -- with its witness or its refusal.
     admission: list[str] = _dc.field(default_factory=list)
+    #: RULINGS 2026-09-10ab: one row per candidate reaching the mouth
+    #: test — the two discriminators MEASURED (floor vs the mouth road's
+    #: level; the floor slab), whatever the admission then says.
+    floor_probe: list[dict] = _dc.field(default_factory=list)
     roads: int = 0
     refused_no_road: int = 0
     refused_airside_mouth: int = 0
@@ -403,11 +415,17 @@ AIRSIDE_FACE_ROLES = ("apron", "runway", "primary_parallel", "secondary_parallel
 class MouthRoad:
     """One road the mouth test reads: its plan geometry (an OSM way's
     line, a patch ribbon's face), the line whose bearing states its
-    DIRECTION there, and the witness the refusal or admission names."""
+    DIRECTION there, and the witness the refusal or admission names.
+    ``centre`` is the centreline the LEVEL reader clamps (the way itself;
+    a ribbon's own axis) and ``levelled`` says whether the core would
+    level it (an asserted ``bridge`` / ``tunnel`` way it would not:
+    RULINGS 2026-09-10ab reads the DEM there)."""
 
     geom: _t.Any
     axis: LineString
     witness: str
+    centre: tuple[XY, ...] = ()
+    levelled: bool = True
 
 
 def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRoad]:
@@ -424,7 +442,10 @@ def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRo
         ln = LineString(w.points)
         if ln.length < _MIN_SEG_M:
             continue
-        out.append(MouthRoad(ln, ln, f"osm way {w.id} ({w.tags.get('highway')})"))
+        levelled = all(not w.tags.get(k) or w.tags.get(k) == "no"
+                       for k in ("bridge", "tunnel"))
+        out.append(MouthRoad(ln, ln, f"osm way {w.id} ({w.tags.get('highway')})",
+                             tuple((float(x), float(y)) for x, y in w.points), levelled))
     for c in getattr(classification, "cells", ()) or ():
         if c.role not in ROAD_ROLES or len(c.ring) < 3:
             continue
@@ -436,7 +457,8 @@ def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRo
         ra = _rect_axis(poly)
         if ra is None:
             continue
-        out.append(MouthRoad(poly, ra[0], f"patch {c.role} cell {c.id} ({c.ref})"))
+        out.append(MouthRoad(poly, ra[0], f"patch {c.role} cell {c.id} ({c.ref})",
+                             tuple((float(x), float(y)) for x, y in ra[0].coords), True))
     return out
 
 
@@ -538,6 +560,184 @@ def _road_at_mouth(pt: XY, brg: float, roads: _t.Sequence[MouthRoad], tree: STRt
             best = (d, f"{r.witness} {d:.1f} m from the mouth, "
                        f"{_angle_diff(_road_bearing_at(r, P), brg):.0f}° off the axis")
     return best
+
+
+# ── the round-4 discriminators (RULINGS 2026-09-10ab) ────────────────────
+
+@_dc.dataclass(frozen=True)
+class FloorRoad:
+    """(i) FLOOR-vs-ROAD for one candidate: the nearest road within
+    ``corridor_road_level_m`` of a MOUTH, its LEVEL at the point nearest
+    that mouth (the core's own clamp on its centreline — a levelled road
+    profile; the DEM where the core levels nothing) and the level minus
+    the corridor's floor at that mouth."""
+
+    distance_m: float
+    level_z: float
+    floor_z: float
+    source: str
+    witness: str
+    mouth_k: int
+
+    @property
+    def delta_m(self) -> float:
+        return self.level_z - self.floor_z
+
+
+class _RoadLevels:
+    """The LEVEL of a mouth road at a point: Ortho4XP's own longitudinal
+    clamp (``airport/road_profile.clamp_way`` — the mid-envelope every
+    v2 road-family vertex is fitted to) over the road's centreline, on
+    the production DEM, clamped ways cached per road.  A road the core
+    does not level (an asserted ``bridge`` / ``tunnel`` way) and a
+    centreline the clamp cannot state (outside the warm tiles) fall back
+    to the DEM at the point, which the source names."""
+
+    def __init__(self, airport: Airport, law: Law) -> None:
+        from ..law.tables import role_cap
+        from . import road_profile as _rp
+        self._rp = _rp
+        self._sample = _rp._sample_fn(airport)
+        self._inside = _rp._inside_fn(airport)
+        rp = law.tables.emit.road_profile
+        self._cap = float(role_cap(law, "service_road").longitudinal)
+        self._station = float(rp.station_m)
+        self._dem_z = airport.dem.z
+        self._ways: dict[int, list] = {}
+
+    def _centre(self, road: MouthRoad) -> list[XY]:
+        if getattr(road.geom, "geom_type", "") == "Polygon":
+            ring = list(road.geom.exterior.coords)[:-1]
+            ax = self._rp.face_axis(ring, self._station / 2.0)
+            if ax and len(ax) >= 2:
+                return list(ax)
+        return list(road.centre)
+
+    def level(self, idx: int, road: MouthRoad, pt: XY) -> tuple[float, str]:
+        z_dem = float(self._dem_z(pt[0], pt[1]))
+        kind = "ribbon" if getattr(road.geom, "geom_type", "") == "Polygon" else "osm way"
+        if not road.levelled:
+            return z_dem, f"DEM at an unlevelled {kind}"
+        if idx not in self._ways:
+            pts = self._centre(road)
+            self._ways[idx] = (self._rp.clamp_way("probe", str(idx), pts, self._sample,
+                                                  self._cap, self._station, self._inside)
+                               if len(pts) >= 2 else [])
+        ways = self._ways[idx]
+        if not ways:
+            return z_dem, f"DEM ({kind}: the clamp states no profile there)"
+        P = Point(pt)
+        w = min(ways, key=lambda w_: w_.line.distance(P))
+        return float(w.at(w.line.project(P))), f"levelled {kind} profile"
+
+
+def _floor_road(mouths: _t.Sequence[tuple[int, XY, float]], roads: _t.Sequence[MouthRoad],
+                tree: STRtree | None, max_m: float, levels: _RoadLevels) -> FloorRoad | None:
+    """(i): over every MOUTH, the nearest road within ``max_m`` and its
+    level there against that mouth's floor (``None`` = no road at all)."""
+    if tree is None or not roads:
+        return None
+    best: tuple[float, int, XY, float, int] | None = None
+    for k, pt, floor_z in mouths:
+        P = Point(pt)
+        for i in tree.query(P.buffer(max_m), predicate="intersects").tolist():
+            d = float(roads[int(i)].geom.distance(P))
+            if d > max_m:
+                continue
+            if best is None or d < best[0]:
+                best = (d, int(i), pt, floor_z, k)
+    if best is None:
+        return None
+    d, i, pt, floor_z, k = best
+    r = roads[i]
+    z, src = levels.level(i, r, pt)
+    return FloorRoad(d, z, floor_z, src, r.witness, k)
+
+
+def _floor_slab(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
+                trench: Polygon, axis_ln: LineString, orig_s: _t.Sequence[float],
+                floors: _t.Sequence[float], max_thick: float, tol: float,
+                normal_min: float) -> tuple[float, str]:
+    """(ii) FLOOR SLAB: the share of the corridor's length spanned by a
+    HORIZONTAL PLATE of the family (a component thinner than
+    ``max_thick``) lying within ``tol`` of the floor inside the trench —
+    the fraction and the witness plate (``(0.0, "")`` = no slab)."""
+    L = axis_ln.length
+    if L <= 0.0 or trench.is_empty:
+        return 0.0, ""
+    minx, miny, maxx, maxy = trench.bounds
+    s_arr = np.asarray(orig_s, dtype=float)
+    f_arr = np.asarray(floors, dtype=float)
+    ivals: list[tuple[float, float]] = []
+    best_area = 0.0
+    witness = ""
+    for o in members:
+        g = cache.geometry(o.resolved)
+        if g is None:
+            continue
+        base = o.anchor_z + o.agl_m
+        mat = _obj8.placement_affine(o.xy, o.heading_deg)
+        v = g.vertices
+        bounds = cache.component_bounds(o.resolved)
+        comps = cache.components(o.resolved)
+        for ci, comp in enumerate(comps):
+            if ci >= bounds.shape[0]:
+                break
+            if comp.max_y - comp.min_y > max_thick:
+                continue                     # a wall, a shell: not a slab
+            x0, x1, z0, z1 = bounds[ci].tolist()
+            corners = [_obj8._to_frame(o.xy, o.heading_deg, x, z)
+                       for x in (x0, x1) for z in (z0, z1)]
+            if max(c[0] for c in corners) < minx or min(c[0] for c in corners) > maxx \
+                    or max(c[1] for c in corners) < miny or min(c[1] for c in corners) > maxy:
+                continue
+            ny = _tri_normals_y(v, comp.tris)
+            horiz = ny >= normal_min
+            if not horiz.any():
+                continue
+            t = comp.tris[horiz]
+            a, b, d, e, xoff, yoff = mat
+            pts = v[t][:, :, [0, 2]]
+            xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
+            ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
+            zs = base + v[t][:, :, 1].mean(axis=1)
+            polys = shapely.polygons(np.stack([xs, ys], axis=2))
+            hit = shapely.intersects(polys, trench) & shapely.is_valid(polys)
+            area = 0.0
+            for kk in np.nonzero(hit)[0].tolist():
+                inter = polys[kk].intersection(trench)
+                if inter.is_empty:
+                    continue
+                ss = [axis_ln.project(Point(p)) for p in inter.envelope.exterior.coords] \
+                    if inter.geom_type in ("Polygon", "MultiPolygon", "GeometryCollection") else []
+                if not ss:
+                    continue
+                lo, hi = max(0.0, min(ss)), min(L, max(ss))
+                if hi <= lo:
+                    continue
+                fl = float(np.interp((lo + hi) / 2.0, s_arr, f_arr))
+                if abs(float(zs[kk]) - fl) > tol:
+                    continue
+                ivals.append((lo, hi))
+                area += float(inter.area)
+            if area > best_area:
+                best_area = area
+                witness = f"plate comp {ci} of {os.path.basename(o.path)} ({o.id})"
+    if not ivals:
+        return 0.0, ""
+    ivals.sort()
+    covered = 0.0
+    cur: tuple[float, float] | None = None
+    for lo, hi in ivals:
+        if cur is None or lo > cur[1]:
+            if cur is not None:
+                covered += cur[1] - cur[0]
+            cur = (lo, hi)
+        else:
+            cur = (cur[0], max(cur[1], hi))
+    if cur is not None:
+        covered += cur[1] - cur[0]
+    return covered / L, witness
 
 
 def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
@@ -896,14 +1096,18 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
 
 
 def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
-                        cache: _obj8.ResourceCache, law: Law, classification: _t.Any = None
+                        cache: _obj8.ResourceCache, law: Law, classification: _t.Any = None,
+                        measure: bool = False
                         ) -> tuple[list[WallCorridorRecord], WallCorridorStats]:
     """Every wall corridor the pack's kerb-wall families state (module
     doc); the stats name every refusal and, per CANDIDATE, each of the
     three admission clauses with its witness (``stats.admission``).
     ``classification``, when given, adds the patch's own road ribbons to
     the mouth-road test (10w (b)); without it only the OSM ways are
-    read."""
+    read.  ``measure`` (the ``--stage structures`` replay alone) adds the
+    RULINGS 2026-09-10ab reading of the two round-4 discriminators per
+    candidate (``stats.floor_probe``) — a measurement, never a gate, and
+    never a cost in a build."""
     t0 = time.perf_counter()
     stats = WallCorridorStats()
     wc = law.tables.structures.cutout.wall_corridor
@@ -919,6 +1123,9 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     road_tree = STRtree([r.geom for r in roads]) if roads else None
     air_faces = airside_faces(classification)
     air_tree = STRtree([f[0] for f in air_faces]) if air_faces else None
+    # RULINGS 2026-09-10ab (i): the LEVEL reader for a mouth road (the
+    # replay's measurement only)
+    levels = _RoadLevels(airport, law) if measure else None
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
     for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
@@ -1073,6 +1280,39 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     stats.admission.append(f"{head}: {clause_a}; (b'') REFUSED — no mouth (both "
                                            f"ends closed)")
                     continue
+                # RULINGS 2026-09-10ab: the two discriminators MEASURED —
+                # the REPLAY's instrument (``--stage structures``), never
+                # a gate and never a build cost: neither separates LEMD
+                # from OTHH (spec §12c), so nothing reads them in law.
+                if measure:
+                    mouth_pts = [(k, axis[0] if k == 0 else axis[-1],
+                                  floors[0] if k == 0 else floors[-1]) for k in mouth_ks]
+                    fr = _floor_road(mouth_pts, roads, road_tree,
+                                     wc.corridor_road_level_m, levels)
+                    slab_cover, slab_w = _floor_slab(
+                        members, cache, trench0, axis_ln, orig_s, floors,
+                        wc.corridor_floor_slab_max_thickness_m,
+                        wc.corridor_floor_slab_tol_m, ob.plate_normal_y_min)
+                    corridor_len = float(orig_s[-1] - orig_s[0])
+                    stats.floor_probe.append({
+                        "airport": airport.icao, "candidate": head,
+                        "resource": name, "bands": f"{A.comp}/{B.comp}", "site": site,
+                        "length_m": round(corridor_len, 1),
+                        "floor_min_z": round(zmin, 2), "floor_max_z": round(zmax, 2),
+                        "mouth_floor_z": None if fr is None else round(fr.floor_z, 2),
+                        "road_level_z": None if fr is None else round(fr.level_z, 2),
+                        "road_dist_m": None if fr is None else round(fr.distance_m, 1),
+                        "delta_m": None if fr is None else round(fr.delta_m, 2),
+                        "road_source": "" if fr is None else fr.source,
+                        "road_witness": "" if fr is None else fr.witness,
+                        "within_tol": bool(fr is not None and abs(fr.delta_m)
+                                           <= wc.corridor_floor_road_tol_m),
+                        "ramp_reachable": bool(fr is not None and abs(fr.delta_m)
+                                               <= wc.max_ramp_grade * max(corridor_len, 1e-9)),
+                        "slab_cover": round(slab_cover, 3),
+                        "slab": bool(slab_cover >= wc.corridor_floor_slab_cover_min),
+                        "slab_witness": slab_w,
+                    })
                 road_w: str | None = None
                 probe: list[str] = []
                 airside_w: str | None = None
@@ -1099,6 +1339,10 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                                  if face is not None else "; no airside face within "
                                  f"{wc.corridor_mouth_road_m:.0f} m"))
                     break
+                if measure:
+                    stats.floor_probe[-1]["b2"] = ("admitted" if road_w is not None
+                                                   else ("airside" if airside_w is not None
+                                                         else "no road"))
                 if road_w is None:
                     if airside_w is not None:
                         msg = (f"{name} at {site}: its mouth opens onto AIRSIDE pavement — "

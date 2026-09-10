@@ -71,6 +71,11 @@ class WallCorridor:
     merge_gap_m: float           # parallel bands within a wall's thickness laterally and this along the axis are one wall
     end_cap_cover_min: float     # a crossing family face covering this share of an end line closes it
     corridor_mouth_road_m: float    # RULINGS 2026-09-10z (b''): a road within this of a mouth, ANY heading, opens it onto groundside
+    corridor_road_level_m: float                # RULINGS 2026-09-10ab (i): the window the mouth road's LEVEL is read in
+    corridor_floor_road_tol_m: float            # (i): |road level - floor| within this = a road can enter this corridor
+    corridor_floor_slab_max_thickness_m: float  # (ii): a component thinner than this can be a floor slab
+    corridor_floor_slab_tol_m: float            # (ii): ...lying within this of the floor
+    corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
     ramp_grade: float            # the synthetic climb beyond a mouth
     max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)

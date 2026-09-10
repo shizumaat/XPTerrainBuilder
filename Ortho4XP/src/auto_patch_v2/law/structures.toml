@@ -180,6 +180,21 @@ end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open
 # grade beside an apron is a building, not a tunnel (Aerosoft LEMD: 17 spurious
 # tunnel_ramps).  The 10w heading and deck clauses are DELETED (refuted, 10z).
 corridor_mouth_road_m   = 15.0  # an OSM highway=* way (small/big road feeds) or a patch road ribbon (service_road / service_junction / groundside_pavement) within this of a mouth OPENS it onto groundside, in any heading
+# RULINGS 2026-09-10ab — the ROUND-4 discriminators, measured per candidate
+# before any of them is a gate: (i) FLOOR-vs-ROAD — the nearest road within
+# corridor_road_level_m of a mouth, its LEVEL there (Ortho4XP's own longitudinal
+# clamp on its centreline: a levelled road profile; the DEM where the core levels
+# nothing) minus the corridor's floor at that mouth: a road can ENTER a corridor
+# whose floor it meets within corridor_floor_road_tol_m, or reach it at
+# max_ramp_grade over the corridor's length; (ii) FLOOR SLAB — a horizontal plate
+# of the family thinner than corridor_floor_slab_max_thickness_m lying within
+# corridor_floor_slab_tol_m of the floor between the walls over
+# corridor_floor_slab_cover_min of the length.
+corridor_road_level_m               = 40.0  # the level probe's window round a mouth (the 10z road window widened for the reading)
+corridor_floor_road_tol_m           = 1.5   # |road level - floor| within this = a road enters this corridor at its floor
+corridor_floor_slab_max_thickness_m = 0.5   # a component thinner than this can be a floor slab (a wall is not)
+corridor_floor_slab_tol_m           = 0.5   # ...lying within this of the floor
+corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the corridor's length
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
 max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load

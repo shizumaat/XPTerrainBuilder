@@ -57,7 +57,31 @@ def objs(tmp_path_factory):
         # (bottom +0.9, top +12.0, deck +14.0): nothing dug in, and tall
         # enough that the ground-contact clause cannot be what refuses it
         "shallow": _shallow_with_a_deep_decoy(d / "shallow.obj"),
+        # RULINGS 2026-09-10ab: the round-4 probe fixtures — the SAME
+        # corridor 6 m under its serving road, and one carrying a FLOOR
+        # SLAB between its walls at the wall bottom
+        "deep6": _corridor_obj(d / "deep6.obj", depth=6.0),
+        "slabbed": _floor_slab_obj(d / "slabbed.obj"),
     }
+
+
+def _floor_slab_obj(path, width=10.0, depth=2.0, thick=0.3, half_len=40.0):
+    """The Law C corridor with a horizontal FLOOR PLATE spanning the
+    inner faces at the wall bottom over its whole length — the shape
+    RULINGS 2026-09-10ab (ii) looks for (a sheet: its vertices are its
+    own, so it is a component of its own, and it carries no vertical
+    face that could read as a third band between the kerbs)."""
+    vt: list = []
+    tris: list = []
+    hw = width / 2.0
+    _vwall(vt, tris, -hw - thick, -hw, -half_len, half_len, -depth, -depth, 0.5)
+    _vwall(vt, tris, hw, hw + thick, -half_len, half_len, -depth, -depth, 0.5)
+    b = len(vt)
+    x, z = hw - 0.05, half_len - 0.5          # inside the inner faces: its
+    vt += [(-x, -depth, -z), (x, -depth, -z),  # vertices are its own, so the
+           (x, -depth, z), (-x, -depth, z)]    # plate is its own component
+    tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    return _write(path, vt, tris)
 
 
 def _shallow_with_a_deep_decoy(path):
@@ -114,7 +138,7 @@ def _corridors(objs, law, name, agl=None, ways=None, classification=None):
                        _kerb_roads() if ways is None else ways)
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     objects, _rep = read_objects(airport, law, cache)
-    return read_wall_corridors(airport, objects, cache, law, classification)
+    return read_wall_corridors(airport, objects, cache, law, classification, measure=True)
 
 
 def test_a_band_authored_under_its_own_zero_is_admitted(objs, law):
@@ -212,3 +236,41 @@ def test_no_road_within_the_law_window_refuses_the_corridor(objs, law):
     assert any("no road within corridor_mouth_road_m" in r for r in st.refused), st.refused
     line = "\n".join(st.admission)
     assert "(b'') REFUSED — no road at the mouth" in line and "no road —" in line
+
+
+# ── RULINGS 2026-09-10ab: the round-4 discriminators, MEASURED ───────────
+# The instrument the round-4 table was read on (spec §12c): NEITHER
+# separates LEMD from OTHH, so neither is law — these twins hold the
+# READING honest for whoever measures next.
+
+def test_the_floor_road_probe_states_the_level_minus_the_floor(objs, law):
+    """(i): the fixture's kerb road runs on the plane DEM at the corridor
+    (700.0 m); the walls are authored 2 m under the object's zero, whose
+    anchor is that same plane — so the probe reads the road 2 m above the
+    floor, names the levelled profile that answered and the road, and
+    fails a 1.5 m tolerance.  The same corridor 6 m down reads +6."""
+    _r, st = _corridors(objs, law, "deep")
+    row = st.floor_probe[0]
+    assert row["delta_m"] == pytest.approx(2.0, abs=0.05), row
+    assert row["road_level_z"] == pytest.approx(700.0, abs=0.05)
+    assert row["road_source"].startswith("levelled") and "-601" in row["road_witness"]
+    assert row["within_tol"] is False and row["b2"] == "admitted"
+    _r6, st6 = _corridors(objs, law, "deep6")
+    row6 = st6.floor_probe[0]
+    assert row6["delta_m"] == pytest.approx(6.0, abs=0.05), row6
+    assert row6["within_tol"] is False
+
+
+def test_the_floor_slab_probe_finds_a_slab_only_where_one_is_authored(objs, law):
+    """(ii): a corridor whose walls carry a horizontal plate between them
+    at the wall bottom reads a slab over its whole length; the same
+    corridor with only a DECK over it (the OTHH and LEMD shape — both
+    packs read 0.00 in the round-4 table) reads none."""
+    _r, st = _corridors(objs, law, "slabbed")
+    assert st.floor_probe, (st.refused, st.pairs, st.bands)
+    row = st.floor_probe[0]
+    assert row["slab"] is True and row["slab_cover"] >= 0.9, row
+    assert "slabbed.obj" in row["slab_witness"]
+    _r2, st2 = _corridors(objs, law, "deep")
+    assert st2.floor_probe[0]["slab"] is False
+    assert st2.floor_probe[0]["slab_cover"] == 0.0

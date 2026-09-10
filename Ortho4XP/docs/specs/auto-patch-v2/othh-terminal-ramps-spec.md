@@ -545,3 +545,96 @@ already road-adjacent), or the LEMD/OTHH discriminator is NOT the mouth's surrou
 all — every clause tried (rendered depth, authored depth, road heading, deck cover, the
 groundside mouth) has now been measured, and only the deck cover ever separated the two
 packs (round 2: LEMD 7 vs OTHH 36) while costing OTHH seven real corridors.
+
+## §12c Round 4 — the two PHYSICAL discriminators MEASURED (RULINGS 2026-09-10ab) — lane `v2corridor`, 2026-09-10: NEITHER SEPARATES THEM; STOP, nothing implemented
+
+**The instrument** (`airport/wall_corridors.py`, `--stage structures` only —
+`read_wall_corridors(..., measure=True)`, `stats.floor_probe`, printed as the `PROBE`
+table; never a gate and never a build cost). Per CANDIDATE that reaches the mouth test
+(the (a)-alone set, (b″) neutralised in this tree):
+
+* **(i) FLOOR-vs-ROAD** — the nearest road within `corridor_road_level_m` (40 m) of a
+  MOUTH (OSM `highway=*`, or a patch `service_road` / `service_junction` /
+  `groundside_pavement` ribbon), its LEVEL at the point nearest that mouth — Ortho4XP's
+  own longitudinal clamp (`airport/road_profile.clamp_way`, the profile every v2
+  road-family vertex is fitted to) over the way's centreline (a ribbon: its own
+  `face_axis`), the DEM where the core levels nothing (an asserted `bridge` / `tunnel`
+  way) — minus the corridor's floor at that mouth; plus `ramp_reachable`
+  (|Δ| ≤ `max_ramp_grade` × the corridor's length).
+* **(ii) FLOOR SLAB** — a horizontal plate of the family thinner than
+  `corridor_floor_slab_max_thickness_m` (0.5) lying within `corridor_floor_slab_tol_m`
+  (0.5) of the floor inside the trench over `corridor_floor_slab_cover_min` (0.5) of the
+  length.
+
+**THE TABLE** (structure replays, ONE lane tree, production DEM; (a)-alone arm — LEMD 51
+corridors / 52 candidates, OTHH 43 / 44, reproducing §12b's arm exactly).
+
+| airport | placement | cand. | floor z | road level z | Δ (road − floor) | ≤1.5 m | ramp | slab | (b″) |
+|---|---|---|---|---|---|---|---|---|---|
+| OTHH | `Bridge_02_LOD0_002` | 3 | 1.84 | 3.96 | +2.03..+2.13 | 0 | 0 | **0** | 3 |
+| OTHH | `Bridge_06_LOD0_002` | 16 | 1.84..2.22 | 3.96 | +1.72..+2.13 | 0 | 3 | **0** | 16 |
+| OTHH | `Qatar_DutyFree_003` | 3 | −8.24..2.60 | 3.96 | +1.37..+12.21 | 2 | 1 | **0** | 3 |
+| OTHH | `TerminalRoads_02_004` | 4 | 1.87 | 3.96 | +2.10 | 0 | 0 | **0** | 4 |
+| OTHH | `TerminalRoads_03_004` | 4 | 2.07 | 3.96 | +1.89 | 0 | 0 | **0** | 4 |
+| OTHH | `TerminalRoads_Parking_004` | 4 | 2.07 | 3.96 | +1.89 | 0 | 0 | **0** | 4 |
+| OTHH | `Terminal_Base_2_1` (bays) | 5 | 2.57..2.61 | 3.96 | +1.35..+1.39 | 5 | 0 | **0** | 3 |
+| OTHH | `Terminal_Base_2_5` (the underpass) | 1 | 2.07 | 3.96 | +1.89 | 0 | 1 | **0** | 1 |
+| OTHH | `Terminal_Parking_VCN_004` | 4 | 2.24..2.25 | 3.96 | +1.71..+1.73 | 0 | 2 | **0** | 2 |
+| LEMD | `Cargo-CGVRW` | 1 | 594.59 | 605.00 | +10.41 | 0 | 0 | **0** | 1 |
+| LEMD | `Cargo-EAT` | 1 | 594.36 | 599.00 | +4.62 | 0 | 0 | **0** | 0 |
+| LEMD | `Cargo-EATzwei` | 1 | 594.50 | 600.01 | +5.52 | 0 | 1 | **0** | 0 |
+| LEMD | `Cargo-FLEDI` | 2 | 594.80..594.83 | 602.75..602.88 | +7.92..+8.07 | 0 | 0 | **0** | 2 |
+| LEMD | `Cargo-GAVIA` | 1 | 594.68 | 602.00 | +7.32 | 0 | 0 | **0** | 0 |
+| LEMD | `Cargo-NEWCO` | 9 | 594.38..594.68 | 594.00..597.06 | **−0.38..+2.41** | 5 | 4 | **0** | 8 |
+| LEMD | `Munoza-LEMD70` | 2 | 594.28..594.63 | 563.00..565.08 | −31.28..−29.56 | 0 | 0 | **0** | 0 |
+| LEMD | `Munoza-LEMD73` | 1 | 594.39 | — (no road ≤ 40 m) | — | 0 | 0 | **0** | 0 |
+| LEMD | `Munoza-LEMD79` | 5 | 594.28..594.51 | 565.00 | −29.51 (+3 no road) | 0 | 0 | **0** | 2 |
+| LEMD | `Ground-FSX-LEMD36` | 1 | 588.97 | 594.63 | +5.66 | 0 | 0 | **0** | 1 |
+| LEMD | `Sim-wings-LEMDzaun` | 2 | 589.01..592.78 | 597.52..597.74 | +1.61..+8.50 | 0 | 1 | **0** | 1 |
+| LEMD | `Sim-wings-SWbaume` | 1 | 589.01 | 597.12 | +8.11 | 0 | 0 | **0** | 0 |
+| LEMD | `grass_FSX-LEMDgrass` | 25 | 594.45..594.98 | 586.00..594.64 | **−8.85..−0.16** (+12 no road) | 2 | 2 | **0** | 12 |
+
+**(ii) THE FLOOR SLAB IS ZERO ON BOTH PACKS** — 0 of OTHH's 44 and 0 of LEMD's 52 (max
+cover 0.00 at both): OTHH's kerb walls carry no floor at any depth (that IS Law C's
+premise, module doc / 08u `bore_datum_m` 5.10) and neither does Aerosoft's. As a clause it
+would refuse OTHH's 43 outright — the OTHH bar fails at once. **Refuted.**
+
+**(i) NO TOLERANCE SEPARATES THEM.** OTHH's 43 real corridors sit in a tight band
+Δ +1.35..+2.13 (the 44th, `Qatar_DutyFree_003@8/7`, is an 8.24 m pit at +12.21); LEMD's
+spread runs −31.3..+10.4 with 16 candidates having no road within 40 m at all — but 15
+land INSIDE OTHH's band:
+
+| tolerance | OTHH kept (of 44) | LEMD kept (of 52) |
+|---|---|---|
+| 1.35 m | 2 | 5 |
+| **1.5 m** (the proposed value) | **7** | **7** |
+| 1.75 m | 13 | 12 |
+| 2.0 m | 29 | 13 |
+| **2.13 m** (the loosest that keeps all 43) | **43** | **15** |
+| 2.5–5.0 m | 43 | 17–18 |
+
+The bar is OTHH 43 / LEMD 0. Every value fails one side: 1.5 m costs OTHH 36 of its 43;
+2.13 m keeps OTHH's 43 and LEMD's 15 (`NEWCO` 5, `LEMDgrass` 2, `LEMDzaun` 1 and the rest
+of the cargo kerbs). Adding `ramp_reachable` as an OR only loosens it (OTHH 7 / LEMD 8
+extra). **Refuted.** The pair (i) AND (ii) is 0 / 0 — refuted with it.
+
+**WHY the reading cannot separate them (the instrument's own limit, stated for the next
+round).** OTHH's production DEM is CONSTANT 3.96 m over the whole airport (73 of 73
+mouths; Doha at sea level on a flat inset), so at OTHH "the road's level" IS the ground
+everywhere and Δ degenerates to the corridor's depth under grade — a quantity
+`min_wall_depth_m` already gates. At LEMD the DEM runs 563..605 while the Aerosoft pack's
+floors sit on one anchor plane at 594.3..595.0, so Δ measures the pack's anchor offset
+against the terrain: huge where the terrain is high (`CGVRW` +10.4, `LEMD70` −31.3), and
+accidentally small (±2 m) wherever the terrain happens to pass through 594–597 — which is
+exactly the cargo kerb / grass-fence belt. The difference between the two packs is not a
+level relation at the mouth.
+
+**WHAT LANDS FROM ROUND 4**: the instrument and its law values only (`corridor_road_level_m`,
+`corridor_floor_road_tol_m`, `corridor_floor_slab_max_thickness_m`,
+`corridor_floor_slab_tol_m`, `corridor_floor_slab_cover_min` in `structures.toml` +
+`cutout_schema`), the `PROBE` table in `--stage structures`, and two twins holding the
+reading honest (`test_v2corridor.py`: the probe states the road level minus the floor at
++2.0 / +6.0 and names the levelled profile; the slab reader finds a plate only where one
+is authored). **The admission is UNCHANGED** — (a) authored depth + (b″) the groundside
+mouth, exactly as §12b measured it (verified after: LEMD 26 corridors / 49 records). No
+clause (b‴) is proposed; the next discriminator is the owner's.

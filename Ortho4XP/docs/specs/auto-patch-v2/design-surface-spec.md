@@ -2816,6 +2816,62 @@ positive; no number in code).
 | C10 | `planar/build.py:168` | roles ⊆ {graded_strip} faces | unchanged |
 | C11 | the census (`check_grade` law families over `graded_strip`) | shape rows | unchanged; counts may drop |
 | C12 | the sidecar / KML (`emit/osm_adapter`) | region refs | the edge is recorded per region: `o4_edge = crest|road|none`, the edge segments as a `terrain_edge` polyline way (value-less) for the owner's KML read |
+| C13 | `solve/design.py` `_bend_class` (:113, :408) | a vertex's bending class (`strip` for zone ground) | unchanged: the class of the vertices that exist |
+| C14 | `law/families.toml` + `tools/check_grade.ROLE_LESS_FEATURE_CLASSES` | the census's law families over `graded_strip`; the role-less way register | families unchanged (counts may drop); the new `terrain_edge` way is REGISTERED role-less (the `crown_spine` precedent: its chords are ring edges already, it carries no grade law) — the register's twin in `tests/test_harness.py` is updated in the same commit |
+
+RULE column VERIFIED by lane `v2edge` before any edit (grep of `graded_strip`,
+`zone_regions`, `ZoneRegion` and the zone accessors over `src/auto_patch_v2`):
+C1–C12 as written, plus C13/C14 above; every other hit is a `tools/`
+diagnostic, not a build consumer.
+
+TWO READINGS RECORDED at implementation (neither changes the ruled law):
+(a) §19.2 (1)'s probe is FORWARD-LOOKING, so the first CREST station stands
+up to one `edge_probe_m` inboard of the lip and a crest-cut region ends
+there (measured on the twin: a lip at x = 50 ends the region at x = 45).
+A ROAD-cut region is exact.  (b) §19.2 (2)'s "within `edge_road_snap_m`
+inside the crest" is read as a DISTANCE (≤ 20 m from the crest set), not as
+"outside it": the crest set found by (a) already covers the road itself at
+CYXY (the DEM drops 6 m over the probe ahead of the rim road).  Because
+"without a road the crest of (1) is the edge", a governing road REPLACES the
+crest within `edge_road_snap_m` of its run — otherwise the crest, standing
+inboard of the road, would cut the region before the road ever could.
+
+### 19.3b DEVIATION recorded at round 2 (owner RULINGS 2026-09-10g) — the
+edge cut stops at the MINIMUM-WIDTH COLLAR, not at the coverage
+
+§19.2 (3) as ratified says "beyond the edge: nothing … no bank is emitted
+from an edge segment".  Round 1 implemented that literally: the no-bank
+slab was cut back to the design coverage itself.  MEASURED at CYXY (the
+owner's texture tearing, 10g): the banked region's boundary then came to
+rest ON the strip's own ring for the whole edge run, and `emit/bank.
+_push_off` — which pushes a boundary vertex NEAR the coverage out to
+`bank_min_width_m` but leaves one exactly ON it alone, having no direction
+to push along — emitted a foot ring alternating between 0.01 m and 5.01 m
+from that ring and CROSSING it.  Triangle4XP filled the zero-area needle
+to its recursion limit: 59,634 vertices on 216 distinct plan positions
+inside one 50 m cell below the 32L end, 119,264 triangles where the
+control mesh has 172, 18,447,114 vertex pairs closer in plan than
+`identity.min_distinct_spacing_m` at different heights, 59,617 wall
+triangles the DEM does not have.  That pile IS the tearing.
+
+The cut now stops at `cov.buffer(bank_min_width_m)`.  At an edge the bank
+is therefore the MINIMUM-WIDTH COLLAR every ring already gets — 5 m, its
+foot on the DEM — and nothing beyond it; the 200 m daylight reach that
+built the plateau wall is gone either way.  DEVIATION from the literal
+text: a 5 m collar IS emitted from an edge segment.
+
+The alternative that would honour the literal text — drop the run and
+emit the foot as OPEN chains — was rejected, not overlooked: the CLOSED
+FOOT RING is a measured law (`emit/bank` docstring, spec §10.5 — an open
+chain enters `include_patches` as a dummy way, gets no INTERP_ALT seed
+while its segments still block the regional plague, and the bank reverted
+to the raw DEM at 306 %).  Trading a measured fold for a measured revert
+is not a fix.  MEASURED COST of the collar at the owner's site (stations
+along the road→site axis, 0 = the rim road, + toward the runway): the
+mesh−DEM difference past the road reads +0.47 / −0.59 / −0.58 / −0.09 /
+−0.04 / +0.09 / +0.11 / +0.19 m at s = −5 … −50, against round 1's
+−0.03 / +0.09 / +0.12 at −20/−25/−30 — the collar costs ≤ 0.06 m where
+round 1 was measured and ≤ 0.6 m at its widest, inside the 1 m bar.
 
 ### 19.4 Twins and the closing test
 
@@ -2823,7 +2879,13 @@ Twins (`tests/auto_patch_v2/test_v2edge.py`): a flat DEM → byte-identical regi
 plateau fixture (DEM steps 20 m over 15 m at x = 100) with a zone extending to x = 150
 → the region ends at the crest (within `edge_grid_m`), no bank segment there; the same
 with a road at x = 92 → the region ends at the road's outer edge; a gentle slope
-(20 %) → untouched. Closing test: ONE airport, CYXY (`build_airport.py CYXY --engine
+(20 %) → untouched. ROUND 2 ADDS AN AREA BAR (10g): a transect cannot see a fold beside it —
+round 1's single line read clean while the needle sat 237 m away.  The
+acceptance is `tools/mesh_region_tris.py --edge-audit --near LAT LON R`
+over the whole fan: ZERO overlapping node pairs, ZERO wall triangles the
+DEM does not have, and |mesh − DEM| past the edge within 1 m at EVERY
+vertex — proved on the CONTROL mesh first, which must read 0 overlapping
+pairs for the instrument to mean anything.  Closing test: ONE airport, CYXY (`build_airport.py CYXY --engine
 v2`, control `--base-arm`), then the transect of RULINGS 10b through the site (stations
 every 5 m from +200 to −200 along the site→road axis, `mesh_elevation_sampler.py` on a
 mesh-only tile run): bar — the strip's edge lies within one lane width of the rim

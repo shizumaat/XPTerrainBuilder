@@ -3569,8 +3569,19 @@ def test_the_mesh_only_entry_ARMS_the_guard_in_the_right_ORDER():
     assert positions == sorted(positions), (
         f"the mesh-only arming sequence is out of order: "
         f"{dict(zip(_MESH_ARMING_ORDER, positions))}")
-    assert "require_no_swallowed_write_block(guard.blocked)" in src, (
+    assert "require_no_swallowed_write_block(guard.blocked," in src, (
         "the detector must read THIS run's guard record")
+    # THE RULED OVERRIDE (2026-09-10): the mesh-only entry carries the same
+    # --allow-degraded-dem the build entry does — a degraded frame accepted
+    # KNOWINGLY, on the record — and it must reach the detector rather than
+    # be parsed and dropped, which would silently restore the refusal.
+    assert "--allow-degraded-dem" in src, (
+        "the mesh-only entry must offer the ruled degraded-frame override")
+    assert "allow_degraded=allow_degraded" in src, (
+        "the override must be PASSED to the swallowed-block detector")
+    assert src.index("--allow-degraded-dem") < src.index(
+        "require_no_swallowed_write_block(guard.blocked,"), (
+        "the flag must be read before the detector runs")
     assert "--refresh-data" in src and "e9daef5" in src, (
         "the refusal must name the deliberate act and cite its ruling")
 
@@ -6305,6 +6316,14 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
         # host, so it is registered role-less and stays out of
         # ``HOST_CAP_FEATURE_CLASSES``.
         "bank_foot",
+        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12;
+        # auto_patch_v2 ``emit.osm_adapter.EDGE_FEATURE``): the open way
+        # recording where an adjacent-ground ring was ENDED — at a rim
+        # road or a crest.  Role-less for the crown spine's reason: its
+        # chords ARE ring edges of the faces it bounds, it carries no
+        # grade law of its own, and out of ``HOST_CAP_FEATURE_CLASSES``
+        # because it is not a host's hole boundary.
+        "terrain_edge",
         # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
         # §1b).  Role-less for the spines' reason: it is an OPEN
         # constrained breakline inside an apron face, so a phantom

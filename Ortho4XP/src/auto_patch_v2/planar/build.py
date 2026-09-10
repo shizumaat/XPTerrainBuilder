@@ -31,6 +31,7 @@ from ..model.frame import XY, Key
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
+from .terrain_edge import EdgeReport
 from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
@@ -81,6 +82,8 @@ class BuildStats:
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
     #: RULINGS 2026-09-08m/08n Law C: the kerb-wall corridors read
     wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
+    #: owner RULINGS 2026-09-10b/10c (spec §19): the terrain edge's trim
+    terrain_edge: EdgeReport = _dc.field(default_factory=EdgeReport)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -118,7 +121,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
-                       door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats)
+                       door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats,
+                       terrain_edge=arr.edge_report)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 
@@ -185,7 +189,10 @@ def build(airport: Airport, classification: Classification, law: Law,
 
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
-                   faces, {b.id: b for b in breaklines}, seam, tunnels, basins)
+                   faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
+                   terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
+                   edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
+                                     if r.edge_kind != "none"})
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

@@ -5158,3 +5158,52 @@ def test_transient_discovery_failure_is_not_cached_as_negative(
         assert discover_calls["count"] == 2
     finally:
         INSETS.ACCESS_STRATEGIES.pop("transient_discovery_strategy", None)
+
+
+# ── THE INDEX IS NOT REWRITTEN FOR FRESHNESS (2026-09-10) ─────────────
+#
+# A CYXY mesh-only run on a fully warm corpus was REFUSED outright: the
+# shared-repo guard blocked `N60W136_airport_insets/index.json` because
+# ``_write_index``'s byte comparison saw a difference no consumer reads.
+# A build is not a refresh event (owner ruling e9daef5), so the
+# comparison is MATERIAL — and a real change still writes, naming what
+# moved.
+def test_index_records_differ_ignores_freshness(tmp_path):
+    import O4_Airport_Elevation_Insets as INS
+
+    base = {"HRDEM": "ok", "checked": "2026-07-25",
+            "bounding_box": [1.0, 2.0, 3.0, 4.0], "probes": [[1.0, 2.0]]}
+    same_day = dict(base, checked="2026-09-10")
+    assert INS._index_records_differ(base, same_day) == []
+
+    noise = dict(base, bounding_box=[1.0 + 1e-9, 2.0, 3.0, 4.0])
+    assert INS._index_records_differ(base, noise) == []
+
+    moved = dict(base, bounding_box=[1.1, 2.0, 3.0, 4.0])
+    assert INS._index_records_differ(base, moved) == ["bounding_box"]
+
+    lost = dict(base, HRDEM="no-coverage")
+    assert INS._index_records_differ(base, lost) == ["HRDEM"]
+
+
+def test_write_index_skips_a_freshness_only_pass(tmp_path, monkeypatch):
+    import json
+    import O4_Airport_Elevation_Insets as INS
+    import O4_File_Names as FNAMES
+
+    target = tmp_path / "index.json"
+    monkeypatch.setattr(FNAMES, "airport_inset_index",
+                        lambda lat, lon: str(target))
+    first = {"CYXY": {"HRDEM": "ok", "checked": "2026-07-25",
+                      "bounding_box": [1.0, 2.0, 3.0, 4.0]}}
+    INS._write_index(60, -136, first)
+    stamp = target.stat().st_mtime_ns
+
+    INS._write_index(60, -136, {"CYXY": dict(first["CYXY"],
+                                             checked="2026-09-10")})
+    assert target.stat().st_mtime_ns == stamp           # not rewritten
+    assert json.loads(target.read_text())["CYXY"]["checked"] == "2026-07-25"
+
+    INS._write_index(60, -136, {"CYXY": dict(first["CYXY"],
+                                             HRDEM="no-coverage")})
+    assert json.loads(target.read_text())["CYXY"]["HRDEM"] == "no-coverage"

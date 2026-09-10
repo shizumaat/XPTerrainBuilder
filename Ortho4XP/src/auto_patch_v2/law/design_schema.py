@@ -101,6 +101,19 @@ class Design:
     #: ``O4_Mesh_Utils.bank_annulus_blend_values`` writes has vertices to
     #: be carried on.
     bank_triangle_divisions: float
+    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): the
+    #: adjacent-ground rings END at the physical edge — the CREST where
+    #: the DEM's outward downhill slope over ``edge_probe_m`` exceeds
+    #: ``bank_slope`` and drops more than ``edge_min_drop_m``, found on an
+    #: ``edge_grid_m`` raster; or, where a road runs within
+    #: ``edge_road_snap_m`` inside that crest over at least
+    #: ``edge_road_run_m``, flush at that road's outer edge.  Beyond the
+    #: edge: no patch, no bank, the DEM.
+    edge_probe_m: float
+    edge_min_drop_m: float
+    edge_grid_m: float
+    edge_road_snap_m: float
+    edge_road_run_m: float
     #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
     #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
     #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
@@ -190,6 +203,16 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_triangle_divisions "
                   f"{d.bank_triangle_divisions}: at least one triangle across "
                   "the bank (09-09x)")
+    for key in ("edge_probe_m", "edge_min_drop_m", "edge_grid_m",
+                "edge_road_snap_m", "edge_road_run_m"):
+        v = float(getattr(d, key))
+        if not v > 0.0:
+            raise err(f"emit.design.{key} {v}: positive metres — the terrain "
+                      "edge (RULINGS 2026-09-10c)")
+    if not d.edge_grid_m < d.edge_probe_m:
+        raise err(f"emit.design.edge_grid_m {d.edge_grid_m}: finer than the "
+                  f"probe {d.edge_probe_m} — the crest is read over the probe, "
+                  "marked on the grid (09-10c)")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

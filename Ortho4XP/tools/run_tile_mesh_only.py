@@ -19,8 +19,14 @@ of its own and never will — a COLD tile is warmed deliberately with
 ``tools/harness/build_airport.py --refresh-data <scope>``, under a lock
 and hash-stamped into the shared refresh ledger.
 
-Usage: run_tile_mesh_only.py <latitude> <longitude> [first_step] [--patches-as-is]
-(from the checkout root).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
+Usage: run_tile_mesh_only.py <latitude> <longitude> [first_step]
+[--patches-as-is] [--allow-degraded-dem] (from the checkout root).
+``--allow-degraded-dem`` is the SAME ruled override the build entry
+carries (2026-09-10): a write the guard blocked and the engine swallowed
+is accepted KNOWINGLY, on the record, for this run only — it authorises
+NO write, and an unauthorised write that landed anyway still fails the
+run.  Use it when the blocked write is a manifest the frame did not
+depend on (the run's own log says what the frame actually resolved).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
 A/B): step 1 does NOT resolve the X-Plane install paths, so auto_patch
 generation is skipped and the ``Patches/`` files ALREADY ON DISK are meshed
 exactly as they are — the deliberate measurement of a given patch's
@@ -90,7 +96,14 @@ if __name__ == "__main__":
     IMG.initialize_combined_providers_dict()
 
     patches_as_is = "--patches-as-is" in sys.argv
-    argv = [a for a in sys.argv[1:] if a != "--patches-as-is"]
+    # THE RULED OVERRIDE, same single implementation the build entry uses
+    # (the swallowed-block detector's own ``allow_degraded``): accept a
+    # measurement in a frame the guard degraded, KNOWINGLY and on the
+    # record.  It AUTHORISES NO WRITE — an unauthorised write that landed
+    # anyway still fails the run through ``require_no_unauthorised_writes``.
+    allow_degraded = "--allow-degraded-dem" in sys.argv
+    argv = [a for a in sys.argv[1:]
+            if a not in ("--patches-as-is", "--allow-degraded-dem")]
     latitude = int(argv[0])
     longitude = int(argv[1])
     first_step = int(argv[2]) if len(argv) > 2 else 1
@@ -160,6 +173,10 @@ if __name__ == "__main__":
         # halfway has still changed the corpus every other lane reads.
         changes = snapshot_diff(before, shared_repo_snapshot())
         offenders = report_unauthorised_writes(changes, set(), None)
-    require_no_swallowed_write_block(guard.blocked)
+    if allow_degraded:
+        print("--allow-degraded-dem: a guard-blocked write is ACCEPTED as a "
+              "degraded frame for this run (it authorises no write)")
+    require_no_swallowed_write_block(guard.blocked,
+                                     allow_degraded=allow_degraded)
     require_no_unauthorised_writes(offenders, entry="mesh-only")
     print("mesh build complete", flush=True)

@@ -275,6 +275,119 @@ def _transect(sampler, points, fmt, step_flag, alt=None):
     return rows
 
 
+# ── SLOPE READS (lane v2bankblend, RULINGS 2026-09-09t/x/aa) ──────────
+#
+# The bank acceptance is not an elevation, it is a GRADE: "every triangle
+# the transect crosses reads at or below the bar" and "how much of the
+# bank annulus is over it".  Rounds 1 and 2 answered both from a
+# scratchpad script; this is its second use, which is the signal to
+# promote it into the tool that already owns the mesh (tool discipline,
+# RULINGS 7e90032 — extend the near-fit, never fork it).
+#
+#   venv/bin/python tools/mesh_elevation_sampler.py MESH \
+#       --lon 31.3819142 --lat-range 30.11630 30.11680 \
+#       --step 0.0000198 --grade-bar 0.35
+#   venv/bin/python tools/mesh_elevation_sampler.py MESH \
+#       --bank-annulus-slopes --tile 30 31 --grade-bar 0.35
+
+DEGREE_METRES = 111120.0
+
+
+def _report_station_grades(rows, bar):
+    """Station-to-station grade along a transect's samples."""
+    grades = []
+    for (lon_a, lat_a, z_a), (lon_b, lat_b, z_b) in zip(rows, rows[1:]):
+        if z_a is None or z_b is None:
+            continue
+        scalx = math.cos(math.radians(0.5 * (lat_a + lat_b)))
+        run = math.hypot((lon_b - lon_a) * scalx, lat_b - lat_a)
+        run *= DEGREE_METRES
+        if run <= 0.0:
+            continue
+        grades.append(abs(z_b - z_a) / run)
+    if not grades:
+        print("  no station gap carried two samples — nothing to grade")
+        return grades
+    over = [g for g in grades if g > bar]
+    print("  grades over {} station gap(s), bar {:.3f}: max {:.3f}, "
+          "{} over the bar".format(len(grades), bar, max(grades), len(over)))
+    print("  [" + ", ".join("{:.3f}".format(g) for g in grades) + "]")
+    return grades
+
+
+def _bank_annulus_slopes(mesh_path, tile_lat, tile_lon, bar):
+    """Triangle-slope distribution over the tile's bank annulus.
+
+    The annulus is read from the SAME patch rings the engine's blend is
+    ruled from (``O4_Mesh_Utils.bank_annulus_polygon``), in the same
+    tile-relative ISOTROPIC degree frame ``(x*scalx, y)``, so this
+    measures the law's own region and not a proximity guess.
+    """
+    import os
+    import sys
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    source = os.path.join(root, "src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    import shapely                                    # noqa: E402
+    import O4_Mesh_Utils as MESH                      # noqa: E402
+
+    class _Tile:
+        lat, lon, auto_patch = tile_lat, tile_lon, "All"
+
+    annulus = MESH.bank_annulus_polygon(_Tile())
+    if annulus is None or annulus.is_empty:
+        print("  no bank annulus on tile {:+03d}{:+04d}".format(
+            tile_lat, tile_lon))
+        return []
+
+    vertices, triangles = MeshElevationSampler._read_mesh(mesh_path)
+    scalx = math.cos(math.radians(tile_lat + 0.5))
+    lon_rel = vertices[:, 0] - tile_lon
+    lat_rel = vertices[:, 1] - tile_lat
+    x = lon_rel * scalx * DEGREE_METRES               # metres east
+    y = lat_rel * DEGREE_METRES                       # metres north
+    z = vertices[:, 2]
+
+    centre_x = (lon_rel[triangles].mean(axis=1)) * scalx
+    centre_y = lat_rel[triangles].mean(axis=1)
+    inside = shapely.contains_xy(annulus, centre_x, centre_y)
+    selected = triangles[inside]
+    if not len(selected):
+        print("  the bank annulus holds no mesh triangle centroid")
+        return []
+
+    corner_x = x[selected]
+    corner_y = y[selected]
+    corner_z = z[selected]
+    e1x = corner_x[:, 1] - corner_x[:, 0]
+    e1y = corner_y[:, 1] - corner_y[:, 0]
+    e2x = corner_x[:, 2] - corner_x[:, 0]
+    e2y = corner_y[:, 2] - corner_y[:, 0]
+    dz1 = corner_z[:, 1] - corner_z[:, 0]
+    dz2 = corner_z[:, 2] - corner_z[:, 0]
+    determinant = e1x * e2y - e1y * e2x
+    usable = numpy.abs(determinant) > 1e-9
+    determinant = determinant[usable]
+    gradient_x = (dz1[usable] * e2y[usable]
+                  - dz2[usable] * e1y[usable]) / determinant
+    gradient_y = (dz2[usable] * e1x[usable]
+                  - dz1[usable] * e2x[usable]) / determinant
+    slope = numpy.hypot(gradient_x, gradient_y)
+    area = 0.5 * numpy.abs(determinant)
+    over = slope > bar
+    print("  annulus triangles {}: p50 {:.3f}  p90 {:.3f}  p95 {:.3f}  "
+          "max {:.3f}".format(len(slope), float(numpy.median(slope)),
+                              float(numpy.percentile(slope, 90)),
+                              float(numpy.percentile(slope, 95)),
+                              float(slope.max())))
+    print("  over the {:.3f} bar: {:.1f} % by count, {:.2f} % by area"
+          .format(bar, 100.0 * float(over.mean()),
+                  100.0 * float(area[over].sum() / area.sum())))
+    return slope
+
+
 def main(argv=None):
     import argparse
 
@@ -303,11 +416,32 @@ def main(argv=None):
                              "it beside every sample with the delta — the "
                              "reference that separates 'the DEM is wrong' "
                              "from 'something overwrote the DEM'")
+    parser.add_argument("--grade-bar", type=float, default=None,
+                        metavar="B",
+                        help="after a transect, report the station-to-"
+                             "station GRADE of every gap and how many "
+                             "exceed B (the bank acceptance is a grade, "
+                             "not an elevation)")
+    parser.add_argument("--bank-annulus-slopes", action="store_true",
+                        help="instead of a transect, report the triangle-"
+                             "slope distribution over the tile's BANK "
+                             "ANNULUS (O4_Mesh_Utils.bank_annulus_polygon "
+                             "— the law's own region); needs --tile")
     parser.add_argument("--tile", nargs=2, type=int, default=None,
                         metavar=("LAT", "LON"),
                         help="tile origin for --alt-raster (default: parsed "
-                             "from the mesh filename)")
+                             "from the mesh filename); also the tile "
+                             "--bank-annulus-slopes reads")
     args = parser.parse_args(argv)
+
+    if args.bank_annulus_slopes:
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else tile_origin_from_mesh_path(args.mesh))
+        print("=== {} bank annulus, tile {:+03d}{:+04d} ===".format(
+            args.label or "SLOPES", tile_lat, tile_lon))
+        _bank_annulus_slopes(args.mesh, tile_lat, tile_lon,
+                             args.grade_bar if args.grade_bar else 0.35)
+        return 0
 
     alt = None
     if args.alt_raster:
@@ -332,8 +466,10 @@ def main(argv=None):
         sampler = MeshElevationSampler(args.mesh, bounds)
         print("=== {} lon {:.5f} (lat sweep, {} sample(s)) ===".format(
             args.label or "TRANSECT", args.lon, len(values)))
-        _transect(sampler, [(args.lon, v) for v in values],
-                  "  lat {lat:.5f}  z {z}", args.step_flag, alt)
+        rows = _transect(sampler, [(args.lon, v) for v in values],
+                         "  lat {lat:.5f}  z {z}", args.step_flag, alt)
+        if args.grade_bar is not None:
+            _report_station_grades(rows, args.grade_bar)
     elif args.lat is not None and args.lon_range:
         lon0, lon1 = sorted(args.lon_range)
         values = []
@@ -346,8 +482,10 @@ def main(argv=None):
         sampler = MeshElevationSampler(args.mesh, bounds)
         print("=== {} lat {:.5f} (lon sweep, {} sample(s)) ===".format(
             args.label or "TRANSECT", args.lat, len(values)))
-        _transect(sampler, [(v, args.lat) for v in values],
-                  "  lon {lon:.5f}  z {z}", args.step_flag, alt)
+        rows = _transect(sampler, [(v, args.lat) for v in values],
+                         "  lon {lon:.5f}  z {z}", args.step_flag, alt)
+        if args.grade_bar is not None:
+            _report_station_grades(rows, args.grade_bar)
     elif args.point:
         lats = [p[0] for p in args.point]
         lons = [p[1] for p in args.point]

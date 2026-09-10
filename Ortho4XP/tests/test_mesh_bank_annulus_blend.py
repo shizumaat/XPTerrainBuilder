@@ -338,49 +338,71 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
 
 # ── THE END-TO-END TWIN: DOES TRIANGLE ACTUALLY REFINE THE ANNULUS? ────
 #
-# REFUTED AS RULED (lane v2bankblend round 2, measured 2026-09-09).  The
-# ruling calls the region area "a standard Triangle facility".  It is —
-# in Jonathan Shewchuk's ``triangle.c``, whose ``testtriangle`` compares a
-# triangle's area against ``areabound(*testtri)`` at line 7336.  THIS FORK
-# HAS NO SUCH LINE: ``Utils/src/Triangle4XP.c`` rewrote ``testtriangle``
-# around the DEM-curvature criterion and dropped the area test with it.
-# ``grep areabound Triangle4XP.c`` returns only the macro, the propagation
-# copies and a debug printf — the value is stored, spread by
-# ``regionplague`` and never read by any quality test.  A SECOND,
-# independent blocker sits on top of it: ``testtriangle`` opens with
+# RULED AND LANDED (RULINGS 2026-09-09aa; lane v2bankblend round 3).  The
+# ruling of 09x called the region area "a standard Triangle facility".  It
+# is — in Jonathan Shewchuk's ``triangle.c``, whose ``testtriangle``
+# compares a triangle's area against ``areabound(*testtri)`` at line 7336.
+# THE FORK HAD NO SUCH LINE: ``Utils/src/Triangle4XP.c`` rewrote
+# ``testtriangle`` around the DEM-curvature criterion and dropped the area
+# test with it, so ``-a`` and the ``.poly``'s fifth region field were
+# INERT (measured on this fixture: 184 input vertices -> 184 output
+# vertices, byte-identical with and without ``-a``, at attribute 8 and at
+# attribute 0 alike, while the annulus triangles were ~150 m2).  A second
+# blocker sat on top of it: ``testtriangle`` opens with
 # ``if (attribute >= 8) return;`` ("Refinement in INTERP_ALT tris is
 # useless"), and the bank annulus is INTERP_ALT.
 #
-# MEASURED on this very fixture (30 m band, 3 divisions, max area 9.4e-9
-# deg2, ~100 m2): the SHIPPED Utils/mac/Triangle4XP takes 184 input
-# vertices to 184 output vertices — zero Steiner points, byte-identical
-# with and without ``-a``, at attribute 8 and at attribute 0 alike, while
-# the annulus triangles are ~150 m2.  Triangle prints "Spreading regional
-# attributes and area constraints", so the flag IS parsed and the area IS
-# read; nothing consumes it.
+# 09aa RULED the vendored SOURCE patched: the stock area test is restored
+# AHEAD of the INTERP_ALT exemption and ``Utils/mac/Triangle4XP`` is
+# rebuilt from it (``cc -O2 -arch arm64 -arch x86_64``, universal, as the
+# shipped binary is) and committed with the source.  This fixture now
+# reads 306 vertices — 122 free vertices inside the 30 m band — and the
+# ruled blend rides on a maximum triangle slope of 0.333, exactly the
+# ring-to-foot slope, 0 % over slope + 0.02.  With no region carrying an
+# area the patched binary is identical to the shipped one, so the change
+# is inert on every tile that has no bank.
 #
-# THE COUNTERFACTUAL, also measured: Triangle4XP.c with the stock area
-# test restored ahead of the INTERP_ALT exemption (nine lines) takes the
-# same fixture to 314 vertices — 130 free vertices inside the 30 m band —
-# and the ruled blend then rides on a maximum triangle slope of 0.333,
-# exactly the ring-to-foot slope, 0 % over slope + 0.02.  With no region
-# carrying an area the patched binary is identical to the shipped one, so
-# the change is inert everywhere else.
-#
-# So the Python side below is right and complete, and the mechanism is
-# blocked in the VENDORED BINARY.  This test is the tripwire: it is
-# ``xfail(strict=True)``, so the day Triangle4XP is rebuilt it FAILS as
-# unexpectedly-passing and this whole comment gets deleted.
+# THE WIN/LIN BINARIES ARE NOT REBUILT HERE — the release CI owns them
+# (docs/DEFERRED_VERIFICATION.md).  Until it does, the fifth ``.poly``
+# field is inert there, so this twin is a HARD twin on macOS ONLY and
+# skips elsewhere with that reason.
 BANK_REGION_MIN_FREE_VERTICES = 40      # for the 30 m band below
 
+# The identity of the binary the twin above is measuring.  It is recorded
+# HERE so that a later rebuild that forgets the 09aa patch (or a merge
+# that restores the vendored binary) fails loudly instead of silently
+# putting the bank back on the ring-to-foot triangulation.  Update it in
+# the SAME commit as any deliberate Triangle4XP rebuild.
+TRIANGLE4XP_MAC_SHA1 = "7ca193114522035fb0449432431b14db02fe37e1"
 
-@pytest.mark.xfail(strict=True, reason=(
-    "the vendored Triangle4XP dropped the stock regional-area quality test "
-    "(triangle.c:7336) and exempts attribute >= 8 from refinement, so -a is "
-    "inert: 184 -> 184 vertices, measured — RULINGS 2026-09-09x, lane "
-    "v2bankblend round 2"))
+
+@pytest.mark.skipif(sys.platform != "darwin", reason=(
+    "only Utils/mac/Triangle4XP carries the 09aa area-test patch; the "
+    "win/lin binaries are rebuilt by the release CI (owed, recorded in "
+    "docs/DEFERRED_VERIFICATION.md) and the fifth .poly field is inert "
+    "there"))
+def test_the_shipped_mac_triangle4xp_is_the_patched_binary():
+    """The mac binary in the tree IS the one built from the patched
+    ``Utils/src/Triangle4XP.c`` (RULINGS 2026-09-09aa)."""
+    import hashlib
+
+    binary = Path(MESH.Triangle4XP_cmd.strip())
+    if not binary.is_file():
+        pytest.skip(f"no Triangle4XP at {binary}")
+    digest = hashlib.sha1(binary.read_bytes()).hexdigest()
+    assert digest == TRIANGLE4XP_MAC_SHA1, (
+        f"{binary} is sha1 {digest}, not the 09aa-patched binary "
+        f"{TRIANGLE4XP_MAC_SHA1}: rebuild it from Utils/src/Triangle4XP.c "
+        f"(cc -O2 -arch arm64 -arch x86_64 ... -lm) and record the new "
+        f"sha1 here in the same commit")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason=(
+    "the 09aa area-test patch is built into Utils/mac/Triangle4XP only; "
+    "the win/lin binaries are the release CI's (docs/"
+    "DEFERRED_VERIFICATION.md) and the fifth .poly field is inert there"))
 def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
-    """THE BAR (RULINGS 2026-09-09x): a bank annulus written as a region
+    """THE BAR (RULINGS 2026-09-09x, met by 2026-09-09aa): a bank annulus written as a region
     with ``max_area = (w / bank_triangle_divisions) ** 2`` comes back with
     interior vertices to carry the blend."""
     import subprocess

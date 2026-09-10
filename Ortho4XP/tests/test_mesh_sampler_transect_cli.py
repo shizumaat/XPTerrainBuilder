@@ -107,3 +107,45 @@ class TestItIsTheSAMESAMPLER:
         lines = _run(capsys, [FIXTURE_MESH_PATH,
                               "--point", "50.0003", "10.0005"])
         assert "{:.3f}".format(expected) in lines[0]
+
+
+class TestTheGradeBar:
+    """``--grade-bar`` (lane v2bankblend, RULINGS 2026-09-09t/aa): the
+    bank acceptance is a GRADE — "every triangle the transect crosses
+    reads at or below the bar" — so the transect reports the station-to-
+    station grade of every gap, its maximum, and how many exceed it."""
+
+    def test_the_summary_counts_the_gaps_and_the_bar(self, capsys):
+        lines = _run(capsys, [FIXTURE_MESH_PATH, "--lon", "10.0005",
+                              "--lat-range", "50.0001", "50.0005",
+                              "--step", "0.0001", "--grade-bar", "0.35"])
+        summary = [line for line in lines if "station gap(s)" in line]
+        assert len(summary) == 1, lines
+        assert "bar 0.350" in summary[0]
+        assert "4 station gap(s)" in summary[0]     # 5 samples, 4 gaps
+        listing = [line for line in lines if line.strip().startswith("[")]
+        assert len(listing) == 1
+        assert len(listing[0].strip().strip("[]").split(",")) == 4
+
+    def test_a_grade_is_the_rise_over_the_run_in_metres(self, capsys):
+        """The printed grade is |dz| / plan metres, computed from the
+        sampler's own two elevations — never a second opinion."""
+        sampler = MES.MeshElevationSampler(
+            FIXTURE_MESH_PATH, (10.0, 50.0, 10.001, 50.001))
+        first = sampler.elevation_at(50.0001, 10.0005)
+        second = sampler.elevation_at(50.0002, 10.0005)
+        run = 0.0001 * MES.DEGREE_METRES
+        expected = abs(second - first) / run
+        lines = _run(capsys, [FIXTURE_MESH_PATH, "--lon", "10.0005",
+                              "--lat-range", "50.0001", "50.0005",
+                              "--step", "0.0001", "--grade-bar", "0.35"])
+        listing = [line for line in lines
+                   if line.strip().startswith("[")][0]
+        printed = listing.strip().strip("[]").split(",")[0].strip()
+        assert printed == "{:.3f}".format(expected)
+
+    def test_no_bar_no_grade_line(self, capsys):
+        lines = _run(capsys, [FIXTURE_MESH_PATH, "--lon", "10.0005",
+                              "--lat-range", "50.0001", "50.0005",
+                              "--step", "0.0001"])
+        assert not any("station gap(s)" in line for line in lines)

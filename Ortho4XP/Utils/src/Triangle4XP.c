@@ -7230,6 +7230,23 @@ void testtriangle(struct mesh *m, struct behavior *b, struct otri *testtri)
 	apexlen2 = dxod2 + dyod2;
 	orglen2 = dxda2 + dyda2;
 	destlen2 = dxao2 + dyao2;
+	area = fabs(0.5 * (dxod * dyda - dyod * dxda));
+
+	/* THE STOCK MAXIMUM-AREA TEST, restored AHEAD of the INTERP_ALT
+	 * exemption (RULINGS 2026-09-09aa).  This fork's testtriangle
+	 * rewrite dropped Shewchuk's area test (stock triangle.c:7336),
+	 * which made the -a flag and the .poly's fifth region field
+	 * INERT.  The bank annulus is INTERP_ALT (attribute >= 8), so the
+	 * test has to stand before the exemption below or it never runs
+	 * where it is needed.  Nonpositive area constraints are treated
+	 * as unconstrained, exactly as in stock. */
+	if (b->vararea && (areabound(*testtri) > 0.0) &&
+	    (area > areabound(*testtri))) {
+		REAL shortest2 = apexlen2 < orglen2 ? apexlen2 : orglen2;
+		shortest2 = destlen2 < shortest2 ? destlen2 : shortest2;
+		enqueuebadtri(m, b, testtri, shortest2, tapex, torg, tdest);
+		return;
+	}
 
 	/* Refinement in INTERP_ALT tris is useless */
 	if (attribute >= 8)
@@ -7241,7 +7258,6 @@ void testtriangle(struct mesh *m, struct behavior *b, struct otri *testtri)
 	}
 
 	/* An area limiter (to overcome min angle madness) */
-	area = fabs(0.5 * (dxod * dyda - dyod * dxda));
 	if (area <= 1e-5 * pix_x * pix_y)
 		return;
 

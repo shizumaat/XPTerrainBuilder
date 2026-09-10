@@ -561,6 +561,269 @@ def patch_segment_split_values(tile, vertices, triangles, patch_valued,
     return out
 
 
+# ── THE ENGINE BLENDS THE BANK (owner RULINGS 2026-09-09p (1) /
+# 2026-09-09t; spec docs/specs/auto-patch-v2/design-surface-spec.md §13) ─
+#
+# THE DEFECT.  A v2 patch stands off the raw DEM (no DEM term anywhere in
+# the design sheet), so outside every boundary ring it emits a BANK: a
+# closed ``o4_feature=bank_foot`` ring ON the DEM, 1:3 down (or up) from
+# the design ring at its daylight point.  The ground between the two —
+# the BANK ANNULUS — is a RULED surface: linear in plan distance from the
+# ring to the foot.  ``interpolate_free_interior_altitudes`` is a GRAPH-
+# harmonic extension, not a metric one, so with the few free vertices
+# Triangle4XP puts in the annulus its isolines crowd against the shorter
+# (inner) boundary: measured on the HECA transect at 111 % of grade
+# against the ring where the authored bank is 33 %, then 46 %, then 104 %.
+#
+# WHAT WAS TRIED AND WITHDRAWN.  The emitter authored the face with
+# INTERMEDIATE LEVEL RINGS (09f-1/09h/09i/09j), so the mesh had vertices
+# to interpolate between.  RULINGS 2026-09-09t measured the cost: a level
+# ring at plan distance ``t`` degenerates onto the FOOT wherever the bank
+# is narrower than ``t`` and re-emits the foot's own edges as a second
+# constrained segment on the same nodes.  Triangle's segment recovery
+# spins forever at HECA (1 h 40 min in formskeleton -> insertsegment ->
+# scoutsegment -> finddirection) and errors at HEAZ
+# ("segmentintersection(): Topological inconsistency"), and the squeeze
+# survives every spacing anyway.  The level rings are DELETED.
+#
+# THE LAW.  Inside a bank annulus a FREE vertex takes
+#
+#     z(v) = z_in(p) + (z_out(q) - z_in(p)) * d_in / (d_in + d_out)
+#
+# with ``p`` the nearest point of the DESIGN coverage boundary, ``q`` the
+# nearest point of the FOOT ring, ``d_in = |v - p|``, ``d_out = |v - q|``.
+# It is written into column 5 BEFORE the harmonic solve, and the vertex
+# joins the Dirichlet set — so this is a metric interpolation for bank
+# annuli ONLY and every other face is bit-identical (spec §13.2 H1).
+#
+# THE ANNULUS IS IDENTIFIED FROM THE PATCH ``.osm`` FILES, not from the
+# ``.poly``: the ``.poly`` carries no ``o4_feature``, and giving the foot
+# ring a marker bit of its own would change what Triangle4XP is handed,
+# which is exactly the class 09t killed the tile with.  Those are the SAME
+# files ``include_patches`` reads, with the same manual-before-auto
+# selection, so the two steps see the same rings.  The Z DATA still comes
+# from the ``.poly`` (column 5 of the ring edges' endpoints), which is the
+# only place the authored altitudes exist at this point.
+#
+# Everything is done in the ISOTROPIC frame ``(x * cos(lat), y)``: the
+# tile-relative frame is degrees, and a ratio of plan distances in it
+# would be wrong by the longitude scale at any bearing but due north.
+BANK_FOOT_FEATURE = "bank_foot"
+
+#: A ``.poly`` ring edge is ON a ring of the patch ``.osm`` when its
+#: midpoint lies within this many degrees of it (~0.11 m).  The vector
+#: map snaps its nodes to a 1e-7 degree grid, so the two never differ by
+#: more than a few times that.
+BANK_RING_MATCH_TOLERANCE = 1.0e-6
+
+
+def _bank_rings_from_patches(tile):
+    """The tile's patch rings, split into FOOT rings and DESIGN rings.
+
+    Returns ``(foot_polygons, design_polygons)`` as shapely polygons in
+    the isotropic tile-relative frame, or ``None`` when the patch
+    directory cannot be read.  Both lists are empty for a tile with no
+    patch, and ``foot_polygons`` is empty for a v1 or manual patch — the
+    caller then does nothing at all.
+    """
+    from shapely import geometry
+
+    import O4_Vector_Map as VMAP          # late: no cycle, see the note
+    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+    if not os.path.exists(patch_dir):
+        return ([], [])
+    all_files = [f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"]
+    manual = [f for f in all_files if "_auto.patch.osm" not in f]
+    auto = [f for f in all_files if "_auto.patch.osm" in f]
+    manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
+    mode = VMAP.resolved_auto_patch_mode(tile)
+    files = list(manual)
+    for name in auto:
+        icao = name.replace("_auto.patch.osm", "").upper()
+        if mode == "None":
+            continue
+        if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
+            continue
+        if icao in manual_icao:
+            continue
+        files.append(name)
+    scalx = cos((tile.lat + 0.5) * pi / 180)
+    feet, design = [], []
+    for name in files:
+        layer = OSM.OSM_layer()
+        try:
+            layer.update_dicosm(os.path.join(patch_dir, name),
+                                input_tags=None, target_tags=None)
+        except Exception:
+            continue
+        nodes = layer.dicosmn
+        for wayid in layer.dicosmfirst["w"]:
+            way = layer.dicosmw.get(wayid)
+            if not way or len(way) < 4 or way[0] != way[-1]:
+                continue                      # not a closed ring
+            try:
+                ring = [((float(nodes[n][0]) - tile.lon) * scalx,
+                         float(nodes[n][1]) - tile.lat) for n in way[:-1]]
+            except Exception:
+                continue
+            polygon = geometry.Polygon(ring)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+            if polygon.is_empty or not polygon.area:
+                continue
+            tags = layer.dicosmtags["w"].get(wayid, {})
+            if tags.get("o4_feature") == BANK_FOOT_FEATURE:
+                feet.append(polygon)
+            else:
+                design.append(polygon)
+    return (feet, design)
+
+
+def bank_annulus_polygon(tile):
+    """THE BANK ANNULUS of the tile: the ground between the patch's design
+    coverage and its ``bank_foot`` rings, in the isotropic tile-relative
+    frame.  An EMPTY polygon when the tile has no banked patch (which is
+    the whole of the no-op path for a v1 or manual patch); ``None`` when
+    the inputs cannot be read.
+
+    A ``bank_foot`` way is one RING of the banked region.  The design
+    coverage is a subset of that region, so a ring whose polygon meets the
+    design coverage is an EXTERIOR ring and one that does not is a HOLE:
+    ``banked = union(exteriors) - union(holes)``, and the annulus is
+    ``banked - design_coverage``.  Any error in that classification leaves
+    vertices to the harmonic extension, never the other way round.
+    """
+    from shapely import geometry, ops
+
+    rings = _bank_rings_from_patches(tile)
+    if rings is None:
+        return None
+    (feet, design) = rings
+    if not feet:
+        return geometry.Polygon()
+    design_cov = ops.unary_union(design) if design else geometry.Polygon()
+    exteriors = [p for p in feet if p.intersects(design_cov)]
+    holes = [p for p in feet if not p.intersects(design_cov)]
+    if not exteriors:
+        return geometry.Polygon()
+    banked = ops.unary_union(exteriors)
+    if holes:
+        banked = banked.difference(ops.unary_union(holes))
+    annulus = banked.difference(design_cov)
+    return annulus if not annulus.is_empty else geometry.Polygon()
+
+
+def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
+    """``{vertex index: z}`` for every FREE vertex of ``triangles`` that
+    lies inside a BANK ANNULUS — its altitude LINEAR IN PLAN DISTANCE
+    between the design ring and the bank foot (the law above).
+
+    Empty when the tile has no banked patch or no free vertex falls in an
+    annulus; ``None`` (with one loud line) when the inputs cannot be read.
+    Writes nothing.
+    """
+    if not triangles or not patch_valued:
+        return {}
+    import numpy as _np
+    import shapely as _sh
+
+    try:
+        annulus = bank_annulus_polygon(tile)
+        edges = _patch_ring_edges(tile)
+        feet = _bank_rings_from_patches(tile)[0]
+    except Exception as error:
+        UI.lvprint(
+            1, "WARNING: could not read the bank rings — the bank annulus "
+               "keeps the graph-harmonic treatment (RULINGS 2026-09-09t):",
+            str(error))
+        return None
+    if annulus is None or annulus.is_empty or not edges or not feet:
+        return {}
+
+    scalx = cos((tile.lat + 0.5) * pi / 180)
+    tri = _np.asarray(sorted(triangles), dtype=_np.int64)
+    touched = _np.unique(tri)
+    mask = _np.zeros(int(touched.max()) + 1, dtype=bool)
+    fixed = _np.asarray(sorted(patch_valued), dtype=_np.int64)
+    mask[fixed[(fixed >= 0) & (fixed < mask.size)]] = True
+    free = touched[~mask[touched]]
+    if free.size == 0:
+        return {}
+    fx = vertices[6 * free] * scalx
+    fy = vertices[6 * free + 1]
+    inside = _sh.contains_xy(annulus, fx, fy)
+    free = free[inside]
+    if free.size == 0:
+        return {}
+    fx, fy = fx[inside], fy[inside]
+
+    # The ``.poly``'s own ring edges, in the same frame, carrying z at
+    # both ends: the only place the AUTHORED altitudes exist here.
+    ends = _np.asarray(edges, dtype=_np.int64)
+    ax = vertices[6 * ends[:, 0]] * scalx
+    ay = vertices[6 * ends[:, 0] + 1]
+    bx = vertices[6 * ends[:, 1]] * scalx
+    by = vertices[6 * ends[:, 1] + 1]
+    keep = (ax != bx) | (ay != by)
+    ends, ax, ay, bx, by = ends[keep], ax[keep], ay[keep], bx[keep], by[keep]
+    if not ends.size:
+        return {}
+    segments = _sh.linestrings(_np.stack(
+        [_np.stack([ax, ay], axis=1), _np.stack([bx, by], axis=1)], axis=1))
+    # The ANNULUS BOUNDARY is exactly the foot linework plus the design
+    # coverage's OUTER boundary.  So: a ring edge on the annulus boundary
+    # AND on a foot ring is an OUTER segment; on the annulus boundary and
+    # NOT on a foot ring it is an INNER one.  An edge strictly inside the
+    # design coverage (a face-to-face rim) is neither, and must not be:
+    # the inner end of a bank ray is the coverage's outer boundary.
+    foot_lines = _sh.union_all([_sh.boundary(p) for p in feet])
+    mids = _sh.points(_np.stack([(ax + bx) / 2.0, (ay + by) / 2.0], axis=1))
+    on_foot = _sh.distance(mids, foot_lines) <= BANK_RING_MATCH_TOLERANCE
+    ann_bnd = _sh.boundary(annulus)
+    on_annulus = _sh.distance(mids, ann_bnd) <= BANK_RING_MATCH_TOLERANCE
+    outer_idx = _np.flatnonzero(on_foot)
+    inner_idx = _np.flatnonzero(on_annulus & ~on_foot)
+    if not outer_idx.size or not inner_idx.size:
+        return {}
+    points = _sh.points(_np.stack([fx, fy], axis=1))
+    out = {}
+    tree_in = _sh.STRtree(segments[inner_idx])
+    tree_out = _sh.STRtree(segments[outer_idx])
+    near_in = tree_in.nearest(points)
+    near_out = tree_out.nearest(points)
+    seg_in = segments[inner_idx[near_in]]
+    seg_out = segments[outer_idx[near_out]]
+    d_in = _sh.distance(points, seg_in)
+    d_out = _sh.distance(points, seg_out)
+    z_in = _segment_z_at(seg_in, points, ends[inner_idx[near_in]], vertices)
+    z_out = _segment_z_at(seg_out, points, ends[outer_idx[near_out]], vertices)
+    total = d_in + d_out
+    good = _np.isfinite(z_in) & _np.isfinite(z_out) & (total > 0.0)
+    z = z_in + (z_out - z_in) * _np.where(total > 0.0, d_in / _np.where(
+        total > 0.0, total, 1.0), 0.0)
+    for k in _np.flatnonzero(good).tolist():
+        out[int(free[k])] = float(z[k])
+    return out
+
+
+def _segment_z_at(segments, points, ends, vertices):
+    """The ring's own altitude at each point's projection onto its
+    segment: the linear interpolation of the segment's two endpoints'
+    carried altitudes (column 5), which is what a constrained edge
+    means."""
+    import numpy as _np
+    import shapely as _sh
+
+    length = _sh.length(segments)
+    where = _sh.line_locate_point(segments, points)
+    t = _np.where(length > 0.0, where / _np.where(length > 0.0, length, 1.0),
+                  0.0)
+    t = _np.clip(t, 0.0, 1.0)
+    za = vertices[6 * ends[:, 0] + 5]
+    zb = vertices[6 * ends[:, 1] + 5]
+    return za + t * (zb - za)
+
+
 # ── R18-1c — THE PATCH VALUE STOPS AT THE PATCH ────────────────────────
 # (owner sim read 2026-08-28, +60-136 / CYXY;
 #  docs/specs/cyxy-interp-alt-flood-leak-spec.md.  NOTE: that spec names
@@ -944,6 +1207,30 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch rings: {len(split)} mesher-inserted vertex(es) "
                 "lie on a patch ring segment and take the ring's value "
                 "there (R18-1b amendment 2026-09-06).")
+        # THE ENGINE BLENDS THE BANK (owner RULINGS 2026-09-09p (1) /
+        # 2026-09-09t): a free vertex inside a BANK ANNULUS takes its
+        # altitude LINEAR IN PLAN DISTANCE between the design ring and
+        # the bank foot, and joins the Dirichlet set — so the harmonic
+        # solve below runs over the remaining free vertices exactly as
+        # before, and every other face is bit-identical.
+        try:
+            blend = bank_annulus_blend_values(
+                tile, vertices, _interp_alt_only_tris, patch_valued)
+        except Exception as error:
+            blend = None
+            UI.lvprint(
+                1, "WARNING: the bank annulus blend (RULINGS 2026-09-09t) "
+                   "failed; the annulus keeps the graph-harmonic "
+                   "treatment:", str(error))
+        if blend:
+            for index, value in blend.items():
+                vertices[6 * index + 5] = value
+            patch_valued = set(patch_valued) | set(blend)
+            UI.vprint(
+                1,
+                f"   Bank annulus: {len(blend)} free vertex(es) took the "
+                "1:3 bank's own altitude, linear in plan distance between "
+                "the design ring and the foot (RULINGS 2026-09-09t).")
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)

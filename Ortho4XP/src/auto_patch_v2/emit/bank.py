@@ -13,16 +13,18 @@ ONE TRIANGLE wide.  The owner's answer is a BANK.
     not zigzag; where the foot would cross another patch ring it stops at
     that ring (the two rings share the bank).
 
-THE BANK FACE IS AUTHORED (owner RULINGS 2026-09-09f-1).  09e left the
-face to the mesh: ``O4_Vector_Map.include_patches`` polygonizes every closed
-patch way and ``O4_Mesh_Utils.interpolate_free_interior_altitudes``
-harmonically extends the two rings' authored altitudes across the annulus.
-Spec §9.5 MEASURED what that gives — 17.55 m over 59 m on average, but ONE
-triangle of 9.93 m over 8.9 m (111 %) against the patch ring, because the
-extension is GRAPH-harmonic over whatever vertices Triangle4XP put in the
-annulus, not metric-linear: with few free vertices the isolines crowd
-against the shorter (inner) boundary.  The mesh will not interpolate a
-straight bank it has no vertices for.
+THE ENGINE BLENDS THE BANK (owner RULINGS 2026-09-09p (1) / 2026-09-09t;
+spec §13).  09f-1 answered the mesh's graph-harmonic squeeze by AUTHORING
+the face with intermediate LEVEL RINGS.  09t measured what that costs: a
+level ring at plan distance ``t`` degenerates onto the FOOT wherever the
+bank is narrower than ``t``, re-emitting the foot's own edges as a second
+constrained segment on the same nodes — Triangle's segment recovery spins
+forever at HECA and errors at HEAZ, and the +30+031 tile cannot be built.
+THE LEVEL RINGS ARE DELETED.  The patch emits ONE closed foot ring per
+boundary and nothing between; inside the annulus the MESH ENGINE gives
+every free vertex an altitude LINEAR IN PLAN DISTANCE between the two
+rings (``O4_Mesh_Utils.bank_annulus_blend_values``), which reproduces the
+ruled bank surface exactly with whatever vertices Triangle4XP put there.
 
 THE DAYLIGHT LINE (owner RULINGS 2026-09-09g).  09e/09f placed the foot by
 the fixed point ``d = |z_ring − DEM(foot)| / bank_slope``, which is the
@@ -43,37 +45,19 @@ still smoothed in plan (09f) but NEVER across a daylight discontinuity: the
 chain is cut into runs wherever the raw daylight distance jumps by more
 than ``bank_toe_break_m`` (:func:`smooth_runs`).
 
-THE BANK FACE IS AUTHORED (09f-1) and its LEVEL RINGS ARE VALID BY
-CONSTRUCTION (owner RULINGS 2026-09-09h).  Between the boundary ring and
-the foot the patch emits a ring at ``[design] bank_first_ring_m`` (3 m,
-owner RULINGS 2026-09-09i (1)) and then one every ``[design]
-bank_ring_spacing_m`` (10 m) of plan distance, each vertex's z LINEAR
-between the ring's design z and the foot's DEM z.  09f-1 built those as per-vertex inward offsets and
-spec §10.6 attributed the last steep triangle to it: an offset of an
-AIRPORT-SCALE chain self-intersects at concave corners, and
-``include_patches`` drops an invalid closed way WHOLE (9 of 39 at HECA).
-The level ring at plan distance ``t`` is therefore built as
+THE FOOT RING IS CLOSED, and closed is load-bearing and measured (spec
+§10.5): an OPEN chain enters ``include_patches`` as a DUMMY way, which is
+not in ``interp_alt_patch_polygons``, so the annulus outside it gets no
+INTERP_ALT seed of its own while its segments still block Triangle4XP's
+regional plague — the bank reverted to the raw DEM and the transect read
+306 %.  A ring straddling a tile seam is the one lawful exception (spec
+§9.4).
 
-    cover.buffer(t) INTERSECT banked_region
-
-— shapely, valid by construction, degenerating to the FOOT exactly where
-the bank is narrower than ``t``.  z per vertex comes from the BANK FIELD:
-the design z at the nearest point of the coverage boundary, the DEM z of
-the nearest foot node, linear in the plan fraction.  The ``buffer(0)``
-repair (``_simple_rings``) is deleted with the offset it repaired.
-
-Every ring carries the SAME ``o4_feature=bank_foot`` skip register as the
-foot (:data:`BANK_KIND`), so every consumer that already ignores the foot —
+The foot carries ``o4_feature=bank_foot`` (:data:`BANK_KIND`), the skip
+register every consumer that already ignores the bank reads —
 ``check_grade``'s role-less register, ``verify/frame.Patch.of``,
-``tools/undulation`` — ignores them too, with no new register to add.
-Outside the foot the mesh drapes the DEM, which the foot IS: continuous.
-
-Every level ring is a CLOSED way.  Closed is load-bearing and measured
-(spec §10.5): an OPEN chain enters ``include_patches`` as a DUMMY way,
-which is not in ``interp_alt_patch_polygons``, so the annulus outside it
-gets no INTERP_ALT seed of its own while its segments still block
-Triangle4XP's regional plague — the bank beyond level 1 reverted to the raw
-DEM and the transect read 306 %, worse than the 111 % it was sent to fix.
+``tools/undulation``.  Outside the foot the mesh drapes the DEM, which the
+foot IS: continuous.
 
 THE BANK IS NOT A LAW SURFACE.  It carries no grade law of its own — it is
 the terrain — so it is emitted role-less (``o4_feature=bank_foot``,
@@ -89,8 +73,9 @@ The surface the rebake plan reads is the PRE-bank one (§9.2 A7).
 Deviations recorded in spec §9.4: the second-difference smoothing is
 applied to the foot's PLAN DISTANCE (its z is the DEM, not an unknown); a
 foot ring straddling a tile seam becomes an open chain in each tile piece;
-the ring is made valid by construction, which can move a foot vertex off
-its own normal (its z is re-sampled there, so ``z = DEM`` still holds).
+the banked region is built as a shapely union, which can move a foot
+vertex off its own normal (its z is re-sampled there, so ``z = DEM`` still
+holds).
 """
 from __future__ import annotations
 
@@ -106,8 +91,7 @@ from ..model.planar import PlanarMap
 from .surface import GradedSurface, SurfaceBreakline, SurfaceVertex
 
 __all__ = ["BANK_KIND", "BankReport", "FOOT_KINDS", "coverage_polygon",
-           "daylight_feet", "intermediate_offsets", "smooth_along",
-           "smooth_runs", "with_bank"]
+           "daylight_feet", "smooth_along", "smooth_runs", "with_bank"]
 
 #: The breakline kind and the ``o4_feature`` value of a bank foot ring.
 BANK_KIND = "bank_foot"
@@ -127,21 +111,6 @@ _MIN_HOLE_WIDTHS = 2.0
 _MITER_MAX = 3.0
 #: Coordinate quantum (metres) of the ring-vertex identity join.
 _SNAP = 1.0e-4
-#: A level ring whose area is under this many SQUARE bank-minimum-widths
-#: carries no mesh vertex worth authoring and is skipped.  A geometric floor
-#: of the construction, not a law value.
-_MIN_LEVEL_AREA_WIDTHS = 1.0
-#: A level ring's boundary is SNAPPED onto the banked boundary within this
-#: many metres (``shapely.ops.snap``, which snaps a vertex to the reference's
-#: vertices AND its segments).  MEASURED: without it a level whose plan
-#: distance is a hair inside the local bank width runs a few MILLIMETRES
-#: inside the foot ring instead of on it, and the sliver between them is a
-#: real face in exact arithmetic and none at all once
-#: ``O4_Vector_Utils.Vector_Map`` snaps its nodes to the 1e-7 deg grid — one
-#: INTERP_ALT seed then sits in an unbounded face and
-#: ``audit_interp_alt_seed_sealing`` REFUSES the tile.  Well under
-#: ``bank_min_width_m``, so no bank is reshaped by it.
-_WELD_M = 0.5
 #: How many never-daylighted rays are NAMED in the report (09g: "reported by
 #: name") before the count alone carries the rest.
 _NAME_CAP = 64
@@ -154,10 +123,6 @@ class BankReport:
     rings: int = 0
     ring_vertices: int = 0
     foot_vertices: int = 0
-    face_rings: int = 0
-    face_vertices: int = 0
-    face_levels: int = 0
-    face_rings_invalid: int = 0
     repaired_rings: int = 0
     skipped_rings: int = 0
     #: THE DAYLIGHT CLASSIFICATION (09g) of every boundary-ring ray
@@ -190,9 +155,8 @@ class BankReport:
                 f"{self.min_m:.1f} / mean {self.mean_m:.1f} m / p95 "
                 f"{self.p95_m:.1f} / max {self.max_m:.1f}, bank slope p95 "
                 f"{self.p95_slope:.3f} / max {self.max_slope:.3f} "
-                f"(law 0.33 = 1:3); FACE (09h) {self.face_rings} level rings / "
-                f"{self.face_vertices} vertices, {self.face_rings_invalid} INVALID, "
-                f"deepest bank {self.face_levels} level(s); {self.wall_s:.2f} s")
+                f"(law 0.33 = 1:3); the engine blends the annulus "
+                f"(09-09t); {self.wall_s:.2f} s")
 
 
 def coverage_polygon(planar: PlanarMap):
@@ -338,21 +302,6 @@ def daylight_feet(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
     d = np.clip(d, float(min_w), float(max_w))
     kind[(kind == _K_DAY) & (d <= float(min_w) + 1.0e-9)] = _K_MIN
     return d, kind
-
-
-def intermediate_offsets(d: float, spacing: float,
-                         first: float) -> list[float]:
-    """THE PLAN DISTANCES of the intermediate rings on a bank whose foot is
-    ``d`` metres out (09f-1): the FIRST at ``first`` metres, then one every
-    ``spacing`` metres, all strictly inside the bank (owner RULINGS
-    2026-09-09i (1) — the innermost band is where the mesh's harmonic
-    squeeze reads, and a first ring at the full spacing left the transect at
-    46 % against the ring).  ``d = 18.2, spacing = 10, first = 3`` ->
-    ``[3.0, 13.0]``; ``d = 3`` -> none (the foot IS the ring)."""
-    if spacing <= 0.0 or first <= 0.0 or not d > first:
-        return []
-    n = int(math.ceil((d - first) / spacing))
-    return [first + spacing * k for k in range(n)]
 
 
 def smooth_along(d: np.ndarray, s: np.ndarray, w: float,
@@ -517,43 +466,6 @@ def _push_off(ring: list, cov, min_w: float) -> list:
     return out
 
 
-def _local_foot(x: float, y: float, qx: float, qy: float, reach: float,
-                btree, bsegs) -> tuple[float, float]:
-    """THE OUTER END of THIS VERTEX'S bank ray: the ray runs from the nearest
-    point of the design coverage ``(qx, qy)`` THROUGH ``(x, y)`` and out; its
-    foot is the first crossing of the BANKED region's boundary.  With the
-    inner end that is the bank's width AT THIS VERTEX — never the width at
-    some other foot node's own ray, and never the perpendicular distance to
-    the nearest boundary point (at a convex corner the bank runs along the
-    MITRE, and the nearest boundary point is on the flank)."""
-    from shapely.geometry import LineString, Point
-    if btree is None:
-        return x, y
-    ux, uy = x - qx, y - qy
-    L = math.hypot(ux, uy)
-    if L <= 1.0e-9:
-        return x, y
-    ux, uy = ux / L, uy / L
-    ray = LineString([(x, y), (x + ux * reach, y + uy * reach)])
-    best = None
-    for j in btree.query(ray):
-        g = bsegs[int(j)]
-        if not ray.intersects(g):
-            continue
-        hit = ray.intersection(g)
-        for part in getattr(hit, "geoms", [hit]):
-            for cx, cy in getattr(part, "coords", []):
-                t = math.hypot(cx - x, cy - y)
-                if best is None or t < best:
-                    best = t
-    if best is None:                       # off the end of the region
-        pnt = Point(x, y)
-        g = bsegs[int(btree.nearest(pnt))]
-        q = g.interpolate(g.project(pnt))
-        return float(q.x), float(q.y)
-    return x + ux * best, y + uy * best
-
-
 def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
               airport: Airport, report: BankReport | None = None
               ) -> GradedSurface:
@@ -564,7 +476,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     import time
     from shapely.geometry import LineString, Point, Polygon
     from shapely.geometry.polygon import orient
-    from shapely.ops import nearest_points, snap as shp_snap, unary_union
+    from shapely.ops import nearest_points, unary_union
     from shapely.strtree import STRtree
     t0 = time.perf_counter()
     rep = report if report is not None else BankReport()
@@ -692,8 +604,6 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     rz = np.asarray(ring_z, float)
     ktree = cKDTree(rz[:, :2]) if len(rz) else None
     ztree = STRtree(zsegs) if zsegs else None
-    spacing = float(d_law.bank_ring_spacing_m)
-    first_ring = float(d_law.bank_first_ring_m)
 
     def _inner(x: float, y: float) -> tuple[float, float, float, float]:
         """THE INNER END of this foot node's bank: the nearest point of the
@@ -717,11 +627,6 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             zq = float(rz[int(ktree.query([qx, qy])[1]), 2])
         return qx, qy, zq, dd
 
-    all_fx: list[float] = []
-    all_fy: list[float] = []
-    all_zf: list[float] = []
-    all_ids: list[int] = []
-    all_dk: list[float] = []
     for poly in getattr(banked, "geoms", [banked]):
         for ring in [poly.exterior, *poly.interiors]:
             pts_r = list(ring.coords)[:-1]
@@ -757,132 +662,15 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
                     # body's ring at another distance — two instruments)
                     if float(dv) > 1.0e-6:
                         slopes.append(abs(float(rz[int(k), 2]) - z) / float(dv))
-            all_fx.extend(fx.tolist())
-            all_fy.extend(fy.tolist())
-            all_zf.extend(zf.tolist())
-            all_ids.extend(ids)
-            all_dk.extend(r[3] for r in inner)
-    # THE FACE, VALID BY CONSTRUCTION (owner RULINGS 2026-09-09h).  09f-1
-    # authored the face as a per-vertex inward offset of each foot ring, and
-    # §10.6 attributed the last steep triangle to it: an offset of an
-    # AIRPORT-SCALE chain self-intersects at a concave corner, and
-    # ``include_patches`` takes a closed patch way only when ``pol.is_valid
-    # and pol.area`` — ONE self-intersection anywhere drops the WHOLE ring
-    # (9 of 39 at HECA, among them levels 1-3 of the transect's own ring; a
-    # ``buffer(0)`` repair recovered 6).  The level ring at plan distance
-    # ``t`` is therefore built as
-    #
-    #     cover.buffer(t) INTERSECT banked_region
-    #
-    # — shapely-constructed, valid by construction, and degenerating to the
-    # FOOT exactly where the bank is narrower than ``t`` (the intersection's
-    # boundary is the banked boundary there), which is 09f-1's closure rule
-    # read as an area instead of as a per-vertex test.  Every exterior and
-    # interior ring of the result is one CLOSED way; z comes from THE BANK
-    # FIELD (:func:`_field_at`), never from a per-vertex ray.
-    offsets = max((intermediate_offsets(dk, spacing, first_ring)
-                   for dk in all_dk), key=len, default=[])
-    ftree = cKDTree(np.c_[np.asarray(all_fx, float),
-                          np.asarray(all_fy, float)]) if all_fx else None
-    # THE BANK FIELD IS READ ON THE LOCAL RAY, not from the nearest foot
-    # NODE.  MEASURED (the §11.6 transect, first arm): a level vertex whose
-    # nearest foot node sat on a NARROWER stretch of bank took that stretch's
-    # width, so its z landed 1.2 m off the straight bank and the mesh read
-    # 64 % against the ring where the authored face is 33 %.  The local ray
-    # is the nearest point of the DESIGN coverage on one side and the nearest
-    # point of the BANKED BOUNDARY on the other — the bank's own width THERE.
-    bsegs: list = []
-    for poly in getattr(banked, "geoms", [banked]):
-        for ring in [poly.exterior, *poly.interiors]:
-            cs = list(ring.coords)
-            bsegs.extend(LineString([cs[i], cs[i + 1]])
-                         for i in range(len(cs) - 1))
-    btree = STRtree(bsegs) if bsegs else None
-    for lv, t_out in enumerate(offsets, start=1):
-        band = cov.buffer(t_out, join_style="mitre",
-                          mitre_limit=_MITER_MAX).intersection(banked)
-        if band.is_empty:
-            continue
-        # where the level came to rest a hair inside the foot, put it ON the
-        # foot: exact coincidence is a shared edge, a near miss is a sliver
-        # face that the map's own node grid then annihilates (see _WELD_M)
-        try:
-            snapped = shp_snap(band, banked, _WELD_M)
-            if not snapped.is_empty and snapped.is_valid:
-                band = snapped
-        except Exception:
-            pass
-        for poly in getattr(band, "geoms", [band]):
-            if getattr(poly, "geom_type", "") != "Polygon":
-                continue
-            for ring in [poly.exterior, *poly.interiors]:
-                pts_l = list(ring.coords)[:-1]
-                if len(pts_l) < 3:
-                    continue
-                pol = Polygon(pts_l)
-                if not pol.is_valid:
-                    rep.face_rings_invalid += 1      # 09h's own statistic
-                if pol.area < (_MIN_LEVEL_AREA_WIDTHS * min_w) ** 2:
-                    rep.skipped_rings += 1           # nothing to author
-                    continue
-                chain: list[int | None] = []
-                mint_xy: list[tuple[float, float]] = []
-                mint_at: list[int] = []
-                mint_zq: list[float] = []
-                mint_fr: list[float] = []
-                minted = 0
-                for x, y in pts_l:
-                    vid = None
-                    if ftree is not None:
-                        dv, _k = ftree.query([x, y])
-                        if float(dv) <= _SNAP:
-                            vid = all_ids[int(_k)]
-                    if vid is not None:
-                        chain.append(vid)            # the foot: no room here
-                        continue
-                    qx, qy, zq, dq = _inner(x, y)
-                    fx_, fy_ = _local_foot(x, y, qx, qy, max_w * _MITER_MAX,
-                                           btree, bsegs)
-                    df = math.hypot(x - fx_, y - fy_)
-                    w = dq + df
-                    mint_xy.append((fx_, fy_))
-                    mint_at.append(len(chain))
-                    mint_zq.append(zq)
-                    mint_fr.append(1.0 if w <= 1.0e-6 else min(1.0, dq / w))
-                    chain.append(None)
-                    minted += 1
-                if mint_xy:
-                    zf_l = _dem_many(dem,
-                                     np.asarray([q[0] for q in mint_xy], float),
-                                     np.asarray([q[1] for q in mint_xy], float))
-                    for j, slot in enumerate(mint_at):
-                        x, y = pts_l[slot]
-                        z = mint_zq[j] + (float(zf_l[j]) - mint_zq[j]) * mint_fr[j]
-                        lat, lon = _to_ll(x, y)
-                        new_v.append(SurfaceVertex(next_id, (lat, lon), float(z)))
-                        chain[slot] = next_id
-                        next_id += 1
-                        rep.face_vertices += 1
-                # A LEVEL RING THAT MINTED NOTHING IS THE FOOT RING ITSELF —
-                # this level has no room anywhere on this ring.  Emitting it
-                # would put a SECOND closed way on the foot's own nodes, and
-                # ``O4_Vector_Map.audit_interp_alt_seed_sealing`` then finds
-                # a seed in an unbounded face of the INTERP_ALT arrangement
-                # (measured: 175 duplicate rings, one unsealed seed, the tile
-                # mesh refused).
-                if minted == 0:
-                    rep.skipped_rings += 1
-                    continue
-                new_b.append(SurfaceBreakline(next_bl, BANK_KIND,
-                                              f"bank@{lv}",
-                                              tuple(chain) + (chain[0],)))
-                next_bl += 1
-                rep.face_rings += 1
-                # the DEEPEST level actually authored — never the schedule's
-                # own count: a mitred corner's foot node stands further from
-                # the coverage than its perpendicular bank is wide, so the
-                # schedule can name a level the region has no room for
-                rep.face_levels = max(rep.face_levels, lv)
+    # THE FACE IS THE ENGINE'S (owner RULINGS 2026-09-09p (1) /
+    # 2026-09-09t).  09f-1/09h/09i/09j authored it here with LEVEL RINGS;
+    # 09t measured a level ring re-emitting the FOOT's own edges wherever
+    # the bank is narrower than the level's offset (duplicate constrained
+    # segments: Triangle's recovery spins at HECA, errors at HEAZ) and the
+    # graph-harmonic squeeze surviving every spacing anyway.  The rings are
+    # DELETED; ``O4_Mesh_Utils.bank_annulus_blend_values`` interpolates the
+    # annulus LINEARLY IN PLAN DISTANCE between this foot ring and the
+    # design coverage, which is the ruled surface the levels approximated.
     if not new_b:
         return surface
     if dists:

@@ -227,81 +227,11 @@ def test_an_open_run_never_reaches_around_the_ring(law):     # noqa: F811
 
 # ── (3) THE LEVEL RINGS ARE VALID BY CONSTRUCTION (09h) ────────────────
 
-def test_a_concave_cover_yields_valid_level_rings_at_every_level(law):  # noqa: F811
-    """09h: "the intermediate rings are built as ``cover.buffer(t) ∩
-    banked_region`` for each level distance t (shapely, valid by
-    construction), never per-vertex offsets".  §10.6 measured the failure
-    it replaces: a per-vertex inward offset of a concave AIRPORT-SCALE
-    chain self-intersects at the concave corner, and ``include_patches``
-    takes a closed patch way only when ``pol.is_valid and pol.area`` — so
-    ONE self-intersection drops the WHOLE ring (9 of 39 at HECA).
-
-    This twin builds both constructions on the same concave cover and
-    asserts what ``include_patches`` asserts: the offset ring FAILS its
-    validity gate at the concave corner, the intersection ring passes it at
-    EVERY level, and none is dropped."""
-    from shapely.geometry import Polygon
-    from shapely.geometry.polygon import orient
-    d = law.tables.emit.design
-    cov = orient(Polygon([(0, 0), (900, 0), (900, 220), (260, 220),
-                          (260, 900), (0, 900)]), 1.0)
-    foot_d = 60.0                                   # a deep bank: six levels
-    banked = cov.buffer(foot_d, join_style="mitre", mitre_limit=3.0)
-    levels = [d.bank_ring_spacing_m * k
-              for k in range(1, int(foot_d // d.bank_ring_spacing_m))]
-    assert len(levels) >= 5
-
-    # (a) THE CONSTRUCTION THE RULING ORDERS: valid at every level, and
-    # every ring passes include_patches' own gate
-    emitted = 0
-    for t in levels:
-        band = cov.buffer(t, join_style="mitre",
-                          mitre_limit=3.0).intersection(banked)
-        assert not band.is_empty
-        for poly in getattr(band, "geoms", [band]):
-            for ring in [poly.exterior, *poly.interiors]:
-                pol = Polygon(list(ring.coords)[:-1])
-                assert pol.is_valid and pol.area > 0.0, (t, pol.is_valid)
-                emitted += 1
-    assert emitted == len(levels)                   # NONE dropped
-
-    # (b) THE CONSTRUCTION IT REPLACES: the per-vertex INWARD offset of a
-    # foot ring whose width VARIES along the chain, which is what 09f-1
-    # emitted and what a daylight foot always is.  At a concave corner the
-    # rays cross and the ring is invalid — ``include_patches`` drops it
-    # whole (9 of 39 at HECA, spec §10.6).
-    from shapely.geometry import Point
-    from shapely.ops import nearest_points
-    dense = list(cov.buffer(0.0).exterior.segmentize(10.0).coords)[:-1]
-    foot = []
-    for k, (x, y) in enumerate(dense):
-        q, _ = nearest_points(cov.exterior, Point(x, y))
-        # the outward normal at this station, from the polygon's own edge
-        a = dense[k - 1]
-        b = dense[(k + 1) % len(dense)]
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        L = math.hypot(dx, dy) or 1.0
-        nx, ny = dy / L, -dx / L
-        di = 20.0 + 38.0 * math.sin(k / 3.0)             # a varying daylight
-        foot.append((x + nx * di, y + ny * di))
-    bad = 0
-    for t in levels:
-        pts = []
-        for x, y in foot:
-            q, _ = nearest_points(cov, Point(x, y))
-            dq = math.hypot(x - q.x, y - q.y)
-            f = t / dq if dq > 1e-9 else 1.0
-            pts.append((q.x + (x - q.x) * f, q.y + (y - q.y) * f))
-        if not Polygon(pts).is_valid:
-            bad += 1
-    assert bad > 0, "the offset construction must fail where 09h says it does"
-
-
-def test_the_bank_emits_level_rings_and_none_is_invalid(law):  # noqa: F811
-    """The whole pass, end to end, on the §9 apron fixture: every level
-    ring the bank emits is a CLOSED way of kind ``bank_foot``, its z lies
-    strictly between the design ring and the DEM, and the report's own
-    invalid count is ZERO (09h's build statistic)."""
+def test_the_bank_emits_one_closed_foot_ring_and_nothing_between(law):  # noqa: F811
+    """The whole pass, end to end, on the §9 apron fixture, RE-SCOPED for
+    RULINGS 2026-09-09t: the bank emits ONE CLOSED ``bank_foot`` way per
+    boundary and NO level ring, and the daylight classification still
+    accounts for every ray."""
     from tests.auto_patch_v2.test_v2bank import _bank, _FlatDem, _built
     from auto_patch_v2.classify.roles import Cell, Classification
     from tests.auto_patch_v2.test_crown import _rect, _rot
@@ -311,18 +241,16 @@ def test_the_bank_emits_level_rings_and_none_is_invalid(law):  # noqa: F811
     )
     airport, pm, _r = _built(law, _FlatDem(), cells)
     banked, _surf, rep = _bank(airport, pm, law, 6.0)
-    assert rep.face_rings >= 1 and rep.face_vertices > 0
-    assert rep.face_rings_invalid == 0, rep
     zof = {v.id: v.z for v in banked.vertices}
-    face = [b for b in banked.breaklines if b.kind == BANK_KIND and "@" in b.ref]
-    assert face
-    for b in face:
+    feet = [b for b in banked.breaklines if b.kind == BANK_KIND]
+    assert feet and not [b for b in feet if "@" in b.ref]
+    for b in feet:
         assert b.vertices[0] == b.vertices[-1]      # CLOSED (spec §10.5)
         assert all(700.0 - 1e-6 <= zof[v] <= 706.0 + 1e-6 for v in b.vertices)
     # the daylight classification is reported, and it accounts for every ray
     assert rep.at_min + rep.daylighted + rep.at_max == rep.ring_vertices
     assert rep.daylighted > 0 and rep.at_max == 0 and not rep.never_daylight
-    assert "DAYLIGHT" in rep.line("TEST") and "INVALID" in rep.line("TEST")
+    assert "DAYLIGHT" in rep.line("TEST")
 
 
 def test_the_report_names_a_ray_that_never_daylights(law):  # noqa: F811

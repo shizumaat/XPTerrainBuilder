@@ -2261,6 +2261,15 @@ the tile's own patch and mesh:
    inner boundary and the mesh vertices out at 6–15 m holds a value 1.84 m
    above the field.
 
+**CORRECTED BY §13.10 (round 5): item 2 above is WRONG.**  The mesh does
+carry the ruled field at those stations, to 0.4 mm; what is wrong is item
+1's *"a ring-to-foot slope of 0.290"* — that figure was read off ONE
+nearest-foot distance, and the rays the three stations actually stand on
+run 51.0 m, not 60 m, so their own ruled slope is **0.3425**.  Round 5
+measured every vertex of the offending triangle.  Read §13.10 for what the
+residual is; the paragraph below is kept because it names the two
+candidates round 5 REFUTED.
+
 REPORTED, NOT DECIDED (attempt cap spent; a spawner/owner call).  The
 candidates the numbers leave standing: annulus vertices that are already
 `patch_valued` when the blend runs — the tile log's *"the rest are
@@ -2279,3 +2288,116 @@ ray/segment solve over the returned pairs.  The per-airport 60 s
 auto-patch budget is NOT touched (this code never runs in an airport
 build).  Against the 300 s whole-tile budget the pass is far under the 1 %
 (3 s) threshold that would need a Fable-5 optimisation review.
+
+## §13.10 WHAT ALREADY CARRIES A VALUE INSIDE AN ANNULUS, AND WHAT TRANSECT 1'S RESIDUAL ACTUALLY IS (RULINGS 2026-09-09ad; lane `v2bankblend` round 5)
+
+### §13.10.1 THE ATTRIBUTION, per vertex
+
+`O4_BANK_BLEND_DUMP=<path>` makes `bank_annulus_blend_values` write a CSV
+row for EVERY mesh vertex standing inside a bank annulus — index, lon/lat,
+`d_in` / `d_out` / `D(p)`, `z_in` / `z_out` / `z_foot(p)`, the field value
+and the value the vertex already carried — classed by the path that valued
+it (`ray`, `fallback`, `ray_pre_valued`, `pavement_kept`, `outside_tris`,
+`nogood`).  It writes nothing into the mesh.  HECA +30+031, 91,390 rows.
+
+The steep stations of transect 1 (lat 30.11664–30.11668, grade 0.490 /
+0.554 / 0.554) sit in ONE triangle.  Its three vertices, and their dump
+rows:
+
+| vertex | class | `d_in` | `D(p)` | z (mesh) | z (field) |
+|---|---|---|---|---|---|
+| 28427 | ring vertex, `aeroway=apron` way `-308` | 0.00 | — | 49.480 | its ring's own |
+| 384051 | `ray` | 10.00 m | 51.04 m | 52.905 | 52.9051 |
+| 499668 | `ray` | 14.19 m | 50.97 m | 54.387 | 54.3872 |
+
+**Every vertex is exactly on the ruled field** (0.4 mm), and every ray's
+own slope is `(66.96 − 49.48) / 51.04 = 0.3425`, under the 0.35 bar.  The
+plane through the three is nevertheless **0.559**: the two free vertices
+stand at the SAME latitude 22.9 m apart with `d_in` 10.00 and 14.19, while
+the ring vertex they share sits 7 m north at `d_in` 0.  Fitting a linear
+function to `d_in` over that triangle gives a plan gradient of **1.624** —
+a distance-to-a-polyline is 1-Lipschitz, so no such surface exists; the
+triangle is a chord across the ring's own CORNER FAN, where the distance
+field is not affine.  `0.3425 × 1.624 = 0.556`, which is the measured
+0.554.
+
+**THE RESIDUAL IS THE TRIANGULATION SAMPLING A CORNER FAN, not a
+pre-valued band.**  This is 09ab's class again — a field exact at its
+vertices and steep between them — one level down: 09ab fixed the field's
+FORM, §13.8 gave the annulus vertices to carry it, and what is left is
+that a corner fan cannot be carried by ANY triangle spanning it, however
+fine, unless the triangulation respects the fan's own rays.  Per the
+ruling's own STOP clause this round does not fix it: no ruling covers
+re-cutting the annulus regions along the ring's normals, and every cheaper
+move (more area refinement) shrinks the triangle without changing the
+1.624 ratio.
+
+### §13.10.2 THE TWO CANDIDATES ROUND 4 LEFT STANDING ARE REFUTED
+
+* *Pre-valued annulus vertices.*  INTERVENTIONAL ARM: the blend was made
+  to override every pre-valued annulus vertex that is not on pavement, and
+  the tile re-meshed.  Transect 1's grade vector came back
+  **bit-identical** (max 0.554, the same 25 gaps), transect 3 unchanged.
+  The steep triangle has exactly one pre-valued vertex, the ring vertex
+  28427, and the field's value there is its own value.
+* *The 179 ray fallbacks.*  None is on transect 1, and (c) below cut them
+  to 35 with the transect unchanged.
+
+### §13.10.3 THE LAW LANDED (the ruling's (a) / (b) / (c))
+
+1. **(a) A road crossing a bank keeps its own profile.**
+   `bank_pavement_lines` reads every patch way carrying an `aeroway` or
+   `highway` tag plus every levelled ROAD centreline of the build's
+   `o4_levelled_roads.json`, and a pre-valued vertex within the ring match
+   tolerance of the former or the sidecar's own lane half-width of the
+   latter is left exactly as its own authority wrote it.  When that
+   linework cannot be read, NOTHING pre-valued is overridden (09ab's
+   behaviour) — the road half of the test is the safe half.
+2. **(b) Any other pre-valued vertex inside an annulus takes the field.**
+   The blend's candidate set is now every annulus vertex, not the free
+   ones alone.  ONE class is neither pavement nor "inside": the field's
+   own DATUM — a pre-valued vertex within tolerance of the design ring
+   (`d_in ≈ 0`) or of the foot (`d_out ≈ 0`) is an END of the
+   interpolation, not something between its ends.  MEASURED without that
+   guard: a foot vertex carrying 92.01 m took the field of a ring station
+   whose ray runs 78.3 m to a DIFFERENT foot and was dragged to 82.88 —
+   **9.13 m** off its own ring, the worst of 14 moves over 3 m and 55 over
+   1 m across 5,927 vertices.
+3. **(c) The ray traces the normal both ways.**  `_bank_foot_along_normal`
+   now takes `alt_dirs`: a station whose outward normal meets no foot
+   retries the REFLECTED normal, then the corner fan's own direction,
+   before 09t's nearest-boundary value stands in.  HECA fallbacks
+   **179 → 35**.
+
+### §13.10.4 MEASURED at HECA
+
+`run_tile_mesh_only.py 30 31 1 --patches-as-is`, rc 0, shared repo
+UNCHANGED.  Step 1 **54.1 s**, Step 2 **64 s** (round 4: 53.4 / 63).  All
+2,307 INTERP_ALT seeds sealed, 215 sized regions.
+
+| figure | round 4 | round 5 |
+|---|---|---|
+| transect 1 max | 0.554 (3 over) | **0.554 (3 over)** — §13.10.1 |
+| transect 3 max | 0.124 (0 over) | **0.124 (0 over)** |
+| annulus p50 / p90 | 0.099 / 0.343 | **0.099 / 0.343** |
+| over the 0.35 bar | 9.0 % count / 3.0 % area | **9.1 % / 3.04 %** |
+| ray fallbacks | 179 | **35** |
+| pre-valued taking the field | — | **0** (5,927 are ring/foot datum, 15,041 pavement) |
+
+**(b) IS A NO-OP AT HECA**: every one of the 5,927 pre-valued annulus
+vertices the widened candidate set found is the field's own ring or foot
+datum, and 15,041 more stand on pavement.  There is no graded_strip /
+seawall / INTERP_ALT-seed band inside a HECA annulus at all — which is the
+measurement the ruling asked for, arrived at from the other direction.
+The law still lands: a tile that HAS such a band is the one it is for.
+
+### §13.10.5 Build-time impact statement
+
+Step 2 **64 s** against round 4's **63 s** — inside the ±25 % single-run
+noise floor.  The pavement test is two `STRtree.query(..., predicate=
+"dwithin")` calls over the pre-valued candidates only.  A first cut that
+buffered the 20,907 road centrelines and unioned them instead cost **142 s
+(+79 s)**, measured, and was replaced before landing; the shape of that
+mistake is recorded in `bank_pavement_lines`' own docstring.  The
+per-airport 60 s auto-patch budget is untouched (this code never runs in
+an airport build).

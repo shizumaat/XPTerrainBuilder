@@ -711,6 +711,130 @@ def _bank_rings_from_patches(tile):
     return (feet, design)
 
 
+#: A patch way is PAVEMENT — a surface with a profile of its own that
+#: the bank field must never overwrite (RULINGS 2026-09-09ad (a)) — when
+#: it carries one of these tag keys.  Every design ring of a v2 patch
+#: carries ``aeroway``; a groundside road ribbon carries ``highway``.
+BANK_PAVEMENT_TAG_KEYS = ("aeroway", "highway")
+
+#: How far from a levelled ROAD centreline a vertex still belongs to the
+#: road, as a multiple of the sidecar's own ``lane_width_m``.  A road
+#: ribbon is levelled ACROSS its width, so its shoulder vertices carry
+#: the road's profile just as its centre does.
+BANK_ROAD_HALF_WIDTHS = 1.0
+
+
+def bank_pavement_lines(tile):
+    """The PAVEMENT linework of the tile in the isotropic tile-relative
+    frame, as ``(patch_lines, road_lines, road_half_width)``: every patch
+    way tagged with a :data:`BANK_PAVEMENT_TAG_KEYS` key, every levelled
+    ROAD centreline of the build's ``o4_levelled_roads.json`` sidecar, and
+    the half-width a road ribbon is levelled across.  ``None`` when the
+    linework cannot be read.
+
+    The two are kept APART, and unbuffered, on purpose: the caller tests
+    them with one ``dwithin`` query per tree.  Buffering the 20,907 HECA
+    road centrelines and unioning the lot instead cost 79 s of the mesh
+    step (142 s against a 63 s baseline, measured 2026-09-09) for a test
+    two STRtree queries answer in under a second.
+
+    THE LAW (RULINGS 2026-09-09ad (a)): a road crossing a bank keeps its
+    OWN profile.  Its ramp is lawful and a transect across it measures the
+    road, not the bank, so a pre-valued vertex ON pavement is left exactly
+    as its own authority wrote it; every OTHER pre-valued vertex inside an
+    annulus takes the bank field (ad (b)).  Errors leave the linework
+    EMPTY, which is the conservative direction only for the road half of
+    the test — so a failure to read the sidecar is reported loudly and the
+    caller then declines to override any pre-valued vertex at all.
+    """
+    from shapely import geometry
+    import O4_Vector_Map as VMAP          # late: no cycle, see the note
+
+    scalx = cos((tile.lat + 0.5) * pi / 180)
+    lines = []
+    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+    if os.path.exists(patch_dir):
+        all_files = [f for f in os.listdir(patch_dir)
+                     if f[-10:] == ".patch.osm"]
+        manual = [f for f in all_files if "_auto.patch.osm" not in f]
+        auto = [f for f in all_files if "_auto.patch.osm" in f]
+        manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
+        mode = VMAP.resolved_auto_patch_mode(tile)
+        files = list(manual)
+        for name in auto:
+            icao = name.replace("_auto.patch.osm", "").upper()
+            if mode == "None":
+                continue
+            if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
+                continue
+            if icao in manual_icao:
+                continue
+            files.append(name)
+        for name in files:
+            layer = OSM.OSM_layer()
+            try:
+                layer.update_dicosm(os.path.join(patch_dir, name),
+                                    input_tags=None, target_tags=None)
+            except Exception:
+                continue
+            nodes = layer.dicosmn
+            for wayid in layer.dicosmfirst["w"]:
+                tags = layer.dicosmtags["w"].get(wayid, {})
+                if not any(k in tags for k in BANK_PAVEMENT_TAG_KEYS):
+                    continue
+                way = layer.dicosmw.get(wayid)
+                if not way or len(way) < 2:
+                    continue
+                try:
+                    pts = [((float(nodes[n][0]) - tile.lon) * scalx,
+                            float(nodes[n][1]) - tile.lat) for n in way]
+                except Exception:
+                    continue
+                if len(pts) >= 2:
+                    lines.append(geometry.LineString(pts))
+    roads = _levelled_road_lines(tile, scalx)
+    if roads is None:
+        return None
+    (road_lines, road_half) = roads
+    return (lines, road_lines, road_half)
+
+
+def _levelled_road_lines(tile, scalx):
+    """``(centrelines, half_width)``: the build's levelled ROAD
+    centrelines in the isotropic frame and the half-width they are
+    levelled across — ``([], 0.0)`` when the tile has no sidecar (a tile
+    whose vector step wrote none has no levelled road either), ``None``
+    when one exists but cannot be read."""
+    import json
+    from shapely import geometry
+
+    import O4_Vector_Map as VMAP          # late: no cycle, see the note
+    path = os.path.join(tile.build_dir, VMAP.LEVELLED_ROADS_SIDECAR)
+    if not os.path.exists(path):
+        return ([], 0.0)
+    try:
+        with open(path) as handle:
+            payload = json.load(handle)
+        half = (float(payload.get("lane_width_m", 0.0))
+                * BANK_ROAD_HALF_WIDTHS / BANK_METRES_PER_DEGREE)
+        out = []
+        for way in payload.get("ways", ()):
+            lats, lons = way.get("lat"), way.get("lon")
+            if not lats or not lons or len(lats) < 2:
+                continue
+            out.append(geometry.LineString(
+                [((float(x) - tile.lon) * scalx, float(y) - tile.lat)
+                 for (y, x) in zip(lats, lons)]))
+        return (out, half)
+    except Exception as error:
+        UI.lvprint(
+            1, "WARNING: the levelled-road sidecar could not be read, so a "
+               "road crossing a bank cannot be told from any other "
+               "pre-valued vertex — the bank blend overrides NOTHING that "
+               "already carries a value (RULINGS 2026-09-09ad):", str(error))
+        return None
+
+
 def bank_annulus_polygon(tile):
     """THE BANK ANNULUS of the tile: the ground between the patch's design
     coverage and its ``bank_foot`` rings, in the isotropic tile-relative
@@ -778,9 +902,16 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     mask = _np.zeros(int(touched.max()) + 1, dtype=bool)
     fixed = _np.asarray(sorted(patch_valued), dtype=_np.int64)
     mask[fixed[(fixed >= 0) & (fixed < mask.size)]] = True
-    free = touched[~mask[touched]]
-    if free.size == 0:
-        return {}
+    # THE CANDIDATE SET (RULINGS 2026-09-09ad (a)/(b)): every annulus
+    # vertex, PRE-VALUED ONES INCLUDED.  Until 09ad the blend saw only the
+    # free ones, so a graded_strip / coverage ring, a gap interior ring, a
+    # seawall band or an INTERP_ALT seed standing inside a bank kept
+    # whatever its own authority wrote and the bank ran into it.  A vertex
+    # ON PAVEMENT (an aeroway/highway patch way, a levelled road ribbon)
+    # is the ONE exception the ruling names — its ramp is lawful and a
+    # transect there measures the road, not the bank — so it stays
+    # pre-valued and is only reported.
+    free = touched
     fx = vertices[6 * free] * scalx
     fy = vertices[6 * free + 1]
     inside = _sh.contains_xy(annulus, fx, fy)
@@ -788,6 +919,35 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     if free.size == 0:
         return {}
     fx, fy = fx[inside], fy[inside]
+    pre_valued = _np.zeros(free.size, dtype=bool)
+    in_mask = free < mask.size
+    pre_valued[in_mask] = mask[free[in_mask]]
+    try:
+        pavement = bank_pavement_lines(tile)
+    except Exception as error:
+        pavement = None
+        UI.lvprint(
+            1, "WARNING: the bank blend could not read the pavement "
+               "linework; nothing pre-valued is overridden (09ad):",
+            str(error))
+    if pavement is None:
+        # The road half of the test is unreadable: overriding anything
+        # pre-valued could overwrite a lawful road ramp, so override
+        # NOTHING — 09ab's behaviour exactly.
+        on_pavement = pre_valued.copy()
+    else:
+        (pave_lines, road_lines, road_half) = pavement
+        on_pavement = _np.zeros(free.size, dtype=bool)
+        cand = _np.flatnonzero(pre_valued)
+        if cand.size:
+            pts_pre = _sh.points(_np.stack([fx[cand], fy[cand]], axis=1))
+            for (geoms, reach) in ((pave_lines, BANK_RING_MATCH_TOLERANCE),
+                                   (road_lines, road_half)):
+                if not geoms or reach <= 0.0:
+                    continue
+                hit, _ = _sh.STRtree(geoms).query(
+                    pts_pre, predicate="dwithin", distance=reach)
+                on_pavement[cand[_np.unique(hit)]] = True
 
     # The ``.poly``'s own ring edges, in the same frame, carrying z at
     # both ends: the only place the AUTHORED altitudes exist here.
@@ -830,6 +990,18 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     z_in = _segment_z_at(seg_in, points, ends[inner_idx[near_in]], vertices)
     z_out = _segment_z_at(seg_out, points, ends[outer_idx[near_out]], vertices)
 
+    # THE FIELD'S OWN DATUM IS NEVER OVERWRITTEN.  A pre-valued vertex ON
+    # the annulus boundary — the design ring the ray starts from, the foot
+    # ring it ends on — IS an end of the interpolation, and the ruling's
+    # override is for what stands INSIDE an annulus.  MEASURED (HECA
+    # 2026-09-09, this round's first arm): without this a FOOT vertex
+    # carrying 92.01 m took the field of a ring station whose own ray runs
+    # 78 m to a different foot and was dragged to 82.88 — 9.13 m off its
+    # own ring, the worst of 14 moves over 3 m.
+    boundary_datum = ((d_in <= BANK_RING_MATCH_TOLERANCE)
+                      | (d_out <= BANK_RING_MATCH_TOLERANCE))
+    writable = ~pre_valued | ~(on_pavement | boundary_datum)
+
     # ``p``: the NEAREST RING POINT, and the outward ray through it.
     ring_pt = _sh.line_interpolate_point(
         seg_in, _sh.line_locate_point(seg_in, points))
@@ -857,9 +1029,15 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     outward = (ux * away_x + uy * away_y) < 0.0
     ux = _np.where(outward, -ux, ux)
     uy = _np.where(outward, -uy, uy)
+    # 09ad (c): the normal is traced BOTH ways — outward, then reflected,
+    # then along the corner fan's own direction — before a vertex is left
+    # to 09t's nearest-boundary value.
+    wx = _np.where(norm > 0.0, away_x / _np.where(norm > 0.0, norm, 1.0), ux)
+    wy = _np.where(norm > 0.0, away_y / _np.where(norm > 0.0, norm, 1.0), uy)
     d_foot, z_foot = _bank_foot_along_normal(
         px, py, ux, uy, tree_out, outer_idx,
-        ax, ay, bx, by, ends, vertices)
+        ax, ay, bx, by, ends, vertices,
+        alt_dirs=((-ux, -uy), (wx, wy)))
 
     # THE FIELD (09ab): one ray, both ends.  Where the ray finds no foot
     # crossing (a clipped or seam-straddling annulus) 09t's nearest-
@@ -874,12 +1052,90 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
         total > 0.0, total, 1.0), 0.0)
     z = _np.where(ray, z_ray, z_old)
     good = _np.isfinite(z_in) & (ray | (_np.isfinite(z_out) & (total > 0.0)))
+    write = good & writable
     BANK_BLEND_STATS.clear()
-    BANK_BLEND_STATS["ray"] = int(_np.count_nonzero(ray & good))
-    BANK_BLEND_STATS["fallback"] = int(_np.count_nonzero(~ray & good))
-    for k in _np.flatnonzero(good).tolist():
+    BANK_BLEND_STATS["ray"] = int(_np.count_nonzero(ray & write))
+    BANK_BLEND_STATS["fallback"] = int(_np.count_nonzero(~ray & write))
+    BANK_BLEND_STATS["free"] = int(_np.count_nonzero(write & ~pre_valued))
+    BANK_BLEND_STATS["pre_valued_taken"] = int(
+        _np.count_nonzero(write & pre_valued))
+    BANK_BLEND_STATS["pavement_kept"] = int(
+        _np.count_nonzero(pre_valued & on_pavement))
+    BANK_BLEND_STATS["boundary_datum_kept"] = int(
+        _np.count_nonzero(pre_valued & boundary_datum & ~on_pavement))
+    moved = _np.abs(z - vertices[6 * free + 5])
+    BANK_BLEND_STATS["pre_valued_max_move_m"] = float(
+        moved[write & pre_valued].max()) if BANK_BLEND_STATS[
+            "pre_valued_taken"] else 0.0
+    for k in _np.flatnonzero(write).tolist():
         out[int(free[k])] = float(z[k])
+    dump_path = os.environ.get("O4_BANK_BLEND_DUMP", "")
+    if dump_path:
+        _bank_blend_dump(
+            dump_path, tile, vertices, scalx, annulus, touched, mask,
+            free, fx, fy, d_in, d_out, d_foot, z_in, z_out, z_foot, z,
+            ray, good, pre_valued, on_pavement, write)
     return out
+
+
+#: The per-vertex provenance dump of the last bank blend, written when
+#: ``O4_BANK_BLEND_DUMP`` names a path (round 5's attribution instrument,
+#: RULINGS 2026-09-09ad).  A CSV over the WHOLE annulus, not only the
+#: vertices the blend wrote: ``ray`` / ``fallback`` are the two field
+#: paths, ``patch_valued`` a vertex the blend SKIPS because something
+#: already valued it (a ring endpoint, a mesher-inserted vertex on a ring
+#: segment), ``outside_tris`` a vertex inside the annulus whose triangles
+#: are not in the INTERP_ALT-inside-coverage set the blend is handed at
+#: all (a levelled road ribbon / seawall band clipped by R18-1c), and
+#: ``nogood`` one the field could not value.  It writes NOTHING into the
+#: mesh; it exists so "which path valued this vertex" is a measurement.
+def _bank_blend_dump(path, tile, vertices, scalx, annulus, touched, mask,
+                     free, fx, fy, d_in, d_out, d_foot, z_in, z_out, z_foot,
+                     z, ray, good, pre_valued, on_pavement, write):
+    import numpy as _np
+    import shapely as _sh
+
+    rows = []
+    for k in range(free.size):
+        if not good[k]:
+            kind = "nogood"
+        elif not write[k]:
+            kind = "pavement_kept"
+        else:
+            kind = ("ray" if ray[k] else "fallback") + (
+                "_pre_valued" if pre_valued[k] else "")
+        rows.append((int(free[k]), kind, float(fx[k]), float(fy[k]),
+                     float(d_in[k]), float(d_out[k]), float(d_foot[k]),
+                     float(z_in[k]), float(z_out[k]), float(z_foot[k]),
+                     float(z[k]), float(vertices[6 * free[k] + 5])))
+    # Everything else standing inside the annulus, by why the blend
+    # never wrote it.
+    n_vertices = len(vertices) // 6
+    all_idx = _np.arange(n_vertices, dtype=_np.int64)
+    ax = vertices[6 * all_idx] * scalx
+    ay = vertices[6 * all_idx + 1]
+    in_ann = _np.flatnonzero(_sh.contains_xy(annulus, ax, ay))
+    seen = set(free.tolist())
+    in_tris = _np.zeros(n_vertices, dtype=bool)
+    in_tris[touched] = True
+    for i in in_ann.tolist():
+        if i in seen:
+            continue
+        kind = "outside_tris" if not in_tris[i] else "unseen"
+        rows.append((i, kind, float(ax[i]), float(ay[i]),
+                     _np.nan, _np.nan, _np.nan, _np.nan, _np.nan, _np.nan,
+                     _np.nan, float(vertices[6 * i + 5])))
+    with open(path, "w") as handle:
+        handle.write("index,kind,lon,lat,d_in_m,d_out_m,d_foot_m,"
+                     "z_in,z_out,z_foot,z_field,z_current\n")
+        for (i, kind, x, y, di, do, df, zi, zo, zf, zz, zc) in rows:
+            handle.write(
+                "%d,%s,%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n"
+                % (i, kind, x / scalx + tile.lon, y + tile.lat,
+                   di * BANK_METRES_PER_DEGREE, do * BANK_METRES_PER_DEGREE,
+                   df * BANK_METRES_PER_DEGREE, zi, zo, zf, zz, zc))
+    UI.vprint(1, f"   Bank annulus: per-vertex provenance dumped to {path} "
+                 f"({len(rows)} row(s)).")
 
 
 #: How the last :func:`bank_annulus_blend_values` valued its vertices:
@@ -899,17 +1155,45 @@ BANK_METRES_PER_DEGREE = 111120.0
 
 
 def _bank_foot_along_normal(px, py, ux, uy, tree_out, outer_idx,
-                            ax, ay, bx, by, ends, vertices):
+                            ax, ay, bx, by, ends, vertices, alt_dirs=()):
     """``(D, z_foot)`` per ring point: the plan distance to the FIRST foot
     crossing of the outward ray ``p + s*u`` and the foot ring's own
     carried altitude (column 5) interpolated along the crossed edge
     (RULINGS 2026-09-09ab).  ``D`` is 0 and ``z_foot`` NaN for a ray that
     crosses no foot within :data:`BANK_RAY_MAX_M`.
 
+    ``alt_dirs`` (RULINGS 2026-09-09ad (c)) is a sequence of ``(vx, vy)``
+    unit-direction arrays TRIED IN ORDER for the rows the outward normal
+    missed — the ring's own normal REFLECTED (``-u``, for a station whose
+    outward sense the annulus disagrees with) and then the corner fan's
+    own direction — before the caller falls back to 09t's nearest-boundary
+    value.  A row keeps the FIRST direction that finds a foot; a row every
+    direction misses is unchanged, so the fallback still stands behind it.
+
     All arrays are in the isotropic tile-relative frame ``(x * cos(lat),
     y)``; ``ax``..``by`` are the ring-edge endpoints of that frame and
     ``outer_idx`` indexes them (and ``ends``) for the FOOT edges alone.
     """
+    import numpy as _np
+
+    dist, zfoot = _bank_foot_ray_cast(
+        px, py, ux, uy, tree_out, outer_idx, ax, ay, bx, by, ends, vertices)
+    for (vx, vy) in alt_dirs:
+        miss = _np.flatnonzero((dist <= 0.0) | ~_np.isfinite(zfoot))
+        if not miss.size:
+            break
+        d2, z2 = _bank_foot_ray_cast(
+            px[miss], py[miss], _np.asarray(vx)[miss], _np.asarray(vy)[miss],
+            tree_out, outer_idx, ax, ay, bx, by, ends, vertices)
+        got = (d2 > 0.0) & _np.isfinite(z2)
+        dist[miss[got]] = d2[got]
+        zfoot[miss[got]] = z2[got]
+    return (dist, zfoot)
+
+
+def _bank_foot_ray_cast(px, py, ux, uy, tree_out, outer_idx,
+                        ax, ay, bx, by, ends, vertices):
+    """One cast of :func:`_bank_foot_along_normal`, in ONE direction."""
     import numpy as _np
     import shapely as _sh
 
@@ -1507,7 +1791,15 @@ def post_process_nodes_altitudes(tile):
                 f"station's own daylight ray, "
                 f"{BANK_BLEND_STATS.get('fallback', 0)} by the "
                 "nearest-boundary fallback where the ray met no foot "
-                "(RULINGS 2026-09-09ab).")
+                "(RULINGS 2026-09-09ab); "
+                f"{BANK_BLEND_STATS.get('pre_valued_taken', 0)} of them were "
+                "already valued by another authority and took the field "
+                f"anyway (worst move "
+                f"{BANK_BLEND_STATS.get('pre_valued_max_move_m', 0.0):.2f} m),"
+                f" {BANK_BLEND_STATS.get('pavement_kept', 0)} pre-valued "
+                "vertex(es) stand on PAVEMENT and kept their own profile, "
+                f"{BANK_BLEND_STATS.get('boundary_datum_kept', 0)} are the "
+                "field's own ring/foot datum (RULINGS 2026-09-09ad).")
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)

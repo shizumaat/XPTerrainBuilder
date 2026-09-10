@@ -781,3 +781,134 @@ class TestThePinchedAnnulusRunsAlongTheRingsNormal:
             if bound > 0.0:
                 worst = max(worst, abs(z - z_in) / d_in / bound)
         assert worst > 1.5, worst
+
+
+# ── WHAT ALREADY CARRIES A VALUE INSIDE AN ANNULUS ─────────────────────
+# (owner RULINGS 2026-09-09ad (a)/(b); spec §13.9)
+#
+# Until 09ad the blend was handed the FREE vertices only: anything already
+# valued by another authority — a graded_strip / coverage ring, a gap
+# interior ring, a seawall band, an INTERP_ALT seed — kept its own value
+# and the bank ran into it.  The ruling splits that class in two.  A ROAD
+# crossing a bank keeps its OWN profile: its ramp is lawful and a transect
+# across it measures the road, not the bank.  EVERYTHING ELSE takes the
+# field.  The field's own datum — the design ring the ray starts from and
+# the foot it ends on — is neither: it IS the interpolation's ends, and
+# HECA measured what overwriting it costs (a foot vertex carrying 92.01 m
+# dragged to 82.88 by a ring station whose ray runs 78 m to a DIFFERENT
+# foot).
+ROAD_XY = (130.0, 0.0)              # a road ribbon crossing the flank
+STRIP_XY = (130.0, 40.0)            # a graded strip on the same flank
+PRE_VALUED_Z = 99.0                 # what both of them carry going in
+
+
+def _augment_with_pre_valued(annulus, tmp_path, monkeypatch):
+    """The fixture plus TWO pre-valued vertices inside the annulus: one on
+    a ``highway`` way, one on an untagged strip ring."""
+    (tile, vertices, triangles, patch_valued, pts, ring_count) = annulus
+    n = len(vertices) // STRIDE
+    road_i, strip_i = n, n + 1
+    grown = numpy.zeros(STRIDE * (n + 2))
+    grown[:STRIDE * n] = vertices
+    for index, (x, y) in ((road_i, ROAD_XY), (strip_i, STRIP_XY)):
+        lat, lon = _to_ll(x, y)
+        grown[STRIDE * index] = lon - LON
+        grown[STRIDE * index + 1] = lat - LAT
+        grown[STRIDE * index + 2] = PRE_VALUED_Z
+        grown[STRIDE * index + VECTOR_COLUMN] = PRE_VALUED_Z
+    # they must belong to a triangle to be SEEN at all
+    anchor = max(t[0] for t in triangles)
+    triangles = list(triangles) + [(road_i, strip_i, anchor)]
+    pts = numpy.vstack([pts, numpy.array([ROAD_XY, STRIP_XY])])
+
+    # the patch .osm gains a highway way through ROAD_XY and an untagged
+    # strip ring through STRIP_XY
+    inner = _square(INNER_M, 20.0)
+    outer = _square(OUTER_M, 20.0)
+    patch_dir = tmp_path / "patches_pre"
+    patch_dir.mkdir()
+    path = patch_dir / "TWIN_auto.patch.osm"
+    _write_patch_osm(path, inner, outer)
+    extra = []
+    nid = -900000
+    for (name, tags, xy) in (
+            ("road", [("highway", "service")], ROAD_XY),
+            ("strip", [("role", "graded_strip")], STRIP_XY)):
+        ids = []
+        for (x, y) in ((xy[0], xy[1] - 25.0), (xy[0], xy[1] + 25.0)):
+            nid -= 1
+            lat, lon = _to_ll(x, y)
+            extra.append(f"  <node id='{nid}' action='modify' visible='true' "
+                         f"lat='{lat:.11f}' lon='{lon:.11f}'>")
+            extra.append("    <tag k='alt_abs' v='99.000' />")
+            extra.append("  </node>")
+            ids.append(nid)
+        nid -= 1
+        extra.append(f"  <way id='{nid}' action='modify' visible='true'>")
+        for v in ids:
+            extra.append(f"    <nd ref='{v}' />")
+        for k, val in tags:
+            extra.append(f"    <tag k='{k}' v='{val}' />")
+        extra.append("  </way>")
+    text = path.read_text().replace("</osm>", "\n".join(extra) + "\n</osm>")
+    path.write_text(text)
+    monkeypatch.setattr(MESH.FNAMES, "patch_dir",
+                        lambda lat, lon: str(patch_dir))
+
+    class _T:
+        lat, lon = LAT, LON
+        auto_patch = "All"
+        build_dir = str(tmp_path)           # no levelled-road sidecar here
+
+    return (_T(), grown, triangles, set(patch_valued) | {road_i, strip_i},
+            pts, road_i, strip_i)
+
+
+class TestWhatAlreadyCarriesAValue:
+    def test_a_pre_valued_non_pavement_vertex_takes_the_field(
+            self, annulus, tmp_path, monkeypatch):
+        (tile, vertices, triangles, patch_valued, pts, _road,
+         strip_i) = _augment_with_pre_valued(annulus, tmp_path, monkeypatch)
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        assert strip_i in blend, "the graded strip kept its own value"
+        assert abs(blend[strip_i] - _expected(*STRIP_XY)) <= 0.05, (
+            blend[strip_i], _expected(*STRIP_XY))
+
+    def test_a_road_vertex_keeps_its_own_profile(
+            self, annulus, tmp_path, monkeypatch):
+        (tile, vertices, triangles, patch_valued, pts, road_i,
+         _strip) = _augment_with_pre_valued(annulus, tmp_path, monkeypatch)
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        assert road_i not in blend, (
+            "a road crossing a bank was overwritten by the field: "
+            f"{blend.get(road_i)} for its own {PRE_VALUED_Z}")
+        assert MESH.BANK_BLEND_STATS.get("pavement_kept", 0) >= 1
+
+    def test_the_rings_own_vertices_are_never_overwritten(
+            self, annulus, tmp_path, monkeypatch):
+        """The field's DATUM: a pre-valued vertex ON the design ring or ON
+        the foot is an END of the interpolation, not something inside it."""
+        (tile, vertices, triangles, patch_valued, pts, _road,
+         _strip) = _augment_with_pre_valued(annulus, tmp_path, monkeypatch)
+        # nudge two ring vertices a hair INTO the annulus, as a mesher
+        # split point sits at HECA, and give them the ring's own value
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        for index in blend:
+            (x, y) = pts[index]
+            assert max(abs(x), abs(y)) > INNER_M - 1.0e-6, (x, y)
+            assert max(abs(x), abs(y)) < OUTER_M + 1.0e-6, (x, y)
+
+    def test_an_unreadable_pavement_reading_overrides_nothing(
+            self, annulus, tmp_path, monkeypatch):
+        """The road half of the test is the SAFE half: when it cannot be
+        read, nothing pre-valued is overridden at all (09ab's behaviour)."""
+        (tile, vertices, triangles, patch_valued, pts, road_i,
+         strip_i) = _augment_with_pre_valued(annulus, tmp_path, monkeypatch)
+        monkeypatch.setattr(MESH, "bank_pavement_lines",
+                            lambda tile: None)
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        assert road_i not in blend and strip_i not in blend

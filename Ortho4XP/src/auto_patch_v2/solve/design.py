@@ -697,11 +697,24 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     no longer pulls the road off its level (:func:`_shape_bodies`,
     #     which also records what taking the BODIES from the partition
     #     measured at CYXY).
+    #     A TAXI body's RUNWAY-CONTACT vertices are NOT its own: a vertex
+    #     ringing a runway face belongs to the family the ruling excludes,
+    #     its value is the runway's crown and the projection fixes it, so
+    #     carrying it in the taxi mean would put the runway's level inside
+    #     the taxi datum and push back on the runway through it.  Dropped
+    #     from the taxi mean, never from the apron one (09p (3) unchanged).
     body = _Rows(red)
     meta: list[_BodyDatum] = []
+    rwy_roles = frozenset(law.tables.precedence.runway_family.members)
     for kind, roles_b in datum_roles(law):
         for vs_b in _shape_bodies(planar, red,
                                   _role_bodies_faced(planar, roles_b, red)):
+            if kind == "taxi":
+                vs_b = [v for v in vs_b
+                        if not any(planar.faces[f].role in rwy_roles
+                                   for f in planar.vertices[v].incident_faces)]
+                if not vs_b:
+                    continue
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue

@@ -265,6 +265,23 @@ rim_reaches_grade   = true         # THE RIM TEST (04i; v1's pit seed PIT_SEED_M
 # (the T4S sunken structure, a 27,193 m2 floor plate 4.03 m under the ground):
 # 1,004 of 29,228 m2 = 3.4 % above the band, its tower reaching +11.4 m.
 rim_protrusion_max_fraction = 0.05
+# THE DEPTH IS AUTHORED (RULINGS 2026-09-09ag, spec §13): a basin is a SUNKEN
+# SOLID, so its floor plate stands this far under the placement's OWN render
+# datum (anchor_z + agl, its rendered y = 0 plane) as well as admission_depth_m
+# under the local ground.  Rule 1's local ground is the DEM at the component;
+# when the pack's datum sits UNDER the terrain, at-datum geometry reads "below
+# grade" without ever having been sunk.  Measured (spec §13.1): OTHH's Drainage
+# (3.82), Dewatering (13.14) and tunnel objects (15.0, their datum itself 3-8 m
+# under the ground) and LEMD's genuine Ground-FSX-LEMD37 basin (7.05) all clear
+# it; LEMD's 33 terminal-slab basins author 0.22-1.67 m, four of them a "floor"
+# ABOVE their own datum (plate_y +4.34 .. +9.27), while reading 3.6-16.1 m under
+# the local ground because Aerosoft authored the pack as ONE FLAT PLANE over
+# 32 m of relief.  An ABSOLUTE cap on the datum's drop under the ground was
+# REFUTED here (measured, 2026-09-09ag): at 1.0 m it refused OTHH's 8 tunnels,
+# whose datum stands 3-8 m under the ground and whose floors are authored 15 m
+# down.  The value is admission_depth_m's: the same floor gate, against the
+# object's own datum instead of the terrain.
+authored_depth_min_m = 2.5
 contact_band_m      = 1.0          # the ground-contact band half width: geometry above +this over the region is COVER (GROUND_CONTACT_BAND_HALF_WIDTH_M; founding spec §2.1); ALSO the seat's FACILITY depth (RULINGS 2026-09-05p): a member whose feet stand deeper than this below the built mesh never founds its anchor family and keeps its authored y (emit/rebake._facility; OTHH unit:21's sunken TerminalRoads/Parking lifted the 399-member terminal +1.888 m)
 footprint_close_m   = 2.0          # the below-grade union is morphologically closed at this (AT_GRADE_FOOTPRINT_CLOSE_M; 08-26)
 min_area_m2         = 1000.0       # DIAGNOSTIC ONLY (04i): v1's facility floor (TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2; 08-26 recipe step 5); a basin under it is admitted and NOTED — it refused OTHH's six Drainage bowls (closed regions 54–544 m² under the 2.5 m clip), which the owner ruled a defect

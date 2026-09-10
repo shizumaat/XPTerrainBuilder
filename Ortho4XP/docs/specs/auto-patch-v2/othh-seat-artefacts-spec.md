@@ -923,3 +923,141 @@ tiles — inside the ±25 % single-run noise floor, and not a timing run
 mechanism adds a pass: the contact test is one extra C-level pair query
 per written OBJ8 inside the post-mesh re-seat, and the plate map is
 SMALLER.
+
+## 13. RULINGS 2026-09-09ag: the basin ADMISSION test — an authored sunken solid, never a datum sitting under the terrain (lane `v2basin`)
+
+### 13.1 Attribution: which admission clause let a terminal slab in
+
+Measured OFFLINE on the LEMD and OTHH structure stages at main `858a6836`
+(`auto_patch_v2.planar` reader + `build_basins`, shared corpus, production
+DEM frame; LEMD cross-checked against `v2planes_LEMD1`'s 33
+`basin_facilities`): LEMD admits **34** basins from **11** witness
+resources, OTHH **10** from its Drainage / Dewatering shells.
+
+THE CLAUSE IS RULE 1's LOCAL GROUND. `obj8.read_placed_objects` takes a
+component's ground as `dem_z` at its plan CENTROID and gates the floor at
+`plate ≤ local − admission_depth_m` (2.5 m). Aerosoft authored LEMD as
+ONE flat plane; where the terrain stands above it an ordinary ground-floor
+slab — own authored `y` **−0.5 m** — reads 15 m "under the local ground"
+and witnesses a pit. Nothing downstream refuses it: the plate is genuine,
+the shell tops out in the band, and the region is the slab's own
+footprint, whose boundary is where the slab meets the ground — so the rim
+diagnostic reads CLOSED.
+
+`D_ground` = R_est − floor (depth under grade); `D_datum` = −`plate_y`
+(depth the object AUTHORED under its own render datum); the balance is the
+datum lying under the terrain.
+
+| witness | basins | D_ground | D_datum | datum under grade | ring relief | rim open |
+|---|---|---|---|---|---|---|
+| OTHH `Drainage_01..06` | 8 | 3.81–4.20 | 3.82–4.20 | **0.00** | 0.00 | 0 of 6–79 |
+| OTHH `Dewatering_01/02` | 2 | 13.14 | 13.14 | **0.00** | 0.00 | 2 of 46 |
+| LEMD `Ground-FSX-LEMD37` | 1 | 7.07 | 7.05 | **0.02** | 7.10 | 57 of 69 |
+| LEMD `OldTerminal-LEMD54` | 2 | 4.24 | 0.67 | 3.57 | 0.66–1.02 | 1 of 4 |
+| LEMD `OldTerminal-LEMD41` | 1 | 6.47 | 0.47 | 6.00 | 0.98 | 27 of 61 |
+| LEMD `OldTerminal-LEMD43` | 9 | 6.66 | 0.66 | 6.00 | 0.00 | 1–2 of 4 |
+| LEMD `Cargo-CNTRL` | 1 | 11.67 | 1.67 | 10.00 | 1.31 | 26 of 34 |
+| LEMD `OldTerminal-STRT1` | 1 | 11.44 | 1.44 | 10.00 | 3.96 | 25 of 36 |
+| LEMD `OldTerminal-P2CNX` | 1 | 4.79 | **−5.21** | 10.00 | 0.00 | 0 of 7 |
+| LEMD `OldTerminal-DCNEUN` | 1 | 5.98 | **−4.34** | 10.32 | 2.34 | 6 of 7 |
+| LEMD `Terminal4_green-LEMD02` | 9 | 15.50 | 0.50 | 15.00 | 0.00–0.24 | 1 of 4 |
+| LEMD `Terminal4_green-CNTRL` | 7 | 5.73 | **−9.27** | 15.00 | 0.00 | 0 of 4 |
+| LEMD `Terminal4_green-Bus` | 1 | 16.30 | 0.22 | 16.08 | 0.15 | 0 of 4 |
+
+* The separation is TOTAL and it is the DATUM, not the shape: every OTHH
+  pit authors its floor the full depth (ratio 1.00); every LEMD slab but
+  `LEMD37` authors 0.2–1.7 m and borrows 3.6–16.1 m from a datum under the
+  terrain. Four author their "floor" ABOVE their own datum (`plate_y`
+  +4.34 … +9.27) and still found a pit.
+* ENCLOSURE IS REFUTED as the discriminator: it refuses LEMD's genuine
+  `LEMD37` (57 of 69 open, the most open region at either airport) and
+  admits every `LEMD02` / `CNTRL` sliver (0–2 of 4).
+* RELIEF-vs-THICKNESS (the brief's first reading) is refuted as
+  sufficient: it refuses 7 of 11 and admits `LEMD02`, `Cargo-CNTRL`,
+  `DCNEUN`, `Bus`, whose regions sit on plateaus with 0.0–2.0 m of relief.
+  The relief is under the OBJECT; the region is where the test must bite.
+
+`LEMD37` STAYS ADMITTED: the Aerosoft ground truth of record (floor 588.95
+against G = 596.02), an authored 7 m basin.
+
+### 13.2 The test
+
+A basin is a SUNKEN SOLID: its depth is AUTHORED. A component witnesses
+only when its floor stands `[basin] authored_depth_min_m` under the
+placement's OWN render datum (`anchor_z + agl`) as well as
+`admission_depth_m` under the local ground. Applied at rule 1's SINGLE
+DERIVATION SITE — the witness, in `airport/obj8.read_placed_objects`,
+where the component's ground and the placement's datum are both in hand —
+so a datum-relief slab never founds a region, never becomes a
+`below_grade_comps` part for the seat skip to read, and never takes a
+plate seat: it seats by its feet like its neighbours (09ag "object to the
+terrain"). Refused by resource with its authored depth. `authored_depth_
+min_m = 2.5` = `admission_depth_m`: rule 1's own floor gate, measured
+against the object's datum instead of the terrain.
+
+REFUTED, measured, on the way here: an ABSOLUTE cap on how far the datum
+may stand under the ground (`datum_drop_max_m = 1.0 = contact_band_m`).
+It separates LEMD's slabs from OTHH's pits perfectly at the BASIN level,
+but at the witness it refuses OTHH's 8 tunnel objects — whose datum
+stands 3.00–8.00 m under the ground and whose floors are authored 15.0 m
+down. The authored depth is the invariant; the datum's drop is not.
+
+Also refuted, at the basin level (the first arm, spec commit `645dfdde`):
+refusing the REGION instead of the witness. LEMD 34 → 1 as intended, but
+the 33 objects then fell into the per-component below-grade seat SKIP
+(09w (1)) — plan `below_grade` 3 → 8 — and kept their authored y instead
+of seating: census > 3 m 11 → 22, five ex-basin resources at 10.7–16.5 m
+(`LEMD02` 16.46, `Bus` 15.63, `Terminal4_green-CNTRL` 15.41,
+`Cargo-CNTRL` 10.66 ×2). A skip is the opposite of "object to the
+terrain", which is why 5b belongs at the witness.
+
+### 13.3 What it measured
+
+**THE INTERVENTIONAL ARM, on the real packs** (one airport load,
+`authored_depth_min_m` 0.0 vs 2.5 the ONLY thing that changes —
+`scratchpad/v2basin/witdiff.py`):
+
+| airport | below-grade objects | placements that LOSE a witness |
+|---|---|---|
+| **OTHH** | 15 → **15** | **0** |
+| LEMD | 11 → 5 | 6 (`Cargo-CNTRL` ×2, `OldTerminal-LEMD43`, `-STRT1`, `Terminal4_green-Bus`, `-LEMD02`) |
+
+OTHH cannot change: no placement loses a witness, so no below-grade part,
+no region, no plate member and no plan row differs — the `Dewatering
+Drainage` 14 / `tunnels` 8 / `Fire Fuel` 3 families are untouched by
+construction, which is a stronger reading than a replay against a stale
+plan. Its 10 basins are byte-identical (same floors, witnesses, areas).
+
+**LEMD** (patch-only builds, `v2basin_LEMDbase` → `v2basin_LEMD3`):
+basins **34 → 1** (`Ground-FSX-LEMD37`'s 27,657 m² Aerosoft basin, the
+ground truth of record); rebake plan `plate_members` **11 → 2**
+(`Bridge4` + that basin's witness), `below_grade` 3 → 2.
+
+`tools/seat_feet_census.py`, both arms on ONE fixed terrain
+(`Tiles/zOrtho4XP_+40-004/Data+40-004.mesh`, the main tree's; the tool's
+own frame for comparing two seat arms without a build between them):
+
+| arm | < 0.3 m | 0.3–1 | 1–3 | **> 3 m** | plate members | below-grade skips |
+|---|---|---|---|---|---|---|
+| base `v2basin_LEMDbase` | 623 | 212 | 27 | 11 | 11 | 0 |
+| region-refusal (refuted) | 616 | 207 | 28 | **22** | 2 | 5 (10.7–16.5 m) |
+| **`v2basin_LEMD3`** | 621 | 208 | 30 | **14** | **2** | **0** |
+
+**BAR `> 3 m ≤ 14`: MET at 14.** No plate-seated terminal slab and no
+below-grade skip remains in the worst 30; the worst rows are the two
+`LEMDzaun` fence files (17.02 / 12.23), `Bridge1/2/3/4` deck-top seats by
+construction (3.80–10.37), 09q's two terrain-adapted members (7.40 /
+7.19) and three Cargo files at 3.75–4.03 that were previously
+basin-excluded and now seat by their feet.
+
+FRAME, reported not decided: this mesh was built on 2026-08-27 and is
+NOT either arm's own terrain, so the absolute counts are not comparable
+with `v2planes_LEMD1`'s 31 (measured on its own tile mesh). What the
+table reads is the A/B of the seat on one terrain — which is what the
+instrument is for — and the base arm's 11 flatters it, because a plate
+seat's residual is measured against a trench this mesh does not contain.
+The acceptance reading needs a LEMD TILE build, which this lane's brief
+excluded.
+
+Patch body `2813025073b8` for all three post-fix arms (the geometry is
+identical; only the rebake plan moves). Build 332.4 s.

@@ -54,6 +54,27 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    fraction, never an erosion test) — then no pit: the terrain there is
    the building's pad and the pad law governs (``building_pad``);
    REFUSED naming the pads.  Anything less covered is a pit.
+5b. THE DATUM (RULINGS 2026-09-09ag, spec §13) — a basin is a SUNKEN
+   SOLID: the depth is AUTHORED.  Applied INSIDE rule 1, at the witness
+   (``obj8``), so nothing downstream ever sees a datum-relief slab: a
+   component witnesses only when its floor stands ``authored_depth_min_m``
+   under the placement's OWN render datum (``anchor_z + agl``, its
+   rendered y = 0 plane) as well as under the local ground.  REFUSED by
+   resource with its authored depth.  An ABSOLUTE cap on the datum's drop
+   under the ground was REFUTED (measured): at 1.0 m it refused OTHH's 8
+   tunnel objects, whose datum stands 3–8 m under the ground and whose
+   floors are authored 15 m down.  Rule 1's local ground is the DEM at
+   the component, so a pack authored as ONE FLAT PLANE over real relief
+   (LEMD: Aerosoft, 32 m of relief under the terminal) reads an ordinary
+   ground-floor slab — authored 0.5 m under its own datum — as 15 m
+   under the local ground, with a genuine floor plate, a shell topping
+   out in the band and a CLOSED rim.  Measured: OTHH's Drainage /
+   Dewatering pits and LEMD's genuine ``Ground-FSX-LEMD37`` basin read
+   3.82 / 13.14 / 15.0 / 7.05 m of AUTHORED depth; LEMD's 33 terminal-slab
+   basins author 0.22–1.67 m, four of them a "floor" ABOVE their own
+   datum.  A datum above the ground never relaxes the gate — the ground
+   still governs there (a pit dug through a rise is measured from it).
+
 5. KEPT — the runway family is never cut (``cuts_runway_family``), a
    tunnel structure is never cut (overlap refuses), the ring must have a
    DEM, survive the identity grid and clear its wall band by the gap.
@@ -145,7 +166,8 @@ def read_objects(airport: Airport, law: Law, cache: obj8.ResourceCache | None = 
                                          shell_reaches_grade=bl.shell_reaches_grade,
                                          floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
                                          rim_reaches_grade=bl.rim_reaches_grade,
-                                         rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction)
+                                         rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
+                                         authored_depth_min_m=bl.authored_depth_min_m)
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,
@@ -276,6 +298,14 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
                    f"ground is a building on the pack's plane or a structure standing in a pit, "
                    f"never the pit itself (04i rule 1: a pit's rim tops out at grade; "
                    f"2026-09-06f: a smaller protrusion is cover)")
+    for path, (n, drop, depth, authored) in sorted(rep.datum_relief.items(),
+                                                   key=lambda kv: -kv[1][1]):
+        out.append(f"{os.path.basename(path)} x{n}: its floor reads {-depth:.2f} m under the local "
+                   f"ground but only {authored:.2f} m under the placement's OWN render datum "
+                   f"(< authored_depth_min_m {bl.authored_depth_min_m}), which itself stands "
+                   f"{drop:.2f} m under that ground — a slab sitting on datum relief, not a sunken "
+                   f"solid: the depth is the pack's flat plane over real relief, never authored "
+                   f"(2026-09-09ag rule 5b)")
     for path, (n, depth, z_min) in sorted(rep.no_floor.items(), key=lambda kv: kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: genuine solids reach {depth:.2f} m under "
                    f"the local ground (rendered {z_min:.2f}) but carry NO floor plate "
@@ -395,6 +425,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                       key=lambda o: o.solid_min_z)
         smin_z = float(deepest.solid_min_z)
         floor_z = smin_z
+        # RULE 5b (RULINGS 2026-09-09ag, spec §13) is applied at its
+        # SINGLE DERIVATION SITE — the floor witness (``obj8``, where the
+        # component's own ground and the placement's render datum are both
+        # in hand), so a datum-relief slab never founds a region, never
+        # enters the below-grade seat skip and never takes a plate seat.
+        # What is recorded here is the region-level reading of it.
+        datum_z = float(deepest.anchor_z) + float(deepest.agl_m)
+        datum_drop = rest - datum_z
         # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
         # closed at footprint_close_m, on the identity grid
         plates_u = unary_union([w.plate for w in wits]).intersection(ring)
@@ -449,6 +487,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  f"stand-off {standoff:.2f} m off the floor (09-08a)",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
+                 f"datum {datum_z:.2f} stands {datum_drop:+.2f} m under the ring's ground; "
+                 f"authored depth {datum_z - smin_z:.2f} of {rest - smin_z:.2f} m below grade "
+                 f"(>= authored_depth_min_m {bl.authored_depth_min_m}, 09ag rule 5b)",
                  (f"rim protrusion {prot.protrusion_fraction:.1%} of the shell's face area above "
                   f"the contact band, top +{prot.protrusion_top_m:.2f} m (<= "
                   f"rim_protrusion_max_fraction {bl.rim_protrusion_max_fraction:.0%}, 2026-09-06f: "

@@ -644,3 +644,91 @@ crest is +2.016 m, over `edge_wall_max_plate_m` itself.  Left for the
 owner/spawner with the second item: **should the PLATE SEAT of a BASIN
 member be the target instead** (that is where the 12 came from, and the
 seat then stands them 12–17 m off their own feet)?
+
+### §11.5 What round 3 measured — and why the below-grade test needed a WITNESS
+
+THE LEMD TILE COULD NOT BE BUILT AT THIS HEAD.  `build_airport.py LEMD
+--engine v2 --tile 40 -4` (tag `v2lemdseats_LEMD4`) reached step 2 and
+Triangle4XP failed at every angle constraint —
+`segmentintersection(): Topological inconsistency after splitting a
+segment`, the subsegment at (0.2651, 0.2869) of tile +40−004, i.e. at
+**LEGT** (Getafe), 20 km from LEMD.  Not this lane's geometry: LEGT
+carries 0 tunnel objects, 0 basins and 365 placements, ALL stock — its
+re-seat plan is empty, so none of the three mechanisms can change a byte
+of its patch.  It is the 09t/09u bank-and-water emit that lane
+`v2bankblend` holds.  Everything below is therefore measured OFFLINE:
+one patch-only build per airport for the plan, and round 2's own tile
+mesh (`/tmp/harness/tile_v2lemdseats_LEMD3/Data+40-004.mesh`, 18:30) for
+every seat — the same terrain under every arm, so the seat is the only
+variable.
+
+THE INSTRUMENT (`scratchpad/lemdseats/r3/measure6.py`, a promotion
+candidate — see the owed list): the residual at every placement's feet
+computed from the AUTHORED pack + a seat result's per-component deltas +
+one mesh, so two arms compare without writing a pack.  It reads 873
+placements where the scout's `measure5` (the live baked pack) read
+805–873; the round-2 column below is that instrument's reading of round
+2's own result, NOT §10.1's 122.
+
+| LEMD, one mesh, one instrument | round 2 (`…result_LEMD.json`) | ARM A (09w (1) as ruled) | ARM B (shipped) |
+|---|---|---|---|
+| \|Δ\| > 3 m | 106 | **148** | **34** |
+| \|Δ\| < 0.3 m | 62.2 % | 59.9 % | **66.0 %** |
+| worst | 36.84 | 36.24 | 19.15 |
+| plan `below_grade` (files skipped whole) | 105 | 94 | **0** |
+| plan `below_grade_parts` | — | 2,935 | **55** |
+| plan `parts` | 25,484 | 14,655 | 29,344 |
+| resources written | 196 | 200 | **290** |
+| stranded after the rigid completion (`bodies`) | 24 | **952** | 111 |
+
+ARM A is the ruling applied literally, and it makes LEMD worse.  The
+attribution, measured on the round-3 plan against the patch sidecar:
+**of the 91 resources the depth test skipped, 91 carry NO floor witness
+at all** (the sidecar records 12 resources with a real basin, and not one
+of them is in the skipped set).  They are under the local DEM because
+Aerosoft authored the whole pack on ONE flat plane over 32 m of relief —
+the `deep` test is reading the PACK'S DATUM, not a basement.  Per
+component that gets worse, not better: the deep components are dropped
+from the plan, so the file is baked with some components moved and the
+rest left where they were — 952 stranded components, a sheared model.
+
+ARM B keeps 09w (1) exactly — the test is per component, the siblings
+seat — and adds the qualifier the ruling's own parenthesis states, "(a
+basin/tunnel witness)": the test applies only inside a placement that
+carries a FLOOR WITNESS.  With no witness anywhere the placement is not a
+facility and nothing of it is dropped.  08-26's facility rule is
+untouched where it applies (a pit, OTHH's Drainage bowls, OTHH's
+`TerminalRoads_03_005` with its 84 witnesses).  **This is a DEVIATION
+from the ruled wording and is reported, not decided** — it deletes the
+witness-less `deep` skip that 04i added.
+
+CONTROLS (both arms identical unless stated):
+
+* OTHH (`v2lemdseats_OTHH3` arm A 490 s, `v2lemdseats_OTHH4` arm B
+  489 s; seat replayed on the owner's `Data+25+051.mesh`): **25 resources
+  written in 3 families** — Dewatering Drainage 14 (+3.816 … +13.142),
+  tunnels 8 (−2.944 … +3.094), Fire Fuel 3 (−1.130) — identical under
+  both arms.  Round 2 read 23 (Dewatering 12); the +2 is NOT separable
+  from main's `v2water` merge (09u changed OTHH's flat-site datum and
+  water) without an arm this lane did not spend.  Verify rows 45 both.
+* HECA (`v2lemdseats_HECA1`, 195 s; owner's `Data+30+031.mesh`):
+  stranded 15,716 → **2** after the completion (bar ≤ 2, unchanged), 392
+  resources in 8 families.
+* LEMD census (`v2lemdseats_LEMD5.osm`, `--no-cache`): law-true 12,357,
+  of which 12,048 are the 05aa withdrawn-law taxi chord rows; v2 verify
+  400 rows (round 2: 496 / 338 — the patch side is main's, not the
+  seat's).
+
+BARS: `> 3 m ≤ 14` MISSED (34 on this instrument); `stranded ≤ 2` MISSED
+at LEMD (111 — all of them FLAT components of the 94 newly-written files,
+the 09b (5) class) and MET at HECA (2).  The worst 30 are no longer a
+single mechanism: 14 are `Terminal4_*` / `Cargo-*` members whose plate or
+cluster seat stands them 4–19 m off the feet the instrument reads, 2 are
+09q's lawful terrain-adapted members, and 3 are the `Bridge1/2/3` decks
+(seated at their deck top by construction).
+
+BUILD-TIME IMPACT: the plan grows (LEMD parts 25,484 → 29,344, members
+208 → 300) because 91 files re-enter the seat; LEMD patch-only 421 s and
+OTHH patch-only 489/490 s are both inside the ±25 % single-run noise
+floor against round 2's 425–531 s LEMD tiles and 600 s OTHH.  No phase
+attributed.

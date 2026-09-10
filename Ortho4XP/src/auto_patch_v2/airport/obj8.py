@@ -589,10 +589,9 @@ class PlacedObject:
     #: end lines and deck-top profile in the airport frame, which the
     #: re-seat's abutment law reads.  ``None`` without a plate.
     deck_plate: object | None = None
-    #: RULINGS 2026-09-09w (1): the genuine components (indices into
-    #: ``ResourceCache.components``) whose OWN minimum lies
-    #: ``admission_depth_m`` under their ground — the re-seat skips such a
-    #: PART, never its at-grade siblings in a SCATTER file.
+    #: RULINGS 2026-09-09w (1): the genuine components ``admission_depth_m``
+    #: under their OWN ground (into ``ResourceCache.components``) in a
+    #: placement with a FLOOR WITNESS — with none it is no facility.
     below_grade_comps: tuple[int, ...] = ()
 
 
@@ -706,7 +705,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         g = cache.geometry(phys)
         below = bbox = deck = smin_z = smin_d = top = None
         witnesses: list[FloorWitness] = []
-        deep_comps: list[int] = []            # 09w (1)
+        deep_comps: list[int] = []
         if g is not None and not stock:
             base = anchor_z + agl               # the rendered y = 0 plane
             vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
@@ -793,7 +792,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                                 below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
                                 "flag" if deck is not None else "",
                                 ("ATTR_hard_deck: the primary deck signature",)
-                                if deck is not None else (), None, tuple(sorted(set(deep_comps)))))
+                                if deck is not None else (), None,
+                                tuple(sorted(set(deep_comps))) if witnesses else ()))
     return out, rep
 
 

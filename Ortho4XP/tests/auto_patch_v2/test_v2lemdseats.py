@@ -254,8 +254,6 @@ def deepclump(pack, law):                                     # noqa: F811
     _boxes_obj(d / "clumped.obj", [(0.0, 0.0, 10.0, 10.0, -6.0, 1.0),
                                    (500.0, 0.0, 10.0, 10.0, 0.0, 5.0),
                                    (1000.0, 0.0, 10.0, 10.0, 0.0, 5.0)])
-    _boxes_obj(d / "allpit.obj", [(0.0, 0.0, 10.0, 10.0, -6.0, -3.0),
-                                  (500.0, 0.0, 10.0, 10.0, -7.0, -4.0)])
     return d
 
 
@@ -275,14 +273,31 @@ def test_the_below_grade_skip_is_per_component(deepclump, pack, law):   # noqa: 
     assert ds == pytest.approx([5.0, 10.0], abs=1e-3)   # each on its own ground
 
 
-def test_a_placement_below_grade_THROUGHOUT_is_still_skipped_whole(deepclump, pack,  # noqa: F811
-                                                                   law):
-    """The facility rule is unchanged where it applies: every genuine
-    component under the admission depth ⇒ the terrain adapts to the
-    placement (08-26), nothing is seated by its feet."""
-    pl = _planned(pack, law, [("allpit", (0.0, 0.0), 0.0, 0.0)])
+def test_a_placement_below_grade_THROUGHOUT_is_still_skipped_whole(pack, law):  # noqa: F811
+    """The facility rule is unchanged where it applies: a PIT (the module
+    pack's 6 m one — walls reaching grade over a floor plate, so the
+    reader witnesses a floor) whose every genuine component is under the
+    admission depth is the facility the terrain adapts to (08-26), never
+    feet to seat."""
+    pl = _planned(pack, law, [("pit", (0.0, 0.0), 0.0, 0.0)])
     assert pl.counts["below_grade"] == 1 and not pl.units
-    assert dict(pl.skipped)["objects/allpit.obj"].startswith("below-grade solids")
+    assert dict(pl.skipped)["objects/pit.obj"].startswith("below-grade solids")
+
+
+def test_a_deep_solid_with_NO_floor_witness_is_the_packs_datum(scatter, pack,  # noqa: F811
+                                                               law):
+    """09w (1) as measured at LEMD (spec §11.5): every one of the 91
+    resources the depth test skipped carries NO floor witness — their
+    solids are under the local DEM because the pack authored one flat
+    plane over 32 m of relief, not because they are basements.  A
+    placement with no witness anywhere is therefore no facility, and
+    nothing of it is dropped from the seat."""
+    d = pack / "objects"
+    _boxes_obj(d / "sunkpack.obj", [(0.0, 0.0, 10.0, 10.0, -6.0, -3.0),
+                                    (500.0, 0.0, 10.0, 10.0, -7.0, -4.0)])
+    pl = _planned(pack, law, [("sunkpack", (0.0, 0.0), 0.0, 0.0)])
+    assert pl.counts["below_grade"] == 0 and pl.counts["below_grade_parts"] == 0
+    assert len(pl.units[0].members[0].parts) == 2
 
 
 def _roof_obj(path, skirt_fraction: float, length=60.0, width=40.0, top=9.0,

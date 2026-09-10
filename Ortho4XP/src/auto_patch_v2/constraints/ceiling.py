@@ -119,7 +119,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # A PAD'S OWN CEILING IS STRICTER AND ALREADY HARD (owner 2026-09-09c,
     # spec §9.2 B5): twinning its 1 % rows at 5 % adds one row per pad pair
     # and constrains nothing.
-    # A PAD'S FRONTAGE LEVEL ROWS ARE THE SAME CASE (owner 2026-09-10l):
+    # A PAD'S FRONTAGE LEVEL ROW IS THE SAME CASE (owner 2026-09-10l/10y):
     # a cap-0 ONE-WAY row twinned two-way at 5 % is a route by which the
     # pad could pull the pavement edge it is supposed to follow.
     from .pads import CEILING_RULING as _PAD_CEIL

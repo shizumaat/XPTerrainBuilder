@@ -342,9 +342,9 @@ class Base:
     #: (owner RULINGS 2026-09-09c — a pad TARGETS flat, hard only at 1 %)
     pad_flat: list[int] = _dc.field(default_factory=list)
     #: ``one`` index -> the FOLLOWER vertex of a ONE-WAY row (``[design]
-    #: one_way_rulings``): only that vertex keeps its column, the leaders
+    #: one_way_rulings``): only those COLUMNS keep their place, the leaders
     #: enter the right-hand side lagged (RULINGS 2026-09-09b (2)/(3))
-    one_way: dict[int, int] = _dc.field(default_factory=dict)
+    one_way: dict[int, tuple[int, ...]] = _dc.field(default_factory=dict)
     chord_vertices: int = 0
     road_fit_vertices: int = 0
     #: THE PER-BODY DATUM rows, kept OUT of ``rows`` (RULINGS 2026-09-09r
@@ -517,7 +517,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     pad_follow: set[int] = set()
     hard: list[int] = []
     pad_flat_i: list[int] = []
-    one_way: dict[int, int] = {}
+    one_way: dict[int, tuple[int, ...]] = {}
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -546,15 +546,27 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # given.  A row whose follower is itself fixed governs nothing and
         # stays two-way.
         fv = getattr(row, "follows", None)
-        if fv is not None and ruling_head(row) in ow_heads and red.col[fv] >= 0:
-            one_way[len(one)] = int(fv)
+        fvs = ((int(fv),) if isinstance(fv, int)
+               else tuple(int(v) for v in fv) if fv is not None else ())
+        if fvs and ruling_head(row) in ow_heads:
+            # THE FOLLOWER MAY BE A SET (owner RULINGS 2026-09-10y): a pad
+            # PLANE has three degrees of freedom, so the row that levels it
+            # keeps three columns.  A follower with no column of its own is
+            # fixed and simply keeps none.
+            cols = tuple(sorted({int(red.col[v]) for v in fvs
+                                 if red.col[v] >= 0}))
+            if cols:
+                one_way[len(one)] = cols
         if ruling_head(row) in pf_heads:
             pad_flat_i.append(len(one))
         # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
-        # RULINGS 2026-09-10l): the vertex a LEVEL row governs follows the
-        # pavement's edge, so §9b drops it from every body's mean.
-        if fv is not None and ruling_head(row) in pl_heads:
-            pad_follow.add(int(fv))
+        # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
+        # pad plane (10y), not just the feet the row mentions — follows the
+        # pavement's edge, so §9b drops it from every body's mean.  The
+        # register (``pad_level_rulings``) is what makes that a LAW read and
+        # not a second derivation of "which pad fronts what".
+        if fvs and ruling_head(row) in pl_heads:
+            pad_follow.update(fvs)
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
@@ -738,11 +750,18 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     ow_i = np.asarray(sorted(base_p.one_way), dtype=np.int64)
     A1_lead: sp.csr_matrix | None = None
     if ow_i.size:
-        fcol = np.full(len(one), -2, dtype=np.int64)
-        for k, v in base_p.one_way.items():
-            fcol[k] = int(red.col[v])
+        # THE FOLLOWER IS A COLUMN SET (owner RULINGS 2026-09-10y): a pad
+        # plane's three degrees of freedom cannot be one column, so the
+        # split is by (row, column) MEMBERSHIP, not by a single column id.
+        is_ow = np.zeros(len(one), dtype=bool)
+        is_ow[ow_i] = True
+        ncol = int(red.n_cols)
+        keep_keys = np.array(sorted({int(k) * ncol + int(c)
+                                     for k, cs in base_p.one_way.items()
+                                     for c in cs}), dtype=np.int64)
         coo = A1.tocoo()
-        lead = (fcol[coo.row] != -2) & (coo.col != fcol[coo.row])
+        key = coo.row.astype(np.int64) * ncol + coo.col.astype(np.int64)
+        lead = is_ow[coo.row] & ~np.isin(key, keep_keys)
         A1_lead = sp.csr_matrix((coo.data[lead], (coo.row[lead], coo.col[lead])),
                                 shape=A1.shape)
         keep = ~lead

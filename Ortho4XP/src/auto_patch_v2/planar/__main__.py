@@ -298,8 +298,8 @@ def structure_records(airport, cl, law) -> dict:
                             "profile": list(w.profile), "sibling": w.sibling,
                             "notes": list(w.notes)} for w in walls_c],
         "wall_corridor_refused": list(wstats.refused),
-        # RULINGS 2026-09-10w: (a) authored depth / (b) a road at a mouth /
-        # (c) a deck over it — the verdict and witness per candidate
+        # RULINGS 2026-09-10z: (a) authored depth / (b'') the mouth opens
+        # onto groundside — the verdict and witness per candidate
         "wall_corridor_admission": list(wstats.admission),
         "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
                                 if not isinstance(v, list)},

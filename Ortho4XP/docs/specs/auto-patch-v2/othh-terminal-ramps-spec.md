@@ -441,7 +441,7 @@ separates them (measured, for the ruling): LEMD's pairs are foundations of two S
 buildings 3–12 m apart with no roof over 10 of 17 and a floor at one constant plane; OTHH's
 carry a deck at +2.61 over 74 % of their length. Ruling requested before this lands.
 
-## §12a Law C's THREE-PART admission (RULINGS 2026-09-10w) — lane `v2corridor` round 2, 2026-09-10
+## §12a Law C's THREE-PART admission (RULINGS 2026-09-10w) — lane `v2corridor` round 2, 2026-09-10 — SUPERSEDED by §12b: 10z DELETED the heading test and the deck clause (c); this section is kept for its measurement only
 
 **The clause.** A Law C corridor is admitted only when ALL THREE hold: **(a)** its walls are
 authored ≥ `min_wall_depth_m` below the object's own zero (§12, kept as NECESSARY); **(b)** a
@@ -489,3 +489,59 @@ off; `Bridge_03_LOD0_003` ×5 with `osm -490` 50–57 m or nothing within 60 m; 
 `Bridge_06_LOD0_002` ×5 and `Qatar_DutyFree_003` (no plate over those pairs' trenches).
 Owner/spawner ruling needed before this lands: a loading bay IS entered from a road that runs
 past its mouth, and an underpass's own road is not in OSM.
+
+## §12b Law C's TWO-PART admission (RULINGS 2026-09-10z) — lane `v2corridor` round 3, 2026-09-10
+
+**The clause as ruled.** A Law C corridor is admitted only when BOTH hold: **(a)** its
+walls are authored ≥ `min_wall_depth_m` below the object's own zero (§12, kept), AND
+**(b″)** THE MOUTH OPENS ONTO GROUNDSIDE — within `[cutout.wall_corridor]
+corridor_mouth_road_m` (15.0) of a mouth there is a road in ANY HEADING (an OSM
+`highway=*` way of `airport_small_roads`/`big_roads`, or a patch road ribbon:
+`service_road` / `service_junction` / `groundside_pavement`), and the pavement face the
+mouth opens onto — the NEAREST of those roads and of the classification's AIRSIDE
+apron/taxiway faces (`AIRSIDE_FACE_ROLES` = apron, runway, the taxi family, `side ==
+"airside"`) — is not airside. 10w's heading test (`corridor_mouth_road_deg`) and deck
+clause (c) are DELETED, key and all; open air over the trench passes again, and the
+headroom gate is back to its pre-10w form (`min_headroom_m` on a deck that IS there).
+One derivation site: `read_wall_corridors`'s pair loop; `stats.admission` prints (a) and
+(b″) with the witness per candidate and a nearest-road / nearest-face search on a refusal.
+
+**Consumer table.** §12's rows 1, 2, 3, 4, 5–10 unchanged. Row 3b (the pair loop's mouth
+test) is now the single derivation site of (b″); §12a's row 3c (the deck gate) is DELETED.
+Row 11 (`--stage structures` / `--kml`) keeps `wall_corridor_admission`.
+
+**MEASURED — BOTH BARS FAIL; STOP** (structure replays, one lane tree, production DEM,
+`--stage structures`; the (a)-only arm neutralises (b″) in the SAME tree).
+
+| arm | LEMD corridors (records) | OTHH corridors (records) |
+|---|---|---|
+| (a) only — main's law (arm in THIS tree) | **51 (85)** | **43** (73: 30 level ×2 + 13 bays) |
+| (a) + (b″) — 10z as ruled | **26 (49)** — the bar is 0 | **39 (69)**: 30 level ×2 + 9 bays |
+
+*LEMD keeps 26.* Its survivors are `LEMDgrass` 23 records, `NEWCO` 16, `LEMD79` 4,
+`CGVRW` 2, `FLEDI` 2, `LEMD36` 2 — the 10u witness families themselves. Every one has a
+REAL OSM service way 0.3–14.4 m from its mouth (`osm -5904/-5905/-5882` at NEWCO's cargo
+kerbs, `-18749/-18750` and the `-5828` track along the grass fences, `-14060` at FLEDI,
+`-18218` at CGVRW) and, at 24 of 26, NO airside apron/taxiway face within 15 m at all: by
+the ruling's own test these mouths open onto groundside. The airside half fires exactly
+once (`LEMD70`, both mouths INSIDE `apron cell 134`). Widening the face probe does not
+save it: of 68 LEMD mouth probes only 30 have an airside face within 60 m (7 at 0 m, 4 at
+~10, 3 at ~20, 9 at ~30, 3 at ~40, 1 at ~50, 3 at ~60) — 38 mouths have apron nowhere near.
+The owner's "it's just apron up to the building" does not describe the LEMD cargo/grass
+kerbs geometrically; what separates them from OTHH is still not stated by any clause tried.
+
+*OTHH loses 4* (net; 10 candidates refused by (b″)): the `Terminal_Base_2_1` loading bays
+`@3`/`@4` (nearest road `osm -9191` 21.2 m, `-9189` 19.7 m, 88–89° off — the road is there,
+just BEYOND the 15 m window), `Terminal_Parking_VCN_004@2/a`+`@2/b` and `@1`/`@3` bays
+(`osm -11187` 15.7 m, `-11198` 31.4 m, `-11193` 38.4 m), `Terminal_Parking_VCN_006`; two
+`VCN_004@1/a,b` levels appear in their place. `Bridge_03_LOD0_003`'s five (nothing within
+60 m) were already refused downstream at (a)-alone and cost nothing. NO OTHH mouth is
+refused for reading AIRSIDE (`refused_airside_mouth` 0): the whole OTHH loss is the
+15 m window against roads at 15.7–21.2 m, not the airside face.
+
+**What a round 4 would need from the spawner**: either the window is a law value to be set
+by measurement (25 m keeps `Base_2_1` and `VCN_004@2`; it does nothing for LEMD, which is
+already road-adjacent), or the LEMD/OTHH discriminator is NOT the mouth's surroundings at
+all — every clause tried (rendered depth, authored depth, road heading, deck cover, the
+groundside mouth) has now been measured, and only the deck cover ever separated the two
+packs (round 2: LEMD 7 vs OTHH 36) while costing OTHH seven real corridors.

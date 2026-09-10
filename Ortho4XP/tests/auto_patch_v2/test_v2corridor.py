@@ -5,6 +5,11 @@ admitted on AUTHORED depth — its lowest vertex at least
 zero — never on rendered depth under a placement whose anchor plane sits
 under the terrain.
 
+(RULINGS 2026-09-10z amends the admission: (a) authored depth AND (b'')
+the MOUTH OPENS ONTO GROUNDSIDE — a road within ``corridor_mouth_road_m``
+in ANY heading and no airside apron/taxiway face nearer.  The 10w heading
+and deck clauses are refuted and deleted.)
+
 * a wall authored at y −2 under a deck → a level corridor (admitted);
 * the SAME shape authored at y +0.9 (nothing under its own zero) placed
   with its anchor plane 8 m UNDER the DEM → refused, and the refusal
@@ -26,6 +31,8 @@ from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.model.airport import OsmWay
 
 from test_v2wallcorridor import _corridor_obj, _vwall
+from test_tunnel_objects import _rect
+from auto_patch_v2.classify.roles import Cell, Classification
 from test_tunnel_objects import _airport, _slab, _write
 
 
@@ -71,24 +78,43 @@ def _shallow_with_a_deep_decoy(path):
     return _write(path, vt, tris)
 
 
-#: RULINGS 2026-09-10w (b): a service way down the corridor's own axis
-#: (the fixture bands span authored z −40..40 at heading 0) ENTERS both
-#: mouths — the road the corridor exists for.
-def _axis_road():
-    return (OsmWay(-601, "airport_small_roads", ((0.0, -300.0), (0.0, 300.0)), False,
-                   {"highway": "service"}),)
+#: RULINGS 2026-09-10z (b''): the fixture corridor runs along ±y with its
+#: mouths at y = ±40; a kerb road passing 8 m BEYOND each mouth at 90° to
+#: the axis opens it onto groundside — the OTHH loading-bay case (the road
+#: that enters a bay runs PAST its mouth, and an underpass's own road runs
+#: unmapped under the deck).
+def _kerb_roads(offset: float = 8.0):
+    y = 40.0 + offset
+    return (OsmWay(-601, "airport_small_roads", ((-300.0, y), (300.0, y)), False,
+                   {"highway": "service"}),
+            OsmWay(-602, "airport_small_roads", ((-300.0, -y), (300.0, -y)), False,
+                   {"highway": "service"}))
 
 
-def _corridors(objs, law, name, agl=None, ways=None):
+def _apron_at_both_mouths(gap: float = 3.0):
+    """An AIRSIDE apron face ``gap`` m beyond each mouth — nearer than the
+    kerb road, so the mouth opens onto apron (the owner's "it's just apron
+    up to the building": LEMD's Aerosoft foundations)."""
+    y = 40.0 + gap
+    return Classification((
+        Cell(10, "apron", "apronN", _rect(-100.0, y, 100.0, 400.0), (), None, None,
+             "airside", "pavement", {}),
+        Cell(11, "apron", "apronS", _rect(-100.0, -400.0, 100.0, -y), (), None, None,
+             "airside", "pavement", {}),
+    ), (), {}, ())
+
+
+def _corridors(objs, law, name, agl=None, ways=None, classification=None):
     """The wall corridors of one placement; ``agl`` (an ``OBJECT_AGL``
     offset) sinks the placement's anchor plane under the DEM; ``ways``
-    (default: a road entering both mouths) states the mouth roads."""
+    (default: a kerb road 8 m past each mouth) states the mouth roads;
+    ``classification`` states the pavement faces the mouths open onto."""
     kind = "OBJECT" if agl is None else "OBJECT_AGL"
     airport = _airport(objs, law, [(name, (0.0, 0.0), 0.0, agl, kind)],
-                       _axis_road() if ways is None else ways)
+                       _kerb_roads() if ways is None else ways)
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     objects, _rep = read_objects(airport, law, cache)
-    return read_wall_corridors(airport, objects, cache, law)
+    return read_wall_corridors(airport, objects, cache, law, classification)
 
 
 def test_a_band_authored_under_its_own_zero_is_admitted(objs, law):
@@ -133,52 +159,56 @@ def test_the_anchor_plane_does_not_move_the_admission_but_burial_still_refuses(o
     assert buried == [] and stb.bands == 0
 
 
-# ── RULINGS 2026-09-10w: the three-part admission ────────────────────────
+# ── RULINGS 2026-09-10z: (a) + (b'') the groundside mouth ────────────────
 
-def test_a_road_entering_the_mouth_under_a_deck_admits_the_corridor(objs, law):
-    """(a) + (b) + (c) together: walls authored 2 m under the object's
-    zero, a service way running down the axis through both mouths, a
-    deck over the trench — the OTHH case Law C was written for.  The
-    admission line names each clause and its witness."""
+def test_a_road_passing_the_mouth_admits_the_corridor_in_any_heading(objs, law):
+    """(a) + (b''): walls authored 2 m under the object's zero and a kerb
+    road 8 m past each mouth at 90° to the axis — a loading bay IS entered
+    from the road running past it (the 10w heading test is deleted; OTHH's
+    accepted mouths read 83–90° off).  The admission names both clauses and
+    the witness."""
     recs, st = _corridors(objs, law, "deep")
     assert st.corridors == 1 and st.roads == 1 and len(recs) == 2, st.refused
-    assert st.refused_no_road == 0 and st.refused_no_deck == 0
+    assert st.refused_no_road == 0 and st.refused_airside_mouth == 0
     line = "\n".join(st.admission)
     assert "(a) admitted" in line and "osm way -601" in line and "ADMITTED" in line
-    assert "(c) admitted — deck" in line
+    assert "(b'') admitted — groundside mouth" in line
+    # ...and the SAME corridor with NO deck over it is admitted too: the
+    # 10w deck clause is DELETED (seven OTHH corridors carry no plate)
+    recs2, st2 = _corridors(objs, law, "open_air")
+    assert st2.corridors == 1 and len(recs2) == 2, st2.refused
+    assert "open air -> ADMITTED" in "\n".join(st2.admission)
+
+
+def test_a_mouth_opening_onto_an_airside_apron_face_is_refused(objs, law):
+    """(b''): the SAME walls and the SAME kerb roads, with an AIRSIDE apron
+    face 3 m past each mouth — nearer than the road, so the pavement the
+    mouth opens onto is apron.  Aircraft aprons do not run into building
+    tunnels (the owner's LEMD read: "it's just apron up to the building")."""
+    recs, st = _corridors(objs, law, "deep", classification=_apron_at_both_mouths())
+    assert recs == [] and st.corridors == 0
+    assert st.refused_airside_mouth == 1 and st.refused_no_road == 0
+    assert any("opens onto AIRSIDE pavement" in r for r in st.refused), st.refused
+    line = "\n".join(st.admission)
+    assert "(b'') REFUSED — airside mouth" in line and "apron cell 10" in line
+    # the same apron BEYOND the kerb road (13 m) leaves the road nearest:
+    # the mouth opens onto the road and the corridor is admitted
+    ok, sok = _corridors(objs, law, "deep",
+                         classification=_apron_at_both_mouths(gap=13.0))
+    assert sok.corridors == 1 and len(ok) == 2, sok.refused
 
 
 def test_no_road_within_the_law_window_refuses_the_corridor(objs, law):
-    """(b): the SAME walls under the SAME deck with the only road pushed
-    beyond ``corridor_mouth_road_m`` of either mouth — a below-grade
-    foundation beside an apron, not a road underpass (LEMD's Aerosoft
-    cargo kerbs).  The refusal names the clause and the witness search."""
+    """(b''): the SAME walls with every road pushed beyond
+    ``corridor_mouth_road_m`` of either mouth and no groundside pavement at
+    all — a below-grade foundation, not a groundside corridor (LEMD's
+    Aerosoft cargo kerbs).  The refusal names the clause and the witness
+    search."""
     wc = law.tables.structures.cutout.wall_corridor
     far = wc.corridor_mouth_road_m + 10.0
-    away = (OsmWay(-602, "airport_small_roads",
-                   ((-300.0, 40.0 + far), (300.0, 40.0 + far)), False,
-                   {"highway": "service"}),)
-    recs, st = _corridors(objs, law, "deep", ways=away)
+    recs, st = _corridors(objs, law, "deep", ways=_kerb_roads(offset=far))
     assert recs == [] and st.corridors == 0 and st.refused_no_road == 1
-    assert st.pairs == 1, st.refused                    # the pair still forms
-    assert any("no road enters its mouth" in r for r in st.refused), st.refused
+    assert st.pairs == 1 and st.refused_airside_mouth == 0, st.refused
+    assert any("no road within corridor_mouth_road_m" in r for r in st.refused), st.refused
     line = "\n".join(st.admission)
-    assert "(b) REFUSED" in line and "nearest:" in line and "(c) not read" in line
-    # ...and a road that PASSES the mouth sideways does not enter it
-    across = (OsmWay(-603, "airport_small_roads", ((-300.0, 45.0), (300.0, 45.0)), False,
-                     {"highway": "service"}),)
-    recs2, st2 = _corridors(objs, law, "deep", ways=across)
-    assert recs2 == [] and st2.refused_no_road == 1
-    assert any("off" in r for r in st2.admission)
-
-
-def test_a_road_at_the_mouth_but_open_air_refuses_the_corridor(objs, law):
-    """(c): the same walls, the same road entering, NO deck over the
-    trench — 10 of LEMD's 17 read open air.  Open air is a REFUSAL, not
-    a pass: (b) is admitted with its witness and (c) refuses by name."""
-    recs, st = _corridors(objs, law, "open_air")
-    assert recs == [] and st.corridors == 0
-    assert st.roads == 1 and st.refused_no_deck == 1 and st.refused_no_road == 0
-    assert any("open air over the trench" in r for r in st.refused), st.refused
-    line = "\n".join(st.admission)
-    assert "(b) admitted" in line and "(c) REFUSED — open air" in line
+    assert "(b'') REFUSED — no road at the mouth" in line and "no road —" in line

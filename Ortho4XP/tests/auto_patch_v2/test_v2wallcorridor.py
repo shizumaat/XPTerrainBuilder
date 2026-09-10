@@ -108,10 +108,7 @@ def objs(tmp_path_factory):
         "single": _corridor_obj(d / "single.obj", one_band=True),
         "wide": _corridor_obj(d / "wide.obj", width=25.0),
         "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0),
-        # RULINGS 2026-09-10w (c): a corridor needs a DECK over it — the
-        # garage ramp's is its own entry canopy at +4 (open air is now a
-        # refusal, so the class needs one to be exercised at all)
-        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=4.0),
+        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=None),
         "steep": _corridor_obj(d / "steep.obj", depth=0.2, drop=25.0, deck_y=None),
         "low": _corridor_obj(d / "low.obj", deck_y=1.0),
     }
@@ -265,10 +262,10 @@ def test_plate_stations_stand_outside_the_emitted_rim_and_the_ramp_beyond(law):
 
 # ── LAW C (08m / 08n) ────────────────────────────────────────────────────
 
-#: RULINGS 2026-09-10w (b): a Law C corridor is admitted only when a ROAD
-#: ENTERS ITS MOUTH.  The fixture corridors run along ±y (their bands span
-#: authored z −40..40 at heading 0), so one service way down that axis
-#: enters both mouths — OTHH's kerb roads under the terminal decks.
+#: RULINGS 2026-09-10z (b''): a Law C corridor is admitted only when its
+#: MOUTH OPENS ONTO GROUNDSIDE — a road within ``corridor_mouth_road_m`` in
+#: any heading, no airside apron/taxiway face nearer.  The fixture corridors
+#: run along ±y, so one service way down that axis lies at both mouths.
 def _axis_road(x: float = 0.0):
     return (OsmWay(-601, "airport_small_roads", ((x, -300.0), (x, 300.0)), False,
                    {"highway": "service"}),)

@@ -195,6 +195,24 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
+# THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t answer 6:
+# taxiway G at CYXY "is not sloping up enough like it was before, resulting in
+# the whole area of the airport being cut into the hill more than it should").
+# Under 08t the sheet minimised bending with no datum of its own, so an apron
+# up the hill was pulled toward the runway's level and the taxiway serving it
+# flattened.  Every APRON BODY (the connected faces of the ``apron`` bending
+# class — every value role that is not runway family, taxi family or road)
+# now carries ONE row: the MEAN z of its vertices targets the MEAN production
+# DEM under them.  ONE row per body, NEVER per vertex — the bending term still
+# shapes the body, this only says WHERE IT SITS.  Runway and taxi bodies are
+# excluded: they carry the threshold chord and the taxi design profile.
+# WEIGHT: the LAW's own (300).  The datum is a TARGET of equal standing
+# with the law rows it trades against — a heavier one overpowers them
+# (measured at 3000: apron|apron within_shape steps of 0.85 m minted in the
+# shape-joint twin, a 2.5 % stretch against a 1.5 % cap, and the active set
+# hitting its round cap at 17 s).  At 300 every CYXY apron body lands within
+# 0.11 m of its terrain mean and taxiway G climbs +1.23 m over 125 m.
+body_datum    = 300.0
 # THE PAD PLANE (owner RULINGS 2026-09-09c, "building pads are targeting
 # flat, with up to 1 % allowance where no other solution exists"): a pad
 # is no longer a hard ``Flat`` group (one merged column, which dragged
@@ -273,6 +291,19 @@ bank_toe_break_m    = 10.0
 # PAIRS the four laws above already govern, and hard they were measured
 # mutually unsatisfiable (CYXY: 127/1432 ring chords missed by up to 0.77 m
 # under the soft solve, spec §6 deviation 8).
+# THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING (owner RULINGS
+# 2026-09-09r (2)).  Two crossing runways share ONE slab and each one's
+# threshold chord is pinned at its own two CIFP elevations; where they
+# disagree the shared surface split the difference and the LONG runway
+# DIPPED (CYXY: 14R/32L -2.25 m and 14L/32R -1.82 m at the 02/20
+# crossings — the owner's "runway crossings dip instead of joining
+# smoothly", spec §13.2).  Within this distance of the crossing ALONG THE
+# SECONDARY's axis the secondary's chord target is dropped: the primary
+# (the longer runway; on a tie the higher code letter) governs the shared
+# surface and the secondary carries itself into it under its own max
+# grade, vertical curve K and transverse laws, its thresholds still
+# pinned (CYXY: 02/20 climbs ~1.1 % to meet 14R/32L, inside its cap).
+crossing_release_m = 200.0
 hard_rulings = [
   "rulesets.runway.transverse_max",                      # 05o: flat laterally within the crown drop
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
@@ -281,8 +312,18 @@ hard_rulings = [
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
 ]
-hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000x the law's target weight), with a multiplier shift between rounds: the augmented Lagrangian that makes the runway laws HELD rather than traded (measured CYXY: 3e4 leaves 0.036 m, 3e5 0.010 m, 1e6 0.012 m, 1e8 breaks the factorisation)
-hard_max_rounds = 12       # the multiplier rounds, each one damped active-set solve (measured CYXY: the runway DEFECT families read zero from round 5)
+hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000x the law's target weight), with a multiplier shift between rounds: the augmented Lagrangian that makes the runway laws HELD rather than traded (measured CYXY: 3e4 leaves 0.036 m, 3e5 0.010 m, 1e6 0.012 m, 1e8 breaks the factorisation).  RE-MEASURED for RULINGS 2026-09-09r (3) with the settling polish: WITHOUT a runway x runway crossing release CYXY settles at 3e5 (0.0159 m in 9 rounds, DEFECTs zero); WITH it the multiplier sequence OSCILLATES and never settles (best 0.026 m of 12 rounds, one runway_transverse DEFECT), because the primary's chord over the crossing is a target 02/20's own pins and cap forbid.  1e6 clears the DEFECTs but still does not settle (13.9 s solve); 1e7 settles in ZERO polish rounds (5.8 s) but MOVES THE WIDER SURFACE — five further twins red (the m3c lawful road leaves its core profile, 37 route-budget rows at the taxi-route pairs, the v2ridge falsification arm 6.0 -> 4.3 m).  The choice is the owner's (lane v2cyxy round 2 report)
+# THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r (3)): a shipped patch
+# never carries "HARD SET NOT SETTLED".  The polish iterates the multipliers
+# until every hard row is within ``hard_tol_m`` or until these rounds are
+# spent (then the report names the failure).  A round that buys less than one
+# tolerance of violation NO LONGER ENDS THE LOOP — round 1 stopped there and
+# shipped CYXY with a vertical-curve row 15x its bound.  Measured, the
+# multiplier sequence is not monotone: it oscillates while the one-sided
+# active set around it re-forms (0.050, 0.039, 0.058, 0.040, 0.019 m on the
+# m3c road fixture), so the first flat round is nowhere near the answer, and
+# the BEST iterate is the one returned.
+polish_rounds_max = 2      # MEASURED (lane v2cyxy round 2, three HECA builds and five CYXY replays): beyond TWO rounds the polish buys no law and costs surface.  HECA at 2 rounds is BYTE-IDENTICAL to round 1 (body_sha 87b241d8319b), solve 43.4 s, 05C/23C bow -2.28 m; at 12 rounds the worst hard row moves 0.1488 -> 0.1270 m and the SAME bow goes to -2.76 m for +90 s of solve; at 12 rounds with hard_weight 1e7 it reaches 0.0276 m for +237 s and STILL does not settle.  The augmented-Lagrangian polish does NOT converge on a real airport at any weight measured — the multiplier sequence oscillates while the one-sided active set re-forms under it — so the loop's job here is to report the NAMED FAILURE, which is what 09r (3) asks of it when the cap is reached
 hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the

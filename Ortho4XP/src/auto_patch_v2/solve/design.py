@@ -54,7 +54,7 @@ import typing as _t
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.linalg import cg, lsqr, splu
+from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 
 from ..law import Law
 from ..law.design_schema import BEND_CLASSES
@@ -64,21 +64,16 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset
                                  Pin, Row)
 from ..model.planar import PlanarMap
 from .api import Options, Residual, Solution, Status
+from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
+                     METHODS, _linear_solve, _objective, _term_energies)
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_targets, _reduce, _Reduction, _role_bodies, _Rows,
                    _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
-           "bend_roles", "pavement_roles", "bend_class", "hard_rulings",
+           "bend_roles", "pavement_roles", "bend_class", "apron_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "is_hard", "ruling_head",
-           "METHODS", "DEFAULT_METHOD"]
-
-#: The linear solvers the round may use.  ``normal`` factorises the normal
-#: equations Aᵀ A once per active set (sparse LU); ``cg`` runs conjugate
-#: gradients on them (Jacobi-preconditioned); ``lsqr`` runs on A itself.
-#: The lane measured all three on CYXY and HECA captures (spec §5).
-METHODS: tuple[str, ...] = ("normal", "cg", "lsqr")
-DEFAULT_METHOD = "normal"
+           "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
 #: The backtracking line search's smallest step (a numeric floor of the
 #: solver, not a law value): below it the Newton direction buys nothing and
@@ -122,6 +117,17 @@ def bend_class(law: Law, role: str) -> str:
     if role in law.tables.families["road_cross_section"].roles:
         return "road"
     return "apron" if is_value_role(law, role) else "strip"
+
+
+def apron_roles(law: Law) -> frozenset[str]:
+    """The roles of an APRON BODY — every role the bending term prices at
+    ``bend_apron`` (a value role that is not the runway family, the taxi
+    family or the road cross-section).  These are the bodies the PER-BODY
+    DATUM sits (RULINGS 2026-09-09p (3)); the runway and taxi families are
+    excluded because the threshold chord and the taxi design profile ARE
+    their datums, and a structure's own surface is not a body at all."""
+    return frozenset(r for r in pavement_roles(law)
+                     if bend_class(law, r) == "apron")
 
 
 def one_way_rulings(law: Law) -> frozenset[str]:
@@ -177,6 +183,9 @@ class DesignReport:
     triangles: int = 0
     components: int = 0
     detached: int = 0
+    #: THE PER-BODY DATUM (RULINGS 2026-09-09p (3)): one row per APRON
+    #: BODY, its mean z against the mean DEM under its own vertices
+    body_datum_rows: int = 0
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
@@ -214,7 +223,9 @@ class DesignReport:
                 "method": self.method, "unknowns": self.unknowns,
                 "fixed": self.fixed, "rows": self.rows,
                 "triangles": self.triangles, "components": self.components,
-                "detached": self.detached, "bank_rows": self.bank_rows,
+                "detached": self.detached,
+                "body_datum_rows": self.body_datum_rows,
+                "bank_rows": self.bank_rows,
                 "hard_rows": self.hard_rows, "hard_active": self.hard_active,
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
                 "hard_max_violation_m": round(self.hard_max_violation_m, 6),
@@ -234,11 +245,12 @@ class DesignReport:
                 f"{'' if self.converged else ' (SET NOT SETTLED)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
-                f"({self.detached} detached), {self.bank_rows} bank rows off the "
+                f"({self.detached} detached), {self.body_datum_rows} apron "
+                f"bodies on their own DEM mean, {self.bank_rows} bank rows off the "
                 f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
-                f"{'' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
+                f"{', HARD SET SETTLED' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
                 f"{self.one_way_rows} one-way rows in {self.one_way_rounds} lag "
                 f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
                 f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
@@ -279,28 +291,6 @@ def residual(cs: ConstraintSet, z: np.ndarray, objective: float) -> Residual:
 
 # ── the linear solve ────────────────────────────────────────────────────
 
-def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
-                  method: str, tol: float, maxiter: int) -> np.ndarray:
-    """min ‖A x − b‖² by ``method`` (:data:`METHODS`)."""
-    if method == "lsqr":
-        out = lsqr(A, b, atol=tol, btol=tol, iter_lim=maxiter, x0=x0)
-        return np.asarray(out[0], float)
-    At = A.T.tocsr()
-    N = (At @ A).tocsc()
-    rhs = At @ b
-    if method == "normal":
-        # a tiny Tikhonov floor keeps the factorisation non-singular on a
-        # column the active set left with only a bending row
-        eps = 1e-12 * max(1.0, float(abs(N.diagonal()).max()))
-        return np.asarray(splu((N + eps * sp.identity(N.shape[0], format="csc")).tocsc()
-                               ).solve(rhs), float)
-    diag = N.diagonal().copy()
-    diag[diag <= 0.0] = 1.0
-    M = sp.diags(1.0 / diag)
-    x, _info = cg(N.tocsr(), rhs, x0=x0, rtol=tol, maxiter=maxiter, M=M)
-    return np.asarray(x, float)
-
-
 # ── THE SOLVE ───────────────────────────────────────────────────────────
 
 @_dc.dataclass
@@ -328,6 +318,10 @@ class Base:
     one_way: dict[int, int] = _dc.field(default_factory=dict)
     chord_vertices: int = 0
     road_fit_vertices: int = 0
+    #: THE PER-BODY DATUM rows, kept OUT of ``rows`` (RULINGS 2026-09-09r
+    #: (1)): each is dense in ``AᵀA``, so they reach the linear solve as
+    #: the low-rank term ``U`` (:data:`LOW_RANK_MODES`), never factorised.
+    body: "_Rows | None" = None
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -596,14 +590,49 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
+
+    # 9b. THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
+    #     answer 6).  Bending alone has an AFFINE null space: it shapes a
+    #     body but says nothing about where the body SITS, so an apron up
+    #     the hill was levelled toward the runway through its contacts and
+    #     the taxiway serving it flattened — the whole complex cut into the
+    #     hill (the owner's CYXY read: taxiway G "not sloping up enough").
+    #     Every APRON BODY takes ONE row — the MEAN of its own vertices
+    #     against the MEAN production DEM under them, at ``body_datum``.
+    #     ONE row, NEVER per vertex: the datum fixes the body's LEVEL and
+    #     leaves its designed shape (and its tilt) to the bending term, so
+    #     bodies sit where the ground is and the taxiways climb between
+    #     them at their own caps.  The runway and taxi families are
+    #     excluded — they carry the threshold chord and the taxi design
+    #     profile, which ARE their datums.
+    #     ``detached_mean`` is SUBSUMED in effect for an apron body (the
+    #     same DEM under the same vertices); it is not deleted, because it
+    #     is also what anchors the TILT of a component nothing else holds,
+    #     which one mean row cannot do.
+    #     THE ROW IS DENSE IN ``AᵀA`` (RULINGS 2026-09-09r (1)): a mean over
+    #     ``N`` vertices is a rank-1 ``N × N`` block, ``O(Σ N_body²)`` to
+    #     factorise (HECA: +76 s).  These rows are therefore accumulated
+    #     SEPARATELY and handed to the linear solve as the low-rank term
+    #     ``U`` — the same algebra, never the block (:data:`LOW_RANK_MODES`).
+    body = _Rows(red)
+    for vs_b in _role_bodies(planar, apron_roles(law), red):
+        zs = [float(planar.vertices[v].dem_z) for v in vs_b
+              if planar.vertices[v].dem_z is not None]
+        if len(zs) != len(vs_b) or not vs_b:
+            continue
+        w = 1.0 / len(vs_b)
+        body.add([(v, w) for v in vs_b], sum(zs) / len(zs), d.body_datum,
+                 ("body_datum", vs_b[0]))
+    rep.body_datum_rows = body.n
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v)
+                chord_v, road_v, body)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  options: Options | None = None, *,
                  size_out: dict | None = None,
-                 method: str = DEFAULT_METHOD) -> tuple[Solution, DesignReport]:
+                 method: str = DEFAULT_METHOD,
+                 low_rank: str = DEFAULT_LOW_RANK) -> tuple[Solution, DesignReport]:
     """The whole design surface (module docstring).  Returns the solution
     and the residual report; the solve is never infeasible."""
     opt = options or Options()
@@ -636,6 +665,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     the runway laws end HELD, not traded — which a weight alone cannot
     #     do (RULINGS 2026-09-08v: "a weight cannot buy a law").
     A0f, b0f = rows.matrix(red.n_cols)      # the ALWAYS-ON rows (the base)
+    # THE PER-BODY DATUM as the LOW-RANK term (RULINGS 2026-09-09r (1)): one
+    # row per body, never factorised — ``_linear_solve`` applies it by the
+    # Woodbury identity (:data:`LOW_RANK_MODES`).
+    Ub, cb = ((base_p.body.matrix(red.n_cols)) if base_p.body is not None
+              and base_p.body.n else (None, None))
     A1, b1 = _one_matrix(one, red)
     # THE ONE-WAY SPLIT (RULINGS 2026-09-09b (2)/(3)).  A corridor row
     # ``z_ground − z_foot ≤ bound`` priced two-way pulls the PAVEMENT down
@@ -720,10 +754,10 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         f_last = math.inf
         for rnd in range(1, int(d.active_set_max_rounds) + 1):
             A, b = _stack(active_i)
-            rep.rows = int(A.shape[0])
+            rep.rows = int(A.shape[0]) + (0 if Ub is None else int(Ub.shape[0]))
             t1 = time.perf_counter()
             x_full = _linear_solve(A, b, x_, method, float(d.solver_tol),
-                                   int(d.solver_max_iter))
+                                   int(d.solver_max_iter), Ub, cb, low_rank)
             x_ = x_full
             t_solver += time.perf_counter() - t1
             # DAMPING (a semismooth Newton step with a backtracking line search
@@ -731,12 +765,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             # two active sets, and a cycling set is not a solution.  ``F`` is
             # convex and C¹, so a step that does not decrease it is halved.
             if x_prev is not None:
-                f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+                f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_, Ub, cb)
                 alpha = 1.0
                 while f_new > f_prev and alpha > _ALPHA_FLOOR:
                     alpha *= 0.5
                     x_ = x_prev + alpha * (x_full - x_prev)
-                    f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+                    f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_, Ub, cb)
                 if f_new > f_prev:
                     x_ = x_prev          # the step buys nothing: this is it
                     rep.converged = True
@@ -744,7 +778,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                     return x_
                 f_prev = f_new
             else:
-                f_prev = _objective(A0f, b0f, A1, b1, w_row, shift, x_)
+                f_prev = _objective(A0f, b0f, A1, b1, w_row, shift, x_, Ub, cb)
             x_prev = x_.copy()
             viol = A1 @ x_ - (b1 - shift)
             nxt_i = np.flatnonzero(viol > tol)
@@ -800,33 +834,38 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             break
 
     # PHASE C — THE HARD ROWS' MULTIPLIERS, the lag now FROZEN (spec §6
-    # deviation 7).  The loop stops when every hard row is held, when the
-    # rounds run out, or when a round buys less than one tolerance of
-    # violation (a round that does not buy the law buys only wall —
-    # measured HECA: rounds 4 and 5 cost 8 s and made the worst row worse).
+    # deviation 7).  THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r
+    # (3)): the loop runs until every hard row is within ``hard_tol_m`` or
+    # until ``polish_rounds_max`` rounds are spent.  A round that buys less
+    # than one tolerance of violation NO LONGER ENDS IT (round 1's rule):
+    # measured, the multiplier sequence is not monotone — it oscillates
+    # while the one-sided active set around it re-forms (m3c road fixture:
+    # 0.050, 0.039, 0.058, 0.040, 0.019 m) — so the first flat round is
+    # nowhere near the answer.  The BEST iterate is kept and returned.
+    # Exhausting the cap is a NAMED FAILURE in the report, never a silent
+    # "not settled" in a shipped patch.
     if hard_i.size:
         Ah, bh = A1[hard_i], b1[hard_i]
         mu = np.zeros(hard_i.size)
         tol_h = float(d.hard_tol_m)
         worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
         best_x, best_worst = x, worst
-        stall = 0
-        for pr in range(1, int(d.hard_max_rounds) + 1):
-            if worst <= tol_h or stall >= 1:
+        for pr in range(1, int(d.polish_rounds_max) + 1):
+            if worst <= tol_h:
                 break
             rep.hard_rounds = pr
-            prev = worst
             mu = np.maximum(0.0, mu + rho * (Ah @ x - bh))
             shift[hard_i] = mu / rho
             x = _inner(x)
             worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
-            stall = 0 if worst < prev - tol_h else stall + 1
             if worst < best_worst:
                 best_x, best_worst = x, worst
             if opt.verbose:
                 print(f"    [design/hard] multiplier round {pr}: "
                       f"{int(np.count_nonzero(mu > 0.0))} hard rows carry a "
                       f"multiplier, max hard violation {worst:.5f} m")
+            if worst <= tol_h:
+                break
         if best_worst < worst:
             x, worst = best_x, best_worst      # never return a worse surface
         rep.hard_active = int(np.count_nonzero(mu > 0.0))
@@ -885,6 +924,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.targets = tgt
     obj = float(np.sum((A @ x - b) ** 2)) if x is not None else 0.0
     rep.terms = _term_energies(rows, A, b, x)
+    if Ub is not None and x is not None:
+        rep.terms["body_datum"] = round(float(np.sum((Ub @ x - cb) ** 2)), 3)
+        rep.terms = dict(sorted(rep.terms.items()))
     if size_out is not None:
         size_out.update({"columns": red.n_cols, "z": n, "rows": rep.rows,
                          "nnz": int(A.nnz), "triangles": rep.triangles,
@@ -899,28 +941,3 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                      message=f"design surface: {rep.rounds} active-set round(s), "
                              f"{red.n_cols} unknowns, {rep.rows} rows, "
                              f"{method}"), rep)
-
-
-def _objective(A0: sp.csr_matrix, b0: np.ndarray, A1: sp.csr_matrix,
-               b1: np.ndarray, w_row: np.ndarray, shift: np.ndarray,
-               x: np.ndarray) -> float:
-    """The TRUE objective at ``x``: the always-on rows' squared residual plus
-    every one-sided row's ``w · max(0, violation)²`` at ITS OWN weight (the
-    law's for a target, ``hard_weight`` for a runway constraint) against its
-    shifted target (the augmented Lagrangian's ``b − μ/ρ``)."""
-    viol = np.maximum(A1 @ x - (b1 - shift), 0.0)
-    return float(np.sum((A0 @ x - b0) ** 2) + float(np.sum(w_row * viol ** 2)))
-
-
-def _term_energies(rows: _Rows, A: sp.csr_matrix, b: np.ndarray,
-                   x: np.ndarray | None) -> dict[str, float]:
-    """Σ of each objective term's squared weighted residual."""
-    if x is None:
-        return {}
-    r = A @ x - b
-    acc: dict[str, float] = {}
-    for k, own in enumerate(rows.owner):
-        key = own[0] if own else "other"
-        acc[key] = acc.get(key, 0.0) + float(r[k]) ** 2
-    return {k: round(v, 3) for k, v in sorted(acc.items())}
-

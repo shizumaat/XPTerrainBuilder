@@ -349,7 +349,15 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
     cap_d = law.ruleset.taxi.longitudinal.value(None, "D")
     d = math.hypot(pm.vertices[X].xy[0] - pm.vertices[nxt].xy[0],
                    pm.vertices[X].xy[1] - pm.vertices[nxt].xy[1])
-    assert abs(sol.z[X] - sol.z[nxt]) > cap_d * d + 0.01, "3 % is used, not just allowed"
+    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): the PER-BODY
+    # DATUM (09p (3)) holds this fixture's apron body on its OWN terrain
+    # mean, so the G-side step no longer has to exceed D's cap to sit where
+    # the ground is — measured 0.807 m over 57.0 m = 1.42 %, just inside D's
+    # 1.5 % (round 1 and before: over it).  What the twin holds is that the
+    # stretch is USED — the step is nearly all of what the strictest letter
+    # would allow, not a flattened one — and the letters' own PRICING is
+    # exercised by ``test_a_minted_step_on_the_g_stretch_is_read_at_g_cap``.
+    assert abs(sol.z[X] - sol.z[nxt]) > 0.9 * cap_d * d, "the stretch is USED"
     # the v1 oracle reads the same patch (its mesh = v2's published mesh,
     # its stretch caps = v2's published stretches) — its plane rule still
     # prices every taxi pair at cap × CHORD; under RULINGS 2026-09-05ab a
@@ -392,7 +400,17 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
         # chord (the publication prunes those), by being a small miss of that
         # chord: a reported design target, never a metre of surface.
         if not cands:
-            assert v.excess_pct < 0.5, ("an unexplained oracle taxi row", v)
+            # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): the
+            # PER-BODY DATUM (09p (3)) sits this fixture's apron body on its
+            # own terrain instead of levelling it toward its neighbours, so
+            # the taxiway between the bodies runs AT its cap rather than
+            # under it (the CYXY census read the same trade: taxi_box
+            # 55 -> 61, airside_no_step 137 -> 153).  Measured here: one
+            # unforgiven oracle row at 2.33 % against a 1.5 % cap = 0.83 pp,
+            # 1.16 m over a 49.9 m chord.  The claim — every such row is a
+            # SMALL MISS of a design target, never a metre of surface — is
+            # unchanged; its envelope is the datum's.
+            assert v.excess_pct < 1.0, ("an unexplained oracle taxi row", v)
             continue
         assert any(v.de_m <= r[0] + q + 0.1 for r in cands), (v, cands)
 
@@ -477,10 +495,19 @@ def test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers(site
     # claim is the PRICING of the stretch-covered junction, so it is read on
     # the rows the stretches reach; every junction row, priced either way,
     # stays inside the same half-point envelope.
+    # RE-SCOPED AGAIN (owner RULINGS 2026-09-09r (4), lane v2cyxy): with the
+    # PER-BODY DATUM (09p (3)) the junction's apron body sits on its own
+    # terrain instead of being levelled toward its neighbours, so the
+    # taxiways between the bodies run AT their caps rather than sagging
+    # under them (the same trade the CYXY census read: taxi_box 55 -> 61,
+    # airside_no_step 137 -> 153).  Measured here: TWO junction mesh edges
+    # the sidecar's stretches do not cover, at 2.33 % and 1.77 % against D's
+    # 1.5 %.  The twin's CLAIM is unchanged and is carried by the arm below:
+    # withhold the stretches and every junction row is judged at D.
     priced = [v for v in jrows if abs(v.cap_pct - 100 * cap_a) < 1e-6]
-    assert len(jrows) - len(priced) <= 1, \
+    assert len(jrows) - len(priced) <= 2, \
         [(round(v.grade_pct, 2), v.cap_pct) for v in jrows]
-    assert all(v.excess_pct < 0.5 for v in jrows), \
+    assert all(v.excess_pct < 1.0 for v in jrows), \
         [(round(v.grade_pct, 2), v.cap_pct) for v in jrows]
     fam2: dict = {}
     cg.run_checks_law_true(paths.patch, family_out=fam2, quiet=True, top_n=0, stretches_ll=None)

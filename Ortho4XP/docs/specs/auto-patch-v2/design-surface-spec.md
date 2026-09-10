@@ -1285,3 +1285,457 @@ and that refusal is what found G2b's needle class.  The transect was not
 read on that arm (the run stopped at the audit); with the clearance in
 place it seals offline (2,692 seeds, 199 skipped).  Whether 5 m meets the
 0.35 bar is therefore still unmeasured, and is the owner's call to order.
+
+## §13 THE CROSSING DIP — the ATTRIBUTION (RULINGS 2026-09-09p (2)) —
+## lane `v2cyxy`
+
+Owner, on 1.0.297 at CYXY: "runway crossings DIP instead of joining
+smoothly". The ruling required the attribution before any fix, and named
+three candidate rows: the CROSSING edges at the runway transverse cap
+(`constraints/routes.py`, kind 1), the runway's hard crown/transverse rows
+pulling the crossing to the EDGE height, and the taxi profile's second
+differences across the crossing.
+
+### 13.1 THE TAXI CROSSINGS ARE NOT THE DIP (all three candidates refuted)
+
+Measured on the CYXY solve arm at 09b065b2 (`tools/v2_solve_replay.py`
+capture + replay, the production DEM frame). CYXY has THREE places where a
+taxi centreline reaches a runway ring from both sides at one station:
+
+| crossing | runway | station | mouth A | ridge | mouth B | crown drop | dip |
+|---|---|---|---|---|---|---|---|
+| stub/junction (bl40 x bl39) | 14R/32L | s = 471 | 695.79 | 696.02 | 695.80 | +0.23 m | no |
+| primary_parallel (bl43 x bl38) | 14R/32L | s = 2447 | 704.07 | 704.30 | 703.96 | +0.22 m | no |
+| primary_parallel (bl56 x bl38) | 14L/32R | s = 1988 | 701.10 | 701.28 | 701.24 | +0.18 m | no |
+
+Every section across the slab is edge -> ridge -> edge: the ridge is the
+HIGH point, the two mouths sit under it by the crown's own fall (0.18-0.23
+m over a 15.2 / 22.9 m half width = 1.0-1.2 %, inside the transverse cap),
+and every station outward from a mouth descends monotonically. **No station
+of any taxi crossing is below its approaches.** The taxi profile is not
+discontinuous at the mouth either: a taxi centreline STOPS at the runway
+ring (the precedence clip), so there are no profile stations inside the
+slab to skip, and the mouth's own value is the runway edge's.
+
+The three candidate rows are therefore REFUTED for the taxi crossings.
+
+### 13.2 THE DIP IS THE RUNWAY x RUNWAY CROSSING
+
+The dip the owner read is on the MAIN runways, where the short runway
+**02/20** crosses them:
+
+| runway | dip station | ridge z there | ridge z 160 m either side | bow vs threshold chord |
+|---|---|---|---|---|
+| 14R/32L | s = 1018 | 696.06 | 697.67 / 697.68 | **-2.25 m** |
+| 14L/32R | s = 411 | 693.95 | 695.29 / 694.66 | **-1.82 m** |
+
+Both bows the runway read reports ARE the 02/20 crossings. Beside them the
+same runway stands +5.4 m over the DEM; at the crossing only +2.0 m — the
+surface is pulled back to the ground exactly where 02/20 holds it.
+`tools/rwy_profile.py --binned` on the emitted patch, against v1:
+
+```
+14R/32L station  825    1025    1225
+v2 (1.0.297)     697.7   696.5   699.1     <- the V
+v1               693.8   694.0   694.9     <- monotone, on the DEM
+DEM              693.8   694.0   694.0
+```
+
+**`why` on the dip's own vertex** (v524, the 14R/32L ridge station at
+s = 1018; `v2_solve_replay.py --why-vertex 524`, a duals solve of the same
+system):
+
+```
+binding rows on v524 by family (rows, sum|dual|):
+  runway_chain            1   46.56   3-term at lo; bound -0.3402 -> v542, v523
+  no_step_pairs           1   16.93   cap 1.50% x 25.2 m = 0.378 m -> v542
+  runway_vertical_curve   3   14.12   3-term at hi; bound 0.0002 -> v541, v540
+chain trace: terminal v956 z 693.72
+  [PIN: CIFP threshold ('rwy:02/20', 'end:20')]; 12 hops; sum dz +2.34 m
+  by family along the chain: no_step_pairs +1.44, runway_vertical_curve +0.48,
+                             runway_profile +0.42
+```
+
+**MECHANISM.** 02/20's two CIFP threshold elevations (694.33 / 693.72) are
+hard pins 428 m apart. The crossing region is ONE surface (the
+`runway_crossing` faces), so 14R/32L's ridge there can stand no higher than
+02/20's own surface can climb from its pinned ends at 02/20's longitudinal
+cap — 2.34 m over 12 hops. 14R/32L's threshold chord wants 698.3 at that
+station. The two pinned chords conflict by ~2.3 m and the shared surface
+splits it: 14R/32L dips 1.6 m below its neighbours, and 02/20 humps +2.09 m
+over its own ground.
+
+A second, mechanical finding rides on the same place: the airport's WORST
+HARD-ROW violations are exactly these crossings. `runway_vertical_curve` is
+a HARD row and the design report says `HARD SET NOT SETTLED` after ONE
+polish round; the top six violated K rows are all on the 02/20 crossing
+ridges (v524/v523/v540/v541/v83 on 14R/32L; v1357/v1358/v1322/v1415 on
+14L/32R), worst |value| 0.0121 against a +/-0.00081 bound — 15x. If K held,
+the sag would be spread into a vertical curve instead of the local V.
+
+### 13.3 THE DEVIATION THE LANE REPORTS (never decided)
+
+The ruling's prescribed fix — "a crossing must RIDE the runway's crown
+(edge -> ridge -> edge) with the taxi profile continuous through it" — is
+already what the surface does at every TAXI crossing (13.1). It does not
+reach the mechanism 13.2 names, which needs law the ruling does not
+contain: **at a runway x runway crossing, whose surface governs?** That is
+an INTENT question, not a mechanism:
+
+* (a) the SENIOR runway's crown governs the crossing (by length / code):
+  02/20 would then have to climb 4.6 m from its pinned end 20 to the
+  crossing — 1.15 %, inside its own longitudinal cap, but a 4.6 m hump in a
+  428 m runway, which is not a runway;
+* (b) the pinned chords stand and the surface splits the difference (today);
+* (c) the CIFP thresholds are the datum and 14R/32L's straight chord is the
+  thing that is wrong here: its real profile is flat for 1,200 m and then
+  climbs (the DEM and v1 agree), so the chord target lifts it 5.4 m off the
+  ground and the crossing is the ONE place it is at its true elevation.
+
+No code was changed for (2). The twin
+`tests/auto_patch_v2/test_v2cyxy.py::test_a_taxi_crossing_rides_the_runways_crown`
+LOCKS the behaviour 13.1 measured, so a later change cannot silently break
+the crossings that are right.
+
+## §14 THE PER-BODY DATUM (RULINGS 2026-09-09p (3)) — lane `v2cyxy`
+
+### 14.1 What is being added
+
+Owner: taxiway G at CYXY (60.7075541, -135.0718986) "is not sloping up
+enough like it was before, resulting in the whole area of the airport being
+cut into the hill more than it should".
+
+Under 08t the sheet minimises BENDING, and bending has an AFFINE null
+space: it shapes a body but says nothing about where the body SITS. Until
+1.0.296 the zone DEM fit supplied that level everywhere; 09b (3) / 09e
+DELETED it ("the DEM has left the patch"). What remained — a pin, the
+runway chord, a contact row — reaches a groundside apron only through the
+taxiways that touch it, so an apron up the hill was levelled toward the
+runway and the taxiway serving it flattened. Measured at CYXY, the G area's
+`z - DEM` mean by arm: v1 **+0.06 / +0.42**, 1.0.296 **+0.7**, 1.0.297
+**-5.12 / -5.40**.
+
+THE ROW. Every APRON BODY — a connected group of faces whose bending class
+is `apron` (`solve/design.apron_roles`: every VALUE role that is not the
+runway family, the taxi family or the road cross-section; at CYXY that is
+`apron`, `parking_lot`, `groundside_pavement`, `building`) — carries ONE
+row:
+
+```
+    (1/N) * SUM z_v  =  (1/N) * SUM DEM(v)      at [design] body_datum
+```
+
+ONE row per body, NEVER per vertex: the datum sets the body's LEVEL and
+leaves its shape and its tilt to the bending term, so it is not the
+per-vertex DEM pull 08t answer 1 removed. Runway and taxi bodies are
+excluded — the threshold chord and the taxi design profile ARE their
+datums, and giving a taxiway a terrain datum would put the drape back.
+
+`detached_mean` IS SUBSUMED IN EFFECT for an apron body (the same DEM under
+the same vertices) but is NOT deleted: it is also the least-squares PLANE
+that anchors the TILT of a sheet nothing else holds, which one mean row
+cannot do. Where both apply they agree, so they never fight.
+
+### 14.2 CONSUMER TABLE (owner 2026-08-30l)
+
+The change adds one OBJECTIVE ROW per body. It introduces no shape class,
+no exemption, no region into the layout, so no geometry consumer changes;
+the table is stated anyway.
+
+| consumer | reads | ruling |
+|---|---|---|
+| `solve/design.assemble` §9b | produces the row | THE change |
+| `solve/design._term_energies` | buckets base rows by owner tag | tag `("body_datum", v)` buckets automatically; `DESIGN_TERMS` gains `body_datum` so a weight ARM can name it |
+| `solve/design.DesignReport` | `body_datum_rows` | new count, printed in `line()` and `as_dict()` |
+| `solve/why.py` | the ONE-SIDED rows and their duals | UNTOUCHED: a base row carries no dual and no `Row`; `why` never sees it |
+| `constraints/*` | nothing | UNTOUCHED: the row is born in the solve, from the map's own `dem_z` |
+| `emit/*`, `verify/*`, `harness/census.py` | the solved z | UNTOUCHED: no new geometry, no new sidecar key, no new law family |
+| `law/design_schema.check_design` | every `DESIGN_TERMS` weight positive and finite | `body_datum` validated with the rest |
+| Swift (`SceneryKit`) | the JSONL event names | UNTOUCHED: no event, no wire name |
+
+### 14.3 The law value
+
+`emit.toml [design] body_datum = 300.0` — the LAW's own weight. The datum
+is a TARGET of equal standing with the law rows it trades against.
+
+MEASURED, the two arms the lane paid (the attempt cap): at **3000** the
+datum wins outright — every CYXY body lands within 0.01 m of its terrain
+mean, but it OVERPOWERS the law (0.85 m `apron|apron` `within_shape` steps
+minted in the shape-joint twin, a 2.33 % stretch against a 1.5 % cap, the
+active set hitting its round cap at 17-18 s on the 2,500-vertex bench
+fixture, CYXY census ADJUDICATED 258 -> 340). At **300** every CYXY body
+lands within 0.11 m of its terrain mean (one outlier at 0.47 m), the owner's
+site lands within 0.11 m of v1, and the census cost falls to +22.
+A sweep at 30 / 100 / 1000 is recorded in the lane's report.
+
+### 14.4 MEASUREMENTS
+
+**CYXY, the four arms.** Per apron body, mean `z - DEM` (solve arm, 17
+bodies >= 5 vertices), the deepest ten:
+
+```
+body (n)      1.0.297     this (300)
+225           -0.15       +0.06
+196           +0.09       +0.05
+116           -1.71       -0.06
+ 65           -0.37       -0.11
+ 62           -2.22       -0.01
+ 51           -4.23       -0.01
+ 26           -2.20       -0.47
+ 22           -6.30       -0.03
+ 19           -6.27       -0.02
+ 14           -5.85       -0.01
+```
+
+TAXIWAY G at the owner's coordinate, the emitted patch along the chain
+`taxi18` (letter A) from (60.70771119305, -135.07108362256) to
+(60.70701560096, -135.072768375), `tools/arm_site_read.py --line`:
+
+| arm | alt along G | level vs v1 | climb over 125 m (solve arm) |
+|---|---|---|---|
+| v1 | 702.30 .. 703.07 | — | +0.77 m |
+| 1.0.296 | 703.05 .. 703.45 | +0.6 m | +0.40 m |
+| 1.0.297 | 698.04 .. 699.95 | **-3.7 m** | **-2.45 m (it DESCENDS a rising hill)** |
+| this | 702.27 .. 703.18 | **+0.06 m** | **+1.23 m** |
+
+G's `z - DEM` at the owner's coordinate (solve arm, 6 vertices within 12 m):
+**-3.76 m -> -0.67 m**.
+
+The runway bows are UNCHANGED: 14R/32L -2.25 -> -2.25, 14L/32R -1.82 ->
+-1.82, 02/20 -0.13 -> -0.13; runway `z - DEM` mean +2.47 -> +2.47.
+v2-verify `verify_defects` **{}** (runway DEFECTs 0); the runway
+`transverse` report family falls 10 -> 1.
+
+Census (`harness/census.py`, four patches, ADJUDICATED): v1 **150**,
+1.0.296 **401**, 1.0.297 **258**, this **280**. The +22 is the trade the
+ruling asks for: with the bodies on their own benches the taxiways between
+them run AT their caps (`taxi_box` 55 -> 61, `airside_no_step` 137 -> 153)
+instead of sagging below them, while `within_shape` falls 1709 -> 1076 and
+`transverse` 10 -> 1. Reported, not iterated on.
+
+**HECA** (`HECA_bd300`, this tree; control `HECA_head` SERVED from the
+artifact ledger, tree fc39d25b3183): 342 apron bodies. The bows are
+**-0.04 / -2.28 / -0.04** against 09j's -0.04 / -2.26 / +0.01 — every one
+inside 0.15 m; `verify_defects` **{}**; runway nodes move **0.00 m mean, 0
+of 1,951 by more than 1 m** (`tools/patch_proximity_diff.py`). The datum
+lifts HECA's deeply-cut apron pockets onto their ground:
+
+```
+cell                        A z-DEM    B z-DEM
+30.119921,31.418956          -6.43      -0.33
+30.120781,31.418831          -7.21      -0.12
+30.128491,31.414891          -7.36      -5.54
+30.122711,31.415165          -9.25      -7.55
+30.103565,31.392562          -1.90      +0.11
+30.110038,31.396964          +3.37      +1.60
+```
+
+Apron nodes: mean dz +0.22 m, 113 of 1,353 over 1 m. The patch is
+BYTE-IDENTICAL at `body_datum` 3000 and 300 (`body_sha 87b241d8319b`) — at
+HECA the bodies are exactly satisfiable either way.
+
+### 14.5 BUILD-TIME IMPACT — the DEVIATION the lane reports
+
+| airport | control | this | delta |
+|---|---|---|---|
+| CYXY total | 10.50 s | **9.95 s** | -0.55 s |
+| HECA total | 176.75 s | **241.30 s** | **+64.5 s (+36 %)** |
+| HECA solve | 29.31 s | **105.26 s** | **+75.9 s** |
+
+The active-set ROUND COUNT is unchanged (317 -> 315), so the cost is
+PER ROUND, and it is attributable: a body's datum is ONE row with `N`
+non-zeros, which is a rank-1 **DENSE `N x N` block** in the normal
+equations `A^T A` the `normal` method factorises each round. The cost is
+`O(SUM N_body^2)` — negligible at CYXY (largest body 225 vertices, 18
+bodies) and large at HECA (342 bodies). The same mechanism is what makes
+`test_constraints.py::test_bench_style_instance_round_trip` (a synthetic
+50x50 grid = ONE 2,400-vertex apron body) run 18 s against its 5 s guard.
+
+The lane did NOT take either remedy, because both are design decisions the
+ruling does not contain:
+
+* **(A) bound the row's support** — state the mean over at most `K`
+  deterministically chosen vertices of the body (a new law value), which
+  caps the dense block at `K^2` and is exact for every CYXY body;
+* **(B) keep the row out of `A^T A`** and apply the `B` rank-1 datum terms
+  as a Woodbury low-rank correction in `solve/design._linear_solve` —
+  exact, `B` extra triangular solves per factorisation, but it changes
+  shared solver machinery.
+
+Per `Ortho4XP/CLAUDE.md` HARD LAW this is a ">= 1 % of budget" change and
+belongs to a Fable optimisation review.
+
+### 14.6 THE TWINS THE CHANGE REDS (reported, never decided)
+
+Five twins that are GREEN at 09b065b2 are RED with the datum at 300. Each
+is an expectation written before a body had a datum; the lane names what
+each encodes and stops (attempt cap spent on the weight):
+
+| twin | what it asserts | why it reds |
+|---|---|---|
+| `test_constraints::test_bench_style_instance_round_trip` | `sol.wall_s < 5.0` on a 50x50 grid | 18.7 s — the dense block above (a PERF guard, not a surface law) |
+| `test_constraints::test_cyxy_verify_matches_v1_census` | `res.wall["total"] < 10.0` on the real CYXY | 11.3 s through the pipeline API (the harness build is 9.95 s; the guard has ~0 headroom either way) |
+| `test_stretches::test_the_solved_fixture_reads_zero_rows_in_both_readers` | "3 % is used, not just allowed" — a G-side stretch takes its 3 % | the body's datum holds the apron on its terrain, so the stretch uses 0.81 m where the twin wants > 0.86 m |
+| `test_stretches::test_a_minted_step_on_a_g_side_mesh_edge_reads_at_g_cap_in_both_readers` | at most one junction row unpriced | two rows at 2.33 % / 1.77 % against a 1.5 % cap |
+| `test_v2shapes::test_a_road_along_a_boundary_takes_its_shapes_level_and_the_step_stands_at_its_far_edge` | "the road at one level (A's)" (spread < 0.5 m) | 0.65 m: apron A and apron B are two bodies at two terrain means, so the road along their boundary now tilts — which may be exactly what 09p (3) intends, or may be the free-road ruling being crossed |
+
+### 14.7 Twins (`tests/auto_patch_v2/test_v2cyxy.py`)
+
+* `test_a_taxi_crossing_rides_the_runways_crown` — §13.1's lock: the
+  section across the slab is edge -> ridge -> edge, the ridge is the high
+  point, and no station of the crossing sits below BOTH its neighbours.
+* `test_the_apron_roles_are_the_bodies_the_datum_sits` — the register:
+  never the runway family, never the taxi family, never a road.
+* `test_each_apron_sits_on_its_own_terrain_mean` — two aprons on benches 3
+  m apart, joined ONLY by a taxiway: each body's mean z is its own terrain
+  mean within 0.5 m, and the difference between them is the benches' own.
+* `test_the_taxiway_climbs_between_the_two_aprons` — the taxiway climbs at
+  least 80 % of the ground's rise, in the ground's direction.
+* `test_the_body_datum_is_one_row_per_body_never_per_vertex` — the
+  report's `body_datum_rows` equals the number of bodies.
+* Falsification arm: at `body_datum = 1e-6` the two level twins FAIL.
+
+## §15 ROUND 2 (RULINGS 2026-09-09r) — THE WOODBURY DATUM, THE RUNWAY x
+## RUNWAY CROSSING, AND THE SETTLING POLISH — lane `v2cyxy`
+
+### 15.1 What is added
+
+1. **(09r (1)) THE PER-BODY DATUM LEAVES THE FACTORISED MATRIX.**
+   `assemble` accumulates the body rows in their own `_Rows` (`Base.body`)
+   instead of the always-on matrix; `solve/linear._linear_solve` takes them
+   as the low-rank term `U` and applies the WOODBURY identity
+   `(M + UᵀU)⁻¹ = M⁻¹ − M⁻¹Uᵀ(I + U M⁻¹ Uᵀ)⁻¹ U M⁻¹`.  Three modes
+   (`LOW_RANK_MODES`): `bordered` (default) solves the augmented
+   quasi-definite system `[[M, Uᵀ], [U, −I]]`, whose Schur complement onto
+   the border IS the identity's `k x k` dense system — ONE sparse solve, no
+   `k` back-solves; `woodbury` applies the identity explicitly (the twin's
+   reference); `dense` stacks the rows as ordinary rows (round 1).
+2. **(09r (2)) THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING.**
+   `constraints/runway_chord.crossing_primary` (longer runway; tie: higher
+   code letter; tie: lower id) and `runway_crossing_release` read the
+   `runway_crossing` faces' `A+B` refs and return, per SECONDARY, the
+   station spans within `[design] crossing_release_m` (200 m) of the
+   crossing along its OWN axis.  Inside them the secondary contributes no
+   chord target, so a shared-slab vertex takes the PRIMARY's chord and a
+   secondary vertex takes none.  Its pins, profile rows and hard laws are
+   untouched.
+3. **(09r (3)) THE POLISH RUNS ITS ROUNDS.**  The stall break is deleted;
+   the loop runs to `[design] polish_rounds_max` and reports the failure BY
+   NAME (`hard_worst`) when the set is not held.  `line()` now says HARD SET
+   SETTLED as well as NOT SETTLED.
+4. `solve/linear.py` is split out of `solve/design.py` (the 1,000-line file
+   law): the linear solve, the objective and the term energies.
+
+### 15.2 CONSUMER TABLE (owner 2026-08-30l)
+
+| consumer | reads | ruling |
+|---|---|---|
+| `solve/design.assemble` §9b | produces the body rows | now into `Base.body`, never `Base.rows` (twin) |
+| `solve/design.solve_design` `_stack` / `_inner` | the base matrix | UNCHANGED shape; `Ub, cb` ride beside it |
+| `solve/linear._objective` | the line search's descent test | the body term is ADDED to it — held out of the factorisation, never out of the objective |
+| `solve/linear._term_energies` | base rows by owner tag | the `body_datum` bucket is computed separately and merged, so the report keeps the term |
+| `DesignReport.rows` | the row count | includes the low-rank rows |
+| `solve/why.py` | the ONE-SIDED rows and their duals | UNTOUCHED (a base row carries no dual) |
+| `constraints/runway_chord.runway_chord_targets` | `preferred_z` | drops the secondary's targets inside the release; every other target is unchanged |
+| `constraints/runway_profile` | pins, profile, crown, K, transverse | UNTOUCHED: the release is a TARGET release, never a law release |
+| `emit/*`, `verify/*`, `harness/census.py` | the solved z | UNTOUCHED: no new geometry, no new sidecar key, no new law family |
+| `law/design_schema.check_design` | the `[design]` table | `crossing_release_m` positive, `polish_rounds_max >= 1`; `hard_max_rounds` renamed |
+
+### 15.3 MEASUREMENTS
+
+**(1) THE WOODBURY WALL — HECA, same rounds, same surface.**  With the
+polish capped at round 1's effective 2 rounds the arm is BYTE-IDENTICAL to
+round 1 (`body_sha 87b241d8319b`, 315 active-set rounds, worst hard row
+0.1488 m — the same numbers §14.4 records), so the delta is the linear
+algebra alone:
+
+| arm | solve | total | rounds | s / round |
+|---|---|---|---|---|
+| 09j control (no datum) | 29.31 s | 176.75 s | 317 | 0.092 |
+| round 1 (dense block) | 105.26 s | 241.30 s | 315 | 0.334 |
+| **round 2 (Woodbury)** | **43.42 s** | **196.87 s** | 315 | **0.138** |
+
+The dense `O(Σ N²)` block is GONE — 62 of the 76 s the datum cost (81 %)
+is recovered, per round 0.334 -> 0.138 s.  The **bar (within 10 % of 29.3
+s) is MISSED**: 43.4 s is +48 %.  The residue is not the datum's rows in
+`AᵀA` (they are not there) but the border's own fill: 342 extra rows and
+columns whose Schur complement is a dense 342 x 342 block inside one
+factorisation per round.
+
+**(2) THE CROSSING, CYXY** (`CYXY_final`, 11.1 s, `body_sha f602f09b4e39`):
+
+| reading | 1.0.297 / round 1 | round 2 |
+|---|---|---|
+| 14R/32L deepest local V | 1.61 m | **1.07 m** |
+| 14L/32R deepest local V | 1.34 m | **1.31 m** |
+| 14R/32L bow vs its chord | −2.25 m | **−1.64 m** |
+| 14L/32R bow | −1.82 m | −1.81 m |
+| 02/20 bow | −0.13 m | −0.07 m |
+| verify DEFECT families | {} | **{}** |
+| census ADJUDICATED | 280 | **275** |
+| taxiway G along its line | 701.85..703.18 | 701.45..703.05 |
+
+**The bar (the primary's ridge monotone, the dip gone) is MISSED, and the
+residual is ATTRIBUTED.**  02/20's ridge now climbs from its north CIFP pin
+at EXACTLY its 1.5 % longitudinal cap for 130 m, peaks at 696.55 at the
+14R/32L crossing (02/20 station 166 m; 694.334 + 0.015 x 166 = 696.82) and
+descends at exactly −1.5 % into its south pin at 693.72 — which is 02/20
+station 381 m, and the 14L/32R crossing sits at 02/20 stations 388-415 m,
+i.e. ON that threshold.  The crossing elevation is therefore the MAXIMUM
+02/20's own pins and cap permit; the mains' chords want 1.1 m and 1.3 m
+more.  The release does everything the ruling asks and the remainder is the
+two things the ruling KEEPS: the secondary's CIFP thresholds and its
+longitudinal law.  §13.3's option (a) assumed a 400 m run to the crossing;
+at CYXY the runs are 166 m and 15 m.
+
+**(3) THE HARD SET DOES NOT SETTLE ON A REAL AIRPORT.**  The loop is
+implemented as ruled.  Measured, the augmented-Lagrangian multiplier
+sequence does not converge at CYXY or HECA at any weight tried — it
+OSCILLATES while the one-sided active set re-forms under it:
+
+```
+CYXY, hard_weight 3e5, 12 rounds:  .037 .027 .039 .101 .076 .057 .054 .026 .057 .034 .097 .098
+```
+
+| arm | CYXY | HECA |
+|---|---|---|
+| 3e5, 2 rounds (shipped) | 0.0267 m, solve 3.5 s, DEFECTs {} | 0.1488 m, solve 43.4 s, DEFECTs {} |
+| 3e5, 12 rounds | 0.0261 m, solve 8.8 s, DEFECTs {} | 0.1270 m, solve 133.0 s, 05C/23C bow −2.28 -> **−2.76 m** |
+| 1e6, 12 rounds | 0.0219 m, solve 13.9 s | not run |
+| 1e7, 12 rounds | 0.0170 m SETTLED, 0 rounds, solve 5.8 s | 0.0276 m NOT settled, solve 280.4 s |
+
+Two findings ride on that table.  (a) `polish_rounds_max` is set to **2**
+from it: beyond two rounds the polish buys no law and costs surface — at
+HECA 0.02 m of hard violation for +90 s of solve and half a metre of bow,
+and the "best iterate" the loop keeps is best by HARD VIOLATION, which is
+not best by surface.  (b) Raising `hard_weight` is not a free settle: 1e7
+settles CYXY outright but MOVES THE WIDER SURFACE — five further twins red
+(the m3c lawful road leaves its core profile, 37 route-budget rows at the
+taxi-route pairs, the v2ridge falsification arm 6.0 -> 4.3 m) — and does
+not settle HECA at all.  **09r (3) is not achievable with this polish**;
+the certificate it asks for needs the hard rows solved as a KKT block (the
+module docstring's own claim) rather than by penalty and multiplier.
+
+### 15.4 THE TWINS
+
+New in `tests/auto_patch_v2/test_v2cyxy.py`: the Woodbury/dense/bordered
+parity on a three-body fixture (same z within 1 mm), the mechanism twin
+(no `body_datum` row reaches `Base.rows`), the primary register, the row-level
+release, the primary's ridge monotone through the crossing, the secondary
+climbing into it inside its own grade and K with its thresholds pinned, the
+settled certificate on a reachable crossing, and the NAMED FAILURE on one
+that is not.  Re-scoped per 09r (4): the two wall-time guards (bench 18.7 ->
+8.4 s, guard 5 -> 12 s; CYXY pipeline 16.1 s, guard 10 -> 22 s), the two
+`test_stretches` expectations and the junction/oracle envelopes (to the
+datum's own trade), and the road twin's level (0.65 m of tilt across a 4 m
+step between two bodies).
+
+**ONE TWIN LEFT RED, deliberately.**
+`test_v2shapes::test_a_road_along_a_boundary_takes_its_shapes_level_...`
+now mints `service_road|service_road` `within_shape` census rows of 0.24 -
+0.29 m: with apronA and apronB on two terrain means, the road along their
+boundary tilts and prices its own cross-section.  09r (4) named this as
+"what 09p (3) intends, or the free-road ruling being crossed".  It is a LAW
+question (RULINGS 2026-07-27: a road edge-sharing an apron IS the apron),
+so the lane re-scoped the twin's LEVEL assertion and left its CENSUS
+assertion standing for the owner.

@@ -784,7 +784,17 @@ def _check_cross_refs(t: LawTables) -> None:
         if r not in roles:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     _check_terrace(t.emit.terrace, roles, LawError)
-    _check_design(t.emit.design, LawError)
+    # THE PROFILE WINDOW IS THE SCALE OF THE K LAW (spec §21.2 (1)): the
+    # largest ``vertical_curve_k_m`` any loaded ruleset states, handed to
+    # the design schema (which imports nothing from v2).
+    ks: list[float] = []
+    for rs in t.rulesets.values():
+        ct = rs.runway.vertical_curve_k_m
+        ks += [float(v) for v in (ct.by_code or {}).values()]
+        ks += [float(v) for v in (ct.by_letter or {}).values()]
+        if ct.default is not None:
+            ks.append(float(ct.default))
+    _check_design(t.emit.design, LawError, max(ks) if ks else None)
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

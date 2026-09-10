@@ -46,6 +46,16 @@ class Design:
     bend_strip: float
     bend_road: float
     chord: float
+    #: THE RUNWAY PROFILE FOLLOWS THE AIRPORT (owner RULINGS 2026-09-10q/
+    #: 10r, ruled 10t (3); spec §21): the ``chord`` row's TARGET is the
+    #: ground's long-wave trend along the ridge — a moving QUADRATIC
+    #: least-squares fit of the production DEM over +/- this window,
+    #: shifted by the linear correction that puts it through the two
+    #: threshold pins.  The window is the scale of the law: at or above the
+    #: largest ruleset ``runway.vertical_curve_k_m`` the target carries only
+    #: curvature the K law admits, so the runway bends with the ground's
+    #: trend and never undulates with the ground itself (08t (1) / 09b).
+    runway_profile_window_m: float
     law: float
     #: THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2), "taxiways
     #: should follow terrain less and be more like runways"): the second
@@ -161,12 +171,31 @@ class Design:
         return float(getattr(self, f"bend_{cls}"))
 
 
-def check_design(d: Design, err: type[Exception]) -> None:
-    """Every weight positive and finite, every limit positive."""
+def check_design(d: Design, err: type[Exception],
+                 max_vertical_curve_k_m: float | None = None) -> None:
+    """Every weight positive and finite, every limit positive.
+
+    ``max_vertical_curve_k_m`` is the largest ``runway.vertical_curve_k_m``
+    of ANY loaded ruleset — passed in by ``law/model._check_cross_refs``
+    (this module imports nothing from v2), because
+    ``runway_profile_window_m`` is only lawful at or above it: a shorter
+    window would fit curvature the K law forbids and hand the solve a
+    target it must refuse (spec §21.2 (1))."""
     for term in DESIGN_TERMS:
         w = d.weight(term)
         if not (w > 0.0) or w != w or w in (float("inf"), float("-inf")):
             raise err(f"emit.design.{term} {w}: a positive, finite weight")
+    if not d.runway_profile_window_m > 0.0:
+        raise err(f"emit.design.runway_profile_window_m "
+                  f"{d.runway_profile_window_m}: positive metres — the "
+                  f"half-window of the runway profile's trend fit (§21)")
+    if (max_vertical_curve_k_m is not None
+            and d.runway_profile_window_m < max_vertical_curve_k_m):
+        raise err(f"emit.design.runway_profile_window_m "
+                  f"{d.runway_profile_window_m}: at or above the largest "
+                  f"rulesets.*.runway.vertical_curve_k_m "
+                  f"{max_vertical_curve_k_m} — a shorter window fits "
+                  f"curvature the K law forbids (RULINGS 2026-09-10t (3))")
     if d.one_way_max_rounds < 1:
         raise err(f"emit.design.one_way_max_rounds {d.one_way_max_rounds}: at least 1")
     if not 0.0 < d.one_way_relax <= 1.0:

@@ -2953,6 +2953,19 @@ Law keys: `[design] runway_profile_window_m` (schema-validated ≥ the largest
 | C7 | the sidecar `design` block, `check_grade.SIDECAR_EVIDENCE_KEYS` | the chord record | carries the target kind (`trend|chord`) and window |
 | C8 | the census `runway_*` families | rows | unchanged |
 | C9 | taxi bodies touching the runway (10p/10t affine datum) | contact vertices | unchanged: contacts stay flush; the taxi body's tilt now follows its own DEM plane |
+| C10 | `solve/why.py` `_terminal_kind` (:331) | `preferred_z.get(v)` — prints "held by its design target" | unchanged: it reads WHETHER a vertex has a published target, never which kind |
+| C11 | `verify/roads.road_profile_agreement` (:29) | `preferred_z` whole-population mean/max \|z − preferred\| | unchanged in KIND (it already included the chord targets), but its whole-population figures now move with the runway target — read per face (`faces`), which is road-only, when comparing arms |
+| C12 | `tools/v2_solve_replay.py` (:300-321) | calls `with_runway_chord` on the replayed stage | unchanged: it gets the new target for free; a replay of a pre-§21 stage is still comparable because the derivation is re-run, not cached |
+| C13 | `pipeline/build.py` (:513) | gates `road_profile_agreement` on `pm.preferred_z` non-empty | unchanged |
+| C14 | `airport/dem_production.ProductionDem.provenance['degraded']` | set only when a frame actually degraded | READ by the fallback (`runway_chord.dem_degraded`): the `--allow-degraded-dem` FLAG is not the test — the flag only accepts a degradation, and a warm frame under the flag still gets the trend |
+| C15 | `law/model._check_cross_refs` | `emit.design` validation | gains the largest `rulesets.*.runway.vertical_curve_k_m`, handed to `check_design` (which imports nothing from v2) |
+
+Verified by grep over `src/`, `tools/` and `tests/` for `preferred_z`,
+`runway_chord`, `with_runway_chord`, `ChordReport` and `straight_z` (lane
+`v2rwycurve`, before any edit). No other reader exists; the tests listed by
+`blast.py` for `runway_chord.py` are the five in §21.4's run list plus
+`test_v2cyxy.py` / `test_v2ground.py` / `test_v2smooth.py`, which construct
+targets through `with_runway_chord` and are therefore C1's own consumers.
 
 ### 21.4 Twins and the closing tests
 

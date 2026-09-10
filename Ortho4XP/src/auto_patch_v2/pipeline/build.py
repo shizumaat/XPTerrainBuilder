@@ -408,16 +408,26 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
     pm = _dc.replace(pm, preferred_z=road_pref)
     wall["road_profile"] = time.perf_counter() - t
-    # THE RUNWAY CHORD (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``):
-    # every runway-family vertex of a two-pin runway fits the threshold
-    # chord at ``runway_chord_fit``; the DEM fit stays for every other role
+    # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
+    # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
+    # two-pin runway takes the TARGET PROFILE at weight ``[design] chord`` —
+    # the ground's long-wave trend through the threshold pins, or the
+    # straight chord where the DEM frame is degraded.  The DEM fit stays for
+    # every other role.
     chord_rep: ChordReport = {}
     pm = with_runway_chord(pm, law, airport, chord_rep)
     lrep.runway_chord = dict(chord_rep)
-    _say(f"[{icao}] runway chord (08d-1): {chord_rep.get('runways', 0)} runways with two pins "
+    _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
+         f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
+         f"{chord_rep.get('runways_chord', 0)} chord"
+         + (f", FALLBACK {chord_rep['fallback']}" if chord_rep.get("fallback") else "")
+         + f"); {chord_rep.get('runways', 0)} runways with two pins "
          f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
-         f"{chord_rep.get('vertices', 0)}  chord above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
-         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m", out)
+         f"{chord_rep.get('vertices', 0)}  target above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
+         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m"
+         + ("; off the straight chord " + ", ".join(
+             f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
+            if chord_rep.get("by_runway") else ""), out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -481,6 +491,20 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     _say(f"[{icao}] {design_rep.line()}", out)
+    # THE REPORT NAMES THE RESIDUAL PER RUNWAY (spec §21.2 (4)): the built
+    # ridge against the target profile it was given, its mean |z - DEM| and
+    # the law row holding it where it did not reach.
+    if sol.z:
+        from .runway_report import runway_profile_block
+        design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
+        for r in design_rep.runway_profile["runways"]:
+            _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "
+                 f"target RMS {r['target_rms_m']:.3f} m, max {r['target_max_m']:.3f} m; "
+                 f"|z-DEM| mean "
+                 + ("-" if r["dem_mean_abs_m"] is None else f"{r['dem_mean_abs_m']:.3f} m")
+                 + f"; bow vs straight chord {r['chord_bow_m']:+.2f} m; binding "
+                 + (f"{r['binding']} (slack {r['binding_slack_m']:.3f} m)"
+                    if r["binding"] else "nothing"), out)
     if fv.substitutes and sol.z:
         tol = law.tables.emit.materiality.elevation_m
         dz = [abs(sol.z[r.terms[0][0]] - r.hi) for r in cs.linears

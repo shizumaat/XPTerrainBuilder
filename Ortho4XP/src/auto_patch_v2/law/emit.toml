@@ -181,7 +181,22 @@ bend_taxi     = 1.0
 bend_apron    = 1.0
 bend_strip    = 30.0
 bend_road     = 1.0
-chord         = 300.0  # the runway's threshold-chord target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its chord and FILLS, it never fits the DEM
+chord         = 300.0  # the runway's PROFILE target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its target profile and FILLS or CUTS to it, it never fits the DEM per vertex.  The row is the same row under 09-10q/10r/10t — only its TARGET changed from the straight threshold chord to the ground's long-wave trend through the pins (spec §21)
+# THE RUNWAY PROFILE FOLLOWS THE AIRPORT (owner RULINGS 2026-09-10q/10r,
+# ruled 10t (3); spec §21).  SPJC: the built ridge reproduced the straight
+# threshold chord to <= 0.01 m at every station — zero vertical curves —
+# and sat 26.71 m abeam a taxiway the lawful envelope admits it at 25.60.
+# The ``chord`` row's target is now the GROUND'S LONG-WAVE TREND along the
+# ridge: at each ridge station the value of a moving QUADRATIC least-squares
+# fit of the production DEM over +/- this window, shifted by the LINEAR
+# correction that puts it exactly through the two threshold pins (a linear
+# correction leaves the fit's second derivative untouched, so the pins cost
+# the profile no curvature).  The window is the SCALE OF THE LAW: at 500 m
+# it is longer than a K = 305 m vertical curve, so the target already has
+# only long gentle curvature and the runway bends with the ground's trend
+# without undulating with the ground (08t (1) / 09b).  Schema-validated at
+# or above the largest ``rulesets.*.runway.vertical_curve_k_m``.
+runway_profile_window_m = 500.0
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are

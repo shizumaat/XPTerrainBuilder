@@ -110,32 +110,52 @@ def valley(law):
     return _airport(law, [RUNWAY], [], _Valley())
 
 
-def test_a_two_pin_ridge_over_a_valley_sits_on_the_chord(valley, law):
+def test_a_two_pin_ridge_over_a_valley_sits_on_its_target_profile(valley, law):
+    """SUPERSEDED IN ITS TARGET, NOT IN ITS SHAPE (owner RULINGS
+    2026-09-10q/10r, ruled 10t (3); spec §21, lane ``v2rwycurve``): the row
+    is the same ``chord`` row at the same weight, but its target is now the
+    ground's long-wave TREND through the two pins, not the straight line
+    between them.  Over this valley the target therefore BENDS toward the
+    ground (measured 4.45 m off the straight chord at the floor) instead of
+    holding 700.0, and the built ridge follows it — while the PINS still
+    read exactly 700.0 and the edge still reads its ridge value less the
+    crown.  The trend twins live in ``test_v2rwycurve.py``.
+    """
     airport, pm, _st = valley
     targets = runway_chord_targets(pm, law, airport)
     ridge = [v for v in targets if abs(pm.vertices[v].xy[1]) < 0.01]
     assert len(ridge) >= 20
-    assert all(abs(targets[v] - 700.0) < 1e-6 for v in ridge)          # the chord, not the DEM
+    ends = [v for v in ridge if abs(abs(pm.vertices[v].xy[0]) - 600.0) < 0.01]
+    assert len(ends) == 2
+    assert all(abs(targets[v] - 700.0) < 1e-6 for v in ends)     # the pins are the datum
+    mid_r = min(ridge, key=lambda v: abs(pm.vertices[v].xy[0]))
+    assert 694.0 + 1.0 < targets[mid_r] < 700.0 - 1.0, targets[mid_r]  # bent, not on the DEM
     edge = next(v for v in targets if abs(abs(pm.vertices[v].xy[1]) - 22.5) < 0.01)
+    foot = min(ridge, key=lambda v: abs(pm.vertices[v].xy[0] - pm.vertices[edge].xy[0]))
     drop = crown_drops(pm, law, airport)[edge]
-    assert targets[edge] == pytest.approx(700.0 - drop)               # chord less the crown
+    assert targets[edge] == pytest.approx(targets[foot] - drop, abs=0.05)  # target less the crown
     pm_c = with_runway_chord(pm, law, airport)
     cs, _c, _w = generate(pm_c, law, airport)
-    w = None
     sol = solve_design(pm_c, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
     mid = _vid(pm, (0.0, 0.0))
     assert pm.vertices[mid].dem_z == pytest.approx(694.0)
-    assert abs(sol.z[mid] - 700.0) < 0.05                               # on the chord: 6 m of fill
+    assert abs(sol.z[mid] - targets[mid]) < 0.25       # on its target profile, not on the DEM
+    assert sol.z[mid] > 694.0 + 1.0                    # and it still FILLS the valley
     # the DEM-fit control: the same set without the chord sags into the valley
     cs0, _c, _w = generate(pm, law, airport)
     sol0 = solve_design(pm, cs0, law)[0]
-    # RE-SCOPED (RULINGS 2026-09-09b (3), lane v2ground): with NO DEM term
-    # in the patch the control cannot "sag onto the terrain" — a runway
-    # sheet with no chord takes its own terrain PLANE (08t answer 6).  What
-    # the twin holds is the CHORD's effect: the chord arm sits metres above
-    # the control (measured: 700.00 vs 698.04).
-    assert sol0.z[mid] < sol.z[mid] - 1.0, (sol0.z[mid], sol.z[mid])
+    # RE-SCOPED TWICE.  (1) RULINGS 2026-09-09b (3), lane v2ground: with NO
+    # DEM term in the patch the control cannot "sag onto the terrain" — a
+    # runway sheet with no chord takes its own terrain PLANE (08t answer 6),
+    # measured 698.04 against the straight chord's 700.00.  (2) RULINGS
+    # 2026-09-10t (3), lane v2rwycurve: the target is no longer the straight
+    # chord, so the SIGN of the difference is no longer the twin's business
+    # — over this valley the trend target sits BELOW the plane control
+    # (measured 695.22 against 698.58), which is the ruling's whole point.
+    # What the twin holds is that the row DOES WORK: the target arm is on
+    # its target profile (above) and metres off the control that has none.
+    assert abs(sol0.z[mid] - sol.z[mid]) > 1.0, (sol0.z[mid], sol.z[mid])
 
 
 def test_a_runway_without_two_pins_keeps_the_dem(law):

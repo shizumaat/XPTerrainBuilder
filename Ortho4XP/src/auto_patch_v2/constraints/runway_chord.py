@@ -33,13 +33,57 @@ to the crossing point gets its CIFP-linear-interp value used as the agreed
 altitude ... and the OTHER runway accommodates by deviating from its own
 linear interpolation as much as the FAA gates allow".
 
+THE RUNWAY PROFILE FOLLOWS THE AIRPORT (owner RULINGS 2026-09-10q/10r,
+ruled 10t (3); spec §21).  SPJC read the cost of a STRAIGHT chord: the
+built ridge reproduced it to <= 0.01 m at every 250 m station — zero
+vertical curves — and sat 26.71 m abeam a taxiway whose lawful envelope
+admits the runway at 25.60, with mean |z - DEM| 2.14 m over the length.
+The owner: "the runway also seems like it should be allowed to have a bit
+more curvature, as in reality airports want to minimize the elevation
+variance between adjacent paved areas when possible" (10q); "long gentle
+curves are best for fast moving aircraft" (10r).
+
+So the SAME ROW (weight ``[design] chord``) keeps a different TARGET: the
+GROUND'S LONG-WAVE TREND along the ridge.  At a ridge station ``s`` the
+target is the value at ``s`` of a moving QUADRATIC least-squares fit of
+the PRODUCTION DEM sampled along that runway's own ridge over
+``s +/- [design] runway_profile_window_m`` (:class:`_Trend`), shifted by
+the LINEAR correction that puts the profile exactly through the two
+threshold pins (:meth:`_Chord.z`).
+
+WHY A LINEAR CORRECTION AND NOT A CONSTRAINED LEAST SQUARES (spec §21.2
+(1) offers either; this is the one implemented, and the reason): adding an
+affine function to the fitted trend leaves its SECOND DERIVATIVE
+untouched, so the pins cost the profile no curvature at all — the window
+alone bounds it, and the window is validated at or above the largest
+``vertical_curve_k_m``.  A constrained LSQ would instead bend the fit to
+reach the pins, spending curvature the K law has to pay for at the very
+stations (the end zones) where the law is tightest.  With a crossing knot
+(§17) the correction is PIECEWISE linear over the control points, which is
+the same statement segment by segment and reduces byte-for-byte to the
+straight chord when there is no trend.
+
+THE CHORD IS THE FALLBACK (spec §21.2 (2), plan §2 — never an invented
+value): where the production DEM frame is DEGRADED (``airport.dem.
+provenance['degraded']``, the ``--allow-degraded-dem`` arm) or a runway's
+ridge yields too few DEM samples to fit, the target is the straight
+threshold chord exactly as before; a runway with fewer than two pins keeps
+the DEM as its target, unchanged.
+
+WHAT THE TARGET IS NOT (spec §21.2 (5)): a per-vertex DEM pull (08t (1)).
+The window is longer than any DEM artefact the owner has read as
+"unrealistic undulation" (09b) and the fit is quadratic over >= 1 km of
+ridge, so the runway bends with the ground's TREND and cannot undulate
+with the ground.
+
 The K rows, the max-grade rows, the transverse maximum and the pins stay
 HARD; the profile smoothness stays senior to this term: the runway runs
-straight between its holds and FILLS or CUTS toward the chord wherever
-nothing senior holds it.
+between its holds and FILLS or CUTS toward the target wherever nothing
+senior holds it.
 """
 from __future__ import annotations
 
+import bisect as _bisect
 import dataclasses as _dc
 import typing as _t
 
@@ -64,18 +108,122 @@ CROSSING_ROLE = "runway_crossing"
 
 
 class ChordReport(_t.TypedDict, total=False):
-    """What the chord fit covered."""
+    """What the profile fit covered."""
 
-    runways: int              # runways with two pins (a chord)
+    runways: int              # runways with two pins (a target profile)
     runways_without: int      # runways with fewer than two pins (DEM fit kept)
-    vertices: int             # runway-family vertices given a chord target
-    max_above_dem_m: float    # the largest chord − DEM (the fill the target asks)
-    max_below_dem_m: float    # the largest DEM − chord (the cut)
+    vertices: int             # runway-family vertices given a profile target
+    max_above_dem_m: float    # the largest target − DEM (the fill the target asks)
+    max_below_dem_m: float    # the largest DEM − target (the cut)
+    #: THE TARGET KIND (spec §21.2): ``trend`` where the ground's long-wave
+    #: trend through the pins is the target, ``chord`` where the straight
+    #: threshold chord is (the fallback), and per runway which it was
+    target_kind: str
+    window_m: float
+    runways_trend: int
+    runways_chord: int
+    #: why the fallback ran, where it did (a degraded frame names itself)
+    fallback: str
+    by_runway: list   # [{"runway", "kind", "trend_max_off_chord_m"}]
     #: THE RUNWAY x RUNWAY CROSSINGS (RULINGS 2026-09-09z (1)): one record
     #: per crossing — the two runways, which one GOVERNS (its threshold is
     #: nearest the node), the node's elevation and the pinned vertex
     crossings: list   # [{"pair", "governing", "other", "z_pin_m", "pin_vertex", "pin_z_m"}]
     crossing_pins: int          # the crossing nodes actually pinned
+
+
+@_dc.dataclass(frozen=True)
+class _Trend:
+    """THE GROUND'S LONG-WAVE TREND along one runway's ridge (spec §21.2
+    (1), module docstring).
+
+    ``s`` / ``z`` are the PRODUCTION DEM samples under that runway's own
+    ridge vertices, in the chord's station frame, ascending and unique.
+    :meth:`at` is a moving QUADRATIC least squares over the samples within
+    ``+/- window_m`` — the fit's own value at the query station, i.e. the
+    constant term of the fit re-centred there.
+
+    THE WEIGHT IS TAPERED (tricube, ``(1 - |u|^3)^3`` over the window; the
+    spec says "moving quadratic least squares over +/- the window" and
+    leaves the kernel open — this is the choice, and the measurement that
+    made it).  A UNIFORM (boxcar) weight makes the fit jump as a sample
+    enters or leaves the window: measured on the §21.4 sag twin at a 12 m
+    ridge spacing, the target's largest second difference is 0.0357 m
+    boxcar against 0.0154 m tricube, and on the 30 m / 20 m noise twin
+    2.97 m against 0.029 m — a boxcar target carries curvature the K law
+    (0.0047 m over a 12 m station) has to spend the projection to remove,
+    which is exactly the "long gentle curves" the ruling asks for being
+    thrown away at the fit.  Tricube is the standard moving-least-squares
+    kernel and costs one multiply per sample.
+
+    Degenerate windows fall back by DEGREE, never to an invented value: two
+    samples give the line through them, one gives itself, none gives
+    ``None`` (and the caller then keeps the straight chord).  ``u`` is
+    scaled by the window before the normal equations are formed, so the
+    3x3 stays conditioned on a 1 km ridge."""
+
+    s: tuple[float, ...]
+    z: tuple[float, ...]
+    window_m: float
+    _memo: dict = _dc.field(default_factory=dict, compare=False, repr=False)
+
+    def at(self, q: float) -> float | None:
+        key = round(q, 3)
+        if key in self._memo:
+            return self._memo[key]
+        lo = _bisect.bisect_left(self.s, q - self.window_m)
+        hi = _bisect.bisect_right(self.s, q + self.window_m)
+        n = hi - lo
+        val: float | None
+        if n <= 0:
+            val = None
+        elif n == 1:
+            val = self.z[lo]
+        else:
+            us = [(self.s[i] - q) / self.window_m for i in range(lo, hi)]
+            zs = [self.z[i] for i in range(lo, hi)]
+            ws = [(1.0 - abs(u) ** 3) ** 3 for u in us]
+            val = _poly_at_zero(us, zs, ws, 2 if n >= 3 else 1)
+            if val is None:
+                val = _poly_at_zero(us, zs, ws, 1)
+            if val is None:
+                sw = sum(ws) or float(len(zs))
+                val = sum(w * z for w, z in zip(ws, zs)) / sw
+        self._memo[key] = val
+        return val
+
+
+def _poly_at_zero(us: _t.Sequence[float], zs: _t.Sequence[float],
+                  ws: _t.Sequence[float], degree: int) -> float | None:
+    """The value AT u = 0 of the WEIGHTED least-squares polynomial of
+    ``degree`` through ``(us, zs)`` — the constant term.  ``None`` when the
+    normal equations are singular (every sample at one station, or a degree
+    the sample count cannot carry), so the caller falls back by degree."""
+    k = degree + 1
+    if len(us) < k:
+        return None
+    m = [0.0] * (2 * degree + 1)
+    b = [0.0] * k
+    for u, zv, w in zip(us, zs, ws):
+        p = w
+        for j in range(2 * degree + 1):
+            m[j] += p
+            if j < k:
+                b[j] += p * zv
+            p *= u
+    a = [[m[i + j] for j in range(k)] + [b[i]] for i in range(k)]
+    for col in range(k):                      # Gaussian elimination, partial pivot
+        piv = max(range(col, k), key=lambda r: abs(a[r][col]))
+        if abs(a[piv][col]) < 1e-12:
+            return None
+        a[col], a[piv] = a[piv], a[col]
+        for r in range(k):
+            if r == col:
+                continue
+            f = a[r][col] / a[col][col]
+            for c in range(col, k + 1):
+                a[r][c] -= f * a[col][c]
+    return a[0][k] / a[0][0]
 
 
 @_dc.dataclass(frozen=True)
@@ -97,24 +245,62 @@ class _Chord:
     z0: float
     z1: float
     knots: tuple[tuple[float, float], ...] = ()
+    #: THE TREND (spec §21.2 (1)): the ground's long-wave shape along this
+    #: runway's ridge.  ``None`` = the CHORD FALLBACK (§21.2 (2)) — a
+    #: degraded DEM frame or a ridge with no samples to fit — and every
+    #: method below then reproduces the straight chord byte for byte.
+    trend: _Trend | None = None
 
     def station(self, x: float, y: float) -> float:
         return (x - self.a_xy[0]) * self.ux + (y - self.a_xy[1]) * self.uy
 
+    @property
+    def kind(self) -> str:
+        """``trend`` or ``chord`` — what this runway's target IS."""
+        return "chord" if self.trend is None else "trend"
+
     def straight_z(self, s: float) -> float:
-        """The line between the two CIFP pins, ignoring any knot — the
-        value a GOVERNING runway hands the crossing (v1's ``agreed``)."""
+        """The line between the two CIFP pins, ignoring the trend and any
+        knot — the STRAIGHT chord, the instrument every bow is read
+        against and the fallback target of §21.2 (2)."""
         return self.z0 + (self.z1 - self.z0) * (s - self.s0) / (self.s1 - self.s0)
 
+    def own_z(self, s: float) -> float:
+        """This runway's OWN target profile, ignoring any crossing knot —
+        the value a GOVERNING runway hands the crossing (v1's ``agreed``,
+        §17.1).  Under §21 that is the trend through the pins, not the
+        straight chord; with no trend it IS the straight chord."""
+        return self._through(((self.s0, self.z0), (self.s1, self.z1)), s)
+
     def z(self, s: float) -> float:
+        """The target profile at station ``s``: the trend carried through
+        the control points — the two threshold pins and any crossing knot
+        (§17.2) — by a PIECEWISE LINEAR correction (module docstring)."""
         if not self.knots:
-            return self.straight_z(s)
-        pts = [(self.s0, self.z0), *self.knots, (self.s1, self.z1)]
+            return self.own_z(s)
+        return self._through(((self.s0, self.z0), *self.knots,
+                              (self.s1, self.z1)), s)
+
+    def _through(self, pts: tuple[tuple[float, float], ...], s: float) -> float:
+        """``pts`` are the control points, ascending in station.  With no
+        trend this is the piecewise line through them (the pre-§21
+        behaviour, unchanged).  With one it is ``T(s)`` plus the linear
+        function that makes the profile pass through the two control
+        points bracketing ``s`` — the second derivative of the trend is
+        therefore carried through untouched."""
         for (sa, za), (sb, zb) in zip(pts, pts[1:]):
             if s <= sb or (sb, zb) == pts[-1]:
                 if sb - sa <= 0.0:
                     return za
-                return za + (zb - za) * (s - sa) / (sb - sa)
+                f = (s - sa) / (sb - sa)
+                if self.trend is None:
+                    return za + (zb - za) * f
+                t, ta, tb = (self.trend.at(s), self.trend.at(sa),
+                             self.trend.at(sb))
+                if t is None or ta is None or tb is None:
+                    return za + (zb - za) * f     # the window is empty: the chord
+                ca, cb = za - ta, zb - tb
+                return t + ca + (cb - ca) * f
         return pts[-1][1]
 
     def threshold_distance(self, s: float) -> float:
@@ -138,13 +324,51 @@ class Crossing:
     d_other: float                 # the other runway's threshold distance
 
 
+def dem_degraded(airport: Airport) -> str:
+    """Why the production DEM frame is DEGRADED, or ``""`` (spec §21.2 (2)).
+
+    The ``--allow-degraded-dem`` FLAG is not the test — the flag only
+    ACCEPTS a degradation; ``ProductionDem`` records one under
+    ``provenance['degraded']`` only when a frame actually degraded.  A
+    degraded frame keeps the STRAIGHT CHORD as the runway's target: a
+    trend fitted to a surface the harness has refused is an invented
+    value (plan §2)."""
+    prov = getattr(getattr(airport, "dem", None), "provenance", None) or {}
+    try:
+        return str(prov.get("degraded") or "")
+    except Exception:                     # a sampler with no mapping provenance
+        return ""
+
+
+def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
+           pm: PlanarMap, window_m: float) -> _Trend | None:
+    """The production DEM under this runway's own ridge, in ``c``'s station
+    frame (module docstring).  ``None`` where fewer than three stations
+    carry a sample — nothing to fit a quadratic to, so the chord stands."""
+    by_s: dict[float, list[float]] = {}
+    for ch in chains.get(rw_id, []):
+        for v in ch:
+            dem = pm.vertices[v].dem_z
+            if dem is None:
+                continue
+            by_s.setdefault(round(c.station(*vw.xy[v]), 3), []).append(float(dem))
+    if len(by_s) < 3:
+        return None
+    ss = sorted(by_s)
+    return _Trend(tuple(ss), tuple(sum(by_s[s]) / len(by_s[s]) for s in ss),
+                  float(window_m))
+
+
 def _chords(pm: PlanarMap, law: Law, airport: Airport
             ) -> tuple[dict[str, _Chord], int]:
-    """Runway id -> its STRAIGHT threshold chord, and how many runways have
+    """Runway id -> its TARGET PROFILE (the trend through its two threshold
+    pins, else the straight chord — spec §21.2), and how many runways have
     fewer than two CIFP pins (those keep the DEM as their target)."""
     vw = view(pm, law)
     chains = ridge_chains(vw)
     pins = threshold_pins(pm, law, airport)
+    window = float(law.tables.emit.design.runway_profile_window_m)
+    degraded = dem_degraded(airport)
     chords: dict[str, _Chord] = {}
     n_without = 0
     for rw in airport.runways:
@@ -163,7 +387,10 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
         if st[p1] - st[p0] <= 0.0:
             n_without += 1
             continue
-        chords[rw.id] = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
+        c = _Chord(a_xy, ux, uy, st[p0], st[p1], pins[p0], pins[p1])
+        if not degraded:
+            c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window))
+        chords[rw.id] = c
     return chords, n_without
 
 
@@ -231,8 +458,12 @@ def runway_crossings(pm: PlanarMap, law: Law, airport: Airport,
     so a crossing broken into several faces by the noding is ONE node).
     The node is the two CENTRELINES' intersection; the governing runway is
     :func:`crossing_governor`'s; the pin value is the governing runway's
-    STRAIGHT chord there, clamped to its two thresholds (v1's
-    beyond-threshold clamp)."""
+    OWN TARGET PROFILE there, clamped to its two thresholds (v1's
+    beyond-threshold clamp).  Under §21 that profile is the trend through
+    its pins, not the straight chord: the pin the other runway grades to is
+    the value the governing runway is itself aiming at, which is what §17.1
+    states and what the straight chord WAS before §21 (with no trend the
+    two are the same value)."""
     if chords is None:
         chords, _ = _chords(pm, law, airport)
     vw = view(pm, law)
@@ -252,7 +483,7 @@ def runway_crossings(pm: PlanarMap, law: Law, airport: Airport,
         gov, other = pick
         cg = chords[gov]
         s_gov = cg.station(*xy)
-        z_pin = cg.straight_z(min(max(s_gov, cg.s0), cg.s1))
+        z_pin = cg.own_z(min(max(s_gov, cg.s0), cg.s1))
         co = chords.get(other)
         s_other = co.station(*xy) if co is not None else 0.0
         out.append(Crossing(f.ref, gov, other, xy, s_gov, s_other, z_pin,
@@ -332,8 +563,10 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                          report: ChordReport | None = None, *,
                          fill_roles: tuple[str, ...] = (),
                          fill_within: str = "graded_strip") -> dict[int, float]:
-    """Vertex -> chord target for every runway-family vertex of a runway
-    with two CIFP pins (module docstring).
+    """Vertex -> TARGET PROFILE value for every runway-family vertex of a
+    runway with two CIFP pins (module docstring): the ground's long-wave
+    trend through the pins (spec §21), or the straight threshold chord
+    where the DEM frame is degraded or the ridge cannot be fitted.
 
     ``fill_roles`` (an EXPERIMENT ARM, lane ``v2chord2`` for owner decision
     08g-2 — v1's strips and connectors ride the runway's fill): the faces
@@ -351,6 +584,28 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     crossings = runway_crossings(pm, law, airport, straight)
     chords = _with_knots(straight, crossings)
     if report is not None:
+        kinds = [c.kind for c in chords.values()]
+        report["window_m"] = round(float(
+            law.tables.emit.design.runway_profile_window_m), 1)
+        report["runways_trend"] = sum(1 for k in kinds if k == "trend")
+        report["runways_chord"] = sum(1 for k in kinds if k == "chord")
+        report["target_kind"] = ("trend" if report["runways_trend"] and not
+                                 report["runways_chord"] else
+                                 "chord" if not report["runways_trend"] else "mixed")
+        deg = dem_degraded(airport)
+        report["fallback"] = (f"degraded DEM frame: {deg}" if deg else
+                              "" if not report["runways_chord"] else
+                              "ridge with fewer than three DEM stations")
+        # HOW FAR THE TARGET LEAVES THE STRAIGHT CHORD, per runway: the
+        # curvature §21 buys, read at the target itself rather than at the
+        # built surface (the report block does the built read)
+        report["by_runway"] = [
+            {"runway": r, "kind": c.kind,
+             "trend_max_off_chord_m": round(max(
+                 (abs(c.z(c.s0 + (c.s1 - c.s0) * i / 40.0)
+                      - c.straight_z(c.s0 + (c.s1 - c.s0) * i / 40.0))
+                  for i in range(41)), default=0.0), 3)}
+            for r, c in sorted(chords.items())]
         report["crossings"] = [
             {"pair": x.pair, "governing": x.governing, "other": x.other,
              "z_pin_m": round(x.z_pin, 3),

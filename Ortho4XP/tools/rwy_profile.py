@@ -22,6 +22,7 @@ the DEM (v2's production loader, memoised beside the patch)."""
 from __future__ import annotations
 
 import argparse
+import dataclasses as _dc
 import math
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ import check_grade as cg  # noqa: E402
 from auto_patch_v2.law import Law  # noqa: E402
 from auto_patch_v2.airport.load import load_with_report  # noqa: E402
 from auto_patch_v2.pipeline.__main__ import default_inputs  # noqa: E402
+from auto_patch_v2.constraints.runway_chord import _Chord, _Trend  # noqa: E402
 
 
 def _spine(patch: Path, ref: str):
@@ -50,7 +52,32 @@ def _spine(patch: Path, ref: str):
     return best, ll_to_m
 
 
-def _binned(patches: dict[str, Path], airport, law) -> int:
+def _target_profile(rw, law, stations, dems):
+    """THE TARGET PROFILE this runway was designed to (spec §21.2 (1)) —
+    ``constraints/runway_chord``'s OWN ``_Trend`` / ``_Chord``, never a
+    second implementation of the fit (tools/INDEX.md: extend, never fork).
+
+    ``stations`` / ``dems`` are this tool's own binned DEM read UNDER THE
+    RIDGE (the 50 m bin means), so the fit is over the same ground the
+    build fits, sampled on the tool's own grid: the values differ from the
+    build's by the binning, and the tool says so rather than claiming to
+    reproduce the build's target to the millimetre."""
+    e0, e1 = rw.ends
+    if e0.threshold_elev_m is None or e1.threshold_elev_m is None:
+        return None
+    (x0, y0), (x1, y1) = e0.xy, e1.xy
+    L = math.hypot(x1 - x0, y1 - y0)
+    c = _Chord((x0, y0), (x1 - x0) / L, (y1 - y0) / L, 0.0, L,
+               float(e0.threshold_elev_m), float(e1.threshold_elev_m))
+    pts = sorted((s, d) for s, d in zip(stations, dems) if d is not None)
+    if len(pts) >= 3:
+        c = _dc.replace(c, trend=_Trend(tuple(s for s, _ in pts),
+                                        tuple(d for _, d in pts),
+                                        float(law.tables.emit.design.runway_profile_window_m)))
+    return c
+
+
+def _binned(patches: dict[str, Path], airport, law, want_target: bool = False) -> int:
     """The cross-engine read (module docstring)."""
     import collections
     import pickle
@@ -83,6 +110,7 @@ def _binned(patches: dict[str, Path], airport, law) -> int:
         z0, z1 = e0.threshold_elev_m, e1.threshold_elev_m
         print(f"\n### {rw.id}: {e0.name} {z0:.2f} -> {e1.name} {z1:.2f} over {L:.0f} m")
         prof: dict[str, dict] = {}
+        tgt: "_Chord | None" = None
         for name, (nodes, ways) in loaded.items():
             bins = collections.defaultdict(list)
             for w in ways:
@@ -118,6 +146,19 @@ def _binned(patches: dict[str, Path], airport, law) -> int:
                   f"s={gw[1]:.0f}; max grade change {kw[0]:.3f} %/100 m at s={kw[1]:.0f}; "
                   f"z-DEM mean {st.mean(offs):+.2f} min {min(offs):+.2f} max {max(offs):+.2f}; "
                   f"n nodes {sum(len(v) for v in bins.values())}")
+            if want_target:
+                if tgt is None:
+                    tgt = _target_profile(rw, law, [r[0] for r in rows],
+                                          [r[2] for r in rows])
+                if tgt is None:
+                    print(f"{name}: no target (a threshold elevation is missing)")
+                else:
+                    dv = [r[1] - tgt.z(r[0]) for r in rows]
+                    print(f"{name}: TARGET ({tgt.kind}, window "
+                          f"{law.tables.emit.design.runway_profile_window_m:.0f} m): "
+                          f"built - target RMS {(sum(d * d for d in dv) / len(dv)) ** 0.5:.3f} m, "
+                          f"max {max(abs(d) for d in dv):.3f} m; target off the straight "
+                          f"chord max {max(abs(tgt.z(r[0]) - line(r[0])) for r in rows):+.2f} m")
         keys = sorted(set().union(*(set(p) for p in prof.values())))
         print("station(m): " + " ".join(f"{b * 50 + 25}" for b in keys if b % 4 == 0))
         dem_row = []
@@ -129,6 +170,8 @@ def _binned(patches: dict[str, Path], airport, law) -> int:
         print("DEM       : " + " ".join(dem_row))
         for name, p in prof.items():
             print(f"{name:10s}: " + " ".join(f"{p[b][0]:.1f}" if b in p else "  -  " for b in keys if b % 4 == 0))
+        if want_target and tgt is not None:
+            print("TARGET    : " + " ".join(f"{tgt.z(b * 50 + 25):.1f}" for b in keys if b % 4 == 0))
     pickle.dump(memo, cache.open("wb"))
     return 0
 
@@ -141,6 +184,12 @@ def main() -> int:
     ap.add_argument("--cross", default="05L/23R")
     ap.add_argument("--binned", action="store_true", help="the cross-engine binned-ridge read of every runway")
     ap.add_argument("--compare", type=Path, help="with --binned: the other patch (v1 control) read alike")
+    ap.add_argument("--target", action="store_true",
+                    help="with --binned: also read the built ridge against the TARGET PROFILE "
+                         "the design surface was given (spec §21.2 (1)) — the ground's long-wave "
+                         "trend through the threshold pins, fitted by constraints/runway_chord's "
+                         "own _Trend over this tool's binned DEM read; the straight-chord bow "
+                         "above is kept for continuity")
     a = ap.parse_args()
     patch = Path(a.patch)
     law = Law.for_airport(a.icao)
@@ -149,7 +198,7 @@ def main() -> int:
         patches = {"this": patch}
         if a.compare:
             patches["compare"] = a.compare
-        return _binned(patches, airport, law)
+        return _binned(patches, airport, law, a.target)
     rw = next(r for r in airport.runways if r.id == a.rwy)
     xr = next(r for r in airport.runways if r.id == a.cross)
     pts, ll_to_m = _spine(patch, a.rwy)

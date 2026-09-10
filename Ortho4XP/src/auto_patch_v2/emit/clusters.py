@@ -21,12 +21,19 @@ the mesh:
   NEVER cut — two touching components of one authored placement are one
   BODY.  The connected components of the kept ground edges are the
   CLUSTERS (the bodies);
-* ELEVATED parts never vote (10i (3)): each is assigned by multi-source
-  BFS over the contact graph FROM the bodies' ground parts — the body it
-  TOUCHES, transitively, never a contact-count vote; a tie at equal hop
-  distance goes to a body holding a ground part of the same placement,
-  then to the lowest body id, and an elevated part never bridges two
-  bodies.  One touching NOTHING joins the nearest body only within
+* ELEVATED parts never vote (10i (3)): they are assigned by multi-source
+  BFS over the contact graph FROM the bodies' ground parts — the body
+  TOUCHED, transitively, never a contact-count vote.  The BFS assigns a
+  COHESION GROUP, not a part (RULINGS 2026-09-10u (1)): elevated
+  components of ONE placement that touch each other are one group and
+  take ONE body, because assigning them independently tore LEMD's
+  terminals (1,679 of 2,345 torn intra-placement edges were elevated x
+  elevated — the plate at +3.550 and the wall it rests on at -5.621,
+  0.089 m apart).  A group never BRIDGES two bodies: where it touches
+  several it joins the one whose touched part has the largest PLAN
+  OVERLAP with it — the wall it rests on — then a body holding a ground
+  part of the same placement, then the lowest body id.  A group touching
+  NOTHING joins the nearest body only within
   ``identity.min_distinct_spacing_m`` x 4, else it is HELD;
 * a STRUCTURE-seated member (a deck plate at its abutment grade, a plate
   family) is a FIXED cluster with the structure's delta: the parts of its
@@ -77,6 +84,19 @@ def metres_per_degree(lat: float) -> tuple[float, float]:
         + 1.175 * math.cos(4 * math.radians(lat))
     m_lon = 111_412.84 * math.cos(math.radians(lat)) - 93.5 * math.cos(3 * math.radians(lat))
     return m_lat, m_lon
+
+
+def _plan_overlap_m2(a: tuple[float, float, float, float],
+                     b: tuple[float, float, float, float]) -> float:
+    """The overlap AREA of two plan boxes ``(min_lat, min_lon, max_lat,
+    max_lon)`` in m² — the "which wall does it rest on" measure of
+    RULINGS 2026-09-10u (1); ``0.0`` when they do not overlap."""
+    dla = min(a[2], b[2]) - max(a[0], b[0])
+    dlo = min(a[3], b[3]) - max(a[1], b[1])
+    if dla <= 0.0 or dlo <= 0.0:
+        return 0.0
+    m_lat, m_lon = metres_per_degree((max(a[0], b[0]) + min(a[2], b[2])) / 2.0)
+    return dla * m_lat * dlo * m_lon
 
 
 def coalition(values: _t.Sequence[float], window: float) -> tuple[list[float] | None, str]:
@@ -149,6 +169,11 @@ class Outcome:
     intra_placement_kept: int = 0
     #: 10i (3): parts touching no body within the identity spacing × 4.
     held_parts: int = 0
+    #: RULINGS 2026-09-10u (1): the intra-placement ELEVATED cohesion
+    #: groups the BFS assigned as one, and how many of them resolved on
+    #: no plan overlap at all (the residual body-id tie).
+    elevated_groups: int = 0
+    group_ties: int = 0
 
 
 class _UF:
@@ -289,7 +314,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 stack.append(b)
     # ── the cut (spec §3.2) ─────────────────────────────────────────────
     ground_ids = [pid for pid, p in ps.items() if p.ground or pid in attached]
-    guf = _UF(ground_ids)
+    # the BODY union-find spans EVERY part (RULINGS 2026-09-10u (1)): an
+    # intra-placement contact edge binds whatever it joins — ground to
+    # ground, ground to elevated, elevated to elevated — so ONE PLACEMENT'S
+    # TOUCHING SET IS ONE BODY, exactly as 10i (1) says, and the components
+    # that hold no ground part at all are the FREE GROUPS the BFS assigns.
+    guf = _UF(list(ps))
     by_unit: dict[str, list[int]] = {}
     for pid, uid in attached.items():
         by_unit.setdefault(uid, []).append(pid)
@@ -297,7 +327,8 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         for pid in pids[1:]:
             guf.union(pids[0], pid)
     kept: list[tuple[int, int]] = []
-    euf = _UF([pid for pid, p in ps.items() if not p.ground and pid not in attached])
+    free_ids = [pid for pid, p in ps.items() if not p.ground and pid not in attached]
+    euf = _UF(free_ids)
     n_cut = n_intra_kept = 0
     for a, b in edges:
         pa, pb = ps[a], ps[b]
@@ -328,11 +359,33 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 n_intra_kept += 1
             kept.append((a, b))
             guf.union(a, b)
-        elif pa.ground or pb.ground:
-            continue                            # the BFS below assigns the elevated end
         else:
-            euf.union(a, b)
-    comps = guf.components()
+            if not (pa.ground or pb.ground):
+                euf.union(a, b)
+            # RULINGS 2026-09-10u (1), widened — see spec §15.  An
+            # intra-placement edge with an ELEVATED end binds too: before
+            # 10u each elevated part was assigned INDEPENDENTLY by the
+            # BFS, in the same round, from whatever ground it reached, so
+            # two touching components of one file landed metres apart.
+            # At LEMD 2,345 intra-placement contact edges carried
+            # different deltas — 1,679 of them elevated x elevated,
+            # including the worst site (Terminal4SAT_Yellow-LEMD11 plate
+            # c5153 +3.550 against wall c3104 -5.621, 0.089 m apart, BOTH
+            # elevated).  Across placements nothing changes: the elevated
+            # end is still assigned by the BFS and never bridges two
+            # bodies (10i (3)).
+            if pa.key == pb.key:
+                guf.union(a, b)
+            elif pa.ground or pb.ground:
+                continue
+    # A component holding at least one GROUND (or deck-attached) part is a
+    # BODY; one made only of elevated parts founds nothing and is a FREE
+    # GROUP the BFS below assigns whole (10i (3): it joins one body, it
+    # never bridges two).
+    all_comps = guf.components()
+    comps = [c for c in all_comps if any(ps[pid].ground or pid in attached for pid in c)]
+    free_groups = [c for c in all_comps if not any(ps[pid].ground or pid in attached
+                                                   for pid in c)]
     cluster_of: dict[int, int] = {}
     for k, pids in enumerate(comps):
         for pid in pids:
@@ -347,23 +400,49 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     # joins one, it does not merge them.  A tie at equal hop distance
     # resolves to a body holding a ground part of the SAME placement, then
     # to the lowest body id.
+    #
+    # RULINGS 2026-09-10u (1): the BFS assigns a COHESION GROUP — the
+    # touching set of ELEVATED components of one placement — never a
+    # single part, so two touching elevated components of one file can
+    # never land in different bodies; and where a group touches several
+    # bodies the tie resolves to THE WALL IT RESTS ON (the largest plan-
+    # footprint overlap between a group part and the touched part), then
+    # to a body holding a ground part of the same placement, and only
+    # then to the lowest body id.
     keys_of: dict[int, set[MemberKey]] = {}
     for k, pids in members_of.items():
         keys_of[k] = {ps[pid].key for pid in pids}
-    unassigned = [pid for pid in ps if pid not in cluster_of]
+    groups: dict[int, list[int]] = {g: list(pids) for g, pids in enumerate(free_groups)}
+    n_groups = len(groups)
+    n_group_ties = 0
+    unassigned = sorted(groups)
     while unassigned:
         found: dict[int, int] = {}
-        for pid in unassigned:
-            cands = {cluster_of[n] for n in adj.get(pid, ()) if n in cluster_of}
-            if cands:
-                key = ps[pid].key
-                found[pid] = min(cands, key=lambda k: (0 if key in keys_of[k] else 1, k))
+        for g in unassigned:
+            best: tuple[float, int, int] | None = None
+            for pid in groups[g]:
+                p = ps[pid]
+                for n in adj.get(pid, ()):
+                    k = cluster_of.get(n)
+                    if k is None:
+                        continue
+                    ov = _plan_overlap_m2(p.part.box, ps[n].part.box)
+                    rank = (-ov, 0 if p.key in keys_of[k] else 1, k)
+                    if best is None or rank < best:
+                        best = rank
+            if best is not None:
+                found[g] = best[2]
+                if best[0] == 0.0:
+                    n_group_ties += 1
         if not found:
             break
-        for pid, k in found.items():
-            cluster_of[pid] = k
-            members_of[k].append(pid)
-        unassigned = [pid for pid in unassigned if pid not in found]
+        for g, k in found.items():
+            for pid in groups[g]:
+                cluster_of[pid] = k
+                members_of[k].append(pid)
+                keys_of[k].add(ps[pid].key)
+        unassigned = [g for g in unassigned if g not in found]
+    unassigned = [pid for g in unassigned for pid in groups[g]]
     # what the BFS never reached: a part touching no body at all.  It joins
     # the NEAREST body only within the identity spacing × 4 (10i (3));
     # beyond that it is HELD and reported.
@@ -586,4 +665,4 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     for mp in members.values():
         mp.part_deltas.sort()
     return Outcome(seats, members, pads, n_cut, len({struct_of[pid] for pid in ps}),
-                   n_intra_kept, len(held_parts))
+                   n_intra_kept, len(held_parts), n_groups, n_group_ties)

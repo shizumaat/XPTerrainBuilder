@@ -213,7 +213,8 @@ def cmd_disk(args: argparse.Namespace) -> int:
 
 
 def cmd_bodies(args: argparse.Namespace) -> int:
-    """The rigid-body completeness read (RULINGS 2026-09-09b (5))."""
+    """The rigid-body completeness read (RULINGS 2026-09-09b (5) /
+    2026-09-09z (4): the carrier is the component the plane TOUCHES)."""
     from auto_patch_v2.airport import obj8 as O
     from auto_patch_v2.airport import rigid as RG
     with open(args.plan) as fh:
@@ -251,7 +252,7 @@ def cmd_bodies(args: argparse.Namespace) -> int:
                 continue                       # engine_v2 skips: nothing written
             held = {c for c, _k, d in pd if d is None} - set(by)
             free = [i for i in range(len(comps)) if i not in by and i not in held]
-            done = RG.complete_component_deltas(geom, comps, by, held)
+            done = RG.complete_component_deltas(geom, comps, by, held, args.contact)
             n_before += len(free)
             n_after += sum(1 for i in free if i not in done)
             n_flat += sum(1 for i in free
@@ -291,6 +292,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("plan")
     b.add_argument("result", help="the tile build's o4_v2_rebake_result_<ICAO>.json")
     b.add_argument("--top", type=int, default=10)
+    b.add_argument("--contact", type=float, default=0.5,
+                   help="the contact test's tolerance in metres (RULINGS 2026-09-09z (4): "
+                        "emit.identity.min_distinct_spacing_m; 0 = the pre-09z pure-nearest rule)")
     b.add_argument("--thickness", type=float, default=0.3,
                    help="[structures.basin] min_solid_thickness_m — the seat's witness gate")
     b.set_defaults(fn=cmd_bodies)

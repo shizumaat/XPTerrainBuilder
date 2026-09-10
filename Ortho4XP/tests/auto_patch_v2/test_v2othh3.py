@@ -191,10 +191,16 @@ def test_basin_family_seats_its_floor_plate_on_the_trench_floor(objs, law):
     for b in pm.basins:
         assert b.floor_z == pytest.approx(b.solid_min_z, abs=1e-6)
     seats = _plate_seats(pm, law)
+    # RULINGS 2026-09-09ac (2): the plate seat is the basin's OWN WITNESS
+    # resource's — the object whose floor plate the basin cut — never
+    # every member of the region (at LEMD that seated 12 terminal slabs
+    # onto a floor they never had, spec §11.4/§12)
+    assert set(seats) == {b.witness_id for b in pm.basins}
     for b in pm.basins:
-        for oid in b.member_ids:
-            assert oid in seats and seats[oid][0] == pytest.approx(b.plate_y_m)
-            assert all(Polygon(b.ring).buffer(1e-6).contains(Point(q)) for q in seats[oid][1])
+        oid = b.witness_id
+        assert oid in b.member_ids
+        assert seats[oid][0] == pytest.approx(b.plate_y_m)
+        assert all(Polygon(b.ring).buffer(1e-6).contains(Point(q)) for q in seats[oid][1])
     objects, cache = objects_out
     pl = rebake_plan(airport, objects, cache, law, None, exclude=(), tunnel_objects=seats,
                      below_grade=[(Polygon(b.region), tuple(b.objects)) for b in pm.basins])

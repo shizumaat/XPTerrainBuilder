@@ -86,7 +86,8 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
     "floor_plate"``: the family's floor-plate y — NEGATIVE, under the
     rendered y = 0 plane — and points ON the trench floor face, so the
     seat's delta = floor − (mesh(anchor) + agl + plate y) lands the plate
-    on the floor).  ``emit/rebake._plate_reading`` reads both alike."""
+    on the floor — and, 2026-09-09ac (2), ONLY for the basin's own
+    witness resource ``Basin.witness_id``, never for every member).  ``emit/rebake._plate_reading`` reads both alike."""
     from shapely.geometry import LineString as _LS, Point as _Pt, Polygon as _Poly
     grid = law.tables.emit.identity.min_distinct_spacing_m
     step = law.tables.structures.bridge.abutment_sample_step_m
@@ -129,8 +130,17 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
                     else floor).exterior.coords)[:-1]
         if not pts:
             continue
-        for oid in b.member_ids:
-            out.setdefault(oid, (float(b.plate_y_m), pts))
+        # RULINGS 2026-09-09ac (2): the plate seat is the BASIN'S OWN
+        # WITNESS RESOURCE's — the object whose floor plate the basin cut
+        # (``Basin.witness_id``, the deepest genuine solid, the one
+        # ``plate_y_m`` is measured from).  Another member whose plate
+        # merely SHARES that plate y is not plate-seated: it seats by its
+        # feet like any other resource (measured at LEMD: 12 of the 13
+        # "plate" members were terminal slabs the basin half claimed at
+        # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
+        # 12–17 m off their own feet — spec §11.4).
+        if b.witness_id:
+            out.setdefault(b.witness_id, (float(b.plate_y_m), pts))
     return out
 
 

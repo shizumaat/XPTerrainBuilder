@@ -14,6 +14,7 @@ import numpy as np
 
 from ..law import Law
 from ..model.planar import PlanarMap
+from ..solve.rows import _law_sides, _violation
 
 __all__ = ["runway_profile_block"]
 

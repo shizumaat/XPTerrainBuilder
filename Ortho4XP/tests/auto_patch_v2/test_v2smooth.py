@@ -100,22 +100,45 @@ def valley(law):
 
 # ── §4 (1) the runway sits on its CHORD, not on the DEM ─────────────────
 
-def test_runway_fills_the_valley_and_sits_on_its_chord(valley, law):
+def test_runway_follows_the_grounds_trend_through_its_pins(valley, law):
+    """§21 (RULINGS 2026-09-10x, superseding 08d (1)'s "rides its chord"):
+    the runway's target is the DEM's long-wave trend through its threshold
+    pins, and the built ridge reaches it.  The V-valley is 25 m deep and
+    wider than the fit window, so the trend dips into it (the runway no
+    longer bridges a valley wider than its own vertical curves), but the
+    profile is SMOOTH: its second difference along the axis stays far
+    under the DEM's own V."""
     pm, _cs, sol, _rep = valley[:4]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
     z = np.asarray(sol.z, float)
     runway = [v for v, vx in pm.vertices.items()
               if any(pm.faces[f].role == "runway" for f in vx.incident_faces)]
     assert runway
-    mid = [v for v in runway if abs(pm.vertices[v].xy[0]) < 1e9
-           and pm.vertices[v].dem_z is not None and pm.vertices[v].dem_z < 690.0]
+    mid = [v for v in runway if pm.vertices[v].dem_z is not None
+           and pm.vertices[v].dem_z < 690.0]
     assert mid, "the fixture's valley must reach the runway"
+    targeted = [v for v in runway if v in pm.preferred_z]
+    assert targeted, "the chord channel carries the trend target"
+    # the V is sharper than the K law admits, so the family's hard rows
+    # hold the ridge ABOVE the trend target here; what §21 guarantees is
+    # that the ridge bent TOWARD the ground as far as the laws allow
+    # (it no longer rides the flat 700 m chord) while still filling
     fill = [z[v] - pm.vertices[v].dem_z for v in mid]
-    # the DEM is 25 m down in the valley; the chord is flat at 700 m.  The
-    # design surface FILLS (owner 08t answer 2: unbounded cut and fill)
-    assert min(fill) > 0.0, "every valley station is filled, none follows the DEM"
-    assert max(abs(z[v] - 700.0) for v in mid) < 5.0, \
-        "the runway rides its threshold chord, not the valley"
+    assert min(fill) > 0.0, "the V is narrower than the vertical curves: still filled"
+    assert min(z[v] for v in mid) < 700.0 - 1.0, \
+        "the ridge bends toward the ground's trend, off the straight chord"
+    assert min(z[v] for v in targeted) >= min(pm.preferred_z[v] for v in targeted) - 0.5, \
+        "the ridge never goes below its trend target"
+    # smoothness: along the axis, the profile's second difference is a
+    # small fraction of the DEM's (the V has a kink; the trend has none)
+    axis = sorted(((pm.vertices[v].xy[0], v) for v in runway
+                   if abs(pm.vertices[v].xy[1]) < 1.0), key=lambda t: t[0])
+    if len(axis) >= 5:
+        xs = np.array([a for a, _ in axis]); zs = np.array([z[v] for _, v in axis])
+        ds = np.array([pm.vertices[v].dem_z or 0.0 for _, v in axis])
+        d2 = lambda y: np.abs(np.diff(y, 2) / np.maximum(np.diff(xs)[1:] ** 2, 1.0))
+        assert d2(zs).max() < 0.5 * max(d2(ds).max(), 1e-9), \
+            "the runway's curvature stays well under the valley's kink"
 
 
 # ── §4 (2) the taxiway leaving it is TANGENT at the contact ─────────────

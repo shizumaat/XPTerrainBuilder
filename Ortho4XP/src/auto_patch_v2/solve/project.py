@@ -76,7 +76,7 @@ import scipy.sparse as sp
 from ..law import Law
 from ..law.tables import design as design_law
 from ..model.planar import PlanarMap
-from .rows import _one_matrix, _Reduction, _Side
+from .rows import _law_sides, _one_matrix, _Reduction, _Side, _violation
 
 __all__ = ["ProjectionReport", "runway_family_vertices", "free_columns",
            "project_runway"]
@@ -486,3 +486,6 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     if verbose:
         print("    " + rep.line())
     return out, rep
+
+
+# ── THE RUNWAY PROFILE BLOCK (spec §21.2 (4)) ───────────────────────────

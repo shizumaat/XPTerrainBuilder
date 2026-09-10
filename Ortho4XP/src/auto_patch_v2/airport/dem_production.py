@@ -258,6 +258,7 @@ class ProductionDem:
         self.osm_root = osm_root
         self.xplane_root = xplane_root
         self.allow_degraded = bool(allow_degraded)
+        self._warm_notes: dict[str, str] = {}
         self.core_hosted = bool(core_hosted)
         self._out = out
         self.provenance: dict[str, str] = {"frame": "production",
@@ -540,6 +541,20 @@ class ProductionDem:
         state, problems = frame_state(self.elevation_root, self.osm_root,
                                       lat, lon, self.icao)
         stem = state["tile_stem"]
+        if problems and self._may_warm(state):
+            # THE PRODUCTION HOST WARMS A COLD TILE, IT DOES NOT REFUSE IT
+            # (owner 2026-09-10: "it makes no sense to fail due to a cache:
+            # the cache should already be warm, and if it's not why wouldn't
+            # the app just refresh it?!").  The refusal is the HARNESS's
+            # frame law — a lane must never measure in a frame it warmed on
+            # its own schedule — and the harness runs the pipeline CLI
+            # (``core_hosted=False``).  The app's driver (``core_hosted=True``)
+            # is production: an airport spanning two tiles (SPJC: S13W078 +
+            # S12W078) fetches the neighbour tile's airports layer and bakes
+            # its insets exactly as a build of that tile would, then composes.
+            self._warm_tile(lat, lon, state)
+            state, problems = frame_state(self.elevation_root, self.osm_root,
+                                          lat, lon, self.icao)
         if problems:
             self._degrade(stem, problems)
             if not state["base_raster_present"]:
@@ -564,6 +579,52 @@ class ProductionDem:
         dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
         return self._bake(lat, lon, dem, stem, state, tile=tile,
                           airports_smoothed=len(dico), how="composed")
+
+    def _may_warm(self, state: dict) -> bool:
+        """Only the production host warms (the harness refuses by law), only
+        when the caller has not already accepted a degraded frame, and only
+        when the base raster is there to compose on."""
+        return bool(self.core_hosted and not self.allow_degraded
+                    and state.get("base_raster_present"))
+
+    def _warm_tile(self, lat: int, lon: int, state: dict) -> None:
+        """Warm one tile's frame the way its own tile build would: the
+        airports OSM layer (``OSM_queries_to_OSM_layer`` downloads and writes
+        the cache when it is absent) and every airport inset on the tile
+        (``ensure_insets_for_tile``, G4-safe: a fetch failure logs and the
+        frame is re-read — a still-cold frame then degrades or refuses as
+        before)."""
+        import O4_Config_Utils as CFG
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+        import O4_Airport_Elevation_Insets as INSETS
+        stem = state["tile_stem"]
+        missing = [k for k in ("airports_layer_present", "airport_insets_present")
+                   if not state.get(k)]
+        self._out(f"  [dem] production frame {stem} is COLD ({', '.join(missing)}) — "
+                  f"warming it as a build of tile {lat:+d}{lon:+d} would "
+                  f"(airports layer + airport insets), owner 2026-09-10")
+        tile = CFG.Tile(lat, lon, "")
+        tile.read_from_config()
+        tile.auto_patch_xplane_root = self.xplane_root
+        # the tile build's own prelude creates the tile's OSM cache dir
+        # (``O4_Vector_Map.py`` ~:999) before its first query; a neighbour
+        # tile never built has none, and the layer write needs it
+        import O4_File_Names as FNAMES
+        os.makedirs(FNAMES.osm_dir(lat, lon), exist_ok=True)
+        layer = OSM.OSM_layer()
+        OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
+                                     ["all"], cached_suffix="airports")
+        dico = VMAP.build_airports_dico(tile, layer)
+        INSETS.ensure_insets_for_tile(tile, dico)
+        after, still = frame_state(self.elevation_root, self.osm_root, lat, lon, self.icao)
+        note = (f"warmed {','.join(missing)}: airports layer "
+                f"{'written' if after['airports_layer_present'] else 'NOT written'} "
+                f"({len(dico)} airport(s) in the layer), insets dir "
+                f"{'present' if after['airport_insets_present'] else 'ABSENT'}")
+        self.provenance[f"warmed:{stem}"] = note
+        self._out(f"  [dem] production frame {stem}: {note}")
+        self._warm_notes[stem] = note
 
     def _adopt(self, lat: int, lon: int, dem: _t.Any) -> _BakedTile | None:
         """A seeded (host-prepared) tile raster: the same checks and the
@@ -610,11 +671,15 @@ class ProductionDem:
     def _degrade(self, stem: str, problems: list[str]) -> None:
         text = "\n  - ".join(problems)
         if not self.allow_degraded:
+            tried = getattr(self, "_warm_notes", {}).get(stem)
+            hint = (f"The production host TRIED to warm it ({tried}) — check the "
+                    f"network / Overpass and the engine log, then rebuild."
+                    if tried else
+                    "Warm the shared cache (build_airport.py --refresh-data ...), or pass "
+                    "--allow-degraded-dem to measure in the degraded frame KNOWINGLY "
+                    "(recorded in the provenance; authorises NO write).")
             raise ColdDemFrame(
-                f"REFUSING: the production DEM frame for {stem} is COLD:\n  - {text}\n"
-                f"Warm the shared cache (build_airport.py --refresh-data ...), or pass "
-                f"--allow-degraded-dem to measure in the degraded frame KNOWINGLY "
-                f"(recorded in the provenance; authorises NO write).")
+                f"REFUSING: the production DEM frame for {stem} is COLD:\n  - {text}\n{hint}")
         prev = self.provenance.get("degraded", "")
         self.provenance["degraded"] = (prev + "; " if prev else "") + f"{stem}: " + \
             " | ".join(problems)

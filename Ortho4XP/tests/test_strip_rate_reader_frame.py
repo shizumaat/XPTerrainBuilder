@@ -21,6 +21,8 @@ Both were measured on the composed KCLT patch, 2026-08-05.
 """
 from __future__ import annotations
 
+import pytest
+
 import importlib.util
 import sys
 from pathlib import Path
@@ -76,7 +78,8 @@ def test_blind_spot_scales_with_the_actual_station_spacing():
     wide = CG._rate_reader_blind_spot(w, 30.0, 30.0)
     tight = CG._rate_reader_blind_spot(w, 3.0, 3.0)
     assert tight > wide
-    assert tight == 10.0 * wide, (
+    m = CG.GRADE_MATERIALITY
+    assert tight - m == pytest.approx(10.0 * (wide - m)), (
         "a ten-times-tighter station spacing must give a ten-times-wider "
         "grade-change blind spot — the second difference divides by the "
         "spacing twice")
@@ -84,12 +87,13 @@ def test_blind_spot_scales_with_the_actual_station_spacing():
 
 def test_blind_spot_is_the_quantum_over_the_two_spacings():
     """ONE derivation: q * (1/dp + 1/dn), q from _pair_quant_noise_m
-    floored at the coarse emit envelope (no second constant)."""
+    floored at the coarse emit envelope, plus the grade materiality floor
+    (RULINGS 2026-09-06u: the rate readers' one blind spot)."""
     w = _Way()
     q = max(CG._pair_quant_noise_m(w), CG.SLOPED_QUAD_ROUNDING_NOISE_M)
     for dp, dn in ((3.0, 3.0), (2.0, 8.0), (30.5, 30.5)):
         assert CG._rate_reader_blind_spot(w, dp, dn) == \
-            q * (1.0 / dp + 1.0 / dn)
+            q * (1.0 / dp + 1.0 / dn) + CG.GRADE_MATERIALITY
 
 
 def test_blind_spot_at_30_m_is_no_tighter_than_the_retired_constant():

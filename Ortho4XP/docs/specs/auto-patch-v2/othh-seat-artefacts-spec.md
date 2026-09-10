@@ -528,3 +528,119 @@ BUILD-TIME IMPACT: the seat's post-mesh half reads up to
 7,685 ground parts of 25,484; OTHH 15,802 of 139,065) and the plan grows
 by their feet. Measured at the tile level: LEMD3 427 s vs LEMD2 531 s and
 09q's 425 s — inside the ±25 % single-run noise floor, no phase attributed.
+
+## 11. RULINGS 2026-09-09w: the below-grade test per COMPONENT, the tunnel object's WALL signature, the engine's own rebake glob (lane `v2lemdseats` round 3)
+
+### 11.1 The three mechanisms
+
+1. **THE BELOW-GRADE TEST IS PER COMPONENT** (09w (1)).
+   `airport/obj8.read_placed_objects` records, per placement,
+   `below_grade_comps` — the indices (into `ResourceCache.components`,
+   the same deterministic partition `rebake_plan` enumerates) of the
+   genuine solid components whose OWN rendered minimum stands
+   `[basin] admission_depth_m` (2.5 m) or more under the ground at that
+   component.  `solid_min_depth_m` (the deepest of them over the whole
+   file) is no longer a skip on its own.  `airport/rebake_plan.plan`
+   then: skips the placement whole only when EVERY genuine component is
+   below grade (`counts["below_grade"]`, message unchanged), and
+   otherwise drops just those components from the member's `comps`
+   before the partition (`counts["below_grade_parts"]`) — their at-grade
+   siblings seat normally.  The deck-family (`deck_family_seats_rigid`)
+   and plate (05n-4) exemptions are unchanged and skip the filter
+   entirely (a tunnel wall's skirt IS the tunnel).
+2. **A CREST PLATE NEEDS A WALL UNDER IT** (09w (2)).
+   `airport/tunnel_objects.signature` measures
+   `_skirt_perimeter_fraction`: the share of the crest plate's PERIMETER
+   — every ring of every plate polygon, sampled every `wall_sample_m`
+   (2.0) — with a near-vertical solid face within
+   `wall_face_max_thickness_m` (2.0) in plan whose top lies in the
+   crest's band (`plate_bin_m`) and which descends by the depth that
+   admitted the reading: `skirt_min_depth_m` under the SEAT for a full
+   wall, `edge_wall_min_skirt_m` under the CREST for a shallow-seat edge
+   wall (06f — the seat is the author's handle there).  Under
+   `skirt_perimeter_min_fraction` (0.5, new law value) the reading is
+   refused: `"roof, not a crest: skirt under {frac:.0%} of the
+   perimeter …"`.
+3. **THE ENGINE LOADS ITS OWN PLANS ONLY** (09w (3)).
+   `auto_patch/engine_v2` globbed `o4_v2_rebake_*.json` in the patch
+   directory and tried to read `tools/v2_rebake_replay.py`'s own
+   `o4_v2_rebake_<ICAO>.seat.json` as a plan; the glob is now filtered
+   by `_PLAN_NAME_RE` = `^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$`
+   (`model.rebake.PLAN_FILENAME`'s shape).
+
+### 11.2 Consumer census (owner ruling 30l): every reader of the below-grade reading, of the signature and of the plan glob
+
+| Reader | What it reads | Ruled interaction |
+|---|---|---|
+| `airport/rebake_plan.plan:137` | `solid_min_depth_m`, `below_grade` | REPLACED by `below_grade_comps`: whole-placement skip only when every genuine component is deep; otherwise a per-component filter |
+| `airport/rebake_plan.plan` (member loop) | `cache.components` | the same enumeration, minus `below_comps[o.id]`; `Part.comp` keeps the ORIGINAL index, so `emit/rebake`'s writer maps back unchanged |
+| `airport/contact.partition` | the `(index, Component)` list | receives fewer components; contacts / pools / structures are computed over the at-grade parts only — which is the intent (a pit is not a contact of the building beside it) |
+| `planar/basins.read_objects` → `pipeline/build` | `PlacedObject.below_grade`, `witnesses` | UNTOUCHED: the below-grade REGION (08-26's derived cut) is still the union of every witness footprint; only the re-seat's skip changed |
+| `airport/deck_signature.promote/classify` | `below_grade`, `deck_kind` | untouched (the promote path runs before the skip and is exempt from it) |
+| `airport/obj8.ObjReport` (`no_floor`, `through_grade`, `rim_protrusions`, `buried_components`) | the same loop | unchanged: `below_grade_comps` is recorded BEFORE the existing `continue`s, and no existing counter moved |
+| `airport/tunnel_objects.read_corridors` | `signature()` | the only consumer; a refused resource is reported by name in `TunnelObjectStats.refused` (the new message does not match the four suppressed prefixes) |
+| `planar/sunken_roads`, `planar/door_ramps` | their own readers | never call `signature()`; unaffected |
+| `pipeline/build._plate_seats` | `pm.structures` (`source == "object"`) and `pm.basins` | unchanged — and see §11.4: at LEMD 12 of the 13 plate members come from the BASIN half, not from `signature()` |
+| `auto_patch/engine_v2._run_rebake` | the patch dir's plan files | narrowed; `REBAKE_RESULT_FILENAME` and `tools/v2_rebake_replay.py` outputs are excluded by name |
+
+### 11.3 Twins (`tests/auto_patch_v2/test_v2lemdseats.py`)
+
+* `test_the_below_grade_skip_is_per_component` — one resource with a
+  6 m-deep clump and two buildings 500 m away: `below_grade` 0,
+  `below_grade_parts` 1, two parts planned, the two buildings seated on
+  their own ground (+5 / +10 m on the 1 % sampler).
+* `test_a_placement_below_grade_THROUGHOUT_is_still_skipped_whole` —
+  every genuine component deep ⇒ the 08-26 facility rule as before.
+* `test_a_crest_plate_needs_a_wall_under_its_perimeter` — a box wall
+  reads 100 % and is admitted; the same tessellated plate over a skirt
+  under a fifth of its ring is refused by name; the same plate with the
+  skirt all the way round is admitted again.
+* `test_the_perimeter_fraction_is_a_law_value`,
+  `test_the_engine_loads_only_its_own_rebake_plans`.
+
+### 11.4 THE 13 LEMD PLATE MEMBERS ARE NOT THE TUNNEL READER'S (attribution correction to §10.1)
+
+Round 2 attributed ~6 of the 122 to "LEMD's `tunnel_objects` reader
+claims 13 plate members that are not tunnel walls".  Measured on the
+round-2 build's own artefacts (`Patches/+40-010/+40-004/
+o4_v2_rebake_LEMD.json` and `LEMD_auto.patch.osm.axes.json`):
+
+* the patch sidecar's `tunnel_objects` list holds **17** records, of
+  which exactly **one** is a wall object — `tunnel-object:Bridge4.obj@0`
+  (the 06f edge wall on LEMD's real bore, `plate_y_m` 2.016); the other
+  16 are `wall_corridor` records (`plate_y_m` 0.0);
+* the other **12** plate members reach `rebake_plan` through
+  `pipeline/build._plate_seats`'s BASIN half (`[basin] seat =
+  "floor_plate"`, RULINGS 06b (3)): every one of their `plate_y` values
+  is a basin's `plate_y_m` verbatim — `Ground-FSX-LEMD36/37/85` −7.048
+  (the T4S basin, floor 588.95), `OldTerminal_FSX-P2CNX` +5.206,
+  `-DCNEUN` +4.336, `Cargo-CNTRL` −1.666, `Terminal4_green-LEMD02`
+  −0.497, `-LEMD41` −0.470, `-LEMD54` −0.671.
+
+So mechanism (2) cannot refuse them: they never pass through
+`signature()`.  Measured directly on the authored files (the pack's
+`.anchor_bak`, restore-before-read), with the law as shipped:
+
+| resource | before 09w (2) | skirt under the perimeter | after |
+|---|---|---|---|
+| OTHH `tunnel*` ×8 | admitted | **100 %** (3.0 m under the seat) | admitted |
+| LEMD `Bridge4.obj` | admitted (edge wall) | **100 %** (1.5 m under the crest) | admitted |
+| LEMD `Ground-FSX-LEMD37` | admitted (full skirt 7.05) | **0 %** | REFUSED |
+| LEMD `Ground-FSX-LEMD85` | admitted (edge, floor −7.03) | **0 %** | REFUSED |
+| LEMD `OldTerminal_FSX-LEMD54` | admitted (edge, crest +18.22) | **0 %** | REFUSED |
+| LEMD `Terminal4_green-CNTRL` | admitted (edge, crest +13.70) | 100 % | admitted |
+| LEMD `OldTerminal_FSX-LEMD41` | admitted (edge, crest +18.96) | 100 % | admitted |
+| LEMD `OldTerminal_FSX-LEMD43` | admitted (edge, crest +4.19) | 65 % | admitted |
+| LEMD `Cargo-CNTRL`, `-Bus`, `LEMD02`, `Ground-FSX-LEMD36`, `P2CNX` | already refused (no skirt / a stub / roofed along the axis) | — | refused |
+
+DEVIATION, reported not decided.  The three survivors are shallow-seat
+EDGE WALLS (06f) whose facades genuinely descend `edge_wall_min_skirt_m`
+under their own roof, so no perimeter fraction separates them from
+`Bridge4`.  What separates them is the CREST HEIGHT: 06c caps a full
+wall's edge-wall crest at `edge_wall_max_plate_m` (2.0 m) but 06f's
+shallow-skirt branch has NO cap at all, which is how a roof at +18.96 m
+reads as an edge wall.  A cap cannot simply be extended: `Bridge4`'s
+crest is +2.016 m, over `edge_wall_max_plate_m` itself.  Left for the
+owner/spawner with the second item: **should the PLATE SEAT of a BASIN
+member be the target instead** (that is where the 12 came from, and the
+seat then stands them 12–17 m off their own feet)?

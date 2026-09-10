@@ -233,3 +233,128 @@ def test_a_plan_without_feet_reads_as_it_did_before_09s(law):   # noqa: F811
     res = R.seat(pl, lambda la, lo: (710.0 if la else 700.0, False), law)
     assert res.units[0].members[0].delta_m == pytest.approx(10.0)
     assert res.clusters[0].ground_m == pytest.approx(710.0)
+
+
+# ── RULINGS 2026-09-09w: the BELOW-GRADE test per COMPONENT, the tunnel
+#    object's WALL signature, the engine's own rebake glob (round 3) ───────
+
+import re                                                     # noqa: E402
+import numpy as np                                            # noqa: E402
+
+from auto_patch_v2.airport import tunnel_objects as TO         # noqa: E402
+from test_tunnel_objects import _slab, _wall_obj, _write       # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def deepclump(pack, law):                                     # noqa: F811
+    """ONE resource carrying a 6 m-deep clump (a pit / a basement, the
+    terrain adapts to it) and two ordinary buildings 500 m away — LEMD's
+    scatter files, which round 2 skipped WHOLE."""
+    d = pack / "objects"
+    _boxes_obj(d / "clumped.obj", [(0.0, 0.0, 10.0, 10.0, -6.0, 1.0),
+                                   (500.0, 0.0, 10.0, 10.0, 0.0, 5.0),
+                                   (1000.0, 0.0, 10.0, 10.0, 0.0, 5.0)])
+    _boxes_obj(d / "allpit.obj", [(0.0, 0.0, 10.0, 10.0, -6.0, -3.0),
+                                  (500.0, 0.0, 10.0, 10.0, -7.0, -4.0)])
+    return d
+
+
+def test_the_below_grade_skip_is_per_component(deepclump, pack, law):   # noqa: F811
+    """RULINGS 2026-09-09w (1): the deep clump is a below-grade PART and is
+    left out of the seat; its two at-grade siblings in the same file seat
+    normally.  Round 2 skipped the file whole (76 of its 122 misses)."""
+    pl = _planned(pack, law, [("clumped", (0.0, 0.0), 0.0, 0.0)])
+    assert pl.counts["below_grade"] == 0            # the FILE is not a facility
+    assert pl.counts["below_grade_parts"] == 1      # the clump is
+    assert "objects/clumped.obj" not in dict(pl.skipped)
+    m = pl.units[0].members[0]
+    assert len(m.parts) == 2                        # the two buildings, not the clump
+    assert all(p.base_y == pytest.approx(0.0) for p in m.parts)
+    res = R.seat(pl, _slope_sampler(700.0, 0.01), law)
+    ds = sorted(d for _c, _k, d in res.units[0].members[0].part_deltas)
+    assert ds == pytest.approx([5.0, 10.0], abs=1e-3)   # each on its own ground
+
+
+def test_a_placement_below_grade_THROUGHOUT_is_still_skipped_whole(deepclump, pack,  # noqa: F811
+                                                                   law):
+    """The facility rule is unchanged where it applies: every genuine
+    component under the admission depth ⇒ the terrain adapts to the
+    placement (08-26), nothing is seated by its feet."""
+    pl = _planned(pack, law, [("allpit", (0.0, 0.0), 0.0, 0.0)])
+    assert pl.counts["below_grade"] == 1 and not pl.units
+    assert dict(pl.skipped)["objects/allpit.obj"].startswith("below-grade solids")
+
+
+def _roof_obj(path, skirt_fraction: float, length=60.0, width=40.0, top=9.0,
+              depth=4.0, cell=1.0):
+    """A terminal SLAB: a plate at ``top`` TESSELLATED into ``cell``-metre
+    squares (so no single face runs along the axis: the 05n roof test sees
+    nothing) over a skirt that stands under ``skirt_fraction`` of the
+    plate's perimeter only, descending to −``depth``."""
+    vt: list = []
+    tris: list = []
+    hx, hz = width / 2.0, length / 2.0
+    nx, nz = int(width / cell), int(length / cell)
+    for i in range(nx):
+        for k in range(nz):
+            x0, x1 = -hx + i * cell, -hx + (i + 1) * cell
+            z0, z1 = -hz + k * cell, -hz + (k + 1) * cell
+            b = len(vt)
+            vt += [(x0, top, z0), (x1, top, z0), (x1, top, z1), (x0, top, z1)]
+            tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    # the skirt: a wall along the +x face over that share of the plate's
+    # ring — or the whole ring (four walls) at 1.0, a proper box wall
+    if skirt_fraction >= 1.0:
+        _slab(vt, tris, hx - 1.0, hx, -hz, hz, -depth, top)
+        _slab(vt, tris, -hx, -hx + 1.0, -hz, hz, -depth, top)
+        _slab(vt, tris, -hx + 1.0, hx - 1.0, -hz, -hz + 1.0, -depth, top)
+        _slab(vt, tris, -hx + 1.0, hx - 1.0, hz - 1.0, hz, -depth, top)
+    else:
+        span = min(length, skirt_fraction * 2.0 * (length + width))
+        _slab(vt, tris, hx - 1.0, hx, -hz, -hz + span, -depth, top)
+    return _write(path, vt, tris)
+
+
+def test_a_crest_plate_needs_a_wall_under_its_perimeter(tmp_path, law):   # noqa: F811
+    """RULINGS 2026-09-09w (2): the skirt that admits a crest must stand
+    under at least ``skirt_perimeter_min_fraction`` of the plate's
+    perimeter.  A box wall does; the same plate over a floor, with a skirt
+    under a fifth of it, is a ROOF and is refused by name."""
+    ob = law.tables.structures.tunnel.object
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+
+    wall = str(_wall_obj(tmp_path / "wall.obj"))
+    sig = TO.signature(cache.geometry(wall), cache.genuine(wall), law)
+    assert not isinstance(sig, str)                    # a wall: skirt all round
+    tris = np.concatenate([c.tris for c in cache.genuine(wall)])
+    ny, _a, _c, _m = TO._faces(cache.geometry(wall).vertices, tris)
+    assert TO._skirt_perimeter_fraction(cache.geometry(wall).vertices, tris, ny,
+                                        sig.plate, sig.plate_y, ob.skirt_min_depth_m,
+                                        0.0, ob) == pytest.approx(1.0)
+
+    roof = str(_roof_obj(tmp_path / "roof.obj", 0.2))
+    out = TO.signature(cache.geometry(roof), cache.genuine(roof), law)
+    assert isinstance(out, str) and out.startswith("roof, not a crest: skirt under ")
+    got = int(re.search(r"under (\d+)% of the perimeter", out).group(1)) / 100.0
+    assert got < ob.skirt_perimeter_min_fraction
+    # ...and the SAME plate with the skirt all the way round is a wall
+    full = str(_roof_obj(tmp_path / "walled.obj", 1.0))
+    assert not isinstance(TO.signature(cache.geometry(full), cache.genuine(full), law), str)
+
+
+def test_the_perimeter_fraction_is_a_law_value(law):          # noqa: F811
+    ob = law.tables.structures.tunnel.object
+    assert ob.skirt_perimeter_min_fraction == pytest.approx(0.5)
+
+
+def test_the_engine_loads_only_its_own_rebake_plans():
+    """RULINGS 2026-09-09w (3): the plan glob matched a TOOL's output
+    (``tools/v2_rebake_replay.py`` writes ``o4_v2_rebake_<ICAO>.seat.json``
+    beside the plan) and the loader tried to read it as a plan."""
+    from auto_patch.engine_v2 import _PLAN_NAME_RE
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
+    assert _PLAN_NAME_RE.match(PLAN_FILENAME.format(icao="LEMD"))
+    assert _PLAN_NAME_RE.match("o4_v2_rebake_OTHH.json")
+    for other in ("o4_v2_rebake_LEMD.seat.json", "o4_v2_rebake_result_LEMD.json",
+                  "o4_v2_rebake_LEMD.bodies.json", "o4_v2_rebake_result_OTHH.seat.json"):
+        assert not _PLAN_NAME_RE.match(other), other

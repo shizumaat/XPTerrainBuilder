@@ -69,7 +69,12 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     every other member of the family seats per body (09d);
     ``below_grade`` the emitted below-grade regions ``(frame polygon,
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
-    deck (``deck_signature.promote``); ``tunnel_objects`` the tunnel
+    deck (``deck_signature.promote``).  THE BELOW-GRADE SKIP IS PER
+    COMPONENT (RULINGS 2026-09-09w (1)): a component standing
+    ``basin.admission_depth_m`` under its own ground
+    (``PlacedObject.below_grade_comps``) is left out of the seat, its
+    at-grade siblings in the same file seat normally; only a placement
+    whose EVERY genuine component is below grade is skipped whole. ``tunnel_objects`` the tunnel
     wall objects by placement id → ``(plate height, wall-band stations
     in frame xy)``: RE-SEATED so the plate sits on the ground at the
     band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``) — THAT OBJECT
@@ -114,11 +119,15 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
                               "terrain_adapted": 0,
-                              "below_grade": 0, "deck_families": len(deck_keys),
+                              "below_grade": 0, "below_grade_parts": 0,
+                              "deck_families": len(deck_keys),
                               "plate_members": 0, "plate_objects": len(plates),
                               "signature_decks": sum(1 for o in objects
                                                      if o.deck_kind == "signature")}
     skipped: dict[str, str] = {}
+    #: placement id -> its BELOW-GRADE component indices (09w (1)): the
+    #: parts the member loop leaves out of the seat, its siblings kept
+    below_comps: dict[str, set[int]] = {}
     anchors_by_resource: dict[str, set[tuple[float, float, float]]] = {}
     keyed: list[tuple[tuple[float, float, float], _obj8.PlacedObject]] = []
     for o in objects:
@@ -134,10 +143,21 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
         in_plate_family = o.id in plates          # 09s (1): this object only
-        deep = o.solid_min_depth_m is not None and o.solid_min_depth_m <= -admission_m
-        if (o.below_grade is not None or deep) and not (in_deck_family
-                                                          and rb.deck_family_seats_rigid) \
-                and not in_plate_family:
+        # RULINGS 2026-09-09w (1): THE BELOW-GRADE TEST IS PER COMPONENT.
+        # ``below_grade_comps`` are the placement's own components standing
+        # ``admission_depth_m`` under their ground; the whole placement is
+        # a facility only when EVERY genuine component is one.  A scatter
+        # file (LEMD's ``grass_FSX-LEMDgrass``, ``Munoza-*``: many separate
+        # buildings in one resource over 32 m of relief) has a deep clump
+        # and hundreds of at-grade siblings — 76 of round 2's 122 misses
+        # were that file skipped WHOLE, the same one-body error 09s (2)
+        # corrects one pass later inside the cluster seat.
+        exempt = (in_deck_family and rb.deck_family_seats_rigid) or in_plate_family
+        deep_comps = set() if exempt else set(o.below_grade_comps)
+        genuine_ix = [i for i, c in enumerate(cache.components(o.resolved))
+                      if c.max_y - c.min_y >= cache.thickness_m] if deep_comps else []
+        below_comps[o.id] = deep_comps
+        if deep_comps and genuine_ix and deep_comps.issuperset(genuine_ix):
             # a genuine solid under the local grade is a FACILITY the
             # terrain adapts to (08-26), never feet to seat: OTHH's
             # Drainage bowls (−3.8 m floors) and TerminalRoads_Parking_005
@@ -152,6 +172,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             skipped.setdefault(o.path, "below-grade solids: the terrain adapts to it "
                                         "(08-26), never re-seated by its feet")
             continue
+        counts["below_grade_parts"] += len(deep_comps)
         if _obj8.is_stock_library_resource(o.path):
             counts["stock"] += 1
             skipped.setdefault(o.path, "stock library resource (shared, never baked)")
@@ -200,8 +221,12 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         # the genuine components with their index into ALL solid components
         # (``obj8.solid_components``): the writer maps ``Part.comp`` back
         # through the same deterministic partition of the authored file
+        # RULINGS 2026-09-09w (1): a BELOW-GRADE component is left out of
+        # the seat (a basin / tunnel witness the terrain adapts to); its
+        # at-grade siblings in the same file seat normally
+        deep_comps = below_comps.get(o.id, set())
         comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
-                 if c.max_y - c.min_y >= cache.thickness_m]
+                 if c.max_y - c.min_y >= cache.thickness_m and i not in deep_comps]
         deck_ring = None
         deck_top_y = None
         deck_datum_z = None

@@ -429,7 +429,9 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
 
 
 def _decision_from_seats(plan_, result, measure_only: bool,
-                         contact_tol_m: float = 0.0):
+                         contact_tol_m: float = 0.0,
+                         plate_gap_max_m: float = 0.0,
+                         rigid_stats: dict | None = None):
     """A v1 ``RebakeDecision`` carrying v2's seat PER VERTEX (RULINGS
     2026-09-06g): a structure-seated member's every solid vertex takes
     the unit's one delta; a cluster-seated member's vertices take their
@@ -514,7 +516,8 @@ def _decision_from_seats(plan_, result, measure_only: bool,
             held = {comp for comp, _k, d in ms.part_deltas if d is None}
             n_free = len(comps) - len(by_comp) - len(held - set(by_comp))
             by_comp = _rigid.complete_component_deltas(geom, comps, by_comp, held,
-                                                      contact_tol_m)
+                                                      contact_tol_m, plate_gap_max_m,
+                                                      rigid_stats)
             per_vertex: dict[int, float] = {}
             for ci, d in by_comp.items():
                 for i in set(comps[ci].tris.reshape(-1).tolist()):
@@ -636,9 +639,15 @@ def rebake_after_mesh(tile) -> dict:
 
                 res = _rb.seat(plan_, _sample, law)
                 if write_enabled:
+                    rigid_stats: dict = {}
                     decision = _decision_from_seats(
                         plan_, res, measure_only,
-                        law.tables.emit.identity.min_distinct_spacing_m)
+                        law.tables.emit.identity.min_distinct_spacing_m,
+                        law.tables.structures.rebake.plate_gap_max_m, rigid_stats)
+                    if rigid_stats:
+                        # RULINGS 2026-09-10u (2): how the free components
+                        # found their carrier — touched / eave gap / nearest
+                        print(f"    [v2] rigid carriers: {rigid_stats}")
                     report = object_rebake.apply(decision, plan_.pack_root, mesh_path)
                 else:
                     report = object_rebake.RebakeReport()

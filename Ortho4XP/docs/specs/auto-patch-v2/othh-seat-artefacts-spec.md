@@ -838,3 +838,88 @@ Every other member seats by its FEET like any other resource.
   (`.anchor_bak` wins over a baked live file), both spellings of the
   seat record (a `None` part delta is not a delta; a plate unit's delta
   stands in), that DSFTool is never RUN, and the index row.
+
+### 12.4 What it measured
+
+**THE OWNER'S SITE FIRST — LEMD, one tile build**
+(`build_airport.py LEMD --engine v2 --tile 40 -4`, tag `v2planes_LEMD1`,
+**rc 0**, wall 529.5 s, step 2 mesh 51.7 s): the 09ac §11.5 Triangle
+failure at LEGT is GONE at this head (the `v2bankblend` round-3 merge,
+09ab) — the tile that could not be built in round 3 builds, so every
+number below is this build's own plan, result and mesh, not a replay of
+an older one. The re-seat wrote 289 objects (2,311,616 vertices, 193
+with several deltas, 2 reverted).
+
+`tools/seat_feet_census.py` on that mesh (873 measured placements of
+3,021 OBJ placements):
+
+| |Δ| | n | % |
+|---|---|---|
+| < 0.3 m | 568 | 65.1 % |
+| 0.3–1 m | 233 | 26.7 % |
+| 1–3 m | 41 | 4.7 % |
+| **> 3 m** | **31** | 3.6 % |
+
+By class: SEATED n=204 (29 over 3 m, max 19.26), terrain-adapted n=2
+(both over 3 m, 09q's lawful members), multi-anchor n=666 (**0** over
+3 m, max 1.35), not in plan n=1.
+
+**BAR `> 3 m ≤ 14`: MISSED at 31** (round 3 read 34 on its own mesh —
+the two are not the same measurement frame, so read 31 as this build's
+number, not as a −3). Of the 31: **8 are PLATE-seated members**, 21 are
+other seated members whose CLUSTER seat stands them off the feet the
+instrument reads, and 2 are 09q's terrain-adapted members. The three
+`Bridge2/3/4` rows (3.9–4.3 m) are deck-top seats by construction.
+
+**BAR `stranded ≤ 2`: MISSED at LEMD (167), MET at HECA (2).** And the
+count is now, by construction, the count of planes LAWFULLY HELD: a free
+component is absent from the completion's output only when the carrier
+it touches (or, failing contact, its nearest) is a HELD component — 09z
+(4)'s "if the carrier is held the plane is held with it". All 167 are
+that class; the contact rule cannot reduce them, because reducing them
+would mean moving a plane off the wall that carries it. `bodies` at
+`--contact 0` and `--contact 0.5` return the same 167 (and the same
+2 at HECA): the stranded count is INSENSITIVE to this ruling, so it is
+no longer the instrument for it.
+
+**The interventional measurement of the carrier rule** (the same plan
+and result, `contact_tol_m` 0.0 vs 0.5 — the only thing that changes):
+
+| airport | free components | take a DIFFERENT carrier | files | worst change |
+|---|---|---|---|---|
+| LEMD (`v2planes_LEMD1`) | 27,759 | **424** | 10 | 9.36 m (`Terminal4SAT_Yellow-LEMD11`, 175 components) |
+| HECA (round-3 arm, replayed) | 15,716 | **327** | 27 | 8.46 m (`T23/Plastic.obj`, 7 components) |
+
+So the ruling moves 424 LEMD and 327 HECA panels onto the walls that
+actually carry them, by up to 9 m — the class the owner read at HECA's
+Private Hall.
+
+**OTHH is UNCHANGED** (`v2_rebake_replay.py seat` on the round-3 plan
+and the owner's own `zOrtho4XP_+25+051/Data+25+051.mesh`): 25 resources
+written in 3 families, `Dewatering Drainage` 14 files +3.816 … +13.142,
+`tunnels` 8 files −2.944 … +3.094, `Fire Fuel` 3 files −1.130 — byte
+for byte the §11.5 reading.
+
+**THE BASIN SCOPE REMOVED TWO OF THE TWELVE — the other ten ARE their
+basins' witnesses** (measured deviation, reported not decided). LEMD's
+plate members go 13 → **11**: `Ground-FSX-LEMD36` and `Ground-FSX-LEMD85`
+lose the plate seat (they shared another basin's `plate_y_m`), and
+`Bridge4` plus **10 basin witnesses** keep it — `Terminal4_green-CNTRL`
++9.266, `-Bus` −0.218, `-LEMD02` −0.497, `Cargo-CNTRL` −1.666,
+`OldTerminal_FSX-P2CNX` +5.206, `-DCNEUN` +4.336, `-LEMD41` −0.470,
+`-LEMD43` −0.661, `-LEMD54` −0.671, `Ground-FSX-LEMD37` −7.048. Five of
+those ten are still in the worst 30 (16.71, 16.65, 16.08, 13.21,
+11.68 m). §11.4's attribution said the basin reader "admits terminal
+geometry at LEMD as basin floors" — 09ac (2) rules the SEAT's scope, and
+this measurement shows the residual is upstream of it: those slabs are
+each the DEEPEST genuine solid of their own admitted basin region, so
+scoping the seat to the witness cannot reach them. What would is the
+basin ADMISSION test (does a terminal slab over 32 m of Aerosoft datum
+relief found a basin at all?). OWED, for the owner/spawner.
+
+BUILD-TIME: the tile is 529.5 s wall against round 2's 425–531 s LEMD
+tiles — inside the ±25 % single-run noise floor, and not a timing run
+(a `--base-arm` LEMD patch-only build was running concurrently). Neither
+mechanism adds a pass: the contact test is one extra C-level pair query
+per written OBJ8 inside the post-mesh re-seat, and the plate map is
+SMALLER.

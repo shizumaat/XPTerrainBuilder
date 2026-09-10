@@ -115,9 +115,24 @@ class Design:
     #: the ruling heads whose rows are HARD constraints of the active set
     #: (RULINGS 2026-09-08v: the runway family's transverse, vertical curve
     #: K and max grade), enforced exactly — never one-sided targets
+    #: THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING (owner RULINGS
+    #: 2026-09-09r (2)): within this distance of the crossing along the
+    #: SECONDARY runway's own axis, the secondary's threshold-chord target
+    #: is dropped, so the shared slab takes the PRIMARY's chord and the
+    #: secondary climbs into it under its own hard laws.  Its threshold
+    #: pins, its profile rows and every hard law stay.
+    crossing_release_m: float
     hard_rulings: tuple[str, ...]
     hard_weight: float
-    hard_max_rounds: int
+    #: THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r (3)): the polish
+    #: iterates the augmented-Lagrangian multipliers until EVERY hard row is
+    #: within ``hard_tol_m``, or until ``polish_rounds_max`` rounds are
+    #: spent — in which case the report names the failure, never "not
+    #: settled" in a shipped patch.  A round that buys less than one
+    #: tolerance no longer ENDS the loop (round 1's rule): the multiplier
+    #: sequence oscillates while the one-sided active set re-forms, so the
+    #: first flat round is nowhere near the answer.
+    polish_rounds_max: int
     hard_tol_m: float
     active_set_max_rounds: int
     active_set_tol_m: float
@@ -180,11 +195,14 @@ def check_design(d: Design, err: type[Exception]) -> None:
     if not d.bank_toe_break_m > 0.0:
         raise err(f"emit.design.bank_toe_break_m {d.bank_toe_break_m}: the toe "
                   "smoothing's break, positive metres")
+    if not d.crossing_release_m > 0.0:
+        raise err(f"emit.design.crossing_release_m {d.crossing_release_m}: "
+                  "positive metres (RULINGS 2026-09-09r (2))")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")
-    if d.hard_max_rounds < 1:
-        raise err(f"emit.design.hard_max_rounds {d.hard_max_rounds}: at least 1")
+    if d.polish_rounds_max < 1:
+        raise err(f"emit.design.polish_rounds_max {d.polish_rounds_max}: at least 1")
     if not d.hard_tol_m > 0.0:
         raise err(f"emit.design.hard_tol_m {d.hard_tol_m}: positive metres")
     if not d.hard_weight > d.law:

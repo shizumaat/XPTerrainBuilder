@@ -1594,3 +1594,148 @@ each encodes and stops (attempt cap spent on the weight):
 * `test_the_body_datum_is_one_row_per_body_never_per_vertex` — the
   report's `body_datum_rows` equals the number of bodies.
 * Falsification arm: at `body_datum = 1e-6` the two level twins FAIL.
+
+## §15 ROUND 2 (RULINGS 2026-09-09r) — THE WOODBURY DATUM, THE RUNWAY x
+## RUNWAY CROSSING, AND THE SETTLING POLISH — lane `v2cyxy`
+
+### 15.1 What is added
+
+1. **(09r (1)) THE PER-BODY DATUM LEAVES THE FACTORISED MATRIX.**
+   `assemble` accumulates the body rows in their own `_Rows` (`Base.body`)
+   instead of the always-on matrix; `solve/linear._linear_solve` takes them
+   as the low-rank term `U` and applies the WOODBURY identity
+   `(M + UᵀU)⁻¹ = M⁻¹ − M⁻¹Uᵀ(I + U M⁻¹ Uᵀ)⁻¹ U M⁻¹`.  Three modes
+   (`LOW_RANK_MODES`): `bordered` (default) solves the augmented
+   quasi-definite system `[[M, Uᵀ], [U, −I]]`, whose Schur complement onto
+   the border IS the identity's `k x k` dense system — ONE sparse solve, no
+   `k` back-solves; `woodbury` applies the identity explicitly (the twin's
+   reference); `dense` stacks the rows as ordinary rows (round 1).
+2. **(09r (2)) THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING.**
+   `constraints/runway_chord.crossing_primary` (longer runway; tie: higher
+   code letter; tie: lower id) and `runway_crossing_release` read the
+   `runway_crossing` faces' `A+B` refs and return, per SECONDARY, the
+   station spans within `[design] crossing_release_m` (200 m) of the
+   crossing along its OWN axis.  Inside them the secondary contributes no
+   chord target, so a shared-slab vertex takes the PRIMARY's chord and a
+   secondary vertex takes none.  Its pins, profile rows and hard laws are
+   untouched.
+3. **(09r (3)) THE POLISH RUNS ITS ROUNDS.**  The stall break is deleted;
+   the loop runs to `[design] polish_rounds_max` and reports the failure BY
+   NAME (`hard_worst`) when the set is not held.  `line()` now says HARD SET
+   SETTLED as well as NOT SETTLED.
+4. `solve/linear.py` is split out of `solve/design.py` (the 1,000-line file
+   law): the linear solve, the objective and the term energies.
+
+### 15.2 CONSUMER TABLE (owner 2026-08-30l)
+
+| consumer | reads | ruling |
+|---|---|---|
+| `solve/design.assemble` §9b | produces the body rows | now into `Base.body`, never `Base.rows` (twin) |
+| `solve/design.solve_design` `_stack` / `_inner` | the base matrix | UNCHANGED shape; `Ub, cb` ride beside it |
+| `solve/linear._objective` | the line search's descent test | the body term is ADDED to it — held out of the factorisation, never out of the objective |
+| `solve/linear._term_energies` | base rows by owner tag | the `body_datum` bucket is computed separately and merged, so the report keeps the term |
+| `DesignReport.rows` | the row count | includes the low-rank rows |
+| `solve/why.py` | the ONE-SIDED rows and their duals | UNTOUCHED (a base row carries no dual) |
+| `constraints/runway_chord.runway_chord_targets` | `preferred_z` | drops the secondary's targets inside the release; every other target is unchanged |
+| `constraints/runway_profile` | pins, profile, crown, K, transverse | UNTOUCHED: the release is a TARGET release, never a law release |
+| `emit/*`, `verify/*`, `harness/census.py` | the solved z | UNTOUCHED: no new geometry, no new sidecar key, no new law family |
+| `law/design_schema.check_design` | the `[design]` table | `crossing_release_m` positive, `polish_rounds_max >= 1`; `hard_max_rounds` renamed |
+
+### 15.3 MEASUREMENTS
+
+**(1) THE WOODBURY WALL — HECA, same rounds, same surface.**  With the
+polish capped at round 1's effective 2 rounds the arm is BYTE-IDENTICAL to
+round 1 (`body_sha 87b241d8319b`, 315 active-set rounds, worst hard row
+0.1488 m — the same numbers §14.4 records), so the delta is the linear
+algebra alone:
+
+| arm | solve | total | rounds | s / round |
+|---|---|---|---|---|
+| 09j control (no datum) | 29.31 s | 176.75 s | 317 | 0.092 |
+| round 1 (dense block) | 105.26 s | 241.30 s | 315 | 0.334 |
+| **round 2 (Woodbury)** | **43.42 s** | **196.87 s** | 315 | **0.138** |
+
+The dense `O(Σ N²)` block is GONE — 62 of the 76 s the datum cost (81 %)
+is recovered, per round 0.334 -> 0.138 s.  The **bar (within 10 % of 29.3
+s) is MISSED**: 43.4 s is +48 %.  The residue is not the datum's rows in
+`AᵀA` (they are not there) but the border's own fill: 342 extra rows and
+columns whose Schur complement is a dense 342 x 342 block inside one
+factorisation per round.
+
+**(2) THE CROSSING, CYXY** (`CYXY_final`, 11.1 s, `body_sha f602f09b4e39`):
+
+| reading | 1.0.297 / round 1 | round 2 |
+|---|---|---|
+| 14R/32L deepest local V | 1.61 m | **1.07 m** |
+| 14L/32R deepest local V | 1.34 m | **1.31 m** |
+| 14R/32L bow vs its chord | −2.25 m | **−1.64 m** |
+| 14L/32R bow | −1.82 m | −1.81 m |
+| 02/20 bow | −0.13 m | −0.07 m |
+| verify DEFECT families | {} | **{}** |
+| census ADJUDICATED | 280 | **275** |
+| taxiway G along its line | 701.85..703.18 | 701.45..703.05 |
+
+**The bar (the primary's ridge monotone, the dip gone) is MISSED, and the
+residual is ATTRIBUTED.**  02/20's ridge now climbs from its north CIFP pin
+at EXACTLY its 1.5 % longitudinal cap for 130 m, peaks at 696.55 at the
+14R/32L crossing (02/20 station 166 m; 694.334 + 0.015 x 166 = 696.82) and
+descends at exactly −1.5 % into its south pin at 693.72 — which is 02/20
+station 381 m, and the 14L/32R crossing sits at 02/20 stations 388-415 m,
+i.e. ON that threshold.  The crossing elevation is therefore the MAXIMUM
+02/20's own pins and cap permit; the mains' chords want 1.1 m and 1.3 m
+more.  The release does everything the ruling asks and the remainder is the
+two things the ruling KEEPS: the secondary's CIFP thresholds and its
+longitudinal law.  §13.3's option (a) assumed a 400 m run to the crossing;
+at CYXY the runs are 166 m and 15 m.
+
+**(3) THE HARD SET DOES NOT SETTLE ON A REAL AIRPORT.**  The loop is
+implemented as ruled.  Measured, the augmented-Lagrangian multiplier
+sequence does not converge at CYXY or HECA at any weight tried — it
+OSCILLATES while the one-sided active set re-forms under it:
+
+```
+CYXY, hard_weight 3e5, 12 rounds:  .037 .027 .039 .101 .076 .057 .054 .026 .057 .034 .097 .098
+```
+
+| arm | CYXY | HECA |
+|---|---|---|
+| 3e5, 2 rounds (shipped) | 0.0267 m, solve 3.5 s, DEFECTs {} | 0.1488 m, solve 43.4 s, DEFECTs {} |
+| 3e5, 12 rounds | 0.0261 m, solve 8.8 s, DEFECTs {} | 0.1270 m, solve 133.0 s, 05C/23C bow −2.28 -> **−2.76 m** |
+| 1e6, 12 rounds | 0.0219 m, solve 13.9 s | not run |
+| 1e7, 12 rounds | 0.0170 m SETTLED, 0 rounds, solve 5.8 s | 0.0276 m NOT settled, solve 280.4 s |
+
+Two findings ride on that table.  (a) `polish_rounds_max` is set to **2**
+from it: beyond two rounds the polish buys no law and costs surface — at
+HECA 0.02 m of hard violation for +90 s of solve and half a metre of bow,
+and the "best iterate" the loop keeps is best by HARD VIOLATION, which is
+not best by surface.  (b) Raising `hard_weight` is not a free settle: 1e7
+settles CYXY outright but MOVES THE WIDER SURFACE — five further twins red
+(the m3c lawful road leaves its core profile, 37 route-budget rows at the
+taxi-route pairs, the v2ridge falsification arm 6.0 -> 4.3 m) — and does
+not settle HECA at all.  **09r (3) is not achievable with this polish**;
+the certificate it asks for needs the hard rows solved as a KKT block (the
+module docstring's own claim) rather than by penalty and multiplier.
+
+### 15.4 THE TWINS
+
+New in `tests/auto_patch_v2/test_v2cyxy.py`: the Woodbury/dense/bordered
+parity on a three-body fixture (same z within 1 mm), the mechanism twin
+(no `body_datum` row reaches `Base.rows`), the primary register, the row-level
+release, the primary's ridge monotone through the crossing, the secondary
+climbing into it inside its own grade and K with its thresholds pinned, the
+settled certificate on a reachable crossing, and the NAMED FAILURE on one
+that is not.  Re-scoped per 09r (4): the two wall-time guards (bench 18.7 ->
+8.4 s, guard 5 -> 12 s; CYXY pipeline 16.1 s, guard 10 -> 22 s), the two
+`test_stretches` expectations and the junction/oracle envelopes (to the
+datum's own trade), and the road twin's level (0.65 m of tilt across a 4 m
+step between two bodies).
+
+**ONE TWIN LEFT RED, deliberately.**
+`test_v2shapes::test_a_road_along_a_boundary_takes_its_shapes_level_...`
+now mints `service_road|service_road` `within_shape` census rows of 0.24 -
+0.29 m: with apronA and apronB on two terrain means, the road along their
+boundary tilts and prices its own cross-section.  09r (4) named this as
+"what 09p (3) intends, or the free-road ruling being crossed".  It is a LAW
+question (RULINGS 2026-07-27: a road edge-sharing an apron IS the apron),
+so the lane re-scoped the twin's LEVEL assertion and left its CENSUS
+assertion standing for the owner.

@@ -218,7 +218,16 @@ def test_a_road_along_a_boundary_takes_its_shapes_level_and_the_step_stands_at_i
     sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
     zr = [sol.z[v] for v in S._face_vertices(pm, road.id)]
-    assert max(zr) - min(zr) < 0.5, "the road at one level (A's)"
+    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): apronA and
+    # apronB are now TWO BODIES at two terrain means (the per-body datum,
+    # 09p (3)), so the road along their boundary tilts a little instead of
+    # being one plane — which is what 09p (3) intends.  Measured 0.65 m of
+    # spread across a 4 m step between the two pinned aprons (16 %), and the
+    # road's own level is still A's, not the average: the free-road ruling
+    # is held by the level, the step by the contour below.
+    assert max(zr) - min(zr) < 0.8, "the road at one level (A's)"
+    zm = sum(zr) / len(zr)
+    assert abs(zm - 700.0) < abs(zm - 704.0), "the road takes A's level"
     js = joint_steps(pm, law, stage, sol.z)
     assert not js["roads"] and not js["ramps"]
     assert js["contours"][0]["step_m"] > 2.0

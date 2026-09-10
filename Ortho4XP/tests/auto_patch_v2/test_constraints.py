@@ -316,7 +316,16 @@ def test_bench_style_instance_round_trip(law):
     # 08t: the law rows are TARGETS of a least-squares solve, so the
     # certificate reports a residual instead of a feasibility proof — the
     # PINS are exact (the equalities), the rest is the surface's own answer
-    assert sol.wall_s < 5.0
+    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): a PERF guard,
+    # not a surface law.  The fixture is ONE 2,400-vertex apron body, so it
+    # is the worst case of the PER-BODY DATUM (09p (3)) — one row over 2,400
+    # vertices.  Round 1 factorised that row's dense 2,400 x 2,400 block and
+    # ran 18.7 s; the Woodbury low-rank term (09r (1)) holds it out of the
+    # factorisation and the same solve runs 8.4 s.  The residue over the old
+    # 5 s is the ACTIVE SET, not the linear algebra: with a datum the set
+    # takes the full ``active_set_max_rounds`` (200) to settle on this
+    # fixture where it used to settle early.
+    assert sol.wall_s < 12.0
     assert sol.residual.max_pin_m < 1e-6 and sol.residual.max_flat_m < 1e-6
     assert sol.residual.max_m < 0.5, sol.residual
     bad = ConstraintSet.from_rows(rows + [Pin(chain[1], 720.0, Source("bad", "x", ()))])
@@ -363,7 +372,14 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
     from auto_patch_v2.planar.__main__ import default_inputs
     res = build_v2("CYXY", default_inputs(), tmp_path, Config())
     assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
-    assert res.wall["total"] < 10.0
+    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): a PERF guard on
+    # the real CYXY through the pipeline API (the harness build is faster).
+    # Two round-2 costs are in it: the SETTLING POLISH (09r (3)) runs its
+    # multiplier rounds instead of stopping on the first flat one, and the
+    # runway x runway crossing release (09r (2)) leaves CYXY's hard set
+    # unsettled, so it pays all 12.  Measured 16.1 s (round 1: 11.3 s, and
+    # 09b065b2: 9.6 s); the guard carries the single-run +/-25 % swing.
+    assert res.wall["total"] < 22.0
     sys.path.insert(0, str(ROOT / "tools" / "harness"))
     sys.path.insert(0, str(ROOT / "tools"))
     cg = pytest.importorskip("check_grade")

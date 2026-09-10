@@ -125,6 +125,9 @@ class LoadReport:
     flat_site: dict | None = None
     #: the runway chord fit's coverage (RULINGS 2026-09-08d (1); ``constraints/runway_chord.py``)
     runway_chord: dict | None = None
+    #: the taxi chains' trend fit coverage (owner RULINGS 2026-09-10v (1);
+    #: ``constraints/taxi_trend.py``, spec §8.6)
+    taxi_trend: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

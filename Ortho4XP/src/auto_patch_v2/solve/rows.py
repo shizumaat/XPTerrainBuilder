@@ -26,7 +26,8 @@ from ..model.planar import NO_SHAPE, PlanarMap
 
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
-           "_one_matrix", "_sheet_components", "_role_bodies", "_plane_targets"]
+           "_one_matrix", "_sheet_components", "_role_bodies", "_plane_targets",
+           "_plane_rows"]
 
 
 # ── the reduction: pins fix, flats merge ────────────────────────────────
@@ -484,3 +485,54 @@ def _plane_targets(pm: PlanarMap, vs: _t.Sequence[int]
         return [(v, float(y.mean())) for v in vs]
     fit = P @ coef
     return [(v, float(fit[k])) for k, v in enumerate(vs)]
+
+
+def _plane_rows(pm: PlanarMap, vs: _t.Sequence[int], zs: _t.Sequence[float]
+                ) -> list[tuple[str, list[tuple[int, float]], float]]:
+    """THE BODY'S PLANE AGAINST THE GROUND'S (owner RULINGS 2026-09-10t (1)
+    / 10v (2)) — the three weak rows of the per-body datum, as
+    ``(name, [(vertex, coefficient)], rhs)``.
+
+    ``mean`` is the body's average z against the average DEM under it (the
+    09p row, unchanged).  ``tilt_u`` / ``tilt_v`` are its two FIRST MOMENTS
+    in the body's own centred plan frame, ORTHOGONALISED (Gram-Schmidt:
+    ``v`` is the y direction with its ``x`` component removed), so the
+    three functionals are independent and satisfying all three IS
+    reproducing the least-squares plane of the DEM exactly — level and
+    tilt, and nothing about the shape within the plane (a plane has zero
+    bending energy, so the datum never fights the design, 08t (1)).
+
+    EACH ROW READS IN METRES.  A moment row is scaled by the body's own RMS
+    half-extent along that direction, so its residual is the plane's RISE
+    over that radius rather than a coordinate-weighted sum: the three rows
+    are then commensurate with each other and with ``[design] body_datum``,
+    and a 2 km apron and a 60 m one are priced the same way.
+
+    A direction whose extent is degenerate (a collinear body, or fewer
+    than three vertices) yields no row for that direction — never an
+    invented value (plan §2)."""
+    n = len(vs)
+    out: list[tuple[str, list[tuple[int, float]], float]] = []
+    if n == 0:
+        return out
+    out.append(("mean", [(v, 1.0 / n) for v in vs], sum(zs) / n))
+    if n < 3:
+        return out
+    xs = [pm.vertices[v].xy[0] for v in vs]
+    ys = [pm.vertices[v].xy[1] for v in vs]
+    mx, my = sum(xs) / n, sum(ys) / n
+    du = [x - mx for x in xs]
+    dv = [y - my for y in ys]
+    suu = sum(a * a for a in du)
+    if suu > 1e-9:
+        b = sum(a * c for a, c in zip(du, dv)) / suu
+        dv = [c - b * a for a, c in zip(du, dv)]
+    for name, dd in (("tilt_u", du), ("tilt_v", dv)):
+        ss = sum(a * a for a in dd)
+        if ss <= 1e-9:
+            continue
+        r = math.sqrt(ss / n)                      # the RMS half-extent, metres
+        c = [a / (n * r) for a in dd]              # slope x r  ==  metres of rise
+        out.append((name, [(v, w) for v, w in zip(vs, c)],
+                    sum(w * z for w, z in zip(c, zs))))
+    return out

@@ -9,6 +9,7 @@ along the centrelines touching it.  The analysis over the prepared LP
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import time
 import typing as _t
 
@@ -60,6 +61,19 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # THE SHAPE STAGE (2026-09-08k): the rows ``why`` reads are the build's
     stage = shape_stage(pm, law, airport, cl, out=out)
     pm = stage.pm
+    # THE TAXI CHAIN'S TARGET PROFILE (spec §8.6): the pipeline publishes
+    # it into ``taxi_trend_z`` before the solve, so ``why`` publishes it
+    # too — without it the objective table cannot name the ``taxi_trend``
+    # term at all and a vertex held by its trend reads as "held by bending
+    # alone", the exact sentence 10o was attributed on.
+    # REPORTED, NOT FIXED HERE: ``why`` does NOT publish the RUNWAY profile
+    # (``preferred_z``) either, and never has — its LP is the pipeline's
+    # minus that channel.  Adding it reds `test_why`'s chain-trace twin
+    # (the trace's own dz changes), which is §21's ground, not this
+    # round's; the lane reports it rather than widening someone else's twin.
+    from ..constraints.taxi_trend import with_taxi_trend
+    pm = with_taxi_trend(pm, law, airport)
+    stage = _dc.replace(stage, pm=pm)
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)
     wall["constraints"] = time.perf_counter() - t

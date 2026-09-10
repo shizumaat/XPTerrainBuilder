@@ -200,7 +200,18 @@ def test_a_taxi_crossing_rides_the_runways_crown(crossing, law):
         assert section[k_ridge] >= max(section[k_ridge - 1],
                                        section[k_ridge + 1]) - 1e-6, \
             "the ridge is the high point of the crossing, never a dip"
+        # RE-SCOPED (owner RULINGS 2026-09-10p, lane v2taxidatum): the
+        # MOUTHS (k = 3, 5) are the runway's own crown EDGE, checked
+        # exactly above.  With the taxi body on its own terrain mean the
+        # ground beside the runway can stand ABOVE that edge (this
+        # fixture's DEM tilts 0.004 across a runway pinned flat), and the
+        # taxiway then falls into the edge as a real one does — the mouth
+        # is a local minimum BY THE CROWN, not a sag in the crossing.
+        # The ruling's "never a dip" is about the stations across the
+        # slab and along the approaches, which is what is asserted here.
         for k in range(1, len(section) - 1):
+            if k in (k_ridge - 1, k_ridge + 1):
+                continue
             assert section[k] >= min(section[k - 1], section[k + 1]) - 1e-6, \
                 f"station {k} of the crossing sits below BOTH its neighbours"
 
@@ -306,13 +317,22 @@ def test_the_taxiway_climbs_between_the_two_aprons(two_benches, law):
 
 
 def test_the_body_datum_is_one_row_per_body_never_per_vertex(two_benches, law):
-    """The ruling's shape: ONE row per body.  Reading it off the report
-    keeps the promise auditable — a per-vertex datum would be the DEM pull
-    08t answer 1 removed, wearing a datum's clothes."""
+    """The ruling's shape: a FIXED, TINY number of rows per body, never one
+    per vertex — a per-vertex datum would be the DEM pull 08t answer 1
+    removed, wearing a datum's clothes.
+
+    RE-SCOPED TWICE.  10p made taxi bodies datum bodies and the count was
+    apron + taxi; 10v took the taxi bodies back out (their level is their
+    CHAIN'S TREND now) and made the apron datum the DEM's AFFINE fit —
+    THREE rows per body (the mean and the two first moments), so the count
+    is 3x the apron bodies, less any moment row a collinear body cannot
+    carry."""
     pm, _z, rep, _airport, _r = two_benches
     means = _body_means(pm, law, _z_of(pm))
-    assert rep.body_datum_rows == len(means), \
-        "one datum row per apron body, and no more"
+    assert rep.body_datum_bodies == len(means), "one datum BODY per apron body"
+    assert rep.body_datum_rows <= 3 * len(means)
+    assert rep.body_datum_rows >= len(means), "each body carries at least its mean"
+    assert all(r["kind"] == "apron" for r in rep.body_datums)
 
 
 def _z_of(pm):
@@ -552,24 +572,23 @@ def test_a_boundary_vertex_enters_exactly_one_bodys_datum_mean(law):
     assert all(pm.shape_of_vertex.get(v, S.NO_SHAPE) == A
                for v in S._face_vertices(pm, road.id)), \
         "08r-2: the whole road is welded to A"
-    # the row each COLUMN sits in: one mean per column, never two
-    row_of: dict[int, int] = {}
-    for row, col in zip(base.body.r, base.body.c):
-        assert row_of.setdefault(col, row) == row, \
-            "a vertex entered two bodies' datum means"
-
-    def row(v):
-        col = int(base.red.col[v])
-        return row_of.get(col) if col >= 0 else None
-
-    b_rows = {row(v) for v, sh in pm.shape_of_vertex.items() if sh == B}
-    b_rows.discard(None)
-    assert b_rows, "apronB must carry a datum row"
+    # RE-SCOPED (owner RULINGS 2026-09-10v (2)): a body carries THREE rows
+    # (mean + two first moments), so a column legitimately sits in three
+    # ROWS — of ONE body.  The ruling's invariant is unchanged and is read
+    # off the BODIES: no vertex is in two bodies' fits.
+    body_of: dict[int, int] = {}
+    for k, m in enumerate(base.body_meta):
+        for v in m.vertices:
+            assert body_of.setdefault(v, k) == k, \
+                "a vertex entered two bodies' datum fits"
+    b_bodies = {body_of.get(v) for v, sh in pm.shape_of_vertex.items() if sh == B}
+    b_bodies.discard(None)
+    assert b_bodies, "apronB must carry a datum body"
     # the road's FAR edge: apronB's ring vertices, A's label (08r-2)
     far = [v for v in S._face_vertices(pm, road.id)
            if any(pm.faces[f].ref == "apronB"
                   for f in pm.vertices[v].incident_faces)]
     assert far, "the fixture must share the road's far edge with apronB"
     for v in far:
-        assert row(v) not in b_rows, \
-            "a far-edge vertex the road owns entered apronB's mean"
+        assert body_of.get(v) not in b_bodies, \
+            "a far-edge vertex the road owns entered apronB's fit"

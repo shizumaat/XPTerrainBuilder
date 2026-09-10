@@ -510,6 +510,143 @@ engine gains a blend band outside the patch boundary; or (c) the cliff is
 the "bank at the edge" 08t answer 2 accepts and stands.  The lane changed
 nothing on its own judgement.
 
+### 8.5 AMENDMENT — THE TAXI BODY'S DATUM (owner RULINGS 2026-09-10p, closing the 10o attribution; lane `v2taxidatum`)
+
+§8.2 (1) gave every taxi centreline a design PROFILE — a second-difference
+row with RHS 0.  That is curvature, and curvature has no level: 10o
+measured CYXY's 1,664 m parallel `pav28` extrapolating its level from its
+far contact at the apron end while the ground rose 694 → 696.4 m under it
+(z − DEM median −6.17 m, min −10.05, "held by bending alone").
+
+**The datum roles are now the APRON family AND the TAXI family**
+(`solve/design.datum_roles`, replacing the apron-only `apron_roles` at the
+row builder).  A TAXI BODY is a connected group of taxi-family faces —
+faces sharing a vertex, `_role_bodies_faced` exactly as an apron body is
+formed — and the two families are SEPARATE partitions: an apron face and a
+taxi face that touch stay two bodies on two terrain means.  A runway face
+is never in a taxi body (its role is not in the set), so a taxi body may
+TOUCH a runway without joining it.  Each such body carries the SAME ONE
+weak row apron bodies carry (§14): its mean z against the mean production
+DEM under its own vertices, weight `[design] body_datum`, membership from
+the shape partition (09v), accumulated into the low-rank term (09r (1)),
+never per vertex.  The RUNWAY family stays excluded — its threshold chord
+and pins are its datum — its contacts stay hard, and the final projection
+(§16) absorbs any conflict into the body's non-runway vertices.
+
+The report gains `taxi_datum_rows` and `body_datums`: one record per datum
+row — `kind` (apron / taxi), the body's `ll` identity, its vertex count,
+its MEAN DEM and its solved RESIDUAL — and the `[v2] design` line names
+the three worst taxi residuals with their means.  Twins:
+`tests/auto_patch_v2/test_v2taxidatum.py`.
+
+### 8.6 AMENDMENT 2 — THE CHAIN'S TREND AND THE BODY'S PLANE (owner RULINGS 2026-09-10v, REPLACING §8.5/10p; lane `v2taxidatum` round 2)
+
+§8.5 gave every TAXI BODY one mean row.  10v measured it as too coarse: a taxi
+body is the whole connected taxi NETWORK (CYXY: ONE 853-vertex body), so one
+mean is an airport-wide level that cannot fix a local tilt, and the level it
+imposed over 700–705 m of ground RAISED HECA's taxi curvature.  Three rules
+replace it.  **The ground enters pavement only through long-wave trends and
+body planes — never per vertex (08t (1)).**
+
+1. **Every taxi CENTRELINE CHAIN carries a TARGET PROFILE.**  The ground's
+   long-wave trend along that chain — the §21 construction, the SAME helper
+   (`constraints/trend.py`, factored out of `runway_chord.py`) at the SAME
+   window key `[design] runway_profile_window_m` — shifted LINEARLY through
+   the chain's runway contacts (`shift_through`; unshifted where it touches
+   none, piecewise-linear between several).  Derived in
+   `constraints/taxi_trend.py`, published as `PlanarMap.taxi_trend_z` (its
+   own channel: `solve` imports `law` and `model` only), priced per free
+   chain vertex at the NEW weak weight `[design] taxi_trend` = **30** — below
+   `body_datum` (300).  A runway-contact vertex takes NO trend row: the
+   runway owns it and the contact stays hard and flush.  The chain's
+   second-difference rows (`taxi_profile`) stay: the trend says WHERE the
+   chain runs, the curvature row HOW SMOOTHLY.
+   The trend's fit DEGREE is bounded by what its samples resolve (quadratic
+   only where they span at least half the window, else a line): through four
+   points 40 m apart a quadratic is interpolation, i.e. the per-vertex pull
+   again.  Implementation choice of the same kind as 10x's tricube kernel.
+2. **An APRON body's datum is the DEM's AFFINE fit.**  THREE weak rows at
+   `body_datum` (`solve/rows._plane_rows`): the mean and the two FIRST
+   MOMENTS, Gram-Schmidt-orthogonalised in the body's own centred plan frame
+   and each scaled by its RMS half-extent, so satisfying all three IS
+   reproducing the least-squares plane of the DEM under the body — level AND
+   tilt — and every residual reads in METRES.  A plane has zero bending
+   energy, so the datum never fights the designed shape within the body.
+   TAXI bodies carry no datum row at all (rule 1 is their level).
+3. **The within-shape apron rows are STATIONED across the face.**
+   `apron_body_chord_max_m` is a chord LENGTH, not a coverage limit: a body
+   chord past the gate used to get no row, so SPJC's 85.3 m / 5.46 % path
+   was unpriced.  It is now priced at the apron cap over its own distance
+   (`constraints/apron.py`, ruling `apron body chord, stationed across the
+   face`); the 05ae face cover still applies.
+
+Consumer rows touched (the §21.3 table's frame): the census `within_shape`
+family — UNCHANGED, `verify/within.py` keeps the law's own 60 m gate, so v2's
+reading still agrees with v1's (`test_cyxy_verify_matches_v1_census` green);
+the design surface aims PAST what the census counts.  `solve/why.py` — its LP
+now publishes `taxi_trend_z`, so a vertex held by its trend no longer reads
+"held by bending alone"; it still does NOT publish `preferred_z` (a
+pre-existing gap, §21's ground, reported not fixed).  The sidecar `design`
+block gains `taxi_trend` (per chain: length, vertices, pins, target RMS/max,
+mean z − DEM), `taxi_trend_rows`, `body_datum_bodies`, and `tilt_m` on every
+`body_datums` record.  Twins: `tests/auto_patch_v2/test_v2taxidatum.py`.
+
+### 8.6.1 AMENDMENT 3 — THE WHOLE FACE, NOT ONLY ITS SPINE (lane `v2taxidatum` round 3)
+
+§8.6 (1) priced the trend on the CENTRELINE row alone, so a taxi body's
+off-centreline vertices carried no binding at all (`why`: "binding 0 — FREE")
+and the edge lagged where the ground rose across the body's width: CYXY's
+`pav28` read **−1.80 / −1.93 m** against the DEM at the 320 / 330 m stations
+of the owner's 10n transect while its centreline sat inside ±0.9 m.
+
+**Every vertex of a taxi-family face carries the SAME row at the SAME weight**
+(`[design] taxi_trend` = 30), its target the chain's trend value at the
+vertex's OWN STATION — the foot of its perpendicular on the chain. One value
+per vertex, the same the centreline gets there: the cross-section's SHAPE
+stays the transverse law's, which is senior, and the `taxi_profile` curvature
+rows are untouched. Two bounds, both MEASURED (CYXY `taxi_box` short-pair rows,
+v1 oracle / v2 verify, control 6 / 6):
+
+1. **A chain speaks only for the FACES IT OWNS** — the taxi-family faces most
+   of whose chain vertices are its own (`Breakline.ref` is the apt.dat
+   centreline record `taxi57`, `Face.ref` the pavement `pav28`, so the map's
+   own I5 incidence is the join, never a name). A FOREIGN chain projects the
+   wrong direction: valuing a stub's face from the long parallel it meets
+   spreads that parallel's STATION gradient across the stub's width. Nearest
+   long chain over every taxi vertex **22 / 36**; every face the chain merely
+   TOUCHES **34 / 47**; the faces it OWNS **22 / 30**.
+2. **Only a LONG chain speaks across a face** — its stations must span at
+   least half `runway_profile_window_m`, the same test `Trend.at` puts on the
+   fit's DEGREE. A short chain's trend is a line through 100 m of ground, and
+   sideways it asserts a level cross-section over ground it never sampled. On
+   the §8.6 stub fixture the 101 m junction stub's two side vertices, handed
+   its own flat trend while the apron beside them leaned with the ground,
+   pulled the junction 0.63 m down and bent the 1 km parallel **3.78×** its own
+   vertical-curve bound. Bounded, the same build reads 0.009 m of chain
+   residual (control 0.097) at 0.010× the bound (control 0.065).
+
+A vertex the taxi face SHARES with another VALUE surface (a runway contact, an
+apron edge) takes no trend row: two authorities on one vertex is the
+`emit consensus mints violations` class. `[design] taxi_trend_face_reach_m`
+(250 m) is a BACKSTOP on how far a chain may reach inside a face it owns, not
+the scope — CYXY's `pav28` is 160 m wide at the owner's transect, so at 75 m
+the far edge took no row at all.
+
+**MEASURED (patch-only, harness, v2 engine).** CYXY transect at lat 60.71363
+east of the runway: every station past the zone ring inside ±1.5 m — 170 m
++1.36, the owner's point (200 m) +0.99, **320 m +0.15 and 330 m +0.04**
+(round 2: −1.80 / −1.93); the 1.5 m internal drop at 250→270 m is gone. SPJC
+kept: taxi `pav49#22` −0.18 m, terminal apron path 0.38 % (round 2 0.59 %).
+HECA per-role undulation against the merged control — `primary_parallel`
+1.047 → **0.936**, `stub` 1.027 → **0.831**, `cross_connector` 0.967 → 1.015,
+but `junction` 1.084 → **1.128** against a 1.05 bar: MISSED, and the second
+arm the brief named (the apron datum's TILT rows at half `body_datum`)
+REFUTES its own hypothesis — junction 1.160, `taxi_box` 30 → 33 — so that knob
+was not kept. CYXY `taxi_box` reader agreement (`test_cyxy_verify_matches_v1_census`)
+stands RED at v1 22 / v2 30 (control 6 / 6, tolerance 4.4): the same class
+round 1 reported at v1 22 / v2 28 — when a taxi body follows its ground, its
+own short-pair box rows appear. Not widened.
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

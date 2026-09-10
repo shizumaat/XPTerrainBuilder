@@ -19,8 +19,8 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 #: integrated curvature, every other term metres of elevation).
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
-                                 "taxi_profile", "road", "detached_mean",
-                                 "body_datum")
+                                 "taxi_profile", "taxi_trend", "road",
+                                 "detached_mean", "body_datum")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -62,6 +62,23 @@ class Design:
     #: difference of z along every taxi CENTRELINE chain, as a strong
     #: curvature target — the runway K pattern read as an objective term
     taxi_profile: float
+    #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
+    #: spec §8.6): the ground's LONG-WAVE TREND along every taxi centreline
+    #: chain — the §21 construction at the same window key, shifted
+    #: linearly through the chain's runway contacts — as a WEAK level
+    #: target per chain vertex (``constraints/taxi_trend.py``, published
+    #: through ``PlanarMap.taxi_trend_z``).  Below ``body_datum``: the
+    #: trend says WHERE a taxiway runs, and every law, the body plane and
+    #: the curvature row all outrank it.  This REPLACES the taxi body mean
+    #: row of 10p, which 10v measured as too coarse.
+    taxi_trend: float
+    #: THE TREND'S REACH ACROSS THE FACE (spec §8.6.1, round 3): a
+    #: taxi-family vertex OFF the centreline takes the same ``taxi_trend``
+    #: row, valued at the station of its foot on the nearest centreline
+    #: chain — within this plan distance.  Past it the vertex is left free
+    #: rather than pulled to a chain it does not belong to.  It is a REACH,
+    #: not a law value: it bounds which chain may speak for a vertex.
+    taxi_trend_face_reach_m: float
     road: float
     detached_mean: float
     #: THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t

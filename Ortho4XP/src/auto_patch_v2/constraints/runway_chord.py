@@ -83,12 +83,12 @@ senior holds it.
 """
 from __future__ import annotations
 
-import bisect as _bisect
 import dataclasses as _dc
 import typing as _t
 
 from .geometry import project_to_chain
 from .precedence import view
+from .trend import Trend as _Trend, trend_of as _trend_of
 from .runway_profile import RUNWAY_FAMILY, ridge_chains, threshold_pins
 from ..law import Law
 from ..model.airport import Airport
@@ -130,100 +130,6 @@ class ChordReport(_t.TypedDict, total=False):
     #: nearest the node), the node's elevation and the pinned vertex
     crossings: list   # [{"pair", "governing", "other", "z_pin_m", "pin_vertex", "pin_z_m"}]
     crossing_pins: int          # the crossing nodes actually pinned
-
-
-@_dc.dataclass(frozen=True)
-class _Trend:
-    """THE GROUND'S LONG-WAVE TREND along one runway's ridge (spec §21.2
-    (1), module docstring).
-
-    ``s`` / ``z`` are the PRODUCTION DEM samples under that runway's own
-    ridge vertices, in the chord's station frame, ascending and unique.
-    :meth:`at` is a moving QUADRATIC least squares over the samples within
-    ``+/- window_m`` — the fit's own value at the query station, i.e. the
-    constant term of the fit re-centred there.
-
-    THE WEIGHT IS TAPERED (tricube, ``(1 - |u|^3)^3`` over the window; the
-    spec says "moving quadratic least squares over +/- the window" and
-    leaves the kernel open — this is the choice, and the measurement that
-    made it).  A UNIFORM (boxcar) weight makes the fit jump as a sample
-    enters or leaves the window: measured on the §21.4 sag twin at a 12 m
-    ridge spacing, the target's largest second difference is 0.0357 m
-    boxcar against 0.0154 m tricube, and on the 30 m / 20 m noise twin
-    2.97 m against 0.029 m — a boxcar target carries curvature the K law
-    (0.0047 m over a 12 m station) has to spend the projection to remove,
-    which is exactly the "long gentle curves" the ruling asks for being
-    thrown away at the fit.  Tricube is the standard moving-least-squares
-    kernel and costs one multiply per sample.
-
-    Degenerate windows fall back by DEGREE, never to an invented value: two
-    samples give the line through them, one gives itself, none gives
-    ``None`` (and the caller then keeps the straight chord).  ``u`` is
-    scaled by the window before the normal equations are formed, so the
-    3x3 stays conditioned on a 1 km ridge."""
-
-    s: tuple[float, ...]
-    z: tuple[float, ...]
-    window_m: float
-    _memo: dict = _dc.field(default_factory=dict, compare=False, repr=False)
-
-    def at(self, q: float) -> float | None:
-        key = round(q, 3)
-        if key in self._memo:
-            return self._memo[key]
-        lo = _bisect.bisect_left(self.s, q - self.window_m)
-        hi = _bisect.bisect_right(self.s, q + self.window_m)
-        n = hi - lo
-        val: float | None
-        if n <= 0:
-            val = None
-        elif n == 1:
-            val = self.z[lo]
-        else:
-            us = [(self.s[i] - q) / self.window_m for i in range(lo, hi)]
-            zs = [self.z[i] for i in range(lo, hi)]
-            ws = [(1.0 - abs(u) ** 3) ** 3 for u in us]
-            val = _poly_at_zero(us, zs, ws, 2 if n >= 3 else 1)
-            if val is None:
-                val = _poly_at_zero(us, zs, ws, 1)
-            if val is None:
-                sw = sum(ws) or float(len(zs))
-                val = sum(w * z for w, z in zip(ws, zs)) / sw
-        self._memo[key] = val
-        return val
-
-
-def _poly_at_zero(us: _t.Sequence[float], zs: _t.Sequence[float],
-                  ws: _t.Sequence[float], degree: int) -> float | None:
-    """The value AT u = 0 of the WEIGHTED least-squares polynomial of
-    ``degree`` through ``(us, zs)`` — the constant term.  ``None`` when the
-    normal equations are singular (every sample at one station, or a degree
-    the sample count cannot carry), so the caller falls back by degree."""
-    k = degree + 1
-    if len(us) < k:
-        return None
-    m = [0.0] * (2 * degree + 1)
-    b = [0.0] * k
-    for u, zv, w in zip(us, zs, ws):
-        p = w
-        for j in range(2 * degree + 1):
-            m[j] += p
-            if j < k:
-                b[j] += p * zv
-            p *= u
-    a = [[m[i + j] for j in range(k)] + [b[i]] for i in range(k)]
-    for col in range(k):                      # Gaussian elimination, partial pivot
-        piv = max(range(col, k), key=lambda r: abs(a[r][col]))
-        if abs(a[piv][col]) < 1e-12:
-            return None
-        a[col], a[piv] = a[piv], a[col]
-        for r in range(k):
-            if r == col:
-                continue
-            f = a[r][col] / a[col][col]
-            for c in range(col, k + 1):
-                a[r][c] -= f * a[col][c]
-    return a[0][k] / a[0][0]
 
 
 @_dc.dataclass(frozen=True)
@@ -343,20 +249,12 @@ def dem_degraded(airport: Airport) -> str:
 def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
            pm: PlanarMap, window_m: float) -> _Trend | None:
     """The production DEM under this runway's own ridge, in ``c``'s station
-    frame (module docstring).  ``None`` where fewer than three stations
-    carry a sample — nothing to fit a quadratic to, so the chord stands."""
-    by_s: dict[float, list[float]] = {}
-    for ch in chains.get(rw_id, []):
-        for v in ch:
-            dem = pm.vertices[v].dem_z
-            if dem is None:
-                continue
-            by_s.setdefault(round(c.station(*vw.xy[v]), 3), []).append(float(dem))
-    if len(by_s) < 3:
-        return None
-    ss = sorted(by_s)
-    return _Trend(tuple(ss), tuple(sum(by_s[s]) / len(by_s[s]) for s in ss),
-                  float(window_m))
+    frame (module docstring), fitted by ``constraints/trend.py`` — the ONE
+    construction §21 and §8.6 share.  ``None`` where fewer than three
+    stations carry a sample, so the chord stands."""
+    return _trend_of(((c.station(*vw.xy[v]), float(pm.vertices[v].dem_z))
+                      for ch in chains.get(rw_id, []) for v in ch
+                      if pm.vertices[v].dem_z is not None), window_m)
 
 
 def _chords(pm: PlanarMap, law: Law, airport: Airport

@@ -1189,14 +1189,16 @@ reading fixes 666 of 2,345 and leaves the ruling's own named bar unmet.
 ### 15.1 The two rules
 
 1. **A TOUCHING SET OF ONE PLACEMENT IS ONE BODY, ELEVATED INCLUDED** (10u (1)
-   under 10i (1)/(3), 09z (4)). Elevated parts of one placement joined by
-   intra-placement contact edges form a COHESION GROUP; the BFS assigns the
-   GROUP, never a part, so two touching elevated components of one file can
-   never land in different bodies. Where a group touches several bodies it
-   joins ONE (it never bridges them): the body whose touched part has the
-   largest PLAN-FOOTPRINT OVERLAP with the group — the wall it rests on —
-   then a body holding a ground part of the same placement, and only then the
-   lowest body id. No number in code.
+   under 10i (1)/(3), 09z (4)). The body union-find spans EVERY part, and an
+   INTRA-PLACEMENT contact edge binds whatever it joins — ground to ground,
+   ground to elevated, elevated to elevated. Across placements nothing
+   changes: the ground-to-ground cut still applies and an elevated end is
+   still assigned by the BFS, which never bridges two bodies. A component set
+   holding no ground part at all is a FREE GROUP the BFS assigns WHOLE, never
+   a part; where it touches several bodies the tie resolves to the body whose
+   touched part has the largest PLAN-FOOTPRINT OVERLAP with it — the wall it
+   rests on — then a body holding a ground part of the same placement, and
+   only then the lowest body id. No number in code.
 2. **THE EAVE GAP** (10u (2)). In `rigid.complete_component_deltas`, a free
    component with NO carrier within `contact_tol_m` no longer falls straight
    to nearest: a carrier whose plan footprint OVERLAPS the free component's,
@@ -1249,3 +1251,51 @@ it; a pair is counted when a wall vertex lies within `--near` in PLAN and the
 plate's applied delta exceeds the wall's by more than `--floor`. Bucketed by
 the AUTHORED vertical gap (plate bottom − wall top): `contact` (≤
 `contact_epsilon_m`), `gap` (≤ `--gap`, the `plate_gap_max_m` class) and `far`.
+
+### 15.6 What was measured (lane `v2roofs`; LEMD patch build 437 s + offline replay on the owner's 1.0.306 meshes)
+
+Both arms replay the SAME plan (`o4_v2_rebake_LEMD.json`) against the same
+mesh (`Data+40-004.mesh`); the plan path is untouched, so the arms differ
+only in the seat and the carrier rule.
+
+* `pairs --class plate-vs-wall --floor 0.5`: **440 pairs / 257 plates / 5
+  resources → 75 / 56 / 3**; by authored vertical gap contact **377 → 34**,
+  gap (≤ 4 m) **48 → 41**, far **15 → 0**; worst 9.171 → 4.334 m.
+* `Terminal4SAT_Yellow-LEMD11.obj`: wall c3104 in body 1 at **−5.621** and
+  plate c5153 in body 1828 at **+3.550** (0.089 m apart) are now **body 1482
+  at +3.215, one delta**; the file's 1,400 parts fall from 30 distinct deltas
+  spanning −5.621 … +3.601 to 23 spanning +3.162 … +3.719, 1,324 of them on
+  one value (+3.600).
+* `pairs` (the 10i census) at `--floor 0.5 --bar 1.0`: **4,212 → 179**, over
+  1 m **567 → 49**. At the 0.05 m floor: 9,263 → 31,303, over 2 m **503 → 24**
+  in **14 → 7** resources. The rise below 0.5 m is the price of one body per
+  touching set: a merged body takes ONE median where its stacks used to take
+  their own, and the sub-0.5 m steps at its boundary sit under the seat law's
+  own `cluster_seat_tolerance_m`.
+* Seat counters: clusters 4,943 → 3,998; `elevated_groups` 5,447,
+  `group_ties` 28; pad requests 294 → 489; "members within 1 m of their own
+  ground" 167/206 → 161/206; `seat_feet_census.py` `> 3 m` **22 → 25**
+  (SEATED 20 → 23, worst 19.67 m unchanged). Both reported, not iterated on.
+* Rule 2 in isolation, at LEMD after rule 1: **one pair** (far 1 → 0). The
+  eave class is nearly empty once the touching sets are one body — measured,
+  reported, the rule kept as ruled.
+* The build: `build_airport.py LEMD --engine v2` rc 0, 437.4 s, status
+  optimal, 1,170 ways / 27,451 nodes, verify rows 342, `body_sha a67f60c3`;
+  the shared repo UNCHANGED; `--base-arm` computed the SAME artifact key and
+  was served from the ledger — the emitted-patch code path is untouched.
+
+**OTHH (`Data+25+051.mesh`, base arm replayed from the main tree at
+`9c37412a`) — the exemption held in kind, MISSED the identity bar by one
+class.** 20 written resources, same set, families identical (Dewatering 9,
+tunnels 8, Fire Fuel 3) with identical delta ranges; **18 of 20 byte-
+identical**. RESIDUAL: three components of two Fire Fuel clutter files
+(`OTHH_Fuel_01_CLUTTER_LOD0_001.obj` c206/c214, `…_002.obj` c716) went from
+−1.1295 m to STAY — max difference **1.130 m**. Attributed, not iterated on
+(attempt cap): those components carry **no contact edge at all**, so neither
+rule reached them; they are placed by the nearest-BODY fallback, which
+measures to a body's UNION BOX, and merging bodies changed which box is
+nearest. Their three nearest parts (box distance 0.000) STAY in BOTH arms,
+so the new answer agrees with the geometry around them and the old one did
+not. OWED to the spawner: the nearest-body fallback should measure to the
+nearest PART, not to a body's union box — invariant under body merging. That
+is a third rule, outside 10u, and was NOT written here.

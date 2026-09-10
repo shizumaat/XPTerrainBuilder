@@ -2816,25 +2816,6 @@ positive; no number in code).
 | C10 | `planar/build.py:168` | roles ⊆ {graded_strip} faces | unchanged |
 | C11 | the census (`check_grade` law families over `graded_strip`) | shape rows | unchanged; counts may drop |
 | C12 | the sidecar / KML (`emit/osm_adapter`) | region refs | the edge is recorded per region: `o4_edge = crest|road|none`, the edge segments as a `terrain_edge` polyline way (value-less) for the owner's KML read |
-| C13 | `solve/design.py` `_bend_class` (:113, :408) | a vertex's bending class (`strip` for zone ground) | unchanged: the class of the vertices that exist |
-| C14 | `law/families.toml` + `tools/check_grade.ROLE_LESS_FEATURE_CLASSES` | the census's law families over `graded_strip`; the role-less way register | families unchanged (counts may drop); the new `terrain_edge` way is REGISTERED role-less (the `crown_spine` precedent: its chords are ring edges already, it carries no grade law) — the register's twin in `tests/test_harness.py` is updated in the same commit |
-
-RULE column VERIFIED by lane `v2edge` before any edit (grep of `graded_strip`,
-`zone_regions`, `ZoneRegion` and the zone accessors over `src/auto_patch_v2`):
-C1–C12 as written, plus C13/C14 above; every other hit is a `tools/`
-diagnostic, not a build consumer.
-
-TWO READINGS RECORDED at implementation (neither changes the ruled law):
-(a) §19.2 (1)'s probe is FORWARD-LOOKING, so the first CREST station stands
-up to one `edge_probe_m` inboard of the lip and a crest-cut region ends
-there (measured on the twin: a lip at x = 50 ends the region at x = 45).
-A ROAD-cut region is exact.  (b) §19.2 (2)'s "within `edge_road_snap_m`
-inside the crest" is read as a DISTANCE (≤ 20 m from the crest set), not as
-"outside it": the crest set found by (a) already covers the road itself at
-CYXY (the DEM drops 6 m over the probe ahead of the rim road).  Because
-"without a road the crest of (1) is the edge", a governing road REPLACES the
-crest within `edge_road_snap_m` of its run — otherwise the crest, standing
-inboard of the road, would cut the region before the road ever could.
 
 ### 19.4 Twins and the closing test
 

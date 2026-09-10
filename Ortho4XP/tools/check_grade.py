@@ -1318,12 +1318,6 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     "gap_interior_ring",
     "gap_drainage_spine",
     "crown_spine",
-    # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19.3 C12):
-    # an open way recording where an adjacent-ground ring was ENDED at a
-    # rim road or a crest.  Role-less like the crown spine and for the
-    # same reason: its chords ARE ring edges of the faces it bounds, it
-    # carries no grade law of its own, and the ring is judged as itself.
-    "terrain_edge",
     # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
     # §1b): open constrained breakline ways carrying interior apron
     # anchors as per-node ``alt_abs``.  Role-less like the spines, and

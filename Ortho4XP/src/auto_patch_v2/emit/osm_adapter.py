@@ -102,16 +102,8 @@ RIM_FEATURE = "structure_rim"
 BANK_FEATURE = "bank_foot"
 #: Feature class of the runway ridge open way.
 RIDGE_FEATURE = "crown_spine"
-#: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19.3 C12): the
-#: boundary an adjacent-ground ring was ENDED at — a rim road or a crest —
-#: as a value-less open way over boundary vertices that already exist (the
-#: ``crown_spine`` precedent: its chords are ring edges already, and the
-#: mesh's colinear re-dicing folds them).  Role-less, census-skipped: it
-#: records where the patch stops and the DEM's own slope takes over.
-EDGE_FEATURE = "terrain_edge"
 #: Breakline kinds emitted as open ways (the others are ring edges already).
-_OPEN_WAY_KINDS = {"runway_profile": RIDGE_FEATURE,
-                   "terrain_edge": EDGE_FEATURE}
+_OPEN_WAY_KINDS = {"runway_profile": RIDGE_FEATURE}
 
 
 @_dc.dataclass(frozen=True)

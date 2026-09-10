@@ -96,18 +96,9 @@ __all__ = ["publication", "face_tags"]
 def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
               ) -> dict[int, dict[str, str]]:
     """Extra way tags: ``o4_grade_law_cap`` on roads bound to a stricter
-    contiguous class (the census's way-level lateral-contiguity read), and
-    ``o4_edge`` on an adjacent-ground face whose region was ENDED at a
-    terrain edge (owner RULINGS 2026-09-10b/10c; spec §19.3 C12)."""
-    out: dict[int, dict[str, str]] = {
-        fid: {"o4_grade_law_cap": f"{cap:g}"}
-        for fid, cap in road_law_caps(planar, law, airport).items()}
-    kinds = getattr(planar, "edge_kind_of_ref", None) or {}
-    for fid, f in planar.faces.items():
-        kind = kinds.get(f.ref)
-        if kind:
-            out.setdefault(fid, {})["o4_edge"] = kind
-    return out
+    contiguous class (the census's way-level lateral-contiguity read)."""
+    return {fid: {"o4_grade_law_cap": f"{cap:g}"}
+            for fid, cap in road_law_caps(planar, law, airport).items()}
 
 
 

@@ -280,25 +280,6 @@ bank_toe_break_m    = 10.0
 # ``(w / bank_triangle_divisions) ** 2``, ``w`` the local bank width —
 # i.e. the bank is divided into about this many triangles across.
 bank_triangle_divisions = 3.0
-# THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19).  An
-# adjacent-ground region (zone 1, zone 2, the end corridors) ENDS at the
-# physical edge of the ground that carries it: outward from its pavement,
-# where the natural DEM falls away below the region's surface faster than
-# the bank can follow — the CREST — or, where a road runs along that
-# crest, FLUSH at that road's outer edge (the road keeps its own profile).
-# Beyond the edge there is no bank and no patch: the DEM's own slope IS
-# the bank and the mesh drapes it.  ``edge_probe_m`` is the outward
-# baseline the DEM's downhill slope is read over; a cell is CREST when
-# that slope exceeds ``bank_slope`` AND the drop over the probe exceeds
-# ``edge_min_drop_m`` (the DEM's own noise stays out).  ``edge_grid_m`` is
-# the rasterisation the crest is found on (and so the accuracy of a
-# crest-cut edge).  A road governs when its line runs within
-# ``edge_road_snap_m`` inside the crest for at least ``edge_road_run_m``.
-edge_probe_m     = 15.0
-edge_min_drop_m  = 2.0
-edge_grid_m      = 5.0
-edge_road_snap_m = 20.0
-edge_road_run_m  = 30.0
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.

@@ -214,13 +214,6 @@ class PlanarMap:
     #: The roads crossing from one shape to another (owner RULINGS
     #: 2026-09-08r-2): unlabelled, ramping, never a joint.
     road_ramps: tuple[RoadRamp, ...] = ()
-    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19,
-    #: additive): the edge SEGMENTS the adjacent-ground clip made, as
-    #: frame polylines — the boundary beyond which there is no patch and
-    #: NO BANK (the DEM's own slope is the bank) — and the rule that ended
-    #: each region, by region ref (``crest`` / ``road``).
-    terrain_edges: tuple[tuple[tuple[float, float], ...], ...] = ()
-    edge_kind_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

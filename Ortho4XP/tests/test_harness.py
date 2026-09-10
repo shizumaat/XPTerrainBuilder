@@ -6305,14 +6305,6 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
         # host, so it is registered role-less and stays out of
         # ``HOST_CAP_FEATURE_CLASSES``.
         "bank_foot",
-        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12;
-        # auto_patch_v2 ``emit.osm_adapter.EDGE_FEATURE``): the open way
-        # recording where an adjacent-ground ring was ENDED — at a rim
-        # road or a crest.  Role-less for the crown spine's reason: its
-        # chords ARE ring edges of the faces it bounds, it carries no
-        # grade law of its own, and out of ``HOST_CAP_FEATURE_CLASSES``
-        # because it is not a host's hole boundary.
-        "terrain_edge",
         # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
         # §1b).  Role-less for the spines' reason: it is an OPEN
         # constrained breakline inside an apron face, so a phantom

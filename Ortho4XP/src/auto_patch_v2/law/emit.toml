@@ -297,19 +297,6 @@ bank_triangle_divisions = 3.0
 # PAIRS the four laws above already govern, and hard they were measured
 # mutually unsatisfiable (CYXY: 127/1432 ring chords missed by up to 0.77 m
 # under the soft solve, spec §6 deviation 8).
-# THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING (owner RULINGS
-# 2026-09-09r (2)).  Two crossing runways share ONE slab and each one's
-# threshold chord is pinned at its own two CIFP elevations; where they
-# disagree the shared surface split the difference and the LONG runway
-# DIPPED (CYXY: 14R/32L -2.25 m and 14L/32R -1.82 m at the 02/20
-# crossings — the owner's "runway crossings dip instead of joining
-# smoothly", spec §13.2).  Within this distance of the crossing ALONG THE
-# SECONDARY's axis the secondary's chord target is dropped: the primary
-# (the longer runway; on a tie the higher code letter) governs the shared
-# surface and the secondary carries itself into it under its own max
-# grade, vertical curve K and transverse laws, its thresholds still
-# pinned (CYXY: 02/20 climbs ~1.1 % to meet 14R/32L, inside its cap).
-crossing_release_m = 200.0
 hard_rulings = [
   "rulesets.runway.transverse_max",                      # 05o: flat laterally within the crown drop
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K

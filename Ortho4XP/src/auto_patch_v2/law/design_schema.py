@@ -115,13 +115,6 @@ class Design:
     #: the ruling heads whose rows are HARD constraints of the active set
     #: (RULINGS 2026-09-08v: the runway family's transverse, vertical curve
     #: K and max grade), enforced exactly — never one-sided targets
-    #: THE PRIMARY RUNWAY GOVERNS A RUNWAY x RUNWAY CROSSING (owner RULINGS
-    #: 2026-09-09r (2)): within this distance of the crossing along the
-    #: SECONDARY runway's own axis, the secondary's threshold-chord target
-    #: is dropped, so the shared slab takes the PRIMARY's chord and the
-    #: secondary climbs into it under its own hard laws.  Its threshold
-    #: pins, its profile rows and every hard law stay.
-    crossing_release_m: float
     hard_rulings: tuple[str, ...]
     hard_weight: float
     #: THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r (3)): the polish
@@ -197,9 +190,6 @@ def check_design(d: Design, err: type[Exception]) -> None:
         raise err(f"emit.design.bank_triangle_divisions "
                   f"{d.bank_triangle_divisions}: at least one triangle across "
                   "the bank (09-09x)")
-    if not d.crossing_release_m > 0.0:
-        raise err(f"emit.design.crossing_release_m {d.crossing_release_m}: "
-                  "positive metres (RULINGS 2026-09-09r (2))")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

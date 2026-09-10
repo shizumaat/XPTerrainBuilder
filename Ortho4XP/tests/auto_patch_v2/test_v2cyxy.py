@@ -394,11 +394,11 @@ SEC_HALF = 500.0     # the secondary's half length
 def _crossing_airport(law, dem, *, primary=(700.0, 706.0), secondary=(701.0, 701.0)):
     """TWO runways crossing at the origin, their threshold chords in
     CONFLICT over the shared slab (the CYXY 02/20 shape, spec §13.2): the
-    primary's chord reads 703.0 m at the crossing, the secondary's 701.0 —
-    the same ~2 m disagreement 02/20 has with 14R/32L.  (The conflict a
-    release can carry is bounded: the secondary has to climb it inside
-    ``crossing_release_m`` at its own longitudinal cap, so 200 m at 1.5 %
-    carries up to 3 m.)"""
+    long runway's chord reads 703.0 m at the crossing, the short one's
+    701.0 — the same ~2 m disagreement 02/20 has with 14R/32L.  Under
+    RULINGS 2026-09-09z (1) the SHORT runway governs (its threshold is
+    500 m from the node against 600 m), and the long one grades to 701.0
+    inside its own laws — the fixture ``test_v2crossing.py`` reads."""
     r = _rot(90.0)
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends_p = (RunwayEnd("09", r((-RUN_LEN / 2, 0.0)), (60.5, -135.5), 0.0, 0.0,
@@ -438,123 +438,12 @@ def runway_crossing(law):
     return (*_solve(law, airport, cells), airport, r)
 
 
-def test_the_longer_runway_is_the_primary_of_a_crossing(law):
-    """09r (2)'s register: the PRIMARY is the longer runway; on a tie the
-    higher code letter; and the answer never depends on the order the two
-    ids arrive in."""
-    from auto_patch_v2.constraints.runway_chord import crossing_primary
-    airport, _r, _c = _crossing_airport(law, _PlaneDem())
-    assert crossing_primary(airport, "09/27", "18/36") == ("09/27", "18/36")
-    assert crossing_primary(airport, "18/36", "09/27") == ("09/27", "18/36")
-
-
-def test_the_secondarys_chord_is_released_at_the_crossing(law):
-    """The row-level reading: the secondary loses its chord TARGET inside
-    the release, and nothing else does — the primary keeps every one of
-    its own targets across the same slab."""
-    from auto_patch_v2.constraints.runway_chord import (ChordReport,
-                                                        runway_chord_targets)
-    from auto_patch_v2.law.tables import design as design_law
-    airport, _r, cells = _crossing_airport(law, _PlaneDem())
-    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
-    rep: ChordReport = {}
-    targets = runway_chord_targets(pm, law, airport, rep)
-    assert rep["crossings"], "the fixture's two runways must cross"
-    rec = rep["crossings"][0]
-    assert (rec["primary"], rec["secondary"]) == ("09/27", "18/36")
-    assert rep["released_vertices"] > 0
-    rel = float(design_law(law).crossing_release_m)
-    # every secondary vertex INSIDE the release has no chord target; every
-    # one well outside it still has one
-    inside = outside = 0
-    for f in pm.faces.values():
-        if f.role != "runway" or f.ref != "18/36":
-            continue
-        for v in pm.ring_vertices(f.ring):
-            if any(pm.faces[g].role == "runway_crossing"
-                   for g in pm.vertices[v].incident_faces):
-                continue          # the shared slab takes the PRIMARY's chord
-            s = abs(pm.vertices[v].xy[1])          # the secondary runs along y
-            if s <= rel:
-                assert v not in targets, "a released vertex kept its chord"
-                inside += 1
-            elif s > rel + 60.0:
-                outside += 1 if v in targets else 0
-    assert inside and outside, "the fixture must have both sides of the release"
-
-
-def test_the_primary_ridge_is_monotone_through_the_crossing(runway_crossing, law):
-    """09r (2): the primary GOVERNS the shared slab, so its ridge runs
-    THROUGH the crossing on its own chord — no V, no dip.  (Round 1: the
-    two pinned chords conflicted by 2.3 m and the shared surface split the
-    difference, dipping 14R/32L by 2.25 m — spec §13.2.)"""
-    pm, z, _rep, airport, _r = runway_crossing
-    ax, ay, ux, uy = _runway_frame(airport)
-    pts = []
-    for ch in ridge_chains(view(pm, law)).get("09/27") or []:
-        for v in ch:
-            dx, dy = pm.vertices[v].xy[0] - ax, pm.vertices[v].xy[1] - ay
-            pts.append((dx * ux + dy * uy, float(z[v])))
-    pts.sort()
-    assert len(pts) > 4, "the primary must carry a ridge across the crossing"
-    # MONOTONE to the hard set's own tolerance: a station may sit under its
-    # predecessor by less than ``hard_tol_m``, which is under the census's
-    # rounding envelope and is not a dip anyone can read
-    from auto_patch_v2.law.tables import design as design_law
-    tol = float(design_law(law).hard_tol_m)
-    for (s0, z0), (s1, z1) in zip(pts, pts[1:]):
-        assert z1 >= z0 - tol, \
-            (f"the primary's ridge falls from {z0:.3f} at s {s0:.0f} to "
-             f"{z1:.3f} at s {s1:.0f} — the crossing dip")
-    # and it is ON its own chord across the crossing, not pulled to the
-    # secondary's pinned level
-    mid = [zz for s, zz in pts if abs(s - RUN_LEN / 2) <= 120.0]
-    assert mid, "the fixture's crossing must carry ridge stations"
-    chord_mid = 0.5 * (airport.runways[0].ends[0].threshold_elev_m
-                       + airport.runways[0].ends[1].threshold_elev_m)
-    assert abs(float(np.mean(mid)) - chord_mid) <= 0.5, \
-        "the primary's ridge at the crossing is its own chord's elevation"
-
-
-def test_the_secondary_climbs_into_the_primary_within_its_own_laws(runway_crossing, law):
-    """The other half: released of its chord, the secondary still obeys
-    every HARD law it owns — its thresholds stay pinned, its grade stays
-    inside the longitudinal cap and its profile inside the vertical curve
-    K — and it CLIMBS to meet the primary instead of holding the slab
-    down."""
-    from auto_patch_v2.law.tables import (role_cap,
-                                          runway_vertical_curve_bound)
-    pm, z, _rep, airport, _r = runway_crossing
-    pts = []
-    for ch in ridge_chains(view(pm, law)).get("18/36") or []:
-        for v in ch:
-            pts.append((pm.vertices[v].xy[1], float(z[v])))
-    pts.sort()
-    assert len(pts) > 4
-    # the thresholds stay pinned
-    assert abs(pts[0][1] - 701.0) <= 0.05 and abs(pts[-1][1] - 701.0) <= 0.05, \
-        "a released chord never releases the CIFP threshold pins"
-    # it climbs to meet the primary at the crossing
-    mid = [zz for s, zz in pts if abs(s) <= 40.0]
-    assert mid and float(np.mean(mid)) >= 702.0, \
-        f"the secondary must climb into the primary's surface ({mid})"
-    cap = role_cap(law, "runway", 3, "C").longitudinal
-    for (s0, z0), (s1, z1) in zip(pts, pts[1:]):
-        d = abs(s1 - s0)
-        if d < 1e-6:
-            continue
-        assert abs(z1 - z0) <= cap * d + 0.05, \
-            f"the secondary's grade {(z1 - z0) / d:.4f} exceeds its cap {cap}"
-    sp_m = float(np.mean([abs(b[0] - a[0]) for a, b in zip(pts, pts[1:])]))
-    bound = runway_vertical_curve_bound(law, sp_m, 3, "C")
-    if bound is not None:
-        for a, b, c3 in zip(pts, pts[1:], pts[2:]):
-            d0, d1 = b[0] - a[0], c3[0] - b[0]
-            if d0 < 1e-6 or d1 < 1e-6:
-                continue
-            g = (c3[1] - b[1]) / d1 - (b[1] - a[1]) / d0
-            assert abs(g) <= bound + 0.02, \
-                f"the secondary's grade change {g:.5f} exceeds K's {bound:.5f}"
+# 09r (2)'s FOUR TWINS ARE DELETED with the mechanism they locked (owner
+# RULINGS 2026-09-09z (1) replaced "the primary governs" — the longer
+# runway — with the NEAREST-THRESHOLD anchor; refuted mechanisms are
+# deleted, not kept gated).  Their successors are
+# ``tests/auto_patch_v2/test_v2crossing.py``; the fixture above stays,
+# because the hard-set twins below read it.
 
 
 # (3) THE HARD SET SETTLES

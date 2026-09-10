@@ -144,6 +144,9 @@ class BankReport:
     at_max: int = 0
     #: THE SHORE (09z (3)): rays whose walk met WATER and carry no foot
     at_water: int = 0
+    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c): the banked region
+    #: was cut at an edge — beyond it the DEM's own slope is the bank.
+    at_edge: int = 0
     #: the rays that NEVER daylighted, named (chain, vertex, lat/lon)
     never_daylight: list[str] = _dc.field(default_factory=list)
     #: the toe-smoothing runs the daylight discontinuities cut the chains into
@@ -166,6 +169,8 @@ class BankReport:
                 f"skipped), DAYLIGHT {self.at_min} at the minimum / "
                 f"{self.daylighted} daylighted / {self.at_max} at the maximum"
                 + f" / {self.at_water} STOPPED AT WATER (09z: no foot there)"
+                + (" / CUT AT THE TERRAIN EDGE (10c: no bank beyond it)"
+                   if self.at_edge else "")
                 + (f" [{names}]" if self.never_daylight else "")
                 + f", toe in {self.toe_runs} smoothing run(s); foot distance min "
                 f"{self.min_m:.1f} / mean {self.mean_m:.1f} m / p95 "
@@ -696,6 +701,21 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             if not cut.is_empty:
                 banked = cut if cut.geom_type in ("Polygon", "MultiPolygon") \
                     else banked
+        except Exception:                               # pragma: no cover
+            pass
+    # THE TERRAIN EDGE HAS NO BANK EITHER (owner RULINGS 2026-09-10b/10c,
+    # spec §19 (3)): where an adjacent-ground ring was ended at a rim road
+    # or a crest, the DEM's OWN slope is the bank — the same region cut,
+    # at the same single derivation site, over the ground beyond the edge.
+    from .terrain_edge import no_bank_region
+    edge_geom = no_bank_region(planar, law, cov)
+    if edge_geom is not None:
+        try:
+            cut = banked.difference(edge_geom)
+            if not cut.is_empty:
+                banked = cut if cut.geom_type in ("Polygon", "MultiPolygon") \
+                    else banked
+                rep.at_edge = 1
         except Exception:                               # pragma: no cover
             pass
     from scipy.spatial import cKDTree

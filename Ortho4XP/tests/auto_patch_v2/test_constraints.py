@@ -200,8 +200,9 @@ def test_strip_families_and_pads(synthetic, law):
     assert isinstance(strips.raoa(pm, law, airport), list)   # ICAO: runs (may be empty here)
     # THE PAD IS ONE PLANE, TARGETING FLAT (owner RULINGS 2026-09-09c;
     # 2026-09-10y "09c stands"): a cap-0 ``Diff`` over EVERY pair of the
-    # rim at ``pad_flat`` — the contacts included, which is the plate the
-    # frontage fit rows act on — and the 1 % ceiling over the same pairs.
+    # rim at ``pad_flat`` — the frontage CONTACTS included, which is the
+    # near-rigid plate the frontage fit rows act on — and the hard 1 %
+    # ceiling over the same pairs.
     flats = pads.pad_flats(pm, law, airport)
     ceil = pads.pad_slope_ceiling(pm, law, airport)
     pad_face = next(f for f in pm.faces.values() if f.role == "building")

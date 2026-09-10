@@ -83,7 +83,7 @@ from .precedence import view
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
            "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
-           "CEILING_RULING", "pad_frontage_leaders",
+           "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL"]
 
 GEN = "pads"
@@ -306,6 +306,8 @@ def pad_flats(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 #: the read exact, since the pavement's grade INTO the pad — the whole
 #: defect 10l names — falls to zero as the pad rises to meet it.
 _LEADER_MIN_M = 10.0
+#: The twins read the band's inner edge by name.
+LEVEL_MIN_BAND_M = _LEADER_MIN_M
 _LEADER_MAX_M = 50.0
 #: At most this many own vertices carry one contact: an index constant.
 _LEADER_K = 8
@@ -369,26 +371,27 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     """THE PLANE IS FITTED TO ITS FRONTAGE (owner RULINGS 2026-09-10l,
     10k-1 = (A) "Pad takes the apron edge level"; the fit is 10y's).
 
-    ONE row per frontage CONTACT: that contact takes the PAVEMENT'S OWN
-    VALUE there (:func:`pad_frontage_leaders`), ONE-WAY with the contact
-    as the follower, so the pad follows the pavement and never pulls it.
+    ONE row per fronting pad and role: the pad's OWN MEAN — every rim
+    vertex at weight ``1/n``, so the row moves the pad's LEVEL and warps
+    nothing — against THE PAVEMENT'S OWN VALUE AT ITS CONTACTS
+    (:func:`pad_frontage_leaders`, the mean over the contacts of the
+    pavement's own level in a band beside each).  ONE-WAY with the pad as
+    the follower: the pad follows the pavement and never pulls it.
 
-    THE ROWS ARE A PLANE FIT, NOT A PER-VERTEX PULL.  A contact is welded
-    into the pad's near-rigid plate by :func:`pad_flats` (every pair of
-    the rim at cap 0, ``pad_flat``), so a row on it moves the WHOLE PAD:
-    many such rows over one plate are exactly the least-squares fit of the
-    pad's plane — its level and, inside the hard 1 % ceiling, its tilt —
-    to its frontage's values, which is what the owner ruled.  Round 1's
-    row set differed in one thing only, and it was the defect 10y named:
-    it dropped the rim pairs footed on a contact, so there was no plate
-    left and each vertex followed alone.
+    A LEVEL ROW, NOT A PER-VERTEX PULL.  Round 1 minted one row per pad
+    VERTEX and the pad stopped being one plane (10y).  Round 2 tried one
+    per CONTACT — welded into the plate (:func:`pad_flats`) they are the
+    least-squares fit of the plane in principle, but the plate is finite
+    and they warp it: MEASURED at LEMD, the worst pad's residual from its
+    own least-squares plane went 0.077 -> 0.569 m and the ``pad_flat``
+    verify rows 6 -> 11.  A row on the pad's own mean cannot warp it at
+    all, and the pad's LEVEL is what 10l is about.
 
-    SENIORITY (10y): the SENIOR frontage's rows (``precedence.toml``:
-    runway family > taxi > apron > road) are priced at ``[design]
-    pad_flat`` and a junior frontage's at the law's own weight, so where
-    one plane cannot meet both — a frontage needing more than 1 % of tilt
-    — the pad follows the senior's edge and the miss against the junior is
-    the reported residual of the ``pad_level`` family.
+    SENIORITY (10y): the SENIOR frontage's row (``precedence.toml``:
+    runway family > taxi > apron > road) is priced at ``[design]
+    pad_flat`` and a junior frontage's at the law's own weight, so a pad
+    between two frontages follows the senior and the miss against the
+    junior is the reported residual of the ``pad_level`` family.
 
     A pad that fronts no pavement mints nothing here and keeps its own DEM
     datum (09p (3))."""
@@ -405,17 +408,17 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
         # in the pavement body's mean.
         own = tuple(sorted(set(group) - shared.get(fid, set())))
         for role, pairs in by_role.items():
+            terms: dict[int, float] = {v: 1.0 / len(group) for v in group}
+            for _c, lw in pairs:
+                for j, wj in lw:
+                    terms[j] = terms.get(j, 0.0) - wj / len(pairs)
             src = Source(GEN_LEVEL,
                          (LEVEL_RULING if role == top else LEVEL_JUNIOR_RULING)
                          + f" ({role}; owner 2026-09-10l 10k-1 = A; "
-                         "10y the plane fitted to its frontage)",
+                         "10y the plane's level from its frontage)",
                          (f"face:{fid}", ref, f"pavement:{role}"))
-            for c, lw in pairs:
-                terms: dict[int, float] = {c: 1.0}
-                for j, wj in lw:
-                    terms[j] = terms.get(j, 0.0) - wj
-                rows.extend(_two_sided(tuple(terms.items()), src,
-                                       (c, *own)))
+            rows.extend(_two_sided(tuple(terms.items()), src,
+                                   tuple(sorted({*group, *own}))))
     return rows
 
 

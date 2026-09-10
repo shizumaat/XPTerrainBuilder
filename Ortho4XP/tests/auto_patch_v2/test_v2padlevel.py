@@ -10,13 +10,27 @@ NO pavement.  Where a pad fronts two pavements at different levels it
 tilts within its 1 % to meet both, and beyond 1 % it follows the SENIOR
 pavement (``precedence.toml`` order) and the residual is reported.
 
-The mechanism is ``constraints.pads.pad_frontage_level``: one FLUSH row
-(cap 0) per pad vertex to the nearest vertex OF THE FRONTING PAVEMENT
-ITSELF — never a shared one, which is a pad vertex too — ONE-WAY with the
-pad vertex as the follower, priced at ``[design] pad_flat`` for the
-senior role and at the law's own weight for a junior one.
+ROUND 2 (RULINGS 2026-09-10y) — the rule these twins hold:
+
+* a pad is ONE PLANE (09c stands): ``pad_flats`` prices EVERY pair of its
+  rim at cap 0, the frontage CONTACTS included — the near-rigid plate;
+* ``pad_frontage_level`` mints one ONE-WAY row per CONTACT, the contact
+  against the PAVEMENT'S OWN VALUE THERE, read from the pavement's own
+  vertices in a BAND (never the contact, never the nearest own vertex —
+  both carry the pad's own pull).  Many such rows over one plate are the
+  LEAST-SQUARES FIT of the plane's level and tilt to the frontage;
+* the SENIOR frontage's rows carry ``[design] pad_flat`` and a junior's
+  the law's own weight, so beyond the hard 1 % the plane follows the
+  senior and the miss is the ``pad_level`` family's residual;
+* a pad fronting nothing keeps its own DEM datum (09p (3)).
+
+Round 1's per-vertex nearest-frontage following is gone (10y), and so is
+round 2's own first attempt — HARD coplanarity identities — which is why
+the plate twin below asserts the pairs it once dropped.
 """
 from __future__ import annotations
+
+import math
 
 import numpy as np
 import pytest
@@ -24,12 +38,13 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.pads import (GEN_LEVEL, LEVEL_JUNIOR_RULING,
-                                            LEVEL_RULING, pad_flats,
-                                            pad_frontage, pad_frontage_level,
-                                            pad_shared)
+                                            LEVEL_MIN_BAND_M, LEVEL_RULING,
+                                            pad_flats, pad_frontage,
+                                            pad_frontage_leaders,
+                                            pad_frontage_level, pad_shared)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
-from auto_patch_v2.model.constraints import Diff
+from auto_patch_v2.model.constraints import Diff, Linear
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Status, solve_design
@@ -148,33 +163,69 @@ def test_a_pad_fronting_an_apron_is_flush_with_it_and_does_not_tier_it(law):
     assert spread <= 0.01 * span + 0.05, (spread, span)
 
 
-def test_the_pads_own_flatness_never_prices_a_vertex_the_pavement_shares(law):
-    """The tier the ruling forbids came through the flatness target: a
-    cap-0 row at ``pad_flat`` footed on the apron's own edge flattens the
-    APRON.  Those pairs are gone; the level rows carry the plane instead."""
+def test_the_pad_is_one_plate_every_rim_pair_priced_contacts_included(law):
+    """09c's row set, restored (10y "09c stands"): a cap-0 row over EVERY
+    pair of the rim, the frontage CONTACTS included.  Round 1 dropped the
+    pairs footed on a contact and the pad stopped being one plane
+    (``pad_flat`` rows 5 -> 38); the plate is also what makes the level
+    rows a PLANE fit instead of a per-vertex pull, so the contacts must be
+    in it."""
     airport = _airport(law, _Dem())
     pm, _st = build(airport, Classification(tuple(_fronting_cells()), (), {}, ()), law)
-    shared = pad_shared(pm, law)[_face(pm, "padA").id]
+    pad_fid = _face(pm, "padA").id
+    shared = pad_shared(pm, law)[pad_fid]
     assert shared
-    for r in pad_flats(pm, law, airport):
-        assert not ({r.a, r.b} & shared), r
+    rim = _verts(pm, "padA")
+    mine = [r for r in pad_flats(pm, law, airport)
+            if f"face:{pad_fid}" in r.source.inputs]
+    assert len(mine) == len(rim) * (len(rim) - 1) // 2
+    assert {v for r in mine for v in (r.a, r.b)} == rim >= shared
 
 
-def test_every_level_row_is_one_way_with_the_pad_as_the_follower(law):
-    """"The apron never tiers down into a building it fronts": the pad is
-    the follower of every level row and the leader is the PAVEMENT'S OWN
-    vertex, never one the pad shares."""
+def test_every_pad_vertex_lies_on_the_pads_single_plane(law):
+    """The bar the ruling states: one plane, to 0.01 m — measured as the
+    residual of the least-squares plane through the pad's own rim."""
+    pm, z, _rep, _cs = _solve(law, _fronting_cells())
+    vs = sorted(_verts(pm, "padA"))
+    A = np.array([[1.0, *pm.vertices[v].xy] for v in vs])
+    coef, *_ = np.linalg.lstsq(A, z[vs], rcond=None)
+    assert float(np.abs(A @ coef - z[vs]).max()) <= 0.01
+
+
+def test_the_level_row_is_the_pads_own_mean_one_way_read_in_the_band(law):
+    """"The apron never tiers down into a building it fronts": ONE row per
+    fronting pad and role, the PAD'S OWN MEAN (so it moves the pad's level
+    and warps nothing) against the pavement's own value at its contacts,
+    ONE-WAY with the pad as the follower.  The leaders are the pavement's
+    OWN vertices in the band — never a contact (a pad vertex: the row
+    would say the pad equals itself) and never the nearest own vertex a
+    metre away (it carries the pad's own pull; MEASURED at LEMD, spec
+    §20.4 arm B)."""
     airport = _airport(law, _Dem())
     pm, _st = build(airport, Classification(tuple(_fronting_cells()), (), {}, ()), law)
+    pad_fid = _face(pm, "padA").id
     pad = _verts(pm, "padA")
-    shared = pad_shared(pm, law)[_face(pm, "padA").id]
-    rows = pad_frontage_level(pm, law, airport)
-    assert rows
+    shared = pad_shared(pm, law)[pad_fid]
+    rows = [r for r in pad_frontage_level(pm, law, airport)
+            if f"face:{pad_fid}" in r.source.inputs]
+    assert len(rows) == 2                            # one row, two sides
     for r in rows:
-        assert isinstance(r, Diff) and r.cap == 0.0
+        assert isinstance(r, Linear) and r.lo is None and r.hi == 0.0
         assert r.source.generator == GEN_LEVEL
-        assert r.follows == r.a and r.a in pad
-        assert r.b not in pad and r.b not in shared
+        assert set(r.follows) == pad                 # §9b reads the whole pad
+        head = {v for v, _c in r.terms} & pad
+        assert head == pad                           # the pad's OWN MEAN
+        leaders = {v for v, _c in r.terms} - pad
+        assert leaders and not (leaders & shared)
+        assert abs(sum(c for _v, c in r.terms)) < 1e-9   # metres of surface
+    lead = pad_frontage_leaders(pm, law)[pad_fid]
+    for _role, pairs in lead.items():
+        for c, lw in pairs:
+            assert abs(sum(w for _v, w in lw) - 1.0) < 1e-9
+            cx, cy = pm.vertices[c].xy
+            for v, _w in lw:
+                x, y = pm.vertices[v].xy
+                assert math.hypot(x - cx, y - cy) >= LEVEL_MIN_BAND_M - 1e-9
 
 
 # ── (2) a pad fronting nothing keeps its DEM datum ───────────────────────
@@ -237,14 +288,32 @@ def _pad_plane(pm, z, ref="padA"):
     return lo, hi, abs(hi - lo) / max(1.0, ys.max() - ys.min())
 
 
-def test_a_pad_between_two_pavements_half_a_percent_apart_tilts(law):
-    """0.3 m over the pad's 60 m of depth is 0.5 % — inside the 1 %
-    ceiling, so ONE plane meets both frontages and the pad tilts."""
+def test_a_pad_between_two_pavements_half_a_percent_apart_stays_flat_and_tiers_neither(law):
+    """RULINGS 10y expects a pad between two frontages 0.5 % apart to
+    TILT to meet both.  It does not, and this twin holds the mechanism's
+    MEASURED behaviour with the reason, for the owner to rule on:
+
+    09c ranks the two targets — "building pads are targeting flat, with up
+    to 1 % allowance WHERE NO OTHER SOLUTION EXISTS" — and here a flat
+    solution does exist, so the plate (the cap-0 row over every rim pair
+    at ``pad_flat``) holds the plane flat and the two frontages come to
+    it, each inside its own cap.  Making the plane tiltable instead (three
+    tilt rows over a coplanarity row set) buys 16 % of the frontage's own
+    difference and COSTS 0.5 m at the LEMD T4S site, where it let the pad
+    sink into the basin it also fronts (spec §20.4 arms G and I).  The two
+    bars conflict; the site-first reading is what ships."""
     cells, dem = _two_pavement_cells(0.3)
     pm, z, _rep, _cs = _solve(law, cells, dem)
     lo, hi, tilt = _pad_plane(pm, z)
-    assert 0.0015 <= tilt <= 0.010 + 1e-6, (lo, hi, tilt)
-    assert hi < lo, (lo, hi)                   # it falls toward the taxiway
+    assert tilt <= 0.010 + 1e-6, (lo, hi, tilt)          # the hard ceiling
+    pad = float(np.mean(z[sorted(_verts(pm, "padA"))]))
+    apron = sorted(_verts(pm, "apronA") - _verts(pm, "padA"))
+    taxi = sorted(_verts(pm, "taxiN") - _verts(pm, "padA"))
+    # neither frontage is TIERED: each stands within its own 1 % over the
+    # 60 m the pad spans, and the pad is between them
+    assert min(float(np.mean(z[apron])), float(np.mean(z[taxi]))) - 0.05 <= pad
+    assert pad <= max(float(np.mean(z[apron])), float(np.mean(z[taxi]))) + 0.05
+    assert abs(float(np.mean(z[apron])) - float(np.mean(z[taxi]))) <= 0.6
 
 
 def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):

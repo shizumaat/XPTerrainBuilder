@@ -447,3 +447,84 @@ member's feet.
   the plate delta and the kerb falls to the cluster law. The rest of the
   twin (the plate's own datum, the neighbour never founded by it, the
   distinct cluster ids) is unchanged and still asserted.
+
+### §10.1 What it measured — and the two bars it does not reach
+
+LEMD tile `v2lemdseats_LEMD3` (`--tile 40 -4`, 427 s wall, mesh 51.7 s;
+the branch's earlier arm `v2lemdseats_LEMD2` at 531 s carried rule (1) +
+the feet without the per-component delta), measured with the scout's
+`measure5.py` / `analyze5.py` on the built mesh and the re-baked pack:
+
+| |Δ| at the worst foot, measured `.obj` placements | 1.0.297 | 09q only (round 1) | this branch |
+|---|---|---|---|
+| placements measured | 870 | 870 | 805 |
+| > 3 m | 184 | 185 | **122** |
+| > 1 m | 195 | 194 | 126 |
+| < 0.3 m | — | 502 (57.7 %) | 504 (62.6 %) |
+| worst placement | `OldTerminal_FSX-LEMD38` +36.4 | +36.2 | +36.2 (now a plan SKIP, not a seat) |
+| objects written | 26 | 303 | **196** |
+| stranded components (`v2_rebake_replay bodies`) | — | 27,571 → 3 | 27,135 → **24** |
+| LEMD v2 verify rows / census adjudicated | — | — | 496 / 338 (patch-side, untouched by the seat) |
+
+BARS MISSED, with the residual attributed. `> 3 m → 0`: 122 stand.
+`the worst 30 within 0.5 m at their feet`: 30/30 still over 10 m. By
+mechanism, and NONE of them is the cluster seat:
+
+* **76 — the MEMBER-level below-grade skip** (`rebake_plan.py:137`,
+  `o.solid_min_depth_m ≤ −[basin] admission_depth_m` 2.5 m). 09s
+  predicted this ("`below_grade` 4 → 105"): with the plate family gone,
+  105 members are skipped whole because SOME component of the file lies
+  ≥ 2.5 m under the local terrain — which is what a pack's flat authored
+  plane does over 32 m of relief. This is 04i / 08-26's facility rule
+  reading a SCATTER FILE as one body: the same error 09s (2) corrects
+  inside the cluster seat, one pass earlier. It is not ruled, so the lane
+  did not touch it. **Owner/spawner item: should the below-grade facility
+  test be per COMPONENT (a clump 10 m under is a facility, its 1,500
+  at-grade siblings are not)?** The cluster-level facility rule (05p) is
+  already per-cluster and would carry it.
+* **14 — wall-corridor members excluded by 09q (1)**: the terrain
+  adapted to them; lawful, not a defect.
+* **~6 — PLATE-datum members**: they seat their PLATE on the ground at
+  the wall band (05n-4), so a foot instrument mis-reads them by
+  construction. But LEMD's tunnel-object reader claims 13 plate members
+  that are plainly not tunnel walls — `Terminal4_green-CNTRL.obj`
+  (`plate_y` +9.27), `-Bus.obj` (−0.22), `Ground-FSX-LEMD36/37/85`
+  (−7.05), `OldTerminal_FSX-P2CNX` (+5.21) — and the plate seat then
+  stands them 12–17 m off their own feet. **Second owner/spawner item,
+  upstream of the seat: the LEMD `tunnel_objects` reading.**
+* **1 — `Munoza-LEMD64.obj`**, baked per component (−21.19 m on disk)
+  with a foot still −22.4 m out: its remaining feet sit in clusters that
+  STAYED.
+
+OTHH plan replay (`build_airport.py OTHH --engine v2 --patch-only`, tag
+`v2lemdseats_OTHH2`, 600 s; `v2_rebake_replay.py seat` on the owner's
+`tile_OTHH_20260908T121758/Data+25+051.mesh`), against 09q's table:
+
+| | 09q (round 1) | round-1 plan under this code (the feet FALLBACK) | this branch |
+|---|---|---|---|
+| resources written | **24** in 2 families | 22 in 2 | **23** in 3 |
+| Dewatering Drainage | 16, +3.816 … +13.142 | 14, same range | 12, same range |
+| tunnels | 8, −2.944 … +3.094 | 8, −2.283 … +5.392 | 8, −2.283 … +5.392 |
+| Fire Fuel | — | — | 3, −1.130 |
+| unit:28 (terminal deck, 193 members) | 0 (08f b/e) | 0 | 0 |
+
+BAR MISSED (24, same deltas). Both moves are the ruling working: the
+plate no longer carries its anchor siblings (Dewatering 16 → 12), and one
+Fuel cluster's single measured ground part now reads its FEET, so its
+lift is −1.130 m and crosses `min_delta_m` where the centroid reading
+left it under. Nothing new is HELD and no family is newly written.
+
+HECA offline replay (`v2_rebake_replay.py bodies` on the owner's plan and
+rebake result in the shared repo): **15,716 stranded → 2** after the 09d
+completion (bar ≤ 2, unchanged — the completion is a write-side rule this
+ruling does not touch); top-5 spread −45.4 … −30.3 m, all
+`Airport/Private_hall/*` at 30.11212, 31.41203.
+
+Suite: 750 passed, 1 skipped (`tests/auto_patch_v2 tests/test_harness.py
+tests/test_engine_v2_rebake.py`; 745 on the branch + the five 09s twins).
+
+BUILD-TIME IMPACT: the seat's post-mesh half reads up to
+`foot_samples_max` 4 mesh samples per GROUND part instead of 1 (LEMD
+7,685 ground parts of 25,484; OTHH 15,802 of 139,065) and the plan grows
+by their feet. Measured at the tile level: LEMD3 427 s vs LEMD2 531 s and
+09q's 425 s — inside the ±25 % single-run noise floor, no phase attributed.

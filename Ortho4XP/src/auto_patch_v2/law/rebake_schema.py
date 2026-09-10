@@ -24,6 +24,9 @@ class Rebake:
     contact_narrow_budget: int
     contact_batch_rows: int
     elevated_base_m: float
+    #: RULINGS 2026-09-09s (2): a GROUND part's seat target is read at
+    #: its own FEET, at most this many.
+    foot_samples_max: int
     # the cut and the cluster seat (06g; v1 per-cluster seating spec)
     cluster_seat_tolerance_m: float
     min_delta_m: float
@@ -36,7 +39,6 @@ class Rebake:
     agreement_window_m: float
     water_founds_seat: bool
     one_anchor_one_seat: bool
-    structure_family_excluded: bool
     deck_family_seats_rigid: bool
     facility_requires_at_grade_coalition: bool
     structure_seat_threshold_exempt: bool

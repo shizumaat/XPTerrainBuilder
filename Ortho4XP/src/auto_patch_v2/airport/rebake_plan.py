@@ -62,17 +62,20 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     AUTHORED files, the deck signature applied); ``deck_datum`` the
     solved surface's reading at a flagged deck ring; ``exclude`` the
     placement ids the TERRAIN adapted to (the basin facilities, RULINGS
-    2026-08-26 / v1 ruling R4) — never re-seated, and with
-    ``[rebake] structure_family_excluded`` neither is any member of their
-    anchor family (m6a Q3: Dewatering_01's rim pieces go with the pit);
+    2026-08-26 / v1 ruling R4) — THAT MEMBER only is never re-seated
+    (RULINGS 2026-09-09q (1): the anchor-family expansion is deleted —
+    Aerosoft anchors LEMD's whole terminal pack at two points, so one
+    wall-corridor member excluded 300 placements over 32 m of relief);
+    every other member of the family seats per body (09d);
     ``below_grade`` the emitted below-grade regions ``(frame polygon,
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
     deck (``deck_signature.promote``); ``tunnel_objects`` the tunnel
     wall objects by placement id → ``(plate height, wall-band stations
     in frame xy)``: RE-SEATED so the plate sits on the ground at the
-    band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``), their whole
-    anchor family with them — never excluded, never a feet seat, and
-    never the below-grade skip (their skirts are the tunnel)."""
+    band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``) — THAT OBJECT
+    only (RULINGS 2026-09-09s (1): the whole-anchor-family expansion is
+    withdrawn), never excluded, never a feet seat, and never the
+    below-grade skip (their skirts are the tunnel)."""
     rb = law.tables.structures.rebake
     admission_m = law.tables.structures.basin.admission_depth_m
     # the basin records name their members by resource PATH
@@ -90,10 +93,15 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         by_id = {o.id: o for o in promoted}
         objects = [by_id.get(o.id, o) if o.id in keep else o for o in objects]
     fam_of = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
-    if rb.structure_family_excluded:
-        basin_keys = {fam_of[oid] for oid in excluded if oid in fam_of}
-        excluded |= {o.id for o in objects if fam_of.get(o.id) in basin_keys}
-    plate_keys = {fam_of[oid] for oid in plates if oid in fam_of}
+    # RULINGS 2026-09-09q (1): a structure the terrain adapted to excludes
+    # THAT MEMBER, never its anchor family.  (The family expansion that
+    # stood here is deleted with its law key ``structure_family_excluded``.)
+    # RULINGS 2026-09-09s (1): 05n-4's "their whole anchor family with
+    # them" is WITHDRAWN — a tunnel-wall / basin plate seats its OWN
+    # object.  LEMD's pack anchors 300 placements at two origin points,
+    # so the expansion re-made the very body 09q had just broken (two
+    # plate units of 184 / 95 members, one rigid +0.62 / +0.60 m over
+    # 32 m of relief).  Deck families (R12-2) are unchanged.
     deck_keys = {fam_of[o.id] for o in objects
                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
     to_xy, to_ll = airport.frame.transformers()
@@ -107,7 +115,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
                               "terrain_adapted": 0,
                               "below_grade": 0, "deck_families": len(deck_keys),
-                              "plate_members": 0, "plate_families": len(plate_keys),
+                              "plate_members": 0, "plate_objects": len(plates),
                               "signature_decks": sum(1 for o in objects
                                                      if o.deck_kind == "signature")}
     skipped: dict[str, str] = {}
@@ -120,11 +128,12 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in excluded:
             counts["terrain_adapted"] += 1
-            skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
-                                        "adapted to it (08-26; v1 R4) — never re-seated")
+            skipped.setdefault(o.path, "basin facility / structure member: the terrain "
+                                        "adapted to THIS member (08-26; v1 R4; 09q (1): "
+                                        "never its anchor family) — never re-seated")
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
-        in_plate_family = o.id in plates or fam_of.get(o.id) in plate_keys
+        in_plate_family = o.id in plates          # 09s (1): this object only
         deep = o.solid_min_depth_m is not None and o.solid_min_depth_m <= -admission_m
         if (o.below_grade is not None or deep) and not (in_deck_family
                                                           and rb.deck_family_seats_rigid) \
@@ -226,7 +235,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             plate_stations = tuple(to_ll(x, y) for x, y in st_xy)
             counts["plate_members"] += 1
         in_deck_family = fam_of.get(o.id) in deck_keys      # THIS member's family
-        in_plate_family = fam_of.get(o.id) in plate_keys
+        in_plate_family = o.id in plates          # 09s (1): this object only
         if not comps and deck_ring is None and plate_y is None \
                 and not (in_deck_family and rb.deck_family_seats_rigid) and not in_plate_family:
             # a DECK-family member with no genuine solid (Bridge_01_LOD0_004:
@@ -248,7 +257,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # parts, the pack-wide contact graph, the pool / structure counts
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
-                              rb.contact_batch_rows)
+                              rb.contact_batch_rows,
+                              law.tables.structures.basin.contact_band_m,
+                              rb.foot_samples_max,
+                              rb.elevated_base_m)
     parts_by_member: dict[int, list[Part]] = {}
     if part.parts:
         xs = np.array([p.centroid[0] for p in part.parts])
@@ -257,14 +269,29 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         bx = np.array([p.plan_box for p in part.parts])
         la0, lo0 = to_ll_batch(bx[:, 0], bx[:, 1])
         la1, lo1 = to_ll_batch(bx[:, 2], bx[:, 3])
+        # THE FEET (09s (2)) in one batched transform: their world y is
+        # the AUTHORED y, so the seat reads mesh(foot) − y
+        nf = np.array([0 if p.feet is None else p.feet.shape[0] for p in part.parts])
+        if nf.sum():
+            fxy = np.concatenate([p.feet for p in part.parts if p.feet is not None
+                                  and p.feet.shape[0]])
+            fla, flo = to_ll_batch(fxy[:, 0], fxy[:, 1])
+        else:
+            fxy = np.zeros((0, 3)); fla = flo = np.zeros(0)
+        at = 0
         for p, la, lo, a0, o0, a1, o1 in zip(part.parts, lats, lons, la0, lo0, la1, lo1):
+            k = int(nf[p.pid])
+            feet = tuple((round(float(fla[at + j]), 8), round(float(flo[at + j]), 8),
+                          round(float(fxy[at + j, 2]), 3)) for j in range(k))
+            at += k
             # rounded to the millimetre (8 dp of a degree, 3 dp of a metre):
             # the plan is a witness set, and OTHH's 152 k parts are 26 MB unrounded
             parts_by_member.setdefault(p.member, []).append(
                 Part(p.pid, p.comp, round(float(la), 8), round(float(lo), 8),
                      round(p.base_y, 3), round(p.area_m2, 3),
                      (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
-                      round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8))))
+                      round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8)),
+                     feet))
     for mi, (key, path) in enumerate(member_ref):
         m = units_by_key[key][path]
         ps = tuple(parts_by_member.get(mi, ()))

@@ -263,3 +263,268 @@ witness gate and 08f's rules are untouched.
 | the app's JSONL (`o4_engine/events.py` → `OrthoEngineClient.swift`) | rebake COUNTS and the summary text only — no per-vertex delta crosses the wire | no wire change; the seat note gains a trailing clause |
 | `tools/v2_rebake_replay.py`, `tools/object_seating_report.py` | `UnitSeat` / v1 decision fields | unchanged (neither reads the per-vertex map) |
 | `emit/clusters.seat_clusters`, `airport/contact.partition`, the witness gate | genuine parts only | UNCHANGED by ruling: a thin plane still never votes, never founds a seat, never joins a cluster |
+
+## 9. RULINGS 2026-09-09q (1): the exclusion is the MEMBER, never the anchor family
+
+The law: a structure the terrain adapted to (a wall-corridor / basin /
+tunnel member) excludes **that member** from the re-seat; every other
+member of its anchor family seats per body as 09d does.
+`airport/rebake_plan.py`'s family expansion and its key
+`[rebake] structure_family_excluded` are DELETED (not gated — the
+refutation record is this section and git).
+
+Measured at LEMD (app 1.0.297): the 28 wall-corridor members' ids
+expanded to the pack's TWO origin anchors and took **300** placements out
+of the re-seat — 188 of the 195 placements off by > 1 m, worst
+`OldTerminal_FSX-LEMD38.obj` **+36.4 m** sunk, `Munoza-elect.obj`
+**−31.8 m** floating.
+
+### Consumer census (owner ruling 30l): every reader of `excluded` and of the family key
+
+| reader | reads | ruling |
+|---|---|---|
+| `pipeline/build.py:596-605` (the `excluded` set: basin objects when `basin.seat != "floor_plate"`, plus every `door` / `sunken_road` / `wall_corridor` structure's `tn.objects`) | the SOURCE | UNCHANGED — the set still names exactly the members the terrain adapted to. Only its expansion is deleted, so `seat = "none"` now means "this member is not re-seated", which is what 08b/08c/08m say |
+| `airport/rebake_plan.plan` line 82 (`excluded` by id **or** path) | the member spelling | UNCHANGED — both spellings still match, and still only the member (twin `test_basin_exclusion_matches_paths_too`) |
+| `airport/rebake_plan.plan` line 93 (the family expansion) | `deck_signature.family_key` | **DELETED** — the point of the ruling |
+| `airport/rebake_plan.plan` line ~123 (`o.id in excluded` → `counts["terrain_adapted"]`, `skipped[path]`) | the member set | text amended ("adapted to THIS member … never its anchor family"); the `basin facility` prefix is KEPT so `tools/`-side and scout classifiers that key on it still bucket the class |
+| `airport/deck_signature.family_key` | the anchor spelling | UNCHANGED and still used by the three family rules that are NOT the exclusion: `plate_keys` (tunnel wall plates, 05n-4), `deck_keys` (`deck_family_seats_rigid`, R12-2), and the unit key itself (one unit per anchor spelling). Only the exclusion stops reading it |
+| `law/rebake_schema.py` `RebakeTable` | the law key | field **DELETED**; `structures.toml:306` deleted with it. `tests/auto_patch_v2/test_law_tables.py` asserts the attribute is gone, so nothing can re-introduce the expansion silently |
+| `emit/rebake.seat` (units, clusters, plates, decks) | the PLAN's units — never `excluded` | UNCHANGED code; more units reach it. The readmitted members are held at 0 by the rules that already exist: 08f (a) `flat_site_anchor_datum` / (e) `flat_site_ground_datum` on a flat-candidate site, (b) the deck-abutment relief gate, `min_delta_m` 1.0, and 05p's facility clusters — see the replay below |
+| `engine_v2._decision_from_seats`, `object_rebake.apply` | seats by resource | UNCHANGED — a resource that never seats is never written; the exclusion never crossed into the write half |
+| `tools/v2_rebake_replay.py`, `tools/object_seating_report.py` | plan / seat records | UNCHANGED (neither reads the law key) |
+| `docs/specs/auto-patch-v2/tunnel-wall-objects-spec.md` §89, `othh-terminal-ramps-spec.md` §156 | prose naming the key | historical record of the withdrawn reading; superseded by this section |
+
+### The proof that OTHH's terminal families do not move (no tile build)
+
+`build_airport.py OTHH --engine v2 --patch-only` (tag `v2lemdseats_OTHH`,
+400 s), then `tools/v2_rebake_replay.py seat … Data+25+051.mesh` against
+the owner's mesh, versus the same replay on the `OTHH_20260909T141611`
+plan (the family expansion still on):
+
+| | expansion ON | expansion OFF (this ruling) |
+|---|---|---|
+| `terrain_adapted` (placements excluded) | 287 | **13** |
+| plan units / members | 107 / 680 | 111 / 947 |
+| **resources written** | **24** files in 2 families | **24** files in 2 families |
+| the families written | Dewatering Drainage 16 (+3.816 … +13.142), tunnels 8 (−2.944 … +3.094) | identical, same deltas |
+
+The 274 readmitted placements add **zero** writes. What holds them is not
+the family exclusion:
+
+* the OTHH terminal deck family — `unit:28`, **193** members, previously
+  excluded whole — seats `deck_top` and writes 0: *"below_threshold: flat
+  site — the authored deck seat is the seat"* = **08f (e)/(b)** with the
+  flat-site datum Z0 3.962;
+* `unit:23` (Terminal, 31 members) writes 0 as a **05p facility cluster**;
+* the units the brief names, PowerStation-Hangar (11 members) and the GSE
+  van, were never family-excluded and are unchanged: `unit:22`/`unit:26`
+  before → `unit:24`/`unit:29` after, both *"below_threshold: every
+  cluster moves less than 1.0 m — stays"* (`min_delta_m`), the van with
+  the 08f (a) finding *"anchor within 1.0 m of Z0: the datum 3.96 founds
+  it"*.
+
+### §9.1 THE BAR IS MISSED AT LEMD — the exclusion was not the only anchor-family rule
+
+LEMD tile `v2lemdseats_LEMD` (`--tile 40 -4`, 425 s wall, step 2 mesh
+41.7 s; rebake plan 30 units / 311 members / 8 terrain-adapted), measured
+with the scout's `measure5.py` / `analyze5.py` on the built mesh and the
+re-baked pack:
+
+| |Δ| at the worst foot, 870 measured `.obj` placements | 1.0.297 (expansion ON) | this branch (expansion OFF) |
+|---|---|---|
+| > 3 m | 184 | **185** |
+| > 1 m | 195 | 194 |
+| < 0.3 m | — | 502 (57.7 %) |
+| objects written | 26 | **303** |
+| worst placement | `OldTerminal_FSX-LEMD38.obj` +36.4 m | `OldTerminal_FSX-LEMD38.obj` **+36.2 m** |
+| worst-30 relief-dominated | 30/30 | 30/30 (|relief| mean 27.45, authored |y| mean 0.61) |
+| stranded components (`v2_rebake_replay bodies`) | — | 27,571 → **3** after the 09d completion (bar ≤ 2) |
+| multi-anchor class (1,562) | max 1.15 m | max 1.15 m (unchanged) |
+
+The 300 are no longer excluded — they are now `SEATED (unit)`, in
+`unit:24` (184 resources) and `unit:26` (95), **`datum = "plate"`**, one
+rigid delta each: **+0.6235 m** and **+0.6010 m**. They did not "seat per
+body": they were caught by the SECOND anchor-family expansion,
+`plate_keys` (`rebake_plan.py:98`, `in_plate_family` at :130/:232 — the
+tunnel wall plate family of RULINGS 2026-09-05n-4, *"their whole anchor
+family with them"*), which keys on the same `deck_signature.family_key`
+anchor position. LEMD's wall-corridor objects sit on the pack's two
+origin anchors, so the plate family is again all 300.
+
+ARM 2 (measured, NOT landed — `plate_keys = set()`, LEMD `--patch-only`
+287 s, seat replayed on the same mesh): writes drop 303 → 195, but the
+survivors keep the SAME deltas (Terminal4 +0.623) and the 108 that leave
+are not seated per body — they fall out as `below_grade` 4 → 105 /
+`no_parts` 12 → 25 skips. The bar is not reached by that either.
+
+THE RESIDUAL MECHANISM (attributed, needs a ruling — not this lane's to
+decide): the re-seat's unit is a RIGID body with one delta, and at LEMD
+only **113 of 29,076 parts** are ground parts, all near one elevation, so
+the cluster's seat is +0.62 m while the objects themselves span 10.5 km
+and 32 m of relief (`LEMD_OBJ-grass_FSX-LEMDgrass.obj` span 10,493 m,
+−28.2 m; `Munoza-LEMD78.obj` span 3,241 m, −31.4 m). No rigid delta can
+seat those; they are scatter files, not bodies. The candidates are 09q's
+owed item (2) (per-placement resources) or a per-COMPONENT ground follow
+(09d's `complete_component_deltas` currently gives every component its
+nearest CARRIER's delta — the same +0.62 — rather than the ground under
+itself). Both are owner/spawner intent.
+
+## 10. RULINGS 2026-09-09s: the plate FAMILY expansion withdrawn; PER-COMPONENT GROUND SEATING (lane `v2lemdseats` round 2)
+
+Two rules land together.
+
+**(1) The plate family expansion is withdrawn (05n-4's "their whole
+anchor family with them").** A tunnel-wall / basin plate seats **its own
+object**: `plate_keys` (`rebake_plan.py:98`) covers the plate's own
+placement ids only, and `emit/rebake.seat`'s `DATUM_PLATE` branch fixes
+the members that CARRY a plate, never every member of the anchor
+spelling. LEMD's pack anchors 300 placements at two origin points, so
+the expansion re-made exactly the body 09q had just broken: two plate
+units of 184 / 95 members, one rigid `+0.6235` / `+0.6010` m each over
+32 m of relief. Deck families (`deck_family_seats_rigid`, R12-2) are
+UNCHANGED — the withdrawal is the plate rule only.
+
+**(2) Per-component ground seating.** The seat's ground reading moves
+from ONE mesh sample under a part's plan centroid to the part's own
+FEET — its lowest solid vertices within `[basin] contact_band_m` of the
+component's own minimum, at most `[rebake] foot_samples_max`, spread by
+farthest-point over the plan. A part's SEAT TARGET (the world elevation
+of its object's `y = 0` plane that lands it on the mesh) becomes
+`median over its feet of (mesh z at the foot − the foot's authored y)`;
+with one foot at the centroid carrying `base_y` this is literally
+today's `z − base_y`, so the CUT law, the facility rule, the A3 guard
+and the pads keep their shape. GROUND is unchanged (`base_y ≤ elevated_base_m`);
+the plan carries the verdict by carrying the feet only for the ground
+parts, so the seat reads it straight off the plan and a 152 k-part plan
+does not grow by an elevated part's feet.
+
+REFUTED AND DELETED in the lane (the record, per BUILD ECONOMY): a
+STRUCTURE-relative ground test — `base_y` within `elevated_base_m` of the
+lowest `base_y` of the part's contact structure — was written to rescue
+an Aerosoft terminal authored wholly at `y = 5.21`
+(`LEMD_OBJ-Airport_Terminal4SAT_Yellow-LEMD23.obj`, 2,346 thick
+components, 927 m span, ZERO ground parts today). It makes a FLOATING
+disconnected part its own structure and therefore a ground part: the
+twin `test_elevated_parts_inherit_the_supporter`'s sign, hanging over
+nothing, seated itself on the ground instead of re-homing to the nearest
+cluster (v1 I-8, spec §4.2b). Whole-file-elevated packs stay inheritors;
+the scout's instrument excludes them too ("elevated base", 406 LEMD
+placements), so the bar does not measure them. RESIDUAL, reported.
+
+A cluster still seats as ONE (05q "a structure sunk uniformly lifts as
+one", twin `test_a_structure_sunk_uniformly_lifts_as_one`) — the ruling's
+own gloss is v1's `ground_under(structure) − ground_under(anchor)` **per
+structure**, and a scatter file's buildings are each their own contact
+structure, so each now lands on its own ground. The cut tolerance
+(`cluster_seat_tolerance_m` 0.5 m) bounds what a shared cluster costs a
+member's feet.
+
+### Consumer census (owner ruling 30l): every reader of the part's ground reading, of `plate_keys` and of the plan's `Part`
+
+| reader | reads | ruling under 09s |
+|---|---|---|
+| `airport/contact.placed_parts` | the placed component | GAINS `feet` — the component's lowest vertices in the frame with their AUTHORED y. Pure addition; `base_y`, centroid, boxes, areas unchanged, so the contact graph, the weld pass and the narrow phase are bit-identical |
+| `airport/contact.partition` | the parts + the union-find | GAINS the ground-candidate cull: a part whose `base_y` exceeds its STRUCTURE's minimum by more than `elevated_base_m` carries no feet (the plan stays small: LEMD 9.1 k of 29.1 k parts, OTHH's 152 k parts likewise culled). The structure roots are already computed there — no second pass |
+| `model.rebake.Part` / the plan JSON | the witness set | GAINS field 10, `feet` = `[[lat, lon, y], …]` (mm-rounded). `PLAN_VERSION` 5 → 6. A version-5 plan read through `--flat`-style promotion has no feet: every part then falls back to ONE foot at its centroid with `base_y`, which IS the pre-09s reading, so an old plan replays unchanged |
+| `emit/clusters.seat_clusters` — `_P.z` | one mesh sample | REPLACED by `_P.target` over the feet. `target`, `lift`, the cut, `lifts[k]`, `grounds_of[k]`, the A3 guard and the pad residuals are all expressed in the same quantity, so their law text is unchanged. `ClusterSeat.ground_m` keeps its meaning (the median seat target = the median `y = 0` plane) — it is what `delta = ground_m − base` already subtracted |
+| `emit/clusters` — the GROUND test | `base_y ≤ elevated_base_m` | REPLACED by "this part carries feet" (the plan's structure-relative verdict), with the flat rule as the fallback for a feet-less plan. Elevated parts still never vote and still inherit (v1 I-8) |
+| `emit/clusters` — the flat-site `authored` override (08f (e)) | part id → the authored `y = 0` plane | UNCHANGED and takes precedence over the feet: an authored part's target IS its base, delta 0. Measured OTHH is the airport this protects |
+| `emit/rebake.seat` `DATUM_PLATE` branch (line 478) | the unit's members | NARROWED to the members carrying `plate_y` (ruling (1)). Every other member of the unit falls to the cluster law, which is where 09q sent it |
+| `emit/rebake._plate_reading` / `_deck_reading` / `_structure_seat` | member plates and deck rings | UNCHANGED — the plate and the deck seats stay PER OBJECT and rigid (ruling (3)); the per-component law is the cluster half only |
+| `airport/rebake_plan.plan` `in_plate_family` (:130, :232) | `plate_keys` | NARROWED to `o.id in plates`: the `below_grade` and `no_parts` skips no longer spare a plate's anchor siblings. `counts["plate_families"]` is retired in favour of `counts["plate_members"]` (already present) |
+| `airport/rigid.complete_component_deltas` (09d) | the seat's per-component deltas + `held` | UNCHANGED — a component the seat never considered (a thin plane, an elevated part in no cluster) still follows its NEAREST carrier. More components now carry a delta of their own, which is the point |
+| `engine_v2._decision_from_seats` / `object_rebake.apply` | `MemberSeat.part_deltas` | UNCHANGED shape. A member whose parts fall in several clusters already wrote per-vertex deltas (06g); more of them now do |
+| `tools/v2_rebake_replay.py` (`seat`, `bodies`) | the plan + the result | UNCHANGED code; `seat` promotes a version-4 plan already — a version-5 plan replays through the feet fallback |
+| `tools/object_seating_report.py`, the app JSONL (`o4_engine/events.py`) | counts and v1 decision fields | UNCHANGED — no per-part field crosses either boundary |
+| the census / `check_grade` / the oracle | the PATCH, never the pack | UNCHANGED — the re-seat writes OBJ8 vertex `y`, never a patch row |
+
+### The twins re-scoped, with the reason
+
+* `tests/auto_patch_v2/test_seat_clusters.py::test_plate_seat_holds_at_cluster_level`
+  pinned "a tunnel wall object's plate seats its FAMILY on the ground at
+  the band" — the anchor sibling `kerb` was asserted rigid with the
+  plate at `−1.5`. RE-SCOPED by ruling (1): the plate member alone takes
+  the plate delta and the kerb falls to the cluster law. The rest of the
+  twin (the plate's own datum, the neighbour never founded by it, the
+  distinct cluster ids) is unchanged and still asserted.
+
+### §10.1 What it measured — and the two bars it does not reach
+
+LEMD tile `v2lemdseats_LEMD3` (`--tile 40 -4`, 427 s wall, mesh 51.7 s;
+the branch's earlier arm `v2lemdseats_LEMD2` at 531 s carried rule (1) +
+the feet without the per-component delta), measured with the scout's
+`measure5.py` / `analyze5.py` on the built mesh and the re-baked pack:
+
+| |Δ| at the worst foot, measured `.obj` placements | 1.0.297 | 09q only (round 1) | this branch |
+|---|---|---|---|
+| placements measured | 870 | 870 | 805 |
+| > 3 m | 184 | 185 | **122** |
+| > 1 m | 195 | 194 | 126 |
+| < 0.3 m | — | 502 (57.7 %) | 504 (62.6 %) |
+| worst placement | `OldTerminal_FSX-LEMD38` +36.4 | +36.2 | +36.2 (now a plan SKIP, not a seat) |
+| objects written | 26 | 303 | **196** |
+| stranded components (`v2_rebake_replay bodies`) | — | 27,571 → 3 | 27,135 → **24** |
+| LEMD v2 verify rows / census adjudicated | — | — | 496 / 338 (patch-side, untouched by the seat) |
+
+BARS MISSED, with the residual attributed. `> 3 m → 0`: 122 stand.
+`the worst 30 within 0.5 m at their feet`: 30/30 still over 10 m. By
+mechanism, and NONE of them is the cluster seat:
+
+* **76 — the MEMBER-level below-grade skip** (`rebake_plan.py:137`,
+  `o.solid_min_depth_m ≤ −[basin] admission_depth_m` 2.5 m). 09s
+  predicted this ("`below_grade` 4 → 105"): with the plate family gone,
+  105 members are skipped whole because SOME component of the file lies
+  ≥ 2.5 m under the local terrain — which is what a pack's flat authored
+  plane does over 32 m of relief. This is 04i / 08-26's facility rule
+  reading a SCATTER FILE as one body: the same error 09s (2) corrects
+  inside the cluster seat, one pass earlier. It is not ruled, so the lane
+  did not touch it. **Owner/spawner item: should the below-grade facility
+  test be per COMPONENT (a clump 10 m under is a facility, its 1,500
+  at-grade siblings are not)?** The cluster-level facility rule (05p) is
+  already per-cluster and would carry it.
+* **14 — wall-corridor members excluded by 09q (1)**: the terrain
+  adapted to them; lawful, not a defect.
+* **~6 — PLATE-datum members**: they seat their PLATE on the ground at
+  the wall band (05n-4), so a foot instrument mis-reads them by
+  construction. But LEMD's tunnel-object reader claims 13 plate members
+  that are plainly not tunnel walls — `Terminal4_green-CNTRL.obj`
+  (`plate_y` +9.27), `-Bus.obj` (−0.22), `Ground-FSX-LEMD36/37/85`
+  (−7.05), `OldTerminal_FSX-P2CNX` (+5.21) — and the plate seat then
+  stands them 12–17 m off their own feet. **Second owner/spawner item,
+  upstream of the seat: the LEMD `tunnel_objects` reading.**
+* **1 — `Munoza-LEMD64.obj`**, baked per component (−21.19 m on disk)
+  with a foot still −22.4 m out: its remaining feet sit in clusters that
+  STAYED.
+
+OTHH plan replay (`build_airport.py OTHH --engine v2 --patch-only`, tag
+`v2lemdseats_OTHH2`, 600 s; `v2_rebake_replay.py seat` on the owner's
+`tile_OTHH_20260908T121758/Data+25+051.mesh`), against 09q's table:
+
+| | 09q (round 1) | round-1 plan under this code (the feet FALLBACK) | this branch |
+|---|---|---|---|
+| resources written | **24** in 2 families | 22 in 2 | **23** in 3 |
+| Dewatering Drainage | 16, +3.816 … +13.142 | 14, same range | 12, same range |
+| tunnels | 8, −2.944 … +3.094 | 8, −2.283 … +5.392 | 8, −2.283 … +5.392 |
+| Fire Fuel | — | — | 3, −1.130 |
+| unit:28 (terminal deck, 193 members) | 0 (08f b/e) | 0 | 0 |
+
+BAR MISSED (24, same deltas). Both moves are the ruling working: the
+plate no longer carries its anchor siblings (Dewatering 16 → 12), and one
+Fuel cluster's single measured ground part now reads its FEET, so its
+lift is −1.130 m and crosses `min_delta_m` where the centroid reading
+left it under. Nothing new is HELD and no family is newly written.
+
+HECA offline replay (`v2_rebake_replay.py bodies` on the owner's plan and
+rebake result in the shared repo): **15,716 stranded → 2** after the 09d
+completion (bar ≤ 2, unchanged — the completion is a write-side rule this
+ruling does not touch); top-5 spread −45.4 … −30.3 m, all
+`Airport/Private_hall/*` at 30.11212, 31.41203.
+
+Suite: 750 passed, 1 skipped (`tests/auto_patch_v2 tests/test_harness.py
+tests/test_engine_v2_rebake.py`; 745 on the branch + the five 09s twins).
+
+BUILD-TIME IMPACT: the seat's post-mesh half reads up to
+`foot_samples_max` 4 mesh samples per GROUND part instead of 1 (LEMD
+7,685 ground parts of 25,484; OTHH 15,802 of 139,065) and the plan grows
+by their feet. Measured at the tile level: LEMD3 427 s vs LEMD2 531 s and
+09q's 425 s — inside the ±25 % single-run noise floor, no phase attributed.

@@ -5,11 +5,16 @@
 Over the plan's parts and contact edges (``airport/contact.py``), after
 the mesh:
 
-* every GROUND part (``base_y ≤ elevated_base_m``) reads the mesh under
-  its centroid; its SEAT TARGET is ``ground − base_y`` (the world
-  elevation of its object's ``y = 0`` plane that lands it on the mesh);
-  a part on water (``water_founds_seat`` off) or off the mesh is
-  UNMEASURED and never votes (merge on doubt survives for it);
+* every GROUND part reads the mesh under its OWN FEET (RULINGS
+  2026-09-09s (2)): its SEAT TARGET is the median over its feet of
+  ``mesh z − the foot's authored y`` — the world elevation of its
+  object's ``y = 0`` plane that lands the component on the mesh (with a
+  single foot at the centroid carrying ``base_y`` this is the pre-09s
+  ``ground − base_y``).  GROUND is still ``base_y ≤ elevated_base_m``,
+  and the plan carries the verdict by carrying the feet.  A part
+  none of whose feet lands on the mesh (water with ``water_founds_seat``
+  off, or off the mesh) is UNMEASURED and never votes (merge on doubt
+  survives for it);
 * the CUT: a ground-to-ground edge whose two measured seat targets differ
   by more than ``cluster_seat_tolerance_m`` is cut; the connected
   components of the kept ground edges are the CLUSTERS;
@@ -21,11 +26,13 @@ the mesh:
   own deck-family members reached through contact join it (a pier, a
   railing), every other ground part's contact with it is DROPPED — a
   deck never founds the ground parts around or under it;
-* the SEAT: a cluster's ground is the MEDIAN mesh under its measured
-  ground parts; each resource's delta is ``ground − base(resource)``
-  (v1 I-3: the anchor spelling is only the subtrahend), written per
-  vertex; a cluster whose largest per-resource delta is under
-  ``min_delta_m`` STAYS; a cluster no wider than ``a3_guard_max_diameter_m``
+* the SEAT: a cluster's ground is the MEDIAN SEAT TARGET of its measured
+  ground parts.  Each MEASURED GROUND part takes its OWN target and every
+  other part of the cluster the median (RULINGS 2026-09-09s (2): one delta
+  per connected component, the carrier's for a component with no ground
+  feet); the delta is that target minus ``base(resource)`` (v1 I-3: the
+  anchor spelling is only the subtrahend), written per vertex; a cluster
+  whose largest part delta is under ``min_delta_m`` STAYS; a cluster no wider than ``a3_guard_max_diameter_m``
   whose single offset would worsen the mean ground-part residual is
   REFUSED (v1 A3); ground relief over ``cluster_span_pad_m`` bakes and
   pads; ground parts left further than ``cluster_residual_pad_m`` off the
@@ -159,7 +166,13 @@ class _P:
     part: Part
     base: float | None          # the member's rendered y = 0 plane (None: anchor off the mesh)
     ground: bool
-    z: float | None = None      # the mesh under the centroid (measured ground parts)
+    feet: tuple[tuple[float, float, float], ...] = ()
+    #: THE SEAT TARGET (RULINGS 2026-09-09s (2)): the world elevation of
+    #: this object's ``y = 0`` plane that lands the part's own FEET on the
+    #: mesh — the median over its feet of ``mesh z − the foot's authored
+    #: y``.  With one foot at the centroid carrying ``base_y`` this is
+    #: literally the pre-09s ``z − base_y``.
+    target: float | None = None
     water: bool = False
     off: bool = False
     fixed: str | None = None    # the unit id of a structure seat this part follows
@@ -167,15 +180,11 @@ class _P:
 
     @property
     def measured(self) -> bool:
-        return self.z is not None
-
-    @property
-    def target(self) -> float | None:
-        return None if self.z is None else self.z - self.part.base_y
+        return self.target is not None
 
     @property
     def lift(self) -> float | None:
-        return None if self.z is None or self.base is None else self.z - self.part.base_y - self.base
+        return None if self.target is None or self.base is None else self.target - self.base
 
 
 def _diameter(parts: _t.Sequence[_P]) -> float:
@@ -205,29 +214,43 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     and whatever inherits their cluster carry no delta."""
     rb = law.tables.structures.rebake
     band = law.tables.structures.basin.contact_band_m
+    # THE GROUND VERDICT (RULINGS 2026-09-09s (2)) travels in the plan: a
+    # part carries FEET when the partition judged it GROUND against its
+    # contact structure's floor.  A plan written before 09s carries none,
+    # and every part falls back to the file-relative test with ONE foot at
+    # its centroid carrying ``base_y`` — the pre-09s reading exactly.
+    has_feet = any(p.feet for u in plan_.units for m in u.members for p in m.parts)
     ps: dict[int, _P] = {}
     for ui, u in enumerate(plan_.units):
         for mi, m in enumerate(u.members):
             key = (ui, mi)
             for p in m.parts:
+                feet = tuple(p.feet) or ((p.lat, p.lon, p.base_y),)
                 ps[p.pid] = _P(p.pid, key, p, base_by_member.get(key),
-                               p.base_y <= rb.elevated_base_m,
+                               bool(p.feet) if has_feet else p.base_y <= rb.elevated_base_m,
+                               feet,
                                fixed=fixed.get(key, (None, 0.0))[0] if key in fixed else None,
                                family=family.get(key))
-    # ── the samples: ground parts only ──────────────────────────────────
+    # ── the samples: every ground part's own FEET ───────────────────────
     for p in ps.values():
         if not p.ground or p.fixed or p.base is None:
             continue
         if authored and p.pid in authored:
-            p.z = float(authored[p.pid])
+            # 08d (e): the pack's authored y = 0 plane IS this part's ground
+            p.target = float(authored[p.pid])
             continue
-        s = sampler(p.part.lat, p.part.lon)
-        if s is None:
-            p.off = True
-        elif s[1] and not rb.water_founds_seat:
-            p.water = True
-        else:
-            p.z = float(s[0])
+        ts: list[float] = []
+        for la, lo, y in p.feet:
+            smp = sampler(la, lo)
+            if smp is None:
+                p.off = True
+            elif smp[1] and not rb.water_founds_seat:
+                p.water = True
+            else:
+                ts.append(float(smp[0]) - float(y))
+        if ts:
+            p.target = float(statistics.median(ts))
+            p.off = p.water = False
     edges = [(a, b) for a, b in plan_.contacts if a in ps and b in ps
              and ps[a].base is not None and ps[b].base is not None]
     # ── structures: components of the whole contact graph ───────────────
@@ -274,7 +297,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             votes.setdefault(other.pid, []).append(a if a_att else b)
             continue
         if pa.ground and pb.ground:
-            ta, tb = pa.target, pb.target
+            ta, tb = pa.target, pb.target      # the feet-founded y = 0 planes
             if rb.cluster_seat_tolerance_m > 0.0 and ta is not None and tb is not None \
                     and abs(ta - tb) > rb.cluster_seat_tolerance_m:
                 n_cut += 1
@@ -328,7 +351,8 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     lifts: dict[int, float | None] = {}
     grounds_of: dict[int, list[float]] = {}
     for k, pids in members_of.items():
-        g = [ps[pid].z for pid in pids if ps[pid].ground and ps[pid].measured and pid not in attached]
+        g = [ps[pid].target for pid in pids
+             if ps[pid].ground and ps[pid].measured and pid not in attached]
         grounds_of[k] = [float(z) for z in g if z is not None]
         lf = [ps[pid].lift for pid in pids if ps[pid].ground and ps[pid].measured and pid not in attached]
         lf = [x for x in lf if x is not None]
@@ -396,15 +420,28 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             skip = (f"facility cluster (05p at cluster level): stands {lifts[k]:+.2f} m under the "
                     f"mesh, more than contact_band_m {band} beyond its structure's coalition — "
                     "never seated, authored y kept (the cutout is the basin pass's affair)")
-        deltas = {p.key: ground_m - p.base for p in parts if ground_m is not None and p.base is not None}
-        max_delta = max((abs(d) for d in deltas.values()), default=0.0)
+        # THE DELTA, PER COMPONENT (RULINGS 2026-09-09s (2)): a measured
+        # ground part takes ITS OWN feet's target; every other part of the
+        # cluster (elevated, on water, off the mesh) takes the cluster's
+        # median — the carrier it stands on.  One file therefore carries
+        # one delta per connected component (09b (5) allows per-vertex
+        # deltas exactly BETWEEN disconnected components), and a 900 m
+        # welded terminal no longer leaves its ends 5-6 m off the mesh
+        # while its middle sits on it.
+        def _delta(p: _P) -> float | None:
+            if ground_m is None or p.base is None:
+                return None
+            own = p.target if (p.ground and p.measured and p.pid not in attached) else None
+            return (own if own is not None else ground_m) - p.base
+        max_delta = max((abs(d) for d in (_delta(p) for p in parts) if d is not None),
+                        default=0.0)
         needs_pad = span > rb.cluster_span_pad_m
         if skip is None and max_delta < rb.min_delta_m:
             skip = (f"below_threshold: largest resource correction |{max_delta:.3f}| m < "
                     f"{rb.min_delta_m} m — the cluster stays at its authored y and the terrain adapts")
         if skip is None and measured and diam <= rb.a3_guard_max_diameter_m:
-            corrected = statistics.mean(abs(ground_m + p.part.base_y - p.z) for p in measured)
-            uncorrected = statistics.mean(abs(p.base + p.part.base_y - p.z) for p in measured)
+            corrected = statistics.mean(abs(ground_m - p.target) for p in measured)
+            uncorrected = statistics.mean(abs(p.base - p.target) for p in measured)
             if corrected > uncorrected + rb.a3_tolerance_m:
                 skip = (f"refused: the single offset would worsen the seating — mean ground-part "
                         f"residual {corrected:.3f} m corrected vs {uncorrected:.3f} m uncorrected "
@@ -416,9 +453,9 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         rendered: dict[int, float] = {}
         if bakes or (skip or "").startswith("below_threshold"):
             for p in measured:
-                rg = ground_m if bakes else p.base
+                rg = (p.base + (_delta(p) or 0.0)) if bakes else p.base
                 rendered[p.pid] = rg
-                r = rg + p.part.base_y - p.z
+                r = rg - p.target
                 if abs(r) > floor:
                     residual[p.pid] = r
         n_res = len(residual)
@@ -440,7 +477,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                                  needs_pad and bakes, k in facility, held, skip, n_res))
         for p in parts:
             mp = members[p.key]
-            mp.part_deltas.append((p.part.comp, k, deltas.get(p.key) if bakes else None))
+            mp.part_deltas.append((p.part.comp, k, _delta(p) if bakes else None))
             mp.clusters.add(k)
             if p.ground:
                 mp.n_ground += 1
@@ -448,7 +485,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                     mp.n_facility += 1
                 if p.measured:
                     mp.witnesses += 1
-                    mp.grounds.append(p.z)
+                    mp.grounds.append(p.target)
                 if p.water:
                     mp.water += 1
                 if p.off:

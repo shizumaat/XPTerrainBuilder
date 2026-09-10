@@ -218,10 +218,14 @@ def _flat(z: float, water: bool = False):
 
 def test_cluster_seat_on_the_mesh(planned, law):
     """06g: a and b (one anchor, in contact) are one cluster; the delta is
-    the median ground under their parts minus the ANCHOR ground: anchor
-    710, the mesh 705 under the parts → −5 (the authored skirt at −2 is
-    the author's, v1 I-3 — the seat lands the y = 0 plane, never the
-    feet)."""
+    the cluster's median SEAT TARGET minus the ANCHOR ground.
+
+    RE-SCOPED by RULINGS 2026-09-09s (2): the seat lands the part's own
+    FEET, not the ``y = 0`` plane.  Anchor 710, the mesh 705 under the
+    parts, the boxes' feet at ``base_y`` −2 → the target is 705 + 2 =
+    707 and the delta −3 (the pre-09s reading was −5, which left the
+    2 m skirt buried in whatever the terrain became; the bar 09s is
+    measured against is the residual AT THE FEET)."""
     _, pl = planned
     seen = {"n": 0}
 
@@ -233,8 +237,8 @@ def test_cluster_seat_on_the_mesh(planned, law):
     ua = res.units[0]
     assert ua.bakes and ua.datum == R.DATUM_CLUSTER and ua.delta_m is None
     assert set(ua.resources) == {"objects/a.obj", "objects/b.obj"}
-    assert all(m.delta_m == pytest.approx(-5.0) and not m.facility for m in ua.members)
-    assert res.counts()["clusters"] == 1 and res.clusters[0].ground_m == pytest.approx(705.0)
+    assert all(m.delta_m == pytest.approx(-3.0) and not m.facility for m in ua.members)
+    assert res.counts()["clusters"] == 1 and res.clusters[0].ground_m == pytest.approx(707.0)
 
 
 # ── 3b. THE FACILITY RULE (RULINGS 2026-09-05p, at cluster level 06g) ────
@@ -294,7 +298,11 @@ def test_a_structure_sunk_uniformly_lifts_as_one(law):
     us = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 710.0 + depth + 0.9,
                              0.002: 710.0 + depth + 1.4}), law).units[0]
     assert us.bakes and not any(m.facility for m in us.members)
-    assert us.members[0].delta_m == pytest.approx(depth + 1.15)
+    # RULINGS 2026-09-09s (2): one delta PER COMPONENT — each member lifts by
+    # its own ground (0.9 / 1.4 over the band), and the CLUSTER's median lift
+    # (depth + 1.15) is what 05q's facility test is measured against
+    assert us.members[0].delta_m == pytest.approx(depth + 0.9)
+    assert us.members[1].delta_m == pytest.approx(depth + 1.4)
     # a cluster 2.5 m under an at-grade coalition IS a facility
     pl3 = _unit(_part_member("a", 0.001), _part_member("b", 0.002), _part_member("c", 0.003),
                 _part_member("pit", 0.004))
@@ -331,18 +339,20 @@ def test_water_never_founds_a_seat(planned, law):
 def test_below_threshold_stays(planned, law):
     _, pl = planned
     rb = law.tables.structures.rebake
-    # the mesh 0.5 m LOWER under the parts than at the anchor: −0.5 <
-    # min_delta_m — the cluster stays (sampler: 710 at the anchor, then 709.5)
+    # the mesh 0.5 m LOWER under the parts' FEET than the feet render
+    # (09s (2): the boxes' base_y is −2, so the anchor's 710 puts the feet
+    # at 708 and the mesh reads 707.5) — |−0.5| < min_delta_m, the cluster
+    # stays.  Pre-09s this sampler returned 709.5 against the y = 0 plane
     seen = {"n": 0}
 
     def s(lat, lon):
         seen["n"] += 1
-        return (710.0 if seen["n"] == 1 else 709.5, False)
+        return (710.0 if seen["n"] == 1 else 707.5, False)
     res = R.seat(R.RebakePlan(pl.icao, pl.pack_name, pl.pack_root, pl.units[:1], (), {},
                               pl.contacts), s, law)
     u = res.units[0]
     assert not u.bakes and u.skip_reason.startswith("below_threshold")
-    assert all(abs(k.ground_m - 710.0) < rb.min_delta_m for k in res.clusters)
+    assert all(abs(k.ground_m - 710.0) < rb.min_delta_m for k in res.clusters)   # 707.5 + 2
 
 
 def test_deck_top_datum(planned, law):

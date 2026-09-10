@@ -72,7 +72,7 @@ def world(tmp_path, monkeypatch):
     for rel, text in authored.items():
         (pack / rel).write_text(text)
     # a and b: one slab part each, 0.0005° EAST of the anchor (5 m up the
-    # slope: delta +5, the slab from −5 to the ground), in contact — one
+    # slope: delta +10, the slab's feet at −5 onto the mesh), in contact — one
     # cluster (06g); flat: its part at its own anchor (delta 0: stays)
     east = ANCHOR[1] + 0.0005
 
@@ -106,18 +106,21 @@ def test_bakes_through_v1_writer_with_backup_and_one_family_delta(world):
     assert counts["airports"] == 1 and counts["units"] == 2
     assert counts["units_baked"] == 1 and counts["units_below_threshold"] == 1
     assert counts["objects_written"] == 2 and counts["packs_written"] == 1
-    # the family: a and b, one delta (+5: feet at −5 onto the ground)
+    # the family: a and b, one delta (+10: the feet at −5 land ON the mesh
+    # 5 m up the slope — RULINGS 2026-09-09s (2).  Pre-09s the seat landed
+    # the y = 0 PLANE there (+5) and left the slab 5 m under the mesh; the
+    # twin's own prose already described the feet reading)
     for n in ("a", "b"):
         bak = _live(w, n) + ".anchor_bak"
         assert os.path.isfile(bak) and open(bak).read() == w.authored[f"objects/{n}.obj"]
         ys = [float(l.split()[2]) for l in open(_live(w, n)) if l.startswith("VT")]
-        assert ys == pytest.approx([0.0] * 4, abs=1e-6)
+        assert ys == pytest.approx([5.0] * 4, abs=1e-6)
     # below threshold: untouched, no backup
     assert open(_live(w, "flat")).read() == w.authored["objects/flat.obj"]
     assert not os.path.exists(_live(w, "flat") + ".anchor_bak")
     prov = json.load(open(w.pack / object_rebake.PROVENANCE_FILENAME))
-    assert prov["objects"]["objects/a.obj"]["delta_m"] == pytest.approx(5.0)
-    assert prov["objects"]["objects/b.obj"]["delta_m"] == pytest.approx(5.0)
+    assert prov["objects"]["objects/a.obj"]["delta_m"] == pytest.approx(10.0)
+    assert prov["objects"]["objects/b.obj"]["delta_m"] == pytest.approx(10.0)
     assert prov["objects"]["objects/a.obj"]["decision_kind"] == "v2_cluster"
     res = json.load(open(w.patches / engine_v2.REBAKE_RESULT_FILENAME.format(icao="ZZZZ")))
     assert res["seat"]["counts"]["baked"] == 1 and not res["measure_only"]
@@ -191,7 +194,7 @@ def test_kill_switch_measures_and_writes_nothing(world, monkeypatch):
     assert {rel: _sha(str(w.pack / rel)) for rel in w.authored} == before
     res = json.load(open(w.patches / engine_v2.REBAKE_RESULT_FILENAME.format(icao="ZZZZ")))
     assert res["write_enabled"] is False and res["seat"]["counts"]["baked"] == 1
-    assert res["seat"]["units"][0]["members"][0]["delta_m"] == pytest.approx(5.0)
+    assert res["seat"]["units"][0]["members"][0]["delta_m"] == pytest.approx(10.0)
 
 
 def test_held_unit_keeps_the_current_bytes(world):

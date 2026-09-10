@@ -62,9 +62,11 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     AUTHORED files, the deck signature applied); ``deck_datum`` the
     solved surface's reading at a flagged deck ring; ``exclude`` the
     placement ids the TERRAIN adapted to (the basin facilities, RULINGS
-    2026-08-26 / v1 ruling R4) — never re-seated, and with
-    ``[rebake] structure_family_excluded`` neither is any member of their
-    anchor family (m6a Q3: Dewatering_01's rim pieces go with the pit);
+    2026-08-26 / v1 ruling R4) — THAT MEMBER only is never re-seated
+    (RULINGS 2026-09-09q (1): the anchor-family expansion is deleted —
+    Aerosoft anchors LEMD's whole terminal pack at two points, so one
+    wall-corridor member excluded 300 placements over 32 m of relief);
+    every other member of the family seats per body (09d);
     ``below_grade`` the emitted below-grade regions ``(frame polygon,
     owner ids)`` — a CANDIDATE plate of a foreign family over one is a
     deck (``deck_signature.promote``); ``tunnel_objects`` the tunnel
@@ -90,9 +92,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         by_id = {o.id: o for o in promoted}
         objects = [by_id.get(o.id, o) if o.id in keep else o for o in objects]
     fam_of = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
-    if rb.structure_family_excluded:
-        basin_keys = {fam_of[oid] for oid in excluded if oid in fam_of}
-        excluded |= {o.id for o in objects if fam_of.get(o.id) in basin_keys}
+    # RULINGS 2026-09-09q (1): a structure the terrain adapted to excludes
+    # THAT MEMBER, never its anchor family.  (The family expansion that
+    # stood here is deleted with its law key ``structure_family_excluded``.)
     plate_keys = {fam_of[oid] for oid in plates if oid in fam_of}
     deck_keys = {fam_of[o.id] for o in objects
                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
@@ -120,8 +122,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         if o.id in excluded:
             counts["terrain_adapted"] += 1
-            skipped.setdefault(o.path, "basin facility (or its anchor family): the terrain "
-                                        "adapted to it (08-26; v1 R4) — never re-seated")
+            skipped.setdefault(o.path, "basin facility / structure member: the terrain "
+                                        "adapted to THIS member (08-26; v1 R4; 09q (1): "
+                                        "never its anchor family) — never re-seated")
             continue
         in_deck_family = fam_of.get(o.id) in deck_keys
         in_plate_family = o.id in plates or fam_of.get(o.id) in plate_keys

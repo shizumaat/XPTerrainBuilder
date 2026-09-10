@@ -263,3 +263,108 @@ witness gate and 08f's rules are untouched.
 | the app's JSONL (`o4_engine/events.py` → `OrthoEngineClient.swift`) | rebake COUNTS and the summary text only — no per-vertex delta crosses the wire | no wire change; the seat note gains a trailing clause |
 | `tools/v2_rebake_replay.py`, `tools/object_seating_report.py` | `UnitSeat` / v1 decision fields | unchanged (neither reads the per-vertex map) |
 | `emit/clusters.seat_clusters`, `airport/contact.partition`, the witness gate | genuine parts only | UNCHANGED by ruling: a thin plane still never votes, never founds a seat, never joins a cluster |
+
+## 9. RULINGS 2026-09-09q (1): the exclusion is the MEMBER, never the anchor family
+
+The law: a structure the terrain adapted to (a wall-corridor / basin /
+tunnel member) excludes **that member** from the re-seat; every other
+member of its anchor family seats per body as 09d does.
+`airport/rebake_plan.py`'s family expansion and its key
+`[rebake] structure_family_excluded` are DELETED (not gated — the
+refutation record is this section and git).
+
+Measured at LEMD (app 1.0.297): the 28 wall-corridor members' ids
+expanded to the pack's TWO origin anchors and took **300** placements out
+of the re-seat — 188 of the 195 placements off by > 1 m, worst
+`OldTerminal_FSX-LEMD38.obj` **+36.4 m** sunk, `Munoza-elect.obj`
+**−31.8 m** floating.
+
+### Consumer census (owner ruling 30l): every reader of `excluded` and of the family key
+
+| reader | reads | ruling |
+|---|---|---|
+| `pipeline/build.py:596-605` (the `excluded` set: basin objects when `basin.seat != "floor_plate"`, plus every `door` / `sunken_road` / `wall_corridor` structure's `tn.objects`) | the SOURCE | UNCHANGED — the set still names exactly the members the terrain adapted to. Only its expansion is deleted, so `seat = "none"` now means "this member is not re-seated", which is what 08b/08c/08m say |
+| `airport/rebake_plan.plan` line 82 (`excluded` by id **or** path) | the member spelling | UNCHANGED — both spellings still match, and still only the member (twin `test_basin_exclusion_matches_paths_too`) |
+| `airport/rebake_plan.plan` line 93 (the family expansion) | `deck_signature.family_key` | **DELETED** — the point of the ruling |
+| `airport/rebake_plan.plan` line ~123 (`o.id in excluded` → `counts["terrain_adapted"]`, `skipped[path]`) | the member set | text amended ("adapted to THIS member … never its anchor family"); the `basin facility` prefix is KEPT so `tools/`-side and scout classifiers that key on it still bucket the class |
+| `airport/deck_signature.family_key` | the anchor spelling | UNCHANGED and still used by the three family rules that are NOT the exclusion: `plate_keys` (tunnel wall plates, 05n-4), `deck_keys` (`deck_family_seats_rigid`, R12-2), and the unit key itself (one unit per anchor spelling). Only the exclusion stops reading it |
+| `law/rebake_schema.py` `RebakeTable` | the law key | field **DELETED**; `structures.toml:306` deleted with it. `tests/auto_patch_v2/test_law_tables.py` asserts the attribute is gone, so nothing can re-introduce the expansion silently |
+| `emit/rebake.seat` (units, clusters, plates, decks) | the PLAN's units — never `excluded` | UNCHANGED code; more units reach it. The readmitted members are held at 0 by the rules that already exist: 08f (a) `flat_site_anchor_datum` / (e) `flat_site_ground_datum` on a flat-candidate site, (b) the deck-abutment relief gate, `min_delta_m` 1.0, and 05p's facility clusters — see the replay below |
+| `engine_v2._decision_from_seats`, `object_rebake.apply` | seats by resource | UNCHANGED — a resource that never seats is never written; the exclusion never crossed into the write half |
+| `tools/v2_rebake_replay.py`, `tools/object_seating_report.py` | plan / seat records | UNCHANGED (neither reads the law key) |
+| `docs/specs/auto-patch-v2/tunnel-wall-objects-spec.md` §89, `othh-terminal-ramps-spec.md` §156 | prose naming the key | historical record of the withdrawn reading; superseded by this section |
+
+### The proof that OTHH's terminal families do not move (no tile build)
+
+`build_airport.py OTHH --engine v2 --patch-only` (tag `v2lemdseats_OTHH`,
+400 s), then `tools/v2_rebake_replay.py seat … Data+25+051.mesh` against
+the owner's mesh, versus the same replay on the `OTHH_20260909T141611`
+plan (the family expansion still on):
+
+| | expansion ON | expansion OFF (this ruling) |
+|---|---|---|
+| `terrain_adapted` (placements excluded) | 287 | **13** |
+| plan units / members | 107 / 680 | 111 / 947 |
+| **resources written** | **24** files in 2 families | **24** files in 2 families |
+| the families written | Dewatering Drainage 16 (+3.816 … +13.142), tunnels 8 (−2.944 … +3.094) | identical, same deltas |
+
+The 274 readmitted placements add **zero** writes. What holds them is not
+the family exclusion:
+
+* the OTHH terminal deck family — `unit:28`, **193** members, previously
+  excluded whole — seats `deck_top` and writes 0: *"below_threshold: flat
+  site — the authored deck seat is the seat"* = **08f (e)/(b)** with the
+  flat-site datum Z0 3.962;
+* `unit:23` (Terminal, 31 members) writes 0 as a **05p facility cluster**;
+* the units the brief names, PowerStation-Hangar (11 members) and the GSE
+  van, were never family-excluded and are unchanged: `unit:22`/`unit:26`
+  before → `unit:24`/`unit:29` after, both *"below_threshold: every
+  cluster moves less than 1.0 m — stays"* (`min_delta_m`), the van with
+  the 08f (a) finding *"anchor within 1.0 m of Z0: the datum 3.96 founds
+  it"*.
+
+### §9.1 THE BAR IS MISSED AT LEMD — the exclusion was not the only anchor-family rule
+
+LEMD tile `v2lemdseats_LEMD` (`--tile 40 -4`, 425 s wall, step 2 mesh
+41.7 s; rebake plan 30 units / 311 members / 8 terrain-adapted), measured
+with the scout's `measure5.py` / `analyze5.py` on the built mesh and the
+re-baked pack:
+
+| |Δ| at the worst foot, 870 measured `.obj` placements | 1.0.297 (expansion ON) | this branch (expansion OFF) |
+|---|---|---|
+| > 3 m | 184 | **185** |
+| > 1 m | 195 | 194 |
+| < 0.3 m | — | 502 (57.7 %) |
+| objects written | 26 | **303** |
+| worst placement | `OldTerminal_FSX-LEMD38.obj` +36.4 m | `OldTerminal_FSX-LEMD38.obj` **+36.2 m** |
+| worst-30 relief-dominated | 30/30 | 30/30 (|relief| mean 27.45, authored |y| mean 0.61) |
+| stranded components (`v2_rebake_replay bodies`) | — | 27,571 → **3** after the 09d completion (bar ≤ 2) |
+| multi-anchor class (1,562) | max 1.15 m | max 1.15 m (unchanged) |
+
+The 300 are no longer excluded — they are now `SEATED (unit)`, in
+`unit:24` (184 resources) and `unit:26` (95), **`datum = "plate"`**, one
+rigid delta each: **+0.6235 m** and **+0.6010 m**. They did not "seat per
+body": they were caught by the SECOND anchor-family expansion,
+`plate_keys` (`rebake_plan.py:98`, `in_plate_family` at :130/:232 — the
+tunnel wall plate family of RULINGS 2026-09-05n-4, *"their whole anchor
+family with them"*), which keys on the same `deck_signature.family_key`
+anchor position. LEMD's wall-corridor objects sit on the pack's two
+origin anchors, so the plate family is again all 300.
+
+ARM 2 (measured, NOT landed — `plate_keys = set()`, LEMD `--patch-only`
+287 s, seat replayed on the same mesh): writes drop 303 → 195, but the
+survivors keep the SAME deltas (Terminal4 +0.623) and the 108 that leave
+are not seated per body — they fall out as `below_grade` 4 → 105 /
+`no_parts` 12 → 25 skips. The bar is not reached by that either.
+
+THE RESIDUAL MECHANISM (attributed, needs a ruling — not this lane's to
+decide): the re-seat's unit is a RIGID body with one delta, and at LEMD
+only **113 of 29,076 parts** are ground parts, all near one elevation, so
+the cluster's seat is +0.62 m while the objects themselves span 10.5 km
+and 32 m of relief (`LEMD_OBJ-grass_FSX-LEMDgrass.obj` span 10,493 m,
+−28.2 m; `Munoza-LEMD78.obj` span 3,241 m, −31.4 m). No rigid delta can
+seat those; they are scatter files, not bodies. The candidates are 09q's
+owed item (2) (per-placement resources) or a per-COMPONENT ground follow
+(09d's `complete_component_deltas` currently gives every component its
+nearest CARRIER's delta — the same +0.62 — rather than the ground under
+itself). Both are owner/spawner intent.

@@ -322,7 +322,10 @@ def _structures_emit_checks(c: Checks, t) -> None:
     for key in ("skirt_min_depth_m", "plate_min_area_m2", "plate_min_height_m",
                 "hull_min_length_m", "end_cap_open_m", "merge_gap_m"):
         assert getattr(ob, key) > 0.0, key
-    assert s.rebake.structure_family_excluded is True
+    # RULINGS 2026-09-09q (1): the anchor-family expansion of an excluded
+    # structure member is DELETED, key and all (LEMD: one wall-corridor
+    # member excluded 300 placements at the pack's two origin anchors)
+    assert not hasattr(s.rebake, "structure_family_excluded")
     # RULINGS 2026-09-05p: the seat's FACILITY depth IS [basin] contact_band_m
     # (no separate key — the ground-contact band, read by emit/rebake.seat)
     c.eq("rebake facility depth (= basin.contact_band_m, 05p)",

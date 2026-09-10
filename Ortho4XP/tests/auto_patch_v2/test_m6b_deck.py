@@ -178,14 +178,19 @@ def _planned(pack, law, placements, ways=(), exclude=(), below_grade=()):
     return _plan(a, objs, cache, law, None, exclude=exclude, below_grade=below_grade)
 
 
-def test_basin_family_excluded_whole(pack, law):
+def test_basin_exclusion_takes_THAT_MEMBER_only(pack, law):
+    """RE-SCOPED by RULINGS 2026-09-09q (1) (was
+    ``test_basin_family_excluded_whole``, the m6a Q3 reading): the pit is
+    excluded, its anchor sibling ``rim`` is NOT — Aerosoft anchors LEMD's
+    whole terminal pack at two points, and the family expansion took 300
+    placements out of the re-seat over 32 m of relief."""
     pl = _planned(pack, law, [("pit", (0.0, 0.0), 0.0, 0.0), ("rim", (0.0, 0.0), 0.0, 0.0),
                               ("plate", (500.0, 0.0), 0.0, 0.0)],
                   exclude={"dsf:obj0"})
     resources = [m.resource for u in pl.units for m in u.members]
-    assert "objects/pit.obj" not in resources and "objects/rim.obj" not in resources
-    assert "objects/plate.obj" in resources
-    assert pl.counts["terrain_adapted"] == 2
+    assert "objects/pit.obj" not in resources
+    assert "objects/rim.obj" in resources and "objects/plate.obj" in resources
+    assert pl.counts["terrain_adapted"] == 1
 
 
 def test_deck_family_seats_its_below_grade_pier_rigidly(pack, law):
@@ -380,9 +385,11 @@ def test_deck_seat_under_the_threshold_stays(pack, law):
 
 
 def test_basin_exclusion_matches_paths_too(pack, law):
+    """The PATH spelling excludes the same one member (09q (1))."""
     pl = _planned(pack, law, [("pit", (0.0, 0.0), 0.0, 0.0), ("rim", (0.0, 0.0), 0.0, 0.0)],
                   exclude={"objects/pit.obj"})
-    assert pl.units == () and pl.counts["terrain_adapted"] == 2
+    assert pl.counts["terrain_adapted"] == 1
+    assert [m.resource for u in pl.units for m in u.members] == ["objects/rim.obj"]
 
 
 def test_sheet_member_joins_its_deck_family(pack, law):

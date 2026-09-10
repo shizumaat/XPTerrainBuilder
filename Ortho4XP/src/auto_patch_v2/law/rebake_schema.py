@@ -36,7 +36,6 @@ class Rebake:
     agreement_window_m: float
     water_founds_seat: bool
     one_anchor_one_seat: bool
-    structure_family_excluded: bool
     deck_family_seats_rigid: bool
     facility_requires_at_grade_coalition: bool
     structure_seat_threshold_exempt: bool

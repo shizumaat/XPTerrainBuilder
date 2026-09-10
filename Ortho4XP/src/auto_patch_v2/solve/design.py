@@ -69,7 +69,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matri
                    _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
-           "bend_roles", "pavement_roles", "bend_class", "hard_rulings",
+           "bend_roles", "pavement_roles", "bend_class", "apron_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD"]
 
@@ -122,6 +122,17 @@ def bend_class(law: Law, role: str) -> str:
     if role in law.tables.families["road_cross_section"].roles:
         return "road"
     return "apron" if is_value_role(law, role) else "strip"
+
+
+def apron_roles(law: Law) -> frozenset[str]:
+    """The roles of an APRON BODY — every role the bending term prices at
+    ``bend_apron`` (a value role that is not the runway family, the taxi
+    family or the road cross-section).  These are the bodies the PER-BODY
+    DATUM sits (RULINGS 2026-09-09p (3)); the runway and taxi families are
+    excluded because the threshold chord and the taxi design profile ARE
+    their datums, and a structure's own surface is not a body at all."""
+    return frozenset(r for r in pavement_roles(law)
+                     if bend_class(law, r) == "apron")
 
 
 def one_way_rulings(law: Law) -> frozenset[str]:
@@ -177,6 +188,9 @@ class DesignReport:
     triangles: int = 0
     components: int = 0
     detached: int = 0
+    #: THE PER-BODY DATUM (RULINGS 2026-09-09p (3)): one row per APRON
+    #: BODY, its mean z against the mean DEM under its own vertices
+    body_datum_rows: int = 0
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
@@ -214,7 +228,9 @@ class DesignReport:
                 "method": self.method, "unknowns": self.unknowns,
                 "fixed": self.fixed, "rows": self.rows,
                 "triangles": self.triangles, "components": self.components,
-                "detached": self.detached, "bank_rows": self.bank_rows,
+                "detached": self.detached,
+                "body_datum_rows": self.body_datum_rows,
+                "bank_rows": self.bank_rows,
                 "hard_rows": self.hard_rows, "hard_active": self.hard_active,
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
                 "hard_max_violation_m": round(self.hard_max_violation_m, 6),
@@ -234,7 +250,8 @@ class DesignReport:
                 f"{'' if self.converged else ' (SET NOT SETTLED)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
-                f"({self.detached} detached), {self.bank_rows} bank rows off the "
+                f"({self.detached} detached), {self.body_datum_rows} apron "
+                f"bodies on their own DEM mean, {self.bank_rows} bank rows off the "
                 f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
@@ -596,6 +613,36 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
+
+    # 9b. THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
+    #     answer 6).  Bending alone has an AFFINE null space: it shapes a
+    #     body but says nothing about where the body SITS, so an apron up
+    #     the hill was levelled toward the runway through its contacts and
+    #     the taxiway serving it flattened — the whole complex cut into the
+    #     hill (the owner's CYXY read: taxiway G "not sloping up enough").
+    #     Every APRON BODY takes ONE row — the MEAN of its own vertices
+    #     against the MEAN production DEM under them, at ``body_datum``.
+    #     ONE row, NEVER per vertex: the datum fixes the body's LEVEL and
+    #     leaves its designed shape (and its tilt) to the bending term, so
+    #     bodies sit where the ground is and the taxiways climb between
+    #     them at their own caps.  The runway and taxi families are
+    #     excluded — they carry the threshold chord and the taxi design
+    #     profile, which ARE their datums.
+    #     ``detached_mean`` is SUBSUMED in effect for an apron body (the
+    #     same DEM under the same vertices); it is not deleted, because it
+    #     is also what anchors the TILT of a component nothing else holds,
+    #     which one mean row cannot do.
+    body_rows = 0
+    for vs_b in _role_bodies(planar, apron_roles(law), red):
+        zs = [float(planar.vertices[v].dem_z) for v in vs_b
+              if planar.vertices[v].dem_z is not None]
+        if len(zs) != len(vs_b) or not vs_b:
+            continue
+        w = 1.0 / len(vs_b)
+        if rows.add([(v, w) for v in vs_b], sum(zs) / len(zs), d.body_datum,
+                    ("body_datum", vs_b[0])):
+            body_rows += 1
+    rep.body_datum_rows = body_rows
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
                 chord_v, road_v)
 

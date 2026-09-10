@@ -195,6 +195,24 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
+# THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t answer 6:
+# taxiway G at CYXY "is not sloping up enough like it was before, resulting in
+# the whole area of the airport being cut into the hill more than it should").
+# Under 08t the sheet minimised bending with no datum of its own, so an apron
+# up the hill was pulled toward the runway's level and the taxiway serving it
+# flattened.  Every APRON BODY (the connected faces of the ``apron`` bending
+# class — every value role that is not runway family, taxi family or road)
+# now carries ONE row: the MEAN z of its vertices targets the MEAN production
+# DEM under them.  ONE row per body, NEVER per vertex — the bending term still
+# shapes the body, this only says WHERE IT SITS.  Runway and taxi bodies are
+# excluded: they carry the threshold chord and the taxi design profile.
+# WEIGHT: the LAW's own (300).  The datum is a TARGET of equal standing
+# with the law rows it trades against — a heavier one overpowers them
+# (measured at 3000: apron|apron within_shape steps of 0.85 m minted in the
+# shape-joint twin, a 2.5 % stretch against a 1.5 % cap, and the active set
+# hitting its round cap at 17 s).  At 300 every CYXY apron body lands within
+# 0.11 m of its terrain mean and taxiway G climbs +1.23 m over 125 m.
+body_datum    = 300.0
 # THE PAD PLANE (owner RULINGS 2026-09-09c, "building pads are targeting
 # flat, with up to 1 % allowance where no other solution exists"): a pad
 # is no longer a hard ``Flat`` group (one merged column, which dragged

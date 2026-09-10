@@ -19,7 +19,8 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 #: integrated curvature, every other term metres of elevation).
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
-                                 "taxi_profile", "road", "detached_mean")
+                                 "taxi_profile", "road", "detached_mean",
+                                 "body_datum")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -53,6 +54,17 @@ class Design:
     taxi_profile: float
     road: float
     detached_mean: float
+    #: THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
+    #: answer 6): every APRON BODY — a connected group of faces whose
+    #: bending class is ``apron`` — carries ONE weak row saying its MEAN z
+    #: is the MEAN production DEM under its own vertices.  Never per
+    #: vertex: the body keeps its designed (bent) shape and only its LEVEL
+    #: is told where the ground is, so a body up the hill sits up the hill
+    #: and the taxiways climb between bodies at their caps instead of the
+    #: whole complex being cut into the hill toward the runway's level.
+    #: The runway and taxi families are excluded (they carry the threshold
+    #: chord and the taxi design profile).
+    body_datum: float
     #: THE PAD PLANE (owner RULINGS 2026-09-09c): a pad's flatness is a
     #: STRONG TARGET (it is no longer a hard ``Flat`` merge), and its tilt
     #: is bounded hard at ``emit.within_shape.pad_slope_max``.

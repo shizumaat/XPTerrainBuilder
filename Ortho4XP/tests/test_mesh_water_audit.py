@@ -99,3 +99,20 @@ def test_the_water_bit_mask_is_the_engine_s_own():
     attrs = VECT.Vector_Map.dico_attributes
     assert MRT.WATER_BITS == (attrs["WATER"] | attrs["SEA"]
                               | attrs["SEA_EQUIV"])
+
+
+def test_the_sea_class_is_reported_apart_from_inland_water(mesh, tmp_path):
+    """THE SEA IS LEVELLED, INLAND WATER IS NOT (RULINGS 2026-09-09o (3) /
+    09z (3)): ``sea_smoothing_mode=zero`` drives a SEA-without-WATER
+    triangle to 0.000, while a mapped body converges to its own level.
+    Lumped, "water vertices off zero" is unreadable — every lake is off
+    zero lawfully.  The fixture: two SEA triangles (one flat, one with
+    the 3.962 plateau step) and one inland triangle at 12.5 m."""
+    out = MRT.water_audit(str(mesh))
+    sea = out["frame"]["sea"]
+    inland = out["frame"]["inland"]
+    assert sea["triangles"] == 2 and inland["triangles"] == 1
+    assert sea["vertices_at_zero"] == 4 and sea["vertices_not_zero"] == 2
+    assert sea["max_step_m"] == pytest.approx(3.962, abs=1e-3)
+    assert inland["vertices_at_zero"] == 0
+    assert inland["max_step_m"] == pytest.approx(0.0, abs=1e-6)

@@ -2531,3 +2531,56 @@ fence in topology.  Likewise, where water stands nearer than
 `bank_min_width_m` the ruling's literal "no foot at all" leaves the collar's
 sliver between the ring and the shore: its foot is ON the water line at the
 DEM, never a lifted value.
+
+### 18.3 MEASURED at OTHH (lane `v2shore`, branch `claude/v2shore`)
+
+THE PATCH (`build_airport.py OTHH --engine v2`, tag `OTHH_20260909T223805`,
+490 s, solve 17.01 s, `body_sha 0c7e8743849d`, verify rows 16 — within_shape
+2, taxi_box 12, airside_no_step 2 — no DEFECT family, hard set SETTLED):
+
+* the bank walk: 9,484 boundary vertices, 9,477 at the minimum / 7
+  daylighted / 0 at the maximum / **0 stopped at water** — at OTHH no
+  daylight ray reaches the canal inside its own walk, so the EMITTER's
+  win is the REGION cut, not the walk;
+* `tools/patch_water_audit.py`: 44 bank rings (27 exterior, **17 hole**),
+  4,894 foot nodes, banked region 11,430,408 m², **over water 0.0 m²**;
+  10 foot nodes are inside the water polygon by **0.000 m** — they are the
+  hole's own boundary, the ring closing ON the water line.  The 1,609 m²
+  hole is the water the collar used to cover.
+
+THE MESH, a MATCHED ARM (`run_tile_mesh_only.py 25 51`, step 1 27 s; then
+the step-2 REPLAY on the SAME `.poly`/`.node`/`.alt` with `O4_Mesh_Utils`
+at main `858a6836` — one file differs, nothing else):
+
+| `mesh_region_tris.py --water-audit` | control (main) | this branch |
+|---|---|---|
+| SEA vertices off 0.000 (frame) | 28 | **0** |
+| SEA triangles with a z-step > 1 m | 21 | **0** |
+| max SEA z-step | 2.712 m | **0.000 m** |
+| within 2 km of 25.2558,51.6079: SEA off zero | 3 | **0** |
+| within 2 km: max SEA step | 0.606 m | **0.000 m** |
+| inland/equiv bodies (they hold their OWN level, lawfully) | 30,147 off zero | 30,147 off zero |
+
+* the engine's own line: **186 shore vertex(es)** shared with a patch/road
+  INTERP_ALT triangle kept their levelled water altitude instead of the
+  patch value — the column-5 copy, which is where "some water being lifted
+  up to terrain level" survived 09o (3);
+* the bank annulus blend is **bit-identical** across the two arms (57,148
+  vertices, 56,894 by ray, 254 fallback): no annulus vertex at OTHH carries
+  a water bit, so S8 is a guard here and S9 is the whole measured delta;
+* the SHORE TRANSECT (lat 25.2563, lon 51.6120 → 51.6180, 5 m stations,
+  crossing the canal's west bank at ≈ 51.6152): max station grade **0.077**,
+  0 of 120 gaps over the 0.35 bar, **unchanged** across the two arms — with
+  this patch the shore is already a ramp, and the cliff the owner read is
+  the 3.962 m plateau STEP inside the water, which is what the table above
+  removes.
+* Step 2 wall: 3m23s (control replay); the branch's own steps 1+2 ran
+  15m50s, which includes a COLD `[library]` index rebuild and the object
+  re-bake the control read from cache — not comparable, and not a timing
+  measurement.
+
+REFERENCE, not a control (different vintage and config, cross-tree):
+the owner's installed `Data+25+051.mesh` of 16:09 reads 11,001 SEA vertices
+off zero (898 at exactly 3.962), 7,957 stepped sea triangles, max step
+16.919 m; near the owner's site 214 of 339 SEA vertices off zero and 381
+stepped triangles.  That is the 1.0.297-era read the owner's report names.

@@ -3364,3 +3364,49 @@ today's pad; a road-width cut → not a skirt. Closing test LEMD patch only (pad
 before/after, the T4S `building16` fall and the apron-edge → rim step,
 `seat_feet_census` `> 3 m` and floating), OTHH patch only (pads and seat
 families unchanged in kind).
+
+### 22.7 MEASURED — LEMD and OTHH patch arms (lane `v2skirt`, branch `claude/v2skirt`)
+
+LEMD, both arms `build_airport.py LEMD --patch-only --engine v2` (control
+`--base-arm` at main `a85d16c2`), one shared corpus, DEFECTs **0** in both:
+
+* the T4S terminal IS skirted, and `building16` is the ONE pad dropped
+  (pad refs 21 → 20, emitted `role=building` ways 47 → 46). 72 of LEMD's 298
+  plan members read as skirted.
+* the transect (`pad_level_report.py transect`, `pav16`'s ring node toward
+  40.49098918, −3.57037578, 1 m stations, solve-replay arms): FALL over the
+  span **0.793 → 0.755 m** — the 0.10 m bar MISSED; max 1 m station step
+  0.034 → **0.033 m**, the ≤ 0.05 apron-edge → rim step MET.
+* ATTRIBUTION of the residual fall (`v2_solve_replay --why-vertex 21785`, a
+  duals solve of the same LP): the pad is gone, and the rim end is now
+  chained down by the apron's OWN rows — `apron_preference` 0.14 m over
+  13.3 m, then `apron_within_shape` 0.10 m over 6.5 m — to v21779, an apron
+  vertex SHARED WITH `retaining_wall#912`, which the trace calls FREE: "no
+  binding row blocks it: above its DEM, held by bending alone". The T4S fall
+  is the BASIN'S RETAINING WALL, not the pad and not the skirt (10ah named
+  the pad's 49-to-11 loss to that wall; removing the pad hands the rim
+  straight to it). z − DEM at the rim end −1.053 → −1.364. Outside 10ag/10af:
+  STOPPED and reported, no fix attempted.
+* `seat_feet_census.py` on the tile's existing +40−004 mesh (both arms the
+  same terrain, `v2_rebake_replay seat` per arm): > 3 m **16 → 15**, 1–3 m
+  34 → 28; feet standing more than 0.3 m ABOVE their ground 195 → 188
+  overall and **14 → 7 for skirted placements** — the "0 for skirted bodies"
+  bar MISSED, residual attributed: 3 of the 7 are ONE-FOOT bodies (a minimum
+  over one foot is that foot — 10i's one-foot class, `Munoza-LEMDzaun`
+  −5.96 m over a 5,157 m span), the other 4 are 0.34–0.75 m read against a
+  mesh built from a DIFFERENT patch. Reported, not iterated on.
+* census A/B: adjudicated 461 → 488 (+27), law-true 3,070 → 3,302; v2 verify
+  `pad_flat` 6 → 4, `frontage_near_miss` 0 → 1; `retaining_wall` off-DEM
+  > 0.5 m 42 → 8 (max 10.26 → 2.11 m). Pad MEAN levels: the largest move is
+  0.49 m (`building10` 604.79 → 604.30). (`pad_level_report.py delta` reports
+  a 33.8 m max: it joins ways by `shapeID`, which renumbers once a pad
+  disappears — an instrument note, owed.)
+
+OTHH, both arms `--patch-only --engine v2`: the patch is BYTE-IDENTICAL
+(`body_sha f340732abaf1`), pads **33 → 33**, DEFECTs 0, `pad_flat` 0, verify
+rows 4. The re-seat plan is identical member for member and part for part but
+for the new `skirted_members: 13` count, and a seat replay of both plans on
+the existing +25+051 mesh reads **58,826 parts, 0 differing deltas, max
+0.000 m** — 10i (4)'s exemption holds exactly. The 13 skirted members are
+Dewatering/Drainage 01–06, two tunnel objects, Bridge_03 (×2), DutyFree,
+TerminalRoads_03 and Terminal_Parking.

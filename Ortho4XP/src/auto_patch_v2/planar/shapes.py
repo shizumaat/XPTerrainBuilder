@@ -82,14 +82,12 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import PlanarMap, RoadRamp, ShapeJoint
+from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
            "joint_planar_edges"]
 
-#: Label of a vertex no shape owns.
-NO_SHAPE = -1
 #: Which breakline kind is the 1202 network (the route graph's stations).
 STATION_KIND = "taxi_centerline"
 #: The runway ridge breakline kind (``constraints.routes.RIDGE_KIND``): a root of the network.

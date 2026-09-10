@@ -22,7 +22,7 @@ import scipy.sparse as sp
 from ..law import Law
 from ..law.tables import zone2_half_width_m
 from ..model.constraints import ConstraintSet, Row
-from ..model.planar import PlanarMap
+from ..model.planar import NO_SHAPE, PlanarMap
 
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
@@ -377,6 +377,15 @@ def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction
                  ) -> list[list[int]]:
     """The connected BODIES of the faces of ``roles`` (faces sharing a
     vertex), each as its unknown vertices carrying a DEM sample."""
+    return [vs for vs, _fs in _role_bodies_faced(pm, roles, red)]
+
+
+def _role_bodies_faced(pm: PlanarMap, roles: _t.AbstractSet[str],
+                       red: _Reduction) -> list[tuple[list[int], list[int]]]:
+    """:func:`_role_bodies`, each body paired with the FACES it is made of
+    (the per-body datum reads their shape ids — a body's own shape is the
+    shape of its FACES, never a vote among its vertices, which a road
+    along a boundary can tie)."""
     parent: dict[int, int] = {}
 
     def find(v: int) -> int:
@@ -401,10 +410,57 @@ def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction
     for vs in members.values():
         for v in vs:
             acc.setdefault(find(v), set()).add(v)
-    out: list[list[int]] = []
-    for group in acc.values():
+    faces_of: dict[int, list[int]] = {}
+    for fid, vs in members.items():
+        faces_of.setdefault(find(vs[0]), []).append(fid)
+    out: list[tuple[list[int], list[int]]] = []
+    for root, group in acc.items():
         keep = sorted(v for v in group
                       if red.col[v] >= 0 and pm.vertices[v].dem_z is not None)
+        if keep:
+            out.append((keep, faces_of.get(root, [])))
+    return out
+
+
+def _shape_bodies(pm: PlanarMap, red: "_Reduction",
+                  bodies: list[tuple[list[int], list[int]]]) -> list[list[int]]:
+    """The PER-BODY DATUM's vertex sets (owner RULINGS 2026-09-09v): a
+    body's mean is taken over the vertices the SHAPE PARTITION gives it,
+    never over the ring vertices of its faces.
+
+    The defect the ruling names is a road along a boundary: 08r-2 welds
+    the road to ONE shape (A), yet its far-edge vertices are ring vertices
+    of the NEIGHBOUR's faces, so the face-ring reading counted them in B's
+    mean too and B's datum pulled the road off A's level (the red twin's
+    ``service_road|service_road`` rows, 0.24-0.29 m).  Here a vertex
+    LABELLED for another shape is dropped from this body: it is A's, and
+    B's mean never sees it.  Every vertex is then in at most one mean.
+    A body's OWN shape is the shape of its FACES (``shape_of_face``): a
+    vote among its vertices ties exactly where the road puts half of them
+    in the neighbour's shape.
+
+    An UNLABELLED vertex (the network's, an unwelded strip's, and every
+    vertex of a body the shape partition never labelled) stays with the
+    body whose faces it rings.  MEASURED (CYXY, lane ``v2datumfix``):
+    taking the BODIES THEMSELVES from the shape partition — one row per
+    SHAPE — collapses CYXY's 18 datum rows to 6, because the shapes are
+    coarser than the bodies (the route weld joins bodies across the
+    network) and because a body the partition never labelled loses its
+    datum altogether; that patch censused 520 adjudicated rows against
+    round 2's 275 (law-true 2,073 against 1,180).  The bodies therefore
+    stay as the datum has always taken them and only the MEMBERSHIP is
+    enforced — which at CYXY is byte-identical to the round-2 patch."""
+    out: list[list[int]] = []
+    for vs, fs in bodies:
+        labs: dict[int, int] = {}
+        for fid in fs:
+            sh = pm.shape_of_face.get(fid, NO_SHAPE)
+            if sh != NO_SHAPE:
+                labs[sh] = labs.get(sh, 0) + 1
+        own = max(labs, key=lambda sh: (labs[sh], -sh)) if labs else NO_SHAPE
+        keep = [v for v in vs
+                if pm.shape_of_vertex.get(v, NO_SHAPE) in (own, NO_SHAPE)
+                and red.col[v] >= 0 and pm.vertices[v].dem_z is not None]
         if keep:
             out.append(keep)
     return out

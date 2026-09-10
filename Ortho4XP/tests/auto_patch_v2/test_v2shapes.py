@@ -61,6 +61,29 @@ class _Flat:
         return (-5000.0, -5000.0, 5000.0, 5000.0)
 
 
+class _Bench:
+    """A terrain STEP at ``x0``: 700 m west of it, ``700 + rise`` east.
+    The bodies a twin wants at two levels are at two levels IN THE GROUND
+    (RULINGS 2026-09-09v: a body's datum row holds it on its own terrain
+    mean, so a pin 4 m off the ground is a fight the pin only half wins —
+    and the local cone it wrings out of the body is a within-shape row,
+    which is the fixture's doing, not the law's).  The step stands only
+    NORTH of ``y_min`` (100 m: clear of the runway and its strip), so the
+    runway's own ground is the flat 700 every other twin builds on."""
+
+    def __init__(self, x0: float, rise: float = 4.0, y_min: float = 100.0):
+        self.x0, self.rise, self.y_min = x0, rise, y_min
+        self.provenance = {"synthetic": f"bench {rise} m at x={x0}"}
+
+    def z(self, x: float, y: float) -> float:
+        if y < self.y_min:
+            return 700.0
+        return 700.0 + (self.rise if x > self.x0 else 0.0)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
 @pytest.fixture(scope="module")
 def law():
     return Law.for_airport("ZZZZ")
@@ -194,7 +217,8 @@ def test_a_road_along_a_boundary_takes_its_shapes_level_and_the_step_stands_at_i
     """Owner RULINGS 2026-09-08r-2: the road is welded to apronA (more shared
     vertices) and takes ITS level; the step stands at the road's far edge —
     inside apronB, whose vertices on the road carry A's label."""
-    airport, pm, st, cl = _airport(law, _road_between(Y0 + 30.0, Y1 - 30.0), [])
+    airport, pm, st, cl = _airport(law, _road_between(Y0 + 30.0, Y1 - 30.0), [],
+                                   dem=_Bench(4.0))
     road = _face(pm, "road")
     A, B = _shape_of(pm, (-200.0, Y0)), _shape_of(pm, (200.0, Y1 - 30.0))
     assert A != B and st.shapes.roads_along >= 1 and st.shapes.roads_crossing == 0
@@ -218,19 +242,18 @@ def test_a_road_along_a_boundary_takes_its_shapes_level_and_the_step_stands_at_i
     sol, rep = solve_design(pm, pinned, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
     zr = [sol.z[v] for v in S._face_vertices(pm, road.id)]
-    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): apronA and
-    # apronB are now TWO BODIES at two terrain means (the per-body datum,
-    # 09p (3)), so the road along their boundary tilts a little instead of
-    # being one plane — which is what 09p (3) intends.  Measured 0.65 m of
-    # spread across a 4 m step between the two pinned aprons (16 %), and the
-    # road's own level is still A's, not the average: the free-road ruling
-    # is held by the level, the step by the contour below.
+    # apronA and apronB are TWO BODIES at two terrain means (the per-body
+    # datum, 09p (3)) and the fixture's ground steps 4 m between them at the
+    # road's far edge, so the pins state what the terrain already says.  The
+    # road is A's body (08r-2) and, under SHAPE MEMBERSHIP (09v), only A's:
+    # 0.23 m of spread across a 4 m step — where the face-ring reading put
+    # its far edge in apronB's mean too and tilted it 0.65 m.
     assert max(zr) - min(zr) < 0.8, "the road at one level (A's)"
     zm = sum(zr) / len(zr)
     assert abs(zm - 700.0) < abs(zm - 704.0), "the road takes A's level"
     js = joint_steps(pm, law, stage, sol.z)
     assert not js["roads"] and not js["ramps"]
-    assert js["contours"][0]["step_m"] > 2.0
+    assert js["contours"][0]["step_m"] > 2.0   # measured 2.90
     # both censuses: the road reads lawful; apronB's step reads as its joint
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
     pub = publication(pm, law, airport, sol.z)

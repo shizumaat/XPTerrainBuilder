@@ -67,7 +67,8 @@ from .api import Options, Residual, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
-                   _plane_targets, _reduce, _Reduction, _role_bodies, _Rows,
+                   _plane_targets, _reduce, _Reduction, _role_bodies,
+                   _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
@@ -614,11 +615,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     factorise (HECA: +76 s).  These rows are therefore accumulated
     #     SEPARATELY and handed to the linear solve as the low-rank term
     #     ``U`` — the same algebra, never the block (:data:`LOW_RANK_MODES`).
+    #     THE VERTEX SET IS SHAPE MEMBERSHIP (RULINGS 2026-09-09v), never
+    #     the ring vertices of the body's faces: a road along a boundary
+    #     belongs to the shape it is welded to (08r-2), so its far-edge
+    #     vertices — which ARE ring vertices of the NEIGHBOUR's faces —
+    #     are dropped from the neighbour's mean, and the neighbour's datum
+    #     no longer pulls the road off its level (:func:`_shape_bodies`,
+    #     which also records what taking the BODIES from the partition
+    #     measured at CYXY).
     body = _Rows(red)
-    for vs_b in _role_bodies(planar, apron_roles(law), red):
-        zs = [float(planar.vertices[v].dem_z) for v in vs_b
-              if planar.vertices[v].dem_z is not None]
-        if len(zs) != len(vs_b) or not vs_b:
+    for vs_b in _shape_bodies(planar, red,
+                              _role_bodies_faced(planar, apron_roles(law), red)):
+        zs = [float(planar.vertices[v].dem_z) for v in vs_b]
+        if not zs:
             continue
         w = 1.0 / len(vs_b)
         body.add([(v, w) for v in vs_b], sum(zs) / len(zs), d.body_datum,

@@ -2595,3 +2595,52 @@ single-runway value; the other runway's ridge passes through the pin
 within `hard_tol_m` and holds its thresholds, its longitudinal cap and its
 K bound; both DEFECT readers (`runway_transverse`, `runway_vertical_curve`)
 read 0; and a SINGLE runway's targets and rows are unchanged.
+
+### 17.5 MEASUREMENTS — CYXY, the closing build
+
+Change arm `v2crossing` (branch `claude/v2crossing`, body_sha `ad870acb478a`,
+total 10.4 s, solve 4.23 s, 269 active-set rounds); control `v2crossctl` at
+main `858a6836` (`--base-arm`, body_sha `fdcdac5cfa7f`, total 12.9 s); v1
+arm `v1ctl` at the same tree (`--engine v1 --base-arm`, 47.0 s).
+`tools/rwy_profile.py --icao CYXY --binned --compare`.
+
+THE SITE — the 02/20 x 14R/32L and 02/20 x 14L/32R crossings
+(60.7095, −135.0672 area).  02/20's thresholds are 15 m and 166 m from the
+two nodes against the mains' 1,000 m-plus, so 02/20 GOVERNS both, exactly
+as 09z (1) says it does.
+
+| 14R/32L station | 825 | 1025 (the node) | 1225 |
+|---|---|---|---|
+| control (main) | 697.7 | **697.1** | 699.1 |
+| **this** | 694.1 | **694.2** | 695.5 |
+| v1 | (—) | 694.0 | 694.9 |
+| DEM | 693.8 | 694.0 | 694.0 |
+
+THE DIP IS GONE.  The control's V (−0.6 m into the node, the owner's read)
+is replaced by a MONOTONE climb; v1 is monotone there and so is this.  At
+14L/32R (node s = 425) the control reads 695.3 / 694.4 / 696.7 — a −0.9 m
+V — and this reads 694.0 / 693.8 / 694.8, which is the DEM's own bowl
+(694.1 / 693.9 / 694.1) and v1's (693.9 / 693.7 / 694.0): monotone exactly
+where v1's is.  02/20's +1.9 m hump over its own ground (§13.2's +2.09) is
+gone: `z-DEM` mean +1.49 -> **−0.00** (v1 −0.11).
+
+| reading | control (main) | **this** | v1 |
+|---|---|---|---|
+| DEFECT families (`runway_transverse`, `runway_vertical_curve`) | 0 | **0** | — |
+| v2 verify rows | 433 | **109** | — |
+| census LAW-TRUE / ADJUDICATED | 1185 / 280 | **968 / 97** | — |
+| 14R/32L bow vs its chord | −1.26 | −4.13 | −4.73 |
+| 14L/32R bow | −1.40 | −2.03 | −3.02 |
+| 02/20 bow | +0.20 | **−0.06** | −0.20 |
+| 14R/32L max grade change (%/100 m) | 1.680 | **0.700** | 0.940 |
+| 14L/32R max grade change | 2.340 | **0.660** | 0.580 |
+| 02/20 max grade change | 2.360 | **0.160** | 0.160 |
+| 14R/32L z−DEM mean | +2.64 | **+0.65** | +0.36 |
+
+THE BOWS GROW AND THAT IS THE LAW, not a regression: the bow is measured
+against the STRAIGHT threshold chord, and the ruling replaces that chord
+with one re-fit through the crossing node.  Every bow now sits between the
+control's and v1's, and every other reading — the DEFECT gate, the verify
+count, the census, the grade-change rate and the distance off the ground —
+moves toward v1.  The hard set still reads NOT SETTLED at 0.0210 m
+(control 0.0202 m): unchanged in kind by this round, 09v's open item.

@@ -248,6 +248,13 @@ class DesignReport:
     #: the census can report the rows it counts under one heading
     targets: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
     solver_wall_s: float = 0.0
+    #: THE RUNWAY PROFILE (spec §21.2 (4)): per runway the target kind and
+    #: window, the built ridge's residual against its target, its mean
+    #: |z - DEM| and the law row that holds it — filled by the pipeline
+    #: after the projection (``solve/project.runway_profile_block``), and
+    #: carried into the sidecar's ``design`` block so the census and the
+    #: owner read WHICH target the runway was designed to.
+    runway_profile: dict[str, _t.Any] = _dc.field(default_factory=dict)
     families: dict[str, dict[str, _t.Any]] = _dc.field(default_factory=dict)
     terms: dict[str, float] = _dc.field(default_factory=dict)
 
@@ -273,6 +280,7 @@ class DesignReport:
                 "bend_rows_by_class": self.bend_rows_by_class,
                 "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
+                "runway_profile": self.runway_profile,
                 "families": self.families, "terms": self.terms}
 
     def _taxi_datum_line(self) -> str:

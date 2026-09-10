@@ -923,3 +923,78 @@ tiles — inside the ±25 % single-run noise floor, and not a timing run
 mechanism adds a pass: the contact test is one extra C-level pair query
 per written OBJ8 inside the post-mesh re-seat, and the plate map is
 SMALLER.
+
+## 13. RULINGS 2026-09-09ag: the basin ADMISSION test — an authored sunken solid, never a datum sitting under the terrain (lane `v2basin`)
+
+### 13.1 Attribution: which admission clause let a terminal slab in
+
+Measured OFFLINE on the LEMD and OTHH structure stages at main `858a6836`
+(`auto_patch_v2.planar` reader + `build_basins`, shared corpus, production
+DEM frame; LEMD cross-checked against `v2planes_LEMD1`'s 33
+`basin_facilities`): LEMD admits **34** basins from **11** witness
+resources, OTHH **10** from its Drainage / Dewatering shells.
+
+THE CLAUSE IS RULE 1's LOCAL GROUND. `obj8.read_placed_objects` takes a
+component's ground as `dem_z` at its plan CENTROID and gates the floor at
+`plate ≤ local − admission_depth_m` (2.5 m). Aerosoft authored LEMD as
+ONE flat plane; where the terrain stands above it an ordinary ground-floor
+slab — own authored `y` **−0.5 m** — reads 15 m "under the local ground"
+and witnesses a pit. Nothing downstream refuses it: the plate is genuine,
+the shell tops out in the band, and the region is the slab's own
+footprint, whose boundary is where the slab meets the ground — so the rim
+diagnostic reads CLOSED.
+
+`D_ground` = R_est − floor (depth under grade); `D_datum` = −`plate_y`
+(depth the object AUTHORED under its own render datum); the balance is the
+datum lying under the terrain.
+
+| witness | basins | D_ground | D_datum | datum under grade | ring relief | rim open |
+|---|---|---|---|---|---|---|
+| OTHH `Drainage_01..06` | 8 | 3.81–4.20 | 3.82–4.20 | **0.00** | 0.00 | 0 of 6–79 |
+| OTHH `Dewatering_01/02` | 2 | 13.14 | 13.14 | **0.00** | 0.00 | 2 of 46 |
+| LEMD `Ground-FSX-LEMD37` | 1 | 7.07 | 7.05 | **0.02** | 7.10 | 57 of 69 |
+| LEMD `OldTerminal-LEMD54` | 2 | 4.24 | 0.67 | 3.57 | 0.66–1.02 | 1 of 4 |
+| LEMD `OldTerminal-LEMD41` | 1 | 6.47 | 0.47 | 6.00 | 0.98 | 27 of 61 |
+| LEMD `OldTerminal-LEMD43` | 9 | 6.66 | 0.66 | 6.00 | 0.00 | 1–2 of 4 |
+| LEMD `Cargo-CNTRL` | 1 | 11.67 | 1.67 | 10.00 | 1.31 | 26 of 34 |
+| LEMD `OldTerminal-STRT1` | 1 | 11.44 | 1.44 | 10.00 | 3.96 | 25 of 36 |
+| LEMD `OldTerminal-P2CNX` | 1 | 4.79 | **−5.21** | 10.00 | 0.00 | 0 of 7 |
+| LEMD `OldTerminal-DCNEUN` | 1 | 5.98 | **−4.34** | 10.32 | 2.34 | 6 of 7 |
+| LEMD `Terminal4_green-LEMD02` | 9 | 15.50 | 0.50 | 15.00 | 0.00–0.24 | 1 of 4 |
+| LEMD `Terminal4_green-CNTRL` | 7 | 5.73 | **−9.27** | 15.00 | 0.00 | 0 of 4 |
+| LEMD `Terminal4_green-Bus` | 1 | 16.30 | 0.22 | 16.08 | 0.15 | 0 of 4 |
+
+* The separation is TOTAL and it is the DATUM, not the shape: every OTHH
+  pit authors its floor the full depth (ratio 1.00); every LEMD slab but
+  `LEMD37` authors 0.2–1.7 m and borrows 3.6–16.1 m from a datum under the
+  terrain. Four author their "floor" ABOVE their own datum (`plate_y`
+  +4.34 … +9.27) and still found a pit.
+* ENCLOSURE IS REFUTED as the discriminator: it refuses LEMD's genuine
+  `LEMD37` (57 of 69 open, the most open region at either airport) and
+  admits every `LEMD02` / `CNTRL` sliver (0–2 of 4).
+* RELIEF-vs-THICKNESS (the brief's first reading) is refuted as
+  sufficient: it refuses 7 of 11 and admits `LEMD02`, `Cargo-CNTRL`,
+  `DCNEUN`, `Bus`, whose regions sit on plateaus with 0.0–2.0 m of relief.
+  The relief is under the OBJECT; the region is where the test must bite.
+
+`LEMD37` STAYS ADMITTED: the Aerosoft ground truth of record (floor 588.95
+against G = 596.02), an authored 7 m basin.
+
+### 13.2 The test
+
+A basin is a SUNKEN SOLID: its depth is AUTHORED. Admit only when the
+witness's own render datum stands AT the ground —
+
+    datum_drop = R_est − (anchor_z + agl)  ≤  [basin] datum_drop_max_m
+
+R_est is the median DEM along the ring, already computed for the floor;
+the datum is the witness's rendered y = 0 plane, already on the
+`PlacedObject`. One subtraction, no new geometry pass. A datum ABOVE the
+ground is NOT refused (a pit on a slope is a pit) — only one sitting under
+the terrain, which is what manufactures the depth. `datum_drop_max_m =
+1.0` = `contact_band_m`, the band rule 1's rim test already uses; it sits
+between OTHH's 0.00 / `LEMD37`'s 0.02 and the nearest refusal at 3.57.
+
+Expected: OTHH 10 basins UNCHANGED; LEMD 34 → 1, the other 33 refused by
+resource with their `datum_drop`, their objects taking the ordinary
+`v2_cluster` seat.

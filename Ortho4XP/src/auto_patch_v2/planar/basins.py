@@ -54,6 +54,21 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    fraction, never an erosion test) — then no pit: the terrain there is
    the building's pad and the pad law governs (``building_pad``);
    REFUSED naming the pads.  Anything less covered is a pit.
+5b. THE DATUM (RULINGS 2026-09-09ag, spec §13) — a basin is a SUNKEN
+   SOLID: the depth is AUTHORED.  The witness's own render datum
+   (``anchor_z + agl``, its rendered y = 0 plane) must stand at the
+   ground along the ring: ``R_est − datum`` may exceed
+   ``datum_drop_max_m`` by nothing.  Rule 1's local ground is the DEM at
+   the component, so a pack authored as ONE FLAT PLANE over real relief
+   (LEMD: Aerosoft, 32 m of relief under the terminal) reads an ordinary
+   ground-floor slab — authored 0.5 m under its own datum — as 15 m
+   under the local ground, with a genuine floor plate, a shell topping
+   out in the band and a CLOSED rim.  Measured: OTHH's Drainage /
+   Dewatering pits and LEMD's genuine ``Ground-FSX-LEMD37`` basin read
+   0.00 / 0.02 m; LEMD's 33 terminal-slab basins read 3.57–16.08 m, four
+   of them authoring their "floor" ABOVE their own datum.  A datum ABOVE
+   the ground is never refused — a pit on a slope is still a pit.
+
 5. KEPT — the runway family is never cut (``cuts_runway_family``), a
    tunnel structure is never cut (overlap refuses), the ring must have a
    DEM, survive the identity grid and clear its wall band by the gap.
@@ -395,6 +410,27 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                       key=lambda o: o.solid_min_z)
         smin_z = float(deepest.solid_min_z)
         floor_z = smin_z
+        # ── rule 6: THE DATUM STANDS AT THE GROUND (RULINGS 2026-09-09ag,
+        # spec §13) — a basin is a SUNKEN SOLID: its depth is AUTHORED,
+        # never borrowed from a render datum lying under the terrain.  A
+        # pack authored as ONE flat plane over real relief (LEMD) reads
+        # its ordinary ground-floor slabs, authored 0.5 m under their own
+        # y = 0, as 15 m "under the local ground": rule 1's local ground
+        # is the DEM at the component, so the floor gate, the shell test
+        # and the rim diagnostic all pass on a slab that was never sunk.
+        # A datum ABOVE the ground is not refused (a pit on a slope is a
+        # pit); only one UNDER it, which is what manufactures the depth.
+        datum_z = float(deepest.anchor_z) + float(deepest.agl_m)
+        datum_drop = rest - datum_z
+        if datum_drop > bl.datum_drop_max_m:
+            stats.refused.append(
+                f"{bid}: {ring.area:.0f} m2, floor {smin_z:.2f} — {os.path.basename(deepest.path)}'s "
+                f"own render datum stands {datum_drop:.2f} m UNDER the ground along the ring "
+                f"(R_est {rest:.2f}, datum {datum_z:.2f} > datum_drop_max_m "
+                f"{bl.datum_drop_max_m}); of the {rest - smin_z:.2f} m the floor sits below grade "
+                f"the object AUTHORED only {datum_z - smin_z:.2f} m — a slab sitting on datum "
+                f"relief, not a sunken solid (2026-09-09ag rule 6) at {site}")
+            continue
         # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
         # closed at footprint_close_m, on the identity grid
         plates_u = unary_union([w.plate for w in wits]).intersection(ring)
@@ -449,6 +485,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  f"stand-off {standoff:.2f} m off the floor (09-08a)",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
+                 f"datum {datum_z:.2f} stands {datum_drop:+.2f} m under the ring's ground "
+                 f"(<= datum_drop_max_m {bl.datum_drop_max_m}); authored depth "
+                 f"{datum_z - smin_z:.2f} of {rest - smin_z:.2f} m below grade (09ag rule 5b)",
                  (f"rim protrusion {prot.protrusion_fraction:.1%} of the shell's face area above "
                   f"the contact band, top +{prot.protrusion_top_m:.2f} m (<= "
                   f"rim_protrusion_max_fraction {bl.rim_protrusion_max_fraction:.0%}, 2026-09-06f: "

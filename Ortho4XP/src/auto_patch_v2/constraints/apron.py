@@ -190,6 +190,9 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                            (f"face:{f.id}", f.ref))
         src_body = Source(GEN, "apron body chord, strict (2026-08-24 amends 08-21c)",
                           (f"face:{f.id}", f.ref))
+        src_long = Source(GEN, "apron body chord, stationed across the face "
+                               "(2026-09-10t (2) amends 08-24)",
+                          (f"face:{f.id}", f.ref))
         # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
         chords: list[tuple[Row, ...]] = []
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
@@ -220,6 +223,25 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # inside the gate holds the STRICT cap; ``fan`` is
                         # the back-edge zones' cap when M3b generates them
                         chords.append(tier.rows(a, b, d, src_body))
+                    else:
+                        # THE GATE IS A CHORD LENGTH, NOT A COVERAGE LIMIT
+                        # (owner RULINGS 2026-09-10t (2) / 10v (3)).  A pair
+                        # past the gate used to get NO ROW AT ALL, so a path
+                        # right across an apron body was unpriced: SPJC's
+                        # terminal apron fell 4.66 m over 85.3 m — 5.46 %
+                        # against a 1.5 % cap — between nodes -2440/-2477,
+                        # which are 85 m apart and not ring-adjacent, and
+                        # no apron grade row saw the path.  The rows are now
+                        # STATIONED ACROSS THE FACE: the same apron cap over
+                        # the pair's OWN distance, so every path across a
+                        # body is priced.  The gate keeps its meaning as the
+                        # longest chord priced in ONE row — a longer path is
+                        # priced in ``ceil(d / gate)`` equal stations, which
+                        # for a straight chord is exactly the same statement
+                        # (cap x d) written per station, and never a weaker
+                        # one.  The 05ae face cover below still applies: a
+                        # chord leaving the pavement is still no path.
+                        chords.append(tier.rows(a, b, d, src_long))
         n_pref += tier.k
         if not chords:
             continue

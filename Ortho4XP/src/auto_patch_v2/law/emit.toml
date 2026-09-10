@@ -208,6 +208,20 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 # left are the threshold pins, the tile-seam preference and a detached
 # body's own terrain plane.
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
+# THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
+# §8.6).  ``taxi_profile`` is a SECOND DIFFERENCE with RHS 0 — curvature,
+# no level — so a long taxiway had no level at all (CYXY `pav28`, 10o) and
+# a taxiway with the right mean had no TILT (SPJC `pav49`, 10t).  Every
+# taxi CENTRELINE chain now carries a TARGET PROFILE: the ground's
+# long-wave trend along that chain (the SAME §21 construction at the SAME
+# window key ``runway_profile_window_m``), shifted linearly through the
+# chain's runway contacts (unshifted where it touches none).  WEAK, and
+# below ``body_datum`` (300) by design: the trend tells a taxiway where
+# the ground is going, and every law row, the apron body's own plane and
+# the curvature row are senior to it.  TUNED by measurement (10v's two
+# bars: the CYXY transect within +/- 1.5 m of the DEM east of the zone
+# ring, and HECA's per-role taxi undulation within +5 % of control).
+taxi_trend    = 30.0
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
 # THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t answer 6:

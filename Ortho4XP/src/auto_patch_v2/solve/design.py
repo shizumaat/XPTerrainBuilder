@@ -66,9 +66,10 @@ from ..model.planar import PlanarMap
 from .api import Options, Residual, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
+from .design_report import DesignReport, residual
 from .project import ProjectionReport, project_runway
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
-                   _plane_targets, _reduce, _Reduction, _role_bodies,
+                   _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _violation, _zone_weights)
 
@@ -138,18 +139,26 @@ def taxi_body_roles(law: Law) -> frozenset[str]:
     role the bending term prices at ``bend_taxi``.  A taxi body is formed
     exactly as an apron body is: the connected group of faces of THESE
     roles.  A runway face is never in one (its role is not here), so a
-    taxi body may TOUCH a runway without joining it."""
+    taxi body may TOUCH a runway without joining it.  NOT a datum body
+    since RULINGS 2026-09-10v — kept as the taxi family's own role reader
+    (the report and the twins name it)."""
     return frozenset(r for r in pavement_roles(law)
                      if bend_class(law, r) == "taxi")
 
 
 def datum_roles(law: Law) -> tuple[tuple[str, frozenset[str]], ...]:
-    """The role sets the PER-BODY DATUM sits on, each with its class name
-    (owner RULINGS 2026-09-10p): the apron family and the taxi family, as
-    TWO SEPARATE partitions — an apron face and a taxi face that touch are
-    two bodies with two datums, never one.  The runway family is excluded
-    (its chord and pins are its datum)."""
-    return (("apron", apron_roles(law)), ("taxi", taxi_body_roles(law)))
+    """The role sets the PER-BODY DATUM sits on, each with its class name.
+
+    APRON BODIES ONLY (owner RULINGS 2026-09-10v, replacing 10p).  10p gave
+    every TAXI body the same mean row; 10v measured that as too coarse — a
+    taxi body is the whole connected taxi NETWORK (CYXY: one 853-vertex
+    body), so one mean is an airport-wide level that cannot fix a local
+    tilt, and at HECA it raised the taxi curvature the owner is reading.
+    The taxi family's level is now its CHAIN'S TREND
+    (``constraints/taxi_trend.py``, §8.6) — along the route, not over the
+    network.  The runway family stays excluded (its profile and pins are
+    its datum)."""
+    return (("apron", apron_roles(law)),)
 
 
 def one_way_rulings(law: Law) -> frozenset[str]:
@@ -188,179 +197,22 @@ def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:
     return ruling_head(row) in law_heads
 
 
-# ── the report ──────────────────────────────────────────────────────────
-
-@_dc.dataclass
-class DesignReport:
-    """The residual per family and per objective term — what ``law_tiers``
-    used to be, read the design surface's way: a law is a TARGET, so a
-    missed target is a residual, never a demotion."""
-
-    rounds: int = 0
-    converged: bool = False
-    method: str = DEFAULT_METHOD
-    unknowns: int = 0
-    fixed: int = 0
-    rows: int = 0
-    triangles: int = 0
-    components: int = 0
-    detached: int = 0
-    #: THE PER-BODY DATUM (RULINGS 2026-09-09p (3), 2026-09-10p): one row
-    #: per APRON and per TAXI BODY, its mean z against the mean DEM under
-    #: its own vertices
-    body_datum_rows: int = 0
-    #: how many of those rows are TAXI bodies (owner RULINGS 2026-09-10p)
-    taxi_datum_rows: int = 0
-    #: one record per datum row — ``kind`` (``apron`` / ``taxi``), the
-    #: body's ``ll`` identity (its first vertex), how many vertices its
-    #: mean is over, the MEAN DEM under it and the solved RESIDUAL
-    #: (mean z − mean DEM).  The owner's read is the taxi rows.
-    body_datums: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
-    #: law rows whose one foot is the terrain beyond the zone's outer ring:
-    #: the BANK (08t answers 2/3) — reported, never a design target
-    bank_rows: int = 0
-    #: THE HARD ROWS (RULINGS 2026-09-08v): the runway family's law rows as
-    #: constraints — how many exist, how many the settled active set holds,
-    #: how many polish rounds it took and the worst violation left (a
-    #: constraint held exactly reads 0 to the solver's tolerance)
-    hard_rows: int = 0
-    hard_active: int = 0
-    hard_rounds: int = 0
-    hard_max_violation_m: float = 0.0
-    hard_settled: bool = True
-    #: the ruling of the worst-held hard row (empty where every row is held)
-    hard_worst: str = ""
-    #: THE FINAL PROJECTION (owner RULINGS 2026-09-09y): the runway family's
-    #: hard rows held EXACTLY by a QP after the solve (``solve/project.py``)
-    runway_projection: ProjectionReport = _dc.field(default_factory=ProjectionReport)
-    #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
-    #: corridor and strip-tie rows whose pavement feet are LAGGED — how
-    #: many, how many lag rounds the outer loop paid, whether the lag
-    #: settled and how far the worst leader foot moved in the last round
-    one_way_rows: int = 0
-    one_way_rounds: int = 0
-    one_way_settled: bool = True
-    one_way_move_m: float = 0.0
-    bend_rows_by_class: dict[str, int] = _dc.field(default_factory=dict)
-    #: THE MISSED TARGETS (sidecar ``design_target``, RULINGS 2026-09-08t/v):
-    #: one record per law row the design surface did not reach — its family,
-    #: the metres it is out by and the lat/lon identities of its vertices, so
-    #: the census can report the rows it counts under one heading
-    targets: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
-    solver_wall_s: float = 0.0
-    #: THE RUNWAY PROFILE (spec §21.2 (4)): per runway the target kind and
-    #: window, the built ridge's residual against its target, its mean
-    #: |z - DEM| and the law row that holds it — filled by the pipeline
-    #: after the projection (``solve/project.runway_profile_block``), and
-    #: carried into the sidecar's ``design`` block so the census and the
-    #: owner read WHICH target the runway was designed to.
-    runway_profile: dict[str, _t.Any] = _dc.field(default_factory=dict)
-    families: dict[str, dict[str, _t.Any]] = _dc.field(default_factory=dict)
-    terms: dict[str, float] = _dc.field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, _t.Any]:
-        return {"rounds": self.rounds, "converged": self.converged,
-                "method": self.method, "unknowns": self.unknowns,
-                "fixed": self.fixed, "rows": self.rows,
-                "triangles": self.triangles, "components": self.components,
-                "detached": self.detached,
-                "body_datum_rows": self.body_datum_rows,
-                "taxi_datum_rows": self.taxi_datum_rows,
-                "body_datums": self.body_datums,
-                "bank_rows": self.bank_rows,
-                "hard_rows": self.hard_rows, "hard_active": self.hard_active,
-                "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
-                "hard_max_violation_m": round(self.hard_max_violation_m, 6),
-                "hard_worst": self.hard_worst,
-                "runway_projection": self.runway_projection.as_dict(),
-                "one_way_rows": self.one_way_rows,
-                "one_way_rounds": self.one_way_rounds,
-                "one_way_settled": self.one_way_settled,
-                "one_way_move_m": round(self.one_way_move_m, 6),
-                "bend_rows_by_class": self.bend_rows_by_class,
-                "targets": len(self.targets),
-                "solver_wall_s": round(self.solver_wall_s, 3),
-                "runway_profile": self.runway_profile,
-                "families": self.families, "terms": self.terms}
-
-    def _taxi_datum_line(self) -> str:
-        """The TAXI bodies' datum residuals (owner RULINGS 2026-09-10p) —
-        the worst three by |residual|, each with its mean DEM."""
-        taxi = sorted((r for r in self.body_datums if r["kind"] == "taxi"),
-                      key=lambda r: -abs(r["residual_m"]))[:3]
-        if not taxi:
-            return ""
-        return (" (worst taxi datums " + ", ".join(
-            f"{r['residual_m']:+.2f} m on DEM {r['dem_mean_m']:.2f}"
-            for r in taxi) + ")")
-
-    def line(self) -> str:
-        worst = sorted(self.families.items(), key=lambda kv: -kv[1]["max_m"])[:6]
-        return (f"design (08t): {self.rounds} active-set round(s)"
-                f"{'' if self.converged else ' (SET NOT SETTLED)'}, {self.method}, "
-                f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
-                f"{self.triangles} triangles in {self.components} complexes "
-                f"({self.detached} detached), {self.body_datum_rows} bodies "
-                f"({self.taxi_datum_rows} taxi) on their own DEM mean"
-                + self._taxi_datum_line()
-                + f", {self.bank_rows} bank rows off the "
-                f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
-                f"(max violation {self.hard_max_violation_m:.4f} m in "
-                f"{self.hard_rounds} polish round(s)"
-                f"{', HARD SET SETTLED' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
-                f"{self.one_way_rows} one-way rows in {self.one_way_rounds} lag "
-                f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
-                f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
-                f"{self.solver_wall_s:.2f} s solver; "
-                + self.runway_projection.line() + "; "
-                "worst targets " + ", ".join(
-                    f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
-                    for k, v in worst if v["missed"]))
-
-
-def residual(cs: ConstraintSet, z: np.ndarray, objective: float) -> Residual:
-    """The certificate: the worst residual of each row kind at ``z`` — the
-    same reading the LP's certificate carried, now of TARGETS."""
-    mp = md = mf = mb = mo = 0.0
-    for p in cs.pins:
-        mp = max(mp, abs(float(z[p.v]) - p.z))
-    for d in cs.diffs:
-        md = max(md, abs(float(z[d.a]) - float(z[d.b])) - d.cap * d.d)
-    for f in cs.flats:
-        g = z[list(f.group)]
-        mf = max(mf, float(g.max() - g.min()))
-    for bd in cs.bands:
-        if bd.lo is not None:
-            mb = max(mb, bd.lo - float(z[bd.v]))
-        if bd.hi is not None:
-            mb = max(mb, float(z[bd.v]) - bd.hi)
-    for o in cs.offsets:
-        mo = max(mo, o.min_delta - (float(z[o.a]) - float(z[o.b])))
-    ml = 0.0
-    for ln in cs.linears:
-        s = sum(c * float(z[v]) for v, c in ln.terms)
-        if ln.hi is not None:
-            ml = max(ml, s - ln.hi)
-        if ln.lo is not None:
-            ml = max(ml, ln.lo - s)
-    return Residual(max_pin_m=mp, max_diff_m=max(md, ml), max_flat_m=mf,
-                    max_band_m=mb, max_offset_m=mo, objective=objective)
-
-
 # ── the linear solve ────────────────────────────────────────────────────
 
 # ── THE SOLVE ───────────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
-    """One PER-BODY DATUM row's body: which family formed it (``apron`` /
-    ``taxi``, :func:`datum_roles`), the vertices its mean is taken over and
-    the MEAN PRODUCTION DEM under them — the report's residual is the
-    body's solved mean minus this."""
+    """One body of the PER-BODY DATUM: which family formed it (``apron``,
+    :func:`datum_roles`), the vertices its PLANE is fitted over, the MEAN
+    PRODUCTION DEM under them and how many of the three plane rows its
+    geometry carried (a collinear body carries fewer — RULINGS
+    2026-09-10v (2))."""
 
     kind: str
     vertices: tuple[int, ...]
     dem_mean: float
+    rows: int = 1
 
 
 @_dc.dataclass
@@ -444,7 +296,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rows = _Rows(red)
     one: list[_Side] = []
     eqs: list[_Side] = []
-    chord_v = road_v = 0
+    chord_v = road_v = trend_v = 0
     if red.n_cols == 0:
         return Base(rows, red, one, eqs, n)      # nothing to solve
 
@@ -518,6 +370,28 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             sc = 0.5 * (dp + dn)
             rows.add(((c, sc / dn), (m, -sc * (1.0 / dn + 1.0 / dp)), (a, sc / dp)),
                      0.0, d.taxi_profile, ("taxi_profile", bl.id))
+
+    # 5c. THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
+    #     spec §8.6).  The second-difference rows above are CURVATURE and
+    #     have no level: 10o measured CYXY's 1,664 m parallel extrapolating
+    #     its level from its far contact while the ground rose under it, and
+    #     10t measured SPJC's `pav49` with the right mean and no TILT.
+    #     Every taxi centreline chain therefore carries a TARGET PROFILE —
+    #     the ground's LONG-WAVE TREND along that chain, the SAME §21 fit at
+    #     the SAME window key, shifted linearly through the chain's runway
+    #     contacts — derived in ``constraints/taxi_trend.py`` and published
+    #     through ``PlanarMap.taxi_trend_z`` (``solve`` imports ``law`` and
+    #     ``model`` only, M0 §1: the derivation cannot live here).  WEAK, at
+    #     ``[design] taxi_trend``, below ``body_datum``: it says WHERE the
+    #     chain runs, never how smoothly (that is the row above), and every
+    #     law outranks it.  A runway-contact vertex carries no target — the
+    #     runway owns its value and its contact stays hard.
+    for vid, target in planar.taxi_trend_z.items():
+        if vid in rwy_v:
+            continue
+        if rows.add(((vid, 1.0),), float(target), d.taxi_trend,
+                    ("taxi_trend", vid)):
+            trend_v += 1
 
     # 6. the runway chord (and the core's road profile) — ``preferred_z``
     #    (a runway-family vertex fits the CHORD; every other published
@@ -664,76 +538,77 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
 
-    # 9b. THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
-    #     answer 6).  Bending alone has an AFFINE null space: it shapes a
-    #     body but says nothing about where the body SITS, so an apron up
-    #     the hill was levelled toward the runway through its contacts and
-    #     the taxiway serving it flattened — the whole complex cut into the
-    #     hill (the owner's CYXY read: taxiway G "not sloping up enough").
-    #     Every APRON BODY takes ONE row — the MEAN of its own vertices
-    #     against the MEAN production DEM under them, at ``body_datum``.
-    #     ONE row, NEVER per vertex: the datum fixes the body's LEVEL and
-    #     leaves its designed shape (and its tilt) to the bending term, so
-    #     bodies sit where the ground is and the taxiways climb between
-    #     them at their own caps.
-    #     EVERY TAXI BODY TAKES THE SAME ROW (owner RULINGS 2026-09-10p,
-    #     closing 10o): the taxi profile is a SECOND-DIFFERENCE row with
-    #     RHS 0 — curvature, no level — so a long parallel taxiway had no
-    #     datum at all and extrapolated its level from its far contact
-    #     while the DEM rose under it (CYXY `pav28`: z − DEM median
-    #     −6.17 m).  The taxi bodies are a SEPARATE partition, formed as
-    #     the apron bodies are (:func:`datum_roles`), so an apron face and
-    #     a taxi face that touch stay two bodies on two terrain means.
-    #     The RUNWAY family stays excluded — the threshold chord and its
-    #     pins ARE its datum — and a taxi body's runway contacts stay
-    #     hard: the final projection (``solve/project.py``) absorbs any
-    #     conflict into the body's non-runway vertices.
+    # 9b. THE PER-BODY DATUM IS THE GROUND'S PLANE (owner RULINGS
+    #     2026-09-09p (3), refining 08t answer 6; the AFFINE fit ruled in
+    #     2026-09-10t (1) and 2026-09-10v (2)).  Bending alone has an
+    #     AFFINE null space: it shapes a body but says nothing about where
+    #     the body SITS or which way it TILTS.  09p closed the level — one
+    #     mean row per apron body — and 10t measured what the level alone
+    #     leaves open at SPJC: over `pav49`'s 2,010 vertices mean z − mean
+    #     DEM was −0.39 m while the profile ran +0.99 → −6.65 → −4.71 m
+    #     against the ground, a straight ramp under a rising hill.  The
+    #     error is a missing TILT — the first moments, second order, not
+    #     the level.
+    #     Every APRON BODY therefore takes THREE weak rows at
+    #     ``body_datum``: its MEAN, and its two FIRST MOMENTS against the
+    #     same moments of the production DEM under its own vertices — i.e.
+    #     the body's own least-squares PLANE follows the plane fitted to
+    #     the ground beneath it, level AND tilt.  THREE rows, never per
+    #     vertex (08t (1)): a plane has zero bending energy, so this datum
+    #     never fights the designed shape within the body — only where the
+    #     body sits and how it leans.
+    #     THE MOMENT ROWS ARE ORTHOGONALISED (Gram-Schmidt on the centred
+    #     plan coordinates) so the three functionals are independent and
+    #     matching them IS matching the least-squares plane exactly; each
+    #     is scaled by the body's own RMS half-extent so its residual reads
+    #     in METRES — the rise of the plane over that radius — and the
+    #     three rows are commensurate with each other and with the weight.
+    #     A body whose vertices are collinear (or fewer than three) carries
+    #     only the rows its geometry supports: a degenerate moment row is
+    #     dropped, never given an invented value.
+    #     TAXI BODIES CARRY NO DATUM ROW (owner RULINGS 2026-09-10v,
+    #     replacing 10p): the taxi family's level and tilt come from its
+    #     CHAIN'S TREND (step 5c) — along the route, where the ground
+    #     actually varies — because a taxi body is the whole connected taxi
+    #     network and one plane over an airport is no better than one mean.
+    #     The RUNWAY family stays excluded (its profile and pins are its
+    #     datum), and a runway contact stays hard: the final projection
+    #     (``solve/project.py``) absorbs any conflict into non-runway
+    #     vertices.
     #     ``detached_mean`` is SUBSUMED in effect for an apron body (the
-    #     same DEM under the same vertices); it is not deleted, because it
-    #     is also what anchors the TILT of a component nothing else holds,
-    #     which one mean row cannot do.
-    #     THE ROW IS DENSE IN ``AᵀA`` (RULINGS 2026-09-09r (1)): a mean over
-    #     ``N`` vertices is a rank-1 ``N × N`` block, ``O(Σ N_body²)`` to
-    #     factorise (HECA: +76 s).  These rows are therefore accumulated
-    #     SEPARATELY and handed to the linear solve as the low-rank term
-    #     ``U`` — the same algebra, never the block (:data:`LOW_RANK_MODES`).
+    #     same plane under the same vertices); it is not deleted, because
+    #     it is also what anchors a component nothing else holds.
+    #     THE ROWS ARE DENSE IN ``AᵀA`` (RULINGS 2026-09-09r (1)): each is a
+    #     rank-1 ``N × N`` block, so they are accumulated SEPARATELY and
+    #     handed to the linear solve as the low-rank term ``U`` — the same
+    #     algebra, never the block (:data:`LOW_RANK_MODES`).  Three rows per
+    #     body instead of one triples that term's RANK, not the solve's
+    #     size.
     #     THE VERTEX SET IS SHAPE MEMBERSHIP (RULINGS 2026-09-09v), never
     #     the ring vertices of the body's faces: a road along a boundary
     #     belongs to the shape it is welded to (08r-2), so its far-edge
-    #     vertices — which ARE ring vertices of the NEIGHBOUR's faces —
-    #     are dropped from the neighbour's mean, and the neighbour's datum
-    #     no longer pulls the road off its level (:func:`_shape_bodies`,
-    #     which also records what taking the BODIES from the partition
-    #     measured at CYXY).
-    #     A TAXI body's RUNWAY-CONTACT vertices are NOT its own: a vertex
-    #     ringing a runway face belongs to the family the ruling excludes,
-    #     its value is the runway's crown and the projection fixes it, so
-    #     carrying it in the taxi mean would put the runway's level inside
-    #     the taxi datum and push back on the runway through it.  Dropped
-    #     from the taxi mean, never from the apron one (09p (3) unchanged).
+    #     vertices are dropped from the neighbour's fit (:func:`_shape_
+    #     bodies`).
     body = _Rows(red)
     meta: list[_BodyDatum] = []
-    rwy_roles = frozenset(law.tables.precedence.runway_family.members)
     for kind, roles_b in datum_roles(law):
         for vs_b in _shape_bodies(planar, red,
                                   _role_bodies_faced(planar, roles_b, red)):
-            if kind == "taxi":
-                vs_b = [v for v in vs_b
-                        if not any(planar.faces[f].role in rwy_roles
-                                   for f in planar.vertices[v].incident_faces)]
-                if not vs_b:
-                    continue
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue
-            w = 1.0 / len(vs_b)
             mean_dem = sum(zs) / len(zs)
-            if body.add([(v, w) for v in vs_b], mean_dem, d.body_datum,
-                        ("body_datum", vs_b[0])):
+            added = 0
+            for name, coefs, rhs in _plane_rows(planar, vs_b, zs):
+                if body.add(coefs, rhs, d.body_datum,
+                            ("body_datum", (vs_b[0], name))):
+                    added += 1
+            if added:
                 meta.append(_BodyDatum(kind=kind, vertices=tuple(vs_b),
-                                       dem_mean=mean_dem))
+                                       dem_mean=mean_dem, rows=added))
+    rep.taxi_trend_rows = trend_v
     rep.body_datum_rows = body.n
-    rep.taxi_datum_rows = sum(1 for m in meta if m.kind == "taxi")
+    rep.body_datum_bodies = len(meta)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
                 chord_v, road_v, body, meta)
 
@@ -1068,10 +943,17 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
          "ll": [planar.vertices[m.vertices[0]].key[0],
                 planar.vertices[m.vertices[0]].key[1]],
          "vertices": len(m.vertices),
+         "rows": m.rows,
          "dem_mean_m": round(m.dem_mean, 3),
          "residual_m": round(
              sum(float(z[v]) for v in m.vertices) / len(m.vertices)
-             - m.dem_mean, 3)}
+             - m.dem_mean, 3),
+         "tilt_m": round(max((abs(sum(w * float(z[v]) for v, w in coefs) - rhs)
+                              for name, coefs, rhs in _plane_rows(
+                                  planar, m.vertices,
+                                  [float(planar.vertices[v].dem_z)
+                                   for v in m.vertices])
+                              if name != "mean"), default=0.0), 3)}
         for m in base_p.body_meta]
     if size_out is not None:
         size_out.update({"columns": red.n_cols, "z": n, "rows": rep.rows,

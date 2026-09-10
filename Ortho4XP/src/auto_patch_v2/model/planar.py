@@ -203,6 +203,15 @@ class PlanarMap:
     #: absent here and keeps ``Vertex.dem_z``.  ``dem_z`` itself stays the
     #: DEM sample: seams, reports and readers compare against terrain.
     preferred_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
+    #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
+    #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted
+    #: linearly through the chain's runway contacts.  A channel of its OWN,
+    #: never ``preferred_z``: this target is priced WEAK
+    #: (``[design] taxi_trend``, below ``body_datum``) while ``preferred_z``
+    #: carries the runway's ``chord`` and the core's ``road`` profile.  A
+    #: runway-contact vertex is absent (the runway owns its value).
+    taxi_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

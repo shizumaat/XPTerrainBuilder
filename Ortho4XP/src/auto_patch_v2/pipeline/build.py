@@ -21,6 +21,8 @@ from .shapes import joint_steps, shape_constraints, shape_stage
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
+from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
+                                      with_taxi_trend)
 from ..constraints.runway_profile import RUNWAY_FAMILY
 from ..emit.bank import BankReport, with_bank
 from ..emit.terrain_edge import with_terrain_edges
@@ -428,6 +430,23 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          + ("; off the straight chord " + ", ".join(
              f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
             if chord_rep.get("by_runway") else ""), out)
+    # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
+    # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
+    # along itself — the same §21 fit at the same window — shifted linearly
+    # through the chain's runway contacts, at the WEAK ``[design]
+    # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
+    # runway contact is pinned to the runway's own target.
+    tt_rep: TaxiTrendReport = {}
+    pm = with_taxi_trend(pm, law, airport, tt_rep)
+    lrep.taxi_trend = dict(tt_rep)
+    _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
+         f"({tt_rep.get('chains_without', 0)} without a fit) "
+         f"window {tt_rep.get('window_m', 0.0):.0f} m  vertices "
+         f"{tt_rep.get('vertices', 0)}  shifted through "
+         f"{tt_rep.get('pins', 0)} runway contacts  target above DEM up to "
+         f"{tt_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
+         f"{tt_rep.get('max_below_dem_m', 0.0):.2f} m"
+         + (f"; FALLBACK {tt_rep['fallback']}" if tt_rep.get("fallback") else ""), out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -497,6 +516,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if sol.z:
         from ..solve.project import runway_profile_block
         design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
+        design_rep.taxi_trend = taxi_trend_block(pm, law, sol.z)
         for r in design_rep.runway_profile["runways"]:
             _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "
                  f"target RMS {r['target_rms_m']:.3f} m, max {r['target_max_m']:.3f} m; "

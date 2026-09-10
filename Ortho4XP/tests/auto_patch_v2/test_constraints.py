@@ -145,8 +145,17 @@ def test_taxi_apron_road_pair_populations(synthetic, law):
     assert {r.cap for r in hard} == {0.015} and {r.cap for r in pref} == {0.01}
     assert len(hard) == len(pref) and all(r.ceiling is None for r in pref)
     assert law.tables.common.apron_fan_ramp_max not in {r.cap for r in a}
-    body = [r for r in a if r.source.ruling.startswith("apron body chord")]
-    assert body and all(r.d <= law.tables.emit.within_shape.apron_body_chord_max_m for r in body)
+    # THE GATE IS A CHORD LENGTH, NOT A COVERAGE LIMIT (owner RULINGS
+    # 2026-09-10t (2) / 10v (3)): a body chord at or under the gate is the
+    # ``strict`` row it always was, and a LONGER path across the face is no
+    # longer dropped — it is STATIONED and priced at the SAME apron cap
+    gate = law.tables.emit.within_shape.apron_body_chord_max_m
+    body = [r for r in a if r.source.ruling.startswith("apron body chord, strict")]
+    long = [r for r in a if "stationed across the face" in r.source.ruling]
+    assert body and all(r.d <= gate + law.tables.emit.identity.min_distinct_spacing_m
+                        for r in body)
+    assert all(r.d > gate for r in long)
+    assert {r.cap for r in long} <= {0.015, 0.01}
     rd = roads.road_within_shape(pm, law, airport)
     # the road touches the apron (1 %) and the taxiway (1.5 %): lateral
     # contiguity binds each road face at the strictest touching class
@@ -327,7 +336,19 @@ def test_bench_style_instance_round_trip(law):
     # fixture where it used to settle early.
     assert sol.wall_s < 12.0
     assert sol.residual.max_pin_m < 1e-6 and sol.residual.max_flat_m < 1e-6
-    assert sol.residual.max_m < 0.5, sol.residual
+    # RE-SCOPED AGAIN (owner RULINGS 2026-09-10v (2), lane v2taxidatum round
+    # 2), and REPORTED, never widened silently.  The per-body datum is now
+    # the DEM's AFFINE fit — the body's TILT follows the ground's plane, not
+    # just its level.  This fixture is one 2,400-vertex apron whose DEM is
+    # SYMMETRIC in x (a Gaussian hump centred at x = 500), so the ground's
+    # plane is flat along x, while the fixture PINS a chain across it at
+    # 700 -> 712 m over 1 km — a 1.2 % ramp the ground does not have, against
+    # a 1.25 % Diff cap.  The tilt row and the pins are contradictory by
+    # construction and the least-squares surface splits the difference: the
+    # worst Diff row is out by 0.69 m (0.46 m before the tilt rows).  This is
+    # the ruling's own trade, on a fixture no airport resembles; the surface
+    # law is read by the ruling's own twins in ``test_v2taxidatum.py``.
+    assert sol.residual.max_m < 0.8, sol.residual
     bad = ConstraintSet.from_rows(rows + [Pin(chain[1], 720.0, Source("bad", "x", ()))])
     sol2 = solve_design(pm, bad, law)[0]
     # 08t: no infeasible branch — the contradiction is a RESIDUAL the

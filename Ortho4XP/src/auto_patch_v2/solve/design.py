@@ -64,7 +64,7 @@ from ..law.tables import (design as design_law, is_structure_role, is_value_role
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset,
                                  Pin, Row)
 from ..model.planar import PlanarMap
-from .api import Options, Residual, Solution, Status
+from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
 from .design_report import DesignReport, residual

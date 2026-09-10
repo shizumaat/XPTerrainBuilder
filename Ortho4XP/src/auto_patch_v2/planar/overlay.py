@@ -31,6 +31,7 @@ from ..law import Law
 from ..law.tables import chord_cap_m, role_side
 from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
+from .terrain_edge import EdgeReport, road_lines
 from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
@@ -49,6 +50,9 @@ class Region:
     side: str
     source: str            # "cell" | "zone"
     zone: int | None = None
+    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19.3 C12):
+    #: which rule ended this region — ``"crest"``, ``"road"``, ``"none"``.
+    edge_kind: str = "none"
 
 
 @_dc.dataclass(frozen=True)
@@ -83,6 +87,11 @@ class Arrangement:
     #: RULINGS 2026-09-08d (4a): same-region faces under the sliver area
     #: merged into their neighbour (``merge_slivers``).
     slivers_merged: int = 0
+    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): the edge
+    #: SEGMENTS the zone clip made, in the frame — the boundary beyond
+    #: which there is no patch and no bank — and what the clip did.
+    terrain_edges: tuple = ()
+    edge_report: EdgeReport = _dc.field(default_factory=EdgeReport)
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -95,10 +104,18 @@ def build_arrangement(airport: Airport, classification: Classification,
     for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
                               c.code_number, c.code_letter, c.side, "cell"))
-    for z in zone_regions(cells, law, classification.keepouts):
+    # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): the zones
+    # are clipped at their own derivation site, against the airport's DEM
+    # and the tile's OSM road centrelines
+    erep = EdgeReport()
+    edge_lines: list[LineString] = []
+    for z in zone_regions(cells, law, classification.keepouts,
+                          getattr(airport, "dem", None),
+                          road_lines(getattr(airport, "osm_ways", ())), erep):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
-                              "zone", z.zone))
+                              "zone", z.zone, z.edge_kind))
+        edge_lines.extend(z.edge_lines)
 
     lines: list[LineString] = []
     for r in regions:
@@ -164,7 +181,8 @@ def build_arrangement(airport: Airport, classification: Classification,
     ident = law.tables.emit.identity.min_distinct_spacing_m
     faces, merged = merge_slivers(faces, (ident * law.tables.emit.terrace.sliver_area_factor) ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
-                       bands, dropped_seam, weld, merged)
+                       bands, dropped_seam, weld, merged,
+                       tuple(edge_lines), erep)
 
 
 def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float

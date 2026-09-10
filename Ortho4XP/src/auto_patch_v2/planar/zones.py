@@ -25,6 +25,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
+from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions"]
 
@@ -42,14 +43,27 @@ class ZoneRegion:
     family: str
     code_number: int | None
     code_letter: str | None
+    #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): which
+    #: rule ended this region — ``"crest"``, ``"road"`` or ``"none"``.
+    edge_kind: str = "none"
+    #: The edge SEGMENTS this region's trim made, in the frame: the
+    #: boundary beyond which there is no patch and no bank.
+    edge_lines: tuple = ()
 
 
 def zone_regions(cells: tuple[Cell, ...], law: Law,
-                 keepouts: tuple[tuple, ...] = ()) -> list[ZoneRegion]:
+                 keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
+                 edge_report: EdgeReport | None = None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
-    tunnel wall, M4)."""
+    tunnel wall, M4).
+
+    With a ``dem`` (and the tile's OSM road centrelines) every region is
+    also CLIPPED BY THE TERRAIN EDGE at this single derivation site
+    (``planar/terrain_edge.py``; owner RULINGS 2026-09-10b/10c, spec §19): the
+    adjacent ground ends at a rim road or a crest.  Without one — every
+    synthetic fixture — the regions are what they were."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -93,14 +107,23 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         z1 = inner.difference(claimed)
         z2 = outer.difference(inner).difference(claimed)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
-        for zone, geom in ((1, z1), (2, z2)):
+        for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
+            # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19):
+            # the extent ends at the physical edge, HERE, so every reader
+            # downstream sees one trimmed polygon
+            clip = clip_to_terrain_edge(geom, seed, dem, roads, law,
+                                        edge_report)
+            geom = clip.kept
             parts = shapely.get_parts(geom) if geom.geom_type != "Polygon" else [geom]
             k = 0
             for g in parts:
                 if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0:
                     continue
+                mine = tuple(ln for ln in clip.lines
+                             if ln.distance(g) <= snap_margin_m(law))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
-                                      g, zone, fam, cn, cl))
+                                      g, zone, fam, cn, cl,
+                                      clip.kind if mine else "none", mine))
                 k += 1
         claimed = unary_union([claimed, outer])
     return out

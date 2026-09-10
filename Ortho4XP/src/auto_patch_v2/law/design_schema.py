@@ -93,6 +93,14 @@ class Design:
     bank_daylight_tol_m: float
     bank_max_width_m: float
     bank_toe_break_m: float
+    #: THE MESH MUST HAVE VERTICES TO CARRY THE BLEND (owner RULINGS
+    #: 2026-09-09x; spec §13.8).  The bank annulus is handed to Triangle
+    #: as a REGION whose maximum triangle area is ``(w / this) ** 2`` for
+    #: a local bank width ``w`` — the bank is divided into about this
+    #: many triangles across, so the exact ruled field
+    #: ``O4_Mesh_Utils.bank_annulus_blend_values`` writes has vertices to
+    #: be carried on.
+    bank_triangle_divisions: float
     #: THE ADJACENT GROUND FOLLOWS THE PAVEMENT, NEVER PULLS IT (owner
     #: RULINGS 2026-09-09b (2)/(3)): the ruling heads whose rows are priced
     #: ONE-WAY — the row's ``follows`` vertex stays in the matrix and every
@@ -178,6 +186,10 @@ def check_design(d: Design, err: type[Exception]) -> None:
     if not d.bank_toe_break_m > 0.0:
         raise err(f"emit.design.bank_toe_break_m {d.bank_toe_break_m}: the toe "
                   "smoothing's break, positive metres")
+    if not d.bank_triangle_divisions >= 1.0:
+        raise err(f"emit.design.bank_triangle_divisions "
+                  f"{d.bank_triangle_divisions}: at least one triangle across "
+                  "the bank (09-09x)")
     if not d.crossing_release_m > 0.0:
         raise err(f"emit.design.crossing_release_m {d.crossing_release_m}: "
                   "positive metres (RULINGS 2026-09-09r (2))")

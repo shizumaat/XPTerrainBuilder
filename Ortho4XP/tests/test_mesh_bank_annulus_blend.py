@@ -243,3 +243,202 @@ class TestTheEngineBlendsTheBank:
             x, y = pts[index]
             assert max(abs(x), abs(y)) > INNER_M - 1.0e-6, (x, y)
         assert not (set(blend) & set(patch_valued))
+
+
+# ── THE MESH MUST HAVE VERTICES TO CARRY THE BLEND ─────────────────────
+# (owner RULINGS 2026-09-09x; spec §13.8)
+#
+# Round 1 measured the blend EXACT (4.7 mm over 11,153 annulus vertices at
+# HECA) and useless: only 40 of those vertices were FREE, so the bank was
+# the ring-to-foot triangulation.  The ruling's answer is a Triangle
+# REGION with a maximum triangle area of ``(w / bank_triangle_divisions)
+# ** 2``.  These are that construction's twin.
+
+class TestTheAnnulusIsARegionWithAMaximumArea:
+    def test_the_area_is_the_local_bank_width_over_the_law_s_divisions(
+            self, annulus):
+        """The sizing law, in metres: a 60 m bank at 3 divisions asks for
+        20 m triangles, i.e. 400 m2."""
+        (tile, _v, _t, _pv, pts, _n) = annulus
+        from auto_patch_v2.law import tables as law_tables
+        divisions = float(law_tables.load_default()
+                          .tables.emit.design.bank_triangle_divisions)
+
+        # one seed at the middle of each flank of the annulus
+        mid = INNER_M + BANK_M / 2.0
+        seeds_m = [(mid, 0.0), (-mid, 0.0), (0.0, mid), (0.0, -mid)]
+        seeds = []
+        for (x_m, y_m) in seeds_m:
+            lat, lon = _to_ll(x_m, y_m)
+            seeds.append((lon - LON, lat - LAT))
+
+        areas = MESH.bank_annulus_region_areas(tile, seeds)
+        assert set(areas) == {0, 1, 2, 3}, areas
+
+        # .poly units are lon x lat degrees; back to m2
+        to_m2 = SCALX * DEG * DEG
+        expected = (BANK_M / divisions) ** 2
+        # TIGHT (2 %), and deliberately so: this is the FRAME assertion.
+        # ``_bank_rings_from_patches`` already returns the isotropic frame
+        # ``(x * scalx, y)``, so scaling it a second time reads a bank
+        # 1/scalx too narrow across and passes a 10 % bar at this latitude
+        # (measured: 51.7 m for a 60 m bank, 297 m2 for 400).
+        for index, area in areas.items():
+            assert abs(area * to_m2 - expected) <= 0.02 * expected, (
+                index, area * to_m2, expected)
+
+    def test_a_seed_outside_the_annulus_is_not_sized(self, annulus):
+        """Only the bank gets an area: a seed inside the design coverage
+        and one out beyond the foot are both left unconstrained."""
+        (tile, _v, _t, _pv, _pts, _n) = annulus
+        seeds = []
+        for (x_m, y_m) in ((0.0, 0.0),                      # inside the patch
+                           (OUTER_M + 50.0, 0.0)):          # beyond the foot
+            lat, lon = _to_ll(x_m, y_m)
+            seeds.append((lon - LON, lat - LAT))
+        assert MESH.bank_annulus_region_areas(tile, seeds) == {}
+
+    def test_a_tile_with_no_bank_foot_ring_sizes_nothing(
+            self, annulus, tmp_path, monkeypatch):
+        (tile, _v, _t, _pv, _pts, _n) = annulus
+        empty = tmp_path / "nobank_regions"
+        empty.mkdir()
+        monkeypatch.setattr(MESH.FNAMES, "patch_dir",
+                            lambda lat, lon: str(empty))
+        lat, lon = _to_ll(INNER_M + BANK_M / 2.0, 0.0)
+        assert MESH.bank_annulus_region_areas(
+            tile, [(lon - LON, lat - LAT)]) == {}
+
+    def test_the_poly_writer_writes_the_fifth_field_only_where_sized(
+            self, tmp_path):
+        """Every other region record stays byte-identical: the area is a
+        fifth field on the sized seed alone."""
+        import O4_Vector_Utils as VECT
+
+        vector_map = VECT.Vector_Map()
+        vector_map.seeds["INTERP_ALT"] = [numpy.array([0.25, 0.25]),
+                                          numpy.array([0.75, 0.75])]
+        vector_map.seed_areas[("INTERP_ALT", 1)] = 4.0e-8
+        path = tmp_path / "regions.poly"
+        vector_map.write_poly_file(str(path))
+        records = [line.split() for line in path.read_text().splitlines()
+                   if line.strip()][-2:]
+        assert len(records[0]) == 4, records[0]      # unsized: unchanged
+        assert len(records[1]) == 5, records[1]
+        assert float(records[1][4]) == pytest.approx(4.0e-8, rel=1e-9)
+
+    def test_the_regional_area_flag_rides_with_the_attribute_flag(self):
+        """``-a`` is read from the ``.poly`` only when NOT refining; with
+        ``-r`` Triangle4XP demands an ``.area`` file and exits 1."""
+        source = (SRC / "O4_Mesh_Utils.py").read_text()
+        assert 'regional_areas = "a" if do_refine == "A" else ""' in source
+        assert '"-pq" + "{:.9g}".format(tile.min_angle) + do_refine + ' \
+               'regional_areas +' in source
+
+
+# ── THE END-TO-END TWIN: DOES TRIANGLE ACTUALLY REFINE THE ANNULUS? ────
+#
+# REFUTED AS RULED (lane v2bankblend round 2, measured 2026-09-09).  The
+# ruling calls the region area "a standard Triangle facility".  It is —
+# in Jonathan Shewchuk's ``triangle.c``, whose ``testtriangle`` compares a
+# triangle's area against ``areabound(*testtri)`` at line 7336.  THIS FORK
+# HAS NO SUCH LINE: ``Utils/src/Triangle4XP.c`` rewrote ``testtriangle``
+# around the DEM-curvature criterion and dropped the area test with it.
+# ``grep areabound Triangle4XP.c`` returns only the macro, the propagation
+# copies and a debug printf — the value is stored, spread by
+# ``regionplague`` and never read by any quality test.  A SECOND,
+# independent blocker sits on top of it: ``testtriangle`` opens with
+# ``if (attribute >= 8) return;`` ("Refinement in INTERP_ALT tris is
+# useless"), and the bank annulus is INTERP_ALT.
+#
+# MEASURED on this very fixture (30 m band, 3 divisions, max area 9.4e-9
+# deg2, ~100 m2): the SHIPPED Utils/mac/Triangle4XP takes 184 input
+# vertices to 184 output vertices — zero Steiner points, byte-identical
+# with and without ``-a``, at attribute 8 and at attribute 0 alike, while
+# the annulus triangles are ~150 m2.  Triangle prints "Spreading regional
+# attributes and area constraints", so the flag IS parsed and the area IS
+# read; nothing consumes it.
+#
+# THE COUNTERFACTUAL, also measured: Triangle4XP.c with the stock area
+# test restored ahead of the INTERP_ALT exemption (nine lines) takes the
+# same fixture to 314 vertices — 130 free vertices inside the 30 m band —
+# and the ruled blend then rides on a maximum triangle slope of 0.333,
+# exactly the ring-to-foot slope, 0 % over slope + 0.02.  With no region
+# carrying an area the patched binary is identical to the shipped one, so
+# the change is inert everywhere else.
+#
+# So the Python side below is right and complete, and the mechanism is
+# blocked in the VENDORED BINARY.  This test is the tripwire: it is
+# ``xfail(strict=True)``, so the day Triangle4XP is rebuilt it FAILS as
+# unexpectedly-passing and this whole comment gets deleted.
+BANK_REGION_MIN_FREE_VERTICES = 40      # for the 30 m band below
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "the vendored Triangle4XP dropped the stock regional-area quality test "
+    "(triangle.c:7336) and exempts attribute >= 8 from refinement, so -a is "
+    "inert: 184 -> 184 vertices, measured — RULINGS 2026-09-09x, lane "
+    "v2bankblend round 2"))
+def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
+    """THE BAR (RULINGS 2026-09-09x): a bank annulus written as a region
+    with ``max_area = (w / bank_triangle_divisions) ** 2`` comes back with
+    interior vertices to carry the blend."""
+    import subprocess
+
+    from auto_patch_v2.law import tables as law_tables
+    divisions = float(law_tables.load_default()
+                      .tables.emit.design.bank_triangle_divisions)
+
+    inner_m, bank_m, step_m = 100.0, 30.0, 10.0
+    inner = _square(inner_m, step_m)
+    outer = _square(inner_m + bank_m, step_m)
+
+    def rel(x_m, y_m):
+        lat, lon = _to_ll(x_m, y_m)
+        return (lon - LON + 0.5, lat - LAT + 0.5)
+
+    pts = [rel(x, y) for (x, y) in inner] + [rel(x, y) for (x, y) in outer]
+    zs = [RING_Z] * len(inner) + [FOOT_Z] * len(outer)
+    n_in, n_out = len(inner), len(outer)
+
+    base = tmp_path / "annulus"
+    with open(str(base) + ".node", "w") as handle:
+        handle.write(f"{len(pts)} 2 1 0\n")
+        for index, ((x, y), z) in enumerate(zip(pts, zs), start=1):
+            handle.write(f"{index} {x:.9f} {y:.9f} {z:.9f}\n")
+
+    marker = 8                                   # INTERP_ALT, as the tile
+    edges = [(i, (i + 1) % n_in) for i in range(n_in)]
+    edges += [(n_in + i, n_in + (i + 1) % n_out) for i in range(n_out)]
+    scalx = float(numpy.cos((LAT + 0.5) * numpy.pi / 180.0))
+    max_area = ((bank_m / divisions) / DEG) ** 2 / scalx
+    seed_x, seed_y = rel(inner_m + bank_m / 2.0, 0.0)
+    with open(str(base) + ".poly", "w") as handle:
+        handle.write("0 2 1 0\n\n")
+        handle.write(f"{len(edges)} 1\n")
+        for k, (a, b) in enumerate(edges, start=1):
+            handle.write(f"{k} {a + 1} {b + 1} {marker}\n")
+        handle.write("\n0\n\n1\n")
+        handle.write(f"1 {seed_x:.15f} {seed_y:.15f} {marker} "
+                     f"{max_area:.15g}\n")
+
+    alt = tmp_path / "alt.raw"
+    numpy.zeros((101, 101), dtype=numpy.float32).tofile(str(alt))
+    weight = tmp_path / "weight.raw"
+    numpy.ones((1001, 1001), dtype=numpy.float32).tofile(str(weight))
+
+    cmd = [MESH.Triangle4XP_cmd.strip(), "-pq30AauYBQS500000",
+           "{:.9g}".format(DEG * scalx), "{:.9g}".format(DEG),
+           "101", "101", "0", "0", "1", "1", "-32768", "10",
+           str(alt), str(weight), str(base) + ".poly"]
+    if not os.path.isfile(cmd[0]):
+        pytest.skip(f"no Triangle4XP at {cmd[0]}")
+    subprocess.run(cmd, check=True, capture_output=True, cwd=str(tmp_path))
+
+    out_nodes = Path(str(base) + ".1.node").read_text().splitlines()
+    produced = int(out_nodes[0].split()[0])
+    free = produced - len(pts)
+    assert free >= BANK_REGION_MIN_FREE_VERTICES, (
+        f"Triangle put {free} vertex(es) inside a {bank_m:.0f} m annulus "
+        f"whose region asked for {max_area:.3g} deg2 triangles "
+        f"({produced} out of {len(pts)} in)")

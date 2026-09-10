@@ -143,6 +143,16 @@ class Vector_Map:
         self.next_edge_id = 1
         self.holes = []
         self.seeds = {}
+        #: THE BANK ANNULUS IS A TRIANGLE REGION (owner RULINGS
+        #: 2026-09-09x).  ``{(key, index into self.seeds[key]): max
+        #: triangle area}`` in ``.poly`` units for the seeds that carry a
+        #: REGIONAL AREA CONSTRAINT.  A seed absent from here is written
+        #: exactly as before — four fields, no area — and Triangle4XP
+        #: then copies the region's ATTRIBUTE into its area slot
+        #: (Triangle4XP.c:15035), a number of order 1..128 in square
+        #: degrees, i.e. unconstrained beside a 1 deg tile.  Sized by
+        #: ``O4_Mesh_Utils.bank_annulus_region_areas``.
+        self.seed_areas = {}
 
     def insert_node(self, x, y, z):
         # One tuple and one hash lookup instead of two of each: node ids
@@ -723,13 +733,19 @@ class Vector_Map:
                 (key, marker) = long_key
                 if key not in self.seeds:
                     continue
-                for seed in self.seeds[key]:
+                for seed_index, seed in enumerate(self.seeds[key]):
+                    # The fifth field is a REGIONAL AREA CONSTRAINT and is
+                    # written ONLY for a seed that carries one (the bank
+                    # annulus, RULINGS 2026-09-09x): every other region
+                    # record stays byte-identical.
+                    area = self.seed_areas.get((key, seed_index))
                     f.write(
                         str(idx)
                         + " "
                         + " ".join(["{:.15f}".format(s) for s in seed])
                         + " "
                         + str(marker)
+                        + ("" if area is None else " {:.15g}".format(area))
                         + "\n"
                     )
                     idx += 1

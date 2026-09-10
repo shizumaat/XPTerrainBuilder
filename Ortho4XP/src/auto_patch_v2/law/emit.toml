@@ -270,6 +270,16 @@ bank_sample_m       = 2.0
 bank_daylight_tol_m = 0.3
 bank_max_width_m    = 200.0
 bank_toe_break_m    = 10.0
+# THE MESH MUST HAVE VERTICES TO CARRY THE BLEND (owner RULINGS
+# 2026-09-09x).  ``O4_Mesh_Utils.bank_annulus_blend_values`` writes an
+# EXACT ruled altitude on every free vertex inside the annulus, but the
+# mesh puts almost none there (40 tile-wide at HECA), so the bank is the
+# ring-to-foot triangulation and a triangle joining a ring vertex to a
+# foot vertex at a DIFFERENT bank width is skewed.  The annulus is
+# therefore written as a Triangle REGION whose maximum triangle area is
+# ``(w / bank_triangle_divisions) ** 2``, ``w`` the local bank width —
+# i.e. the bank is divided into about this many triangles across.
+bank_triangle_divisions = 3.0
 # THE ONE-SIDED PENALTIES are met by an ACTIVE-SET iteration: solve, take
 # the rows the surface violates, re-solve with those rows active, repeat
 # to a fixed point of the active set.

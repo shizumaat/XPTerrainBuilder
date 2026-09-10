@@ -1191,6 +1191,15 @@ def build_poly_file(tile):
         else:
             vector_map.seeds["SEA"] = [numpy.array([0.5, 0.5])]
     vector_map.snap_to_grid(9) 
+    # THE BANK ANNULUS IS A TRIANGLE REGION WITH A MAXIMUM AREA (owner
+    # RULINGS 2026-09-09x).  The blend law
+    # (``O4_Mesh_Utils.bank_annulus_blend_values``) is exact but has
+    # almost no free vertex to be carried on; sizing the annulus's own
+    # region records gives it some.  Derived at the SAME site as the
+    # blend, from the same patch ``.osm`` rings, so the two steps can
+    # never disagree about where the annulus is.  Purely additive: a seed
+    # that gets no area is written exactly as before.
+    size_bank_annulus_regions(vector_map, tile)
     vector_map.write_node_file(node_file)
     vector_map.write_poly_file(poly_file)
 
@@ -2500,6 +2509,50 @@ def is_degenerate_interp_alt_face(face):
     """True when ``face`` can hold no INTERP_ALT seed (see
     :func:`interp_alt_seed_point`)."""
     return interp_alt_seed_point(face) is None
+
+
+################################################################################
+def size_bank_annulus_regions(vector_map, tile):
+    """Give every seed inside a BANK ANNULUS a Triangle regional AREA
+    constraint (owner RULINGS 2026-09-09x).
+
+    ``O4_Mesh_Utils.bank_annulus_region_areas`` is the one derivation of
+    the annulus and of its local width; this only marries the answer to
+    the seeds the vector map is about to write.  Returns the number of
+    seeds sized.  Never raises: an unsized annulus is the round-1 mesh,
+    which builds.
+    """
+    try:
+        import O4_Mesh_Utils as MESH
+
+        keys, points = [], []
+        for key, seeds in vector_map.seeds.items():
+            for index, seed in enumerate(seeds):
+                keys.append((key, index))
+                points.append((float(seed[0]), float(seed[1])))
+        if not points:
+            return 0
+        areas = MESH.bank_annulus_region_areas(tile, points)
+        if not areas:
+            UI.vprint(1, "   Bank annulus: no region seed inside an annulus "
+                         "— no area constraint written.")
+            return 0
+        for index, area in areas.items():
+            vector_map.seed_areas[keys[index]] = float(area)
+        values = sorted(areas.values())
+        scalx = cos((tile.lat + 0.5) * pi / 180)
+        # report in m2 as well: .poly units are lon x lat degrees
+        to_m2 = scalx * (GEO.lat_to_m ** 2)
+        UI.vprint(
+            1,
+            f"   Bank annulus: {len(areas)} region seed(s) given a maximum "
+            f"triangle area, {values[0] * to_m2:.1f} - "
+            f"{values[-1] * to_m2:.1f} m2 "
+            f"(median {values[len(values) // 2] * to_m2:.1f} m2).")
+        return len(areas)
+    except Exception as error:
+        UI.vprint(1, "   Bank annulus region sizing skipped:", str(error))
+        return 0
 
 
 ################################################################################

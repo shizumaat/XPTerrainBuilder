@@ -1991,3 +1991,122 @@ spec-time mechanism, not a lane fix):
   5 m plan.  Above 09d's bar of 2, unrelated to the bank (the strandings
   sit at 30.11212,31.41203 inside the terminal block, not in any annulus),
   and carried forward as the standing seat residual.
+
+---
+
+## §13.8 THE ANNULUS AS A TRIANGLE REGION — implemented, and REFUTED in
+## the vendored binary (RULINGS 2026-09-09x; lane `v2bankblend` round 2)
+
+09x ruled remedy (a) of §13.7: write the bank annulus as a Triangle
+REGION carrying `max_area = (w / [design] bank_triangle_divisions) ** 2`,
+run Triangle4XP with `-a`, "and the blend then has vertices to carry it".
+
+### §13.8.1 THE LAW AND ITS ONE DERIVATION SITE
+
+`[design] bank_triangle_divisions = 3.0` (`design_schema.Design`,
+validated `>= 1.0`).  `O4_Mesh_Utils.bank_annulus_region_areas(tile,
+seeds)` is the single derivation: it reuses `bank_annulus_polygon` and
+`_bank_rings_from_patches` — the SAME rings, read from the SAME patch
+`.osm` files, that `bank_annulus_blend_values` rules the blend from — so
+the two steps can never disagree about where the annulus is.
+
+WIDTH AT THE SEED (the choice §13.7 left open): `w = d_in + d_out` at the
+region's own seed point — the very sum the blend law divides by, at the
+same point, so the region is refined in exactly the metric the blend is
+ruled in.
+
+A PER-COMPONENT MEDIAN WAS TRIED FIRST AND IS WRONG.  Measured at HECA:
+the annulus is **212 connected components and ONE of them holds 60 % of
+its area** (2.74 km²) — every ring's bank, merged wherever two feet meet,
+with the ground BETWEEN the airport's bodies inside it.  A component
+median read a 319 m "bank" against a measured foot distance of
+5.0–74.4 m.  The per-seed width is also self-limiting: a seed out in that
+merged interior is far from both rings, gets a large area, and is left
+effectively unconstrained — which is right, because that ground is not a
+bank.
+
+UNITS — AND A FRAME TRAP.  `_bank_rings_from_patches` **already** returns
+the isotropic frame `(x·scalx, y)` (it scales as it reads the `.osm`
+nodes), which is what `bank_annulus_blend_values` relies on; scaling it
+again reads every bank `1/scalx` too narrow.  The first cut did exactly
+that and passed a 10 % twin (51.7 m for a 60 m bank at lat 30) — the twin
+now asserts the width to **2 %** and is the frame's pin.  Only the SEEDS,
+which arrive in raw tile-relative degrees, are scaled; the resulting area
+is divided by `scalx` to land in the `.poly`'s own (lon × lat degree)
+units.
+
+MEASURED at HECA +30+031 (2,910 region records): **214 sized**, all
+marker 8, `max_area` 2.8 – 262,648 m² (median **4.1 m²**, i.e. ~2 m
+triangles); implied bank width median **6.1 m** against the emitter's own
+foot distance mean of 6.9 m.  Derivation cost **0.56 s** in the tile's
+step 1 (0.19 % of the 300 s tile budget; the 60 s airport budget is not
+touched — this runs only in the tile's vector step).
+
+### §13.8.2 CONSUMER ROWS — every reader of a region record
+
+| Consumer | Reads | Ruling |
+|---|---|---|
+| `O4_Vector_Utils.Vector_Map.write_poly_file` | `self.seeds`, new `self.seed_areas` | writes a FIFTH field only for a seed that carries an area; every other record byte-identical |
+| `O4_Vector_Map.size_bank_annulus_regions` | the seeds about to be written | new; marries `bank_annulus_region_areas`' answer to the seed list, never raises |
+| `Triangle4XP` `readpoly` (`:15009`) | region section | a 5-field record is read as `x y attribute area`; a 4-field one sets `area = attribute` (`:15035`), NOT `-1` — the ruling's "regions without an area are unconstrained" is Shewchuk's rule, not this fork's. HARMLESS: markers are 1–128 in SQUARE DEGREES beside a 1 deg² tile |
+| `Triangle4XP` `regionplague` (`:13478`) | `regionlist[4i+3]` | spreads the area with the attribute; unchanged behaviour, and the plague's segment-blocked flood is untouched |
+| `Triangle4XP` `testtriangle` (`:7193`) | — | **DOES NOT READ `areabound` AT ALL.** See §13.8.3 |
+| `Triangle4XP` `regionplague`, marker 0/1 regions, after a binary fix | area = attribute | `DUMMY` 0 → `areabound 0` → the `> 0.0` guard leaves it unconstrained; `WATER` 1 → 1 deg² on a 1 deg² tile, never binding. No landmine either way |
+| `O4_Mesh_Utils.generate_mesh` | `Tri_option` | `a` rides with `A` exactly (`regional_areas = "a" if do_refine == "A" else ""`): with `-r` Triangle4XP demands an `.area` file and exits 1 (`:11743`) |
+| `O4_Mask_Utils` / `O4_Imagery_Utils` `write_poly_file` | their own vector maps | never populate `seed_areas`, so their `.poly` files are byte-identical |
+| `bank_annulus_blend_values` | free vertices in the annulus | unchanged; it simply gets more of them |
+
+### §13.8.3 REFUTED: `-a` IS INERT IN THIS FORK
+
+The ruling calls the region area "a standard Triangle facility".  It is —
+in Shewchuk's `Utils/src/triangle.c`, whose `testtriangle` compares the
+triangle's area against `areabound(*testtri)` at **line 7336**.
+`Utils/src/Triangle4XP.c` HAS NO SUCH LINE: the fork rewrote
+`testtriangle` around the DEM-curvature criterion and dropped the area
+test with it.  `grep areabound Triangle4XP.c` returns the macro, the
+propagation copies (`:8567`, `:8749`, `:9028`), a debug `printf` and the
+two setters — the value is stored, spread, and read by no quality test.
+
+A SECOND, independent blocker sits on top: `testtriangle` opens with
+`if (attribute >= 8) return;` ("Refinement in INTERP_ALT tris is
+useless").  The bank annulus is INTERP_ALT (marker 8).
+
+MEASURED, interventionally, on a synthetic 30 m annulus (184 input
+vertices, region `max_area` 9.4e-9 deg² ≈ 100 m², annulus triangles
+≈ 150 m²), the shipped `Utils/mac/Triangle4XP`:
+
+| arm | vertices in → out | triangles |
+|---|---|---|
+| no area column, no `-a` | 184 → 184 | 262 |
+| area column + `-a`, marker 8 | 184 → **184** | 262 |
+| area column + `-a`, marker 0 | 184 → **184** | 262 |
+
+Triangle prints `Spreading regional attributes and area constraints`, so
+the flag IS parsed and the area IS read; nothing consumes it.  (The same
+null result on a plain unit square at markers 0 and 8, areas 1e-7/1e-8.)
+
+### §13.8.4 THE COUNTERFACTUAL — nine lines of C would meet the bar
+
+`Triangle4XP.c` with the stock area test restored AHEAD of the INTERP_ALT
+exemption (the area is already computed a few lines below; the patch
+hoists it and adds the `b->vararea` test), rebuilt with `cc -O2`:
+
+| arm (same fixture) | vertices in → out | free vertices in the 30 m band |
+|---|---|---|
+| shipped binary, `-a` | 184 → 184 | 0 |
+| patched binary, **no** area column | 184 → 184 | 0 |
+| patched binary, `-a` + area | 184 → **314** | **130** |
+
+and with the ruled blend on those vertices the annulus's edge slopes come
+back **p50 0.207, p90 0.331, max 0.333** against a ring-to-foot slope of
+0.333 — **0 % over slope + 0.02**, i.e. §13.7's bar met exactly.  With no
+region carrying an area the patched binary is identical to the shipped
+one, so the change is inert on every tile that has no bank.
+
+REPORTED, NOT DECIDED.  A vendored-binary change ships mac/win/lin
+(`Utils/CMakeLists.txt`, `Utils/toolchains/`) and is well outside a lane's
+authority.  The Python side above is landed and correct: it writes the
+regions, sizes them, passes the flag, and costs nothing until the binary
+can act on it.  `test_triangle_puts_vertices_inside_a_region_that_asks_
+for_them` is `xfail(strict=True)` — the day Triangle4XP is rebuilt it
+fails as unexpectedly-passing and this section is deleted.

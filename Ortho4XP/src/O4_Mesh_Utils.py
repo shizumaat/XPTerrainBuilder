@@ -806,6 +806,108 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     return out
 
 
+# ── THE MESH MUST HAVE VERTICES TO CARRY THE BLEND ─────────────────────
+# (owner RULINGS 2026-09-09x; spec docs/specs/auto-patch-v2/
+#  design-surface-spec.md §13.8)
+#
+# THE DEFECT round 1 measured.  ``bank_annulus_blend_values`` writes the
+# ruled altitude EXACTLY (4.7 mm over 11,153 annulus vertices at HECA),
+# but only 40 of those vertices are FREE tile-wide: Triangle4XP puts
+# essentially nothing inside the annulus, so the bank IS the ring-to-foot
+# triangulation, and a triangle joining a ring vertex to a foot vertex at
+# a different bank width is skewed however exact the field is (12.4 % of
+# annulus triangles over 0.35 by count on the HECA transect).
+#
+# THE LAW.  Each connected component of the bank annulus is handed to
+# Triangle as a REGION carrying a MAXIMUM TRIANGLE AREA
+#
+#     max_area = (w / [design] bank_triangle_divisions) ** 2
+#
+# with ``w`` the component's own MEDIAN BANK WIDTH — the median over the
+# component's boundary of ``d_in + d_out``, the very sum the blend law
+# divides by, so the region is refined in the metric the blend is ruled
+# in.  A region record without a fifth field is left exactly as it was
+# (see ``O4_Vector_Utils.Vector_Map.write_poly_file``): this is a per-
+# region AREA ATTRIBUTE, a different Triangle facility from a constrained
+# segment, so the duplicate-segment class that hung 09t is untouched.
+#
+# WIDTH AT THE SEED, not per annulus component.  MEASURED at HECA
+# (2026-09-09): the annulus is 212 components and ONE of them holds 60 %
+# of its area (2.74 km2) — the whole airport's banks, merged wherever two
+# rings' feet meet, with the ground BETWEEN the bodies inside it.  A
+# component median is meaningless there: it read a 319 m "bank" against a
+# measured foot distance of 5.0-74.4 m.  ``w`` is therefore the LOCAL
+# width at the region's own seed, ``d_in + d_out`` — the same sum the
+# blend law divides by, at the same point, so the region is refined in
+# exactly the metric the blend is ruled in.
+#
+# UNITS.  The ``.poly`` frame is tile-relative DEGREES and is anisotropic;
+# every distance here is measured in the ISOTROPIC frame ``(x * scalx, y)``
+# (the frame ``bank_annulus_blend_values`` rules the blend in) and the
+# resulting area is divided by ``scalx`` to land back in ``.poly`` units.
+
+def bank_annulus_region_areas(tile, seeds):
+    """``{seed index: max triangle area}`` in ``.poly`` units for every
+    seed of ``seeds`` (an iterable of ``(x, y)`` in the tile-relative
+    degree frame) that lies inside a BANK ANNULUS.
+
+    Empty when the tile has no banked patch, when no seed falls in an
+    annulus, or when the rings cannot be read — this only ever REFINES a
+    region that would otherwise be unconstrained, so a failure costs the
+    round-1 mesh, never the tile.  Writes nothing.
+    """
+    import numpy as _np
+    import shapely as _sh
+    from shapely import geometry as _geom, ops as _ops
+
+    seeds = [(float(s[0]), float(s[1])) for s in seeds]
+    if not seeds:
+        return {}
+    try:
+        from auto_patch_v2.law import tables as _law_tables
+        divisions = float(_law_tables.load_default()
+                          .tables.emit.design.bank_triangle_divisions)
+        annulus = bank_annulus_polygon(tile)
+        rings = _bank_rings_from_patches(tile)
+    except Exception as error:
+        UI.lvprint(
+            1, "WARNING: could not size the bank annulus regions — the "
+               "annulus keeps whatever triangles the mesh gives it "
+               "(RULINGS 2026-09-09x):", str(error))
+        return {}
+    if annulus is None or annulus.is_empty or not rings or not rings[0]:
+        return {}
+    if not divisions >= 1.0:
+        return {}
+    (feet, design) = rings
+    design_cov = _ops.unary_union(design) if design else _geom.Polygon()
+    if design_cov.is_empty:
+        return {}
+
+    # ``_bank_rings_from_patches`` — and so ``bank_annulus_polygon`` — is
+    # ALREADY in the isotropic frame ``(x * scalx, y)`` (it applies the
+    # scale as it reads the ``.osm`` nodes), exactly as
+    # ``bank_annulus_blend_values`` relies on.  Only the SEEDS, which
+    # arrive in raw tile-relative degrees, are scaled here.
+    scalx = cos((tile.lat + 0.5) * pi / 180)
+    inner = _sh.boundary(design_cov)                # the design ring
+    outer = _sh.union_all([_sh.boundary(p) for p in feet])         # the foot
+
+    sx = _np.asarray([s[0] for s in seeds]) * scalx
+    sy = _np.asarray([s[1] for s in seeds])
+    points = _sh.points(_np.stack([sx, sy], axis=1))
+    inside = _np.flatnonzero(_sh.contains_xy(annulus, sx, sy))
+    if not inside.size:
+        return {}
+    here = points[inside]
+    width = _sh.distance(here, inner) + _sh.distance(here, outer)
+    side = width / divisions
+    max_area = (side * side) / scalx            # back into .poly units
+    good = _np.isfinite(max_area) & (max_area > 0.0)
+    return {int(inside[k]): float(max_area[k])
+            for k in _np.flatnonzero(good).tolist()}
+
+
 def _segment_z_at(segments, points, ends, vertices):
     """The ring's own altitude at each point's projection onto its
     segment: the linear interpolation of the segment's two endpoints'
@@ -1645,8 +1747,15 @@ def build_mesh(tile):
     max_steiner = max(max_steiner, 5e5)
 
     limit_tris = "S" + str(max_steiner)
+    # ``a`` (no number) = REGIONAL area constraints: the maximum triangle
+    # area each region record's fifth field carries (the BANK ANNULUS, and
+    # nothing else — RULINGS 2026-09-09x).  It is read out of the ``.poly``
+    # only when NOT refining; with ``-r`` Triangle4XP would instead demand
+    # an ``.area`` file and exit 1 (Triangle4XP.c:11743), so the flag rides
+    # with ``A`` exactly.
+    regional_areas = "a" if do_refine == "A" else ""
     Tri_option = (
-        "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + 
+        "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + regional_areas +
         "uYB" + tri_verbosity + output_poly + limit_tris
     )
 

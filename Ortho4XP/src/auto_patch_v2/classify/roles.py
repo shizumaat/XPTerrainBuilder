@@ -118,12 +118,15 @@ class Classification:
     sources: tuple[SourceRecord, ...] = ()
 
 
-def classify(airport: Airport, law: Law, rules: Rules | None = None
-             ) -> Classification:
-    """Score every pavement cell of ``airport`` under ``law``'s register."""
+def classify(airport: Airport, law: Law, rules: Rules | None = None,
+             cache=None) -> Classification:
+    """Score every pavement cell of ``airport`` under ``law``'s register.
+    ``cache`` is the pack's ``obj8.ResourceCache``: the FOUNDATION-SKIRT
+    reader (spec §22) runs here, and the pipeline hands the SAME cache to
+    the planar pass and the re-seat plan so the pack is parsed once."""
     rules = rules or load_rules()
     pad_min = law.tables.structures.building_pad.min_area_m2
-    ev = build_evidence(airport, rules, pad_min)
+    ev = build_evidence(airport, rules, pad_min, law, cache)
     sources, cut_polys = classify_sources(airport, ev, rules)
     src_of = {r.id: r for r in sources}
     cut_ids = list(cut_polys)
@@ -322,6 +325,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None
     for ref, poly in ev.pads:
         add("building", ref, poly, "building")
     stats["pads_dropped"] = ev.dropped_pads
+    # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
+    stats["pads_skirted"] = len(ev.skirted_pads)
+    notes.extend(ev.skirted_pads)
     cells, n_cut = _cut_back_groundside(cells, law, rules)
     stats["mixed_pad_cutbacks"] = n_cut
     stats["taxi_chains"] = len(ev.taxi_chains)

@@ -141,10 +141,10 @@ def _dem(airport: Airport, p: XY) -> float:
 
 def _pad_relief_m(airport: Airport, poly: Polygon) -> float:
     """The DEM relief across a pad's ring (a flat pad is ground; a pad on
-    relief is a levelled plane)."""
-    zs = [_dem(airport, (x, y)) for x, y in poly.exterior.coords]
-    zs = [z for z in zs if not math.isnan(z)]
-    return (max(zs) - min(zs)) if zs else math.inf
+    relief is a levelled plane).  ONE implementation, in
+    ``airport/skirt.ring_relief_m`` (spec §22 C4)."""
+    from ..airport.skirt import ring_relief_m
+    return ring_relief_m(lambda x, y: _dem(airport, (x, y)), poly.exterior.coords)
 
 
 def _ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,

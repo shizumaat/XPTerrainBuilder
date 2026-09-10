@@ -108,7 +108,8 @@ def explain_main(args) -> int:
     airport = load(icao, inputs, law)
     rules = load_rules()
     cl = classify(airport, law, rules)
-    ev = build_evidence(airport, rules, law.tables.structures.building_pad.min_area_m2)
+    ev = build_evidence(airport, rules, law.tables.structures.building_pad.min_area_m2,
+                        law)
     print(f"[{icao}] {len(cl.cells)} cells; sources: "
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))

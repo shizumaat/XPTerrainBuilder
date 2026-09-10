@@ -6,9 +6,11 @@ ONE FLAT PLANE over real relief (LEMD: Aerosoft, 32 m under the terminal)
 reads an ordinary ground-floor slab — authored 0.5 m under its own y = 0 —
 as metres "under the local ground", with a genuine floor plate, a shell
 topping out in the band and a CLOSED rim.  Rule 5b refuses it: the
-witness's own render datum (``anchor_z + agl``) must stand at the ground
-along the ring, ``R_est − datum <= [basin] datum_drop_max_m``.  A datum
-ABOVE the ground is never refused — a pit on a slope is still a pit.
+component's floor must stand ``[basin] authored_depth_min_m`` under the
+placement's OWN render datum (``anchor_z + agl``) as well as under the
+local ground.  An ABSOLUTE cap on the datum's drop was REFUTED (measured):
+it refused OTHH's 8 tunnel objects, datum 3–8 m under the ground, floors
+authored 15 m down.  A datum above the ground never relaxes the gate.
 
 Law values are read from the tables inside the tests, never retyped.
 """
@@ -118,11 +120,12 @@ def objs(tmp_path_factory, law):
     }
 
 
-def _basins(objs, law, dem, placements, drop_max=None):
-    """Read and admit, optionally with ``datum_drop_max_m`` overridden —
-    the interventional arm: the ONLY thing that changes between them."""
-    if drop_max is not None:
-        bl = _dc.replace(law.tables.structures.basin, datum_drop_max_m=drop_max)
+def _basins(objs, law, dem, placements, authored_min=None):
+    """Read and admit, optionally with ``authored_depth_min_m`` overridden
+    — the interventional arm: the ONLY thing that changes between them."""
+    if authored_min is not None:
+        bl = _dc.replace(law.tables.structures.basin,
+                         authored_depth_min_m=authored_min)
         st = _dc.replace(law.tables.structures, basin=bl)
         law = _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
     airport = _dc.replace(_airport(objs, law, placements), dem=dem)
@@ -139,7 +142,7 @@ def test_a_sunken_pit_is_admitted(objs, law):
     bl = law.tables.structures.basin
     objects, basins, stats = _basins(objs, law, _FlatDem(),
                                      [("pit", (0.0, 0.0), 0.0, 0.0)])
-    assert [r for r in stats.refused if "rule 6" in r] == []
+    assert [r for r in stats.refused if "datum relief" in r] == []
     assert len(basins) == 1
     b = basins[0]
     assert b.rim_estimate_m == pytest.approx(700.0)
@@ -160,24 +163,27 @@ def test_a_slab_over_datum_relief_is_refused(objs, law):
     dem = _StepDem()
     objects, basins, stats = _basins(objs, law, dem,
                                      [("slab", (0.0, 0.0), 0.0, 0.0)])
-    # the slab IS a below-grade witness under every rule but 5b
-    assert objects[0].witnesses and objects[0].solid_min_z is not None
+    # 5b bites at the WITNESS: no witness, so no region, no below-grade
+    # part for the seat skip to read, and no plate seat — the slab takes
+    # the ordinary cluster seat like its neighbours (09ag "object to the
+    # terrain")
+    assert objects[0].witnesses == () and objects[0].below_grade_comps == ()
     assert basins == ()
-    refusal, = [r for r in stats.refused if "rule 6" in r]
-    assert "slab.obj" in refusal and "datum relief, not a sunken solid" in refusal
-    assert f"stands {dem.step_m:.2f} m UNDER the ground" in refusal, refusal
-    assert f"AUTHORED only {bl.admission_depth_m / 5.0:.2f} m" in refusal, refusal
+    refusal, = [r for r in stats.refused if "datum relief" in r]
+    assert "slab.obj" in refusal and "not a sunken solid" in refusal
+    assert f"only {bl.admission_depth_m / 5.0:.2f} m under the placement's OWN" in refusal, refusal
+    assert f"itself stands {dem.step_m:.2f} m under that ground" in refusal, refusal
 
 
 def test_the_refusal_is_the_datum_clause_and_nothing_else(objs, law):
     """The interventional arm: the SAME slab, the same reader, the same
-    region — only ``datum_drop_max_m`` changes.  Raised past the drop it
-    is admitted again, which is what makes 5b the clause that refuses it
-    (and what the pre-09ag law did)."""
+    region — only ``authored_depth_min_m`` changes.  At 0 (the pre-09ag
+    law) it is admitted again, which is what makes 5b the clause that
+    refuses it."""
     dem = _StepDem()
     _o, basins, stats = _basins(objs, law, dem, [("slab", (0.0, 0.0), 0.0, 0.0)],
-                                drop_max=dem.step_m + 1.0)
-    assert [r for r in stats.refused if "rule 6" in r] == []
+                                authored_min=0.0)
+    assert [r for r in stats.refused if "datum relief" in r] == []
     assert len(basins) == 1
     assert basins[0].floor_z == pytest.approx(
         700.0 - law.tables.structures.basin.admission_depth_m / 5.0, abs=0.1)
@@ -189,7 +195,7 @@ def test_a_pit_whose_datum_stands_above_the_ground_is_still_admitted(objs, law):
     sitting UNDER the terrain manufactures depth."""
     dem = _KnollDem()
     _o, basins, stats = _basins(objs, law, dem, [("pit", (0.0, 0.0), 0.0, 0.0)])
-    assert [r for r in stats.refused if "rule 6" in r] == []
+    assert [r for r in stats.refused if "datum relief" in r] == []
     assert len(basins) == 1
     b = basins[0]
     # the datum sits on the mound, the ring's median on the flat below it
@@ -199,9 +205,10 @@ def test_a_pit_whose_datum_stands_above_the_ground_is_still_admitted(objs, law):
     assert f"stands -{dem.rise_m:.2f} m under the ring's ground" in note, note
 
 
-def test_the_gate_is_the_law_value_and_the_contact_band(law):
-    """No literal in the code: the law carries it, and 09ag sets it to the
-    ground-contact band rule 1's rim test already uses."""
+def test_the_gate_is_the_law_value_and_the_floor_gate(law):
+    """No literal in the code: the law carries it, and 09ag sets it to
+    rule 1's own floor gate — the same depth, measured against the
+    object's datum instead of the terrain."""
     bl = law.tables.structures.basin
-    assert bl.datum_drop_max_m == pytest.approx(bl.contact_band_m)
-    assert 0.0 < bl.datum_drop_max_m < bl.admission_depth_m
+    assert bl.authored_depth_min_m == pytest.approx(bl.admission_depth_m)
+    assert bl.authored_depth_min_m > 0.0

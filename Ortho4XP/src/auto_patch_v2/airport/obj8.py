@@ -627,6 +627,16 @@ class ObjReport:
     #: ``rim_protrusion_max_fraction`` of its face area): path ->
     #: (placements, largest face-area fraction above the band, highest top).
     rim_protrusions: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
+    #: Resources refused as DATUM RELIEF (RULINGS 2026-09-09ag, spec
+    #: §13): the component's floor stands less than
+    #: ``authored_depth_min_m`` under the placement's OWN render datum
+    #: (``anchor_z + agl``), so its depth is the datum sitting under the
+    #: terrain and not authored — a pack laid out as ONE FLAT PLANE over
+    #: real relief (LEMD, Aerosoft, 32 m under the terminal), never a
+    #: facility:
+    #: path -> (placements, deepest datum drop, deepest depth read,
+    #: shallowest AUTHORED depth under the placement's own datum).
+    datum_relief: dict[str, tuple[int, float, float, float]] = _dc.field(default_factory=dict)
     #: The deck signature (04k; ``deck_signature.classify``): anchor
     #: families read, families whose plate spans a bridge way (decks),
     #: families with a plate and no spanning evidence (candidates), and
@@ -643,7 +653,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         admission_depth_m: float, thickness_m: float, contact_band_m: float,
                         cache: ResourceCache | None = None, shell_reaches_grade: bool = True,
                         *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True,
-                        rim_protrusion_max_fraction: float = 0.0
+                        rim_protrusion_max_fraction: float = 0.0,
+                        authored_depth_min_m: float = 0.0
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -718,6 +729,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             grounds = [z for z in grounds if not math.isnan(z)]
             if vmin < math.inf and base + vmin <= max(grounds) - admission_depth_m:
                 deep_no_floor: tuple[float, float] | None = None
+                datum_note: tuple[float, float, float] | None = None
                 through: tuple[float, float] | None = None
                 protruding: tuple[float, float] | None = None
                 for ci, comp in enumerate(cache.components(phys)):
@@ -730,6 +742,25 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     # the component's rendered floor vs the ground under it
                     z_min = base + comp.min_y
                     depth = z_min - local
+                    # THE DEPTH IS AUTHORED (RULINGS 2026-09-09ag, spec
+                    # §13): a below-grade facility is a SUNKEN SOLID, so its
+                    # floor stands ``authored_depth_min_m`` under the
+                    # placement's OWN render datum as well as under the
+                    # local ground.  When the datum sits UNDER the terrain,
+                    # at-datum geometry reads "below grade" without ever
+                    # having been sunk — a pack authored as ONE FLAT PLANE
+                    # over real relief (LEMD, Aerosoft, 32 m under the
+                    # terminal: a ground-floor slab authored 0.5 m under its
+                    # own y = 0 reading 15 m under the local ground).  It is
+                    # then not a deep part either, so nothing downstream
+                    # (the basin region, the below-grade seat skip, the
+                    # plate seat) sees it.  A datum ABOVE the ground never
+                    # relaxes the gate — the ground still governs there (a
+                    # pit dug through a rise is measured from the rise).
+                    if base - z_min < authored_depth_min_m:
+                        if datum_note is None or local - base > datum_note[0]:
+                            datum_note = (local - base, depth, base - z_min)
+                        continue
                     if depth <= -admission_depth_m:   # 09w (1): a PART
                         deep_comps.append(ci)
                     if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
@@ -774,6 +805,12 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                 elif through is not None:
                     n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
                     rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
+                elif datum_note is not None:
+                    n, dr0, dp0, a0 = rep.datum_relief.get(
+                        dpath, (0, -math.inf, math.inf, math.inf))
+                    rep.datum_relief[dpath] = (n + 1, max(dr0, datum_note[0]),
+                                               min(dp0, datum_note[1]),
+                                               min(a0, datum_note[2]))
                 elif deep_no_floor is not None:
                     n, d0, z0 = rep.no_floor.get(dpath, (0, math.inf, math.inf))
                     rep.no_floor[dpath] = (n + 1, min(d0, deep_no_floor[0]),

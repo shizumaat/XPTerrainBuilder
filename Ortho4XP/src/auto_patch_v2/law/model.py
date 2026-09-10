@@ -371,7 +371,7 @@ class Basin:
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     rim_reaches_grade: bool            # 04i: the closed-region test
     rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
-    datum_drop_max_m: float            # 2026-09-09ag: how far the witness's OWN render datum may stand UNDER the ground (spec §13)
+    authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)
 
 
 @_dc.dataclass(frozen=True)

@@ -240,21 +240,17 @@ pad_flat_rulings = [
 bank_slope       = 0.33   # 1:3 — an embankment / cut slope a pilot reads as ground, not a wall
 bank_min_width_m = 5.0    # the narrowest bank: a ring level with its DEM still stands off the drape by this much
 bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on the formula's own distance
-# THE BANK FACE IS AUTHORED (owner RULINGS 2026-09-09f-1): 09e left the
-# face to the mesh, and the transect measured one triangle of 111 % against
-# the patch ring — ``interpolate_free_interior_altitudes`` is a GRAPH-
-# harmonic extension, not metric-linear, so its isolines crowd against the
-# shorter inner boundary.  The patch therefore emits INTERMEDIATE rings
-# every this many metres of plan distance between the boundary ring and
-# the foot, each vertex's z LINEAR between the ring's design z and the
-# foot's DEM z along the outward normal.  ``bank_first_ring_m`` is where the
-# FIRST of them stands (owner RULINGS 2026-09-09i (1)): the innermost
-# spacing is the mesh's harmonic squeeze, and at 10 m the transect still
-# read 46 % against the ring where the authored face is 33 %.  The first
-# ring stands 3 m out, then one every ``bank_ring_spacing_m`` (a foot at
-# 18.2 m gets levels at 3 and 13 m).
-bank_ring_spacing_m = 3.0    # RULINGS 2026-09-09j: the mesh's graph-harmonic interpolation squeezes any band wider than this against its inner ring (measured HECA transect: a 3 m band reads 29 %, the 11.7 m band beyond it 76-104 %); every band authored 3 m wide reads the 1:3
-bank_first_ring_m   = 3.0
+# THE LEVEL RINGS ARE DELETED (owner RULINGS 2026-09-09p (1) /
+# 2026-09-09t; spec §13).  09f-1 answered the mesh's graph-harmonic
+# squeeze by authoring the bank face with intermediate rings every
+# ``bank_ring_spacing_m``.  09t measured a level ring re-emitting the
+# FOOT's own edges wherever the bank is narrower than the level's offset
+# — duplicate constrained segments, and the +30+031 tile unbuildable —
+# and the squeeze surviving every spacing anyway.  ``bank_ring_spacing_m``
+# and ``bank_first_ring_m`` are GONE with the construction they sized:
+# the patch emits ONE foot ring per boundary and the MESH ENGINE gives the
+# annulus's free vertices an altitude linear in plan distance between the
+# two rings.
 # THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11).  The fixed
 # point ``d = |z_ring - DEM(foot)| / bank_slope`` is the daylight point only
 # where the ground is smooth; where it is not it erases the very earthworks

@@ -24,8 +24,7 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate, stack
 from auto_patch_v2.constraints import pads as padgen
 from auto_patch_v2.emit.bank import (BANK_KIND, BankReport, coverage_polygon,
-                                     daylight_feet, intermediate_offsets,
-                                     smooth_along, with_bank)
+                                     daylight_feet, smooth_along, with_bank)
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.emit.osm_adapter import BANK_FEATURE, render_patch
 from auto_patch_v2.model.constraints import Diff, Pin
@@ -359,87 +358,27 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     assert tilt <= cap + law.tables.emit.materiality.grade, tilt
 
 
-# ── (1b) THE BANK FACE IS AUTHORED (owner RULINGS 2026-09-09f-1) ────────
+# ── (1b) THE LEVEL RINGS ARE DELETED (owner RULINGS 2026-09-09p (1) /
+# 2026-09-09t): ONE foot ring per boundary, and the ENGINE blends the
+# annulus (``O4_Mesh_Utils.bank_annulus_blend_values``) ────────────────
 
-def test_the_offsets_start_at_the_first_ring_then_run_every_spacing():
-    """09f-1 as amended by 09i (1): the FIRST intermediate ring stands
-    ``bank_first_ring_m`` out, then one every spacing, all strictly inside
-    the bank.  A foot 18.2 m out gets levels at 3 and 13 m; a foot 59 m out
-    gets six; a foot at the 5 m minimum now gets the 3 m ring (that band is
-    where the mesh's squeeze reads); a foot AT the first ring gets none."""
-    assert intermediate_offsets(18.2, 10.0, 3.0) == [3.0, 13.0]
-    assert intermediate_offsets(59.0, 10.0, 3.0) == [
-        3.0, 13.0, 23.0, 33.0, 43.0, 53.0]
-    assert intermediate_offsets(5.0, 10.0, 3.0) == [3.0]
-    assert intermediate_offsets(13.0, 10.0, 3.0) == [3.0]
-    assert intermediate_offsets(3.0, 10.0, 3.0) == []
-
-
-def test_a_six_metre_ring_authors_its_levels_at_three_and_thirteen_metres(apron_map, law):  # noqa: F811
-    """THE 09i (1) TWIN: a 6 m ring with an 18.2 m foot gets levels at 3 m
-    and 13 m of plan — the first at ``bank_first_ring_m``, then one every
-    ``bank_ring_spacing_m`` — each z LINEAR between the ring's design z
-    (706) and the foot's DEM z (700): 706 − 6 × 3/18.18 = 705.0 and
-    706 − 6 × 13/18.18 = 701.7.  The chains carry the SAME ``bank_foot``
-    register as the foot (no new consumer).
-
-    RE-SCOPED for 09h (spec §11): the level ring is now
-    ``cover.buffer(t) ∩ banked_region`` — valid by construction — so it no
-    longer carries one vertex per foot node; on this mitred rectangle it is
-    the four corners of the offset rectangle.  Its Z is unchanged: the same
-    bank field, the same linear fraction."""
+def test_a_six_metre_ring_emits_its_foot_and_no_level_ring(apron_map, law):  # noqa: F811
+    """09t: the level rings are DELETED.  The 6 m ring that 09i/09j read at
+    levels 3 m and 13 m now emits its FOOT ring and NOTHING between — no
+    ``bank:N@LEVEL`` way exists any more — while the foot's own geometry
+    (its z IS the DEM, its ring is CLOSED, its vertices are new) is
+    untouched by the deletion."""
     airport, pm, _r = apron_map
-    banked, _surf, rep = _bank(airport, pm, law, 6.0)
-    d = law.tables.emit.design
-    assert rep.face_rings >= 1 and rep.face_vertices > 0
-    assert rep.face_rings_invalid == 0                   # 09h's own gate
-    face = [b for b in banked.breaklines if b.kind == BANK_KIND and "@" in b.ref]
-    lv1 = [b for b in face if b.ref.endswith("@1")]
-    # EVERY level ring is CLOSED — the mesh needs a closed way to seed the
-    # band (spec §10.5: open chains reverted the bank to the DEM, 306 %)
-    assert len(lv1) == 1 and lv1[0].vertices[0] == lv1[0].vertices[-1]
-    lv2 = [b for b in face if b.ref.endswith("@2")]
-    assert len(lv2) == 1 and lv2[0].vertices[0] == lv2[0].vertices[-1]
+    banked, surf, rep = _bank(airport, pm, law, 6.0)
+    bank_bl = [b for b in banked.breaklines if b.kind == BANK_KIND]
+    assert bank_bl, "the foot ring is still emitted"
+    assert not [b for b in bank_bl if "@" in b.ref], \
+        "a level ring survived the 09t deletion"
+    assert not hasattr(rep, "face_rings")            # the statistic is gone
     zof = {v.id: v.z for v in banked.vertices}
-    foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
-                and "@" not in b.ref for v in b.vertices}
-    # RE-SCOPED for RULINGS 2026-09-09j (``bank_ring_spacing_m`` 10 → 3 m):
-    # the levels stand at first + k·spacing while INSIDE the perpendicular
-    # bank (18.18 m on this rectangle); a level with no room (``cov.buffer(t)
-    # ∩ banked`` = ``banked`` itself) is skipped.  (A mitred corner is the
-    # SAME bank seen diagonally — 09f-1's per-vertex construction authored a
-    # deeper level there because it measured the corner RAY.)
-    import math as _m
-    n_inside = 1 + _m.floor((18.18 - d.bank_first_ring_m) / d.bank_ring_spacing_m)
-    assert 2 <= rep.face_levels <= n_inside
-    assert not [b for b in face if b.ref.endswith(f"@{n_inside + 1}")]
-    assert foot_ids
-    bank_w = 6.0 / d.bank_slope
-    for chain, t_out in ((lv1, d.bank_first_ring_m),
-                         (lv2, d.bank_first_ring_m + d.bank_ring_spacing_m)):
-        inner = [zof[v] for b in chain for v in b.vertices if v not in foot_ids]
-        assert inner
-        # every level vertex is strictly between the DEM and the design ring
-        assert all(700.0 < z <= 706.0 for z in inner)
-        assert min(inner) == pytest.approx(706.0 - 6.0 * (t_out / bank_w),
-                                           abs=0.15)
-
-
-def test_a_minimum_width_bank_authors_the_first_ring_only(apron_map, law):  # noqa: F811
-    """09i (1) RE-SCOPES 09f-1's "a 5 m minimum bank has no room for a
-    ring": the FIRST level ring stands at ``bank_first_ring_m`` (3 m), which
-    is inside the minimum bank by law — that innermost band is exactly where
-    the mesh's harmonic squeeze reads.  There is no second: 13 m is outside
-    a 5 m bank."""
-    airport, pm, _r = apron_map
-    banked, _surf, rep = _bank(airport, pm, law, 1.0)
-    assert rep.face_levels == 1 and rep.face_rings >= 1
-    assert rep.face_rings_invalid == 0
-    levels = [b for b in banked.breaklines
-              if b.kind == BANK_KIND and "@" in b.ref]
-    assert levels and all(b.ref.endswith("@1") for b in levels)
-    zof = {v.id: v.z for v in banked.vertices}
-    foot_ids = {v for b in banked.breaklines if b.kind == BANK_KIND
-                and "@" not in b.ref for v in b.vertices}
-    inner = [zof[v] for b in levels for v in b.vertices if v not in foot_ids]
-    assert inner and all(700.0 <= z <= 701.0 for z in inner)
+    pre = {v.id for v in surf.vertices}
+    for b in bank_bl:
+        assert b.vertices[0] == b.vertices[-1]       # CLOSED (spec §10.5)
+        assert all(v not in pre for v in b.vertices[:-1])
+        assert all(abs(zof[v] - 700.0) < 1.0e-6 for v in b.vertices)
+    assert "level" not in rep.line("TEST").lower()

@@ -1739,3 +1739,255 @@ boundary tilts and prices its own cross-section.  09r (4) named this as
 question (RULINGS 2026-07-27: a road edge-sharing an apron IS the apron),
 so the lane re-scoped the twin's LEVEL assertion and left its CENSUS
 assertion standing for the owner.
+## §13 THE LEVEL RINGS ARE DELETED AND THE ENGINE BLENDS THE BANK
+## (RULINGS 2026-09-09p (1) / 2026-09-09t) — lane `v2bankblend`
+
+NOTE ON NUMBERING: the brief names this section §16; the spec ended at
+§12, so it lands as §13.  Reported, not decided.
+
+### 13.1 What changes
+
+Two changes, one on each side of the step boundary.
+
+1. EMIT.  `emit/bank.py` emits ONE closed `bank_foot` ring per boundary of
+   the banked region and NOTHING between it and the patch ring.  The level
+   rings of 09f-1 / 09h / 09i (1) / 09j are deleted with the law keys that
+   sized them (`bank_ring_spacing_m`, `bank_first_ring_m`) and their
+   schema validations.  The daylight foot (09g), the foot chain's plan
+   smoothing (09e/09f, `smooth_along` / `smooth_runs`), the ray limit, the
+   `_push_off` collar and the one-region union all STAY: nothing about
+   where the foot stands changes.
+
+   WHY: 09t measured that a level ring re-emits the FOOT's own edges
+   wherever the bank is narrower than the level's offset `t` — the
+   `cov.buffer(t) ∩ banked` ring degenerates onto the foot there, its
+   vertices snap to the foot's node ids and the closed way lays a SECOND
+   constrained segment on each of them.  Triangle's segment recovery then
+   spins forever at HECA (1 h 40 min in `formskeleton → insertsegment →
+   scoutsegment → finddirection`, killed) and errors at HEAZ
+   (`segmentintersection(): Topological inconsistency` at node −4798,
+   shared by `bank:6` and `bank@2..@5`).  The `minted == 0` guard catches
+   only the ring that degenerates EVERYWHERE, never the partial case, and
+   the spacing sets only how many partial cases there are.  The +30+031
+   tile is unbuildable at 1.0.297.
+
+2. ENGINE.  Inside a BANK ANNULUS — the ground between the design
+   coverage and its `bank_foot` ring — a free interior vertex takes its
+   altitude LINEAR IN PLAN DISTANCE between the two rings
+
+       z(v) = z_in(p) + (z_out(q) − z_in(p)) · d_in / (d_in + d_out)
+
+   with `p` the nearest point of the design coverage boundary, `q` the
+   nearest point of the foot ring, `d_in = |v − p|`, `d_out = |v − q|`.
+   That replaces the GRAPH-harmonic extension
+   (`interpolate_free_interior_altitudes`) for those vertices ONLY; every
+   other face — every design face, every road ribbon, every trench floor —
+   is untouched, because the annulus vertices simply join the Dirichlet
+   set before the one harmonic solve runs, exactly as the ring-segment
+   split values of the 2026-09-06 amendment already do.
+
+   WHY the engine and not the emitter: 09h/09j/09t measured the harmonic
+   extension squeezing any band wider than its innermost against the inner
+   ring (111 % → 46 % → 104 % → 0.43 at 5 m spacing), and the only remedy
+   an emitter has is to author more rings — which is the defect above.
+   The bank is a RULED SURFACE by construction; a metric interpolation
+   reproduces it exactly with whatever vertices Triangle4XP happened to
+   put in the annulus.
+
+### 13.2 CONSUMER TABLE (owner 2026-08-30l), BEFORE editing
+
+G. THE LEVEL RINGS DELETED.  No shape class, region, breakline kind or
+register entry is added; the `bank_foot` kind, the `o4_feature=bank_foot`
+tag and the `bank:N` ref shape are unchanged, so every A-row of §9.2 and
+every C-row of §10.2 stands.  What the deletion touches:
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| G1 | `emit/bank.intermediate_offsets` (§11.2 E2) | `d`, spacing, first | DELETED with its twin `test_the_offsets_start_at_the_first_ring_then_run_every_spacing`; the level SCHEDULE no longer exists. |
+| G2 | `emit/bank.with_bank`'s level loop, `_local_foot`, `_WELD_M`, `_MIN_LEVEL_AREA_WIDTHS` | the banked region, the bank field | DELETED — they exist only to place level vertices.  `_inner` STAYS: the foot's own distance statistic reads it. |
+| G3 | `emit/bank.BankReport` `face_rings` / `face_vertices` / `face_levels` / `face_rings_invalid` | the report | DELETED with the `line()` clause that printed them.  `pipeline/build.py:577` `_dc.asdict(brep)` carries whatever fields exist; grep shows one write and no reader of `report["bank"]` outside the build log. |
+| G4 | `law/emit.toml [design]` `bank_ring_spacing_m`, `bank_first_ring_m` | the law table | DELETED with their `check_design` validations.  `law/model._build` REFUSES an unknown key, so the TOML and the schema must land in the same commit — they do. |
+| G5 | `law/design_schema.DESIGN_TERMS`, `solve/design.py` | objective weights | UNAFFECTED: neither key was a weight (as `bank_slope` is not). |
+| G6 | `tests/auto_patch_v2/test_v2bank.py` (3 twins), `test_v2daylight.py` (2 assertions + the level-validity twin) | `intermediate_offsets`, `face_*`, the spacing | RE-SCOPED: a 6 m ring emits its FOOT and NO level ring; the concave-cover validity twin is deleted with the construction it defended. |
+| G7 | `tools/patch_seed_seal.py` (the offline replay) | the emitted patch's closed ways | UNAFFECTED IN KIND and STRICTLY EASIER: the duplicate-segment class it was built for cannot arise from one ring per boundary.  Run on the twin patch and on the HECA patch as acceptance. |
+| G8 | `O4_Vector_Map.include_patches` | closed patch ways | one closed way per boundary instead of one plus N levels: `patches_area_polys`, `interp_alt_patch_polygons` and the per-face INTERP_ALT seeding are all unchanged in KIND; the annulus is again ONE face per boundary and takes ONE seed. |
+| G9 | `O4_Vector_Map.interp_alt_seed_point`, `audit_interp_alt_seed_sealing` | the arrangement's faces | UNAFFECTED — the degenerate-face clearance of 09j stays; there are simply far fewer near-coincident rings for it to skip. |
+| G10 | `tools/check_grade.py`, `tools/undulation.py`, `verify/*`, the sidecar | `o4_feature` | UNAFFECTED via §9.2 A8–A12: the register is the same one. |
+| G11 | `emit/osm_adapter.render_patch` / `write_tile_pieces` | breaklines | UNCHANGED CODE: closed-or-open by `vertices[0] == vertices[-1]`; only the ref shape `bank:N@L` stops occurring. |
+
+H. THE ENGINE BLEND (`O4_Mesh_Utils`).  ONE new function,
+`bank_annulus_blend_values`, and ONE call site inside
+`post_process_nodes_altitudes`, placed between the ring-segment split
+values and the harmonic solve.
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| H1 | `O4_Mesh_Utils.interpolate_free_interior_altitudes` | free vertices + Dirichlet data | UNCHANGED CODE.  Annulus vertices arrive as Dirichlet data, so the harmonic system is solved over the remaining free vertices exactly as before.  Every other face is bit-identical. |
+| H2 | `O4_Mesh_Utils.patch_valued_vertex_indices` | `PATCH_RING_MARKER` edges | UNAFFECTED — the discriminator is unchanged; the blend ADDS to the set it returns, it does not redefine it. |
+| H3 | `O4_Mesh_Utils.patch_segment_split_values` (2026-09-06 amendment) | inserted vertices on ring segments | RUNS FIRST and is unaffected: a vertex ON a ring is patch-valued before the blend looks for annulus vertices, so a foot-ring split vertex keeps the ring's own value. |
+| H4 | `O4_Mesh_Utils.patch_coverage_polygon` / `triangles_inside_coverage` (R18-1c) | the `.poly`'s patch rings | UNAFFECTED: the annulus is inside the coverage (the foot ring is a patch ring), so its triangles are admitted exactly as today.  The blend is a strict subset of the vertices R18-1c already admits. |
+| H5 | `O4_Mesh_Utils.audit_interp_alt_extent` (the leak detector) | the vertices the SOLVE moved | UNAFFECTED and still meaningful: annulus vertices are no longer in `changed_indices` (they are Dirichlet), and they lie inside the coverage anyway, so the detector's population shrinks and its verdict cannot change. |
+| H6 | `O4_Mesh_Utils.post_process_nodes_altitudes`'s final `interp_alt_tris` copy (`z = column 5`) | column 5 | UNAFFECTED CODE — the blend writes column 5 only, like every other law in this function. |
+| H7 | `O4_Mesh_Utils.py:805` (the sea-levelling precedence lane `v2water` is editing, RULINGS 2026-09-09o (3)) | the triangle attribute | NOT TOUCHED.  The blend is a separate function called from a separate line; the two lanes' diffs do not overlap. |
+| H8 | the INTERP_ALT SEED AUDIT (`O4_Vector_Map.audit_interp_alt_seed_sealing`) | step 1's arrangement | UNAFFECTED: the blend runs in step 2, after Triangle4XP, and writes no vector geometry. |
+| H9 | `O4_Vector_Map.include_patches`' file selection (manual before auto, `resolved_auto_patch_mode`) | the patch dir | REUSED, not re-derived: the blend's geometry reader imports `resolved_auto_patch_mode` lazily (no import cycle — `O4_Vector_Map` does not import `O4_Mesh_Utils`) and applies the same manual-first / mode filter, so the two steps read the same patch files. |
+| H10 | the patch `.osm` files | closed ways + `o4_feature` | READ IN STEP 2.  Not a new artifact across the step boundary — it is the SAME source `include_patches` reads, and `_auto_patch_post_mesh_rebake` already reads the patch dir from this module.  The `.poly` carries no `o4_feature`, and a marker bit for the foot ring would change what Triangle4XP is handed, which is precisely the class 09t killed the tile with. |
+| H11 | the mesh's other laws (water/sea smoothing, apt.dat RUNWAY/TAXIWAY/APRON regions, `_interp_alt_only_tris` scoping) | triangle attributes | UNAFFECTED: the blend is scoped to free vertices of `attr == INTERP_ALT` triangles inside the patch coverage AND inside a bank annulus. |
+| H12 | tiles with NO v2 patch (a v1 patch, a manual patch, no patch at all) | the patch dir | NO-OP by construction: no `o4_feature=bank_foot` way ⇒ no annulus ⇒ empty dict ⇒ the harmonic extension runs exactly as today.  A read failure is a WARNING and the same no-op, never a failed tile. |
+
+### 13.3 How the annulus is identified (the geometry)
+
+From the patch `.osm` files of the tile, in tile-relative coordinates:
+
+* `design_cov` = the union of every CLOSED way that is NOT
+  `o4_feature=bank_foot` — which is `emit/bank.coverage_polygon`'s own
+  `cov`, the union of the planar faces.
+* the `bank_foot` closed ways are the RINGS of the banked region.  A ring
+  whose polygon meets `design_cov` is an EXTERIOR ring; one that does not
+  is a HOLE of the banked region (design coverage is a subset of the
+  banked region, so a hole can contain none of it).
+  `banked = ∪exteriors − ∪holes`.
+* `annulus = banked − design_cov`.
+
+The Z DATA comes from the `.poly`, never from the `.osm`: every
+`PATCH_RING_MARKER` edge carries its two endpoints' altitudes in column 5
+of the vertex array (the same source `patch_segment_split_values` reads).
+Each such edge is classified by its midpoint — within
+`PATCH_SEGMENT_SPLIT_TOLERANCE * 100` of the foot linework it is an OUTER
+segment, otherwise if it is on `design_cov.boundary` it is an INNER
+segment, and an edge strictly inside the design coverage (a face-to-face
+rim) is neither.  `d_in` / `z_in` come from the nearest INNER segment,
+`d_out` / `z_out` from the nearest OUTER segment: the nearest segment of a
+set IS the set's nearest point, so one `STRtree.nearest` per side gives
+both the distance and the segment to interpolate z along.
+
+DEGENERATE CASES, all resolved to "leave it to the harmonic extension":
+no inner or no outer segment in range, `d_in + d_out == 0`, a non-finite
+z.  Nothing is written for a vertex the reader cannot place.
+
+### 13.4 Twins
+
+* `tests/auto_patch_v2/test_v2bank.py` re-scoped: a 6 m ring emits its
+  foot ring and NO level ring (`"@" not in ref` for every `bank_foot`
+  breakline), the foot's z is still the DEM, the daylight twins unchanged.
+* `tests/test_mesh_bank_annulus_blend.py` (the ENGINE's conventions, like
+  `tests/test_r18_free_interior_altitudes.py`): a synthetic annulus
+  between a square patch ring at z 10 and a foot ring at z 0, meshed by
+  the function's own inputs — every interior vertex within 0.05 m of the
+  linear value, and no triangle steeper than the ring-to-foot slope.
+
+### 13.5 Build-time impact statement
+
+EMIT: the level-ring construction is deleted — 09t measured the bank pass
+at 12.8 s at HECA (13 % of the 60 s per-airport budget) with the rings.
+Deleting them removes every `buffer` / `intersection` / `snap` / per-vertex
+`_local_foot` ray and leaves the daylight walk and the foot chain, which
+09h measured at 1.0 s.  A REDUCTION of roughly 12 s, reported in §13.6.
+
+ENGINE: one shapely read of the patch `.osm` (the same files step 1
+parses), one union, and two `STRtree.nearest` queries per annulus free
+vertex.  Against the tile budget (300 s) it is a fraction of a second;
+the material change is that Step 2 stops spinning in segment recovery.
+
+### 13.6 MEASUREMENTS (lane `v2bankblend`, branch `claude/v2bankblend`)
+
+THE HECA AIRPORT BUILD (`build_airport.py HECA --engine v2`, tag
+`v2bankblend`, 165.5 s, solve 29.03 s, `body_sha f2fc42082abc`):
+
+* THE DESIGN SURFACE IS BIT-IDENTICAL: `objective 560668.3156424803`
+  (09j/09t's 560668.3156), residual `pin 0.0000 diff 3.4513 flat 0.0000
+  band 3.8066 offset 0.0000` — the bank runs after the solve and the
+  deletion touched nothing the solve reads.
+* THE BANK, feet only: 175 rings banked (9,826 boundary vertices → 5,542
+  foot nodes, 163 repaired, 0 skipped), DAYLIGHT 7,219 at the minimum /
+  2,607 daylighted / 0 at the maximum (09i/09j's classification to the
+  vertex), toe in 468 smoothing runs; foot distance min 5.0 / mean 7.0 /
+  p95 14.7 / max 76.0 m; bank slope p95 0.350 / max 1.529.
+* BANK PASS WALL **0.93 s**, against 09t's **12.8 s** with the level
+  rings — a 11.9 s reduction, 20 % of the 60 s per-airport budget.  Emit
+  3.02 s, 1,366 ways / 28,878 nodes (09t's 5 m arm: 2,112 / 47,208).
+* `tools/patch_seed_seal.py` PASSES on the HECA patch (1,363 closed rings,
+  1,454 seeds, 0 faces refused a seed, all enclosed) and on the twin patch
+  (2 rings, 2 seeds, 0 refused).
+
+THE TILE MESH (`run_tile_mesh_only.py 30 31 1 --patches-as-is`, the HECA
++ HEAZ patches of this branch on disk):
+
+* rc 0.  **Step 1 56.7 s, Step 2 1 m 0 s** — against 09t's 1 h 40 min
+  spin at 3 m spacing and rc 1 at 5 m, and inside the bar (1.0.296's
+  2–3 min).
+* THE SEED AUDIT PASSES: "0 road-cut sub-cell(s) seeded INTERP_ALT beside
+  the 2,314 face seed(s) already placed (0 degenerate face(s) skipped)";
+  "INTERP_ALT seal: all 2,314 seed(s) enclosed by INTERP_ALT edges
+  (13,522 bounded face(s), 304,515 marked edge(s))".
+* THE BLEND FIRED: "Bank annulus: 40 free vertex(es) took the 1:3 bank's
+  own altitude"; 3,578 mesher-inserted vertices took a ring's own value;
+  99 free interior vertices of 99 took the harmonic extension.
+
+THE WHOLE TILE (`build_airport.py HECA --engine v2 --tile 30 31
+--refresh-data dem`, tag `v2bbtile`): **rc 0, 450.3 s** — step 1 vector
+217.7 s, step 2 mesh 55.8 s, step 3 masks 1.3 s, step 4 tile 175.0 s.
+"shared repo UNCHANGED by this build (full-surface before/after
+snapshot)" and "refresh scope 'dem' was authorised but wrote NOTHING".
+HEAZ MESHES — 09t's `segmentintersection(): Topological inconsistency` at
+HEAZ node −4798 is GONE, and HEAZ's own rings are in the 2,314 sealed
+seeds.  Objects: 392 object files written, 7,945,305 vertices, 7 reverted,
+6 findings; 43 units (1 deck-founded), 42 baked, 0 held; 5,221 of 5,261
+clusters seated, 32 under the 1 m threshold, 8 refused, 596 pad requests;
+HEAZ no unit to seat (47 resources skipped at plan time).
+
+### 13.7 THE TRANSECT: ONE BAR MET, ONE MISSED — and what it attributes
+
+TRANSECT 2 (lon 31.4350, lat 30.10730–30.10830, 2.2 m stations) — **PASS**:
+a continuous cut bank 130.82 → 138.51 m over 27 m at 0.245 for twelve
+stations, one station at **0.255**, then the DEM.  Max 0.255, bar 0.35.
+
+TRANSECT 1 (lon 31.3819142, lat 30.11630–30.11680, 2.2 m stations) —
+**MISS**: 62.63 m down to 53.94 at a constant 0.247 for fifteen stations,
+then three stations at **0.527 / 0.618 / 0.618**, then the DEM at 49.5.
+Max 0.62, bar 0.35.  (The history at this site: 09h 1.11, 09i 0.46, 09j
+0.76, 09t 0.43 at 5 m spacing WITH THE TILE UNBUILDABLE.)
+
+ATTRIBUTED, and the attribution is the finding of this round:
+
+1. THE ENGINE'S FIELD IS EXACT.  Of the 11,153 mesh vertices inside the
+   annulus, EVERY one carries the blend field to within **4.7 mm**
+   (mean 0.5 mm, p95 4.7 mm) — measured against an independent
+   recomputation of `z_in + (z_out − z_in)·d_in/(d_in+d_out)` from the
+   tile's own `.poly` and patch `.osm`.  Nothing about the interpolation
+   is wrong.
+2. THE ANNULUS HAS ALMOST NO FREE VERTICES TO INTERPOLATE.  Only **40**
+   of those 11,153 are FREE — the rest are ring nodes and mesher-inserted
+   ring-segment splits.  Triangle4XP puts essentially nothing inside the
+   bank: on transect 1 there is no vertex at all across 32 m of it.  So
+   the bank's shape is the RING→FOOT TRIANGULATION, and the blend, while
+   exactly right, is not what carries it at HECA.
+3. THE RESIDUAL IS THE TRIANGULATION.  Over the whole tile's annulus,
+   18,168 triangles: |grad| p50 0.105, p90 0.367, p95 0.550, max 34.6;
+   12.4 % over 0.35, but only **3.43 % by area** — the tail is thin
+   skewed triangles that join a ring vertex to a foot vertex at a
+   DIFFERENT bank width (the daylight foot varies 5.0–76.0 m).  A ruled
+   surface between two rings sampled at different densities is not a
+   plane, and a triangulation with no interior vertices cannot render it.
+
+REPORTED, NOT DECIDED (the remedy is a spawner/owner call, and it is a
+spec-time mechanism, not a lane fix):
+
+* The level rings were also, incidentally, what put VERTICES in the
+  annulus.  09p (1) ruled the squeeze out of the engine, which is done and
+  measured; it did not rule how the annulus gets vertices.
+* Two candidate remedies, neither attempted here.  (a) ENGINE: give the
+  annulus a Triangle REGION MAX-AREA constraint so Triangle4XP refines it
+  — `O4_Vector_Utils.write_poly_file` writes region records as
+  `idx x y marker` with no area column, so this changes what Triangle4XP
+  is handed, which is the exact class 09t hung the tile with; it needs its
+  own measurement round.  (b) EMIT: author the intermediate stations as
+  ISOLATED INPUT NODES rather than closed ways — vertices with no
+  constrained segment cannot duplicate the foot's edges, which was 09t's
+  whole failure mode; the patch `.osm` / `include_patches` path has no
+  way to carry a node without a way, so it needs a new mechanism.
+* `v2_rebake_replay.py bodies`: **143** components stranded after the
+  rigid-body completion (188 members affected), against 09t's 461 on the
+  5 m plan.  Above 09d's bar of 2, unrelated to the bank (the strandings
+  sit at 30.11212,31.41203 inside the terminal block, not in any annulus),
+  and carried forward as the standing seat residual.

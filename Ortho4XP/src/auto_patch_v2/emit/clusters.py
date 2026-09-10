@@ -27,10 +27,12 @@ the mesh:
   railing), every other ground part's contact with it is DROPPED — a
   deck never founds the ground parts around or under it;
 * the SEAT: a cluster's ground is the MEDIAN SEAT TARGET of its measured
-  ground parts; each resource's delta is ``ground − base(resource)``
-  (v1 I-3: the anchor spelling is only the subtrahend), written per
-  vertex; a cluster whose largest per-resource delta is under
-  ``min_delta_m`` STAYS; a cluster no wider than ``a3_guard_max_diameter_m``
+  ground parts.  Each MEASURED GROUND part takes its OWN target and every
+  other part of the cluster the median (RULINGS 2026-09-09s (2): one delta
+  per connected component, the carrier's for a component with no ground
+  feet); the delta is that target minus ``base(resource)`` (v1 I-3: the
+  anchor spelling is only the subtrahend), written per vertex; a cluster
+  whose largest part delta is under ``min_delta_m`` STAYS; a cluster no wider than ``a3_guard_max_diameter_m``
   whose single offset would worsen the mean ground-part residual is
   REFUSED (v1 A3); ground relief over ``cluster_span_pad_m`` bakes and
   pads; ground parts left further than ``cluster_residual_pad_m`` off the
@@ -418,8 +420,21 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             skip = (f"facility cluster (05p at cluster level): stands {lifts[k]:+.2f} m under the "
                     f"mesh, more than contact_band_m {band} beyond its structure's coalition — "
                     "never seated, authored y kept (the cutout is the basin pass's affair)")
-        deltas = {p.key: ground_m - p.base for p in parts if ground_m is not None and p.base is not None}
-        max_delta = max((abs(d) for d in deltas.values()), default=0.0)
+        # THE DELTA, PER COMPONENT (RULINGS 2026-09-09s (2)): a measured
+        # ground part takes ITS OWN feet's target; every other part of the
+        # cluster (elevated, on water, off the mesh) takes the cluster's
+        # median — the carrier it stands on.  One file therefore carries
+        # one delta per connected component (09b (5) allows per-vertex
+        # deltas exactly BETWEEN disconnected components), and a 900 m
+        # welded terminal no longer leaves its ends 5-6 m off the mesh
+        # while its middle sits on it.
+        def _delta(p: _P) -> float | None:
+            if ground_m is None or p.base is None:
+                return None
+            own = p.target if (p.ground and p.measured and p.pid not in attached) else None
+            return (own if own is not None else ground_m) - p.base
+        max_delta = max((abs(d) for d in (_delta(p) for p in parts) if d is not None),
+                        default=0.0)
         needs_pad = span > rb.cluster_span_pad_m
         if skip is None and max_delta < rb.min_delta_m:
             skip = (f"below_threshold: largest resource correction |{max_delta:.3f}| m < "
@@ -438,7 +453,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         rendered: dict[int, float] = {}
         if bakes or (skip or "").startswith("below_threshold"):
             for p in measured:
-                rg = ground_m if bakes else p.base
+                rg = (p.base + (_delta(p) or 0.0)) if bakes else p.base
                 rendered[p.pid] = rg
                 r = rg - p.target
                 if abs(r) > floor:
@@ -462,7 +477,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                                  needs_pad and bakes, k in facility, held, skip, n_res))
         for p in parts:
             mp = members[p.key]
-            mp.part_deltas.append((p.part.comp, k, deltas.get(p.key) if bakes else None))
+            mp.part_deltas.append((p.part.comp, k, _delta(p) if bakes else None))
             mp.clusters.add(k)
             if p.ground:
                 mp.n_ground += 1

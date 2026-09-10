@@ -235,8 +235,11 @@ def test_facility_cluster_keeps_its_authored_y(law):
 
 
 def test_a_structure_sunk_uniformly_lifts_as_one(law):
-    """05q: a structure standing uniformly 2.15 m under the mesh is the
-    seat's own case, never a facility — one cluster, one lift."""
+    """05q: a structure standing uniformly ~2.15 m under the mesh is the
+    seat's own case, never a facility — ONE cluster, whose median lift is
+    what the facility test is measured against.  RE-SCOPED by RULINGS
+    2026-09-09s (2): inside that one cluster each connected component now
+    takes ITS OWN ground (2.0 / 2.3), not the cluster median."""
     band = law.tables.structures.basin.contact_band_m
     a = _member("road", [(0, 0.001, 0.0, 0.0)])
     b = _member("parking", [(1, 0.002, 0.0, 0.0)])
@@ -244,7 +247,9 @@ def test_a_structure_sunk_uniformly_lifts_as_one(law):
     res = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 712.0, 0.002: 712.3}), law)
     us = res.units[0]
     assert us.bakes and not any(m.facility for m in us.members)
-    assert res.counts()["clusters"] == 1 and us.members[0].delta_m == pytest.approx(2.15)
+    assert res.counts()["clusters"] == 1
+    assert us.members[0].delta_m == pytest.approx(2.0)
+    assert us.members[1].delta_m == pytest.approx(2.3)
     assert res.clusters[0].lift_m == pytest.approx(2.15) and 2.15 > band
 
 
@@ -325,9 +330,15 @@ def test_elevated_parts_inherit_the_supporter(pack, law):
 
 def test_a_wide_cluster_bakes_and_pads(pack, law):
     """A chain of eight parts climbing 0.45 m each (every edge under the
-    tolerance) spans 3.15 m > cluster_span_pad_m: it bakes at its median
-    and raises pad requests for the ground parts left more than
-    cluster_residual_pad_m off the mesh (v1 spec §4.3 / §5.3)."""
+    tolerance) spans 3.15 m > cluster_span_pad_m: it bakes and is flagged
+    for pads (v1 spec §4.3).
+
+    RE-SCOPED by RULINGS 2026-09-09s (2): the pad REQUESTS (§5.3) are gone
+    from this fixture — each of the eight components now takes its own
+    feet's target, so the seat leaves NO ground part off the mesh and
+    there is nothing for the terrain to pad.  A request now means what it
+    says: a part the seat could not measure, or one whose cluster stayed.
+    The span flag (`needs_pad`) still fires on the cluster's relief."""
     rb = law.tables.structures.rebake
     _a, pl = _planned(pack, law, [("chain", (0.0, 0.0), 0.0, 0.0)])
     assert pl.counts["parts"] == 8 and pl.counts["contacts"] == 7
@@ -340,12 +351,23 @@ def test_a_wide_cluster_bakes_and_pads(pack, law):
     assert res.cut_edges == 0 and k.bakes and k.needs_pad
     assert k.span_m == pytest.approx(3.15, abs=1e-6) and 3.15 > rb.cluster_span_pad_m
     assert k.ground_m == pytest.approx(700.0 + 0.45 * 3.5)
-    # the ends sit 1.575 m off the median: two connected residual groups
-    assert k.residual_parts == 4 and len(res.pad_requests) == 2
-    worst = max(res.pad_requests, key=lambda p: abs(p.residual_m))
-    assert abs(worst.residual_m) == pytest.approx(1.575) and worst.seated
-    assert worst.part_count == 2 and not worst.over_relief_cap
-    assert res.units[0].members[0].outliers == 4
+    # 09s (2): each of the eight components lands on its OWN feet, so the
+    # seat leaves nothing off the mesh — no residual part, no pad request
+    # (pre-09s the ends sat 1.575 m off the median: two groups of two)
+    assert k.residual_parts == 0 and res.pad_requests == ()
+    assert res.units[0].members[0].outliers == 0
+    ds = sorted({d for _c, _k, d in res.units[0].members[0].part_deltas})
+    assert ds == pytest.approx([0.45 * i for i in range(8)], abs=1e-6)
+
+    # ...and the PAD law still fires where the seat does not move: the same
+    # chain 0.3 m under the mesh stays (< min_delta_m) and every ground part
+    # is a residual against its AUTHORED base (nobake_pad_floor_m 0.15)
+    res2 = R.seat(pl, _x_sampler([(-1e9, 700.0), (0.05, 700.3)]), law)
+    k2 = res2.clusters[0]
+    # 7 of the 8: box 0 straddles the 700 / 700.3 step at x 0.05
+    assert k2.skip_reason.startswith("below_threshold") and k2.residual_parts == 7
+    assert len(res2.pad_requests) == 1 and not res2.pad_requests[0].seated
+    assert abs(res2.pad_requests[0].residual_m) == pytest.approx(0.3, abs=1e-6)
 
 
 def test_clusters_and_pads_round_trip_the_result(row, law):

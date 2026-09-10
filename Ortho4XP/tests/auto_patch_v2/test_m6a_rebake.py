@@ -298,11 +298,11 @@ def test_a_structure_sunk_uniformly_lifts_as_one(law):
     us = R.seat(pl, _by_lat({0.0: 710.0, 0.001: 710.0 + depth + 0.9,
                              0.002: 710.0 + depth + 1.4}), law).units[0]
     assert us.bakes and not any(m.facility for m in us.members)
-    # RULINGS 2026-09-09s (2): one delta PER COMPONENT — each member lifts by
-    # its own ground (0.9 / 1.4 over the band), and the CLUSTER's median lift
-    # (depth + 1.15) is what 05q's facility test is measured against
-    assert us.members[0].delta_m == pytest.approx(depth + 0.9)
-    assert us.members[1].delta_m == pytest.approx(depth + 1.4)
+    # RULINGS 2026-09-10i (2) (superseding 09s (2)'s per-component target):
+    # the two members TOUCH — one BODY, ONE delta, the body's median lift
+    # (depth + 1.15), which is also what 05q's facility test is measured against
+    assert us.members[0].delta_m == pytest.approx(depth + 1.15)
+    assert us.members[1].delta_m == pytest.approx(depth + 1.15)
     # a cluster 2.5 m under an at-grade coalition IS a facility
     pl3 = _unit(_part_member("a", 0.001), _part_member("b", 0.002), _part_member("c", 0.003),
                 _part_member("pit", 0.004))

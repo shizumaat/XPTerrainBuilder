@@ -351,6 +351,15 @@ class ClusterSeat:
     held: bool = False
     skip_reason: str | None = None
     residual_parts: int = 0
+    #: THE FEET ACROSS THE BODY (RULINGS 2026-09-10i (2)): one residual
+    #: per measured ground part — its own feet-founded target minus the
+    #: body's median ``ground_m`` — rounded to the millimetre, and their
+    #: largest absolute value.  ``feet_sampled`` counts the additional
+    #: feet the seat had to SAMPLE off the design surface because the
+    #: body was wider than ``body_feet_span_m`` per measured foot.
+    foot_residuals: tuple[float, ...] = ()
+    foot_residual_max_m: float = 0.0
+    feet_sampled: int = 0
 
     @property
     def bakes(self) -> bool:
@@ -411,6 +420,10 @@ class SeatResult:
     pad_requests: tuple[PadRequest, ...] = ()
     cut_edges: int = 0
     structures: int = 0
+    #: RULINGS 2026-09-10i (1)/(3): intra-placement ground edges KEPT
+    #: despite disagreeing feet, and parts held for touching no body.
+    intra_placement_kept: int = 0
+    held_parts: int = 0
 
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
@@ -420,6 +433,8 @@ class SeatResult:
              "clusters_baked": 0, "clusters_below_threshold": 0, "clusters_refused": 0,
              "clusters_facility": 0, "clusters_held": 0, "clusters_padded": 0,
              "cut_edges": self.cut_edges, "pad_requests": len(self.pad_requests),
+             "intra_placement_kept": self.intra_placement_kept,
+             "held_parts": self.held_parts, "feet_sampled": 0,
              "parts": 0, "ground_parts": 0, "members_multi_delta": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
@@ -455,11 +470,14 @@ class SeatResult:
                 c["clusters_refused"] += 1
             if k.needs_pad:
                 c["clusters_padded"] += 1
+            c["feet_sampled"] += k.feet_sampled
         return c
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"icao": self.icao, "counts": self.counts(),
                 "cut_edges": self.cut_edges, "structures": self.structures,
+                "intra_placement_kept": self.intra_placement_kept,
+                "held_parts": self.held_parts,
                 "units": [_dc.asdict(u) for u in self.units],
                 "clusters": [_dc.asdict(k) for k in self.clusters],
                 "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

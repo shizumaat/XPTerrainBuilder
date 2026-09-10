@@ -275,6 +275,103 @@ def cmd_bodies(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pairs(args: argparse.Namespace) -> int:
+    """THE TEAR CENSUS (RULINGS 2026-09-10i): pairs of components of ONE
+    OBJ8 whose geometry comes within ``--near`` metres yet whose APPLIED
+    deltas differ — the instrument the 10i bars are stated in ("12,057
+    pairs within 2 m with different deltas, 85 sites over 2 m").  Reads a
+    plan + a seat result, completes the write half exactly as
+    ``engine_v2._decision`` does, and never writes a pack."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    from auto_patch_v2.airport import obj8 as O
+    from auto_patch_v2.airport import rigid as RG
+    with open(args.plan) as fh:
+        plan = json.load(fh)
+    with open(args.result) as fh:
+        res = json.load(fh)
+    res = res.get("seat", res)
+    auth = {m["resource"]: m["authored_path"] for u in plan["units"] for m in u["members"]}
+    # the plan's parts carry (pid, comp, lat, lon, ...): the affine map from
+    # the file's own plan frame to lat/lon, so a pair can be put on a map
+    parts = {m["resource"]: m["parts"] for u in plan["units"] for m in u["members"]}
+    n_pairs = n_over = 0
+    sites: dict[str, tuple[float, float, float, int, int]] = {}
+    rows = []
+    for u in res["units"]:
+        if u.get("held"):
+            continue
+        for m in u["members"]:
+            r = m["resource"]
+            if m.get("facility") or r not in auth:
+                continue
+            pd = m.get("part_deltas") or []
+            dm = m.get("delta_m")
+            try:
+                geom = O.parse_obj8(auth[r])
+            except (OSError, ValueError):
+                continue
+            comps = O.solid_components(geom)
+            if not comps:
+                continue
+            if dm is not None and not pd:
+                by = {i: float(dm) for i in range(len(comps))}
+            else:
+                by = {c: float(d) for c, _k, d in pd if d is not None and 0 <= c < len(comps)}
+            if not by:
+                continue
+            held = {c for c, _k, d in pd if d is None} - set(by)
+            final = RG.complete_component_deltas(geom, comps, by, held, args.contact)
+            v = geom.vertices
+            idxs = [np.unique(c.tris.reshape(-1)) for c in comps]
+            pts = np.concatenate([v[i] for i in idxs])
+            owner = np.concatenate([np.full(len(i), k, dtype=np.int64) for k, i in enumerate(idxs)])
+            t = cKDTree(pts)
+            pr = t.sparse_distance_matrix(t, args.near, output_type="ndarray")
+            if not pr.size:
+                continue
+            a = owner[pr["i"].astype(np.int64)]
+            b = owner[pr["j"].astype(np.int64)]
+            sel = a < b
+            for ca, cb in np.unique(np.stack([a[sel], b[sel]], axis=1), axis=0).tolist():
+                da, db = final.get(int(ca)), final.get(int(cb))
+                if da is None or db is None or abs(da - db) <= args.floor:
+                    continue
+                n_pairs += 1
+                if abs(da - db) > args.bar:
+                    n_over += 1
+                    lat = lon = None
+                    for p in parts.get(r, ()):
+                        if p[1] == int(ca):
+                            lat, lon = float(p[2]), float(p[3])
+                            break
+                    prev = sites.get(r)
+                    if prev is None or abs(da - db) > prev[2]:
+                        sites[r] = (lat if lat is not None else 0.0,
+                                    lon if lon is not None else 0.0,
+                                    abs(da - db), int(ca), int(cb))
+                    rows.append((abs(da - db), r, int(ca), int(cb), da, db))
+    rows.sort(reverse=True)
+    print(f"{res.get('icao', '?')}: pairs of ONE OBJ8 within {args.near} m with different "
+          f"deltas (floor {args.floor} m): {n_pairs}; over {args.bar} m: {n_over} "
+          f"pair(s) in {len(sites)} site(s) (resources)")
+    for sep, r, ca, cb, da, db in rows[:args.top]:
+        print(f"  {sep:8.3f} m | {r[-52:]:52s} | c{ca} {da:+.3f} vs c{cb} {db:+.3f}")
+    if args.kml:
+        with open(args.kml, "w") as fh:
+            fh.write('<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.open'
+                     'gis.net/kml/2.2"><Document>\n<name>%s tear sites (RULINGS 2026-09-10i)'
+                     '</name>\n' % res.get("icao", "?"))
+            for r, (lat, lon, sep, ca, cb) in sorted(sites.items(), key=lambda kv: -kv[1][2]):
+                fh.write(f"<Placemark><name>{r.rsplit('/', 1)[-1]} — {sep:.3f} m</name>"
+                         f"<description>c{ca} vs c{cb}, worst pair of this placement"
+                         f"</description><Point><coordinates>{lon:.6f},{lat:.6f},0"
+                         f"</coordinates></Point></Placemark>\n")
+            fh.write("</Document></kml>\n")
+        print("->", args.kml)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -298,6 +395,19 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--thickness", type=float, default=0.3,
                    help="[structures.basin] min_solid_thickness_m — the seat's witness gate")
     b.set_defaults(fn=cmd_bodies)
+    p = sub.add_parser("pairs", help="the TEAR census (10i): pairs of one OBJ8 within N m "
+                                     "whose applied deltas differ")
+    p.add_argument("plan")
+    p.add_argument("result", help="the tile build's o4_v2_rebake_result_<ICAO>.json, or a "
+                                  "`seat` replay's *.seat.json")
+    p.add_argument("--near", type=float, default=2.0, help="two components this close are ONE site")
+    p.add_argument("--bar", type=float, default=2.0, help="a pair over this is a tear SITE")
+    p.add_argument("--floor", type=float, default=0.05, help="materiality: deltas differing by "
+                                                             "less than this are the same delta")
+    p.add_argument("--contact", type=float, default=0.5)
+    p.add_argument("--top", type=int, default=15)
+    p.add_argument("--kml", default="", help="write the sites to this KML")
+    p.set_defaults(fn=cmd_pairs)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")

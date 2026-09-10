@@ -238,8 +238,9 @@ def test_a_structure_sunk_uniformly_lifts_as_one(law):
     """05q: a structure standing uniformly ~2.15 m under the mesh is the
     seat's own case, never a facility — ONE cluster, whose median lift is
     what the facility test is measured against.  RE-SCOPED by RULINGS
-    2026-09-09s (2): inside that one cluster each connected component now
-    takes ITS OWN ground (2.0 / 2.3), not the cluster median."""
+    2026-09-09s (2), then RE-SCOPED AGAIN by RULINGS 2026-09-10i (2): the
+    two members TOUCH, so they are ONE BODY and take ONE delta — the body's
+    median 2.15, not 09s's per-component 2.0 / 2.3."""
     band = law.tables.structures.basin.contact_band_m
     a = _member("road", [(0, 0.001, 0.0, 0.0)])
     b = _member("parking", [(1, 0.002, 0.0, 0.0)])
@@ -248,9 +249,11 @@ def test_a_structure_sunk_uniformly_lifts_as_one(law):
     us = res.units[0]
     assert us.bakes and not any(m.facility for m in us.members)
     assert res.counts()["clusters"] == 1
-    assert us.members[0].delta_m == pytest.approx(2.0)
-    assert us.members[1].delta_m == pytest.approx(2.3)
+    assert us.members[0].delta_m == pytest.approx(2.15)
+    assert us.members[1].delta_m == pytest.approx(2.15)
     assert res.clusters[0].lift_m == pytest.approx(2.15) and 2.15 > band
+    # 10i (2): the per-foot residuals are REPORTED, never written
+    assert sorted(res.clusters[0].foot_residuals) == pytest.approx([-0.15, 0.15])
 
 
 def test_the_facility_reference_must_be_at_grade(law):
@@ -333,12 +336,12 @@ def test_a_wide_cluster_bakes_and_pads(pack, law):
     tolerance) spans 3.15 m > cluster_span_pad_m: it bakes and is flagged
     for pads (v1 spec §4.3).
 
-    RE-SCOPED by RULINGS 2026-09-09s (2): the pad REQUESTS (§5.3) are gone
-    from this fixture — each of the eight components now takes its own
-    feet's target, so the seat leaves NO ground part off the mesh and
-    there is nothing for the terrain to pad.  A request now means what it
-    says: a part the seat could not measure, or one whose cluster stayed.
-    The span flag (`needs_pad`) still fires on the cluster's relief."""
+    RE-SCOPED by RULINGS 2026-09-10i (1)/(2): the eight parts are ONE
+    PLACEMENT and they touch, so no edge may be cut and the whole chain
+    takes ONE delta — the body's median.  09s (2)'s per-component target is
+    withdrawn, so the ends stand 1.575 m off the mesh again and the PAD
+    REQUESTS (§5.3) are back: that residual is the terrain's to close, and
+    it is reported per foot on the seat."""
     rb = law.tables.structures.rebake
     _a, pl = _planned(pack, law, [("chain", (0.0, 0.0), 0.0, 0.0)])
     assert pl.counts["parts"] == 8 and pl.counts["contacts"] == 7
@@ -351,13 +354,13 @@ def test_a_wide_cluster_bakes_and_pads(pack, law):
     assert res.cut_edges == 0 and k.bakes and k.needs_pad
     assert k.span_m == pytest.approx(3.15, abs=1e-6) and 3.15 > rb.cluster_span_pad_m
     assert k.ground_m == pytest.approx(700.0 + 0.45 * 3.5)
-    # 09s (2): each of the eight components lands on its OWN feet, so the
-    # seat leaves nothing off the mesh — no residual part, no pad request
-    # (pre-09s the ends sat 1.575 m off the median: two groups of two)
-    assert k.residual_parts == 0 and res.pad_requests == ()
-    assert res.units[0].members[0].outliers == 0
+    # 10i (2): ONE delta for the whole touching body; the four parts more
+    # than cluster_residual_pad_m off the median raise pad requests, and
+    # every foot's residual is on the record
+    assert k.residual_parts == 4 and len(res.pad_requests) == 2
+    assert k.foot_residual_max_m == pytest.approx(1.575, abs=1e-6)
     ds = sorted({d for _c, _k, d in res.units[0].members[0].part_deltas})
-    assert ds == pytest.approx([0.45 * i for i in range(8)], abs=1e-6)
+    assert ds == pytest.approx([0.45 * 3.5], abs=1e-6)
 
     # ...and the PAD law still fires where the seat does not move: the same
     # chain 0.3 m under the mesh stays (< min_delta_m) and every ground part

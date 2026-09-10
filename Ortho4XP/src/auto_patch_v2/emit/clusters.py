@@ -15,22 +15,31 @@ the mesh:
   none of whose feet lands on the mesh (water with ``water_founds_seat``
   off, or off the mesh) is UNMEASURED and never votes (merge on doubt
   survives for it);
-* the CUT: a ground-to-ground edge whose two measured seat targets differ
-  by more than ``cluster_seat_tolerance_m`` is cut; the connected
-  components of the kept ground edges are the CLUSTERS;
-* ELEVATED parts never vote: each elevated component joins the cluster
-  it contacts most (v1 I-8), or — touching none — the cluster whose plan
-  box contains it, else the nearest (spec §4.2b);
+* the CUT (RULINGS 2026-09-10i (1)): a ground-to-ground edge ACROSS TWO
+  PLACEMENTS whose measured seat targets differ by more than
+  ``cluster_seat_tolerance_m`` is cut; an edge INSIDE one placement is
+  NEVER cut — two touching components of one authored placement are one
+  BODY.  The connected components of the kept ground edges are the
+  CLUSTERS (the bodies);
+* ELEVATED parts never vote (10i (3)): each is assigned by multi-source
+  BFS over the contact graph FROM the bodies' ground parts — the body it
+  TOUCHES, transitively, never a contact-count vote; a tie at equal hop
+  distance goes to a body holding a ground part of the same placement,
+  then to the lowest body id, and an elevated part never bridges two
+  bodies.  One touching NOTHING joins the nearest body only within
+  ``identity.min_distinct_spacing_m`` x 4, else it is HELD;
 * a STRUCTURE-seated member (a deck plate at its abutment grade, a plate
   family) is a FIXED cluster with the structure's delta: the parts of its
   own deck-family members reached through contact join it (a pier, a
   railing), every other ground part's contact with it is DROPPED — a
   deck never founds the ground parts around or under it;
-* the SEAT: a cluster's ground is the MEDIAN SEAT TARGET of its measured
-  ground parts.  Each MEASURED GROUND part takes its OWN target and every
-  other part of the cluster the median (RULINGS 2026-09-09s (2): one delta
-  per connected component, the carrier's for a component with no ground
-  feet); the delta is that target minus ``base(resource)`` (v1 I-3: the
+* the SEAT: a body's ground is the MEDIAN SEAT TARGET of its measured
+  ground parts, and EVERY part of the body takes it (10i (2), superseding
+  09s (2)'s per-part own target; the per-foot residual is REPORTED on the
+  seat, never written).  A body wider than ``body_feet_span_m`` carrying
+  fewer than one measured foot per that span samples the design surface
+  under every ground-contact part's footprint centroid as extra feet;
+  the delta is that target minus ``base(resource)`` (v1 I-3: the
   anchor spelling is only the subtrahend), written per vertex; a cluster
   whose largest part delta is under ``min_delta_m`` STAYS; a cluster no wider than ``a3_guard_max_diameter_m``
   whose single offset would worsen the mean ground-part residual is
@@ -134,6 +143,12 @@ class Outcome:
     pad_requests: list[PadRequest]
     cut_edges: int
     structures: int
+    #: RULINGS 2026-09-10i (1): ground-to-ground edges INSIDE one placement
+    #: whose feet disagree by more than ``cluster_seat_tolerance_m`` and
+    #: which are therefore KEPT (the cuts 10i forbids).
+    intra_placement_kept: int = 0
+    #: 10i (3): parts touching no body within the identity spacing × 4.
+    held_parts: int = 0
 
 
 class _UF:
@@ -282,31 +297,39 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         for pid in pids[1:]:
             guf.union(pids[0], pid)
     kept: list[tuple[int, int]] = []
-    votes: dict[int, list[int]] = {}           # elevated pid -> ground pids it touches
     euf = _UF([pid for pid, p in ps.items() if not p.ground and pid not in attached])
-    n_cut = 0
+    n_cut = n_intra_kept = 0
     for a, b in edges:
         pa, pb = ps[a], ps[b]
         a_att, b_att = a in attached, b in attached
         if a_att and b_att:
             continue                            # one structure seat, or two decks touching: apart
         if a_att or b_att:
-            other = pb if a_att else pa
-            if other.ground:
-                continue                        # a deck never founds the ground around it
-            votes.setdefault(other.pid, []).append(a if a_att else b)
-            continue
+            continue                            # a deck founds nothing around it; the BFS below
+            #                                     hands its free neighbours to the deck's cluster
         if pa.ground and pb.ground:
             ta, tb = pa.target, pb.target      # the feet-founded y = 0 planes
-            if rb.cluster_seat_tolerance_m > 0.0 and ta is not None and tb is not None \
+            # THE CUT APPLIES ONLY ACROSS PLACEMENTS (RULINGS 2026-09-10i
+            # (1)): a contact edge INSIDE one authored placement is NEVER
+            # cut — two touching components of one placement are ONE BODY
+            # with ONE delta, and a placement carries several deltas only
+            # across a physical separation (no contact edge at all).  At
+            # LEMD 13,979 of 23,371 edges are intra-placement and 929 cuts
+            # tore car-park walls, terminal facades and their deck plates
+            # metres apart under the design surface.
+            if pa.key != pb.key and rb.cluster_seat_tolerance_m > 0.0 \
+                    and ta is not None and tb is not None \
                     and abs(ta - tb) > rb.cluster_seat_tolerance_m:
                 n_cut += 1
                 continue
+            if pa.key == pb.key and ta is not None and tb is not None \
+                    and rb.cluster_seat_tolerance_m > 0.0 \
+                    and abs(ta - tb) > rb.cluster_seat_tolerance_m:
+                n_intra_kept += 1
             kept.append((a, b))
             guf.union(a, b)
         elif pa.ground or pb.ground:
-            e, g = (a, b) if pb.ground else (b, a)
-            votes.setdefault(e, []).append(g)
+            continue                            # the BFS below assigns the elevated end
         else:
             euf.union(a, b)
     comps = guf.components()
@@ -315,47 +338,101 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         for pid in pids:
             cluster_of[pid] = k
     members_of: dict[int, list[int]] = {k: list(pids) for k, pids in enumerate(comps)}
-    # ── elevated components inherit (spec §4.2) ─────────────────────────
-    boxes: dict[int, tuple[float, float, float, float]] = {}
+    # ── PLATES FOLLOW THE BODY THEY TOUCH (RULINGS 2026-09-10i (3)) ─────
+    # Multi-source BFS over the contact graph FROM the bodies' ground (and
+    # structure-seated) parts: an elevated part takes the body it touches,
+    # transitively — never a contact-count vote against a touching wall
+    # (LEMD13's deck plates went to c142 on 20 contacts against the c64
+    # they also touch).  An elevated part NEVER bridges two bodies: it
+    # joins one, it does not merge them.  A tie at equal hop distance
+    # resolves to a body holding a ground part of the SAME placement, then
+    # to the lowest body id.
+    keys_of: dict[int, set[MemberKey]] = {}
     for k, pids in members_of.items():
-        bx = [ps[pid].part.box for pid in pids]
-        boxes[k] = (min(b[0] for b in bx), min(b[1] for b in bx),
-                    max(b[2] for b in bx), max(b[3] for b in bx))
-    for ecomp in euf.components():
-        count: dict[int, int] = {}
-        for pid in ecomp:
-            for g in votes.get(pid, ()):
-                k = cluster_of[g]
-                count[k] = count.get(k, 0) + 1
-        if count:
-            host = min(count, key=lambda k: (-count[k], k))
-        elif members_of:
-            bx = [ps[pid].part.box for pid in ecomp]
-            cla = (min(b[0] for b in bx) + max(b[2] for b in bx)) / 2.0
-            clo = (min(b[1] for b in bx) + max(b[3] for b in bx)) / 2.0
-            m_lat, m_lon = metres_per_degree(cla)
-            inside = [k for k, b in boxes.items() if b[0] <= cla <= b[2] and b[1] <= clo <= b[3]]
-            if inside:
-                host = min(inside, key=lambda k: ((boxes[k][2] - boxes[k][0]) * m_lat
-                                                   * (boxes[k][3] - boxes[k][1]) * m_lon, k))
+        keys_of[k] = {ps[pid].key for pid in pids}
+    unassigned = [pid for pid in ps if pid not in cluster_of]
+    while unassigned:
+        found: dict[int, int] = {}
+        for pid in unassigned:
+            cands = {cluster_of[n] for n in adj.get(pid, ()) if n in cluster_of}
+            if cands:
+                key = ps[pid].key
+                found[pid] = min(cands, key=lambda k: (0 if key in keys_of[k] else 1, k))
+        if not found:
+            break
+        for pid, k in found.items():
+            cluster_of[pid] = k
+            members_of[k].append(pid)
+        unassigned = [pid for pid in unassigned if pid not in found]
+    # what the BFS never reached: a part touching no body at all.  It joins
+    # the NEAREST body only within the identity spacing × 4 (10i (3));
+    # beyond that it is HELD and reported.
+    held_parts: list[int] = []
+    if unassigned:
+        boxes: dict[int, tuple[float, float, float, float]] = {}
+        for k, pids in members_of.items():
+            bx = [ps[pid].part.box for pid in pids]
+            boxes[k] = (min(b[0] for b in bx), min(b[1] for b in bx),
+                        max(b[2] for b in bx), max(b[3] for b in bx))
+        reach = law.tables.emit.identity.min_distinct_spacing_m * 4.0
+        for ecomp in euf.components():
+            grp = [pid for pid in ecomp if pid in unassigned]
+            if not grp or not boxes:
+                continue
+            bx = [ps[pid].part.box for pid in grp]
+            gb = (min(b[0] for b in bx), min(b[1] for b in bx),
+                  max(b[2] for b in bx), max(b[3] for b in bx))
+            m_lat, m_lon = metres_per_degree((gb[0] + gb[2]) / 2.0)
+            best_k, best_d = None, None
+            for k, b in boxes.items():
+                dla = max(0.0, b[0] - gb[2], gb[0] - b[2]) * m_lat
+                dlo = max(0.0, b[1] - gb[3], gb[1] - b[3]) * m_lon
+                d = math.hypot(dla, dlo)
+                if best_d is None or d < best_d - 1e-9 or (abs(d - best_d) <= 1e-9 and k < best_k):
+                    best_k, best_d = k, d
+            if best_d is not None and best_d <= reach:
+                for pid in grp:
+                    cluster_of[pid] = best_k
+                    members_of[best_k].append(pid)
             else:
-                host = min(boxes, key=lambda k: (math.hypot(
-                    ((boxes[k][0] + boxes[k][2]) / 2.0 - cla) * m_lat,
-                    ((boxes[k][1] + boxes[k][3]) / 2.0 - clo) * m_lon), k))
-        else:
-            continue
-        for pid in ecomp:
-            cluster_of[pid] = host
-            members_of[host].append(pid)
+                held_parts.extend(grp)
     # ── the seats ───────────────────────────────────────────────────────
     lifts: dict[int, float | None] = {}
     grounds_of: dict[int, list[float]] = {}
+    sampled_of: dict[int, int] = {}
+    span_law = getattr(rb, "body_feet_span_m", 0.0)
     for k, pids in members_of.items():
-        g = [ps[pid].target for pid in pids
-             if ps[pid].ground and ps[pid].measured and pid not in attached]
-        grounds_of[k] = [float(z) for z in g if z is not None]
-        lf = [ps[pid].lift for pid in pids if ps[pid].ground and ps[pid].measured and pid not in attached]
-        lf = [x for x in lf if x is not None]
+        own = [ps[pid] for pid in pids
+               if ps[pid].ground and ps[pid].measured and pid not in attached]
+        gs = [float(p.target) for p in own if p.target is not None]
+        lf = [float(p.lift) for p in own if p.lift is not None]
+        n_sampled = 0
+        # FEET ACROSS THE BODY (RULINGS 2026-09-10i (2)): a body wider than
+        # body_feet_span_m carrying fewer than one measured foot per that
+        # span is not seated on what it has — it SAMPLES the design surface
+        # under every ground-contact part's footprint centroid, and those
+        # samples join the median (LEMD k1: 4,202 parts over 982 m decided
+        # by ONE foot at −6.507 against neighbours +2.8).
+        if span_law > 0.0 and gs:
+            diam_k = _diameter([ps[pid] for pid in pids])
+            need = math.ceil(diam_k / span_law)
+            if diam_k > span_law and len(gs) < need:
+                for pid in pids:
+                    p = ps[pid]
+                    if not p.ground or p.fixed or pid in attached or p.base is None:
+                        continue
+                    if authored and pid in authored:
+                        z = float(authored[pid])
+                    else:
+                        smp = sampler(p.part.lat, p.part.lon)
+                        if smp is None or (smp[1] and not rb.water_founds_seat):
+                            continue
+                        z = float(smp[0]) - float(p.part.base_y)
+                    gs.append(z)
+                    lf.append(z - p.base)
+                    n_sampled += 1
+        grounds_of[k] = gs
+        sampled_of[k] = n_sampled
         lifts[k] = float(statistics.median(lf)) if lf else None
     # the facility rule, per structure (05p / 05q at cluster level)
     facility: set[int] = set()
@@ -420,19 +497,20 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             skip = (f"facility cluster (05p at cluster level): stands {lifts[k]:+.2f} m under the "
                     f"mesh, more than contact_band_m {band} beyond its structure's coalition — "
                     "never seated, authored y kept (the cutout is the basin pass's affair)")
-        # THE DELTA, PER COMPONENT (RULINGS 2026-09-09s (2)): a measured
-        # ground part takes ITS OWN feet's target; every other part of the
-        # cluster (elevated, on water, off the mesh) takes the cluster's
-        # median — the carrier it stands on.  One file therefore carries
-        # one delta per connected component (09b (5) allows per-vertex
-        # deltas exactly BETWEEN disconnected components), and a 900 m
-        # welded terminal no longer leaves its ends 5-6 m off the mesh
-        # while its middle sits on it.
+        # THE DELTA, ONE PER BODY (RULINGS 2026-09-10i (2), superseding
+        # 09s (2)'s per-part own target): every part of a touching body —
+        # measured ground, elevated, on water, off the mesh — takes the
+        # body's MEDIAN ground.  The per-part own target was the second
+        # source of the LEMD tear: two touching walls of one placement
+        # whose feet read 1.2 m apart came out 1.2 m apart even where the
+        # cut law kept them in one cluster.  A file carries several deltas
+        # only across a physical separation (09b (5)'s per-vertex deltas
+        # BETWEEN disconnected components).  The per-foot residual is
+        # reported instead of being written into the geometry.
         def _delta(p: _P) -> float | None:
             if ground_m is None or p.base is None:
                 return None
-            own = p.target if (p.ground and p.measured and p.pid not in attached) else None
-            return (own if own is not None else ground_m) - p.base
+            return ground_m - p.base
         max_delta = max((abs(d) for d in (_delta(p) for p in parts) if d is not None),
                         default=0.0)
         needs_pad = span > rb.cluster_span_pad_m
@@ -472,9 +550,14 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                     residual[worst],
                     float(statistics.median(rendered[pid] + ps[pid].part.base_y for pid in grp)),
                     len(grp), abs(residual[worst]) > rb.pad_max_relief_m, bakes))
+        # THE PER-FOOT RESIDUAL (10i (2)): what each measured ground part's
+        # own feet wanted, against the one delta the body took.
+        foot_res = tuple(round(float(z) - ground_m, 3) for z in gs) if ground_m is not None else ()
         seats.append(ClusterSeat(k, struct_of[pids[0]], res, len(parts), len(ground_parts),
                                  len(measured), ground_m, lifts[k], span, diam,
-                                 needs_pad and bakes, k in facility, held, skip, n_res))
+                                 needs_pad and bakes, k in facility, held, skip, n_res,
+                                 foot_res, max((abs(x) for x in foot_res), default=0.0),
+                                 sampled_of.get(k, 0)))
         for p in parts:
             mp = members[p.key]
             mp.part_deltas.append((p.part.comp, k, _delta(p) if bakes else None))
@@ -492,6 +575,15 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                     mp.off_mesh += 1
                 if p.pid in residual:
                     mp.outliers += 1
+    # A part the BFS never reached and no body stands within the identity
+    # spacing × 4 of (10i (3)): HELD at its authored y, reported as a part
+    # with no delta and no cluster (id −1) so ``engine_v2`` leaves it alone.
+    for pid in held_parts:
+        p = ps[pid]
+        mp = members[p.key]
+        mp.part_deltas.append((p.part.comp, -1, None))
+        mp.clusters.add(-1)
     for mp in members.values():
         mp.part_deltas.sort()
-    return Outcome(seats, members, pads, n_cut, len({struct_of[pid] for pid in ps}))
+    return Outcome(seats, members, pads, n_cut, len({struct_of[pid] for pid in ps}),
+                   n_intra_kept, len(held_parts))

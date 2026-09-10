@@ -1061,3 +1061,112 @@ excluded.
 
 Patch body `2813025073b8` for all three post-fix arms (the geometry is
 identical; only the rebake plan moves). Build 332.4 s.
+
+## 14. RULINGS 2026-09-10i: ONE TOUCHING BODY, ONE DELTA — no cut inside a placement, feet across the body (lane `v2rigid`)
+
+Measured on the owner's 1.0.300 LEMD (plan `o4_v2_rebake_LEMD.json`, result
+`o4_v2_rebake_result_LEMD.json`, mesh `Data+40-004.mesh`): 23,371 contact edges,
+**13,979 of them INSIDE one authored placement**; 929 cut; 200 of 288 written
+members carry several deltas; 12,057 pairs of one OBJ8 within 2 m with different
+deltas, 85 sites over 2 m; 86 of the 185 clusters wider than 200 m decided by ONE
+measured foot (k1: 4,202 parts, ⌀982 m, −6.507 against neighbours +2.8).
+
+### 14.1 The four rules
+
+1. **NO CUT INSIDE A PLACEMENT.** The `cluster_seat_tolerance_m` cut applies only
+   to a ground-to-ground contact edge whose two parts belong to DIFFERENT members
+   (`(unit, member)` — one authored placement). An intra-placement edge is never
+   cut: two components of one placement that touch are ONE BODY with ONE delta.
+   The knob is KEPT (it still governs the across-placement cut) — not deleted.
+   A placement carries several deltas only across a physical separation: two of
+   its components with no contact edge (parts further apart than
+   `contact_epsilon_m`, i.e. beyond `identity.min_distinct_spacing_m`).
+2. **FEET ACROSS THE BODY.** Every ground-contact part of a body contributes its
+   feet-founded seat target; the body's ground is their MEDIAN and EVERY part of
+   the body takes that one delta (`ground_m − base(member)`) — the per-part
+   "own target" of 09s (2) is WITHDRAWN, it was the second source of the tear.
+   The per-foot residual (`target − ground_m`, one per measured ground part) is
+   reported in `ClusterSeat.foot_residuals` with its max. A body wider than
+   `[rebake] body_feet_span_m` (100 m) carrying fewer than
+   `ceil(diameter / body_feet_span_m)` measured feet SAMPLES the design surface —
+   the same mesh reader the seat and `tools/seat_feet_census.py` use, one sample
+   per ground-contact part at its footprint centroid `(lat, lon)` with its
+   `base_y` as the authored y — and those samples join the median as additional
+   feet (counted in `ClusterSeat.feet_sampled`).
+3. **PLATES FOLLOW THE BODY THEY TOUCH.** Ground bodies are formed FIRST (rule 1);
+   every elevated / non-founding part is then assigned by multi-source BFS over
+   the contact graph FROM the bodies' ground parts — the body it touches,
+   transitively, never a contact-count vote. A tie at equal hop distance resolves
+   to the body containing a ground part of the SAME placement, then to the lowest
+   body id. An elevated part never bridges two bodies (it joins one; it does not
+   merge them). A part reaching no ground part joins the NEAREST body only when
+   its plan box lies within `identity.min_distinct_spacing_m × 4` (2.0 m) of that
+   body's parts; otherwise it is HELD, with the distance in the skip reason.
+4. **OTHH IS EXEMPT BY CONSTRUCTION.** The interchange basin plates, the tunnel /
+   bridge decks and every `plate_units` member are `fixed` MEMBERS: their parts
+   carry `fixed`/`family`, are excluded from the ground vote and the cut, and
+   their separation from the walls is a structure-seat rule, untouched by 1–3.
+   No special case is added. PROOF PLAN: `tools/v2_rebake_replay.py seat` on the
+   owner's OTHH plan + mesh, both arms, `Dewatering Drainage` 14 / `tunnels` 8 /
+   `Fire Fuel` 3 written deltas within 0.05 m of 1.0.300's. Any family that moves
+   is a STOP-and-report, not a special case.
+
+### 14.2 Consumer census (owner ruling 2026-08-30l): every reader of a cluster id,
+a part delta, `plate_units` and the basin plates
+
+| # | Consumer | Reads | Ruling |
+|---|---|---|---|
+| C1 | `emit/clusters.py::seat_clusters` | the contact graph, `Part.feet`, `fixed`/`family` | THE SITE OF THE CHANGE (rules 1–3) |
+| C2 | `emit/rebake.py` `_plate_seats` / deck seats | builds `fixed`, `family`, `stay` per MEMBER | unchanged — rule 4's exemption lives here |
+| C3 | `emit/rebake.py` member note / `one_delta` | `MemberParts.part_deltas` | unchanged; "several per-vertex deltas" now fires only across a separation |
+| C4 | `emit/rebake.py::_one_file_one_delta` | effective deltas per resource | unchanged (a resource at several anchors still needs agreement) |
+| C5 | `model/rebake.py::SeatResult.counts` | `multi_delta`, `plate_units` | unchanged; `multi_delta` becomes the separation count |
+| C6 | `model/rebake.py::ClusterSeat` | the seat record | EXTENDED: `foot_residuals`, `foot_residual_max_m`, `feet_sampled` (appended, defaulted — old JSON still round-trips) |
+| C7 | `auto_patch/engine_v2.py::_decision` | `ms.part_deltas` → `by_comp`, `held` | unchanged |
+| C8 | `airport/rigid.py::complete_component_deltas` | per-file free components, carrier by contact | unchanged: once one placement is one body its touching carriers share one delta, so the count vote is moot — VERIFIED by the pair census, not asserted |
+| C9 | `airport/rebake_plan.py` | writes `Part.feet`, the witness gate | unchanged; `PLAN_VERSION` stays 6 (no plan format change) |
+| C10 | `airport/contact.py::partition` | ε-contact edges, the elevated cull | unchanged |
+| C11 | `tools/seat_feet_census.py` | `part_deltas` of a result | unchanged (the acceptance instrument) |
+| C12 | `tools/v2_rebake_replay.py` `seat`/`bodies` | plan + result | EXTENDED: `bodies --pairs` is the tear census (pairs of one OBJ8 within 2 m with different deltas) |
+| C13 | basin plate seat (`Basin.witness_id`, 09ac (2)) | the witness resource only | unchanged — a basin plate is a `fixed` member (rule 4) |
+
+### 14.3 Law key
+
+`structures.toml [rebake] body_feet_span_m = 100.0` — a body wider than this
+needs at least one measured foot per that span; short of it the seat samples the
+design surface under every ground-contact part (rule 2). `0` disables the
+sampling (the pre-10i reading).
+
+### 14.4 What was measured (lane `v2rigid`, LEMD patch build 351 s + offline replay
+on the owner's 1.0.300 mesh `Data+40-004.mesh`)
+
+`tools/v2_rebake_replay.py pairs` (new): pairs of one OBJ8 within 2 m whose applied
+deltas differ by more than 0.05 m — **21,769 → 10,026**; over 2 m **12,057 → 505**,
+in **25 → 14** resources. The T4 car park (`Terminal4_yellow-LEMD13`), the old
+terminal (`OldTerminal_FSX-ZNTWR` / `LEMD54` / `tej2` / `LEMD03`) and the T4S k1
+mega-cluster are GONE from the census. `seat_feet_census.py` `> 3 m` **20 → 22**
+(the same instrument on both arms; 09ak's "14" is a different reading).
+`cut_edges` 929 → 318, all across placements; `intra_placement_kept` 672;
+`held_parts` 5; the T4S k1 body 4,202 parts / ⌀982 m / 1 foot → 43 parts / ⌀43 m,
+the satellite now seated +2.83 on 14 feet. OTHH: **byte-for-byte the same 20
+written resources** (Dewatering 9, tunnels 8, Fire Fuel 3), max delta difference
+0.000 m — the exemption held by construction, no special case.
+
+Two findings for the spawner:
+
+* **The partition hid the touch.** `airport/contact.py` records a connectivity-
+  equivalent SPANNING subset, so two components of ONE placement 16 mm apart
+  (`ZNTWR` c0/c4) carried NO edge and the across-placement cut ran along the path
+  between them. Fixed at the derivation site: an intra-placement pair is tested and
+  RECORDED even when already joined transitively (LEMD contacts 23,371 → 34,113,
+  rebake plan 27.0 s, build 351 s).
+* **10i (2)'s sampling cannot manufacture feet.** It reads the surface under the
+  parts that TOUCH the ground; LEMD's T4 complex (5,255 parts, 30 resources,
+  ⌀1,204 m) is authored with its floor 5.36 m above the pack's `y = 0`, so ONE
+  265 m² slab is its only ground-contact part and the rule adds one foot.
+  Widening "ground-contact" to each placement's own lowest stratum was tried and
+  **REFUTED** (pairs over 2 m 505 → 15,763, worst 46 m) and deleted. The residual
+  505 pairs are dominated by one 43-part T4S body whose single foot stands on a
+  design-surface plateau at 588.95 (40.49186, −3.56815) while its neighbours read
+  598.3 — a 9.35 m step in the SURFACE under one welded structure, not a seat law.
+  STOP-and-report under the attempt cap.

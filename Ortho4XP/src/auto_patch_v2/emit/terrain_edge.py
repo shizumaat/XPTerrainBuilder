@@ -43,11 +43,35 @@ def edge_lines(planar: PlanarMap):
     return out
 
 
+def _outward_slab(ln, cov, reach: float, eps: float):
+    """THE GROUND OUTWARD OF ONE EDGE RUN, out to ``reach``.
+
+    NOT an offset polygon and not a single-sided buffer: an offset that
+    large on an edge whose own curvature radius is smaller FOLDS, and the
+    fold is silently cancelled — measured at CYXY, a 66.9 m edge offset
+    205 m self-intersects 170 m out and returns 5,804 m² of a 13,720 m²
+    slab, leaving the bank beyond the edge alive as a 9.5 m mound 125 m
+    down the plateau.
+
+    The region is instead the band within ``reach`` of the run MINUS the
+    design coverage, keeping only what still touches the run: inboard of
+    an edge the coverage IS the design surface, so cutting it away leaves
+    the outward side, and an inboard scrap beyond the coverage is
+    separated from the run by the coverage and dropped."""
+    from shapely.ops import unary_union
+    band = ln.buffer(reach).difference(cov)
+    if band.is_empty:
+        return None
+    keep = [g for g in getattr(band, "geoms", [band])
+            if g.geom_type == "Polygon" and g.distance(ln) <= eps]
+    return unary_union(keep) if keep else None
+
+
 def no_bank_region(planar: PlanarMap, law: Law, cov):
     """THE GROUND BEYOND THE EDGE, as one geometry to cut out of the
     banked region (``emit/bank.with_bank``), or ``None``.
 
-    Per edge segment run: the SINGLE-SIDED slab of ``bank_max_width_m +
+    Per edge segment run: the half-slab of ``bank_max_width_m +
     bank_min_width_m`` on the side the design coverage is NOT on — the
     whole reach a bank could otherwise have taken — minus the coverage
     itself, which no cut may ever eat into."""
@@ -57,22 +81,9 @@ def no_bank_region(planar: PlanarMap, law: Law, cov):
         return None
     d = law.tables.emit.design
     reach = float(d.bank_max_width_m) + float(d.bank_min_width_m)
-    slabs = []
-    for ln in lines:
-        best = None
-        for side in (reach, -reach):
-            try:
-                slab = ln.buffer(side, single_sided=True)
-            except Exception:                           # pragma: no cover
-                continue
-            if slab.is_empty:
-                continue
-            # the OUTWARD side is the one the design surface is not on
-            score = slab.intersection(cov).area if slab.intersects(cov) else 0.0
-            if best is None or score < best[0]:
-                best = (score, slab)
-        if best is not None:
-            slabs.append(best[1])
+    eps = snap_margin_m(law)
+    slabs = [s for s in (_outward_slab(ln, cov, reach, eps) for ln in lines)
+             if s is not None]
     if not slabs:
         return None
     geom = unary_union(slabs).difference(cov)

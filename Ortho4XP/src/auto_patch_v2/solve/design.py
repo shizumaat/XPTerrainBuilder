@@ -73,7 +73,8 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matri
                    _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
-           "bend_roles", "pavement_roles", "bend_class", "apron_roles", "hard_rulings",
+           "bend_roles", "pavement_roles", "bend_class", "apron_roles",
+           "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
@@ -125,11 +126,30 @@ def apron_roles(law: Law) -> frozenset[str]:
     """The roles of an APRON BODY — every role the bending term prices at
     ``bend_apron`` (a value role that is not the runway family, the taxi
     family or the road cross-section).  These are the bodies the PER-BODY
-    DATUM sits (RULINGS 2026-09-09p (3)); the runway and taxi families are
-    excluded because the threshold chord and the taxi design profile ARE
-    their datums, and a structure's own surface is not a body at all."""
+    DATUM sits (RULINGS 2026-09-09p (3)); the runway family is excluded
+    because the threshold chord and its pins ARE its datum, and a
+    structure's own surface is not a body at all."""
     return frozenset(r for r in pavement_roles(law)
                      if bend_class(law, r) == "apron")
+
+
+def taxi_body_roles(law: Law) -> frozenset[str]:
+    """The roles of a TAXI BODY (owner RULINGS 2026-09-10p) — every value
+    role the bending term prices at ``bend_taxi``.  A taxi body is formed
+    exactly as an apron body is: the connected group of faces of THESE
+    roles.  A runway face is never in one (its role is not here), so a
+    taxi body may TOUCH a runway without joining it."""
+    return frozenset(r for r in pavement_roles(law)
+                     if bend_class(law, r) == "taxi")
+
+
+def datum_roles(law: Law) -> tuple[tuple[str, frozenset[str]], ...]:
+    """The role sets the PER-BODY DATUM sits on, each with its class name
+    (owner RULINGS 2026-09-10p): the apron family and the taxi family, as
+    TWO SEPARATE partitions — an apron face and a taxi face that touch are
+    two bodies with two datums, never one.  The runway family is excluded
+    (its chord and pins are its datum)."""
+    return (("apron", apron_roles(law)), ("taxi", taxi_body_roles(law)))
 
 
 def one_way_rulings(law: Law) -> frozenset[str]:
@@ -185,9 +205,17 @@ class DesignReport:
     triangles: int = 0
     components: int = 0
     detached: int = 0
-    #: THE PER-BODY DATUM (RULINGS 2026-09-09p (3)): one row per APRON
-    #: BODY, its mean z against the mean DEM under its own vertices
+    #: THE PER-BODY DATUM (RULINGS 2026-09-09p (3), 2026-09-10p): one row
+    #: per APRON and per TAXI BODY, its mean z against the mean DEM under
+    #: its own vertices
     body_datum_rows: int = 0
+    #: how many of those rows are TAXI bodies (owner RULINGS 2026-09-10p)
+    taxi_datum_rows: int = 0
+    #: one record per datum row — ``kind`` (``apron`` / ``taxi``), the
+    #: body's ``ll`` identity (its first vertex), how many vertices its
+    #: mean is over, the MEAN DEM under it and the solved RESIDUAL
+    #: (mean z − mean DEM).  The owner's read is the taxi rows.
+    body_datums: list[dict[str, _t.Any]] = _dc.field(default_factory=list)
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
@@ -230,6 +258,8 @@ class DesignReport:
                 "triangles": self.triangles, "components": self.components,
                 "detached": self.detached,
                 "body_datum_rows": self.body_datum_rows,
+                "taxi_datum_rows": self.taxi_datum_rows,
+                "body_datums": self.body_datums,
                 "bank_rows": self.bank_rows,
                 "hard_rows": self.hard_rows, "hard_active": self.hard_active,
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
@@ -245,14 +275,27 @@ class DesignReport:
                 "solver_wall_s": round(self.solver_wall_s, 3),
                 "families": self.families, "terms": self.terms}
 
+    def _taxi_datum_line(self) -> str:
+        """The TAXI bodies' datum residuals (owner RULINGS 2026-09-10p) —
+        the worst three by |residual|, each with its mean DEM."""
+        taxi = sorted((r for r in self.body_datums if r["kind"] == "taxi"),
+                      key=lambda r: -abs(r["residual_m"]))[:3]
+        if not taxi:
+            return ""
+        return (" (worst taxi datums " + ", ".join(
+            f"{r['residual_m']:+.2f} m on DEM {r['dem_mean_m']:.2f}"
+            for r in taxi) + ")")
+
     def line(self) -> str:
         worst = sorted(self.families.items(), key=lambda kv: -kv[1]["max_m"])[:6]
         return (f"design (08t): {self.rounds} active-set round(s)"
                 f"{'' if self.converged else ' (SET NOT SETTLED)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
-                f"({self.detached} detached), {self.body_datum_rows} apron "
-                f"bodies on their own DEM mean, {self.bank_rows} bank rows off the "
+                f"({self.detached} detached), {self.body_datum_rows} bodies "
+                f"({self.taxi_datum_rows} taxi) on their own DEM mean"
+                + self._taxi_datum_line()
+                + f", {self.bank_rows} bank rows off the "
                 f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
@@ -300,6 +343,18 @@ def residual(cs: ConstraintSet, z: np.ndarray, objective: float) -> Residual:
 
 # ── THE SOLVE ───────────────────────────────────────────────────────────
 
+@_dc.dataclass(frozen=True)
+class _BodyDatum:
+    """One PER-BODY DATUM row's body: which family formed it (``apron`` /
+    ``taxi``, :func:`datum_roles`), the vertices its mean is taken over and
+    the MEAN PRODUCTION DEM under them — the report's residual is the
+    body's solved mean minus this."""
+
+    kind: str
+    vertices: tuple[int, ...]
+    dem_mean: float
+
+
 @_dc.dataclass
 class Base:
     """The assembled design problem before the active set runs: the ALWAYS-ON
@@ -329,6 +384,9 @@ class Base:
     #: (1)): each is dense in ``AᵀA``, so they reach the linear solve as
     #: the low-rank term ``U`` (:data:`LOW_RANK_MODES`), never factorised.
     body: "_Rows | None" = None
+    #: one record per datum row, in the row order of ``body`` — what the
+    #: report reads its residual and its DEM mean from (RULINGS 2026-09-10p)
+    body_meta: list["_BodyDatum"] = _dc.field(default_factory=list)
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -609,9 +667,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     ONE row, NEVER per vertex: the datum fixes the body's LEVEL and
     #     leaves its designed shape (and its tilt) to the bending term, so
     #     bodies sit where the ground is and the taxiways climb between
-    #     them at their own caps.  The runway and taxi families are
-    #     excluded — they carry the threshold chord and the taxi design
-    #     profile, which ARE their datums.
+    #     them at their own caps.
+    #     EVERY TAXI BODY TAKES THE SAME ROW (owner RULINGS 2026-09-10p,
+    #     closing 10o): the taxi profile is a SECOND-DIFFERENCE row with
+    #     RHS 0 — curvature, no level — so a long parallel taxiway had no
+    #     datum at all and extrapolated its level from its far contact
+    #     while the DEM rose under it (CYXY `pav28`: z − DEM median
+    #     −6.17 m).  The taxi bodies are a SEPARATE partition, formed as
+    #     the apron bodies are (:func:`datum_roles`), so an apron face and
+    #     a taxi face that touch stay two bodies on two terrain means.
+    #     The RUNWAY family stays excluded — the threshold chord and its
+    #     pins ARE its datum — and a taxi body's runway contacts stay
+    #     hard: the final projection (``solve/project.py``) absorbs any
+    #     conflict into the body's non-runway vertices.
     #     ``detached_mean`` is SUBSUMED in effect for an apron body (the
     #     same DEM under the same vertices); it is not deleted, because it
     #     is also what anchors the TILT of a component nothing else holds,
@@ -630,17 +698,23 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     which also records what taking the BODIES from the partition
     #     measured at CYXY).
     body = _Rows(red)
-    for vs_b in _shape_bodies(planar, red,
-                              _role_bodies_faced(planar, apron_roles(law), red)):
-        zs = [float(planar.vertices[v].dem_z) for v in vs_b]
-        if not zs:
-            continue
-        w = 1.0 / len(vs_b)
-        body.add([(v, w) for v in vs_b], sum(zs) / len(zs), d.body_datum,
-                 ("body_datum", vs_b[0]))
+    meta: list[_BodyDatum] = []
+    for kind, roles_b in datum_roles(law):
+        for vs_b in _shape_bodies(planar, red,
+                                  _role_bodies_faced(planar, roles_b, red)):
+            zs = [float(planar.vertices[v].dem_z) for v in vs_b]
+            if not zs:
+                continue
+            w = 1.0 / len(vs_b)
+            mean_dem = sum(zs) / len(zs)
+            if body.add([(v, w) for v in vs_b], mean_dem, d.body_datum,
+                        ("body_datum", vs_b[0])):
+                meta.append(_BodyDatum(kind=kind, vertices=tuple(vs_b),
+                                       dem_mean=mean_dem))
     rep.body_datum_rows = body.n
+    rep.taxi_datum_rows = sum(1 for m in meta if m.kind == "taxi")
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v, body)
+                chord_v, road_v, body, meta)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -965,6 +1039,19 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if Ub is not None and x is not None:
         rep.terms["body_datum"] = round(float(np.sum((Ub @ x - cb) ** 2)), 3)
         rep.terms = dict(sorted(rep.terms.items()))
+    # EACH BODY'S DATUM RESIDUAL (owner RULINGS 2026-09-10p): the solved
+    # mean of the body's own vertices against the mean production DEM
+    # under them — the number the owner's CYXY read is about.
+    rep.body_datums = [
+        {"kind": m.kind,
+         "ll": [planar.vertices[m.vertices[0]].key[0],
+                planar.vertices[m.vertices[0]].key[1]],
+         "vertices": len(m.vertices),
+         "dem_mean_m": round(m.dem_mean, 3),
+         "residual_m": round(
+             sum(float(z[v]) for v in m.vertices) / len(m.vertices)
+             - m.dem_mean, 3)}
+        for m in base_p.body_meta]
     if size_out is not None:
         size_out.update({"columns": red.n_cols, "z": n, "rows": rep.rows,
                          "nnz": int(A.nnz), "triangles": rep.triangles,

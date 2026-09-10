@@ -200,7 +200,18 @@ def test_a_taxi_crossing_rides_the_runways_crown(crossing, law):
         assert section[k_ridge] >= max(section[k_ridge - 1],
                                        section[k_ridge + 1]) - 1e-6, \
             "the ridge is the high point of the crossing, never a dip"
+        # RE-SCOPED (owner RULINGS 2026-09-10p, lane v2taxidatum): the
+        # MOUTHS (k = 3, 5) are the runway's own crown EDGE, checked
+        # exactly above.  With the taxi body on its own terrain mean the
+        # ground beside the runway can stand ABOVE that edge (this
+        # fixture's DEM tilts 0.004 across a runway pinned flat), and the
+        # taxiway then falls into the edge as a real one does — the mouth
+        # is a local minimum BY THE CROWN, not a sag in the crossing.
+        # The ruling's "never a dip" is about the stations across the
+        # slab and along the approaches, which is what is asserted here.
         for k in range(1, len(section) - 1):
+            if k in (k_ridge - 1, k_ridge + 1):
+                continue
             assert section[k] >= min(section[k - 1], section[k + 1]) - 1e-6, \
                 f"station {k} of the crossing sits below BOTH its neighbours"
 
@@ -311,8 +322,12 @@ def test_the_body_datum_is_one_row_per_body_never_per_vertex(two_benches, law):
     08t answer 1 removed, wearing a datum's clothes."""
     pm, _z, rep, _airport, _r = two_benches
     means = _body_means(pm, law, _z_of(pm))
-    assert rep.body_datum_rows == len(means), \
-        "one datum row per apron body, and no more"
+    # RE-SCOPED (owner RULINGS 2026-09-10p, lane v2taxidatum): the TAXI
+    # bodies carry the same row, so the count is apron bodies + taxi
+    # bodies — still ONE row each, never one per vertex.
+    assert rep.taxi_datum_rows >= 1, "the taxiway between the benches is a body"
+    assert rep.body_datum_rows == len(means) + rep.taxi_datum_rows, \
+        "one datum row per apron body and per taxi body, and no more"
 
 
 def _z_of(pm):

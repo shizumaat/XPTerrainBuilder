@@ -510,6 +510,35 @@ engine gains a blend band outside the patch boundary; or (c) the cliff is
 the "bank at the edge" 08t answer 2 accepts and stands.  The lane changed
 nothing on its own judgement.
 
+### 8.5 AMENDMENT — THE TAXI BODY'S DATUM (owner RULINGS 2026-09-10p, closing the 10o attribution; lane `v2taxidatum`)
+
+§8.2 (1) gave every taxi centreline a design PROFILE — a second-difference
+row with RHS 0.  That is curvature, and curvature has no level: 10o
+measured CYXY's 1,664 m parallel `pav28` extrapolating its level from its
+far contact at the apron end while the ground rose 694 → 696.4 m under it
+(z − DEM median −6.17 m, min −10.05, "held by bending alone").
+
+**The datum roles are now the APRON family AND the TAXI family**
+(`solve/design.datum_roles`, replacing the apron-only `apron_roles` at the
+row builder).  A TAXI BODY is a connected group of taxi-family faces —
+faces sharing a vertex, `_role_bodies_faced` exactly as an apron body is
+formed — and the two families are SEPARATE partitions: an apron face and a
+taxi face that touch stay two bodies on two terrain means.  A runway face
+is never in a taxi body (its role is not in the set), so a taxi body may
+TOUCH a runway without joining it.  Each such body carries the SAME ONE
+weak row apron bodies carry (§14): its mean z against the mean production
+DEM under its own vertices, weight `[design] body_datum`, membership from
+the shape partition (09v), accumulated into the low-rank term (09r (1)),
+never per vertex.  The RUNWAY family stays excluded — its threshold chord
+and pins are its datum — its contacts stay hard, and the final projection
+(§16) absorbs any conflict into the body's non-runway vertices.
+
+The report gains `taxi_datum_rows` and `body_datums`: one record per datum
+row — `kind` (apron / taxi), the body's `ll` identity, its vertex count,
+its MEAN DEM and its solved RESIDUAL — and the `[v2] design` line names
+the three worst taxi residuals with their means.  Twins:
+`tests/auto_patch_v2/test_v2taxidatum.py`.
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

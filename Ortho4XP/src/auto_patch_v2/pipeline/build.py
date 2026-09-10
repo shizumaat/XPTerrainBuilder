@@ -23,6 +23,7 @@ from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
 from ..constraints.runway_profile import RUNWAY_FAMILY
 from ..emit.bank import BankReport, with_bank
+from ..emit.terrain_edge import with_terrain_edges
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
 from ..airport.rebake_plan import plan as rebake_plan
@@ -271,6 +272,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
     sh = pstats.shapes
     if sh.faces:
+        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19)
+        _say(f"[{icao}] " + pstats.terrain_edge.line(), out)
         # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
         _say(f"[{icao}] network (08p): {sh.network_faces} of {sh.faces} pavement faces "
              f"({', '.join(f'{k} {n}' for k, n in sorted(sh.network_by_role.items()))}), "
@@ -583,6 +586,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # one (spec §9.2 A7).
         brep = BankReport()
         surf_out = with_bank(surf, pm, law, airport, brep)
+        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
+        # the edge segments published as open ways over the vertices they
+        # already run through — the owner's KML read of where ground ends
+        surf_out = with_terrain_edges(surf_out, pm, law)
         _say(brep.line(icao), out)
         report["bank"] = _dc.asdict(brep)
         paths = write_patch(surf_out, law, out_dir, pub, header,

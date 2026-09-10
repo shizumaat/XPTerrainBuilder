@@ -12,13 +12,13 @@ import typing as _t
 
 from ..law import Law
 from ..model.airport import Airport
-from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Row
+from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
 from . import (apron, ceiling, flat_site, groundside, junction_mesh, no_step, pads,
                proximity, roads, routes, runway_profile, seams, strips, structures,
-               taxi, transverse, zones)
+               taxi, transverse, water, zones)
 
-__all__ = ["GENERATORS", "generate", "stack", "seam_exempt"]
+__all__ = ["GENERATORS", "generate", "stack", "seam_exempt", "water_exempt"]
 
 Generator = _t.Callable[[PlanarMap, Law, Airport], list[Row]]
 
@@ -53,6 +53,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("pad_flats", pads.pad_flats),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
     ("frontage_near_miss", pads.frontage_near_miss),
+    ("water_pins", water.water_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
     ("structures", structures.structures),
@@ -91,6 +92,13 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         stats = (getattr(_sys.modules.get(fn.__module__), "STATS", None) or {}).get(fn.__name__)
         for k, v in (stats or {}).items():
             counts[f"{name}.{k}"] = int(v)
+    # WATER IS A DATUM (owner RULINGS 2026-09-09m (1)): a ground vertex the
+    # water pin fixes is no longer an unknown — every OTHER row that would
+    # govern it is withdrawn, BEFORE the seam pass (a seam vertex on water
+    # takes the water level, not the DEM's).
+    rows, n_water = water_exempt(rows)
+    counts["water_pin_row_withdrawn"] = n_water
+    walls["water_pin_row_withdrawn"] = 0.0
     rows, n_exempt = seam_exempt(rows, seam_honoured)
     counts["seam_pin_pair_exempt"] = n_exempt
     walls["seam_pin_pair_exempt"] = 0.0
@@ -109,6 +117,52 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         counts[ceiling.GEN] = len(caps)
         rows.extend(caps)
     return stack(rows), counts, walls
+
+
+def water_exempt(rows: list[Row]) -> tuple[list[Row], int]:
+    """THE WATER PIN IS THE VERTEX'S OWN LAW (owner RULINGS 2026-09-09m
+    (1); ``constraints/water.py``).
+
+    A ground vertex the water pin fixes "is not an unknown of the sheet",
+    so every OTHER row that would GOVERN it is withdrawn:
+
+    * a second ``Pin`` on it (a declared datum) — two equalities on one
+      vertex is a contradiction, and water outranks;
+    * a one-way row whose governed vertex (``follows``) is pinned — a
+      zone band cannot fight the datum it stands in;
+    * any row ALL of whose vertices are pinned — it prices water against
+      water (the seam-pin precedent, :func:`seam_exempt`).
+
+    A row with ONE pinned vertex and one free one STAYS: that is the
+    shoreline, and the shore is a BANK (09m (2)) — the next round's, and
+    reported meanwhile, never silently dropped.
+
+    Returns the rows and the number withdrawn.
+    """
+    pinned = water.water_vertices_pinned(rows)
+    if not pinned:
+        return rows, 0
+    out: list[Row] = []
+    n = 0
+    for r in rows:
+        if isinstance(r, Pin):
+            if r.source.generator == water.GEN or r.v not in pinned:
+                out.append(r)
+            else:
+                n += 1
+            continue
+        follows = getattr(r, "follows", None)
+        if follows is not None and follows in pinned:
+            n += 1
+            continue
+        if isinstance(r, Linear) and all(v in pinned for v, _c in r.terms):
+            n += 1
+            continue
+        if isinstance(r, (Diff, Offset)) and r.a in pinned and r.b in pinned:
+            n += 1
+            continue
+        out.append(r)
+    return out, n
 
 
 def seam_exempt(rows: list[Row], honoured: _t.Container[int] | None = None

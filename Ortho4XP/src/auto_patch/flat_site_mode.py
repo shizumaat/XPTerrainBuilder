@@ -750,6 +750,52 @@ def flat_site_substitutions(tile, dico_airports=None,
     return out
 
 
+#: THE WATER CUT-OUT (owner RULINGS 2026-09-09m; mechanism 09o (2)).
+#: The synthetic flat-site inset is a constant-Z0 BBOX, and at a coastal
+#: airport that bbox covers water: measured at OTHH on the owner's
+#: 1.0.297 build, ``Data+25+051.alt`` reads Z0 3.962 m over 80.7 % of the
+#: airport bbox INCLUDING the canal and ~1 km of open sea, which is the
+#: plateau the owner saw ("water being lifted up to terrain level").
+#: A flat site's Z0 is the datum of its PAVEMENT; it was never a claim
+#: about the sea beside it.  So the water is cut out of the raster:
+#: nodata there, which is exactly what ``_bake_one_inset`` already means
+#: by "the base keeps its value", with a hard mask edge at the shoreline
+#: — the vertical sea wall a reclaimed edge is ruled to have (R17b-2),
+#: never a beach ramp.
+def water_cutout(tile):
+    """The tile's WATER as one tile-relative geometry, or ``None``.
+
+    ``O4_Vector_Map.cached_tile_water`` is the ONE reader (sea from the
+    coastline partition, inland from the cached ``water`` layer — the
+    layers the mesh's own masks are built from); it never downloads, so
+    a tile with no cache on disk answers ``None`` and the bake is the
+    pre-change constant bbox.  Memoised on the tile.
+    """
+    cached = getattr(tile, "_flat_site_water_cutout", "unset")
+    if cached != "unset":
+        return cached
+    out = None
+    try:
+        import O4_Vector_Map as VMAP
+        from shapely.ops import unary_union
+
+        sea, inland = VMAP.cached_tile_water(tile)
+        parts = [g for g in (sea, inland) if g is not None and not g.is_empty]
+        if parts:
+            union = unary_union(parts)
+            out = None if union.is_empty else union
+    except Exception as error:                           # pragma: no cover
+        UI.vprint(1, "   [flat-site] water cut-out unavailable (%s: %s) — the "
+                     "synthetic inset covers its whole bbox."
+                  % (type(error).__name__, error))
+        out = None
+    try:
+        tile._flat_site_water_cutout = out
+    except Exception:                                    # pragma: no cover
+        pass
+    return out
+
+
 def _attach_claimed_object_clusters(substitutions, icaos, anchor_by_icao,
                                     extent_by_icao, xplane_root: str,
                                     tile_lat: int, tile_lon: int) -> None:

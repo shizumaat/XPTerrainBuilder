@@ -8620,8 +8620,12 @@ class _MaskedConstantInset(_ConstantInset):
     """
 
     def __init__(self, polygon, elevation_m, x_step, y_step, *, label=None,
-                 nodata=-32768.0, base_reader=None, band_m=None):
-        minx, miny, maxx, maxy = polygon.bounds
+                 nodata=-32768.0, base_reader=None, band_m=None, bounds=None):
+        # ``bounds`` pins the RECTANGLE (2026-09-09o (2)): the flat-site
+        # water cut hands in a polygon that may not reach its own
+        # rectangle's corners, and the bake's feather is driven from the
+        # data edge — a clipped corner must not move it.
+        minx, miny, maxx, maxy = bounds if bounds is not None else polygon.bounds
         step_x = abs(float(x_step)) / _ISTHMUS_MASK_SUBDIVISION
         step_y = abs(float(y_step)) / _ISTHMUS_MASK_SUBDIVISION
         nx = int(numpy.ceil((maxx - minx) / step_x)) + 1 if step_x else 2
@@ -8698,6 +8702,49 @@ class _MaskedConstantInset(_ConstantInset):
             except Exception:                              # pragma: no cover
                 continue
         return numpy.array(image, dtype=bool)
+
+
+def _flat_site_inset(tile, extent_deg, z0_m, feather_m, label, water):
+    """The synthetic flat-site raster for one rectangle — WATER CUT OUT.
+
+    Owner RULINGS 2026-09-09m, mechanism 09o (2).  ``water`` is the
+    tile's water geometry (``auto_patch.flat_site_mode.water_cutout``,
+    tile-relative) or ``None``.  With no water over the rectangle this
+    returns exactly the ``_ConstantInset`` the pre-change code built, so
+    an inland airport (CYXY, HECA, LEMD) is untouched; with water it
+    returns a ``_MaskedConstantInset`` over ``rectangle − water``,
+    pinned to the SAME rectangle so the bake's feather does not move.
+
+    Returns ``(inset, water_cut_frac)`` — the fraction of the rectangle
+    the water removed (``0.0`` when none), for the provenance stamp.
+    """
+    rect = _feather_outward_extent(tile, *extent_deg, feather_m)
+    if water is None or water.is_empty:
+        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    from shapely import geometry as _geometry
+
+    box = _geometry.box(*rect)
+    try:
+        if not water.intersects(box):
+            return _ConstantInset(*rect, z0_m, label=label), 0.0
+        land = box.difference(water)
+    except Exception:                                      # pragma: no cover
+        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    if land.is_empty:
+        return None, 1.0
+    frac = 0.0 if box.area <= 0 else float(1.0 - land.area / box.area)
+    if frac < 1e-6:
+        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    base_dem = tile.dem
+    x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
+              if base_dem.nxdem > 1 else 0.0)
+    y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
+              if base_dem.nydem > 1 else 0.0)
+    inset = _MaskedConstantInset(land, z0_m, x_step, y_step, label=label,
+                                 bounds=rect)
+    if not inset.mask_valid_posts:                         # pragma: no cover
+        return None, 1.0
+    return inset, round(frac, 4)
 
 
 def _bake_island_continuity(tile, stamped, feather_m):
@@ -8890,17 +8937,36 @@ def overlay_flat_site_insets(tile, dico_airports=None):
     feather_m = getattr(tile, "airport_elevation_inset_feather_m", 60.0)
     stamped = list(getattr(base_dem, "synthetic_flat_site_provenance", None)
                    or [])
+    # THE WATER CUT-OUT (owner RULINGS 2026-09-09m; 09o (2)) — read once
+    # per tile, from the cached coastline/water layers only.
+    try:
+        water = FLAT_SITE_MODE.water_cutout(tile)
+    except Exception as error:                             # pragma: no cover
+        UI.vprint(0, "   [flat-site] water cut-out FAILED (",
+                  type(error).__name__, ":", str(error),
+                  ") - synthetic insets cover their whole bbox.")
+        water = None
     for substitution in substitutions:
         icao = substitution["icao"]
         x0, y0, x1, y1 = substitution["extent_deg"]
         # R17c-2: the raster is grown by the feather so the ramp lands
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
-        inset = _ConstantInset(
-            *_feather_outward_extent(tile, x0, y0, x1, y1, feather_m),
-            substitution["z0_m"],
-            label="%s synthetic flat-site inset" % icao,
-        )
+        inset, water_frac = _flat_site_inset(
+            tile, (x0, y0, x1, y1), substitution["z0_m"], feather_m,
+            "%s synthetic flat-site inset" % icao, water)
+        if inset is None:
+            UI.vprint(
+                0,
+                "   [flat-site] %s: the whole synthetic extent is WATER — "
+                "nothing substituted, the real surface stands." % icao)
+            continue
+        if water_frac:
+            UI.vprint(
+                1,
+                "   [flat-site] %s: %.1f %% of the synthetic extent is WATER "
+                "and is CUT OUT of the Z0 raster (the base DEM stands there; "
+                "the mask edge is the sea wall)." % (icao, 100.0 * water_frac))
         try:
             _bake_one_inset(tile, None, feather_m, inset=inset)
         except Exception as error:
@@ -8928,6 +8994,9 @@ def overlay_flat_site_insets(tile, dico_airports=None):
             ],
             "extent_area_km2": substitution.get("extent_area_km2"),
             "feather_m": float(feather_m),
+            # 09o (2): the fraction of the (feathered) rectangle the water
+            # cut removed.  0.0 is "measured, none" — never absent.
+            "water_cut_frac": float(water_frac),
             "record": substitution["record"],
             # R11-1/R11-2: the clusters this airport was REFUSED, filled
             # in below.  Stamped on the AIRPORT's entry because a refused
@@ -8955,12 +9024,19 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # CIFP consensus over ITS apt.dat footprint.
         for cluster in (substitution.get("object_clusters") or ()):
             cx0, cy0, cx1, cy1 = cluster["extent_deg"]
-            cluster_inset = _ConstantInset(
-                *_feather_outward_extent(tile, cx0, cy0, cx1, cy1,
-                                         feather_m),
-                substitution["z0_m"],
-                label="%s synthetic flat-site object-cluster inset" % icao,
-            )
+            # 09o (2): a cluster rectangle is cut at the water too — the
+            # channel this law already refuses to span must not be
+            # flattened from either side.
+            cluster_inset, cluster_water_frac = _flat_site_inset(
+                tile, (cx0, cy0, cx1, cy1), substitution["z0_m"], feather_m,
+                "%s synthetic flat-site object-cluster inset" % icao, water)
+            cluster["water_cut_frac"] = float(cluster_water_frac)
+            if cluster_inset is None:
+                UI.vprint(
+                    0,
+                    "   [flat-site] %s: a claimed-object cluster rectangle is "
+                    "entirely WATER — not substituted." % icao)
+                continue
             try:
                 ring_offset_m = _bake_one_inset(
                     tile, None, feather_m, inset=cluster_inset,

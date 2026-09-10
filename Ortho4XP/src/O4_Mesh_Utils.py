@@ -783,6 +783,11 @@ def post_process_nodes_altitudes(tile):
     # EXACTLY INTERP_ALT), which are what the free-interior
     # interpolation governs — see its note above.
     _interp_alt_only_tris = []
+    water_bits = (
+        VECT.Vector_Map.dico_attributes["WATER"]
+        | VECT.Vector_Map.dico_attributes["SEA"]
+        | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
+    )
     degenerate_attr_nbr = 0
     degenerate_attr_sample = []
     for i in range(nbr_tri):
@@ -804,7 +809,27 @@ def post_process_nodes_altitudes(tile):
             if len(degenerate_attr_sample) < 3:
                 degenerate_attr_sample.append((i + 1, columns[4], v1))
             continue
-        if attr >= dico_attributes["INTERP_ALT"]:
+        # WATER IS A DATUM — THE WATER BIT OUTRANKS THE SEED (owner
+        # RULINGS 2026-09-09m, mechanism 09o (3)).  This test used to be
+        # ``attr >= INTERP_ALT`` FIRST, so any water triangle an
+        # INTERP_ALT seed reached was exempt from sea levelling, copied
+        # the DEM (:968-970) and kept whatever the DEM had there.  At
+        # OTHH that is 2,180 SEA|INTERP_ALT triangles over 13.7 km2 of
+        # water, 1,692 of them carrying a 3.962 m step one triangle wide
+        # — the canal sawtooth and the "water lifted to terrain level"
+        # the owner read.  Water is a datum: a triangle carrying ANY
+        # water bit takes sea/water levelling regardless of the seed.
+        #
+        # THIS DOES NOT TOUCH PAVEMENT.  ``PATCH_RING_MARKER``
+        # (O4_Vector_Map:76) puts all four bits on the closed patch RING
+        # so the flood STOPS at the pavement boundary and the interior
+        # keeps bit 8 ALONE — segment marks never become triangle
+        # attributes.  What this reclassifies is exactly what the ring
+        # failed to fence: open water a seed reached.  The seawall
+        # (O4_Vector_Map:105-125) stays marker-8-only by design; its
+        # 0.5 m foreshore band is SEA-owned and now levels as the wall
+        # law says it should instead of freezing at the DEM.
+        if not (attr & water_bits) and attr >= dico_attributes["INTERP_ALT"]:
             interp_alt_tris.add((v1, v2, v3))
             if attr == dico_attributes["INTERP_ALT"]:
                 _interp_alt_only_tris.append((v1, v2, v3))

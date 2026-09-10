@@ -387,6 +387,100 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
     }
 
 
+#: The water bits of ``O4_Vector_Utils.Vector_Map.dico_attributes``
+#: (WATER 1 | SEA 2 | SEA_EQUIV 4).  Spelled here so the tool reads a
+#: mesh with no engine import; ``tests/test_mesh_water_audit.py``
+#: twin-asserts it against the engine's own table.
+WATER_BITS = 7
+
+
+def water_audit(mesh_path, step_flag_m=1.0, zero_tol_m=1e-3, near=None):
+    """IS THE WATER FLAT, AND AT ITS DATUM? (owner RULINGS 2026-09-09m;
+    mechanism 09o).
+
+    The acceptance read for the water round, over the built mesh's WATER
+    triangles (any of :data:`WATER_BITS`):
+
+    * every water VERTEX's z — how many stand at 0.000 and how many do
+      not, with the commonest non-zero values named (at OTHH on 1.0.297
+      they were 699 at 0.000 and 782 at exactly 3.962, interleaved along
+      the canal at 0.9 m: the flat-site plateau);
+    * every water TRIANGLE's z-STEP (max − min over its three corners) —
+      how many exceed ``step_flag_m`` (1,692 of 2,197 on 1.0.297): a
+      one-triangle-wide step in open water is the sawtooth the owner saw;
+    * the same two, restricted to ``near = (lat, lon, radius_m)`` when
+      given — the owner's site.
+
+    Attributes are reported as a histogram beside the counts, because
+    ``SEA|INTERP_ALT`` (10) versus bare ``SEA`` (2) is the whole
+    attribution: 10 means an INTERP_ALT seed reached that water.
+
+    Returns the payload dict; prints it.
+    """
+    import collections
+
+    (nv, lon, lat, zed, tri, att) = _read_mesh_attributed(mesh_path)
+    nt = len(att)
+    wet_tris = [i for i in range(nt) if att[i] & WATER_BITS]
+    payload = {"triangles_tile": nt, "water_triangles": len(wet_tris),
+               "step_flag_m": step_flag_m, "zero_tol_m": zero_tol_m}
+    print(f"water audit — mesh {mesh_path}")
+    print(f"  triangles {nt}, water (attr & {WATER_BITS}) {len(wet_tris)}")
+    if not wet_tris:
+        print("  no water triangles in this mesh")
+        return payload
+    attrs = collections.Counter(att[i] for i in wet_tris)
+    payload["water_attributes"] = {str(k): v for k, v in attrs.most_common()}
+    print("  attributes: " + ", ".join(f"{k}x{v}" for k, v in attrs.most_common()))
+
+    def _report(label, idx):
+        verts = set()
+        steps = []
+        for i in idx:
+            a, b, c = tri[3 * i], tri[3 * i + 1], tri[3 * i + 2]
+            verts.update((a, b, c))
+            zs = (zed[a], zed[b], zed[c])
+            steps.append(max(zs) - min(zs))
+        zs = [zed[v] for v in sorted(verts)]
+        at_zero = sum(1 for z in zs if abs(z) <= zero_tol_m)
+        non_zero = collections.Counter(round(z, 3) for z in zs
+                                       if abs(z) > zero_tol_m)
+        stepped = sum(1 for s in steps if s > step_flag_m)
+        out = {"triangles": len(idx), "vertices": len(zs),
+               "vertices_at_zero": at_zero,
+               "vertices_not_zero": len(zs) - at_zero,
+               "vertices_not_zero_top": [[v, n] for v, n in
+                                         non_zero.most_common(5)],
+               "triangles_stepped": stepped,
+               "max_step_m": round(max(steps), 3) if steps else 0.0}
+        print(f"  [{label}] {len(idx)} triangle(s), {len(zs)} vertex(es): "
+              f"{at_zero} at 0.000, {len(zs) - at_zero} NOT"
+              + (" (" + ", ".join(f"{v:.3f}x{n}" for v, n in
+                                  non_zero.most_common(5)) + ")"
+                 if non_zero else ""))
+        print(f"  [{label}] z-step > {step_flag_m:g} m: {stepped} triangle(s); "
+              f"max step {out['max_step_m']:.3f} m")
+        return out
+
+    payload["frame"] = _report("frame", wet_tris)
+    if near:
+        (nlat, nlon, radius_m) = near
+        m_lat = math.pi * R_EARTH_M / 180.0
+        m_lon = m_lat * math.cos(math.radians(nlat))
+        sel = []
+        for i in wet_tris:
+            a, b, c = tri[3 * i], tri[3 * i + 1], tri[3 * i + 2]
+            cx = (lon[a] + lon[b] + lon[c]) / 3.0
+            cy = (lat[a] + lat[b] + lat[c]) / 3.0
+            if math.hypot((cx - nlon) * m_lon, (cy - nlat) * m_lat) <= radius_m:
+                sel.append(i)
+        payload["near"] = {"lat": nlat, "lon": nlon, "radius_m": radius_m}
+        payload["near"].update(_report(f"within {radius_m:g} m of "
+                                       f"{nlat:.4f},{nlon:.4f}", sel)
+                               if sel else {"triangles": 0})
+    return payload
+
+
 def _tile_origin(path):
     match = re.search(r"([-+]\d{2})([-+]\d{3})", path)
     if not match:
@@ -460,10 +554,36 @@ def main(argv=None):
                          "NEEDLE (default 20.0 — a REPORTING threshold and an "
                          "assumption, never a law; two runs quoted at two "
                          "thresholds are not comparable)")
+    ap.add_argument("--water-audit", action="store_true",
+                    help="audit the WATER instead of the bbox counts (owner "
+                         "RULINGS 2026-09-09m): every water vertex's z (how "
+                         "many at 0.000, how many not, the commonest values) "
+                         "and every water triangle's z-step, with the "
+                         "attribute histogram beside them.  Needs the mesh "
+                         "only")
+    ap.add_argument("--water-step-flag", type=float, default=1.0,
+                    metavar="M", help="a water triangle whose corners span "
+                                      "more than this many metres is counted "
+                                      "as STEPPED (default 1.0)")
+    ap.add_argument("--near", nargs=3, type=float, default=None,
+                    metavar=("LAT", "LON", "RADIUS_M"),
+                    help="with --water-audit, repeat the read for the water "
+                         "within RADIUS_M of a site")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
     args = ap.parse_args(argv)
+
+    if args.water_audit:
+        payload = water_audit(args.mesh, step_flag_m=args.water_step_flag,
+                              near=tuple(args.near) if args.near else None)
+        payload["mesh"] = args.mesh
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
 
     if args.interp_alt_audit:
         prefix = args.inputs
@@ -488,7 +608,8 @@ def main(argv=None):
             print(f"JSON -> {args.json}")
         return 0
     if not (args.bbox or args.patch_osm):
-        ap.error("give --bbox, --patch-osm, or --interp-alt-audit")
+        ap.error("give --bbox, --patch-osm, --interp-alt-audit or "
+                 "--water-audit")
 
     if args.bbox:
         la0, la1, lo0, lo1 = (float(x) for x in args.bbox.split(","))

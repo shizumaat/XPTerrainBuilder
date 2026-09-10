@@ -126,6 +126,26 @@ def region_polygon(airport: Airport, margin_m: float):
     return None if u.is_empty else u
 
 
+def _cut_water(dem, geom):
+    """``(geom − water, m² removed)`` — the datum region's water cut
+    (owner RULINGS 2026-09-09m (3)).  The witness is the production
+    frame's ``water_geometry``; a sampler without one (the authored
+    ``DemSampler``, a test double) leaves the region as it is."""
+    fn = getattr(dem, "water_geometry", None)
+    if not callable(fn):
+        return geom, None
+    try:
+        water = fn(geom.bounds)
+    except Exception:                           # pragma: no cover
+        return geom, None
+    if water is None or water.is_empty:
+        return geom, 0.0
+    cut = geom.difference(water)
+    # an empty cut is honest: a site whose whole region is water has no
+    # dry datum region, and mints no datum rows.
+    return cut, round(float(geom.area - cut.area), 1)
+
+
 def _rings(geom) -> tuple[tuple[tuple, tuple], ...]:
     polys = list(geom.geoms) if isinstance(geom, MultiPolygon) else [geom]
     out = []
@@ -357,6 +377,17 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = ()
             core_rec = fn()
         except Exception:                   # pragma: no cover
             core_rec = None
+    # THE DATUM REGION NEVER COVERS WATER (owner RULINGS 2026-09-09m (3)).
+    # Cut at the region's SINGLE derivation site, so every consumer of
+    # ``FlatVerdict.region`` — the datum preference rows
+    # (``constraints/flat_site.py``) and the object seats' region
+    # (``emit/rebake.py`` ``_Region``, 08f (e)) — excludes water with no
+    # second rule anywhere.  The witness is the production frame's
+    # (``dem_production.TileWater``); a sampler without one leaves the
+    # region untouched.
+    water_cut_m2 = None
+    if full is not None:
+        full, water_cut_m2 = _cut_water(airport.dem, full)
     core_sig = None if core_rec is None else {
         "verdict": core_rec.get("verdict"), "z0_m": core_rec.get("z0_m")}
     signals = {
@@ -371,9 +402,12 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = ()
         "s3_offset_m": offset, "s4": s4,
         "core": core_sig,
         "region_area_m2": None if full is None else round(float(full.area), 1),
+        "region_water_cut_m2": water_cut_m2,
     }
     return FlatVerdict(verdict, auto, None if z0 is None else round(z0, 3),
-                       source, _rings(full) if full is not None else (), signals)
+                       source,
+                       _rings(full) if full is not None and not full.is_empty else (),
+                       signals)
 
 
 # ── the report ───────────────────────────────────────────────────────────
@@ -405,6 +439,9 @@ def log_line(icao: str, v: FlatVerdict) -> str:
     else:
         seats = (f"{'ok' if s4['pass'] else 'no'} (n={s4.get('n')}, off "
                  f"{_num(s4.get('offset_m'))} m, spread {_num(s4.get('spread_m'))} m)")
+    cut = s.get("region_water_cut_m2")
+    if cut:
+        extra += f", datum region minus {float(cut) / 1e6:.4f} km2 of WATER"
     declared = "" if not s.get("declared") else \
         f" [DECLARED {s.get('declared_source')}; detector said {v.auto_verdict}]"
     slope = r.get("slope")

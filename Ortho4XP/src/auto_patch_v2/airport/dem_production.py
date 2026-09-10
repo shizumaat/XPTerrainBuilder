@@ -51,7 +51,12 @@ from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
 
 __all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
-           "engine_root", "frame_state"]
+           "engine_root", "frame_state", "TileWater"]
+
+#: Posts per axis the inland-body level is sampled on (the median of a
+#: body's own DEM cells; a 32x32 grid inside the body is plenty for a
+#: level and bounds the cost of a pathological polygon).
+_LEVEL_GRID = 32
 
 #: The engine tree this package lives in (``src/auto_patch_v2/airport``).
 ENGINE_DIR = Path(__file__).resolve().parents[3]
@@ -135,6 +140,109 @@ class _BakedTile:
                 + a[iyp, ix] * (1 - rx) * ry + a[iyp, ixp] * rx * ry)
 
 
+class TileWater:
+    """ONE TILE'S WATER WITNESS (owner RULINGS 2026-09-09m; mechanism 09o
+    (1)) — the polygons and the LEVEL each one holds.
+
+    The polygons are the core's own, read through
+    ``O4_Vector_Map.cached_tile_water``: the coastline partition's SEA
+    (``sea_area_from_coastline``, the tree's single SEA/LAND
+    implementation) and the tile's cached ``water`` layer — the same
+    layers the mesh's masks are built from.  Nothing here re-derives
+    them, and nothing here downloads: a tile with no cached layer
+    answers "not water" everywhere and says so in :meth:`state`.
+
+    THE LEVEL RULE (spec §1.2):
+
+    * SEA → ``0.0`` — the datum ``sea_smoothing_mode=zero`` levels the
+      mesh's own sea triangles to;
+    * an INLAND BODY → the MEDIAN of the production DEM over that body,
+      one level per polygon, computed on first touch.  The engine's
+      inland treatment (``tile.water_smoothing``) iterates a per-triangle
+      mean, i.e. it converges a body to ONE level; the body's own DEM
+      median is that level, robust to the bank cells the polygon edge
+      clips.
+
+    Queries are vectorised through a shapely ``STRtree`` — never a
+    per-point containment loop.
+    """
+
+    def __init__(self, lat: int, lon: int, sea, inland) -> None:
+        from shapely import STRtree
+        from shapely.geometry import MultiPolygon, Polygon
+        self.lat, self.lon = int(lat), int(lon)
+        self.has_data = sea is not None or inland is not None
+        polys: list = []
+        kinds: list[str] = []
+
+        def _add(geom, kind: str) -> None:
+            if geom is None or geom.is_empty:
+                return
+            parts = geom.geoms if isinstance(geom, MultiPolygon) else [geom]
+            for p in parts:
+                if isinstance(p, Polygon) and not p.is_empty:
+                    polys.append(p)
+                    kinds.append(kind)
+
+        _add(sea, "sea")
+        _add(inland, "inland")
+        self.polys = polys
+        self.kinds = kinds
+        self.n_sea = kinds.count("sea")
+        self.n_inland = kinds.count("inland")
+        self._level: list[float | None] = [
+            0.0 if k == "sea" else None for k in kinds]
+        self._tree = STRtree(polys) if polys else None
+
+    # ── the query ───────────────────────────────────────────────────
+    def index_of(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+        """The covering polygon's index per point, ``-1`` where none."""
+        out = np.full(np.shape(lat), -1, dtype=np.int64)
+        if self._tree is None or out.size == 0:
+            return out
+        from shapely import points as _points
+        pts = _points(np.asarray(lon, float) - self.lon,
+                      np.asarray(lat, float) - self.lat)
+        # NOTE the predicate direction: shapely evaluates it as
+        # ``input.predicate(tree_geometry)``, so "covers" would ask
+        # whether the POINT covers the polygon.  For a point against a
+        # polygon "intersects" is exactly "covered by it", boundary
+        # included.
+        hit_pt, hit_poly = self._tree.query(pts, predicate="intersects")
+        # the FIRST hit wins; sea polygons come first, so a body inside
+        # the sea's own multipolygon reads as sea (its level is 0.0 too)
+        for i, j in zip(hit_pt[::-1], hit_poly[::-1]):
+            out.reshape(-1)[int(i)] = int(j)
+        return out
+
+    def level_of(self, index: int, sampler) -> float:
+        """The water level of polygon ``index`` (module docstring)."""
+        lvl = self._level[index]
+        if lvl is not None:
+            return lvl
+        poly = self.polys[index]
+        minx, miny, maxx, maxy = poly.bounds
+        gx, gy = np.meshgrid(np.linspace(minx, maxx, _LEVEL_GRID),
+                             np.linspace(miny, maxy, _LEVEL_GRID))
+        gx, gy = gx.ravel(), gy.ravel()
+        from shapely import contains_xy
+        keep = contains_xy(poly, gx, gy)
+        if not keep.any():                       # a sliver: its centroid
+            c = poly.representative_point()
+            gx, gy = np.array([c.x]), np.array([c.y])
+        else:
+            gx, gy = gx[keep], gy[keep]
+        z = np.asarray(sampler(gy + self.lat, gx + self.lon), float)
+        z = z[np.isfinite(z)]
+        lvl = float(np.median(z)) if z.size else 0.0
+        self._level[index] = lvl
+        return lvl
+
+    def state(self) -> dict:
+        return {"tile": [self.lat, self.lon], "has_data": self.has_data,
+                "sea_polygons": self.n_sea, "inland_polygons": self.n_inland}
+
+
 class ProductionDem:
     """``DemSample`` over the production tile rasters (one per tile,
     composed on first touch)."""
@@ -155,6 +263,7 @@ class ProductionDem:
         self.provenance: dict[str, str] = {"frame": "production",
                                            "query": "bilinear on the baked working grid"}
         self._tiles: dict[tuple[int, int], _BakedTile | None] = {}
+        self._water: dict[tuple[int, int], TileWater | None] = {}
         from pyproj import Transformer  # local: geodesy stays in the loaders
         self._inv = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
         self._fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
@@ -275,6 +384,113 @@ class ProductionDem:
             m = (tl == key[0]) & (tn == key[1])
             out[m] = tile.sample(lat[m], lon[m])
         return out
+
+    # ── THE WATER WITNESS (owner RULINGS 2026-09-09m; 09o (1)) ──────
+    def water_many(self, xs: np.ndarray, ys: np.ndarray
+                   ) -> tuple[np.ndarray, np.ndarray]:
+        """``(is_water, level_m)`` at frame points — ``level_m`` is NaN
+        off water.  THE one water read of the v2 engine: the zone rings
+        and gap interior (``constraints/water.py``), the flat-site datum
+        region (``airport/flat_site.py``) and, next round, the shore
+        bank (``emit/bank.py`` — it is already handed this ``dem``) all
+        come here.  See :class:`TileWater` for the level rule."""
+        lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
+                                       np.asarray(ys, dtype=np.float64))
+        lon, lat = np.atleast_1d(np.asarray(lon)), np.atleast_1d(np.asarray(lat))
+        wet = np.zeros(lat.shape, dtype=bool)
+        level = np.full(lat.shape, np.nan)
+        if lat.size == 0:
+            return wet, level
+        tl = np.floor(lat).astype(int)
+        tn = np.floor(lon).astype(int)
+        for key in sorted(set(zip(tl.tolist(), tn.tolist()))):
+            w = self.water(*key)
+            if w is None or not w.polys:
+                continue
+            m = (tl == key[0]) & (tn == key[1])
+            idx = w.index_of(lat[m], lon[m])
+            hit = idx >= 0
+            if not hit.any():
+                continue
+            sub_w = np.zeros(idx.shape, dtype=bool)
+            sub_l = np.full(idx.shape, np.nan)
+            sub_w[hit] = True
+            baked = self.tile(*key)
+            sampler = (baked.sample if baked is not None
+                       else (lambda la, lo: np.zeros(np.shape(la))))
+            for j in sorted(set(idx[hit].tolist())):
+                sub_l[idx == j] = w.level_of(int(j), sampler)
+            wet[m] = sub_w
+            level[m] = sub_l
+        return wet, level
+
+    def water_geometry(self, bounds: tuple[float, float, float, float] | None = None):
+        """The water polygons AS FRAME GEOMETRY (metres), unioned — for
+        the passes that cut a REGION rather than sample points (the
+        flat-site datum region, and next round's level rings).  ``None``
+        when no water is claimed over ``bounds``."""
+        import shapely
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+        lat0, lon0 = self.frame.origin
+        keys = sorted(self._tiles) or [(int(math.floor(lat0)), int(math.floor(lon0)))]
+        clip = None if bounds is None else box(*bounds)
+        out = []
+        for key in keys:
+            w = self.water(*key)
+            if w is None or not w.polys:
+                continue
+            for p in w.polys:
+                q = shapely.transform(
+                    p, lambda c: np.column_stack(
+                        self._fwd.transform(c[:, 0] + w.lon, c[:, 1] + w.lat)))
+                if clip is not None:
+                    if not q.intersects(clip):
+                        continue
+                    q = q.intersection(clip)
+                if not q.is_empty:
+                    out.append(q)
+        if not out:
+            return None
+        u = unary_union(out)
+        return None if u.is_empty else u
+
+    def is_water_many(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        return self.water_many(xs, ys)[0]
+
+    def is_water(self, x: float, y: float) -> bool:
+        return bool(self.water_many(np.array([x]), np.array([y]))[0][0])
+
+    def water(self, lat: int, lon: int) -> "TileWater | None":
+        """This tile's witness, read once (``None`` when the core cannot
+        be reached at all — never a download)."""
+        key = (int(lat), int(lon))
+        if key in self._water:
+            return self._water[key]
+        w = None
+        try:
+            if not self.core_hosted:
+                self._ensure_core_path()
+            import O4_Config_Utils as CFG
+            import O4_Vector_Map as VMAP
+            t = CFG.Tile(key[0], key[1], "")
+            t.read_from_config()
+            sea, inland = VMAP.cached_tile_water(t)
+            w = TileWater(key[0], key[1], sea, inland)
+            self._out(f"  [dem] water witness {hgt_name(*key)}: "
+                      f"{w.n_sea} sea + {w.n_inland} inland polygon(s)"
+                      + ("" if w.has_data else " — NO cached layer, no water claimed"))
+        except Exception as error:                          # pragma: no cover
+            self._out(f"  [dem] water witness {hgt_name(*key)} UNAVAILABLE "
+                      f"({type(error).__name__}: {error}) — no water claimed")
+            w = None
+        self._water[key] = w
+        return w
+
+    def water_state(self) -> dict:
+        """Provenance: what the witness read, per tile."""
+        return {hgt_name(*k): (v.state() if v is not None else None)
+                for k, v in sorted(self._water.items())}
 
     # ── composition ─────────────────────────────────────────────────
     def _check_corpus(self) -> None:

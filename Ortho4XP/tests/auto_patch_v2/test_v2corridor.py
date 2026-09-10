@@ -5,10 +5,12 @@ admitted on AUTHORED depth — its lowest vertex at least
 zero — never on rendered depth under a placement whose anchor plane sits
 under the terrain.
 
-(RULINGS 2026-09-10z amends the admission: (a) authored depth AND (b'')
-the MOUTH OPENS ONTO GROUNDSIDE — a road within ``corridor_mouth_road_m``
-in ANY heading and no airside apron/taxiway face nearer.  The 10w heading
-and deck clauses are refuted and deleted.)
+(RULINGS 2026-09-10ad, round 5: the depth is read in the object's SEATED
+frame — the rebake puts the object's zero on the LOCAL GROUND, so a
+component renders at ``dem(its own centroid) + agl + authored y``, and the
+FLOOR and the ramp beyond a mouth carry the AUTHORED depth.  The 10z
+groundside-mouth clause (b'') is refuted and DELETED, key and all: the
+mouth's surroundings admit and refuse nothing.)
 
 * a wall authored at y −2 under a deck → a level corridor (admitted);
 * the SAME shape authored at y +0.9 (nothing under its own zero) placed
@@ -23,10 +25,14 @@ from __future__ import annotations
 
 import pytest
 
+import dataclasses as _dc
+import math
+
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.wall_corridors import CLASS_LEVEL, read_wall_corridors
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.basins import read_objects
+from auto_patch_v2.planar.wall_corridor_ramps import wall_corridor_groups
 
 from auto_patch_v2.model.airport import OsmWay
 
@@ -57,6 +63,12 @@ def objs(tmp_path_factory):
         # (bottom +0.9, top +12.0, deck +14.0): nothing dug in, and tall
         # enough that the ground-contact clause cannot be what refuses it
         "shallow": _shallow_with_a_deep_decoy(d / "shallow.obj"),
+        # RULINGS 2026-09-10ad: a door authored 2.6 m under the object's
+        # zero — the owner's LEMD witness depth — and the SAME door
+        # authored 300 m from the object's origin (the shared-datum pack:
+        # Aerosoft anchors LEMD's components up to 4 km from one point)
+        "door26": _corridor_obj(d / "door26.obj", depth=2.6),
+        "door26_far": _far_corridor_obj(d / "door26_far.obj"),
         # RULINGS 2026-09-10ab: the round-4 probe fixtures — the SAME
         # corridor 6 m under its serving road, and one carrying a FLOOR
         # SLAB between its walls at the wall bottom
@@ -102,11 +114,10 @@ def _shallow_with_a_deep_decoy(path):
     return _write(path, vt, tris)
 
 
-#: RULINGS 2026-09-10z (b''): the fixture corridor runs along ±y with its
-#: mouths at y = ±40; a kerb road passing 8 m BEYOND each mouth at 90° to
-#: the axis opens it onto groundside — the OTHH loading-bay case (the road
-#: that enters a bay runs PAST its mouth, and an underpass's own road runs
-#: unmapped under the deck).
+#: The fixture corridor runs along ±y with its mouths at y = ±40; a kerb
+#: road passes 8 m BEYOND each mouth at 90° to the axis.  It admits
+#: nothing since RULINGS 2026-09-10ad deleted (b''); the round-4 PROBE
+#: still reads it (its level against the floor).
 def _kerb_roads(offset: float = 8.0):
     y = 40.0 + offset
     return (OsmWay(-601, "airport_small_roads", ((-300.0, y), (300.0, y)), False,
@@ -128,7 +139,39 @@ def _apron_at_both_mouths(gap: float = 3.0):
     ), (), {}, ())
 
 
-def _corridors(objs, law, name, agl=None, ways=None, classification=None):
+def _far_corridor_obj(path, off=300.0, width=10.0, depth=2.6, top=0.5, thick=0.3,
+                      deck_y=2.6, half_len=40.0):
+    """The SHARED-DATUM shape (RULINGS 2026-09-10ad): the same two kerb
+    bands and deck as ``_corridor_obj``, authored ``off`` m along +x from
+    the object's ORIGIN — the anchor the pack places it by is that far
+    away, on ground 8 m lower."""
+    vt: list = []
+    tris: list = []
+    hw = width / 2.0
+    _vwall(vt, tris, off - hw - thick, off - hw, -half_len, half_len, -depth, -depth, top)
+    _vwall(vt, tris, off + hw, off + hw + thick, -half_len, half_len, -depth, -depth, top)
+    _slab(vt, tris, off - hw - 2.0, off + hw + 2.0, -half_len + 10.0, half_len - 10.0,
+          deck_y, deck_y + 0.3)
+    return _write(path, vt, tris)
+
+
+class _SharedDatumDem:
+    """The Aerosoft LEMD class (RULINGS 2026-09-10ad): the pack's ANCHOR
+    POINT stands on ground 8 m LOWER than the components it places 300 m
+    away — one datum plane for geometry the reader meets kilometres from
+    it.  The placement's ``anchor_z`` is 692; every wall, station and
+    mouth of its corridor stands on ground at 700."""
+
+    provenance = {"synthetic": "a shared anchor datum 8 m under the components"}
+
+    def z(self, x: float, y: float) -> float:
+        return 692.0 if x < 150.0 else 700.0
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _corridors(objs, law, name, agl=None, ways=None, classification=None, dem=None):
     """The wall corridors of one placement; ``agl`` (an ``OBJECT_AGL``
     offset) sinks the placement's anchor plane under the DEM; ``ways``
     (default: a kerb road 8 m past each mouth) states the mouth roads;
@@ -136,6 +179,8 @@ def _corridors(objs, law, name, agl=None, ways=None, classification=None):
     kind = "OBJECT" if agl is None else "OBJECT_AGL"
     airport = _airport(objs, law, [(name, (0.0, 0.0), 0.0, agl, kind)],
                        _kerb_roads() if ways is None else ways)
+    if dem is not None:
+        airport = _dc.replace(airport, dem=dem)
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     objects, _rep = read_objects(airport, law, cache)
     return read_wall_corridors(airport, objects, cache, law, classification, measure=True)
@@ -183,61 +228,6 @@ def test_the_anchor_plane_does_not_move_the_admission_but_burial_still_refuses(o
     assert buried == [] and stb.bands == 0
 
 
-# ── RULINGS 2026-09-10z: (a) + (b'') the groundside mouth ────────────────
-
-def test_a_road_passing_the_mouth_admits_the_corridor_in_any_heading(objs, law):
-    """(a) + (b''): walls authored 2 m under the object's zero and a kerb
-    road 8 m past each mouth at 90° to the axis — a loading bay IS entered
-    from the road running past it (the 10w heading test is deleted; OTHH's
-    accepted mouths read 83–90° off).  The admission names both clauses and
-    the witness."""
-    recs, st = _corridors(objs, law, "deep")
-    assert st.corridors == 1 and st.roads == 1 and len(recs) == 2, st.refused
-    assert st.refused_no_road == 0 and st.refused_airside_mouth == 0
-    line = "\n".join(st.admission)
-    assert "(a) admitted" in line and "osm way -601" in line and "ADMITTED" in line
-    assert "(b'') admitted — groundside mouth" in line
-    # ...and the SAME corridor with NO deck over it is admitted too: the
-    # 10w deck clause is DELETED (seven OTHH corridors carry no plate)
-    recs2, st2 = _corridors(objs, law, "open_air")
-    assert st2.corridors == 1 and len(recs2) == 2, st2.refused
-    assert "open air -> ADMITTED" in "\n".join(st2.admission)
-
-
-def test_a_mouth_opening_onto_an_airside_apron_face_is_refused(objs, law):
-    """(b''): the SAME walls and the SAME kerb roads, with an AIRSIDE apron
-    face 3 m past each mouth — nearer than the road, so the pavement the
-    mouth opens onto is apron.  Aircraft aprons do not run into building
-    tunnels (the owner's LEMD read: "it's just apron up to the building")."""
-    recs, st = _corridors(objs, law, "deep", classification=_apron_at_both_mouths())
-    assert recs == [] and st.corridors == 0
-    assert st.refused_airside_mouth == 1 and st.refused_no_road == 0
-    assert any("opens onto AIRSIDE pavement" in r for r in st.refused), st.refused
-    line = "\n".join(st.admission)
-    assert "(b'') REFUSED — airside mouth" in line and "apron cell 10" in line
-    # the same apron BEYOND the kerb road (13 m) leaves the road nearest:
-    # the mouth opens onto the road and the corridor is admitted
-    ok, sok = _corridors(objs, law, "deep",
-                         classification=_apron_at_both_mouths(gap=13.0))
-    assert sok.corridors == 1 and len(ok) == 2, sok.refused
-
-
-def test_no_road_within_the_law_window_refuses_the_corridor(objs, law):
-    """(b''): the SAME walls with every road pushed beyond
-    ``corridor_mouth_road_m`` of either mouth and no groundside pavement at
-    all — a below-grade foundation, not a groundside corridor (LEMD's
-    Aerosoft cargo kerbs).  The refusal names the clause and the witness
-    search."""
-    wc = law.tables.structures.cutout.wall_corridor
-    far = wc.corridor_mouth_road_m + 10.0
-    recs, st = _corridors(objs, law, "deep", ways=_kerb_roads(offset=far))
-    assert recs == [] and st.corridors == 0 and st.refused_no_road == 1
-    assert st.pairs == 1 and st.refused_airside_mouth == 0, st.refused
-    assert any("no road within corridor_mouth_road_m" in r for r in st.refused), st.refused
-    line = "\n".join(st.admission)
-    assert "(b'') REFUSED — no road at the mouth" in line and "no road —" in line
-
-
 # ── RULINGS 2026-09-10ab: the round-4 discriminators, MEASURED ───────────
 # The instrument the round-4 table was read on (spec §12c): NEITHER
 # separates LEMD from OTHH, so neither is law — these twins hold the
@@ -254,7 +244,7 @@ def test_the_floor_road_probe_states_the_level_minus_the_floor(objs, law):
     assert row["delta_m"] == pytest.approx(2.0, abs=0.05), row
     assert row["road_level_z"] == pytest.approx(700.0, abs=0.05)
     assert row["road_source"].startswith("levelled") and "-601" in row["road_witness"]
-    assert row["within_tol"] is False and row["b2"] == "admitted"
+    assert row["within_tol"] is False
     _r6, st6 = _corridors(objs, law, "deep6")
     row6 = st6.floor_probe[0]
     assert row6["delta_m"] == pytest.approx(6.0, abs=0.05), row6
@@ -274,3 +264,59 @@ def test_the_floor_slab_probe_finds_a_slab_only_where_one_is_authored(objs, law)
     _r2, st2 = _corridors(objs, law, "deep")
     assert st2.floor_probe[0]["slab"] is False
     assert st2.floor_probe[0]["slab_cover"] == 0.0
+
+
+# ── RULINGS 2026-09-10ad: the SEATED frame ───────────────────────────────
+
+def test_a_shared_datum_anchor_no_longer_deepens_the_corridor(objs, law):
+    """The owner's LEMD question: a door authored 2.6 m below the object's
+    zero, placed by a SHARED-DATUM pack whose anchor point reads 8 m under
+    the local ground.  Read against that anchor plane the wall stood
+    10.6 m "below ground" and its ramp needed 212 m at 5 %; in the SEATED
+    frame (the rebake puts the zero on the local ground) the floor stands
+    at the authored −2.6 m, the depth IS 2.6 m and the ramp is 52 m."""
+    wc = law.tables.structures.cutout.wall_corridor
+    recs, st = _corridors(objs, law, "door26_far", dem=_SharedDatumDem())
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+    for r in recs:
+        # the placement's own anchor plane is 8 m under the ground at the
+        # corridor — the reading no longer uses it
+        assert r.anchor_dem_z == pytest.approx(692.0, abs=0.01)
+        assert r.mouth_dem_z == pytest.approx(700.0, abs=0.05)
+        assert r.floor_z == pytest.approx(700.0 - 2.6, abs=0.05)
+        assert r.depth_m == pytest.approx(2.6, abs=0.05)
+        # the ramp the planner will build beyond the mouth: rise / grade,
+        # plus the mouth allowance the floor overlap adds
+        rise = r.mouth_dem_z - r.floor_z
+        allow = law.tables.structures.cutout.floor_overlap_m
+        assert rise / wc.ramp_grade <= 2.6 / wc.ramp_grade + allow + 1e-6
+        assert rise / wc.ramp_grade < 60.0            # was 212 m (10ad)
+    groups = wall_corridor_groups(recs, law)
+    assert len(groups) == 2 and all(g.max_grade == wc.ramp_grade for g in groups)
+
+
+def test_an_anchor_at_grade_reads_exactly_as_the_rendered_frame_did(objs, law):
+    """OTHH's case: the anchor plane IS the local ground (its DEM is a
+    constant 3.96 m), so the seated frame and the old rendered frame are
+    the same plane and every number is unchanged — the 43 corridors must
+    come out identical."""
+    recs, st = _corridors(objs, law, "door26")
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+    for r in recs:
+        assert r.anchor_dem_z == pytest.approx(r.mouth_dem_z, abs=0.05)
+        assert r.floor_z == pytest.approx(r.anchor_dem_z - 2.6, abs=0.05)
+        assert r.depth_m == pytest.approx(2.6, abs=0.05)
+        assert r.cls == CLASS_LEVEL and r.width_m == pytest.approx(10.0, abs=0.05)
+        assert r.length_m == pytest.approx(40.0, abs=0.05)
+        # the deck at +2.6 over a floor at -2.6
+        assert r.headroom_m == pytest.approx(5.5, abs=0.05)
+
+
+def test_the_mouths_surroundings_admit_and_refuse_nothing(objs, law):
+    """(b'') is DELETED (10ad): the same corridor with every road pushed
+    far beyond the old 15 m window AND an airside apron face at both
+    mouths — the two shapes round 3 refused — is admitted."""
+    recs, st = _corridors(objs, law, "door26", ways=_kerb_roads(offset=200.0),
+                          classification=_apron_at_both_mouths())
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+    assert not any("mouth" in r for r in st.refused), st.refused

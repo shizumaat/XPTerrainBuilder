@@ -12,15 +12,23 @@ road, tunnel crest) sees nothing there, and ``obj8._bulk_polys`` drops
 their zero-plan-area bands — this reader takes the vertical triangles
 from ``Component.tris`` directly.
 
+EVERY READING IS IN THE OBJECT'S SEATED FRAME (RULINGS 2026-09-10ad):
+the rebake puts an object's zero on its LOCAL GROUND (09af-1), so a
+component renders at ``dem(its own plan centroid) + agl + authored y``
+(``_seat_base``) and its depth under the ground IS its authored depth.
+Reading it against ``anchor_z`` instead gave a shared-datum pack
+(Aerosoft LEMD: one anchor at 596 m for components 4 km away where the
+terrain stands at 605) walls 8-10 m "below ground" and 160-200 m ramps
+for doors authored 2.6 m down.
+
 THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
 
 1. BANDS — a genuine component whose every triangle is vertical (``|n_y|
    < tunnel.object.plate_normal_y_min``), AUTHORED ``min_wall_depth_m``
    below the OBJECT'S OWN local zero (RULINGS 2026-09-10u: never against
-   the DEM — a pack's flat anchor plane may sit metres under the terrain
-   and then every wall reads "below ground": Aerosoft LEMD, 17 spurious
-   corridors) and reaching up to within ``basin.contact_band_m`` of the
-   ground, is a WALL BAND: its plan footprint is the union of its faces' plan
+   the DEM under the pack's anchor plane) and reaching up to within
+   ``basin.contact_band_m`` of the ground (in the seated frame: ``max_y
+   >= -contact_band_m``), is a WALL BAND: its plan footprint is the union of its faces' plan
    segments (the loops filled; a single sheet is widened to a nominal
    band so the wall-line reader can walk its ring), its axis the minimum
    rotated rectangle's long side, its thickness the short side.  Bands
@@ -39,8 +47,9 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    "wall_bottom"``, 08n): the lowest rendered vertex of the bands' faces
    within a station's window along the axis (every face edge densified,
    so a 78 m quad still states its bottom everywhere).  The corridor is
-   ADMITTED on that bottom's AUTHORED height (10u); its depth under the
-   DEM is then a measurement of an admitted corridor, never the gate.  LEVEL (the
+   ADMITTED on that bottom's AUTHORED height (10u) and the floor stands
+   at it in the SEATED frame (10ad), so the ramp beyond a mouth climbs
+   the AUTHORED depth.  LEVEL (the
    underpass, the bays: the bottom's range under ``min_wall_depth_m``)
    or DESCENDING (a garage ramp: the bottom runs from within the contact
    band of the ground down to the garage floor — cut AS AUTHORED; the
@@ -58,16 +67,9 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    basement cover gate: the deck above is the family's own roof and stays).
    Open air over the trench is NOT a refusal (RULINGS 2026-09-10z: seven
    OTHH corridors carry no deck plate of their own).
-6. THE MOUTH OPENS ONTO GROUNDSIDE (RULINGS 2026-09-10z) — within
-   ``corridor_mouth_road_m`` of a mouth there is a road in ANY heading (an
-   OSM ``highway=*`` way of the airport feeds, or a patch road ribbon:
-   ``service_road`` / ``service_junction`` / ``groundside_pavement``), and
-   the pavement face the mouth opens onto — the NEAREST of those roads and
-   the airside apron/taxiway faces of the classification — is not airside:
-   aircraft aprons do not run into building tunnels.  A loading bay is
-   entered from the road running PAST its mouth and an underpass's own road
-   runs unmapped under the deck, so no heading test is made (the 10w
-   heading and deck clauses are refuted and deleted).
+(The 10w heading and deck clauses and 10z's groundside-mouth clause
+(b'') are all REFUTED and DELETED: no mouth test separates LEMD's cargo
+foundations from OTHH's kerb corridors — RULINGS 2026-09-10ab / 10ad.)
 
 The ``--stage structures`` replay additionally MEASURES, per candidate,
 the two discriminators RULINGS 2026-09-10ab asked for — the mouth road's
@@ -104,7 +106,7 @@ from .deck_signature import family_key
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
 
 __all__ = ["WallBand", "WallCorridorRecord", "WallCorridorStats", "read_wall_corridors",
-           "MouthRoad", "mouth_roads", "ROAD_ROLES", "AIRSIDE_FACE_ROLES", "airside_faces",
+           "MouthRoad", "mouth_roads", "ROAD_ROLES",
            "ID_PREFIX", "CLASS_LEVEL", "CLASS_BAY", "CLASS_GARAGE"]
 
 ID_PREFIX = "wall-corridor"
@@ -226,17 +228,14 @@ class WallCorridorStats:
     corridors: int = 0
     by_class: dict[str, int] = _dc.field(default_factory=dict)
     refused: list[str] = _dc.field(default_factory=list)
-    #: RULINGS 2026-09-10z: one line per CANDIDATE corridor stating both
-    #: admission clauses -- (a) authored depth, (b'') the mouth opens onto
-    #: groundside -- with its witness or its refusal.
+    #: One line per CANDIDATE corridor stating the admission -- (a)
+    #: AUTHORED depth in the SEATED frame (10u, 10ad) -- with its witness
+    #: or its refusal.
     admission: list[str] = _dc.field(default_factory=list)
     #: RULINGS 2026-09-10ab: one row per candidate reaching the mouth
     #: test — the two discriminators MEASURED (floor vs the mouth road's
     #: level; the floor slab), whatever the admission then says.
     floor_probe: list[dict] = _dc.field(default_factory=list)
-    roads: int = 0
-    refused_no_road: int = 0
-    refused_airside_mouth: int = 0
     read_s: float = 0.0
 
 
@@ -396,6 +395,24 @@ def _rect_axis(poly: Polygon) -> tuple[LineString, float, float] | None:
     return LineString([a, b]), float(lens[li]), float(brg)
 
 
+# ── the SEATED frame (RULINGS 2026-09-10ad) ──────────────────────────────
+
+def _seat_base(o: _obj8.PlacedObject, xy: XY, dem_z) -> float:
+    """The object's y = 0 plane in the SEATED frame at ``xy``: the rebake
+    puts an object's zero on the LOCAL GROUND (09af-1, ``emit/rebake``'s
+    ``base = anchor ground + agl``), so a component renders at ``dem(its
+    own plan centroid) + agl + authored y``.  Law C reads depth THERE and
+    never against ``anchor_z`` — a shared-datum pack (Aerosoft LEMD) puts
+    ONE anchor at 596 m under components up to 4 km away where the terrain
+    stands at 605, and every wall then reads 8-10 m "below ground", with a
+    160-200 m ramp for a 2.6 m door (RULINGS 2026-09-10ad).  The pack's
+    own anchor is the fallback where the DEM states nothing."""
+    local = float(dem_z(xy[0], xy[1]))
+    if math.isnan(local):
+        return float(o.anchor_z + o.agl_m)
+    return local + float(o.agl_m)
+
+
 # ── the groundside mouth (RULINGS 2026-09-10z (b'')) ──────────────
 
 #: The classification roles whose faces ARE patch road ribbons for the
@@ -404,11 +421,6 @@ def _rect_axis(poly: Polygon) -> tuple[LineString, float, float] | None:
 ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
 #: The OSM feeds a ``highway=*`` way is read from (``airport/osm.FEEDS``).
 ROAD_FEEDS = ("airport_small_roads", "big_roads")
-#: The AIRSIDE pavement roles a Law C mouth may NOT open onto: the apron
-#: and the taxiway family (``classify/roles.TAXI_FAMILY``) — aircraft
-#: aprons do not run into building tunnels (10z).
-AIRSIDE_FACE_ROLES = ("apron", "runway", "primary_parallel", "secondary_parallel",
-                      "stub", "cross_connector", "junction")
 
 
 @_dc.dataclass(frozen=True)
@@ -460,106 +472,6 @@ def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRo
         out.append(MouthRoad(poly, ra[0], f"patch {c.role} cell {c.id} ({c.ref})",
                              tuple((float(x), float(y)) for x, y in ra[0].coords), True))
     return out
-
-
-def airside_faces(classification: _t.Any = None) -> list[tuple[_t.Any, str]]:
-    """Every AIRSIDE apron/taxiway face of the classification with its
-    witness — the faces a Law C mouth may not open onto (10z).  Without a
-    classification there are none and the test reads the roads alone."""
-    out: list[tuple[_t.Any, str]] = []
-    for c in getattr(classification, "cells", ()) or ():
-        if c.side != "airside" or c.role not in AIRSIDE_FACE_ROLES or len(c.ring) < 3:
-            continue
-        poly = Polygon(c.ring, c.holes)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty or poly.geom_type != "Polygon":
-            continue
-        out.append((poly, f"airside {c.role} cell {c.id} ({c.ref})"))
-    return out
-
-
-def _nearest_face(pt: XY, faces: _t.Sequence[tuple[_t.Any, str]], tree: STRtree | None,
-                  max_m: float) -> tuple[float, str] | None:
-    """The nearest airside apron/taxiway face within ``max_m`` of the
-    mouth with its distance and witness (``None`` = none there)."""
-    if tree is None or not faces:
-        return None
-    P = Point(pt)
-    best: tuple[float, str] | None = None
-    for idx in tree.query(P.buffer(max_m), predicate="intersects").tolist():
-        poly, w = faces[int(idx)]
-        d = float(poly.distance(P))
-        if d > max_m:
-            continue
-        if best is None or d < best[0]:
-            best = (d, w)
-    return best
-
-
-def _road_bearing_at(road: MouthRoad, pt: Point) -> float:
-    """The road's bearing (0..180) at the point on its axis nearest
-    ``pt`` — the segment the projection falls in (a curving way states
-    its direction AT the mouth, not end to end)."""
-    cs = list(road.axis.coords)
-    if len(cs) < 2:
-        return 0.0
-    s = road.axis.project(pt)
-    acc = 0.0
-    for i in range(len(cs) - 1):
-        d = math.dist(cs[i], cs[i + 1])
-        if acc + d >= s or i == len(cs) - 2:
-            return _bearing(LineString([cs[i], cs[i + 1]]))
-        acc += d
-    return _bearing(LineString([cs[0], cs[-1]]))
-
-
-#: The refusal's WITNESS SEARCH probes this multiple of the law window
-#: for the nearest road, so a refusal names what WAS there (diagnostic
-#: only: it admits nothing).
-_ROAD_PROBE_FACTOR = 4.0
-
-
-def _nearest_roads(pt: XY, brg: float, roads: _t.Sequence[MouthRoad], tree: STRtree | None,
-                   max_m: float, n: int = 3) -> str:
-    """The nearest roads within ``_ROAD_PROBE_FACTOR × max_m`` of the
-    mouth with their distance and their angle off the axis — what the
-    refusal searched and found (never an admission)."""
-    if tree is None or not roads:
-        return "no road geometry at all"
-    P = Point(pt)
-    R = max_m * _ROAD_PROBE_FACTOR
-    found: list[tuple[float, str]] = []
-    for idx in tree.query(P.buffer(R), predicate="intersects").tolist():
-        r = roads[int(idx)]
-        d = float(r.geom.distance(P))
-        if d > R:
-            continue
-        found.append((d, f"{r.witness} at {d:.1f} m, "
-                         f"{_angle_diff(_road_bearing_at(r, P), brg):.0f}° off"))
-    found.sort()
-    return "; ".join(t for _d, t in found[:n]) or f"nothing within {R:.0f} m"
-
-
-def _road_at_mouth(pt: XY, brg: float, roads: _t.Sequence[MouthRoad], tree: STRtree | None,
-                   max_m: float) -> tuple[float, str] | None:
-    """Rule 6 (10z (b'')): the nearest road within ``max_m`` of the mouth
-    in ANY heading, with its distance and witness — a loading bay is
-    entered from the road running PAST its mouth (the 10w heading test is
-    refuted and deleted); ``None`` = no road there."""
-    if tree is None or not roads:
-        return None
-    P = Point(pt)
-    best: tuple[float, str] | None = None
-    for idx in tree.query(P.buffer(max_m), predicate="intersects").tolist():
-        r = roads[int(idx)]
-        d = float(r.geom.distance(P))
-        if d > max_m:
-            continue
-        if best is None or d < best[0]:
-            best = (d, f"{r.witness} {d:.1f} m from the mouth, "
-                       f"{_angle_diff(_road_bearing_at(r, P), brg):.0f}° off the axis")
-    return best
 
 
 # ── the round-4 discriminators (RULINGS 2026-09-10ab) ────────────────────
@@ -657,7 +569,7 @@ def _floor_road(mouths: _t.Sequence[tuple[int, XY, float]], roads: _t.Sequence[M
 def _floor_slab(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                 trench: Polygon, axis_ln: LineString, orig_s: _t.Sequence[float],
                 floors: _t.Sequence[float], max_thick: float, tol: float,
-                normal_min: float) -> tuple[float, str]:
+                normal_min: float, dem_z) -> tuple[float, str]:
     """(ii) FLOOR SLAB: the share of the corridor's length spanned by a
     HORIZONTAL PLATE of the family (a component thinner than
     ``max_thick``) lying within ``tol`` of the floor inside the trench —
@@ -675,7 +587,6 @@ def _floor_slab(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceC
         g = cache.geometry(o.resolved)
         if g is None:
             continue
-        base = o.anchor_z + o.agl_m
         mat = _obj8.placement_affine(o.xy, o.heading_deg)
         v = g.vertices
         bounds = cache.component_bounds(o.resolved)
@@ -688,6 +599,8 @@ def _floor_slab(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceC
             x0, x1, z0, z1 = bounds[ci].tolist()
             corners = [_obj8._to_frame(o.xy, o.heading_deg, x, z)
                        for x in (x0, x1) for z in (z0, z1)]
+            base = _seat_base(o, ((corners[0][0] + corners[3][0]) / 2.0,
+                                  (corners[0][1] + corners[3][1]) / 2.0), dem_z)
             if max(c[0] for c in corners) < minx or min(c[0] for c in corners) > maxx \
                     or max(c[1] for c in corners) < miny or min(c[1] for c in corners) > maxy:
                 continue
@@ -751,17 +664,18 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
     g = cache.geometry(o.resolved)
     if g is None:
         return [], []
-    base = o.anchor_z + o.agl_m
     mat = _obj8.placement_affine(o.xy, o.heading_deg)
     v = g.vertices
     bands: list[WallBand] = []
     verticals: list[tuple[int, np.ndarray]] = []
     for ci, comp in enumerate(cache.genuine(o.resolved)):
         cx, cy = _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
-        local = float(dem_z(cx, cy))
-        if math.isnan(local):
-            local = o.anchor_z
-        plane_ground = local - base
+        # RULINGS 2026-09-10ad: the SEATED frame — the component's own
+        # local ground carries the object's zero, so the ground stands at
+        # y = -agl in the object's frame (never ``dem - anchor_z``, which
+        # is the pack's anchor plane against the terrain).
+        base = _seat_base(o, (cx, cy), dem_z)
+        plane_ground = -float(o.agl_m)
         # RULINGS 2026-09-10u — AUTHORED depth admits a band: its lowest
         # vertex stands at least min_wall_depth_m below the OBJECT'S OWN
         # local zero.  Rendered depth (dem_z - (anchor_z + agl)) admitted
@@ -1036,7 +950,7 @@ def _trench(axis: _t.Sequence[XY], sts: _t.Sequence[Station]) -> Polygon:
 
 
 def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-              trench: Polygon, floor_max: float, normal_min: float, grid: float
+              trench: Polygon, floor_max: float, normal_min: float, grid: float, dem_z
               ) -> tuple[float | None, str]:
     """Rule 5: the lowest rendered near-horizontal family face OVER the
     trench (a plan overlap of a grid cell at least, inside the trench
@@ -1059,7 +973,6 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
         g = cache.geometry(o.resolved)
         if g is None:
             continue
-        base = o.anchor_z + o.agl_m
         mat = _obj8.placement_affine(o.xy, o.heading_deg)
         v = g.vertices
         bounds = cache.component_bounds(o.resolved)
@@ -1072,6 +985,11 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
             if max(c[0] for c in corners) < minx or min(c[0] for c in corners) > maxx \
                     or max(c[1] for c in corners) < miny or min(c[1] for c in corners) > maxy:
                 continue
+            # RULINGS 2026-09-10ad: the plate reads in the SAME seated
+            # frame as the floor under it (a frame shift moves both, so
+            # the headroom itself is unchanged by the seat)
+            base = _seat_base(o, ((corners[0][0] + corners[3][0]) / 2.0,
+                                  (corners[0][1] + corners[3][1]) / 2.0), dem_z)
             if base + comp.max_y <= floor_max:
                 continue
             ny = _tri_normals_y(v, comp.tris)
@@ -1117,12 +1035,10 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
     to_ll = airport.frame.transformers()[1]
-    # RULINGS 2026-09-10z (b''): the roads a mouth may open onto, and the
-    # AIRSIDE apron/taxiway faces it may not
-    roads = mouth_roads(airport, classification)
+    # RULINGS 2026-09-10ad: (b'') is DELETED (refuted in 10z/10ab); the
+    # roads survive as the round-4 PROBE's reading alone (``measure``)
+    roads = mouth_roads(airport, classification) if measure else []
     road_tree = STRtree([r.geom for r in roads]) if roads else None
-    air_faces = airside_faces(classification)
-    air_tree = STRtree([f[0] for f in air_faces]) if air_faces else None
     # RULINGS 2026-09-10ab (i): the LEVEL reader for a mouth road (the
     # replay's measurement only)
     levels = _RoadLevels(airport, law) if measure else None
@@ -1209,6 +1125,16 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 axis_ln = LineString(axis)
                 orig_s = [st.s for st in sts]
                 floors, floors_y = _floor_profile((A, B), axis_ln, orig_s, _DENSIFY_M)
+                # RULINGS 2026-09-10ad: ONE SEAT PER CORRIDOR.  The pair is
+                # one body (its kerbs and the deck over them weld) and the
+                # rebake seats a body on the ground under it, so the floor
+                # is the AUTHORED wall bottom under the ground at the
+                # corridor's own plan centroid — not each band's own
+                # reading (the two kerbs of a corridor on sloping ground
+                # would seat centimetres apart) and never the pack's
+                # anchor plane.
+                seat_z = _seat_base(o0, plate.centroid.coords[0], dem_z)
+                floors = [seat_z + y for y in floors_y]
                 grounds = [float(dem_z(*axis_ln.interpolate(s).coords[0])) for s in orig_s]
                 if any(math.isnan(z) for z in grounds):
                     stats.refused.append(f"{name} at {site}: no DEM along the corridor")
@@ -1260,13 +1186,10 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts) / len(sts)
                 thick = sum((s.thick_l + s.thick_r) / 2.0 for s in sts) / len(sts)
                 trench0 = _trench(axis, sts)
-                # RULE 6 (RULINGS 2026-09-10z (b'')): THE MOUTH OPENS ONTO
-                # GROUNDSIDE.  Law C is "ramps where kerb roads pass under
-                # terminal decks" (08u-08w): a road within
-                # corridor_mouth_road_m of a mouth in ANY heading, and the
-                # nearest pavement face there is not an airside apron/taxiway
-                # (a below-grade wall pair with only apron at its mouth is a
-                # building's foundation, not a corridor).
+                # THE MOUTHS: the open ends (a garage's shallow end).  A
+                # pair closed at BOTH ends is a sunken yard, not a corridor.
+                # (RULINGS 2026-09-10ad: the 10z (b'') groundside-mouth
+                # clause is DELETED — it separated nothing, 10ab.)
                 if descending:
                     deep0 = 0 if floors[0] <= floors[-1] else 1
                     mouth_ks = [1 - deep0]
@@ -1277,7 +1200,7 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                            f"{covers[1]:.0%}): no mouth — a sunken yard between four kerbs, not "
                            f"a corridor")
                     stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; (b'') REFUSED — no mouth (both "
+                    stats.admission.append(f"{head}: {clause_a}; REFUSED — no mouth (both "
                                            f"ends closed)")
                     continue
                 # RULINGS 2026-09-10ab: the two discriminators MEASURED —
@@ -1292,7 +1215,7 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     slab_cover, slab_w = _floor_slab(
                         members, cache, trench0, axis_ln, orig_s, floors,
                         wc.corridor_floor_slab_max_thickness_m,
-                        wc.corridor_floor_slab_tol_m, ob.plate_normal_y_min)
+                        wc.corridor_floor_slab_tol_m, ob.plate_normal_y_min, dem_z)
                     corridor_len = float(orig_s[-1] - orig_s[0])
                     stats.floor_probe.append({
                         "airport": airport.icao, "candidate": head,
@@ -1313,74 +1236,22 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                         "slab": bool(slab_cover >= wc.corridor_floor_slab_cover_min),
                         "slab_witness": slab_w,
                     })
-                road_w: str | None = None
-                probe: list[str] = []
-                airside_w: str | None = None
-                for k in mouth_ks:
-                    pm_ = axis[0] if k == 0 else axis[-1]
-                    qm_ = axis[1] if k == 0 else axis[-2]
-                    brg_m = _bearing(LineString([qm_, pm_]))
-                    hit = _road_at_mouth(pm_, brg_m, roads, road_tree, wc.corridor_mouth_road_m)
-                    face = _nearest_face(pm_, air_faces, air_tree, wc.corridor_mouth_road_m)
-                    where = f"end {k} at {'%.6f,%.6f' % to_ll(*pm_)}"
-                    if hit is None:
-                        probe.append(f"{where}: no road — "
-                                     + _nearest_roads(pm_, brg_m, roads, road_tree,
-                                                      wc.corridor_mouth_road_m))
-                        continue
-                    if face is not None and face[0] < hit[0]:
-                        # the face this mouth opens onto is airside pavement
-                        probe.append(f"{where}: opens onto {face[1]} at {face[0]:.1f} m, "
-                                     f"nearer than {hit[1]}")
-                        airside_w = f"{where}: {face[1]} at {face[0]:.1f} m vs {hit[1]}"
-                        continue
-                    road_w = (f"end {k}: {hit[1]}"
-                              + (f"; nearest airside face {face[1]} at {face[0]:.1f} m"
-                                 if face is not None else "; no airside face within "
-                                 f"{wc.corridor_mouth_road_m:.0f} m"))
-                    break
-                if measure:
-                    stats.floor_probe[-1]["b2"] = ("admitted" if road_w is not None
-                                                   else ("airside" if airside_w is not None
-                                                         else "no road"))
-                if road_w is None:
-                    if airside_w is not None:
-                        msg = (f"{name} at {site}: its mouth opens onto AIRSIDE pavement — "
-                               f"{airside_w} (10z (b'')): aircraft aprons do not run into "
-                               f"building tunnels")
-                        stats.refused_airside_mouth += 1
-                        clause = (f"(b'') REFUSED — airside mouth; "
-                                  f"{' | '.join(probe)}")
-                    else:
-                        msg = (f"{name} at {site}: no road within corridor_mouth_road_m "
-                               f"{wc.corridor_mouth_road_m} of end"
-                               f"{'s' if len(mouth_ks) > 1 else ''} "
-                               f"{'/'.join(str(k) for k in mouth_ks)} in any heading "
-                               f"(10z (b'')): a below-grade foundation, not a groundside "
-                               f"corridor")
-                        stats.refused_no_road += 1
-                        clause = f"(b'') REFUSED — no road at the mouth; {' | '.join(probe)}"
-                    stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; {clause}")
-                    continue
-                stats.roads += 1
-                clause_b = f"(b'') admitted — groundside mouth: {road_w}"
                 # RULE 5: headroom over the trench (a MEASUREMENT plus the
                 # covered-slot gate; OPEN AIR PASSES — 10z deleted the deck
                 # clause: seven OTHH corridors carry no plate of their own).
                 headroom, deck_w = _headroom(members, cache, trench0, zmax,
-                                             ob.plate_normal_y_min, grid)
+                                             ob.plate_normal_y_min, grid, dem_z)
                 if headroom is not None and headroom < wc.min_headroom_m:
                     msg = (f"{name} at {site}: headroom {headroom:.2f} m over the floor "
                            f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
                            f"not a corridor")
                     stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; {clause_b}; headroom "
+                    stats.admission.append(f"{head}: {clause_a}; headroom "
                                            f"{headroom:.2f} m REFUSED under min_headroom_m "
                                            f"{wc.min_headroom_m} ({deck_w})")
                     continue
                 stats.admission.append(
-                    f"{head}: {clause_a}; {clause_b}; headroom "
+                    f"{head}: {clause_a}; headroom "
                     + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
                     + " -> ADMITTED")
                 notes_common = (

@@ -171,15 +171,10 @@ max_width_m        = 20.0           # ...and at most this (wider is a yard betwe
 min_wall_length_m  = 5.0            # the bands overlap at least this along the axis (OTHH's shortest bay 6.15 m)
 merge_gap_m        = 10.0           # parallel bands of one family within tunnel.object.wall_face_max_thickness_m of each other laterally and interrupted by at most this along the axis are ONE wall (a kerb split at a crossing or a pier: OTHH TerminalRoads_Parking_004 comp 1 = 80 + 62 m runs; the Terminal_Base_9_6 floor-to-deck panels 0.6–0.9 m inside the 2_5 kerbs are those walls' faces)
 end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open_m of an end line covering this share of it CLOSES the end
-# RULINGS 2026-09-10z — a Law C corridor's MOUTH OPENS ONTO GROUNDSIDE: besides
-# the authored depth (10u) a road must lie within corridor_mouth_road_m of a
-# mouth in ANY heading (a loading bay is entered from the road running past it,
-# and an underpass's own road runs unmapped under the deck), and the pavement
-# face the mouth opens onto must NOT be an airside apron/taxiway face — aircraft
-# aprons do not run into building tunnels.  A building whose foundations go below
-# grade beside an apron is a building, not a tunnel (Aerosoft LEMD: 17 spurious
-# tunnel_ramps).  The 10w heading and deck clauses are DELETED (refuted, 10z).
-corridor_mouth_road_m   = 15.0  # an OSM highway=* way (small/big road feeds) or a patch road ribbon (service_road / service_junction / groundside_pavement) within this of a mouth OPENS it onto groundside, in any heading
+# RULINGS 2026-09-10ad — the groundside-mouth clause (10z (b''), key
+# corridor_mouth_road_m) is DELETED: it separated LEMD's cargo foundations
+# from OTHH's kerb corridors not at all (10ab).  Law C's admission is the
+# AUTHORED depth alone, read in the object's SEATED frame (10u, 10ad).
 # RULINGS 2026-09-10ab — the ROUND-4 discriminators, measured per candidate
 # before any of them is a gate: (i) FLOOR-vs-ROAD — the nearest road within
 # corridor_road_level_m of a mouth, its LEVEL there (Ortho4XP's own longitudinal

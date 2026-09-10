@@ -638,3 +638,39 @@ reading honest (`test_v2corridor.py`: the probe states the road level minus the 
 is authored). **The admission is UNCHANGED** — (a) authored depth + (b″) the groundside
 mouth, exactly as §12b measured it (verified after: LEMD 26 corridors / 49 records). No
 clause (b‴) is proposed; the next discriminator is the owner's.
+
+## §12d Law C reads the SEATED frame (RULINGS 2026-09-10ad) — lane `v2corridor` round 5, 2026-09-10
+
+**The clause.** Law C measures depth in the object's SEATED frame: the rebake puts the
+object's zero on the LOCAL GROUND (09af-1), so a component's rendered z is
+`dem(the component's own plan centroid) + agl + authored y` — never `anchor_z + agl + y`,
+the pack's anchor plane (Aerosoft LEMD anchors components up to 4 km away, where the
+terrain stands 9 m higher: a wall authored 2.6 m under its zero read 8–10 m "below ground"
+and its ramp came out 160–200 m at 5 % instead of ≤ 52 m). This frame carries BOTH the
+admission ((a) authored depth, §12, unchanged in value) and the corridor FLOOR, so the ramp
+length — `rise / ramp_grade` with `rise = ground − mouth floor` — is the authored depth's.
+The rendered-under-DEM reading is DELETED from Law C. **(b″) (the groundside mouth, §12b)
+is DELETED, key `corridor_mouth_road_m` and all** — refuted in 10z/10ab. The round-4
+measurement probe (§12c) stays, measurement only.
+
+**The sites changed** (`airport/wall_corridors.py`): `_seat_base(o, xy, dem_z)` — the new
+single derivation of the frame; `_bands_of` (the band's `pts` z column, and the ground-
+CONTACT clause, which becomes `comp.max_y < −basin.contact_band_m`: in the seated frame the
+object's zero IS the local ground); `_headroom` and `_floor_slab` (the same per-component
+seat, so a plate and the floor under it stay in ONE frame — headroom is unchanged by a
+frame shift); the pair loop's rule-6 block, deleted with `airside_faces`, `_nearest_face`,
+`_nearest_roads`, `_road_at_mouth`, `_road_bearing_at`, `AIRSIDE_FACE_ROLES` and
+`stats.roads` / `refused_no_road` / `refused_airside_mouth`. `mouth_roads` stays: the probe
+reads it.
+
+**Consumer rows touched** (§12's table). 1 `_bands_of` — the seated frame, the single site.
+2 pre-screen (`y_range`) — unchanged, already authored. 3 the pair floor gate — unchanged
+(authored y). 3b (b″) — DELETED. 4 the garage `shallow_depth` mouth-at-grade gate — now
+seated (a garage's shallow end meets its own local ground, not the pack's plane).
+5 `planar/wall_corridor_ramps` (the ramp planner) — unchanged code, SHORTER ramps: the
+climb's rise is the authored depth. 6 `constraints/structures` (the ramp emitter) —
+unchanged rows, shorter geometry. 7 `pipeline/build` seat exclusion, 8 `verify/structures`,
+9 `emit/osm_adapter` + `precedence.toml:68` (`tunnel_ramp`) and the census families
+(`check_grade.LAW_FAMILIES`, `harness/census.py`) — unchanged: a count/length effect, no
+law change. 10 door wells / sunken roads / basins — unchanged (their own frames).
+11 `--stage structures` — `wall_corridor_admission` keeps (a) alone.

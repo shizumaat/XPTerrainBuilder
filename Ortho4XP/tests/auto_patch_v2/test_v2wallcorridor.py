@@ -262,10 +262,10 @@ def test_plate_stations_stand_outside_the_emitted_rim_and_the_ramp_beyond(law):
 
 # ── LAW C (08m / 08n) ────────────────────────────────────────────────────
 
-#: RULINGS 2026-09-10z (b''): a Law C corridor is admitted only when its
-#: MOUTH OPENS ONTO GROUNDSIDE — a road within ``corridor_mouth_road_m`` in
-#: any heading, no airside apron/taxiway face nearer.  The fixture corridors
-#: run along ±y, so one service way down that axis lies at both mouths.
+#: The fixture corridors run along ±y with a service way down that axis.
+#: (RULINGS 2026-09-10ad: the 10z groundside-mouth clause (b'') is DELETED
+#: — the road no longer admits anything; it is left here so these twins
+#: read the same site as the round-2/3 measurements.)
 def _axis_road(x: float = 0.0):
     return (OsmWay(-601, "airport_small_roads", ((x, -300.0), (x, 300.0)), False,
                    {"highway": "service"}),)

@@ -586,12 +586,44 @@ def patch_segment_split_values(tile, vertices, triangles, patch_valued,
 # ("segmentintersection(): Topological inconsistency"), and the squeeze
 # survives every spacing anyway.  The level rings are DELETED.
 #
-# THE LAW.  Inside a bank annulus a FREE vertex takes
+# THE LAW — THE FIELD RUNS ALONG THE RING'S NORMAL (owner RULINGS
+# 2026-09-09ab, superseding 09t's nearest-boundary form).  Inside a bank
+# annulus a FREE vertex takes
 #
-#     z(v) = z_in(p) + (z_out(q) - z_in(p)) * d_in / (d_in + d_out)
+#     z(v) = z_ring(p) + (z_foot(p) - z_ring(p)) * min(1, d(v, ring) / D(p))
 #
-# with ``p`` the nearest point of the DESIGN coverage boundary, ``q`` the
-# nearest point of the FOOT ring, ``d_in = |v - p|``, ``d_out = |v - q|``.
+# with ``p`` the nearest point of the DESIGN coverage boundary, ``D(p)``
+# THAT RING STATION'S daylight foot distance and ``z_foot(p)`` that
+# station's foot altitude.  Both ends of the ratio therefore belong to
+# ONE ray, so the slope along every normal is exactly the ring-to-foot
+# slope the daylight line already bounded at 1:3 — and never steeper
+# where the band pinches.
+#
+# WHY THE FORM CHANGED.  09t's field divided by ``d_in + d_out`` with
+# ``d_out`` the distance to the NEAREST foot, which is a different ring
+# station wherever the annulus pinches: measured on the HECA transect
+# (RULINGS 2026-09-09ab), three stations whose nearest annulus boundary
+# was the design ring at 0.5-7 m while their foot stood ~57 m away read
+# 0.459 / 0.533 / 0.533 against a 0.35 bar — steep BY CONSTRUCTION of the
+# field, not by the mesh.
+#
+# HOW THE MESH SIDE RECOVERS ``D(p)`` AND ``z_foot(p)``.  By RAY-CASTING
+# the ring's OUTWARD NORMAL at ``p`` against the foot linework it already
+# reads: ``D(p)`` is the first foot crossing's distance and ``z_foot(p)``
+# the foot ring's own carried altitude (column 5) interpolated along the
+# crossed edge.  The direction is ``(v - p) / |v - p|``, which IS the
+# ring's normal at ``p`` wherever the projection falls inside a segment
+# and lies inside the corner's normal fan where it falls on a vertex.
+# This is chosen over publishing a per-vertex ``d`` / ``z_foot`` on the
+# ``bank_foot`` way because it needs NO new sidecar AND no patch-format
+# change — and because the emitted foot ring is the boundary of a UNION
+# (``emit/bank.py``: ``unary_union([cov.buffer(min_w), *pieces])``), so
+# its vertices do not index-correspond to design-ring stations at all;
+# a published list would have to re-derive the same nearest-point map
+# the ray already inverts.  A ray that finds no foot crossing (a
+# clipped or seam-straddling annulus) falls back to 09t's nearest-
+# boundary value, so no vertex reverts to the harmonic squeeze.
+#
 # It is written into column 5 BEFORE the harmonic solve, and the vertex
 # joins the Dirichlet set — so this is a metric interpolation for bank
 # annuli ONLY and every other face is bit-identical (spec §13.2 H1).
@@ -797,13 +829,127 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     d_out = _sh.distance(points, seg_out)
     z_in = _segment_z_at(seg_in, points, ends[inner_idx[near_in]], vertices)
     z_out = _segment_z_at(seg_out, points, ends[outer_idx[near_out]], vertices)
+
+    # ``p``: the NEAREST RING POINT, and the outward ray through it.
+    ring_pt = _sh.line_interpolate_point(
+        seg_in, _sh.line_locate_point(seg_in, points))
+    pxy = _sh.get_coordinates(ring_pt)
+    px, py = pxy[:, 0], pxy[:, 1]
+    away_x, away_y = fx - px, fy - py
+    norm = _np.hypot(away_x, away_y)
+    on_ring = norm <= 0.0
+    # THE RAY IS THE RING STATION'S OWN OUTWARD NORMAL, not the direction
+    # to the vertex: ``D(p)`` and ``z_foot(p)`` are properties of ``p``
+    # alone (09ab, "the daylight ray's"), so every vertex a station
+    # carries — a corner fan included — shares ONE ratio denominator and
+    # the field stays continuous across the fan.  Measured on the HECA
+    # tile (transect 1, lon 31.3819142): taking ``(v - p)`` instead lets
+    # a grazing direction in a corner fan run far before it meets a foot,
+    # and the mid-bank grade read 0.153 where the ring-to-foot slope is
+    # 0.290; with the station's own normal the same stretch reads
+    # 0.269-0.288, the ruled value.
+    ei = ends[inner_idx[near_in]]
+    ex = vertices[6 * ei[:, 1]] * scalx - vertices[6 * ei[:, 0]] * scalx
+    ey = vertices[6 * ei[:, 1] + 1] - vertices[6 * ei[:, 0] + 1]
+    elen = _np.hypot(ex, ey)
+    elen = _np.where(elen > 0.0, elen, 1.0)
+    ux, uy = -ey / elen, ex / elen
+    outward = (ux * away_x + uy * away_y) < 0.0
+    ux = _np.where(outward, -ux, ux)
+    uy = _np.where(outward, -uy, uy)
+    d_foot, z_foot = _bank_foot_along_normal(
+        px, py, ux, uy, tree_out, outer_idx,
+        ax, ay, bx, by, ends, vertices)
+
+    # THE FIELD (09ab): one ray, both ends.  Where the ray finds no foot
+    # crossing (a clipped or seam-straddling annulus) 09t's nearest-
+    # boundary value stands in, so no vertex reverts to the harmonic
+    # extension.
     total = d_in + d_out
-    good = _np.isfinite(z_in) & _np.isfinite(z_out) & (total > 0.0)
-    z = z_in + (z_out - z_in) * _np.where(total > 0.0, d_in / _np.where(
+    ray = (_np.isfinite(z_foot) & _np.isfinite(z_in) & (d_foot > 0.0)
+           & ~on_ring)
+    frac_ray = _np.clip(d_in / _np.where(d_foot > 0.0, d_foot, 1.0), 0.0, 1.0)
+    z_ray = z_in + (z_foot - z_in) * frac_ray
+    z_old = z_in + (z_out - z_in) * _np.where(total > 0.0, d_in / _np.where(
         total > 0.0, total, 1.0), 0.0)
+    z = _np.where(ray, z_ray, z_old)
+    good = _np.isfinite(z_in) & (ray | (_np.isfinite(z_out) & (total > 0.0)))
+    BANK_BLEND_STATS.clear()
+    BANK_BLEND_STATS["ray"] = int(_np.count_nonzero(ray & good))
+    BANK_BLEND_STATS["fallback"] = int(_np.count_nonzero(~ray & good))
     for k in _np.flatnonzero(good).tolist():
         out[int(free[k])] = float(z[k])
     return out
+
+
+#: How the last :func:`bank_annulus_blend_values` valued its vertices:
+#: ``ray`` took their ring station's own daylight ray, ``fallback`` the
+#: nearest-boundary value where that ray met no foot.  A report figure.
+BANK_BLEND_STATS = {}
+
+
+#: How far out along a ring normal the foot is looked for, in metres.
+#: ``[design] bank_max_width_m`` is 200 m; twice that leaves room for a
+#: normal that leaves its own station obliquely at a corner.
+BANK_RAY_MAX_M = 400.0
+
+#: Metres per degree of latitude — the isotropic frame's unit (the same
+#: figure the tile's own extent report uses).
+BANK_METRES_PER_DEGREE = 111120.0
+
+
+def _bank_foot_along_normal(px, py, ux, uy, tree_out, outer_idx,
+                            ax, ay, bx, by, ends, vertices):
+    """``(D, z_foot)`` per ring point: the plan distance to the FIRST foot
+    crossing of the outward ray ``p + s*u`` and the foot ring's own
+    carried altitude (column 5) interpolated along the crossed edge
+    (RULINGS 2026-09-09ab).  ``D`` is 0 and ``z_foot`` NaN for a ray that
+    crosses no foot within :data:`BANK_RAY_MAX_M`.
+
+    All arrays are in the isotropic tile-relative frame ``(x * cos(lat),
+    y)``; ``ax``..``by`` are the ring-edge endpoints of that frame and
+    ``outer_idx`` indexes them (and ``ends``) for the FOOT edges alone.
+    """
+    import numpy as _np
+    import shapely as _sh
+
+    n = px.size
+    dist = _np.zeros(n)
+    zfoot = _np.full(n, _np.nan)
+    reach = BANK_RAY_MAX_M / BANK_METRES_PER_DEGREE
+    rays = _sh.linestrings(_np.stack([
+        _np.stack([px, py], axis=1),
+        _np.stack([px + reach * ux, py + reach * uy], axis=1)], axis=1))
+    hit_ray, hit_seg = tree_out.query(rays, predicate="intersects")
+    if not hit_ray.size:
+        return (dist, zfoot)
+    seg = outer_idx[hit_seg]
+    # ray p + s*u  vs  segment a + t*(b - a), solved exactly: the tree's
+    # own ``intersects`` already discarded everything else.
+    sx, sy = bx[seg] - ax[seg], by[seg] - ay[seg]
+    rx, ry = ux[hit_ray], uy[hit_ray]
+    cross = rx * sy - ry * sx
+    ok = cross != 0.0
+    denom = _np.where(ok, cross, 1.0)
+    qx, qy = ax[seg] - px[hit_ray], ay[seg] - py[hit_ray]
+    s_ray = (qx * sy - qy * sx) / denom
+    t_seg = (qx * ry - qy * rx) / denom
+    ok &= (s_ray > 0.0) & (t_seg >= 0.0) & (t_seg <= 1.0)
+    za = vertices[6 * ends[seg, 0] + 5]
+    zb = vertices[6 * ends[seg, 1] + 5]
+    z_hit = za + (zb - za) * t_seg
+    ok &= _np.isfinite(z_hit)
+    if not ok.any():
+        return (dist, zfoot)
+    s_ray = _np.where(ok, s_ray, _np.inf)
+    order = _np.lexsort((s_ray, hit_ray))
+    rows, first = _np.unique(hit_ray[order], return_index=True)
+    take = order[first]
+    keep = _np.isfinite(s_ray[take])
+    rows, take = rows[keep], take[keep]
+    dist[rows] = s_ray[take]
+    zfoot[rows] = z_hit[take]
+    return (dist, zfoot)
 
 
 # ── THE MESH MUST HAVE VERTICES TO CARRY THE BLEND ─────────────────────
@@ -1356,8 +1502,12 @@ def post_process_nodes_altitudes(tile):
             UI.vprint(
                 1,
                 f"   Bank annulus: {len(blend)} free vertex(es) took the "
-                "1:3 bank's own altitude, linear in plan distance between "
-                "the design ring and the foot (RULINGS 2026-09-09t).")
+                "1:3 bank's own altitude along the ring's normal — "
+                f"{BANK_BLEND_STATS.get('ray', 0)} carried by their ring "
+                f"station's own daylight ray, "
+                f"{BANK_BLEND_STATS.get('fallback', 0)} by the "
+                "nearest-boundary fallback where the ray met no foot "
+                "(RULINGS 2026-09-09ab).")
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)

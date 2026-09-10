@@ -2110,3 +2110,172 @@ regions, sizes them, passes the flag, and costs nothing until the binary
 can act on it.  `test_triangle_puts_vertices_inside_a_region_that_asks_
 for_them` is `xfail(strict=True)` — the day Triangle4XP is rebuilt it
 fails as unexpectedly-passing and this section is deleted.
+
+### §13.8.5 LANDED: the vendored Triangle4XP is patched (RULINGS 2026-09-09aa/ab; lane `v2bankblend` round 3, merged `ea85d373`)
+
+09aa ruled §13.8.4's counterfactual in.  `Utils/src/Triangle4XP.c` carries
+the stock maximum-area test in `testtriangle`, inserted BEFORE the
+`if (attribute >= 8) return;` INTERP_ALT exemption; the priority argument
+is the shortest squared edge (round 2's 314-vs-306 band vertices differ
+only in that argument — the slopes are identical).  `Utils/mac/Triangle4XP`
+is rebuilt from it, `cc -O2 -arch arm64 -arch x86_64` (Apple clang 21), a
+universal binary as the shipped one is, committed WITH the source and its
+sha1 pinned by a twin
+(`test_the_shipped_mac_triangle4xp_is_the_patched_binary`,
+`TRIANGLE4XP_MAC_SHA1 = 7ca193114522035fb0449432431b14db02fe37e1`) so a
+later rebuild that forgets the patch, or a merge that restores the
+vendored binary, fails loudly instead of silently putting the bank back
+on the ring-to-foot triangulation.  The region-area twin
+(`test_triangle_puts_vertices_inside_a_region_that_asks_for_them`) is no
+longer `xfail`: it is a HARD twin on macOS, asking for at least
+`BANK_REGION_MIN_FREE_VERTICES = 40` free vertices in the 30 m band and
+measuring **306 output vertices from 184 in — 122 free vertices inside
+the band**.  The win/lin binaries still carry the old test, so both twins
+skip off macOS with that reason; the release CI owns the rebuild
+(`docs/DEFERRED_VERIFICATION.md`).
+
+MEASURED, HECA `+30+031`, mesh-only replay (`run_tile_mesh_only.py 30 31 1
+--patches-as-is`): Step 1 **54 s** / Step 2 **63 s**, all 2,314 INTERP_ALT
+seeds sealed, 214 sized regions (median `max_area` 4.1 m²); annulus
+vertices carrying the blend **40 → 45,533**; annulus triangle slopes p50
+**0.093**, p90 **0.329**, over the 0.35 bar **6.6 % by count / 3.1 % by
+area** (round 2: 12.4 % / 3.4 %).  Transect 3 (lon 31.4150, lat
+30.12955–30.13005, a 29 m east bank) max **0.124** PASS.  Transect 1
+(lon 31.3819142) max **0.533** at three stations — MISSED, and attributed
+in §13.9 below.  The whole tile aborted at Step 1 on the 09y runway
+DEFECTs (lane `v2settle`'s, not the bank's); CYXY's patch on disk predates
+the bank, so there is no transect there.
+
+---
+
+## §13.9 THE FIELD RUNS ALONG THE RING'S NORMAL (RULINGS 2026-09-09ab; lane `v2bankblend` round 4)
+
+### §13.9.1 The law, and what it replaces
+
+09t's field divided by `d_in + d_out`: the distance to the nearest ring
+plus the distance to the nearest FOOT — **two different ring stations**
+wherever the annulus pinches.  09ab rules the field along ONE ray:
+
+    z(v) = z_ring(p) + (z_foot(p) − z_ring(p)) · min(1, d(v, ring) / D(p))
+
+with `p` the nearest point of the design coverage boundary, `D(p)` that
+ring station's daylight foot distance and `z_foot(p)` that station's foot
+altitude.  Both ends of the ratio belong to one ray, so the slope along
+every normal is exactly that ray's ring-to-foot slope — the daylight walk
+already bounded it at 1:3 — and never steeper where the band pinches.
+
+### §13.9.2 THE DATA PATH: how the mesh side recovers `D(p)` and `z_foot(p)`
+
+BY RAY-CASTING, in `O4_Mesh_Utils._bank_foot_along_normal`, against the
+foot linework `bank_annulus_blend_values` already reads.  `D(p)` is the
+first foot crossing's distance along the ray and `z_foot(p)` is the foot
+ring's own carried altitude (`.poly` column 5) interpolated along the
+crossed edge at the crossing.  The ray is the NEAREST INNER SEGMENT'S OWN
+OUTWARD NORMAL (sign taken from the side the vertex stands on), not the
+direction `v − p`: `D` and `z_foot` are properties of `p` alone, so every
+vertex a station carries — a corner fan included — shares one denominator
+and the field stays continuous across the fan.  Measured on HECA transect
+1: with `(v − p)` a grazing direction in a corner fan ran far before
+meeting a foot and the mid-bank read **0.153** where the ring-to-foot
+slope is 0.290; with the station's own normal the same stretch reads
+**0.269–0.288**, the ruled value.
+
+WHY NOT THE PUBLISHED-TAG OPTION.  Publishing a per-vertex `d` /
+`z_foot` on the `bank_foot` way needs no new sidecar either, but it needs
+a patch-FORMAT change on both sides — and the emitted foot ring is the
+boundary of a UNION (`emit/bank.py`:
+`unary_union([cov.buffer(min_w), *pieces])`), so its vertices do not
+index-correspond to design-ring stations at all: the emitter would have
+to publish the very nearest-point map the ray already inverts.  The ray
+is mesh-local and needs neither.
+
+FALLBACK.  A ray that meets no foot within `BANK_RAY_MAX_M` (400 m, twice
+`bank_max_width_m`) keeps 09t's nearest-boundary value, so no vertex
+reverts to the harmonic squeeze.  `BANK_BLEND_STATS` reports the split and
+the tile log prints it.
+
+### §13.9.3 Twins
+
+`tests/test_mesh_bank_annulus_blend.py`.  The square-annulus twin is
+UNCHANGED and green (the fixture is uniform in ring z, where both fields
+agree).  New: `TestThePinchedAnnulusRunsAlongTheRingsNormal`, a PINCHED
+annulus — two design bodies at **z 10 and z 30** standing **4 m** apart,
+their banks merged so the gap between them is annulus with NO foot in it
+and a **57 m** foot outside, the foot's z the daylight 1:3 below its own
+body and its ring densified to 5 m so a constrained edge never spans a
+daylight jump.  6,853 free vertices.  Asserted against an INDEPENDENT
+reimplementation of the ray (nearest ring segment → its outward normal →
+analytic ray/segment crossing), with tied corner-fan candidates all
+returned because which station carries a fan vertex is genuinely
+ambiguous:
+
+* every vertex takes the ruled value — residual **0.0000 m**;
+* no vertex is steeper than its own ray's ring-to-foot slope — worst
+  ratio **1.0000**;
+* the 4 m pinch itself is sampled (>100 vertices) and shallow;
+* THE TRIPWIRE: 09t's own formula on the same geometry reaches
+  **13.0×** that bound, so the twin measures the ruled change and not
+  the fixture.
+
+Suite (`tests/auto_patch_v2 tests/test_harness.py
+tests/test_patch_seed_seal.py tests/test_interp_alt_degenerate_face.py
+tests/test_mesh_bank_annulus_blend.py tests/test_mesh_water_precedence.py`)
+**792 passed, 1 skipped** (788 on main + the 4 new).
+
+### §13.9.4 MEASURED at HECA — the bar is NOT met, and why
+
+`run_tile_mesh_only.py 30 31 1 --patches-as-is`, rc 0, shared repo
+UNCHANGED.  Step 1 **53.4 s**, Step 2 **63–64 s** (bar: ≤ 2 × 60 s — met).
+INTERP_ALT seal: **all 2,307 seeds enclosed**.  215 sized regions.  Bank
+annulus: **64,341** free vertices valued — **64,162** by their station's
+own daylight ray, **179** by the nearest-boundary fallback.
+
+| figure | round 3 (09ab) | round 4 |
+|---|---|---|
+| transect 1 (lon 31.3819142) max | 0.533 (3 over) | **0.554 (3 over)** |
+| transect 1 mid-bank stretch | 0.153 | **0.269–0.288** |
+| transect 3 (lon 31.4150) max | 0.124 (0 over) | **0.124 (0 over)** |
+| annulus slopes p50 / p90 | 0.093 / 0.329 | **0.099 / 0.343** |
+| over the 0.35 bar | 6.6 % count / 3.1 % area | **9.0 % / 3.0 %** |
+
+THE MID-BANK IS FIXED AND THE THREE STATIONS ARE NOT.  Attributed, from
+the tile's own patch and mesh:
+
+1. THE RULED FIELD AT THAT SITE MEETS THE BAR.  Transect 1 is a **CUT**
+   bank: the design ring is at **z 49.48** and the DEM/foot **60.0 m** out
+   along the normal at **z 66.88** — a ring-to-foot slope of **0.290**,
+   under the bar.  The ruled field along the transect is a uniform 0.290:
+   53.83 / 53.18 / 52.54 / 51.89 / 51.25 / 50.60 / 49.96 / 49.51 at
+   d_ring 14.97 → 0.29 m.
+2. THE MESH DOES NOT CARRY IT THERE.  The built mesh reads 55.66 / 55.02 /
+   54.38 / 53.74 / 52.85 / 51.62 / 50.39 / 49.49 at those same stations —
+   a near-constant **+1.84 m** above the ruled field from 15 m out to
+   about 6 m, decaying to 0 at the ring.  It is that decay, not the
+   field's form, that reads 0.53–0.55; the `.alt` raster is 66.6 m there,
+   so the excess is a fraction of the DEM's own 16.4 m offset, not the DEM
+   itself.
+3. THE SITE IS ONE RING.  Within 12 m of the station there is exactly one
+   design ring — way `-10308`, `role=graded_strip`, 55 nodes, z
+   48.41–55.00 — and it IS the coverage's outer boundary at 1.64 m.  So
+   this is not two rings disagreeing; something between the annulus's
+   inner boundary and the mesh vertices out at 6–15 m holds a value 1.84 m
+   above the field.
+
+REPORTED, NOT DECIDED (attempt cap spent; a spawner/owner call).  The
+candidates the numbers leave standing: annulus vertices that are already
+`patch_valued` when the blend runs — the tile log's *"the rest are
+levelled road ribbons / seawall bands and keep their own"* class — are
+SKIPPED by `bank_annulus_blend_values` by construction and keep a levelled
+altitude inside the bank; and the 179 fallback vertices. Neither was
+isolated at this site in this round.
+
+### §13.9.5 Build-time impact statement
+
+The change is inside `bank_annulus_blend_values`, which runs once per tile
+in step 2.  Step 2 measured **63 s** against round 3's **63 s** — no
+change within the ±25 % single-run noise floor, and the ray-cast is one
+vectorised `STRtree.query(rays, predicate="intersects")` plus an analytic
+ray/segment solve over the returned pairs.  The per-airport 60 s
+auto-patch budget is NOT touched (this code never runs in an airport
+build).  Against the 300 s whole-tile budget the pass is far under the 1 %
+(3 s) threshold that would need a Fable-5 optimisation review.

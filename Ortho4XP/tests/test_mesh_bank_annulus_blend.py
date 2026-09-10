@@ -464,3 +464,320 @@ def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
         f"Triangle put {free} vertex(es) inside a {bank_m:.0f} m annulus "
         f"whose region asked for {max_area:.3g} deg2 triangles "
         f"({produced} out of {len(pts)} in)")
+
+
+# ── THE PINCHED ANNULUS ───────────────────────────────────────────────
+# (owner RULINGS 2026-09-09ab; spec §13.8)
+#
+# 09t's field divided by ``d_in + d_out`` — the distance to the nearest
+# ring plus the distance to the nearest FOOT, which in a pinch are two
+# DIFFERENT ring stations.  Measured on the HECA transect: three stations
+# whose nearest annulus boundary was the design ring at 0.5-7 m while
+# their foot stood ~57 m away read 0.459 / 0.533 / 0.533 against the 0.35
+# bar — steep by construction of the field.
+#
+# THIS FIXTURE IS THAT SITE.  Two design bodies at DIFFERENT altitudes
+# stand 4 m apart; their banks merge, so the 4 m gap between them is
+# annulus with NO foot in it and a foot 57 m away outside.  A vertex in
+# the gap took the near body's ring altitude and the far body's foot
+# altitude — 20 m of difference over 57 m of ratio, spent in the first
+# half metre.  The ruled field runs along the RING'S NORMAL, so both ends
+# of the ratio belong to ONE ray and the slope out of the ring is the
+# ring-to-foot slope wherever the vertex stands.
+
+PINCH_SLOPE = 1.0 / 3.0             # the 1:3 design bank
+PINCH_FOOT_M = 57.0                 # the daylight foot's distance
+PINCH_A_Z = 10.0                    # body A's design altitude
+PINCH_B_Z = 30.0                    # body B's, 20 m above it
+PINCH_GAP_M = 4.0                   # the band where the annulus pinches
+
+
+def _rect(x0, y0, x1, y1, step_m):
+    """A closed rectangle ring sampled every ``step_m``, in metres."""
+    pts = []
+    for (ax, ay, bx, by) in ((x0, y0, x1, y0), (x1, y0, x1, y1),
+                             (x1, y1, x0, y1), (x0, y1, x0, y0)):
+        n = max(1, int(round(numpy.hypot(bx - ax, by - ay) / step_m)))
+        for k in range(n):
+            pts.append((ax + (bx - ax) * k / n, ay + (by - ay) * k / n))
+    return pts
+
+
+def _write_rings_osm(path, rings):
+    """``rings`` is a list of ``(points, per-point z, tags)``."""
+    lines = ["<?xml version='1.0' encoding='UTF-8'?>",
+             "<osm version='0.6' generator='twin'>"]
+    nid, wid = 0, -10000
+    ways = []
+    for (pts, zs, _tags) in rings:
+        ids = []
+        for (x, y), z in zip(pts, zs):
+            nid -= 1
+            lat, lon = _to_ll(x, y)
+            lines.append(f"  <node id='{nid}' action='modify' visible='true' "
+                         f"lat='{lat:.11f}' lon='{lon:.11f}'>")
+            lines.append(f"    <tag k='alt_abs' v='{z:.3f}' />")
+            lines.append("  </node>")
+            ids.append(nid)
+        ways.append(ids)
+    for ids, (_pts, _zs, tags) in zip(ways, rings):
+        wid -= 1
+        lines.append(f"  <way id='{wid}' action='modify' visible='true'>")
+        for v in ids + [ids[0]]:
+            lines.append(f"    <nd ref='{v}' />")
+        for k, val in tags:
+            lines.append(f"    <tag k='{k}' v='{val}' />")
+        lines.append("  </way>")
+    lines.append("</osm>")
+    path.write_text("\n".join(lines) + "\n")
+
+
+@pytest.fixture()
+def pinched(tmp_path, monkeypatch):
+    from shapely import geometry, ops
+
+    body_a = _rect(-100.0, -100.0, 100.0, 100.0, 10.0)
+    bx0 = 100.0 + PINCH_GAP_M
+    body_b = _rect(bx0, -20.0, bx0 + 40.0, 20.0, 5.0)
+    poly_a = geometry.Polygon(body_a)
+    poly_b = geometry.Polygon(body_b)
+    coverage = ops.unary_union([poly_a, poly_b])
+    foot_poly = coverage.buffer(PINCH_FOOT_M, quad_segs=8)
+    # DENSIFIED: the foot is a CONSTRAINED EDGE carrying z at both ends,
+    # so a 200 m edge across a daylight jump would mean something the
+    # daylight walk never authors (RULINGS 2026-09-09g (4))
+    foot = list(foot_poly.exterior.segmentize(5.0).coords)[:-1]
+
+    # the foot IS the DEM: each foot station 1:3 below ITS OWN body
+    def foot_z(x, y):
+        da = poly_a.exterior.distance(geometry.Point(x, y))
+        db = poly_b.exterior.distance(geometry.Point(x, y))
+        z_body = PINCH_A_Z if da <= db else PINCH_B_Z
+        return z_body - min(da, db) * PINCH_SLOPE
+
+    rings = [
+        (body_a, [PINCH_A_Z] * len(body_a),
+         [("o4_feature", "graded_surface"), ("role", "apron")]),
+        (body_b, [PINCH_B_Z] * len(body_b),
+         [("o4_feature", "graded_surface"), ("role", "apron")]),
+        (foot, [foot_z(x, y) for (x, y) in foot],
+         [("o4_feature", "bank_foot"), ("ref", "bank:0")]),
+    ]
+
+    rows, edges, base = [], [], 0
+    for (pts, zs, _t) in rings:
+        rows.extend((x, y, z) for (x, y), z in zip(pts, zs))
+        edges.extend((base + i, base + (i + 1) % len(pts))
+                     for i in range(len(pts)))
+        base += len(pts)
+    ring_count = base
+
+    annulus = foot_poly.difference(coverage)
+    free_xy = []
+    minx, miny, maxx, maxy = annulus.bounds
+    grid = [(x, y)
+            for x in numpy.arange(minx, maxx, 3.0)
+            for y in numpy.arange(miny, maxy, 3.0)]
+    grid += [(x, y)                                  # the pinch, sampled fine
+             for x in numpy.arange(98.0, 108.0, 0.5)
+             for y in numpy.arange(-24.0, 24.0, 1.0)]
+    rng = numpy.random.default_rng(20260909)
+    for (x, y) in grid:
+        x = float(x) + float(rng.uniform(-0.05, 0.05))
+        y = float(y) + float(rng.uniform(-0.05, 0.05))
+        pnt = geometry.Point(x, y)
+        if not annulus.contains(pnt):
+            continue
+        if annulus.exterior.distance(pnt) < 0.25:
+            continue
+        if any(h.distance(pnt) < 0.25 for h in annulus.interiors):
+            continue
+        free_xy.append((x, y))
+    assert len(free_xy) > 2000, len(free_xy)
+    rows += [(x, y, DEM_SENTINEL) for (x, y) in free_xy]
+
+    vertices = numpy.zeros(STRIDE * len(rows))
+    for index, (x, y, z) in enumerate(rows):
+        lat, lon = _to_ll(x, y)
+        vertices[STRIDE * index] = lon - LON
+        vertices[STRIDE * index + 1] = lat - LAT
+        vertices[STRIDE * index + 2] = z
+        vertices[STRIDE * index + VECTOR_COLUMN] = z
+
+    from scipy.spatial import Delaunay
+    pts = numpy.array([(x, y) for (x, y, _z) in rows])
+    tri = Delaunay(pts)
+    centroids = pts[tri.simplices].mean(axis=1)
+    import shapely as _sh
+    keep = _sh.contains_xy(annulus, centroids[:, 0], centroids[:, 1])
+    triangles = [tuple(int(v) for v in s) for s in tri.simplices[keep]]
+    assert triangles
+
+    patch_dir = tmp_path / "patches"
+    patch_dir.mkdir()
+    _write_rings_osm(patch_dir / "PNCH_auto.patch.osm", rings)
+    poly = tmp_path / "pinched.poly"
+    _write_poly(poly, edges)
+    monkeypatch.setattr(MESH.FNAMES, "patch_dir",
+                        lambda lat, lon: str(patch_dir))
+    monkeypatch.setattr(MESH.FNAMES, "input_poly_file",
+                        lambda tile: str(poly))
+    return (_Tile(), vertices, triangles, set(range(ring_count)), pts,
+            ring_count, poly_a, poly_b,
+            numpy.asarray(foot, float), numpy.asarray(rings[2][1], float))
+
+
+
+
+def _rays(pts, indices, poly_a, poly_b, foot_xy, foot_z):
+    """THE RULED RAY at each vertex, computed independently here:
+    ``(d, z_ring(p), D(p), z_foot(p))`` — the nearest DESIGN ring
+    segment's projection ``p``, the first FOOT EDGE crossing of THAT
+    SEGMENT'S OUTWARD NORMAL through it, and that edge's own carried
+    altitude interpolated at the crossing."""
+    # the design ring's segments, each with the body altitude it carries
+    rax, ray_, rbx, rby, rz = [], [], [], [], []
+    for poly, z in ((poly_a, PINCH_A_Z), (poly_b, PINCH_B_Z)):
+        cs = list(poly.exterior.coords)
+        for k in range(len(cs) - 1):
+            rax.append(cs[k][0])
+            ray_.append(cs[k][1])
+            rbx.append(cs[k + 1][0])
+            rby.append(cs[k + 1][1])
+            rz.append(z)
+    rax = numpy.asarray(rax); ray_ = numpy.asarray(ray_)
+    rbx = numpy.asarray(rbx); rby = numpy.asarray(rby)
+    rz = numpy.asarray(rz)
+    rdx, rdy = rbx - rax, rby - ray_
+    rlen2 = rdx * rdx + rdy * rdy
+
+    fax, fay = foot_xy[:, 0], foot_xy[:, 1]
+    fbx, fby = numpy.roll(fax, -1), numpy.roll(fay, -1)
+    fza, fzb = foot_z, numpy.roll(foot_z, -1)
+    fsx, fsy = fbx - fax, fby - fay
+
+    out = {}
+    for index in indices:
+        x, y = float(pts[index][0]), float(pts[index][1])
+        t = numpy.clip(((x - rax) * rdx + (y - ray_) * rdy) / rlen2, 0.0, 1.0)
+        qx, qy = rax + t * rdx, ray_ + t * rdy
+        dd = numpy.hypot(x - qx, y - qy)
+        d = float(dd.min())
+        if d <= 0.0:
+            continue
+        # A CORNER FAN TIES: a vertex off a ring corner projects onto the
+        # SAME point from both adjacent segments, whose normals are 90
+        # apart.  Which station carries it is genuinely ambiguous, so
+        # every tied candidate is returned and the assertions take the
+        # one the engine chose.
+        candidates = []
+        for k in numpy.flatnonzero(dd <= d + 1.0e-9).tolist():
+            px, py = float(qx[k]), float(qy[k])
+            nlen = float(numpy.hypot(rdx[k], rdy[k]))
+            ux, uy = -rdy[k] / nlen, rdx[k] / nlen
+            if ux * (x - px) + uy * (y - py) < 0.0:
+                ux, uy = -ux, -uy
+            cross = ux * fsy - uy * fsx
+            with numpy.errstate(divide="ignore", invalid="ignore"):
+                cx, cy = fax - px, fay - py
+                s_ray = (cx * fsy - cy * fsx) / cross
+                t_seg = (cx * uy - cy * ux) / cross
+            ok = ((cross != 0.0) & (s_ray > 0.0) & (t_seg >= 0.0)
+                  & (t_seg <= 1.0))
+            if not ok.any():
+                continue
+            m = int(numpy.flatnonzero(ok)[numpy.argmin(s_ray[ok])])
+            candidates.append((d, float(rz[k]), float(s_ray[m]),
+                               float(fza[m] + (fzb[m] - fza[m]) * t_seg[m])))
+        if candidates:
+            out[index] = candidates
+    return out
+
+
+class TestThePinchedAnnulusRunsAlongTheRingsNormal:
+    def test_every_vertex_takes_the_ruled_value_along_its_own_normal(
+            self, pinched):
+        """THE LAW (09ab), asserted against an independent shapely
+        ray-cast: ``z = z_ring(p) + (z_foot(p) - z_ring(p)) *
+        min(1, d / D(p))``."""
+        (tile, vertices, triangles, patch_valued, pts, _n,
+         poly_a, poly_b, foot_xy, foot_z) = pinched
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        assert blend, "the pinched annulus was not identified at all"
+        rays = _rays(pts, sorted(blend), poly_a, poly_b, foot_xy, foot_z)
+        assert len(rays) > 2000, len(rays)
+        worst, where = 0.0, None
+        for index, cands in rays.items():
+            miss = min(abs(blend[index]
+                           - (z_ring + (z_foot - z_ring) * min(1.0, d / big_d)))
+                       for (d, z_ring, big_d, z_foot) in cands)
+            if miss > worst:
+                worst, where = miss, pts[index]
+        assert worst <= 0.05, (worst, where)
+
+    def test_no_vertex_is_steeper_than_its_own_ring_to_foot_slope(
+            self, pinched):
+        """THE BAR: the slope ALONG THE NORMAL out of the design ring is
+        the ring-to-foot slope of that very ray — never steeper, however
+        narrow the band is where the vertex stands."""
+        (tile, vertices, triangles, patch_valued, pts, _n,
+         poly_a, poly_b, foot_xy, foot_z) = pinched
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        rays = _rays(pts, sorted(blend), poly_a, poly_b, foot_xy, foot_z)
+        worst, where = 0.0, None
+        for index, cands in rays.items():
+            ratios = [abs(blend[index] - z_ring) / d
+                      / (abs(z_foot - z_ring) / big_d)
+                      for (d, z_ring, big_d, z_foot) in cands
+                      if z_foot != z_ring]
+            if ratios and min(ratios) > worst:
+                worst, where = min(ratios), pts[index]
+        assert worst <= 1.02, (worst, where)
+
+    def test_the_pinch_itself_is_sampled(self, pinched):
+        """The 4 m band between the two bodies — annulus with NO foot in
+        it and a foot tens of metres away — is where 09t's field paired a
+        near ring with a far, unrelated foot."""
+        (tile, vertices, triangles, patch_valued, pts, _n,
+         poly_a, poly_b, foot_xy, foot_z) = pinched
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        gap = [i for i in blend
+               if 100.0 < pts[i][0] < 100.0 + PINCH_GAP_M
+               and abs(pts[i][1]) < 20.0]
+        assert len(gap) > 100, len(gap)
+        rays = _rays(pts, sorted(gap), poly_a, poly_b, foot_xy, foot_z)
+        assert len(rays) > 100, len(rays)
+        for index, cands in rays.items():
+            ok = [abs(blend[index] - z_ring) / d
+                  <= abs(z_foot - z_ring) / big_d * 1.02 + 1.0e-9
+                  for (d, z_ring, big_d, z_foot) in cands]
+            assert any(ok), (pts[index], blend[index], cands)
+
+    def test_the_nearest_boundary_field_fails_this_fixture(self, pinched):
+        """THE TRIPWIRE: 09t's own formula, computed here on the same
+        geometry, breaks the bar the twin above holds — so that twin
+        measures the ruled change and not the fixture."""
+        (tile, vertices, triangles, patch_valued, pts, ring_count,
+         poly_a, poly_b, foot_xy, foot_z) = pinched
+        from shapely import geometry, ops
+        cov = ops.unary_union([poly_a, poly_b])
+        foot = cov.buffer(PINCH_FOOT_M, quad_segs=8).exterior
+        free = sorted({v for t in triangles for v in t if v >= ring_count})
+        rays = _rays(pts, free, poly_a, poly_b, foot_xy, foot_z)
+        worst = 0.0
+        for index, cands in rays.items():
+            (d_in, z_in, big_d, z_foot) = cands[0]
+            v = geometry.Point(float(pts[index][0]), float(pts[index][1]))
+            q = ops.nearest_points(foot, v)[0]
+            d_out = v.distance(q)
+            qa, qb = poly_a.exterior.distance(q), poly_b.exterior.distance(q)
+            z_out = ((PINCH_A_Z if qa <= qb else PINCH_B_Z)
+                     - min(qa, qb) * PINCH_SLOPE)
+            z = z_in + (z_out - z_in) * d_in / (d_in + d_out)
+            bound = abs(z_foot - z_in) / big_d
+            if bound > 0.0:
+                worst = max(worst, abs(z - z_in) / d_in / bound)
+        assert worst > 1.5, worst

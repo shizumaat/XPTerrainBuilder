@@ -44,6 +44,8 @@ Nothing numeric lives here; every value is a law-table argument.
 """
 from __future__ import annotations
 
+from ..model.frame import rotated_rectangle
+
 import dataclasses as _dc
 import math
 import os
@@ -182,7 +184,7 @@ def _extent(poly: Polygon, origin: XY, d: XY) -> tuple[float, float]:
 
 def _rect_sides(poly: Polygon) -> list[tuple[XY, XY]] | None:
     """The four sides of the polygon's minimum rotated rectangle."""
-    mrr = poly.minimum_rotated_rectangle
+    mrr = rotated_rectangle(poly)
     if mrr.geom_type != "Polygon":
         return None
     c = list(mrr.exterior.coords)
@@ -296,7 +298,7 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             # the cheap gates first (OTHH's car parks: 300 post footings of
             # 0.3 m2 per family): a plate narrower than the sill's minimum
             # width in every direction carries no door
-            mrr = plate.minimum_rotated_rectangle
+            mrr = rotated_rectangle(plate)
             if mrr.geom_type != "Polygon" or plate.area < dl.sill_min_width_m ** 2 \
                     or max(math.dist(mrr.exterior.coords[i], mrr.exterior.coords[i + 1])
                            for i in range(len(mrr.exterior.coords) - 1)) < dl.sill_min_width_m:

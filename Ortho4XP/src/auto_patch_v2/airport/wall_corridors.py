@@ -57,6 +57,8 @@ table argument.
 """
 from __future__ import annotations
 
+from ..model.frame import rotated_rectangle
+
 import dataclasses as _dc
 import math
 import os
@@ -312,7 +314,7 @@ def _band_polygon(segs: list[LineString]) -> tuple[Polygon | None, float]:
     if not segs:
         return None, 0.0
     lines = unary_union(segs)
-    rect = lines.minimum_rotated_rectangle
+    rect = rotated_rectangle(lines)
     if rect.geom_type == "Polygon" and rect.area > _MIN_SEG_M * _SHEET_BAND_M:
         L, W = _rect_sides(rect)
         if W >= _SHEET_BAND_M:
@@ -325,7 +327,7 @@ def _band_polygon(segs: list[LineString]) -> tuple[Polygon | None, float]:
 
 
 def _rect_sides(poly: Polygon) -> tuple[float, float]:
-    rect = poly.minimum_rotated_rectangle
+    rect = rotated_rectangle(poly)
     c = list(rect.exterior.coords)[:4]
     if len(c) < 4:
         return 0.0, 0.0
@@ -335,7 +337,7 @@ def _rect_sides(poly: Polygon) -> tuple[float, float]:
 
 def _rect_axis(poly: Polygon) -> tuple[LineString, float, float] | None:
     """``(axis midline, length, bearing 0..180)`` of the plan rectangle."""
-    rect = poly.minimum_rotated_rectangle
+    rect = rotated_rectangle(poly)
     if rect.geom_type != "Polygon":
         return None
     c = list(rect.exterior.coords)[:4]
@@ -390,7 +392,7 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
             if caps:
                 cap_u = unary_union(caps)
                 if cap_u.area > 1e-9:
-                    _L, Wc = _rect_sides(cap_u.minimum_rotated_rectangle)
+                    _L, Wc = _rect_sides(rotated_rectangle(cap_u))
                     if Wc > ob.wall_face_max_thickness_m:
                         continue
         if comp.max_y < plane_ground - bl.contact_band_m:
@@ -455,7 +457,7 @@ def _merge_walls(bands: list[WallBand], parallel_deg: float, t_max: float, gap_m
             continue
         members.sort(key=lambda b: -b.length_m)
         first = members[0]
-        rect = unary_union([b.poly for b in members]).minimum_rotated_rectangle
+        rect = rotated_rectangle(unary_union([b.poly for b in members]))
         if rect.geom_type != "Polygon":
             out.append(first)
             continue

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
 # ---------------------------------------------------------------------------
 # PROJ data: each bundled libproj gets the proj.db it shipped with
@@ -66,10 +66,18 @@ if len(v2_law_datas) < 8:
         f"under src/auto_patch_v2, found {len(v2_law_datas)} — refusing to freeze "
         f"an engine whose v2 cannot load its law.")
 
+# highspy (the HiGHS QP behind the runway family's final projection,
+# ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported
+# lazily inside the solve, so the static import scan never sees it: the
+# 1.0.298 engine froze without it and every v2 airport failed at
+# "No module named 'highspy'" (HECA, LERM; owner 2026-09-10).  collect_all
+# pins the package, its compiled core and libhighs.
+highspy_datas, highspy_binaries, highspy_hidden = collect_all('highspy')
+
 a = Analysis(
     ['Ortho4XP.py'],
     pathex=['src'],
-    binaries=[],
+    binaries=highspy_binaries,
     datas=[
         ('./Utils',               './Ortho4XP_Data/Utils'),
         ('./Extents',             './Ortho4XP_Data/Extents'),
@@ -80,8 +88,8 @@ a = Analysis(
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
-    ] + gdal_proj_datas + v2_law_datas,
-    hiddenimports=collect_submodules('PIL') + collect_submodules('auto_patch_v2'),
+    ] + gdal_proj_datas + v2_law_datas + highspy_datas,
+    hiddenimports=collect_submodules('PIL') + collect_submodules('auto_patch_v2') + highspy_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

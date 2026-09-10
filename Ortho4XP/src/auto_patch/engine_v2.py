@@ -84,6 +84,7 @@ def _fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | N
     gained tunnel wall objects on 2026-09-04 and every build until this
     read the 07-30 dump."""
     try:
+        import O4_File_Names as FNAMES
         from auto_patch_v2.airport import dsf as _dsf2
         from auto_patch_v2.airport.pack import select_pack
         from . import dsf_reader as _DSFR

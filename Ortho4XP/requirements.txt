@@ -7,6 +7,7 @@ Rtree==1.4.1
 shapely==2.1.2
 scikit-fmm==2025.6.23
 scipy==1.17.1        # Voronoi medial axis + smoothing splines (pav_skeleton)
+highspy==1.15.1      # HiGHS QP: the runway family's final projection (auto_patch_v2/solve/project.py); imported lazily, so the freeze must pin it
 networkx==3.6.1      # skeleton graph pruning/chain collapse (pav_skeleton)
 tifffile==2026.3.3   # LERC-compressed elevation tiles (New Zealand lidar)
 imagecodecs==2026.3.6  # LERC codec backing tifffile (GDAL builds lack it)

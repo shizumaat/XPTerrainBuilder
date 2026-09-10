@@ -65,6 +65,8 @@ only; the reach bands the pipeline reads beside the shapes stay there.
 """
 from __future__ import annotations
 
+from ..model.frame import rotated_rectangle
+
 import dataclasses as _dc
 import math
 import typing as _t
@@ -148,7 +150,7 @@ def strip_keepout(classification: Classification, law: Law):
             continue
         half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
         end = (cl.value(c.code_number, c.code_letter) if cl is not None else 0.0) or 0.0
-        rect = poly.minimum_rotated_rectangle
+        rect = rotated_rectangle(poly)
         pts = list(rect.exterior.coords)[:4]
         if len(pts) < 4:
             polys.append(poly.buffer(half))

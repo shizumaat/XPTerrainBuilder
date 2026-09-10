@@ -583,7 +583,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                               tuple(findings), held))
     return SeatResult(plan_.icao, tuple(_one_file_one_delta(units, rb)), tuple(out.clusters),
                       tuple(out.pad_requests), out.cut_edges, out.structures,
-                      out.intra_placement_kept, out.held_parts)
+                      out.intra_placement_kept, out.held_parts,
+                      out.elevated_groups, out.group_ties)
 
 
 def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:

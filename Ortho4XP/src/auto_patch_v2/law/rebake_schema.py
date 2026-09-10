@@ -33,6 +33,11 @@ class Rebake:
     #: than one measured foot per that span samples the design surface
     #: under every ground-contact part.  0 disables the sampling.
     body_feet_span_m: float
+    #: RULINGS 2026-09-10u (2): a free component with no carrier within
+    #: the identity spacing joins the wall it OVERLAPS IN PLAN whose top
+    #: is within this of its bottom (the eave / parapet gap), instead of
+    #: the nearest carrier in 3-D.  0 = the pre-10u pure-nearest rule.
+    plate_gap_max_m: float
     min_delta_m: float
     cluster_span_pad_m: float
     cluster_residual_pad_m: float

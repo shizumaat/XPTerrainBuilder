@@ -1170,3 +1170,82 @@ Two findings for the spawner:
   design-surface plateau at 588.95 (40.49186, −3.56815) while its neighbours read
   598.3 — a 9.35 m step in the SURFACE under one welded structure, not a seat law.
   STOP-and-report under the attempt cap.
+
+## 15. RULINGS 2026-09-10u: THE PLATE FOLLOWS THE WALL IT TOUCHES, AND THE WALL UNDER ITS EAVE (lane `v2roofs`)
+
+Measured on the owner's 1.0.306 LEMD (plan + result in the data repo, mesh
+`Data+40-004.mesh`): 440 plate-above-wall pairs over 0.5 m, 257 plates, 16
+resources. **2,345 contact edges INSIDE one placement still carry different
+deltas** — and the split is **1,679 elevated×elevated against 666 ground×
+elevated**, so 10u's stated site (`clusters.py:331` `elif pa.ground or
+pb.ground: continue`) is the SMALLER half. The worst site, `Terminal4SAT_
+Yellow-LEMD11.obj` (plate c5153 at +3.550, 0.089 m from wall c3104 at
+−5.621), is elevated×elevated: BOTH ends are elevated (`base_y` 14.984 and
+8.112, no feet), each is assigned INDEPENDENTLY by the multi-source BFS in
+the same round, and neither ever sees the other. DEVIATION REPORTED: rule 1
+below is 10u (1) widened to every intra-placement contact edge — the narrow
+reading fixes 666 of 2,345 and leaves the ruling's own named bar unmet.
+
+### 15.1 The two rules
+
+1. **A TOUCHING SET OF ONE PLACEMENT IS ONE BODY, ELEVATED INCLUDED** (10u (1)
+   under 10i (1)/(3), 09z (4)). Elevated parts of one placement joined by
+   intra-placement contact edges form a COHESION GROUP; the BFS assigns the
+   GROUP, never a part, so two touching elevated components of one file can
+   never land in different bodies. Where a group touches several bodies it
+   joins ONE (it never bridges them): the body whose touched part has the
+   largest PLAN-FOOTPRINT OVERLAP with the group — the wall it rests on —
+   then a body holding a ground part of the same placement, and only then the
+   lowest body id. No number in code.
+2. **THE EAVE GAP** (10u (2)). In `rigid.complete_component_deltas`, a free
+   component with NO carrier within `contact_tol_m` no longer falls straight
+   to nearest: a carrier whose plan footprint OVERLAPS the free component's,
+   whose top is not above the free component's top, and whose top lies within
+   `[rebake] plate_gap_max_m` of the free component's bottom, is taken as if
+   touching (highest such top first, then largest plan overlap, then lowest
+   index). Beyond `plate_gap_max_m`, nearest exactly as today, and the count
+   that fell through is REPORTED.
+
+### 15.2 Consumer census (owner ruling 2026-08-30l): every reader of a contact edge, a body assignment and a plate seat
+
+| # | Consumer | Reads | Ruling |
+|---|---|---|---|
+| C1 | `emit/clusters.py::seat_clusters` cut loop | `plan.contacts`, `Part.feet`, `key` | THE SITE of rule 1 (`ecoh` groups; the ground×ground cut untouched) |
+| C2 | `emit/clusters.py` elevated BFS + nearest fallback | `adj`, `cluster_of`, `Part.box` | REWRITTEN per group; the `euf` "touched nothing" fallback and the `min_distinct_spacing_m × 4` reach unchanged |
+| C3 | `emit/clusters.py` seat / feet-across-body (10i (2)) | a body's GROUND parts only | unchanged — elevated parts still never vote |
+| C4 | `emit/rebake.py` `_plate_seats` / deck seats / `stay` | `fixed`, `family` per MEMBER | unchanged: a fixed part is never in a cohesion group (OTHH's exemption, 14.1 rule 4) |
+| C5 | `emit/rebake.py::_one_file_one_delta`, member notes | effective deltas per resource | unchanged |
+| C6 | `model/rebake.py::ClusterSeat` / `SeatResult.counts` | the seat record | EXTENDED by counters only (`elevated_groups`, `group_ties`) |
+| C7 | `airport/rigid.py::complete_component_deltas` | free components, carrier by contact | THE SITE of rule 2 (new `plate_gap_max_m` argument, default `0.0` = today) |
+| C8 | `auto_patch/engine_v2.py::_decision` | `ms.part_deltas`, `held` | passes the new law value; no other change |
+| C9 | `airport/contact.py::partition` | ε-contact edges, the elevated cull | UNCHANGED — the contact graph stays PHYSICAL. Rule 2's 4 m reach is a CARRIER rule, never a contact edge: widening ε would merge structures, pools and the facility rule with it |
+| C10 | `airport/rebake_plan.py` | the witness gate, `Part.box` | unchanged; `PLAN_VERSION` stays 6 (no plan format change — so the OTHH proof replays the owner's own plan) |
+| C11 | `tools/seat_feet_census.py` | `part_deltas` of a result | unchanged (acceptance instrument) |
+| C12 | `tools/v2_rebake_replay.py pairs` | plan + result | EXTENDED: `--class plate-vs-wall` (15.4) |
+| C13 | basin plate seat, `plate_units`, `Basin.witness_id` | the witness resource | unchanged — a basin plate is a `fixed` member |
+
+### 15.3 Law key
+
+`structures.toml [rebake] plate_gap_max_m = 4.0` — a roof over a wall top with
+an eave or parapet gap up to this joins that wall's body as if touching. `0`
+disables rule 2 (the pre-10u pure-nearest fallback).
+
+### 15.4 OTHH's exemption proof plan
+
+No special case is added. OTHH's tunnel/bridge decks, interchange basin plates
+and every `plate_units` member are `fixed` MEMBERS: their parts are excluded
+from the cohesion groups (C4) and from rule 2 (they are never free), and the
+interchange's deliberately separate datums are ACROSS placements, which rule 1
+does not touch. PROOF: `tools/v2_rebake_replay.py seat` on the owner's OTHH
+plan + mesh, both arms — the same 20 written resources (Dewatering 9, tunnels
+8, Fire Fuel 3), max delta difference 0.000 m. Any family that moves is a
+STOP-and-report.
+
+### 15.5 The instrument
+
+`tools/v2_rebake_replay.py pairs --class plate-vs-wall`: PLATE = a component of
+y-extent under `--plate-thickness` with ≥3 vertices, WALL = y-extent at or over
+it; a pair is counted when a wall vertex lies within `--near` in PLAN and the
+plate's applied delta exceeds the wall's by more than `--floor`. Bucketed by
+the AUTHORED vertical gap (plate bottom − wall top): `contact` (≤
+`contact_epsilon_m`), `gap` (≤ `--gap`, the `plate_gap_max_m` class) and `far`.

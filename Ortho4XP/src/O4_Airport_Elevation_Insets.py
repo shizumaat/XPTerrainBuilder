@@ -6373,27 +6373,91 @@ def _read_index(lat, lon):
         return {}
 
 
+#: Index fields a settled warm pass may re-derive without the manifest
+#: having CHANGED: ``checked`` is a date stamp (a pass that re-checks and
+#: finds something different also changes the provider's own value beside
+#: it), and ``bounding_box`` is recomputed in floating point every pass.
+_INDEX_FRESHNESS_KEYS = ("checked",)
+
+
+def _index_records_differ(old_record, new_record):
+    """The MATERIAL keys in which two per-airport index records differ.
+
+    Freshness-only re-derivation is not a difference: the ``checked`` date
+    stamp, and a ``bounding_box`` that moved by less than
+    :data:`INSET_BOUNDING_BOX_TOLERANCE_DEGREES` (the same tolerance the
+    staleness test already uses, ~0.1 m — float noise from recomputing the
+    same box, never a real margin change).
+    """
+    if not isinstance(old_record, dict) or not isinstance(new_record, dict):
+        return ["<record>"] if old_record != new_record else []
+    differing = []
+    for key in sorted(set(old_record) | set(new_record)):
+        before, after = old_record.get(key), new_record.get(key)
+        if before == after or key in _INDEX_FRESHNESS_KEYS:
+            continue
+        if key == "bounding_box":
+            try:
+                if len(before) == len(after) and all(
+                    abs(float(a) - float(b))
+                    <= INSET_BOUNDING_BOX_TOLERANCE_DEGREES
+                    for a, b in zip(before, after)
+                ):
+                    continue
+            except (TypeError, ValueError):
+                pass
+        differing.append(key)
+    return differing
+
+
 def _write_index(lat, lon, index):
     """Persist the tile's inset index, but ONLY when its content changed.
 
     ``ensure_airport_insets`` calls this at the end of every pass, warm or
-    cold, and a settled warm pass produces byte-identical content: the
-    write then changes nothing but the mtime, which is still a WRITE INTO
-    THE SHARED DATA REPO.  A build is not a refresh event (owner ruling
-    e9daef5 — cache regenerations are explicit, locked, hash-stamped acts
-    through ``build_airport.py --refresh-data``), so a settled pass must
-    leave the repo untouched.  Same discipline the bathymetry band stamp
-    already had; measured 2026-08-08, when two mesh-only runs rewrote five
-    of these manifests with unchanged content.
+    cold, and a settled warm pass produces MATERIALLY identical content:
+    the write then changes nothing a consumer reads, but it is still a
+    WRITE INTO THE SHARED DATA REPO.  A build is not a refresh event
+    (owner ruling e9daef5 — cache regenerations are explicit, locked,
+    hash-stamped acts through ``build_airport.py --refresh-data``), so a
+    settled pass must leave the repo untouched.  Same discipline the
+    bathymetry band stamp already had; measured 2026-08-08, when two
+    mesh-only runs rewrote five of these manifests with unchanged content.
+
+    BYTE equality is too strict a test for that (measured 2026-09-10, a
+    CYXY mesh-only run: the guard blocked
+    ``N60W136_airport_insets/index.json`` and REFUSED the whole run, on a
+    warm corpus where every inset was already cached).  The comparison is
+    therefore MATERIAL — :func:`_index_records_differ` — and a write that
+    does happen names the airports and keys that moved, so a real change
+    is never silent.
     """
     index_path = FNAMES.airport_inset_index(lat, lon)
     payload = json.dumps(index, indent=2, sort_keys=True)
     try:                       # absent, unreadable or different: write it
         with open(index_path, "r") as handle:
-            if handle.read() == payload:
-                return
+            current = handle.read()
     except Exception:
-        pass
+        current = None
+    if current is not None:
+        if current == payload:
+            return
+        try:
+            old = json.loads(current)
+        except Exception:
+            old = None
+        if isinstance(old, dict):
+            changed = {}
+            for icao in sorted(set(old) | set(index)):
+                keys = _index_records_differ(old.get(icao), index.get(icao))
+                if keys:
+                    changed[icao] = keys
+            if not changed:
+                return                     # freshness only: not a change
+            UI.vprint(
+                1,
+                "   Airport inset index CHANGED, rewriting it:",
+                "; ".join(f"{k}: {', '.join(v)}" for k, v in changed.items()),
+            )
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w") as handle:
         handle.write(payload)

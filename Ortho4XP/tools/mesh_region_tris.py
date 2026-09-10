@@ -502,6 +502,231 @@ def water_audit(mesh_path, step_flag_m=1.0, zero_tol_m=1e-3, near=None):
     return payload
 
 
+# ── THE EDGE AUDIT (owner RULINGS 2026-09-10g) ────────────────────────
+#
+# "Latest build of CYXY probably has overlapping nodes at different
+# elevations causing texture tearing" — the owner, on the plateau slope
+# below the 32L end, the first build carrying the terrain edge (spec
+# §19).  The lane's own round-1 bar was ONE TRANSECT, and a transect
+# cannot see a fold beside it: this is that bar as an AREA read over
+# every triangle in a radius, in the three classes the tearing can come
+# from.
+#
+#   (a) OVERLAPPING NODES — two mesh vertices closer in PLAN than
+#       ``identity.min_distinct_spacing_m`` but more than ``--overlap-dz``
+#       apart in z.  Two nodes at one plan position with different
+#       heights is the sim's texture tear, exactly as the owner named it.
+#   (b) WALLS — a triangle whose own plan slope exceeds ``--wall-slope``
+#       where the DEM's slope over the SAME footprint is gentler by more
+#       than ``--dem-slope-factor``.  A cliff the terrain itself has is
+#       not a defect; a cliff only the patch has is.
+#   (c) THE GROUND PAST THE EDGE — every vertex of a triangle the patch
+#       did NOT value (no INTERP_ALT bit) must stand within ``--dem-bar``
+#       of the DEM the mesher was handed (the tile's own ``.alt``): §19
+#       (3), "beyond the edge: nothing — the DEM's own slope IS the bank".
+#
+# The instrument is proved on the CONTROL mesh, which must read ZERO
+# overlapping pairs: a class the audit reports on both arms is the
+# audit's own artefact, not the change's.
+def _alt_reader(alt_path, tile_lat, tile_lon):
+    """The tile's own ``.alt`` raster, read exactly as Triangle4XP read
+    it — the SINGLE implementation in ``mesh_elevation_sampler.AltRaster``
+    (bilinear, extent [-0.01, 1.01]^2), never a second one here."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from mesh_elevation_sampler import AltRaster
+    return AltRaster(alt_path, tile_lat, tile_lon)
+
+
+def _tri_plane_slope(x, y, z):
+    """|grad z| of the plane through three (x, y, z) points, in metres
+    per metre; ``inf`` for a degenerate footprint."""
+    (x0, x1, x2), (y0, y1, y2), (z0, z1, z2) = x, y, z
+    det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    if abs(det) < 1.0e-12:
+        return float("inf") if max(z) - min(z) > 1.0e-9 else 0.0
+    dzdx = ((z1 - z0) * (y2 - y0) - (z2 - z0) * (y1 - y0)) / det
+    dzdy = ((z2 - z0) * (x1 - x0) - (z1 - z0) * (x2 - x0)) / det
+    return math.hypot(dzdx, dzdy)
+
+
+def _kml_edge_audit(path, site, walls, pairs, tris_lonlat, cap=2000):
+    """The offending triangles as one KML the owner can open beside the
+    sim: a red polygon per WALL, a yellow pin per OVERLAPPING PAIR."""
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',
+           '<name>terrain-edge mesh audit</name>',
+           '<Style id="wall"><LineStyle><color>ff0000ff</color>'
+           '<width>2</width></LineStyle>'
+           '<PolyStyle><color>7d0000ff</color></PolyStyle></Style>',
+           '<Style id="pair"><IconStyle><color>ff00ffff</color>'
+           '</IconStyle></Style>']
+    if site:
+        out.append(f'<Placemark><name>site</name><Point><coordinates>'
+                   f'{site[1]:.9f},{site[0]:.9f},0</coordinates></Point>'
+                   f'</Placemark>')
+    for (idx, slope, dem_slope) in walls[:cap]:
+        ring = tris_lonlat[idx]
+        coords = " ".join(f"{lo:.9f},{la:.9f},{zz:.3f}"
+                          for (lo, la, zz) in ring + ring[:1])
+        out.append(f'<Placemark><name>wall {idx} slope {slope:.2f} '
+                   f'(DEM {dem_slope:.2f})</name><styleUrl>#wall</styleUrl>'
+                   f'<Polygon><altitudeMode>absolute</altitudeMode>'
+                   f'<outerBoundaryIs><LinearRing><coordinates>{coords}'
+                   f'</coordinates></LinearRing></outerBoundaryIs>'
+                   f'</Polygon></Placemark>')
+    for (la, lo, za, zb, dist) in pairs:
+        out.append(f'<Placemark><name>overlap dz {abs(za - zb):.2f} m at '
+                   f'{dist:.2f} m</name><styleUrl>#pair</styleUrl>'
+                   f'<Point><coordinates>{lo:.9f},{la:.9f},0</coordinates>'
+                   f'</Point></Placemark>')
+    out.append("</Document></kml>")
+    with open(path, "w") as handle:
+        handle.write("\n".join(out))
+
+
+def edge_audit(mesh_path, near, alt_path=None, tile=None,
+               spacing_m=0.5, dz_m=0.5, wall_slope=1.0,
+               dem_slope_factor=2.0, dem_bar_m=1.0, kml_path=None,
+               kml_cap=2000):
+    """THE AREA READ of a terrain edge (module note above).  ``near`` is
+    ``(lat, lon, radius_m)``; returns the payload dict and prints it."""
+    import collections
+
+    (nlat, nlon, radius_m) = near
+    (nv, lon, lat, zed, tri, att) = _read_mesh_attributed(mesh_path)
+    nt = len(att)
+    m_lat = 111_120.0
+    m_lon = m_lat * math.cos(math.radians(nlat))
+
+    def _xy(i):
+        return ((lon[i] - nlon) * m_lon, (lat[i] - nlat) * m_lat)
+
+    inside = [False] * nv
+    for i in range(nv):
+        (dx, dy) = _xy(i)
+        if abs(dx) <= radius_m and abs(dy) <= radius_m:
+            inside[i] = math.hypot(dx, dy) <= radius_m
+    sel = [k for k in range(nt)
+           if inside[tri[3 * k]] or inside[tri[3 * k + 1]]
+           or inside[tri[3 * k + 2]]]
+    payload = {"mesh": mesh_path, "site": [nlat, nlon], "radius_m": radius_m,
+               "triangles_tile": nt, "triangles_near": len(sel),
+               "spacing_m": spacing_m, "dz_m": dz_m,
+               "wall_slope": wall_slope, "dem_slope_factor": dem_slope_factor,
+               "dem_bar_m": dem_bar_m}
+    print(f"edge audit — mesh {mesh_path}")
+    print(f"  site {nlat:.6f},{nlon:.6f} r={radius_m:g} m: "
+          f"{len(sel):,} of {nt:,} triangle(s)")
+    if not sel:
+        print("  no triangles near the site")
+        return payload
+
+    used = sorted({tri[3 * k + j] for k in sel for j in range(3)})
+    payload["vertices_near"] = len(used)
+
+    # (a) OVERLAPPING NODES, by a plan-grid bucket of the spacing
+    buckets = collections.defaultdict(list)
+    for i in used:
+        (dx, dy) = _xy(i)
+        buckets[(int(math.floor(dx / spacing_m)),
+                 int(math.floor(dy / spacing_m)))].append((i, dx, dy))
+    pairs = []
+    for (bx, by), items in buckets.items():
+        near_items = list(items)
+        for ox in (0, 1):
+            for oy in (-1, 0, 1):
+                if (ox, oy) == (0, 0) or (ox == 0 and oy < 0):
+                    continue
+                near_items.extend(buckets.get((bx + ox, by + oy), ()))
+        for a in range(len(items)):
+            (ia, ax, ay) = items[a]
+            for b in range(len(near_items)):
+                (ib, bx2, by2) = near_items[b]
+                if ib <= ia:
+                    continue
+                dist = math.hypot(ax - bx2, ay - by2)
+                if dist < spacing_m and abs(zed[ia] - zed[ib]) > dz_m:
+                    pairs.append((lat[ia], lon[ia], zed[ia], zed[ib], dist))
+    pairs.sort(key=lambda p: -abs(p[2] - p[3]))
+    payload["overlapping_pairs"] = len(pairs)
+    payload["overlapping_worst_dz_m"] = (
+        round(abs(pairs[0][2] - pairs[0][3]), 3) if pairs else 0.0)
+    print(f"  (a) OVERLAPPING NODES (< {spacing_m:g} m apart in plan, "
+          f"> {dz_m:g} m apart in z): {len(pairs)}"
+          + (f", worst dz {abs(pairs[0][2] - pairs[0][3]):.2f} m at "
+             f"{pairs[0][0]:.6f},{pairs[0][1]:.6f}" if pairs else ""))
+
+    # (b) WALLS, against the DEM's own slope over the same footprint
+    alt = None
+    if alt_path:
+        (tl, tn) = tile if tile else _tile_origin(mesh_path)
+        alt = _alt_reader(alt_path, tl, tn)
+    walls = []
+    steep = 0
+    tris_lonlat = {}
+    for k in sel:
+        (a, b, c) = (tri[3 * k], tri[3 * k + 1], tri[3 * k + 2])
+        xs = [_xy(a)[0], _xy(b)[0], _xy(c)[0]]
+        ys = [_xy(a)[1], _xy(b)[1], _xy(c)[1]]
+        zs = [zed[a], zed[b], zed[c]]
+        slope = _tri_plane_slope(xs, ys, zs)
+        if slope <= wall_slope:
+            continue
+        steep += 1
+        dem_slope = float("nan")
+        if alt is not None:
+            dzs = [alt.elevation_at(lat[i], lon[i]) for i in (a, b, c)]
+            dem_slope = _tri_plane_slope(xs, ys, dzs)
+            if math.isfinite(dem_slope) and dem_slope * dem_slope_factor >= slope:
+                continue        # the terrain itself is that steep here
+        walls.append((k, slope, dem_slope))
+        tris_lonlat[k] = [(lon[i], lat[i], zed[i]) for i in (a, b, c)]
+    walls.sort(key=lambda w: -w[1])
+    payload["steep_triangles"] = steep
+    payload["walls"] = len(walls)
+    payload["wall_worst_slope"] = round(walls[0][1], 3) if walls else 0.0
+    print(f"  (b) WALLS (plan slope > {wall_slope:g} and the DEM under them "
+          f"gentler than 1/{dem_slope_factor:g} of it): {len(walls)} of "
+          f"{steep} steep triangle(s)"
+          + (f", worst {walls[0][1]:.2f} over a DEM {walls[0][2]:.2f}"
+             if walls else ""))
+
+    # (c) THE GROUND PAST THE EDGE: no INTERP_ALT bit -> the DEM's own
+    if alt is None:
+        print("  (c) mesh vs DEM: SKIPPED (no --alt raster given)")
+    else:
+        natural = [i for i in sorted({tri[3 * k + j] for k in sel
+                                      for j in range(3)
+                                      if not att[k] & INTERP_ALT_BIT})]
+        valued = {tri[3 * k + j] for k in sel for j in range(3)
+                  if att[k] & INTERP_ALT_BIT}
+        past = [i for i in natural if i not in valued]
+        diffs = [(abs(zed[i] - alt.elevation_at(lat[i], lon[i])), i)
+                 for i in past]
+        diffs.sort(reverse=True)
+        over = [d for d in diffs if d[0] > dem_bar_m]
+        payload["past_edge_vertices"] = len(past)
+        payload["past_edge_max_abs_diff_m"] = (round(diffs[0][0], 3)
+                                               if diffs else 0.0)
+        payload["past_edge_over_bar"] = len(over)
+        print(f"  (c) PAST THE EDGE ({len(past):,} vertex(es) on no "
+              f"patch-valued triangle): max |mesh - DEM| "
+              f"{diffs[0][0]:.2f} m" if diffs else
+              "  (c) PAST THE EDGE: no unvalued vertex near the site")
+        if diffs:
+            print(f"      over the {dem_bar_m:g} m bar: {len(over)}"
+                  + (f", worst at {lat[over[0][1]]:.6f},"
+                     f"{lon[over[0][1]]:.6f}" if over else ""))
+    if kml_path:
+        _kml_edge_audit(kml_path, (nlat, nlon), walls, pairs[:400],
+                        tris_lonlat, cap=kml_cap)
+        payload["kml"] = kml_path
+        print(f"  KML -> {kml_path}")
+    return payload
+
+
 def _tile_origin(path):
     match = re.search(r"([-+]\d{2})([-+]\d{3})", path)
     if not match:
@@ -589,11 +814,81 @@ def main(argv=None):
     ap.add_argument("--near", nargs=3, type=float, default=None,
                     metavar=("LAT", "LON", "RADIUS_M"),
                     help="with --water-audit, repeat the read for the water "
-                         "within RADIUS_M of a site")
+                         "within RADIUS_M of a site; with --edge-audit, THE "
+                         "region audited (required)")
+    ap.add_argument("--edge-audit", action="store_true",
+                    help="THE AREA READ of a terrain edge (owner RULINGS "
+                         "2026-09-10g, the CYXY texture tearing): over every "
+                         "triangle within --near, (a) OVERLAPPING NODES — "
+                         "vertex pairs closer in plan than --overlap-spacing "
+                         "but more than --overlap-dz apart in z; (b) WALLS — "
+                         "triangles whose plan slope exceeds --wall-slope "
+                         "where the DEM under the same footprint is gentler "
+                         "by --dem-slope-factor; (c) PAST THE EDGE — every "
+                         "vertex on no patch-valued (INTERP_ALT) triangle "
+                         "against the tile's own .alt raster, flagged over "
+                         "--dem-bar.  A transect cannot see a fold beside it; "
+                         "this can.  Prove the instrument on the CONTROL mesh "
+                         "first: it must read 0 overlapping pairs")
+    ap.add_argument("--alt", default=None, metavar="DATA<tile>.alt",
+                    help="the DEM reference for --edge-audit's (b) and (c): "
+                         "the tile's own .alt raster, the surface "
+                         "Triangle4XP was handed (default: the --mesh path "
+                         "with .mesh -> .alt, when it exists)")
+    ap.add_argument("--overlap-spacing", type=float, default=0.5, metavar="M",
+                    help="plan distance under which two vertices are one "
+                         "position (default 0.5 = the law's "
+                         "identity.min_distinct_spacing_m)")
+    ap.add_argument("--overlap-dz", type=float, default=0.5, metavar="M",
+                    help="height difference over which two such vertices are "
+                         "an OVERLAP (default 0.5)")
+    ap.add_argument("--wall-slope", type=float, default=1.0, metavar="SLOPE",
+                    help="plan slope (m/m) at which a triangle is a WALL "
+                         "(default 1.0 = 45 deg)")
+    ap.add_argument("--dem-slope-factor", type=float, default=2.0,
+                    metavar="X", help="a steep triangle is EXCUSED when the "
+                                      "DEM under it is within this factor of "
+                                      "its slope (default 2.0)")
+    ap.add_argument("--dem-bar", type=float, default=1.0, metavar="M",
+                    help="|mesh - DEM| past the edge counted as over the bar "
+                         "(default 1.0)")
+    ap.add_argument("--kml", default=None, metavar="OUT.kml",
+                    help="write the offending triangles and overlapping "
+                         "pairs here, for the owner's sim read")
+    ap.add_argument("--kml-cap", type=int, default=2000, metavar="N",
+                    help="at most this many WALL polygons in the KML, worst "
+                         "first (default 2000 — a fold can mint tens of "
+                         "thousands and a KML no viewer opens is no evidence)")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
     args = ap.parse_args(argv)
+
+    if args.edge_audit:
+        if not args.near:
+            raise SystemExit("REFUSING: --edge-audit needs --near LAT LON "
+                             "RADIUS_M — the audit is an AREA read, and an "
+                             "unbounded one over a whole tile is not the "
+                             "acceptance any owner asked for")
+        alt_path = args.alt
+        if alt_path is None and args.mesh.endswith(".mesh"):
+            import os
+            guess = args.mesh[:-len(".mesh")] + ".alt"
+            alt_path = guess if os.path.isfile(guess) else None
+        payload = edge_audit(
+            args.mesh, tuple(args.near), alt_path=alt_path,
+            tile=tuple(args.tile) if args.tile else None,
+            spacing_m=args.overlap_spacing, dz_m=args.overlap_dz,
+            wall_slope=args.wall_slope,
+            dem_slope_factor=args.dem_slope_factor,
+            dem_bar_m=args.dem_bar, kml_path=args.kml,
+            kml_cap=args.kml_cap)
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
 
     if args.water_audit:
         payload = water_audit(args.mesh, step_flag_m=args.water_step_flag,

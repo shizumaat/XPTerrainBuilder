@@ -210,3 +210,111 @@ def test_aspect_counts_only_in_bbox_and_is_absent_unasked(tmp_path):
     MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--json", str(out2)])
     assert "aspect_in_bbox" not in json.loads(out2.read_text())
+
+
+# ── THE EDGE AUDIT (owner RULINGS 2026-09-10g) ────────────────────────
+#
+# The area read that replaced the terrain edge's one-transect bar.  Its
+# three classes are planted here by hand, and the CLEAN mesh beside them
+# is the instrument's own proof: a class the audit reports on a mesh with
+# nothing planted in it is the audit's artefact, not the change's.
+EA_LAT, EA_LON = 60.6968, -135.0556
+EA_M_LAT = math.pi * MRT.R_EARTH_M / 180.0
+EA_M_LON = EA_M_LAT * math.cos(math.radians(EA_LAT))
+
+
+def _ea_ll(dx_m, dy_m):
+    return (EA_LON + dx_m / EA_M_LON, EA_LAT + dy_m / EA_M_LAT)
+
+
+def _write_mesh_z(path, tris):
+    """A MEDIT mesh from ``(lon, lat, z_m)`` triples (z is stored /1e5)."""
+    verts, faces = [], []
+    for t in tris:
+        base = len(verts) + 1
+        verts.extend(t)
+        faces.append((base, base + 1, base + 2))
+    lines = ["MeshVersionFormatted 1", "Dimension 3", "Vertices",
+             str(len(verts))]
+    lines += [f"{lo:.9f} {la:.9f} {z / 100000.0:.12f} 0" for lo, la, z in verts]
+    lines += ["Triangles", str(len(faces))]
+    lines += [f"{a} {b} {c} 0" for a, b, c in faces]
+    lines += ["End", ""]
+    path.write_text("\n".join(lines))
+    return path
+
+
+def _flat_tri(dx, dy, leg, z):
+    return [(*_ea_ll(dx, dy), z), (*_ea_ll(dx + leg, dy), z),
+            (*_ea_ll(dx, dy + leg), z)]
+
+
+def test_edge_audit_reads_zero_on_a_clean_mesh(tmp_path, capsys):
+    """THE INSTRUMENT'S PROOF: level triangles at the DEM's own height
+    report no overlapping pair, no wall and no difference past the edge."""
+    tris = [_flat_tri(dx, 0.0, 10.0, 700.0) for dx in (0.0, 20.0, 40.0)]
+    mesh = _write_mesh_z(tmp_path / "Data+60-136.mesh", tris)
+    out = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0))
+    capsys.readouterr()
+    assert out["triangles_near"] == 3
+    assert out["overlapping_pairs"] == 0
+    assert out["walls"] == 0
+
+
+def test_edge_audit_finds_a_planted_overlapping_pair(tmp_path, capsys):
+    """Two vertices 0.2 m apart in plan and 9 m apart in z — the owner's
+    'overlapping nodes at different elevations'."""
+    tris = [_flat_tri(0.0, 0.0, 10.0, 700.0),
+            [(*_ea_ll(0.2, 0.0), 709.0), (*_ea_ll(0.2, 12.0), 709.0),
+             (*_ea_ll(10.0, 12.0), 709.0)]]
+    mesh = _write_mesh_z(tmp_path / "Data+60-136.mesh", tris)
+    out = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0))
+    capsys.readouterr()
+    assert out["overlapping_pairs"] == 1
+    assert out["overlapping_worst_dz_m"] == pytest.approx(9.0, abs=0.01)
+    # widen the identity spacing and it is no longer one position
+    tight = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0), dz_m=20.0)
+    capsys.readouterr()
+    assert tight["overlapping_pairs"] == 0
+
+
+def test_edge_audit_excuses_a_wall_the_dem_itself_has(tmp_path, capsys,
+                                                     monkeypatch):
+    """A triangle falling 20 m over 10 m is a WALL — unless the DEM under
+    the same footprint falls with it, which is a cliff, not a defect."""
+    tris = [[(*_ea_ll(0.0, 0.0), 700.0), (*_ea_ll(0.0, 10.0), 700.0),
+             (*_ea_ll(10.0, 0.0), 680.0)]]
+    mesh = _write_mesh_z(tmp_path / "Data+60-136.mesh", tris)
+
+    class _Alt:
+        def __init__(self, steep):
+            self.steep = steep
+
+        def elevation_at(self, lat, lon):
+            dx = (lon - EA_LON) * EA_M_LON
+            return 700.0 - (2.0 * dx if self.steep else 0.0)
+
+    flat = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0))
+    capsys.readouterr()
+    assert flat["steep_triangles"] == 1 and flat["walls"] == 1
+
+    monkeypatch.setattr(MRT, "_alt_reader",                # DEM is that steep
+                        lambda *_a, **_k: _Alt(True))
+    excused = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0),
+                             alt_path="x", tile=(60, -136))
+    capsys.readouterr()
+    assert excused["steep_triangles"] == 1 and excused["walls"] == 0
+    monkeypatch.setattr(MRT, "_alt_reader",                # DEM is level
+                        lambda *_a, **_k: _Alt(False))
+    flagged = MRT.edge_audit(str(mesh), (EA_LAT, EA_LON, 150.0),
+                             alt_path="x", tile=(60, -136))
+    capsys.readouterr()
+    assert flagged["walls"] == 1
+    assert flagged["past_edge_over_bar"] >= 1              # (c) sees the drop
+
+
+def test_edge_audit_refuses_an_unbounded_read(tmp_path):
+    mesh = _write_mesh_z(tmp_path / "Data+60-136.mesh",
+                         [_flat_tri(0.0, 0.0, 10.0, 700.0)])
+    with pytest.raises(SystemExit, match="AREA read"):
+        MRT.main(["--mesh", str(mesh), "--edge-audit"])

@@ -156,10 +156,8 @@ def test_road_lines_reads_only_highways(law):
     assert len(lines) == 1 and lines[0].length == pytest.approx(10.0)
 
 
-def test_no_bank_beyond_the_edge(law):
-    """§19 (3): the ground beyond an edge segment is cut OUT of the banked
-    region — the DEM's own slope is the bank there, exactly as the water
-    line is cut in §18."""
+def _edge_fixture(law):
+    """A coverage whose east side IS a terrain edge, and the cut it makes."""
     from auto_patch_v2.emit.terrain_edge import no_bank_region
     from auto_patch_v2.model.planar import PlanarMap
 
@@ -167,15 +165,49 @@ def test_no_bank_beyond_the_edge(law):
     pm = PlanarMap("ZZZZ", {}, {}, {}, {}, terrain_edges=(edge,))
     cov = Polygon(((-400.0, -500.0), (50.0, -500.0), (50.0, 500.0),
                    (-400.0, 500.0)))
-    geom = no_bank_region(pm, law, cov)
-    assert geom is not None and not geom.is_empty
+    return cov, no_bank_region(pm, law, cov)
+
+
+def test_no_bank_beyond_the_edge(law):
+    """§19 (3): the ground beyond an edge segment is cut OUT of the banked
+    region — the DEM's own slope is the bank there, exactly as the water
+    line is cut in §18.  What survives is the MINIMUM-WIDTH COLLAR the law
+    gives every ring and nothing more: the 200 m daylight reach that built
+    CYXY's plateau wall is gone."""
     from shapely.geometry import Point
-    assert geom.contains(Point(60.0, 0.0))       # beyond the edge: no bank
-    assert not geom.intersects(cov.buffer(-1.0))  # never inside the design
-    banked = cov.buffer(law.tables.emit.design.bank_min_width_m)
+
+    min_w = float(law.tables.emit.design.bank_min_width_m)
+    cov, geom = _edge_fixture(law)
+    assert geom is not None and not geom.is_empty
+    assert geom.contains(Point(50.0 + min_w + 10.0, 0.0))   # beyond: no bank
+    assert not geom.intersects(cov.buffer(-1.0))            # never inside
+    banked = cov.buffer(law.tables.emit.design.bank_max_width_m)
     across = banked.difference(geom).intersection(
         LineString([(-500.0, 0.0), (500.0, 0.0)]))
-    assert across.bounds[2] == pytest.approx(50.0, abs=0.01)
+    assert across.bounds[2] == pytest.approx(50.0 + min_w, abs=0.01)
+
+
+def test_the_cut_never_reaches_the_design_ring(law):
+    """THE FOLD TWIN (owner RULINGS 2026-09-10g).
+
+    Round 1 cut the slab back to the coverage itself, so the banked
+    region's boundary came to rest ON the design ring for the whole edge
+    run.  ``bank._push_off`` then pushed the vertices merely NEAR the
+    coverage out to ``bank_min_width_m`` and left the vertices exactly ON
+    it alone, and the foot ring emitted from that run crossed the strip's
+    own ring — a zero-area needle Triangle4XP filled to its recursion
+    limit (CYXY: 59,634 vertices on 216 plan positions in one 50 m cell,
+    18.4 M overlapping pairs).  The cut must therefore never come within
+    the push-off's own threshold of the coverage."""
+    min_w = float(law.tables.emit.design.bank_min_width_m)
+    cov, geom = _edge_fixture(law)
+    assert geom.distance(cov) >= 0.5 * min_w
+    assert geom.distance(cov) == pytest.approx(min_w, abs=0.05)
+    # and the boundary the bank is emitted from is a clean simple ring
+    banked = cov.buffer(min_w).difference(geom)
+    assert banked.is_valid and banked.exterior.is_simple
+    assert banked.exterior.distance(cov.exterior) == pytest.approx(
+        0.0, abs=min_w + 0.05)
 
 
 def test_edge_ways_reuse_existing_vertices(law):

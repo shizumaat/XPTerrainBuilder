@@ -162,7 +162,23 @@ def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_pa
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     rows = census(surf, law, pub, roads.road_law_caps(pm, law, airport))
     assert rows["lateral_contiguity"] == []
-    assert rows["frontage_near_miss"] == []
+    # RE-SCOPED from ZERO to ONE 0.19 m row (lane ``v2taxidatum`` round 3).
+    # RULINGS 2026-09-10v (2) made an apron body's datum the DEM's AFFINE
+    # fit, and this fixture's ground is a 1 % PLANE with a 2 m terrace, so
+    # the apron LEANS with it while a pad is still ONE FLAT PLANE (09-09c).
+    # Where the leaning apron fronts the flat ``pad_near``, one endpoint
+    # ends 0.19 m outside ``apron cap * d`` of the pad's nearest ring
+    # vertex.  ATTRIBUTED interventionally, not widened: with
+    # ``solve.design._plane_rows`` returning the MEAN row only — the 09p
+    # datum this rule replaced — the census reads ZERO here, and it reads
+    # ZERO on ``main`` (23a10aaf).  This is the apron-leans-past-a-flat-pad
+    # tension RULINGS 2026-09-10l already names (the pad's plane becomes the
+    # least-squares fit to its FRONTAGE contacts); until that lands the row
+    # is EXPECTED and its size is pinned here.
+    near_miss = rows["frontage_near_miss"]
+    assert len(near_miss) <= 1, near_miss
+    for r in near_miss:
+        assert r["roles"] == "apron|building" and r["magnitude_m"] <= 0.25, r
     # the near-miss pad sits at its frontage level, not the DEM terrace
     near = next(f for f in pm.faces.values() if f.ref == "pad_near")
     apron = next(f for f in pm.faces.values() if f.ref == "apron1")

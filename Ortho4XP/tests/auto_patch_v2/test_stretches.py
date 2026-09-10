@@ -357,7 +357,22 @@ def test_the_solved_fixture_reads_zero_rows_in_both_readers(site, law, tmp_path)
     # stretch is USED — the step is nearly all of what the strictest letter
     # would allow, not a flattened one — and the letters' own PRICING is
     # exercised by ``test_a_minted_step_on_the_g_stretch_is_read_at_g_cap``.
-    assert abs(sol.z[X] - sol.z[nxt]) > 0.9 * cap_d * d, "the stretch is USED"
+    # RE-SCOPED AGAIN, 0.9 -> 0.6 (lane ``v2taxidatum`` round 3).  RULINGS
+    # 2026-09-10t (2) / spec 8.6 (3) made ``apron_body_chord_max_m`` a chord
+    # LENGTH rather than a coverage limit: a path ACROSS an apron body past
+    # the gate is now priced at the apron cap (the SPJC defect — an 85.3 m,
+    # 5.46 % fall no row saw).  This fixture's apron carries such a path, so
+    # its fall is held and the G-side step is 0.546 m over 57.0 m = 0.96 %,
+    # 64 % of D's 1.5 % (before: 0.807 m = 1.42 %, 94 %).  ATTRIBUTED
+    # interventionally, not widened: dropping ONLY the rows whose ruling is
+    # "apron body chord, stationed across the face" from
+    # ``apron_within_shape`` makes this whole module green again at 0.9, and
+    # it is green at 0.9 on ``main`` (23a10aaf); the MEAN-only datum arm
+    # does NOT restore it (0.442 m), so the affine datum is not the cause.
+    # The claim the twin holds is unchanged: the stretch is USED, not
+    # flattened — the letters' own PRICING is exercised by
+    # ``test_a_minted_step_on_the_g_stretch_is_read_at_g_cap``.
+    assert abs(sol.z[X] - sol.z[nxt]) > 0.6 * cap_d * d, "the stretch is USED"
     # the v1 oracle reads the same patch (its mesh = v2's published mesh,
     # its stretch caps = v2's published stretches) — its plane rule still
     # prices every taxi pair at cap × CHORD; under RULINGS 2026-09-05ab a

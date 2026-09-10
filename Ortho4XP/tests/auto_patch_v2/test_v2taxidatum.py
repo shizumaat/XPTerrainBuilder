@@ -255,6 +255,64 @@ def test_the_parallel_runs_on_its_trend_at_every_station(apron_and_parallel, law
     assert rep.taxi_trend_rows == len(tt)
 
 
+def test_the_whole_face_follows_the_trend_not_only_its_spine(apron_and_parallel,
+                                                            law):
+    """ROUND 3 (spec 8.6.1): round 2 priced the trend on the CENTRELINE
+    row alone, so the body's off-centreline vertices carried no binding at
+    all (``why``: "binding 0 - FREE") and the edge lagged where the ground
+    rose across the body's width (CYXY -1.80 / -1.93 m at the 320 / 330 m
+    stations of the owner's transect).  Every vertex of a taxi-family face
+    the chain owns now carries the SAME row at the SAME weight, valued at
+    ITS OWN station - the foot of its perpendicular on the chain."""
+    pm, z, _rep, _airport, _r = apron_and_parallel
+    _bl, ch = _chain(pm, "pavT")
+    tt = pm.taxi_trend_z
+    on_chain = set(ch) | set(_chain(pm, "linkW")[1])
+    face = {v: t for v, t in tt.items() if v not in on_chain}
+    assert face, "the parallel's face vertices carry the trend too"
+    # the value handed to an edge vertex IS the chain's own value at that
+    # station: the transverse law owns the cross-section's SHAPE, so the
+    # trend never states a cross-fall of its own
+    for v, t in face.items():
+        s = pm.vertices[v].xy[0]                    # the fixture's chain axis
+        near = min(ch, key=lambda c: abs(pm.vertices[c].xy[0] - s))
+        if abs(pm.vertices[near].xy[0] - s) < 1e-6 and near in tt:
+            assert t == pytest.approx(tt[near], abs=1e-6), (v, near)
+    # and the BUILT edge follows the trend as closely as the spine does
+    off = [abs(float(z[v]) - float(t)) for v, t in face.items()]
+    assert max(off) <= 0.5, f"an edge vertex stands {max(off):.3f} m off"
+
+
+def test_only_a_long_chain_speaks_across_its_own_faces(apron_and_parallel, law):
+    """The two bounds on the extension, both MEASURED (see
+    ``constraints/taxi_trend._face_extension``).  A chain's trend is a
+    long-wave statement ALONG a route; sideways it only says "the section
+    is level here".  A SHORT chain never made that statement (its fit is a
+    line through 100 m of ground) and a FOREIGN chain would spread its own
+    station gradient across a face that runs the other way."""
+    pm, _z, _rep, _airport, _r = apron_and_parallel
+    tt = pm.taxi_trend_z
+    stub_bl, stub_ch = _chain(pm, "linkW")
+    par_bl, par_ch = _chain(pm, "pavT")
+    # the stub is 101.5 m against a 500 m window: SHORT
+    window = float(law.tables.emit.design.runway_profile_window_m)
+    stub_len = math.hypot(*(a - b for a, b in
+                            zip(pm.vertices[stub_ch[0]].xy,
+                                pm.vertices[stub_ch[-1]].xy)))
+    assert stub_len < 0.5 * window <= TAXI_LEN
+    # its own CENTRELINE row is untouched (round 2 stands for short chains)
+    assert [v for v in stub_ch if v in tt], "the stub keeps its centreline row"
+    # but nothing of its FACE is spoken for - not by itself and not by the
+    # long parallel it meets
+    par_faces = {f.id for f in pm.faces.values() if f.ref == "pavT"}
+    stub_only = {v for f in pm.faces.values() if f.ref == "linkW"
+                 for v in pm.ring_vertices(f.ring)
+                 if not (set(pm.vertices[v].incident_faces) & par_faces)}
+    assert stub_only - set(stub_ch), "the stub face has off-centreline vertices"
+    assert not ((stub_only - set(stub_ch)) & set(tt)), \
+        "a short chain's face keeps round 2's behaviour exactly"
+
+
 def test_the_parallel_keeps_its_designed_shape(apron_and_parallel, law):
     """The trend sets WHERE the chain runs, never how smoothly: the
     centreline's second differences stay inside the law's own

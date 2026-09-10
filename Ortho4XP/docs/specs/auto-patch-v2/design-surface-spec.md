@@ -591,6 +591,62 @@ block gains `taxi_trend` (per chain: length, vertices, pins, target RMS/max,
 mean z − DEM), `taxi_trend_rows`, `body_datum_bodies`, and `tilt_m` on every
 `body_datums` record.  Twins: `tests/auto_patch_v2/test_v2taxidatum.py`.
 
+### 8.6.1 AMENDMENT 3 — THE WHOLE FACE, NOT ONLY ITS SPINE (lane `v2taxidatum` round 3)
+
+§8.6 (1) priced the trend on the CENTRELINE row alone, so a taxi body's
+off-centreline vertices carried no binding at all (`why`: "binding 0 — FREE")
+and the edge lagged where the ground rose across the body's width: CYXY's
+`pav28` read **−1.80 / −1.93 m** against the DEM at the 320 / 330 m stations
+of the owner's 10n transect while its centreline sat inside ±0.9 m.
+
+**Every vertex of a taxi-family face carries the SAME row at the SAME weight**
+(`[design] taxi_trend` = 30), its target the chain's trend value at the
+vertex's OWN STATION — the foot of its perpendicular on the chain. One value
+per vertex, the same the centreline gets there: the cross-section's SHAPE
+stays the transverse law's, which is senior, and the `taxi_profile` curvature
+rows are untouched. Two bounds, both MEASURED (CYXY `taxi_box` short-pair rows,
+v1 oracle / v2 verify, control 6 / 6):
+
+1. **A chain speaks only for the FACES IT OWNS** — the taxi-family faces most
+   of whose chain vertices are its own (`Breakline.ref` is the apt.dat
+   centreline record `taxi57`, `Face.ref` the pavement `pav28`, so the map's
+   own I5 incidence is the join, never a name). A FOREIGN chain projects the
+   wrong direction: valuing a stub's face from the long parallel it meets
+   spreads that parallel's STATION gradient across the stub's width. Nearest
+   long chain over every taxi vertex **22 / 36**; every face the chain merely
+   TOUCHES **34 / 47**; the faces it OWNS **22 / 30**.
+2. **Only a LONG chain speaks across a face** — its stations must span at
+   least half `runway_profile_window_m`, the same test `Trend.at` puts on the
+   fit's DEGREE. A short chain's trend is a line through 100 m of ground, and
+   sideways it asserts a level cross-section over ground it never sampled. On
+   the §8.6 stub fixture the 101 m junction stub's two side vertices, handed
+   its own flat trend while the apron beside them leaned with the ground,
+   pulled the junction 0.63 m down and bent the 1 km parallel **3.78×** its own
+   vertical-curve bound. Bounded, the same build reads 0.009 m of chain
+   residual (control 0.097) at 0.010× the bound (control 0.065).
+
+A vertex the taxi face SHARES with another VALUE surface (a runway contact, an
+apron edge) takes no trend row: two authorities on one vertex is the
+`emit consensus mints violations` class. `[design] taxi_trend_face_reach_m`
+(250 m) is a BACKSTOP on how far a chain may reach inside a face it owns, not
+the scope — CYXY's `pav28` is 160 m wide at the owner's transect, so at 75 m
+the far edge took no row at all.
+
+**MEASURED (patch-only, harness, v2 engine).** CYXY transect at lat 60.71363
+east of the runway: every station past the zone ring inside ±1.5 m — 170 m
++1.36, the owner's point (200 m) +0.99, **320 m +0.15 and 330 m +0.04**
+(round 2: −1.80 / −1.93); the 1.5 m internal drop at 250→270 m is gone. SPJC
+kept: taxi `pav49#22` −0.18 m, terminal apron path 0.38 % (round 2 0.59 %).
+HECA per-role undulation against the merged control — `primary_parallel`
+1.047 → **0.936**, `stub` 1.027 → **0.831**, `cross_connector` 0.967 → 1.015,
+but `junction` 1.084 → **1.128** against a 1.05 bar: MISSED, and the second
+arm the brief named (the apron datum's TILT rows at half `body_datum`)
+REFUTES its own hypothesis — junction 1.160, `taxi_box` 30 → 33 — so that knob
+was not kept. CYXY `taxi_box` reader agreement (`test_cyxy_verify_matches_v1_census`)
+stands RED at v1 22 / v2 30 (control 6 / 6, tolerance 4.4): the same class
+round 1 reported at v1 22 / v2 28 — when a taxi body follows its ground, its
+own short-pair box rows appear. Not widened.
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

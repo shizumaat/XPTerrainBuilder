@@ -72,6 +72,13 @@ class Design:
     #: the curvature row all outrank it.  This REPLACES the taxi body mean
     #: row of 10p, which 10v measured as too coarse.
     taxi_trend: float
+    #: THE TREND'S REACH ACROSS THE FACE (spec §8.6.1, round 3): a
+    #: taxi-family vertex OFF the centreline takes the same ``taxi_trend``
+    #: row, valued at the station of its foot on the nearest centreline
+    #: chain — within this plan distance.  Past it the vertex is left free
+    #: rather than pulled to a chain it does not belong to.  It is a REACH,
+    #: not a law value: it bounds which chain may speak for a vertex.
+    taxi_trend_face_reach_m: float
     road: float
     detached_mean: float
     #: THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t

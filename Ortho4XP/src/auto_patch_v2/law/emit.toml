@@ -222,6 +222,22 @@ taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should f
 # bars: the CYXY transect within +/- 1.5 m of the DEM east of the zone
 # ring, and HECA's per-role taxi undulation within +5 % of control).
 taxi_trend    = 30.0
+# THE TREND'S REACH ACROSS THE FACE (spec §8.6.1; lane `v2taxidatum` round
+# 3).  Round 2 priced the trend on the CENTRELINE only, so a taxi body's
+# off-centreline vertices carried no binding at all and the edge lagged
+# where the ground rose across the body's width (CYXY -1.80 / -1.93 m at
+# the 320 / 330 m stations of the owner's transect, against a +/- 1.5 m
+# bar, while the centreline itself sat inside +/- 0.9 m).  Every vertex of
+# a taxi-family face now carries the SAME row at the SAME weight, valued
+# at its OWN station (the foot of its perpendicular on the nearest
+# centreline chain).  The chain speaks only for its OWN faces (the
+# taxi-family faces its own vertices touch) and only where it is LONG, so
+# this is a BACKSTOP, not the scope: it stops a chain valuing a vertex on
+# the far side of a face that reaches away from it.  MEASURED: CYXY's
+# `pav28` is 160 m wide at the owner's transect (the taxi body reaches
+# from station 170 to 330 under one ref), so at 75 m the far edge — the
+# -1.80 / -1.93 m stations this round exists to fix — took no row at all.
+taxi_trend_face_reach_m = 250.0
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
 # THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t answer 6:

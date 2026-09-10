@@ -388,6 +388,9 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
 
 
 #: The water bits of ``O4_Vector_Utils.Vector_Map.dico_attributes``
+#: The two bits the SEA / inland split reads (``O4_Vector_Map`` values).
+WATER_BIT = 1
+SEA_BIT = 2
 #: (WATER 1 | SEA 2 | SEA_EQUIV 4).  Spelled here so the tool reads a
 #: mesh with no engine import; ``tests/test_mesh_water_audit.py``
 #: twin-asserts it against the engine's own table.
@@ -433,7 +436,25 @@ def water_audit(mesh_path, step_flag_m=1.0, zero_tol_m=1e-3, near=None):
     payload["water_attributes"] = {str(k): v for k, v in attrs.most_common()}
     print("  attributes: " + ", ".join(f"{k}x{v}" for k, v in attrs.most_common()))
 
-    def _report(label, idx):
+    def _report(label, idx, split=True):
+        # THE SEA IS LEVELLED, INLAND WATER IS NOT (owner RULINGS
+        # 2026-09-09o (3) / 09z (3)): ``sea_smoothing_mode=zero`` drives a
+        # SEA-without-WATER triangle to 0.000, while a mapped inland body
+        # (WATER, SEA_EQUIV) converges to ITS OWN level.  Lumping them
+        # makes "how many water vertices are off zero" unreadable — every
+        # lake is off zero lawfully — so the SEA class is reported on its
+        # own line.  That count is the round's acceptance figure.
+        if split:
+            sea_only = [i for i in idx
+                        if (att[i] & SEA_BIT) and not (att[i] & WATER_BIT)]
+            inland = [i for i in idx if i not in set(sea_only)]
+            if sea_only and inland:
+                out = _report(label, idx, split=False)
+                out["sea"] = _report(label + " SEA (levelled)", sea_only,
+                                     split=False)
+                out["inland"] = _report(label + " inland/equiv", inland,
+                                        split=False)
+                return out
         verts = set()
         steps = []
         for i in idx:

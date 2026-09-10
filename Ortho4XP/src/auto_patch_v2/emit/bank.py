@@ -45,6 +45,17 @@ still smoothed in plan (09f) but NEVER across a daylight discontinuity: the
 chain is cut into runs wherever the raw daylight distance jumps by more
 than ``bank_toe_break_m`` (:func:`smooth_runs`).
 
+THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3)): "only set pavement
+node elevations, then the DEM should automatically grade into the water and
+blend with bathymetry data".  09m (2) / 09o (4)'s shore bank is WITHDRAWN.
+The daylight walk STOPS at the water line (the production frame's own water
+witness, ``dem.water_many``); a ray already over water inside
+``bank_min_width_m`` carries NO foot at all, and the banked REGION is cut by
+the tile's water (``dem.water_geometry``) at one derivation site, so no bank
+piece, no annulus and no foot node ever lands in water.  The mesh then does
+what the owner rules it should: drapes the DEM with its bathymetry band into
+the water and levels the water itself.  Spec §18.
+
 THE FOOT RING IS CLOSED, and closed is load-bearing and measured (spec
 §10.5): an OPEN chain enters ``include_patches`` as a DUMMY way, which is
 not in ``interp_alt_patch_polygons``, so the annulus outside it gets no
@@ -98,10 +109,12 @@ BANK_KIND = "bank_foot"
 
 #: THE DAYLIGHT CLASSIFICATION of a foot (owner RULINGS 2026-09-09g), in the
 #: integer order :func:`daylight_feet` returns: the ground's own bank (the
-#: foot is at ``bank_min_width_m``), a true daylight point, and a ray that
-#: never met the DEM (the foot is at ``bank_max_width_m``, reported by name).
-FOOT_KINDS: tuple[str, ...] = ("min", "daylight", "max")
-_K_MIN, _K_DAY, _K_MAX = 0, 1, 2
+#: foot is at ``bank_min_width_m``), a true daylight point, a ray that
+#: never met the DEM (the foot is at ``bank_max_width_m``, reported by name),
+#: and — owner RULINGS 2026-09-09z (3) — a ray that met WATER, which has no
+#: earthwork foot at all.
+FOOT_KINDS: tuple[str, ...] = ("min", "daylight", "max", "water")
+_K_MIN, _K_DAY, _K_MAX, _K_WATER = 0, 1, 2, 3
 
 #: A hole in the patch coverage narrower than this many bank minimum widths
 #: is not banked (there is no room for a foot inside it).  A geometric floor
@@ -129,6 +142,8 @@ class BankReport:
     at_min: int = 0
     daylighted: int = 0
     at_max: int = 0
+    #: THE SHORE (09z (3)): rays whose walk met WATER and carry no foot
+    at_water: int = 0
     #: the rays that NEVER daylighted, named (chain, vertex, lat/lon)
     never_daylight: list[str] = _dc.field(default_factory=list)
     #: the toe-smoothing runs the daylight discontinuities cut the chains into
@@ -150,6 +165,7 @@ class BankReport:
                 f"foot nodes, {self.repaired_rings} repaired, {self.skipped_rings} "
                 f"skipped), DAYLIGHT {self.at_min} at the minimum / "
                 f"{self.daylighted} daylighted / {self.at_max} at the maximum"
+                + f" / {self.at_water} STOPPED AT WATER (09z: no foot there)"
                 + (f" [{names}]" if self.never_daylight else "")
                 + f", toe in {self.toe_runs} smoothing run(s); foot distance min "
                 f"{self.min_m:.1f} / mean {self.mean_m:.1f} m / p95 "
@@ -219,6 +235,22 @@ def _dem_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
     return np.asarray([dem.z(float(x), float(y)) for x, y in zip(xs, ys)], float)
 
 
+def _water_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+    """THE WATER WITNESS at frame points — the production frame's own
+    (``airport/dem_production.ProductionDem.water_many``, owner RULINGS
+    2026-09-09o (1)), never a second water source.  A sampler without one
+    (every synthetic fixture, the authored ``DemSampler``) claims NO
+    water, so the bank is bit-for-bit what it was before 09z (3)."""
+    fn = getattr(dem, "water_many", None)
+    if not callable(fn) or len(xs) == 0:
+        return np.zeros(len(xs), dtype=bool)
+    try:
+        wet, _level = fn(np.asarray(xs, float), np.asarray(ys, float))
+    except Exception:                                   # pragma: no cover
+        return np.zeros(len(xs), dtype=bool)
+    return np.asarray(wet, dtype=bool)
+
+
 def daylight_feet(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
                   dem, slope: float, min_w: float, max_w: float,
                   step: float, tol: float) -> tuple[np.ndarray, np.ndarray]:
@@ -268,11 +300,34 @@ def daylight_feet(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
     t_prev = np.full(n, float(min_w))
     here = (~own) & (r_prev <= float(tol))
     kind[here] = _K_MIN
-    live = np.flatnonzero(~(own | here))
+    # THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3)).  The walk is
+    # water-tested at the minimum width FIRST: a ray whose ground is
+    # already water inside ``min_w`` carries NO earthwork at all — the
+    # ring's outer edge is the patch boundary and the mesh grades the DEM
+    # (with its bathymetry band) into the water on its own.
+    wet0 = _water_many(dem, pts[:, 0] + nrm[:, 0] * min_w,
+                       pts[:, 1] + nrm[:, 1] * min_w)
+    if wet0.any():
+        d[wet0] = 0.0
+        kind[wet0] = _K_WATER
+    live = np.flatnonzero(~(own | here | wet0))
     t = float(step) * math.ceil((float(min_w) + 1.0e-9) / float(step))
     while live.size and t <= float(max_w) + 1.0e-9:
-        zt = _dem_many(dem, pts[live, 0] + nrm[live, 0] * t,
-                       pts[live, 1] + nrm[live, 1] * t)
+        sx = pts[live, 0] + nrm[live, 0] * t
+        sy = pts[live, 1] + nrm[live, 1] * t
+        # THE WALK STOPS AT THE WATER LINE (09z (3)): the foot of a wet
+        # ray is the LAST DRY STATION and it carries no bank beyond.
+        wet = _water_many(dem, sx, sy)
+        if wet.any():
+            idx = live[wet]
+            d[idx] = np.maximum(t_prev[idx], float(min_w))
+            kind[idx] = _K_WATER
+            live = live[~wet]
+            if not live.size:
+                break
+            sx = pts[live, 0] + nrm[live, 0] * t
+            sy = pts[live, 1] + nrm[live, 1] * t
+        zt = _dem_many(dem, sx, sy)
         r = sgn[live] * (z0[live] - zt) - float(slope) * t
         hit = r <= float(tol)
         if hit.any():
@@ -299,8 +354,9 @@ def daylight_feet(z_ring: np.ndarray, pts: np.ndarray, nrm: np.ndarray,
     if live.size:                       # never daylighted: at the maximum
         d[live] = float(max_w)
         kind[live] = _K_MAX
-    d = np.clip(d, float(min_w), float(max_w))
-    kind[(kind == _K_DAY) & (d <= float(min_w) + 1.0e-9)] = _K_MIN
+    dry = kind != _K_WATER
+    d[dry] = np.clip(d[dry], float(min_w), float(max_w))
+    kind[(kind == _K_DAY) & dry & (d <= float(min_w) + 1.0e-9)] = _K_MIN
     return d, kind
 
 
@@ -440,7 +496,7 @@ def _foot_piece(pts: np.ndarray, nrm: np.ndarray, d: np.ndarray, host,
     return piece, repaired
 
 
-def _push_off(ring: list, cov, min_w: float) -> list:
+def _push_off(ring: list, cov, min_w: float, dem=None) -> list:
     """THE FOOT NEVER TOUCHES THE DESIGN SURFACE: a boundary vertex of the
     banked region that came to rest within half a bank width of the patch
     coverage is pushed back out to ``min_w`` along its own outward
@@ -463,6 +519,15 @@ def _push_off(ring: list, cov, min_w: float) -> list:
             out.append((x, y))
             continue
         out.append((q.x + dx / L * min_w, q.y + dy / L * min_w))
+    if dem is not None and out:
+        # A PUSH NEVER CROSSES THE SHORELINE (owner RULINGS 2026-09-09z
+        # (3)): the collar law exists to keep a foot node off the design
+        # ring, and it must not buy that by putting one in the water.
+        xs = np.asarray([q[0] for q in out], float)
+        ys = np.asarray([q[1] for q in out], float)
+        wet = _water_many(dem, xs, ys)
+        if wet.any():
+            out = [ring[i] if wet[i] else out[i] for i in range(len(out))]
     return out
 
 
@@ -491,6 +556,20 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
              if v in z_of}
     slope = float(d_law.bank_slope)
     min_w = float(d_law.bank_min_width_m)
+    # THE SHORE (owner RULINGS 2026-09-09z (3)): the tile's WATER, from
+    # the production frame's own witness, over the bank's whole reach.
+    water_geom = None
+    water_fn = getattr(dem, "water_geometry", None)
+    if callable(water_fn):
+        try:
+            bx0, by0, bx1, by1 = cov.bounds
+            reach = float(d_law.bank_max_width_m) + 10.0
+            water_geom = water_fn((bx0 - reach, by0 - reach,
+                                   bx1 + reach, by1 + reach))
+        except Exception:                               # pragma: no cover
+            water_geom = None
+        if water_geom is not None and water_geom.is_empty:
+            water_geom = None
     w_smooth = float(d_law.bank_foot_smooth)
     max_w = float(d_law.bank_max_width_m)
     sample_m = float(d_law.bank_sample_m)
@@ -559,6 +638,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
         rep.at_min += int(np.count_nonzero(kind == _K_MIN))
         rep.daylighted += int(np.count_nonzero(kind == _K_DAY))
         rep.at_max += int(np.count_nonzero(kind == _K_MAX))
+        rep.at_water += int(np.count_nonzero(kind == _K_WATER))
         for i in np.flatnonzero(kind == _K_MAX).tolist():
             if len(rep.never_daylight) < _NAME_CAP:
                 lat, lon = _to_ll(float(pts[i, 0]), float(pts[i, 1]))
@@ -573,6 +653,10 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
         d, runs = smooth_runs(d, d_raw, s, w_smooth, break_m)
         rep.toe_runs += runs
         d = np.clip(d, min_w, max_w)
+        # the wet rays are re-zeroed AFTER the clip: the minimum width is
+        # the dry law, and a shore ray carries no bank at all (09z (3))
+        d[kind == _K_WATER] = np.minimum(d[kind == _K_WATER],
+                                         d_raw[kind == _K_WATER])
         d = _ray_limit(pts, nrm, d, tree, segs, min_w)
         piece, repaired = _foot_piece(pts, nrm, d, host, exterior)
         if piece is None:
@@ -600,6 +684,20 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     # design ring as a foot (measured HECA: a foot node at distance 0.0).
     banked = unary_union([cov.buffer(min_w, join_style="mitre",
                                      mitre_limit=_MITER_MAX), *pieces])
+    # THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3)), cut at the
+    # SINGLE derivation site: the min-width collar is the one part of the
+    # banked region no ray governs, so the region — not a per-ray veto —
+    # is what keeps every foot node out of the water.  What is left
+    # closes ON the water line; the mesh drapes the DEM and its
+    # bathymetry band from there into the water, and levels the water.
+    if water_geom is not None:
+        try:
+            cut = banked.difference(water_geom)
+            if not cut.is_empty:
+                banked = cut if cut.geom_type in ("Polygon", "MultiPolygon") \
+                    else banked
+        except Exception:                               # pragma: no cover
+            pass
     from scipy.spatial import cKDTree
     rz = np.asarray(ring_z, float)
     ktree = cKDTree(rz[:, :2]) if len(rz) else None
@@ -633,7 +731,8 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             if len(pts_r) < 3:
                 rep.skipped_rings += 1
                 continue
-            pts_r = _push_off(pts_r, cov, min_w)
+            pts_r = _push_off(pts_r, cov, min_w, dem if water_geom is not None
+                              else None)
             fx = np.asarray([q[0] for q in pts_r], float)
             fy = np.asarray([q[1] for q in pts_r], float)
             zf = _dem_many(dem, fx, fy)

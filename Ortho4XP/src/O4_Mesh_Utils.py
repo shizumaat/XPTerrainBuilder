@@ -869,10 +869,18 @@ def bank_annulus_polygon(tile):
     return annulus if not annulus.is_empty else geometry.Polygon()
 
 
-def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
+def bank_annulus_blend_values(tile, vertices, triangles, patch_valued,
+                              water_valued=()):
     """``{vertex index: z}`` for every FREE vertex of ``triangles`` that
     lies inside a BANK ANNULUS — its altitude LINEAR IN PLAN DISTANCE
     between the design ring and the bank foot (the law above).
+
+    ``water_valued`` is THE SHORE'S EXCLUSION (owner RULINGS 2026-09-09z
+    (3)): the indices of vertices carrying a WATER bit — a corner of a
+    water or sea triangle.  Water is a datum; the bank never lifts one,
+    so such a vertex is not a candidate and is never written.  The patch
+    sets pavement, and the DEM (with its bathymetry band) grades into the
+    water on its own.
 
     Empty when the tile has no banked patch or no free vertex falls in an
     annulus; ``None`` (with one loud line) when the inputs cannot be read.
@@ -912,6 +920,16 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued):
     # transect there measures the road, not the bank — so it stays
     # pre-valued and is only reported.
     free = touched
+    if len(water_valued):
+        # THE SHORE (09z (3)): a vertex that carries a water bit is a
+        # DATUM, not an annulus unknown — the blend drops it before it is
+        # ever a candidate, so nothing the bank writes can lift water.
+        wet = _np.zeros(int(touched.max()) + 1, dtype=bool)
+        w_idx = _np.asarray(sorted(water_valued), dtype=_np.int64)
+        wet[w_idx[(w_idx >= 0) & (w_idx < wet.size)]] = True
+        free = free[~wet[free]]
+        if free.size == 0:
+            return {}
     fx = vertices[6 * free] * scalx
     fy = vertices[6 * free + 1]
     inside = _sh.contains_xy(annulus, fx, fy)
@@ -1642,6 +1660,15 @@ def post_process_nodes_altitudes(tile):
             or attr & dico_attributes["SEA_EQUIV"]
         ):
             water_tris.add((v1, v2, v3))
+    # THE SHORE'S DATUM SET (owner RULINGS 2026-09-09z (3)): every vertex
+    # that carries a water bit, i.e. every corner of a water or sea
+    # triangle.  09o (3) made the water bit outrank the seed per TRIANGLE;
+    # this is the same law per VERTEX, and it is where "some water being
+    # lifted up to terrain level" survived that fix — a shore vertex
+    # SHARED with an INTERP_ALT triangle is levelled here and was then
+    # overwritten by the column-5 copy at the end of this function.
+    water_valued = {v for tri in water_tris for v in tri}
+    water_valued |= {v for tri in sea_tris for v in tri}
     if degenerate_attr_nbr:
         UI.lvprint(
             1,
@@ -1772,7 +1799,8 @@ def post_process_nodes_altitudes(tile):
         # before, and every other face is bit-identical.
         try:
             blend = bank_annulus_blend_values(
-                tile, vertices, _interp_alt_only_tris, patch_valued)
+                tile, vertices, _interp_alt_only_tris, patch_valued,
+                water_valued)
         except Exception as error:
             blend = None
             UI.lvprint(
@@ -1824,16 +1852,33 @@ def post_process_nodes_altitudes(tile):
         # clip.  Judged on the vertices the solve MOVED.
         audit_interp_alt_extent(
             tile, vertices, report.get("changed_indices"), coverage, covered)
+    lifted_water = set()
     for v1, v2, v3 in interp_alt_tris:
-        vertices[6 * v1 + 2] = vertices[6 * v1 + 5]
-        vertices[6 * v2 + 2] = vertices[6 * v2 + 5]
-        vertices[6 * v3 + 2] = vertices[6 * v3 + 5]
+        # WATER IS A DATUM, PER VERTEX (owner RULINGS 2026-09-09z (3)).
+        # A vertex shared between this INTERP_ALT triangle and a water or
+        # sea triangle was levelled above; copying column 5 over it is
+        # exactly the "water lifted to terrain level" the owner read at
+        # OTHH, one shore vertex at a time.  The patch sets pavement; it
+        # never sets water.
+        for v in (v1, v2, v3):
+            if v in water_valued:
+                if vertices[6 * v + 2] != vertices[6 * v + 5]:
+                    lifted_water.add(v)
+                continue
+            vertices[6 * v + 2] = vertices[6 * v + 5]
         vertices[6 * v1 + 3] = 0
         vertices[6 * v2 + 3] = 0
         vertices[6 * v3 + 3] = 0
         vertices[6 * v1 + 4] = 0
         vertices[6 * v2 + 4] = 0
         vertices[6 * v3 + 4] = 0
+    if lifted_water:
+        UI.vprint(
+            1,
+            f"   Water is a datum: {len(lifted_water)} shore vertex(es) shared "
+            "with a patch/road INTERP_ALT triangle kept their levelled "
+            "water altitude instead of the patch value (RULINGS "
+            "2026-09-09z (3)).")
     UI.vprint(1, "-> Writing output nodes file.")
     f_node = open(FNAMES.output_node_file(tile), "w")
     f_node.write(init_line_f_node)

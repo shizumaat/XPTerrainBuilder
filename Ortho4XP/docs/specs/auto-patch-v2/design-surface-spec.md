@@ -2644,3 +2644,104 @@ control's and v1's, and every other reading — the DEFECT gate, the verify
 count, the census, the grade-change rate and the distance off the ground —
 moves toward v1.  The hard set still reads NOT SETTLED at 0.0210 m
 (control 0.0202 m): unchanged in kind by this round, 09v's open item.
+---
+
+## §18 THE SHORE HAS NO BANK (RULINGS 2026-09-09z (3)) — lane `v2shore`
+
+Owner: "Only set pavement node elevations, then the DEM should automatically
+grade into the water and blend with bathymetry data."  09m (2) / 09o (4)'s
+shore bank is WITHDRAWN: where the daylight walk meets WATER the walk STOPS
+at the water line, no earthwork foot is authored beyond it, no bank piece or
+annulus covers water, and nothing the patch or the mesh-side blend writes may
+lift a vertex that carries a water bit.  The witness is the one the water
+lane built (`airport/dem_production.ProductionDem.water_many` /
+`water_geometry`); nothing re-derives water.
+
+### 18.1 CONSUMER TABLE (owner 2026-08-30l), BEFORE editing
+
+| # | consumer | reads | ruling where the walk meets water |
+|---|---|---|---|
+| S1 | `emit/bank.daylight_feet` | ring z, normals, DEM | EDITED: each station is water-tested with the DEM's own witness; the FIRST wet station STOPS the ray — the foot is the last dry station, kind `water` (a fourth `FOOT_KINDS` entry).  Wet at or inside `bank_min_width_m` ⇒ `d = 0`: no earthwork at all, the ring's outer edge is the patch boundary. |
+| S2 | `emit/bank.with_bank` foot pieces | `pts + nrm*d` | UNAFFECTED IN KIND — a `d = 0` ray simply contributes no offset; the piece is repaired by the existing `buffer(0)` path. |
+| S3 | `emit/bank.with_bank` the ONE banked region (`cov.buffer(min_w) ∪ pieces`) | the union | EDITED at the SINGLE derivation site: `banked = union − water_geometry`.  The min-width COLLAR is the one part of the region no ray controls, so the cut — not a per-ray veto — is what keeps every bank vertex out of water. |
+| S4 | the foot ring emission (`banked` boundary → `SurfaceVertex` + `BANK_KIND` breakline) | the region's rings | THE RING STAYS CLOSED, closing ON THE WATER LINE (§18.2): no vertex inside water, its z the DEM's own value at the shore. |
+| S5 | `emit/bank._push_off` | cov, `min_w` | EDITED: a push that would land the vertex IN water is refused (the vertex keeps its place).  The collar law must never move a foot node across the shoreline. |
+| S6 | `emit/bank._ray_limit`, `smooth_along` / `smooth_runs`, the `np.clip(d, min_w, max_w)` after them | d, the chain | EDITED where it would UNDO the cut: a water ray's `d = 0` is BELOW `min_w`, and the existing clip would push it back out to a 5 m bank over water.  The wet rays are re-zeroed after the smoothing and the clip; everything else about the smoothing, the ray limit and `_inner` is unchanged. |
+| S7 | `O4_Vector_Map.include_patches` | closed patch ways | UNAFFECTED: one closed way per boundary, as §13 left it.  An OPEN foot would enter as a DUMMY way, outside `interp_alt_patch_polygons` — the whole ring's annulus would lose its INTERP_ALT seed while its segments still blocked the plague (§10.5 measured 306 %).  That is why S4 closes on the water line. |
+| S8 | `O4_Mesh_Utils.bank_annulus_blend_values` | annulus vertices | EDITED: a new `water_valued` exclusion — a vertex carrying a water bit is never a blend candidate and is never written. |
+| S9 | `O4_Mesh_Utils.post_process_nodes_altitudes` final `interp_alt_tris` copy (`z = column 5`) | column 5 | EDITED: a water-bit vertex SHARED with an INTERP_ALT triangle keeps its levelled altitude — the copy skips it.  This is where "some water being lifted up" survives 09o (3): sea levelling runs FIRST and this loop overwrote the shared shore vertex afterwards. |
+| S10 | `O4_Mesh_Utils.post_process_nodes_altitudes` `:1627` water-bit precedence (09o (3)) | triangle attributes | UNTOUCHED — S8/S9 are the VERTEX corollary of that TRIANGLE law. |
+| S11 | `O4_Mesh_Utils.interpolate_free_interior_altitudes` | free vertices + Dirichlet | UNCHANGED CODE: with S9 a water vertex's altitude can no longer be reached, so the harmonic extension's own values are inert there.  Reported, not edited. |
+| S12 | `O4_Mesh_Utils.patch_valued_vertex_indices` / `patch_segment_split_values` | `PATCH_RING_MARKER` edges | UNAFFECTED: the foot ring is still one closed marked ring; its shoreline arc is marked like the rest, which is what keeps the water flood outside it. |
+| S13 | `constraints/water.py`, `airport/flat_site._cut_water`, `emit/rebake.py` seats | the same witness | UNAFFECTED — one derivation site, three existing readers, now four. |
+| S14 | `verify/*`, `check_grade`, `tools/undulation.py`, the sidecar | `o4_feature=bank_foot` | UNAFFECTED: no new kind, ref shape or register entry. |
+| S15 | a DEM sampler with NO witness (every synthetic fixture, the authored `DemSampler`) | `getattr(dem, "water_many", None)` | NO-OP by construction: no witness ⇒ no wet station, no cut ⇒ the pre-change bank, bit for bit. |
+| S16 | `tools/mesh_region_tris.py --water-audit`, `tools/mesh_elevation_sampler.py --grade-bar` | the built mesh | THE INSTRUMENTS, unchanged — they are how §18 is measured. |
+
+### 18.2 THE DEVIATION THE LANE REPORTS (never decided by the lane)
+
+The brief asks for an OPEN foot where the chain is cut.  What landed cuts
+the WALK and the banked REGION at the water line and keeps the emitted ring
+CLOSED ALONG that line (S4/S7): an open `bank_foot` way is a dummy way in
+`include_patches`, so the ring's whole annulus — the dry three-quarters
+included — would lose its INTERP_ALT seed and revert to the raw DEM (the
+306 % transect of §10.5), and `bank_annulus_polygon` would find no ring at
+all.  The shoreline arc's vertices carry the DEM's own value, which is what
+the mesh drapes there anyway: the constraint is a no-op in elevation and a
+fence in topology.  Likewise, where water stands nearer than
+`bank_min_width_m` the ruling's literal "no foot at all" leaves the collar's
+sliver between the ring and the shore: its foot is ON the water line at the
+DEM, never a lifted value.
+
+### 18.3 MEASURED at OTHH (lane `v2shore`, branch `claude/v2shore`)
+
+THE PATCH (`build_airport.py OTHH --engine v2`, tag `OTHH_20260909T223805`,
+490 s, solve 17.01 s, `body_sha 0c7e8743849d`, verify rows 16 — within_shape
+2, taxi_box 12, airside_no_step 2 — no DEFECT family, hard set SETTLED):
+
+* the bank walk: 9,484 boundary vertices, 9,477 at the minimum / 7
+  daylighted / 0 at the maximum / **0 stopped at water** — at OTHH no
+  daylight ray reaches the canal inside its own walk, so the EMITTER's
+  win is the REGION cut, not the walk;
+* `tools/patch_water_audit.py`: 44 bank rings (27 exterior, **17 hole**),
+  4,894 foot nodes, banked region 11,430,408 m², **over water 0.0 m²**;
+  10 foot nodes are inside the water polygon by **0.000 m** — they are the
+  hole's own boundary, the ring closing ON the water line.  The 1,609 m²
+  hole is the water the collar used to cover.
+
+THE MESH, a MATCHED ARM (`run_tile_mesh_only.py 25 51`, step 1 27 s; then
+the step-2 REPLAY on the SAME `.poly`/`.node`/`.alt` with `O4_Mesh_Utils`
+at main `858a6836` — one file differs, nothing else):
+
+| `mesh_region_tris.py --water-audit` | control (main) | this branch |
+|---|---|---|
+| SEA vertices off 0.000 (frame) | 28 | **0** |
+| SEA triangles with a z-step > 1 m | 21 | **0** |
+| max SEA z-step | 2.712 m | **0.000 m** |
+| within 2 km of 25.2558,51.6079: SEA off zero | 3 | **0** |
+| within 2 km: max SEA step | 0.606 m | **0.000 m** |
+| inland/equiv bodies (they hold their OWN level, lawfully) | 30,147 off zero | 30,147 off zero |
+
+* the engine's own line: **186 shore vertex(es)** shared with a patch/road
+  INTERP_ALT triangle kept their levelled water altitude instead of the
+  patch value — the column-5 copy, which is where "some water being lifted
+  up to terrain level" survived 09o (3);
+* the bank annulus blend is **bit-identical** across the two arms (57,148
+  vertices, 56,894 by ray, 254 fallback): no annulus vertex at OTHH carries
+  a water bit, so S8 is a guard here and S9 is the whole measured delta;
+* the SHORE TRANSECT (lat 25.2563, lon 51.6120 → 51.6180, 5 m stations,
+  crossing the canal's west bank at ≈ 51.6152): max station grade **0.077**,
+  0 of 120 gaps over the 0.35 bar, **unchanged** across the two arms — with
+  this patch the shore is already a ramp, and the cliff the owner read is
+  the 3.962 m plateau STEP inside the water, which is what the table above
+  removes.
+* Step 2 wall: 3m23s (control replay); the branch's own steps 1+2 ran
+  15m50s, which includes a COLD `[library]` index rebuild and the object
+  re-bake the control read from cache — not comparable, and not a timing
+  measurement.
+
+REFERENCE, not a control (different vintage and config, cross-tree):
+the owner's installed `Data+25+051.mesh` of 16:09 reads 11,001 SEA vertices
+off zero (898 at exactly 3.962), 7,957 stepped sea triangles, max step
+16.919 m; near the owner's site 214 of 339 SEA vertices off zero and 381
+stepped triangles.  That is the 1.0.297-era read the owner's report names.

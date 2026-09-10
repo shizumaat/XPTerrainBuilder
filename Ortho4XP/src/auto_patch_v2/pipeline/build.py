@@ -495,7 +495,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ridge against the target profile it was given, its mean |z - DEM| and
     # the law row holding it where it did not reach.
     if sol.z:
-        from ..solve.project import runway_profile_block
+        from .runway_report import runway_profile_block
         design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
         for r in design_rep.runway_profile["runways"]:
             _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "

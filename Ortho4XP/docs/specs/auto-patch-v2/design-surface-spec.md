@@ -1991,3 +1991,85 @@ spec-time mechanism, not a lane fix):
   5 m plan.  Above 09d's bar of 2, unrelated to the bank (the strandings
   sit at 30.11212,31.41203 inside the terminal block, not in any annulus),
   and carried forward as the standing seat residual.
+
+## §14 THE FINAL PROJECTION — the runway family's hard rows enforced
+## EXACTLY (RULINGS 2026-09-09y, closing 09v (3)) — lane `v2settle`
+
+NOTE ON NUMBERING: the brief names this section §16; the spec is at §13, so
+it lands as §14.  Reported, not decided.
+
+### 14.1 What changes
+
+ONE new module, `src/auto_patch_v2/solve/project.py`, and ONE call site —
+the last phase of `solve/design.solve_design`, after the augmented
+Lagrangian's polish and before the solved columns are scattered back to `z`.
+
+Why a second problem and not a better penalty: 09r (3) / 09v measured the
+multiplier sequence oscillating on a real airport at EVERY weight tried, so
+the solve ships a residual it cannot certify; on 09y that residual landed on
+RUNWAY rows at HECA (`runway_transverse` 1 at 0.50 m,
+`runway_vertical_curve` 4 at 0.24-0.33 m) and the app's DEFECT gate refuses
+the airport.
+
+    minimise  Σ_v (z_v − z_design_v)²   over the RUNWAY-FAMILY vertices
+    subject to  every runway-family hard row as a TRUE constraint
+
+with every other vertex FIXED at its solved z.  THE SET: the ring and hole
+vertices of every face whose role is in
+`law.tables.precedence.runway_family.members` (`runway`, `runway_crossing`)
+plus every `runway_profile` breakline vertex (the ridge, which both DEFECT
+readers read).  A reduced COLUMN is free only when every vertex mapped to it
+is in that set, so a `Flat` group straddling the boundary stays rigid.  The
+threshold pins are FIXED VERTICES, not rows: they hold exactly because the
+projection has no column for them.  Solved by HiGHS's QP over the rows
+within `_NEAR_M` of their bound, re-read over the full population and
+re-solved until nothing new is violated (a cutting plane: a relaxation whose
+optimum is feasible for the full problem IS its optimum).
+
+`[design] runway_projection` (a law value, `true`) is the switch; `false` is
+the diagnostic arm and is never shipped off.
+
+TWO DEVIATIONS from the ruling's letter, both measured, both reported:
+
+1. THE BAR IS THE LAW'S OWN "HELD", NOT ZERO: the constraint is
+   `row ≤ bound + [design] hard_tol_m` (0.02 m of surface) — under the
+   census's per-node rounding envelope (0.03) and far under the rate
+   readers' quantum (0.1), so a held row mints no DEFECT row.  MEASURED at
+   CYXY, where the design solve leaves 0.027 m and the DEFECT readers
+   already read 0: the EXACT projection pulled the runway 2.16 m and took
+   the census from 428 rows to 464 (`strip_transverse` 5 → 37); at the held
+   bar the same airport moves 0.038 m and the census is unchanged.  The
+   cause is the stiffness of the second-difference chain — a 6e-4 grade-change
+   violation integrates to metres of amplitude over a 1.2 km ridge.
+2. A COUPLED ROW THE PROJECTION'S OWN FIXING MADE INFEASIBLE IS WITHDRAWN:
+   a row tying a runway vertex to a fixed NON-runway vertex is solvable in
+   the design solve, where both feet move, and can be unsolvable here.  The
+   conflicting rows are found by an LP minimising total relaxation over the
+   coupled rows and withdrawn, counted in the report; every row whose feet
+   are all inside the family stays a true constraint.  Under deviation 1
+   this arm does not run at CYXY or HECA.
+
+### 14.2 CONSUMER TABLE (owner 2026-08-30l), BEFORE editing
+
+The projection adds NO shape class, region, breakline kind, role or
+register entry, and emits nothing: it changes the VALUE of `z` on runway
+vertices between the solve and the emit, which is the same kind of change
+every solve phase already makes.  What it touches:
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| P1 | `solve/design.solve_design` | the solved columns `x` | THE CALL SITE.  The projection runs after phase C and before `z` is scattered, so every consumer of `Solution.z` gets the projected surface with no change of its own. |
+| P2 | `solve/design.DesignReport` | `as_dict()` / `line()` | GAINS `runway_projection` (rows, free columns, before/after, max move, wall, status).  `pipeline/build.py` writes `as_dict()` into the report JSON wholesale; nothing enumerates its keys, so a new key is additive. |
+| P3 | `solve/design`'s `hard_max_violation_m` / `hard_settled` / `hard_worst` | the hard rows at the shipped `x` | RE-READ AFTER the projection: the report is of the SHIPPED surface.  What is left is what the projection does not own (a pad plane, a hard row with no runway vertex). |
+| P4 | `pipeline/build.py` (`solve_design` × 2 call sites) | `(Solution, DesignReport)` | UNCHANGED CODE — same signature, same types. |
+| P5 | `solve/why.py` (`solve_design`, both call sites) | the solved `z` | READS THE PROJECTED SURFACE by construction; `why` explains the surface that ships. |
+| P6 | `tools/v2_solve_replay.py` | `solve_design`, `rep.line()` | UNCHANGED CODE; the replay's printed line now carries the projection's own clause. |
+| P7 | `emit/graded.py`, `emit/osm_adapter.py`, `pipeline/publication.py` | `sol.z` | UNAFFECTED IN KIND: they emit whatever the solve returns. |
+| P8 | `verify/runway.runway_transverse` / `runway_vertical_curve` (the DEFECT families) | the emitted rings and crown spine | THE POINT: their populations are twins of the projected rows, so they read 0.  Neither reader changes. |
+| P9 | `verify/*` everything else (`within_shape`, `no_step`, `strip_*`, `taxi_box`, …) | the emitted surface | READ AS REPORT FIGURES on the projected surface, exactly as the ruling says of the surrounding sheet's rows.  Deviation 1 above exists because at the exact bar these figures got WORSE at CYXY for no DEFECT gain. |
+| P10 | `law/emit.toml [design]`, `law/design_schema.Design` | the law table | GAINS `runway_projection: bool`.  `law/model._build` REFUSES an unknown key, so the TOML and the schema land in the same commit — they do. |
+| P11 | `law/design_schema.DESIGN_TERMS` | the objective weights | UNAFFECTED: `runway_projection` is a switch, not a weight, exactly as `bank_slope` is not. |
+| P12 | `tools/check_grade.py`, `tools/harness/census.py`, `tools/harness/oracle.py`, the sidecar | the emitted patch | UNAFFECTED — no new tag, feature, ref or sidecar key; the patch is the same shape with different altitudes. |
+| P13 | Swift (`Sources/SceneryKit`) | the JSONL events and the patch | NO CONSUMER: the app reads neither the design report's keys nor a law-family name (§3.1 / §7.1 / §8.1 censuses, re-checked). |
+| P15 | the SIDECAR's `design` block (`emit/osm_adapter.SIDECAR_*`, `check_grade.SIDECAR_EVIDENCE_KEYS`) | `pub["design"] = design_rep.as_dict()` | ADDITIVE: `design` is already a registered EVIDENCE key and no reader enumerates its sub-keys; the projection's block joins the residual figures already published there. |
+| P14 | `highspy` | a new runtime dependency of the solve path | ALREADY IN THE VENV and already used by the v2 tree; the QP is ≈ 2k unknowns × ≈ 6k rows at HECA. |

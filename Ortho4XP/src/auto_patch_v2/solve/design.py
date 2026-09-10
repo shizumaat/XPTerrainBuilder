@@ -66,6 +66,7 @@ from ..model.planar import PlanarMap
 from .api import Options, Residual, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
+from .project import ProjectionReport, project_runway
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
@@ -201,6 +202,9 @@ class DesignReport:
     hard_settled: bool = True
     #: the ruling of the worst-held hard row (empty where every row is held)
     hard_worst: str = ""
+    #: THE FINAL PROJECTION (owner RULINGS 2026-09-09y): the runway family's
+    #: hard rows held EXACTLY by a QP after the solve (``solve/project.py``)
+    runway_projection: ProjectionReport = _dc.field(default_factory=ProjectionReport)
     #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
     #: corridor and strip-tie rows whose pavement feet are LAGGED — how
     #: many, how many lag rounds the outer loop paid, whether the lag
@@ -231,6 +235,7 @@ class DesignReport:
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
                 "hard_max_violation_m": round(self.hard_max_violation_m, 6),
                 "hard_worst": self.hard_worst,
+                "runway_projection": self.runway_projection.as_dict(),
                 "one_way_rows": self.one_way_rows,
                 "one_way_rounds": self.one_way_rounds,
                 "one_way_settled": self.one_way_settled,
@@ -256,6 +261,7 @@ class DesignReport:
                 f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
                 f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
                 f"{self.solver_wall_s:.2f} s solver; "
+                + self.runway_projection.line() + "; "
                 "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
                     for k, v in worst if v["missed"]))
@@ -883,6 +889,29 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if worst > tol_h:
             k = int(np.argmax(Ah @ x - bh))
             rep.hard_worst = one[int(hard_i[k])][2].source.ruling[:70]
+    # PHASE D — THE FINAL PROJECTION (owner RULINGS 2026-09-09y, closing
+    # 09v (3)).  The augmented Lagrangian above cannot CERTIFY the hard set,
+    # and at HECA its residual landed on runway rows the DEFECT gate refuses.
+    # Every non-runway vertex is now FIXED at its solved z and the runway
+    # family's vertices are re-solved as a small QP holding every
+    # runway-family hard row exactly (``solve/project.py``); the rows the
+    # surrounding sheet states on runway vertices are re-read below as
+    # REPORT FIGURES, which is exactly what the ruling asks of them.
+    if x is not None:
+        x, rep.runway_projection = project_runway(planar, law, base_p, x,
+                                                  stacked=(A1, b1),
+                                                  verbose=opt.verbose)
+        # the HARD SET's reading is of the SHIPPED surface, so it is re-read
+        # after the projection: the rows it owns are now held exactly, and
+        # what is left is what it does not own (a pad plane, a hard row with
+        # no runway vertex on it).
+        if hard_i.size:
+            v_h = np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0)
+            worst = float(np.max(v_h))
+            rep.hard_max_violation_m = worst
+            rep.hard_settled = worst <= float(d.hard_tol_m)
+            rep.hard_worst = ("" if rep.hard_settled else
+                              one[int(hard_i[int(np.argmax(v_h))])][2].source.ruling[:70])
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
     rep.solver_wall_s = t_solver

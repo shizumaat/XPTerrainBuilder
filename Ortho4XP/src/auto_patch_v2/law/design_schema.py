@@ -126,6 +126,13 @@ class Design:
     #: first flat round is nowhere near the answer.
     polish_rounds_max: int
     hard_tol_m: float
+    #: THE FINAL PROJECTION (owner RULINGS 2026-09-09y): after the
+    #: design solve, every non-runway vertex is fixed and the runway
+    #: family's vertices are re-solved as a QP holding every
+    #: runway-family hard row EXACTLY (``solve/project.py``), because
+    #: the augmented Lagrangian above cannot certify them.  ``false``
+    #: is the diagnostic arm and is never shipped.
+    runway_projection: bool
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float

@@ -213,6 +213,12 @@ class _P:
     #: y``.  With one foot at the centroid carrying ``base_y`` this is
     #: literally the pre-09s ``z − base_y``.
     target: float | None = None
+    #: THE LOW-SIDE READING (owner RULINGS 2026-09-10ag; spec §22.3): the
+    #: MINIMUM over the same feet, which lands the part's LOWEST foot on
+    #: the mesh.  A skirted body seats on this instead of ``target``: the
+    #: low side touches the ground and the high side buries into the
+    #: skirt.  ``None`` exactly when ``target`` is.
+    low: float | None = None
     water: bool = False
     off: bool = False
     fixed: str | None = None    # the unit id of a structure seat this part follows
@@ -277,7 +283,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             continue
         if authored and p.pid in authored:
             # 08d (e): the pack's authored y = 0 plane IS this part's ground
-            p.target = float(authored[p.pid])
+            p.target = p.low = float(authored[p.pid])
             continue
         ts: list[float] = []
         for la, lo, y in p.feet:
@@ -290,6 +296,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 ts.append(float(smp[0]) - float(y))
         if ts:
             p.target = float(statistics.median(ts))
+            p.low = float(min(ts))
             p.off = p.water = False
     edges = [(a, b) for a, b in plan_.contacts if a in ps and b in ps
              and ps[a].base is not None and ps[b].base is not None]
@@ -478,12 +485,15 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     # ── the seats ───────────────────────────────────────────────────────
     lifts: dict[int, float | None] = {}
     grounds_of: dict[int, list[float]] = {}
+    lows_of: dict[int, list[float]] = {}
     sampled_of: dict[int, int] = {}
     span_law = getattr(rb, "body_feet_span_m", 0.0)
     for k, pids in members_of.items():
         own = [ps[pid] for pid in pids
                if ps[pid].ground and ps[pid].measured and pid not in attached]
         gs = [float(p.target) for p in own if p.target is not None]
+        # §22.3: the same feet read at their LOWEST, for a skirted body
+        lows = [float(p.low) for p in own if p.low is not None]
         lf = [float(p.lift) for p in own if p.lift is not None]
         n_sampled = 0
         # FEET ACROSS THE BODY (RULINGS 2026-09-10i (2)): a body wider than
@@ -508,9 +518,11 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                             continue
                         z = float(smp[0]) - float(p.part.base_y)
                     gs.append(z)
+                    lows.append(z)
                     lf.append(z - p.base)
                     n_sampled += 1
         grounds_of[k] = gs
+        lows_of[k] = lows
         sampled_of[k] = n_sampled
         lifts[k] = float(statistics.median(lf)) if lf else None
     # the facility rule, per structure (05p / 05q at cluster level)
@@ -563,7 +575,19 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 mp.part_deltas.append((p.part.comp, k, delta))
                 mp.clusters.add(k)
             continue
-        ground_m = float(statistics.median(gs)) if gs else None
+        # THE LOW-SIDE FOOT FOR A SKIRTED BODY (owner RULINGS 2026-09-10ag;
+        # spec §22.3, a deliberate deviation from 10i's median): a body
+        # EVERY one of whose members carries a foundation skirt sets its
+        # zero at the LOWEST foot — the low side touches the ground and
+        # the high side buries into the skirt, which is what the skirt is
+        # for.  The median would float the low side by half the relief.
+        skirted_body = bool(parts) and all(
+            plan_.units[p.key[0]].members[p.key[1]].skirted for p in parts)
+        lows = lows_of.get(k, ())
+        ground_m = None
+        if gs:
+            ground_m = float(min(lows)) if skirted_body and lows \
+                else float(statistics.median(gs))
         skip: str | None = None
         held = False
         if ground_m is None:

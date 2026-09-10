@@ -3280,3 +3280,87 @@ and, because the family law changes globally, HECA and CYXY as the regression re
 (HECA runway undulation RMS ≤ today's 0.0033; the 05C/23C and 05L/23R bows quoted
 against v1's; CYXY's crossing profile monotone as 09ai; DEFECTs 0 everywhere) —
 three airports, the stated exception for a family-law change. Site-first report.
+
+## §22 A SKIRTED BUILDING NEEDS NO PAD (owner RULINGS 2026-09-10ag, over 10af) — lane `v2skirt`
+
+### 22.1 THE SKIRT READER (`airport/skirt.py`, shared with Law C's narrow-cut test)
+
+Per RESOURCE, in the AUTHORED frame, over the thickness-gated components
+(`ResourceCache.genuine` — paint never witnesses), memoised on the cache so the
+pack is parsed once for classify, planar and the re-seat plan:
+
+* the FOOTPRINT = the plan union of every genuine triangle (a shell of vertical
+  walls projects to zero area, so the floor/roof plates carry it); empty → the
+  convex hull of the solid plan points. `footprint_perimeter_m` is its exterior
+  length (every part's).
+* the BELOW-ZERO geometry = each component Sutherland–Hodgman-clipped to
+  `y <= 0` (`obj8_clip._clip_component`), its depth `-min_y`.
+* `below_zero_perimeter_fraction` = the share of the footprint's exterior lying
+  within `[skirt] edge_tolerance_m` of that below-zero union. A corridor or door
+  well meets the perimeter only at its ends (small); a skirt runs all round.
+* `is_skirt` ⇔ fraction ≥ `[skirt] perimeter_fraction` (0.5) AND the perimeter
+  pieces' depths agree within `depth_tolerance_m` AND the shallowest ≥
+  `min_depth_m`. `skirt_depth` = that SHALLOWEST depth `s` (conservative: relief
+  ≤ s must hold against the thinnest part of the skirt).
+
+A road-width cut is NOT a skirt by construction (its fraction is small);
+`wall_corridors.py` is untouched — Law C's round imports this reader for 10af's
+narrow-cut clause (ii).
+
+### 22.2 WHICH PADS ARE NO LONGER MINTED
+
+In `classify/evidence._pads`, BEFORE the pad is added and before every region is
+differenced by `pad_union` (so the surrounding role covers the footprint and the
+ground keeps its design surface — no hole, no new shape class): a candidate pad
+is DROPPED when skirted placements' frame footprints cover at least
+`[skirt] pad_cover_fraction` (0.5) of its area AND the DEM relief across its
+ring ≤ the smallest `s` among those placements. Otherwise the pad stands exactly
+as 09c/10y/10ah leave it — a skirt-less building, a mixed pad, or relief > s.
+
+### 22.3 THE SEAT AT THE LOW-SIDE FOOT (a deviation from 10i's median)
+
+`Member.skirted` (set in `airport/rebake_plan.plan` from the same reader, JSON
+round-tripped, default false) reaches `emit/clusters.py`. Each ground part
+already reads its own FEET; beside 09s (2)'s median it now also records the
+MINIMUM over them (`_P.low`). A cluster EVERY one of whose parts belongs to a
+skirted member takes `ground_m` = the min over the body's FEET instead of the
+median over its parts' targets: the object's zero sits on the low ground and the
+high side buries up to the relief, which is exactly what the skirt hides. Over
+FEET, not over parts — a one-part body (a welded box) carries one target and
+would otherwise not move at all. Every other body keeps 10i's median. `lifts`, the facility
+coalition and the per-foot residual are unchanged (the residual now reports the
+burial, which is intended, not a miss).
+
+### 22.4 CONSUMER TABLE (owner RULINGS 2026-08-30l) — completed before editing
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| C1 | `classify/evidence._pads` → `Evidence.pads` / `pad_union` | building footprints | EDITED — the single derivation site. A dropped pad is dropped BEFORE `pad_union`, so `roles.classify` (:168, :315), the service-road difference and every downstream region see ordinary ground there. Prefer trimming at the derivation site over per-consumer vetoes (08-30l). |
+| C2 | `classify/roles.classify` `add("building", …)`, `_cut_back_groundside` | `ev.pads` | UNAFFECTED IN KIND — fewer pads, so fewer groundside cutbacks. No role, no shape class, no sidecar key is added. |
+| C3 | `constraints/pads.*` (`pad_flats`, `pad_slope_ceiling`, `pad_frontage_level`, `pad_datum_withdrawn`, `frontage_near_miss`) | rigid faces | UNAFFECTED IN KIND — they act per pad that EXISTS. A dropped pad mints no `pad_flat`, no ceiling and no level row; 09c's 1 % and 10y's fit stand for every pad that remains. |
+| C4 | `planar/structures.py` (ramp stop at pads, `_pad_relief_m`, `ramp_crosses_pad`), `planar/wall_corridor_ramps`, `planar/structure_approach` | `role == "building"` | UNAFFECTED IN KIND — a dropped pad is no longer a stop for a Law-A/B/C ramp, which is 10ag's intent (no ramp is needed at a skirted building). `_pad_relief_m` now delegates to `skirt.ring_relief_m`, one implementation. |
+| C5 | `planar/basins.py` (`cuts_pads`, the pad list at :351) and the basin RIM | pads | UNAFFECTED — 10k's rim is the apron's own hole ring and `basins` pins nothing where shared; with `building16`'s pad gone the rim is held by the apron alone, which IS the 10ah fix. |
+| C6 | `airport/rebake_plan.plan` → `model/rebake.Member` | placements | EDITED — one new boolean field with a default, serialised both ways; `PLAN_VERSION` unchanged (an old plan reads `skirted=false` = today's law). |
+| C7 | `emit/clusters.seat_clusters` | `gs` (the body's feet) | EDITED — §22.3, and ONLY the `ground_m` line. The cut law (10i (1)), the feet across the body (10i (2)), plates transitively (10i (3)), `PadRequest`s and `ClusterSeat.foot_res` are untouched. |
+| C8 | `emit/clusters` facility rule / `lifts` / `coalition` | median lifts | UNAFFECTED deliberately — OTHH's deliberately separate datums (10i (4)) are judged on the same numbers as 1.0.308. |
+| C9 | `verify/pads.py`, `verify/census`, `harness/census.py`, `tools/check_grade.py`, the `pad_flat` / `object_pad` families | emitted rings | UNAFFECTED — no new family, role or sidecar key; the counts fall because there are fewer pads, and that is reported, not adjudicated. |
+| C10 | `tools/seat_feet_census.py`, `tools/v2_rebake_replay.py`, `tools/pad_level_report.py` | plan + result JSON | UNAFFECTED — additive plan field, unchanged result shape. |
+| C11 | `airport/wall_corridors.py` (Law C) | below-zero geometry | UNTOUCHED this round — the reader is placed for its next round (10af (ii)). |
+| C12 | Swift (`SceneryKit`) | JSONL event names | UNTOUCHED. |
+
+### 22.5 The law values (`structures.toml [skirt]`, new)
+
+`perimeter_fraction` 0.5 (10af proposes it), `depth_tolerance_m` 0.5,
+`min_depth_m` 0.3 (= `basin.min_solid_thickness_m`'s scale: a lip is not a
+foundation), `edge_tolerance_m` 0.5, `pad_cover_fraction` 0.5, `drops_pad` and
+`seat_low_side` true (the two halves of the ruling, each a lawful value).
+
+### 22.6 Twins and the closing test
+
+`tests/auto_patch_v2/test_v2skirt.py`: a box building with a 2 m skirt on 1.5 m
+of slope → no pad, seated at the low side, the high side buried 1.5 m, no wall
+vertex floating; the same at 3 m relief → today's pad; no below-zero geometry →
+today's pad; a road-width cut → not a skirt. Closing test LEMD patch only (pads
+before/after, the T4S `building16` fall and the apron-edge → rim step,
+`seat_feet_census` `> 3 m` and floating), OTHH patch only (pads and seat
+families unchanged in kind).

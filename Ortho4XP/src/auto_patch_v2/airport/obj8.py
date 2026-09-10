@@ -310,6 +310,10 @@ class ResourceCache:
         self._comps: dict[str, list[Component]] = {}
         self._range: dict[str, tuple[float, float, float, float, float, float]] = {}
         self._bounds: dict[str, np.ndarray] = {}
+        #: ``airport/skirt.py``'s per-resource readings (spec §22): the
+        #: skirt is read by classify, the planar pass and the re-seat
+        #: plan, and the pack is parsed ONCE for all three.
+        self.skirt: dict[str, object] = {}
 
     def geometry(self, path: str) -> ObjGeometry | None:
         if path not in self._geom:

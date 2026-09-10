@@ -32,7 +32,7 @@ from .design_schema import Design, check_design as _check_design  # noqa: F401
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
     "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
-    "BuildingPad", "Basin", "RetainingWall", "Rebake", "Structures", "ReliefFloor",
+    "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Structures", "ReliefFloor",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
     "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
@@ -350,6 +350,20 @@ class BuildingPad:
 
 
 @_dc.dataclass(frozen=True)
+class Skirt:
+    """FOUNDATION-SKIRT law (owner RULINGS 2026-09-10af/10ag; spec §22).
+    A skirted building needs no pad and seats at its low-side foot."""
+
+    perimeter_fraction: float
+    depth_tolerance_m: float
+    min_depth_m: float
+    edge_tolerance_m: float
+    pad_cover_fraction: float
+    drops_pad: bool
+    seat_low_side: bool
+
+
+@_dc.dataclass(frozen=True)
 class Basin:
     """Basin facility law (RULINGS 2026-08-26; M4b)."""
 
@@ -389,6 +403,7 @@ class Structures:
     tunnel: Tunnel
     bridge: Bridge
     building_pad: BuildingPad
+    skirt: Skirt
     basin: Basin
     cutout: Cutout
     retaining_wall: RetainingWall

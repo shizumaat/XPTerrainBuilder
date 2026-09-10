@@ -172,14 +172,22 @@ def test_integer_attribute_is_unchanged(tmp_path, monkeypatch):
 
 def test_attribute_ending_in_zero_is_not_skipped(tmp_path, monkeypatch):
     """The old fast-skip tested the last CHARACTER: "10"
-    (INTERP_ALT|SEA) went untreated because it ends in a zero."""
+    (INTERP_ALT|SEA) went untreated because it ends in a zero.
+
+    RE-SCOPED 2026-09-09 (owner RULINGS 09m; 09o (3)): this twin is about
+    the SKIP, and the triangle is still treated — but a triangle carrying
+    a water bit now takes sea levelling regardless of its INTERP_ALT
+    seed, so the treated value is the sea datum, not column 5.  The
+    routing itself is twinned in ``tests/test_mesh_water_precedence.py``.
+    """
     tile = _make_tile(tmp_path)
     _seed_node_file(tile)
     _seed_ele_file(tile, ["10"])
 
     (vertices, loud_lines) = _run_post_process(tile, monkeypatch)
 
-    assert vertices[2] == INTERPOLATED_ELEVATION
+    assert vertices[2] == 0.0                 # treated: sea levelling
+    assert vertices[2] != RAW_ELEVATION       # not skipped
     assert loud_lines == []
 
 

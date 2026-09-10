@@ -256,9 +256,13 @@ class TestTheFeatherOnTheClusterBake:
     own extent: Z0 holds to the wall line, the ramp lands seaward."""
 
     def test_every_RECTANGULAR_bake_grows_its_raster_by_the_feather(self):
+        # RE-SCOPED 2026-09-09 (09o (2)): both rectangular bakes now go
+        # through ``_flat_site_inset``, which is where the grower lives.
         src = inspect.getsource(INSETS.overlay_flat_site_insets)
-        assert "_feather_outward_extent(tile, x0, y0, x1, y1" in src
-        assert "_feather_outward_extent(tile, cx0, cy0, cx1, cy1" in src
+        grower = inspect.getsource(INSETS._flat_site_inset)
+        assert "_feather_outward_extent(tile, *extent_deg, feather_m)" in grower
+        assert "_flat_site_inset(\n            tile, (x0, y0, x1, y1)" in src
+        assert "_flat_site_inset(\n                tile, (cx0, cy0, cx1, cy1)" in src
 
     def test_every_PROVENANCE_extent_is_the_MEASURED_one(self):
         """The stamp is what the wall's admission reads, and admitting a

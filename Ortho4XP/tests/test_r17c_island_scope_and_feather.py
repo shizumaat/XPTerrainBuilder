@@ -222,7 +222,12 @@ class TestR17c2TheFeatherStopsAtTheWall:
         pure function of its arguments and touches no stamp — asserted
         by construction here, and by the bake passing the DECLARED
         extent into the provenance entry beside it."""
+        # RE-SCOPED 2026-09-09 (owner RULINGS 09m; 09o (2)): the grower
+        # moved into ``_flat_site_inset`` with the water cut, so the
+        # source read spans both — the property is unchanged.
         import inspect
         src = inspect.getsource(INSETS.overlay_flat_site_insets)
+        grower = inspect.getsource(INSETS._flat_site_inset)
         assert '"extent_tile_degrees": [x0, y0, x1, y1]' in src
-        assert '_feather_outward_extent(tile, x0, y0, x1, y1' in src
+        assert '_feather_outward_extent(tile, *extent_deg, feather_m)' in grower
+        assert '_flat_site_inset(\n            tile, (x0, y0, x1, y1)' in src

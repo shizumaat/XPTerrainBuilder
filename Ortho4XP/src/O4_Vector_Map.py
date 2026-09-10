@@ -1920,6 +1920,91 @@ def cached_coastline_multilinestring(tile):
     return (coastline, custom_source)
 
 
+def cached_water_multipolygon(tile):
+    """The tile's INLAND WATER polygons from data ALREADY ON DISK.
+
+    WATER IS A DATUM (RULINGS 2026-09-09m/09o).  The flat-site inset cut
+    (``auto_patch.flat_site_mode.water_cutout``) and the v2 production
+    frame's water witness (``auto_patch_v2.airport.dem_production``) both
+    need "where is water on this tile" BEFORE the vector map is built,
+    and a second derivation of that question would put DEM prep, the
+    solve and the mesh's own masks on different populations — the census
+    lesson this repo keeps re-learning.  So this is the ONE reader, and
+    it reads exactly what ``include_water`` reads: ``WATER_QUERIES`` over
+    the ``water`` layer with ``WATER_TAGS_OF_INTEREST`` /
+    ``WATER_CACHE_TAG_SCHEMA``, or the user's custom water files.
+
+    CACHE ONLY, never a download (``cached_coastline_multilinestring``'s
+    reason, verbatim: a fetch inside DEM prep is the implicit-download
+    class the harness guard refuses).  ``None`` — never an empty polygon
+    — when nothing is on disk: "no data" and "no water" are different
+    answers.
+    """
+    custom_water = FNAMES.custom_water(tile.lat, tile.lon)
+    custom_water_dir = FNAMES.custom_water_dir(tile.lat, tile.lon)
+    water_layer = OSM.OSM_layer()
+    if os.path.isfile(custom_water):
+        water_layer.update_dicosm(custom_water, input_tags=None,
+                                  target_tags=None)
+    elif os.path.isdir(custom_water_dir):
+        for osm_file in sorted(os.listdir(custom_water_dir)):
+            water_layer.update_dicosm(
+                os.path.join(custom_water_dir, osm_file),
+                input_tags=None, target_tags=None)
+    else:
+        cached = FNAMES.osm_cached(tile.lat, tile.lon, "water")
+        if not os.path.isfile(cached):
+            return None
+        try:
+            if not OSM._cached_osm_schema_matches(cached,
+                                                  WATER_CACHE_TAG_SCHEMA):
+                return None
+        except Exception:                                  # pragma: no cover
+            return None
+        if not OSM.OSM_queries_to_OSM_layer(
+                WATER_QUERIES, water_layer, tile.lat, tile.lon,
+                WATER_TAGS_OF_INTEREST, cached_suffix="water",
+                cache_schema=WATER_CACHE_TAG_SCHEMA):
+            return None
+    try:
+        (area, _tidal) = OSM.OSM_to_MultiPolygon(
+            water_layer, tile.lat, tile.lon,
+            lambda pol, osmid, dicosmtags: water_polygon_is_tidal(
+                osmid, dicosmtags))
+    except Exception:                                      # pragma: no cover
+        return None
+    return VECT.ensure_MultiPolygon(area)
+
+
+def cached_tile_water(tile):
+    """``(sea, inland)`` for this tile from cached data, tile-relative.
+
+    ``sea`` is the coastline partition's own answer
+    (:func:`sea_area_from_coastline` — the tree's single SEA/LAND
+    implementation); ``inland`` is :func:`cached_water_multipolygon`.
+    Either may be ``None`` (no data on disk).  Memoised on the tile: one
+    read per build, shared by DEM prep and the v2 frame.
+    """
+    cached = getattr(tile, "_water_datum_layers", "unset")
+    if cached != "unset":
+        return cached
+    sea = None
+    coastline, custom_source = cached_coastline_multilinestring(tile)
+    if coastline is not None:
+        try:
+            sea = sea_area_from_coastline(
+                coastline, tile.lat, tile.lon, custom_source)
+        except Exception:                                  # pragma: no cover
+            sea = None
+    inland = cached_water_multipolygon(tile)
+    out = (sea, inland)
+    try:
+        tile._water_datum_layers = out
+    except Exception:                                      # pragma: no cover
+        pass
+    return out
+
+
 def cached_tile_land_area(tile):
     """THE TILE'S LAND from already-cached coastline data, tile-relative.
 

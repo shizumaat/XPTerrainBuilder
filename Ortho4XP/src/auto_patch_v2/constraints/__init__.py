@@ -15,7 +15,8 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
 from . import (apron, ceiling, flat_site, groundside, junction_mesh, no_step, pads,
-               proximity, roads, routes, runway_profile, seams, strips, structures,
+               proximity, roads, routes, runway_chord, runway_profile, seams, strips,
+               structures,
                taxi, transverse, water, zones)
 
 __all__ = ["GENERATORS", "generate", "stack", "seam_exempt", "water_exempt"]
@@ -29,6 +30,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("runway_transverse", runway_profile.runway_transverse),
     ("runway_vertical_curve", runway_profile.runway_vertical_curve),
     ("runway_within_shape", runway_profile.runway_within_shape),
+    # THE NEAREST-THRESHOLD CROSSING ANCHOR (owner RULINGS 2026-09-09z (1),
+    # spec §17): the crossing node is a hard Pin on the runway that GRADES
+    # to it, at the value the governing runway's chord takes there.
+    ("runway_crossing_pin", runway_chord.runway_crossing_pins),
     ("taxi_chain", taxi.taxi_chain),
     ("taxi_centerlines", taxi.taxi_centerlines),
     ("triangle_planes", taxi.triangle_planes),

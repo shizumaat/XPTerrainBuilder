@@ -2485,3 +2485,113 @@ every solve phase already makes.  What it touches:
 | P13 | Swift (`Sources/SceneryKit`) | the JSONL events and the patch | NO CONSUMER: the app reads neither the design report's keys nor a law-family name (§3.1 / §7.1 / §8.1 censuses, re-checked). |
 | P15 | the SIDECAR's `design` block (`emit/osm_adapter.SIDECAR_*`, `check_grade.SIDECAR_EVIDENCE_KEYS`) | `pub["design"] = design_rep.as_dict()` | ADDITIVE: `design` is already a registered EVIDENCE key and no reader enumerates its sub-keys; the projection's block joins the residual figures already published there. |
 | P14 | `highspy` | a new runtime dependency of the solve path | ALREADY IN THE VENV and already used by the v2 tree; the QP is ≈ 2k unknowns × ≈ 6k rows at HECA. |
+## §17 THE NEAREST-THRESHOLD CROSSING PIN (RULINGS 2026-09-09z (1),
+## superseding 09r (2)) — lane `v2crossing`
+
+Owner, verbatim: "All crossing runways must stay within the runway grade
+laws.  V1 takes the closest threshold to the crossing, solves that
+runway, then sets the crossing node as an anchor for the other runway(s)
+to grade to, same logic as a tile seam boundary or the CIFP threshold."
+
+V1'S OWN SITE, cited: `src/auto_patch/pavement/runway_segments.py`
+"Runway-runway centerline-crossing reconciliation" (the comment block at
+:1370-1400 and the loop at :1252-1313).  Its rule, verbatim from that
+comment: "whichever runway has the threshold geometrically closer to the
+crossing point gets its CIFP-linear-interp value used as the agreed
+altitude"; "that runway's profile then passes through the crossing on its
+natural CIFP profile, and the OTHER runway accommodates by deviating from
+its own linear interpolation as much as the FAA gates allow"; the value
+is `agreed = elev_a + t * (elev_b − elev_a)` on the WINNER's threshold
+segment, injected into `auto_extra_anchors` for BOTH runways.  Its stated
+reason: "a runway with thresholds close to the crossing has less profile
+flexibility ... a runway whose thresholds are far away has more total
+altitude budget to absorb a deviation."
+
+### 17.1 THE RULE
+
+1. THE CROSSING NODE is the intersection of the two runway CENTRELINES
+   (`Runway.ends[0].xy → ends[1].xy`, the axis the chord's own station
+   frame uses), not a face centroid: one point per `runway_crossing` face
+   pair, computed analytically so it does not move with the noding.
+2. THE GOVERNING RUNWAY is the one whose nearest THRESHOLD is nearest the
+   crossing, measured as `min(|s_x − s0|, |s_x − s1|)` along that
+   runway's OWN axis, where `s0`/`s1` are its two CIFP threshold stations
+   (v1's `min(|t|, |t−1|) × length`).  Ties break to the LONGER runway,
+   then to the lower id — deterministic, never face order.  A runway
+   without two CIFP pins has no chord and can never govern; if neither
+   runway of a pair has one, the crossing mints nothing.
+3. THE PIN VALUE is the governing runway's own STRAIGHT threshold chord
+   evaluated at the crossing station, clamped to `[s0, s1]` (v1's
+   beyond-threshold clamp).  The governing runway is NOT pinned: it
+   solves the node under its own laws, and its chord target across the
+   crossing is UNCHANGED.
+4. THE OTHER RUNWAY takes that elevation as an ANCHOR, exactly as it
+   takes a CIFP threshold or a tile-seam pin, and re-fits its chord
+   through it.  Every hard law it owns is untouched: its threshold pins,
+   `runway_profile` longitudinal caps, `runway_vertical_curve` K,
+   `runway_transverse`, the crown.  The dip that remains is then THE LAW,
+   spread as a vertical curve by §16's exact projection (09z (1)).
+
+### 17.2 WHICH ROWS CHANGE
+
+* NEW ROW — one `Pin` per (crossing, non-governing runway), generator
+  `runway_crossing_pin` (`constraints/runway_chord.runway_crossing_pins`,
+  registered in `constraints/__init__.GENERATORS` after
+  `runway_within_shape`).  Its vertex is the `runway_profile` RIDGE
+  vertex of that runway nearest the crossing node; its value is that
+  runway's RE-FIT chord at that vertex's own station, so a node vertex
+  the noding left 20 m off the intersection is pinned at the profile's
+  own value there and not at the intersection's.  A vertex already
+  carrying a threshold pin is never re-pinned (CYXY's 14L/32R crossing
+  sits ON 02/20's 20 threshold); one vertex takes at most one crossing
+  pin, the nearest crossing's.  Like every `Pin` it is ELIMINATED from
+  the unknowns by `solve/rows._reduce`, so it holds exactly and §16's
+  projection has no column for it.
+* CHANGED TARGET — `runway_chord_targets`: the non-governing runway's
+  `_Chord` gains KNOTS, and `_Chord.z(s)` interpolates PIECEWISE through
+  `[(s0, z0)] + knots + [(s1, z1)]` instead of one straight line.  The
+  governing runway's chord is byte-unchanged.  No target is dropped
+  anywhere: 09r (2)'s release is gone.
+* DELETED — `runway_crossing_release`, `crossing_primary` (it named a
+  seniority the owner replaced; the new register is `crossing_governor`,
+  which names what it decides), `[design] crossing_release_m` with its
+  schema field and validation, and `ChordReport.released_vertices`.
+
+### 17.3 CONSUMER TABLE (owner 2026-08-30l), BEFORE editing
+
+No new shape class, role, region, breakline kind, ref or sidecar key: the
+change adds ONE `Pin` row on an existing runway ridge vertex and re-shapes
+one `preferred_z` target.  Every reader, by grep of
+`crossing_primary` / `runway_crossing_release` / `crossing_release_m` and
+of the `Pin` kind:
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| C1 | `constraints/runway_chord.runway_chord_targets` | the chords | THE SITE: knots replace the release |
+| C2 | `constraints/__init__.GENERATORS` / `generate` | the generator list | GAINS `runway_crossing_pin`; its count joins `counts` (additive dict key, nothing enumerates it) |
+| C3 | `solve/rows._reduce` | `cs.pins` | UNCHANGED CODE: a crossing pin fixes its vertex exactly like a threshold or seam pin |
+| C4 | `solve/design.assemble` / `is_hard` | row heads | UNCHANGED: a `Pin` is an equality by KIND, never by `hard_rulings`, so the table does not change |
+| C5 | `solve/project.free_columns` | `red.col[v] < 0` | UNCHANGED CODE: a pinned vertex has no column, so the projection cannot move it — "the threshold pins are FIXED VERTICES, not rows" (§16) now covers the crossing node too |
+| C6 | `constraints/__init__.water_exempt` | `Pin` rows on water vertices | UNCHANGED and CORRECT: water outranks, so a crossing pin on a water vertex is withdrawn like any other non-water pin |
+| C7 | `constraints/__init__.seam_exempt` | seam-pinned pairs | UNAFFECTED: it withdraws `Diff`/`Linear` rows, never pins |
+| C8 | `constraints/no_step.reach_band_values` | `threshold_pins` only | UNCHANGED: the reach band is seeded by CIFP thresholds, and the owner's ruling adds an anchor to the runway, not a new reach terminal |
+| C9 | `constraints/runway_profile` (profile, crown, transverse, K, within_shape) | its own rows | UNTOUCHED — the pin is an anchor the laws must carry, never a law release |
+| C10 | `solve/why.py` | pins as chain terminals | ADDITIVE: a `why` chain that used to terminate on a CIFP pin may now terminate on `runway_crossing_pin`, which is the explanation the owner asked for |
+| C11 | `pipeline/build.py` (`lrep.runway_chord = dict(chord_rep)`) | `ChordReport` | ADDITIVE/SUBTRACTIVE keys only; nothing enumerates them, and `airport/load.LayoutReport.runway_chord` is `dict \| None` |
+| C12 | `law/emit.toml [design]`, `law/design_schema.Design` | the law table | `crossing_release_m` and its validation are DELETED in the same commit — `law/model._build` refuses an unknown key, and would refuse a stale one |
+| C13 | `emit/*`, `verify/*`, `tools/harness/census.py`, `oracle.py`, the sidecar | the emitted patch | UNAFFECTED IN KIND: same geometry, different altitudes on the ridge; no law family, tag or sidecar key is added |
+| C14 | `Sources/SceneryKit` (Swift) | JSONL events, the patch | NO CONSUMER (§16.2 P13, re-checked: no design-report key and no law-family name crosses the wire) |
+| C15 | `tools/v2_solve_replay.py` | `with_runway_chord`, `rep.line()` | UNCHANGED CODE |
+| C16 | `tests/auto_patch_v2/test_v2cyxy.py` (four 09r (2) twins) | the refuted mechanism | DELETED with it (`test_the_longer_runway_is_the_primary_of_a_crossing`, `test_the_secondarys_chord_is_released_at_the_crossing`, `test_the_primary_ridge_is_monotone_through_the_crossing`, `test_the_secondary_climbs_into_the_primary_within_its_own_laws`); the hard-set twins keep the fixture and are re-read against the new law |
+
+### 17.4 TWINS (`tests/auto_patch_v2/test_v2crossing.py`)
+
+On the two-runway cross of `test_v2cyxy._crossing_airport` (09/27, 1,200 m,
+700 → 706; 18/36, 1,000 m, 701 → 701; crossing at both midpoints, so
+18/36's threshold is 500 m away and 09/27's 600 m — 18/36 governs, the
+CYXY shape): the register picks 18/36 either way round; the governing
+runway's chord target across the crossing is BYTE-identical to its
+single-runway value; the other runway's ridge passes through the pin
+within `hard_tol_m` and holds its thresholds, its longitudinal cap and its
+K bound; both DEFECT readers (`runway_transverse`, `runway_vertical_curve`)
+read 0; and a SINGLE runway's targets and rows are unchanged.

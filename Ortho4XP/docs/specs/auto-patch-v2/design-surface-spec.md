@@ -1435,3 +1435,106 @@ ENGINE: one shapely read of the patch `.osm` (the same files step 1
 parses), one union, and two `STRtree.nearest` queries per annulus free
 vertex.  Against the tile budget (300 s) it is a fraction of a second;
 the material change is that Step 2 stops spinning in segment recovery.
+
+### 13.6 MEASUREMENTS (lane `v2bankblend`, branch `claude/v2bankblend`)
+
+THE HECA AIRPORT BUILD (`build_airport.py HECA --engine v2`, tag
+`v2bankblend`, 165.5 s, solve 29.03 s, `body_sha f2fc42082abc`):
+
+* THE DESIGN SURFACE IS BIT-IDENTICAL: `objective 560668.3156424803`
+  (09j/09t's 560668.3156), residual `pin 0.0000 diff 3.4513 flat 0.0000
+  band 3.8066 offset 0.0000` — the bank runs after the solve and the
+  deletion touched nothing the solve reads.
+* THE BANK, feet only: 175 rings banked (9,826 boundary vertices → 5,542
+  foot nodes, 163 repaired, 0 skipped), DAYLIGHT 7,219 at the minimum /
+  2,607 daylighted / 0 at the maximum (09i/09j's classification to the
+  vertex), toe in 468 smoothing runs; foot distance min 5.0 / mean 7.0 /
+  p95 14.7 / max 76.0 m; bank slope p95 0.350 / max 1.529.
+* BANK PASS WALL **0.93 s**, against 09t's **12.8 s** with the level
+  rings — a 11.9 s reduction, 20 % of the 60 s per-airport budget.  Emit
+  3.02 s, 1,366 ways / 28,878 nodes (09t's 5 m arm: 2,112 / 47,208).
+* `tools/patch_seed_seal.py` PASSES on the HECA patch (1,363 closed rings,
+  1,454 seeds, 0 faces refused a seed, all enclosed) and on the twin patch
+  (2 rings, 2 seeds, 0 refused).
+
+THE TILE MESH (`run_tile_mesh_only.py 30 31 1 --patches-as-is`, the HECA
++ HEAZ patches of this branch on disk):
+
+* rc 0.  **Step 1 56.7 s, Step 2 1 m 0 s** — against 09t's 1 h 40 min
+  spin at 3 m spacing and rc 1 at 5 m, and inside the bar (1.0.296's
+  2–3 min).
+* THE SEED AUDIT PASSES: "0 road-cut sub-cell(s) seeded INTERP_ALT beside
+  the 2,314 face seed(s) already placed (0 degenerate face(s) skipped)";
+  "INTERP_ALT seal: all 2,314 seed(s) enclosed by INTERP_ALT edges
+  (13,522 bounded face(s), 304,515 marked edge(s))".
+* THE BLEND FIRED: "Bank annulus: 40 free vertex(es) took the 1:3 bank's
+  own altitude"; 3,578 mesher-inserted vertices took a ring's own value;
+  99 free interior vertices of 99 took the harmonic extension.
+
+THE WHOLE TILE (`build_airport.py HECA --engine v2 --tile 30 31
+--refresh-data dem`, tag `v2bbtile`): **rc 0, 450.3 s** — step 1 vector
+217.7 s, step 2 mesh 55.8 s, step 3 masks 1.3 s, step 4 tile 175.0 s.
+"shared repo UNCHANGED by this build (full-surface before/after
+snapshot)" and "refresh scope 'dem' was authorised but wrote NOTHING".
+HEAZ MESHES — 09t's `segmentintersection(): Topological inconsistency` at
+HEAZ node −4798 is GONE, and HEAZ's own rings are in the 2,314 sealed
+seeds.  Objects: 392 object files written, 7,945,305 vertices, 7 reverted,
+6 findings; 43 units (1 deck-founded), 42 baked, 0 held; 5,221 of 5,261
+clusters seated, 32 under the 1 m threshold, 8 refused, 596 pad requests;
+HEAZ no unit to seat (47 resources skipped at plan time).
+
+### 13.7 THE TRANSECT: ONE BAR MET, ONE MISSED — and what it attributes
+
+TRANSECT 2 (lon 31.4350, lat 30.10730–30.10830, 2.2 m stations) — **PASS**:
+a continuous cut bank 130.82 → 138.51 m over 27 m at 0.245 for twelve
+stations, one station at **0.255**, then the DEM.  Max 0.255, bar 0.35.
+
+TRANSECT 1 (lon 31.3819142, lat 30.11630–30.11680, 2.2 m stations) —
+**MISS**: 62.63 m down to 53.94 at a constant 0.247 for fifteen stations,
+then three stations at **0.527 / 0.618 / 0.618**, then the DEM at 49.5.
+Max 0.62, bar 0.35.  (The history at this site: 09h 1.11, 09i 0.46, 09j
+0.76, 09t 0.43 at 5 m spacing WITH THE TILE UNBUILDABLE.)
+
+ATTRIBUTED, and the attribution is the finding of this round:
+
+1. THE ENGINE'S FIELD IS EXACT.  Of the 11,153 mesh vertices inside the
+   annulus, EVERY one carries the blend field to within **4.7 mm**
+   (mean 0.5 mm, p95 4.7 mm) — measured against an independent
+   recomputation of `z_in + (z_out − z_in)·d_in/(d_in+d_out)` from the
+   tile's own `.poly` and patch `.osm`.  Nothing about the interpolation
+   is wrong.
+2. THE ANNULUS HAS ALMOST NO FREE VERTICES TO INTERPOLATE.  Only **40**
+   of those 11,153 are FREE — the rest are ring nodes and mesher-inserted
+   ring-segment splits.  Triangle4XP puts essentially nothing inside the
+   bank: on transect 1 there is no vertex at all across 32 m of it.  So
+   the bank's shape is the RING→FOOT TRIANGULATION, and the blend, while
+   exactly right, is not what carries it at HECA.
+3. THE RESIDUAL IS THE TRIANGULATION.  Over the whole tile's annulus,
+   18,168 triangles: |grad| p50 0.105, p90 0.367, p95 0.550, max 34.6;
+   12.4 % over 0.35, but only **3.43 % by area** — the tail is thin
+   skewed triangles that join a ring vertex to a foot vertex at a
+   DIFFERENT bank width (the daylight foot varies 5.0–76.0 m).  A ruled
+   surface between two rings sampled at different densities is not a
+   plane, and a triangulation with no interior vertices cannot render it.
+
+REPORTED, NOT DECIDED (the remedy is a spawner/owner call, and it is a
+spec-time mechanism, not a lane fix):
+
+* The level rings were also, incidentally, what put VERTICES in the
+  annulus.  09p (1) ruled the squeeze out of the engine, which is done and
+  measured; it did not rule how the annulus gets vertices.
+* Two candidate remedies, neither attempted here.  (a) ENGINE: give the
+  annulus a Triangle REGION MAX-AREA constraint so Triangle4XP refines it
+  — `O4_Vector_Utils.write_poly_file` writes region records as
+  `idx x y marker` with no area column, so this changes what Triangle4XP
+  is handed, which is the exact class 09t hung the tile with; it needs its
+  own measurement round.  (b) EMIT: author the intermediate stations as
+  ISOLATED INPUT NODES rather than closed ways — vertices with no
+  constrained segment cannot duplicate the foot's edges, which was 09t's
+  whole failure mode; the patch `.osm` / `include_patches` path has no
+  way to carry a node without a way, so it needs a new mechanism.
+* `v2_rebake_replay.py bodies`: **143** components stranded after the
+  rigid-body completion (188 members affected), against 09t's 461 on the
+  5 m plan.  Above 09d's bar of 2, unrelated to the bank (the strandings
+  sit at 30.11212,31.41203 inside the terminal block, not in any annulus),
+  and carried forward as the standing seat residual.

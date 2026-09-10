@@ -72,7 +72,41 @@ def resolved_auto_patch_engine(tile) -> str:
         raise ValueError(
             f"auto_patch_engine={raw!r} is not one of {ENGINES} — set the "
             f"tile's (or the global) Ortho4XP config to 'v1' or 'v2'.")
+    # THE ENGINE IS A GLOBAL FACT (owner sim read 2026-09-10, RULINGS
+    # 2026-09-10c): the owner's −13-077 / −13-078 tile cfgs carried a
+    # stale ``auto_patch_engine=v1`` line (stamped when the key's default
+    # was v1) and out-ranked the global ``v2`` — SPJC and SPLP shipped on
+    # the retired engine in app 1.0.300 while every other tile ran v2, and
+    # nothing said so but one ``[provenance]`` line.  A per-tile value that
+    # disagrees with the global config file is IGNORED, loudly.
+    global_value = _global_cfg_engine()
+    if global_value is not None and global_value != value:
+        from O4_UI_Utils import lvprint as _lvprint
+        _lvprint(0, f"   Auto-patch: engine {value!r} in the tile's own cfg is "
+                    f"IGNORED — the global Ortho4XP.cfg says {global_value!r} "
+                    f"and the engine is a global setting (RULINGS 2026-09-10c). "
+                    f"Delete the tile cfg's auto_patch_engine line to silence this.")
+        return global_value
     return value
+
+
+def _global_cfg_engine() -> str | None:
+    """``auto_patch_engine`` as the GLOBAL ``Ortho4XP.cfg`` file spells it
+    (``O4_Config_Utils.global_cfg_file``), or ``None`` when the file or the
+    key is absent / unregistered.  Read from the file, not the module
+    globals: the globals already carry the tile layer once a tile has been
+    read."""
+    try:
+        import O4_Config_Utils as _CFG
+        path = _CFG.global_cfg_file
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("auto_patch_engine="):
+                    v = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                    return v if v in ENGINES else None
+    except (OSError, AttributeError, ImportError):
+        return None
+    return None
 
 
 def _fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | None:

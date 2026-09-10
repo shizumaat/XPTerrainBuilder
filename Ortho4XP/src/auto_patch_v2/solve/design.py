@@ -59,6 +59,7 @@ from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 from ..law import Law
 from ..law.design_schema import BEND_CLASSES
 from ..law.tables import (design as design_law, is_structure_role, is_value_role,
+                          pavement_roles as _pavement_roles,
                           role_side, zone2_half_width_m, zone_class)
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset,
                                  Pin, Row)
@@ -74,7 +75,8 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matri
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles", "hard_rulings",
-           "one_way_rulings", "pad_flat_rulings", "is_hard", "ruling_head",
+           "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
+           "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
 #: The backtracking line search's smallest step (a numeric floor of the
@@ -101,9 +103,11 @@ def bend_roles(law: Law) -> tuple[str, ...]:
 def pavement_roles(law: Law) -> tuple[str, ...]:
     """The DESIGNED surface itself — every VALUE role that is not a
     structure: the zone ramp measures its distance from here, and a vertex
-    of one of these faces never takes a DEM fit (08t answer 1)."""
-    return tuple(r for r in law.tables.precedence.roles
-                 if is_value_role(law, r) and not is_structure_role(law, r))
+    of one of these faces never takes a DEM fit (08t answer 1).  ONE
+    derivation site, ``law.tables.pavement_roles`` (``constraints.pads``
+    reads the same predicate to tell a pad's fronting pavement apart from
+    the pad)."""
+    return _pavement_roles(law)
 
 
 def bend_class(law: Law, role: str) -> str:
@@ -145,6 +149,16 @@ def pad_flat_rulings(law: Law) -> frozenset[str]:
     order above the law's, so a pad comes out flat wherever the geometry
     admits a flat solution, and tilts (to at most 1 %, hard) where not."""
     return frozenset(design_law(law).pad_flat_rulings)
+
+
+def pad_level_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS of a pad's frontage LEVEL rows — ``[design]
+    pad_level_rulings`` (owner RULINGS 2026-09-10l, 10k-1 = (A): "Pad
+    takes the apron edge level").  A vertex one of these rows GOVERNS
+    follows its pavement, so §9b takes it out of every per-body DEM datum
+    mean: a pad's own datum (09p (3)) is for a pad that fronts NO
+    pavement."""
+    return frozenset(design_law(law).pad_level_rulings)
 
 
 def hard_rulings(law: Law) -> frozenset[str]:
@@ -328,9 +342,9 @@ class Base:
     #: (owner RULINGS 2026-09-09c — a pad TARGETS flat, hard only at 1 %)
     pad_flat: list[int] = _dc.field(default_factory=list)
     #: ``one`` index -> the FOLLOWER vertex of a ONE-WAY row (``[design]
-    #: one_way_rulings``): only that vertex keeps its column, the leaders
+    #: one_way_rulings``): only those COLUMNS keep their place, the leaders
     #: enter the right-hand side lagged (RULINGS 2026-09-09b (2)/(3))
-    one_way: dict[int, int] = _dc.field(default_factory=dict)
+    one_way: dict[int, tuple[int, ...]] = _dc.field(default_factory=dict)
     chord_vertices: int = 0
     road_fit_vertices: int = 0
     #: THE PER-BODY DATUM rows, kept OUT of ``rows`` (RULINGS 2026-09-09r
@@ -497,9 +511,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     heads = hard_rulings(law)
     ow_heads = one_way_rulings(law)
     pf_heads = pad_flat_rulings(law)
+    pl_heads = pad_level_rulings(law)
+    #: the pad vertices a LEVEL row governs (owner RULINGS 2026-09-10l):
+    #: they follow the pavement they front and carry no DEM datum (§9b)
+    pad_follow: set[int] = set()
     hard: list[int] = []
     pad_flat_i: list[int] = []
-    one_way: dict[int, int] = {}
+    one_way: dict[int, tuple[int, ...]] = {}
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -528,10 +546,27 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # given.  A row whose follower is itself fixed governs nothing and
         # stays two-way.
         fv = getattr(row, "follows", None)
-        if fv is not None and ruling_head(row) in ow_heads and red.col[fv] >= 0:
-            one_way[len(one)] = int(fv)
+        fvs = ((int(fv),) if isinstance(fv, int)
+               else tuple(int(v) for v in fv) if fv is not None else ())
+        if fvs and ruling_head(row) in ow_heads:
+            # THE FOLLOWER MAY BE A SET (owner RULINGS 2026-09-10y): a pad
+            # PLANE has three degrees of freedom, so the row that levels it
+            # keeps three columns.  A follower with no column of its own is
+            # fixed and simply keeps none.
+            cols = tuple(sorted({int(red.col[v]) for v in fvs
+                                 if red.col[v] >= 0}))
+            if cols:
+                one_way[len(one)] = cols
         if ruling_head(row) in pf_heads:
             pad_flat_i.append(len(one))
+        # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
+        # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
+        # pad plane (10y), not just the feet the row mentions — follows the
+        # pavement's edge, so §9b drops it from every body's mean.  The
+        # register (``pad_level_rulings``) is what makes that a LAW read and
+        # not a second derivation of "which pad fronts what".
+        if fvs and ruling_head(row) in pl_heads:
+            pad_follow.update(fvs)
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
@@ -637,9 +672,18 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     no longer pulls the road off its level (:func:`_shape_bodies`,
     #     which also records what taking the BODIES from the partition
     #     measured at CYXY).
+    #     A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
+    #     RULINGS 2026-09-10l, 10k-1 = (A) "Pad takes the apron edge
+    #     level"): a rigid role is a value role, so a pad IS an apron body
+    #     (or, welded to one, part of it) and its vertices used to pull the
+    #     body's mean toward the BUILDING's terrain.  Every vertex a
+    #     ``pad_level_rulings`` row governs is dropped here: its level is
+    #     its frontage's, not the ground's.  A pad that fronts NO pavement
+    #     mints no such row and keeps its datum, exactly as ruled.
     body = _Rows(red)
     for vs_b in _shape_bodies(planar, red,
                               _role_bodies_faced(planar, apron_roles(law), red)):
+        vs_b = [v for v in vs_b if v not in pad_follow]
         zs = [float(planar.vertices[v].dem_z) for v in vs_b]
         if not zs:
             continue
@@ -706,11 +750,18 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     ow_i = np.asarray(sorted(base_p.one_way), dtype=np.int64)
     A1_lead: sp.csr_matrix | None = None
     if ow_i.size:
-        fcol = np.full(len(one), -2, dtype=np.int64)
-        for k, v in base_p.one_way.items():
-            fcol[k] = int(red.col[v])
+        # THE FOLLOWER IS A COLUMN SET (owner RULINGS 2026-09-10y): a pad
+        # plane's three degrees of freedom cannot be one column, so the
+        # split is by (row, column) MEMBERSHIP, not by a single column id.
+        is_ow = np.zeros(len(one), dtype=bool)
+        is_ow[ow_i] = True
+        ncol = int(red.n_cols)
+        keep_keys = np.array(sorted({int(k) * ncol + int(c)
+                                     for k, cs in base_p.one_way.items()
+                                     for c in cs}), dtype=np.int64)
         coo = A1.tocoo()
-        lead = (fcol[coo.row] != -2) & (coo.col != fcol[coo.row])
+        key = coo.row.astype(np.int64) * ncol + coo.col.astype(np.int64)
+        lead = is_ow[coo.row] & ~np.isin(key, keep_keys)
         A1_lead = sp.csr_matrix((coo.data[lead], (coo.row[lead], coo.col[lead])),
                                 shape=A1.shape)
         keep = ~lead

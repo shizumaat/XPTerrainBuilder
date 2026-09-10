@@ -198,20 +198,22 @@ def test_strip_families_and_pads(synthetic, law):
     assert strips.strip_longitudinal(pm, law, airport)
     assert strips.strip_arc(pm, law, airport)
     assert isinstance(strips.raoa(pm, law, airport), list)   # ICAO: runs (may be empty here)
-    # THE PAD IS ONE PLANE (owner RULINGS 2026-09-09c, spec §9): its
-    # flatness is a TARGET (a ``Diff`` at cap 0 over every rim pair) and its
-    # tilt is bounded HARD at ``pad_slope_max`` — the merged ``Flat`` group
-    # is gone with the "every pad exactly flat, everything welded to it
-    # dragged along" law it stated.
+    # THE PAD IS ONE PLANE, TARGETING FLAT (owner RULINGS 2026-09-09c;
+    # 2026-09-10y "09c stands"): a cap-0 ``Diff`` over EVERY pair of the
+    # rim at ``pad_flat`` — the frontage CONTACTS included, which is the
+    # near-rigid plate the frontage fit rows act on — and the hard 1 %
+    # ceiling over the same pairs.
     flats = pads.pad_flats(pm, law, airport)
     ceil = pads.pad_slope_ceiling(pm, law, airport)
     pad_face = next(f for f in pm.faces.values() if f.role == "building")
     rim = set(pm.ring_vertices(pad_face.ring))
+    shared = pads.pad_shared(pm, law)
     assert flats and all(isinstance(r, Diff) and r.cap == 0.0 for r in flats)
     assert len(ceil) == len(flats)
     assert all(r.cap == law.tables.emit.within_shape.pad_slope_max for r in ceil)
-    assert {v for r in flats for v in (r.a, r.b)} >= rim
-    assert len(flats) == len(rim) * (len(rim) - 1) // 2
+    assert {v for r in ceil for v in (r.a, r.b)} >= rim
+    assert len(ceil) == len(rim) * (len(rim) - 1) // 2
+    assert {v for r in flats for v in (r.a, r.b)} >= shared.get(pad_face.id, set())
 
 
 # ── assemble / solve / IIS ───────────────────────────────────────────────

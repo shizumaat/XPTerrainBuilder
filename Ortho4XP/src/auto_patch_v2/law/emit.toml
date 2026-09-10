@@ -239,7 +239,26 @@ body_datum    = 300.0
 # ``hard_rulings`` / ``one_way_rulings``: one register, no literals).
 pad_flat = 3000.0
 pad_flat_rulings = [
-  "structures.building_pad flat",                        # 09-09c: the pad's flatness target
+  "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
+  "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage
+]
+# THE PAD IS ONE PLANE FITTED TO ITS FRONTAGE (owner RULINGS 2026-09-10l,
+# answering 10k-1 = (A): "Pad takes the apron edge level"; refined by 10y).
+# The fit needs no row of its own: a vertex the pad SHARES with the
+# pavement it fronts is ONE vertex with ONE value (09-01g), so the HARD
+# plane rows through those contacts ARE the least-squares fit of the plane
+# to the pavement's own edge.  What the register below names is the SENIOR
+# clause — the one row per fronting pad that decides WHICH frontage the
+# plane's level belongs to where one plane cannot meet them all
+# (``precedence.toml`` order: runway family > taxi > apron > road) — and,
+# through ``solve/design`` §9b, the withdrawal of the PER-BODY DATUM from a
+# fronting pad: its own DEM datum (09p (3)) is for a pad that fronts NO
+# pavement.  Round 1's per-vertex frontage following (a "junior" head
+# beside this one) was REFUTED and deleted: it stopped the pad being one
+# plane (10y).
+pad_level_rulings = [
+  "structures.building_pad frontage_level",
+  "structures.building_pad frontage_level junior",
 ]
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
@@ -374,6 +393,8 @@ hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the cens
 one_way_rulings = [
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
+  "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
+  "structures.building_pad frontage_level junior",
 ]
 one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)

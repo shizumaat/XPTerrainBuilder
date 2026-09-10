@@ -73,6 +73,13 @@ class Diff:
     #: the IIS names LAW contradictions only.  ``None`` = a hard row.
     soft: str | None = None
     ceiling: float | None = None
+    #: THE ROW IS ONE-WAY (see ``Linear.follows``; owner RULINGS
+    #: 2026-09-10l for a pad's frontage level): the vertex — or, since
+    #: round 2 of that ruling, the VERTEX SET — this row GOVERNS.  Where
+    #: the design solve prices such a row one-way (``[design]
+    #: one_way_rulings``) only these vertices keep their columns; every
+    #: other foot is the LEADER and enters the right-hand side lagged.
+    follows: int | tuple[int, ...] | None = None
 
     @property
     def bound_m(self) -> float:
@@ -135,13 +142,19 @@ class Linear:
     soft: str | None = None
     ceiling: float | None = None
     #: THE ROW IS ONE-WAY (owner RULINGS 2026-09-09b (2)/(3)): the vertex
-    #: this row GOVERNS — the adjacent ground that must follow the pavement
-    #: its other feet lie on.  Where the design solve prices such a row
-    #: one-way (``[design] one_way_rulings``) only this vertex keeps its
-    #: column; the other feet enter the right-hand side at their previous
-    #: outer-round value, so the ground follows and never pulls.  ``None``
-    #: (the default) is the ordinary two-way row.
-    follows: int | None = None
+    #: — or VERTEX SET — this row GOVERNS: the adjacent ground that must
+    #: follow the pavement its other feet lie on, or (owner 2026-09-10y)
+    #: the PAD PLANE, whose three degrees of freedom live on three of its
+    #: own vertices and so cannot be one column.  Where the design solve
+    #: prices such a row one-way (``[design] one_way_rulings``) only these
+    #: vertices keep their columns; the other feet enter the right-hand
+    #: side at their previous outer-round value, so the follower follows
+    #: and never pulls.  ``None`` (the default) is the ordinary two-way
+    #: row.  A vertex named here that the row does not mention is still
+    #: GOVERNED for the purposes of ``[design] pad_level_rulings`` (the
+    #: per-body datum withdrawal, ``solve/design`` §9b) — the plane the
+    #: row levels is the whole pad's, not the three basis vertices'.
+    follows: int | tuple[int, ...] | None = None
 
 
 Row = _t.Union[Pin, Diff, Flat, Band, Offset, Linear]

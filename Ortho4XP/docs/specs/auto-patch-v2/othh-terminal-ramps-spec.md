@@ -388,3 +388,55 @@ emitting there (v2wallcorridor's LEMD 23 is a BASE arm, cut before the
 corridors existed). Attribution of 23 → 20 against that older base is
 NOT claimed: it is a different tree, and no clean-tree LEMD control at
 319f8700 was built (controls are shared, never rebuilt).
+
+## §12 Law C admission on AUTHORED depth (RULINGS 2026-09-10u) — lane `v2corridor`, 2026-09-10
+
+**The clause.** A wall band is admitted only when its lowest vertex stands at least
+`cutout.wall_corridor.min_wall_depth_m` (1.0 m) below the OBJECT'S OWN local zero —
+`comp.min_y < −min_wall_depth_m` in the OBJ8's authored frame — never on rendered depth
+(`dem_z(centroid) − (anchor_z + agl)`), which reads a pack's flat anchor plane as ground.
+Two sites: `airport/wall_corridors.py:_bands_of` (the band) and the pair's floor gate
+(`max(authored_depths) < min_wall_depth_m`, the wall bottom per station in the object's
+frame — `_floor_profile` now returns `(floors, floors_y)`, the samples carrying their
+authored `y` as a fourth column so a merged band spanning two placements still states it).
+Rendered depth survives ONLY as a MEASUREMENT of an admitted corridor (`depth_m`, the
+notes, the garage ramp's mouth-at-grade check, the ramp's floor = slab else 5.1 m, 08l/08o)
+and as the ground-CONTACT clause (`basin.contact_band_m`): a band rendered wholly under the
+terrain is buried and still refused — a terrain relation, kept as one.
+
+**Consumer census (owner 30l).** Key: **A** = the admission.
+
+| # | Consumer (file:symbol) | Reads | Ruling |
+|---|---|---|---|
+| 1 | `airport/wall_corridors._bands_of` (band admission) | `comp.min_y` vs the DEM | **A**: authored frame. THE single derivation site — no consumer vetoes. |
+| 2 | `airport/wall_corridors.read_wall_corridors` (placement pre-screen) | `cache.y_range()[0] > −min_wall_depth_m` | unchanged — ALREADY the authored frame; the two now agree. |
+| 3 | the pair floor gate (`depths` vs `min_wall_depth_m`) | the wall bottom vs the DEM | **A**: authored (`floors_y`); `grounds`/`depths` stay for the notes and `depth_m`. |
+| 4 | the `descending` / garage branch (`shallow_depth > contact_band_m`) | the DEM at the shallow end | unchanged — a mouth AT GRADE is a terrain relation, not an admission. |
+| 5 | `planar/wall_corridor_ramps.wall_corridor_groups` (ramp planner) + `airside_stops` | the records, `Group.profile`, `climb_from_s` | unchanged — fewer/more records only. |
+| 6 | `planar/structures.build_structures` → `constraints/structures` (`WALL_CORRIDOR_ROLES`, `WALL_CORRIDOR_SOURCE`) | the emitted ramp rows | unchanged. |
+| 7 | `pipeline/build` (`tn.source == "wall_corridor"`, the seat exclusion at `:620`) | the source tag | unchanged — `seat = "none"` still. |
+| 8 | `verify/structures` (`wall_corridor_ramp` / `garage_ramp`) | the emitted roles | unchanged. |
+| 9 | `emit/osm_adapter` + `law/precedence.toml:68` (`oracle_role = tunnel_ramp`) and the census families (`check_grade.LAW_FAMILIES`, `harness/census.py`) | the emitted role | unchanged — a count effect only, no law change. |
+| 10 | door wells / sunken roads / basins (`planar/basins`, `airport/tunnel_objects`) | the same components, their own laws | unchanged — Law C's admission is not theirs. |
+| 11 | `planar/__main__ --stage structures` (+ `--kml`) | `wall_corridors`, `wall_corridor_refused` | unchanged shape; the refusal now names the authored frame. |
+
+**MEASURED, AND THE RULING'S PREMISE IS REFUTED AT LEMD** (structure replays, lane tree,
+production DEM; `--stage structures`). LEMD wall corridors **17 → 38** (records 28 → 85):
+the fix does NOT remove them, it adds. Why: the reader resolves each placement to the
+PRISTINE pack (`*.obj.anchor_bak`), and there the witnesses ARE authored well below their
+own zero — `CGVRW −1.435`, `GAVIA −2.617`, `NEWCO −1.757`, `EAT −1.642`, `EATzwei −1.499`,
+`TAPSL −1.230`, `FLEDI −1.198`, `LEMDgrass −1.841` (m). 10u's figures (`CGVRW +0.945`,
+`TAPSL +6.714`, `EAT −0.140`) are the LIVE `.obj` files — already REBAKED by our own anchor
+seat (+2.38 m at CGVRW) — not the pack's authoring. Every LEMD placement also reads
+`anchor_z = dem(xy) = 596.00`, `agl = 0`: the anchor plane is NOT under the terrain at the
+object; the drift is per-COMPONENT (a shared-datum pack, LSGG class — components up to 4 km
+from the anchor, where `dem_z(centroid) − base` reaches +9 m), which is what the authored
+clause correctly removes. The count RISES because fewer bands mean fewer third-band vetoes
+and fewer merges, so more pairs survive. OTHH: **73 records (43 corridors: 30 level ×2 +
+13 bays), identical before and after** in class, axis, stations, floors and trench; four
+records' notes move one point of end-cover (9 % → 8 %) because the discarded bands no longer
+contribute vertical faces — no class or gate changes. **The discriminator LEMD-vs-OTHH is
+therefore still open**: on authored depth both packs dig 1.2–2.6 m below their zero. What
+separates them (measured, for the ruling): LEMD's pairs are foundations of two SEPARATE
+buildings 3–12 m apart with no roof over 10 of 17 and a floor at one constant plane; OTHH's
+carry a deck at +2.61 over 74 % of their length. Ruling requested before this lands.

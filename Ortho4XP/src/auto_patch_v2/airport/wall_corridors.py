@@ -15,9 +15,12 @@ from ``Component.tris`` directly.
 THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
 
 1. BANDS — a genuine component whose every triangle is vertical (``|n_y|
-   < tunnel.object.plate_normal_y_min``), reaching ``min_wall_depth_m``
-   under the local ground and up to within ``basin.contact_band_m`` of
-   it, is a WALL BAND: its plan footprint is the union of its faces' plan
+   < tunnel.object.plate_normal_y_min``), AUTHORED ``min_wall_depth_m``
+   below the OBJECT'S OWN local zero (RULINGS 2026-09-10u: never against
+   the DEM — a pack's flat anchor plane may sit metres under the terrain
+   and then every wall reads "below ground": Aerosoft LEMD, 17 spurious
+   corridors) and reaching up to within ``basin.contact_band_m`` of the
+   ground, is a WALL BAND: its plan footprint is the union of its faces' plan
    segments (the loops filled; a single sheet is widened to a nominal
    band so the wall-line reader can walk its ring), its axis the minimum
    rotated rectangle's long side, its thickness the short side.  Bands
@@ -35,7 +38,9 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
 3. THE FLOOR — the walls' BOTTOM edge PER STATION (``mouth_depth =
    "wall_bottom"``, 08n): the lowest rendered vertex of the bands' faces
    within a station's window along the axis (every face edge densified,
-   so a 78 m quad still states its bottom everywhere).  LEVEL (the
+   so a 78 m quad still states its bottom everywhere).  The corridor is
+   ADMITTED on that bottom's AUTHORED height (10u); its depth under the
+   DEM is then a measurement of an admitted corridor, never the gate.  LEVEL (the
    underpass, the bays: the bottom's range under ``min_wall_depth_m``)
    or DESCENDING (a garage ramp: the bottom runs from within the contact
    band of the ground down to the garage floor — cut AS AUTHORED; the
@@ -101,7 +106,10 @@ class WallBand:
     """One kerb-wall band in the airport frame: its plan polygon (a thin
     rectangle), measured plan thickness (0 for a sheet), axis (a
     ``LineString`` along its length), bearing (0..180°), and its faces'
-    vertices as ``(x, y, z_rendered)`` rows (edges densified)."""
+    vertices as ``(x, y, z_rendered, y_authored)`` rows (edges densified;
+    the fourth column is the sample's height in the OBJECT's own frame —
+    RULINGS 2026-09-10u, depth is read there, never against the terrain
+    under a placement whose anchor plane may sit under it)."""
 
     owner: str
     resource: str
@@ -289,8 +297,11 @@ def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]) -> lis
 
 def _densified(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float], base: float
                ) -> np.ndarray:
-    """``(x, y, z_rendered)`` rows: every triangle edge densified every
-    ``_DENSIFY_M`` in the frame."""
+    """``(x, y, z_rendered, y_authored)`` rows: every triangle edge
+    densified every ``_DENSIFY_M`` in the frame.  The fourth column is
+    the sample's height in the OBJECT's own frame (``z_rendered - base``,
+    RULINGS 2026-09-10u), carried per row so a merged band spanning two
+    placements still states each sample's authored height."""
     a, b, d, e, xoff, yoff = mat
     rows = []
     for t in tris.tolist():
@@ -301,8 +312,8 @@ def _densified(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float], base: f
             for k in range(n + 1):
                 f = k / n
                 x, y, z = (p + (q - p) * f).tolist()
-                rows.append((a * x + b * z + xoff, d * x + e * z + yoff, base + y))
-    return np.asarray(rows, dtype=float).reshape(-1, 3)
+                rows.append((a * x + b * z + xoff, d * x + e * z + yoff, base + y, y))
+    return np.asarray(rows, dtype=float).reshape(-1, 4)
 
 
 def _band_polygon(segs: list[LineString]) -> tuple[Polygon | None, float]:
@@ -375,7 +386,15 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
         if math.isnan(local):
             local = o.anchor_z
         plane_ground = local - base
-        if comp.min_y > plane_ground - wc.min_wall_depth_m:
+        # RULINGS 2026-09-10u — AUTHORED depth admits a band: its lowest
+        # vertex stands at least min_wall_depth_m below the OBJECT'S OWN
+        # local zero.  Rendered depth (dem_z - (anchor_z + agl)) admitted
+        # every wall of a pack whose flat anchor plane sits metres under
+        # the terrain (Aerosoft LEMD: 17 spurious corridors, nothing
+        # authored below the origin); OTHH's accepted kerbs author theirs
+        # at y -1.888..+0.587 and stay admitted.  The placement pre-screen
+        # in read_wall_corridors reads the same frame.
+        if comp.min_y > -wc.min_wall_depth_m:
             continue
         ny = _tri_normals_y(v, comp.tris)
         vert = ny < ob.plate_normal_y_min
@@ -486,22 +505,34 @@ def _overlap_along(u: XY, a: WallBand, b: WallBand) -> tuple[float, float, float
 
 
 def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Sequence[float],
-                   window: float) -> list[float | None]:
-    """Rule 3: the lowest rendered vertex of the bands' faces within
-    ``±window`` of each station along the axis (``None`` where none)."""
+                   window: float) -> tuple[list[float], list[float]]:
+    """Rule 3: per station, the lowest RENDERED vertex of the bands'
+    faces within ``±window`` of it along the axis, and that same sample's
+    AUTHORED height (``y`` in the object's own frame, RULINGS
+    2026-09-10u) — ``(floors, floors_y)``, gaps filled from the
+    neighbours."""
     pts = np.concatenate([b.pts for b in bands])
     s_of = np.asarray([axis_ln.project(Point(x, y)) for x, y in pts[:, :2].tolist()])
     out: list[float | None] = []
+    out_y: list[float | None] = []
     for s in ss:
         sel = np.abs(s_of - s) <= window
-        out.append(float(pts[sel, 2].min()) if sel.any() else None)
+        if sel.any():
+            rows = pts[sel]
+            k = int(np.argmin(rows[:, 2]))
+            out.append(float(rows[k, 2]))
+            out_y.append(float(rows[:, 3].min()))
+        else:
+            out.append(None)
+            out_y.append(None)
     # fill the gaps from the neighbours
-    for i, z in enumerate(out):
-        if z is None:
-            left = next((out[j] for j in range(i - 1, -1, -1) if out[j] is not None), None)
-            right = next((out[j] for j in range(i + 1, len(out)) if out[j] is not None), None)
-            out[i] = left if right is None else (right if left is None else (left + right) / 2.0)
-    return out
+    for col in (out, out_y):
+        for i, z in enumerate(col):
+            if z is None:
+                left = next((col[j] for j in range(i - 1, -1, -1) if col[j] is not None), None)
+                right = next((col[j] for j in range(i + 1, len(col)) if col[j] is not None), None)
+                col[i] = left if right is None else (right if left is None else (left + right) / 2.0)
+    return _t.cast(list[float], out), _t.cast(list[float], out_y)
 
 
 def _end_cover(end: tuple[XY, XY], faces: list[LineString], tree: STRtree | None, tol: float
@@ -780,7 +811,7 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     continue
                 axis_ln = LineString(axis)
                 orig_s = [st.s for st in sts]
-                floors = _floor_profile((A, B), axis_ln, orig_s, _DENSIFY_M)
+                floors, floors_y = _floor_profile((A, B), axis_ln, orig_s, _DENSIFY_M)
                 grounds = [float(dem_z(*axis_ln.interpolate(s).coords[0])) for s in orig_s]
                 if any(math.isnan(z) for z in grounds):
                     stats.refused.append(f"{name} at {site}: no DEM along the corridor")
@@ -796,10 +827,17 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                                          f"{100.0 * max_grade:.1f} % between stations (> "
                                          f"max_authored_grade {100.0 * wc.max_authored_grade:.0f} %)")
                     continue
-                if max(depths) < wc.min_wall_depth_m:
-                    stats.refused.append(f"{name} at {site}: the wall bottom reaches only "
-                                         f"{max(depths):.2f} m under the ground (< min_wall_depth_m "
-                                         f"{wc.min_wall_depth_m})")
+                # RULINGS 2026-09-10u: the corridor is admitted on AUTHORED
+                # depth — the wall bottom under the OBJECT'S OWN local zero
+                # at some station.  ``depths`` (against the DEM) stays the
+                # MEASUREMENT of an admitted corridor (the mouth at grade,
+                # the notes, ``depth_m``), never the admission.
+                authored_depths = [-y for y in floors_y]
+                if max(authored_depths) < wc.min_wall_depth_m:
+                    stats.refused.append(f"{name} at {site}: the wall bottom is authored at y "
+                                         f"{min(floors_y):+.2f} at its deepest station — never "
+                                         f"min_wall_depth_m {wc.min_wall_depth_m} under the "
+                                         f"object's own zero (10u)")
                     continue
                 descending = (zmax - zmin) >= wc.min_wall_depth_m
                 # RULE 4: the ends

@@ -2745,3 +2745,88 @@ the owner's installed `Data+25+051.mesh` of 16:09 reads 11,001 SEA vertices
 off zero (898 at exactly 3.962), 7,957 stepped sea triangles, max step
 16.919 m; near the owner's site 214 of 339 SEA vertices off zero and 381
 stepped triangles.  That is the 1.0.297-era read the owner's report names.
+---
+
+## §19 THE TERRAIN EDGE — adjacent ground ends at a rim road or a crest (RULINGS 2026-09-10b/10c) — lane `v2edge`
+
+### 19.1 The reading that founds it
+
+CYXY, app 1.0.300, owner: "the adjacent ground shape at 60.6968378, −135.0556035 is
+extending out over the edge of the natural plateau … in reality the grade only goes to
+the edge of the rim road (60.6970216, −135.0559897)". Measured (RULINGS 10b): the shape is
+the 14R/32L END CORRIDOR, `graded_strip` `adjacent_ground:runway:4:zone2#10`, a law
+surface with no DEM term (09b (3)) running 176 m off the runway end to exactly the site,
+29 m past the rim road (OSM `highway=track`, levelled road 724); it holds 705.1 m across
+the crest while the DEM goes 706.3 (crest) → 703.8 (road) → 692 (site); the bank foot
+sits 5.6 m outside (the daylight walk cannot fit a 1:3 fill onto a 60 % natural slope,
+`daylight_feet`'s "ground's own bank" resolves at `bank_min_width_m`) — a 19 m wall in
+5.6 m. Lawful under the extent law (`end_skirt.corridor_length_m`, code 4 = 240 m) and
+the bank law; wrong to a pilot. OWNER RULED (10b-1, answer A): the extent ENDS at the
+physical edge.
+
+### 19.2 The rule
+
+An adjacent-ground region (zone 1, zone 2, the end corridors — every `ZoneRegion` from
+`planar/zones.zone_regions`, and the `runway_clearance` skirt rings where v2 emits them)
+is CLIPPED by the TERRAIN EDGE:
+
+1. **The crest.** Outward from its pavement, the region ends where the natural ground
+   falls away below the region's surface faster than the bank can follow: a station
+   where the DEM's downhill slope, read over `edge_probe_m` (default 15 m) in the
+   outward direction, is steeper than `[design] bank_slope` (0.33) AND the drop over
+   the probe exceeds `edge_min_drop_m` (default 2 m — the DEM's own noise stays out).
+   Construction: rasterise the region's bounding box at `edge_grid_m` (5 m); mark
+   CREST cells by the test above; the region keeps only the part connected to its
+   pavement without crossing a crest cell (a flood from the pavement side); the kept
+   part is buffered by `−snap_margin_m` then `+snap_margin_m` so the edge is clean of
+   slivers (the same snap discipline as the zones, 04u).
+2. **The rim road.** Where a road (an OSM `highway=*` way of the airport small-roads or
+   big-roads feed — `airport/osm.load_feed`, or the tile's `RoadProfiles.all_ways`) runs
+   ALONG the crest — its line lies within `edge_road_snap_m` (20 m) inside the crest
+   found in (1) over at least `edge_road_run_m` (30 m) — the region ends FLUSH at the
+   road's OUTER edge (the road's half-width from `road_profile` lane width, plus
+   `groundside_cutback_m` as every road already receives): the road keeps its own
+   profile (09ad's road rule), the strip meets it at the road's inner edge. Without a
+   road the crest of (1) is the edge.
+3. **Beyond the edge: nothing.** No bank is emitted from an edge segment produced by
+   this rule: the DEM's own slope IS the bank (`emit/bank.py` gets the edge segments as
+   a `no_bank` mask, like the water line in §18). The mesh drapes the natural slope.
+4. **What does not change.** The region's LAW rows (`constraints/zones.zone_bands`,
+   `strips.py` end-corridor rows) act on the vertices that remain; the extent law is
+   not re-fit — the corridor is simply shorter where the ground ends. Runway family laws
+   untouched. A region with no crest is byte-identical to today.
+
+Law keys, all in `emit.toml [design]`: `edge_probe_m`, `edge_min_drop_m`, `edge_grid_m`,
+`edge_road_snap_m`, `edge_road_run_m` (schema `law/design_schema.Design`, validated
+positive; no number in code).
+
+### 19.3 Consumer table (RULINGS 2026-08-30l) — the lane completes the RULE column before editing
+
+| # | reader | what it reads | rule |
+|---|---|---|---|
+| C1 | `planar/overlay.py:98` | `zone_regions` → `Region("graded_strip", …)` | clip happens INSIDE `zone_regions` (or a `planar/edges.py` it calls), so every downstream reader sees the trimmed polygon — the single derivation site |
+| C2 | `constraints/zones.zone_bands` (:245, :332) | graded_strip faces by zone/class | unchanged: rows over the vertices that exist |
+| C3 | `constraints/strips.py` `runway_groups` rect rings (:126–131), end-skirt rows (:305) | end-corridor FOOTPRINTS bound vertices inside | unchanged; a trimmed corridor has fewer vertices inside the footprint |
+| C4 | `constraints/water.py` GROUND_ROLES | graded_strip ring/hole vertices | unchanged |
+| C5 | `constraints/runway_chord.py:334` `fill_within="graded_strip"` | fills within the strip | unchanged (the strip is smaller) |
+| C6 | `solve/rows.py:_zone_weights` | zone vertices' weights | unchanged |
+| C7 | `emit/bank.py` `coverage_polygon` / `daylight_feet` / `with_bank` | the coverage's outer boundary → the foot ring | edge segments carry `no_bank`: no foot there (§18's water-line mechanism, generalised) |
+| C8 | `verify/strips.py` (resa_transverse :302, raoa :354, tears :372/:405) | graded_strip shapes | unchanged; RESA/RAOA rows over a trimmed corridor read what exists — the lane quotes CYXY's before/after |
+| C9 | `verify/runway.py:218 runway_end_skirt` | `ref == runway_end_skirt` rings | v2 emits none; unchanged |
+| C10 | `planar/build.py:168` | roles ⊆ {graded_strip} faces | unchanged |
+| C11 | the census (`check_grade` law families over `graded_strip`) | shape rows | unchanged; counts may drop |
+| C12 | the sidecar / KML (`emit/osm_adapter`) | region refs | the edge is recorded per region: `o4_edge = crest|road|none`, the edge segments as a `terrain_edge` polyline way (value-less) for the owner's KML read |
+
+### 19.4 Twins and the closing test
+
+Twins (`tests/auto_patch_v2/test_v2edge.py`): a flat DEM → byte-identical regions; a
+plateau fixture (DEM steps 20 m over 15 m at x = 100) with a zone extending to x = 150
+→ the region ends at the crest (within `edge_grid_m`), no bank segment there; the same
+with a road at x = 92 → the region ends at the road's outer edge; a gentle slope
+(20 %) → untouched. Closing test: ONE airport, CYXY (`build_airport.py CYXY --engine
+v2`, control `--base-arm`), then the transect of RULINGS 10b through the site (stations
+every 5 m from +200 to −200 along the site→road axis, `mesh_elevation_sampler.py` on a
+mesh-only tile run): bar — the strip's edge lies within one lane width of the rim
+road's outer edge, no station steps more than 1 m, every station past the road within
+1 m of the DEM; DEFECTs 0; the crossings of 09ai unchanged; KML of the edge segments
+sent up. Site-first report.

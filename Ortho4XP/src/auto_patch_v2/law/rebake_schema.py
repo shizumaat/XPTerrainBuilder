@@ -29,6 +29,10 @@ class Rebake:
     foot_samples_max: int
     # the cut and the cluster seat (06g; v1 per-cluster seating spec)
     cluster_seat_tolerance_m: float
+    #: RULINGS 2026-09-10i (2): a BODY wider than this carrying fewer
+    #: than one measured foot per that span samples the design surface
+    #: under every ground-contact part.  0 disables the sampling.
+    body_feet_span_m: float
     min_delta_m: float
     cluster_span_pad_m: float
     cluster_residual_pad_m: float

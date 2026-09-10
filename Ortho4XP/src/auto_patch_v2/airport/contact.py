@@ -353,7 +353,7 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
             ids = np.concatenate(buf[4])
             for i in np.unique(ids[d <= e2]).tolist():
                 a, b = batch[i]
-                if uf.union(a, b):
+                if uf.union(a, b) or parts[a].member == parts[b].member:
                     edges.append((a, b))
         for x in buf:
             x.clear()
@@ -361,7 +361,13 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
         rows = 0
 
     for x, y in pairs:
-        if uf.find(x) == uf.find(y):
+        # RULINGS 2026-09-10i (1): a pair of ONE PLACEMENT is tested and
+        # RECORDED even when the two are already joined transitively — the
+        # spanning subset (v1's law) left the seat unable to see that two
+        # components of one file TOUCH, and the across-placement cut then
+        # ran along the path between them (LEMD ZNTWR c0/c4: 16 mm apart,
+        # no direct edge, 2.767 m apart after the seat).
+        if uf.find(x) == uf.find(y) and parts[x].member != parts[y].member:
             continue
         pa, pb = parts[x], parts[y]
         doubt = False
@@ -382,7 +388,7 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
             rows += pts.shape[0]
         if doubt:
             unproved += 1
-            if uf.union(x, y):           # merge on doubt (I-20)
+            if uf.union(x, y) or pa.member == pb.member:   # merge on doubt (I-20)
                 edges.append((x, y))
         if rows >= chunk_rows:
             flush()
@@ -402,10 +408,14 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
     for a, b in _weld_pairs(parts, weld_mm).tolist():
-        if uf.union(a, b):
+        if uf.union(a, b) or parts[a].member == parts[b].member:
             edges.append((a, b))
+    # 10i (1): an intra-PLACEMENT pair is never dropped for being joined
+    # transitively — the seat's "one placement, one body" test reads the
+    # edge list, and a spanning subset hides the touch.
     pend = [(int(a), int(b)) for a, b in _broad_pairs(parts, eps).tolist()
-            if uf.find(int(a)) != uf.find(int(b))]
+            if uf.find(int(a)) != uf.find(int(b))
+            or parts[int(a)].member == parts[int(b)].member]
     found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
     if elevated_base_m is not None and parts:
@@ -415,6 +425,6 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
         parts = [p if p.base_y <= elevated_base_m
                  else _dc.replace(p, feet=np.zeros((0, 3), dtype=float))
                  for p in parts]
-    return Partition(tuple(parts), tuple(sorted(edges)),
+    return Partition(tuple(parts), tuple(sorted(set(edges))),
                      _pools(parts, len(members), pool_overlap_m),
                      uf.groups() if parts else 0, len(pend), unproved)

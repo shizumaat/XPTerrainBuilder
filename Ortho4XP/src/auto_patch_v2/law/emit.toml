@@ -330,6 +330,19 @@ hard_weight     = 300000.0 # the CONSTRAINT weight a hard row is priced at (1000
 # m3c road fixture), so the first flat round is nowhere near the answer, and
 # the BEST iterate is the one returned.
 polish_rounds_max = 2      # MEASURED (lane v2cyxy round 2, three HECA builds and five CYXY replays): beyond TWO rounds the polish buys no law and costs surface.  HECA at 2 rounds is BYTE-IDENTICAL to round 1 (body_sha 87b241d8319b), solve 43.4 s, 05C/23C bow -2.28 m; at 12 rounds the worst hard row moves 0.1488 -> 0.1270 m and the SAME bow goes to -2.76 m for +90 s of solve; at 12 rounds with hard_weight 1e7 it reaches 0.0276 m for +237 s and STILL does not settle.  The augmented-Lagrangian polish does NOT converge on a real airport at any weight measured — the multiplier sequence oscillates while the one-sided active set re-forms under it — so the loop's job here is to report the NAMED FAILURE, which is what 09r (3) asks of it when the cap is reached
+# THE FINAL PROJECTION (owner RULINGS 2026-09-09y, closing 09v (3)).  The
+# augmented Lagrangian above CANNOT CERTIFY the hard set: measured on real
+# airports at every weight, the multiplier sequence oscillates while the
+# one-sided active set re-forms under it, and at HECA on 09y its residual
+# landed on RUNWAY rows (runway_transverse 1 at 0.50 m, runway_vertical_curve
+# 4 at 0.24-0.33 m) — DEFECTs the app's gate refuses.  So after the design
+# solve every NON-runway vertex is FIXED at its solved z and the runway
+# family's vertices are re-solved as a small QP: least change from the design
+# surface subject to every runway-family hard row as a TRUE constraint
+# (``solve/project.py``).  The runway DEFECT families then read 0 BY
+# CONSTRUCTION.  ``false`` is the DIAGNOSTIC ARM only — it measures what the
+# solve alone leaves and is never shipped off.
+runway_projection = true
 hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the

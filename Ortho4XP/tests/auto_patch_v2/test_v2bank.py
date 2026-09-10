@@ -382,3 +382,123 @@ def test_a_six_metre_ring_emits_its_foot_and_no_level_ring(apron_map, law):  # n
         assert all(v not in pre for v in b.vertices[:-1])
         assert all(abs(zof[v] - 700.0) < 1.0e-6 for v in b.vertices)
     assert "level" not in rep.line("TEST").lower()
+
+
+# ── (1c) THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3); spec §18)
+# "Only set pavement node elevations, then the DEM should automatically
+# grade into the water and blend with bathymetry data."  The daylight walk
+# STOPS at the water line, the banked region is cut there, and nothing the
+# patch emits stands in water. ─────────────────────────────────────────
+
+class _ShoreDem(_FlatDem):
+    """Level ground at 700 m with a CANAL beyond the apron's east edge —
+    the production frame's water interface (``water_many`` /
+    ``water_geometry``) and nothing more."""
+
+    provenance = {"synthetic": "level ground with a canal"}
+
+    #: the canal's west bank, in frame metres: 10 m off the apron
+    #: coverage's east edge (x = 200), so an east ray meets water before
+    #: the 6 m fill would daylight at 18 m
+    SHORE_X = 210.0
+
+    def water_many(self, xs, ys):
+        xs = np.asarray(xs, float)
+        wet = xs >= self.SHORE_X
+        return wet, np.where(wet, 0.0, np.nan)
+
+    def water_geometry(self, bounds=None):
+        from shapely.geometry import box
+        water = box(self.SHORE_X, -9000.0, 9000.0, 9000.0)
+        if bounds is None:
+            return water
+        return water.intersection(box(*bounds))
+
+
+@pytest.fixture(scope="module")
+def shore_map(law):                                         # noqa: F811
+    """The same single apron, with a canal 10 m off its east edge."""
+    cells = (
+        Cell(0, "apron", "apron1", _rect(_rot(90.0), -200.0, 120.0, 200.0, 320.0),
+             (), None, "D", "airside", "apron", {}),
+    )
+    return _built(law, _ShoreDem(), cells)
+
+
+def test_the_daylight_walk_stops_at_the_water_line(law):    # noqa: F811
+    """09z (3): a ray whose station is WATER carries no earthwork beyond
+    the shore — it is classified ``water`` and its foot never reaches the
+    far bank; a ray already over water inside the minimum width carries
+    NO foot at all (``d == 0``)."""
+    from auto_patch_v2.emit.bank import FOOT_KINDS
+    dem = _ShoreDem()
+    d_law = law.tables.emit.design
+    # four rays walking EAST from x = 300: the ground is level, so a dry
+    # ray would run to the maximum width and never daylight
+    pts = np.array([[202.0, 0.0], [200.0, 10.0], [206.0, 20.0], [-300.0, 0.0]])
+    nrm = np.array([[1.0, 0.0]] * 4)
+    z_ring = np.full(4, 706.0)
+    d, kind = daylight_feet(
+        z_ring, pts, nrm, dem, float(d_law.bank_slope),
+        float(d_law.bank_min_width_m), float(d_law.bank_max_width_m),
+        float(d_law.bank_sample_m), float(d_law.bank_daylight_tol_m))
+    water = FOOT_KINDS.index("water")
+    assert kind[0] == water and kind[1] == water
+    assert (pts[0, 0] + d[0]) <= _ShoreDem.SHORE_X + 1.0e-9, \
+        "a foot landed beyond the water line"
+    assert kind[2] == water and d[2] == 0.0, \
+        "water inside the minimum width leaves NO foot (09z (3))"
+    assert kind[3] != water and d[3] > d_law.bank_min_width_m, \
+        "the ray walking away from the water is untouched"
+
+
+def test_no_bank_vertex_and_no_annulus_stands_in_water(shore_map, law):  # noqa: F811
+    """09z (3): no foot node lands in water and the banked region — the
+    annulus the mesh blends — is cut at the water line.  The patch sets
+    pavement; the DEM grades into the canal on its own."""
+    from shapely.geometry import Point
+    airport, pm, _r = shore_map
+    banked, _surf, rep = _bank(airport, pm, law, 6.0)
+    water = _ShoreDem().water_geometry()
+    bank_bl = [b for b in banked.breaklines if b.kind == BANK_KIND]
+    assert bank_bl and rep.at_water > 0, "the fixture's east rays meet water"
+    to_xy = airport.frame.transformers()[0]
+    zof = {v.id: v for v in banked.vertices}
+    for b in bank_bl:
+        assert b.vertices[0] == b.vertices[-1], "the ring is still CLOSED"
+        for v in b.vertices:
+            lat, lon = zof[v].ll
+            x, y = to_xy(lon, lat)
+            assert not water.buffer(-0.01).contains(Point(x, y)), \
+                f"a bank vertex stands in water at {lat:.6f},{lon:.6f}"
+    cov = coverage_polygon(pm)
+    foot = _foot_polygon(banked, bank_bl, airport)
+    annulus = foot.difference(cov)
+    assert annulus.intersection(water.buffer(-0.01)).area <= 1.0e-6, \
+        "the annulus covers water"
+
+
+def _foot_polygon(banked, bank_bl, airport):
+    """The banked region as the emitted foot rings describe it."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    to_xy = airport.frame.transformers()[0]
+    xy = {v.id: to_xy(v.ll[1], v.ll[0]) for v in banked.vertices}
+    polys = []
+    for b in bank_bl:
+        ring = [xy[v] for v in b.vertices[:-1]]
+        if len(ring) < 3:
+            continue
+        p = Polygon(ring)
+        polys.append(p if p.is_valid else p.buffer(0))
+    return unary_union(polys)
+
+
+def test_a_dem_with_no_water_witness_banks_exactly_as_before(apron_map, law):  # noqa: F811
+    """S15: the witness is read through ``getattr`` — a sampler without
+    one claims NO water, so every synthetic fixture and the authored
+    ``DemSampler`` bank bit-for-bit what they banked before 09z (3)."""
+    airport, pm, _r = apron_map
+    banked, _surf, rep = _bank(airport, pm, law, 6.0)
+    assert rep.at_water == 0
+    assert rep.foot_vertices > 0 and rep.rings >= 1

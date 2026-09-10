@@ -912,3 +912,40 @@ class TestWhatAlreadyCarriesAValue:
         blend = MESH.bank_annulus_blend_values(
             tile, vertices, triangles, patch_valued)
         assert road_i not in blend and strip_i not in blend
+
+
+# ── THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3); spec §18) ────
+#
+# "Only set pavement node elevations, then the DEM should automatically
+# grade into the water and blend with bathymetry data."  Water is a datum:
+# a vertex carrying a water bit — a corner of a water or sea triangle —
+# is never an annulus unknown, so nothing the bank writes can lift it.
+
+class TestTheBlendNeverWritesAWaterVertex:
+    def test_a_water_bit_vertex_is_never_blended(self, annulus):
+        (tile, vertices, triangles, patch_valued, pts, ring_count) = annulus
+        plain = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        assert plain, "the annulus was not identified at all"
+        # the shore: every annulus vertex east of the design ring is a
+        # corner of a water triangle in this fixture's frame
+        wet = {i for i in plain if pts[i][0] > INNER_M}
+        assert len(wet) > 10, len(wet)
+        blend = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued, wet)
+        assert not (set(blend) & wet), \
+            "the bank lifted a vertex that carries a water bit"
+        # and the DRY side is untouched: same vertices, same values
+        dry = {i: z for i, z in plain.items() if i not in wet}
+        assert set(blend) == set(dry)
+        for i, z in dry.items():
+            assert abs(blend[i] - z) <= 1.0e-9, (i, blend[i], z)
+
+    def test_an_all_water_annulus_writes_nothing(self, annulus):
+        (tile, vertices, triangles, patch_valued, pts, ring_count) = annulus
+        plain = MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued)
+        every = {v for t in triangles for v in t}
+        assert MESH.bank_annulus_blend_values(
+            tile, vertices, triangles, patch_valued, every) == {}
+        assert plain, "the arm above is not vacuous"

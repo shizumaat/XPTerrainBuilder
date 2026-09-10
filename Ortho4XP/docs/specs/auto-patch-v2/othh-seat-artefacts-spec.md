@@ -732,3 +732,109 @@ BUILD-TIME IMPACT: the plan grows (LEMD parts 25,484 → 29,344, members
 OTHH patch-only 489/490 s are both inside the ±25 % single-run noise
 floor against round 2's 425–531 s LEMD tiles and 600 s OTHH.  No phase
 attributed.
+
+## 12. RULINGS 2026-09-09z (4) + 2026-09-09ac (2)/(3): the carrier by CONTACT, the basin plate seat SCOPED, the census promoted (lane `v2planes`)
+
+### 12.1 The two mechanisms
+
+**(1) THE CARRIER IS THE COMPONENT THE PLANE TOUCHES.** §7's rule gave a
+free component the NEAREST considered component's delta. The owner's
+read (09z (4)) is that a plane always follows ITS OWN walls, held or
+not — never "a panel at a different height from the walls that carry
+it". So the carrier is now the considered component the free geometry
+is IN CONTACT with, and, where several touch, the one it touches MOST:
+
+* THE CONTACT TEST, and its cost. Contact = a carrier vertex within
+  `emit.identity.min_distinct_spacing_m` (0.5 m — the identity spacing:
+  two points closer than it are the SAME point to every emit law) of
+  one of the free component's own vertices. `solid_components` welds by
+  ROUNDED POSITION, so a genuinely SHARED vertex is contact at distance
+  0 and needs no separate test — and two distinct components can never
+  share one (they would be one component), which is why the pair list
+  stays short. The measure of "most" is the number of the free
+  component's OWN vertices in contact with that carrier; ties by lowest
+  component index, so the write stays deterministic. Cost: one extra
+  `cKDTree.sparse_distance_matrix` over the free vertices already
+  gathered for the k=1 query, plus an `np.unique` per component — one
+  C-level call for the whole file (measured with the k=1 query it sits
+  beside: 0.2 s over HECA's 15.7 k free components; the pair pass adds
+  under 0.1 s of that order). A per-component `query_ball_point` loop
+  was rejected for the same reason §7 rejected per-component queries.
+* Bounding-box contact was NOT used, though 09z (4) admits it: inside a
+  dense placement the walls' boxes enclose the plane's box, so a box
+  test makes everything touch everything and the "most contact" ranking
+  becomes meaningless. Vertex proximity within the identity spacing is
+  the strictly narrower reading of the same ruling and subsumes shared
+  vertices.
+* HELD CARRIERS ARE UNCHANGED and now bind harder: a plane whose
+  TOUCHING carrier is held is held with it (§7's rule already did this
+  for the nearest carrier; the contact test makes it the RIGHT carrier).
+* The law value is the CALLER's: `airport/rigid.py` takes
+  `contact_tol_m` and holds no number (twin
+  `test_the_contact_tolerance_is_the_identity_spacing`);
+  `contact_tol_m = 0.0` is the pre-09z pure-nearest rule.
+
+**(2) THE BASIN PLATE SEAT IS THE BASIN'S OWN WITNESS RESOURCE'S.**
+§11.4 attributed 12 of LEMD's 13 "plate" members to `_plate_seats`'
+BASIN half: `[basin] seat = "floor_plate"` handed EVERY `member_ids`
+entry the DEEPEST member's `plate_y_m`, so a terminal slab that merely
+shares that plate y was seated onto a floor it never had (12–17 m off
+its own feet). 09ac (2): only the object whose floor plate the basin
+CUT takes the plate seat. `planar/basins.build_basins` already computes
+that object — `deepest`, the member with the minimum `solid_min_z`,
+the one `plate_y_m`, `anchor_inside_floor` and `seat_expect_m` are all
+read from — but recorded only its PATH set; it now records its
+placement id in the new field **`Basin.witness_id`**, at the same site
+`plate_y_m` is computed, so the two can never name different objects
+(twin `test_the_witness_is_the_deepest_member_the_plate_y_was_read_from`).
+Every other member seats by its FEET like any other resource.
+
+**(3) `tools/seat_feet_census.py`** — the `v2lemdseats` lane's
+`measure6.py` promoted on its third use, with an index row and twins.
+
+### 12.2 Consumer census (owner ruling 30l): every reader of the carrier rule and of the basin's members
+
+| Reader | What it reads | Ruled interaction |
+|---|---|---|
+| `airport/rigid.complete_component_deltas` | the components + the seat's deltas | THE CHANGE. New optional `contact_tol_m`; the return shape (`{component: delta}`, held components absent) is unchanged, so every downstream reader in §8 is unchanged |
+| `auto_patch/engine_v2._decision_from_seats` (the WRITE half) | the completed map → the per-vertex map | passes `law.tables.emit.identity.min_distinct_spacing_m` (twin `test_the_engine_passes_the_identity_spacing_as_the_contact_tolerance`: no literal, no reliance on the default). Its seat NOTE is amended ("follow the carrier they touch") |
+| `object_rebake.apply` VT rewrite / `_positional_command_rewrite_plan` / `_reconcile_animation_blocks` / the provenance range | the per-vertex map | UNCHANGED in shape and in coverage — the same components get a delta, some get a DIFFERENT one. §8's rows stand |
+| `tools/v2_rebake_replay.py bodies` | the same function | gains `--contact` (default 0.5 = the identity spacing; `0` replays the pre-09z rule), so the two arms are comparable offline without a build |
+| `emit/rebake.seat`, `emit/clusters.seat_clusters`, `airport/contact.partition`, the witness gate | genuine PARTS only | UNCHANGED by ruling: a thin plane still never votes, never founds a seat, never joins a cluster. The completion is a WRITE-side rule over components the plan never made parts of |
+| the plan / result JSON, the app's JSONL (`o4_engine/events.py` → `OrthoEngineClient.swift`) | counts and part deltas | no new field crosses either — the follower is derived from the authored OBJ8 at write time |
+| `pipeline/build._plate_seats` (BASIN half) | `pm.basins` | THE CHANGE: `b.witness_id` instead of `b.member_ids`. The TUNNEL half (`tn.objects`, 05n-4/06c) is untouched — `Bridge4` and OTHH's 8 tunnels still plate-seat |
+| `airport/rebake_plan.plan` (`tunnel_objects` → `plates`, `in_plate_family`, `plate_paths`, `counts["plate_members"]`) | the plate MAP by id | UNCHANGED code; the map is smaller. A member no longer in it is no longer exempt from the multi-anchor / thickness rules — which is the point: it seats by its feet, per body, like its neighbours |
+| `emit/rebake._plate_reading` | a member's `plate_y` / `plate_stations` | UNCHANGED — it reads whatever the plan carries |
+| `pipeline/build`'s `excluded` set and `below_grade=[(region, b.objects)]` | `b.objects` (PATHS) | UNCHANGED — the basin's below-grade REGION and the `seat = "floor_plate"` non-exclusion still cover EVERY member. Only the plate SEAT narrowed; nothing is newly excluded or newly cut |
+| `pipeline/publication.py` (the sidecar's `basins` records) | `member_ids`, `plate_y_m` | `witness_id` ADDED beside them (additive key; every existing reader keyed by name is unaffected), so an offline read can tell the witness from the other members |
+| `pipeline/build.py:385` (the basin report line) | `plate_y_m`, `anchor_ll` | UNCHANGED text; the value it prints is still the witness's |
+| `model/structures.Basin` positional construction | field ORDER | the only constructor is `planar/basins.build_basins` (grepped): `witness_id` inserted after `plate_y_m` and the call updated in the same commit. No pickled/serialised Basin exists — the sidecar is written by name |
+| `tests/auto_patch_v2/test_v2othh3.py::test_basin_family_seats_its_floor_plate_on_the_trench_floor` | `for oid in b.member_ids: assert oid in seats` | RE-SCOPED to `b.witness_id` — the assertion was the family-wide rule 09ac (2) withdraws |
+| `airport/door_wells.py`, `planar/structures.py` (`plate_y_min/max`, `TunnelStructure.plate_y_m`) | their OWN plate fields | unrelated names; never read `Basin` |
+
+### 12.3 Twins (`tests/auto_patch_v2/test_v2planes.py`, 16)
+
+* `test_a_plane_follows_the_wall_it_shares_more_vertices_with` — a
+  tessellated floor plane between a full-length wall 0.10 m off its
+  near edge (5 contacts) and a stub 0.05 m off its far edge (1): the
+  pre-09z rule returns the STUB's delta, the contact rule the wall's.
+* `test_a_canopy_that_touches_nothing_falls_back_to_the_nearest` — a
+  plane 30 m from one wall and 60 m from another takes the nearest, and
+  agrees with the pre-09z answer.
+* `test_a_plane_over_held_walls_stays_with_them` — the plane touches
+  only the HELD wall while a moving wall stands 20 m away: no delta.
+* `test_the_contact_winner_is_deterministic_on_a_tie`,
+  `test_contact_zero_keeps_the_pre_09z_rule`,
+  `test_the_contact_tolerance_is_the_identity_spacing`,
+  `test_the_engine_passes_the_identity_spacing_as_the_contact_tolerance`.
+* `test_only_the_basins_own_witness_takes_the_plate_seat` — two members
+  at one `plate_y`, one of them the witness: only it is in the plate
+  map, and the other is still a MEMBER of the region.
+* `test_a_basin_with_no_witness_plate_seats_nothing`,
+  `test_the_witness_is_the_deepest_member_the_plate_y_was_read_from`,
+  `test_the_witness_reaches_the_sidecar`.
+* Five for the promoted census: the arithmetic at the feet (a 4 m wall
+  on flat ground reads 0; +2 m of delta reads −2), restore-before-read
+  (`.anchor_bak` wins over a baked live file), both spellings of the
+  seat record (a `None` part delta is not a delta; a plate unit's delta
+  stands in), that DSFTool is never RUN, and the index row.

@@ -192,14 +192,22 @@ class Basin:
     ``solid_minimum_y_m``); ``covered_fraction`` the cover reading (the
     pack's own geometry above the contact band over the region —
     reported, never a refusal: 04i); ``anchor_ll`` a representative
-    point inside the region.  THE SEAT (2026-09-06b (3)): ``member_ids``
-    the placements the plate seat plans, ``plate_y_m`` the deepest
-    member's plate y relative to its rendered y = 0 plane,
-    ``anchor_inside_floor`` whether that member's anchor lies on the
-    floor (it renders ON the trench floor after the mesh), and
-    ``seat_expect_m`` the delta the design implies (``floor − (mesh(anchor)
-    + agl + plate_y)``, the mesh at the anchor predicted as the floor
-    inside, the DEM outside) — the post-mesh seat measures the real one."""
+    point inside the region.
+
+    THE SEAT (2026-09-06b (3); scoped by RULINGS 2026-09-09ac (2)):
+    ``member_ids`` the placements OF the region — every object with a
+    witness footprint in it — and ``witness_id`` the one whose own floor
+    plate the basin CUT (the deepest genuine solid).  The plate seat is
+    the WITNESS's alone: ``plate_y_m`` is its plate y relative to its
+    rendered y = 0 plane, ``anchor_inside_floor`` whether ITS anchor
+    lies on the floor (it renders ON the trench floor after the mesh),
+    and ``seat_expect_m`` the delta the design implies for it (``floor −
+    (mesh(anchor) + agl + plate_y)``, the mesh at the anchor predicted
+    as the floor inside, the DEM outside) — the post-mesh seat measures
+    the real one.  Another member whose plate merely SHARES that
+    ``plate_y_m`` is not plate-seated: it seats by its feet like any
+    other resource (measured at LEMD: 12 terminal slabs stood 12–17 m
+    off their own feet by the family-wide seat)."""
 
     id: str
     objects: tuple[str, ...]
@@ -223,6 +231,8 @@ class Basin:
     region: tuple[XY, ...] = ()
     member_ids: tuple[str, ...] = ()
     plate_y_m: float = 0.0
+    #: 09ac (2): the deepest member — the basin's own witness resource
+    witness_id: str = ""
     anchor_inside_floor: bool = False
     seat_expect_m: float = 0.0
     agl_m: float = 0.0

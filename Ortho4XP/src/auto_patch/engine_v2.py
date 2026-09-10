@@ -393,7 +393,8 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     return dest
 
 
-def _decision_from_seats(plan_, result, measure_only: bool):
+def _decision_from_seats(plan_, result, measure_only: bool,
+                         contact_tol_m: float = 0.0):
     """A v1 ``RebakeDecision`` carrying v2's seat PER VERTEX (RULINGS
     2026-09-06g): a structure-seated member's every solid vertex takes
     the unit's one delta; a cluster-seated member's vertices take their
@@ -468,13 +469,17 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             # every floor/ceiling plane came out with none and stayed at its
             # authored y while its walls moved (HECA 15,716 planes, to 45 m;
             # OTHH the 44 planes of the interchange drainage basins).  Each
-            # free component follows its NEAREST carrier.
+            # free component follows the carrier it TOUCHES (09z (4):
+            # a plane always follows its walls, held or not — the
+            # identity spacing is the contact test), nearest only when
+            # nothing touches.
             # a component the seat RULED to stay (a facility cluster 05p, a
             # cluster under min_delta_m, an A3 refusal) keeps its authored y:
             # the completion covers only what the seat never considered
             held = {comp for comp, _k, d in ms.part_deltas if d is None}
             n_free = len(comps) - len(by_comp) - len(held - set(by_comp))
-            by_comp = _rigid.complete_component_deltas(geom, comps, by_comp, held)
+            by_comp = _rigid.complete_component_deltas(geom, comps, by_comp, held,
+                                                      contact_tol_m)
             per_vertex: dict[int, float] = {}
             for ci, d in by_comp.items():
                 for i in set(comps[ci].tris.reshape(-1).tolist()):
@@ -495,8 +500,8 @@ def _decision_from_seats(plan_, result, measure_only: bool):
             note = ms.note or ""
             if n_free:
                 note = (note + "; " if note else "") + (
-                    f"{n_free} free component(s) follow their nearest carrier "
-                    "(09b (5): a plane is never split from its walls)")
+                    f"{n_free} free component(s) follow the carrier they touch "
+                    "(09b (5)/09z (4): a plane is never split from its walls)")
             if note:
                 notes[r] = note
             if us.datum != "cluster" and us.seat_datum_m is not None:
@@ -596,7 +601,9 @@ def rebake_after_mesh(tile) -> dict:
 
                 res = _rb.seat(plan_, _sample, law)
                 if write_enabled:
-                    decision = _decision_from_seats(plan_, res, measure_only)
+                    decision = _decision_from_seats(
+                        plan_, res, measure_only,
+                        law.tables.emit.identity.min_distinct_spacing_m)
                     report = object_rebake.apply(decision, plan_.pack_root, mesh_path)
                 else:
                     report = object_rebake.RebakeReport()

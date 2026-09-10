@@ -465,7 +465,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             tuple(rim.exterior.coords)[:-1], rest, smin_z, smin_z - rest,
                             cov, float(floor_area), _ll_pair(airport, ring), tuple(notes),
                             float(plate), kind, tuple(ring.exterior.coords)[:-1],
-                            tuple(o.id for o in members), float(plate_y), inside,
+                            tuple(o.id for o in members), float(plate_y),
+                            str(deepest.id), inside,
                             float(seat_expect), float(deepest.agl_m)))
     stats.basins = len(basins)
     if not basins:

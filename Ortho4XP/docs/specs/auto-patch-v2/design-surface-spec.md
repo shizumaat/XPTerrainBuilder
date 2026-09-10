@@ -2892,3 +2892,78 @@ mesh-only tile run): bar — the strip's edge lies within one lane width of the 
 road's outer edge, no station steps more than 1 m, every station past the road within
 1 m of the DEM; DEFECTs 0; the crossings of 09ai unchanged; KML of the edge segments
 sent up. Site-first report.
+
+---
+
+## §21 THE RUNWAY PROFILE FOLLOWS THE AIRPORT — long gentle curves through the threshold pins (RULINGS 2026-09-10q/10r/10t) — lane `v2rwycurve`
+
+### 21.1 The reading that founds it
+
+SPJC 16L/34R (app 1.0.306): the built ridge reproduces the straight threshold
+chord to ≤ 0.01 m at every 250 m station — zero vertical curves; z − DEM mean
++2.28, max +3.98; abeam the parallel taxiway the runway sits 26.71 m while the
+lawful envelope (grade ≤ 1.5 %, end-zone 0.8 %, K ≥ 300 m per 1 %) admits 25.60,
+and a lawful curved profile over the length cuts mean |z − DEM| 2.14 → 0.37 m.
+Owner: "the runway also seems like it should be allowed to have a bit more
+curvature, as in reality airports want to minimize the elevation variance between
+adjacent paved areas when possible" (10q); "ideally the … profile would take into
+consideration the whole airport layout, long gentle curves are best for fast moving
+aircraft" (10r). The hard family laws stay (08v): K, longitudinal and end-zone
+grades, transverse, the threshold and crossing pins.
+
+### 21.2 The rule
+
+1. **The target profile.** For a runway with two threshold pins, the ridge's fit
+   target (`PlanarMap.preferred_z`, the channel `constraints/runway_chord.py`
+   fills today with the straight chord) becomes the GROUND'S LONG-WAVE TREND along
+   the ridge: at each ridge station the value of a moving quadratic least-squares
+   fit of the production DEM over ±`[design] runway_profile_window_m` (default
+   500 m — the scale of a K = 300 m vertical curve, so the target already has
+   only long gentle curvature), the fit CONSTRAINED to pass through both threshold
+   pins (the pins are the datum; the trend is shifted, not the pins). The crown
+   drop at the lateral offset is subtracted exactly as today. The weight stays
+   `[design] chord` (the row is the same row with a better target).
+2. **The chord as fallback.** The straight chord remains the target where the DEM
+   is absent or the frame is degraded (never an invented value, plan §2), and for a
+   runway with fewer than two pins nothing changes (the DEM stays its target).
+3. **The crossing pin (§17)** re-fits the TARGET PROFILE piecewise through the pinned
+   node, exactly as it re-fit the chord.
+4. **The hard laws are untouched.** The final projection (§16) still settles the
+   family exactly; a target the laws refuse is simply not reached, and the report
+   names the residual per runway (`runway_profile` block: target-vs-built RMS, the
+   binding law).
+5. **What the target is NOT:** a per-vertex DEM pull (08t (1)) — the window is
+   longer than any DEM artefact the owner has read as "unrealistic undulation"
+   (09b), and the fit is quadratic over ≥ 1 km of ridge; the runway cannot
+   undulate with the ground, only bend with its trend.
+
+Law keys: `[design] runway_profile_window_m` (schema-validated ≥ the largest
+`vertical_curve_k_m`); no number in code.
+
+### 21.3 Consumer table (RULINGS 2026-08-30l) — the lane completes the RULE column before editing
+
+| # | reader | what it reads | rule |
+|---|---|---|---|
+| C1 | `constraints/runway_chord.py` `runway_chord_targets` | fills `preferred_z` per ridge station | the single derivation site: trend fit here; chord fallback here |
+| C2 | `constraints/runway_chord.py` crossing pins (§17) | re-fits the chord through the pin | re-fits the trend |
+| C3 | `solve/design.py` chord rows (:456-463) | `preferred_z` at weight `chord` | unchanged |
+| C4 | `solve/project.py` (§16) | the hard family rows | unchanged; residual reported |
+| C5 | `verify/runway.py` (`runway_vertical_curve`, `runway_crown`) | built profile vs the laws | unchanged; K rows now do work — DEFECT bar 0 |
+| C6 | `tools/rwy_profile.py --binned --compare` (bows) | the bow against the STRAIGHT chord | the bow is no longer a target residual; the tool gains `--target` (built vs the trend target) and keeps the chord bow for continuity |
+| C7 | the sidecar `design` block, `check_grade.SIDECAR_EVIDENCE_KEYS` | the chord record | carries the target kind (`trend|chord`) and window |
+| C8 | the census `runway_*` families | rows | unchanged |
+| C9 | taxi bodies touching the runway (10p/10t affine datum) | contact vertices | unchanged: contacts stay flush; the taxi body's tilt now follows its own DEM plane |
+
+### 21.4 Twins and the closing tests
+
+Twins (`tests/auto_patch_v2/test_v2rwycurve.py`): a ridge over a DEM with a 1 km
+sag → the target passes through both pins and bends toward the sag with K ≥ law
+(built profile: DEFECTs 0, target-vs-built RMS < 0.1 m); a DEM with 30 m noise at
+20 m wavelength → the target is smooth (second difference below the taxi profile's
+own bar), unchanged by the noise to 0.05 m; no pins → DEM target unchanged; a
+crossing → the pinned node holds. Closing tests — SPJC (the site: 16L/34R abeam
+the taxiway 26.71 → ≤ 25.7 m; mean |z − DEM| over the runway ≤ 0.6 m; DEFECTs 0)
+and, because the family law changes globally, HECA and CYXY as the regression read
+(HECA runway undulation RMS ≤ today's 0.0033; the 05C/23C and 05L/23R bows quoted
+against v1's; CYXY's crossing profile monotone as 09ai; DEFECTs 0 everywhere) —
+three airports, the stated exception for a family-law change. Site-first report.

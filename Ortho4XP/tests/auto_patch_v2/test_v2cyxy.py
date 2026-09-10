@@ -609,3 +609,78 @@ def test_a_reachable_crossing_settles_its_hard_set(law):
         f"{rep.hard_max_violation_m:.5f} m of {rep.hard_worst}")
     assert rep.hard_rounds <= d.polish_rounds_max
     assert "HARD SET SETTLED" in rep.line()
+
+
+# ── ROUND 3 (RULINGS 2026-09-09v): THE DATUM'S VERTEX SET IS SHAPE MEMBERSHIP
+
+def _road_along_a_boundary(law):
+    """apronA west of an 8 m service road, apronB east of it and SHORTER —
+    so the road shares more vertices with A and 08r-2 welds it to A.  The
+    road's FAR edge (x = +4) is therefore A's, although those vertices are
+    ring vertices of apronB's faces: the two readings of "B's vertices"
+    disagree exactly there."""
+    airport, r = _airport(law, _PlaneDem())
+    ring_a = ((-200.0, 100.0), (-4.0, 100.0)) \
+        + tuple((-4.0, float(y)) for y in range(120, 500, 20)) \
+        + ((-4.0, 500.0), (-200.0, 500.0))
+    cells = (
+        Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2,
+                                         HALF_WIDTH), (), 3, "D", "airside",
+             "runway", {}),
+        Cell(1, "apron", "apronA", tuple(r(p) for p in ring_a), (), None, "D",
+             "airside", "apron", {}),
+        Cell(2, "service_road", "road", _rect(r, -4.0, 100.0, 4.0, 500.0), (), None,
+             "D", "airside", "strip", {}),
+        Cell(3, "apron", "apronB", _rect(r, 4.0, 140.0, 200.0, 460.0), (), None, "D",
+             "airside", "apron", {}),
+    )
+    return airport, cells
+
+
+def test_a_boundary_vertex_enters_exactly_one_bodys_datum_mean(law):
+    """09v: the per-body datum's vertex set is SHAPE MEMBERSHIP
+    (``shape_of_vertex``), never the ring vertices of the body's faces.
+    A road along a boundary keeps the level of the shape it is welded to
+    (08r-2), so the vertices on its FAR edge — apronB's ring, A's label —
+    are NOT in apronB's mean: under the face-ring reading they were, and
+    B's datum pulled the road off A's level (the red twin's 0.24-0.29 m
+    ``service_road|service_road`` rows).  No vertex is in two means."""
+    from auto_patch_v2.planar import shapes as S
+    from auto_patch_v2.planar.build import build
+    from auto_patch_v2.constraints.runway_chord import with_runway_chord
+    from auto_patch_v2.solve.design import DesignReport, assemble
+    airport, cells = _road_along_a_boundary(law)
+    pm, st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    pm = with_runway_chord(pm, law, airport)
+    cs, _c, _w = generate(pm, law, airport)
+    base = assemble(pm, cs, law, DesignReport())
+    assert st.shapes.shapes >= 2, st.shapes.by_shape
+    road = next(f for f in pm.faces.values() if f.ref == "road")
+    A = pm.shape_of_face[road.id]
+    B = next(pm.shape_of_face[f.id] for f in pm.faces.values()
+             if f.ref == "apronB" and f.id in pm.shape_of_face)
+    assert A != B, "the road's shape and its neighbour must be two bodies"
+    assert all(pm.shape_of_vertex.get(v, S.NO_SHAPE) == A
+               for v in S._face_vertices(pm, road.id)), \
+        "08r-2: the whole road is welded to A"
+    # the row each COLUMN sits in: one mean per column, never two
+    row_of: dict[int, int] = {}
+    for row, col in zip(base.body.r, base.body.c):
+        assert row_of.setdefault(col, row) == row, \
+            "a vertex entered two bodies' datum means"
+
+    def row(v):
+        col = int(base.red.col[v])
+        return row_of.get(col) if col >= 0 else None
+
+    b_rows = {row(v) for v, sh in pm.shape_of_vertex.items() if sh == B}
+    b_rows.discard(None)
+    assert b_rows, "apronB must carry a datum row"
+    # the road's FAR edge: apronB's ring vertices, A's label (08r-2)
+    far = [v for v in S._face_vertices(pm, road.id)
+           if any(pm.faces[f].ref == "apronB"
+                  for f in pm.vertices[v].incident_faces)]
+    assert far, "the fixture must share the road's far edge with apronB"
+    for v in far:
+        assert row(v) not in b_rows, \
+            "a far-edge vertex the road owns entered apronB's mean"

@@ -38,8 +38,14 @@ import typing as _t
 from .frame import XY, Key
 from .structures import Basin, Tunnel
 
-__all__ = ["EdgeKind", "Vertex", "Edge", "Face", "Breakline", "ShapeJoint",
-           "PlanarMap", "PlanarError", "validate", "vertex_tier"]
+__all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
+           "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier"]
+
+#: Label of a vertex no shape owns (``shape_of_vertex``).  It lives with
+#: the RECORD, not with the pass that fills it (``planar/shapes.py`` — which
+#: re-exports it): the solve reads shape membership for the per-body datum
+#: (RULINGS 2026-09-09v) and may not import ``planar`` (M0 §1's direction).
+NO_SHAPE = -1
 
 
 class EdgeKind(str, enum.Enum):

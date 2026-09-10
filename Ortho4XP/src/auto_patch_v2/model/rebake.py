@@ -424,6 +424,10 @@ class SeatResult:
     #: despite disagreeing feet, and parts held for touching no body.
     intra_placement_kept: int = 0
     held_parts: int = 0
+    #: RULINGS 2026-09-10u (1): elevated cohesion groups assigned as one,
+    #: and those that resolved with no plan overlap (the body-id tie).
+    elevated_groups: int = 0
+    group_ties: int = 0
 
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
@@ -435,6 +439,7 @@ class SeatResult:
              "cut_edges": self.cut_edges, "pad_requests": len(self.pad_requests),
              "intra_placement_kept": self.intra_placement_kept,
              "held_parts": self.held_parts, "feet_sampled": 0,
+             "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
              "parts": 0, "ground_parts": 0, "members_multi_delta": 0}
         for u in self.units:
             c["findings"] += len(u.findings)
@@ -478,6 +483,7 @@ class SeatResult:
                 "cut_edges": self.cut_edges, "structures": self.structures,
                 "intra_placement_kept": self.intra_placement_kept,
                 "held_parts": self.held_parts,
+                "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
                 "units": [_dc.asdict(u) for u in self.units],
                 "clusters": [_dc.asdict(k) for k in self.clusters],
                 "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

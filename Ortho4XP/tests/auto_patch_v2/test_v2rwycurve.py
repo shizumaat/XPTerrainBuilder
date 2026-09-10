@@ -45,7 +45,7 @@ from auto_patch_v2.law.design_schema import check_design
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Status, solve_design
-from auto_patch_v2.solve.project import runway_profile_block
+from auto_patch_v2.pipeline.runway_report import runway_profile_block
 from auto_patch_v2.verify import census
 from auto_patch_v2.verify.census import DEFECT_KEYS
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect

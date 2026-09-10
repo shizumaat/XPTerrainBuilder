@@ -94,7 +94,7 @@ class DesignReport:
     #: THE RUNWAY PROFILE (spec §21.2 (4)): per runway the target kind and
     #: window, the built ridge's residual against its target, its mean
     #: |z - DEM| and the law row that holds it — filled by the pipeline
-    #: after the projection (``solve/project.runway_profile_block``), and
+    #: after the projection (``pipeline/runway_report.runway_profile_block``), and
     #: carried into the sidecar's ``design`` block so the census and the
     #: owner read WHICH target the runway was designed to.
     runway_profile: dict[str, _t.Any] = _dc.field(default_factory=dict)

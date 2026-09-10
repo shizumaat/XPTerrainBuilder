@@ -35,6 +35,8 @@ def complete_component_deltas(geom: ObjGeometry, comps: _t.Sequence[Component],
                               delta_by_comp: _t.Mapping[int, float],
                               held: _t.Collection[int] = (),
                               contact_tol_m: float = 0.0,
+                              plate_gap_max_m: float = 0.0,
+                              stats: dict[str, int] | None = None,
                               ) -> dict[int, float]:
     """Every component of ``geom`` with a delta (RULINGS 2026-09-09b (5)).
 
@@ -128,6 +130,19 @@ def complete_component_deltas(geom: ObjGeometry, comps: _t.Sequence[Component],
             touch_lo = np.searchsorted(votes[:, 0], np.arange(q_all.shape[0]), "left")
             touch_hi = np.searchsorted(votes[:, 0], np.arange(q_all.shape[0]), "right")
             touch_owner = votes[:, 1]
+    # THE EAVE GAP (10u (2)): the carriers' plan boxes and tops, built
+    # once — the fallback below is the only reader
+    c_box = c_top = None
+    if plate_gap_max_m > 0.0:
+        n_c = len(carriers)
+        c_box = np.empty((n_c, 4))
+        c_top = np.empty(n_c)
+        for j, ci in enumerate(carriers):
+            q = pts_list[j]
+            c_box[j] = (q[:, 0].min(), q[:, 2].min(), q[:, 0].max(), q[:, 2].max())
+            c_top[j] = q[:, 1].max()
+        c_index = np.array(carriers, dtype=np.int64)
+    n_eave = n_nearest = 0
     for ci, lo, hi in spans:
         host = None
         if touch_lo is not None:
@@ -137,7 +152,25 @@ def complete_component_deltas(geom: ObjGeometry, comps: _t.Sequence[Component],
                 # contact count resolves to the lowest component index
                 who, n = np.unique(touch_owner[a:b], return_counts=True)
                 host = int(who[np.lexsort((who, -n))[0]])
+        if host is None and c_box is not None:
+            q = q_all[lo:hi]
+            x0, z0, x1, z1 = q[:, 0].min(), q[:, 2].min(), q[:, 0].max(), q[:, 2].max()
+            y0, y1 = q[:, 1].min(), q[:, 1].max()
+            ov_x = np.minimum(c_box[:, 2], x1) - np.maximum(c_box[:, 0], x0)
+            ov_z = np.minimum(c_box[:, 3], z1) - np.maximum(c_box[:, 1], z0)
+            # >= 0: an OBJ8 wall is often a zero-thickness PANEL, whose
+            # plan box is degenerate in one axis — it still overlaps
+            ok = (ov_x >= 0.0) & (ov_z >= 0.0) & (c_top <= y1) \
+                & (y0 - c_top <= plate_gap_max_m)
+            w = np.nonzero(ok)[0]
+            if w.size:
+                # the wall it rests on: the highest top under it, then the
+                # largest plan overlap, then the lowest component index
+                area = ov_x[w] * ov_z[w]
+                host = int(c_index[w][np.lexsort((c_index[w], -area, -c_top[w]))[0]])
+                n_eave += 1
         if host is None:
+            n_nearest += 1
             d = dist[lo:hi]
             # nothing touches: the nearest carrier; a tie in distance
             # resolves to the lowest component index so the write is
@@ -148,4 +181,9 @@ def complete_component_deltas(geom: ObjGeometry, comps: _t.Sequence[Component],
             out[ci] = out[host]
         # else: the carrier is HELD — this component stays with it (09z
         # (4): a held carrier holds its planes)
+    if stats is not None:
+        stats["free"] = stats.get("free", 0) + len(spans)
+        stats["touched"] = stats.get("touched", 0) + len(spans) - n_eave - n_nearest
+        stats["eave"] = stats.get("eave", 0) + n_eave
+        stats["nearest"] = stats.get("nearest", 0) + n_nearest
     return out

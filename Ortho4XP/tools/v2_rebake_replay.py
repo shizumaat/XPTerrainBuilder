@@ -275,6 +275,57 @@ def cmd_bodies(args: argparse.Namespace) -> int:
     return 0
 
 
+def _plate_vs_wall(args, r, v, idxs, final, parts, rows, sites, buckets, n_pairs, n_over):
+    """THE PLATE-vs-WALL CENSUS (RULINGS 2026-09-10u): a PLATE (a component
+    of authored y-extent under ``--plate-thickness`` with at least three
+    vertices) whose APPLIED delta stands more than ``--floor`` metres ABOVE
+    a WALL (y-extent at or over it) that lies within ``--near`` metres of it
+    IN PLAN — the floating roof the owner sees.  Bucketed by the AUTHORED
+    vertical gap (plate bottom minus wall top): ``contact`` (within
+    ``--contact-eps``, ``[rebake] contact_epsilon_m`` — the class the
+    cluster pass owns), ``gap`` (within ``--gap``, ``[rebake]
+    plate_gap_max_m`` — the eave / parapet class the carrier rule owns) and
+    ``far`` (beyond: nearest, reported not fixed).  Proximity is PLAN, not
+    3-D, so a roof metres clear of its wall is still its wall's pair."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    ext = [(float(v[i][:, 1].min()), float(v[i][:, 1].max())) for i in idxs]
+    plates = [k for k, (a, b) in enumerate(ext)
+              if (b - a) < args.plate_thickness and len(idxs[k]) >= 3]
+    walls = [k for k, (a, b) in enumerate(ext) if (b - a) >= args.plate_thickness]
+    if not plates or not walls:
+        return n_pairs, n_over
+    wpts = np.concatenate([v[idxs[k]][:, [0, 2]] for k in walls])
+    wown = np.concatenate([np.full(len(idxs[k]), k, dtype=np.int64) for k in walls])
+    wt = cKDTree(wpts)
+    for pk in plates:
+        dp = final.get(pk)
+        if dp is None:
+            continue
+        near = {int(wown[j]) for lst in wt.query_ball_point(v[idxs[pk]][:, [0, 2]], args.near)
+                for j in lst}
+        for wk in sorted(near):
+            dw = final.get(wk)
+            if dw is None or dp - dw <= args.floor:
+                continue
+            gap = ext[pk][0] - ext[wk][1]
+            buckets["contact" if gap <= args.contact_eps
+                    else "gap" if gap <= args.gap else "far"] += 1
+            n_pairs += 1
+            rows.append((dp - dw, r, pk, wk, dp, dw))
+            if dp - dw > args.bar:
+                n_over += 1
+                lat = lon = 0.0
+                for p in parts.get(r, ()):
+                    if p[1] in (pk, wk):
+                        lat, lon = float(p[2]), float(p[3])
+                        break
+                prev = sites.get(r)
+                if prev is None or dp - dw > prev[2]:
+                    sites[r] = (lat, lon, dp - dw, pk, wk)
+    return n_pairs, n_over
+
+
 def cmd_pairs(args: argparse.Namespace) -> int:
     """THE TEAR CENSUS (RULINGS 2026-09-10i): pairs of components of ONE
     OBJ8 whose geometry comes within ``--near`` metres yet whose APPLIED
@@ -298,6 +349,7 @@ def cmd_pairs(args: argparse.Namespace) -> int:
     n_pairs = n_over = 0
     sites: dict[str, tuple[float, float, float, int, int]] = {}
     rows = []
+    buckets: collections.Counter = collections.Counter()
     for u in res["units"]:
         if u.get("held"):
             continue
@@ -321,9 +373,14 @@ def cmd_pairs(args: argparse.Namespace) -> int:
             if not by:
                 continue
             held = {c for c, _k, d in pd if d is None} - set(by)
-            final = RG.complete_component_deltas(geom, comps, by, held, args.contact)
+            final = RG.complete_component_deltas(geom, comps, by, held, args.contact,
+                                                 getattr(args, "plate_gap", 0.0))
             v = geom.vertices
             idxs = [np.unique(c.tris.reshape(-1)) for c in comps]
+            if args.klass == "plate-vs-wall":
+                n_pairs, n_over = _plate_vs_wall(args, r, v, idxs, final, parts,
+                                                 rows, sites, buckets, n_pairs, n_over)
+                continue
             pts = np.concatenate([v[i] for i in idxs])
             owner = np.concatenate([np.full(len(i), k, dtype=np.int64) for k, i in enumerate(idxs)])
             t = cKDTree(pts)
@@ -352,6 +409,17 @@ def cmd_pairs(args: argparse.Namespace) -> int:
                                     abs(da - db), int(ca), int(cb))
                     rows.append((abs(da - db), r, int(ca), int(cb), da, db))
     rows.sort(reverse=True)
+    if args.klass == "plate-vs-wall":
+        print(f"{res.get('icao', '?')}: PLATE-vs-WALL (RULINGS 2026-09-10u) — a plate "
+              f"(y-extent < {args.plate_thickness} m) whose applied delta stands more than "
+              f"{args.floor} m ABOVE a wall within {args.near} m in PLAN: {n_pairs} pair(s), "
+              f"{len({(x[1], x[2]) for x in rows})} plate(s), {len(sites)} resource(s)")
+        print(f"  by AUTHORED vertical gap (plate bottom - wall top): "
+              f"contact (<= {args.contact_eps} m) {buckets['contact']}; "
+              f"gap (<= {args.gap} m) {buckets['gap']}; far {buckets['far']}")
+        for sep, r, ca, cb, da, db in rows[:args.top]:
+            print(f"  {sep:8.3f} m | {r[-52:]:52s} | plate c{ca} {da:+.3f} vs wall c{cb} {db:+.3f}")
+        return 0
     print(f"{res.get('icao', '?')}: pairs of ONE OBJ8 within {args.near} m with different "
           f"deltas (floor {args.floor} m): {n_pairs}; over {args.bar} m: {n_over} "
           f"pair(s) in {len(sites)} site(s) (resources)")
@@ -407,6 +475,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--contact", type=float, default=0.5)
     p.add_argument("--top", type=int, default=15)
     p.add_argument("--kml", default="", help="write the sites to this KML")
+    p.add_argument("--class", dest="klass", default="all",
+                   choices=("all", "plate-vs-wall"),
+                   help="plate-vs-wall (RULINGS 2026-09-10u): only FLOATING-ROOF pairs — a "
+                        "flat plate whose delta stands above a wall within --near IN PLAN, "
+                        "bucketed by the authored vertical gap")
+    p.add_argument("--plate-thickness", type=float, default=0.5,
+                   help="plate-vs-wall: a component of y-extent under this is a PLATE")
+    p.add_argument("--gap", type=float, default=4.0,
+                   help="plate-vs-wall: [rebake] plate_gap_max_m — the eave / parapet class")
+    p.add_argument("--contact-eps", type=float, default=0.25,
+                   help="plate-vs-wall: [rebake] contact_epsilon_m — the touching class")
+    p.add_argument("--plate-gap", type=float, default=0.0,
+                   help="the carrier rule's [rebake] plate_gap_max_m for the write half "
+                        "(0 = the pre-10u pure-nearest fallback)")
     p.set_defaults(fn=cmd_pairs)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")

@@ -197,8 +197,6 @@ def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:
     return ruling_head(row) in law_heads
 
 
-# ── the linear solve ────────────────────────────────────────────────────
-
 # ── THE SOLVE ───────────────────────────────────────────────────────────
 
 @_dc.dataclass(frozen=True)

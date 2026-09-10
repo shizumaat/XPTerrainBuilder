@@ -225,6 +225,24 @@ body_datum    = 300.0
 pad_flat = 3000.0
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target
+  "structures.building_pad frontage_level",              # 09-10l: the SENIOR fronting pavement's edge IS the pad's level — the pad's own plane weight
+]
+# THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
+# answering 10k-1 = (A): "Pad takes the apron edge level").  A pad that
+# fronts pavement is levelled by a ONE-WAY flush contact row per free pad
+# vertex (``constraints/pads.pad_frontage_level``) instead of finding its
+# own level under bending — which at LEMD's T4S pit corner pulled apron
+# ``pav16``'s own hole ring 1.1 m below the apron (10k).  The heads below
+# are what ``solve/design`` §9b reads to withdraw the PER-BODY DATUM from
+# such a pad's vertices: its own DEM datum (09p (3)) is for a pad that
+# fronts NO pavement.  The SENIOR head is priced at ``pad_flat`` above and
+# the junior at the law's own weight, so a pad between two pavements a
+# plane cannot both meet follows the senior (``precedence.toml`` order:
+# runway family > taxi > apron > road) and the miss is the reported
+# residual of the ``pad_level`` family.
+pad_level_rulings = [
+  "structures.building_pad frontage_level",
+  "structures.building_pad frontage_level junior",
 ]
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
@@ -359,6 +377,8 @@ hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the cens
 one_way_rulings = [
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
+  "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
+  "structures.building_pad frontage_level junior",
 ]
 one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)

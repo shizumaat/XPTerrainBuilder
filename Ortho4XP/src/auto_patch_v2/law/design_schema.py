@@ -73,6 +73,13 @@ class Design:
     #: ``hard_rulings`` / ``one_way_rulings``.
     pad_flat: float
     pad_flat_rulings: tuple[str, ...]
+    #: THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
+    #: 10k-1 = (A)): the ruling HEADS of a pad's frontage LEVEL rows.  A
+    #: vertex such a row GOVERNS (its ``follows``) is a pad following the
+    #: pavement, so ``solve/design`` §9b takes it out of every per-body
+    #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
+    #: fronts NO pavement.
+    pad_level_rulings: tuple[str, ...]
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -180,6 +187,15 @@ def check_design(d: Design, err: type[Exception]) -> None:
     if not d.pad_flat > d.law:
         raise err(f"emit.design.pad_flat {d.pad_flat}: heavier than the law's "
                   f"target weight {d.law} — a pad targets FLAT (09-09c)")
+    if not d.pad_level_rulings:
+        raise err("emit.design.pad_level_rulings: at least one ruling "
+                  "(RULINGS 2026-09-10l: the pad takes the pavement's edge "
+                  "level and its own DEM datum only where it fronts none)")
+    missing = [r for r in d.pad_level_rulings if r not in d.one_way_rulings]
+    if missing:
+        raise err(f"emit.design.pad_level_rulings {missing}: every level "
+                  f"ruling must also be in one_way_rulings — the pad FOLLOWS "
+                  f"the pavement and never pulls it (RULINGS 2026-09-10l)")
     if not 0.0 < d.bank_slope <= 1.0:
         raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
     if not d.bank_min_width_m > 0.0:

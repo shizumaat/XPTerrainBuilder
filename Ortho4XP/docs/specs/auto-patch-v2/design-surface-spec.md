@@ -2892,3 +2892,97 @@ mesh-only tile run): bar — the strip's edge lies within one lane width of the 
 road's outer edge, no station steps more than 1 m, every station past the road within
 1 m of the DEM; DEFECTs 0; the crossings of 09ai unchanged; KML of the edge segments
 sent up. Site-first report.
+
+## §20 THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (RULINGS 2026-09-10l, owner 10k-1 = (A)) — lane `v2padlevel`
+
+### 20.1 What is being added
+
+Owner, verbatim: "Pad takes the apron edge level." A building pad that
+FRONTS pavement (shares a rim vertex with an apron / taxiway / road face)
+is FLUSH with that pavement's edge; the apron never tiers down into the
+terminal it fronts; the pad stays a flat plane (≤ 1 %, 09c); and its own
+DEM datum (09p (3)) applies ONLY to a pad that fronts no pavement. Where a
+pad fronts two pavements at different levels it tilts within its 1 % to
+meet both; beyond 1 % it follows the SENIOR pavement (`precedence.toml`
+order: runway family > taxi > apron > road) and reports the residual.
+
+Three pieces, all in `constraints/pads.py` + `solve/design.py` §9b:
+
+1. `pad_frontage_level` (new generator, family `pad_level`): ONE flush row
+   (`Diff` at cap 0) per pad vertex to the NEAREST vertex of the frontage
+   nearest it, ONE-WAY with the pad vertex as the FOLLOWER. The leader is
+   the PAVEMENT'S OWN vertex — never one the pad shares, which is a pad
+   vertex too (measured, round 1: leading from a shared vertex says only
+   "the pad equals itself", and the LEMD pad + `pav16`'s edge fell
+   together to 597.63, 0.86 m BELOW the round-0 surface). The head is
+   `LEVEL_RULING` where that frontage is the pad's senior one (priced at
+   `[design] pad_flat`) and `LEVEL_JUNIOR_RULING` otherwise (the law's own
+   weight) — so a plane that can meet both TILTS and one that cannot
+   follows the senior.
+2. `pad_flats` no longer prices a pair footed on a vertex the pad SHARES
+   with the pavement (`pad_shared`): a cap-0 row at `pad_flat` on the
+   apron's own edge IS the pad flattening the apron — the tier the ruling
+   forbids. The 1 % CEILING keeps every pair (the plane's tilt is the
+   whole rim's).
+3. `solve/design` §9b drops every vertex a `[design] pad_level_rulings`
+   row governs from every per-body DEM datum mean: `building` is a value
+   role, so a pad IS an apron body (or part of one) and used to pull that
+   body's mean toward the BUILDING's terrain. A pad that fronts nothing
+   mints no level row and keeps its datum, exactly as ruled.
+
+### 20.2 CONSUMER TABLE (owner 2026-08-30l) — before editing
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| C1 | `constraints/pads.pad_flats` | pad rim pairs | EDITED (2): pairs footed on a shared vertex dropped. |
+| C2 | `constraints/pads.pad_slope_ceiling` | the same pairs | UNCHANGED — the hard 1 % is the plane's tilt over its whole rim (09c); it is the one remaining pad→pavement weld and the residual §20.4 names. |
+| C3 | `constraints/pads.frontage_near_miss` / `frontage_contacts` | soft-role ring edges within `frontage_near_miss_m` of a pad, BOTH endpoints unshared | UNAFFECTED: that law is the SLIVER case (no shared vertex). A pad with a sliver frontage and no shared vertex mints no level row and keeps its DEM datum — stated, not changed. |
+| C4 | `constraints/no_step.pad_contacts`, `constraints/routes` (the pad's route attachment) | `frontage_contacts` | UNAFFECTED via C3 — both name vertices, and no vertex, face or role moves. |
+| C5 | `constraints/ceiling.pavement_ceiling` | every `Diff` over pavement vertices | EDITED: the two LEVEL heads join the pad ceiling's in the skip set (spec §9.2 B5's reason: a cap-0 one-way row twinned two-way at 5 % is a route by which the pad could pull the pavement). |
+| C6 | `constraints/zones` (`pad_rim`, `pad_nearest`, `rigid_rims`, `strip_transverse`'s `pad_pick`) | "a pad with a rim vertex on pavement takes THAT level" | UNAFFECTED AND NOW TRUE BY CONSTRUCTION: an ATTACHED pad already gets no zone band (2026-09-05: CYXY/SPLP/SPJC/OTHH went hard-infeasible with one); 10l is what finally GIVES it that level. A DETACHED pad still takes its strip band. |
+| C7 | `solve/design` §9b per-body datum (`_role_bodies_faced`, `_shape_bodies`) | apron-role bodies incl. `building` | EDITED (3). A pad's vertices leave the mean; the body itself (its connectivity) is unchanged, so no body appears or disappears. |
+| C8 | `solve/design` §9 `detached_mean` / `cs.flats` | `Flat` groups | UNAFFECTED: 09c already stopped pads minting `Flat`; the only `Flat`s left are `constraints/structures`' tunnel mouths and ramp stations (spec §9.2 B9). |
+| C9 | `solve/design` one-way lag (`one_way_max_rounds`, `_LAG_OFF`) | rows with `follows` | EXTENDED: LEMD 13,831 → 16,439 one-way rows. The lag still does not settle in 3 rounds (worst leader move 1.97 m); reported, unchanged from round 0's 0.46 m in kind. |
+| C10 | `solve/why.py` `_FAMILIES` | generator + ruling | EDITED: `pad_level` is its own family, so a `why` on a pad names the pavement edge holding it. |
+| C11 | `solve/design.DesignReport.families` | `row.source.generator` | the residual reporting the ruling asks for — `pad_level` gets its own rows/missed/max_m line. |
+| C12 | `model/constraints.Diff` | frozen dataclass | EDITED: gains `follows` (as `Linear` already had). Positional construction is unchanged; `solve/design` already read it through `getattr`. |
+| C13 | `planar/shapes.py` bodies, `structures.basins` rim sharing | the rim a pad and an apron share | UNAFFECTED: 10k already ruled a shared rim vertex is ONE vertex with ONE value and `basins` pins nothing there. The rim now RISES with the pad — that is 10l's intent ("objects then seat to that ground"). |
+| C14 | `pipeline/build._plate_seats`, `airport/rebake_plan`, `emit/rebake.deck_datum_from_surface` | the emitted surface under an object | UNAFFECTED IN KIND: they read the surface, which now stands where the frontage puts it. Deltas re-measured at LEMD and OTHH (§20.4). |
+| C15 | `verify/pads.pad_flat`, `verify/census.DEFECT_KEYS`, `harness/census.py`, `tools/check_grade.py` | the emitted rings | UNAFFECTED: no new shape class, role, feature class or sidecar key. `pad_flat` is not a DEFECT family (08v). |
+| C16 | `emit/*` (`graded`, `bank`, `osm_adapter`, `clusters`), `pipeline/publication` | solved z, faces, axes | UNAFFECTED — no geometry is added or removed. |
+| C17 | `law/design_schema.check_design` | `[design]` | EDITED: `pad_level_rulings` validated non-empty AND a subset of `one_way_rulings` (the pad FOLLOWS; a level row that is not one-way is the tier again). |
+| C18 | Swift (`SceneryKit`) | JSONL event names | UNTOUCHED: no event, no wire name. |
+
+### 20.3 The law values
+
+`emit.toml [design]`: `pad_level_rulings` (the two heads), the senior head
+added to `pad_flat_rulings`, both added to `one_way_rulings`. No new
+number: the seniority is `precedence.toml`'s order and the two weights are
+`pad_flat` (3000) and `law` (300), already in the table.
+
+### 20.4 MEASUREMENTS (LEMD T4S, replay arms on the 2026-09-10 capture)
+
+Transect: station 0 at `pav16`'s outer ring node toward the rim vertex
+40.49098918, −3.57037578, 1 m stations, z over the patch's own
+triangulation. Span 23.9 m (the whole distance from the ring node to the
+rim).
+
+| arm | transect fall | max 1 m step | pad z | apron edge z |
+|---|---|---|---|---|
+| round 0 (main) | −0.749 m | 0.033 | 598.488 (spread 0.009) | 598.489 |
+| every pad row dropped (the pad-free reference) | +0.161 m | 0.007 | — | 598.757 |
+| round 1 (leaders = shared vertices) — REFUTED | −1.988 m | 0.086 | 597.625 | 597.681 |
+| SHIPPED | −0.345 m | 0.015 | 599.132 (spread 0.342) | 598.994 |
+
+The pad rose +0.64 m to the apron's edge and the apron-edge → pad step is
+0.03 m. **The transect bar (≤ 0.10 m) is MISSED at 0.345 m over 23.9 m
+(1.4 %), reported at the attempt cap.** The pad-free reference (+0.161 m)
+says half a metre of pad pull remains, and the one weld still priced
+against the apron's own edge is `pad_slope_ceiling` (C2): a HARD 1 % row
+between a shared vertex and a pad vertex 3 m away is a 0.03 m weld. Taking
+the ceiling off the shared vertices would be a change to 09c's "the pad is
+ONE plane" — an OWNER question, not a lane's.
+
+`pad_level` residual (LEMD): 1,294 of 2,608 rows missed, worst 7.15 m — a
+flat pad against a sloping frontage misses by construction; the family
+line is the reporting the ruling asks for.

@@ -73,6 +73,12 @@ class Diff:
     #: the IIS names LAW contradictions only.  ``None`` = a hard row.
     soft: str | None = None
     ceiling: float | None = None
+    #: THE ROW IS ONE-WAY (see ``Linear.follows``; owner RULINGS
+    #: 2026-09-10l for a pad's frontage level): the vertex this row
+    #: GOVERNS — the pad that must follow the pavement edge its other
+    #: foot lies on.  Where the design solve prices such a row one-way
+    #: (``[design] one_way_rulings``) only this vertex keeps its column.
+    follows: int | None = None
 
     @property
     def bound_m(self) -> float:

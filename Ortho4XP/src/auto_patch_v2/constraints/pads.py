@@ -29,6 +29,36 @@ is strictly stronger than the owner's law and has no way to express
 
 ``emit.within_shape.pad_slope_max`` is the ONE derivation site of the
 1 % (``verify/pads.py`` reads the same value).
+
+THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
+answering 10k-1 = (A), verbatim: "Pad takes the apron edge level").
+Until 10l a pad had NO level of its own beyond flatness: its plane found
+whatever level minimised bending against everything it touched, and at
+LEMD's T4S pit corner that dragged apron ``pav16``'s own hole ring 1.1 m
+below the apron it belongs to — the apron tiered DOWN into the terminal
+(10k: the rim "held by bending alone").  Under 10l:
+
+* a pad that FRONTS PAVEMENT (shares a rim vertex with a face of a
+  PAVEMENT role — every value role that is not a structure and not the
+  pad itself, ``law.tables.pavement_roles``) takes THAT PAVEMENT'S EDGE
+  LEVEL: :func:`pad_frontage_level` mints, per free pad vertex, a
+  contact row (08t answer 5, flush) at cap 0 against the NEAREST contact
+  vertex of each fronting role, ONE-WAY with the pad vertex as the
+  FOLLOWER — so the pad follows the pavement and NEVER pulls it (the
+  09b (2)/(3) idiom).  Two fronting pavements at different levels: one
+  row each, so the pad TILTS within its 1 % to meet both where a plane
+  can; where it cannot, the SENIOR pavement's rows are priced at
+  ``[design] pad_flat`` and the junior's at the law's own weight
+  (seniority from ``precedence.toml`` via ``senior_role``: runway family
+  > taxi > apron > road), so the pad follows the senior and the residual
+  is REPORTED — the rows carry their own generator ``pad_level``, so
+  ``DesignReport.families`` counts them missed and names the worst.
+* the pad's own FLATNESS rows never touch a contact vertex: a pair with
+  a contact foot is DROPPED from :func:`pad_flats` (the pavement governs
+  its own edge; the level rows carry the plane to it).
+* the pad's own DEM DATUM (09p (3)) applies ONLY to a pad that fronts no
+  pavement — enforced in ``solve/design`` §9b, which drops a FOLLOWER
+  vertex of a ``[design] pad_level_rulings`` row from every body mean.
 """
 from __future__ import annotations
 
@@ -38,23 +68,40 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap
+from ..law.tables import is_rigid_role, pavement_roles, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
-           "frontage_near_miss", "frontage_contacts",
-           "FLAT_RULING", "CEILING_RULING"]
+           "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
+           "pad_shared",
+           "pad_frontage", "FLAT_RULING", "CEILING_RULING",
+           "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL"]
 
 GEN = "pads"
+#: The LEVEL rows carry their own generator so ``DesignReport.families``
+#: reports their residual as its own line (owner 2026-09-10l: "reports
+#: the residual"), never lumped with the flatness target.
+GEN_LEVEL = "pad_level"
 
 #: The ruling HEAD ``[design] pad_flat_rulings`` names (everything before
 #: the first parenthesis, ``solve.design.ruling_head``).
 FLAT_RULING = "structures.building_pad flat"
 #: The ruling HEAD ``[design] hard_rulings`` names for the 1 % tilt ceiling.
 CEILING_RULING = "structures.building_pad pad_slope_max ceiling"
+#: THE LEVEL ROW against the SENIOR fronting pavement (owner 2026-09-10l):
+#: named by ``[design] pad_flat_rulings`` (the pad's own plane weight),
+#: ``[design] one_way_rulings`` (the pad follows, never pulls) and
+#: ``[design] pad_level_rulings`` (the datum suppression in §9b).
+LEVEL_RULING = "structures.building_pad frontage_level"
+#: THE LEVEL ROW against a JUNIOR fronting pavement: the same row at the
+#: LAW's own weight, so a pad between two pavements a plane cannot both
+#: meet follows the SENIOR one and the miss against the junior is the
+#: reported residual.  Named by ``one_way_rulings`` and
+#: ``pad_level_rulings`` but NOT by ``pad_flat_rulings``.
+LEVEL_JUNIOR_RULING = "structures.building_pad frontage_level junior"
 
 #: A pad with more rim vertices than this is priced over a DECIMATED
 #: representative set (every k-th vertex) PLUS every consecutive pair,
@@ -87,6 +134,75 @@ def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]
     return out
 
 
+def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
+    """``(role, vertices)`` per PAVEMENT face — every value role that is
+    not a structure (``law.tables.pavement_roles``) and not rigid, so a
+    pad touching only another pad fronts nothing.  ONE derivation, read by
+    :func:`pad_frontage` and :func:`pad_shared`."""
+    vw = view(planar, law)
+    rigid = set(rigid_roles(law))
+    out: list[tuple[str, set[int]]] = []
+    for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
+        vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
+        if vs:
+            out.append((f.role, vs))
+    return out
+
+
+def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
+    """Pad face id -> the vertices it SHARES with the pavement it fronts
+    (identity is the weld, 09-01g).  Those vertices belong to the pavement
+    too, so under owner RULINGS 2026-09-10l the pad's own flatness target
+    never prices a pair footed on one."""
+    faces = _pavement_faces(planar, law)
+    out: dict[int, set[int]] = {}
+    for fid, _ref, group in _pad_groups(planar, law):
+        pad_vs = set(group)
+        sh: set[int] = set()
+        for _role, vs in faces:
+            sh |= vs & pad_vs
+        if sh:
+            out[fid] = sh
+    return out
+
+
+def pad_frontage(planar: PlanarMap, law: Law) -> dict[int, dict[str, list[int]]]:
+    """THE PAVEMENT EACH PAD FRONTS (owner RULINGS 2026-09-10l), as data:
+    pad face id -> ``{pavement role: that pavement's OWN vertices}``.
+
+    A pad FRONTS a pavement face when it SHARES a rim (or hole-rim) vertex
+    with it — identity is the weld (09-01g) — and the face's role is a
+    PAVEMENT role: ``law.tables.pavement_roles`` (every value role that is
+    not a structure) minus the rigid roles, so a pad touching only another
+    pad fronts nothing.  The near-miss case, where a sub-metre source
+    offset leaves a sliver instead of a shared vertex, is
+    :func:`frontage_near_miss`'s and is unchanged.
+
+    THE VERTICES RETURNED ARE THE PAVEMENT'S OWN — the fronting faces'
+    vertices that are NOT the pad's.  They are the LEVEL rows' LEADERS,
+    and they have to be: a SHARED vertex is a pad vertex, welded into the
+    pad's plane by the flatness target and the hard 1 % ceiling, so a row
+    leading from one says only "the pad equals itself" and leaves the
+    pad's level free (MEASURED, lane v2padlevel round 1: the LEMD T4S pad
+    and pav16's edge fell together to 597.63, 0.86 m BELOW the round-0
+    surface).
+
+    A pad that fronts no pavement never appears here and keeps its own DEM
+    datum (09p (3))."""
+    faces = _pavement_faces(planar, law)
+    out: dict[int, dict[str, list[int]]] = {}
+    for fid, _ref, group in _pad_groups(planar, law):
+        pad_vs = set(group)
+        by_role: dict[str, set[int]] = {}
+        for role, vs in faces:
+            if vs & pad_vs:
+                by_role.setdefault(role, set()).update(vs - pad_vs)
+        by_role = {r: v for r, v in by_role.items() if v}
+        if by_role:
+            out[fid] = {r: sorted(v) for r, v in by_role.items()}
+    return out
+
+
 def _pairs(group: list[int]) -> list[tuple[int, int]]:
     """The pairs a pad's plane is priced over (module docstring): every
     pair while the rim is small, else every consecutive pair plus every
@@ -104,11 +220,24 @@ def _pairs(group: list[int]) -> list[tuple[int, int]]:
     return sorted(pairs)
 
 
-def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str) -> list[Row]:
-    """One ``Diff`` at ``cap`` over every priced pair of every pad."""
+def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
+              skip_shared: bool = False) -> list[Row]:
+    """One ``Diff`` at ``cap`` over every priced pair of every pad.  With
+    ``skip_shared`` a pair with EITHER foot on a vertex the pad SHARES
+    with the pavement it fronts is dropped (owner 2026-09-10l): such a row
+    is two-way at ``pad_flat``, so it is the pad flattening the apron's own
+    edge — the tier the ruling forbids.  MEASURED at LEMD T4S: with the
+    shared feet still priced the transect kept 0.36 m of the pad's pull;
+    without them it is the pad-free surface."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    shared = pad_shared(planar, law) if skip_shared else {}
     rows: list[Row] = []
     for fid, ref, group in _pad_groups(planar, law):
+        sh = shared.get(fid)
+        if sh:
+            group = [v for v in group if v not in sh]
+            if len(group) < 2:
+                continue
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         for a, b in _pairs(group):
             if a == b:
@@ -122,9 +251,63 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str) -> list[Row]
 
 def pad_flats(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE FLATNESS TARGET (owner RULINGS 2026-09-09c): every pair of a
-    pad's rim at cap 0, priced at ``[design] pad_flat``."""
+    pad's rim at cap 0, priced at ``[design] pad_flat`` — over the pad's
+    OWN vertices, never a vertex it shares with the pavement it fronts
+    (owner 2026-09-10l: the pavement governs its own edge, and
+    :func:`pad_frontage_level` carries the plane flush to it)."""
     return _pad_rows(planar, law, 0.0, FLAT_RULING + " (2026-09-09c; "
-                     "09-01g weld = value; 03h pads yield)")
+                     "09-01g weld = value; 03h pads yield)",
+                     skip_shared=True)
+
+
+def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
+                       ) -> list[Row]:
+    """THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
+    10k-1 = (A)): one FLUSH row (08t answer 5, cap 0) from every vertex of
+    a fronting pad to the NEAREST vertex OF THAT PAVEMENT — the pavement's
+    own, never a shared one (:func:`pad_frontage`) — ONE-WAY with the pad
+    vertex as the FOLLOWER, so the pad follows the pavement and never
+    pulls it and the apron does not tier down into the terminal it fronts.
+
+    ONE row per pad vertex, against the frontage NEAREST IT — a pad
+    vertex takes the level of the pavement it stands on, which is what
+    makes a pad between two frontages TILT rather than split the
+    difference everywhere (a row to EVERY frontage from EVERY vertex gives
+    each vertex the same weighted target, so the plane comes out level at
+    the senior's height however small the disagreement — MEASURED, lane
+    v2padlevel: 0.00015 of tilt where the ruling asks for 0.5 %).  The
+    plane then tilts within the hard 1 % (:func:`pad_slope_ceiling`) where
+    it can meet both; where it cannot, the SENIOR frontage's rows
+    (``pad_flat``, an order above the law's) win over the junior's and the
+    miss is the reported residual of the ``pad_level`` family."""
+    xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    front = pad_frontage(planar, law)
+    rows: list[Row] = []
+    for fid, ref, group in _pad_groups(planar, law):
+        by_role = front.get(fid)
+        if not by_role:
+            continue                       # fronts nothing: its DEM datum
+        top = senior_role(law, sorted(by_role))
+        trees = {role: (vs, STRtree([Point(xy[v]) for v in vs]))
+                 for role, vs in by_role.items()}
+        src = {role: Source(
+            GEN_LEVEL,
+            (LEVEL_RULING if role == top else LEVEL_JUNIOR_RULING)
+            + f" ({role}; owner 2026-09-10l 10k-1 = A; 08t flush contacts)",
+            (f"face:{fid}", ref, f"pavement:{role}")) for role in by_role}
+        for v in group:
+            p = Point(xy[v])
+            best: tuple[float, int, str] | None = None
+            for role, (vs, tree) in trees.items():
+                j = vs[int(tree.nearest(p))]
+                d = math.hypot(xy[j][0] - xy[v][0], xy[j][1] - xy[v][1])
+                if d > 0.0 and (best is None or d < best[0]):
+                    best = (d, j, role)
+            if best is None:
+                continue
+            d, j, role = best
+            rows.append(Diff(v, j, 0.0, d, src[role], follows=v))
+    return rows
 
 
 def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

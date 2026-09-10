@@ -17,7 +17,8 @@ from .model import (Declared, Family, FlatSite, Law, RoleCap, ZoneClass,
 
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
-    "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role", "authority_rank",
+    "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
+    "pavement_roles", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
@@ -96,6 +97,17 @@ def is_structure_role(law: Law, role: str) -> bool:
     ``structure = true``): no site-wide preference prices their vertices
     (RULINGS 2026-09-05k-2 amendment)."""
     return bool(getattr(law.tables.precedence.roles[role], "structure", False))
+
+
+def pavement_roles(law: Law) -> tuple[str, ...]:
+    """THE DESIGNED SURFACE ITSELF — every VALUE role that is not a
+    structure (RULINGS 2026-09-08t answer 1: the zone ramp measures its
+    distance from here and such a vertex never takes a DEM fit).  ONE
+    derivation site: ``solve.design.pavement_roles`` delegates here, and
+    ``constraints.pads`` reads it to tell the PAVEMENT a pad fronts from
+    the pad itself (a rigid role is a value role too)."""
+    return tuple(r for r in law.tables.precedence.roles
+                 if is_value_role(law, r) and not is_structure_role(law, r))
 
 
 def role_cap(law: Law, role: str, code_number: int | None = None,

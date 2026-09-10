@@ -674,3 +674,38 @@ unchanged rows, shorter geometry. 7 `pipeline/build` seat exclusion, 8 `verify/s
 (`check_grade.LAW_FAMILIES`, `harness/census.py`) — unchanged: a count/length effect, no
 law change. 10 door wells / sunken roads / basins — unchanged (their own frames).
 11 `--stage structures` — `wall_corridor_admission` keeps (a) alone.
+
+**MEASURED** (four patch builds, one shared corpus: LEMD/OTHH at main `23a10aaf` —
+`--base-arm`, tags `lemdmain5` / `othhmain5` — and at this branch, tags `lemda5` / `r5`;
+DEFECTs 0 in all four).
+
+*LEMD — the owner's 17 shapes (main emits EXACTLY 17 `wall_corridor_ramp`s), before → after
+as `length m / rise m`* (the rise is the climb the ramp makes; at `ramp_grade` 8 % the run is
+`rise / 0.08`): 213.3/10.52 → 101.9/1.62 · 173.5/11.41 → 58.2/1.57 · 167.6/11.38 → 79.8/5.73 ·
+141.8/8.71 → 55.7/1.28 · 115.6/8.45 → 26.1/1.45 · 107.9/4.66 → 69.9/1.60 · 94.5/7.95 → GONE ·
+69.8/2.23 → 60.0/1.51 · 60.3/1.70 → 50.1/0.89 · 55.8/1.37 → 45.9/0.57 · 51.9/2.97 → 36.0/1.89 ·
+38.3/2.09 → 32.3/1.75 · 33.9/1.25 → 33.9/1.25 · 25.8/1.45 → 21.9/1.12 · 24.0/1.29 → 24.0/1.29 ·
+22.2/1.09 → 22.2/1.09 · 9.5/0.32 → GONE.  Every rise now stands inside the ADMITTED authored
+depths the same tree reads (`--stage structures`: 77 admitted, 1.01..6.99 m, median 1.37) —
+the 5.73 m one is `LEMDzaun`'s 6.99 m authored wall — so every ramp is ≤ authored depth /
+`ramp_grade`; the 10.5-11.4 m rises (a 130-140 m run) are gone.  The 20 OSM road bores are
+unchanged (20 → 20), `basin_floor` 0 → 0, census adjudicated 268 → 208.
+**The COUNT rises: 17 → 55 emitted shapes (corridors 17 → 76, bands 836 → 7,174).**  The
+old frame refused most LEMD bands as BURIED (`comp.max_y < dem - anchor_z - contact_band`,
++8..+9 m under a shared-datum pack); in the seated frame that clause reads the object's own
+zero and admits them.  They are SHORT (median authored depth 1.37 m) but numerous — the
+owner's re-read (10ad) now decides whether 1.2-2.6 m cargo-door corridors are tunnels at
+all, i.e. whether 10ac-1 (A) terminals-only follows.
+
+*OTHH — 43 corridors, `by_class` 13 bay + 60 level, 24 emitted shapes: identical in count and
+class; 18 of 24 shapes identical to 0.0 m.*  SIX shapes moved — the `Bridge_06` group
+(25.2504..25.2517, 51.6163..51.6175): 60.5/2.07 → 52.4/1.43, 60.1/2.07 → 52.0/1.43,
+46.3/2.21 → 38.4/1.58, 34.7/1.94 → 26.7/1.29, 34.4/1.92 → 26.7/1.26, 30.2/1.92 → 28.3/1.56.
+Attribution: those placements' anchor plane stands ~0.64 m UNDER the local ground (OTHH's DEM
+is not the constant 3.96 m at the bridge), so the rendered frame read 0.6 m of depth the pack
+never authored — the walls there are authored 1.08..1.46 m down and the ramps now climb
+exactly that.  One consequence downstream: `Bridge_06_LOD0_000`'s `deck_datum_z` 3.615 → 3.96
+(the shorter ramp no longer covers the deck ring, so the datum falls back to the mesh) — the
+rebake plan is otherwise identical (111 units, 948 members, ids and member counts equal).
+Refusal population unchanged (10 ↔ 10, same sites, restated in the authored frame).
+Census adjudicated 4 → 4.

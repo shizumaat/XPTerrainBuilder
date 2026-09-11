@@ -11,7 +11,9 @@ import typing as _t
 
 from ..law import Law
 from ..law.design_schema import BEND_CLASSES
-from ..law.tables import (design as design_law, is_structure_role, is_value_role,
+from ..law.tables import (apron_roles as _apron_roles,
+                          bend_class as _bend_class,
+                          design as design_law, is_structure_role, is_value_role,
                           pavement_roles as _pavement_roles, zone_class)
 from ..model.constraints import Row
 
@@ -37,30 +39,13 @@ def pavement_roles(law: Law) -> tuple[str, ...]:
     return _pavement_roles(law)
 
 
-def bend_class(law: Law, role: str) -> str:
-    """The BENDING CLASS of ``role`` (``design_schema.BEND_CLASSES``, RULINGS
-    2026-09-08v): ``runway`` / ``taxi`` for the two named families,
-    ``road`` for the road cross-section's roles, ``apron`` for every other
-    role that carries its own value, ``strip`` for the rest (the graded
-    strip, the clearances, the cuts — the ground the blend happens in)."""
-    if role in law.tables.precedence.runway_family.members:
-        return "runway"
-    if role in law.tables.precedence.taxi_family.members:
-        return "taxi"
-    if role in law.tables.families["road_cross_section"].roles:
-        return "road"
-    return "apron" if is_value_role(law, role) else "strip"
-
-
-def apron_roles(law: Law) -> frozenset[str]:
-    """The roles of an APRON BODY — every role the bending term prices at
-    ``bend_apron`` (a value role that is not the runway family, the taxi
-    family or the road cross-section).  These are the bodies the PER-BODY
-    DATUM sits (RULINGS 2026-09-09p (3)); the runway family is excluded
-    because the threshold chord and its pins ARE its datum, and a
-    structure's own surface is not a body at all."""
-    return frozenset(r for r in pavement_roles(law)
-                     if bend_class(law, r) == "apron")
+#: THE BENDING CLASS and THE APRON BODY'S ROLES now live in the LAW layer
+#: (``law/tables.py``): ``constraints/apron_trend.py`` forms the same apron
+#: bodies to fit the ground's 2-D trend under them (spec §8.7) and may not
+#: import ``solve`` (M0 §1), so the one derivation site moved down a layer
+#: rather than being copied.  Re-exported here unchanged.
+bend_class = _bend_class
+apron_roles = _apron_roles
 
 
 def taxi_body_roles(law: Law) -> frozenset[str]:

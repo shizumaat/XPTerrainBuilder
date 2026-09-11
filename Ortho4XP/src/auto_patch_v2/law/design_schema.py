@@ -20,7 +20,7 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
                                  "taxi_profile", "taxi_trend", "road",
-                                 "detached_mean", "body_datum")
+                                 "detached_mean", "body_datum", "apron_trend")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -92,6 +92,15 @@ class Design:
     #: The runway and taxi families are excluded (they carry the threshold
     #: chord and the taxi design profile).
     body_datum: float
+    #: THE APRON BODY'S 2-D TREND (owner RULINGS 2026-09-10ar; spec §8.7):
+    #: an apron body whose plan DIAMETER exceeds
+    #: ``runway_profile_window_m`` takes ONE row per vertex against the
+    #: ground's 2-D long-wave trend under it — a moving quadratic SURFACE
+    #: fit of the production DEM over that window — INSTEAD of the three
+    #: affine ``body_datum`` rows, which a plane-sized body keeps.  Weak,
+    #: at ``taxi_trend``'s price: it says WHERE the apron sits, never how
+    #: smoothly, and every law row outranks it.
+    apron_trend: float
     #: THE PAD PLANE (owner RULINGS 2026-09-09c): a pad's flatness is a
     #: STRONG TARGET (it is no longer a hard ``Flat`` merge), and its tilt
     #: is bounded hard at ``emit.within_shape.pad_slope_max``.

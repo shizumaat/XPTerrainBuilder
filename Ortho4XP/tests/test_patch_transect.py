@@ -51,7 +51,7 @@ def _patch(tmp_path: Path) -> Path:
 def test_the_covering_role_wins_by_the_declared_order(tmp_path):
     """A station inside both the runway and the strip reads the RUNWAY —
     what an aircraft is standing on, the module's declared precedence."""
-    rows = pt.transect(_patch(tmp_path), 0.0, -0.001, 0.003, 20.0)
+    rows = pt.transect(_patch(tmp_path), (0.0, -0.001), (0.0, 0.003), 20.0)
     inside = [r for r in rows if 0.0005 < r["lon"] < 0.0015]
     assert inside, "the fixture must put stations inside the runway"
     assert all(r["role"] == "runway" for r in inside)
@@ -62,7 +62,7 @@ def test_the_covering_role_wins_by_the_declared_order(tmp_path):
 
 
 def test_a_station_outside_every_shape_is_named_not_guessed(tmp_path):
-    rows = pt.transect(_patch(tmp_path), 0.0, -0.003, -0.002, 20.0)
+    rows = pt.transect(_patch(tmp_path), (0.0, -0.003), (0.0, -0.002), 20.0)
     assert rows and all(r["covered_by"] == "OUTSIDE PATCH" for r in rows)
     assert all(r["z_m"] is None and r["role"] is None for r in rows)
 
@@ -71,7 +71,7 @@ def test_the_value_is_the_shapes_own_emitted_nodes(tmp_path):
     """At a station the shape's own emitted altitudes give the value: on
     top of a node it IS that node's ``alt_abs``, and between the runway's
     two ends it lies between them — no outside authority, no law."""
-    rows = pt.transect(_patch(tmp_path), 0.00019, 0.00051, 0.00149, 5.0)
+    rows = pt.transect(_patch(tmp_path), (0.00019, 0.00051), (0.00019, 0.00149), 5.0)
     assert all(r["role"] == "runway" for r in rows)
     assert abs(rows[0]["z_m"] - 110.0) < 0.2
     assert abs(rows[-1]["z_m"] - 112.0) < 0.2
@@ -80,7 +80,7 @@ def test_the_value_is_the_shapes_own_emitted_nodes(tmp_path):
 
 
 def test_the_distance_column_is_metres_along_the_transect(tmp_path):
-    rows = pt.transect(_patch(tmp_path), 0.0, -0.001, 0.001, 25.0)
+    rows = pt.transect(_patch(tmp_path), (0.0, -0.001), (0.0, 0.001), 25.0)
     assert rows[0]["dist_m"] == 0.0
     step = rows[1]["dist_m"] - rows[0]["dist_m"]
     assert abs(step - 25.0) < 0.5
@@ -118,3 +118,46 @@ def test_two_arms_are_read_alike_and_the_index_row_exists(tmp_path, capsys):
     index = ROOT.parent / "tools" / "INDEX.md"
     assert index.exists()
     assert "patch_transect.py" in index.read_text()
+
+
+# ── the FREE-BEARING span (lane ``v2aprontrend``, RULINGS 2026-09-10ar) ──
+
+def test_a_free_bearing_span_walks_between_two_points(tmp_path):
+    """``--from LAT,LON --to LAT,LON``: the same station walk on any
+    bearing.  The 10ar read runs from an apron ring node toward a rim
+    vertex, which is neither east nor west."""
+    rows = pt.transect(_patch(tmp_path), (-0.0002, 0.0005), (0.0002, 0.0015),
+                       20.0)
+    assert rows[0]["dist_m"] == 0.0
+    # every station is a whole step from the start, along the diagonal
+    for k, r in enumerate(rows):
+        assert r["dist_m"] == pytest.approx(20.0 * k, abs=0.05)
+        assert -0.0002 <= r["lat"] <= 0.0002 and 0.0005 <= r["lon"] <= 0.0015
+    # the span is the diagonal's own length, and the walk stops inside it
+    span = ((0.0004 * 111320.0) ** 2 + (0.0010 * 111320.0) ** 2) ** 0.5
+    assert rows[-1]["dist_m"] <= span < rows[-1]["dist_m"] + 20.0
+    # it runs INSIDE the runway square, so every station reads the runway
+    assert {r["role"] for r in rows} == {"runway"}
+
+
+def test_from_ref_starts_at_that_ways_node_nearest_the_target(tmp_path):
+    """``--from-ref`` resolves station 0 to the ring node of THAT way
+    nearest the target — never the nearest node of the patch, and never a
+    guess: an unknown ref refuses."""
+    p = _patch(tmp_path)
+    to = (0.0005, 0.003)                       # the strip's far corner
+    got = pt.ring_node_nearest(p, "09/27", to)
+    assert got == pytest.approx((0.0002, 0.0015))     # the runway's own NE node
+    assert pt.ring_node_nearest(p, "strip1", to) == pytest.approx(to)
+    with pytest.raises(SystemExit):
+        pt.ring_node_nearest(p, "nosuchref", to)
+
+
+def test_the_two_span_forms_do_not_mix(tmp_path):
+    """A run naming both forms REFUSES rather than silently preferring one
+    (the east-west form is a different reading of the same options)."""
+    p = str(_patch(tmp_path))
+    assert pt.main([p, "--lat", "0", "--lon-from", "-0.001",
+                    "--to", "0.0005,0.003"]) == 2
+    assert pt.main([p, "--to", "0.0005,0.003"]) == 2
+    assert pt.main([p, "--from", "0,-0.001"]) == 2

@@ -21,6 +21,8 @@ from .shapes import joint_steps, shape_constraints, shape_stage
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
+from ..constraints.apron_trend import (ApronTrendReport, apron_trend_block,
+                                       with_apron_trend)
 from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
                                       with_taxi_trend)
 from ..constraints.runway_profile import RUNWAY_FAMILY
@@ -452,6 +454,26 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"{tt_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
          f"{tt_rep.get('max_below_dem_m', 0.0):.2f} m"
          + (f"; FALLBACK {tt_rep['fallback']}" if tt_rep.get("fallback") else ""), out)
+    # THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
+    # §8.7): an apron body LARGER THAN THE FIT WINDOW takes the ground's
+    # 2-D long-wave trend at every vertex — a moving quadratic SURFACE fit
+    # of the production DEM — instead of its three affine ``body_datum``
+    # rows, which a plane-sized body keeps.  Fitted AFTER the taxi trend,
+    # because a vertex the taxi chain already holds takes no second
+    # authority.
+    at_rep: ApronTrendReport = {}
+    pm = with_apron_trend(pm, law, airport, at_rep)
+    lrep.apron_trend = dict(at_rep)
+    _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
+         f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
+         f"{at_rep.get('samples', 0)} DEM cells, fit "
+         f"{at_rep.get('fit_wall_s', 0.0):.2f} s), "
+         f"{at_rep.get('bodies_plane', 0)} bodies keep their affine PLANE; "
+         f"window {at_rep.get('window_m', 0.0):.0f} m, widest body "
+         f"{at_rep.get('max_diameter_m', 0.0):.0f} m; target above DEM up to "
+         f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
+         f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
+         + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -522,6 +544,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         from .runway_report import runway_profile_block
         design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
         design_rep.taxi_trend = taxi_trend_block(pm, law, sol.z)
+        design_rep.apron_trend = apron_trend_block(pm, law, sol.z)
         for r in design_rep.runway_profile["runways"]:
             _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "
                  f"target RMS {r['target_rms_m']:.3f} m, max {r['target_max_m']:.3f} m; "

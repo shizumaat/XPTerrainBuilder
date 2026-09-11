@@ -647,6 +647,91 @@ stands RED at v1 22 / v2 30 (control 6 / 6, tolerance 4.4): the same class
 round 1 reported at v1 22 / v2 28 — when a taxi body follows its ground, its
 own short-pair box rows appear. Not widened.
 
+### 8.7 AMENDMENT 4 — THE APRON FOLLOWS THE GROUND'S 2-D TREND (owner RULINGS 2026-09-10ar; lane `v2aprontrend`)
+
+§8.6 (2) gave an apron body THREE affine rows. 10ar measured what a plane leaves
+open: over LEMD's 439 × 1,242 m T4S body it has no LOCAL REACH, so the pit corner
+sat 1.2 m under its own DEM and the sheet fell 0.79 m over the last 23.8 m into
+it — the 1-D chain's "right mean, no tilt" defect (10t) one order up.
+
+1. **An APRON body targets the ground's 2-D LONG-WAVE TREND at every vertex.** A
+   moving QUADRATIC SURFACE least-squares fit of the production DEM —
+   `[1, u, v, u², uv, v²]` in the query's own centred plan frame, TRICUBE-weighted
+   over radius `[design] runway_profile_window_m`, the fit's value AT the query
+   (`constraints/surface_trend.py`, the 2-D sibling of `trend.py`; the 1-D
+   construction is untouched). Samples are the production DEM under the body's OWN
+   vertices, averaged per `window/10` cell — the 2-D analogue of `trend_of`'s
+   per-station averaging, and what makes the fit affordable over thousands of
+   vertices. The DEGREE is bounded by what the in-window samples resolve
+   (quadratic only where they span at least half the window, else the plane, else
+   their weighted mean) — the same bound `Trend.at` puts on the 1-D fit, for the
+   same reason: through a handful of near points a quadratic is interpolation,
+   i.e. the per-vertex DEM pull 08t (1) removed.
+2. **The replacement rule is the body's EXTENT.** A body whose plan DIAMETER
+   exceeds the window takes ONE trend row per vertex at the new weak weight
+   `[design] apron_trend` (30, `taxi_trend`'s price) and NO affine rows: over more
+   than one window a plane cannot speak locally. A body at or under the window
+   keeps its three `body_datum` rows unchanged — inside one window the trend IS
+   its plane to the fit's own precision, and three rows are cheaper than N.
+   Derived in `constraints/apron_trend.py`, published as `PlanarMap.apron_trend_z`
+   (its own channel, like `taxi_trend_z`); `solve/design.py` drops the plane rows
+   of any body a published target touches, so ONE gate decides both.
+3. **Unchanged:** pads (10y/10ah — a `pad_level` vertex takes no trend row, as it
+   takes no datum row), rims (`structures.rim_level`, 10ar), the within-shape
+   apron rows (§8.6 (3)), the taxi trend (§8.6.1), every hard law. A vertex the
+   apron shares with the RUNWAY family takes no trend row (the runway owns it),
+   nor does one already carrying a `taxi_trend` row (two authorities on one vertex
+   is the `emit consensus mints violations` class).
+
+Consumers touched: `pipeline/why.py` publishes `apron_trend_z` before its LP, so an
+apron vertex held by its trend no longer reads "held by bending alone";
+`solve/design_report.py` — the design line and the sidecar `design` block gain
+`apron_trend` (per body: vertices, diameter, target RMS/max, mean z − DEM) and
+`apron_trend_rows`, `body_datums` records only the bodies that KEPT their plane, and
+`airport/load.py` gains `report.load.apron_trend` (coverage, fit wall); the census law
+families are UNCHANGED (no law row moves).
+
+### 8.7.1 MEASURED (lane `v2aprontrend`, branch `claude/v2aprontrend`) — the weight is 30 and the LEMD bar is MISSED at the cap
+
+Four patch-only arms against `--base-arm` controls at main `2fb83ce3`; DEFECTs
+(`verify.census.DEFECT_KEYS`) **0** on all eight.
+
+**LEMD T4S (the site).** `pad_level_report transect` from `pav16`'s ring node
+(v21431) to the rim vertex v21785, 23.8 m, on `v2_solve_replay --solved-out`
+arms of ONE capture — the instrument 10ar's number was read on, with the
+replay fixed first: it published NEITHER `taxi_trend` NOR `apron_trend`, so
+two arms of this round came back byte-identical (`_targets`, now the build's
+own order). Control **−0.972 m**, arm **−0.432 m**; max 1 m station step
+0.042 → **0.019** (bar 0.05 MET); the apron corner's z − DEM −0.96 → **−0.66**.
+The 0.10 m bar is MISSED, and the WEIGHT IS NOT THE KNOB: `apron_trend` 30 →
+100 → 300 reads −0.432 / −0.384 / −0.339 and saturates (two iterations, the
+attempt cap). `why` on v21785 (duals): the only binding row is `rim_level`
+(dual 166); the chain to the terminal runs v21785 → v21779 → v21778 → v21748
+with the fall split **`pad_frontage_level` +1.30 m**, `apron_preference`
+(1 % × 44 m) +0.45, `rim_level` +0.08 — i.e. what is left of the T4S fall is
+the BUILDING PAD's frontage level (10l/10y) pulling the apron's last hops
+down, not the body datum this round replaced. Reported, not iterated.
+Adjudicated 555 → 584.
+
+**HECA** (undulation RMS 2nd difference, arm/control): apron **0.987×**,
+junction **0.965×**, cross_connector 1.001×, primary_parallel 0.987×, stub
+0.986× — every role ≤ control (cross_connector's excess is 1.7e-6 in the RMS
+itself, under materiality), and the 10aj junction residual is paid.
+Bows unchanged: 05C/23C −3.58 (control −3.55), 05L/23R −1.74 (−1.73).
+Adjudicated 6096 → 6264.
+
+**SPJC** the terminal apron `pav40` (the 10t body), `patch_transect` 200 m of
+covered path: arm **0.37 %** end-to-end (control 0.91 %), worst 10 m station
+3.2 % (control 3.4 %) — bar ≤ 1.5 % MET; its z − DEM |0.04–0.98| where the
+control runs to −2.19. The taxi at −12.0284851, −77.1128014: **−0.14 m**
+(bar ±1.5 MET), unchanged from control. Adjudicated 262 → 275.
+
+**OTHH** is NOT byte-identical (`dc136a7383d8` vs `f340732abaf1`): 6 bodies
+exceed the window even on its flat site. Quoted per the bar — row-side 382 of
+19,959 nodes moved > 0.01 m, worst **0.21 m**; solve-owned 45 of 13,268,
+worst **0.010 m**; 0 welded to the road family. Adjudicated 4 → 15 (14
+groundside, 1 airside).
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

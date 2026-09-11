@@ -298,6 +298,28 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)
     from auto_patch_v2.constraints.runway_chord import with_runway_chord
+
+    def _targets(m):
+        """THE BUILD'S OWN TARGET CHANNELS, in ``pipeline/build.py``'s order:
+        the runway profile, then the taxi chains' trend (RULINGS 2026-09-10v),
+        then the apron bodies' 2-D trend (RULINGS 2026-09-10ar).  The replay
+        claims to reproduce the build's LP, so it must publish all three —
+        without them a replay arm silently solves a DIFFERENT problem (this
+        is how a lane read two arms of the apron trend as byte-identical).
+        A tree that predates a channel simply does not have it: the import
+        is asked for, never assumed, so an OLD capture and an OLD tree still
+        replay."""
+        m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
+        for mod, fn in (("taxi_trend", "with_taxi_trend"),
+                        ("apron_trend", "with_apron_trend")):
+            try:
+                pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
+                                         fromlist=[fn]), fn)
+            except (ImportError, AttributeError):
+                continue
+            m = pub(m, law, airport)
+        return m
+
     if chord_fill:
         print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "
               f"crown-plane chord target")
@@ -315,10 +337,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
     network_crosscheck(pm, law, airport)
     if resume in ("planar", "shapes"):
-        pm = with_runway_chord(pm, law, airport, fill_roles=chord_fill)   # change 1 (build.py order)
+        pm = _targets(pm)                                 # change 1 (build.py order)
         stage = shape_stage(pm, law, airport, cl)
     else:
-        stage = _dc.replace(stage, pm=with_runway_chord(stage.pm, law, airport, fill_roles=chord_fill))
+        stage = _dc.replace(stage, pm=_targets(stage.pm))
     pm = stage.pm
     if design_weights:
         d0 = law.tables.emit.design

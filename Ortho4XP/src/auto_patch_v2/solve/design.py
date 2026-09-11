@@ -191,7 +191,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rows = _Rows(red)
     one: list[_Side] = []
     eqs: list[_Side] = []
-    chord_v = road_v = trend_v = 0
+    chord_v = road_v = trend_v = apron_trend_v = 0
     if red.n_cols == 0:
         return Base(rows, red, one, eqs, n)      # nothing to solve
 
@@ -454,6 +454,28 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         for vid, target in _plane_targets(planar, vs):
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
 
+    # 9a.  THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
+    #     §8.7).  9b below gives an apron body three AFFINE rows, so its
+    #     least-squares PLANE follows the ground's — but over a body larger
+    #     than the fit window a plane has no LOCAL reach: LEMD's T4S apron
+    #     is one 439 x 1,242 m body whose plane was satisfied while its pit
+    #     CORNER sat 1.2 m under its own DEM.  Such a body takes ONE row per
+    #     vertex against the ground's 2-D LONG-WAVE TREND under it, derived
+    #     in ``constraints/apron_trend.py`` and published through
+    #     ``PlanarMap.apron_trend_z`` (``solve`` imports ``law`` and
+    #     ``model`` only, M0 §1), and NO affine rows (9b reads the same
+    #     channel, so ONE gate decides both).  WEAK, at ``[design]
+    #     apron_trend``: it says WHERE the apron sits, and every law row is
+    #     senior.  A PAD FOLLOWING ITS FRONTAGE takes no trend row, exactly
+    #     as it takes no datum row (10l) — the register is known here, so
+    #     the drop happens here.
+    for vid, target in planar.apron_trend_z.items():
+        if vid in rwy_v or vid in pad_follow:
+            continue
+        if rows.add(((vid, 1.0),), float(target), d.apron_trend,
+                    ("apron_trend", vid)):
+            apron_trend_v += 1
+
     # 9b. THE PER-BODY DATUM IS THE GROUND'S PLANE (owner RULINGS
     #     2026-09-09p (3), refining 08t answer 6; the AFFINE fit ruled in
     #     2026-09-10t (1) and 2026-09-10v (2)).  Bending alone has an
@@ -527,6 +549,16 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue
+            # THE BODY'S EXTENT DECIDES (spec §8.7 (2)): a body larger than
+            # the fit window carries the 2-D TREND at every vertex (5d) and
+            # NO plane.  The gate itself lives at the one derivation site
+            # (``constraints/apron_trend``); here the published channel IS
+            # the decision, so the two can never disagree.  The solve's own
+            # body is a SUBSET of that module's (it also drops fixed
+            # columns, DEM-less vertices and foreign shape members), so one
+            # touched vertex identifies the body.
+            if any(v in planar.apron_trend_z for v in vs_b):
+                continue
             mean_dem = sum(zs) / len(zs)
             added = 0
             for name, coefs, rhs in _plane_rows(planar, vs_b, zs):
@@ -537,6 +569,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 meta.append(_BodyDatum(kind=kind, vertices=tuple(vs_b),
                                        dem_mean=mean_dem, rows=added))
     rep.taxi_trend_rows = trend_v
+    rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n
     rep.body_datum_bodies = len(meta)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,

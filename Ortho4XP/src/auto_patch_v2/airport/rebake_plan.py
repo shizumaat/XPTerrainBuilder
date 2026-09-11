@@ -92,8 +92,17 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     plates: dict[str, tuple[float, _t.Sequence[XY]]] = dict(tunnel_objects or {})
     if not law.tables.structures.tunnel.object.reseat:
         plates = {}
+    #: THE ADMITTED BASINS' OWN MEMBERS (owner RULINGS 2026-09-10ax (2)):
+    #: a basin facility is never demoted by the below-grade skip — the
+    #: pit IS its members' below-grade geometry, so skipping them there
+    #: strands the whole family at its authored y while the terrain moves
+    #: under it (LEMD's ``Ground-FSX-LEMD36``/``LEMD85``, 1.0.310).  The
+    #: basin's own exclusion / plate seat governs them instead.
+    basin_members: set[str] = set()
     if below_grade:
         owners = {oid for _r, ids in below_grade for oid in ids}
+        basin_members = {o.id for o in objects
+                         if o.id in owners or o.path in owners}
         foreign = [o for o in objects if o.id not in owners and o.path not in owners]
         keep = {o.id for o in foreign}
         promoted, _n = _deck.promote(foreign, [r for r, _ids in below_grade])
@@ -155,7 +164,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         # and hundreds of at-grade siblings — 76 of round 2's 122 misses
         # were that file skipped WHOLE, the same one-body error 09s (2)
         # corrects one pass later inside the cluster seat.
-        exempt = (in_deck_family and rb.deck_family_seats_rigid) or in_plate_family
+        exempt = ((in_deck_family and rb.deck_family_seats_rigid) or in_plate_family
+                  or o.id in basin_members)      # 10ax (2): a facility, not a skirt
         deep_comps = set() if exempt else set(o.below_grade_comps)
         genuine_ix = [i for i, c in enumerate(cache.components(o.resolved))
                       if c.max_y - c.min_y >= cache.thickness_m] if deep_comps else []

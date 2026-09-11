@@ -114,7 +114,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..airport import deck_signature, obj8
+from ..airport import basin_witness as _basin_witness
+from ..airport import obj8
 from ..classify.roles import Cell, Classification
 from ..law import Law
 from ..law.tables import role_side
@@ -146,37 +147,13 @@ class BasinStats:
     cells_cut: int = 0
 
 
-def read_objects(airport: Airport, law: Law, cache: obj8.ResourceCache | None = None
-                 ) -> tuple[list[obj8.PlacedObject], obj8.ObjReport]:
-    """Every placed OBJ8 of the pack read once (``airport/obj8.py``)."""
-    bl = law.tables.structures.basin
-    rows = []
-    for o in airport.dsf_objects:
-        if not o.path.lower().endswith(".obj"):
-            continue
-        rows.append((o.id, o.path, o.xy, o.heading_deg,
-                     o.y_offset_m if o.kind == "OBJECT_AGL" else None, o.kind))
-    # the loader already resolved: hand the resolved path through the
-    # index mapping so obj8 never walks the pack a second time
-    index = {o.path: o.resolved_path for o in airport.dsf_objects if o.resolved_path}
-    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
-    objs, rep = obj8.read_placed_objects(rows, None, index, airport.dem.z,
-                                         bl.admission_depth_m, bl.min_solid_thickness_m,
-                                         bl.contact_band_m, cache,
-                                         shell_reaches_grade=bl.shell_reaches_grade,
-                                         floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
-                                         rim_reaches_grade=bl.rim_reaches_grade,
-                                         rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
-                                         authored_depth_min_m=bl.authored_depth_min_m)
-    # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
-    # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
-    objs, drep = deck_signature.classify(objs, cache, law,
-                                         deck_signature.bridge_lines(airport.osm_ways))
-    rep.deck_families = drep.families
-    rep.deck_signature_families = drep.accepted
-    rep.deck_candidate_families = drep.candidates
-    rep.deck_records = tuple(drep.records)
-    return objs, rep
+#: THE PACK READ ONCE, AND THE BASIN ADMISSION READ FIRST (owner
+#: RULINGS 2026-09-10ax (2)): rule 1 — which placements carry a floor
+#: witness — lives in ``airport/basin_witness.py`` so the skirt reader
+#: and the re-seat plan can ask it BEFORE this region pass runs.  One
+#: implementation, memoised on the shared ``ResourceCache``; the name
+#: stays here because every caller of the region pass reads it here.
+read_objects = _basin_witness.read_objects
 
 
 def _snap_ring(poly: Polygon, grid: float) -> Polygon | None:

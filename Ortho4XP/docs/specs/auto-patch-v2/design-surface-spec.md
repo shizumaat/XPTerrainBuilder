@@ -3392,6 +3392,41 @@ A road-width cut is NOT a skirt by construction (its fraction is small);
 `wall_corridors.py` is untouched — Law C's round imports this reader for 10af's
 narrow-cut clause (ii).
 
+### 22.1b A BASIN MEMBER IS NEVER SKIRTED (owner RULINGS 2026-09-10ax (2)) — lane `v2basinfix`
+
+The reader above is per RESOURCE and answers "is the below-zero geometry uniform
+across the footprint?".  A PIT answers yes: it is exactly that shape.  So the
+basin admission runs FIRST and its members are exempt.
+
+* `airport/basin_witness.py` — rule 1 of `planar/basins`' admission (a placement
+  carrying a floor witness: 09ak's authored depth under the object's OWN datum
+  as well as under the local ground), lifted out of the planar pass so classify
+  can ask it.  `read_objects` moves here whole — ONE implementation, memoised on
+  the shared `ResourceCache`, `planar/basins` re-exports the name — so asking at
+  classify time costs the planar pass nothing.  No DEM, no basin member.
+* the exemption sits at `skirt.skirted_placements`, the ONE derivation site of
+  "skirted", so both §22.2 (the pad) and §22.3 (the seat) inherit it.
+* `airport/rebake_plan.plan` exempts the members of the `below_grade` regions it
+  is already handed from 09w (1)'s per-component below-grade skip: the basin's
+  own exclusion / plate seat governs them.
+
+Why (measured at LEMD, app 1.0.310): the T4S pit's own members
+`Ground-FSX-LEMD36`/`LEMD85` read skirts of 7.014/7.03 m and covered 94 % of the
+T4S terminal pad `building16` (relief 4.65 m), so §22.2 dropped it; with the pad
+gone `planar/structures` no longer refused the OSM road bore `-5970` ("the mouth
+stands against building pad building16"), its ramp became a `kind == "structure"`
+cell on the pit's rim, and `planar/basins` rule 5 refused the basin — "27557 m2
+overlaps a tunnel structure".  `basin_facilities` 1 → 0 between 1.0.308 and
+1.0.309, the pit went uncut and `Ground-FSX-LEMD37` seated +4.7…+5.0 m onto the
+uncut surface: the owner's "lip 2 m above the apron".
+
+RESIDUAL, reported not fixed (outside 10ax (2)): the basin's floor is
+`DEM(anchor) + agl + plate_y` while its rim takes the PAVEMENT's level (10ar), so
+at LEMD the cut is 8.31–8.96 m deep where the object is 7.05 m and the plate seat
+lands `Ground-FSX-LEMD37`'s authored wall crest (−1.88) 3.14–3.79 m under the rim
+instead of 10aq's 1.9 m.  Whether the floor should be `rim − authored depth` is a
+law question for the owner, not this lane's.
+
 ### 22.2 WHICH PADS ARE NO LONGER MINTED
 
 In `classify/evidence._pads`, BEFORE the pad is added and before every region is

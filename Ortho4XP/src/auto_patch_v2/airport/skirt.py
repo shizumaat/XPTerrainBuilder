@@ -216,16 +216,32 @@ def skirted_placements(airport, law, cache: _obj8.ResourceCache | None = None
                        ) -> tuple[dict[str, float], _obj8.ResourceCache]:
     """``{placement id: skirt depth s}`` over the airport's resolved
     ``.obj`` placements, and the cache the readings are memoised on (the
-    caller passes its own so the pack is parsed once)."""
+    caller passes its own so the pack is parsed once).
+
+    A BASIN MEMBER IS NEVER SKIRTED (owner RULINGS 2026-09-10ax (2)).
+    The basin admission runs FIRST (``airport/basin_witness.py``) and its
+    members are exempt HERE — at the one derivation site of "skirted", so
+    both consumers inherit it: ``classify/evidence._drop_skirted`` keeps
+    the pad standing over a pit, and ``emit/clusters`` keeps 10i's seat
+    for it.  A skirt is a foundation under a building that stands ABOVE
+    the ground; a basin's members ARE the pit, and their below-zero
+    geometry is uniform across the footprint for exactly that reason.
+    Measured at LEMD: ``Ground-FSX-LEMD36``/``LEMD85`` read skirts of
+    7.01/7.03 m and dropped the T4S terminal pad ``building16``, which
+    cost the pit its cut — ``basin_witness``' module doc has the chain."""
     sk = law.tables.structures.skirt
     cache = cache or _obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     out: dict[str, float] = {}
     if not (sk.drops_pad or sk.seat_low_side):
         return out, cache
+    from .basin_witness import basin_member_ids
+    basins = basin_member_ids(airport, law, cache)
     for o in getattr(airport, "dsf_objects", ()):
         resolved = getattr(o, "resolved_path", None)
         if not resolved or not str(o.path).lower().endswith(".obj"):
             continue
+        if o.id in basins:
+            continue                      # a facility, not a foundation
         r = reading(cache, resolved, law)
         if r.skirt and r.depth_m is not None:
             out[o.id] = r.depth_m

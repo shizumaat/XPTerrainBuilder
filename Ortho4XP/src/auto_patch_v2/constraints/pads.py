@@ -75,7 +75,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import is_rigid_role, pavement_roles, role_cap, senior_role
+from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
+                          role_cap, senior_role)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -86,7 +87,7 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
-           "frontage_leaders", "_two_sided"]
+           "frontage_leaders", "_two_sided", "frontage_radius_m"]
 
 GEN = "pads"
 #: The LEVEL rows carry their own generator so ``DesignReport.families``
@@ -165,6 +166,133 @@ def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
     return out
 
 
+def frontage_radius_m(law: Law) -> float:
+    """THE PROXIMITY HORIZON (owner RULINGS 2026-09-10ax (1)): ``[design]
+    pad_frontage_m``.  A pad EDGE within this of a pavement EDGE fronts
+    it, shared vertex or not.  ONE derivation site; a law value, never a
+    literal here."""
+    return float(design_law(law).pad_frontage_m)
+
+
+def _pad_polys(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int], Polygon]]:
+    """``(face id, ref, rim vertices, plan polygon)`` per pad — the pad's
+    own outline, for the PROXIMITY read.  A pad whose outer ring is a
+    sliver (< 3 vertices) has no polygon and is skipped: it can still
+    front by a shared vertex."""
+    vw = view(planar, law)
+    out: list[tuple[int, str, list[int], Polygon]] = []
+    for fid, ref, group in _pad_groups(planar, law):
+        ring = vw.rings[fid]
+        if len(ring) < 3:
+            continue
+        poly = Polygon([vw.xy[v] for v in ring],
+                       [[vw.xy[v] for v in h] for h in vw.holes[fid] if len(h) >= 3])
+        if poly.is_empty:
+            continue
+        if not poly.is_valid:
+            poly = poly.buffer(0.0)
+            if poly.is_empty or not isinstance(poly, Polygon):
+                continue
+        out.append((fid, ref, group, poly))
+    return out
+
+
+def _pavement_geoms(planar: PlanarMap, law: Law
+                    ) -> list[tuple[str, set[int], Polygon]]:
+    """``(role, vertices, plan polygon)`` per PAVEMENT face — the same
+    face set as :func:`_pavement_faces`, carrying the outline the
+    PROXIMITY read measures against (owner RULINGS 2026-09-10ax (1))."""
+    vw = view(planar, law)
+    rigid = set(rigid_roles(law))
+    out: list[tuple[str, set[int], Polygon]] = []
+    for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
+        vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
+        ring = vw.rings[f.id]
+        if not vs or len(ring) < 3:
+            continue
+        poly = Polygon([vw.xy[v] for v in ring],
+                       [[vw.xy[v] for v in h] for h in vw.holes[f.id] if len(h) >= 3])
+        if poly.is_empty:
+            continue
+        if not poly.is_valid:
+            poly = poly.buffer(0.0)
+            if poly.is_empty or not isinstance(poly, Polygon):
+                continue
+        out.append((f.role, vs, poly))
+    return out
+
+
+def _fronting(planar: PlanarMap, law: Law
+              ) -> dict[int, dict[str, tuple[set[int], set[int]]]]:
+    """THE ONE DERIVATION OF "WHAT DOES THIS PAD FRONT" (owner RULINGS
+    2026-09-10ax (1)): pad face id -> ``{pavement role: (CONTACTS, the
+    pavement's OWN vertices along that frontage)}``.
+
+    A pad fronts a pavement face two ways, and the ruling makes them one
+    law:
+
+    * BY IDENTITY — it SHARES a rim vertex with it (09-01g, the pre-10ax
+      reading).  The contacts are those shared vertices; the pavement's
+      own vertices are the face's rest.
+    * BY PROXIMITY — its EDGE stands within ``[design] pad_frontage_m``
+      of the pavement's edge (:func:`frontage_radius_m`).  LEMD
+      ``building4`` (way −10936, 66,257 m², 40.4603701 −3.5756711) stands
+      1.60 m from ``pav124`` and shared NOTHING, so before 10ax it had no
+      frontage row at all and kept its DEM datum while the apron trend
+      lifted the pavement — the pad ended 1.58 m BELOW the apron it faces
+      and the building floated over the drop (owner's 1.0.310 read,
+      RULINGS 2026-09-10aw).  16 of LEMD's 43 pads are in that class.
+      The contacts are then the pad's OWN rim vertices within the radius
+      of that pavement face, and every one of the face's vertices is its
+      own.
+
+    A pad fronting neither way is absent here and keeps its DEM datum
+    (09p (3)), exactly as ruled."""
+    geoms = _pavement_geoms(planar, law)
+    r = frontage_radius_m(law)
+    tree = STRtree([g[2] for g in geoms]) if geoms else None
+    xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    out: dict[int, dict[str, tuple[set[int], set[int]]]] = {}
+    for fid, _ref, group, poly in _pad_polys(planar, law):
+        pad_vs = set(group)
+        by_role: dict[str, tuple[set[int], set[int]]] = {}
+        cand = ([] if tree is None else
+                (tree.query(poly, predicate="dwithin", distance=r)
+                 if r > 0.0 else tree.query(poly, predicate="intersects")))
+        for gi in cand:
+            role, vs, gpoly = geoms[int(gi)]
+            hit = vs & pad_vs
+            if not hit and r > 0.0:
+                # BY PROXIMITY: the pad's own edge vertices facing it
+                hit = {v for v in pad_vs - vs
+                       if gpoly.distance(Point(*xy[v])) <= r}
+            if not hit:
+                continue
+            c, own = by_role.setdefault(role, (set(), set()))
+            c.update(hit)
+            own.update(vs - pad_vs)
+        if by_role:
+            out[fid] = by_role
+    # A pad with no polygon of its own (a sliver rim) still fronts by
+    # identity — the pre-10ax read, unchanged.
+    have = set(out)
+    faces = _pavement_faces(planar, law)
+    for fid, _ref, group in _pad_groups(planar, law):
+        if fid in have:
+            continue
+        pad_vs = set(group)
+        by_role: dict[str, tuple[set[int], set[int]]] = {}
+        for role, vs in faces:
+            hit = vs & pad_vs
+            if hit:
+                c, own = by_role.setdefault(role, (set(), set()))
+                c.update(hit)
+                own.update(vs - pad_vs)
+        if by_role:
+            out[fid] = by_role
+    return out
+
+
 def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
     """Pad face id -> the vertices it SHARES with the pavement it fronts
     (identity is the weld, 09-01g).  Those vertices belong to the pavement
@@ -205,35 +333,27 @@ def pad_frontage(planar: PlanarMap, law: Law) -> dict[int, dict[str, list[int]]]
 
     A pad that fronts no pavement never appears here and keeps its own DEM
     datum (09p (3))."""
-    faces = _pavement_faces(planar, law)
-    out: dict[int, dict[str, list[int]]] = {}
-    for fid, _ref, group in _pad_groups(planar, law):
-        pad_vs = set(group)
-        by_role: dict[str, set[int]] = {}
-        for role, vs in faces:
-            hit = vs & pad_vs
-            if hit:
-                by_role.setdefault(role, set()).update(hit)
-        if by_role:
-            out[fid] = {r: sorted(v) for r, v in by_role.items()}
-    return out
+    return {fid: {role: sorted(c) for role, (c, _own) in by_role.items()}
+            for fid, by_role in _fronting(planar, law).items()}
 
 
 def pad_datum_withdrawn(planar: PlanarMap, law: Law) -> set[int]:
     """THE VERTICES OF EVERY FRONTING PAD (owner RULINGS 2026-09-10l):
     ``solve/design`` §9b drops them from every per-body DEM datum mean —
     a fronting pad's level is its frontage's, not the building's terrain.
-    The CONTACT vertices are NOT withdrawn: they are the pavement's own
-    edge and belong in the pavement body's mean.  A pad that fronts
-    nothing is not here and keeps its datum, exactly as ruled."""
+    The SHARED vertices are NOT withdrawn: they are the pavement's own
+    edge (09-01g) and belong in the pavement body's mean.  A PROXIMITY
+    contact (owner RULINGS 2026-09-10ax (1)) is a pad vertex and nothing
+    else, so it IS withdrawn — the pad's whole plane follows.  A pad that
+    fronts nothing is not here and keeps its datum, exactly as ruled."""
     front = pad_frontage(planar, law)
+    shared = pad_shared(planar, law)
     out: set[int] = set()
     for fid, _ref, group in _pad_groups(planar, law):
-        by_role = front.get(fid)
-        if not by_role:
+        if not front.get(fid):
             continue
-        contacts = {v for vs in by_role.values() for v in vs}
-        out.update(v for v in group if v not in contacts)
+        sh = shared.get(fid, set())
+        out.update(v for v in group if v not in sh)
     return out
 
 
@@ -330,18 +450,8 @@ def pad_frontage_leaders(planar: PlanarMap, law: Law
     own vertex either (arm B, above).  A pavement face with no own vertex
     in the band falls back to its nearest ``_LEADER_K`` — a face smaller
     than the band is all edge, and its own level is the only one it has."""
-    faces = _pavement_faces(planar, law)
     out: dict[int, dict[str, list[tuple[int, list[tuple[int, float]]]]]] = {}
-    for fid, _ref, group in _pad_groups(planar, law):
-        pad_vs = set(group)
-        by_role: dict[str, tuple[set[int], set[int]]] = {}
-        for role, vs in faces:
-            hit = vs & pad_vs
-            if not hit:
-                continue
-            c, own = by_role.setdefault(role, (set(), set()))
-            c.update(hit)
-            own.update(vs - pad_vs)
+    for fid, by_role in _fronting(planar, law).items():
         got: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
         for role, (contacts, own) in by_role.items():
             per = frontage_leaders(planar, contacts, own)
@@ -428,6 +538,8 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
         # DEM datum (10l).  Its CONTACTS are the pavement's edge and stay
         # in the pavement body's mean.
         own = tuple(sorted(set(group) - shared.get(fid, set())))
+        if not own:
+            continue        # every rim vertex IS the pavement's: nothing follows
         for role, pairs in by_role.items():
             terms: dict[int, float] = {v: 1.0 / len(group) for v in group}
             for _c, lw in pairs:
@@ -438,8 +550,19 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
                          + f" ({role}; owner 2026-09-10l 10k-1 = A; "
                          "10y the plane's level from its frontage)",
                          (f"face:{fid}", ref, f"pavement:{role}"))
-            rows.extend(_two_sided(tuple(terms.items()), src,
-                                   tuple(sorted({*group, *own}))))
+            # THE ROW IS ONE-WAY IN CONSTRUCTION (owner RULINGS
+            # 2026-09-10ax (1), answering 10at): the followers are the
+            # PAD'S OWN PLANE — its non-shared vertices.  A vertex the pad
+            # SHARES with the pavement is a PAVEMENT vertex (09-01g: one
+            # vertex, one value) and enters as a LEADER, on the right-hand
+            # side at its previous outer-round value (§9b).  Until 10ax
+            # the follower set was the whole rim, contacts included, so a
+            # pad's own mean reached back into the shared vertices and
+            # MOVED the pavement: `why` read `pad_frontage_level` +1.30 m
+            # on LEMD's T4S apron corner (10at).  The row now moves the
+            # pad up OR down to the pavement and the pavement never feels
+            # it — proved against a no-pad-row arm.
+            rows.extend(_two_sided(tuple(terms.items()), src, own))
     return rows
 
 

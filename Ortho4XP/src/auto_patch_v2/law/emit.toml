@@ -309,6 +309,20 @@ pad_level_rulings = [
   "structures.building_pad frontage_level",
   "structures.building_pad frontage_level junior",
 ]
+# A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): a pad EDGE
+# within this of a pavement EDGE fronts it, shared vertex or not.  Until
+# 10ax frontage was identity only (a shared vertex), and LEMD's
+# ``building4`` (66,257 m², 40.4603701 -3.5756711) stands 1.60 m from
+# ``pav124`` sharing nothing: it had NO frontage row, kept its DEM datum
+# while the apron trend lifted the pavement, and ended 1.58 m below the
+# apron it faces with the building floating over the drop (owner's 1.0.310
+# read, RULINGS 2026-09-10aw).  16 of LEMD's 43 pads are in that class.
+# 3.0 m = ``structures.groundside_cutback_m`` 0.6 + the snap's half
+# diagonal, with the margin a source-to-source offset needs (SPJC
+# building29's 0.68 m facade-vs-apt.dat offset is the near-miss
+# precedent, ``frontage_near_miss_m`` 1.0).  0 disables the proximity
+# clause and leaves the identity read alone.
+pad_frontage_m = 3.0
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m

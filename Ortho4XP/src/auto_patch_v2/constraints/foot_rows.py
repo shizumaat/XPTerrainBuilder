@@ -35,13 +35,18 @@ NO PAD, NO RIM, NO CONSUMER (spec §11a (4) holds by construction): this
 module publishes target rows and a report, and touches no pad polygon, no
 pad level and no pad consumer.
 
-**THE ROW IS A LAW-SHAPED ``Linear`` PRICED AS A DATUM.**  The rows reach
+**THE ROW IS A LAW-SHAPED ``Linear`` PRICED AS THE PAD.**  The rows reach
 the solve the way every airport-derived target does — through the
 ``ConstraintSet`` — as a two-sided ``Linear`` (``lo = hi = target``) whose
-ruling HEAD is registered in ``[design] ground_datum_rulings``, so
-``solve/design`` prices it at ``ground_datum`` (3.0) instead of ``law``
-(300).  One register, no literals: the same shape as ``hard_rulings`` /
-``one_way_rulings`` / ``pad_flat_rulings``.
+ruling HEAD is registered in ``[design] foot_row_rulings``, so
+``solve/design`` prices it at ``pad_flat`` (3000) instead of ``law``
+(300).  A foot row IS the PAD law's target for a body with no pad
+polygon (owner RULINGS 2026-09-11ab): at ``ground_datum`` (3.0) — the
+ADJACENT GROUND's datum price — the body's own placement was the
+cheapest row in the sheet, and round 7 missed 715 of 1,434 rows, worst
+5.70 m.  One register, no literals: the same shape as ``hard_rulings`` /
+``one_way_rulings`` / ``pad_flat_rulings``, and kept DISTINCT from the
+latter so the report counts foot rows and pad planes apart.
 
 **THE ROW IS THE SURFACE AT THE FOOT, not at a vertex.**  A foot stands
 inside a face, and what the object will read there is the emitted sheet
@@ -98,7 +103,7 @@ from .structures import WALL_ROLE
 BASIN_WALL_REF = "basin_wall:"
 
 #: this module's generator name and the ruling its rows carry — the HEAD
-#: ``[design] ground_datum_rulings`` prices at ``ground_datum``
+#: ``[design] foot_row_rulings`` prices at ``pad_flat`` (11ab)
 GEN = "foot_rows"
 RULING = "structures.placement foot_row (RULINGS 2026-09-11q, spec §11b)"
 

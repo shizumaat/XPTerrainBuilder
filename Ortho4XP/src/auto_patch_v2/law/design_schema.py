@@ -117,11 +117,13 @@ class Design:
     #: ``pad_flat_rulings`` names the ruling HEADS priced at ``pad_flat``
     #: instead of ``law`` — one register, the same shape as
     #: ``hard_rulings`` / ``one_way_rulings``.
-    #: THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b (2)): the
-    #: ruling HEADS whose rows are priced at ``ground_datum`` instead of
-    #: ``law`` — a bare-ground body's per-foot ground target.  May be
-    #: empty (the class disarmed).
-    ground_datum_rulings: tuple[str, ...]
+    #: THE FOOT ROWS (owner RULINGS 2026-09-11q, repriced 11ab; spec
+    #: §11b (2)): the ruling HEADS whose rows are priced at ``pad_flat``
+    #: instead of ``law`` — a bare-ground body's per-foot target, which
+    #: IS the pad law's target for a body with no pad polygon.  A
+    #: register of its own, not ``pad_flat_rulings``, because the report
+    #: counts the two classes apart.  May be empty (the class disarmed).
+    foot_row_rulings: tuple[str, ...]
     pad_flat: float
     pad_flat_rulings: tuple[str, ...]
     #: THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
@@ -273,6 +275,12 @@ def check_design(d: Design, err: type[Exception],
     if not d.pad_flat > d.law:
         raise err(f"emit.design.pad_flat {d.pad_flat}: heavier than the law's "
                   f"target weight {d.law} — a pad targets FLAT (09-09c)")
+    shared = [r for r in d.foot_row_rulings if r in d.pad_flat_rulings]
+    if shared:
+        raise err(f"emit.design.foot_row_rulings {shared}: also in "
+                  "pad_flat_rulings — the two classes carry the same PRICE "
+                  "but stay DISTINCT heads, because the report counts them "
+                  "apart (RULINGS 2026-09-11ab)")
     if not d.pad_level_rulings:
         raise err("emit.design.pad_level_rulings: at least one ruling "
                   "(RULINGS 2026-09-10l: the pad takes the pavement's edge "

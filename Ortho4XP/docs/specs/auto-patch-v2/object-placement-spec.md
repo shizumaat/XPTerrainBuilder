@@ -564,3 +564,33 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
      does a long connecting body RELEASE (and become its own object at
      its own low-side foot); a short infeasible group keeps its canopy and
      is REPORTED, exactly as 11i requires.
+
+   * **THE FEASIBILITY BAR IS THE GROUND'S, AND AN INFEASIBLE BODY IS NOT
+     ADAPTED.** The round's first LEMD build priced feasibility at the
+     PAD's own `pad_slope_max` (1 %) and admitted every body's relief:
+     7,627 of 13,064 groups came out "infeasible" — a verdict that says
+     nothing — and the published `pad_relief` reached **+35.53 /
+     −14.51 m**, which is not a relief profile but a body whose "feet"
+     are vertices up its own structure. The terrain under an object's
+     feet is GROUND, so the bar is `emit.design.bank_slope` (1:3, "a
+     slope a pilot reads as ground, not a wall"), and §11 (4)'s own
+     sentence does the rest: an INFEASIBLE group's pad is NOT adapted —
+     it keeps today's flat pad, anchors at its low-side foot (§9) and is
+     REPORTED. One rebuild, one iteration:
+
+     | LEMD | first arm | with the gate |
+     |---|---|---|
+     | `pad_relief` vertices | 2,356 (+35.53 / −14.51 m) | **927 (+5.07 / +0.00 m)** |
+     | in-build verify rows | 27,583 | **4,351** |
+     | of which `pad_flat` | 97 | **48** |
+     | off-DEM `building` > 0.5 m | 1,778 / 2,733 (max 35.33 m) | **898 / 2,733 (max 8.09 m)** |
+     | §7 census feet < 0.3 m | 56,532 | **63,803** |
+     | 0.3–1 m / 1–3 m | 25,339 / 7,416 | **21,366 / 3,985** |
+     | > 3 m | 4,296 | 4,371 |
+     | floating | 7,655 | **6,705** |
+     | groups infeasible | 7,627 (short 7,626) | **6,790 (short 6,789)** |
+     | wall | 405.4 s | 404.9 s |
+
+     Both arms are THIS branch's: the artifact ledger holds no LEMD
+     control at main `06b51fa0`, and the round's build budget was two
+     builds.

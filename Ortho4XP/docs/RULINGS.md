@@ -3385,3 +3385,9 @@ THE LAW (Fable, spec §14):
 * **A BASIN OBJECT IS ONE FILE** anchored at a RIM point where the design surface equals its zero (§6, now wired: `rims` exclude the interior of the body's own ring from every anchor search — 10bd's class); floor, walls and parapet share one zero, so the parapet stands its authored +2.99 above the apron. No body of a basin resource is ever draped alone.
 * THE SPREAD CLASS in general: bodies of ONE resource that overlap in PLAN (a floor under walls, a ledge inside a wall) are ONE body whatever the contact graph says (10i widened by plan overlap); the split only ever separates bodies that are apart in plan AND whose terrain differs by more than `split_tol_m`.
 * Lane `v2carrier`, after `v2elevated` merges (same files). One app build then carries §13 + §14 for the owner's re-read.
+
+## 2026-09-11w — v2elevated MERGED (001955bc): `elevated bodies as own files` LEMD 278 → 0 (files 1,099 → 828; feet > 3 m 1,060 → 151, worst 34.06 → 13.75 m), OTHH 1,203 → 333 files, feet > 3 m 952 → 6, worst 54.02 (`OTHH_ATC_Tower_02` on the ground) → 4.26. Three escapes named: (1) a FOOTLESS placement had its elevated set CLEARED in `coarsen` (226 files); (2) `anchor_for`'s median zero plane landed on a welded ROOF part (33); (3) `build_splits` hard-coded the line-segment cut's elevated flag False (15). `is_elevated` reads both the lowest vertex and the anchor's `y_zero`; plan stage faster (3.28 → 2.54 s); twins 7; suite green.
+
+* Row census `> 3 m` 20 → 18 on the matched frame (11p's 16 was another build's artefacts) — the 11h rigid-relief class (Bridge3, SWbaume, T2BCK); accepted below the literal bar with the residual quoted.
+* `footless placements kept whole` LEMD 94 / OTHH 330 — §13's kept-whole is the INTERIM; §14 (11v) carries them: lane `v2carrier` now, on this main.
+* Follow-up owed: `anchor_for`'s median-zero picking a roof vertex is contained (the body rides a carrier), not fixed at source.

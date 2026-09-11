@@ -331,8 +331,11 @@ def test_an_elevated_body_never_founds_a_group_of_its_own():
     bodies = [_body(0, 100.0, 0.0, 5, lat=40.0), _body(1, 130.0, 0.0, 1, lat=40.01),
               _body(2, 105.0, 0.0, 5, lat=40.02)]
     assert PP.coarsen(bodies, 0.3, frozenset({1})) == [[0, 1], [2]]
-    # ... and with no ground body at all they coarsen among themselves
-    assert PP.coarsen(bodies, 0.3, frozenset({0, 1, 2})) == [[0], [1], [2]]
+    # ... and with NO ground body at all there is no carrier and no
+    # ground: ONE group, never one file each (§13 (1)).  This line used
+    # to read ``[[0], [1], [2]]`` — every roof its own file, 226 of
+    # LEMD's 274 such files and the owner's 11r read.
+    assert PP.coarsen(bodies, 0.3, frozenset({0, 1, 2})) == [[0, 1, 2]]
 
 
 def test_off_surface_bodies_are_one_group():
@@ -1154,3 +1157,186 @@ def test_named_rows_carry_the_bodys_own_anchor_and_a_0_3_verdict(tmp_path):
         assert r["reason"]
         assert r["anchor"][0] and r["anchor"][1]
         assert r["within_0_3"] in (True, False, None)
+
+
+# ── §13 (owner RULINGS 2026-09-11r/s): AN ELEVATED BODY NEVER HAS A
+# FILE OF ITS OWN ────────────────────────────────────────────────────────
+# The owner's LEMD read: roofs, road decks and tower parts sit on the
+# ground.  218 of 1,092 split bodies had been written as their own file
+# with their own anchor, which put a vertex 69 m up ON THE TERRAIN — and
+# the foot census read them as perfect, because their lowest vertex WAS
+# on the ground.  These twins hold the three halves of the law: the roof
+# joins its carrier, the tower is never segmented, the footless object is
+# kept whole.
+
+_ELEV = 0.5        # [rebake] elevated_base_m
+
+
+def _elev_args(**kw):
+    a = dict(split_tol_m=0.3, elevated_base_m=_ELEV)
+    a.update(kw)
+    return a
+
+
+def _member_plan(path, parts, icao="TEST", lat=40.0, lon=-3.0, heading=0.0,
+                 resource=None, span_m=0.0):
+    """A one-member plan whose PARTS are given as
+    ``(comp, base_y, dlat_m, feet_y)`` — one part per body (no contacts,
+    so ``_bodies_of`` puts each in its own body: 10u's gap class)."""
+    from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
+
+    ml, _mo = AR._m_per_deg(lat)
+    ps = []
+    for pid, (comp, base_y, dlat_m, foot_y) in enumerate(parts):
+        la = lat + dlat_m / ml
+        ps.append(Part(pid=pid, comp=comp, lat=la, lon=lon, base_y=base_y,
+                       area_m2=16.0,
+                       box=(la, lon, la, lon + span_m / _mo),
+                       feet=((la, lon, foot_y),)))
+    m = Member(id="dsf:obj1",
+               resource=resource or ("objects/" + os.path.basename(str(path))),
+               authored_path=str(path), live_path=str(path),
+               heading_deg=heading, parts=tuple(ps))
+    return RebakePlan(icao=icao, pack_name="pack",
+                      pack_root=os.path.dirname(str(path)),
+                      units=(Unit("u0", (lat, lon), 0.0, (m,)),), skipped=(),
+                      counts={})
+
+
+def test_a_roof_above_its_walls_is_carried_by_the_walls_file(tmp_path):
+    """§13 (1), 10u's gap class: a roof authored as a SEPARATE component
+    just above the walls is its own body, and the coarsening used to hand
+    it its own file and its own anchor — which drapes the roof on the
+    ground.  It must join its CARRIER at its authored offset: one file,
+    the walls' anchor, the roof's height above them intact."""
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0),        # the walls
+                               (1, 3.5, 2.0, 3.5)])       # the roof, 3.5 m up
+    ss = PP.build_splits(plan, _flat(100.0), write=False, **_elev_args())
+    assert ss.counts["elevated_own_files"] == 0
+    assert ss.counts["bodies_elevated"] == 1
+    # one FILE, and it is the walls' — not two
+    assert ss.counts["kept"] == 1 and ss.counts["one_body"] == 1
+    body = ss.whole[0].bodies[0]
+    assert body.elevated_members == 1
+    assert abs(body.anchor.y_zero) <= _ELEV     # the file's zero is the ground's
+    # the roof's own vertices are NOT feet (§13 (3))
+    assert all(abs(f[2]) <= _ELEV for f in body.feet)
+
+
+def test_a_sixty_metre_tower_part_is_never_cut_into_line_segments(tmp_path):
+    """§13 (1): 'a 65 m tower "line segment" is not a fence'.  LEMD's
+    ``Terminal4sBlue-ZNTWR`` read line-shaped and was segmented at 65 m
+    and 57 m, each segment its own file on its own mid-foot anchor.  A
+    ground fence beside it still segments."""
+    n = 81
+    verts = []
+    for i in range(n):                      # a 400 m ground fence, comp 0
+        verts += [(i * 5.0, 0.0, 0.0), (i * 5.0, 2.0, 0.0)]
+    for i in range(n):                      # the same shape 60 m up, comp 1
+        verts += [(i * 5.0, 60.0, 40.0), (i * 5.0, 62.0, 40.0)]
+    tris = []
+    for base in (0, 2 * n):
+        for i in range(n - 1):
+            a, b, c, d = base + 2 * i, base + 2 * i + 1, base + 2 * i + 2, \
+                base + 2 * i + 3
+            tris += [(a, b, d), (a, d, c)]
+    path = _write_obj(tmp_path / "tower.obj", verts, [("", tris)])
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0), (1, 60.0, 40.0, 60.0)],
+                        span_m=400.0)
+    ss = PP.build_splits(plan, _flat(100.0), write=False,
+                         **_elev_args(split_tol_m=0.0, line_segment_m=100.0,
+                                      line_stations_max=64, line_ratio=20.0,
+                                      line_max_h=6.0, foot_band_m=1.0))
+    assert ss.counts["elevated_own_files"] == 0
+    # the GROUND fence still segments; the tower contributes none
+    assert ss.counts["line_bodies_segmented"] == 1
+    assert ss.counts["line_segments"] >= 3
+    # ... and the tower rides in one of those files, not its own
+    assert sum(b.elevated_members for s in ss.all for b in s.bodies) == 1
+    assert all(b.anchor.y_zero <= _ELEV for s in ss.splits for b in s.bodies)
+
+
+def test_a_footless_roof_object_is_kept_whole(tmp_path):
+    """§13 (1): a placement with NO ground body at all — a roof object, a
+    deck object, a sign — is KEPT WHOLE, its row untouched.  X-Plane
+    drapes it at its own anchor and the authored y keeps it above the
+    ground there, which is the pack's own shared-datum frame."""
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    plan = _member_plan(path, [(0, 12.0, 0.0, 12.0), (1, 40.0, 2.0, 40.0)])
+    ss = PP.build_splits(plan, _flat(100.0), write=False, **_elev_args())
+    assert ss.splits == ()                      # nothing cut, nothing re-anchored
+    assert [k.reason for k in ss.kept] == ["footless"]
+    assert ss.counts["footless"] == 1
+    assert ss.counts["elevated_own_files"] == 0
+    assert ss.counts["files"] == 0
+    assert ss.whole[0].bodies[0].elevated is True
+
+
+def test_a_plan_that_writes_an_elevated_body_alone_fails_the_census(tmp_path):
+    """§13 (3): the INSTRUMENT.  The feet histogram cannot catch this
+    class — the writer shifts an elevated body so its own lowest vertex
+    lands on the terrain, and every foot then reads perfect — so the
+    census reports the class by name, and its bar is zero."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import seat_feet_census as SFC
+
+    def _plan(dy, kept_reason):
+        return {"icao": "TEST",
+                "provenance": {"counts": {"elevated_base_m": _ELEV}},
+                "splits": [{"placement": {"index": 1},
+                            "bodies": [{"new_resource": "objects/roof__b3.obj",
+                                        "authored_offset": [0.0, dy, 0.0],
+                                        "elevated_members": 0}]}],
+                "kept": [{"index": 2, "resource": "objects/sign.obj",
+                          "reason": kept_reason}]}
+
+    out = []
+    SFC.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))  # noqa
+    try:
+        SFC._print_elevated(_plan(69.55, "footless"))
+        bad = "\n".join(out)
+        out.clear()
+        SFC._print_elevated(_plan(0.0, "one_body"))
+        good = "\n".join(out)
+    finally:
+        del SFC.print
+    assert "elevated bodies as own files: 1" in bad and "VIOLATED" in bad
+    assert "+69.55 m  objects/roof__b3.obj" in bad
+    assert "footless placements kept whole: 1" in bad
+    assert "elevated bodies as own files: 0" in good and "VIOLATED" not in good
+    assert "footless placements kept whole: 0" in good
+
+
+def test_the_carrier_is_the_ground_body_with_the_largest_plan_overlap():
+    """§13 (1): the carrier is the ground body the elevated one stands
+    OVER — the largest plan overlap — and only where nothing overlaps
+    does the nearest one take it."""
+    def _b(i, lat, lon, n=3):
+        return (i, AR.Anchor(AR.OTHER, lat, lon, 0.0, "surface at the body's zero",
+                             100.0 + i), n)
+    # two ground bodies 1 m apart in zero plane (so they never coarsen);
+    # the elevated body's box covers the SECOND, but the FIRST is nearer
+    bodies = [_b(0, 40.0000, -3.0000), _b(1, 40.0100, -3.0000),
+              (2, AR.Anchor(AR.OTHER, 40.0002, -3.0, 9.0, "r", 100.0), 1)]
+    boxes = [(39.9999, -3.0001, 40.0001, -2.9999),
+             (40.0099, -3.0001, 40.0101, -2.9999),
+             (40.0098, -3.0001, 40.0102, -2.9999)]
+    assert PP.coarsen(bodies, 0.3, frozenset({2}), boxes) == [[0], [1, 2]]
+    # with no overlap at all the NEAREST ground body carries it
+    boxes[2] = (40.0001, -3.0001, 40.0003, -2.9999)
+    assert PP.coarsen(bodies, 0.3, frozenset({2}), boxes) == [[0, 2], [1]]
+
+
+def test_is_elevated_reads_the_lowest_vertex_and_the_anchors_zero():
+    """§13 (1) has two readings of one sentence and a body fails it
+    either way; BELOW the zero plane is lawful (basins, skirts)."""
+    ground = AR.Anchor(AR.OTHER, 40.0, -3.0, 0.2, "r", 100.0)
+    roof = AR.Anchor(AR.OTHER, 40.0, -3.0, 32.7, "r", 100.0)
+    basin = AR.Anchor(AR.BASIN, 40.0, -3.0, -4.0, "r", 100.0)
+    assert PP.is_elevated(0.0, ground, _ELEV) is False
+    assert PP.is_elevated(9.0, ground, _ELEV) is True      # lowest vertex up
+    assert PP.is_elevated(0.0, roof, _ELEV) is True        # anchor's zero up
+    assert PP.is_elevated(-4.0, basin, _ELEV) is False     # below is lawful
+    assert PP.is_elevated(9.0, roof, 0.0) is False         # disarmed

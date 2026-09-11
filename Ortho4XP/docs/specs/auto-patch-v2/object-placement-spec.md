@@ -858,3 +858,43 @@ the road), kept whole it drapes at the DATUM point, 15.7 m under its building
    over the road); `Terminal4SAT_pink-LEMD01` at its terminal's zero; the basin
    parapet +2.99 above the rim everywhere; the 89 footless placements 0 at datum /
    0 on ground; files not above 1,092; round trip ok; OTHH dry run unchanged.
+**MEASURED (lane `v2elevated`, 2026-09-11).** Implemented in
+`airport/placement_plan.py` (`is_elevated`, the carrier rule inside
+`coarsen`, the footless keep in `build_splits`) and reported by
+`tools/obj8_split_report.py` and `tools/seat_feet_census.py`.
+
+* **ATTRIBUTION (interventional, on the plan replay — no build).** The §9
+  fold *worked*: with a ground body present, an elevated body never founded a
+  group (0 cases). Three escapes produced all 274 LEMD files whose `y_zero`
+  stood above 2 m (271 by the law's own 0.5 m threshold in the app's shipped
+  plan, 278 in the matched replay):
+  * **226 — the FOOTLESS placement.** `coarsen` began
+    `if not ground: ground = all; elevated = frozenset()` — a placement whose
+    every body is elevated had its elevated set *cleared*, and each roof then
+    founded its own group and its own file. `Munoza-LEMD76` (23 bodies, all
+    elevated), `Terminal4sBlue-LEMD20`, `-LEMDz3alpha`, `-ZNTWR` are this class.
+  * **33 — the ANCHOR's zero.** The body has a ground contact (so it was never
+    flagged), but `anchor_for`'s median zero plane landed on a welded ROOF part:
+    `Munoza-rada` b1 anchored at `y_zero` +32.73 with feet 34.06 m off.
+  * **15 — the LINE SEGMENT.** `build_splits` hard-coded `elevated=False` on
+    every segment, so an elevated body that read line-shaped was cut into
+    stations, each its own file (`-ZNTWR` at 65.34 / 56.81 m).
+* **LEMD, matched arms on one frame** (the app's 1.0.315 `o4_v2_rebake_LEMD.json`
+  + `LEMD.graded.json`, the write half into two pack COPIES):
+  `elevated bodies as own files` **278 → 0**; files **1,099 → 828** (< 1,092);
+  footless kept whole **0 → 94**; elevated bodies carried at their authored
+  offset **0 → 1,178**; DSF round trip **OK**, 3,725 rows, 828/828 new
+  `OBJECT_DEF`s, 0 rows carrying an elevation. Census feet `> 3 m`
+  **1,060 → 151**, worst foot **34.06 → 13.75 m**. Row census
+  (`seat_feet_census --placement-plan`) `> 3 m` **20 → 18** — the spec's bar of
+  16 came from 11p's *different* artefact; on this frame the baseline is 20 and
+  the residual 18 is the rigid-relief class of 11h (Bridge3 8.70, SWbaume 6.60,
+  T2BCK 6.36), untouched by §13.
+* **OTHH is the same defect, not a control.** Files **1,203 → 333**, footless
+  kept whole **330**, `elevated bodies as own files` **0**, census feet
+  `> 3 m` **952 → 6**, worst foot **54.02 → 4.26 m** — the 54 m row was
+  `OTHH_ATC_Tower_02` set on the ground. §13 (4)'s "OTHH's groups unchanged"
+  is therefore refuted as a premise and reported, not decided.
+* **Build time:** the plan stage is FASTER — LEMD `--no-cut` 3.28 s → 2.54 s
+  over 3 runs per arm (fewer bodies survive to be anchored and cut). No budget
+  impact.

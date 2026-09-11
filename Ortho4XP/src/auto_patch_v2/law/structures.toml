@@ -250,6 +250,15 @@ step_exemption_pad_to_pad = true   # two pads may sit at different floors (06-20
 frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a pad, unshared with it, is a FRONTAGE across a sliver: each endpoint holds the apron cap over its own distance to the pad (BUILDING_FRONTAGE_NEAR_MISS_M; 08-08, cycle-5 item 6; SPJC building29 0.68 m source offset)
 frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)
 
+[skirt]                             # RULINGS 2026-09-10af/10ag (spec design-surface-spec.md §22) — A FOUNDATION SKIRT: the object's below-zero geometry, uniform across its footprint.  A SKIRTED building needs NO PAD (it sits on the sloping ground, high side buried, low side exposed); a road-width below-zero cut is a CORRIDOR (Law C's narrow-cut test reads the same reader, airport/skirt.py)
+perimeter_fraction  = 0.5           # the share of the footprint's PERIMETER that must carry below-zero geometry for it to be a skirt (10af proposes 0.5); a door well or corridor meets the rim only at its ends and reads far less
+depth_tolerance_m   = 0.5           # ...and those perimeter pieces must agree in depth within this ("uniform across its bottom"); a wider spread is several features, not one skirt
+min_depth_m         = 0.3           # a below-zero extent shallower than this is a LIP (a kerb, a sill), never a foundation — the basin thickness gate's scale
+edge_tolerance_m    = 0.5           # how close a below-zero piece must lie to the footprint's exterior to count as ON the perimeter (an exporter's inset wall face)
+pad_cover_fraction  = 0.5           # a candidate pad is dropped only when skirted placements' footprints cover at least this share of its area (a lamp post on a terminal pad neither carries nor vetoes the drop)
+drops_pad           = true          # 10ag: a skirted building mints no flat pad, as long as the pad's DEM relief is within the skirt depth s; false = every pad stands as 09c/10y leave it
+seat_low_side       = true          # 10ag (2): a body every one of whose members is skirted seats at its LOW-side foot (min over the feet), never 10i's median — the median would float the low side by half the relief; false = 10i's median everywhere
+
 [basin]
 # THE FLOOR LAW (RULINGS 2026-09-06b (3), superseding 08-26's err-deep
 # margins): floor = the RENDERED floor plate — DEM(anchor) + agl + the deepest

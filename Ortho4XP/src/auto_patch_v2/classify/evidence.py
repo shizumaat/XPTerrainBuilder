@@ -15,6 +15,7 @@ import typing as _t
 import shapely
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
@@ -77,6 +78,11 @@ class Evidence:
     road_chains: list[Chain] = _dc.field(default_factory=list)
     #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``).
     parking_polys: list[tuple[str, Polygon]] = _dc.field(default_factory=list)
+    #: THE SKIRTED PADS NEVER MINTED (owner RULINGS 2026-09-10ag, spec
+    #: §22.2): one line per candidate pad dropped because skirted
+    #: placements cover it and the relief is inside their skirt — the
+    #: pad's would-be ref, its area, relief and the skirt depth ``s``.
+    skirted_pads: list[str] = _dc.field(default_factory=list)
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -230,8 +236,14 @@ def chains_from_edges(nodes: _t.Mapping[int, XY],
 # ── the evidence ─────────────────────────────────────────────────────────
 
 def build_evidence(airport: Airport, rules: Rules,
-                   pad_min_area_m2: float) -> Evidence:
-    """Derive every geometric input the scorer reads."""
+                   pad_min_area_m2: float, law=None, cache=None) -> Evidence:
+    """Derive every geometric input the scorer reads.  ``law`` and
+    ``cache`` reach the FOUNDATION-SKIRT reader (spec §22): with a law a
+    candidate pad covered by skirted placements is never minted, and the
+    ground under the building keeps its design surface (owner RULINGS
+    2026-09-10ag).  Without one every pad stands as 09c/10y leave it —
+    the classify-only tools (``pipeline/__main__ explain``) pass theirs
+    so no tool reads a different pad set from the build."""
     runway_polys = [(rw, runway_rectangle(rw)) for rw in airport.runways]
     runway_union = unary_union([p for _r, p in runway_polys]) if runway_polys \
         else Polygon()
@@ -285,8 +297,8 @@ def build_evidence(airport: Airport, rules: Rules,
                if w.closed and w.tags.get("amenity") == "parking"
                for p in [polygon_from(w.points[:-1])] if p is not None]
 
-    pads, dropped = _pads(airport, rules, pad_min_area_m2, boundary,
-                          pavement_union, runway_union)
+    pads, dropped, skirted = _pads(airport, rules, pad_min_area_m2, boundary,
+                                   pavement_union, runway_union, law, cache)
     pad_union = unary_union([g for _i, g in pads]) if pads else Polygon()
 
     terminal = any(s.kind == "gate" for s in airport.startups) or any(
@@ -295,7 +307,7 @@ def build_evidence(airport: Airport, rules: Rules,
     return Evidence(runway_polys, runway_union, pav, pavement_union,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
-                    road_chains, parking)
+                    road_chains, parking, skirted)
 
 
 def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],
@@ -434,11 +446,19 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 
 
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
-          pavement_union, runway_union) -> tuple[list[tuple[str, Polygon]], int]:
+          pavement_union, runway_union, law=None, cache=None
+          ) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
     """Building footprints -> pads: union coincident/stacked footprints
     (a terminal is several facade pieces on one outline), keep those
     inside the boundary (else near pavement), fold tiny ones (RULINGS
-    2026-08-24 :1687), never over a runway."""
+    2026-08-24 :1687), never over a runway.
+
+    THE SKIRTED PAD IS NEVER MINTED (owner RULINGS 2026-09-10ag; spec
+    §22.2).  This is the ONE derivation site: a pad dropped here is
+    dropped before ``pad_union``, so every region that differences
+    itself by the pads (``roles.classify`` :168 / :315) simply covers
+    the footprint and the ground under the building keeps its design
+    surface — no hole, no new shape class, no per-consumer veto."""
     polys = []
     admitted = tuple(rules.buildings.sources)
     for b in airport.buildings:
@@ -448,7 +468,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         if p is not None and p.area > 0:
             polys.append(p)
     if not polys:
-        return [], 0
+        return [], 0, []
     merged = unary_union(polys)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     out: list[tuple[str, Polygon]] = []
@@ -465,4 +485,59 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                 dropped += 1
                 continue
             out.append((f"building{len(out) + 1}", piece))
-    return out, dropped
+    return _drop_skirted(airport, law, cache, out, dropped)
+
+
+def _drop_skirted(airport: Airport, law, cache, pads: list[tuple[str, Polygon]],
+                  dropped: int) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
+    """Owner RULINGS 2026-09-10ag: a pad whose area is covered by SKIRTED
+    placements (``airport/skirt.py``) and whose DEM relief stays inside
+    the shallowest of their skirt depths is NEVER MINTED — the building
+    sits on the sloping ground, its high side buried and its low side
+    exposed, so no flat pad and no ramp is needed.  Relief beyond the
+    skirt, a skirt-less building, or a pad the skirted footprints do not
+    cover: the pad stands exactly as 09c / 10y / 10ah leave it.
+
+    Returns ``(pads kept, ``dropped`` unchanged, the drop lines)``; the
+    refs are renumbered so ``buildingN`` stays contiguous."""
+    from ..airport import skirt as _skirt
+    if law is None or not pads or not law.tables.structures.skirt.drops_pad:
+        return pads, dropped, []
+    cover = law.tables.structures.skirt.pad_cover_fraction
+    depths, cache = _skirt.skirted_placements(airport, law, cache)
+    if not depths:
+        return pads, dropped, []
+    prints: list[tuple[Polygon, float]] = []
+    for o in airport.dsf_objects:
+        s = depths.get(o.id)
+        if s is None or not o.resolved_path:
+            continue
+        fp = _skirt.placement_footprint(cache, o.resolved_path, law,
+                                        o.xy, o.heading_deg)
+        if fp is not None and not fp.is_empty and fp.area > 0.0:
+            prints.append((fp, s))
+    if not prints:
+        return pads, dropped, []
+    tree = STRtree([g for g, _s in prints])
+    kept: list[tuple[str, Polygon]] = []
+    lines: list[str] = []
+    for ref, poly in pads:
+        parts: list = []
+        s: float | None = None
+        for i in tree.query(poly, predicate="intersects"):
+            g = prints[int(i)][0].intersection(poly)
+            if g.is_empty or g.area <= 0.0:
+                continue
+            parts.append(g)
+            d = prints[int(i)][1]
+            s = d if s is None else min(s, d)
+        area = unary_union(parts).area if parts else 0.0
+        relief = _skirt.ring_relief_m(airport.dem.z, poly.exterior.coords) \
+            if s is not None else math.inf
+        if s is None or poly.area <= 0.0 or area < cover * poly.area or relief > s:
+            kept.append((ref, poly))              # the refs never renumber:
+            continue                              # two arms join on them
+        lines.append(f"{ref} dropped (skirted): {poly.area:.0f} m2, "
+                     f"{100.0 * area / poly.area:.0f} % covered by skirted "
+                     f"placements, relief {relief:.2f} m <= skirt {s:.2f} m")
+    return kept, dropped, lines

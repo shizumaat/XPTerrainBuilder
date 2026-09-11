@@ -22,6 +22,7 @@ from ..model.rebake import FlatDatum, Member, Part, RebakePlan, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
 from . import obj8 as _obj8
+from . import skirt as _skirt
 from .pack import live_path_of
 
 __all__ = ["plan", "DeckDatum"]
@@ -82,6 +83,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     withdrawn), never excluded, never a feet seat, and never the
     below-grade skip (their skirts are the tunnel)."""
     rb = law.tables.structures.rebake
+    sk = law.tables.structures.skirt
     admission_m = law.tables.structures.basin.admission_depth_m
     # the basin records name their members by resource PATH
     # (``planar.basins``); the ids here match either spelling
@@ -118,6 +120,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "units": 0, "members": 0, "deck_members": 0,
                               "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
+                                  "skirted_members": 0,
                               "terrain_adapted": 0,
                               "below_grade": 0, "below_grade_parts": 0,
                               "deck_families": len(deck_keys),
@@ -272,10 +275,15 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
             else live_path_of(o.resolved)
+        # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3),
+        # read off the same cache the classify pass read it from
+        skirted = bool(sk.seat_low_side
+                       and _skirt.is_skirt(cache, o.resolved, law))
+        counts["skirted_members"] += int(skirted)
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                                  o.heading_deg, (), deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
-                                 deck_stations, plate_y, plate_stations)
+                                 deck_stations, plate_y, plate_stations, skirted)
         placed.append((o, geom, list(comps)))
         member_ref.append((key, o.path))
     # THE PARTITION (06g): every member's genuine components as placed
@@ -324,7 +332,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                          m.heading_deg, ps, m.deck_ring, m.deck_top_y,
                                          m.deck_datum_z, m.deck_kind, m.deck_ends,
                                          m.deck_profile, m.deck_evidence, m.deck_stations,
-                                         m.plate_y, m.plate_stations)
+                                         m.plate_y, m.plate_stations, m.skirted)
         counts["parts"] += len(ps)
     counts["contacts"] = len(part.contacts)
     counts["pools"] = part.pools

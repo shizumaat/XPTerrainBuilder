@@ -260,11 +260,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)
     t = time.perf_counter()
-    cl = classify(airport, law, load_rules())
+    # ONE ``ResourceCache`` for the whole build (spec §22): the skirt
+    # reader runs inside classify, the structure passes and the re-seat
+    # plan read the same parsed geometry, so the pack is parsed once
+    from ..airport.obj8 import ResourceCache as _RCache
+    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
     t = time.perf_counter()
     objects_out: list = []
-    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out)
+    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache)
     wall["planar"] = time.perf_counter() - t
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "

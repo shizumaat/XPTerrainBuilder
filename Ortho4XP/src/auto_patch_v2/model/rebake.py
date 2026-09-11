@@ -121,6 +121,14 @@ class Member:
     #: for every other member.
     plate_y: float | None = None
     plate_stations: tuple[LL, ...] = ()
+    #: THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3):
+    #: this member's resource carries a uniform below-zero extent across
+    #: its footprint (``airport/skirt.is_skirt``).  A body EVERY one of
+    #: whose members is skirted seats at its LOW-side foot instead of
+    #: 10i's median, so the low side touches the ground and the high side
+    #: buries into the skirt.  Absent from an older plan = ``False`` =
+    #: the pre-10ag law exactly.
+    skirted: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -233,6 +241,7 @@ class RebakePlan:
                     "deck_stations": [list(st) for st in m.deck_stations],
                     "plate_y": m.plate_y,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
+                    "skirted": m.skirted,
                 } for m in u.members],
             } for u in self.units],
         }
@@ -272,6 +281,7 @@ class RebakePlan:
                                     for a, b, c in m.get("deck_stations", ())),
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
+                skirted=bool(m.get("skirted", False)),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

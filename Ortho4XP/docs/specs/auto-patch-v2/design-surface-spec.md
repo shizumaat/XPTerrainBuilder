@@ -3747,3 +3747,34 @@ point), `test_v2chord` (the chord-less control now has a level, 698.58 → 695.2
 (with the crown generator OFF the census's WORST transverse row is no longer the pinned one).
 
 **DEVIATION REPORTED (§23.3 (2)):** the two-way law-row residue. Never decided by the lane.
+
+## §24 THE BASIN'S EDGE AND FLOOR (owner RULINGS 2026-09-11t) — lane `v2basinedge`
+
+Owner, LEMD 1.0.315: "still a gap between the outer edge and the apron … the apron
+elevation shape needs to be closer with less of a gap between the floor cutting
+shape. The object also provides a floor … that should be visible instead of seeing
+the terrain at the bottom of the basin."
+
+1. **THE CUT HUGS THE WALL.** The basin's cut ring is the object's OUTER wall face at
+   its top (the `basin_wall` ring of the floor witness's shell, read from the pack —
+   not the OSM footprint, not a snap-out widening, not a buffer). The apron's rim
+   vertices lie ON that ring at the rim level (§ rim_level: the rim IS the adjacent
+   apron edge), so the pavement meets the wall top with no shelf outside it and no
+   step down to it. Measured: horizontal distance from each rim vertex to the wall
+   face ≤ `emit.weld_spacing_m` (1.0 m, the identity spacing); vertical step between
+   the rim ring and the apron vertices it joins 0.00 m (materiality 0.01).
+2. **THE FLOOR SITS UNDER THE OBJECT'S FLOOR.** The trench floor level = the object's
+   floor-plate elevation (its authored y at the rim's zero, the 10bd depth) MINUS
+   `[basin] floor_clearance_m` (new, default 0.5 m): the plate renders; the terrain
+   is never seen through it. The basin's inner floor ring and every floor vertex
+   take that level; the walls' bank between rim and floor is the object's wall
+   (vertical in the object; the terrain bank is hidden behind it).
+3. **Consumers**: the rim ring's derivation site (`planar/structures.py` basin /
+   `basin_witness`), constraints `structures.rim_level` + the floor row, verify's
+   basin family, `pad_level_report` leaders (a pad fronting the basin reads the rim),
+   the placement anchor for a basin body (§6: a RIM point on the emitted ring). One
+   table in the lane's report before any edit (08-30l).
+4. **Measured first on the app's products** — `<Patches>/+40-010/LEMD.graded.json`
+   (T4S basin: rim ring vs the object's wall face, rim vs apron edge, floor vs plate) —
+   then fixed, then LEMD once. Bars: (1) and (2) as stated; OTHH's Dewatering /
+   tunnel basins unchanged by dry run; `> 3 m` unchanged.

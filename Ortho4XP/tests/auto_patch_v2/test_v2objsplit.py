@@ -439,7 +439,7 @@ def test_the_gate_defaults_to_agl_and_seat_runs_the_old_path_unchanged():
     assert a == b
 
 
-def test_the_write_half_on_a_pack_copy(tmp_path):
+def test_the_write_half_on_a_pack_copy(tmp_path, monkeypatch):
     """11e (3): the cut files, the DSF, its backup, the provenance and the
     plan — and the WRITTEN DSF dumped back must list every new placement
     on its own new ``OBJECT_DEF``, with no row left carrying an elevation.
@@ -461,43 +461,30 @@ def test_the_write_half_on_a_pack_copy(tmp_path):
     dsf.write_text("\n".join(dump) + "\n")
 
     # a DSFTool stand-in: --dsf2text copies the text, --text2dsf copies back
-    tool = tmp_path / "dsftool.py"
-    tool.write_text(
-        "import shutil, sys\n"
-        "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
+    tool = _stand_in_dsftool(tmp_path, PW._dw, monkeypatch)
+    split = PM.Split(
+        placement=PM.PlacementRef(1, "objects/b.obj", -3.6, 40.6, 90.0),
+        bodies=(PM.Body("b0", "other", (0,), PM.Anchor(-3.61, 40.61, 90.0),
+                        "surface at the body's zero", "objects/b__b0.obj"),
+                PM.Body("b1", "other", (1,), PM.Anchor(-3.62, 40.62, 90.0),
+                        "surface at the body's zero", "objects/b__b1.obj")))
+    plan = PM.PlacementPlan(
+        icao="LEMD", pack_name="pack", pack_root=str(pack), dsf_path=str(dsf),
+        dsf_backup_path=str(dsf) + ".anchor_bak",
+        provenance=PM.Provenance("", "", ""),
+        conversions=(PM.Conversion(0, "objects/a.obj", -3.5, 40.5, 12.5,
+                                   "OBJECT_MSL", 601.0),),
+        splits=(split,), kept=())
 
-    real_run = PW._dw.subprocess.run
+    class _F:
+        def __init__(self, res):
+            self.resource = res
+            self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body 0 offset 0 0 0\n"
 
-    def fake_run(args, **kw):
-        return real_run([sys.executable, str(tool)] + list(args[1:]), **kw)
-
-    PW._dw.subprocess.run = fake_run
-    try:
-        split = PM.Split(
-            placement=PM.PlacementRef(1, "objects/b.obj", -3.6, 40.6, 90.0),
-            bodies=(PM.Body("b0", "other", (0,), PM.Anchor(-3.61, 40.61, 90.0),
-                            "surface at the body's zero", "objects/b__b0.obj"),
-                    PM.Body("b1", "other", (1,), PM.Anchor(-3.62, 40.62, 90.0),
-                            "surface at the body's zero", "objects/b__b1.obj")))
-        plan = PM.PlacementPlan(
-            icao="LEMD", pack_name="pack", pack_root=str(pack), dsf_path=str(dsf),
-            dsf_backup_path=str(dsf) + ".anchor_bak",
-            provenance=PM.Provenance("", "", ""),
-            conversions=(PM.Conversion(0, "objects/a.obj", -3.5, 40.5, 12.5,
-                                       "OBJECT_MSL", 601.0),),
-            splits=(split,), kept=())
-
-        class _F:
-            def __init__(self, res):
-                self.resource = res
-                self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body 0 offset 0 0 0\n"
-
-        files = [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")]
-        seen: list[str] = []
-        res = PW.apply_plan(plan, files, str(tool), patch_dir=str(tmp_path / "patch"),
-                            refresh_dump=lambda p: seen.append(p) or p)
-    finally:
-        PW._dw.subprocess.run = real_run
+    files = [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")]
+    seen: list[str] = []
+    res = PW.apply_plan(plan, files, str(tool), patch_dir=str(tmp_path / "patch"),
+                        refresh_dump=lambda p: seen.append(p) or p)
 
     assert len(res.files_written) == 2
     assert all(os.path.isfile(p) for p in res.files_written)
@@ -882,9 +869,19 @@ def test_pad_hit_is_one_implementation(tmp_path):
 # refused.  The read frame is the pristine DSF and the dump cache is keyed
 # on its CONTENT.
 
-def _stand_in_dsftool(tmp_path, module):
+def _stand_in_dsftool(tmp_path, module, monkeypatch):
     """``--dsf2text`` / ``--text2dsf`` as a byte copy (the encoder has its
-    own twin in ``test_v2dsfagl``); returns ``(tool_path, restore)``."""
+    own twin in ``test_v2dsfagl``); returns the tool path.
+
+    THE ISOLATION IS ``monkeypatch``'S (lane v2canopy5, owner RULINGS
+    2026-09-11p (3)).  ``module.subprocess`` IS the stdlib module, so the
+    patch is session-wide, and the old helper handed back a restore that
+    both callers discarded — each captured its own ``real_run`` AFTER the
+    patch was already in place, so its ``finally`` restored the PREVIOUS
+    test's fake and the next run shelled out to a deleted tmpdir's
+    stand-in.  That is the whole of the order-dependent red; ``monkeypatch``
+    undoes the attribute after every test, in any order, at ``-n0``.
+    """
     tool = tmp_path / "dsftool.py"
     tool.write_text("import shutil, sys\n"
                     "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
@@ -893,9 +890,8 @@ def _stand_in_dsftool(tmp_path, module):
     def fake_run(args, **kw):
         return real_run([sys.executable, str(tool)] + list(args[1:]), **kw)
 
-    module.subprocess.run = fake_run
-    return str(tool), (lambda: setattr(module, "subprocess", module.subprocess)
-                       or module.__dict__["subprocess"].__setattr__("run", real_run))
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    return str(tool)
 
 
 def _one_pack(tmp_path):
@@ -985,7 +981,7 @@ def test_dump_cache_is_keyed_by_content_not_by_path(tmp_path):
         str(tmp_path / "one" / "+40-004.dsf.anchor_bak"))
 
 
-def test_apply_plan_twice_is_byte_identical(tmp_path):
+def test_apply_plan_twice_is_byte_identical(tmp_path, monkeypatch):
     """(c) THE LANE'S TARGET: the same plan applied twice over one pack
     leaves the same DSF bytes, the same file list and the same counts —
     no ``__b<N>__b<M>``, provenance rewritten."""
@@ -994,8 +990,7 @@ def test_apply_plan_twice_is_byte_identical(tmp_path):
     from auto_patch_v2.airport import placement_write as PW
 
     pack, dsf, plan = _one_pack(tmp_path)
-    tool, _ = _stand_in_dsftool(tmp_path, PW._dw)
-    real_run = PW._dw.subprocess.run
+    tool = _stand_in_dsftool(tmp_path, PW._dw, monkeypatch)
 
     class _F:
         def __init__(self, res):
@@ -1011,20 +1006,17 @@ def test_apply_plan_twice_is_byte_identical(tmp_path):
     def _objs():
         return sorted(p.name for p in (pack / "objects").iterdir())
 
-    try:
-        first = PW.apply_plan(plan, _files(), tool,
-                              patch_dir=str(tmp_path / "patch"))
-        sha1, objs1 = _sha(dsf), _objs()
-        prov = pack / "Earth nav data" / "o4_placement_provenance.json"
-        import json as _json
-        assert _json.loads(prov.read_text())["body_files"] == [
-            "objects/b__b0.obj", "objects/b__b1.obj"]
-        assert first.counts["restore_bodies_removed"] == 0
+    first = PW.apply_plan(plan, _files(), tool,
+                          patch_dir=str(tmp_path / "patch"))
+    sha1, objs1 = _sha(dsf), _objs()
+    prov = pack / "Earth nav data" / "o4_placement_provenance.json"
+    import json as _json
+    assert _json.loads(prov.read_text())["body_files"] == [
+        "objects/b__b0.obj", "objects/b__b1.obj"]
+    assert first.counts["restore_bodies_removed"] == 0
 
-        second = PW.apply_plan(plan, _files(), tool,
-                               patch_dir=str(tmp_path / "patch"))
-    finally:
-        PW._dw.subprocess.run = real_run
+    second = PW.apply_plan(plan, _files(), tool,
+                           patch_dir=str(tmp_path / "patch"))
 
     assert _sha(dsf) == sha1
     assert _objs() == objs1 == ["b__b0.obj", "b__b1.obj"]
@@ -1066,7 +1058,8 @@ def test_a_stale_body_file_from_a_bigger_previous_plan_is_removed(tmp_path):
     assert (pack / "objects" / "authored.obj").is_file()
 
 
-def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(tmp_path):
+def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(
+        tmp_path, monkeypatch):
     """(d) THE DEFECT ITSELF: after a write the live DSF carries 3 rows
     and the plan read must still see the pristine 2 — every id below the
     pristine placement count, so ``edit_dump`` accepts the plan."""
@@ -1074,29 +1067,25 @@ def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(tmp_path
     from auto_patch_v2.airport import placement_write as PW
 
     pack, dsf, plan = _one_pack(tmp_path)
-    tool, _ = _stand_in_dsftool(tmp_path, PW._dw)
-    real_run = PW._dw.subprocess.run
+    tool = _stand_in_dsftool(tmp_path, PW._dw, monkeypatch)
 
     class _F:
         def __init__(self, res):
             self.resource = res
             self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body {res}\n"
 
-    try:
-        PW.apply_plan(plan, [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")],
-                      tool, patch_dir=str(tmp_path / "patch"))
-        live = D.read_dump(str(dsf))
-        pristine_path = PW._dw.pristine_dsf_path(str(dsf))
-        pristine = D.read_dump(pristine_path)
-        assert len(live.placements) == 3 and len(pristine.placements) == 2
-        assert pristine_path.endswith(".anchor_bak")
-        # the ids a plan built on the pristine frame carries
-        assert max(range(len(pristine.placements))) < len(pristine.placements)
-        # and the write half accepts them (it dumps the same frame)
-        text = open(pristine_path).read()
-        PW._dw.edit_dump(text, plan)                    # no ValueError
-    finally:
-        PW._dw.subprocess.run = real_run
+    PW.apply_plan(plan, [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")],
+                  tool, patch_dir=str(tmp_path / "patch"))
+    live = D.read_dump(str(dsf))
+    pristine_path = PW._dw.pristine_dsf_path(str(dsf))
+    pristine = D.read_dump(pristine_path)
+    assert len(live.placements) == 3 and len(pristine.placements) == 2
+    assert pristine_path.endswith(".anchor_bak")
+    # the ids a plan built on the pristine frame carries
+    assert max(range(len(pristine.placements))) < len(pristine.placements)
+    # and the write half accepts them (it dumps the same frame)
+    text = open(pristine_path).read()
+    PW._dw.edit_dump(text, plan)                    # no ValueError
 
 
 # ── §7's NAMED ROWS (lane v2canopy4): one instrument, read by name ───

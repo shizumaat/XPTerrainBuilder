@@ -1326,3 +1326,36 @@ is now per UNIT in two passes) and `airport/obj8_split.py`.
 * **Build time:** the plan stage is FASTER — LEMD `--no-cut` 3.28 s → 2.54 s
   over 3 runs per arm (fewer bodies survive to be anchored and cut). No budget
   impact.
+
+## §15 Stands-over is the carrier; binding re-cuts; duplicate rows (RULINGS 2026-09-11ae)
+
+1. **THE CARRIER IS WHAT THE BODY STANDS OVER.** For an elevated body (§13) or a
+   footless placement (§14) the carrier is chosen across the whole UNIT, every
+   resource alike: (a) the footed body with the largest PLAN OVERLAP beneath the
+   elevated body's plan footprint; (b) else the footed body with the largest
+   contact; (c) else the nearest footed body in plan. §13 (1)'s "of the SAME
+   placement" and §14 (1)(a)'s contact-first order are superseded. A roof authored
+   as its own resource (`TEJ*`) over walls of another resource rides those walls.
+2. **BINDING RE-CUTS.** §14 (3)'s plan-overlap union is followed by a terrain check:
+   a bound group whose members' intended zeros (surface at each member's own feet
+   minus its `y_zero`) span more than `split_tol_m` is re-cut into terrain groups
+   by §9's rule, each with its own anchor; the plan-overlap bond holds only within
+   a terrain group. A rigid body is never wider than the terrain it can stand on.
+3. **THE RESIDUAL THE EYE READS.** A body anchored at its low-side foot reports
+   `float = zero − zero_beneath` (the zero of the footed body under its plan
+   footprint, else the ground under its own feet), and the census prints
+   `stands-over float > 0.5 m` (bar 0 for carried bodies; reported for footed ones).
+4. **DUPLICATE ROWS.** Rows of one resource identical in lon/lat/heading are ONE
+   placement to the split: all of them are replaced by the body rows, none survives
+   to draw the un-split object at the datum. Census `duplicate rows surviving` = 0.
+5. **THE INSTRUMENT.** `obj8_split_report` samples the graded surface; the shipped
+   plan samples the MESH. The tool marks an anchor or foot on no graded face
+   `off-sheet` and excludes it from every comparison and bar; a body's dry-run
+   number is evidence only on-sheet.
+6. **Bars (lane `v2roofcarrier`, plan replay on a pack copy, then the owner's
+   read):** site 1 `LEMD38` roof at `HANG3`'s zero (float 6.11 → ≤ 0.3); site 3
+   `green-LEMD03` re-cut so the garage roof sits on `PKT4`'s walls (8.65 → ≤ 0.3);
+   site 4 `tej2` on `LEMD41` (1.15 → ≤ 0.3); the class `stands-over float > 0.5 m`
+   129 → 0 for carried bodies, the footed remainder listed; `duplicate rows
+   surviving` 19 → 0; files ≤ 900; round trip ok; OTHH dry run: its class count
+   before/after.

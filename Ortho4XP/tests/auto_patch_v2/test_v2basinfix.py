@@ -329,12 +329,17 @@ def _floor_to_rim(pm, law, airport):
     return out
 
 
-def test_the_floor_row_is_hard_law_and_names_the_rim_it_follows(law):
-    """The head is law-table data (``[design] hard_rulings``), never a
-    literal in the solve — the row is a CONSTRAINT exactly as the ``Pin``
-    it replaces was — and ``follows`` names the FLOOR: the floor follows,
-    the rim is never pulled down into the pit."""
-    assert BASIN_FLOOR_RULING in _hard_rulings(law)
+def test_the_floor_row_is_one_equality_that_names_the_rim_it_follows(law):
+    """ONE ``Linear`` EQUALITY (``lo == hi``) per floor vertex, priced at
+    the design solve's LAW weight, with ``follows`` naming the FLOOR: the
+    floor follows, the rim is never pulled down into the pit.
+
+    NOT two opposing one-sided rows in ``[design] hard_rulings``, which
+    this lane measured first: both halves are AT their bound at the
+    solution, so the augmented-Lagrangian polish escalates them against
+    each other (LEMD: 1305/128088 hard rows active, max violation
+    0.3019 m, HARD SET NOT SETTLED, adjudicated 580 -> 1259)."""
+    assert BASIN_FLOOR_RULING not in _hard_rulings(law)
     airport, pm = _pit_airport(law, _ApronSlope())
     rows = _basin_rows(pm, law, airport)
     rel = [r for r in rows if isinstance(r, _Linear)]
@@ -343,7 +348,7 @@ def test_the_floor_row_is_hard_law_and_names_the_rim_it_follows(law):
     for r in rel:
         assert r.source.ruling.startswith(BASIN_FLOOR_RULING)
         assert set(r.follows) <= floor_vs
-        assert (r.hi if r.hi is not None else r.lo) == pytest.approx(-T4S_DEPTH_M)
+        assert r.lo == r.hi == pytest.approx(-T4S_DEPTH_M)
 
 
 def test_a_pit_in_a_sloped_apron_hangs_its_floor_under_the_rim(law):

@@ -401,7 +401,7 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     depth = -b.solid_min_y_m
     for r in rel:
         assert {abs(c) for _v, c in r.terms} == {1.0} and len(r.terms) == 2
-        assert (r.hi if r.hi is not None else r.lo) == pytest.approx(-depth)
+        assert r.lo == r.hi == pytest.approx(-depth)
     # every rim vertex (the void's exterior) pinned at the DEM or carried
     # by the apron it shares; no Flat across a band (there is none)
     assert not any(isinstance(r, Flat) for r in rows)

@@ -102,9 +102,9 @@ GEN_RIM_LEVEL = "rim_level"
 #: follows the pavement, never pulls it).
 RIM_LEVEL_RULING = "structures.structure_rim frontage_level"
 #: THE BASIN FLOOR IS THE OBJECT'S DEPTH BELOW THE RIM (owner RULINGS
-#: 2026-09-10ba; spec §22.1c).  Its ruling HEAD — named by ``[design]
-#: hard_rulings``, so the two one-sided halves of the equality are
-#: CONSTRAINTS of the active set exactly as the ``Pin`` they replace was.
+#: 2026-09-10ba; spec §22.1c).  Its ruling HEAD: the row is an EQUALITY
+#: (``lo == hi``) the design solve prices at ``[design] law``, and the
+#: vertex it GOVERNS anchors its sheet (``solve/design`` §9).
 BASIN_FLOOR_RULING = "basin.floor = rim - body_depth"
 #: A door ramp's role AND ref (RULINGS 2026-09-08b/c Law A).
 DOOR_RAMP_REF = "door_ramp"
@@ -508,9 +508,8 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     its NEAREST rim vertex, ``body_depth = −Basin.solid_min_y_m`` (the
     sidecar's ``body_depth_m``, the facility's own deepest genuine solid
     under R_est).  ``Diff`` is a symmetric grade cap with no offset, so
-    the equality is stated as its two one-sided ``Linear`` halves, HARD
-    like the pin they replace (``[design] hard_rulings`` names
-    :data:`BASIN_FLOOR_RULING`), and ``follows`` names the FLOOR vertex:
+    the law is one ``Linear`` EQUALITY (``lo == hi``) at the design
+    solve's LAW weight, and ``follows`` names the FLOOR vertex:
     the floor follows, the rim is never pulled down into the pit.
 
     A basin with no rim vertex of its own, or no measured depth, keeps the
@@ -570,12 +569,22 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 vx, vy = planar.vertices[v].xy
                 r = min(rim_vs, key=lambda u: (planar.vertices[u].xy[0] - vx) ** 2
                         + (planar.vertices[u].xy[1] - vy) ** 2)
-                terms = ((v, 1.0), (r, -1.0))
-                # the two one-sided halves of ONE equality: ``Diff`` caps a
-                # difference symmetrically around zero and cannot carry the
-                # offset, and only a one-sided row can be HARD (§8)
-                rows.append(Linear(terms, None, -depth, src_rel, follows=(v,)))
-                rows.append(Linear(terms, -depth, None, src_rel, follows=(v,)))
+                # ONE EQUALITY ROW (``lo == hi``): ``Diff`` caps a difference
+                # symmetrically around zero and cannot carry the offset, so
+                # the law is stated as a ``Linear`` equality, which
+                # ``solve/design`` carries as a two-sided target at the LAW
+                # weight — the strongest tier below the active set.
+                #
+                # NOT two opposing one-sided rows in ``[design]
+                # hard_rulings``, which is what this lane measured first:
+                # both halves of one equality are AT their bound at the
+                # solution, so the augmented-Lagrangian polish escalates
+                # them against each other and never settles.  At LEMD that
+                # arm reported 1305/128088 hard rows active, max violation
+                # 0.3019 m, "HARD SET NOT SETTLED", a runway projection
+                # moving 0.442 m and adjudicated 580 -> 1259 airport-wide.
+                rows.append(Linear(((v, 1.0), (r, -1.0)), -depth, -depth,
+                                   src_rel, follows=(v,)))
             relative += 1
         else:
             for v in sorted(floor_vs):

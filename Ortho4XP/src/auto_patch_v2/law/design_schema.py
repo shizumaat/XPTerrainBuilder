@@ -20,7 +20,8 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
                                  "taxi_profile", "taxi_trend", "road",
-                                 "detached_mean", "body_datum", "apron_trend")
+                                 "detached_mean", "body_datum", "apron_trend",
+                                 "ground_datum")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -101,6 +102,15 @@ class Design:
     #: at ``taxi_trend``'s price: it says WHERE the apron sits, never how
     #: smoothly, and every law row outranks it.
     apron_trend: float
+    #: THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23): every
+    #: ADJACENT-GROUND vertex — the ``graded_strip`` family, never a pavement
+    #: vertex and never an interior pocket enclosed by pavement (09g (1)) —
+    #: carries ONE WEAK row ``z = DEM`` at this weight while its law rows stay
+    #: one-sided and ONE-WAY.  The strip therefore EQUALS the natural ground
+    #: wherever the ground satisfies the zone law relative to its pavement and
+    #: is cut or filled only where a law row binds.  Strictly BELOW ``law``:
+    #: a datum that outpriced a law row would cut where the law says fill.
+    ground_datum: float
     #: THE PAD PLANE (owner RULINGS 2026-09-09c): a pad's flatness is a
     #: STRONG TARGET (it is no longer a hard ``Flat`` merge), and its tilt
     #: is bounded hard at ``emit.within_shape.pad_slope_max``.
@@ -236,6 +246,13 @@ def check_design(d: Design, err: type[Exception],
                   f"under-relaxation factor in (0, 1]")
     if not d.one_way_tol_m > 0.0:
         raise err(f"emit.design.one_way_tol_m {d.one_way_tol_m}: positive metres")
+    if not d.ground_datum > 0.0:
+        raise err(f"emit.design.ground_datum {d.ground_datum}: a positive "
+                  "weight — the adjacent ground's own DEM datum (09-10av)")
+    if not d.ground_datum < d.law:
+        raise err(f"emit.design.ground_datum {d.ground_datum}: strictly below "
+                  f"the law's weight {d.law} — the ground FOLLOWS its law and "
+                  "is cut or filled where a row binds (RULINGS 2026-09-10av)")
     if not d.pad_flat_rulings:
         raise err("emit.design.pad_flat_rulings: at least one ruling "
                   "(RULINGS 2026-09-09c: the pad's flatness is a target)")

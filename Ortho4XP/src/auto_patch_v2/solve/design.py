@@ -78,6 +78,7 @@ __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
+           "ground_roles", "ground_datum_vertices",
            "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
@@ -93,6 +94,7 @@ _LAG_OFF = 1.0e9
 
 
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
+from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
     bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
@@ -299,16 +301,44 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         elif rows.add(((vid, 1.0),), float(target), d.road, ("road_fit", vid)):
             road_v += 1
 
-    # 7. THE DEM FIT IS DELETED (owner RULINGS 2026-09-09b (3)): "adjacent
-    #    ground should not go directly from airside to the DEM ... not even
-    #    try to match DEM — the engine should automatically smooth between
-    #    whatever elevation we set and the DEM".  Zone 1 is the lip draining
-    #    down from the pavement edge, zone 2 the graded strip continuing at
-    #    the strip transverse law, the runway ends the end-skirt corridor —
-    #    all of them LAW rows of ``constraints/zones.py`` and
-    #    ``constraints/strips.py``, priced ONE-WAY (§8) — and the outer
-    #    ring's elevation is whatever those laws give.  The mesh engine
-    #    drapes from the patch boundary to the DEM outside it.
+    # 7. THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23),
+    #    re-scoping 09-09b (3)'s "no DEM term" to PAVEMENT.  09b (3) deleted
+    #    the DEM from the patch entirely, and a surface built only from
+    #    ONE-SIDED rows has no LEVEL: CYXY's 14R/32L end corridor cut 1.9 m
+    #    into lawful natural ground (strip 700.1 where the DEM is 701.96) and
+    #    a 45 % cut bank climbed back to a foot correctly on the DEM.
+    #    Every ADJACENT-GROUND vertex — the ``graded_strip`` family, never a
+    #    pavement vertex, never an interior pocket enclosed by pavement
+    #    (09g (1)) — carries ONE WEAK row ``z = DEM(v)`` at ``[design]
+    #    ground_datum``.  Its law rows are UNCHANGED: one-sided and ONE-WAY
+    #    (``follows = v``, §8 above), so the ground follows its pavement and
+    #    never pulls it, and the pavement keeps no DEM pull of its own
+    #    (08t (1)).  Where the ground already satisfies the zone law no row
+    #    is active and the datum is the only term with a level, so the strip
+    #    EQUALS the natural ground; where a law row binds, ``law`` (300)
+    #    outprices the datum (3) and the strip is cut or filled TO THE LAW
+    #    LINE and no further.  The bank then starts from a ring already on
+    #    the DEM and vanishes there (``daylight_feet`` resolves at
+    #    ``bank_min_width_m``, zero drop, by the walk it already runs).
+    #    THE ONE-WAY GUARANTEE (spec §23.3): the row carries exactly ONE
+    #    column — v's — and v is never a pavement vertex, so the pavement's
+    #    normal equations gain no row and no right-hand side; the coupling
+    #    rows are stripped of their leader columns by the one-way lag; and
+    #    the only channel left, the shared bending stencil, is a SECOND
+    #    DIFFERENCE that annihilates any affine field, so a rigid level or
+    #    tilt the datum gives a strip transmits exactly zero.
+    #    THE VERTEX SET IS DERIVED ONCE (``solve/design_ground``): ``why``
+    #    names the terminal from the same function.
+    ground = ground_datum_vertices(planar, law)
+    ground_v = 0
+    for vid in sorted(ground):
+        dz = planar.vertices[vid].dem_z
+        if dz is None:
+            continue
+        if rows.add(((vid, 1.0),), float(dz), d.ground_datum,
+                    ("ground_datum", vid)):
+            ground_v += 1
+    rep.ground_datum_rows = ground_v
 
     # 8. the law rows as ONE-SIDED penalties (plus the law's own equalities)
     one_t, eqs_t = _law_sides(cs)
@@ -408,7 +438,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         col = int(red.col[vid])
         if col < 0:                                   # a pin / the DEM beyond
             continue
-        if vid in pref or ramp.get(vid, 0.0) > 0.0:
+        if vid in pref or vid in ground or ramp.get(vid, 0.0) > 0.0:
             anchored.add(comp[col])
     for p_ in cs.pins:                                # a pin fixes its class
         col = int(red.col[p_.v])
@@ -930,6 +960,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          "nnz": int(A.nnz), "triangles": rep.triangles,
                          "chord_vertices": chord_v, "road_fit_vertices": road_v,
                          "one_way_rows": rep.one_way_rows,
+                         "ground_datum_rows": rep.ground_datum_rows,
                          "active": len(active), "rounds": rep.rounds})
     cert = residual(cs, z, obj)
     wall = time.perf_counter() - t0

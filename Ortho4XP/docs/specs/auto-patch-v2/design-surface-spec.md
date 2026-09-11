@@ -3495,3 +3495,88 @@ the existing +25+051 mesh reads **58,826 parts, 0 differing deltas, max
 0.000 m** — 10i (4)'s exemption holds exactly. The 13 skirted members are
 Dewatering/Drainage 01–06, two tunnel objects, Bridge_03 (×2), DutyFree,
 TerminalRoads_03 and Terminal_Parking.
+
+## §23 THE GROUND'S OWN DATUM — adjacent ground follows the natural ground wherever the ground is lawful (owner RULINGS 2026-09-10av) — lane `v2grounddem`
+
+### 23.1 The reading that founds it
+
+CYXY, app 1.0.310: `bank_foot` node 60.7003105, −135.0581666 sits on the DEM (703.13 —
+the daylight line of 09g, correct by construction); 44 m away inside the 14R/32L end
+corridor's zone-2 strip (`adjacent_ground:runway:4:zone2#10`, shape 224) the strip is
+graded to 700.1 where the natural ground is 701.96 — 1.9 m of cut where the ground is
+lawful — and a 45 % cut bank climbs back to the foot over the 5 m minimum width. The
+strip descended because 09b (3) made adjacent ground a pure law surface with NO DEM term
+at all: with only one-sided rows the level is whatever bending leaves.
+
+### 23.2 The rule
+
+Every ADJACENT-GROUND vertex — the `graded_strip` family (zone 1, zone 2, the end
+corridors, the clearance skirts: the vertices of the non-value, non-structure faces the
+bending term prices at `bend_strip`) that is NOT also a pavement vertex — carries ONE
+WEAK per-vertex row `z_v = DEM(v)` at `[design] ground_datum` (3.0). Its law rows are
+unchanged: one-sided and ONE-WAY. Consequences, by construction: where the ground already
+satisfies the zone law relative to its pavement, no law row is active and the datum is the
+only term with a level, so the strip EQUALS the natural ground; where a law row binds, the
+law (300) outprices the datum (3) by two orders and the strip is cut or filled TO THE LAW
+LINE and no further. The ring is still emitted; it carries the DEM's own values where no
+law binds.
+
+09g (1) stands: INTERIOR ground (a strip pocket enclosed by pavement — one with no face on
+the patch's outer boundary) is part of the design sheet and takes NO datum. The derivation
+is one flood from the strip faces carrying an outside edge (`left_face`/`right_face` None)
+through shared edges; `solve/design_ground.ground_datum_vertices` is its single site, and
+`why` reads the same function rather than re-deriving it.
+
+### 23.3 The one-way guarantee — proved by construction, and the one channel that is bounded
+
+1. **The datum row itself.** `((v, 1.0),) = DEM(v)` carries exactly ONE column, v's, and v
+   is never a pavement vertex (`pavement_roles` faces' ring vertices are subtracted at the
+   derivation site). The pavement's normal equations therefore gain no row and no
+   right-hand side from the datum: `AᵀA` acquires a diagonal entry at v alone.
+2. **The law rows.** Every row coupling a ground vertex to a pavement foot —
+   `zones.zone_bands`, `zones.strip_transverse` — is minted with `follows = v` and its head
+   is in `[design] one_way_rulings`, so `solve/design` strips the LEADER coefficients out of
+   `A1` into `A1_lead` and feeds them through the lagged `shift`. The pavement columns are
+   absent from those rows in the matrix that is factorised. A datum that moves v therefore
+   moves no pavement column through any law row, at any lag round.
+3. **The bending sheet is the ONE remaining channel, and it transmits SHAPE, not LEVEL.**
+   §6 deviation 1 keeps the strip inside the bending sheet (a blend with no bending term is
+   not a blend), so a cotangent-Laplacian row centred on a pavement vertex at the pavement
+   edge carries its strip neighbours' columns. A Laplacian row is a SECOND DIFFERENCE: it
+   annihilates any affine field. The datum's dominant effect on a strip is a rigid level
+   shift (and, over a zone width, a tilt) — both affine, both transmitted as exactly ZERO.
+   Only the CURVATURE the DEM induces in the strip within ONE stencil of the pavement edge
+   reaches pavement, priced there at the pavement vertex's own `bend_runway` / `bend_taxi` /
+   `bend_apron` weight against `bend_strip` 30 and, where it matters, `law` 300 and the hard
+   runway set. BOUNDED BY MEASUREMENT, not by assertion: HECA per-role `undulation.py` —
+   `graded_strip`, `primary_parallel`, `junction`, `apron` each ≤ control + 5 %, bows
+   unchanged, DEFECTs 0. A miss is a weight question first (the ruling says "tune").
+
+### 23.4 Consumer table (owner RULINGS 2026-08-30l) — every pass that reads the affected geometry
+
+| # | reader | what it reads | rule |
+|---|---|---|---|
+| G1 | `constraints/zones.zone_bands`, `zones.strip_transverse` | the zone-1 lip / zone-2 corridor bands and the strip tie, `follows = v` | UNCHANGED, and they are the guarantee (§23.3 (2)): the datum is an OBJECTIVE row, never a law row, so no generator, no bound and no census family changes |
+| G2 | `emit/bank.daylight_feet` | `z_ring` vs its DEM along the outward normal | UNCHANGED code; the BEHAVIOUR follows: with the ring on the DEM, `sgn·(z0 − z_min) − slope·min_w ≤ tol` resolves at the first test, so the foot is at `bank_min_width_m` with zero drop — the ruled "the bank starts from a ring already on the DEM and vanishes there" is what the existing walk already does once the ring is right |
+| G3 | `emit/bank` `no_bank` / `coverage_polygon` (§18 water, §19.3b edge collar) | the mask of boundary the bank skips | UNCHANGED — the datum changes the ring's VALUES, never the coverage geometry the mask is cut from |
+| G4 | `planar/terrain_edge.clip_to_terrain_edge` (the crest flood) | the production DEM's outward slope on a 5 m grid, before the solve | UNCHANGED: the crest test reads the DEM only and never a design z, so the trim is bit-identical. The two laws compose — the corridor ends at the edge (§19), and what survives now sits on the ground |
+| G5 | `verify/strips.py` (`resa_transverse`, `raoa`, `adjacent_ground_tear`, `strip_seam_tear`) and the census's `graded_strip` law families (`tools/check_grade.py`, `tools/harness/census.py`) | the BUILT surface | UNCHANGED — they report what the datum plus the one-way law produced. Counts are expected to FALL (a strip on its own ground tears against nothing); the lane quotes CYXY adjudicated before/after |
+| G6 | `solve/why.py` `_terminal_kind` | a FREE terminal's note, today "held by bending alone" | a strip vertex the datum holds now reads "held by its ground datum" — `why` calls `ground_datum_vertices`, the same single derivation site, and invents no second rule |
+| G7 | `solve/design.assemble` §9 (the ANCHORED test) | `preferred_z` / the zone ramp | a ground-datum vertex ANCHORS its sheet: a component holding datums takes no `detached_mean` plane on top of them (one level statement per body) |
+| G8 | `DesignReport` / `report["design"]` / the `[v2] design` log line / the sidecar / `tools/v2_solve_replay.py` | the term counts | one new count `ground_datum_rows`; the replay's print is dict-generic and needs no edit. No new sidecar KEY and no wire-protocol name |
+| G9 | `law/design_schema.DESIGN_TERMS`, `check_design`, `tests/auto_patch_v2/test_law_tables.py` | the term register | `ground_datum` joins `DESIGN_TERMS` and `Design`; validated positive and STRICTLY BELOW `law` (a datum that outprices a law row would cut where the law says fill) |
+| G10 | `solve/rows._zone_weights`, `_Reduction.dem_fixed` | the ramp / the (always empty) fixed-terrain set | UNCHANGED: nothing is FIXED at the DEM — 09b (3)'s deletion of the beyond-the-ring fixing stands, and `bank_rows` still reads 0. A datum is a target, not a pin |
+
+### 23.5 Twins (`tests/auto_patch_v2/test_v2grounddem.py`)
+
+A runway end over lawful ground → the strip equals the DEM to 0.05 m AND the pavement
+solution is byte-identical to the no-datum arm (the one-way guarantee, measured); ground
+rising above the zone ceiling → cut to the law line exactly there and the DEM elsewhere;
+ground falling faster than the lip law → filled at the law line; an enclosed strip pocket
+takes no datum row.
+
+### 23.6 Build-time impact statement
+
+One extra objective row per adjacent-ground vertex (HECA order 5 k), each a single
+diagonal entry in `AᵀA` — no new fill-in, no new factorisation, no new pass. Below the
+1 % tripwire; the closing builds quote the solve wall.

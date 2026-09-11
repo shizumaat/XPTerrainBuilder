@@ -68,6 +68,11 @@ class DesignReport:
     #: how many apron vertices carry a 2-D trend row (such a body carries
     #: NO affine ``body_datum`` rows)
     apron_trend_rows: int = 0
+    #: THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23): how
+    #: many ADJACENT-GROUND vertices carry the weak ``z = DEM`` row — the
+    #: ``graded_strip`` family minus the pavement vertices and minus the
+    #: interior pockets enclosed by pavement (09g (1))
+    ground_datum_rows: int = 0
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0

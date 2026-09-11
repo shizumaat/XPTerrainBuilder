@@ -41,6 +41,7 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin, Row)
 from ..model.planar import PlanarMap
 from .design import DesignReport, solve_design
+from .design_ground import ground_datum_vertices
 
 __all__ = ["Prepared", "prepare", "solve_with_pressure", "family_of",
            "resolve_faces", "Binding", "bindings", "Step", "Trace",
@@ -321,6 +322,21 @@ class Trace:
         return sum(s.dz for s in self.steps)
 
 
+#: THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av), memoised per map:
+#: ``why`` names a FREE terminal's holder from the SAME derivation site the
+#: solve mints the row from (``solve/design_ground``), never a second rule.
+_GROUND_CACHE: dict[int, frozenset[int]] = {}
+
+
+def _ground_datum(prep: Prepared) -> frozenset[int]:
+    key = id(prep.pm)
+    got = _GROUND_CACHE.get(key)
+    if got is None:
+        got = ground_datum_vertices(prep.pm, prep.law)
+        _GROUND_CACHE[key] = got
+    return got
+
+
 def _terminal_kind(prep: Prepared, v: int, blist: list[Binding]) -> tuple[str, str] | None:
     """Whether ``v`` ends a chain, and why."""
     for b in blist:
@@ -335,7 +351,16 @@ def _terminal_kind(prep: Prepared, v: int, blist: list[Binding]) -> tuple[str, s
         pref = prep.pm.preferred_z.get(v)
         rel = "on" if dem is not None and abs(prep.z[v] - dem) <= 1e-3 else (
             "above" if dem is not None and prep.z[v] > dem else "below")
-        held = "its design target" if pref is not None else "bending alone"
+        if pref is not None:
+            held = "its design target"
+        elif v in _ground_datum(prep):
+            # THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23):
+            # an adjacent-ground vertex no binding row holds is held by its
+            # own DEM, not by bending — the same derivation site the solve
+            # mints the row from, never a second rule here.
+            held = "its ground datum (the DEM under it)"
+        else:
+            held = "bending alone"
         return "FREE", f"no binding row blocks it: {rel} its DEM, held by {held}"
     return None
 

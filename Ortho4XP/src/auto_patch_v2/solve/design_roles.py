@@ -17,7 +17,7 @@ from ..law.tables import (apron_roles as _apron_roles,
                           pavement_roles as _pavement_roles, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'ground_datum_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -82,14 +82,17 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     return frozenset(design_law(law).one_way_rulings)
 
 
-def ground_datum_rulings(law: Law) -> frozenset[str]:
-    """The ruling HEADS whose rows are priced at ``[design] ground_datum``
-    — a bare-ground body's per-foot GROUND target (owner RULINGS
-    2026-09-11q; ``constraints/foot_rows.py``, spec §11b (2)).  A foot row
-    is not a law: it says where the ground under one contact of one object
-    wants to be, at the same price the adjacent ground's own DEM datum
-    pays, so any law binding there outprices it by two orders."""
-    return frozenset(design_law(law).ground_datum_rulings)
+def foot_row_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS whose rows are priced at ``[design] pad_flat`` —
+    a bare-ground body's per-foot target (owner RULINGS 2026-09-11q,
+    repriced 11ab; ``constraints/foot_rows.py``, spec §11b (2)).  A foot
+    row IS THE PAD LAW'S TARGET for a body that carries no pad polygon,
+    so it pays the pad's price, not ``ground_datum`` — that is what the
+    ADJACENT GROUND's own DEM datum pays, and at 3.0 the body's own
+    placement was the cheapest row in the sheet (round 7: 715 of 1,434
+    missed).  A register of its own, kept apart from ``pad_flat_rulings``
+    so the report counts foot rows and pad planes separately."""
+    return frozenset(design_law(law).foot_row_rulings)
 
 
 def pad_flat_rulings(law: Law) -> frozenset[str]:

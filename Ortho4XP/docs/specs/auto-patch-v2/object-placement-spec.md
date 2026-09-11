@@ -927,6 +927,84 @@ the generator's own cost there is 1.77 s).
 * `model/ground_fit.py` is the ONE expression of the fit; `planar/group.derive`
   and `constraints/foot_rows` both call it.
 
+### §11b Measured (round 8, lane `v2canopy8`; branch `claude/v2canopy8`)
+
+11ab implemented as written, PRICING ONLY: the register
+`[design] ground_datum_rulings` — whose only entry was ever the foot-row
+head — is repriced from `ground_datum` (3) to `pad_flat` (3,000) and
+renamed `foot_row_rulings`. **One register, no new price constant.** The
+head stays DISTINCT from `pad_flat_rulings` because the report counts the
+two classes apart (`design.foot_rows` is exactly the foot rows,
+`verify/pads.pad_flat` exactly the pad planes); `law/design_schema` now
+refuses a head that appears in both. All-or-nothing per body and the
+neighbour-pair feasibility bar are untouched, so a priced row cannot mint
+a step.
+
+MEASURED, LEMD (`LEMD_20260911T151823`, artifact-ledger key `4ddb063cb61c`,
+corpus `e512b4ea8cca`; engine total **366.5 s** against round 7's 379.9 s,
+−3.5 %; harness wall **383.2 s**, bar 380 × 1.05 = 399 s — MET):
+
+| bar | round 6 | round 7 | **round 8** | |
+|---|---|---|---|---|
+| `design.families.foot_rows` rows / missed / max | 1,524 / 760 / 5.91 | 1,434 / 715 / 5.702 | **1,434 / 691 / 3.792** | bar NOT met on `missed` |
+| feet within 0.3 m of their target | — | — | **658 of 715 (92 %)** | NEW instrument |
+| `foot_rows.partial` | 0 | 0 | **0** | MET |
+| `pad_flat` verify rows | 18 | 23 | **19** | no regression |
+| `> 3 m` | 18 | 16 | **not measurable** | see below |
+
+**THE HEADLINE `missed` IS A TOLERANCE ARTEFACT, NOT A MISS.** A foot is
+TWO one-sided rows sharing one target, and `families.missed` counts a side
+violated beyond `active_set_tol_m` (0.02 m). The new per-FOOT reading
+(`design.foot_row_diag`, `solve/design_report.foot_row_diagnostic`) is:
+
+| | LEMD round 8 |
+|---|---|
+| feet with rows | 715 |
+| within 0.01 m | 292 |
+| within 0.1 m | 621 |
+| within 0.3 m | **658 (92 %)** |
+| within 1.0 m | 687 |
+| p50 / p90 | **0.0138 m / 0.1698 m** |
+| max | 3.7916 m |
+
+So the price DOES govern: the median fired foot is carried to 1.4 cm and
+nine in ten to 17 cm, where round 7's family max was 5.70 m. What remains
+is **57 feet (8 %) outside 0.3 m**.
+
+**THE RESIDUE IS THE TRIANGULATION, NOT THE PRICE** (the round-9
+mechanism, measured here, not decided):
+
+* `feet_no_free_column` = **0** — no foot row is frozen; the price reaches
+  every one of them.
+* 715 feet stand in **210 triangles** — 3.4 feet per face — and
+  `feet_sharing_a_triangle` = **668 (93 %)**.
+* `worst_triangle_spread_m` = **4.45 m**: two feet inside ONE face asking
+  for levels 4.45 m apart.
+
+The design sheet is LINEAR over a triangle. Two feet in one face asking
+different levels cannot both be carried at ANY price, and the
+least-squares compromise between them is exactly what the remaining 57
+residuals are. This is the bank's 09x lesson (`bank_triangle_divisions`:
+"the mesh must have vertices to carry the blend") arriving at the bodies:
+the sheet needs a vertex where a foot stands. Raising the price again
+cannot help; a region/triangulation change is a cross-cutting geometry
+change and takes a consumer census at spec time first.
+
+**`> 3 m` IS NOT MEASURABLE IN THIS LANE.** `build_airport.py` writes no
+`o4_v2_placement_LEMD.json` (the rebake WRITE stage is a tile build), so
+the instrument needs a plan from elsewhere. The only plan on the corpus,
+`XPTerrainBuilderData/Patches/+40-010/+40-004/o4_v2_placement_LEMD.json`,
+was rewritten by ANOTHER lane at 15:02 today, mid-round — reading round 8's
+graded surface against it gives `>3 m = 47` of 741, which is a
+CROSS-TREE number and is quoted here only to say it is not evidence
+(RULINGS: cross-tree comparisons are not evidence). Round 7's 16 was read
+against a different plan file and cannot be compared to it.
+
+**WHAT ROUND 8 DID NOT DO.** No change to the rows, the feasibility bar,
+the all-or-nothing rule, the basin exclusion, the sheet's triangulation or
+any consumer; no HECA and no OTHH build (brief); no merge. The suite is
+1,076 green (round 7: 1,072; +4 round-8 twins).
+
 ### §11b Measured (round 7, lane `v2canopy5`; branch `claude/v2canopy5`)
 
 11x implemented as written — all-or-nothing per body, the neighbour-pair

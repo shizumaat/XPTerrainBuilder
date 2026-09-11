@@ -474,3 +474,67 @@ def test_the_face_triangulation_is_one_expression(law):            # noqa: F811
     assert "Delaunay" not in inspect.getsource(_rows)
     assert "Delaunay" not in inspect.getsource(FR)
     assert callable(face_triangles)
+
+
+# ── ROUND 8 (owner RULINGS 2026-09-11ab): THE PRICE ────────────────────
+
+def test_the_foot_row_price_is_the_pad_s(law):                     # noqa: F811
+    """11ab: a foot row IS the pad law's target for a body with no pad
+    polygon, so it is priced at ``pad_flat`` (3000) and not at
+    ``ground_datum`` (3) — the ADJACENT GROUND's datum price, under
+    which the body's own placement was the cheapest row in the sheet.
+    ONE register, no new price constant, and the head stays DISTINCT
+    from ``pad_flat_rulings`` so the report counts the two apart."""
+    from auto_patch_v2.solve.design_roles import (foot_row_rulings,
+                                                  pad_flat_rulings)
+    d = law.tables.emit.design
+    assert d.foot_row_rulings, "the class is the register, and it is ON"
+    heads = foot_row_rulings(law)
+    assert FR.RULING.split(" (")[0] in {h for h in heads} or any(
+        FR.RULING.startswith(h) for h in heads), heads
+    # the two classes share the PRICE and not the HEAD
+    assert not (set(d.foot_row_rulings) & set(d.pad_flat_rulings))
+    assert set(heads).isdisjoint(pad_flat_rulings(law))
+    assert d.pad_flat == 3000.0 and d.ground_datum == 3.0
+
+
+def test_the_solve_prices_every_foot_row_at_pad_flat(matched, law):  # noqa: F811
+    """The register is not decoration: the assembled one-sided rows the
+    solve indexes as ``foot_row_i`` are exactly the foot rows, and the
+    weight vector carries ``pad_flat`` on each of them."""
+    import numpy as np
+    from auto_patch_v2.solve import design as D
+    airport, _r, pm, cs, _sol, rep, counts = matched
+    base = D.assemble(pm, cs, law, D.DesignReport())
+    assert len(base.foot_row_i) == counts["foot_rows"] == rep.foot_rows
+    gens = {base.one[i][2].source.generator for i in base.foot_row_i}
+    assert gens == {FR.GEN}, gens
+    # no pad plane rows on this fixture, so the two index lists cannot be
+    # confused for one another
+    assert base.pad_flat == []
+    w = np.full(len(base.one), float(law.tables.emit.design.law))
+    w[np.asarray(base.foot_row_i, dtype=np.int64)] = float(
+        law.tables.emit.design.pad_flat)
+    assert float(w[base.foot_row_i[0]]) == 3000.0
+    import inspect
+    src = inspect.getsource(D)
+    assert "w_row[fr_i] = float(d.pad_flat)" in src
+
+
+def test_the_price_mints_no_step_between_neighbours(law):          # noqa: F811
+    """The round-5 STEP fixture at the new price (11ab): all-or-nothing
+    and the neighbour-pair bar are untouched, so two neighbouring bodies
+    over sloped DEM still leave the sheet between them inside
+    ``bank_slope``.  A priced row buys carriage, never a step."""
+    test_two_neighbouring_bodies_leave_no_step(law)
+
+
+def test_the_colonnade_misses_no_row_at_the_new_price(matched, law):  # noqa: F811
+    """The LEMD bar in twin form: on a FEASIBLE body the foot-row family
+    misses nothing — ``design.families.foot_rows.missed`` is 0 and its
+    worst residual is inside the 0.3 m bar."""
+    _a, _r, _pm, _cs, _sol, rep, _counts = matched
+    fam = rep.families.get(FR.GEN)
+    assert fam is not None and fam["rows"] > 0, rep.families
+    assert fam["missed"] == 0, fam
+    assert fam["max_m"] <= 0.3, fam

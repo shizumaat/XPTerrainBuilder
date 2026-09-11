@@ -67,7 +67,7 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
-from .design_report import DesignReport, residual
+from .design_report import DesignReport, foot_row_diagnostic, residual
 from .project import ProjectionReport, project_runway
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
@@ -78,7 +78,7 @@ __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
-           "ground_roles", "ground_datum_vertices", "ground_datum_rulings",
+           "ground_roles", "ground_datum_vertices", "foot_row_rulings",
            "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
@@ -96,7 +96,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
-    bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, ground_datum_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
+    bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -144,9 +144,9 @@ class Base:
     #: one record per datum row, in the row order of ``body`` — what the
     #: report reads its residual and its DEM mean from (RULINGS 2026-09-10p)
     body_meta: list["_BodyDatum"] = _dc.field(default_factory=list)
-    #: indices into ``one`` of the FOOT ROWS (``[design]
-    #: ground_datum_rulings``, 11q): priced at ``ground_datum``
-    ground_datum_i: list[int] = _dc.field(default_factory=list)
+    #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
+    #: 11ab): priced at ``pad_flat``, the pad law's own target
+    foot_row_i: list[int] = _dc.field(default_factory=list)
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -356,16 +356,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     dropped_bank = 0
     heads = hard_rulings(law)
     ow_heads = one_way_rulings(law)
-    pf_heads = pad_flat_rulings(law)
-    gd_heads = ground_datum_rulings(law)
+    pf_heads, fr_heads = pad_flat_rulings(law), foot_row_rulings(law)
     pl_heads = pad_level_rulings(law)
     #: the pad vertices a LEVEL row governs (owner RULINGS 2026-09-10l):
     #: they follow the pavement they front and carry no DEM datum (§9b)
     pad_follow: set[int] = set()
     hard: list[int] = []
     pad_flat_i: list[int] = []
-    #: the FOOT ROWS at ``ground_datum`` (11q, ground_datum_rulings)
-    ground_i: list[int] = []
+    foot_i: list[int] = []   # the FOOT ROWS at ``pad_flat`` (11ab)
     one_way: dict[int, tuple[int, ...]] = {}
     #: the vertices a LAW EQUALITY GOVERNS (owner RULINGS 2026-09-10ba): a
     #: basin floor is no longer PINNED — it is tied to its rim by a relative
@@ -413,7 +411,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 one_way[len(one)] = cols
         head = ruling_head(row)
         (pad_flat_i if head in pf_heads
-         else ground_i if head in gd_heads else []).append(len(one))
+         else foot_i if head in fr_heads else []).append(len(one))
         # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
         # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
         # pad plane (10y), not just the feet the row mentions — follows the
@@ -622,9 +620,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n
     rep.body_datum_bodies = len(meta)
-    rep.foot_rows = len(ground_i)
+    rep.foot_rows = len(foot_i)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v, body, meta, ground_datum_i=ground_i)
+                chord_v, road_v, body, meta, foot_row_i=foot_i)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -728,12 +726,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     pad_i = np.asarray(base_p.pad_flat, dtype=np.int64)
     if pad_i.size:
         w_row[pad_i] = float(d.pad_flat)
-    # THE FOOT ROWS ARE GROUND TARGETS (11q, spec §11b (2)): priced
-    # exactly where the adjacent ground's own DEM datum is, two orders
-    # under the law, so any law binding under that foot still wins.
-    gd_i = np.asarray(base_p.ground_datum_i, dtype=np.int64)
-    if gd_i.size:
-        w_row[gd_i] = float(d.ground_datum)
+    # THE FOOT ROWS ARE THE PAD LAW'S TARGET (owner RULINGS 2026-09-11ab,
+    # spec §11b (2)): a body with no pad polygon states its placement
+    # through its feet, so those rows pay the PAD's price, not the ADJACENT
+    # GROUND's (round 7 at 3.0: 715 of 1,434 missed, 5.70 m; pair bar kept).
+    fr_i = np.asarray(base_p.foot_row_i, dtype=np.int64)
+    if fr_i.size:
+        w_row[fr_i] = float(d.pad_flat)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it
@@ -944,6 +943,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rec["max_m"] = round(rec["max_m"], 4)
         rec["energy"] = round(rec["energy"], 3)
     rep.families = dict(sorted(fam.items()))
+    rep.foot_row_diag = foot_row_diagnostic(one, viol_all, base_p.foot_row_i, red.col)
     # THE PUBLISHED TARGETS: every row missed beyond the elevation
     # materiality, with its vertices' canonical identities (RULINGS
     # 2026-09-08t: "a target missed is a row, the census counts it")

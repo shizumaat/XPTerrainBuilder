@@ -1526,3 +1526,19 @@ of the pack's 31 anchors, 171 members — so their authored relation is exact.
   viaduct's 32 bodies ungrouped again, +18.44…+23.56 — the site itself). The shipped
   rule is the third; at the attempt cap this is a **STOP-and-report**, and whether
   those seven buildings may bury against their neighbours is an owner question.
+* **OTHH** (its own patch build, 614 s, `body_sha bd190a4d248a`, verify rows 33,
+  DEFECTs 0; 102,749 abutments over 140,280 parts, 95 groups, 1,215 juniors,
+  **1,441 pairs REFUSED** by the structure-seat / line / facility exemption — both
+  arms replayed on the owner's `Data+25+051.mesh` off the one build):
+  **`Bridge_*` and `TerminalRoads_*`: 88 members, all 88 with a byte-identical
+  written delta, and NOT ONE of their bodies in a group** — rule 4's exemption held
+  by construction, no special case. `seat_feet_census` is identical on both arms
+  (3,262 measured placements, `> 3 m` **19**, max 5.79 m, buckets 797 / 82).
+  THE ONE CHANGE, and the second STOP: the **`Fire Fuel` family's three written
+  files** (`Fuel_01_LOD0_004`, `Fuel_01_CLUTTER_LOD0_001/002`) lose their
+  **−1.1295 m** delta and STAY at their authored y — body 7134 (19 parts, its own
+  feet reading 2.8325 on a hollow) is a junior of body 7130 (543 parts, 6
+  resources, 3.9620, the flat fuel farm around it), so the group's correction falls
+  under `min_delta_m`. Written resources 22 → 19; `Dewatering Drainage` (14) and
+  `tunnels` (8) are untouched. It is the rule working as ruled on a body that is
+  not a deck, and it is an OWNER QUESTION, not a fix.

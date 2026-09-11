@@ -99,3 +99,12 @@ class Placement:
     #: by centroid to stations this far apart and each station becomes
     #: its own body / file / placement at its mid-foot.  0 disarms it.
     line_segment_m: float = 100.0
+
+    #: THE CANOPY-AND-BUILDING GROUP (owner RULINGS 2026-09-11i; spec
+    #: §11 (4)): a group whose plan span exceeds this is the HECA
+    #: railway class — the only group whose connecting deck an
+    #: INFEASIBLE pad may RELEASE.  A shorter infeasible group is
+    #: reported with its residual and never split.  0 disarms the
+    #: exception (no group is ever releasable).  Per airport in
+    #: ``airports.toml`` (``Affordances.group_span_max_m``).
+    group_span_max_m: float = 150.0

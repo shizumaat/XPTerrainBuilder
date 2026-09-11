@@ -28,7 +28,8 @@ __all__ = [
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
-    "design_weight", "sliver_area_factor", "affordances", "bend_class", "apron_roles",
+    "design_weight", "sliver_area_factor", "affordances", "group_span_max_m",
+    "bend_class", "apron_roles",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -72,6 +73,18 @@ def affordances(law: Law) -> Affordances:
     garage ramps.  Delegates to :attr:`Law.affordances`; every airport
     the table does not name takes every key false."""
     return law.affordances
+
+
+def group_span_max_m(law: Law) -> float:
+    """THE LONG SPAN (owner RULINGS 2026-09-11i; spec §11 (4)) — ONE
+    derivation site.  ``[placement] group_span_max_m``, overridden by
+    this airport's own value in ``airports.toml`` where it states one.
+    A group longer than this is the HECA railway class: the only group
+    an infeasible pad may RELEASE.  0 disarms the exception."""
+    own = law.affordances.group_span_max_m
+    if own is not None:
+        return float(own)
+    return float(law.tables.structures.placement.group_span_max_m)
 
 
 # ── roles ────────────────────────────────────────────────────────────────

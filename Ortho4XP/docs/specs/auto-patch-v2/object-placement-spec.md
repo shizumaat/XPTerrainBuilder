@@ -326,3 +326,74 @@ adapting the terrain to accommodate the canopy and building group would be prefe
    are exactly 11g's; the HECA railway releases (a long span) and its buildings
    seat. Bars: LEMD `> 3 m` 25 → ≤ 22 with the three named rows gone; files
    ≤ 4×; suite green. Two fix iterations, then STOP and report.
+
+6. **Measured** (lane `v2canopy`, round 1, on the LEMD / OTHH artefacts of
+   app 1.0.313 — `LEMD_20260911T081738`, `v2bridgegroup_othh`; no build).
+   The derivation site landed (`planar/group.py`, 12 twins,
+   `tests/auto_patch_v2/test_v2canopy.py`); the GROUP PAD, its consumer
+   edits and the feasibility release did NOT, and three measurements say
+   why §11 (2)/(4) cannot be implemented as written.
+
+   * **THE UNIT IS THE BODY, NOT THE PLACEMENT.** §11 (2) says "the bodies
+     that share one object" and then states the pad union and the span law
+     over PLACEMENTS. At LEMD a placement is not a building: Aerosoft
+     authors hundreds of unrelated structures into one file, so at
+     placement level the owner's own rows read `LEMD38` span **2,654 m**
+     relief **48.90 m**, `LEMD84` **1,481 m** / 10.03 m and `LEMD60`
+     **1,003 m** / 6.21 m — and `LEMD84`/`LEMD60` are groups of ONE
+     placement, so no grouping change can touch them. Under §11 (4)'s
+     150 m, **8 of LEMD's 9 placement-level groups come out LONG and so
+     RELEASABLE**, including `LEMD38`'s canopy cluster — the exact
+     disconnection 11i forbids. Read at BODY level (the intra-placement
+     ε-contact component, which is what §9 writes a file for and what the
+     census reports a row against) the same site reads spans of 0–180 m,
+     52 cross-placement groups of which 16 are long, and the span law
+     separates what the owner described. `planar/group.py` derives at body
+     level and imports `placement_plan._bodies_of` rather than restating
+     it.
+   * **THE DOMINANT RESIDUAL IS NOT A GROUPING DEFECT AND NEEDS NO GROUP.**
+     `LEMD38`'s 150 bodies are canopy modules of nine column feet each,
+     span 28–114 m, and EVERY one has an authored `y` spread of **2.63 m**
+     with no cross-placement abutment at all. Under 11b such a body drapes
+     at one anchor, so those 2.63 m are the census row. §11 (2)'s per-foot
+     target `level + (y_foot − y_zero)` is the fix — but it is the fix for
+     a body of ONE placement, which means the mechanism is the general pad
+     law with a relief target, and the canopy group is the case that makes
+     the union bigger, not the case that creates it. 1,158 of LEMD's 9,546
+     bodies carry more than 3 m of authored relief.
+   * **THE PAD CANNOT BE MINTED WHERE §11 (3) PUTS IT.** The pad is derived
+     in `classify/evidence._pads` (:448) from OSM `airport.buildings`, is
+     already unioned by footprint connectivity, and carries **no identity
+     link to any placement** (`Building.dsf_object` is never populated;
+     `_pads` discards `Building.id`). The group's own footprint is
+     therefore new pad AREA, minted at classify time — and `LEMD38`'s
+     bodies class as `other`, i.e. they stand on no pad today. But the
+     group needs the pack's ABUTMENTS, which `airport/rebake_plan.plan()`
+     derives **after emit** (`pipeline/build.py:694`), from inputs that are
+     themselves planar products (`pm.basins`, `pm.structures`,
+     `_plate_seats`) and the SOLVED surface (`deck_datum`). §11 (3)'s "the
+     pack is read at plan time" is not true of this tree, and the
+     dependency as stated is circular: pad ← group ← abutments ← planar ←
+     classify ← pad.
+   * **THE SMALLEST MOVE** (proposed, not taken — it changes the shape of
+     the pipeline and belongs to the owner): split `rebake_plan.plan()`
+     into `partition_pack()` — objects → members, parts, feet, contacts,
+     abutments, and the deck / skirt / line verdicts, none of which reads
+     `pm` or the solve — and a thin `plan()` that consumes a partition plus
+     the planar- and solve-dependent inputs. `partition_pack()` runs ONCE,
+     before `classify`; `planar/group.py` derives the groups from it;
+     `_pads` mints the group pad; `plan()` reuses the same partition, so
+     the build-time delta is a MOVE of 26 s at LEMD / 108 s at OTHH, not an
+     addition. What must be measured before it is accepted: the
+     pre-classify partition runs over the UNFILTERED object set (the
+     `exclude` / `below_grade` filtering is planar-dependent), so `plan()`
+     must filter a partition instead of partitioning a filtered set —
+     `contacts` / `abutments` / `parts` counts before and after.
+   * **OTHH AND HECA COULD NOT BE DRY-RUN.** No product on disk matches
+     this main: OTHH's newest plan is `PLAN_VERSION` **8** (it predates
+     11g's `elevated_deck` field, so it carries 0 deck verdicts and yields
+     0 groups by construction) and HECA's is **6**. Neither was rebuilt
+     (BUILD ECONOMY). The HECA railway class is therefore UNMEASURED.
+   * `[placement] group_span_max_m` = 150 m landed with its per-airport
+     override (`Affordances.group_span_max_m`, `law/tables.group_span_max_m`
+     as the one resolution site). Suite 999 passed / 1 skipped.

@@ -46,6 +46,14 @@ class Affordances:
     #: LAW C — kerb-wall corridors AND garage ramps (spec §6, §12g)
     kerb_wall_corridors: bool = False
 
+    #: THE LONG SPAN, per airport (owner RULINGS 2026-09-11i; spec §11
+    #: (4)): this pack's own ``[placement] group_span_max_m``.  ``None``
+    #: — the default for every airport the table does not name and every
+    #: named airport that does not state it — takes the global law.  It
+    #: is a LENGTH, not a switch, and it is here for the same reason the
+    #: switches are: the owner rules it per pack after a read.
+    group_span_max_m: float | None = None
+
 
 #: Every airport ``airports.toml`` does not name.
 NO_AFFORDANCES = Affordances()

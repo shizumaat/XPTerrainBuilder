@@ -424,4 +424,16 @@ flat_site_ground_datum   = true    # the datum extends under every object footpr
 # two readings of a fence agree — and the cap on the stations is
 # [rebake] line_object_stations_max.  0 disarms the segment cut.
 line_segment_m      = 100.0        # = [rebake] body_feet_span_m (10i (2) / 10bb): one station per 100 m of fence; LEMD's perimeter reads 52 stations under the 64 cap
+# THE CANOPY-AND-BUILDING GROUP (owner RULINGS 2026-09-11i; spec §11).  A
+# canopy on columns stays connected to its columns and to the building it
+# abuts: the group is ONE object and the TERRAIN adapts to it (one pad over
+# the union of the group's footprints, the target under each foot
+# level + (y_foot - y_zero)).  A LONG connecting body - the HECA railway
+# class, two far buildings joined by one span - may instead DISCONNECT so
+# the buildings seat, and only when the group pad turns out INFEASIBLE.
+# This is that length: a group whose plan span exceeds it is releasable, a
+# shorter one is reported with its residual and never split (the owner
+# rules per case).  Per airport in airports.toml where a pack needs it.
+# 0 disarms the long-span exception entirely.
+group_span_max_m    = 150.0        # 11i: LEMD's kerbside canopies span 30-90 m and are never releasable; HECA's railway joins two terminals hundreds of metres apart
 split_tol_m         = 0.3          # round 1 measured LEMD 302 placements -> 13,924 cut files and OTHH 954 -> 65,360: the SEAT's bodies are far finer than a PLACEMENT needs (11e).  0.3 m is the materiality the sim read is judged at; 0 would restore round 1's one-file-per-body reading

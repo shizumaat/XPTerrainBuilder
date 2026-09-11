@@ -63,6 +63,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
     ("structures", structures.structures),
+    ("rim_level", structures.rim_level),
     ("basins", structures.basins),
 )
 

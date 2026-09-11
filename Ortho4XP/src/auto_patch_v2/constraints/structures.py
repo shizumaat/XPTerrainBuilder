@@ -73,6 +73,7 @@ import typing as _t
 from shapely.geometry import LineString, Point
 
 from ..law import Law
+from ..law.tables import is_rigid_role, pavement_roles
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
@@ -81,13 +82,23 @@ from ..model.structures import Basin, Tunnel
 from .precedence import view
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
-           "reconcile_datums", "structure_of", "GEN", "RAMP_REF", "WALL_REF"]
+           "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
+           "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "RAMP_REF", "WALL_REF"]
 
 GEN = "structures"
 #: The planar builder's refs of a tunnel's own faces (``planar/structures.py``;
 #: the verify reader keys the same strings) — the join keys of ``_faces_of``.
 RAMP_REF = "tunnel_ramp"
 WALL_REF = "tunnel_wall"
+#: The ROLE of every structure's void/rim face — a tunnel's and a basin's
+#: alike (``planar/structures.py`` / ``planar/basins.py``).
+WALL_ROLE = "retaining_wall"
+#: The RIM's flush-contact rows carry their own generator so the design
+#: report reads their residual as its own line (2026-09-10an).
+GEN_RIM_LEVEL = "rim_level"
+#: Its ruling HEAD — named by ``[design] one_way_rulings`` (the rim
+#: follows the pavement, never pulls it).
+RIM_LEVEL_RULING = "structures.structure_rim frontage_level"
 #: A door ramp's role AND ref (RULINGS 2026-09-08b/c Law A).
 DOOR_RAMP_REF = "door_ramp"
 #: RULINGS 2026-09-08m/08n Law C: a wall corridor's floor + climb, and an
@@ -515,6 +526,103 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               for v in planar.ring_vertices(f.ring)} - floor_vs)
             _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
     rows.extend(pins.values())
+    return rows
+
+
+def rim_contacts(planar: PlanarMap, law: Law
+                 ) -> list[tuple[int, str, str, list[int], set[int]]]:
+    """THE RIM'S CONTACT WITH THE PAVEMENT IT SITS IN, as data —
+    ``(wall face id, wall ref, pavement role, contact vertices, the
+    pavement's own vertices off the rim)`` per (wall face, pavement face)
+    with a shared vertex.
+
+    A structure's rim is the ``retaining_wall`` VOID face's exterior ring
+    (2026-09-06b (1); ``basin_wall:<k>`` for a basin, ``tunnel_wall`` for a
+    tunnel — the SAME class, one reader).  Where that ring runs THROUGH a
+    pavement face, the shared vertices are the pavement's own hole-ring
+    vertices: one node, one value (09-01g)."""
+    vw = view(planar, law)
+    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
+    pav = [f for f in vw.faces_of_role(tuple(r for r in pavement_roles(law)
+                                             if r not in rigid))]
+    pav_vs = {f.id: {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
+              for f in pav}
+    out: list[tuple[int, str, str, list[int], set[int]]] = []
+    for wf in planar.faces.values():
+        if wf.role != WALL_ROLE:
+            continue
+        rim = set(planar.ring_vertices(wf.ring))
+        if not rim:
+            continue
+        for f in pav:
+            vs = pav_vs[f.id]
+            contacts = sorted(rim & vs)
+            if not contacts:
+                continue
+            own = vs - rim
+            if own:
+                out.append((wf.id, wf.ref, f.role, contacts, own))
+    return out
+
+
+def rim_level(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """THE RIM IS FLUSH WITH THE PAVEMENT IT SITS IN (owner RULINGS
+    2026-09-10an, under 08t answer 5 "flush and tangent").
+
+    A structure's rim vertex the governed ground SHARES gets no pin from
+    :func:`_rim_rows` — "the ground's value carries the rim".  MEASURED at
+    LEMD's T4S pit corner (lane ``v2pit`` round 2), that premise is false
+    where the shared vertices are the pavement's own EDGE: the ring of
+    ``tunnel_wall`` face 912 shares five vertices with apron ``pav16``,
+    and NOT ONE ROW of any generator states a level on them — every row
+    naming ``v21779`` is a one-sided CAP (``apron`` preferred tier / ring
+    edge / body chord, ``pavement_ceiling``, ``no_step`` rate).  The
+    apron's hole edge is therefore a FREE EDGE of the bending sheet
+    (``why``: "FREE — no binding row blocks it: above its DEM, held by
+    bending alone"), the per-body datum's three AFFINE rows say only where
+    the body sits and how it leans, and the apron fell 0.755 m over its
+    last 23.8 m into the pit — at the caps, with ``apron_preference``
+    binding (dual 9.59).
+
+    THE ROW: one ONE-WAY level row per (wall face, pavement role) — the
+    MEAN of the rim's contacts against THE PAVEMENT'S OWN VALUE beside
+    each of them (``pads.frontage_leaders``, the same band and the same
+    inverse-distance read the pad frontage uses, so there is ONE
+    derivation of "where does the pavement stand beside this vertex").
+    ONE-WAY with the RIM as the follower: the crest rises to the pavement
+    and never pulls the pavement down.  A LEVEL row, not a per-vertex
+    pull: the rim keeps its within-shape rows and stays a member of its
+    apron body's affine datum (10an), and it carries NO LOWER TARGET of
+    its own — the wall's drop is the FLOOR ring's business
+    (:func:`basins`' ``basin.floor`` pins, unchanged).
+
+    A rim vertex that shares no pavement face mints nothing here and keeps
+    the DEM pin of 09-03b L1."""
+    from .pads import frontage_leaders
+    rows: list[Row] = []
+    for fid, ref, role, contacts, own in rim_contacts(planar, law):
+        per = frontage_leaders(planar, contacts, own)
+        if not per:
+            continue
+        terms: dict[int, float] = {v: 1.0 / len(contacts) for v in contacts}
+        for _c, lw in per:
+            for j, wj in lw:
+                terms[j] = terms.get(j, 0.0) - wj / len(per)
+        src = Source(GEN_RIM_LEVEL,
+                     RIM_LEVEL_RULING + f" ({role}; owner 2026-09-10an: the rim "
+                     "is flush with the pavement it sits in, the wall's drop is "
+                     "the floor ring's)",
+                     (f"wall:{fid}", ref, f"pavement:{role}"))
+        # ONE-SIDED, the DOWNWARD side only: the row penalises the rim
+        # standing UNDER the pavement beside it and says nothing about a
+        # crest that stands at or above it.  An EQUALITY was measured first
+        # and REFUTED against a consumer (``test_v2lemd4``'s pavement deck):
+        # the contacts are the PAVEMENT'S OWN vertices, so the upward half
+        # of the row pulls the pavement DOWN where the crest happens to sit
+        # high — 0.031 m off a bridge deck's 5.1 m clearance target.  10an
+        # forbids a LOWER target on the rim; it mints no upper one.
+        rows.append(Linear(tuple((v, -c) for v, c in terms.items()), None, 0.0,
+                           src, follows=tuple(contacts)))
     return rows
 
 

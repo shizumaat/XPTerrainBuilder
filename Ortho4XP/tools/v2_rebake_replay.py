@@ -305,17 +305,42 @@ def cmd_order(args) -> int:
         if a != b and k in ("parts", "contacts", "abutments"):
             bad += 1
         print(f"    {k:<16} old {a:>8}   new {b:>8}   {flag}")
-    oc, nc = set(old.contacts), set(new.contacts)
-    oa, na = set(old.abutments), set(new.abutments)
-    print(f"    contact pairs  only-old {len(oc - nc)}  only-new {len(nc - oc)}")
-    print(f"    abutment pairs only-old {len(oa - na)}  only-new {len(na - oa)}")
-    # the pid is a PARTITION-LOCAL index and renumbers between the two
-    # orders; a part's identity is its member's resource, its component
-    # index in that file and where it stands
+    # THE PID IS PARTITION-LOCAL and renumbers between the two orders, so
+    # every set below is keyed by a part's IDENTITY: its member's
+    # resource, its component index in that file and where it stands.
     def _key(m, p):
         return (m.resource, p.comp, round(p.lat, 6), round(p.lon, 6))
-    op = {_key(m, p) for u in old.units for m in u.members for p in m.parts}
-    npp = {_key(m, p) for u in new.units for m in u.members for p in m.parts}
+
+    def _ident(part):
+        return {p.pid: _key(m, p) for u in part.units for m in u.members
+                for p in m.parts}
+
+    oi, ni = _ident(old), _ident(new)
+
+    def _pairs(part, ident):
+        out = set()
+        for a, b in part.contacts:
+            ka, kb = ident.get(a), ident.get(b)
+            if ka is not None and kb is not None:
+                out.add((ka, kb) if ka <= kb else (kb, ka))
+        return out
+
+    def _abuts(part, ident):
+        out = set()
+        for a, b in part.abutments:
+            ka, kb = ident.get(a), ident.get(b)
+            if ka is not None and kb is not None:
+                out.add((ka, kb) if ka <= kb else (kb, ka))
+        return out
+
+    oc, nc = _pairs(old, oi), _pairs(new, ni)
+    oa, na = _abuts(old, oi), _abuts(new, ni)
+    print(f"    contact pairs  only-old {len(oc - nc)}  only-new {len(nc - oc)}"
+          f"  shared {len(oc & nc)}")
+    print(f"    abutment pairs only-old {len(oa - na)}  only-new {len(na - oa)}"
+          f"  shared {len(oa & na)}")
+    op = set(oi.values())
+    npp = set(ni.values())
     print(f"    parts          only-old {len(op - npp)}  only-new {len(npp - op)}")
     for k in sorted({k[0] for k in (op - npp)})[:8]:
         print(f"      only-old part in {k}")

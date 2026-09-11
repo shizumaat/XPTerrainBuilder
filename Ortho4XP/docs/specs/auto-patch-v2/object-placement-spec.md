@@ -476,27 +476,60 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
      seat) plus the attachment of the deck ring, the deck datum and the
      plate stations. `pipeline/build` runs it between load and classify
      and hands `planar` the same objects, so the pack is still read once.
-     §11a (3)'s "a MOVE of 26 s, not an addition" is REFUTED at LEMD: the
-     UNFILTERED partition is 2,493 members against the filtered set's
-     1,187, and the twin measures **87.6 s against 48.7 s** on the same
-     pack in the same process. The surplus is the multi-anchor members
-     (LEMD repeats one resource at many anchors and the old order dropped
-     them before partitioning), whose drop CANNOT move to load: the
-     exemption is the tunnel-wall PLATE set, which is a planar product.
-     The lane kept the deferred drop — correctness over time — and
-     reports the cost rather than trading OTHH's plates for it.
+     §11a (3)'s "a MOVE of measured 26 s (LEMD) / 108 s (OTHH), not an
+     addition" is **REFUTED, and it is the round's most important
+     number.** The UNFILTERED partition is a bigger problem than the
+     filtered one — LEMD 2,493 members / 44,414 parts against 1,187 /
+     30,428, OTHH 5,090 / 212,738 against 1,814 / 160,624 — and the
+     order twin measures, one pack per process:
+
+     | | load order | old order | delta |
+     |---|---|---|---|
+     | LEMD partition | 84.4 s | 47.0 s | **+37 s** |
+     | OTHH partition | 413.0 s | 150.4 s | **+263 s** |
+
+     In the LEMD closing build the stage line reads `pack partition
+     90.56 s` at load against `rebake plan 0.19 s` after the solve, for a
+     whole-build 405 s. The surplus is the MULTI-ANCHOR members (LEMD
+     repeats one resource at up to 72 anchors, OTHH 129, and the old
+     order dropped them BEFORE partitioning), and that drop cannot simply
+     move to load: its one exemption is the tunnel-wall PLATE set, which
+     is a planar product. The lane kept the deferred drop — correctness
+     over time, OTHH's plates over a faster OTHH — and reports the cost.
+     This is a SPEC PREMISE, not an implementation choice, and it is the
+     owner's to rule: either the load partition narrows (and OTHH's
+     plate objects need another way to survive it) or the move is
+     accepted at +37 s / +263 s.
    * **THE TWO ORDERS, MEASURED** (`v2_rebake_replay.py order LEMD`, the
      load-derivable screen; the basin exclusions and the tunnel plates
      have no value outside a build). `members` 1,187 = 1,187 EQUAL,
-     `parts` 30,428 = 30,428 EQUAL and every surviving part is the SAME
-     part (resource, component, position); `contacts` 33,406 → 33,389
-     (−17, 0.05 %) and `abutments` 3,305 → 3,267 (−38, 1.1 %). The
-     difference is the one the module doc predicts and is in ONE
-     direction only: the ε-contact edge set is a connectivity-equivalent
-     SPANNING subset, so an edge the old order would have tested directly
-     between two parts is, in the new order, already implied through a
-     part the screen later removes. No edge is INVENTED — the twin
-     asserts `filtered ⊆ unfiltered` for both sets.
+     `parts` 30,428 = 30,428 EQUAL, and keyed by a part's IDENTITY
+     (resource, component index, position — the `pid` is partition-local
+     and renumbers) the two part sets are the SAME SET: only-old 0,
+     only-new 0. The edges differ, in ONE direction only:
+
+     | | old | new | only-old | only-new | shared |
+     |---|---|---|---|---|---|
+     | LEMD contacts | 33,406 | 33,389 | 17 | **0** | 33,389 |
+     | LEMD abutments | 3,305 | 3,267 | 38 | **0** | 3,267 |
+     | OTHH contacts | 347,480 | 347,386 | 94 | — | — |
+     | OTHH abutments | 20,301 | 20,030 | 271 | — | — |
+
+     Nothing is INVENTED: the filtered reading is a strict SUBSET of what
+     the old order found, 0.05 % / 1.1 % of it missing at LEMD and
+     0.03 % / 1.3 % at OTHH. The mechanism is the one the
+     `pack_partition` module doc predicts — the ε-contact edge set is a
+     connectivity-equivalent SPANNING subset, so an edge the old order
+     tested directly between two parts is, in the new order, already
+     implied through a part the screen later removes, and removing that
+     part removes the implication with it. On a fixture pack small enough
+     that no such chain exists the two orders agree EXACTLY, and that is
+     a twin (`test_m6a_rebake.test_the_new_order_plans_the_same_pack`:
+     same units, members, parts, deck rings, plate fields and skip
+     records), so a divergence there is a defect rather than this class.
+     `no_parts` (+211 LEMD, +6,817 OTHH) and `multi_anchor` (−6, −34) are
+     report counts taken over different populations — the load partition
+     counts its skips over the whole object set — and name no geometry.
    * **THE RELIEF TARGET IS THE MECHANISM AND IT IS ONE FIELD.**
      `Diff.rel` (`offset[a] − offset[b]`) shifts both one-sided rows in
      `solve/rows._law_sides`, so a pad under a body with authored relief

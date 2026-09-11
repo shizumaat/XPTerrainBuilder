@@ -314,6 +314,11 @@ class ResourceCache:
         #: skirt is read by classify, the planar pass and the re-seat
         #: plan, and the pack is parsed ONCE for all three.
         self.skirt: dict[str, object] = {}
+        #: ``airport/basin_witness.py``'s ONE reading of the pack's placed
+        #: objects (owner RULINGS 2026-09-10ax (2): the basin admission
+        #: runs FIRST, at classify time, and the planar pass reuses it —
+        #: the pack is read once, not twice).
+        self.placed: dict[str, object] = {}
 
     def geometry(self, path: str) -> ObjGeometry | None:
         if path not in self._geom:

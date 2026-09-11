@@ -858,6 +858,95 @@ the road), kept whole it drapes at the DATUM point, 15.7 m under its building
    over the road); `Terminal4SAT_pink-LEMD01` at its terminal's zero; the basin
    parapet +2.99 above the rim everywhere; the 89 footless placements 0 at datum /
    0 on ground; files not above 1,092; round trip ok; OTHH dry run unchanged.
+**MEASURED (lane `v2carrier`, 2026-09-11).** Implemented in
+`airport/placement_carrier.py` (NEW: the carrier search, the plan-overlap
+binding, §9's coarsening moved here, and `census_v14` — the ONE
+implementation of (4) that both tools call), `airport/anchor_rule.py`
+(§6's basin RIM row, wired at last), `airport/placement_plan.py` (the walk
+is now per UNIT in two passes) and `airport/obj8_split.py`.
+
+* **THE SILENT FLOOR, found by measurement.** `split_obj8` refused to emit
+  a SINGLE file (`kept_whole = "one_body"`, "the object already IS one
+  body") — true while a one-body cut changed nothing, fatal the moment
+  §14 (1) gives a one-body placement a REASON TO MOVE. Every carried
+  footbridge was quietly returned to the datum while the plan and the
+  census, reading the plan's own records, reported it carried. The cut
+  now takes `allow_single=True` from a caller whose whole point is the
+  move. A twin holds it.
+* **LEMD, the six named sites** (the app's 1.0.315 `o4_v2_rebake_LEMD.json`
+  + `LEMD.graded.json`, the write half into a pack COPY; the ruling's
+  `Munoza-LEMD36/37` are `LEMD_OBJ-Ground-FSX-LEMD36/37`):
+
+  | resource | before (main 0ecf96fc) | after |
+  |---|---|---|
+  | `Terminal4_green-LEMD16` | footless, kept at the DATUM (595.81) | carried by `Terminal4_yellow-LEMD13__b0`, zero **616.65** (abuts 7 part contacts) |
+  | `Terminal4_green-LEMD17` | footless, kept at the DATUM | carried by the same, zero **616.65** (nearest footed body, 2 m) |
+  | `Terminal4_green-LEMD18` | footless, kept at the DATUM | carried by `Terminal4_yellow-LEMD14__b0`, zero **616.63** |
+  | `Terminal4_yellow-LEMD16` | footless, kept at the DATUM | carried by `Terminal4_yellow-LEMD13__b0`, zero **616.65** (abuts 71) |
+  | `Terminal4SAT_pink-LEMD01` | footless, kept at the DATUM | carried by `Terminal4SAT_Yellow-LEMD11__b0`, zero **597.43** |
+  | `Ground-FSX-LEMD36` / `-LEMD37` / `T4STower-SWbaume` | 1 + 2 + 23 bodies, each draped in its own trench, zeros 597.53 … 604.11 | **one file each**, all three on ONE rim vertex, zero **597.53** |
+
+  The footbridge deck (authored y 4.5, no vertex below 3.9) therefore
+  renders at 621.15 over a road at 616.05–616.20: **+4.95 m**, the
+  authored clearance. The basin's parapet (+2.99) renders at **600.52 —
+  +2.99 above the rim it anchors on**, where 11v measured `LEMD37` b1's
+  1.35 m BELOW it.
+* **The four bars (4):** `footless at datum` **0**, `footless on ground`
+  **0**, `basin bodies split` **0**, basin-RING `spread` **7.0 m -> 0.00 m**.
+  The literal per-placement `spread` is 50.71 m (`LEMDgrass`, 103
+  placements over): it is dominated by the LAWFUL §9 split — a 2 km fence
+  and 77 scattered taxi signs are one placement over terrain that
+  genuinely differs — so the bar as written is not reachable and the
+  reported figure is the rigid-object one beside it.
+* **The rest of LEMD:** files 828 -> **855**, DSF round trip **OK**
+  (855/855 new `OBJECT_DEF`s, 0 rows carrying an elevation), row census
+  (`seat_feet_census --placement-plan --graded`) `> 3 m` 18 -> **17**,
+  worst row 7.43 m (`Bridge3`, 11h's rigid-relief class). Feet census
+  `> 3 m` 151 -> **489**, and that number is the LAW, not a regression:
+  487 of the 489 are BURIED (`SWbaume` 12 -> 178 and `OldTerminal-LEMD38`
+  0 -> 172, every one of them ground-over-foot) because a rigid object
+  riding ONE zero necessarily buries its low feet — the very thing "the
+  wall must stand above the apron" asks for. FLOATING feet, the class the
+  eye reads, move 8,222 -> 8,657 and floating `> 3 m` 4 -> 23.
+* **The one-body keep, and why §14 had to touch it.** A placement cut to
+  ONE body is KEPT, its row untouched — and on a shared-datum row that
+  row is the DATUM: 73 of LEMD's 104 one-body keeps drape more than 3 m
+  from where their own anchor says their zero is, worst **31.0 m**
+  (`Munoza-LEMD73`). The census could not see it (it reads the computed
+  anchor for kept records too). (3)'s binding makes MORE such placements,
+  and 45 of the 80 carried placements would have ridden such a carrier,
+  so the keep is now admitted only where the authored row and the anchor
+  read the SAME design surface (within `split_tol_m`); 99 LEMD placements
+  are written instead of kept, and carried-onto-a-kept-carrier falls
+  45 -> 1. This is the one place the lane read §14 (1)'s sentence onto a
+  case §14 does not name, and it is reported for ruling, not decided.
+* **OTHH dry run** (its PLAN_VERSION 9 artefact): footless 330, ALL
+  carried (0 without a carrier); files 333 -> **525**; feet `> 3 m`
+  6 -> **37**; floating 6,204 -> **5,938**. The §14 (5) bars of
+  "unchanged" are missed on both counts and the mechanism is the law
+  itself — 330 carried placements are 330 new files, and the binding
+  adds the rest.
+* **Deviations, reported not decided.** (a) The rim-interior exclusion is
+  wired for the BASIN class only: 22 of LEMD's 23 `structure_rim` rings
+  are `tunnel_wall`, and §6's tunnel row REQUIRES a tunnel object to
+  anchor on its FLOOR ring, which lies inside its own ring — excluding
+  every ring's interior "for all classes" would move every tunnel
+  object's anchor to its rim. (b) A footless PLACEMENT takes ONE carrier
+  for the whole placement, not one per body: a footbridge is a rigid span,
+  and two carriers would give its halves two zeros. (c) A unit holding NO
+  footed body (14 at LEMD, all one- or two-member units whose "datum" is
+  their own authored row) has no carrier; those keep their row with the
+  reason `footless_no_carrier` and are reported by name, never barred.
+  (d) The carried body's offset is computed in ITS OWN member's authored
+  frame with the carrier's anchor and `y_zero` — numerically the
+  carrier's `authored_offset` when the unit is one row and one heading,
+  and geometrically right when it is not.
+* **Build time:** the LEMD plan stage 2.53 s -> **3.22 s** over 3 runs per
+  arm (+0.69 s, 1.15 % of the 60 s per-airport budget) after two
+  optimisations the measurement forced — a body-hull pre-reject before
+  the part-by-part overlap scan, and walking a footless body's adjacency
+  once instead of once per candidate (4.13 -> 3.22 s, identical output).
+
 **MEASURED (lane `v2elevated`, 2026-09-11).** Implemented in
 `airport/placement_plan.py` (`is_elevated`, the carrier rule inside
 `coarsen`, the footless keep in `build_splits`) and reported by

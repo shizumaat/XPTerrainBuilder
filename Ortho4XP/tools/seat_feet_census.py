@@ -426,8 +426,9 @@ def _print_elevated(plan: dict) -> None:
            and float(b["authored_offset"][1]) > base]
     carried = sum(int(b.get("elevated_members", 0))
                   for s in plan.get("splits", ()) for b in s.get("bodies", ()))
+    from auto_patch_v2.airport.placement_carrier import FOOTLESS_KEPT
     footless = sum(1 for k in plan.get("kept", ())
-                   if str(k.get("reason", "")) == "footless")
+                   if str(k.get("reason", "")) in FOOTLESS_KEPT)
     print(f"   §13 elevated bodies as own files: {len(own)} "
           f"(bar 0, [rebake] elevated_base_m {base:g} m)"
           + ("" if not own else "   *** VIOLATED ***"))
@@ -435,6 +436,15 @@ def _print_elevated(plan: dict) -> None:
         print(f"      +{y:.2f} m  {res}")
     print(f"   §13 footless placements kept whole: {footless}; "
           f"elevated bodies carried at their authored offset: {carried}")
+    # §14 (4): the four bars, from the engine's own implementation — the
+    # same call ``obj8_split_report`` makes over the same plan shape.
+    from auto_patch_v2.airport import placement_carrier as PC
+    from auto_patch_v2.law import Law
+    tol = float(Law.load().tables.structures.placement.split_tol_m)
+    c = PC.census_v14(plan.get("splits", ()), plan.get("kept", ()),
+                      elevated_base_m=base, split_tol_m=tol)
+    for line in PC.census_v14_lines(c, elevated_base_m=base, split_tol_m=tol):
+        print(line)
 
 
 def main(argv: list[str] | None = None) -> int:

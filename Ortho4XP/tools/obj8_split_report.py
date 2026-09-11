@@ -305,7 +305,7 @@ def main() -> int:
                          line_stations_max=rb.line_object_stations_max,
                          line_ratio=rb.line_object_ratio,
                          line_max_h=rb.line_object_max_h,
-                         foot_band_m=band_m)
+                         foot_band_m=band_m, abutments=abut)
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -320,11 +320,30 @@ def main() -> int:
     # (a roof, a deck, a tower part set on the ground); the second is the
     # lawful answer for a placement that has no ground body at all.
     own = c.get("elevated_own_files", 0)
+    print(f"  footless placements: {c.get('footless', 0)} "
+          f"({c.get('footless_carried', 0)} carried by a footed body of their "
+          f"unit, {c.get('footless_no_carrier', 0)} with no footed body in the "
+          f"unit at all, {c.get('footless_carrier_kept_whole', 0)} onto a "
+          f"carrier still on its authored row); plan-overlap bound "
+          f"{c.get('bodies_plan_bound', 0)} "
+          f"body group(s), {c.get('basin_bodies_bound', 0)} basin resource(s) "
+          f"made one file (§14)")
     print(f"  elevated bodies as own files: {own}"
           f"{'' if own == 0 else '   *** §13 (1) VIOLATED (bar 0) ***'}; "
-          f"footless placements kept whole: {c.get('footless', 0)}; "
+          f"footless placements kept whole: "
+          f"{c.get('footless_no_carrier', 0)}; "
           f"elevated bodies carried by a ground body's file: "
           f"{c.get('bodies_elevated_carried', 0)}")
+    # §14 (4): ONE implementation of the four bars, shared with
+    # ``seat_feet_census --placement-plan`` (a second reading of the same
+    # population is the census-wrapper defect, CLAUDE.md).
+    from auto_patch_v2.airport import placement_carrier as PC
+    _sp, _kp = PP.to_placement_records(ss)
+    v14 = PC.census_v14([q.to_dict() for q in _sp], [q.to_dict() for q in _kp],
+                        elevated_base_m=rb.elevated_base_m, split_tol_m=tol_m)
+    for line in PC.census_v14_lines(v14, elevated_base_m=rb.elevated_base_m,
+                                    split_tol_m=tol_m):
+        print(line)
     if c.get("line_segments"):
         print(f"  line segments: {c['line_segments']} from "
               f"{c.get('line_bodies_segmented', 0)} one-line bodies (11f (2))")

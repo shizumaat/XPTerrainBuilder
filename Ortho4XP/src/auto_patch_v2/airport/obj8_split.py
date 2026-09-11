@@ -67,7 +67,13 @@ WHEN A PLACEMENT IS KEPT WHOLE
 empty — the caller leaves the placement exactly as authored (§2 ``kept``):
 
 ``one_body``     the cut would produce a single file: the object already IS
-                 one body (the overwhelming majority of a pack).
+                 one body (the overwhelming majority of a pack).  §14 (1)
+                 gives that case a reason to be WRITTEN anyway — a
+                 FOOTLESS placement carried onto another body's anchor is
+                 one body and must move, and so is a one-body placement
+                 whose authored row reads different terrain from its own
+                 anchor — so the caller asks for it with
+                 ``allow_single=True`` and gets its one translated file.
 ``no_bodies``    no body was handed in, or none of them owns any geometry.
 ``anim``         a body's triangles lie inside a block another body owns,
                  so cutting at block granularity would still tear it.
@@ -264,7 +270,7 @@ def _retok(line: str, first: int, delta: tuple[float, float, float]) -> str:
 # ── the cut ──────────────────────────────────────────────────────────────
 
 def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
-               resource: str = "") -> SplitResult:
+               resource: str = "", *, allow_single: bool = False) -> SplitResult:
     """Cut ``pristine_path`` into one file per body (module doc).  Reads
     the file and returns text; writes nothing.  ``resource`` is the
     pack-relative spelling the new names are derived from (defaults to
@@ -553,7 +559,7 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
 
     live = [b for b in bodies if tri_count[b.body_id] or idx_out[b.body_id]
             or vlight_out[b.body_id]]
-    if len(live) < 2:
+    if len(live) < 2 and not (allow_single and live):
         return SplitResult(pristine_path, (), "one_body", counts)
 
     rel = resource or os.path.join("objects", os.path.basename(pristine_path))

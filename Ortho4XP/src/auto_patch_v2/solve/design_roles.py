@@ -17,7 +17,7 @@ from ..law.tables import (apron_roles as _apron_roles,
                           pavement_roles as _pavement_roles, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'ground_datum_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -80,6 +80,16 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
     follows the pavement edge and never pulls it)."""
     return frozenset(design_law(law).one_way_rulings)
+
+
+def ground_datum_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS whose rows are priced at ``[design] ground_datum``
+    — a bare-ground body's per-foot GROUND target (owner RULINGS
+    2026-09-11q; ``constraints/foot_rows.py``, spec §11b (2)).  A foot row
+    is not a law: it says where the ground under one contact of one object
+    wants to be, at the same price the adjacent ground's own DEM datum
+    pays, so any law binding there outprices it by two orders."""
+    return frozenset(design_law(law).ground_datum_rulings)
 
 
 def pad_flat_rulings(law: Law) -> frozenset[str]:

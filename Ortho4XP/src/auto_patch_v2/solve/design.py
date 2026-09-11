@@ -78,7 +78,7 @@ __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
-           "ground_roles", "ground_datum_vertices",
+           "ground_roles", "ground_datum_vertices", "ground_datum_rulings",
            "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
 
@@ -96,7 +96,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
-    bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
+    bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, ground_datum_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -144,6 +144,9 @@ class Base:
     #: one record per datum row, in the row order of ``body`` — what the
     #: report reads its residual and its DEM mean from (RULINGS 2026-09-10p)
     body_meta: list["_BodyDatum"] = _dc.field(default_factory=list)
+    #: indices into ``one`` of the FOOT ROWS (``[design]
+    #: ground_datum_rulings``, 11q): priced at ``ground_datum``
+    ground_datum_i: list[int] = _dc.field(default_factory=list)
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -354,12 +357,15 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     heads = hard_rulings(law)
     ow_heads = one_way_rulings(law)
     pf_heads = pad_flat_rulings(law)
+    gd_heads = ground_datum_rulings(law)
     pl_heads = pad_level_rulings(law)
     #: the pad vertices a LEVEL row governs (owner RULINGS 2026-09-10l):
     #: they follow the pavement they front and carry no DEM datum (§9b)
     pad_follow: set[int] = set()
     hard: list[int] = []
     pad_flat_i: list[int] = []
+    #: the FOOT ROWS at ``ground_datum`` (11q, ground_datum_rulings)
+    ground_i: list[int] = []
     one_way: dict[int, tuple[int, ...]] = {}
     #: the vertices a LAW EQUALITY GOVERNS (owner RULINGS 2026-09-10ba): a
     #: basin floor is no longer PINNED — it is tied to its rim by a relative
@@ -405,8 +411,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                  if red.col[v] >= 0}))
             if cols:
                 one_way[len(one)] = cols
-        if ruling_head(row) in pf_heads:
-            pad_flat_i.append(len(one))
+        head = ruling_head(row)
+        (pad_flat_i if head in pf_heads
+         else ground_i if head in gd_heads else []).append(len(one))
         # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
         # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
         # pad plane (10y), not just the feet the row mentions — follows the
@@ -615,8 +622,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n
     rep.body_datum_bodies = len(meta)
+    rep.foot_rows = len(ground_i)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v, body, meta)
+                chord_v, road_v, body, meta, ground_datum_i=ground_i)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -720,6 +728,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     pad_i = np.asarray(base_p.pad_flat, dtype=np.int64)
     if pad_i.size:
         w_row[pad_i] = float(d.pad_flat)
+    # THE FOOT ROWS ARE GROUND TARGETS (11q, spec §11b (2)): priced
+    # exactly where the adjacent ground's own DEM datum is, two orders
+    # under the law, so any law binding under that foot still wins.
+    gd_i = np.asarray(base_p.ground_datum_i, dtype=np.int64)
+    if gd_i.size:
+        w_row[gd_i] = float(d.ground_datum)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it
@@ -974,6 +988,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                          "chord_vertices": chord_v, "road_fit_vertices": road_v,
                          "one_way_rows": rep.one_way_rows,
                          "ground_datum_rows": rep.ground_datum_rows,
+                         "foot_rows": rep.foot_rows,
                          "active": len(active), "rounds": rep.rounds})
     cert = residual(cs, z, obj)
     wall = time.perf_counter() - t0

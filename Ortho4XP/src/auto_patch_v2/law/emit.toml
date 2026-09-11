@@ -305,6 +305,17 @@ body_datum    = 300.0
 # head listed in ``hard_rulings`` above.  ``pad_flat_rulings`` names the
 # heads priced at ``pad_flat`` instead of ``law`` (the same shape as
 # ``hard_rulings`` / ``one_way_rulings``: one register, no literals).
+# THE FOOT ROWS (owner RULINGS 2026-09-11q; ``object-placement-spec.md``
+# §11b (2)): a rigid body on BARE ground gets no pad at all — each of its
+# ground-contact feet takes ONE target row at the level its authored
+# relief fits the ground at.  That is a GROUND target, so it is priced at
+# ``ground_datum`` and not at ``law``: the register below names the heads,
+# the same shape as ``hard_rulings`` / ``pad_flat_rulings``.  Empty
+# disarms the class (every foot row falls back to ``law``, which is not a
+# datum — so the list is the switch, and it is ON).
+ground_datum_rulings = [
+  "structures.placement foot_row",                       # 09-11q: the body's foot on bare ground, level = the least-squares fit to the DEM
+]
 pad_flat = 3000.0
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)

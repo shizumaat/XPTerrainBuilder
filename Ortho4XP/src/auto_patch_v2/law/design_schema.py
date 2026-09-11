@@ -117,6 +117,11 @@ class Design:
     #: ``pad_flat_rulings`` names the ruling HEADS priced at ``pad_flat``
     #: instead of ``law`` — one register, the same shape as
     #: ``hard_rulings`` / ``one_way_rulings``.
+    #: THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b (2)): the
+    #: ruling HEADS whose rows are priced at ``ground_datum`` instead of
+    #: ``law`` — a bare-ground body's per-foot ground target.  May be
+    #: empty (the class disarmed).
+    ground_datum_rulings: tuple[str, ...]
     pad_flat: float
     pad_flat_rulings: tuple[str, ...]
     #: THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,

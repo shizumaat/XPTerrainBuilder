@@ -388,3 +388,522 @@ emitting there (v2wallcorridor's LEMD 23 is a BASE arm, cut before the
 corridors existed). Attribution of 23 → 20 against that older base is
 NOT claimed: it is a different tree, and no clean-tree LEMD control at
 319f8700 was built (controls are shared, never rebuilt).
+
+## §12 Law C admission on AUTHORED depth (RULINGS 2026-09-10u) — lane `v2corridor`, 2026-09-10
+
+**The clause.** A wall band is admitted only when its lowest vertex stands at least
+`cutout.wall_corridor.min_wall_depth_m` (1.0 m) below the OBJECT'S OWN local zero —
+`comp.min_y < −min_wall_depth_m` in the OBJ8's authored frame — never on rendered depth
+(`dem_z(centroid) − (anchor_z + agl)`), which reads a pack's flat anchor plane as ground.
+Two sites: `airport/wall_corridors.py:_bands_of` (the band) and the pair's floor gate
+(`max(authored_depths) < min_wall_depth_m`, the wall bottom per station in the object's
+frame — `_floor_profile` now returns `(floors, floors_y)`, the samples carrying their
+authored `y` as a fourth column so a merged band spanning two placements still states it).
+Rendered depth survives ONLY as a MEASUREMENT of an admitted corridor (`depth_m`, the
+notes, the garage ramp's mouth-at-grade check, the ramp's floor = slab else 5.1 m, 08l/08o)
+and as the ground-CONTACT clause (`basin.contact_band_m`): a band rendered wholly under the
+terrain is buried and still refused — a terrain relation, kept as one.
+
+**Consumer census (owner 30l).** Key: **A** = the admission.
+
+| # | Consumer (file:symbol) | Reads | Ruling |
+|---|---|---|---|
+| 1 | `airport/wall_corridors._bands_of` (band admission) | `comp.min_y` vs the DEM | **A**: authored frame. THE single derivation site — no consumer vetoes. |
+| 2 | `airport/wall_corridors.read_wall_corridors` (placement pre-screen) | `cache.y_range()[0] > −min_wall_depth_m` | unchanged — ALREADY the authored frame; the two now agree. |
+| 3 | the pair floor gate (`depths` vs `min_wall_depth_m`) | the wall bottom vs the DEM | **A**: authored (`floors_y`); `grounds`/`depths` stay for the notes and `depth_m`. |
+| 4 | the `descending` / garage branch (`shallow_depth > contact_band_m`) | the DEM at the shallow end | unchanged — a mouth AT GRADE is a terrain relation, not an admission. |
+| 5 | `planar/wall_corridor_ramps.wall_corridor_groups` (ramp planner) + `airside_stops` | the records, `Group.profile`, `climb_from_s` | unchanged — fewer/more records only. |
+| 6 | `planar/structures.build_structures` → `constraints/structures` (`WALL_CORRIDOR_ROLES`, `WALL_CORRIDOR_SOURCE`) | the emitted ramp rows | unchanged. |
+| 7 | `pipeline/build` (`tn.source == "wall_corridor"`, the seat exclusion at `:620`) | the source tag | unchanged — `seat = "none"` still. |
+| 8 | `verify/structures` (`wall_corridor_ramp` / `garage_ramp`) | the emitted roles | unchanged. |
+| 9 | `emit/osm_adapter` + `law/precedence.toml:68` (`oracle_role = tunnel_ramp`) and the census families (`check_grade.LAW_FAMILIES`, `harness/census.py`) | the emitted role | unchanged — a count effect only, no law change. |
+| 10 | door wells / sunken roads / basins (`planar/basins`, `airport/tunnel_objects`) | the same components, their own laws | unchanged — Law C's admission is not theirs. |
+| 11 | `planar/__main__ --stage structures` (+ `--kml`) | `wall_corridors`, `wall_corridor_refused` | unchanged shape; the refusal now names the authored frame. |
+
+**MEASURED, AND THE RULING'S PREMISE IS REFUTED AT LEMD** (structure replays, lane tree,
+production DEM; `--stage structures`). LEMD wall corridors **17 → 38** (records 28 → 85):
+the fix does NOT remove them, it adds. Why: the reader resolves each placement to the
+PRISTINE pack (`*.obj.anchor_bak`), and there the witnesses ARE authored well below their
+own zero — `CGVRW −1.435`, `GAVIA −2.617`, `NEWCO −1.757`, `EAT −1.642`, `EATzwei −1.499`,
+`TAPSL −1.230`, `FLEDI −1.198`, `LEMDgrass −1.841` (m). 10u's figures (`CGVRW +0.945`,
+`TAPSL +6.714`, `EAT −0.140`) are the LIVE `.obj` files — already REBAKED by our own anchor
+seat (+2.38 m at CGVRW) — not the pack's authoring. Every LEMD placement also reads
+`anchor_z = dem(xy) = 596.00`, `agl = 0`: the anchor plane is NOT under the terrain at the
+object; the drift is per-COMPONENT (a shared-datum pack, LSGG class — components up to 4 km
+from the anchor, where `dem_z(centroid) − base` reaches +9 m), which is what the authored
+clause correctly removes. The count RISES because fewer bands mean fewer third-band vetoes
+and fewer merges, so more pairs survive. OTHH: **73 records (43 corridors: 30 level ×2 +
+13 bays), identical before and after** in class, axis, stations, floors and trench; four
+records' notes move one point of end-cover (9 % → 8 %) because the discarded bands no longer
+contribute vertical faces — no class or gate changes. **The discriminator LEMD-vs-OTHH is
+therefore still open**: on authored depth both packs dig 1.2–2.6 m below their zero. What
+separates them (measured, for the ruling): LEMD's pairs are foundations of two SEPARATE
+buildings 3–12 m apart with no roof over 10 of 17 and a floor at one constant plane; OTHH's
+carry a deck at +2.61 over 74 % of their length. Ruling requested before this lands.
+
+## §12a Law C's THREE-PART admission (RULINGS 2026-09-10w) — lane `v2corridor` round 2, 2026-09-10 — SUPERSEDED by §12b: 10z DELETED the heading test and the deck clause (c); this section is kept for its measurement only
+
+**The clause.** A Law C corridor is admitted only when ALL THREE hold: **(a)** its walls are
+authored ≥ `min_wall_depth_m` below the object's own zero (§12, kept as NECESSARY); **(b)** a
+ROAD ENTERS A MOUTH — an OSM `highway=*` way (`airport_small_roads` / `big_roads`) or a patch
+road ribbon (`service_road` / `service_junction` / `groundside_pavement` cell) whose plan
+geometry lies within `[cutout.wall_corridor] corridor_mouth_road_m` (15.0) of a mouth point AND
+whose direction there agrees with the corridor axis within `corridor_mouth_road_deg` (45°);
+**(c)** a DECK COVERS IT — the headroom reader's lowest near-horizontal plate over the trench,
+inside Law C's bounds; **OPEN AIR IS NOW A REFUSAL** (it used to pass). One site:
+`airport/wall_corridors.read_wall_corridors`'s pair loop, after the ends are read (the mouths
+are the open ends; a garage ramp's mouth is its shallow end; both ends closed = no mouth).
+`read_wall_corridors(..., classification=None)` takes the classification for the ribbons;
+`_headroom` now returns `(headroom, witness)`; `stats.admission` states (a)/(b)/(c) with the
+witness (way id / plate component) per CANDIDATE and a `nearest:` witness search on a (b)
+refusal; `--stage structures` prints them.
+
+**Consumer table — the rows §12's table touches.** 1 (`_bands_of`) unchanged. 2 (pre-screen)
+unchanged. 3 (pair floor gate) unchanged — (a). NEW rows: 3b the pair loop's mouth/road test
+(the single derivation site of (b)); 3c the headroom gate (the (c) refusal replaces the old
+"open air passes"). 4 (garage `shallow_depth`) unchanged. 5–10 unchanged: fewer records only.
+11 (`--stage structures` / `--kml`) gains `wall_corridor_admission`. `airport/osm.py`,
+`classify/roles.py`, `airport/road_profile.py` are READ-ONLY consumers here (the mouth test
+re-reads `airport.osm_ways` and the classification cells; it never touches `RoadProfiles`,
+which does not exist yet at structure time).
+
+**MEASURED — the OTHH bar FAILS; STOP (structure replays, lane tree, production DEM,
+`--stage structures`; arms neutralise one clause at a time in ONE tree).**
+
+| arm | LEMD corridors | OTHH corridors (records) |
+|---|---|---|
+| (a) only — main's law | 51 | **43** (73: 30 level ×2 + 13 bays) |
+| (a) + (c) | 7 (all bays) | 36 |
+| (a) + (b) + (c) — 10w as ruled | **0** | **25** (47) |
+
+LEMD reaches 0 (bar met) but OTHH loses 18 corridors to (b) and 7 to (c) — the bar "OTHH's 43
+identical" FAILS, so nothing is merged and the test is NOT weakened. WHY (b) fails at OTHH:
+the road that enters those mouths is UNMAPPED (it runs under the terminal deck); what IS
+mapped is the frontage kerb road CROSSING the mouth — witness search at each refused mouth
+(4× the law window): `Terminal_Base_2_5` 432/433 (the 08u 77.8 m underpass) `patch service_road
+cell 378 (route7)` 6.4 m **89° off**, `osm -9214` 11.7 m 90° off; `Terminal_Base_2_1` (the 08u
+loading bays) ×5 at 10–21 m, 85–90° off; `Terminal_Parking_VCN_004/006` ×5 at 5–38 m, 83–89°
+off; `Bridge_03_LOD0_003` ×5 with `osm -490` 50–57 m or nothing within 60 m; `Qatar_DutyFree`
+×2 at 5–12 m, 89° off. The corridors (b) KEEPS are exactly the mapped-road ones
+(`TerminalRoads_02/03/Parking_004`, `Bridge_02/06`: roads 1–15 m, 0–15° off). (c) costs OTHH
+`Bridge_06_LOD0_002` ×5 and `Qatar_DutyFree_003` (no plate over those pairs' trenches).
+Owner/spawner ruling needed before this lands: a loading bay IS entered from a road that runs
+past its mouth, and an underpass's own road is not in OSM.
+
+## §12b Law C's TWO-PART admission (RULINGS 2026-09-10z) — lane `v2corridor` round 3, 2026-09-10
+
+**The clause as ruled.** A Law C corridor is admitted only when BOTH hold: **(a)** its
+walls are authored ≥ `min_wall_depth_m` below the object's own zero (§12, kept), AND
+**(b″)** THE MOUTH OPENS ONTO GROUNDSIDE — within `[cutout.wall_corridor]
+corridor_mouth_road_m` (15.0) of a mouth there is a road in ANY HEADING (an OSM
+`highway=*` way of `airport_small_roads`/`big_roads`, or a patch road ribbon:
+`service_road` / `service_junction` / `groundside_pavement`), and the pavement face the
+mouth opens onto — the NEAREST of those roads and of the classification's AIRSIDE
+apron/taxiway faces (`AIRSIDE_FACE_ROLES` = apron, runway, the taxi family, `side ==
+"airside"`) — is not airside. 10w's heading test (`corridor_mouth_road_deg`) and deck
+clause (c) are DELETED, key and all; open air over the trench passes again, and the
+headroom gate is back to its pre-10w form (`min_headroom_m` on a deck that IS there).
+One derivation site: `read_wall_corridors`'s pair loop; `stats.admission` prints (a) and
+(b″) with the witness per candidate and a nearest-road / nearest-face search on a refusal.
+
+**Consumer table.** §12's rows 1, 2, 3, 4, 5–10 unchanged. Row 3b (the pair loop's mouth
+test) is now the single derivation site of (b″); §12a's row 3c (the deck gate) is DELETED.
+Row 11 (`--stage structures` / `--kml`) keeps `wall_corridor_admission`.
+
+**MEASURED — BOTH BARS FAIL; STOP** (structure replays, one lane tree, production DEM,
+`--stage structures`; the (a)-only arm neutralises (b″) in the SAME tree).
+
+| arm | LEMD corridors (records) | OTHH corridors (records) |
+|---|---|---|
+| (a) only — main's law (arm in THIS tree) | **51 (85)** | **43** (73: 30 level ×2 + 13 bays) |
+| (a) + (b″) — 10z as ruled | **26 (49)** — the bar is 0 | **39 (69)**: 30 level ×2 + 9 bays |
+
+*LEMD keeps 26.* Its survivors are `LEMDgrass` 23 records, `NEWCO` 16, `LEMD79` 4,
+`CGVRW` 2, `FLEDI` 2, `LEMD36` 2 — the 10u witness families themselves. Every one has a
+REAL OSM service way 0.3–14.4 m from its mouth (`osm -5904/-5905/-5882` at NEWCO's cargo
+kerbs, `-18749/-18750` and the `-5828` track along the grass fences, `-14060` at FLEDI,
+`-18218` at CGVRW) and, at 24 of 26, NO airside apron/taxiway face within 15 m at all: by
+the ruling's own test these mouths open onto groundside. The airside half fires exactly
+once (`LEMD70`, both mouths INSIDE `apron cell 134`). Widening the face probe does not
+save it: of 68 LEMD mouth probes only 30 have an airside face within 60 m (7 at 0 m, 4 at
+~10, 3 at ~20, 9 at ~30, 3 at ~40, 1 at ~50, 3 at ~60) — 38 mouths have apron nowhere near.
+The owner's "it's just apron up to the building" does not describe the LEMD cargo/grass
+kerbs geometrically; what separates them from OTHH is still not stated by any clause tried.
+
+*OTHH loses 4* (net; 10 candidates refused by (b″)): the `Terminal_Base_2_1` loading bays
+`@3`/`@4` (nearest road `osm -9191` 21.2 m, `-9189` 19.7 m, 88–89° off — the road is there,
+just BEYOND the 15 m window), `Terminal_Parking_VCN_004@2/a`+`@2/b` and `@1`/`@3` bays
+(`osm -11187` 15.7 m, `-11198` 31.4 m, `-11193` 38.4 m), `Terminal_Parking_VCN_006`; two
+`VCN_004@1/a,b` levels appear in their place. `Bridge_03_LOD0_003`'s five (nothing within
+60 m) were already refused downstream at (a)-alone and cost nothing. NO OTHH mouth is
+refused for reading AIRSIDE (`refused_airside_mouth` 0): the whole OTHH loss is the
+15 m window against roads at 15.7–21.2 m, not the airside face.
+
+**What a round 4 would need from the spawner**: either the window is a law value to be set
+by measurement (25 m keeps `Base_2_1` and `VCN_004@2`; it does nothing for LEMD, which is
+already road-adjacent), or the LEMD/OTHH discriminator is NOT the mouth's surroundings at
+all — every clause tried (rendered depth, authored depth, road heading, deck cover, the
+groundside mouth) has now been measured, and only the deck cover ever separated the two
+packs (round 2: LEMD 7 vs OTHH 36) while costing OTHH seven real corridors.
+
+## §12c Round 4 — the two PHYSICAL discriminators MEASURED (RULINGS 2026-09-10ab) — lane `v2corridor`, 2026-09-10: NEITHER SEPARATES THEM; STOP, nothing implemented
+
+**The instrument** (`airport/wall_corridors.py`, `--stage structures` only —
+`read_wall_corridors(..., measure=True)`, `stats.floor_probe`, printed as the `PROBE`
+table; never a gate and never a build cost). Per CANDIDATE that reaches the mouth test
+(the (a)-alone set, (b″) neutralised in this tree):
+
+* **(i) FLOOR-vs-ROAD** — the nearest road within `corridor_road_level_m` (40 m) of a
+  MOUTH (OSM `highway=*`, or a patch `service_road` / `service_junction` /
+  `groundside_pavement` ribbon), its LEVEL at the point nearest that mouth — Ortho4XP's
+  own longitudinal clamp (`airport/road_profile.clamp_way`, the profile every v2
+  road-family vertex is fitted to) over the way's centreline (a ribbon: its own
+  `face_axis`), the DEM where the core levels nothing (an asserted `bridge` / `tunnel`
+  way) — minus the corridor's floor at that mouth; plus `ramp_reachable`
+  (|Δ| ≤ `max_ramp_grade` × the corridor's length).
+* **(ii) FLOOR SLAB** — a horizontal plate of the family thinner than
+  `corridor_floor_slab_max_thickness_m` (0.5) lying within `corridor_floor_slab_tol_m`
+  (0.5) of the floor inside the trench over `corridor_floor_slab_cover_min` (0.5) of the
+  length.
+
+**THE TABLE** (structure replays, ONE lane tree, production DEM; (a)-alone arm — LEMD 51
+corridors / 52 candidates, OTHH 43 / 44, reproducing §12b's arm exactly).
+
+| airport | placement | cand. | floor z | road level z | Δ (road − floor) | ≤1.5 m | ramp | slab | (b″) |
+|---|---|---|---|---|---|---|---|---|---|
+| OTHH | `Bridge_02_LOD0_002` | 3 | 1.84 | 3.96 | +2.03..+2.13 | 0 | 0 | **0** | 3 |
+| OTHH | `Bridge_06_LOD0_002` | 16 | 1.84..2.22 | 3.96 | +1.72..+2.13 | 0 | 3 | **0** | 16 |
+| OTHH | `Qatar_DutyFree_003` | 3 | −8.24..2.60 | 3.96 | +1.37..+12.21 | 2 | 1 | **0** | 3 |
+| OTHH | `TerminalRoads_02_004` | 4 | 1.87 | 3.96 | +2.10 | 0 | 0 | **0** | 4 |
+| OTHH | `TerminalRoads_03_004` | 4 | 2.07 | 3.96 | +1.89 | 0 | 0 | **0** | 4 |
+| OTHH | `TerminalRoads_Parking_004` | 4 | 2.07 | 3.96 | +1.89 | 0 | 0 | **0** | 4 |
+| OTHH | `Terminal_Base_2_1` (bays) | 5 | 2.57..2.61 | 3.96 | +1.35..+1.39 | 5 | 0 | **0** | 3 |
+| OTHH | `Terminal_Base_2_5` (the underpass) | 1 | 2.07 | 3.96 | +1.89 | 0 | 1 | **0** | 1 |
+| OTHH | `Terminal_Parking_VCN_004` | 4 | 2.24..2.25 | 3.96 | +1.71..+1.73 | 0 | 2 | **0** | 2 |
+| LEMD | `Cargo-CGVRW` | 1 | 594.59 | 605.00 | +10.41 | 0 | 0 | **0** | 1 |
+| LEMD | `Cargo-EAT` | 1 | 594.36 | 599.00 | +4.62 | 0 | 0 | **0** | 0 |
+| LEMD | `Cargo-EATzwei` | 1 | 594.50 | 600.01 | +5.52 | 0 | 1 | **0** | 0 |
+| LEMD | `Cargo-FLEDI` | 2 | 594.80..594.83 | 602.75..602.88 | +7.92..+8.07 | 0 | 0 | **0** | 2 |
+| LEMD | `Cargo-GAVIA` | 1 | 594.68 | 602.00 | +7.32 | 0 | 0 | **0** | 0 |
+| LEMD | `Cargo-NEWCO` | 9 | 594.38..594.68 | 594.00..597.06 | **−0.38..+2.41** | 5 | 4 | **0** | 8 |
+| LEMD | `Munoza-LEMD70` | 2 | 594.28..594.63 | 563.00..565.08 | −31.28..−29.56 | 0 | 0 | **0** | 0 |
+| LEMD | `Munoza-LEMD73` | 1 | 594.39 | — (no road ≤ 40 m) | — | 0 | 0 | **0** | 0 |
+| LEMD | `Munoza-LEMD79` | 5 | 594.28..594.51 | 565.00 | −29.51 (+3 no road) | 0 | 0 | **0** | 2 |
+| LEMD | `Ground-FSX-LEMD36` | 1 | 588.97 | 594.63 | +5.66 | 0 | 0 | **0** | 1 |
+| LEMD | `Sim-wings-LEMDzaun` | 2 | 589.01..592.78 | 597.52..597.74 | +1.61..+8.50 | 0 | 1 | **0** | 1 |
+| LEMD | `Sim-wings-SWbaume` | 1 | 589.01 | 597.12 | +8.11 | 0 | 0 | **0** | 0 |
+| LEMD | `grass_FSX-LEMDgrass` | 25 | 594.45..594.98 | 586.00..594.64 | **−8.85..−0.16** (+12 no road) | 2 | 2 | **0** | 12 |
+
+**(ii) THE FLOOR SLAB IS ZERO ON BOTH PACKS** — 0 of OTHH's 44 and 0 of LEMD's 52 (max
+cover 0.00 at both): OTHH's kerb walls carry no floor at any depth (that IS Law C's
+premise, module doc / 08u `bore_datum_m` 5.10) and neither does Aerosoft's. As a clause it
+would refuse OTHH's 43 outright — the OTHH bar fails at once. **Refuted.**
+
+**(i) NO TOLERANCE SEPARATES THEM.** OTHH's 43 real corridors sit in a tight band
+Δ +1.35..+2.13 (the 44th, `Qatar_DutyFree_003@8/7`, is an 8.24 m pit at +12.21); LEMD's
+spread runs −31.3..+10.4 with 16 candidates having no road within 40 m at all — but 15
+land INSIDE OTHH's band:
+
+| tolerance | OTHH kept (of 44) | LEMD kept (of 52) |
+|---|---|---|
+| 1.35 m | 2 | 5 |
+| **1.5 m** (the proposed value) | **7** | **7** |
+| 1.75 m | 13 | 12 |
+| 2.0 m | 29 | 13 |
+| **2.13 m** (the loosest that keeps all 43) | **43** | **15** |
+| 2.5–5.0 m | 43 | 17–18 |
+
+The bar is OTHH 43 / LEMD 0. Every value fails one side: 1.5 m costs OTHH 36 of its 43;
+2.13 m keeps OTHH's 43 and LEMD's 15 (`NEWCO` 5, `LEMDgrass` 2, `LEMDzaun` 1 and the rest
+of the cargo kerbs). Adding `ramp_reachable` as an OR only loosens it (OTHH 7 / LEMD 8
+extra). **Refuted.** The pair (i) AND (ii) is 0 / 0 — refuted with it.
+
+**WHY the reading cannot separate them (the instrument's own limit, stated for the next
+round).** OTHH's production DEM is CONSTANT 3.96 m over the whole airport (73 of 73
+mouths; Doha at sea level on a flat inset), so at OTHH "the road's level" IS the ground
+everywhere and Δ degenerates to the corridor's depth under grade — a quantity
+`min_wall_depth_m` already gates. At LEMD the DEM runs 563..605 while the Aerosoft pack's
+floors sit on one anchor plane at 594.3..595.0, so Δ measures the pack's anchor offset
+against the terrain: huge where the terrain is high (`CGVRW` +10.4, `LEMD70` −31.3), and
+accidentally small (±2 m) wherever the terrain happens to pass through 594–597 — which is
+exactly the cargo kerb / grass-fence belt. The difference between the two packs is not a
+level relation at the mouth.
+
+**WHAT LANDS FROM ROUND 4**: the instrument and its law values only (`corridor_road_level_m`,
+`corridor_floor_road_tol_m`, `corridor_floor_slab_max_thickness_m`,
+`corridor_floor_slab_tol_m`, `corridor_floor_slab_cover_min` in `structures.toml` +
+`cutout_schema`), the `PROBE` table in `--stage structures`, and two twins holding the
+reading honest (`test_v2corridor.py`: the probe states the road level minus the floor at
++2.0 / +6.0 and names the levelled profile; the slab reader finds a plate only where one
+is authored). **The admission is UNCHANGED** — (a) authored depth + (b″) the groundside
+mouth, exactly as §12b measured it (verified after: LEMD 26 corridors / 49 records). No
+clause (b‴) is proposed; the next discriminator is the owner's.
+
+## §12d Law C reads the SEATED frame (RULINGS 2026-09-10ad) — lane `v2corridor` round 5, 2026-09-10
+
+**The clause.** Law C measures depth in the object's SEATED frame: the rebake puts the
+object's zero on the LOCAL GROUND (09af-1), so a component's rendered z is
+`dem(the component's own plan centroid) + agl + authored y` — never `anchor_z + agl + y`,
+the pack's anchor plane (Aerosoft LEMD anchors components up to 4 km away, where the
+terrain stands 9 m higher: a wall authored 2.6 m under its zero read 8–10 m "below ground"
+and its ramp came out 160–200 m at 5 % instead of ≤ 52 m). This frame carries BOTH the
+admission ((a) authored depth, §12, unchanged in value) and the corridor FLOOR, so the ramp
+length — `rise / ramp_grade` with `rise = ground − mouth floor` — is the authored depth's.
+The rendered-under-DEM reading is DELETED from Law C. **(b″) (the groundside mouth, §12b)
+is DELETED, key `corridor_mouth_road_m` and all** — refuted in 10z/10ab. The round-4
+measurement probe (§12c) stays, measurement only.
+
+**The sites changed** (`airport/wall_corridors.py`): `_seat_base(o, xy, dem_z)` — the new
+single derivation of the frame; `_bands_of` (the band's `pts` z column, and the ground-
+CONTACT clause, which becomes `comp.max_y < −basin.contact_band_m`: in the seated frame the
+object's zero IS the local ground); `_headroom` and `_floor_slab` (the same per-component
+seat, so a plate and the floor under it stay in ONE frame — headroom is unchanged by a
+frame shift); the pair loop's rule-6 block, deleted with `airside_faces`, `_nearest_face`,
+`_nearest_roads`, `_road_at_mouth`, `_road_bearing_at`, `AIRSIDE_FACE_ROLES` and
+`stats.roads` / `refused_no_road` / `refused_airside_mouth`. `mouth_roads` stays: the probe
+reads it.
+
+**Consumer rows touched** (§12's table). 1 `_bands_of` — the seated frame, the single site.
+2 pre-screen (`y_range`) — unchanged, already authored. 3 the pair floor gate — unchanged
+(authored y). 3b (b″) — DELETED. 4 the garage `shallow_depth` mouth-at-grade gate — now
+seated (a garage's shallow end meets its own local ground, not the pack's plane).
+5 `planar/wall_corridor_ramps` (the ramp planner) — unchanged code, SHORTER ramps: the
+climb's rise is the authored depth. 6 `constraints/structures` (the ramp emitter) —
+unchanged rows, shorter geometry. 7 `pipeline/build` seat exclusion, 8 `verify/structures`,
+9 `emit/osm_adapter` + `precedence.toml:68` (`tunnel_ramp`) and the census families
+(`check_grade.LAW_FAMILIES`, `harness/census.py`) — unchanged: a count/length effect, no
+law change. 10 door wells / sunken roads / basins — unchanged (their own frames).
+11 `--stage structures` — `wall_corridor_admission` keeps (a) alone.
+
+**MEASURED** (four patch builds, one shared corpus: LEMD/OTHH at main `23a10aaf` —
+`--base-arm`, tags `lemdmain5` / `othhmain5` — and at this branch, tags `lemda5` / `r5`;
+DEFECTs 0 in all four).
+
+*LEMD — the owner's 17 shapes (main emits EXACTLY 17 `wall_corridor_ramp`s), before → after
+as `length m / rise m`* (the rise is the climb the ramp makes; at `ramp_grade` 8 % the run is
+`rise / 0.08`): 213.3/10.52 → 101.9/1.62 · 173.5/11.41 → 58.2/1.57 · 167.6/11.38 → 79.8/5.73 ·
+141.8/8.71 → 55.7/1.28 · 115.6/8.45 → 26.1/1.45 · 107.9/4.66 → 69.9/1.60 · 94.5/7.95 → GONE ·
+69.8/2.23 → 60.0/1.51 · 60.3/1.70 → 50.1/0.89 · 55.8/1.37 → 45.9/0.57 · 51.9/2.97 → 36.0/1.89 ·
+38.3/2.09 → 32.3/1.75 · 33.9/1.25 → 33.9/1.25 · 25.8/1.45 → 21.9/1.12 · 24.0/1.29 → 24.0/1.29 ·
+22.2/1.09 → 22.2/1.09 · 9.5/0.32 → GONE.  Every rise now stands inside the ADMITTED authored
+depths the same tree reads (`--stage structures`: 77 admitted, 1.01..6.99 m, median 1.37) —
+the 5.73 m one is `LEMDzaun`'s 6.99 m authored wall — so every ramp is ≤ authored depth /
+`ramp_grade`; the 10.5-11.4 m rises (a 130-140 m run) are gone.  The 20 OSM road bores are
+unchanged (20 → 20), `basin_floor` 0 → 0, census adjudicated 268 → 208.
+**The COUNT rises: 17 → 55 emitted shapes (corridors 17 → 76, bands 836 → 7,174).**  The
+old frame refused most LEMD bands as BURIED (`comp.max_y < dem - anchor_z - contact_band`,
++8..+9 m under a shared-datum pack); in the seated frame that clause reads the object's own
+zero and admits them.  They are SHORT (median authored depth 1.37 m) but numerous — the
+owner's re-read (10ad) now decides whether 1.2-2.6 m cargo-door corridors are tunnels at
+all, i.e. whether 10ac-1 (A) terminals-only follows.
+
+*OTHH — 43 corridors, `by_class` 13 bay + 60 level, 24 emitted shapes: identical in count and
+class; 18 of 24 shapes identical to 0.0 m.*  SIX shapes moved — the `Bridge_06` group
+(25.2504..25.2517, 51.6163..51.6175): 60.5/2.07 → 52.4/1.43, 60.1/2.07 → 52.0/1.43,
+46.3/2.21 → 38.4/1.58, 34.7/1.94 → 26.7/1.29, 34.4/1.92 → 26.7/1.26, 30.2/1.92 → 28.3/1.56.
+Attribution: those placements' anchor plane stands ~0.64 m UNDER the local ground (OTHH's DEM
+is not the constant 3.96 m at the bridge), so the rendered frame read 0.6 m of depth the pack
+never authored — the walls there are authored 1.08..1.46 m down and the ramps now climb
+exactly that.  One consequence downstream: `Bridge_06_LOD0_000`'s `deck_datum_z` 3.615 → 3.96
+(the shorter ramp no longer covers the deck ring, so the datum falls back to the mesh) — the
+rebake plan is otherwise identical (111 units, 948 members, ids and member counts equal).
+Refusal population unchanged (10 ↔ 10, same sites, restated in the authored frame).
+Census adjudicated 4 → 4.
+
+## §12e Round 6 — the NARROW-CUT TEST MEASURED (RULINGS 2026-09-10af) — lane `v2corridor`, 2026-09-10: NO CLAUSE READS OTHH 43 / LEMD CARGO 0; STOP, nothing implemented in law
+
+**The instrument** (`airport/below_zero.py` + `stats.narrow_cut`, printed as the `NARROW`
+table; `--stage structures` only, never a gate and never a build cost). Per CANDIDATE
+corridor, in the SEATED frame (§12d):
+
+* **the WALL-PAIR SPACING** — the inner faces' distance (the corridor's width), and the
+  stationed `width_m` beside it;
+* **the BELOW-ZERO PERIMETER FRACTION** — the placement's plan geometry (every genuine
+  component's triangles projected; a vertical face widened to
+  `tunnel.object.wall_face_max_thickness_m`), the polygon of it holding the site, and the
+  share of that polygon's exterior lined by geometry authored `min_wall_depth_m` or more
+  under the object's OWN zero (`fsite`); `fobj` is the same share over EVERY polygon of the
+  placement. *Authored plan BOUNDING BOXES were tried first and refused: a pack's component
+  boxes overlap, so the union collapses a whole cargo area into one polygon and every
+  candidate in it reads the same fraction (CGVRW 0.073 for all 17).*
+* **the CUT WIDTH across the axis** against the footprint's own (`wr`), and — the fourth
+  reading, added when the first three did not separate — the BELOW-ZERO END COVER (`ec`:
+  does the below-zero geometry itself close an end, as a foundation ring would?).
+
+**THE TABLE** (structure replays, ONE lane tree, production DEM, the §12d admission — OTHH
+43 corridors / 62 candidates, LEMD 77 / 118, byte-identical before and after the module
+split).
+
+| airport | placement | cand. | spacing m | `fsite` | `fobj` | `wr` | `ec` max |
+|---|---|---|---|---|---|---|---|
+| OTHH | `Bridge_06_LOD0_002` | 15 | 11.88..15.14 | 0.87..0.95 | 0.91..0.94 | 0.98..1.00 | 1.00 |
+| OTHH | `Terminal_Base_2_1` (bays) | 5 | 9.86 | 0.02 | 0.01 | 0.23..0.24 | 1.00 |
+| OTHH | `TerminalRoads_Parking_004` | 4 | 10.00..10.07 | 1.00 | 1.00 | 1.00 | 0.04 |
+| OTHH | `TerminalRoads_03_004` | 4 | 12.30..12.35 | 0.92 | 0.92 | 1.00 | 0.02 |
+| OTHH | `TerminalRoads_02_004` | 4 | 11.45..12.06 | 0.99 | 0.99 | 1.00 | 1.00 |
+| OTHH | `Terminal_Parking_VCN_004` | 4 | 6.13..11.37 | 0.11..0.37 | 0.11..0.26 | 0.31..1.00 | 0.15 |
+| OTHH | `Qatar_DutyFree_003` | 3 | 12.17..12.61 | 0.66 | 0.83 | 1.00 | 1.00 |
+| OTHH | `Bridge_02_LOD0_002` | 3 | 14.21..14.48 | 1.00 | 1.00 | 1.00 | 0.07 |
+| OTHH | `Terminal_Base_2_5` (the underpass) | 1 | 9.85 | 0.99 | 0.02 | 1.00 | 0.00 |
+| LEMD | `grass_FSX-LEMDgrass` | 31 | 6.12..19.03 | 0.60..1.00 | 0.20 | 0.98..1.00 | 0.96 |
+| LEMD | `Airport_Cargo-CGVRW` | 17 | 6.47..15.89 | 1.00 | 1.00 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-NEWCO` | 9 | 9.53..19.38 | 1.00 | 0.97 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD79` | 5 | 8.54..17.62 | 1.00 | 0.80 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-GAVIA` | 4 | 8.03..12.99 | 0.65 | 0.68 | 0.96..1.00 | 1.00 |
+| LEMD | `Airport_Cargo-FLEDI` | 2 | 6.73..6.99 | 1.00 | 0.94 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD70` | 2 | 7.38..14.02 | 1.00 | 0.49 | 1.00 | 1.00 |
+| LEMD | `Sim-wings-LEMDzaun` | 2 | 9.76..10.78 | 0.05..0.37 | 0.05..0.52 | 0.00..0.90 | 0.41 |
+| LEMD | `Airport_Cargo-LEMD64` | 1 | 19.04 | 1.00 | 0.79 | 1.00 | 0.00 |
+| LEMD | `Airport_Cargo-EATzwei` | 1 | 17.18 | 0.97 | 0.60 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-EAT` | 1 | 17.22 | 1.00 | 0.60 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD73` | 1 | 8.04 | 0.79 | 0.31 | 1.00 | 0.00 |
+| LEMD | `Sim-wings-SWbaume` | 1 | 8.06 | 1.00 | 1.00 | 1.00 | 0.12 |
+
+**(i) THE SPACING DOES NOT SEPARATE THEM.** OTHH's 43 span 6.13..15.14 m; LEMD's 77 span
+6.12..19.38 m. `corridor_max_width_m` at OTHH's own maximum (15.14 m, no margin) still keeps
+57 of LEMD's 77 (54 of the 74 on the owner's witness families) — the cargo docks the owner
+named sit INSIDE OTHH's band (FLEDI 6.73..6.99, CGVRW 6.47..15.89, GAVIA 8.03..12.99,
+NEWCO 9.53, LEMD79 8.54). With a margin it is worse. **Refuted as a clause.**
+
+**(ii) THE PERIMETER FRACTION DOES NOT SEPARATE THEM EITHER — and it is the OWNER'S
+picture that fails, not the reading.** LEMD's cargo docks DO read as foundation skirts
+(CGVRW/NEWCO/FLEDI/EAT/LEMD64/LEMD70 `fsite` 1.00 — the whole bottom below zero, exactly
+10af). But so do OTHH's own kerb corridors: `TerminalRoads_Parking_004` 1.00,
+`Bridge_02_LOD0_002` 1.00, `TerminalRoads_02_004` 0.99, `Terminal_Base_2_5` (the
+underpass!) 0.987 — because a FREE-STANDING kerb wall's footprint IS the wall, so every
+metre of its perimeter is authored below zero. `corridor_skirt_fraction` 0.5 keeps 9 of
+OTHH's 43. The whole-placement denominator (`fobj`) only trades the error: it reads OTHH's
+underpass 0.02 (right) but LEMD's `grass` 0.20 and `LEMD70` 0.49 (wrong). **Refuted.**
+
+**(iii) THE CUT WIDTH across the axis is 1.00 at 17 of 22 families on BOTH packs** (the
+below-zero geometry spans its own footprint by construction: the pair's two walls ARE the
+footprint's two sides). Only OTHH's `Terminal_Base_2_1` bays (0.23) and
+`Terminal_Parking_VCN_004` (0.31) read as notches in a larger building. **Refuted.**
+
+**(iv) THE BELOW-ZERO END COVER does not separate them.** A foundation ring should close
+its own ends; 11 of OTHH's 43 have an end closed below zero and 33 of LEMD's 77 do; NEITHER
+pack has a candidate closed below zero at BOTH ends. **Refuted.**
+
+**Every other geometric quantity overlaps too** (measured on the same arms): corridor
+length OTHH 2.58..38.89 m vs LEMD 2.48..80.30 (71 of 76 inside OTHH's range); depth
+1.07..12.21 vs 0.66..7.02 (69 inside); length/width aspect 0.18..3.95 vs 0.18..4.67 (74
+inside); the thinner band's plan thickness OTHH 0.00..0.66 m vs LEMD 0.00..1.39 — 16 of
+OTHH's own 43 corridors are ZERO-THICKNESS SHEETS (`TerminalRoads_02/03/Parking`), the same
+sheet authoring as LEMD's cargo skirts.
+
+**What round 6 DID attribute.** An IDEAL foundation skirt — four walls carried 2 m under the
+object's zero with a roof over them — is ALREADY refused by 08n's own rule: its ring closes
+both ends and Law C calls it "a sunken yard between four kerbs, not a corridor" (twin
+`test_a_foundation_skirt_reads_the_same_fraction_as_a_kerb_corridor`). LEMD's cargo docks
+survive because their skirts are single SHEETS whose bands RUN PAST the shed: `Cargo-CGVRW`
+pairs bands of 21.8 m and 58.8 m 7.02 m apart into a 7.2 m corridor whose ends cover
+0 %/1 %. The next clause to measure is therefore about the PAIR, not the placement: two
+bands of one closed skirt ring are not a corridor however their overlap window falls.
+
+**Nothing landed in law.** The instrument (`below_zero.py`, `stats.narrow_cut`) and its
+twins landed; `wall_corridors.py` was 1,401 lines with them and is split under the
+1,000-line law into `wall_geometry.py` (the band plan geometry, `WallBand`, the merge, the
+seated frame) and `wall_corridor_probe.py` (the §12c probes) — OTHH's and LEMD's structure
+records are byte-identical across the split.
+
+## §12f Round 7 — THE WALL'S HEIGHT ABOVE THE OBJECT'S ZERO, and the TERMINALS-ONLY fallback (RULINGS 2026-09-10ao) — lane `v2corridor`, 2026-09-10
+
+**The question (10ao, the owner's physical picture).** A KERB WALL is a low free-standing
+wall: it rises from its floor to the deck it carries and no further (OTHH's terminal kerb,
++2.61 m). A cargo shed's foundation sheet is the bottom of a BUILDING WALL that rises 6–12 m
+to a roof. So: per band, the wall's height ABOVE THE OBJECT'S OWN ZERO — its component's
+`max_y`, and the top of the wall connected above it in the same placement (plan contact
+within `emit.identity.min_distinct_spacing_m`, starting at or below the band's top).
+
+**Instrument.** `airport/below_zero.read_wall_height` → `own_m` (the band's own component),
+`step_m` (one step of the connected stack) and `connected_m` (the transitive climb); a
+corridor's row carries the MAX over its two bands (a corridor with one building wall is a
+building's corridor) and `conn_min`. `--stage structures` prints the HEIGHT table beside
+the §12e NARROW table. Read at measure time only — a build pays nothing.
+
+**MEASURED (one tree, the same replay as §12e; OTHH 43 admitted / LEMD 77, of which 73 at
+the owner's cargo witnesses).**
+
+| quantity | OTHH 43 (min / p50 / max) | LEMD cargo 73 | OTHH max + 0.5 keeps |
+| --- | --- | --- | --- |
+| `own_m` | 0.40 / 9.48 / **9.82** | −0.60 / 5.51 / 31.65 | OTHH 43/43, **LEMD cargo 64/73** |
+| `step_m` | 0.40 / 9.48 / 14.15 | −0.59 / 6.65 / 37.10 | OTHH 43/43, LEMD cargo 69/73 |
+| `connected_m` | 0.40 / 9.48 / 43.71 | −0.59 / 6.65 / 37.10 | OTHH 43/43, LEMD cargo 73/73 |
+| `connected_m` (min of the two bands) | 0.40 / 8.10 / 15.70 | −0.59 / 6.49 / 18.54 | OTHH 43/43, LEMD cargo 71/73 |
+
+**REFUTED.** The premise is false at OTHH itself: only 9 of its 43 accepted corridors are
+LOW kerbs (`Terminal_Base_2_1/2_5` 0.59–0.63, `Qatar_DutyFree_003` 0.40–1.40). The other 34
+stand at walls 5.91–9.82 m high — `Bridge_06_LOD0_002` 8.10–9.48, `TerminalRoads_02_004`
+9.59, `TerminalRoads_03_004` 9.78, `Terminal_Parking_VCN_004` 9.60–9.82,
+`TerminalRoads_Parking_004` 5.91 — i.e. exactly the range of LEMD's cargo walls
+(`NEWCO` 6.63–10.45, `GAVIA` 2.29–10.83, `LEMD79` 4.55–10.30, `LEMD64` 10.46). No threshold
+reads OTHH 43 / LEMD cargo 0; the best (9.82, OTHH's own maximum, no margin) keeps 63 of 73.
+**Nothing landed in law.** The reading stays a measurement.
+
+**THE FALLBACK, 10ac-1 (A) TERMINALS-ONLY — implemented, and it ships OFF.** A corridor is
+admitted only where an `aeroway=terminal` way of the tile's `airports` feed lies within
+`[cutout.wall_corridor] corridor_terminal_m` of a mouth (`wall_corridor_probe.terminal_polygons` /
+`terminal_witness`; X-Plane's apt.dat carries NO terminal geometry — its rows are pavement,
+lights and startup locations — so OSM is the only source, and an Overpass export flattens a
+multipolygon relation into its member ways).
+
+OTHH's terminals are MAPPED — ten `aeroway=terminal` ways (Main Terminal Building,
+Concourses A–E, Emiri/Premium Terminal, …). The owner's 43 stand, from the nearest of them:
+
+| family | n | nearest terminal |
+| --- | --- | --- |
+| `Terminal_Base_2_1` / `2_5` | 6 | **0.0 m** (Concourse C) |
+| `Terminal_Parking_VCN_004` | 4 | 37.9 – 232.2 m |
+| `TerminalRoads_02_004` / `03_004` | 8 | 179.7 – 219.2 m |
+| `TerminalRoads_Parking_004` | 4 | 303.1 – 331.7 m |
+| `Bridge_02` / `Bridge_06` | 18 | 422.0 – 589.5 m |
+| `Qatar_DutyFree_003` | 3 | 1465.1 – 1485.4 m |
+
+At the proposed 60 m the clause keeps **7 of OTHH's 43** and refuses 36 of the owner's own
+accepted set; at LEMD it keeps 2 of 77. Any radius large enough to keep OTHH's 43 (1,486 m)
+keeps every LEMD candidate inside 1,486 m of Terminal 1 too — 57 of 77, including
+`CGVRW` (429–485 m), `FLEDI` (79 m), `GAVIA` (139–166 m), `NEWCO` (709–1,013 m). The
+clause therefore lands with `corridor_terminal_only = false`: the witness and its distance
+are REPORTED per candidate in `stats.admission` either way, and turning the key on is an
+owner act. This is the one permitted gate (10ao): the alternative is deleting the owner's
+accepted OTHH set.
+
+## §12g LAW C IS A PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap) — lane `v2corridor` round 8, 2026-09-10
+
+**The ruling.** After seven rounds no witness in the geometry or the map separates OTHH's
+terminal kerb corridors from LEMD's cargo-dock foundations (§12–§12f). Law C — **kerb-wall
+corridors AND garage ramps**, the two classes of `airport/wall_corridors.py` — therefore
+becomes an AIRPORT-LEVEL AFFORDANCE a pack EARNS by the owner's sim read. Law A (door
+wells, `airport/door_wells.py`) and Law B (sunken roads, basins) stay ON EVERYWHERE and
+take no key; nothing else in the pipeline is gated.
+
+**The table.** `law/airports.toml`, one table per ICAO, `[OTHH] kerb_wall_corridors = true`;
+every airport the table does not name (and a law bound to none) takes every key false.
+The schema is `law/airports_schema.py` (`Affordances`, `NO_AFFORDANCES`, `load_airports`,
+plus `Resolution` / `resolve_ruleset` moved beside it under the 1,000-line file law);
+`Law` gains an `icao` field that `Law.for_airport` fills, and `law.affordances` reads the
+table. `law_tables_digest` globs `*.toml`, so a patch's provenance already changes with the
+table; the freeze glob picks it up and `Ortho4XP.spec`'s count guard rises 8 → 9 (twinned
+against the actual table count in `test_auto_patch_engine_dispatch.py`).
+
+**The gate.** ONE site: in `read_wall_corridors`, on each CANDIDATE PAIR, **before clause
+(a)** and before any wall line is read — `if not law.affordances.kerb_wall_corridors:` →
+`stats.admission` gets `candidate … : law off for <ICAO>` and the pair is skipped. The
+class (level / bay / garage_ramp) is decided later in the same loop, so no Law C class can
+escape it. `stats.refused` stays geometry-only.
+
+**DELETED with this section**: the 10ao terminals-only clause and its keys
+(`corridor_terminal_only`, `corridor_terminal_m`, `terminal_polygons`, `terminal_witness`,
+`TerminalWitness`) — 10ap closes 10ac-1 as (B), so the (A) mechanism is a refuted branch,
+deleted rather than gated. Its measurement stays above in §12f.
+
+**Closing builds (counts, materiality = counts).** LEMD `r8_lemd` vs main `2fb83ce3`
+(control served from the artifact ledger, `v2pit2_base`): Law C shapes **17 → 0** — the
+sidecar's `tunnel_objects` 17 → 1, the one survivor `tunnel-object:Bridge4.obj@0` (Law B);
+`tunnel_ramp` shapes 38 → **21**, exactly the OSM road bores, unchanged; `basin_facilities`
+0 → 0; v2-verify DEFECTs **0**; census adjudicated **555 → 394** (total 3,318 → 3,131).
+OTHH `r8_othh` vs round 7 `1d3c0d78` (ledger `v2corr_r7_othh`): **43 corridors** (bay 13,
+level 60 halves) from 69 pairs of 268 bands in 10 families, refused 26 — the patch body is
+**byte-identical** (`e921644fe5cd5806…`, body sha `58b3045f42fe570b`), the rebake plan is
+byte-identical (`493af639e41a5f25…`), the sidecar differs only in two wall-clock fields,
+and v2-verify reads the same 4 rows with **DEFECTs 0**.

@@ -89,7 +89,10 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # LAW C is a PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap): these
+    # twins read OTHH's own corridors, so they run under OTHH's law —
+    # the gate itself is twinned in ``test_v2corridor.py``.
+    return Law.for_airport("OTHH")
 
 
 @pytest.fixture(scope="module")
@@ -262,8 +265,18 @@ def test_plate_stations_stand_outside_the_emitted_rim_and_the_ramp_beyond(law):
 
 # ── LAW C (08m / 08n) ────────────────────────────────────────────────────
 
-def _corridors(objs, law, name):
-    airport, cache, objects = _read(objs, law, [(name, (0.0, 0.0), 0.0, None, "OBJECT")])
+#: The fixture corridors run along ±y with a service way down that axis.
+#: (RULINGS 2026-09-10ad: the 10z groundside-mouth clause (b'') is DELETED
+#: — the road no longer admits anything; it is left here so these twins
+#: read the same site as the round-2/3 measurements.)
+def _axis_road(x: float = 0.0):
+    return (OsmWay(-601, "airport_small_roads", ((x, -300.0), (x, 300.0)), False,
+                   {"highway": "service"}),)
+
+
+def _corridors(objs, law, name, ways=None):
+    airport, cache, objects = _read(objs, law, [(name, (0.0, 0.0), 0.0, None, "OBJECT")],
+                                    _axis_road() if ways is None else ways)
     recs, st = read_wall_corridors(airport, objects, cache, law)
     return airport, cache, objects, recs, st
 
@@ -406,7 +419,8 @@ def test_generator_rows_solve_and_emit(objs, law):
     ``max_ramp_grade``, the top at the ground; the LP solves; the emitted
     faces carry the oracle alias."""
     wc = law.tables.structures.cutout.wall_corridor
-    airport, cache, objects = _read(objs, law, [("level", (0.0, 0.0), 0.0, None, "OBJECT")])
+    airport, cache, objects = _read(objs, law, [("level", (0.0, 0.0), 0.0, None, "OBJECT")],
+                                    _axis_road())
     cl = Classification(tuple(_cells()), (), {}, ())
     pm, stats = build(airport, cl, law)
     ts = [x for x in pm.structures if x.source == KIND]

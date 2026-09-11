@@ -162,6 +162,60 @@ def main(argv: list[str] | None = None) -> int:
                   f"mouth {w['mouth_ll']} far {w['far_ll']}")
         for r in rec["wall_corridor_refused"]:
             print(f"  wall corridor refused {r}")
+        # RULINGS 2026-09-10w: the three admission clauses per CANDIDATE
+        for a in rec["wall_corridor_admission"]:
+            print(f"  wall corridor admission {a}")
+        # RULINGS 2026-09-10ab: ONE TABLE of the two discriminators
+        rows = rec["wall_corridor_floor_probe"]
+        if rows:
+            print(f"  wall corridor floor probe ({len(rows)} candidates with a mouth): "
+                  f"airport | placement@bands | floor | road level | delta | ramp-reachable "
+                  f"| slab | road witness")
+            for r in rows:
+                d = "     -" if r["delta_m"] is None else f"{r['delta_m']:+7.2f}"
+                lv = "     -" if r["road_level_z"] is None else f"{r['road_level_z']:7.2f}"
+                dist = "  -" if r["road_dist_m"] is None else f"{r['road_dist_m']:5.1f} m"
+                print(f"  PROBE {r['airport']} | {r['resource']}@{r['bands']} at {r['site']} | "
+                      f"floor {r['floor_min_z']:.2f}..{r['floor_max_z']:.2f} "
+                      f"(mouth {r['mouth_floor_z']}) | road {lv} at {dist} | delta {d} | "
+                      f"tol {'Y' if r['within_tol'] else 'n'} | ramp "
+                      f"{'Y' if r['ramp_reachable'] else 'n'} | slab "
+                      f"{'Y' if r['slab'] else 'n'} ({r['slab_cover']:.2f}) | "
+                      f"len {r['length_m']:.1f} m | {r['road_source']}: {r['road_witness']} | "
+                      f"{r['slab_witness']}")
+        # RULINGS 2026-09-10af: ONE TABLE — spacing, below-zero perimeter
+        # fraction, cut width vs footprint width, current admission
+        ncs = rec["wall_corridor_narrow_cut"]
+        if ncs:
+            print(f"  wall corridor narrow-cut table ({len(ncs)} candidates): airport | "
+                  f"placement@bands | spacing | width | below-zero perimeter fraction | "
+                  f"cut width / footprint width | admitted")
+            for r in ncs:
+                w = "    -" if r["width_m"] is None else f"{r['width_m']:5.1f}"
+                wr = "    -" if r["width_ratio"] is None else f"{r['width_ratio']:5.3f}"
+                print(f"  NARROW {r['airport']} | {r['resource']}@{r['bands']} at {r['site']} | "
+                      f"spacing {r['spacing_m']:6.2f} m | width {w} m | frac "
+                      f"{r['fraction']:5.3f} ({r['below_perimeter_m']:.1f}/"
+                      f"{r['perimeter_m']:.1f} m) | obj frac {r['fraction_total']:5.3f} "
+                      f"({r['total_below_perimeter_m']:.1f}/{r['total_perimeter_m']:.1f} m)"
+                      f" | site {r['site_area_m2']:9.1f} m2 thick {r['site_thickness_m']:7.2f} m "
+                      f"inside {r['axis_inside_frac']:5.3f} | cut {r['cut_width_m']:7.1f} / "
+                      f"{r['footprint_width_m']:7.1f} m = {wr} | "
+                      f"{'ADMITTED' if r['admitted'] else 'refused'}")
+            # RULINGS 2026-09-10ao — THE WALL HEIGHT TABLE: per candidate,
+            # how far the wall rises above the OBJECT'S OWN zero (its own
+            # component's max_y; the wall connected above it).
+            print(f"  wall HEIGHT above the object's zero ({len(ncs)} candidates): "
+                  f"airport | placement@bands | own | one step | connected "
+                  f"(max of the two bands) | connected (min) | admitted")
+            for r in ncs:
+                print(f"  HEIGHT {r['airport']} | {r['resource']}@{r['bands']} at "
+                      f"{r['site']} | own {r.get('wall_own_m', 0.0):7.2f} | step "
+                      f"{r.get('wall_step_m', 0.0):7.2f} | conn "
+                      f"{r.get('wall_connected_m', 0.0):7.2f} | conn_min "
+                      f"{r.get('wall_connected_min_m', 0.0):7.2f} | A "
+                      f"{r.get('wall_a_m')} B {r.get('wall_b_m')} | "
+                      f"{'ADMITTED' if r['admitted'] else 'refused'}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
@@ -228,7 +282,8 @@ def structure_records(airport, cl, law) -> dict:
     corridors, tstats = read_corridors(airport, objects, cache, law)
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    walls_c, wstats = read_wall_corridors(airport, objects, cache, law)
+    walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
+                                          measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra)
@@ -295,6 +350,14 @@ def structure_records(airport, cl, law) -> dict:
                             "profile": list(w.profile), "sibling": w.sibling,
                             "notes": list(w.notes)} for w in walls_c],
         "wall_corridor_refused": list(wstats.refused),
+        # RULINGS 2026-09-10z: (a) authored depth / (b'') the mouth opens
+        # onto groundside — the verdict and witness per candidate
+        "wall_corridor_admission": list(wstats.admission),
+        # RULINGS 2026-09-10ab: the two round-4 discriminators MEASURED
+        # per candidate (floor vs the mouth road's level; the floor slab)
+        "wall_corridor_floor_probe": list(wstats.floor_probe),
+        # RULINGS 2026-09-10af: the NARROW-CUT reading per candidate
+        "wall_corridor_narrow_cut": list(wstats.narrow_cut),
         "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
                                 if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),

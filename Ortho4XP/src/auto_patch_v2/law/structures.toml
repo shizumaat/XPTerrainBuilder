@@ -171,6 +171,25 @@ max_width_m        = 20.0           # ...and at most this (wider is a yard betwe
 min_wall_length_m  = 5.0            # the bands overlap at least this along the axis (OTHH's shortest bay 6.15 m)
 merge_gap_m        = 10.0           # parallel bands of one family within tunnel.object.wall_face_max_thickness_m of each other laterally and interrupted by at most this along the axis are ONE wall (a kerb split at a crossing or a pier: OTHH TerminalRoads_Parking_004 comp 1 = 80 + 62 m runs; the Terminal_Base_9_6 floor-to-deck panels 0.6–0.9 m inside the 2_5 kerbs are those walls' faces)
 end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open_m of an end line covering this share of it CLOSES the end
+# RULINGS 2026-09-10ad — the groundside-mouth clause (10z (b''), key
+# corridor_mouth_road_m) is DELETED: it separated LEMD's cargo foundations
+# from OTHH's kerb corridors not at all (10ab).  Law C's admission is the
+# AUTHORED depth alone, read in the object's SEATED frame (10u, 10ad).
+# RULINGS 2026-09-10ab — the ROUND-4 discriminators, measured per candidate
+# before any of them is a gate: (i) FLOOR-vs-ROAD — the nearest road within
+# corridor_road_level_m of a mouth, its LEVEL there (Ortho4XP's own longitudinal
+# clamp on its centreline: a levelled road profile; the DEM where the core levels
+# nothing) minus the corridor's floor at that mouth: a road can ENTER a corridor
+# whose floor it meets within corridor_floor_road_tol_m, or reach it at
+# max_ramp_grade over the corridor's length; (ii) FLOOR SLAB — a horizontal plate
+# of the family thinner than corridor_floor_slab_max_thickness_m lying within
+# corridor_floor_slab_tol_m of the floor between the walls over
+# corridor_floor_slab_cover_min of the length.
+corridor_road_level_m               = 40.0  # the level probe's window round a mouth (the 10z road window widened for the reading)
+corridor_floor_road_tol_m           = 1.5   # |road level - floor| within this = a road enters this corridor at its floor
+corridor_floor_slab_max_thickness_m = 0.5   # a component thinner than this can be a floor slab (a wall is not)
+corridor_floor_slab_tol_m           = 0.5   # ...lying within this of the floor
+corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the corridor's length
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
 max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load

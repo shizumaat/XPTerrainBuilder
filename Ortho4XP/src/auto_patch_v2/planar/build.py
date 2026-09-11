@@ -109,7 +109,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # same geometry, built through the same structure machinery
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    walls_c, wstats = read_wall_corridors(airport, objects, cache, law)
+    walls_c, wstats = read_wall_corridors(airport, objects, cache, law, classification)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,

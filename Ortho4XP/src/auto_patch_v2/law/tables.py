@@ -12,8 +12,8 @@ import math
 
 from pathlib import Path
 
-from .model import (Declared, Family, FlatSite, Law, RoleCap, ZoneClass,
-                    load_tables, resolve_ruleset)
+from .model import (Affordances, Declared, Family, FlatSite, Law, RoleCap,
+                    ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
@@ -28,7 +28,7 @@ __all__ = [
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
-    "design_weight", "sliver_area_factor",
+    "design_weight", "sliver_area_factor", "affordances",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -64,6 +64,14 @@ def law_tables_digest(law_dir: str | Path | None = None) -> dict:
         h.update(q.name.encode()); h.update(b"\0"); h.update(q.read_bytes()); h.update(b"\0")
     return {"dir": str(d), "files": [q.name for q in files],
             "sha256": h.hexdigest() if files else None}
+
+
+def affordances(law: Law) -> Affordances:
+    """THE AIRPORT'S AFFORDANCES (airports.toml; RULINGS 2026-09-10ap):
+    the per-airport opt-in laws — today Law C's kerb-wall corridors and
+    garage ramps.  Delegates to :attr:`Law.affordances`; every airport
+    the table does not name takes every key false."""
+    return law.affordances
 
 
 # ── roles ────────────────────────────────────────────────────────────────

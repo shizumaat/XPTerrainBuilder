@@ -1,0 +1,18 @@
+# PER-AIRPORT AFFORDANCES (RULINGS 2026-09-10ap, closing owner question
+# 10ac-1 as (B)).  Not a mechanism: an honest switch.  After seven rounds
+# no witness in the geometry or the map separates OTHH's terminal kerb
+# corridors from LEMD's cargo-dock foundations (spec §12–§12f), so LAW C
+# — kerb-wall corridors AND garage ramps, `airport/wall_corridors.py` —
+# is an AIRPORT-LEVEL AFFORDANCE a pack EARNS by a sim read.
+#
+# Every key defaults to FALSE for every airport not named here; an
+# airport turns one on only after the owner's read of that airport.
+# Law A (door wells / door ramps) and Law B (sunken roads, basins) are
+# unconditional everywhere and take no key.
+#
+# One table per ICAO; `Law.for_airport(icao).affordances`.
+
+[OTHH]
+# The owner's accepted set: 43 kerb-wall corridors under the terminal
+# decks, read in the sim (RULINGS 2026-09-08u, 09-10ap).
+kerb_wall_corridors = true

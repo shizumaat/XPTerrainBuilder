@@ -60,10 +60,11 @@ v2_law_datas = (
     + [(f, os.path.join("auto_patch_v2", "classify"))
        for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
 )
-if len(v2_law_datas) < 8:
+if len(v2_law_datas) < 9:
     raise SystemExit(
-        f"ERROR: expected the seven auto_patch_v2 law tables + classify/rules.toml "
-        f"under src/auto_patch_v2, found {len(v2_law_datas)} — refusing to freeze "
+        f"ERROR: expected the eight auto_patch_v2 law tables (incl. airports.toml, "
+        f"RULINGS 2026-09-10ap) + classify/rules.toml under src/auto_patch_v2, "
+        f"found {len(v2_law_datas)} — refusing to freeze "
         f"an engine whose v2 cannot load its law.")
 
 # highspy (the HiGHS QP behind the runway family's final projection,

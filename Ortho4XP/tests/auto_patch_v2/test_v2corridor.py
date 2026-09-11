@@ -391,3 +391,106 @@ def test_the_mouths_surroundings_admit_and_refuse_nothing(objs, law):
                           classification=_apron_at_both_mouths())
     assert st.corridors == 1 and len(recs) == 2, st.refused
     assert not any("mouth" in r for r in st.refused), st.refused
+
+
+# ── RULINGS 2026-09-10ao round 7: the WALL'S HEIGHT ABOVE ZERO ───────────
+
+def _wc_law(law, **kw):
+    """The law with ``[cutout.wall_corridor]`` keys overridden."""
+    co = law.tables.structures.cutout
+    return _dc.replace(law, tables=_dc.replace(
+        law.tables, structures=_dc.replace(
+            law.tables.structures, cutout=_dc.replace(
+                co, wall_corridor=_dc.replace(co.wall_corridor, **kw)))))
+
+
+def _cargo_shed_wall(path, width=10.0, depth=2.0, top=8.0, thick=0.3, half_len=40.0):
+    """LEMD's cargo dock (spec §12f): two foundation SHEETS 2 m under the
+    object's zero that are the bottom of BUILDING walls rising to a roof
+    at +8 — the shape 10ao expected the height clause to separate from a
+    kerb corridor.  The pair's ends stay OPEN (the sheets run past the
+    shed, §12e), so Law C admits it today."""
+    vt: list = []
+    tris: list = []
+    hw = width / 2.0
+    _vwall(vt, tris, -hw - thick, -hw, -half_len, half_len, -depth, -depth, top)
+    _vwall(vt, tris, hw, hw + thick, -half_len, half_len, -depth, -depth, top)
+    return _write(path, vt, tris)
+
+
+def test_the_wall_height_above_zero_is_read_in_the_objects_own_frame(objs, law, tmp_path):
+    """The instrument (``below_zero.read_wall_height``): a kerb wall
+    authored from −2.0 to +0.5 reads own_m +0.5; a cargo shed's
+    foundation sheet rising to a roof at +8 reads +8.  The reading is the
+    object's OWN frame — the placement's anchor plane never enters it."""
+    shed = _cargo_shed_wall(tmp_path / "shed.obj")
+    objs2 = dict(objs, shed=shed)
+    _r, st = _corridors(objs, law, "deep")
+    assert st.narrow_cut and st.narrow_cut[0]["wall_own_m"] == pytest.approx(0.5, abs=0.05)
+    _r2, st2 = _corridors(objs2, law, "shed")
+    assert st2.narrow_cut and st2.narrow_cut[0]["wall_own_m"] == pytest.approx(8.0, abs=0.05)
+    # and sinking the placement 8 m does not move either number
+    _r3, st3 = _corridors(objs2, law, "shed", agl=-0.3)
+    assert st3.narrow_cut[0]["wall_own_m"] == pytest.approx(8.0, abs=0.05)
+
+
+def test_the_wall_height_separates_nothing_at_the_real_airports(objs, law):
+    """RULINGS 2026-09-10ao's premise — "a kerb wall rises to its deck and
+    no further; a building wall rises 6–12 m" — is FALSE at OTHH itself
+    (spec §12f, measured on the same replay as §12e): only 9 of its 43
+    accepted corridors stand at low kerbs (0.40–1.40 m); the other 34
+    stand at walls 5.91–9.82 m high (`Bridge_06` 8.10–9.48,
+    `TerminalRoads_03_004` 9.78, `Terminal_Parking_VCN_004` 9.60–9.82) —
+    exactly the range of LEMD's cargo walls (`NEWCO` 6.63–10.45,
+    `GAVIA` 2.29–10.83, `LEMD64` 10.46).  `own_m` at OTHH's own maximum
+    + 0.5 keeps 64 of the 73 cargo candidates.  Nothing in law reads the
+    height; this twin fails the day a height clause is written, and the
+    numbers to re-measure are in §12f."""
+    wc = law.tables.structures.cutout.wall_corridor
+    assert not hasattr(wc, "corridor_wall_max_height_m")
+    recs, st = _corridors(objs, law, "deep")
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+
+
+# ── RULINGS 2026-09-10ac-1 (A): TERMINALS ONLY, gated OFF ───────────────
+
+def _terminal_way(x0=-30.0, y0=60.0, x1=30.0, y1=120.0, wid=-900):
+    """An ``aeroway=terminal`` outline of the airports feed."""
+    return OsmWay(wid, "airports", ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)),
+                  True, {"aeroway": "terminal", "building": "yes", "name": "T1"})
+
+
+def test_the_terminal_clause_ships_off_and_only_reports_its_witness(objs, law):
+    """The gate is OFF in ``structures.toml`` (spec §12f): a corridor with
+    NO terminal anywhere near it is admitted exactly as before, and the
+    admission line carries the witness so the owner can read the
+    distances.  At OTHH the clause at 60 m would keep 7 of the owner's
+    own 43 — that is why it ships off."""
+    wc = law.tables.structures.cutout.wall_corridor
+    assert wc.corridor_terminal_only is False and wc.corridor_terminal_m > 0.0
+    recs, st = _corridors(objs, law, "door26")
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+    line = [a for a in st.admission if "ADMITTED" in a]
+    assert line and "(e) terminal" in line[0] and "[gate off]" in line[0], st.admission
+    assert "no aeroway=terminal" in line[0], line[0]
+
+
+def test_the_terminal_clause_admits_and_refuses_when_the_owner_turns_it_on(objs, law):
+    """With the key on: the same corridor is REFUSED where the airport
+    maps no terminal, and ADMITTED where an ``aeroway=terminal`` way lies
+    within ``corridor_terminal_m`` of a mouth (the fixture's mouths sit at
+    y = ±40; the terminal outline starts at y = 60, 20 m away)."""
+    on = _wc_law(law, corridor_terminal_only=True, corridor_terminal_m=60.0)
+    recs, st = _corridors(objs, on, "door26")
+    assert recs == [] and st.corridors == 0
+    assert any("no aeroway=terminal within corridor_terminal_m" in r for r in st.refused), \
+        st.refused
+    ways = _kerb_roads() + (_terminal_way(),)
+    recs2, st2 = _corridors(objs, on, "door26", ways=ways)
+    assert st2.corridors == 1 and len(recs2) == 2, st2.refused
+    assert any("(e) terminal T1" in a and "ADMITTED" in a for a in st2.admission), \
+        st2.admission
+    # ...and a terminal beyond the radius refuses it again
+    far = _kerb_roads() + (_terminal_way(y0=200.0, y1=260.0),)
+    recs3, st3 = _corridors(objs, on, "door26", ways=far)
+    assert recs3 == [] and st3.corridors == 0, st3.admission

@@ -202,6 +202,20 @@ def main(argv: list[str] | None = None) -> int:
                       f"inside {r['axis_inside_frac']:5.3f} | cut {r['cut_width_m']:7.1f} / "
                       f"{r['footprint_width_m']:7.1f} m = {wr} | "
                       f"{'ADMITTED' if r['admitted'] else 'refused'}")
+            # RULINGS 2026-09-10ao — THE WALL HEIGHT TABLE: per candidate,
+            # how far the wall rises above the OBJECT'S OWN zero (its own
+            # component's max_y; the wall connected above it).
+            print(f"  wall HEIGHT above the object's zero ({len(ncs)} candidates): "
+                  f"airport | placement@bands | own | one step | connected "
+                  f"(max of the two bands) | connected (min) | admitted")
+            for r in ncs:
+                print(f"  HEIGHT {r['airport']} | {r['resource']}@{r['bands']} at "
+                      f"{r['site']} | own {r.get('wall_own_m', 0.0):7.2f} | step "
+                      f"{r.get('wall_step_m', 0.0):7.2f} | conn "
+                      f"{r.get('wall_connected_m', 0.0):7.2f} | conn_min "
+                      f"{r.get('wall_connected_min_m', 0.0):7.2f} | A "
+                      f"{r.get('wall_a_m')} B {r.get('wall_b_m')} | "
+                      f"{'ADMITTED' if r['admitted'] else 'refused'}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "

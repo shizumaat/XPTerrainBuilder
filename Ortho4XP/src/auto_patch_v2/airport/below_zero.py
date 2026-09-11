@@ -26,8 +26,21 @@ pair spans), in the airport frame:
 * the WIDTHS transverse to a given axis — the below-zero geometry's plan
   extent across the corridor's axis against the footprint's own.
 
-A measurement module: nothing here decides anything.  Law C's clause (d)
-(``wall_corridors``) and the skirt-seat rule (10ag) read it.
+A measurement module: nothing here decides anything.  Round 6 measured
+its readings on OTHH's 43 and LEMD's 77 and REFUTED them as a
+discriminator (spec §12e), so no clause reads them; the
+``--stage structures`` replay prints them.
+
+ONE READER for the law's own skirt question: ``airport/skirt.py`` (lane
+``v2skirt``, RULINGS 2026-09-10an) is THE implementation the pad rule
+(10ag) and the seat read — a per-RESOURCE reading in the AUTHORED frame,
+independent of the placement.  It is re-exported here (:func:`is_skirt`,
+:func:`below_zero_perimeter_fraction`) so a caller reaching for "is this
+placement's bottom foundations?" never grows a second one.  What THIS
+module adds and skirt.py does not is the PLACEMENT-frame, PAIR-scoped
+reading a corridor candidate needs: the footprint polygon holding the
+SITE among the two placements' pieces, and the below-zero geometry
+clipped to it.
 """
 from __future__ import annotations
 
@@ -42,8 +55,11 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
+from .skirt import below_zero_perimeter_fraction, is_skirt  # noqa: F401  (re-export)
 
-__all__ = ["BelowZero", "read_below_zero"]
+__all__ = ["BelowZero", "read_below_zero", "WallHeight", "read_wall_height",
+           # the LAW's skirt reader, re-exported (one implementation)
+           "is_skirt", "below_zero_perimeter_fraction"]
 
 #: A triangle's plan segment shorter than this is a point.
 _MIN_SEG_M = 0.02
@@ -233,3 +249,104 @@ def read_below_zero(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
                      0.0 if perim <= 0.0 else min(1.0, lined / perim),
                      total, lined_total,
                      0.0 if total <= 0.0 else min(1.0, lined_total / total))
+
+
+# ── THE WALL'S HEIGHT ABOVE THE OBJECT'S ZERO (RULINGS 2026-09-10ao) ──
+
+@_dc.dataclass(frozen=True)
+class WallHeight:
+    """How far a band's wall rises from its own floor, in the OBJECT's
+    authored frame (RULINGS 2026-09-10ao).
+
+    The owner's physical picture: a KERB WALL is a low free-standing wall
+    — it rises from its floor to the deck it carries and no further
+    (OTHH's terminal kerbs: +2.6 m); a cargo shed's foundation sheet is
+    the bottom of a BUILDING WALL that rises 6–12 m to a roof.
+
+    * ``own_m``   — the band's own component's ``max_y``;
+    * ``step_m``  — that, or the top of any component that TOUCHES it in
+      plan (within ``grid``) and starts at or below its top: one step of
+      the connected wall above the band;
+    * ``connected_m`` — the transitive climb (the whole connected stack).
+    """
+
+    own_m: float
+    step_m: float
+    connected_m: float
+    witness: str
+
+
+def _comp_plan(cache: _obj8.ResourceCache, path: str, wall_thickness_m: float,
+               store: dict | None = None) -> tuple[list, np.ndarray, np.ndarray]:
+    """Per GENUINE component of ``path``: its plan geometry in the
+    AUTHORED frame (vertical faces widened to a wall's thickness) and its
+    ``min_y`` / ``max_y`` arrays.  Memoised in ``store`` by path."""
+    hit = None if store is None else store.get(("plan", path))
+    if hit is not None:
+        return hit
+    g = cache.geometry(path)
+    comps = cache.genuine(path)
+    ident = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    geoms: list = []
+    for c in comps:
+        parts = _plan_parts(g.vertices, c.tris, ident) if g is not None else []
+        if not parts:
+            geoms.append(None)
+            continue
+        u = unary_union([p if p.geom_type == "Polygon" else p.buffer(wall_thickness_m)
+                         for p in parts])
+        geoms.append(None if u.is_empty else u)
+    lo = np.array([c.min_y for c in comps], dtype=float)
+    hi = np.array([c.max_y for c in comps], dtype=float)
+    hit = (geoms, lo, hi)
+    if store is not None:
+        store[("plan", path)] = hit
+    return hit
+
+
+def read_wall_height(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, comp: int,
+                     grid: float, wall_thickness_m: float,
+                     store: dict | None = None) -> WallHeight | None:
+    """The height above the object's zero of band component ``comp`` of
+    placement ``o``, and of the wall connected above it (class doc).
+    ``None`` when the resource is unreadable."""
+    if o.resolved is None:
+        return None
+    geoms, lo, hi = _comp_plan(cache, o.resolved, wall_thickness_m, store)
+    if comp >= len(geoms):
+        return None
+    own = float(hi[comp])
+    seed = geoms[comp]
+    if seed is None:
+        return WallHeight(own, own, own, "no plan geometry")
+    order = np.argsort(-hi)
+    step = own
+    step_w = ""
+    seen = {comp}
+    stack = [comp]
+    best = own
+    best_w = ""
+    while stack:
+        k = stack.pop()
+        gk, top_k = geoms[k], float(hi[k])
+        if gk is None:
+            continue
+        for j in order.tolist():
+            if j in seen or geoms[j] is None:
+                continue
+            # the component must START at or below this one's top (they
+            # meet) and reach HIGHER (the wall continues above)
+            if float(hi[j]) <= top_k or float(lo[j]) > top_k + grid:
+                continue
+            if gk.distance(geoms[j]) > grid:
+                continue
+            seen.add(j)
+            stack.append(j)
+            if k == comp and float(hi[j]) > step:
+                step, step_w = float(hi[j]), f"comp {j}"
+            if float(hi[j]) > best:
+                best, best_w = float(hi[j]), f"comp {j}"
+    return WallHeight(own, step, best,
+                      f"own comp {comp} max_y {own:+.2f}"
+                      + (f"; step {step_w} {step:+.2f}" if step_w else "")
+                      + (f"; connected {best_w} {best:+.2f}" if best_w else ""))

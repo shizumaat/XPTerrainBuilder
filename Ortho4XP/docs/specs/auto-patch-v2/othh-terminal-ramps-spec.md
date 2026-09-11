@@ -805,3 +805,65 @@ twins landed; `wall_corridors.py` was 1,401 lines with them and is split under t
 1,000-line law into `wall_geometry.py` (the band plan geometry, `WallBand`, the merge, the
 seated frame) and `wall_corridor_probe.py` (the §12c probes) — OTHH's and LEMD's structure
 records are byte-identical across the split.
+
+## §12f Round 7 — THE WALL'S HEIGHT ABOVE THE OBJECT'S ZERO, and the TERMINALS-ONLY fallback (RULINGS 2026-09-10ao) — lane `v2corridor`, 2026-09-10
+
+**The question (10ao, the owner's physical picture).** A KERB WALL is a low free-standing
+wall: it rises from its floor to the deck it carries and no further (OTHH's terminal kerb,
++2.61 m). A cargo shed's foundation sheet is the bottom of a BUILDING WALL that rises 6–12 m
+to a roof. So: per band, the wall's height ABOVE THE OBJECT'S OWN ZERO — its component's
+`max_y`, and the top of the wall connected above it in the same placement (plan contact
+within `emit.identity.min_distinct_spacing_m`, starting at or below the band's top).
+
+**Instrument.** `airport/below_zero.read_wall_height` → `own_m` (the band's own component),
+`step_m` (one step of the connected stack) and `connected_m` (the transitive climb); a
+corridor's row carries the MAX over its two bands (a corridor with one building wall is a
+building's corridor) and `conn_min`. `--stage structures` prints the HEIGHT table beside
+the §12e NARROW table. Read at measure time only — a build pays nothing.
+
+**MEASURED (one tree, the same replay as §12e; OTHH 43 admitted / LEMD 77, of which 73 at
+the owner's cargo witnesses).**
+
+| quantity | OTHH 43 (min / p50 / max) | LEMD cargo 73 | OTHH max + 0.5 keeps |
+| --- | --- | --- | --- |
+| `own_m` | 0.40 / 9.48 / **9.82** | −0.60 / 5.51 / 31.65 | OTHH 43/43, **LEMD cargo 64/73** |
+| `step_m` | 0.40 / 9.48 / 14.15 | −0.59 / 6.65 / 37.10 | OTHH 43/43, LEMD cargo 69/73 |
+| `connected_m` | 0.40 / 9.48 / 43.71 | −0.59 / 6.65 / 37.10 | OTHH 43/43, LEMD cargo 73/73 |
+| `connected_m` (min of the two bands) | 0.40 / 8.10 / 15.70 | −0.59 / 6.49 / 18.54 | OTHH 43/43, LEMD cargo 71/73 |
+
+**REFUTED.** The premise is false at OTHH itself: only 9 of its 43 accepted corridors are
+LOW kerbs (`Terminal_Base_2_1/2_5` 0.59–0.63, `Qatar_DutyFree_003` 0.40–1.40). The other 34
+stand at walls 5.91–9.82 m high — `Bridge_06_LOD0_002` 8.10–9.48, `TerminalRoads_02_004`
+9.59, `TerminalRoads_03_004` 9.78, `Terminal_Parking_VCN_004` 9.60–9.82,
+`TerminalRoads_Parking_004` 5.91 — i.e. exactly the range of LEMD's cargo walls
+(`NEWCO` 6.63–10.45, `GAVIA` 2.29–10.83, `LEMD79` 4.55–10.30, `LEMD64` 10.46). No threshold
+reads OTHH 43 / LEMD cargo 0; the best (9.82, OTHH's own maximum, no margin) keeps 63 of 73.
+**Nothing landed in law.** The reading stays a measurement.
+
+**THE FALLBACK, 10ac-1 (A) TERMINALS-ONLY — implemented, and it ships OFF.** A corridor is
+admitted only where an `aeroway=terminal` way of the tile's `airports` feed lies within
+`[cutout.wall_corridor] corridor_terminal_m` of a mouth (`wall_corridor_probe.terminal_polygons` /
+`terminal_witness`; X-Plane's apt.dat carries NO terminal geometry — its rows are pavement,
+lights and startup locations — so OSM is the only source, and an Overpass export flattens a
+multipolygon relation into its member ways).
+
+OTHH's terminals are MAPPED — ten `aeroway=terminal` ways (Main Terminal Building,
+Concourses A–E, Emiri/Premium Terminal, …). The owner's 43 stand, from the nearest of them:
+
+| family | n | nearest terminal |
+| --- | --- | --- |
+| `Terminal_Base_2_1` / `2_5` | 6 | **0.0 m** (Concourse C) |
+| `Terminal_Parking_VCN_004` | 4 | 37.9 – 232.2 m |
+| `TerminalRoads_02_004` / `03_004` | 8 | 179.7 – 219.2 m |
+| `TerminalRoads_Parking_004` | 4 | 303.1 – 331.7 m |
+| `Bridge_02` / `Bridge_06` | 18 | 422.0 – 589.5 m |
+| `Qatar_DutyFree_003` | 3 | 1465.1 – 1485.4 m |
+
+At the proposed 60 m the clause keeps **7 of OTHH's 43** and refuses 36 of the owner's own
+accepted set; at LEMD it keeps 2 of 77. Any radius large enough to keep OTHH's 43 (1,486 m)
+keeps every LEMD candidate inside 1,486 m of Terminal 1 too — 57 of 77, including
+`CGVRW` (429–485 m), `FLEDI` (79 m), `GAVIA` (139–166 m), `NEWCO` (709–1,013 m). The
+clause therefore lands with `corridor_terminal_only = false`: the witness and its distance
+are REPORTED per candidate in `stats.admission` either way, and turning the key on is an
+owner act. This is the one permitted gate (10ao): the alternative is deleting the owner's
+accepted OTHH set.

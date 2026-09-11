@@ -190,6 +190,19 @@ corridor_floor_road_tol_m           = 1.5   # |road level - floor| within this =
 corridor_floor_slab_max_thickness_m = 0.5   # a component thinner than this can be a floor slab (a wall is not)
 corridor_floor_slab_tol_m           = 0.5   # ...lying within this of the floor
 corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the corridor's length
+# RULINGS 2026-09-10ac-1 (A), the fallback ruled in 10ao — TERMINALS ONLY:
+# a Law C corridor is admitted only where an `aeroway=terminal` way of the
+# tile's airports feed (apt.dat carries no terminal geometry) lies within
+# corridor_terminal_m of a mouth.  MEASURED FIRST (round 7, spec §12f):
+# OTHH's own 43 accepted corridors stand 0 m (the 6 Terminal_Base kerbs),
+# 38 m, 101-590 m (the terminal ROADS, the two Bridge families, the
+# Parking decks) and 1,465-1,485 m (Qatar_DutyFree) from the nearest of
+# the 10 mapped terminals: at 60 m the clause keeps 7 of 43 and DELETES
+# the owner's accepted set, so it ships OFF.  The witness and its distance
+# are reported per candidate either way (stats.admission); turning the key
+# on is an owner act, never a lane's.
+corridor_terminal_only              = false
+corridor_terminal_m                 = 60.0  # ...the radius, when it is on
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
 max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load

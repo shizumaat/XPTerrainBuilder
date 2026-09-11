@@ -102,9 +102,10 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
 from . import obj8 as _obj8
-from .below_zero import read_below_zero
+from .below_zero import read_below_zero, read_wall_height
 from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_slab,
-                                  _RoadLevels, mouth_roads)
+                                  _RoadLevels, mouth_roads, terminal_polygons,
+                                  terminal_witness)
 from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
                             _bearing, _densified, _merge_walls, _overlap_along,
                             _plan_polys, _plan_segments, _plan_segments_indexed,
@@ -541,6 +542,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     # RULINGS 2026-09-10ab (i): the LEVEL reader for a mouth road (the
     # replay's measurement only)
     levels = _RoadLevels(airport, law) if measure else None
+    # RULINGS 2026-09-10ac-1 (A): the airport's terminals, read once
+    terminals = terminal_polygons(airport)
     #: the per-placement below-zero walk, memoised across candidates
     bz_store: dict = {}
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
@@ -695,6 +698,22 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                       if measure else None)
                 cut_w, foot_w = (0.0, 0.0) if bz is None else bz.widths(u)
                 frac = 0.0 if bz is None else bz.fraction
+                # RULINGS 2026-09-10ao — THE WALL'S HEIGHT ABOVE THE
+                # OBJECT'S ZERO: a kerb wall rises from its floor to the
+                # deck it carries and no further; a cargo shed's
+                # foundation sheet is the bottom of a BUILDING wall that
+                # rises to a roof.  Read per band, in the object's own
+                # authored frame (never the terrain).
+                ha = (read_wall_height(by_id[A.owner], cache, A.comp, grid,
+                                       ob.wall_face_max_thickness_m, store=bz_store)
+                      if measure else None)
+                hb = (read_wall_height(by_id[B.owner], cache, B.comp, grid,
+                                       ob.wall_face_max_thickness_m, store=bz_store)
+                      if measure else None)
+                h_own = max([h.own_m for h in (ha, hb) if h is not None] or [0.0])
+                h_step = max([h.step_m for h in (ha, hb) if h is not None] or [0.0])
+                h_conn = max([h.connected_m for h in (ha, hb) if h is not None] or [0.0])
+                h_conn_min = min([h.connected_m for h in (ha, hb) if h is not None] or [0.0])
                 nc_row: dict | None = None
                 if measure:
                     nc_row = {"airport": airport.icao, "resource": name,
@@ -722,6 +741,17 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                                   axis_ln.intersection(bz.footprint).length
                                   / max(axis_ln.length, 1e-9), 3),
                               "end_cover": [0.0, 0.0], "end_cover_below": [0.0, 0.0],
+                              # RULINGS 2026-09-10ao — the wall's height
+                              # above the object's zero, per band and for
+                              # the wall connected above it
+                              "wall_own_m": round(h_own, 2),
+                              "wall_step_m": round(h_step, 2),
+                              "wall_connected_m": round(h_conn, 2),
+                              "wall_connected_min_m": round(h_conn_min, 2),
+                              "wall_a_m": None if ha is None else round(ha.connected_m, 2),
+                              "wall_b_m": None if hb is None else round(hb.connected_m, 2),
+                              "wall_witness": (("A: " + ha.witness) if ha else "")
+                                              + (("; B: " + hb.witness) if hb else ""),
                               "admitted": False}
                     stats.narrow_cut.append(nc_row)
                 descending = (zmax - zmin) >= wc.min_wall_depth_m
@@ -766,6 +796,25 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     stats.admission.append(f"{head}: {clause_a}; REFUSED — no mouth (both "
                                            f"ends closed)")
                     continue
+                # RULINGS 2026-09-10ac-1 (A), ruled as round 7's fallback in
+                # 10ao — TERMINALS ONLY.  The witness is REPORTED for every
+                # candidate; it REFUSES only while
+                # ``corridor_terminal_only`` is on, because at OTHH the
+                # owner's own 43 stand 0-1,485 m from the ten mapped
+                # terminals (spec §12f) and any radius that keeps them
+                # keeps LEMD's cargo docks too.
+                mouth_xy = [axis[0] if k == 0 else axis[-1] for k in mouth_ks]
+                tw = terminal_witness(terminals, mouth_xy)
+                clause_e = (f"(e) terminal {tw.witness}"
+                            + (" [gate off]" if not wc.corridor_terminal_only else ""))
+                if wc.corridor_terminal_only and tw.distance_m > wc.corridor_terminal_m:
+                    msg = (f"{name} at {site}: no aeroway=terminal within "
+                           f"corridor_terminal_m {wc.corridor_terminal_m} of a mouth "
+                           f"({tw.witness}): a kerb corridor belongs to a TERMINAL "
+                           f"(10ac-1 (A))")
+                    stats.refused.append(msg)
+                    stats.admission.append(f"{head}: {clause_a}; {clause_e} REFUSED")
+                    continue
                 # RULINGS 2026-09-10ab: the two discriminators MEASURED —
                 # the REPLAY's instrument (``--stage structures``), never
                 # a gate and never a build cost: neither separates LEMD
@@ -809,14 +858,14 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                            f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
                            f"not a corridor")
                     stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; headroom "
+                    stats.admission.append(f"{head}: {clause_a}; {clause_e}; headroom "
                                            f"{headroom:.2f} m REFUSED under min_headroom_m "
                                            f"{wc.min_headroom_m} ({deck_w})")
                     continue
                 if nc_row is not None:
                     nc_row["admitted"] = True
                 stats.admission.append(
-                    f"{head}: {clause_a}; headroom "
+                    f"{head}: {clause_a}; {clause_e}; headroom "
                     + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
                     + " -> ADMITTED")
                 notes_common = (

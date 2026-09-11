@@ -1299,3 +1299,137 @@ so the new answer agrees with the geometry around them and the old one did
 not. OWED to the spawner: the nearest-body fallback should measure to the
 nearest PART, not to a body's union box — invariant under body merging. That
 is a third rule, outside 10u, and was NOT written here.
+
+## 16. RULINGS 2026-09-10bb: A LINE OBJECT DRAPES — it forms no body and founds no foot (lane `v2fence`)
+
+Measured on the owner's 1.0.310 LEMD (plan + result in the data repo, mesh
+`Data+40-004.mesh`): body 1626 is 38 parts of 5 resources over ⌀1,406 m with
+**one** ground part — `Terminal4_green-LEMDzaun` c1, the fence — and its one
+foot seats `Terminal4_green-LEMD50` (−6.86 m) and 36 others. `seat_feet_census`:
+297 feet over 0.3 m above their ground, 13 over 3 m; **four of the 13 are fence
+files** (`North_FSX-LEMDzaun` −19.67, `Terminal4_green-LEMDzaun` +10.74,
+`Munoza-LEMDzaun` −5.91, `OldTerminal_FSX-ZAUN` +2.96).
+
+### 16.1 The four rules
+
+1. **THE READER** (`airport/line_object.py`, at PLAN time). A component is
+   LINE-SHAPED when `length / width > [rebake] line_object_ratio` and
+   `height < [rebake] line_object_max_h`: `length` = the DIAGONAL of its
+   authored plan box, `width` = its plan-projected triangle area / `length`,
+   `height` = `max_y − min_y`. A RESOURCE is a LINE OBJECT when EVERY genuine
+   component of it is line-shaped — a fence file is all fence — and it carries
+   no structure seat (`deck_kind`, `plate_y`, a deck family, a basin member:
+   a structure seat governs, 14.1 rule 4). Its every component is then a line
+   object, ground or elevated, and `Part.line` carries the verdict in the plan.
+   Two DEVIATIONS from 10bb, both measured, not chosen:
+   (a) length/width off the BOX SIDES is refuted — `Munoza-LEMDzaun` is the
+   airport's whole perimeter in ONE component, box 4,463 × 2,583 m, ratio
+   **1.7**; the diagonal-over-plan-area reading gives 3.4 × 10⁶.
+   (b) `line_object_max_h` 3.0 is refuted — LEMD's fences stand **3.07–5.90 m**
+   (`OldTerminal_FSX-ZAUN` 5.90). The value shipped is 6.0, and the whole-FILE
+   test is what keeps building walls out: per COMPONENT at 6 m, 4,207 of 9,423
+   ground parts classify (the T4 terminals' own walls among them); per FILE,
+   **54 of 300 resources**.
+2. **NO BODY, NO FOOT.** In `emit/clusters.py` a line part's contact edges bind
+   nothing: it is its own body, of itself alone. It never votes in another
+   body's ground, and no free group joins it — not by the elevated BFS, not by
+   the nearest-body fallback.
+3. **THE SEGMENT SEAT.** A line body is seated PER SEGMENT (10bb's own
+   alternative): its feet are widened at plan time to `ceil(length /
+   body_feet_span_m)` stations (capped by `line_object_stations_max`) spread by
+   the same farthest-point walk, each station reads the design surface under
+   itself, and every VERTEX of the component takes the delta of the station
+   NEAREST it in plan. WHY not per vertex: the write half
+   (`engine_v2._decision_from_seats`), the result sidecar and every census
+   (`seat_feet_census.py`, `v2_rebake_replay pairs|bodies`) run OFFLINE with no
+   mesh — the ground must travel in the RESULT. Stations do; a sampler inside
+   the writer does not. A line body raises no pad request and is not put to the
+   A3 guard: it is draped, it has no rigid residual.
+4. **THE ORPHAN.** A free group (no ground part of its own) that, with the line
+   objects out of the graph, touches NO body is its OWN body, seated by
+   SAMPLING the design surface under each of its parts' footprint centroids —
+   10i (2)'s sampler, extended to a body with no ground part at all (today:
+   the nearest-body fallback, else HELD at its authored y). This is what
+   "buildings that touched only through the fence become their own bodies with
+   their own feet" means in a plan where `LEMD50`'s two components stand
+   0.67 m over the pack datum and carry no feet at all.
+
+### 16.2 Consumer census (owner ruling 2026-08-30l): every reader of a contact edge, a part delta and a foot
+
+| # | Consumer | Reads | Ruling |
+|---|---|---|---|
+| C1 | `airport/contact.py::partition` | components, feet | EXTENDED: the line verdict per part and the widened stations (rule 1/3) |
+| C2 | `airport/rebake_plan.py` | `Part`, the skip reasons | EXTENDED: passes the line verdict; `PLAN_VERSION` 6 → **7** (a new `Part` field) |
+| C3 | `emit/clusters.py` body union-find + cut | `plan.contacts`, `Part.line` | THE SITE of rule 2 |
+| C4 | `emit/clusters.py` elevated BFS / nearest fallback | `adj`, `cluster_of` | a line body is not a target (rule 2); rule 4's orphan seat |
+| C5 | `emit/clusters.py` seat / feet-across-body | a body's GROUND parts | rule 3: a line body seats per station, never on a median |
+| C6 | `emit/rebake.py` `_plate_seats`, `stay`, `_one_file_one_delta` | `fixed`/`family` per MEMBER | unchanged — a fixed member is never a line object (rule 1) |
+| C7 | `model/rebake.py::ClusterSeat` / `MemberSeat` | the seat record | EXTENDED: `line_object`, `line_stations` (appended, defaulted) |
+| C8 | `auto_patch/engine_v2.py::_decision_from_seats` | `ms.part_deltas` → `by_comp` | EXTENDED: a comp with stations is written PER VERTEX by nearest station |
+| C9 | `airport/rigid.py::complete_component_deltas` | free components, carrier | unchanged — a line comp is never free (it carries a delta) |
+| C10 | `tools/seat_feet_census.py` | `part_deltas` of a result | EXTENDED: a foot inside a line comp reads its nearest station |
+| C11 | `tools/v2_rebake_replay.py` `seat` | plan + result | EXTENDED: prints the line objects, their stations and delta ranges |
+| C11b | `tools/v2_rebake_replay.py` `bodies`/`pairs` | `part_deltas` per comp | UNCHANGED — they read the MEDIAN station delta `part_deltas` carries, and a line object's file holds only line components, so an intra-placement pair is draped-vs-draped and never spurious |
+| C12 | OTHH's fixed members / `plate_units` / basin plates | the witness resource | unchanged — excluded by rule 1 |
+
+### 16.3 Law keys
+
+`structures.toml [rebake]`: `line_object_ratio = 20.0`, `line_object_max_h = 6.0`,
+`line_object_stations_max = 64`. `line_object_ratio = 0` disables the class
+(the pre-10bb reading).
+
+### 16.4 What was measured (lane `v2fence`; LEMD patch build 342 s + the matched control at `1af5ce78`, replayed on the owner's meshes)
+
+THE CONTROL IS A REAL BUILD AT THIS BRANCH'S PARENT, not the owner's
+1.0.310 result: main moved to `454e4f35` mid-lane, and the 1.0.310 census
+the brief quotes (`> 3 m` 13, 297 feet) is a THIRD code version. At
+`1af5ce78` the same instrument reads **23** over 3 m. Both arms replay
+their own build's plan against the owner's mesh `Data+40-004.mesh`.
+
+* **The patch is byte-identical**: `body_sha256 9ceb5f84576e7ac3` on both
+  arms, `verify_defects {}` — DEFECTs **0**. The change is post-mesh only.
+* `seat_feet_census.py`, 873 measured placements:
+  **`> 3 m` 23 → 14** with **no row entering** the class; feet over 0.3 m
+  **297 → 284**. The three fences leave outright: `North_FSX-LEMDzaun`
+  **−19.67 → +0.19**, `Terminal4_green-LEMDzaun` **+10.74 → +1.37**,
+  `Munoza-LEMDzaun` **−5.91 → +0.04**; with them `Bridge2` +7.25 → −0.00,
+  `Bridge3` +3.93 → −0.08, `T2BCK` +5.15 → +1.17, `Cargo-T3PL1`
+  +3.08 → +1.80, and `Terminal4_green-LEMD50` **−6.86 → +0.51** (its
+  sibling −1.34 → +0.42). Every draped line object is inside 1.80 m.
+* 53 line-object resources, 4,282 line parts, 12,494 drape stations;
+  **6,760 contact edges bound nothing**; 4,282 line bodies.
+* `pairs --floor 0.05 --bar 2.0`: over 2 m **22 → 18**; under the floor
+  31,307 → 33,829 — one line component per body means adjacent fence
+  components drape to their own stations, and the sub-0.05 m steps at
+  their boundary sit under `cluster_seat_tolerance_m`. Reported.
+* **OTHH** (`Data+25+051.mesh`, the owner's plan, `--line-objects`):
+  **20 written resources, the same set, ZERO differing deltas, max
+  difference 0.000000** — Dewatering Drainage 9 (+3.816…+13.142),
+  tunnels 8 (−2.289…+3.094), Fire Fuel 3 (−1.130). 153 resources /
+  3,201 parts classify, 1,100 line bodies form, 5,502 edges bind
+  nothing, 27 orphan bodies are sampled — and **not one line object is
+  written**: every drape delta there is under `min_delta_m`, so the pack
+  is unchanged. The exemption held with no special case.
+
+**Three bars MISSED, attributed, not iterated on (attempt cap):**
+
+1. *feet over 0.3 m ≤ 100* is out of this ruling's reach. **165 of the
+   297 are MULTI-ANCHOR placements the plan never seats** (10ax (3)'s
+   class, max 1.29 m); the seatable population is 132, and the line rule
+   takes it to **119**.
+2. *compact bodies (span < 300 m) over 3 m → 0*: **9 → 6**. The six are
+   `VRDCH` −10.56, `elect` −9.17, `T2LG1` +5.86, `LEMD49` −6.26,
+   `Bridge4` +4.11, `T2SL3` +3.25 — none is a line object, and all six
+   stand in the CONTROL unchanged.
+3. *`LEMD49` within 0.3 m*: **unchanged at −6.26**, and it is NOT a
+   line-object question. Attributed: its parts sit in body k228 — 201
+   parts, 13 resources, ⌀151 m — whose **two** measured feet agree to
+   0.03 m at one end and found the body at 600.87 while LEMD49's own
+   ground is 6.26 m above. 10i (2)'s span rule does not fire (⌀151 m
+   needs 2 feet and the body has exactly 2). This is 10i (2)'s class:
+   a body may need one foot per span *per member*, not per body.
+   `LEMD50` at **+0.51** is the SEGMENT SEAT's own quantisation (4
+   stations over 158 m, nearest-station is piecewise constant); linear
+   interpolation between the two nearest stations would halve it and was
+   NOT written — it is outside 10bb's "seat each segment on its own
+   ground".

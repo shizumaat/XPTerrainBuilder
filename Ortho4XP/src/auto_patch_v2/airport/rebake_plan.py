@@ -21,6 +21,7 @@ from ..model.frame import XY
 from ..model.rebake import FlatDatum, Member, Part, RebakePlan, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
+from . import line_object as _line
 from . import obj8 as _obj8
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -130,7 +131,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
                                   "skirted_members": 0,
-                              "terrain_adapted": 0,
+                              "terrain_adapted": 0, "line_objects": 0,
                               "below_grade": 0, "below_grade_parts": 0,
                               "deck_families": len(deck_keys),
                               "plate_members": 0, "plate_objects": len(plates),
@@ -220,6 +221,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # the placed geometry per member, in member order, for the partition
     placed: list[tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
                        list[tuple[int, _obj8.Component]]]] = []
+    #: the member indices into ``placed`` that are LINE OBJECTS (10bb)
+    line_members: set[int] = set()
     member_ref: list[tuple[tuple[float, float, float], str]] = []
     for key, o in keyed:
         if o.path in multi:
@@ -290,6 +293,16 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         skirted = bool(sk.seat_low_side
                        and _skirt.is_skirt(cache, o.resolved, law))
         counts["skirted_members"] += int(skirted)
+        # THE LINE OBJECT (owner RULINGS 2026-09-10bb; spec §16): a fence /
+        # kerb / jet-blast line / light string forms no body and founds no
+        # foot — it drapes.  A STRUCTURE-seated member is never one: a deck,
+        # a plate, a deck family and a basin member are governed by their
+        # structure seat (14.1 rule 4), and the class must not reach them.
+        if not (in_deck_family or in_plate_family or o.id in basin_members
+                or deck_ring is not None or plate_y is not None) \
+                and _line.is_line_object(cache, o.resolved, rb):
+            line_members.add(len(placed))
+            counts["line_objects"] += 1
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                                  o.heading_deg, (), deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
@@ -303,7 +316,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               rb.contact_batch_rows,
                               law.tables.structures.basin.contact_band_m,
                               rb.foot_samples_max,
-                              rb.elevated_base_m)
+                              rb.elevated_base_m,
+                              line_members, rb.body_feet_span_m,
+                              rb.line_object_stations_max)
     parts_by_member: dict[int, list[Part]] = {}
     if part.parts:
         xs = np.array([p.centroid[0] for p in part.parts])
@@ -334,7 +349,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                      round(p.base_y, 3), round(p.area_m2, 3),
                      (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
                       round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8)),
-                     feet))
+                     feet, bool(p.line)))
     for mi, (key, path) in enumerate(member_ref):
         m = units_by_key[key][path]
         ps = tuple(parts_by_member.get(mi, ()))

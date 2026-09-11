@@ -428,6 +428,44 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     return dest
 
 
+def _line_drape(geom, comps, line_stations, anchor, heading_deg) -> dict:
+    """The per-vertex deltas of a LINE OBJECT's draped components (RULINGS
+    2026-09-10bb): each vertex takes the delta of the station NEAREST it
+    in plan.  The vertex world position is the anchor plus the OBJ8 offset
+    rotated by the heading (``obj8`` module doc: x east, z SOUTH,
+    ``east = x·cos h − z·sin h``, ``north = −(x·sin h + z·cos h)``),
+    converted with the local metres per degree — a nearest-station test
+    over a few kilometres, where the frame's own projection and a local
+    ENU agree to well under the station spacing."""
+    import math as _m
+
+    import numpy as _np
+
+    from auto_patch_v2.airport.line_object import station_deltas_at
+    by_comp: dict[int, list[tuple[float, float, float]]] = {}
+    for comp, la, lo, d in line_stations:
+        by_comp.setdefault(int(comp), []).append((float(la), float(lo), float(d)))
+    lat0, lon0 = float(anchor[0]), float(anchor[1])
+    m_lat = 111_132.954 - 559.822 * _m.cos(2 * _m.radians(lat0)) \
+        + 1.175 * _m.cos(4 * _m.radians(lat0))
+    m_lon = 111_412.84 * _m.cos(_m.radians(lat0)) - 93.5 * _m.cos(3 * _m.radians(lat0))
+    h = _m.radians(float(heading_deg))
+    sn, cs = _m.sin(h), _m.cos(h)
+    out: dict[int, float] = {}
+    for ci, st in by_comp.items():
+        if not (0 <= ci < len(comps)) or not st:
+            continue
+        ids = _np.unique(_np.asarray(comps[ci].tris).reshape(-1))
+        v = _np.asarray(geom.vertices)[ids]
+        east = v[:, 0] * cs - v[:, 2] * sn
+        north = -(v[:, 0] * sn + v[:, 2] * cs)
+        lats = lat0 + north / m_lat
+        lons = lon0 + east / m_lon
+        for i, d in zip(ids.tolist(), station_deltas_at(st, lats, lons).tolist()):
+            out[int(i)] = float(d)
+    return out
+
+
 def _decision_from_seats(plan_, result, measure_only: bool,
                          contact_tol_m: float = 0.0,
                          plate_gap_max_m: float = 0.0,
@@ -522,6 +560,15 @@ def _decision_from_seats(plan_, result, measure_only: bool,
             for ci, d in by_comp.items():
                 for i in set(comps[ci].tris.reshape(-1).tolist()):
                     per_vertex[i] = d
+            # THE LINE OBJECT DRAPES (owner RULINGS 2026-09-10bb, spec §16.1
+            # rule 3): a fence / kerb / jet-blast line follows the ground it
+            # stands on — its component's vertices take the delta of the
+            # SEGMENT STATION nearest them in plan, not the body's one
+            # median.  The stations travel in the seat RESULT, so the write
+            # half stays offline (no mesh here, and none in the censuses).
+            if ms.line_stations:
+                per_vertex.update(_line_drape(geom, comps, ms.line_stations,
+                                              u.anchor, m.heading_deg))
             if not per_vertex:
                 skipped.append((r, ms.note or "no part seated"))
                 continue

@@ -72,6 +72,35 @@ def cmd_seat(args: argparse.Namespace) -> int:
                                                           "replay", ((sq, ()),)))
         print(f"  --flat {args.flat}: datum stamped over the plan's bounds")
     law = Law.for_airport(plan.icao)
+    if args.line_objects:
+        # RULINGS 2026-09-10bb, spec §16: stamp the LINE-OBJECT verdict onto
+        # a plan that predates it, read off the AUTHORED files the plan
+        # names — the same what-if as --flat.  The plan's own four feet
+        # stand in for the widened DRAPE STATIONS a 10bb build writes, so
+        # the drape here is coarser than the engine's; the CLASS and the
+        # bodies it breaks are exact.
+        from auto_patch_v2.airport import line_object as _LO
+        from auto_patch_v2.airport import obj8 as _O8
+        cache = _O8.ResourceCache(law.tables.structures.witness.min_thickness_m
+                                  if hasattr(law.tables.structures, "witness") else 0.05)
+        rb0 = law.tables.structures.rebake
+        n_res = n_part = 0
+        units = []
+        for u in plan.units:
+            ms = []
+            for m in u.members:
+                lo = (m.plate_y is None and m.deck_ring is None and m.deck_kind == ""
+                      and _LO.is_line_object(cache, m.authored_path, rb0))
+                n_res += int(lo)
+                if lo:
+                    n_part += len(m.parts)
+                    m = dataclasses.replace(m, parts=tuple(
+                        dataclasses.replace(p, line=True) for p in m.parts))
+                ms.append(m)
+            units.append(dataclasses.replace(u, members=tuple(ms)))
+        plan = dataclasses.replace(plan, units=tuple(units))
+        print(f"  --line-objects: {n_res} resource(s), {n_part} part(s) stamped "
+              "LINE (10bb; the plan's own feet stand in for the drape stations)")
     print(f"{plan.icao} plan: {dict(plan.counts)} skipped {len(plan.skipped)}")
     print("  skip reasons:", collections.Counter(
         r.split(" (")[0].split(":")[0] for _, r in plan.skipped).most_common(6))
@@ -165,6 +194,20 @@ def cmd_seat(args: argparse.Namespace) -> int:
         lo = min(r[1] for r in rows); hi = max(r[2] for r in rows)
         n_files = len({r[0] for r in rows})
         print(f"  {name:28s} {n_files:3d} file(s)  delta {lo:+.3f} … {hi:+.3f}")
+    # THE LINE OBJECTS (owner RULINGS 2026-09-10bb, spec §16): the fences,
+    # kerbs, jet-blast lines and light strings that bound nothing and
+    # draped on their own stations, and the ORPHAN bodies rule 4 seated
+    # by sampling because everything they touched was one.
+    lo_rows = [(m.resource, len({c for c, *_x in m.line_stations}), len(m.line_stations),
+                min(d for *_x, d in m.line_stations), max(d for *_x, d in m.line_stations))
+               for u in res.units for m in u.members if m.line_stations]
+    print(f"line objects: {len(lo_rows)} resource(s) draped, "
+          f"{sum(r[2] for r in lo_rows)} station(s); "
+          f"{res.line_bodies} line bod(y/ies), {res.line_edges_dropped} contact edge(s) bound "
+          f"nothing, {res.orphan_bodies_seated} orphan bod(y/ies) sampled")
+    for r, nc, ns, lo, hi in sorted(lo_rows, key=lambda x: -x[2])[:25]:
+        print(f"  {os.path.basename(r)[-56:]:56} comps {nc:4d} stations {ns:5d} "
+              f"delta {lo:+.3f} … {hi:+.3f}")
     out = args.out or os.path.splitext(args.plan)[0] + ".seat.json"
     with open(out, "w") as fh:
         json.dump(res.to_dict(), fh, indent=1, default=str)
@@ -452,6 +495,11 @@ def main(argv: list[str] | None = None) -> int:
                    "pass a lane-local path when the plan lives in the shared data repo)")
     s.add_argument("--flat", type=float, default=None,
                    help="stamp a flat-site datum Z0 over the plan's bounds when the plan has none (08d what-if)")
+    s.add_argument("--line-objects", action="store_true",
+                   help="stamp the LINE-OBJECT verdict (RULINGS 2026-09-10bb, spec §16) onto a plan "
+                        "that predates it, read off the authored files — the 10bb what-if on an "
+                        "earlier build's plan and mesh (the plan's own feet stand in for the "
+                        "widened drape stations)")
     s.set_defaults(fn=cmd_seat)
     b = sub.add_parser("bodies", help="the rigid-body completeness of the write half (09b (5))")
     b.add_argument("plan")

@@ -131,6 +131,9 @@ class MemberParts:
     """What the seat learned about one member's parts."""
 
     part_deltas: list[tuple[int, int, float | None]] = _dc.field(default_factory=list)
+    #: THE SEGMENT SEAT (10bb rule 3): ``(comp, lat, lon, delta)`` rows a
+    #: LINE component drapes on — every vertex takes the nearest one.
+    line_stations: list[tuple[int, float, float, float]] = _dc.field(default_factory=list)
     witnesses: int = 0
     water: int = 0
     off_mesh: int = 0
@@ -174,6 +177,13 @@ class Outcome:
     #: no plan overlap at all (the residual body-id tie).
     elevated_groups: int = 0
     group_ties: int = 0
+    #: RULINGS 2026-09-10bb (spec §16): line-object bodies, the contact
+    #: edges their rule refused to bind, and the ORPHAN bodies rule 4
+    #: seated by sampling (before 10bb they were held, or dragged to the
+    #: nearest body — the fence's).
+    line_bodies: int = 0
+    line_edges_dropped: int = 0
+    orphan_bodies: int = 0
 
 
 class _UF:
@@ -221,6 +231,15 @@ class _P:
     low: float | None = None
     water: bool = False
     off: bool = False
+    #: THE LINE OBJECT (owner RULINGS 2026-09-10bb, spec §16): a fence /
+    #: kerb / jet-blast line / light string component.  It binds nothing,
+    #: founds no foot for anything else, is its OWN body, and is seated
+    #: PER SEGMENT on its stations (``feet``).
+    line: bool = False
+    #: THE DRAPE STATIONS of a line part (10bb rule 3): ``(lat, lon, seat
+    #: target)`` per foot that read the design surface.  Empty for a part
+    #: the seat never sampled (off the mesh, on water, structure-seated).
+    stations: tuple[tuple[float, float, float], ...] = ()
     fixed: str | None = None    # the unit id of a structure seat this part follows
     family: str | None = None   # the unit id of the deck family this part may attach to
 
@@ -276,7 +295,13 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                                bool(p.feet) if has_feet else p.base_y <= rb.elevated_base_m,
                                feet,
                                fixed=fixed.get(key, (None, 0.0))[0] if key in fixed else None,
-                               family=family.get(key))
+                               family=family.get(key),
+                               # a STRUCTURE-seated member is never a line
+                               # object (spec §16.1 rule 1 / 14.1 rule 4):
+                               # its deck / plate seat governs it, whatever
+                               # shape the plan read
+                               line=bool(getattr(p, "line", False))
+                               and key not in fixed and key not in family)
     # ── the samples: every ground part's own FEET ───────────────────────
     for p in ps.values():
         if not p.ground or p.fixed or p.base is None:
@@ -286,6 +311,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             p.target = p.low = float(authored[p.pid])
             continue
         ts: list[float] = []
+        st: list[tuple[float, float, float]] = []
         for la, lo, y in p.feet:
             smp = sampler(la, lo)
             if smp is None:
@@ -293,7 +319,11 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             elif smp[1] and not rb.water_founds_seat:
                 p.water = True
             else:
-                ts.append(float(smp[0]) - float(y))
+                t = float(smp[0]) - float(y)
+                ts.append(t)
+                if p.line:
+                    st.append((float(la), float(lo), t))
+        p.stations = tuple(st)
         if ts:
             p.target = float(statistics.median(ts))
             p.low = float(min(ts))
@@ -337,8 +367,18 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     free_ids = [pid for pid, p in ps.items() if not p.ground and pid not in attached]
     euf = _UF(free_ids)
     n_cut = n_intra_kept = 0
+    n_line_edges = 0
     for a, b in edges:
         pa, pb = ps[a], ps[b]
+        # THE LINE OBJECT BINDS NOTHING (owner RULINGS 2026-09-10bb, spec
+        # §16.1 rule 2): a fence's contact edge is a physical fact and
+        # stays in the plan, but it forms no body and founds no foot —
+        # at LEMD one LEMDzaun component chained 38 parts of 5 resources
+        # over 1,406 m onto its single foot, and Terminal4_green-LEMD50
+        # came out 6.86 m under its own ground.
+        if pa.line or pb.line:
+            n_line_edges += 1
+            continue
         a_att, b_att = a in attached, b in attached
         if a_att and b_att:
             continue                            # one structure seat, or two decks touching: apart
@@ -398,6 +438,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         for pid in pids:
             cluster_of[pid] = k
     members_of: dict[int, list[int]] = {k: list(pids) for k, pids in enumerate(comps)}
+    # A LINE BODY is one line part alone (10bb rule 2): nothing joins it —
+    # not the elevated BFS, not the nearest-body fallback.  A building
+    # that touched only the fence must find its OWN ground (rule 4), not
+    # ride the fence a second time through the fallback.
+    line_body_ks = {k for k, pids in members_of.items()
+                    if len(pids) == 1 and ps[pids[0]].line}
     # ── PLATES FOLLOW THE BODY THEY TOUCH (RULINGS 2026-09-10i (3)) ─────
     # Multi-source BFS over the contact graph FROM the bodies' ground (and
     # structure-seated) parts: an elevated part takes the body it touches,
@@ -431,7 +477,7 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 p = ps[pid]
                 for n in adj.get(pid, ()):
                     k = cluster_of.get(n)
-                    if k is None:
+                    if k is None or k in line_body_ks:
                         continue
                     ov = _plan_overlap_m2(p.part.box, ps[n].part.box)
                     rank = (-ov, 0 if p.key in keys_of[k] else 1, k)
@@ -454,16 +500,19 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     # the NEAREST body only within the identity spacing × 4 (10i (3));
     # beyond that it is HELD and reported.
     held_parts: list[int] = []
+    orphan_ks: set[int] = set()
     if unassigned:
         boxes: dict[int, tuple[float, float, float, float]] = {}
         for k, pids in members_of.items():
+            if k in line_body_ks:
+                continue
             bx = [ps[pid].part.box for pid in pids]
             boxes[k] = (min(b[0] for b in bx), min(b[1] for b in bx),
                         max(b[2] for b in bx), max(b[3] for b in bx))
         reach = law.tables.emit.identity.min_distinct_spacing_m * 4.0
         for ecomp in euf.components():
             grp = [pid for pid in ecomp if pid in unassigned]
-            if not grp or not boxes:
+            if not grp:
                 continue
             bx = [ps[pid].part.box for pid in grp]
             gb = (min(b[0] for b in bx), min(b[1] for b in bx),
@@ -480,6 +529,23 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                 for pid in grp:
                     cluster_of[pid] = best_k
                     members_of[best_k].append(pid)
+            elif any(ps[n].line for pid in grp for n in adj.get(pid, ())) \
+                    and any(ps[pid].base is not None for pid in grp):
+                # THE ORPHAN (owner RULINGS 2026-09-10bb, spec §16.1 rule 4):
+                # a group that touched A LINE OBJECT and NO body is its OWN
+                # body, seated by SAMPLING the design
+                # surface under its parts (10i (2)'s sampler, extended to a
+                # body with no ground part at all).  This is what "the
+                # buildings that touched only through the fence become their
+                # own bodies with their own feet" means at LEMD, where
+                # Terminal4_green-LEMD50's two components stand 0.67 m over
+                # the pack datum and carry no feet.
+                k = (max(members_of) + 1) if members_of else 0
+                members_of[k] = list(grp)
+                keys_of[k] = {ps[pid].key for pid in grp}
+                for pid in grp:
+                    cluster_of[pid] = k
+                orphan_ks.add(k)
             else:
                 held_parts.extend(grp)
     # ── the seats ───────────────────────────────────────────────────────
@@ -521,6 +587,28 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                     lows.append(z)
                     lf.append(z - p.base)
                     n_sampled += 1
+        # THE ORPHAN'S GROUND (owner RULINGS 2026-09-10bb, spec §16.1 rule
+        # 4): a body with NO ground part at all — everything it touched
+        # was a line object — samples the design surface under every one
+        # of its parts' footprint centroids, and those samples ARE its
+        # feet.  Without this the group is held at its authored y, which
+        # is the pack's global anchor ground, kilometres away.
+        if not gs and k in orphan_ks:
+            for pid in pids:
+                p = ps[pid]
+                if p.base is None:
+                    continue
+                if authored and pid in authored:
+                    z = float(authored[pid])
+                else:
+                    smp = sampler(p.part.lat, p.part.lon)
+                    if smp is None or (smp[1] and not rb.water_founds_seat):
+                        continue
+                    z = float(smp[0]) - float(p.part.base_y)
+                gs.append(z)
+                lows.append(z)
+                lf.append(z - p.base)
+                n_sampled += 1
         grounds_of[k] = gs
         lows_of[k] = lows
         sampled_of[k] = n_sampled
@@ -529,7 +617,14 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     facility: set[int] = set()
     by_struct: dict[int, list[int]] = {}
     for k, pids in members_of.items():
-        if lifts[k] is not None:
+        # A LINE BODY and an ORPHAN are outside the facility vote (owner
+        # RULINGS 2026-09-10bb, spec §16): the "structure" they sit in is
+        # the very chain the line rule refused to bind, and an orphan is
+        # seated on the surface UNDER ITSELF — it can never stand a band
+        # below the mesh.  Left in, LEMD49's +1.33 m orphan was read as a
+        # facility against a coalition made of the fence it no longer
+        # belongs to, and kept its authored y.
+        if lifts[k] is not None and k not in line_body_ks and k not in orphan_ks:
             by_struct.setdefault(struct_of[pids[0]], []).append(k)
     for ks in by_struct.values():
         vals = [lifts[k] for k in ks for _ in grounds_of[k]]       # one vote per measured ground part
@@ -616,6 +711,21 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             return ground_m - p.base
         max_delta = max((abs(d) for d in (_delta(p) for p in parts) if d is not None),
                         default=0.0)
+        # THE SEGMENT SEAT of a LINE BODY (owner RULINGS 2026-09-10bb, spec
+        # §16.1 rule 3): its stations each read the design surface under
+        # themselves; every VERTEX takes the delta of the station nearest
+        # it in plan, so a 5 km fence follows the ground instead of taking
+        # one median.  The threshold is put to the LARGEST station, never
+        # the median — a fence whose middle happens to sit right must still
+        # drape its ends.
+        is_line_body = k in line_body_ks
+        stations: list[tuple[int, float, float, float]] = []
+        if is_line_body:
+            lp = parts[0]
+            if lp.base is not None:
+                stations = [(lp.part.comp, la, lo, t - lp.base) for la, lo, t in lp.stations]
+            if stations:
+                max_delta = max(abs(d) for *_x, d in stations)
         needs_pad = span > rb.cluster_span_pad_m
         if skip is None and max_delta < rb.min_delta_m:
             skip = (f"below_threshold: largest resource correction |{max_delta:.3f}| m < "
@@ -660,11 +770,13 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                                  len(measured), ground_m, lifts[k], span, diam,
                                  needs_pad and bakes, k in facility, held, skip, n_res,
                                  foot_res, max((abs(x) for x in foot_res), default=0.0),
-                                 sampled_of.get(k, 0)))
+                                 sampled_of.get(k, 0), is_line_body, k in orphan_ks))
         for p in parts:
             mp = members[p.key]
             mp.part_deltas.append((p.part.comp, k, _delta(p) if bakes else None))
             mp.clusters.add(k)
+            if bakes and stations and p is parts[0]:
+                mp.line_stations.extend(stations)
             if p.ground:
                 mp.n_ground += 1
                 if k in facility:
@@ -689,4 +801,5 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
     for mp in members.values():
         mp.part_deltas.sort()
     return Outcome(seats, members, pads, n_cut, len({struct_of[pid] for pid in ps}),
-                   n_intra_kept, len(held_parts), n_groups, n_group_ties)
+                   n_intra_kept, len(held_parts), n_groups, n_group_ties,
+                   len(line_body_ks), n_line_edges, len(orphan_ks))

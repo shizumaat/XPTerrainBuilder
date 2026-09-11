@@ -42,7 +42,7 @@ PLAN_VERSION = 1
 #: ``<patch dir>/o4_v2_placement_<ICAO>.json``.
 PLAN_FILENAME = "o4_v2_placement_{icao}.json"
 #: The pristine DSF kept beside the written one (the OBJ discipline of
-#: ``auto_patch.object_rebake``: a rerun reads the BACKUP, never the
+#: v1's ``object_rebake``: a rerun reads the BACKUP, never the
 #: already-edited file, so the write is idempotent).
 BACKUP_SUFFIX = ".anchor_bak"
 #: Written beside the DSF by ``airport/dsf_write.write_pack``.

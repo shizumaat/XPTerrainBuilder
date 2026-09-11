@@ -89,7 +89,10 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # LAW C is a PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap): these
+    # twins read OTHH's own corridors, so they run under OTHH's law —
+    # the gate itself is twinned in ``test_v2corridor.py``.
+    return Law.for_airport("OTHH")
 
 
 @pytest.fixture(scope="module")

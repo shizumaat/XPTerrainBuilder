@@ -1,6 +1,19 @@
 """THE WALL CORRIDORS (RULINGS 2026-09-08m / 08n LAW C; spec ``docs/specs/
-auto-patch-v2/othh-terminal-ramps-spec.md`` §6; law ``structures.toml
-[cutout.wall_corridor]``): the pack models the terminal's road underpass,
+auto-patch-v2/othh-terminal-ramps-spec.md`` §6, §12g; law ``structures.toml
+[cutout.wall_corridor]``, ``airports.toml``):
+
+LAW C IS A PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap, closing 10ac-1
+as (B)): both classes here — kerb-wall corridors AND garage ramps — are
+read only where ``law/airports.toml`` states ``kerb_wall_corridors =
+true`` for the airport (OTHH alone today, on the owner's sim read).
+After seven rounds no witness in the geometry or the map separated
+OTHH's terminal kerb corridors from LEMD's cargo-dock foundations
+(§12–§12f), so the key is an honest switch, not a mechanism, and it is
+checked FIRST at the single admission site (before clause (a)), one
+``stats.admission`` line per candidate.  Law A (door wells) and Law B
+(sunken roads, basins) are unconditional everywhere.
+
+The reading itself: the pack models the terminal's road underpass,
 its loading bays and its garage entry ramps as KERB WALLS only — genuine
 components of VERTICAL faces only, reaching under the ground, NO floor
 at any depth (measured OTHH, scout ``othhunderpass``: ``Terminal_Base_
@@ -67,8 +80,8 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    basement cover gate: the deck above is the family's own roof and stays).
    Open air over the trench is NOT a refusal (RULINGS 2026-09-10z: seven
    OTHH corridors carry no deck plate of their own).
-(The 10w heading and deck clauses and 10z's groundside-mouth clause
-(b'') are all REFUTED and DELETED: no mouth test separates LEMD's cargo
+(The 10w heading and deck clauses, 10z's groundside-mouth clause (b'')
+and 10ao's terminals-only clause are all REFUTED and DELETED: no mouth test separates LEMD's cargo
 foundations from OTHH's kerb corridors — RULINGS 2026-09-10ab / 10ad.)
 
 The ``--stage structures`` replay additionally MEASURES, per candidate,
@@ -104,8 +117,7 @@ from ..model.frame import XY
 from . import obj8 as _obj8
 from .below_zero import read_below_zero, read_wall_height
 from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_slab,
-                                  _RoadLevels, mouth_roads, terminal_polygons,
-                                  terminal_witness)
+                                  _RoadLevels, mouth_roads)
 from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
                             _bearing, _densified, _merge_walls, _overlap_along,
                             _plan_polys, _plan_segments, _plan_segments_indexed,
@@ -542,8 +554,6 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     # RULINGS 2026-09-10ab (i): the LEVEL reader for a mouth road (the
     # replay's measurement only)
     levels = _RoadLevels(airport, law) if measure else None
-    # RULINGS 2026-09-10ac-1 (A): the airport's terminals, read once
-    terminals = terminal_polygons(airport)
     #: the per-placement below-zero walk, memoised across candidates
     bz_store: dict = {}
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
@@ -625,6 +635,17 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 name = os.path.basename(A.resource)
                 la, lo_ = to_ll(*A.poly.centroid.coords[0])
                 site = f"{la:.6f},{lo_:.6f}"
+                # THE AFFORDANCE GATE (RULINGS 2026-09-10ap, closing
+                # 10ac-1 as (B)): LAW C — kerb-wall corridors AND garage
+                # ramps — is an AIRPORT-LEVEL affordance a pack earns by
+                # a sim read (``law/airports.toml``, on at OTHH alone).
+                # Checked FIRST, before (a): no geometry of this pair is
+                # read where the law is off, and every candidate says so.
+                if not law.affordances.kerb_wall_corridors:
+                    stats.admission.append(
+                        f"candidate {name} bands {A.comp}/{B.comp} at {site}: "
+                        f"law off for {law.icao or '(no airport)'}")
+                    continue
                 plate = unary_union([A.poly, B.poly])
                 walls = read_wall_lines(plate, law)
                 if isinstance(walls, str):
@@ -796,25 +817,6 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     stats.admission.append(f"{head}: {clause_a}; REFUSED — no mouth (both "
                                            f"ends closed)")
                     continue
-                # RULINGS 2026-09-10ac-1 (A), ruled as round 7's fallback in
-                # 10ao — TERMINALS ONLY.  The witness is REPORTED for every
-                # candidate; it REFUSES only while
-                # ``corridor_terminal_only`` is on, because at OTHH the
-                # owner's own 43 stand 0-1,485 m from the ten mapped
-                # terminals (spec §12f) and any radius that keeps them
-                # keeps LEMD's cargo docks too.
-                mouth_xy = [axis[0] if k == 0 else axis[-1] for k in mouth_ks]
-                tw = terminal_witness(terminals, mouth_xy)
-                clause_e = (f"(e) terminal {tw.witness}"
-                            + (" [gate off]" if not wc.corridor_terminal_only else ""))
-                if wc.corridor_terminal_only and tw.distance_m > wc.corridor_terminal_m:
-                    msg = (f"{name} at {site}: no aeroway=terminal within "
-                           f"corridor_terminal_m {wc.corridor_terminal_m} of a mouth "
-                           f"({tw.witness}): a kerb corridor belongs to a TERMINAL "
-                           f"(10ac-1 (A))")
-                    stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; {clause_e} REFUSED")
-                    continue
                 # RULINGS 2026-09-10ab: the two discriminators MEASURED —
                 # the REPLAY's instrument (``--stage structures``), never
                 # a gate and never a build cost: neither separates LEMD
@@ -858,14 +860,14 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                            f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
                            f"not a corridor")
                     stats.refused.append(msg)
-                    stats.admission.append(f"{head}: {clause_a}; {clause_e}; headroom "
+                    stats.admission.append(f"{head}: {clause_a}; headroom "
                                            f"{headroom:.2f} m REFUSED under min_headroom_m "
                                            f"{wc.min_headroom_m} ({deck_w})")
                     continue
                 if nc_row is not None:
                     nc_row["admitted"] = True
                 stats.admission.append(
-                    f"{head}: {clause_a}; {clause_e}; headroom "
+                    f"{head}: {clause_a}; headroom "
                     + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
                     + " -> ADMITTED")
                 notes_common = (

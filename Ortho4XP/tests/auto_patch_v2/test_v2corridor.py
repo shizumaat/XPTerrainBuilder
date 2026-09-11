@@ -44,7 +44,11 @@ from test_tunnel_objects import _airport, _slab, _write
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    """The law of an airport where LAW C IS ON (RULINGS 2026-09-10ap:
+    ``law/airports.toml`` names OTHH alone).  Every corridor twin below
+    reads the geometry, so it must run under the affordance; the gate
+    itself is twinned at the end of this file."""
+    return Law.for_airport("OTHH")
 
 
 @pytest.fixture(scope="module")
@@ -452,45 +456,82 @@ def test_the_wall_height_separates_nothing_at_the_real_airports(objs, law):
     assert st.corridors == 1 and len(recs) == 2, st.refused
 
 
-# ── RULINGS 2026-09-10ac-1 (A): TERMINALS ONLY, gated OFF ───────────────
-
-def _terminal_way(x0=-30.0, y0=60.0, x1=30.0, y1=120.0, wid=-900):
-    """An ``aeroway=terminal`` outline of the airports feed."""
-    return OsmWay(wid, "airports", ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)),
-                  True, {"aeroway": "terminal", "building": "yes", "name": "T1"})
+# ── RULINGS 2026-09-10ap: LAW C IS A PER-AIRPORT AFFORDANCE ─────────────
 
 
-def test_the_terminal_clause_ships_off_and_only_reports_its_witness(objs, law):
-    """The gate is OFF in ``structures.toml`` (spec §12f): a corridor with
-    NO terminal anywhere near it is admitted exactly as before, and the
-    admission line carries the witness so the owner can read the
-    distances.  At OTHH the clause at 60 m would keep 7 of the owner's
-    own 43 — that is why it ships off."""
-    wc = law.tables.structures.cutout.wall_corridor
-    assert wc.corridor_terminal_only is False and wc.corridor_terminal_m > 0.0
+def test_the_affordance_table_names_othh_and_nobody_else(law):
+    """``law/airports.toml`` (10ap, closing 10ac-1 as (B)): Law C — kerb-
+    wall corridors AND garage ramps — is on at OTHH, off at every other
+    airport, including one the table does not name at all and a law bound
+    to no airport."""
+    assert Law.for_airport("OTHH").affordances.kerb_wall_corridors is True
+    assert Law.for_airport("LEMD").affordances.kerb_wall_corridors is False
+    assert Law.for_airport("ZZZZ").affordances.kerb_wall_corridors is False
+    assert Law.load().affordances.kerb_wall_corridors is False
+    assert set(Law.load().tables.airports) == {"OTHH"}
+
+
+def test_a_corridor_is_admitted_with_the_key_on_and_refused_with_it_off(objs, law):
+    """THE GATE at the single admission site: the SAME fixture corridor
+    is admitted under OTHH's law and read no further under LEMD's — the
+    candidate's admission line says "law off for LEMD" and no geometry
+    clause is reached (10ap: the key is checked FIRST, before (a))."""
+    recs, st = _corridors(objs, law, "deep")
+    assert st.corridors == 1 and len(recs) == 2, st.refused
+    assert any("ADMITTED" in a for a in st.admission)
+
+    off = Law.for_airport("LEMD")
+    assert off.affordances.kerb_wall_corridors is False
+    recs_off, st_off = _corridors(objs, off, "deep")
+    assert recs_off == [] and st_off.corridors == 0
+    assert st_off.pairs == 1, "the pair is still a CANDIDATE, refused by the key"
+    assert st_off.admission and all("law off for LEMD" in a for a in st_off.admission), \
+        st_off.admission
+    assert not any("(a)" in a for a in st_off.admission), st_off.admission
+    assert st_off.refused == [], "the key is not a geometry refusal"
+
+
+def test_every_law_c_class_passes_the_one_gate(objs, law):
+    """10ap gates BOTH of Law C's classes — kerb-wall corridors AND
+    garage ramps.  There is one site: the key is checked on the PAIR,
+    before any clause and long before the level/bay/garage_ramp class is
+    decided, so no class can escape it (the ``door26`` candidate, a
+    different family from ``deep``, is refused by the same line)."""
     recs, st = _corridors(objs, law, "door26")
     assert st.corridors == 1 and len(recs) == 2, st.refused
-    line = [a for a in st.admission if "ADMITTED" in a]
-    assert line and "(e) terminal" in line[0] and "[gate off]" in line[0], st.admission
-    assert "no aeroway=terminal" in line[0], line[0]
+    off = Law.for_airport("LEMD")
+    recs_off, st_off = _corridors(objs, off, "door26")
+    assert recs_off == [] and st_off.corridors == 0
+    assert all("law off for LEMD" in a for a in st_off.admission), st_off.admission
+    assert st_off.by_class == {}, st_off.by_class
 
 
-def test_the_terminal_clause_admits_and_refuses_when_the_owner_turns_it_on(objs, law):
-    """With the key on: the same corridor is REFUSED where the airport
-    maps no terminal, and ADMITTED where an ``aeroway=terminal`` way lies
-    within ``corridor_terminal_m`` of a mouth (the fixture's mouths sit at
-    y = ±40; the terminal outline starts at y = 60, 20 m away)."""
-    on = _wc_law(law, corridor_terminal_only=True, corridor_terminal_m=60.0)
-    recs, st = _corridors(objs, on, "door26")
-    assert recs == [] and st.corridors == 0
-    assert any("no aeroway=terminal within corridor_terminal_m" in r for r in st.refused), \
-        st.refused
-    ways = _kerb_roads() + (_terminal_way(),)
-    recs2, st2 = _corridors(objs, on, "door26", ways=ways)
-    assert st2.corridors == 1 and len(recs2) == 2, st2.refused
-    assert any("(e) terminal T1" in a and "ADMITTED" in a for a in st2.admission), \
-        st2.admission
-    # ...and a terminal beyond the radius refuses it again
-    far = _kerb_roads() + (_terminal_way(y0=200.0, y1=260.0),)
-    recs3, st3 = _corridors(objs, on, "door26", ways=far)
-    assert recs3 == [] and st3.corridors == 0, st3.admission
+def test_the_terminals_only_clause_and_its_keys_are_deleted(law):
+    """10ap deletes the round-7 fallback (10ac-1 (A)) rather than keeping
+    it gated: the A mechanism is a refuted branch (spec §12f holds its
+    measurement — OTHH's own 43 stand 0–1,485 m from its ten mapped
+    terminals, so 60 m keeps 7 of them).  This twin fails the day the
+    keys come back."""
+    wc = law.tables.structures.cutout.wall_corridor
+    assert not hasattr(wc, "corridor_terminal_only")
+    assert not hasattr(wc, "corridor_terminal_m")
+    from auto_patch_v2.airport import wall_corridor_probe
+    assert not hasattr(wall_corridor_probe, "terminal_witness")
+
+
+def test_the_law_digest_changes_when_the_affordance_table_changes(tmp_path):
+    """PROVENANCE: ``law_tables_digest`` hashes every ``*.toml``, so a
+    patch built under a different affordance table carries a different
+    law sha (the harness frame, the tile [provenance] line, the ledger
+    variant key)."""
+    import shutil
+    from auto_patch_v2.law import DEFAULT_LAW_DIR, law_tables_digest
+    d = tmp_path / "law"
+    shutil.copytree(DEFAULT_LAW_DIR, d, ignore=shutil.ignore_patterns("__pycache__"))
+    before = law_tables_digest(d)
+    assert "airports.toml" in before["files"]
+    (d / "airports.toml").write_text("[LEMD]\nkerb_wall_corridors = true\n")
+    after = law_tables_digest(d)
+    assert after["sha256"] != before["sha256"]
+    assert Law.for_airport("LEMD", law_dir=d).affordances.kerb_wall_corridors is True
+    assert Law.for_airport("OTHH", law_dir=d).affordances.kerb_wall_corridors is False

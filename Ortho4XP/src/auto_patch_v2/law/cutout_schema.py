@@ -75,8 +75,6 @@ class WallCorridor:
     corridor_floor_slab_max_thickness_m: float  # (ii): a component thinner than this can be a floor slab
     corridor_floor_slab_tol_m: float            # (ii): ...lying within this of the floor
     corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
-    corridor_terminal_only: bool                # RULINGS 2026-09-10ac-1 (A) / 10ao: admit a corridor only at a TERMINAL
-    corridor_terminal_m: float                  # ...an aeroway=terminal within this of a mouth
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
     ramp_grade: float            # the synthetic climb beyond a mouth
     max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)
@@ -127,8 +125,6 @@ def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
                   f"{WALL_BOTTOM!r} is generated (RULINGS 2026-09-08m/08n)")
     if wall_corridor_cap is None or garage_cap is None:
         raise err("rulesets.common.roles: wall_corridor_ramp / garage_ramp carry no cap")
-    if wc.corridor_terminal_m <= 0.0:
-        raise err("structures.cutout.wall_corridor.corridor_terminal_m must be > 0")
     if wc.max_ramp_grade != wall_corridor_cap:
         raise err(f"structures.cutout.wall_corridor.max_ramp_grade {wc.max_ramp_grade} is not the "
                   f"wall_corridor_ramp role's longitudinal cap {wall_corridor_cap}")

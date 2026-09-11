@@ -867,3 +867,35 @@ clause therefore lands with `corridor_terminal_only = false`: the witness and it
 are REPORTED per candidate in `stats.admission` either way, and turning the key on is an
 owner act. This is the one permitted gate (10ao): the alternative is deleting the owner's
 accepted OTHH set.
+
+## §12g LAW C IS A PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap) — lane `v2corridor` round 8, 2026-09-10
+
+**The ruling.** After seven rounds no witness in the geometry or the map separates OTHH's
+terminal kerb corridors from LEMD's cargo-dock foundations (§12–§12f). Law C — **kerb-wall
+corridors AND garage ramps**, the two classes of `airport/wall_corridors.py` — therefore
+becomes an AIRPORT-LEVEL AFFORDANCE a pack EARNS by the owner's sim read. Law A (door
+wells, `airport/door_wells.py`) and Law B (sunken roads, basins) stay ON EVERYWHERE and
+take no key; nothing else in the pipeline is gated.
+
+**The table.** `law/airports.toml`, one table per ICAO, `[OTHH] kerb_wall_corridors = true`;
+every airport the table does not name (and a law bound to none) takes every key false.
+The schema is `law/airports_schema.py` (`Affordances`, `NO_AFFORDANCES`, `load_airports`,
+plus `Resolution` / `resolve_ruleset` moved beside it under the 1,000-line file law);
+`Law` gains an `icao` field that `Law.for_airport` fills, and `law.affordances` reads the
+table. `law_tables_digest` globs `*.toml`, so a patch's provenance already changes with the
+table; the freeze glob picks it up and `Ortho4XP.spec`'s count guard rises 8 → 9 (twinned
+against the actual table count in `test_auto_patch_engine_dispatch.py`).
+
+**The gate.** ONE site: in `read_wall_corridors`, on each CANDIDATE PAIR, **before clause
+(a)** and before any wall line is read — `if not law.affordances.kerb_wall_corridors:` →
+`stats.admission` gets `candidate … : law off for <ICAO>` and the pair is skipped. The
+class (level / bay / garage_ramp) is decided later in the same loop, so no Law C class can
+escape it. `stats.refused` stays geometry-only.
+
+**DELETED with this section**: the 10ao terminals-only clause and its keys
+(`corridor_terminal_only`, `corridor_terminal_m`, `terminal_polygons`, `terminal_witness`,
+`TerminalWitness`) — 10ap closes 10ac-1 as (B), so the (A) mechanism is a refuted branch,
+deleted rather than gated. Its measurement stays above in §12f.
+
+**Closing builds (counts, materiality = counts).** LEMD patch: Law C shapes 0, the 21 OSM
+road-bore ramps unchanged, DEFECTs 0. OTHH patch: 43 corridors identical to round 7.

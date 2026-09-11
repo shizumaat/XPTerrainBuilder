@@ -3588,3 +3588,91 @@ takes no datum row.
 One extra objective row per adjacent-ground vertex (HECA order 5 k), each a single
 diagonal entry in `AᵀA` — no new fill-in, no new factorisation, no new pass. Below the
 1 % tripwire; the closing builds quote the solve wall.
+
+### 23.7 MEASURED (lane `v2grounddem`, branch `claude/v2grounddem`, base `a88590c6`)
+
+Weight: `[design] ground_datum = 3.0` as proposed — no tuning was needed, every bar held
+at 3. Rows minted: CYXY 1,280 / HECA 5,518 / OTHH 4,858.
+
+**THE SITE — CYXY, the 14R/32L end corridor** (`build_airport.py CYXY --engine v2`, arm
+`CYXY_20260910T212708` body_sha `00e98af60b2a`; control `--base-arm` at `a88590c6`,
+`CYXY_20260910T212759` body_sha `7b4eb532ab83`). `patch_transect.py --from 60.7009,-135.0560
+--to 60.7003105,-135.0581666 --step 5` over the tile's own `Data+60-136.alt`, both arms:
+
+| station | this arm | DEM | z−DEM | control | Δ |
+|---|---|---|---|---|---|
+| 80 m | 701.93 | 701.80 | **+0.12** | 699.96 | +1.97 |
+| 85 m (the owner's point) | 701.94 | 701.92 | **+0.03** | 700.05 | +1.90 |
+| 90 m (the ring's edge) | 701.96 | 702.00 | **−0.04** | 700.02 | +1.94 |
+| 95–135 m | outside the patch (§19's trimmed corridor) | 702.09 → **703.13** (the `bank_foot`) | — | — | — |
+
+The owner's exact point 60.7005131, −135.0573873 reads DEM **701.96** and lies just past the
+§19 edge in BOTH arms; the last covered station is 0.03–0.04 m off its DEM against the
+control's −1.90 m. Worst |z−DEM| anywhere on the transect 0.32 m (station 65), against the
+control's 0.73–1.98 m. The largest station-to-station step is 0.50 m over 5 m = 10 %, far
+under `bank_slope`; from the ring's edge to the foot the ground rises 1.17 m over 45 m =
+2.6 %, so the 45 % cut bank of 10av is GONE. Bank rays resolving AT THE MINIMUM width
+1,268 → 1,313 (daylighted 114 → 69) and bank slope p95 0.372 → 0.346: the ring now starts
+on its DEM, which is the ruling's construction.
+
+CYXY DEFECTs (`verify/census.DEFECT_KEYS`) **1 → 0** (`transverse` 1 → 0, `vertical_curve`
+0 both). Census A/B (`tools/harness/census.py`, both arms): law-true 972 → 969 (−3),
+ADJUDICATED 74 → 78 (+4: `airside_no_step` +13, `within_shape` −9, `taxi_box` −3,
+`road_cross_section` −3, `transverse` −1). Crossings (09ai) unchanged: 8 runway crossings,
+261 connected stations, 2 `crossing_pin` rows, both arms. Bows unchanged: −0.28 / −2.69 /
+−5.31 m in both.
+
+**HECA** (`--patch-only`; `HECA_20260910T214810` `6cf3e0269b0e` against control
+`HECA_20260910T212839` `749db384728a`). `tools/undulation.py`, RMS second difference per
+role, datum ÷ control — the bar is ≤ 1.05:
+
+| role | control | this arm | ratio |
+|---|---|---|---|
+| graded_strip | 0.024684 | 0.022842 | **0.925** |
+| primary_parallel | 0.009991 | 0.010380 | **1.039** |
+| junction | 0.010711 | 0.010622 | **0.992** |
+| apron | 0.013406 | 0.013445 | **1.003** |
+| runway | 0.004426 | 0.004438 | 1.003 |
+| whole patch | 0.017480 | 0.015557 | 0.890 |
+
+Every role inside the bar; the strip is 7.5 % smoother and the taxiway edge is NOT dragged
+(the bending channel of §23.3 (3), measured on a real airport). Bows −4.03/−1.77/−8.53 →
+−4.02/−1.77/−8.53. DEFECTs `transverse` 640 → 641 (+1 against a standing 640 — HECA is not
+a zero-DEFECT airport in either arm). Census A/B law-true 37,229 → 37,279 (+50, +0.13 %),
+ADJUDICATED 6,264 → 6,281 (+17, +0.27 %).
+
+**OTHH** (`--patch-only`): NOT byte-identical. `OTHH_20260910T213515` `585a18549564` →
+`OTHH_20260910T215203` `9a4d01976d02`; v2 verify rows 46 → **34** (`within_shape` 14 → 1,
+`airside_no_step` 1 → 2, `runway_crown` 31 both). Coordinate-joined (11-dp lat/lon, the
+canonical identity join) over 29,813 shared plan positions: **2,298 changed**, |dz| mean
+0.087, p95 0.320, max 2.180 m, and the change is the ground:
+
+| role | changed | mean \|dz\| | max \|dz\| |
+|---|---|---|---|
+| graded_strip | 1,483 | 0.092 | 2.180 |
+| (feature rings: bank foot / terrain edge) | 716 | 0.086 | 0.770 |
+| tunnel_ramp | 61 | 0.036 | 0.150 |
+| runway | 36 | 0.010 | 0.010 |
+| apron | 1 | 0.010 | 0.010 |
+| primary_parallel | 1 | 0.010 | 0.010 |
+
+Every pavement vertex that moved at all moved 0.01 m — the rounding of the emitted
+`alt_abs`. The strip's largest movers rise from 1.78–3.09 m to 3.94–3.96 m: OTHH's own
+near-flat ground, which the law surface had been cutting below.
+
+**Build-time.** Solve wall (one run per arm, ledgered, NOT a timing measurement): CYXY
+6.95 → 3.34 s, HECA 56.41 → 43.27 s, OTHH 11.54 → 11.27 s. The datum adds a diagonal entry
+per ground vertex and no fill-in; it does not slow the solve, and on these arms the
+better-conditioned strip settled the active set sooner.
+
+**Suite** `tests/auto_patch_v2` + `tests/test_harness.py`: 912 passed, 1 skipped, 2 failed
+— `test_constraints.py::test_bench_style_instance_round_trip` and
+`::test_cyxy_verify_matches_v1_census`, BOTH failing identically at the base sha (control
+run). Five twins were RE-SCOPED where they held the superseded law, each with its measured
+value in the test: `test_v2ground` (the strip's valley fill 1.06 → 0.70 m — 10av's own
+point), `test_v2chord` (the chord-less control now has a level, 698.58 → 695.29), `test_why`
+(a no-step chain step 0.020 → 0.141 m past its bound), `test_v2ridge3` (a box row 0.15 →
+0.26 m, the same `bend_strip` channel its comment already named), `test_runway_transverse`
+(with the crown generator OFF the census's WORST transverse row is no longer the pinned one).
+
+**DEVIATION REPORTED (§23.3 (2)):** the two-way law-row residue. Never decided by the lane.

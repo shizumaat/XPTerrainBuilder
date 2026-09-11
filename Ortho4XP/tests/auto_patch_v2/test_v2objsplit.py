@@ -1145,6 +1145,14 @@ def test_named_rows_are_a_projection_of_the_one_census_pass(tmp_path):
         assert mine and math.isclose(r["worst_abs"], max(mine), abs_tol=1e-9)
         assert r["within_0_3"] is (r["worst_abs"] < 0.3)
 
+    # and the verdict FLIPS when the surface under the feet does: a
+    # ground 2 m below the anchor's own height is a 2 m float, OVER 0.3.
+    sunk = RPT.census(ss, lambda la, lo: sampler(la, lo) - 2.0, 1.0,
+                      rows_of=("bld.obj",))
+    assert sunk["rows"] and all(
+        r["within_0_3"] is False and math.isclose(r["worst"], -2.0, abs_tol=1e-6)
+        for r in sunk["rows"] if r["worst_abs"] is not None)
+
 
 def test_named_rows_carry_the_bodys_own_anchor_and_a_0_3_verdict(tmp_path):
     """Each row reports the body's anchor (the point the drape lands on),

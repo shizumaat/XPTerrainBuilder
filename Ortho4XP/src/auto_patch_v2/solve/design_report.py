@@ -77,6 +77,12 @@ class DesignReport:
     #: §11b (2)): the per-foot placement targets of every bare-ground
     #: body, priced at ``pad_flat`` (``constraints/foot_rows.py``)
     foot_rows: int = 0
+    #: WHY a foot row is missed (round 8's attribution surface): the
+    #: per-FOOT residual distribution, how many feet stand on a triangle
+    #: with no free column at all, and how many share one triangle with
+    #: another foot asking for a different level — a sheet is LINEAR over
+    #: a triangle, so two feet in one face cannot both be carried
+    foot_row_diag: dict[str, _t.Any] = _dc.field(default_factory=dict)
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
@@ -146,7 +152,8 @@ class DesignReport:
                 "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
                 "runway_profile": self.runway_profile,
-                "families": self.families, "terms": self.terms}
+                "families": self.families, "terms": self.terms,
+                "foot_row_diag": self.foot_row_diag}
 
     def _taxi_trend_line(self) -> str:
         """THE TAXI CHAINS' TREND RESIDUALS (owner RULINGS 2026-09-10v) —
@@ -239,3 +246,56 @@ def residual(cs: ConstraintSet, z: np.ndarray, objective: float) -> Residual:
             ml = max(ml, ln.lo - s)
     return Residual(max_pin_m=mp, max_diff_m=max(md, ml), max_flat_m=mf,
                     max_band_m=mb, max_offset_m=mo, objective=objective)
+
+
+def foot_row_diagnostic(one: _t.Sequence[_t.Any], viol: _t.Sequence[float],
+                        idx: _t.Sequence[int],
+                        col: _t.Sequence[int]) -> dict[str, _t.Any]:
+    """ROUND 8's attribution (owner RULINGS 2026-09-11ab): the foot rows
+    were repriced from ``ground_datum`` (3) to ``pad_flat`` (3000) and
+    LEMD's missed count barely moved — so the price is not what binds.
+    This reads WHAT does, per FOOT (a foot is TWO one-sided rows sharing
+    one target), without costing a second solve:
+
+    * the residual distribution — how many feet land inside 0.01 / 0.1 /
+      0.3 / 1.0 m of their target;
+    * ``feet_no_free_column`` — the foot's triangle is entirely FIXED, so
+      no price can move it;
+    * ``feet_sharing_a_triangle`` and ``worst_triangle_spread_m`` — two
+      feet inside ONE face asking for different levels.  The sheet is
+      LINEAR over a triangle: their difference is unpayable at any price.
+    """
+    feet: dict[tuple, dict[str, _t.Any]] = {}
+    for i in idx:
+        terms, hi, row = one[i]
+        key = (row.source.inputs, tuple(sorted((v, round(abs(c), 9))
+                                               for v, c in terms)))
+        f = feet.setdefault(key, {"r": 0.0, "z": 0.0, "vs": tuple(
+            sorted(v for v, _c in terms))})
+        f["r"] = max(f["r"], float(viol[i]))
+        if hi >= 0.0:
+            f["z"] = float(hi)
+    res = sorted(max(0.0, f["r"]) for f in feet.values())
+    n = len(res) or 1
+    by_tri: dict[tuple, list[float]] = {}
+    fixed = 0
+    for f in feet.values():
+        by_tri.setdefault(f["vs"], []).append(f["z"])
+        if all(col[v] < 0 for v in f["vs"]):
+            fixed += 1
+    shared = sum(len(zs) for zs in by_tri.values() if len(zs) > 1)
+    spread = max((max(zs) - min(zs) for zs in by_tri.values() if len(zs) > 1),
+                 default=0.0)
+    def _q(p: float) -> float:
+        return round(res[min(n - 1, int(p * n))], 4) if res else 0.0
+    return {"feet": len(feet),
+            "within_0.01_m": sum(1 for r in res if r <= 0.01),
+            "within_0.1_m": sum(1 for r in res if r <= 0.1),
+            "within_0.3_m": sum(1 for r in res if r <= 0.3),
+            "within_1.0_m": sum(1 for r in res if r <= 1.0),
+            "p50_m": _q(0.5), "p90_m": _q(0.9),
+            "max_m": round(res[-1], 4) if res else 0.0,
+            "feet_no_free_column": fixed,
+            "triangles": len(by_tri),
+            "feet_sharing_a_triangle": shared,
+            "worst_triangle_spread_m": round(spread, 4)}

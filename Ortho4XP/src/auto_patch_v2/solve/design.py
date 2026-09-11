@@ -67,7 +67,7 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
-from .design_report import DesignReport, residual
+from .design_report import DesignReport, foot_row_diagnostic, residual
 from .project import ProjectionReport, project_runway
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
@@ -729,8 +729,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # THE FOOT ROWS ARE THE PAD LAW'S TARGET (owner RULINGS 2026-09-11ab,
     # spec §11b (2)): a body with no pad polygon states its placement
     # through its feet, so those rows pay the PAD's price, not the ADJACENT
-    # GROUND's — at 3.0 they were the cheapest rows in the sheet (round 7:
-    # 715 of 1,434 missed, 5.70 m).  The pair bar is untouched: no step.
+    # GROUND's (round 7 at 3.0: 715 of 1,434 missed, 5.70 m; pair bar kept).
     fr_i = np.asarray(base_p.foot_row_i, dtype=np.int64)
     if fr_i.size:
         w_row[fr_i] = float(d.pad_flat)
@@ -944,6 +943,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rec["max_m"] = round(rec["max_m"], 4)
         rec["energy"] = round(rec["energy"], 3)
     rep.families = dict(sorted(fam.items()))
+    rep.foot_row_diag = foot_row_diagnostic(one, viol_all, base_p.foot_row_i, red.col)
     # THE PUBLISHED TARGETS: every row missed beyond the elevation
     # materiality, with its vertices' canonical identities (RULINGS
     # 2026-09-08t: "a target missed is a row, the census counts it")

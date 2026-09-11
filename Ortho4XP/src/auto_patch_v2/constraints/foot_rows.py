@@ -121,7 +121,7 @@ __all__ = ["FootTarget", "BodyVerdict", "foot_targets", "foot_rows", "GEN",
 
 def foot_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE GENERATOR (module doc): one two-sided ``Linear`` per foot of
-    every feasible bare-ground body, priced at ``ground_datum``."""
+    every feasible bare-ground body, priced at ``pad_flat`` (11ab)."""
     targets, verdicts, counts = foot_targets(planar, law, airport)
     STATS["foot_rows"] = dict(counts)
     VERDICTS[:] = verdicts

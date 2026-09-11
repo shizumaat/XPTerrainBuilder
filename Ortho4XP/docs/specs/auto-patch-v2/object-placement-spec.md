@@ -462,3 +462,40 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
    §11 (5): LEMD38 / LEMD84 / LEMD60 within 0.3 m of their bodies' anchors,
    `> 3 m` 25 → ≤ 22, files ≤ 4×, suite green, load-stage time within the
    26 s / 108 s moved.
+
+## §12 The pristine frame and idempotence (RULINGS 2026-09-11m; lane `v2idempotent`)
+
+1. **ONE RESOLVER.** `dsf_write.pristine_dsf_path(dsf)` returns `<dsf>.anchor_bak`
+   when it exists, else the live file (a backup path returns itself). EVERY
+   object-stage read goes through it: the plan's pack read (`airport/load.pack_dsf`,
+   the source of `dsf:objN` ids), `engine_v2._fresh_pack_dump` and `_place_objects`,
+   `obj8_split_report --write-pack`, `dsf_placement_diff`, `seat_feet_census`.
+   Readers left on the live file are the ones whose SUBJECT is the written product
+   (`write_pack`'s encode / round-trip verify, the tool's read-back) and the v1
+   seat-era terrain readers the `agl` path bypasses. §3's "dump → edit → encode"
+   reads the pristine dump by construction; §3.6's cache refresh after the write
+   is for the LIVE file's consumers only.
+2. **THE DUMP CACHE KEY IS CONTENT.** `dsf_reader.dsf_content_tag` = sha256 of the
+   file's bytes (first 8 hex, memoised on abspath/mtime/size, 0.74 ms on LEMD's
+   2.2 MB) names the cache entry in BOTH `ensure_dsf_text_path` branches; the
+   explicit-`cache_dir` branch ADOPTS a pre-existing fresh untagged legacy dump
+   read-only (a build has no licence to re-derive the shared `Default_DSF_cache`);
+   mtime staleness stays as the second guard. A written pack's pristine dump is
+   therefore `<tile>.dsf.anchor_bak.<tag>.text`, and `airport/dsf.find_text_dump`
+   never crosses the live and backup names (the freshness fallback would otherwise
+   serve the WRITTEN dump as a pristine frame). The four cache files 11m named are
+   orphaned, not deleted.
+3. **THE RESTORE STEP REMOVES THE PREVIOUS WRITE'S BODIES.** `write_pack` records
+   `body_files` (sorted, pack-relative) in `o4_placement_provenance.json`;
+   `restore_pack_objects` removes exactly those names — each confirmed to carry
+   the cut mark and to resolve inside the pack root — before any file is written
+   (`restore_bodies_removed`). A provenance without the key removes nothing: the
+   1.0.313 LEMD write leaves 50 orphan `__b*.obj` in the live pack that no DSF
+   references after the next write; the owner decides whether to hand-clean them.
+4. **Measured** (LEMD pack copy, 1.0.313-written, the 08:17 artefact plan, three
+   consecutive `--write-pack` runs): DSF sha identical, 3,935 rows, 1,099 bodies /
+   185 splits / 117 kept, 0 `__b<N>__b<M>` names, `restore_bodies_removed` 0 → 1,099
+   → 1,099; the plan JSON differs between runs on that one count alone. Twins in
+   `test_v2objsplit.py` (resolver, content key, twice-byte-identical, stale-body
+   removal with the escape and corrupt-provenance refusals, plan read over a
+   written pack) and `test_airport_load.py` (no name crossing).

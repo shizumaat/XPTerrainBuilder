@@ -62,6 +62,7 @@ import math
 import typing as _t
 
 __all__ = ["BodyClass", "Anchor", "PadRing", "RimRing", "classify_body", "anchor_for",
+           "rim_of",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
 BUILDING = "building"
@@ -141,6 +142,15 @@ def _pad_of(pads: _t.Sequence[PadRing], lat: float, lon: float) -> PadRing | Non
     return None
 
 
+def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None:
+    """The emitted ``structure_rim`` ring this point stands INSIDE, if
+    any — the body's OWN ring (§14 (2))."""
+    for r in rims:
+        if len(r.ring) >= 3 and _inside(r.ring, lat, lon):
+            return r
+    return None
+
+
 # ── the class ────────────────────────────────────────────────────────────
 
 def classify_body(*, skirted: bool, basin_member: bool, line: bool,
@@ -189,9 +199,12 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     ZERO PLANE anchors at its low-side foot and says so in
     :attr:`Anchor.reason`, carrying the residual.
 
-    ``pads`` / ``rims`` are accepted and unused: the per-class table they
-    served is superseded.  An 11a DECK is still the one body with no
-    anchor of its own (merged into the building it abuts).
+    ``pads`` are accepted and unused: the per-class table they served is
+    superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
+    interior of the body's own ring is excluded from its anchor search
+    and the anchor goes to the RIM, where the object's zero is
+    (:func:`_basin_rim_anchor`).  An 11a DECK is still the one body with
+    no anchor of its own (merged into the building it abuts).
 
     The returned :attr:`Anchor.offset` is ``(0, y_zero, 0)`` in the y axis
     only — the plan half (``anchor_x``, ``anchor_z``) is the AUTHORED
@@ -206,6 +219,10 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         z = surface(geom.origin_lat, geom.origin_lon)
         return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
                       f"kerb (merged into {merged_into or 'the abutting building'})", z)
+    if body_class == BASIN and rims:
+        a = _basin_rim_anchor(geom, surface, rims)
+        if a is not None:
+            return a
 
     # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
     # in for itself at its own base), read against the design surface
@@ -246,6 +263,47 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                       f"zero plane: authored relief {residual:.2f} m)", low[3])
     return Anchor(body_class, best[0], best[1], best[2],
                   "surface at the body's zero", best[3])
+
+
+def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,
+                      rims: _t.Sequence[RimRing]) -> Anchor | None:
+    """§6's BASIN row, WIRED (§14 (2); the ``rims`` argument was accepted
+    and unused until 11v attributed the owner's "seated too low" read to
+    exactly that).
+
+    A basin object's zero IS THE RIM: the pit is cut to the object's own
+    depth (10ba), its floor plate is authored ``-depth`` and its parapet
+    ``+2.99``, and the wall must stand ABOVE the apron it rings.  Every
+    ground-contact vertex the generic rule can see stands INSIDE the
+    trench, on the floor — so the generic rule anchors the object down
+    there and the parapet lands BELOW the rim (measured at LEMD: 1.35 m
+    below for ``LEMD37`` b1).  The interior of the body's OWN ring is
+    therefore excluded from the anchor search, and the anchor is the
+    emitted rim ring's vertex nearest the body in plan, with
+    ``y_zero = 0``: the object's own zero goes at the rim, its floor
+    plate ``depth`` below it and its parapet its authored height above.
+
+    ``None`` when the body stands inside no emitted ring — nothing to
+    anchor to, and the generic rule then reads as before."""
+    lowest = min(geom.parts, key=lambda q: q[2])
+    ring = rim_of(rims, lowest[0], lowest[1])
+    if ring is None:
+        return None
+    # §6 reads the rim vertex "nearest the ORIGINAL anchor" — the
+    # placement's own row point, not the body's centroid — and that is
+    # what makes a basin authored as SEVERAL resources on one row take
+    # ONE zero: LEMD's pit is `Ground-FSX-LEMD36`, `-LEMD37` and
+    # `T4STower-SWbaume`, and the emitted ring is not level (597.14 to
+    # 597.86), so a per-body nearest vertex gave the three files three
+    # zeros 0.49 m apart.  One row, one rim vertex, one zero.
+    clat, clon = geom.origin_lat, geom.origin_lon
+    ml, mo = _m_per_deg(clat)
+    la, lo = min(ring.ring,
+                 key=lambda v: (round(((v[0] - clat) * ml) ** 2
+                                      + ((v[1] - clon) * mo) ** 2, 6), v[0], v[1]))
+    return Anchor(BASIN, la, lo, 0.0,
+                  f"basin rim ({ring.ref}): the object's zero is the rim",
+                  surface(la, lo))
 
 
 def _median(xs: _t.Sequence[float]) -> float:

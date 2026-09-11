@@ -172,23 +172,42 @@ class Body:
     #: offset (a roof, a deck, a tower part — they keep their height
     #: relative to the carrier and never take an anchor of their own)
     elevated_members: int = 0
+    #: §14 (1): this whole file is FOOTLESS — it stands on no ground
+    #: contact and rides its carrier's anchor and zero
+    elevated: bool = False
+    #: §14 (1): the CARRIER's file, when this one is carried ("" if not).
+    #: The §14 (4) census reads it: a footless body with no carrier is
+    #: either at the datum or on the ground, and both bars are 0.
+    merged_into: str = ""
+    #: the design surface under the anchor (``None`` outside every graded
+    #: face) and the body's intended zero in its authored frame — the two
+    #: numbers the §14 (4) SPREAD reads (``surface_z - y_zero`` is the
+    #: file's zero plane in world height)
+    surface_z: float | None = None
+    y_zero: float = 0.0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
                 "components": list(self.components), "anchor": self.anchor.to_dict(),
                 "anchor_reason": self.anchor_reason, "new_resource": self.new_resource,
                 "authored_offset": list(self.authored_offset),
-                "elevated_members": self.elevated_members}
+                "elevated_members": self.elevated_members,
+                "elevated": self.elevated, "merged_into": self.merged_into or None,
+                "surface_z": self.surface_z, "y_zero": self.y_zero}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
         off = d.get("authored_offset", (0.0, 0.0, 0.0))
+        sz = d.get("surface_z")
         return cls(str(d["body_id"]), str(d.get("class", "other")),
                    tuple(int(c) for c in d.get("components", ())),
                    Anchor.from_dict(d["anchor"]), str(d.get("anchor_reason", "")),
                    str(d["new_resource"]),
                    (_f(off[0]), _f(off[1]), _f(off[2])),
-                   int(d.get("elevated_members", 0)))
+                   int(d.get("elevated_members", 0)),
+                   bool(d.get("elevated", False)),
+                   str(d.get("merged_into") or ""),
+                   None if sz is None else _f(sz), _f(d.get("y_zero", 0.0)))
 
 
 @_dc.dataclass(frozen=True)

@@ -1257,17 +1257,19 @@ def test_a_sixty_metre_tower_part_is_never_cut_into_line_segments(tmp_path):
     assert all(b.anchor.y_zero <= _ELEV for s in ss.splits for b in s.bodies)
 
 
-def test_a_footless_roof_object_is_kept_whole(tmp_path):
-    """§13 (1): a placement with NO ground body at all — a roof object, a
-    deck object, a sign — is KEPT WHOLE, its row untouched.  X-Plane
-    drapes it at its own anchor and the authored y keeps it above the
-    ground there, which is the pack's own shared-datum frame."""
+def test_a_footless_placement_with_no_carrier_in_its_unit_keeps_its_row(tmp_path):
+    """§14 (1) and its ONE residual: a footless placement is CARRIED —
+    but a unit holding no footed body at all offers nothing to carry it,
+    and nothing in the plan reads the ground under it.  It then keeps its
+    own authored row (which for the one-member unit this class is, IS its
+    own position, not a shared datum) and is reported by name.  §13's
+    blanket ``footless`` keep is superseded and must not reappear."""
     path, _t = _two_boxes(tmp_path, with_anim=False)
     plan = _member_plan(path, [(0, 12.0, 0.0, 12.0), (1, 40.0, 2.0, 40.0)])
     ss = PP.build_splits(plan, _flat(100.0), write=False, **_elev_args())
     assert ss.splits == ()                      # nothing cut, nothing re-anchored
-    assert [k.reason for k in ss.kept] == ["footless"]
-    assert ss.counts["footless"] == 1
+    assert [k.reason for k in ss.kept] == ["footless_no_carrier"]
+    assert ss.counts["footless"] == 1 and ss.counts["footless_carried"] == 0
     assert ss.counts["elevated_own_files"] == 0
     assert ss.counts["files"] == 0
     assert ss.whole[0].bodies[0].elevated is True
@@ -1340,3 +1342,297 @@ def test_is_elevated_reads_the_lowest_vertex_and_the_anchors_zero():
     assert PP.is_elevated(0.0, roof, _ELEV) is True        # anchor's zero up
     assert PP.is_elevated(-4.0, basin, _ELEV) is False     # below is lawful
     assert PP.is_elevated(9.0, roof, 0.0) is False         # disarmed
+
+
+# ── §14 (owner RULINGS 2026-09-11u/v): A FOOTLESS BODY IS CARRIED; A
+# BASIN IS ONE FILE ──────────────────────────────────────────────────────
+# The owner's LEMD read: a pedestrian bridge that should hang off the
+# terminal lies on the road, and the basin's wall stands BELOW the apron
+# it rings.  §13 kept a footless placement whole — on the pack's shared
+# DATUM row, 15.7 m under its own building — and §6's rim anchor was
+# accepted and unused, so every basin body draped on the floor of its own
+# trench.  These twins hold the three halves of §14 and its census.
+
+def _unit_plan(members, icao="TEST", lat=40.0, lon=-3.0, contacts=(),
+               abutments=()):
+    """A ONE-UNIT plan whose members are
+    ``(path, [(comp, base_y, dlat_m, dlon_m, foot_y, half_m)], resource)``
+    — the shared-datum case §14 is about: every member on ONE row at
+    ``(lat, lon)``, each part a square of side ``2 * half_m`` in plan so
+    the PLAN OVERLAP of §14 (3) is a real reading and not a point.  Part
+    ids are allocated across the whole unit, as a pack's are."""
+    from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
+
+    ml, mo = AR._m_per_deg(lat)
+    ms = []
+    pid = 0
+    for mi, (path, parts, resource) in enumerate(members):
+        ps = []
+        for comp, base_y, dlat_m, dlon_m, foot_y, half in parts:
+            la = lat + dlat_m / ml
+            lo = lon + dlon_m / mo
+            ps.append(Part(pid=pid, comp=comp, lat=la, lon=lo, base_y=base_y,
+                           area_m2=4.0 * half * half,
+                           box=(la - half / ml, lo - half / mo,
+                                la + half / ml, lo + half / mo),
+                           feet=((la, lo, foot_y),)))
+            pid += 1
+        ms.append(Member(id=f"dsf:obj{mi + 1}", resource=resource,
+                         authored_path=str(path), live_path=str(path),
+                         heading_deg=0.0, parts=tuple(ps)))
+    return RebakePlan(icao=icao, pack_name="pack",
+                      pack_root=os.path.dirname(str(members[0][0])),
+                      units=(Unit("u0", (lat, lon), 0.0, tuple(ms)),), skipped=(),
+                      counts={}, contacts=tuple(contacts),
+                      abutments=tuple(abutments))
+
+
+def test_a_footless_deck_abutting_a_footed_building_rides_its_anchor(tmp_path):
+    """§14 (1) (a), the owner's footbridge: a deck authored 5 m up, on the
+    unit's shared datum row, abutting the terminal it hangs off.  Written
+    alone it lands on the road; kept whole it drapes at the datum.  It
+    takes the CARRIER's anchor and the CARRIER's ``y_zero`` — one zero
+    plane for the two of them — and names it in ``merged_into``."""
+    (tmp_path / "deck_dir").mkdir()
+    a_path, _t = _two_boxes(tmp_path, with_anim=False)
+    b_path, _t2 = _two_boxes(tmp_path / "deck_dir", with_anim=False)
+    plan = _unit_plan([
+        # the terminal: two ground bodies 220 m north, on terrain at 616
+        (a_path, [(0, 0.0, 200.0, 0.0, 0.0, 8.0),
+                  (1, 0.0, 240.0, 0.0, 0.0, 8.0)], "objects/terminal.obj"),
+        # the footbridge: ONE body, every vertex 5 m up, beside it
+        (b_path, [(0, 5.0, 260.0, 0.0, 5.0, 6.0)], "objects/bridge.obj"),
+    ], contacts=((1, 2),))          # the deck's part abuts the terminal's
+
+    def surface(lat, lon):
+        return 616.0 if (lat - 40.0) * 111_000.0 > 100.0 else 595.8
+
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    bridge = [s for s in ss.all if s.resource == "objects/bridge.obj"][0]
+    assert len(bridge.bodies) == 1              # a rigid span is one file
+    b = bridge.bodies[0]
+    assert b.elevated is True and b.merged_into.startswith("objects/terminal")
+    assert "abuts 1 part contact" in b.anchor.reason
+    # the CARRIER's anchor and the CARRIER's zero, never the datum and
+    # never the deck's own lowest vertex
+    assert b.anchor.surface_z == 616.0 and b.anchor.y_zero == 0.0
+    assert (b.anchor.lat, b.anchor.lon) != (plan.units[0].anchor)
+    assert b.anchor.offset[1] == 0.0            # not shifted onto the ground
+    assert ss.counts["footless_carried"] == 1 and ss.counts["footless"] == 1
+    assert ss.counts["footless_no_carrier"] == 0
+
+
+def test_a_footless_roof_with_no_abutment_takes_the_nearest_footed_body(tmp_path):
+    """§14 (1) (b): with no contact and no abutment in the unit's graph,
+    the carrier is the NEAREST footed body of the unit in plan — not the
+    first, and not the largest."""
+    (tmp_path / "far").mkdir()
+    (tmp_path / "roof").mkdir()
+    near, _t = _two_boxes(tmp_path, with_anim=False)
+    far, _t2 = _two_boxes(tmp_path / "far", with_anim=False)
+    roof, _t3 = _two_boxes(tmp_path / "roof", with_anim=False)
+    plan = _unit_plan([
+        (far, [(0, 0.0, 400.0, 0.0, 0.0, 20.0)], "objects/far.obj"),
+        (near, [(0, 0.0, 100.0, 0.0, 0.0, 6.0)], "objects/near.obj"),
+        (roof, [(0, 14.0, 120.0, 0.0, 14.0, 6.0)], "objects/roof.obj"),
+    ])
+
+    def surface(lat, lon):
+        return 600.0 + (lat - 40.0) * 111_000.0 * 0.02
+
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
+    assert r.bodies[0].merged_into.startswith("objects/near")
+    assert "nearest footed body of the unit" in r.bodies[0].anchor.reason
+
+
+def test_a_basin_resource_is_one_file_anchored_on_its_rim(tmp_path):
+    """§14 (2) + §6's basin row, WIRED: a pit authored as a floor plate
+    7 m down and a wall ring at grade, cut to a trench 7 m deep, is ONE
+    file whose zero is THE RIM — so its parapet stands its authored
+    height ABOVE the apron instead of 1.35 m below it (the owner's 11u
+    read).  ``rims`` excluded the interior of its own ring from the
+    anchor search; before §14 both bodies anchored down on the floor."""
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    rim_z, floor_z = 597.64, 590.07
+    ml, mo = AR._m_per_deg(40.0)
+    d = 30.0
+    ring = tuple((40.0 + q[0] * d / ml, -3.0 + q[1] * d / mo)
+                 for q in ((-1, -1), (-1, 1), (1, 1), (1, -1)))
+    rims = (AR.RimRing("basin_wall:0@853", ring),)
+    plan = _unit_plan([(path, [(0, -7.03, 0.0, 0.0, -7.03, 10.0),   # the floor
+                               (1, -7.00, 20.0, 0.0, -7.00, 4.0)],  # the wall
+                        "objects/pit.obj")])
+
+    inner = tuple((40.0 + q[0] * (d - 2.0) / ml, -3.0 + q[1] * (d - 2.0) / mo)
+                  for q in ((-1, -1), (-1, 1), (1, 1), (1, -1)))
+
+    def surface(lat, lon):
+        # the trench floor strictly inside the ring, the apron AT the rim
+        # on the ring itself and outside it
+        return floor_z if AR._inside(inner, lat, lon) else rim_z
+
+    ss = PP.build_splits(plan, surface, (), rims, write=False, **_elev_args())
+    pit = ss.all[0]
+    assert len(pit.bodies) == 1                 # never split (§14 (2))
+    b = pit.bodies[0]
+    assert b.body_class == AR.BASIN
+    assert "basin rim (basin_wall:0@853)" in b.anchor.reason
+    # the anchor stands ON the ring, never inside the trench
+    assert (b.anchor.lat, b.anchor.lon) in ring
+    assert not AR._inside(inner, b.anchor.lat, b.anchor.lon)
+    # THE BAR: the object's zero IS the rim, so a parapet authored +2.99
+    # renders 2.99 m above the apron
+    assert b.anchor.y_zero == 0.0
+    zero = b.anchor.surface_z - b.anchor.y_zero
+    assert abs(zero - rim_z) < 0.01
+    assert abs((zero + 2.99) - (rim_z + 2.99)) < 0.01
+
+
+def test_plan_overlap_binds_bodies_the_contact_graph_left_apart(tmp_path):
+    """§14 (3): two bodies of one resource that OVERLAP IN PLAN are ONE
+    body whatever the contact graph says — the floor under the walls, the
+    ledge inside the wall — even when the terrain under them differs by
+    more than ``split_tol_m``, which is exactly when §9 would have split
+    them.  Bodies APART in plan still split."""
+    (tmp_path / "apart").mkdir()
+    over, _t = _two_boxes(tmp_path, with_anim=False)
+    apart, _t2 = _two_boxes(tmp_path / "apart", with_anim=False)
+
+    def surface(lat, lon):
+        return 600.0 if (lat - 40.0) * 111_000.0 < 50.0 else 610.0
+
+    # two parts at the SAME place, terrain equal — but authored 4 m apart
+    # in y, so their zero planes differ by 4 m and §9 splits them
+    p_over = _unit_plan([(over, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
+                                 (1, -4.0, 3.0, 0.0, -4.0, 10.0)],
+                          "objects/pit.obj")])
+    ss = PP.build_splits(p_over, surface, write=False, **_elev_args())
+    assert len(ss.all[0].bodies) == 1
+    assert ss.all[0].bodies[0].components == (0, 1)
+    # the same two, 200 m apart in plan over terrain that differs: split
+    p_apart = _unit_plan([(apart, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
+                                   (1, 0.0, 200.0, 0.0, 0.0, 10.0)],
+                           "objects/two.obj")])
+    ss2 = PP.build_splits(p_apart, surface, write=False, **_elev_args())
+    assert len(ss2.all[0].bodies) == 2
+
+
+def test_the_v14_census_fails_a_plan_that_leaves_a_footless_body_loose():
+    """§14 (4): the four bars, in the ONE implementation both tools call
+    (``placement_carrier.census_v14``).  A footless file left on its
+    placement's own row is AT THE DATUM; one whose intended zero stands
+    above ``elevated_base_m`` was shifted ONTO THE GROUND; a basin
+    resource written as two files is SPLIT; and the widest zero-plane
+    range of one rigid ring is the SPREAD 11v measured at 7.0 m."""
+    from auto_patch_v2.airport import placement_carrier as PC
+
+    def _body(res, *, lat, lon, dy=0.0, cls="other", elev=False, sz=None,
+              y0=0.0, why=""):
+        return {"body_id": "b0", "class": cls, "new_resource": res,
+                "anchor": {"lat": lat, "lon": lon, "heading": 0.0},
+                "anchor_reason": why, "authored_offset": [0.0, dy, 0.0],
+                "elevated": elev, "surface_z": sz, "y_zero": y0}
+
+    bad = [{"placement": {"index": 1, "resource": "objects/deck.obj",
+                          "lat": 40.0, "lon": -3.0},
+            "bodies": [_body("objects/deck__b0.obj", lat=40.0, lon=-3.0,
+                             elev=True)]},
+           {"placement": {"index": 2, "resource": "objects/roof.obj",
+                          "lat": 40.0, "lon": -3.0},
+            "bodies": [_body("objects/roof__b0.obj", lat=40.1, lon=-3.0,
+                             dy=4.5, elev=True)]},
+           {"placement": {"index": 3, "resource": "objects/pit.obj",
+                          "lat": 40.0, "lon": -3.0},
+            "bodies": [_body("objects/pit__b0.obj", lat=40.0, lon=-3.0,
+                             cls="basin", sz=590.6, y0=0.0,
+                             why="basin rim (basin_wall:0@853)"),
+                       _body("objects/pit__b1.obj", lat=40.0, lon=-3.0,
+                             cls="basin", sz=597.6, y0=0.0,
+                             why="basin rim (basin_wall:0@853)")]}]
+    c = PC.census_v14(bad, [{"resource": "objects/sign.obj",
+                             "reason": "footless"}],
+                      elevated_base_m=_ELEV, split_tol_m=0.3)
+    assert c["footless_at_datum"] == 2          # the deck's body and the sign
+    assert c["footless_on_ground"] == 1
+    assert c["basin_bodies_split"] == 1
+    assert abs(c["spread_basin_m"] - 7.0) < 0.01    # 11v's own scatter
+    assert c["bars_ok"] is False
+    lines = "\n".join(PC.census_v14_lines(c, elevated_base_m=_ELEV,
+                                          split_tol_m=0.3))
+    assert lines.count("VIOLATED") == 3
+
+    good = [{"placement": {"index": 1, "resource": "objects/deck.obj",
+                           "lat": 40.0, "lon": -3.0},
+             "bodies": [_body("objects/deck__b0.obj", lat=40.1, lon=-3.1,
+                              elev=True, sz=616.2, y0=0.0)]},
+            {"placement": {"index": 3, "resource": "objects/pit.obj",
+                           "lat": 40.0, "lon": -3.0},
+             "bodies": [_body("objects/pit__b0.obj", lat=40.0, lon=-3.0,
+                              cls="basin", sz=597.6, y0=0.0,
+                              why="basin rim (basin_wall:0@853)")]}]
+    c2 = PC.census_v14(good, [{"resource": "objects/sign.obj",
+                               "reason": "footless_no_carrier"}],
+                       elevated_base_m=_ELEV, split_tol_m=0.3)
+    assert (c2["footless_at_datum"], c2["footless_on_ground"],
+            c2["basin_bodies_split"], c2["spread_basin_m"]) == (0, 0, 0, 0.0)
+    assert c2["footless_no_carrier"] == 1 and c2["bars_ok"] is True
+    assert "VIOLATED" not in "\n".join(
+        PC.census_v14_lines(c2, elevated_base_m=_ELEV, split_tol_m=0.3))
+
+
+def test_a_carried_placement_is_actually_written_as_one_file(tmp_path):
+    """§14 (1)'s writer half, and the silent floor under it: the OBJ8 cut
+    REFUSED to emit a single file (``kept_whole = "one_body"``, "the
+    object already IS one body"), which was true while a one-body cut
+    changed nothing.  A CARRIED placement is one body and MUST move — its
+    row goes to the carrier's anchor and its vertices take the carrier's
+    offset — so the refusal silently returned every carried footbridge to
+    the datum while the §14 census, reading the plan, reported it carried.
+    ``allow_single`` is the caller saying the move is the point."""
+    (tmp_path / "deck_dir").mkdir()
+    a_path, _t = _two_boxes(tmp_path, with_anim=False)
+    b_path, _t2 = _two_boxes(tmp_path / "deck_dir", with_anim=False)
+    plan = _unit_plan([
+        (a_path, [(0, 0.0, 200.0, 0.0, 0.0, 8.0),
+                  (1, 0.0, 240.0, 0.0, 0.0, 8.0)], "objects/terminal.obj"),
+        (b_path, [(0, 5.0, 260.0, 0.0, 5.0, 6.0)], "objects/bridge.obj"),
+    ], contacts=((1, 2),))
+
+    def surface(lat, lon):
+        return 616.0 if (lat - 40.0) * 111_000.0 > 100.0 else 595.8
+
+    ss = PP.build_splits(plan, surface, write=True, **_elev_args())
+    bridge = [s for s in ss.splits if s.resource == "objects/bridge.obj"]
+    assert bridge, "the carried placement was returned to the datum as kept"
+    assert len(bridge[0].files) == 1
+    assert bridge[0].files[0].resource == "objects/bridge__b0.obj"
+    assert "one_body" not in [k.reason for k in ss.kept]
+    # and the single cut file still parses through the engine's own reader
+    p = tmp_path / "cut.obj"
+    p.write_text(bridge[0].files[0].text, encoding="latin-1")
+    g = obj8.parse_obj8(str(p))
+    assert g.solid.shape[0] + g.draped.shape[0] == bridge[0].files[0].tris
+
+
+def test_a_one_body_placement_whose_row_reads_other_terrain_is_written(tmp_path):
+    """§14 (1) read on the case §14 (3) creates.  A one-body placement is
+    KEPT — row untouched — and on a SHARED-DATUM row that row is the
+    datum: at LEMD 73 of 104 such keeps drape more than 3 m (worst
+    31.0 m) from where their own anchor says their zero is.  The keep is
+    admitted only where the row and the anchor read the SAME surface."""
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    plan = _unit_plan([(path, [(0, 0.0, 400.0, 0.0, 0.0, 8.0)],
+                        "objects/hangar.obj")])
+
+    # the authored row (40.0, -3.0) reads 595.8; the hangar's own ground,
+    # 400 m north, reads 616.0
+    def steep(lat, lon):
+        return 616.0 if (lat - 40.0) * 111_000.0 > 100.0 else 595.8
+
+    ss = PP.build_splits(plan, steep, write=True, **_elev_args())
+    assert [s.resource for s in ss.splits] == ["objects/hangar.obj"]
+    assert ss.counts["one_body_off_row"] == 1
+    # ... and where the row DOES read the body's own surface, it is kept
+    ss2 = PP.build_splits(plan, _flat(616.0), write=True, **_elev_args())
+    assert ss2.splits == () and [k.reason for k in ss2.kept] == ["one_body"]

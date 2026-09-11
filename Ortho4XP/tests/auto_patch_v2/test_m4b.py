@@ -390,9 +390,18 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     pins = [r for r in rows if isinstance(r, Pin)]
     floor_vs = {v for f in pm.faces.values() if f.ref.startswith(b.floor_ref)
                 for v in pm.ring_vertices(f.ring)}
-    floor_pins = {p.v: p.z for p in pins if p.v in floor_vs}
-    assert floor_pins and set(floor_pins) == floor_vs
-    assert all(z == pytest.approx(b.floor_z) for z in floor_pins.values())
+    # THE FLOOR IS RELATIVE (owner RULINGS 2026-09-10ba): no pin on a floor
+    # vertex — two one-sided halves of ``z_floor - z_rim == -body_depth``
+    from auto_patch_v2.model.constraints import Linear as _Linear
+    assert not any(p.v in floor_vs for p in pins)
+    rel = [r for r in rows if isinstance(r, _Linear) and r.follows
+           and set(r.follows) <= floor_vs]
+    governed = {v for r in rel for v in r.follows}
+    assert governed == floor_vs
+    depth = -b.solid_min_y_m
+    for r in rel:
+        assert {abs(c) for _v, c in r.terms} == {1.0} and len(r.terms) == 2
+        assert (r.hi if r.hi is not None else r.lo) == pytest.approx(-depth)
     # every rim vertex (the void's exterior) pinned at the DEM or carried
     # by the apron it shares; no Flat across a band (there is none)
     assert not any(isinstance(r, Flat) for r in rows)
@@ -407,7 +416,10 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     assert counts["basins"] == len(rows)
     sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.message
-    assert all(sol.z[v] == pytest.approx(b.floor_z, abs=1e-6) for v in floor_vs)
+    rim_of = {v: next(u for u, c in r.terms if c < 0)
+              for r in rel for v in r.follows}
+    assert all(sol.z[v] == pytest.approx(sol.z[rim_of[v]] - depth, abs=0.02)
+               for v in floor_vs)
     # the rim is level with the apron where shared, the DEM where bare
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)

@@ -224,3 +224,181 @@ def test_an_airport_without_a_dem_admits_no_basin_member(objs, law):
     cache = _cache(law)
     a = _dc.replace(_airport(objs, law, "pit", _FlatDem()), dem=None)
     assert basin_member_ids(a, law, cache) == frozenset()
+
+
+# ── ROUND 2: THE FLOOR IS THE OBJECT'S DEPTH BELOW THE RIM (10ba) ────────
+#
+# The rim follows the pavement (10an/10ar) and the FLOOR follows the rim:
+# every floor-ring vertex stands ``body_depth_m`` under its nearest rim
+# vertex, replacing the absolute pin at ``DEM(anchor) + agl + plate_y``.
+# At LEMD that pin left the floor at 588.95 under a rim on the apron at
+# 597.3–597.9 — an 8.3–9.0 m cut for a 7.05 m object, and LEMD37's
+# authored wall crest (−1.88) 3.1–3.8 m under the rim instead of 10aq's
+# 1.9 m.  Spec §22.1c.
+
+import numpy as _np                                                # noqa: E402
+
+from auto_patch_v2.constraints import generate as _generate        # noqa: E402
+from auto_patch_v2.constraints.structures import (                 # noqa: E402
+    BASIN_FLOOR_RULING)
+from auto_patch_v2.constraints.structures import basins as _basin_rows  # noqa: E402
+from auto_patch_v2.model.constraints import Linear as _Linear, Pin as _Pin  # noqa: E402
+from auto_patch_v2.model.structures import Basin as _Basin         # noqa: E402
+from auto_patch_v2.planar.build import build as _build             # noqa: E402
+from auto_patch_v2.solve import Status as _Status, solve_design as _solve  # noqa: E402
+from auto_patch_v2.solve.design import hard_rulings as _hard_rulings  # noqa: E402
+
+from test_v2pit2 import (FLOOR as _F_RING, RIM as _RIM, _apron_plane,  # noqa: E402
+                         _cells as _pit_cells, _contacts, _face)
+
+#: the T4S object: 7.05 m of body under its own rim (the sidecar's
+#: ``body_depth_m`` / ``-solid_minimum_y_m``)
+T4S_DEPTH_M = 7.05
+#: the floor the ABSOLUTE pin would have used — 3 m under the apron at the
+#: anchor, which is what the excavated production DEM reads at LEMD
+DEM_PIT_DROP_M = 3.0
+
+
+class _ApronSlope:
+    """A 1 % plane falling east — the apron the rim sits in.  ``pit_drop``
+    sinks the DEM inside the rim (LEMD's production DEM already contains
+    Aerosoft's basement), which is exactly the reading the absolute floor
+    pin took as its datum."""
+
+    def __init__(self, pit_drop: float = 0.0) -> None:
+        self.pit_drop = pit_drop
+        self.provenance = {"synthetic": f"1 % plane, pit drop {pit_drop:.1f} m"}
+
+    def z(self, x: float, y: float) -> float:
+        z = 700.0 + 0.01 * x
+        if self.pit_drop and -44.0 <= x <= 44.0 and 136.0 <= y <= 204.0:
+            return z - self.pit_drop
+        return z
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+class _FlatApron(_ApronSlope):
+    """OTHH's site: a flat DEM under flat aprons, where the rim IS R_est."""
+
+    provenance = {"synthetic": "flat 700"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0
+
+
+def _pit_airport(law, dem, depth=T4S_DEPTH_M, rim_est=700.0):
+    from auto_patch_v2.classify.roles import Classification as _Cl
+    from auto_patch_v2.model.airport import (Airport as _Ap, Runway as _Rw,
+                                             RunwayEnd as _Re, SceneryPack as _Sp)
+    from auto_patch_v2.model.frame import Frame as _Fr
+    cells = _pit_cells("basin_wall:0", "basin_floor:0")
+    frame = _Fr("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (_Re("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            _Re("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 706.0, "fixture"))
+    pack = _Sp("fixture", "apt.dat", "0", (), ())
+    airport = _Ap("ZZZZ", "Synthetic", frame, 700.0, (_Rw("09/27", 45.0, 1, ends, 3, "D"),),
+                  (), (), {}, (), (), (), (), (), (), (), pack, dem, law.ruleset_key)
+    pm, _st = _build(airport, _Cl(tuple(cells), (), {}, ()), law)
+    floor_z = rim_est - depth
+    b = _Basin("basin:0", ("obj:fixture",), floor_z, "basin_floor:0", "basin_wall:0",
+               tuple(_F_RING), wall_path=tuple(_RIM), rim_estimate_m=rim_est,
+               solid_min_z=floor_z, solid_min_y_m=-depth, area_m2=4800.0)
+    return airport, _dc.replace(pm, basins=(b,))
+
+
+def _pit_solved(law, dem, **kw):
+    airport, pm = _pit_airport(law, dem, **kw)
+    cs, _counts, _walls = _generate(pm, law, airport)
+    sol, rep = _solve(pm, cs, law)
+    assert sol.status in (_Status.OPTIMAL, _Status.FEASIBLE), sol.status
+    return airport, pm, _np.asarray(sol.z, float), rep
+
+
+def _floor_to_rim(pm, law, airport):
+    """Floor vertex -> the rim vertex its relative row names."""
+    rows = _basin_rows(pm, law, airport)
+    floor_vs = set(pm.ring_vertices(_face(pm, "basin_floor:0").ring))
+    assert not any(isinstance(r, _Pin) and r.v in floor_vs for r in rows), \
+        "10ba: a floor vertex carries no absolute datum any more"
+    rel = [r for r in rows if isinstance(r, _Linear) and r.follows
+           and set(r.follows) <= floor_vs]
+    out = {v: next(u for u, c in r.terms if c < 0) for r in rel for v in r.follows}
+    assert set(out) == floor_vs, "every floor vertex follows a rim vertex"
+    return out
+
+
+def test_the_floor_row_is_hard_law_and_names_the_rim_it_follows(law):
+    """The head is law-table data (``[design] hard_rulings``), never a
+    literal in the solve — the row is a CONSTRAINT exactly as the ``Pin``
+    it replaces was — and ``follows`` names the FLOOR: the floor follows,
+    the rim is never pulled down into the pit."""
+    assert BASIN_FLOOR_RULING in _hard_rulings(law)
+    airport, pm = _pit_airport(law, _ApronSlope())
+    rows = _basin_rows(pm, law, airport)
+    rel = [r for r in rows if isinstance(r, _Linear)]
+    assert rel, "the relative floor rows exist"
+    floor_vs = set(pm.ring_vertices(_face(pm, "basin_floor:0").ring))
+    for r in rel:
+        assert r.source.ruling.startswith(BASIN_FLOOR_RULING)
+        assert set(r.follows) <= floor_vs
+        assert (r.hi if r.hi is not None else r.lo) == pytest.approx(-T4S_DEPTH_M)
+
+
+def test_a_pit_in_a_sloped_apron_hangs_its_floor_under_the_rim(law):
+    """(1) A 1 % apron: the rim comes out ON the apron's own plane (10an)
+    and every floor vertex stands the object's 7.05 m under the rim it
+    follows — the floor is a TILTED plate under a tilted rim, not a level
+    declared somewhere else."""
+    airport, pm, z, _rep = _pit_solved(law, _ApronSlope())
+    plane = _apron_plane(pm, z)
+    contacts = _contacts(pm)
+    assert contacts
+    assert max(abs(float(z[v]) - plane(v)) for v in contacts) <= 0.05
+    rim_of = _floor_to_rim(pm, law, airport)
+    worst = max(abs(float(z[v]) - (float(z[u]) - T4S_DEPTH_M))
+                for v, u in rim_of.items())
+    assert worst <= 0.05, f"the floor stands {worst:.3f} m off rim - 7.05"
+    # and the rim really is not flat here: the law has something to follow
+    assert max(float(z[u]) for u in set(rim_of.values())) \
+        - min(float(z[u]) for u in set(rim_of.values())) > 0.3
+
+
+def test_the_dem_under_the_anchor_is_not_the_floors_datum(law):
+    """(2) The LEMD frame: the production DEM inside the rim already
+    carries the basement, so the ABSOLUTE pin's datum sat 3 m under the
+    apron.  Under 10ba the floor is unchanged by that reading — the two
+    arms differ by less than the materiality floor, and neither floor is
+    3 m lower."""
+    airport_a, pm_a, z_a, _ra = _pit_solved(law, _ApronSlope())
+    airport_b, pm_b, z_b, _rb = _pit_solved(law, _ApronSlope(DEM_PIT_DROP_M))
+    rim_a, rim_b = _floor_to_rim(pm_a, law, airport_a), _floor_to_rim(pm_b, law, airport_b)
+    assert set(rim_a) == set(rim_b), "the same fixture geometry, one DEM apart"
+    worst = max(abs(float(z_b[v]) - (float(z_b[u]) - T4S_DEPTH_M))
+                for v, u in rim_b.items())
+    assert worst <= 0.05, f"the excavated DEM moved the floor {worst:.3f} m"
+    # the DROP is invariant to the DEM inside the rim; the floor's LEVEL
+    # still moves with the rim, because the rim follows the pavement and
+    # the apron body's own datum reads those samples (10ar's residual)
+    drop_a = {v: float(z_a[v]) - float(z_a[u]) for v, u in rim_a.items()}
+    drop_b = {v: float(z_b[v]) - float(z_b[u]) for v, u in rim_b.items()}
+    drift = max(abs(drop_a[v] - drop_b[v]) for v in drop_a)
+    assert drift <= 0.05, f"the DEM at the anchor moved the drop {drift:.3f} m"
+    # and the floor is NOT the old absolute datum: the pin would have taken
+    # the excavated DEM under the anchor, 3 m lower
+    old_datum = 700.0 - DEM_PIT_DROP_M - T4S_DEPTH_M
+    lift = min(float(z_b[v]) for v in rim_b) - old_datum
+    assert lift > 1.5, f"the floor is only {lift:.2f} m off the excavated datum"
+
+
+def test_a_flat_rim_reproduces_the_absolute_pin(law):
+    """(3) OTHH's site is unchanged BY CONSTRUCTION: its pits' rims sit in
+    flat aprons on a flat DEM, so ``rim - body_depth`` IS the absolute
+    floor the pin declared, to the materiality floor."""
+    airport, pm, z, _rep = _pit_solved(law, _FlatApron())
+    declared = pm.basins[0].floor_z
+    rim_of = _floor_to_rim(pm, law, airport)
+    for v, u in rim_of.items():
+        assert float(z[v]) == pytest.approx(float(z[u]) - T4S_DEPTH_M, abs=0.05)
+        assert float(z[v]) == pytest.approx(declared, abs=0.05)

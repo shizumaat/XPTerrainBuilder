@@ -136,6 +136,10 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # so a ``why`` trace on a pad names the pavement edge holding it rather
     # than its flatness target
     ("pad_level", "", "pad_frontage_level"),
+    # THE BASIN FLOOR (owner RULINGS 2026-09-10ba): its own family, so a
+    # ``why`` trace on a floor vertex names the RIM it follows rather than
+    # the structure generator at large
+    ("structures", "basin.floor = rim", "basin_floor"),
     ("seams", "", "seam_values"),
     ("reach", "", "reach_bands"),
     # THE 5 % CEILING (owner RULINGS 2026-09-09b (4), the post-pass

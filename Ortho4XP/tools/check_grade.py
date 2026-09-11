@@ -5255,8 +5255,12 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
 # declaration still reports in full, so nothing is blinded.
 
 def _basin_facilities_declared(basin_facilities) -> list:
-    """Sidecar rows → ``[(floor_m, declared_drop_m, resources,
+    """Sidecar rows → ``[((floor_min_m, floor_max_m), declared_drop_m, resources,
     body_depth_m, solid_minimum_y_m, lat, lon, emitted_rim_parts), …]``.
+
+    The floor entry is the published ``(floor_min_m, floor_max_m)`` BAND
+    (RULINGS 2026-09-10ba; a sidecar without those keys reports
+    ``(floor_m, floor_m)``).
 
     ``emitted_rim_parts`` is the facility's PUBLISHED per-part rim
     elevations, sorted (trench-law Amendment 1) — the numbers
@@ -5271,6 +5275,16 @@ def _basin_facilities_declared(basin_facilities) -> list:
             rim_m = float(row["rim_law_m"])
         except (KeyError, TypeError, ValueError):
             continue
+        # THE FLOOR IS A RANGE (owner RULINGS 2026-09-10ba): a basin floor
+        # stands its object's body depth under a rim that follows the
+        # pavement, so a tilted rim gives a tilted floor and the join can
+        # no longer be one declared number.  A sidecar without the range
+        # keys reads ``floor_m`` for both and is judged byte-identically.
+        try:
+            floor_lo = float(row.get("floor_min_m", floor_m))
+            floor_hi = float(row.get("floor_max_m", floor_m))
+        except (TypeError, ValueError):
+            floor_lo = floor_hi = floor_m
         anchor = row.get("anchor_longitude_latitude") or (None, None)
         try:
             lon, lat = float(anchor[0]), float(anchor[1])
@@ -5285,8 +5299,8 @@ def _basin_facilities_declared(basin_facilities) -> list:
         except (TypeError, ValueError):
             rim_parts = ()
         out.append((
-            floor_m,
-            rim_m - floor_m,
+            (floor_lo, floor_hi),
+            rim_m - floor_lo,
             tuple(row.get("resources") or ()),
             None if body_depth is None else float(body_depth),
             None if solid_minimum is None else float(solid_minimum),
@@ -5336,9 +5350,11 @@ def _basin_declared_drop(basin_declared, way_a, way_b,
     lower = elev_a if elev_a < elev_b else elev_b
     higher = elev_a if elev_a > elev_b else elev_b
     best = 0.0
-    for (floor_m, drop_m, _res, _bd, _sm, _la, _lo,
+    for (floor_band, drop_m, _res, _bd, _sm, _la, _lo,
          rim_parts) in basin_declared:
-        if abs(lower - floor_m) > _BASIN_FLOOR_MATCH_TOL_M:
+        floor_lo, floor_hi = floor_band
+        if not (floor_lo - _BASIN_FLOOR_MATCH_TOL_M <= lower
+                <= floor_hi + _BASIN_FLOOR_MATCH_TOL_M):
             continue
         allowance = drop_m
         if rim_parts:
@@ -5357,7 +5373,7 @@ def _basin_declared_drop(basin_declared, way_a, way_b,
                 # (Amendment 1 item 1).  A facility whose parts all sit
                 # BELOW its law rim is therefore held to what it actually
                 # emitted, which is the point.
-                allowance = part - floor_m
+                allowance = part - floor_lo
         if allowance > best:
             best = allowance
     return best
@@ -5390,7 +5406,7 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     below its declared rim under a 7.02 m body) reports one row of 42.98 m;
     every OTHH basin agrees within 0.4 m and reports nothing."""
     out: List[Violation] = []
-    for (floor_m, drop_m, res, body_depth, solid_minimum,
+    for (floor_band, drop_m, res, body_depth, solid_minimum,
          lat, lon, _rim_parts) in (basin_declared or []):
         if body_depth is None or solid_minimum is None:
             continue
@@ -5408,7 +5424,7 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
             de_m=disagreement,
             way_a=way, way_b=way,
             pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-            elev_a=floor_m, elev_b=floor_m + drop_m)
+            elev_a=floor_band[0], elev_b=floor_band[0] + drop_m)
         v.lat, v.lon = lat, lon
         out.append(v)
     return out

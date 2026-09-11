@@ -6686,7 +6686,9 @@ def test_one_wall_gets_ONE_allowance_never_the_SUM(cg):
         role = "tunnel_trench"
         tags = {"role": "tunnel_trench"}
         ref = ""
-    basin = [(0.0, 12.0, (), None, None, None, None, (12.0,))]
+    # the floor entry is the published (min, max) BAND since RULINGS
+    # 2026-09-10ba (a tilted rim gives a tilted floor)
+    basin = [((0.0, 0.0), 12.0, (), None, None, None, None, (12.0,))]
     both = cg._declared_step_allowance(joints, basin, -1.0, 0.0, 1.0, 0.0,
                                        _W(), _W(), 0.0, 12.0)
     assert both == pytest.approx(12.0), (

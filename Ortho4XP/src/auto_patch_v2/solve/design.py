@@ -361,6 +361,11 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     hard: list[int] = []
     pad_flat_i: list[int] = []
     one_way: dict[int, tuple[int, ...]] = {}
+    #: the vertices a HARD row GOVERNS (owner RULINGS 2026-09-10ba): a basin
+    #: floor is no longer PINNED — it is tied to its rim by a hard relative
+    #: row — so §9 must read it as ANCHORED, or the floor sheet counts as
+    #: detached and takes a DEM plane of its own under the constraint.
+    hard_follow: set[int] = set()
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -373,6 +378,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # reported target.  A PREFERENCE among them is hard AT ITS CEILING and
         # keeps its preferred bound as the target: two sides, one row.
         if is_hard(heads, row) and not vs <= red.dem_fixed:
+            fv_h = getattr(row, "follows", None)
+            if fv_h is not None:
+                hard_follow.update((int(fv_h),) if isinstance(fv_h, int)
+                                   else (int(v) for v in fv_h))
             hi_hard = hi
             ceil = getattr(row, "ceiling", None)
             if getattr(row, "soft", None) is not None and ceil is not None:
@@ -439,6 +448,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if col < 0:                                   # a pin / the DEM beyond
             continue
         if vid in pref or vid in ground or ramp.get(vid, 0.0) > 0.0:
+            anchored.add(comp[col])
+    for vid in hard_follow:                           # a HARD row anchors too
+        col = int(red.col[vid])
+        if col >= 0:
             anchored.add(comp[col])
     for p_ in cs.pins:                                # a pin fixes its class
         col = int(red.col[p_.v])

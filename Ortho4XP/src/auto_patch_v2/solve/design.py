@@ -361,6 +361,11 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     hard: list[int] = []
     pad_flat_i: list[int] = []
     one_way: dict[int, tuple[int, ...]] = {}
+    #: the vertices a LAW EQUALITY GOVERNS (owner RULINGS 2026-09-10ba): a
+    #: basin floor is no longer PINNED — it is tied to its rim by a relative
+    #: equality — so §9 must read it as ANCHORED, or the floor sheet counts
+    #: as detached and takes a DEM plane of its own beside that row.
+    hard_follow: set[int] = set()
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -416,6 +421,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
+        fv_e = getattr(side[2], "follows", None)
+        if fv_e is not None:
+            hard_follow.update((int(fv_e),) if isinstance(fv_e, int)
+                               else (int(v) for v in fv_e))
         eqs.append(side)
     rep.bank_rows = dropped_bank
     rep.hard_rows = len(hard)
@@ -439,6 +448,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if col < 0:                                   # a pin / the DEM beyond
             continue
         if vid in pref or vid in ground or ramp.get(vid, 0.0) > 0.0:
+            anchored.add(comp[col])
+    for vid in hard_follow:                           # a HARD row anchors too
+        col = int(red.col[vid])
+        if col >= 0:
             anchored.add(comp[col])
     for p_ in cs.pins:                                # a pin fixes its class
         col = int(red.col[p_.v])

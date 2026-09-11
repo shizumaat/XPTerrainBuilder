@@ -181,7 +181,9 @@ def test_a_rim_vertex_an_apron_shares_is_never_pinned_and_carries_the_apron(law)
     assert shared, "the knife's rim IS the apron's hole ring — the vertices are one set"
     assert not any(v in pins for v in shared), \
         "a shared rim vertex is pinned by nothing: the apron's surface carries it"
-    assert all(pins[v].z == pytest.approx(688.0) for v in floor_vs), "the floor is pinned"
+    # the floor is no longer pinned (owner RULINGS 2026-09-10ba): it stands
+    # the object's body depth under its rim and carries no absolute datum
+    assert not any(v in pins for v in floor_vs)
 
     sol, _rep = solve_design(pm, ConstraintSet.from_rows(rows), law, Options())
     surface = graded_surface(pm, law, sol, (60.5, -135.5))

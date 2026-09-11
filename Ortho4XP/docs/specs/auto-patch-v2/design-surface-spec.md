@@ -3427,6 +3427,42 @@ lands `Ground-FSX-LEMD37`'s authored wall crest (−1.88) 3.14–3.79 m under th
 instead of 10aq's 1.9 m.  Whether the floor should be `rim − authored depth` is a
 law question for the owner, not this lane's.
 
+### 22.1c THE FLOOR IS THE OBJECT'S DEPTH BELOW THE RIM (owner RULINGS 2026-09-10ba) — lane `v2basinfix` round 2
+
+22.1b's residual, ruled: the rim follows the pavement (10an/10ar) and the FLOOR
+follows the RIM.  `constraints/structures.basins` no longer pins a floor vertex
+at `Basin.floor_z` (= `DEM(anchor) + agl + plate_y`, an absolute datum the
+pavement's own level never reached).  Each floor-ring vertex carries instead a
+RELATIVE row against its NEAREST rim vertex — `z_floor − z_rim = −body_depth`,
+where `body_depth = −Basin.solid_min_y_m` (the sidecar's `body_depth_m`, 7.05 m
+at T4S).  The vocabulary's `Diff` is a symmetric grade cap with no offset, so
+the law is ONE `Linear` EQUALITY (`lo == hi`, head `basin.floor = rim -
+body_depth`), which the design solve carries as a two-sided target at `[design]
+law` — the strongest tier below the active set — with `follows` naming the FLOOR
+vertex: the floor follows, the rim is never pulled.  MEASURED AND REJECTED
+first: the same equality as two opposing one-sided rows in `[design]
+hard_rulings`.  Both halves are AT their bound at the solution, so the
+augmented-Lagrangian polish escalates them against each other — at LEMD that arm
+reported 1305/128088 hard rows active, max violation 0.3019 m, "HARD SET NOT
+SETTLED", a runway projection moving 0.442 m and adjudicated 580 -> 1259
+airport-wide, none of it near the pit.  A basin with no rim vertices or no
+measured depth keeps the absolute pin (the fallback is reported, never silent).
+
+THE CONSUMER TABLE (08-30l), every pass that reads the floor ring:
+
+| consumer | ruling |
+|---|---|
+| `constraints/structures.basins` | the pin → the relative hard rows (the derivation site) |
+| `constraints/structures.reconcile_datums` | a senior structure's Pin now also withdraws a junior basin's relative row |
+| `solve/design` §8 | the row is an EQUALITY (`_law_sides`' `eqs`), priced at `[design] law`; NOT in `hard_rulings` (see above) |
+| `solve/design` §9 | a vertex an EQUALITY with `follows` governs ANCHORS its sheet — the floor is no longer "detached" and takes no DEM plane of its own |
+| `solve/why` | family `basin_floor` (`_FAMILY_KEYS`), so a trace on the floor names the rim it follows |
+| `pipeline/build._plate_seats` | UNCHANGED — the stations are points ON the floor ring and the seat reads the solved surface, so the plate lands on the solved floor and the authored crest (−1.88) 1.9 m under the rim |
+| `pipeline/publication.basin_facilities` | `floor_m` is the SOLVED floor (mean), with `floor_min_m` / `floor_max_m` / `floor_below_rim_m` (the law) and `floor_declared_m` (the object's own); `rim_law_m` is the SOLVED rim mean where the solve is known, `rim_estimate_m` stays R_est; `seat_expect_m` re-derived against the solved floor |
+| `verify/structures.basin_floor_at_declaration` | the acceptance is now RELATIVE: every floor vertex within materiality of (its nearest published rim vertex − `floor_below_rim_m`) |
+| `tools/check_grade._basin_facilities_declared` / `_basin_declared_drop` | the declared-floor JOIN is the published floor RANGE, the allowance `part − floor_min_m`; a sidecar without the range keys reads `floor_m` for both and is judged byte-identically |
+| `verify/structures.basin_floor_declaration`, `structure_rim_gap`, `emit/rebake._plate_reading`, `airport/rebake_plan` | untouched (plan geometry, or the two bottom instruments, neither of which moves) |
+
 ### 22.2 WHICH PADS ARE NO LONGER MINTED
 
 In `classify/evidence._pads`, BEFORE the pad is added and before every region is

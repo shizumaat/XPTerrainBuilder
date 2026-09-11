@@ -119,10 +119,15 @@ def _airport(law, cells, basins=()):
     return airport, pm
 
 
+#: the object's own body depth under its rim (RULINGS 2026-09-10ba): the
+#: fixture's floor plate stands this far under R_est
+DEPTH_M = 699.0 - FLOOR_Z
+
+
 def _basin(wall_ref: str, floor_ref: str):
     return Basin("basin:0", ("obj:fixture",), FLOOR_Z, floor_ref, wall_ref,
                  tuple(FLOOR), wall_path=tuple(RIM), rim_estimate_m=699.0,
-                 solid_min_z=FLOOR_Z, area_m2=4800.0)
+                 solid_min_z=FLOOR_Z, solid_min_y_m=-DEPTH_M, area_m2=4800.0)
 
 
 def _face(pm, ref):
@@ -203,19 +208,24 @@ def test_the_rim_of_a_basin_in_an_apron_lies_on_the_aprons_plane(law):
     assert worst <= 0.05, f"the rim stands {worst:.3f} m off the apron's plane"
 
 
-def test_the_floor_ring_keeps_its_own_pins_at_the_basins_floor(law):
-    """The wall's DROP is the floor ring's business (10an): the floor stays
-    pinned at ``Basin.floor_z`` and the rim's flush row changes nothing
-    about it."""
+def test_the_floor_ring_hangs_its_own_depth_under_the_rim(law):
+    """The wall's DROP is the floor ring's business (10an) — and since owner
+    RULINGS 2026-09-10ba that drop is the object's own body depth under the
+    RIM, not an absolute pin: no ``Pin`` on a floor vertex, and the solved
+    floor stands ``DEPTH_M`` under the rim vertex it follows."""
     cells = _cells("basin_wall:0", "basin_floor:0")
     airport, pm = _airport(law, cells, basins=[_basin("basin_wall:0", "basin_floor:0")])
-    pins = {r.v: r for r in basin_rows(pm, law, airport) if isinstance(r, Pin)}
+    rows = basin_rows(pm, law, airport)
     floor_vs = set(pm.ring_vertices(_face(pm, "basin_floor:0").ring))
-    assert floor_vs and all(pins[v].z == pytest.approx(FLOOR_Z) for v in floor_vs)
+    assert floor_vs
+    assert not any(isinstance(r, Pin) and r.v in floor_vs for r in rows)
+    rel = [r for r in rows if isinstance(r, Linear) and r.follows
+           and set(r.follows) <= floor_vs]
+    rim_of = {v: next(u for u, c in r.terms if c < 0) for r in rel for v in r.follows}
+    assert set(rim_of) == floor_vs
     pm2, z, _cs, _rep = _solved(law)
-    floor2 = set(pm2.ring_vertices(_face(pm2, "basin_floor:0").ring))
-    for v in floor2:
-        assert float(z[v]) == pytest.approx(FLOOR_Z, abs=0.05)
+    for v, u in rim_of.items():
+        assert float(z[v]) == pytest.approx(float(z[u]) - DEPTH_M, abs=0.05)
 
 
 def test_a_shared_rim_vertex_carries_no_lower_target_of_its_own(law):

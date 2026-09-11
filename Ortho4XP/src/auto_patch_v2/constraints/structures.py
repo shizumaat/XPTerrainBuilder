@@ -46,9 +46,10 @@ THE ROWS (law ``structures.toml``; RULINGS 2026-08-30, 2026-08-30c/d/f,
   bridge.clearance_m`` (a ``Band``; 08-30f: the cut stays at bore datum
   under the bridge — the datum satisfies it or the IIS names the object).
 * BASIN (M4b; RULINGS 2026-08-26, 2026-09-06b (3); ``structures.toml
-  [basin]``) — every floor-face vertex is PINNED at the facility's floor
-  (``Basin.floor_z``: the rendered deepest solid the planar builder read
-  once); the rim round it carries the ground exactly as the tunnel rim
+  [basin]``) — every floor-face vertex stands ``body_depth_m`` UNDER ITS
+  NEAREST RIM VERTEX (owner RULINGS 2026-09-10ba, replacing the absolute
+  pin at ``Basin.floor_z``: the rim follows the pavement and the floor
+  follows the rim); the rim round it carries the ground exactly as the tunnel rim
   does (the ground rule: the governed ground's value where its edge is
   shared — the rim LEVEL with the apron, 2026-08-28c item 3 — the DEM by
   station where bare).  The void between floor and rim has no vertices
@@ -83,7 +84,8 @@ from .precedence import view
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
-           "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "RAMP_REF", "WALL_REF"]
+           "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "BASIN_FLOOR_RULING",
+           "RAMP_REF", "WALL_REF"]
 
 GEN = "structures"
 #: The planar builder's refs of a tunnel's own faces (``planar/structures.py``;
@@ -99,6 +101,11 @@ GEN_RIM_LEVEL = "rim_level"
 #: Its ruling HEAD — named by ``[design] one_way_rulings`` (the rim
 #: follows the pavement, never pulls it).
 RIM_LEVEL_RULING = "structures.structure_rim frontage_level"
+#: THE BASIN FLOOR IS THE OBJECT'S DEPTH BELOW THE RIM (owner RULINGS
+#: 2026-09-10ba; spec §22.1c).  Its ruling HEAD: the row is an EQUALITY
+#: (``lo == hi``) the design solve prices at ``[design] law``, and the
+#: vertex it GOVERNS anchors its sheet (``solve/design`` §9).
+BASIN_FLOOR_RULING = "basin.floor = rim - body_depth"
 #: A door ramp's role AND ref (RULINGS 2026-09-08b/c Law A).
 DOOR_RAMP_REF = "door_ramp"
 #: RULINGS 2026-09-08m/08n Law C: a wall corridor's floor + climb, and an
@@ -107,6 +114,11 @@ WALL_CORRIDOR_ROLES = ("wall_corridor_ramp", "garage_ramp")
 WALL_CORRIDOR_SOURCE = "wall_corridor"
 #: Two ramp vertices closer than this along the axis are one station.
 _STATION_CLUSTER_M = 1.0
+
+#: Per-generator statistics (``constraints.generate`` publishes them as
+#: ``<generator>.<key>``): the basin floors stated RELATIVE to their rim
+#: and the ones that fell back to the absolute pin (RULINGS 2026-09-10ba).
+STATS: dict[str, dict[str, int]] = {}
 
 
 def _faces_of(planar: PlanarMap, tunnels: _t.Sequence[Tunnel], role: str, ref: str,
@@ -480,8 +492,28 @@ def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: lis
 
 
 def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """Every basin row (M4b): the floor pinned at the facility's floor,
-    the rim by the ground rule."""
+    """Every basin row (M4b): the floor the object's DEPTH BELOW ITS RIM,
+    the rim by the ground rule.
+
+    THE FLOOR IS RELATIVE (owner RULINGS 2026-09-10ba; spec §22.1c).  The
+    floor was PINNED at ``Basin.floor_z`` — ``DEM(anchor) + agl +
+    plate_y``, an absolute datum the pavement's own level never reached:
+    measured at LEMD's T4S pit the rim took the apron (597.3–597.9, 10an/
+    10ar) while the floor stayed at 588.95, a cut of 8.3–9.0 m for a
+    7.05 m object, and the plate seat put ``LEMD37``'s authored wall crest
+    (−1.88) 3.1–3.8 m under the rim where 10aq reads 1.9 m.
+
+    The rim follows the pavement and the FLOOR FOLLOWS THE RIM: every
+    floor-ring vertex carries ``z_floor − z_rim = −body_depth`` against
+    its NEAREST rim vertex, ``body_depth = −Basin.solid_min_y_m`` (the
+    sidecar's ``body_depth_m``, the facility's own deepest genuine solid
+    under R_est).  ``Diff`` is a symmetric grade cap with no offset, so
+    the law is one ``Linear`` EQUALITY (``lo == hi``) at the design
+    solve's LAW weight, and ``follows`` names the FLOOR vertex:
+    the floor follows, the rim is never pulled down into the pit.
+
+    A basin with no rim vertex of its own, or no measured depth, keeps the
+    absolute pin — the fallback is recorded in ``STATS``."""
     if not planar.basins:
         return []
     bl = law.tables.structures.basin
@@ -508,6 +540,7 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     faces_by_ref: dict[str, list[Face]] = {}
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
+    relative = fallback = 0
     for b in planar.basins:
         inputs = (b.id, *(f"obj:{o}" for o in b.objects[:8]))
         src_floor = Source(GEN, "basin.floor = deepest_solid: the rendered floor plate "
@@ -515,17 +548,53 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_wall = Source(GEN, "basin.rim = ground: the rim at the DEM where bare (2026-09-03b "
                           "L1; 2026-09-04d), the apron's value where shared (2026-08-28c "
                           "item 3)", inputs)
-        for f in faces_by_ref.get(b.floor_ref, ()):
-            for v in set(planar.ring_vertices(f.ring)):
+        floor_vs = {v for f in faces_by_ref.get(b.floor_ref, ())
+                    for v in planar.ring_vertices(f.ring)}
+        rim_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
+                         for v in planar.ring_vertices(f.ring)} - floor_vs)
+        # THE DEPTH IS THE FACILITY'S OWN BODY (10ba): ``body_depth_m`` as
+        # the sidecar publishes it.  A record from before that instrument
+        # (or a fixture stating only floor and R_est) falls back to the
+        # declared floor under the rim estimate — the same number, read
+        # the long way — and a basin with neither keeps the absolute pin.
+        depth = -float(b.solid_min_y_m)
+        if depth <= 1e-6:
+            depth = float(b.rim_estimate_m) - float(b.floor_z)
+        if rim_vs and depth > 1e-6:
+            src_rel = Source(GEN, BASIN_FLOOR_RULING +
+                             " (owner RULINGS 2026-09-10ba: the rim follows the "
+                             "pavement, 10an/10ar, and the FLOOR follows the rim "
+                             f"— {depth:.2f} m of object under it, 10aq)", inputs)
+            for v in sorted(floor_vs):
+                vx, vy = planar.vertices[v].xy
+                r = min(rim_vs, key=lambda u: (planar.vertices[u].xy[0] - vx) ** 2
+                        + (planar.vertices[u].xy[1] - vy) ** 2)
+                # ONE EQUALITY ROW (``lo == hi``): ``Diff`` caps a difference
+                # symmetrically around zero and cannot carry the offset, so
+                # the law is stated as a ``Linear`` equality, which
+                # ``solve/design`` carries as a two-sided target at the LAW
+                # weight — the strongest tier below the active set.
+                #
+                # NOT two opposing one-sided rows in ``[design]
+                # hard_rulings``, which is what this lane measured first:
+                # both halves of one equality are AT their bound at the
+                # solution, so the augmented-Lagrangian polish escalates
+                # them against each other and never settles.  At LEMD that
+                # arm reported 1305/128088 hard rows active, max violation
+                # 0.3019 m, "HARD SET NOT SETTLED", a runway projection
+                # moving 0.442 m and adjudicated 580 -> 1259 airport-wide.
+                rows.append(Linear(((v, 1.0), (r, -1.0)), -depth, -depth,
+                                   src_rel, follows=(v,)))
+            relative += 1
+        else:
+            for v in sorted(floor_vs):
                 pin(v, b.floor_z, src_floor, senior=True)
+            fallback += 1
         if len(b.wall_path) >= 3:
             path = LineString(list(b.wall_path) + [b.wall_path[0]])
-            floor_vs = {v for f in faces_by_ref.get(b.floor_ref, ())
-                        for v in planar.ring_vertices(f.ring)}
-            wall_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
-                              for v in planar.ring_vertices(f.ring)} - floor_vs)
-            _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
+            _rim_rows(planar, airport, path, rim_vs, shared_with_ground, pin, src_wall)
     rows.extend(pins.values())
+    STATS["basins"] = {"floor_relative": relative, "floor_absolute_fallback": fallback}
     return rows
 
 
@@ -657,6 +726,16 @@ def reconcile_datums(rows: list[Row], law: Law) -> tuple[list[Row], int]:
         if isinstance(r, Pin):
             k = structure_of(r)
             if k is not None and k in order and order[k] > best.get(r.v, order[k]):
+                n += 1
+                continue
+        elif isinstance(r, Linear) and r.follows is not None:
+            # THE RELATIVE FLOOR IS A DATUM TOO (RULINGS 2026-09-10ba): a
+            # basin floor vertex a SENIOR structure pins keeps the pin and
+            # loses the basin's row, exactly as it lost the basin's pin.
+            k = structure_of(r)
+            fvs = ((r.follows,) if isinstance(r.follows, int) else tuple(r.follows))
+            if k is not None and k in order \
+                    and any(order[k] > best.get(v, order[k]) for v in fvs):
                 n += 1
                 continue
         out.append(r)

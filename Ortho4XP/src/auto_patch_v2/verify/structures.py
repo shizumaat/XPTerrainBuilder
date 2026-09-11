@@ -151,31 +151,55 @@ def _basin_floors(p: Patch) -> list[Shape]:
 
 
 def basin_floor_at_declaration(p: Patch) -> list[Row]:
-    """M4b acceptance: every vertex of a basin floor face carries the
-    facility's PUBLISHED ``floor_m`` (within the materiality floor) — the
-    census's declared-number join has nothing to join otherwise."""
+    """M4b acceptance, RELATIVE since owner RULINGS 2026-09-10ba (spec
+    §22.1c): a basin floor vertex stands the facility's published
+    ``floor_below_rim_m`` under its NEAREST published RIM vertex, within
+    the materiality floor.  The floor follows the rim and the rim follows
+    the pavement, so there is no single declared floor left to join to —
+    a patch published before 10ba carries no ``floor_below_rim_m`` and is
+    judged against its flat ``floor_m`` exactly as before."""
     tol = p.law.tables.emit.materiality.elevation_m
-    declared = {}
+    declared: dict[str, dict] = {}
     for rec in p.publication.get("basin_facilities") or ():
         ref = rec.get("floor_ref")
         try:
-            declared[str(ref)] = float(rec["floor_m"])
+            declared[str(ref)] = {"floor_m": float(rec["floor_m"]),
+                                  "wall_ref": str(rec.get("wall_ref") or ""),
+                                  "depth": (None if rec.get("floor_below_rim_m") is None
+                                            else float(rec["floor_below_rim_m"]))}
         except (KeyError, TypeError, ValueError):
             continue
+    rims: dict[str, list[tuple[tuple[float, float], float]]] = {}
+    floor_ids = {i for sh in _basin_floors(p) for i in sh.ids}
+    # the rim is a ``structure_rim`` FEATURE way (09-06b (1)), with the
+    # retired ``retaining_wall`` shape read beside it exactly as
+    # :func:`wall_in_runway_strip` reads both
+    for sh in _rims(p) + [x for x in p.shapes if x.role == "retaining_wall"]:
+        key = sh.ref.split("#")[0]
+        for k, i in enumerate(sh.ids):
+            if i not in floor_ids:
+                rims.setdefault(key, []).append((sh.xy[k], float(sh.z[k])))
     out: list[Row] = []
     for f in _basin_floors(p):
-        want = declared.get(f.ref.split("#")[0])
-        if want is None:
+        rec = declared.get(f.ref.split("#")[0])
+        if rec is None:
             out.append(row("basin_floor_at_declaration", ("tunnel_trench",) * 2, "airside", 0.0,
                            None, None, None, f.xy[0], f.xy[0], f.key, None,
                            out_of_scope=f"{f.ref}: no published facility"))
             continue
+        rim = rims.get(rec["wall_ref"]) or []
         for k, z in enumerate(f.z):
+            if rec["depth"] is not None and rim:
+                x, y = f.xy[k]
+                rz = min(rim, key=lambda q: (q[0][0] - x) ** 2 + (q[0][1] - y) ** 2)[1]
+                want, what = rz - rec["depth"], f"rim {rz:.2f} - {rec['depth']:.2f}"
+            else:
+                want, what = rec["floor_m"], f"declared {rec['floor_m']:.2f}"
             if abs(z - want) > tol + 1e-9:
                 out.append(row("basin_floor_at_declaration", ("tunnel_trench",) * 2, "airside",
                                abs(z - want), None, None, None, f.xy[k], f.xy[k], f.key, None,
                                lat=p.ll[f.ids[k]][0], lon=p.ll[f.ids[k]][1],
-                               out_of_scope=f"{f.ref}: {z:.2f} vs declared {want:.2f}"))
+                               out_of_scope=f"{f.ref}: {z:.2f} vs {what}"))
     return out
 
 

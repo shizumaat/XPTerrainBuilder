@@ -325,15 +325,35 @@ def basin_facilities(planar: PlanarMap, law: Law,
         # the rim = the void face's EXTERIOR (its holes are the floors)
         by_ref.setdefault(f.ref.split("#")[0], []).extend(planar.ring_vertices(f.ring))
     for b in planar.basins:
+        floor_vs = sorted(set(by_ref.get(b.floor_ref, ())))
         wall_vs = sorted(set(by_ref.get(b.wall_ref, ())) - set(by_ref.get(b.floor_ref, ())))
         rim_parts = sorted({round(float(z[v]), 2) for v in wall_vs}) if z is not None else []
         lat, lon = b.anchor_ll
+        # THE FLOOR IS THE SOLVED ONE (owner RULINGS 2026-09-10ba; spec
+        # §22.1c): the floor ring stands ``body_depth_m`` under its rim,
+        # which follows the pavement — so it is no longer ONE declared
+        # number and the record publishes the RANGE the census joins on.
+        # ``floor_declared_m`` keeps the object's own reading, and
+        # ``rim_law_m`` — the law the rim was held to — is the SOLVED rim
+        # where the solve is known (``rim_estimate_m`` stays R_est).
+        depth = -float(b.solid_min_y_m)
+        if depth <= 1e-6:
+            depth = float(b.rim_estimate_m) - float(b.floor_z)
+        f_zs = [float(z[v]) for v in floor_vs] if (z is not None and floor_vs) else []
+        r_zs = [float(z[v]) for v in wall_vs] if (z is not None and wall_vs) else []
+        floor_m = sum(f_zs) / len(f_zs) if f_zs else float(b.floor_z)
+        rim_law = sum(r_zs) / len(r_zs) if r_zs else float(b.rim_estimate_m)
+        seat_expect = float(b.seat_expect_m) + (floor_m - float(b.floor_z))
         out.append({
             "resources": list(b.objects),
             "anchor_longitude_latitude": [lon, lat],
             "rim_estimate_m": round(b.rim_estimate_m, 3),
-            "floor_m": round(b.floor_z, 3),
-            "rim_law_m": round(b.rim_estimate_m, 3),
+            "floor_m": round(floor_m, 3),
+            "floor_min_m": round(min(f_zs), 3) if f_zs else round(float(b.floor_z), 3),
+            "floor_max_m": round(max(f_zs), 3) if f_zs else round(float(b.floor_z), 3),
+            "floor_declared_m": round(b.floor_z, 3),
+            "floor_below_rim_m": round(depth, 3),
+            "rim_law_m": round(rim_law, 3),
             "emitted_rim_min_m": rim_parts[0] if rim_parts else None,
             "emitted_rim_max_m": rim_parts[-1] if rim_parts else None,
             "emitted_rim_part_count": len(rim_parts),
@@ -346,7 +366,7 @@ def basin_facilities(planar: PlanarMap, law: Law,
             # anchor's place and the delta the design implies
             "plate_y_m": round(b.plate_y_m, 3),
             "anchor_inside_floor": bool(b.anchor_inside_floor),
-            "seat_expect_m": round(b.seat_expect_m, 3),
+            "seat_expect_m": round(seat_expect, 3),
             "member_ids": list(b.member_ids),
             "witness_id": b.witness_id,
             "covered_fraction": round(b.covered_fraction, 4),

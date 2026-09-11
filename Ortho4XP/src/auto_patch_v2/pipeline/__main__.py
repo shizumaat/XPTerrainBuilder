@@ -46,6 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--at", help="LAT,LON (WGS84)")
     e.add_argument("--patch", help="the patch to read --shape from (default: "
                    "Patches/<block>/<tile>/<ICAO>_auto.patch.osm in the engine tree)")
+    e.add_argument("--sources", action="store_true",
+                   help="ALSO list every source polygon's record (id, class, the "
+                        "reason, width, road/taxi metres, OSM apron and parking "
+                        "cover, startups) — the airport-wide census behind one "
+                        "shape's verdict, so a rule change's collateral is read "
+                        "in ONE classification instead of one run per shape")
     e.add_argument("--xplane-root")
     e.add_argument("--cifp-dir")
     e.add_argument("--data-root")
@@ -98,8 +104,11 @@ def explain_main(args) -> int:
     from ..classify import classify, load_rules
     from ..classify.evidence import build_evidence
     from ..classify.explain import explain_at, explain_polygon, render, shape_polygon
-    if (args.shape is None) == (args.at is None):
-        print("explain: exactly one of --shape N / --at LAT,LON")
+    if args.shape is not None and args.at is not None:
+        print("explain: at most one of --shape N / --at LAT,LON")
+        return 2
+    if args.shape is None and args.at is None and not args.sources:
+        print("explain: one of --shape N / --at LAT,LON / --sources")
         return 2
     icao = args.icao.upper()
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
@@ -113,10 +122,21 @@ def explain_main(args) -> int:
     print(f"[{icao}] {len(cl.cells)} cells; sources: "
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))
+    if args.sources:
+        print(f"{'source':<12} {'cls':<5} {'area_m2':>9} {'width':>6} {'road':>7} "
+              f"{'osm':>7} {'taxi':>6} {'strt':>4} {'apron%':>6} {'park%':>6}  "
+              f"description / reason")
+        for r in sorted(cl.sources, key=lambda s: (s.cls, -s.area_m2)):
+            print(f"{r.id:<12} {r.cls:<5} {r.area_m2:>9,.0f} {r.width_m:>6.1f} "
+                  f"{r.road_m:>7.0f} {r.osm_road_m:>7.0f} {r.taxi_m:>6.0f} "
+                  f"{r.startups:>4d} {r.apron_cover:>6.0%} {r.parking_cover:>6.0%}  "
+                  f"{r.description!r} -> {r.reason}")
     if args.at is not None:
         lat, lon = (float(v) for v in args.at.split(","))
         to_xy, _ = airport.frame.transformers()
         print(render(explain_at(to_xy(lon, lat), cl, ev, airport)))
+        return 0
+    if args.shape is None:
         return 0
     patch = args.patch
     if patch is None:

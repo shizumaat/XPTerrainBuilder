@@ -85,6 +85,8 @@ class Lot:
     apron_name_tokens: tuple[str, ...]
     through_min_fraction: float
     parking_cover_fraction: float
+    apron_cover_fraction: float
+    apron_veto_cover_fraction: float
 
 
 @_dc.dataclass(frozen=True)

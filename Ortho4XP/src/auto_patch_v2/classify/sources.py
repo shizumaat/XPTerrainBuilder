@@ -210,8 +210,16 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
             cls, reason = "strip", (f"width {width:.1f} m, through {through:.0f} m >= "
                                     f"{lot.through_min_fraction:g} x {half_perim:.0f} m, "
                                     f"{pieces} road piece(s)")
+    # THE LOT VETO (owner RULINGS 2026-09-11ac item 6): a page with a
+    # MAPPED APRON on it is not a car park.  The veto reads its own
+    # ``apron_veto_cover_fraction`` — a noise floor, not the majority the
+    # positive test asks for — because the two questions differ: claiming
+    # an open face IS apron needs evidence, refusing "this is a car park"
+    # needs only that OSM says there is apron here at all.  Until now both
+    # read ``parking_cover_fraction``, and LEMD's ``pav126`` (the owner's
+    # shapeID 83, 25 % apron) failed the majority and shipped a lot.
     if cls == "open" and no_taxi and starts == 0 and \
-            acov < lot.parking_cover_fraction and not apron_named(description, rules):
+            acov < lot.apron_veto_cover_fraction and not apron_named(description, rules):
         if pcov >= lot.parking_cover_fraction:
             cls, reason = "lot", f"amenity=parking covers {pcov:.0%}"
         elif aisle_m > 0.0 and carries_osm:

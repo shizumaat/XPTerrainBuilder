@@ -60,7 +60,7 @@ from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
-from .open_default import open_pavement_role
+from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
 from .sources import SourceRecord, classify_sources
 
@@ -291,7 +291,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     road_ev = _road_evidence(scored, ev, rules)
     stats["demoted_lots"] = 0
     for i, (face, role, ref, letter, evid, _net) in enumerate(scored):
-        if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY):
+        # THE DEMOTION YIELDS TO APRON EVIDENCE (owner RULINGS 2026-09-11ac
+        # item 7).  The touch-chain is a CONNECTIVITY test and nothing
+        # more: a face whose pavement source carries 1300 STARTUPS, a taxi
+        # centreline, an apron name or OSM `aeroway=apron` is airside on
+        # evidence, and a 0.05 m gap in the slice cannot outrank that.
+        # MEASURED at LEMD: `pav171` (the owner's shapeID 75, apron by the
+        # slice's own reading) holds FIVE startups — 1300 aircraft parking
+        # positions 70-74 — and shipped `parking_lot`, groundside, because
+        # its face chains to no runway.  The ladder is `open_default`'s
+        # OWN (04u), imported, never re-spelled here.
+        if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY) \
+                and apron_evidence(face, src_of.get(ref), evid, start_tree,
+                                   rules) is None:
             # landside: a lot when a road reaches it or a road/lot face
             # touches it (the roads-and-lots complex, owner 2026-09-04j),
             # else the paved island it always was

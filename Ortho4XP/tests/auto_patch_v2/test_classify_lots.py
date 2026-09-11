@@ -218,3 +218,101 @@ def test_emitted_way_carries_the_oracle_alias(law, tmp_path):
         assert float(tags["o4_grade_law_cap"]) == pytest.approx(0.05)  # composed as a minimum: 5 %
     assert not any(t.get("v") == "parking_lot" for w in root.iter("way")
                    for t in w.findall("tag") if t.get("k") == "role")
+
+
+# ── 5. a MAPPED APRON refuses the lot verdict (owner RULINGS 2026-09-11ac
+#      item 6: LEMD shapeID 83 / pav126) ─────────────────────────────────
+
+def _mapped_apron_lot_airport(apron_fraction: float):
+    """The §2 lot page again — an OSM service road inside, no taxi
+    centreline, no startup — with an OSM ``aeroway=apron`` polygon over
+    ``apron_fraction`` of its area.  LEMD's ``pav126`` is this page at
+    25 %: a real apron the pack draws as one 43,000 m2 concrete page that
+    a service road crosses, shipped ``parking_lot`` because 25 % missed
+    the old 50 % majority test."""
+    a = _apron_lot_airport()                     # lotpage = _rect(240, 320, 300, 400)
+    y1 = 320.0 + 80.0 * apron_fraction
+    apron = OsmWay(3, "airports", _rect(240.0, 320.0, 300.0, y1) + ((240.0, 320.0),),
+                   True, {"aeroway": "apron"})
+    return _dc.replace(a, osm_ways=a.osm_ways + (apron,))
+
+
+def test_a_mapped_apron_refuses_the_lot_verdict(law):
+    rules = load_rules()
+    pad_min = law.tables.structures.building_pad.min_area_m2
+    # 25 % apron: under the veto's own floor the page is no longer a lot
+    a = _mapped_apron_lot_airport(0.25)
+    ev = build_evidence(a, rules, pad_min)
+    rec = {r.id: r for r in classify_sources(a, ev, rules)[0]}["lotpage"]
+    assert rec.apron_cover == pytest.approx(0.25, abs=0.02), rec.apron_cover
+    assert rec.cls == "open", rec
+    assert not any(c.role == "parking_lot" and c.ref == "lotpage"
+                   for c in classify(a, law, rules).cells)
+    # ...and with NO mapped apron the very same page is still the lot it was
+    b = _apron_lot_airport()
+    evb = build_evidence(b, rules, pad_min)
+    recb = {r.id: r for r in classify_sources(b, evb, rules)[0]}["lotpage"]
+    assert recb.apron_cover == 0.0 and recb.cls == "lot", recb
+
+
+def test_the_veto_floor_is_not_the_positive_apron_test(law):
+    """The two thresholds are different questions and different keys: the
+    POSITIVE test (`open_default.apron_evidence`) still asks for a
+    majority; the LOT VETO asks only that OSM maps apron here at all."""
+    rules = load_rules()
+    assert rules.lot.apron_cover_fraction == pytest.approx(0.5)
+    assert rules.lot.apron_veto_cover_fraction < rules.lot.apron_cover_fraction
+    a = _mapped_apron_lot_airport(0.25)
+    src = {r.id: r for r in classify_sources(
+        a, build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2),
+        rules)[0]}["lotpage"]
+    from auto_patch_v2.classify.open_default import apron_evidence
+    assert apron_evidence(Polygon(_rect(240.0, 320.0, 300.0, 400.0)), src,
+                          {"n_taxi": 0}, None, rules) is None
+
+
+# ── 6. the landside demotion yields to APRON EVIDENCE (owner RULINGS
+#      2026-09-11ac item 7: LEMD shapeID 75 / pav171, five 1300 startups)
+
+def _detached_stands_airport(startups: bool, road: bool = False):
+    """A 100 x 85 m page west of the apron, 50 m clear of every other
+    pavement and outside every route-proximity band: the slice scores it
+    APRON and the touch-chain law demotes it, exactly as at LEMD.  With
+    ``startups`` it carries three 1300 stands — ``pav171`` carries five
+    (70-74) on 30,174 m2 and shipped ``parking_lot``, groundside."""
+    a = _synthetic(gate=True)
+    page = Pavement("stands", Surface.ASPHALT, _rect(150.0, 300.0, 250.0, 385.0), ())
+    starts = a.startups + tuple(
+        Startup(f"Stand {k}", (170.0 + 25.0 * k, 340.0), 0.0, "gate")
+        for k in range(3)) if startups else a.startups
+    ways = a.osm_ways + ((_way(4, [(150.0, 320.0), (250.0, 320.0)],
+                               highway="service"),) if road else ())
+    return _dc.replace(a, pavements=a.pavements + (page,), startups=starts,
+                       osm_ways=ways)
+
+
+def test_startups_keep_a_demoted_page_airside(law):
+    # the SAME geometry with no evidence on it: demoted, as the M1 law says
+    bare = [c for c in classify(_detached_stands_airport(False), law).cells
+            if c.ref == "stands"]
+    assert bare and all(c.side == "groundside" for c in bare), bare
+    assert all(c.evidence.get("demoted") == 1.0 for c in bare), \
+        "the twin no longer exercises the demotion"
+    # ...and with the stands on it the demotion yields
+    page = [c for c in classify(_detached_stands_airport(True), law).cells
+            if c.ref == "stands"]
+    assert page and all(c.side == "airside" for c in page), \
+        [(c.role, c.side) for c in page]
+    assert any(c.evidence.get("apron_evidence") == "startup on the face"
+               for c in page), [dict(c.evidence) for c in page]
+
+
+def test_a_road_on_a_stand_page_does_not_make_it_a_lot(law):
+    """pav171's own shape: stands AND an OSM service road across it.  The
+    road is road evidence and would have made the demoted face a
+    ``parking_lot``; the stands outrank it."""
+    page = [c for c in classify(_detached_stands_airport(True, road=True), law).cells
+            if c.ref == "stands"]
+    assert page
+    assert not any(c.role in ("parking_lot", "groundside_pavement") for c in page), \
+        [(c.role, c.side) for c in page]

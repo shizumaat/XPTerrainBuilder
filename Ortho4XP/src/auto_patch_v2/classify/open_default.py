@@ -46,7 +46,7 @@ def apron_evidence(face: Polygon, src: SourceRecord | None,
     d = src.description.lower()
     if any(t in d for t in rules.lot.apron_name_tokens):
         return "apron by name"
-    if src.apron_cover >= rules.lot.parking_cover_fraction:
+    if src.apron_cover >= rules.lot.apron_cover_fraction:
         return f"aeroway=apron covers {src.apron_cover:.0%}"
     return None
 

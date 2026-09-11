@@ -841,3 +841,88 @@ slopes there; a flat pad fights the authoring. Restated:
    rows ≤ 39 (round 4's); HECA railway bodies within 0.3 m and `T3_brick_clean`
    b0/b3/b4 not above round 4's +0.46 / +1.51 / +11.58; wall within +5 % of
    round 4.
+
+### §11b Measured (round 6, lane `v2canopy5`; branch `claude/v2canopy5`)
+
+Implemented as written — the bare-ground pad withdrawn, the fit, the per-foot
+rows at `ground_datum`, the residual-vs-bank feasibility, the low-side anchor —
+and **the mechanism does not carry the site.** Two of five bars miss.
+
+MEASURED, LEMD (`LEMD_20260911T135954`, 365.3 s against round 4's 352.8 s,
++3.6 %; `foot_rows` generator 0.79 s):
+
+| bar | round 4 | round 5 | **round 6** | |
+|---|---|---|---|---|
+| the three rows within 0.3 m | 13 of 24 | 17 of 51 | **9 of 31** | MISSED |
+| worst body | +1.94 | +3.33 | **+7.88** (LEMD84 b3, `basin`) | |
+| `> 3 m` (`seat_feet_census --placement-plan --graded`) | 16 | 15 | **18** | MISSED (bar ≤ 15) |
+| `< 0.3 m` | 50.1 % | 53.1 % | **47.3 %** | |
+| files (body rows) | 1,088 (3.60×) | 1,169 (3.87×) | **1,127 (3.73×)** | MET (≤ 4×) |
+| `pad_flat` verify rows | 39 | 98 | **18** | MET (≤ 39) |
+
+**THE ATTRIBUTION, from the generator's own census** (`constraints.by_generator.
+foot_rows`, LEMD): of 9,561 bodies read, 5,127 stand inside an OSM pad (the pad
+law keeps them, §11a (2)), 2,753 have a foot on pavement (09af-1, reported), 824
+are INFEASIBLE and 857 fire rows. But of those bodies' ground-contact feet,
+**1,901 of 2,663 — 71 % — lie inside NO FACE of the design sheet**, and take no
+row: the patch simply does not reach them, and the DEM governs there. Only 762
+feet (1,524 one-sided rows) are constrainable at all, out of 88,725 the census
+measures. At HECA the class is **inert**: 4,859 bare-ground bodies, 12,003 feet
+off the sheet, **3** feet with rows.
+
+**AND WHERE THE ROWS DO FIRE THEY LOSE**: `design.families.foot_rows` reads
+`rows 1524, missed 760, max 5.913 m` — half the rows are outpriced, by up to
+5.9 m. That is the feasibility rule's own doing: `bank_slope x (distance to the
+nearest other foot)` is 33 m of licence for four feet 100 m apart, so a body
+whose authored relief fights the ground by metres is admitted as FEASIBLE, its
+rows ask the sheet for those metres at `ground_datum` (3), and every law and the
+DEM datum beside them outprice or cancel them. The gate binds only where feet
+are CLOSE (280 feet 0.5 m apart ⇒ a 0.17 m limit), which is the opposite of
+where the relief is.
+
+**WHAT IMPROVED.** HECA's `road_train/metal_titles.obj b0` — the §11a residual,
++15.95 m at round 4 — reads **+1.80 m** with no pad at all, and
+`T3_brick_clean` b0/b3/b4 read **+0.43 / +11.24 / +1.21** against round 4's
++0.46 / +1.51 / +11.58 (the same multiset, every member at or under). Both come
+from `Group.infeasible` now pricing the DEM's FALL (§11b (3)) rather than the
+authored relief, which changes which junior bodies RELEASE — not from the foot
+rows, which fired three times at HECA. `pad_flat` 98 → 18 is the withdrawal.
+HECA wall 236.5 s against 200.2 s (+18 %, a single run inside the ±25 % band;
+the generator's own cost there is 1.77 s).
+
+**FOR ROUND 7, not decided by the lane:**
+
+1. **The sheet does not reach the bodies.** 71 % of bare-ground feet stand
+   outside every face. Either the adjacent-ground region must extend under a
+   pack body that stands on bare ground (a region question, and so a §11a (4)
+   consumer census), or bodies out there are accepted as DEM-governed and the
+   class is declared to cover only the ones inside the patch. No row law fixes
+   this.
+2. **A PARTIAL profile is the round-5 step wearing new clothes.** A body with 2
+   of 12 feet on the sheet gets two thirds of its ground tilted and the rest
+   left on the DEM. The rows should be ALL-OR-NOTHING per body — the cheapest
+   change here, and the lane's recommendation.
+3. **The feasibility bar is backwards.** It licenses metres where the feet are
+   far apart and refuses centimetres where they are close. A bar on the fit's
+   own SLOPE residual (the fitted relief against the DEM's own gradient between
+   the same two feet) would price what the eye reads.
+4. **The three rows' new worst is a `basin` body** (LEMD84 b3, +7.88 m, authored
+   relief 4.94 m), not a foot-row body — the basin admission law (09af/11-09ak),
+   outside §11b.
+
+**DEVIATIONS REPORTED (never decided by the lane).**
+
+* `constraints/foot_rows._triangles` is the same SHAPE as
+  `solve/rows._face_triangles` and cannot share code with it: the layering law
+  (`test_model.test_dependency_direction`) lets `constraints` import only `law`
+  and `model`, `solve` likewise, and `model` may import neither `shapely` nor
+  `numpy`. A shared home is the owner's call.
+* The rows reach the solve through the `ConstraintSet` as TWO one-sided
+  `Linear` rows per foot (a `lo == hi` row is read as the law's own equality),
+  priced by a new register `[design] ground_datum_rulings` — the same shape as
+  `hard_rulings` / `pad_flat_rulings`. `solve.assemble` takes no `Airport`, so
+  there was no other channel.
+* The fit is per GROUP, not per body: `Foot` carries no body key, and a group is
+  what X-Plane drapes at one anchor.
+* `model/ground_fit.py` is the ONE expression of the fit; `planar/group.derive`
+  and `constraints/foot_rows` both call it.

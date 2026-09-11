@@ -255,20 +255,29 @@ def test_a_mapped_apron_refuses_the_lot_verdict(law):
     assert recb.apron_cover == 0.0 and recb.cls == "lot", recb
 
 
-def test_the_veto_floor_is_not_the_positive_apron_test(law):
-    """The two thresholds are different questions and different keys: the
-    POSITIVE test (`open_default.apron_evidence`) still asks for a
-    majority; the LOT VETO asks only that OSM maps apron here at all."""
+def test_one_apron_cover_key_serves_both_readings(law):
+    """ONE physical fact, ONE threshold: the mapped apron that refuses the
+    lot verdict is the same evidence that names the open face apron.  The
+    PARKING knob is its own key again and is not consulted here."""
     rules = load_rules()
-    assert rules.lot.apron_cover_fraction == pytest.approx(0.5)
-    assert rules.lot.apron_veto_cover_fraction < rules.lot.apron_cover_fraction
+    assert rules.lot.apron_cover_fraction == pytest.approx(0.1)
+    assert rules.lot.parking_cover_fraction == pytest.approx(0.5)
     a = _mapped_apron_lot_airport(0.25)
     src = {r.id: r for r in classify_sources(
         a, build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2),
         rules)[0]}["lotpage"]
     from auto_patch_v2.classify.open_default import apron_evidence
-    assert apron_evidence(Polygon(_rect(240.0, 320.0, 300.0, 400.0)), src,
-                          {"n_taxi": 0}, None, rules) is None
+    why = apron_evidence(Polygon(_rect(240.0, 320.0, 300.0, 400.0)), src,
+                         {"n_taxi": 0}, None, rules)
+    assert why is not None and "aeroway=apron" in why, why
+    # ...and the page is no longer cut out as a lot: the pavement over it
+    # is airside (here it merges into the apron beside it, which is what
+    # "the apron never absorbs a lot" stops happening the other way round)
+    page = Polygon(_rect(240.0, 320.0, 300.0, 400.0))
+    over = [c for c in classify(a, law, rules).cells
+            if Polygon(c.ring, c.holes).intersection(page).area > 1.0]
+    assert over and all(c.side == "airside" for c in over), \
+        [(c.role, c.side, c.ref) for c in over]
 
 
 # ── 6. the landside demotion yields to APRON EVIDENCE (owner RULINGS

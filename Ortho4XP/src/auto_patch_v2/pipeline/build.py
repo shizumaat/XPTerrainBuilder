@@ -78,7 +78,7 @@ class BuildResult:
     rebake_plan: Path | None = None
 
 
-def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
+def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
     """Placement id -> ``(plate y, stations in frame xy)`` for every
     PLATE-seated structure member: a tunnel wall object (RULINGS
     2026-09-05n-4: plate height above its seat; the stations stand at the
@@ -125,7 +125,7 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
         for oid in tn.objects:
             # the seat reads the CREST (plate_y_m): an edge wall's depth
             # is the bore law's, its crest still goes flush (2026-09-06c)
-            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts)
+            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts, 0.0)
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -145,7 +145,12 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list]]:
         # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
         # 12–17 m off their own feet — spec §11.4).
         if b.witness_id:
-            out.setdefault(b.witness_id, (float(b.plate_y_m), pts))
+            # ... and the plate stands ``floor_clearance_m`` ABOVE the
+            # trench floor its stations read (11t §24 (2)): the floor row
+            # dropped the terrain by that much so the plate renders, and a
+            # seat without it would chase the object straight back down.
+            out.setdefault(b.witness_id, (float(b.plate_y_m), pts,
+                                          float(law.tables.structures.basin.floor_clearance_m)))
     return out
 
 

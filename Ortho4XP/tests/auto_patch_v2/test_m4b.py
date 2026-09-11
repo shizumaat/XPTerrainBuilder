@@ -13,7 +13,7 @@ import math
 
 import numpy as np
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.classify.roles import Cell, Classification
@@ -29,6 +29,7 @@ from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.planar.basins import build_basins, read_objects
 from auto_patch_v2.planar.build import build
+from auto_patch_v2.planar.structure_geometry import rim_standoff
 from auto_patch_v2.planar.structures import build_structures
 from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.verify import census
@@ -282,19 +283,28 @@ def test_basin_pass_cells_records_and_refusals(basin_map, law):
     floor = next(c for c in cl3.cells if c.ref == b.floor_ref)
     wall = next(c for c in cl3.cells if c.ref == b.wall_ref)
     assert floor.ref == b.floor_ref and wall.ref == b.wall_ref and len(wall.holes) == 1
-    # THE TRENCH (2026-09-06b (1), 09-08a): the floor = the plate ⊕
-    # floor_overlap_m (on the identity grid); the void's hole IS the floor;
-    # the rim (its exterior) stands inside the shell's footprint, clearing
-    # the floor by rim_standoff (the identity spacing at least)
+    # THE TRENCH (2026-09-06b (1), 09-08a) UNDER §24 (1) (owner RULINGS
+    # 2026-09-11t): THE CUT HUGS THE WALL.  This fixture's pit is a BOX —
+    # its floor plate reaches its own walls, shell thickness 0.00, exactly
+    # LEMD's T4S reading — so the rim is the shell's footprint, never
+    # widened outward, and the stand-off comes out of the FLOOR.  The
+    # DEVIATION that follows (reported, never decided by the lane): a
+    # zero-thickness shell cannot ALSO give the floor its
+    # ``floor_overlap_m`` outward; the floor is the plate trimmed to stand
+    # ``rim_standoff`` inside the rim instead.
     fp, wp = Polygon(floor.ring), Polygon(wall.ring, wall.holes)
     from shapely import affinity as _aff
     plate = _aff.affine_transform(Polygon([(-30, -20), (30, -20), (30, 20), (-30, 20)]),
                                   obj8.placement_affine((0.0, 0.0), 30.0))
-    assert fp.contains(plate) and fp.exterior.distance(plate.exterior) >= co.floor_overlap_m - 1e-6
-    assert Polygon(wall.holes[0]).equals(fp)
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    assert wp.exterior.distance(fp) >= grid - 1e-6
-    assert Polygon(wall.ring).contains(plate.buffer(co.floor_overlap_m - 1e-6))
+    _inset, standoff = rim_standoff(0.0, co, grid)
+    assert plate.buffer(1e-6).contains(fp), "the floor never leaves a 0-thick shell's plate"
+    assert Polygon(wall.holes[0]).equals(fp)
+    assert wp.exterior.distance(fp) >= standoff - 1e-6
+    # the rim hugs the wall: every rim vertex ON the shell's own footprint,
+    # well inside §24 (1)'s 1.0 m weld_spacing_m bar
+    weld = law.tables.emit.identity.weld_spacing_m
+    assert max(plate.exterior.distance(Point(q)) for q in wp.exterior.coords) <= weld + 1e-6
     # the pad inside the pit is gone, the one beside it untouched, the apron cut at the rim
     refs = [c.ref for c in cl3.cells]
     assert "padIn" not in refs and "padOut" in refs
@@ -401,7 +411,9 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     depth = -b.solid_min_y_m
     for r in rel:
         assert {abs(c) for _v, c in r.terms} == {1.0} and len(r.terms) == 2
-        assert r.lo == r.hi == pytest.approx(-depth)
+        # §24 (2): the floor sits floor_clearance_m UNDER the plate
+        assert r.lo == r.hi == pytest.approx(
+                -(depth + law.tables.structures.basin.floor_clearance_m))
     # every rim vertex (the void's exterior) pinned at the DEM or carried
     # by the apron it shares; no Flat across a band (there is none)
     assert not any(isinstance(r, Flat) for r in rows)
@@ -418,18 +430,23 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     assert sol.status is Status.OPTIMAL, sol.message
     rim_of = {v: next(u for u, c in r.terms if c < 0)
               for r in rel for v in r.follows}
-    assert all(sol.z[v] == pytest.approx(sol.z[rim_of[v]] - depth, abs=0.02)
+    clearance = law.tables.structures.basin.floor_clearance_m
+    assert all(sol.z[v] == pytest.approx(sol.z[rim_of[v]] - depth - clearance, abs=0.02)
                for v in floor_vs)
     # the rim is level with the apron where shared, the DEM where bare
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
     rec = [r for r in pub["basin_facilities"] if r["floor_ref"] == b.floor_ref]
     assert len(pub["basin_facilities"]) == 2 and len(rec) == 1
+    # §24 (2): the published floor is the plate's level MINUS the clearance
+    assert rec[0]["floor_clearance_m"] == pytest.approx(clearance)
     assert rec[0]["floor_m"] == pytest.approx(
-        rec[0]["rim_law_m"] + rec[0]["solid_minimum_y_m"], abs=0.002)
+        rec[0]["rim_law_m"] + rec[0]["solid_minimum_y_m"] - clearance, abs=0.002)
     assert rec[0]["margins_m"] == 0.0 and rec[0]["anchor_inside_floor"] is True
     assert rec[0]["seat_expect_m"] == pytest.approx(-rec[0]["plate_y_m"], abs=0.002)
     assert rec[0]["body_depth_m"] == pytest.approx(-rec[0]["solid_minimum_y_m"])
+    assert rec[0]["floor_below_rim_m"] == pytest.approx(
+        rec[0]["body_depth_m"] + clearance)
     assert rec[0]["emitted_rim_parts_m"] and rec[0]["emitted_rim_min_m"] > rec[0]["floor_m"]
     # the rim parts are the RIM's values (the ground), never the floor's
     assert all(v > rec[0]["floor_m"] + 1.0 for v in rec[0]["emitted_rim_parts_m"])

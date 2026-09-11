@@ -337,6 +337,7 @@ def basin_facilities(planar: PlanarMap, law: Law,
     for f in planar.faces.values():
         # the rim = the void face's EXTERIOR (its holes are the floors)
         by_ref.setdefault(f.ref.split("#")[0], []).extend(planar.ring_vertices(f.ring))
+    clearance = float(law.tables.structures.basin.floor_clearance_m)
     for b in planar.basins:
         floor_vs = sorted(set(by_ref.get(b.floor_ref, ())))
         wall_vs = sorted(set(by_ref.get(b.wall_ref, ())) - set(by_ref.get(b.floor_ref, ())))
@@ -349,14 +350,20 @@ def basin_facilities(planar: PlanarMap, law: Law,
         # ``floor_declared_m`` keeps the object's own reading, and
         # ``rim_law_m`` — the law the rim was held to — is the SOLVED rim
         # where the solve is known (``rim_estimate_m`` stays R_est).
-        depth = -float(b.solid_min_y_m)
-        if depth <= 1e-6:
-            depth = float(b.rim_estimate_m) - float(b.floor_z)
+        # ONE DERIVATION (``Basin.floor_below_rim_m``): the body depth plus
+        # ``[basin] floor_clearance_m`` (2026-09-11t §24 (2)), the same call
+        # ``constraints/structures.basins`` states the row with.
+        depth = b.floor_below_rim_m(clearance)
         f_zs = [float(z[v]) for v in floor_vs] if (z is not None and floor_vs) else []
         r_zs = [float(z[v]) for v in wall_vs] if (z is not None and wall_vs) else []
         floor_m = sum(f_zs) / len(f_zs) if f_zs else float(b.floor_z)
         rim_law = sum(r_zs) / len(r_zs) if r_zs else float(b.rim_estimate_m)
-        seat_expect = float(b.seat_expect_m) + (floor_m - float(b.floor_z))
+        # THE PLATE STANDS floor_clearance_m ABOVE THE TRENCH FLOOR (§24
+        # (2)): ``floor_m`` is the terrain's level, the plate's target is
+        # that plus the clearance — which is what ``emit/rebake`` seats to
+        # (``Member.plate_clearance_m``), so the published expectation and
+        # the seat read the same number.
+        seat_expect = float(b.seat_expect_m) + (floor_m + clearance - float(b.floor_z))
         out.append({
             "resources": list(b.objects),
             "anchor_longitude_latitude": [lon, lat],
@@ -366,6 +373,7 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "floor_max_m": round(max(f_zs), 3) if f_zs else round(float(b.floor_z), 3),
             "floor_declared_m": round(b.floor_z, 3),
             "floor_below_rim_m": round(depth, 3),
+            "floor_clearance_m": round(clearance, 3),
             "rim_law_m": round(rim_law, 3),
             "emitted_rim_min_m": rim_parts[0] if rim_parts else None,
             "emitted_rim_max_m": rim_parts[-1] if rim_parts else None,

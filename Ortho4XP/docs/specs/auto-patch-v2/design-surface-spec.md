@@ -3774,7 +3774,48 @@ the terrain at the bottom of the basin."
    basin family, `pad_level_report` leaders (a pad fronting the basin reads the rim),
    the placement anchor for a basin body (§6: a RIM point on the emitted ring). One
    table in the lane's report before any edit (08-30l).
-4. **Measured first on the app's products** — `<Patches>/+40-010/LEMD.graded.json`
+4. **Measured first on the app's products** — `<Patches>/+40-010/+40-004/LEMD.graded.json`
    (T4S basin: rim ring vs the object's wall face, rim vs apron edge, floor vs plate) —
    then fixed, then LEMD once. Bars: (1) and (2) as stated; OTHH's Dewatering /
    tunnel basins unchanged by dry run; `> 3 m` unchanged.
+
+**Measured** (lane `v2basinedge`, branch `claude/v2basinedge`; before = the app's
+1.0.315 products, after = `LEMD_20260911T142115` `body_sha=0a6181fed68f`, rc 0,
+360 s). T4S = `basin:0` (40.491701, −3.569256; members `Ground-FSX-LEMD36/37/85`),
+the only basin LEMD admits:
+
+| bar | before | after |
+|---|---|---|
+| (a) rim vertex → the object's outer wall face (≤ 1.0 m) | **+1.749 / +2.064 / +4.120 m, 56 of 56 OUTSIDE and over the bar** | **−0.251 / +0.010 / +0.264 m, 0 of 49 over** |
+| rim ring area vs the shells' region | 28,971 m² over 27,557 m² (perimeter 705 vs 682 m) | 27,586 m² over 27,557 m² (682 vs 682 m) |
+| (b) rim → apron vertical step (0.00, materiality 0.01) | 0.000 — all 71 rim vertices share their id with a ground face (23 apron, 51 pad) | 0.000 — all 59 do (14 apron, 47 pad) |
+| (c) trench floor − the object's floor plate (−0.50 ± 0.01) | **+0.000 / +0.000 / +0.000 m** | **−0.510 / −0.500 / −0.500 m** |
+
+Mechanism of (a): `planar/basins._rim` widened the region by whole grid steps until
+it contained the floor (the plate ⊕ `floor_overlap_m`) and cleared it by the
+stand-off; the T4S shell measures 0.00 m thick, so the loop ran to k = 4 = +2.0 m.
+That is the owed `rim snap_out widening` item of RULINGS 08e deviation (2), now
+closed: the rim is the region, and the stand-off comes out of the FLOOR
+(`_floors_inside`, 1,066 m² trimmed at T4S).
+
+OTHH dry run (planar replay of the new tree, no build): all **10** basins still
+admitted, none refused; every rim vertex on its wall face (worst |0.494| m, 0 of
+263 over the 1.0 m bar); the Dewatering pits' depths unchanged (13.142 m, the
+04i/08d reading) and the drainage bowls' 3.816 / 4.201 m likewise, each now
++ 0.500 m of clearance. Basin verify families on the LEMD arm:
+`basin_floor_declaration` 0, `basin_floor_at_declaration` 0, `structure_rim_gap` 0,
+`wall_in_runway_strip` 0.
+
+**DEVIATION REPORTED (§24 (1)), never decided by the lane.** A ZERO-THICKNESS
+shell — LEMD's T4S, OTHH's drainage shells, and every synthetic box fixture —
+cannot both keep the rim ON the wall face and give the floor its
+`floor_overlap_m` outward past the plate: there is no wall thickness to spend.
+The floor is therefore the plate TRIMMED to stand `rim_standoff` (0.5 m, the
+identity spacing) inside the rim, which leaves a ≤ 0.5 m band of terrain inside
+the wall line rising from the floor to the rim, its top standing up to the
+clearance ABOVE the plate. The alternative is the shelf (1) exists to remove.
+
+**NOT MEASURED by the lane**: `> 3 m` (the seat-feet census reads the object
+stage, which needs the app's mesh) and a matched defect-gate control (the
+1.0.315 products are a four-airport TILE build; a single-airport arm is a
+different population, and a control build is a second build).

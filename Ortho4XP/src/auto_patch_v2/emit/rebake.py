@@ -288,9 +288,15 @@ def _plate_reading(m: Member, base: float, sampler: Sampler, rb) -> MemberSeat |
         else:
             zs.append(float(s[0]))
     ground = float(statistics.median(zs)) if zs else None
-    delta = None if ground is None else ground - (base + m.plate_y)
+    # THE CLEARANCE (2026-09-11t §24 (2)): a basin plate's stations lie on
+    # the TRENCH FLOOR, which stands ``plate_clearance_m`` under the plate
+    # by law — so the plate's target is that ground PLUS the clearance, and
+    # the object does not follow its own trench down.  0 for a tunnel wall.
+    clear = float(m.plate_clearance_m)
+    delta = None if ground is None else (ground + clear) - (base + m.plate_y)
     return MemberSeat(m.resource, DATUM_PLATE, delta, len(zs), water, off, 0,
-                      f"ground at the wall band ({len(zs)} stations) − rendered plate "
+                      f"ground at the wall band ({len(zs)} stations) + clearance "
+                      f"{clear:.3f} − rendered plate "
                       f"(base {base:.3f} + plate {m.plate_y:.3f})" if ground is not None
                       else "no wall-band station on land within the mesh")
 

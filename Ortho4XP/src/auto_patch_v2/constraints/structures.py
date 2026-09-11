@@ -520,6 +520,7 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     if bl.floor != "deepest_solid" or bl.rim != "ground" or bl.seat != "floor_plate":
         raise ValueError(f"basin.floor {bl.floor!r} / rim {bl.rim!r} / seat {bl.seat!r}: only "
                          "'deepest_solid' / 'ground' / 'floor_plate' are generated")
+    clearance = float(bl.floor_clearance_m)
     rows: list[Row] = []
     pins: dict[int, Pin] = {}
 
@@ -544,7 +545,8 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for b in planar.basins:
         inputs = (b.id, *(f"obj:{o}" for o in b.objects[:8]))
         src_floor = Source(GEN, "basin.floor = deepest_solid: the rendered floor plate "
-                           "(2026-08-26; 2026-09-06b (3))", inputs)
+                           f"(2026-08-26; 2026-09-06b (3)) - floor_clearance_m {clearance:.2f} "
+                           "(2026-09-11t §24 (2))", inputs)
         src_wall = Source(GEN, "basin.rim = ground: the rim at the DEM where bare (2026-09-03b "
                           "L1; 2026-09-04d), the apron's value where shared (2026-08-28c "
                           "item 3)", inputs)
@@ -552,19 +554,19 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     for v in planar.ring_vertices(f.ring)}
         rim_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
                          for v in planar.ring_vertices(f.ring)} - floor_vs)
-        # THE DEPTH IS THE FACILITY'S OWN BODY (10ba): ``body_depth_m`` as
-        # the sidecar publishes it.  A record from before that instrument
-        # (or a fixture stating only floor and R_est) falls back to the
-        # declared floor under the rim estimate — the same number, read
-        # the long way — and a basin with neither keeps the absolute pin.
-        depth = -float(b.solid_min_y_m)
-        if depth <= 1e-6:
-            depth = float(b.rim_estimate_m) - float(b.floor_z)
+        # THE DEPTH IS THE FACILITY'S OWN BODY (10ba) PLUS THE CLEARANCE
+        # (11t, §24 (2)): ``Basin.floor_below_rim_m`` is the ONE derivation
+        # — ``pipeline/publication`` publishes the same call, and the
+        # census joins the two.  0.0 = a basin evidencing no depth at all:
+        # it keeps the absolute pin.
+        depth = b.floor_below_rim_m(clearance)
         if rim_vs and depth > 1e-6:
             src_rel = Source(GEN, BASIN_FLOOR_RULING +
                              " (owner RULINGS 2026-09-10ba: the rim follows the "
                              "pavement, 10an/10ar, and the FLOOR follows the rim "
-                             f"— {depth:.2f} m of object under it, 10aq)", inputs)
+                             f"— {depth - clearance:.2f} m of object under it, 10aq"
+                             f"; + {clearance:.2f} m floor_clearance_m under its "
+                             "floor plate, 2026-09-11t §24 (2))", inputs)
             for v in sorted(floor_vs):
                 vx, vy = planar.vertices[v].xy
                 r = min(rim_vs, key=lambda u: (planar.vertices[u].xy[0] - vx) ** 2
@@ -588,7 +590,10 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             relative += 1
         else:
             for v in sorted(floor_vs):
-                pin(v, b.floor_z, src_floor, senior=True)
+                # the absolute pin takes the clearance too (§24 (2)): a
+                # basin with no rim vertex of its own still gets a terrain
+                # floor under its plate, never coplanar with it
+                pin(v, b.floor_z - clearance, src_floor, senior=True)
             fallback += 1
         if len(b.wall_path) >= 3:
             path = LineString(list(b.wall_path) + [b.wall_path[0]])

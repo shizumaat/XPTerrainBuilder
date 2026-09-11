@@ -254,6 +254,12 @@ from test_v2pit2 import (FLOOR as _F_RING, RIM as _RIM, _apron_plane,  # noqa: E
 #: the T4S object: 7.05 m of body under its own rim (the sidecar's
 #: ``body_depth_m`` / ``-solid_minimum_y_m``)
 T4S_DEPTH_M = 7.05
+#: §24 (2) (owner RULINGS 2026-09-11t): the TERRAIN floor stands
+#: ``[basin] floor_clearance_m`` under the object's floor PLATE, so the
+#: row's depth is the body's plus the clearance.  Read from the table,
+#: never retyped.
+_CLEAR = Law.for_airport("ZZZZ").tables.structures.basin.floor_clearance_m
+T4S_FLOOR_BELOW_RIM_M = T4S_DEPTH_M + _CLEAR
 #: the floor the ABSOLUTE pin would have used — 3 m under the apron at the
 #: anchor, which is what the excavated production DEM reads at LEMD
 DEM_PIT_DROP_M = 3.0
@@ -348,7 +354,7 @@ def test_the_floor_row_is_one_equality_that_names_the_rim_it_follows(law):
     for r in rel:
         assert r.source.ruling.startswith(BASIN_FLOOR_RULING)
         assert set(r.follows) <= floor_vs
-        assert r.lo == r.hi == pytest.approx(-T4S_DEPTH_M)
+        assert r.lo == r.hi == pytest.approx(-T4S_FLOOR_BELOW_RIM_M)
 
 
 def test_a_pit_in_a_sloped_apron_hangs_its_floor_under_the_rim(law):
@@ -362,9 +368,9 @@ def test_a_pit_in_a_sloped_apron_hangs_its_floor_under_the_rim(law):
     assert contacts
     assert max(abs(float(z[v]) - plane(v)) for v in contacts) <= 0.05
     rim_of = _floor_to_rim(pm, law, airport)
-    worst = max(abs(float(z[v]) - (float(z[u]) - T4S_DEPTH_M))
+    worst = max(abs(float(z[v]) - (float(z[u]) - T4S_FLOOR_BELOW_RIM_M))
                 for v, u in rim_of.items())
-    assert worst <= 0.05, f"the floor stands {worst:.3f} m off rim - 7.05"
+    assert worst <= 0.05, f"the floor stands {worst:.3f} m off rim - {T4S_FLOOR_BELOW_RIM_M}"
     # and the rim really is not flat here: the law has something to follow
     assert max(float(z[u]) for u in set(rim_of.values())) \
         - min(float(z[u]) for u in set(rim_of.values())) > 0.3
@@ -380,7 +386,7 @@ def test_the_dem_under_the_anchor_is_not_the_floors_datum(law):
     airport_b, pm_b, z_b, _rb = _pit_solved(law, _ApronSlope(DEM_PIT_DROP_M))
     rim_a, rim_b = _floor_to_rim(pm_a, law, airport_a), _floor_to_rim(pm_b, law, airport_b)
     assert set(rim_a) == set(rim_b), "the same fixture geometry, one DEM apart"
-    worst = max(abs(float(z_b[v]) - (float(z_b[u]) - T4S_DEPTH_M))
+    worst = max(abs(float(z_b[v]) - (float(z_b[u]) - T4S_FLOOR_BELOW_RIM_M))
                 for v, u in rim_b.items())
     assert worst <= 0.05, f"the excavated DEM moved the floor {worst:.3f} m"
     # the DROP is invariant to the DEM inside the rim; the floor's LEVEL
@@ -394,7 +400,8 @@ def test_the_dem_under_the_anchor_is_not_the_floors_datum(law):
     # the excavated DEM under the anchor, 3 m lower
     old_datum = 700.0 - DEM_PIT_DROP_M - T4S_DEPTH_M
     lift = min(float(z_b[v]) for v in rim_b) - old_datum
-    assert lift > 1.5, f"the floor is only {lift:.2f} m off the excavated datum"
+    # (the bar is the pre-§24 1.5 m less the clearance the floor now takes)
+    assert lift > 1.5 - _CLEAR, f"the floor is only {lift:.2f} m off the excavated datum"
 
 
 def test_a_flat_rim_reproduces_the_absolute_pin(law):
@@ -405,5 +412,7 @@ def test_a_flat_rim_reproduces_the_absolute_pin(law):
     declared = pm.basins[0].floor_z
     rim_of = _floor_to_rim(pm, law, airport)
     for v, u in rim_of.items():
-        assert float(z[v]) == pytest.approx(float(z[u]) - T4S_DEPTH_M, abs=0.05)
-        assert float(z[v]) == pytest.approx(declared, abs=0.05)
+        assert float(z[v]) == pytest.approx(float(z[u]) - T4S_FLOOR_BELOW_RIM_M, abs=0.05)
+        # ... the DECLARED floor being the object's PLATE: §24 (2) puts the
+        # terrain floor_clearance_m under it, and nothing else moved
+        assert float(z[v]) == pytest.approx(declared - _CLEAR, abs=0.05)

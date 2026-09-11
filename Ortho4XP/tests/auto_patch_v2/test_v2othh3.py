@@ -209,16 +209,26 @@ def test_basin_family_seats_its_floor_plate_on_the_trench_floor(objs, law):
     res = R.seat(pl, _mesh_sampler(airport, pm), law)
     by_res = {u.resources[0].rsplit("/", 1)[-1]: u for u in res.units}
     pit, off = by_res["pit.obj"], by_res["offpit.obj"]
-    assert pit.datum == R.DATUM_PLATE and pit.bakes and pit.delta_m == pytest.approx(6.0, abs=0.3)
+    # §24 (2): the plate seats floor_clearance_m ABOVE the ground its
+    # stations read.  This fixture's mesh IS the declared floor (the solve
+    # that puts the terrain the clearance lower is not run here), so the
+    # delta carries the clearance; in a build the two cancel — the plate
+    # lands on the plate, the terrain the clearance under it.
+    _clear = law.tables.structures.basin.floor_clearance_m
+    assert pit.datum == R.DATUM_PLATE and pit.bakes and \
+        pit.delta_m == pytest.approx(6.0 + _clear, abs=0.3)
     assert pit.anchor_ground_m == pytest.approx(inside.floor_z, abs=1e-6)
-    # the off-pit anchor's plate lands within 0.05 m of the floor: under
-    # min_delta_m the structure STAYS (RULINGS 2026-09-08d d)
-    assert off.datum == R.DATUM_PLATE and off.delta_m is None
-    assert off.skip_reason.startswith("below_threshold") and not off.bakes
-    # after the seat the rendered plate stands on the trench floor
+    # the off-pit anchor's plate landed ON the fixture's floor, so all that
+    # is left of its delta is §24 (2)'s clearance — the plate is lifted off
+    # the floor by it (pre-11t this read None: under min_delta_m, it stayed)
+    assert off.datum == R.DATUM_PLATE
+    assert off.members[0].delta_m == pytest.approx(_clear, abs=0.01)
+    # after the seat the rendered plate stands the clearance ABOVE the
+    # trench floor this fixture's mesh carries — which is where a build's
+    # own floor, stated the clearance lower, puts the plate's own level
     m = pit.members[0]
     assert pit.anchor_ground_m + pl.units[0].agl_m + m.delta_m + inside.plate_y_m == \
-        pytest.approx(inside.floor_z, abs=0.3)
+        pytest.approx(inside.floor_z + _clear, abs=0.3)
 
 
 # ── §1: the product ───────────────────────────────────────────────────────

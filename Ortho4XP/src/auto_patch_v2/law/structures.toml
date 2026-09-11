@@ -334,6 +334,17 @@ rim                 = "ground"     # the at-grade rim (inside the outer perimete
 shell_reaches_grade = true         # a solid part witnesses a pit only if its rendered TOP reaches within contact_band_m of the ground over it (v1 pit seed: PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground-contact band); geometry wholly under the terrain is buried, never a pit (LEMD: v1-baked grass clumps 20–44 m under grade)
 cuts_pads           = true         # inside a below-grade region the trench is SENIOR to every pad/building authority (08-26; building_pad.in_basin_sits_at_floor)
 cuts_runway_family  = false        # a region reaching the runway family is refused, never cut (08-25 tunnel analogue)
+# THE FLOOR SITS UNDER THE OBJECT'S FLOOR (owner RULINGS 2026-09-11t, spec
+# design-surface-spec.md §24 (2)).  The object PROVIDES a floor plate; the
+# terrain floor is what stands under it, and where the two are the same
+# elevation the terrain is what the sim shows ("the object also provides a
+# floor ... that should be visible instead of seeing the terrain at the bottom
+# of the basin").  The trench floor therefore stands this far UNDER the plate:
+# the floor row is rim - (body_depth + floor_clearance_m), and the plate seat
+# reads its ground as the trench floor PLUS this, so the plate does not chase
+# the floor down.  Measured at LEMD's T4S pit on 1.0.315: floor_z 588.952 ==
+# solid_min_z 588.952, a clearance of exactly 0.000 m.
+floor_clearance_m   = 0.5
 
 [retaining_wall]
 allowed_outside_carves = false     # walls only at tunnel/bridge carves; everything else feathers (08-07 :887-917)

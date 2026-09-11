@@ -589,7 +589,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                       tuple(out.pad_requests), out.cut_edges, out.structures,
                       out.intra_placement_kept, out.held_parts,
                       out.elevated_groups, out.group_ties,
-                      out.line_bodies, out.line_edges_dropped, out.orphan_bodies)
+                      out.line_bodies, out.line_edges_dropped, out.orphan_bodies,
+                      out.groups, out.grouped_bodies, out.group_pairs_refused)
 
 
 def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:

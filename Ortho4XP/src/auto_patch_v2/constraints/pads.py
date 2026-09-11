@@ -433,6 +433,33 @@ LEVEL_MIN_BAND_M = _LEADER_MIN_M
 _LEADER_MAX_M = 50.0
 #: At most this many own vertices carry one contact: an index constant.
 _LEADER_K = 8
+#: THE LEADER MUST STAND ON THE FRONTAGE (lane ``v2green2``, RULINGS
+#: 2026-09-10bb round; the defect the ground datum of 10av exposed).  The
+#: radial band above answers "how far from the contact", and says nothing
+#: about WHICH WAY.  Since 10av every adjacent-ground vertex carries a
+#: weak DEM datum, so a pavement face now TILTS ACROSS ITS WIDTH between
+#: its two ground edges — and for an apron 40 m wide the 10..50 m band of
+#: a contact at its middle contains ONLY the FAR EDGE, 40 m away and at
+#: the OTHER ground's level.  MEASURED, the two-pavement twin: the apron
+#: stood at 700.44 m where the pad fronts it and the band read it at
+#: 699.32 m, 1.1 m below, and pulled the pad 0.16 m UNDER the lower of
+#: its two frontages — under 10l/10k-1 (A) the pad takes the pavement's
+#: EDGE level, which is the one level the far band cannot see.
+#:
+#: So a leader is first sought among the pavement's own vertices that
+#: stand ON the frontage: its NEAREST RING to the pad — every own vertex
+#: whose plan distance to the pad is within this of the nearest own
+#: vertex's — taken nearest-first and still no nearer than
+#: ``_LEADER_MIN_M`` to the contact (10y arm B's protection is the MIN,
+#: and it is kept).  A ring measured from the pad's own nearest own
+#: vertex SCALES: it is the hole ring for a pad cut out of an apron
+#: (2 m), the facing kerb for a pad fronting by proximity (a few m), the
+#: edge continuation past the pad's corners for the twin's 120 m pad
+#: against a 40 m apron (11 m) — and in every case it excludes the face's
+#: FAR edge, which is at least the face's own width away.  The radial
+#: band is the fallback where a face has no such ring (it is all edge:
+#: the 10y case, unchanged).
+_LEADER_NEAR_M = _LEADER_MIN_M
 
 
 def pad_frontage_leaders(planar: PlanarMap, law: Law
@@ -450,11 +477,19 @@ def pad_frontage_leaders(planar: PlanarMap, law: Law
     own vertex either (arm B, above).  A pavement face with no own vertex
     in the band falls back to its nearest ``_LEADER_K`` — a face smaller
     than the band is all edge, and its own level is the only one it has."""
+    polys = {fid: poly for fid, _ref, _g, poly in _pad_polys(planar, law)}
     out: dict[int, dict[str, list[tuple[int, list[tuple[int, float]]]]]] = {}
     for fid, by_role in _fronting(planar, law).items():
+        poly = polys.get(fid)
         got: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
         for role, (contacts, own) in by_role.items():
-            per = frontage_leaders(planar, contacts, own)
+            near = None
+            if poly is not None and own:
+                dist = {v: poly.distance(Point(*planar.vertices[v].xy))
+                        for v in own}
+                cut = min(dist.values()) + _LEADER_NEAR_M
+                near = {v for v, dd in dist.items() if dd <= cut}
+            per = frontage_leaders(planar, contacts, own, near=near)
             if per:
                 got[role] = per
         if got:
@@ -463,7 +498,8 @@ def pad_frontage_leaders(planar: PlanarMap, law: Law
 
 
 def frontage_leaders(planar: PlanarMap, contacts: _t.Iterable[int],
-                     own: _t.Iterable[int]
+                     own: _t.Iterable[int],
+                     near: _t.Optional[_t.Set[int]] = None
                      ) -> list[tuple[int, list[tuple[int, float]]]]:
     """THE PAVEMENT'S OWN VALUE BESIDE EACH CONTACT — ``[(contact vertex,
     [(leader vertex, weight), ...])]``, the leaders read from ``own`` in
@@ -478,17 +514,32 @@ def frontage_leaders(planar: PlanarMap, contacts: _t.Iterable[int],
     second implementation of the band would be the census-wrapper defect
     in miniature.  ``own`` with no member in the band falls back to its
     nearest ``_LEADER_K``: a face smaller than the band is all edge, and
-    its own level is the only one it has."""
+    its own level is the only one it has.
+
+    ``near`` — the subset of ``own`` that STANDS ON THE FRONTAGE (see
+    ``_LEADER_NEAR_M``) — is preferred wherever the caller can name it:
+    its members ≥ ``_LEADER_MIN_M`` from the contact, NEAREST FIRST and
+    with no outer bound, because along a frontage the pavement holds one
+    level for a long way while ACROSS it 40 m already reaches the other
+    ground.  The radial band is what remains where ``near`` is unknown or
+    empty."""
     own_l = sorted(own)
     if not own_l:
         return []
+    near_l = sorted(near) if near else []
     xy = {v: planar.vertices[v].xy for v in {*own_l, *contacts}}
     per: list[tuple[int, list[tuple[int, float]]]] = []
     for c in sorted(contacts):
         qx, qy = xy[c]
+        band: list[tuple[float, int]] = []
+        if near_l:
+            dn = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v)
+                         for v in near_l))
+            band = [(dd, v) for dd, v in dn if dd >= _LEADER_MIN_M][:_LEADER_K]
         d = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v) for v in own_l))
-        band = [(dd, v) for dd, v in d
-                if _LEADER_MIN_M <= dd <= _LEADER_MAX_M][:_LEADER_K]
+        if not band:
+            band = [(dd, v) for dd, v in d
+                    if _LEADER_MIN_M <= dd <= _LEADER_MAX_M][:_LEADER_K]
         if not band:
             band = d[:_LEADER_K]
         inv = [1.0 / max(1e-3, dd) for dd, _v in band]

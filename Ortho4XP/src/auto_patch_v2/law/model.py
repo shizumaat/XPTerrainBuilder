@@ -23,6 +23,8 @@ from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # n
 from .rebake_schema import Placement, Rebake  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
+# the [basin] schema (the below-grade facility law; 11t §24) likewise
+from .basin_schema import Basin  # noqa: F401
 # the unit-sanity register (grades are fractions; RULINGS 2026-09-08n bound)
 from .units import sane as _sane  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
@@ -359,31 +361,6 @@ class Skirt:
     pad_cover_fraction: float
     drops_pad: bool
     seat_low_side: bool
-
-
-@_dc.dataclass(frozen=True)
-class Basin:
-    """Basin facility law (RULINGS 2026-08-26; M4b)."""
-
-    floor: str
-    seat: str                          # "floor_plate": the family seats its plate on the floor (2026-09-06b)
-    min_solid_thickness_m: float
-    admission_depth_m: float
-    contact_band_m: float
-    footprint_close_m: float
-    min_area_m2: float                 # diagnostic only (04i)
-    rim_sample_step_m: float
-    max_covered_fraction: float        # diagnostic only (04i)
-    basement_cover_min: float          # 2026-09-06c (1): own cover at or above this = a BASEMENT; less = a PIT
-    floor_disagreement_m: float
-    rim: str
-    shell_reaches_grade: bool
-    cuts_pads: bool
-    cuts_runway_family: bool
-    floor_plate_normal_y_min: float    # 04i: the floor-plate gate
-    rim_reaches_grade: bool            # 04i: the closed-region test
-    rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
-    authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)
 
 
 @_dc.dataclass(frozen=True)

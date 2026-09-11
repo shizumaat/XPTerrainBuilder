@@ -85,11 +85,13 @@ members (``DEM(anchor) + agl + y``: the floor plate itself, no margin —
 the anchor family is re-seated after the mesh so the plate lands ON it,
 ``basin.seat = "floor_plate"``); the floor face(s) (role
 ``tunnel_trench``) are the members' floor plates ⊕ ``floor_overlap_m``
-(closed at ``footprint_close_m``); the at-grade RIM stands INSIDE the
-admitted region (the shells' footprint below the ground) by
-``rim_inset_fraction`` × the shell's mean plan thickness, never closer
-to the floors than the identity spacing (2026-09-08a,
-``structure_geometry.rim_standoff``); the VOID between them is one face (role ``retaining_wall``, exterior = the
+(closed at ``footprint_close_m``); THE CUT HUGS THE WALL (owner RULINGS
+2026-09-11t, spec §24 (1)): the at-grade RIM *is* the admitted region —
+the shells' footprint below the ground, the object's outer wall face at
+its top — set inside it only by ``rim_inset_fraction`` × the shell's
+measured plan thickness (2026-09-08a), never widened outward, and the
+stand-off that keeps the mesh's wall band distinct comes out of the
+FLOOR (:func:`_floors_inside`); the VOID between them is one face (role ``retaining_wall``, exterior = the
 rim, holes = the floors) never emitted as a surface — its rim is
 emitted as a constrained ring at the ground (the DEM where bare, the
 governed ground's value where shared: the rim LEVEL with the apron,
@@ -98,9 +100,10 @@ pavement and pad it lies under at the rim (08-26: inside a below-grade
 region the trench is senior to every pad/building authority;
 ``cuts_pads``).
 
-Every vertex is born on the identity grid, the rim snapped AWAY from
-the floor so the gap survives the arrangement's rounding (the M4
-``snap_out`` precedent).
+Every vertex is born on the identity grid; the FLOOR is snapped away
+from the rim so the gap survives the arrangement's rounding (the M4
+``snap_out`` precedent, now applied to the yielding side — the rim may
+not move off the wall face, 11t §24 (1)).
 """
 from __future__ import annotations
 
@@ -223,23 +226,61 @@ def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
     return min(t, max_m) if max_m is not None else t
 
 
-def _rim(region: Polygon, floors: list[Polygon], inset: float, standoff: float, grid: float
-         ) -> Polygon | None:
-    """The at-grade rim (2026-09-08a): ``region`` (the shells' footprint
-    below the ground) buffered INWARD by ``inset`` and snapped, widened
-    by grid steps until it contains every floor and every floor clears it
-    by ``standoff`` (``structure_geometry.rim_standoff``); ``None`` when
-    it cannot (a floor at the shell's edge)."""
-    for k in range(6):
-        g = -inset + grid * k
-        rim = _snap_ring(region.buffer(g, **_MITRE), grid)
-        if rim is None:
+def _rim(region: Polygon, inset: float, grid: float) -> Polygon | None:
+    """THE CUT HUGS THE WALL (owner RULINGS 2026-09-11t, spec §24 (1)):
+    the at-grade rim is ``region`` — the shells' own footprint below the
+    ground, i.e. THE OBJECT'S OUTER WALL FACE AT ITS TOP — set INWARD by
+    ``inset`` (``cutout.rim_inset_fraction`` × the measured shell
+    thickness, 2026-09-08a: the terrain drop happens inside the wall,
+    hidden by the object) and snapped to the identity grid.  Nothing
+    else: no buffer, no widening.
+
+    WHAT WAS HERE BEFORE, AND WHY IT WENT (the owed 08e deviation (2)):
+    the rim was widened OUTWARD by whole grid steps — every station, not
+    the offending ones — until it contained every floor and cleared it by
+    the stand-off.  A shell whose plate reaches its own footprint edge
+    (LEMD's T4S pit reads shell 0.00 m thick) needs the floor's own
+    ``floor_overlap_m`` plus the stand-off of room that the wall does not
+    have, so the loop ran to k = 4 and put all 56 rim vertices 1.75–4.12 m
+    (median 2.06) OUTSIDE the wall face — the owner's "gap between the
+    outer edge and the apron" on 1.0.315, a shelf of pavement standing
+    over nothing.  The stand-off is now taken from the FLOOR instead
+    (:func:`_floors_inside`), at the region's ONE derivation site rather
+    than by pushing the cut away from the object it is cutting for.
+    ``None`` when the ring does not survive the grid."""
+    return _snap_ring(region.buffer(-inset, **_MITRE) if inset > 1e-9 else region, grid)
+
+
+def _floors_inside(floors: list[Polygon], rim: Polygon, standoff: float, grid: float
+                   ) -> list[Polygon]:
+    """The floor faces TRIMMED to stand ``standoff`` inside ``rim`` (§24
+    (1)): the void the mesh makes the wall in is taken out of the FLOOR,
+    never out of the cut's outline.  A floor already clear is returned
+    unchanged (the identity case, and every basin whose shell has real
+    thickness); one that survives the trim with no area at all is
+    dropped, and an empty return refuses the basin exactly as a rim that
+    could not clear used to."""
+    inner = rim.buffer(-standoff, **_MITRE)
+    if inner.is_empty:
+        return []
+    out: list[Polygon] = []
+    for f in floors:
+        if rim.contains(f) and f.distance(rim.exterior) >= standoff - 1e-6:
+            out.append(f)
             continue
-        if not all(rim.contains(f) for f in floors):
-            continue
-        if all(f.distance(rim.exterior) >= standoff - 1e-6 for f in floors):
-            return rim
-    return None
+        for part in _parts(f.intersection(inner)):
+            g = _snap_ring(part, grid)
+            if g is None or g.area < grid * grid:
+                continue
+            # the snap may round a vertex back out: keep only what still
+            # clears, taking one more grid step in when it does not
+            if not (rim.contains(g) and g.distance(rim.exterior) >= standoff - 1e-6):
+                g2 = _snap_ring(part.buffer(-grid, **_MITRE), grid)
+                if g2 is None or g2.area < grid * grid or not rim.contains(g2):
+                    continue
+                g = g2
+            out.append(g)
+    return sorted(out, key=lambda q: -q.area)
 
 
 def _rim_open(ring: Polygon, rim_geom, step: float, reach: float
@@ -424,12 +465,23 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         shell_t = shell_thickness_m(ring, plates_u, grid,
                                     law.tables.structures.tunnel.object.wall_face_max_thickness_m)
         inset, standoff = rim_standoff(shell_t, co, grid)
-        rim = _rim(ring, floors, inset, standoff, grid)
+        rim = _rim(ring, inset, grid)
         if rim is None:
             stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, inset "
-                                 f"{inset:.2f}) cannot clear the floor plate by the stand-off "
-                                 f"{standoff:.2f} m (a plate at the shell's edge) at {site}")
+                                 f"{inset:.2f}) does not survive the identity grid "
+                                 f"({grid} m) at {site}")
             continue
+        # THE STAND-OFF COMES OUT OF THE FLOOR (§24 (1)), never out of the
+        # cut's outline: the rim is the wall face and the floor is trimmed
+        # to clear it by the mesh wall band's width
+        trimmed = _floors_inside(floors, rim, standoff, grid)
+        if not trimmed:
+            stats.refused.append(f"{bid}: no floor plate ({plate:.0f} m2) survives the "
+                                 f"stand-off {standoff:.2f} m inside the rim (shell "
+                                 f"{shell_t:.2f} m thick) at {site}")
+            continue
+        floor_trim_m2 = sum(f.area for f in floors) - sum(f.area for f in trimmed)
+        floors = trimmed
         if tunnel_u is not None and rim.buffer(grid).intersects(tunnel_u):
             # a sunken road (2026-09-08b/c Law B) is a STRUCTURE before this
             # pass runs: its plate is never a basement, by ORDER (spec §4)
@@ -460,8 +512,10 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
-                 f"shell {shell_t:.2f} m thick: rim inset {inset:.2f} m inside its footprint, "
-                 f"stand-off {standoff:.2f} m off the floor (09-08a)",
+                 f"shell {shell_t:.2f} m thick: rim inset {inset:.2f} m inside its footprint "
+                 f"(THE CUT HUGS THE WALL, 11t §24 (1): the rim IS the outer face, never widened), "
+                 f"stand-off {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
+                 f"trimmed, 09-08a)",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, f"rendered deepest solid {smin_z:.2f} = the floor",
                  f"datum {datum_z:.2f} stands {datum_drop:+.2f} m under the ring's ground; "

@@ -130,6 +130,16 @@ class Member:
     #: for every other member.
     plate_y: float | None = None
     plate_stations: tuple[LL, ...] = ()
+    #: THE BASIN FLOOR'S CLEARANCE (owner RULINGS 2026-09-11t, spec §24 (2);
+    #: ``[basin] floor_clearance_m``): the plate stands this far ABOVE the
+    #: ground its stations read.  The stations of a basin member lie on the
+    #: TRENCH FLOOR, which the floor row now puts ``floor_clearance_m``
+    #: under the plate — without this the seat would read that lowered
+    #: floor as the plate's ground and chase the object down with it, and
+    #: the terrain would be coplanar with the plate again.  0.0 for a
+    #: tunnel wall plate (its stations read at-grade ground) and for every
+    #: plan written before 11t — the pre-11t law exactly.
+    plate_clearance_m: float = 0.0
     #: THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3):
     #: this member's resource carries a uniform below-zero extent across
     #: its footprint (``airport/skirt.is_skirt``).  A body EVERY one of
@@ -266,6 +276,7 @@ class RebakePlan:
                     "deck_evidence": list(m.deck_evidence),
                     "deck_stations": [list(st) for st in m.deck_stations],
                     "plate_y": m.plate_y,
+                    "plate_clearance_m": m.plate_clearance_m,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
                     "elevated_deck": m.elevated_deck,
@@ -318,6 +329,7 @@ class RebakePlan:
                                     for a, b, c in m.get("deck_stations", ())),
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
+                plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
                 skirted=bool(m.get("skirted", False)),
                 elevated_deck=bool(m.get("elevated_deck", False)),
             ) for m in u["members"])) for u in d["units"])

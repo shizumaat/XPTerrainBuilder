@@ -122,6 +122,8 @@ def _airport(law, cells, basins=()):
 #: the object's own body depth under its rim (RULINGS 2026-09-10ba): the
 #: fixture's floor plate stands this far under R_est
 DEPTH_M = 699.0 - FLOOR_Z
+#: §24 (2): the terrain floor stands ``floor_clearance_m`` under the plate
+FLOOR_BELOW_RIM_M = DEPTH_M + Law.for_airport("ZZZZ").tables.structures.basin.floor_clearance_m
 
 
 def _basin(wall_ref: str, floor_ref: str):
@@ -225,7 +227,7 @@ def test_the_floor_ring_hangs_its_own_depth_under_the_rim(law):
     assert set(rim_of) == floor_vs
     pm2, z, _cs, _rep = _solved(law)
     for v, u in rim_of.items():
-        assert float(z[v]) == pytest.approx(float(z[u]) - DEPTH_M, abs=0.05)
+        assert float(z[v]) == pytest.approx(float(z[u]) - FLOOR_BELOW_RIM_M, abs=0.05)
 
 
 def test_a_shared_rim_vertex_carries_no_lower_target_of_its_own(law):

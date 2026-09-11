@@ -102,7 +102,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          cache: _obj8.ResourceCache, law: Law, deck_datum: DeckDatum | None = None,
          exclude: _t.Collection[str] = (),
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
-         tunnel_objects: _t.Mapping[str, tuple[float, _t.Sequence[XY]]] | None = None,
+         tunnel_objects: _t.Mapping[str, tuple] | None = None,
          partition: PackPartition | None = None) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
@@ -120,7 +120,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     deck (``deck_signature.promote``).  THE BELOW-GRADE SKIP IS PER
     COMPONENT (RULINGS 2026-09-09w (1)).  ``tunnel_objects`` the tunnel
     wall objects by placement id → ``(plate height, wall-band stations
-    in frame xy)``: RE-SEATED so the plate sits on the ground at the
+    in frame xy, the plate's clearance above the ground they read — 0 for a
+    tunnel wall, ``[basin] floor_clearance_m`` for a basin, 11t §24 (2))``: RE-SEATED so the plate sits on the ground at the
     band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``) — THAT OBJECT
     only (RULINGS 2026-09-09s (1)).
 
@@ -130,7 +131,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     the twin's control arm.
     """
     # TUNNEL WALL OBJECTS (RULINGS 2026-09-05n-4): plate-seated, by id
-    plates: dict[str, tuple[float, _t.Sequence[XY]]] = dict(tunnel_objects or {})
+    plates: dict[str, tuple] = dict(tunnel_objects or {})
     if not law.tables.structures.tunnel.object.reseat:
         plates = {}
     screen, objs = screen_of(objects, cache, law, exclude, below_grade, plates)
@@ -196,9 +197,12 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
             deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
         counts["deck_members"] += 1
     plate_y = None
+    plate_clearance = 0.0
     plate_stations: tuple[tuple[float, float], ...] = ()
     if o.id in plates:
-        plate_y, st_xy = plates[o.id]
+        # a 2-entry value is a pre-11t caller: clearance 0.0, the old law
+        plate_y, st_xy, *rest = plates[o.id]
+        plate_clearance = float(rest[0]) if rest else 0.0
         plate_stations = tuple(to_ll(x, y) for x, y in st_xy)
         counts["plate_members"] += 1
     return _dc.replace(m, deck_ring=deck_ring, deck_top_y=deck_top_y,
@@ -206,7 +210,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_ends=deck_ends, deck_profile=deck_profile,
                        deck_evidence=tuple(o.deck_evidence),
                        deck_stations=deck_stations, plate_y=plate_y,
-                       plate_stations=plate_stations)
+                       plate_stations=plate_stations,
+                       plate_clearance_m=plate_clearance)
 
 
 def _flat_datum(airport: Airport, to_ll) -> FlatDatum | None:

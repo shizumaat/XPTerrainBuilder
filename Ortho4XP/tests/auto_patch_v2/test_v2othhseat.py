@@ -139,7 +139,9 @@ def test_plate_stations_stand_outside_the_outer_face(law):
     rim_out = Polygon(rect).buffer(0.3, join_style="mitre")
     outside = _plate_seats(pm_with(tuple(rim_out.exterior.coords)), law)
     inside = _plate_seats(pm_with(tuple(Polygon(rect).buffer(-0.5).exterior.coords)), law)
-    assert inside["dsf:obj0"] == (5.0, pts)
+    # (a tunnel wall plate reads at-grade ground: clearance 0.0 — the basin
+    # clearance of 11t §24 (2) is the basin's alone)
+    assert inside["dsf:obj0"] == (5.0, pts, 0.0)
     assert outside["dsf:obj0"][0] == 5.0
     o_pts = outside["dsf:obj0"][1]
     assert o_pts and all(not rim_out.contains(Point(p)) for p in o_pts)

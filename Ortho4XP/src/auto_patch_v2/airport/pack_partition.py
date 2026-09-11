@@ -288,9 +288,15 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                and _line.is_line_object(cache, o.resolved, rb))
     if is_line:
         counts["line_objects"] += 1
+    # the tail is passed BY NAME: a new optional field inserted before
+    # ``skirted`` silently shifted these two positionally (measured while
+    # adding ``plate_clearance_m``, 2026-09-11t — the viaduct's
+    # ``elevated_deck`` read False and every member's ``skirted`` read the
+    # clearance)
     member = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                     o.heading_deg, (), None, None, None, o.deck_kind, None,
-                    (), (), (), None, (), skirted, deck_body)
+                    (), (), (), None, (),
+                    skirted=skirted, elevated_deck=deck_body)
     return member, (o, geom, list(comps)), bool(is_line)
 
 

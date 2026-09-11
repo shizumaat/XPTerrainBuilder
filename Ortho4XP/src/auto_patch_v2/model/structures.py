@@ -236,3 +236,25 @@ class Basin:
     anchor_inside_floor: bool = False
     seat_expect_m: float = 0.0
     agl_m: float = 0.0
+
+    def floor_below_rim_m(self, clearance_m: float = 0.0) -> float:
+        """THE ONE DERIVATION of how far the trench floor stands under its
+        rim (owner RULINGS 2026-09-10ba, 2026-09-11t; spec §22.1c, §24 (2)).
+
+        ``body_depth`` is the facility's own deepest genuine solid under
+        ``R_est`` (``-solid_min_y_m``); a record from before that instrument
+        (or a fixture stating only floor and R_est) falls back to the
+        declared floor under the rim estimate — the same number the long
+        way.  ``clearance_m`` (``[basin] floor_clearance_m``) is what the
+        terrain drops BELOW the object's floor plate so the plate renders.
+
+        ``constraints/structures.basins`` states the row with it and
+        ``pipeline/publication.basin_facilities`` publishes it as
+        ``floor_below_rim_m``; the census joins the two.  Two copies of this
+        arithmetic is how a published depth and a stated row drift apart —
+        there is one, here.  ``0.0`` when the basin evidences no depth at
+        all (the caller keeps the absolute pin)."""
+        depth = -float(self.solid_min_y_m)
+        if depth <= 1e-6:
+            depth = float(self.rim_estimate_m) - float(self.floor_z)
+        return 0.0 if depth <= 1e-6 else depth + float(clearance_m)

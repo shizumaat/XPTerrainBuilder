@@ -255,3 +255,74 @@ body reading are superseded by this section.
    back as one 2,071 m body — but it cost 377 extra files (1,463 = 4.84×, OVER
    the 4× bar) and moved `> 3 m` the wrong way (25 → 26). The coarsening of
    11e (1) stands as ruled.
+
+## §11 The canopy-and-building group: the terrain adapts to it (RULINGS 2026-09-11i)
+
+Owner: "a canopy on columns needs to stay connected to its columns, and if it's
+adjacent to a building, like a roadway, then it needs to stay connected to the
+building as well. If it's a long thing like the railway connecting two far buildings
+at HECA we accept disconnecting it so the buildings can seat. But if it's feasible,
+adapting the terrain to accommodate the canopy and building group would be preferred."
+
+1. **THE GROUP STANDS.** §9/§17's cross-placement rule (a junior that is an
+   ELEVATED DECK by `deck_signature.elevated_deck` joins the building it abuts)
+   already reads a canopy on columns as a deck; 11g's LEMD38 / LEMD84 / LEMD60
+   groups with LEMD03 / LEMD54 / LEMD51 are CORRECT and stay one object each
+   (one file, one placement, the building's anchor). Their `> 3 m` feet are a
+   TERRAIN defect, not a grouping one, and this section is the fix.
+2. **THE GROUP PAD.** The pad law today pads each `building` CELL on its own
+   (`planar/structures.py` pads = `role == "building"`; constraints price
+   `building_pad flat` / `frontage_level`; pads by proximity). A GROUP — the
+   bodies that share one object under §9's grouping, canopy columns included —
+   is ONE pad: the union of its members' `building` cells PLUS every
+   ground-contact foot of the group that lies outside them (a column foot
+   standing on apron or ground). The pad's LEVEL is the existing law over the
+   union's frontages (10l apron-edge, pads by proximity, 10ag: a skirted member
+   keeps the skirt rule for its own footprint); the pad's TARGET under each foot
+   is `level + (y_foot − y_zero)` in the group's authored frame — a flat pad
+   when every foot is authored at zero (the common case), the group's authored
+   RELIEF otherwise — because X-Plane drapes the whole group at ONE anchor and
+   the terrain under every column must meet that column. Under 11b the foot
+   census is then exact for the group by construction.
+3. **THE GROUP IS DERIVED ONCE, AT PLANAR TIME.** The pack is read at plan time
+   (`airport/contact.py` welds + abutments, `deck_signature`); `emit/
+   abutment_group.groups` reads the same group and must not re-derive it — one
+   derivation site (`planar/group.py` or inside `planar/structures.py`, the
+   lane's call, ≤ 1,000 lines), consumed by constraints (the group pad rows),
+   emit (the grouping), the placement plan (one file per group) and the census
+   (feet of a group reported against the group's anchor). Consumer census
+   (08-30l), ruled here in one table — the lane greps each and reports any
+   consumer this table misses BEFORE editing it:
+
+   | consumer | reads | ruling |
+   |---|---|---|
+   | `constraints` pad rows (`pad_flat`, `frontage_level`, proximity) | pad polygon + level | the GROUP pad is the pad; one level, per-foot relief targets |
+   | `verify/pads.py` `pad_flat` | emitted pad plane tilt | measured on the LEVEL plane, relief offsets subtracted |
+   | `planar/structures.py` ramp clipping (`_pad_hit`, `_pad_relief_m`, `ramp_crosses_pad`) | pad polygons | the group pad clips as a pad does; its relief is the AUTHORED relief, not DEM relief — `_pad_relief_m` reads the DEM under the union as before |
+   | skirt (10ag) | member footprint | a skirted MEMBER keeps its skirt inside its own footprint; the rest of the group pads |
+   | basin (10ba) | rim | unchanged; a basin member is out of the group class (14.1 rule 4) |
+   | `emit` graded `building` faces | pad faces | the union emits as `building` faces; the placement anchor (§6, §9) lands inside them |
+   | `abutment_group.groups` | the group | reads it; the deck gate is unchanged |
+   | `placement_plan` / `obj8_split` | the group | one file, the senior building's anchor |
+   | `seat_feet_census --placement-plan` | feet + anchor | feet of a group against the group's anchor |
+
+4. **FEASIBILITY, THEN THE LONG SPAN.** The group pad is feasible when the
+   emitted surface stays lawful: the pad within `pad_slope_max`, and no DEFECT
+   (the runway family gate) or new pavement-law target failures at its
+   frontages beyond the base build's. Infeasible groups release their CONNECTING
+   body only when it is LONG — `[placement] group_span_max_m` (default 150 m,
+   per airport in `airports.toml` where needed; the HECA railway class): the
+   junior deck becomes its own object with its own anchor (§6 deck row is
+   superseded for it: it anchors at its low-side foot and buries the other end,
+   10ay), and the buildings seat on their own pads. A short infeasible group is
+   REPORTED with its residual, never split — the owner rules per case.
+5. **The round.** Synthetic-first: a cut fixture with a building + a canopy on
+   four columns over sloped DEM (the LEMD38/LEMD03 class), one over an apron
+   edge, and a long-span pair. LEMD ONCE as the closing build (the owner's site:
+   LEMD38 −6.89, LEMD84 −5.17, LEMD60 −3.36 → each within 0.3 m of its own
+   group's anchor); OTHH and the HECA railway through the placement-plan dry run
+   on their existing products (`obj8_split_report`, `seat_feet_census
+   --placement-plan --graded`), no build: OTHH `> 3 m` stays 0 and its groups
+   are exactly 11g's; the HECA railway releases (a long span) and its buildings
+   seat. Bars: LEMD `> 3 m` 25 → ≤ 22 with the three named rows gone; files
+   ≤ 4×; suite green. Two fix iterations, then STOP and report.

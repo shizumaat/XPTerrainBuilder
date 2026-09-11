@@ -820,3 +820,41 @@ green while the sim was broken.
    files fewer than 1,092, the DSF round trip ok, `> 3 m` not above 16, OTHH's
    groups unchanged (dry run on its artefact); the owner's read of the next app
    build is the acceptance.
+
+## §14 Footless bodies are CARRIED; a basin is one file (RULINGS 2026-09-11u/v)
+
+The shared-datum pack (LEMD unit:25: 171 resources on ONE `OBJECT` row) authored
+every object against one flat plane. The switch moves each FOOTED body to its own
+anchor (right: its feet meet the ground where they stand). A FOOTLESS body — a
+footbridge deck, a terminal roof, a canopy plate — has no ground to meet: written
+alone it is shifted onto the ground (the split half of the footbridge, 0.03 m under
+the road), kept whole it drapes at the DATUM point, 15.7 m under its building
+(`green-LEMD16`), 20 m for the T4S roof. Neither is the authoring.
+
+1. **THE CARRIER.** For every body with no vertex below `[rebake] elevated_base_m`
+   (a split body OR a whole placement): its carrier is (a) the footed body it abuts
+   in the unit's contact/abutment graph with the largest contact, else (b) the
+   nearest footed body of its UNIT in plan, else (c) the unit's largest footed body.
+   The footless body is written as a body file anchored at the CARRIER's anchor with
+   the carrier's `authored_offset` — the same translation every body file already
+   carries; same heading (one unit, one row). `merged_into` records the carrier.
+   Never at the datum; never on the ground. §13's "kept whole" for a footless
+   placement is superseded: it is carried.
+2. **THE BASIN IS ONE FILE.** A resource classed `basin` is never split; its one
+   body anchors at a RIM point where the design surface equals its zero (§6), and
+   `rims` — accepted-and-unused today (`anchor_rule.py:192`) — EXCLUDE the interior
+   of the body's own ring from every anchor search (10bd's inside-the-trench class).
+   Floor, walls and parapet share one zero.
+3. **PLAN OVERLAP BINDS.** Bodies of one resource that overlap in plan (a floor
+   under walls, a ledge inside a wall) are one body whatever the contact graph
+   says; the split only separates bodies apart in plan whose terrain differs by
+   more than `split_tol_m`. This closes the 7 m zero-plane scatter of one rigid
+   object.
+4. **Census** (`obj8_split_report`, `seat_feet_census --placement-plan`): `footless
+   at datum`, `footless on ground`, `basin bodies split`, `spread` (max zero-plane
+   range per resource) — bars 0 / 0 / 0 / ≤ `split_tol_m`.
+5. **Bars (lane `v2carrier`, LEMD plan replay on a pack copy, then LEMD once):**
+   the four footbridge resources at the terminal's zero (deck bottom ≈ 616.1 + 4.5
+   over the road); `Terminal4SAT_pink-LEMD01` at its terminal's zero; the basin
+   parapet +2.99 above the rim everywhere; the 89 footless placements 0 at datum /
+   0 on ground; files not above 1,092; round trip ok; OTHH dry run unchanged.

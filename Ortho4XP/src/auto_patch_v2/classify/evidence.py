@@ -13,7 +13,7 @@ import re
 import typing as _t
 
 import shapely
-from shapely.geometry import LineString, MultiPoint, MultiPolygon, Point, Polygon
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -485,128 +485,21 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                 dropped += 1
                 continue
             out.append((f"building{len(out) + 1}", piece))
-    out, dropped = _body_pads(airport, law, out, dropped,
-                              pavement_union, runway_union, min_area, cache)
+    # THE BARE-GROUND BODY PAD IS WITHDRAWN (owner RULINGS 2026-09-11q;
+    # spec §11b (1)).  Round 5 minted a pad here from each bare-ground
+    # body's own plan footprint (LEMD pads 123 -> 503) and MEASURED it
+    # worse at the owner's own site: a rigid plane cut into sloping
+    # ground STEPS wherever an unpadded neighbour straddles its edge
+    # (the three rows' worst body 1.94 -> 3.33 m, ``pad_flat`` verify
+    # rows 39 -> 98, HECA's released T3 bodies +1.5 -> +8.7 m).  The
+    # colonnade's columns carry 2.63 m of authored relief BECAUSE the
+    # real ground slopes there; a flat pad fights the authoring.  A body
+    # on bare ground now takes FOOT ROWS priced as ground targets
+    # (``constraints/foot_rows.py``, §11b (2)) and NO pad entity, so
+    # this derivation mints pads from the OSM alone again.  A body
+    # standing INSIDE an OSM pad still gets that pad's relief offsets
+    # (``constraints/pad_relief.py``, §11a (2)) — unchanged.
     return _drop_skirted(airport, law, cache, out, dropped)
-
-
-def _body_pads(airport: Airport, law, pads: list[tuple[str, Polygon]], dropped: int,
-               pavement_union, runway_union, min_area: float, cache=None
-               ) -> tuple[list[tuple[str, Polygon]], int]:
-    """A PAD PER BODY THE OSM DOES NOT KNOW (owner RULINGS 2026-09-11j;
-    spec §11a (3)).
-
-    Until 11j a pad existed only where OSM carried a building footprint,
-    so the site's dominant residual — LEMD38's 150 canopy modules, nine
-    column feet each, authored 2.63 m apart — stood on NO pad at all and
-    the relief target had nothing to be a target of (round 1 measured
-    those bodies as role ``other``).  The pack's own BODIES are the
-    authority on where an object stands: a body whose feet fall on no OSM
-    pad gets a pad of ITS OWN PLAN FOOTPRINT buffered by the pad law's
-    margin (``building_pad.footprint_outside_pad_m``, 0.0 — "no footprint
-    outside the pad"), and a body whose feet already stand on an OSM pad
-    changes nothing — the OSM union stays the pad's plan extent where one
-    exists.
-
-    **THE FOOTPRINT IS THE BODY'S, NOT ITS FEET' HULL** (measured round 5,
-    owner RULINGS 2026-09-11p (1); §11a (3) said "the feet's convex
-    footprint" and that reading is REFUTED here).  A colonnade's feet are
-    a LINE of column bases: LEMD38's canopy modules hull to 5–21 m² over
-    22–114 m spans — a 0.18 m ribbon, folded by ``min_area_m2`` (1,101 of
-    this branch's 1,116 candidate pads at LEMD died there, which is why
-    round 4 measured the whole clause as a no-op) and unemittable in a
-    0.5 m identity grid anyway.  The body's own components carry the real
-    footprint (``airport/skirt.component_footprint``: the canopy ROOF,
-    ~400 m²), so ``min_area_m2`` needs no exemption and is applied
-    unchanged.  The feet's hull is UNIONED in so a body
-    whose components project to no plan area still covers its contacts.
-
-    PAVEMENT IS SENIOR (09af-1): a body standing on apron or taxiway is
-    not padded here at all; the pavement law owns that surface and the
-    object goes to the terrain.  The runway difference, the minimum area
-    and the SKIRT drop are the OSM pads' own, applied unchanged.
-
-    **A BODY CARRIES NO LOCATION GATE** (measured round 5).  The OSM
-    pads' gate — inside ``boundary``, else within 200 m of pavement —
-    screens the surrounding CITY's mapped buildings, a population a PACK
-    does not have: every object in a pack is the airport designer's own
-    scenery, placed at the airport by construction.  Applied to bodies it
-    refused 130 of LEMD38's 150 canopy modules — the owner's own headline
-    row — because Aerosoft's old terminal stands outside LEMD's apt.dat
-    130 boundary AND more than 200 m from any graded apt.dat pavement
-    (widening the gate to the union of both expressions recovered only 33
-    of the 157 refusals, measured).  The body's own existence in the pack
-    is the evidence the OSM gate stands in for."""
-    groups = getattr(airport, "groups", None)
-    if groups is None or not getattr(groups, "groups", ()):
-        return pads, dropped
-    margin = float(law.tables.structures.building_pad.footprint_outside_pad_m) \
-        if law is not None else 0.0
-    to_xy, _to_ll = airport.frame.transformers()
-    have = unary_union([p for _r, p in pads]) if pads else None
-    partition = getattr(airport, "partition", None)
-    member_object = getattr(partition, "member_object", {}) or {}
-    obj_of = {o.id: o for o in getattr(airport, "dsf_objects", ())}
-    out = list(pads)
-    for g in groups.groups:
-        if not g.feet:
-            continue
-        feet_geom = MultiPoint([to_xy(f.lon, f.lat) for f in g.feet]).convex_hull
-        if feet_geom.is_empty:
-            continue
-        # THE PRE-SCREEN, and today's law unchanged: a body whose feet
-        # touch the OSM union already has its pad.  It runs on the FEET so
-        # the body footprint — the one expensive reading here — is only
-        # ever taken for a body that might mint something.
-        if have is not None and not have.is_empty and have.intersects(feet_geom):
-            continue                     # the OSM union is the plan extent
-        shape = _body_footprint(g, cache, member_object, obj_of, feet_geom, margin)
-        if shape is None:
-            continue
-        if not pavement_union.is_empty and pavement_union.contains(
-                shape.representative_point()):
-            continue                     # PAVEMENT IS SENIOR (09af-1)
-        if not runway_union.is_empty and shape.intersects(runway_union):
-            shape = shape.difference(runway_union)
-        for piece in polygon_parts(shape):
-            if piece.area < min_area:
-                dropped += 1
-                continue
-            out.append((f"building{len(out) + 1}", piece))
-    return out, dropped
-
-
-def _body_footprint(g, cache, member_object, obj_of, feet_geom, margin: float):
-    """One body-group's plan extent in the AIRPORT FRAME, or ``None``:
-    every body's components' own footprint (``airport/skirt.
-    component_footprint``, placed by ``obj8.placement_affine``) unioned
-    with the convex hull of the group's ground-contact feet, buffered by
-    the pad law's margin.  See :func:`_body_pads`."""
-    from shapely import affinity as _affinity
-
-    from ..airport import obj8 as _obj8
-    from ..airport import skirt as _skirt
-    polys: list = []
-    if cache is not None:
-        for ui, mi, comps in getattr(g, "body_comps", ()):
-            got = member_object.get((ui, mi))
-            o = obj_of.get(got[0]) if got else None
-            path = getattr(o, "resolved_path", None) if o is not None else None
-            if not path or not comps:
-                continue
-            fp = _skirt.component_footprint(cache, path, comps)
-            if fp is None or fp.is_empty:
-                continue
-            polys.append(_affinity.affine_transform(
-                fp, _obj8.placement_affine(o.xy, o.heading_deg)))
-    if feet_geom.geom_type == "Polygon" and not feet_geom.is_empty:
-        polys.append(feet_geom)
-    if not polys:
-        return None
-    shape = polys[0] if len(polys) == 1 else unary_union(polys)
-    if margin > 0.0:
-        shape = shape.buffer(margin)
-    return None if shape.is_empty else shape
 
 
 def _drop_skirted(airport: Airport, law, cache, pads: list[tuple[str, Polygon]],

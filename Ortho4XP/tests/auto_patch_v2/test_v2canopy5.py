@@ -173,68 +173,30 @@ def test_component_footprint_is_only_the_named_components(canopy, law):
     assert SK.component_footprint(cache, path, ()) is None
 
 
-def test_a_colonnade_on_bare_ground_gets_a_pad_its_feet_hull_could_never_mint(
-        canopy, law):
-    """ROUND 5'S REFUTATION, pinned: the nine column feet are COLLINEAR,
-    so their convex hull has no area at all and ``min_area_m2`` folds it —
-    the no-op round 4 measured.  The body's own footprint is the roof, and
-    the pad stands."""
-    from shapely.geometry import MultiPoint
-    path, cache, _roof, _cols = canopy
-    ap = _Airport(_group(path, range(10)), path)
-    ap._cache = cache
-    to_xy, _ = ap.frame.transformers()
-    g = ap.groups.groups[0]
-    feet_hull = MultiPoint([to_xy(f.lon, f.lat) for f in g.feet]).convex_hull
-    assert feet_hull.area < 1.0                  # a LINE of columns
-    min_area = law.tables.structures.building_pad.min_area_m2
-    assert feet_hull.area < min_area             # ... and so, folded
 
-    pads, dropped = _pads(ap, law)
-    assert len(pads) == 1 and dropped == 0
-    _ref, poly = pads[0]
-    assert poly.area == pytest.approx((_ROOF_L + 1.0) * _ROOF_W, rel=1e-6)
-    assert poly.area >= min_area
-    # every ground-contact foot stands ON the pad it was minted for
-    assert all(poly.covers(MultiPoint([to_xy(f.lon, f.lat)]).convex_hull)
-               for f in g.feet)
-
-
-def test_a_body_with_no_plan_area_is_still_folded_by_the_minimum(canopy, law):
-    """The fold law is applied UNCHANGED (§11a (3)): a body that is one
-    thin column — a lamp post — mints nothing, and that is right."""
-    path, cache, _roof, cols = canopy
-    ap = _Airport(_group(path, (cols[0],)), path)   # one column, 0.16 m2
-    ap._cache = cache
-    pads, dropped = _pads(ap, law)
-    assert pads == [] and dropped == 1
-
-
-# ── 2. PAVEMENT IS SENIOR (09af-1) ──────────────────────────────────────
-
-def test_a_body_standing_on_pavement_mints_no_pad(canopy, law):
-    """The pavement law owns that surface and the object goes to the
-    terrain; the body is REPORTED by the census, never padded here."""
-    path, cache, _roof, _cols = canopy
-    ap = _Airport(_group(path, range(10)), path)
-    ap._cache = cache
-    apron = Polygon([(-50, -50), (150, -50), (150, 50), (-50, 50)])
-    pads, dropped = _pads(ap, law, pavement=apron)
-    assert pads == [] and dropped == 0           # senior, not "dropped"
-
-
-# ── 3. NO LOCATION GATE BINDS A PACK BODY ───────────────────────────────
-
-def test_the_pad_stands_however_far_from_the_apt_dat_boundary(canopy, law):
-    """The LEMD38 refutation: ``_body_pads`` takes no ``gate`` at all, so
-    a body outside the apt.dat boundary and far from pavement still gets
-    its pad.  Pinned as a SIGNATURE — a gate re-introduced here would put
-    130 of the owner's 150 canopy modules back on bare ground."""
-    import inspect
-    sig = inspect.signature(EV._body_pads)
-    assert "gate" not in sig.parameters
-    src = inspect.getsource(EV._body_pads)
-    assert "gate.contains" not in src
+# ── 2/3 WITHDRAWN (owner RULINGS 2026-09-11q; spec §11b (1)) ────────────
+#
+# Round 5's bare-ground BODY PAD is withdrawn: the three owner rows got
+# WORSE with it (worst body 1.94 -> 3.33 m, ``pad_flat`` 39 -> 98, HECA's
+# released T3 bodies +1.5 -> +8.7 m), because a rigid plane cut into
+# sloping ground STEPS where an unpadded neighbour straddles its edge.
+# The twins that pinned the minting (the colonnade's pad, the min-area
+# fold of a plan-arealess body, the pavement refusal, the location gate)
+# are DELETED with the mechanism — a refuted mechanism is deleted, not
+# kept gated.  What SURVIVES is the attribution the round bought and the
+# round-6 law rests on:
+#
+#   * the body's own plan footprint is readable and is not its feet's
+#     hull (:func:`test_component_footprint_is_only_the_named_components`
+#     above) — ``airport/skirt.component_footprint`` and
+#     ``Group.body_comps`` stand;
+#   * a PACK body carries no OSM location gate (measured: the gate
+#     refused 130 of LEMD38's 150 modules) — recorded in §11a "Measured
+#     (round 5)", and nothing mints a body pad to apply it to;
+#   * the NEGATIVE relief offsets are the cross-placement group's own
+#     law, pinned below.
+#
+# Bodies on bare ground now take FOOT ROWS: ``test_v2canopy6.py``.
 
 
 # ── 4. THE NEGATIVE RELIEF OFFSET IS THE CROSS-PLACEMENT GROUP'S ────────

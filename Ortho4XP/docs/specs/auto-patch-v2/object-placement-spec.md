@@ -397,3 +397,68 @@ adapting the terrain to accommodate the canopy and building group would be prefe
    * `[placement] group_span_max_m` = 150 m landed with its per-airport
      override (`Affordances.group_span_max_m`, `law/tables.group_span_max_m`
      as the one resolution site). Suite 999 passed / 1 skipped.
+
+## §11a Amendment after round 1 (Fable, 2026-09-11; RULINGS 2026-09-11j)
+
+Round 1 measured §11's premises and refuted two of them. The owner's intent
+(11i) is unchanged; the mechanism is restated:
+
+1. **THE UNIT IS THE BODY.** The span law, the group and the pad are read at the
+   BODY level (`placement_plan._bodies_of`, the welded set of 10i plus 11a/11g's
+   deck-gated cross-placement join), never at the placement level: LEMD38 as a
+   placement spans 2,654 m (it is 150 canopy modules of nine columns each,
+   28–114 m apart, no cross-placement abutment), while each of its bodies spans
+   under 114 m with 2.63 m of authored relief. `[placement] group_span_max_m`
+   binds a BODY's connecting span.
+2. **THE RELIEF TARGET IS THE MECHANISM.** What moves the owner's rows is
+   §11 (2)'s per-foot target — the terrain under every ground-contact foot of a
+   body = the body's anchor level + (y_foot − y_zero) — applied to EVERY rigid
+   body with authored relief that stands on a pad or on ground the pad law may
+   shape (1,158 of LEMD's 9,546 bodies carry over 3 m of it). The GROUP only
+   widens which feet belong to one body; it does not create the target.
+   A body's feet on PAVEMENT (apron, taxiway) take no relief row — pavement law
+   is senior (09af-1: the object goes to the terrain there); the body's anchor
+   then sits at its low-side foot as §9 already says, and the residual is
+   reported.
+3. **THE PACK PARTITION MOVES BEFORE CLASSIFY.** `rebake_plan.plan()` splits
+   into `partition_pack()` — objects → members / parts / feet / contacts /
+   abutments + the deck / skirt / line verdicts, reading NEITHER planar products
+   NOR the solve — and a thin `plan()` that consumes the partition plus the
+   planar and solved products it reads today. `partition_pack()` runs once at
+   LOAD (the pack is a load-stage input like the DEM), `planar/group.py`
+   derives the bodies and groups from it, `classify/evidence._pads` mints each
+   body's pad from its FEET (the OSM footprint union stays the pad's plan
+   extent where one exists; a body whose feet fall on no OSM building gets a
+   pad of its feet's convex footprint buffered by the pad law's margin), and
+   `plan()` reuses the partition. This is a MOVE of measured 26 s (LEMD) /
+   108 s (OTHH), not an addition — and it must be proven: `plan()` must
+   FILTER the load-time partition instead of partitioning a filtered object
+   set, and the round's first twin compares `contacts` / `abutments` / `parts`
+   of the two orders on the LEMD and OTHH dumps (byte-equal, or the difference
+   listed and ruled).
+4. **The consumer table of §11 (3) is superseded by round 1's census** (86
+   consumers; the missed rows are listed in the round-1 report and in the
+   lane's `group.py` module doc). Rule for all of them: a pad with a relief
+   target is still ONE pad entity with ONE level — every consumer that reads
+   the pad's polygon, contacts, rim or level is UNCHANGED; only the rows that
+   price the pad's SURFACE (`pad_flat` in constraints and `verify/pads.py`,
+   `pad_flat_i` / `pad_follow` in `solve/design.py`) read the relief offsets:
+   flatness is priced on the LEVEL plane with the offsets subtracted. No
+   consumer is edited that does not read a pad's surface heights.
+5. **Two defects found in passing are IN SCOPE, fixed first, own commits:**
+   (a) `auto_patch/engine_v2.py` never passes `pads=` / `rims=` to
+   `placement_write.build_plan`, so a SHIPPED build classifies no body as
+   `building` or `basin` — only the dry-run tool does; a twin drives the
+   engine path and asserts the classes (lane `v2planfix`, merged and shipped
+   as 1.0.314 before this round's build). (b) `planar/wall_corridor_ramps.py`
+   duplicates `structures._pad_hit`: import it.
+6. **The round (2).** Twins first (the partition-order twin, the relief-target
+   fixture: one body of nine columns over 2.63 m of authored relief on sloped
+   DEM, one over an apron edge whose apron feet take no row, one long-span
+   release). LEMD ONCE; OTHH and HECA by dry run on products REBUILT by this
+   branch's pipeline only if the ledger has none at PLAN_VERSION ≥ 9 — HECA
+   may be built once for the railway class (the owner named it), OTHH stays a
+   dry run on the 1.0.313 artefact re-planned by the new `plan()`. Bars as
+   §11 (5): LEMD38 / LEMD84 / LEMD60 within 0.3 m of their bodies' anchors,
+   `> 3 m` 25 → ≤ 22, files ≤ 4×, suite green, load-stage time within the
+   26 s / 108 s moved.

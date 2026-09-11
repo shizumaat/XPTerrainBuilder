@@ -3320,3 +3320,10 @@ Consequences (Fable):
 * GROUP PAD: a welded canopy-and-building group takes ONE pad across its footprint union, the level by the pad law (10l apron-edge, 10ag skirt, pads by proximity) applied to the group; the surface ADAPTS to it where lawful. Feasibility = the adapted surface stays within the pavement laws it touches; infeasible → the long-span exception.
 * LONG SPAN: a connecting body may disconnect only when it is long (HECA railway class) AND the group pad is infeasible; a law-table length, per airport where needed.
 * Spec `object-placement-spec.md` §11 (Fable); lane `v2canopy`.
+
+## 2026-09-11j — v2canopy round 1 MERGED (0f293219: `planar/group.py`, `[placement] group_span_max_m` 150 + per-airport, 12 twins; NO pad landed) — §11's premises REFUTED and AMENDED (§11a, Fable): the unit is the BODY, the RELIEF TARGET is the mechanism, the pack partition MOVES before classify; two defects in scope
+
+* Measured on the 1.0.313 LEMD artefact: LEMD38 as a placement spans 2,654 m / 48.90 m relief — 150 canopy MODULES (nine columns each, 28–114 m, 2.63 m authored relief, no cross-placement abutment); LEMD84/LEMD60 groups of ONE placement. §11 (4) read at placement level would RELEASE what 11i keeps. 1,158 of 9,546 LEMD bodies carry > 3 m of authored relief — the residual is the pad law lacking a per-foot relief target, not grouping.
+* Circular dependency: pads minted at `classify/evidence._pads` from OSM buildings (no link to placements; `Building.dsf_object` never set) while abutments come from `rebake_plan.plan()` AFTER emit. Ruled: `partition_pack()` at LOAD (a move of 26 s LEMD / 108 s OTHH), `plan()` filters the partition; twin proves the two orders give equal contacts/abutments/parts.
+* DEFECT (a): `engine_v2.py` passes no `pads=`/`rims=` to `build_plan` — the SHIPPED 1.0.313 classifies no body `building`/`basin` (the dry-run tool did). Lane `v2planfix` → app 1.0.314 before the owner's read. DEFECT (b): `_pad_hit` duplicated in `wall_corridor_ramps.py`.
+* OTHH/HECA dry runs impossible on disk (PLAN_VERSION 8 / 6); HECA may be built ONCE for the railway class.

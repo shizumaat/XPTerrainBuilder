@@ -168,12 +168,17 @@ class Body:
     anchor_reason: str
     new_resource: str
     authored_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: §13: how many ELEVATED bodies this file CARRIES at their authored
+    #: offset (a roof, a deck, a tower part — they keep their height
+    #: relative to the carrier and never take an anchor of their own)
+    elevated_members: int = 0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
                 "components": list(self.components), "anchor": self.anchor.to_dict(),
                 "anchor_reason": self.anchor_reason, "new_resource": self.new_resource,
-                "authored_offset": list(self.authored_offset)}
+                "authored_offset": list(self.authored_offset),
+                "elevated_members": self.elevated_members}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
@@ -182,7 +187,8 @@ class Body:
                    tuple(int(c) for c in d.get("components", ())),
                    Anchor.from_dict(d["anchor"]), str(d.get("anchor_reason", "")),
                    str(d["new_resource"]),
-                   (_f(off[0]), _f(off[1]), _f(off[2])))
+                   (_f(off[0]), _f(off[1]), _f(off[2])),
+                   int(d.get("elevated_members", 0)))
 
 
 @_dc.dataclass(frozen=True)

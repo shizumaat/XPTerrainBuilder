@@ -926,3 +926,121 @@ the generator's own cost there is 1.77 s).
   what X-Plane drapes at one anchor.
 * `model/ground_fit.py` is the ONE expression of the fit; `planar/group.derive`
   and `constraints/foot_rows` both call it.
+## §13 An ELEVATED body never has a file of its own (RULINGS 2026-09-11r/s)
+
+
+The owner's LEMD read: roofs, road decks and tower parts sit on the ground. The
+app's own `o4_v2_placement_LEMD.json` shows why: 218 of the 1,092 bodies written
+as their own file carry `authored_offset.y` (the `y_zero` the file is shifted by
+so that its lowest vertex lands on the terrain) more than 2 m above the object's
+zero — a roof at 69.55 m (`Munoza-LEMD76__b13`), tower parts at 65–68 m
+(`Terminal4sBlue-LEMD20`, `-LEMDz3alpha`, `-ZNTWR`), canopies at 40 m. §9's
+"an elevated body joins the nearest ground group" was a coarsening preference,
+not a law: a body whose intended zero (surface − y_zero) agrees with no ground
+body's became its own file, and §6's "plate-only / other: the centroid of its
+lowest component" placed it ON THE GROUND. The foot census read those bodies as
+perfect (their lowest vertex IS on the ground), which is why the numbers were
+green while the sim was broken.
+
+1. **THE LAW.** A body is a candidate for its own file ONLY if its lowest
+   vertex is a GROUND CONTACT of the object: `y_zero` within
+   `[rebake] elevated_base_m` of the object's zero plane (below it is lawful:
+   basins, skirts, foundations). Every other body is ELEVATED and NEVER a file
+   of its own, whatever the coarsening says: it joins the file of its CARRIER —
+   the ground body of the SAME placement with the largest plan overlap, else
+   the nearest ground body of the placement in plan — at its authored offset in
+   the carrier's frame (no vertex rewrite; the same authored coordinates, the
+   carrier's anchor). A placement with NO ground body at all (a roof object, a
+   deck object, a sign) is KEPT WHOLE, unsplit, its row untouched: X-Plane
+   drapes it at its own anchor and its authored y keeps it above the ground
+   there, which is the pack's shared-datum frame — the design surface's pad
+   under it is what keeps it level with its neighbours.
+2. **The intended zero of a file** is its carrier's; an elevated body
+   contributes none to §9's coarsening.
+3. **The census reports the class**: `seat_feet_census --placement-plan` and
+   `obj8_split_report` print, per airport, `elevated bodies as own files` (must
+   be 0) and `footless placements kept whole`, and a twin fails on a plan that
+   writes an elevated body alone. The feet histogram excludes elevated bodies'
+   vertices (they are not feet).
+4. **Bars (lane `v2elevated`):** LEMD `elevated bodies as own files` 218 → 0,
+   files fewer than 1,092, the DSF round trip ok, `> 3 m` not above 16, OTHH's
+   groups unchanged (dry run on its artefact); the owner's read of the next app
+   build is the acceptance.
+
+## §14 Footless bodies are CARRIED; a basin is one file (RULINGS 2026-09-11u/v)
+
+The shared-datum pack (LEMD unit:25: 171 resources on ONE `OBJECT` row) authored
+every object against one flat plane. The switch moves each FOOTED body to its own
+anchor (right: its feet meet the ground where they stand). A FOOTLESS body — a
+footbridge deck, a terminal roof, a canopy plate — has no ground to meet: written
+alone it is shifted onto the ground (the split half of the footbridge, 0.03 m under
+the road), kept whole it drapes at the DATUM point, 15.7 m under its building
+(`green-LEMD16`), 20 m for the T4S roof. Neither is the authoring.
+
+1. **THE CARRIER.** For every body with no vertex below `[rebake] elevated_base_m`
+   (a split body OR a whole placement): its carrier is (a) the footed body it abuts
+   in the unit's contact/abutment graph with the largest contact, else (b) the
+   nearest footed body of its UNIT in plan, else (c) the unit's largest footed body.
+   The footless body is written as a body file anchored at the CARRIER's anchor with
+   the carrier's `authored_offset` — the same translation every body file already
+   carries; same heading (one unit, one row). `merged_into` records the carrier.
+   Never at the datum; never on the ground. §13's "kept whole" for a footless
+   placement is superseded: it is carried.
+2. **THE BASIN IS ONE FILE.** A resource classed `basin` is never split; its one
+   body anchors at a RIM point where the design surface equals its zero (§6), and
+   `rims` — accepted-and-unused today (`anchor_rule.py:192`) — EXCLUDE the interior
+   of the body's own ring from every anchor search (10bd's inside-the-trench class).
+   Floor, walls and parapet share one zero.
+3. **PLAN OVERLAP BINDS.** Bodies of one resource that overlap in plan (a floor
+   under walls, a ledge inside a wall) are one body whatever the contact graph
+   says; the split only separates bodies apart in plan whose terrain differs by
+   more than `split_tol_m`. This closes the 7 m zero-plane scatter of one rigid
+   object.
+4. **Census** (`obj8_split_report`, `seat_feet_census --placement-plan`): `footless
+   at datum`, `footless on ground`, `basin bodies split`, `spread` (max zero-plane
+   range per resource) — bars 0 / 0 / 0 / ≤ `split_tol_m`.
+5. **Bars (lane `v2carrier`, LEMD plan replay on a pack copy, then LEMD once):**
+   the four footbridge resources at the terminal's zero (deck bottom ≈ 616.1 + 4.5
+   over the road); `Terminal4SAT_pink-LEMD01` at its terminal's zero; the basin
+   parapet +2.99 above the rim everywhere; the 89 footless placements 0 at datum /
+   0 on ground; files not above 1,092; round trip ok; OTHH dry run unchanged.
+**MEASURED (lane `v2elevated`, 2026-09-11).** Implemented in
+`airport/placement_plan.py` (`is_elevated`, the carrier rule inside
+`coarsen`, the footless keep in `build_splits`) and reported by
+`tools/obj8_split_report.py` and `tools/seat_feet_census.py`.
+
+* **ATTRIBUTION (interventional, on the plan replay — no build).** The §9
+  fold *worked*: with a ground body present, an elevated body never founded a
+  group (0 cases). Three escapes produced all 274 LEMD files whose `y_zero`
+  stood above 2 m (271 by the law's own 0.5 m threshold in the app's shipped
+  plan, 278 in the matched replay):
+  * **226 — the FOOTLESS placement.** `coarsen` began
+    `if not ground: ground = all; elevated = frozenset()` — a placement whose
+    every body is elevated had its elevated set *cleared*, and each roof then
+    founded its own group and its own file. `Munoza-LEMD76` (23 bodies, all
+    elevated), `Terminal4sBlue-LEMD20`, `-LEMDz3alpha`, `-ZNTWR` are this class.
+  * **33 — the ANCHOR's zero.** The body has a ground contact (so it was never
+    flagged), but `anchor_for`'s median zero plane landed on a welded ROOF part:
+    `Munoza-rada` b1 anchored at `y_zero` +32.73 with feet 34.06 m off.
+  * **15 — the LINE SEGMENT.** `build_splits` hard-coded `elevated=False` on
+    every segment, so an elevated body that read line-shaped was cut into
+    stations, each its own file (`-ZNTWR` at 65.34 / 56.81 m).
+* **LEMD, matched arms on one frame** (the app's 1.0.315 `o4_v2_rebake_LEMD.json`
+  + `LEMD.graded.json`, the write half into two pack COPIES):
+  `elevated bodies as own files` **278 → 0**; files **1,099 → 828** (< 1,092);
+  footless kept whole **0 → 94**; elevated bodies carried at their authored
+  offset **0 → 1,178**; DSF round trip **OK**, 3,725 rows, 828/828 new
+  `OBJECT_DEF`s, 0 rows carrying an elevation. Census feet `> 3 m`
+  **1,060 → 151**, worst foot **34.06 → 13.75 m**. Row census
+  (`seat_feet_census --placement-plan`) `> 3 m` **20 → 18** — the spec's bar of
+  16 came from 11p's *different* artefact; on this frame the baseline is 20 and
+  the residual 18 is the rigid-relief class of 11h (Bridge3 8.70, SWbaume 6.60,
+  T2BCK 6.36), untouched by §13.
+* **OTHH is the same defect, not a control.** Files **1,203 → 333**, footless
+  kept whole **330**, `elevated bodies as own files` **0**, census feet
+  `> 3 m` **952 → 6**, worst foot **54.02 → 4.26 m** — the 54 m row was
+  `OTHH_ATC_Tower_02` set on the ground. §13 (4)'s "OTHH's groups unchanged"
+  is therefore refuted as a premise and reported, not decided.
+* **Build time:** the plan stage is FASTER — LEMD `--no-cut` 3.28 s → 2.54 s
+  over 3 runs per arm (fewer bodies survive to be anchored and cut). No budget
+  impact.

@@ -98,15 +98,24 @@ def test_no_vertex_is_fixed_at_the_dem_and_no_bank_row_is_dropped(taxi_map, law)
 
 def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # noqa: F811
     """The graded strip is a LAW surface: over a valley 25 m deep it sits
-    near the pavement it serves, not on the terrain it stands over."""
+    near the pavement it serves, not on the terrain it stands over.
+
+    RE-SCOPED (owner RULINGS 2026-09-10av, lane ``v2grounddem``): 09b (3)'s
+    "no DEM term" is re-scoped to PAVEMENT, and an adjacent-ground vertex
+    now carries a WEAK ``[design] ground_datum`` row.  The strip is still
+    FILLED clear of a valley floor 25 m down — the corridor's floor binds
+    and the law (300) outprices the datum (3) — but it is no longer held a
+    metre clear of it everywhere: where the law allows, the strip goes
+    toward its ground, which is the ruling's whole point.  Measured here:
+    every such vertex is filled, the smallest fill 0.70 m (was 1.06 m)."""
     pm, _cs, sol, _rep = taxi_map[:4]
     z = np.asarray(sol.z, float)
     strip = [v for v, vx in pm.vertices.items()
              if any(pm.faces[f].role == "graded_strip" for f in vx.incident_faces)
              and vx.dem_z is not None and vx.dem_z < 690.0]
     assert strip, "the fixture's valley must reach the graded strip"
-    # every such vertex is FILLED well clear of its DEM sample
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) > 1.0
+    # every such vertex is FILLED clear of its DEM sample
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) > 0.5
 
 
 # ── (2) TAXIWAYS LIKE RUNWAYS ───────────────────────────────────────────

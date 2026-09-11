@@ -154,8 +154,18 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_its_target_profile(valley, law):
     # — over this valley the trend target sits BELOW the plane control
     # (measured 695.22 against 698.58), which is the ruling's whole point.
     # What the twin holds is that the row DOES WORK: the target arm is on
-    # its target profile (above) and metres off the control that has none.
-    assert abs(sol0.z[mid] - sol.z[mid]) > 1.0, (sol0.z[mid], sol.z[mid])
+    # its target profile (above).
+    # (3) RE-SCOPED AGAIN (RULINGS 2026-09-10av, lane v2grounddem): the
+    # CONTROL is no longer level-less.  With the adjacent ground carrying its
+    # own DEM datum, a chord-less runway sheet is given a level through the
+    # bending it shares with its strip, and over this valley that level is
+    # the ground's — the same place the trend target sends the chord arm
+    # (measured 695.29 control against 695.21 target, where the control used
+    # to sit at 698.58).  The control can no longer separate the two arms, so
+    # what it holds is that it SOLVES and lands on the ground the trend
+    # follows; the row's work is read against its TARGET, above.
+    assert sol0.status in (Status.OPTIMAL, Status.FEASIBLE)
+    assert abs(sol0.z[mid] - pm.vertices[mid].dem_z) < 2.0, sol0.z[mid]
 
 
 def test_a_runway_without_two_pins_keeps_the_dem(law):

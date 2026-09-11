@@ -214,7 +214,15 @@ def test_without_the_generator_the_edge_falls_and_verify_flags_it(shared_edge, l
     assert FAMILY_TRANSVERSE in DEFECT_KEYS
     got = rows[FAMILY_TRANSVERSE]
     assert got and all(r["reading"] == "transverse_max" for r in got)
-    assert max(r["magnitude_m"] for r in got) == pytest.approx(fall, abs=0.05)
+    # RE-SCOPED (owner RULINGS 2026-09-10av, lane v2grounddem): with the
+    # transverse generator OFF nothing holds the runway's OTHER edge either,
+    # and the adjacent ground's own DEM datum now gives the strip beside it a
+    # level of its own — so the census's WORST transverse row is no longer
+    # necessarily the pinned one (measured 1.88 m against the pinned 1.53 m).
+    # What the twin holds: verify flags THE PINNED FALL, and nothing milder.
+    assert any(r["magnitude_m"] == pytest.approx(fall, abs=0.05) for r in got), \
+        (fall, sorted(r["magnitude_m"] for r in got))
+    assert max(r["magnitude_m"] for r in got) >= fall - 0.05
     cap = T.runway_transverse_max(law, rw.code_letter, rw.code_number)
     assert all(r["direction"] == "fall" and r["cap_pct"] == pytest.approx(100 * cap)
                for r in got)

@@ -3533,12 +3533,20 @@ through shared edges; `solve/design_ground.ground_datum_vertices` is its single 
    is never a pavement vertex (`pavement_roles` faces' ring vertices are subtracted at the
    derivation site). The pavement's normal equations therefore gain no row and no
    right-hand side from the datum: `AᵀA` acquires a diagonal entry at v alone.
-2. **The law rows.** Every row coupling a ground vertex to a pavement foot —
-   `zones.zone_bands`, `zones.strip_transverse` — is minted with `follows = v` and its head
-   is in `[design] one_way_rulings`, so `solve/design` strips the LEADER coefficients out of
-   `A1` into `A1_lead` and feeds them through the lagged `shift`. The pavement columns are
-   absent from those rows in the matrix that is factorised. A datum that moves v therefore
-   moves no pavement column through any law row, at any lag round.
+2. **The law rows — one-way, with a MEASURED residue the lane REPORTS.** The zone corridor
+   and the strip tie (`zones.zone_bands`, `zones.strip_transverse`) are minted with
+   `follows = v` and their heads are in `[design] one_way_rulings`, so `solve/design` strips
+   the LEADER coefficients out of `A1` into `A1_lead` and feeds them through the lagged
+   `shift`: their pavement columns are absent from the matrix that is factorised, and a
+   datum that moves v moves no pavement column through them, at any lag round. That is
+   278 of the 290 mixed rows on the twin fixture. The RESIDUE — `rulesets.strip.longitudinal`,
+   `rulesets.strip.arc_rate`, `rulesets.end_skirt.max_down_grade` (12 rows there), and a
+   `no_step_pairs` pair that straddles a shared pavement/strip edge vertex — carries NO
+   `follows` today and is priced two-way, so the datum reaches pavement through it. That
+   predates this round (those heads were never one-way) but the datum is what makes it
+   bite. DEVIATION REPORTED, never decided by the lane: making them one-way means minting
+   `follows` in `constraints/strips.py`, outside 10av's text. Bounded here by the same
+   measurement as (3).
 3. **The bending sheet is the ONE remaining channel, and it transmits SHAPE, not LEVEL.**
    §6 deviation 1 keeps the strip inside the bending sheet (a blend with no bending term is
    not a blend), so a cotangent-Laplacian row centred on a pavement vertex at the pavement

@@ -19,6 +19,7 @@ import typing as _t
 import numpy as np
 import scipy.sparse as sp
 
+from ..geom import face_triangles
 from ..law import Law
 from ..law.tables import zone2_half_width_m
 from ..model.constraints import ConstraintSet, Row
@@ -103,37 +104,19 @@ def _reduce(pm: PlanarMap, cs: ConstraintSet, fixed_dem: _t.Mapping[int, float]
 # ── the geometry: triangulation and the cotangent Laplacian ─────────────
 
 def _face_triangles(pm: PlanarMap, fid: int) -> list[tuple[int, int, int]]:
-    """A triangulation of one face: the Delaunay triangulation of its ring
-    and hole vertices, keeping the triangles whose centroid lies inside the
-    face (so a concave face and a face with holes triangulate correctly)."""
-    from scipy.spatial import Delaunay, QhullError
-    from shapely.geometry import Polygon
-    from shapely.prepared import prep
+    """A triangulation of one face, read off the MAP's own rings.
+
+    The shape routine is ``geom/triangulate.face_triangles`` — the ONE
+    expression (owner RULINGS 2026-09-11x (4)); ``constraints/foot_rows``
+    asks it the same question over the precedence view's rings, and
+    ``geom`` is the leaf both layers may import.  This function is the
+    map-reading adapter and nothing else."""
     f = pm.faces[fid]
     ring = pm.ring_vertices(f.ring)
     holes = [pm.ring_vertices(h) for h in f.holes]
-    ids = list(dict.fromkeys([*ring, *(v for h in holes for v in h)]))
-    if len(ids) < 3:
-        return []
-    pts = np.array([pm.vertices[v].xy for v in ids], float)
-    try:
-        poly = Polygon([pm.vertices[v].xy for v in ring],
-                       [[pm.vertices[v].xy for v in h] for h in holes if len(h) >= 3])
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty:
-            return []
-        tri = Delaunay(pts)
-    except (QhullError, ValueError):
-        return []
-    inside = prep(poly)
-    from shapely.geometry import Point
-    out: list[tuple[int, int, int]] = []
-    for s in tri.simplices:
-        c = pts[s].mean(axis=0)
-        if inside.contains(Point(c[0], c[1])):
-            out.append((ids[s[0]], ids[s[1]], ids[s[2]]))
-    return out
+    xy = {v: pm.vertices[v].xy
+          for v in dict.fromkeys([*ring, *(v for h in holes for v in h)])}
+    return face_triangles(xy, ring, holes)
 
 
 def _cotangent_laplacian(pm: PlanarMap, tris: _t.Sequence[tuple[int, int, int]],

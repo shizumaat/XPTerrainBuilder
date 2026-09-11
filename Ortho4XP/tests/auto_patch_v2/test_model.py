@@ -190,16 +190,21 @@ def test_dependency_direction():
     """law <- model <- solve <- emit; the M1 producers airport <-
     classify <- planar import law + model and each other in that order;
     nothing imports upward (M0 §1)."""
-    order = ["law", "model", "solve", "emit"]
-    producers = {"airport": {"law", "model"},
+    # ``geom`` is the LEAF (owner RULINGS 2026-09-11x (4)): pure shape,
+    # importing nothing of v2, so every layer may read it — it is how the
+    # ONE face triangulation is shared by ``solve`` and ``constraints``,
+    # which may not import each other.
+    order = ["geom", "law", "model", "solve", "emit"]
+    producers = {"geom": set(),
+                 "airport": {"law", "model"},
                  "classify": {"law", "model", "airport"},
                  "planar": {"law", "model", "airport", "classify"},
                  # M2: constraints import law + model (+ nothing of v2 above);
                  # verify reads law/model/emit and the constraints' pure
                  # geometry; pipeline is the orchestrator and reads everything
-                 "constraints": {"law", "model"},
-                 "verify": {"law", "model", "emit", "constraints"},
-                 "pipeline": {"law", "model", "airport", "classify", "planar",
+                 "constraints": {"geom", "law", "model"},
+                 "verify": {"geom", "law", "model", "emit", "constraints"},
+                 "pipeline": {"geom", "law", "model", "airport", "classify", "planar",
                               "constraints", "solve", "emit", "verify"}}
     for py in SRC.rglob("*.py"):
         pkg = py.parent.name if py.parent != SRC else None

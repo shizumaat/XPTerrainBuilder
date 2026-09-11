@@ -152,14 +152,16 @@ class Group:
     #: (§11 (4)); a short one is REPORTED with its residual and never
     #: split (11i).
     #:
-    #: THE VERDICT NOW PRICES THE DEM'S FALL (owner RULINGS 2026-09-11q;
-    #: spec §11b (3)), not the authored relief alone: with a ``dem_at``
-    #: sampler :func:`derive` fits the body's level to the ground under
-    #: its feet (:func:`ground_fit`) and the verdict is ``max |dem(foot)
-    #: - target(foot)|`` against ``bank_slope`` x the nearest-foot
-    #: distance — so a body whose authored relief MATCHES the ground's
-    #: fall is feasible at zero cost however steep both are, and one
-    #: that fights the ground is infeasible however gentle it is.
+    #: THE VERDICT NOW PRICES THE DEM'S FALL (owner RULINGS 2026-09-11q,
+    #: amended 11x (2); spec §11b (3)), not the authored relief alone:
+    #: with a ``dem_at`` sampler :func:`derive` fits the body's level to
+    #: the ground under its feet (:func:`ground_fit`) and the verdict is
+    #: read between NEIGHBOURING feet — ``|(target_a - target_b) -
+    #: (dem_a - dem_b)|`` against ``bank_slope`` x their own spacing, the
+    #: fall the sheet actually has to make between two rows.  So a body
+    #: whose authored relief MATCHES the ground's fall is feasible at
+    #: zero cost however steep both are, and one that fights the ground
+    #: is infeasible however gentle it is.
     #: Without a sampler the pre-11q reading stands (``relief_slope``
     #: over ``pad_slope_max``), which is what every caller that has no
     #: DEM — the twins, the dry-run readers — still gets.
@@ -383,8 +385,9 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
 
     ``dem_at(lat, lon) -> metres | None`` and ``bank_slope`` arm 11q's
     reading of that same verdict: the level is FITTED to the ground under
-    the feet (:func:`ground_fit`) and the residual is judged against the
-    bank the terrain may lawfully make.  Without a sampler the pre-11q
+    the feet (:func:`ground_fit`) and the residual between NEIGHBOURING
+    feet (11x (2)) is judged against the bank the terrain may lawfully
+    make over their own spacing.  Without a sampler the pre-11q
     reading stands, so every DEM-less caller is unchanged.
 
     ``span_max_m`` is ``law.tables.group_span_max_m`` — the airport's own

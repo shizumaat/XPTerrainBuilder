@@ -22,6 +22,17 @@ play:
    between their nearest feet stays inside ``bank_slope``;
 4. a body standing on the APRON — pavement is senior (09af-1), no rows,
    reported with its role.
+
+ROUND 7 (owner RULINGS 2026-09-11x) adds the four readings of the
+all-or-nothing law:
+
+5. ONE off-sheet foot fires NO row for the whole body (11x (1));
+6. a PARTIAL profile is impossible — half a body's feet on the sheet is
+   still no rows, and ``partial`` is 0;
+7. the NEIGHBOUR-PAIR bar (11x (2)) admits a colonnade whose authored
+   relief matches the ground's slope and refuses one that fights it —
+   round 6's nearest-foot scalar is deleted;
+8. a BASIN body (11x (3)) takes no row: §14 owns the pit.
 """
 from __future__ import annotations
 
@@ -219,14 +230,18 @@ class _FlatDem:
 
 
 def test_a_body_whose_relief_fights_the_ground_is_refused(law):    # noqa: F811
-    """The nine columns authored as a STAIRCASE — 0.7 m per 7 m bay —
-    standing on flat ground.  The fit's residual (the half-spread, 2.5 m)
-    beats ``bank_slope`` x the nearest-foot distance (1:3 over 7 m =
-    2.33 m), so the rows are REFUSED, the body keeps its low-side anchor,
-    and the residual is REPORTED (§11b (3))."""
+    """The nine columns authored as a STAIRCASE — 3.0 m per 7 m bay —
+    standing on flat ground.  The PAIR reading (11x (2)): the sheet would
+    have to fall 3.0 m between two feet 7 m apart, and ``bank_slope`` x
+    7 m is 2.31 m, so the rows are REFUSED, the body keeps its low-side
+    anchor, and the residual is REPORTED (§11b (3)).
+
+    Round 6's 0.7 m staircase is deliberately no longer a refusal: 0.7 m
+    over a 7 m bay is 1:10, which IS a bank, and calling it infeasible
+    was the nearest-foot scalar binding backwards."""
     def groups(a, r):
         pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
-        return [_group("stair", _feet(a, r, pts, [0.7 * i for i in range(9)]))]
+        return [_group("stair", _feet(a, r, pts, [3.0 * i for i in range(9)]))]
     _a, _r, _pm, _cs, _sol, rep, counts = _arm(law, _FlatDem(), groups)
     st = FR.STATS["foot_rows"]
     assert st["infeasible"] == 1 and st["bare"] == 0, st
@@ -249,6 +264,8 @@ def test_a_matched_body_is_feasible_however_steep_the_ground(law):  # noqa: F811
     def groups(a, r):
         pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
         return [_group("stair", _feet(a, r, pts, [0.7 * i for i in range(9)]))]
+    # the ground falls 0.1 x 7 = 0.70 m per bay and the columns rise
+    # 0.70 m per bay: the pair residual is 0 at every neighbour
     _a, _r, _pm, _cs, _sol, _rep, _counts = _arm(law, _Stair(), groups)
     st = FR.STATS["foot_rows"]
     assert st["infeasible"] == 0 and st["bare"] == 1, st
@@ -294,3 +311,166 @@ def test_a_body_on_the_apron_takes_no_rows(law):                   # noqa: F811
     assert counts["foot_rows"] == 0 and rep.foot_rows == 0
     v = [v for v in FR.VERDICTS if v.verdict == "pavement"]
     assert v and "apron" in v[0].roles
+
+
+# ── ROUND 7 (owner RULINGS 2026-09-11x): ALL OR NOTHING ────────────────
+
+#: far south of every zone — no face of the design sheet reaches here
+_OFF_SHEET_Y = -4000.0
+
+
+def test_one_off_sheet_foot_fires_no_row_for_the_body(law):        # noqa: F811
+    """11x (1) reading 5: EIGHT of the nine columns stand on the sheet
+    and the ninth does not.  Round 6 fired the eight and left the ninth
+    on the DEM — a PARTIAL profile, which tilts the body against its own
+    authoring exactly as round 5's pad edge stepped.  The body now fires
+    NOTHING and is reported ``off_sheet``."""
+    def groups(a, r):
+        pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(8)]
+        pts.append((_FEET_X, _OFF_SHEET_Y))
+        zs = [_lawful_z(px, py) for px, py in pts]
+        return [_group("straddle", _feet(a, r, pts, [z - min(zs) for z in zs]))]
+    _a, _r, _pm, _cs, _sol, rep, counts = _arm(law, _LawfulDem(), groups)
+    st = FR.STATS["foot_rows"]
+    assert st["off_sheet"] == 1 and st["bare"] == 0, st
+    assert st["feet_off_sheet"] == 1 and st["rows"] == 0, st
+    assert counts["foot_rows"] == 0 and rep.foot_rows == 0
+    v = [v for v in FR.VERDICTS if v.verdict == "off_sheet"]
+    assert v and v[0].gid == "straddle" and v[0].feet_off_sheet == 1
+
+
+def test_a_partial_profile_is_impossible(law):                     # noqa: F811
+    """11x (1) reading 6, over a fixture where HALF the feet are on the
+    sheet: no body ever carries a row for some of its feet and not the
+    rest — a body's rows are all of them or none.  ``partial`` is the
+    census line that says so, and it is 0."""
+    def groups(a, r):
+        on = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(5)]
+        off = [(_FEET_X, _OFF_SHEET_Y - i * _PITCH) for i in range(5)]
+        pts = on + off
+        # a neighbour of every on-sheet body: it stands entirely on the
+        # sheet, so the reading is not "nothing fired at all"
+        near = [(_FEET_X + 30.0, _FEET_Y0 - i * _PITCH) for i in range(5)]
+        zs = [_lawful_z(px, py) for px, py in near]
+        return [_group("half", _feet(a, r, pts, [0.0] * len(pts))),
+                _group("whole", _feet(a, r, near, [z - min(zs) for z in zs]))]
+    airport, _r, _pm, _cs, _sol, _rep, counts = _arm(law, _LawfulDem(), groups)
+    st = FR.STATS["foot_rows"]
+    assert st["partial"] == 0, st
+    assert st["off_sheet"] == 1 and st["bare"] == 1, st
+    # ALL OR NOTHING PER BODY: every body that fired fired every foot
+    fired: dict[str, int] = {}
+    targets, verdicts, _c = FR.foot_targets(_pm, law, airport)
+    for t in targets:
+        fired[t.gid] = fired.get(t.gid, 0) + 1
+    for v in verdicts:
+        assert fired.get(v.gid, 0) in (0, v.feet), (v.gid, fired.get(v.gid), v.feet)
+    assert "half" not in fired and fired.get("whole") == 5
+
+
+def test_the_pair_bar_reads_the_slope_between_neighbouring_feet(law):  # noqa: F811
+    """11x (2) reading 7, the two halves in ONE twin: the SAME authored
+    relief is admitted over ground that falls with it and refused over
+    ground that fights it — and round 6's nearest-foot scalar, which
+    bought licence from a far-away foot, is gone."""
+    from auto_patch_v2.model.ground_fit import ground_fit as _fit
+
+    class _Falling(_FlatDem):
+        provenance = {"synthetic": "ground falling 0.1 per metre"}
+
+        def z(self, x: float, y: float) -> float:
+            return 700.0 - 0.1 * (y - _FEET_Y0)
+
+    bank = float(law.tables.emit.design.bank_slope)
+    pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
+    ys = [0.7 * i for i in range(9)]
+
+    from auto_patch_v2.model.frame import Frame
+    fr = Frame(icao="TEST", origin=(0.0, 0.0), identity_dp=11)
+    _to_xy, to_ll = fr.transformers()
+    feet = tuple(Foot(*to_ll(x, y), fy) for (x, y), fy in zip(pts, ys))
+
+    def sample(dem):
+        return lambda lat, lon: dem.z(*_to_xy(lon, lat))
+
+    ok = _fit(feet, 0.0, sample(_Falling()), bank)
+    assert ok is not None and ok.feasible and ok.residual_m <= 0.01, ok
+    # the pair bar over a 7 m bay is 0.33 x 7 = 2.31 m
+    assert ok.limit_m == pytest.approx(bank * _PITCH, rel=0.05)
+    # 0.7 m over a 7 m bay is 1:10 — a BANK.  On flat ground the same
+    # colonnade is still feasible, which is the half round 6 got wrong.
+    gentle = _fit(feet, 0.0, sample(_FlatDem()), bank)
+    assert gentle is not None and gentle.feasible, gentle
+    # what the pair bar refuses is a fall it cannot make between two
+    # feet 7 m apart: 3.0 m against 2.31 m
+    steep = tuple(Foot(*to_ll(x, y), 3.0 * i)
+                  for i, (x, y) in enumerate(pts))
+    bad = _fit(steep, 0.0, sample(_FlatDem()), bank)
+    assert bad is not None and not bad.feasible
+    assert bad.residual_m == pytest.approx(3.0, abs=0.01), bad
+    # ...and the pair that binds is a NEIGHBOURING pair, not the span
+    a, b = bad.worst_pair
+    assert abs(a - b) == 1, bad.worst_pair
+
+
+def test_a_basin_body_takes_no_row(law):                           # noqa: F811
+    """11x (3) reading 8: a body authored BELOW its own zero standing
+    inside an emitted basin rim is §14's — it is the PIT, and a foot row
+    would pull the terrain towards a trench floor (round 6's worst body
+    at the owner's site, ``OldTerminal_FSX-LEMD84`` b3 at +7.88 m, was
+    exactly this).  Containment alone is NOT the test: the same feet
+    authored at or above zero are ordinary ground bodies."""
+    from shapely.geometry import Polygon as _Poly
+
+    def make(ys):
+        pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
+        return pts, ys
+
+    airport, r, pm, _cs, _sol, _rep, _counts = _arm(
+        law, _LawfulDem(), lambda a, rr: [_colonnade(a, rr, matched=True)])
+    to_xy, _ = airport.frame.transformers()
+    idx = FR._FaceIndex(pm, law)
+    g = airport.groups.groups[0]
+    pts = [to_xy(f.lon, f.lat) for f in g.feet]
+    assert not idx.basin_body(g.feet, pts)      # no rim in this fixture
+    # the pit's rim, over the colonnade
+    xs = [p[0] for p in pts]
+    ys_ = [p[1] for p in pts]
+    rim = _Poly([(min(xs) - 20, min(ys_) - 20), (max(xs) + 20, min(ys_) - 20),
+                 (max(xs) + 20, max(ys_) + 20), (min(xs) - 20, max(ys_) + 20)])
+    from shapely.strtree import STRtree
+    idx._rims = [rim]
+    idx._rim_tree = STRtree([rim])
+    # the feet as authored (y >= 0): NOT a basin body, however contained
+    assert not idx.basin_body(g.feet, pts)
+    below = tuple(_dc.replace(f, y=f.y - 7.0) for f in g.feet)
+    assert idx.basin_body(below, pts)
+
+
+def test_the_basin_class_is_read_off_the_maps_own_rim(law):        # noqa: F811
+    """The wiring, not the predicate: the rims the index reads are the
+    ``retaining_wall`` faces whose ref names a BASIN — the same rings
+    ``emit/graded`` publishes as ``structure_rim`` and
+    ``airport/placement_plan._rim_of`` classes a body by.  A tunnel's
+    wall is not a basin's rim."""
+    assert FR.WALL_ROLE == "retaining_wall"
+    assert FR.BASIN_WALL_REF == "basin_wall:"
+    import inspect
+    src = inspect.getsource(FR._FaceIndex.__init__)
+    assert "faces_of_role((WALL_ROLE,))" in src
+    assert "BASIN_WALL_REF" in src
+
+
+def test_the_face_triangulation_is_one_expression(law):            # noqa: F811
+    """11x (4): ``constraints`` may not import ``solve``, so the shared
+    routine lives in the LEAF ``geom`` and BOTH read it — there is no
+    second copy to drift."""
+    import inspect
+    from auto_patch_v2.geom import face_triangles
+    from auto_patch_v2.solve import rows as _rows
+    assert not hasattr(FR, "_triangles")
+    assert "face_triangles" in inspect.getsource(FR._FaceIndex.terms_at)
+    assert "face_triangles" in inspect.getsource(_rows._face_triangles)
+    assert "Delaunay" not in inspect.getsource(_rows)
+    assert "Delaunay" not in inspect.getsource(FR)
+    assert callable(face_triangles)

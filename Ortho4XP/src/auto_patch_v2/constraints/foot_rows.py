@@ -22,11 +22,14 @@ building pad and no pavement, gets NO PAD ENTITY at all.  Instead:
   and not ``law``.  The sheet blends between the feet as it does
   everywhere on adjacent ground, a neighbour's feet carry their own rows,
   and there is no pad edge to straddle;
-* FEASIBILITY is the fit's own residual: ``max |dem(foot) -
-  target(foot)|`` against ``bank_slope`` x the distance to the nearest
-  other foot.  Beyond it the body is INFEASIBLE — no rows, the low-side
-  anchor of §9, and the residual REPORTED (HECA's
-  ``road_train/metal_titles.obj b0`` is that class).
+* FEASIBILITY is read between NEIGHBOURING feet (11x (2)):
+  ``|(target_a - target_b) - (dem_a - dem_b)|`` against ``bank_slope`` x
+  their own spacing, over the feet's neighbour graph
+  (``model/ground_fit.neighbour_pairs``).  Beyond it the body is
+  INFEASIBLE — no rows, the low-side anchor of §9, and the residual
+  REPORTED (HECA's ``road_train/metal_titles.obj b0`` is that class).
+  Round 6's nearest-foot SCALAR is deleted: it bought 33 m of licence
+  for feet 100 m apart and refused 0.17 m to feet half a metre apart.
 
 NO PAD, NO RIM, NO CONSUMER (spec §11a (4) holds by construction): this
 module publishes target rows and a report, and touches no pad polygon, no
@@ -43,15 +46,32 @@ ruling HEAD is registered in ``[design] ground_datum_rulings``, so
 **THE ROW IS THE SURFACE AT THE FOOT, not at a vertex.**  A foot stands
 inside a face, and what the object will read there is the emitted sheet
 interpolated over that face's triangle — so the row carries the
-triangle's three vertices at their BARYCENTRIC weights.  A foot inside
-no face of the design sheet gets
-NO row and is reported (``feet_off_sheet``): there is nothing there to
-constrain, and the DEM is what the object will stand on.
+triangle's three vertices at their BARYCENTRIC weights.
+
+**ALL OR NOTHING, PER BODY (owner RULINGS 2026-09-11x (1)).**  A body's
+rows fire only when EVERY one of its feet stands on a face of the design
+sheet and the fit is feasible; otherwise NONE of them do and the body is
+reported ``off_sheet`` or ``infeasible``.  A PARTIAL profile — some feet
+pulled to the fit, the rest left on the raw DEM — is round 5's flat-pad
+STEP in new clothes: it tilts the body against its own authoring.  Off
+the sheet the law is the raw DEM and the SPLIT adapts the object to it
+(§9/§13/§14, 09af-1), which is a whole answer; half a profile is not.
+
+A body one of whose feet the DEM does not sample is ``no_dem`` for the
+same reason: the fit would then be over a subset and the rows a partial
+profile.
 
 **PAVEMENT IS SENIOR** (09af-1, §11b (1)): a body with a foot on apron or
 taxiway takes no rows at all — the pavement law owns that surface, the
 object goes to the terrain, and the body is reported with its role and
 residual rather than graded to.
+
+**A BASIN BODY IS §14's** (owner RULINGS 2026-09-11x (3)): a body
+authored BELOW its own zero standing inside an emitted basin rim is the
+PIT, not something on the ground, and the basin law owns its level.  It
+is counted (``basin``) and takes no foot row.  Round 6's worst body at
+the owner's site (``OldTerminal_FSX-LEMD84`` b3, +7.88 m) was one of
+these — a foot row was pulling the terrain towards a trench floor.
 
 Reads the planar map, the law, ``Airport.groups`` and ``Airport.dem``.
 No mesh, no environment, no pack.
@@ -61,14 +81,21 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import MultiPoint, Point, Polygon
+from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import face_triangles
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.ground_fit import GroundFit, ground_fit
 from ..model.planar import PlanarMap
+from .structures import WALL_ROLE
+
+#: the ref prefix ``planar/basins`` mints for a pit's void face — with
+#: :data:`.structures.WALL_ROLE` the pair that says "this ring is a
+#: basin's rim" (11x (3))
+BASIN_WALL_REF = "basin_wall:"
 
 #: this module's generator name and the ruling its rows carry — the HEAD
 #: ``[design] ground_datum_rulings`` prices at ``ground_datum``
@@ -125,8 +152,10 @@ class BodyVerdict:
     """One group's reading — every body is reported, rows or not."""
 
     gid: str
-    #: ``bare`` (rows fired), ``infeasible``, ``pavement``, ``padded``,
-    #: ``no_dem``, ``off_sheet`` (bare, feasible, but no foot in a face)
+    #: ``bare`` (rows fired — EVERY foot), ``off_sheet`` (a foot stands
+    #: on no face of the sheet), ``infeasible``, ``basin`` (§14's, 11x
+    #: (3)), ``pavement``, ``padded``, ``no_dem`` (a foot the DEM does
+    #: not sample)
     verdict: str
     feet: int
     rows: int
@@ -142,6 +171,9 @@ class BodyVerdict:
     anchor_lat: float = 0.0
     anchor_lon: float = 0.0
     anchor_residual_m: float = 0.0
+    #: the feet of this body that stood on no face of the design sheet —
+    #: ``off_sheet``'s own number, 0 for every body that fired
+    feet_off_sheet: int = 0
 
 
 def foot_targets(planar: PlanarMap, law: Law, airport: Airport
@@ -151,8 +183,9 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     the airport carries no DEM sampler."""
     groups = getattr(airport, "groups", None)
     dem = getattr(airport, "dem", None)
-    counts = {"bodies": 0, "bare": 0, "infeasible": 0, "pavement": 0,
-              "padded": 0, "no_dem": 0, "rows": 0, "feet_off_sheet": 0}
+    counts = {"bodies": 0, "bare": 0, "off_sheet": 0, "infeasible": 0,
+              "basin": 0, "pavement": 0, "padded": 0, "no_dem": 0,
+              "rows": 0, "feet_off_sheet": 0, "partial": 0}
     if groups is None or not getattr(groups, "groups", ()) or dem is None:
         return [], [], counts
     bank = float(law.tables.emit.design.bank_slope)
@@ -171,6 +204,13 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
         pts = [to_xy(f.lon, f.lat) for f in g.feet]
         roles = [index.role_at(p) for p in pts]
         kinds = {index.kind(r) for r in roles}
+        if index.basin_body(g.feet, pts):
+            # §14 OWNS THE PIT (11x (3)): a body authored below its own
+            # zero inside an emitted basin rim is the basin's, and its
+            # level is the basin's floor law — never a ground target
+            verdicts.append(_verdict(g, "basin", roles, None, 0))
+            counts["basin"] += 1
+            continue
         if "pavement" in kinds:
             verdicts.append(_verdict(g, "pavement", roles, None, 0))
             counts["pavement"] += 1
@@ -182,29 +222,41 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             counts["padded"] += 1
             continue
         fit = ground_fit(g.feet, g.y_zero, _sampler(dem, to_xy), bank)
-        if fit is None:
+        if fit is None or len(fit.keep) != len(g.feet):
+            # ALL OR NOTHING (11x (1)): a fit over a SUBSET of the feet
+            # would mint a partial profile exactly as an off-sheet foot
+            # would
             verdicts.append(_verdict(g, "no_dem", roles, None, 0))
             counts["no_dem"] += 1
             continue
+        # THE SHEET FIRST, THE FIT SECOND — so ``off_sheet`` is a
+        # COMPLETE count of the bodies the sheet does not reach, and
+        # ``infeasible`` is read over the bodies it does
+        terms = [index.terms_at(p) for p in pts]
+        missing = sum(1 for t in terms if t is None)
+        if missing:
+            counts["feet_off_sheet"] += missing
+            counts["off_sheet"] += 1
+            verdicts.append(_verdict(g, "off_sheet", roles, fit, 0,
+                                     off_sheet=missing))
+            continue
         if not fit.feasible:
-            # §11b (3): the terrain cannot carry this body's relief and
-            # stay a bank.  No rows, the low-side anchor of §9, REPORTED.
+            # §11b (3): the terrain cannot carry this body's relief
+            # between two of its feet and stay a bank.  No rows, the
+            # low-side anchor of §9, REPORTED.
             verdicts.append(_verdict(g, "infeasible", roles, fit, 0))
             counts["infeasible"] += 1
             continue
-        fired = 0
         for j, i in enumerate(fit.keep):
-            terms = index.terms_at(pts[i])
-            if terms is None:
-                counts["feet_off_sheet"] += 1
-                continue
-            rows.append(FootTarget(g.gid, terms, fit.targets[j], fit.dem[j],
+            t = terms[i]
+            assert t is not None                 # checked above, per body
+            rows.append(FootTarget(g.gid, t, fit.targets[j], fit.dem[j],
                                    roles[i] or ""))
-            fired += 1
+        fired = len(fit.keep)
         counts["rows"] += fired
         counts["bare"] += 1
-        verdicts.append(_verdict(g, "bare" if fired else "off_sheet",
-                                 roles, fit, fired))
+        counts["partial"] += int(fired != len(g.feet))   # 0 by construction
+        verdicts.append(_verdict(g, "bare", roles, fit, fired))
     return rows, verdicts, counts
 
 
@@ -223,7 +275,8 @@ def _sampler(dem, to_xy) -> _t.Callable[[float, float], float | None]:
 
 
 def _verdict(g, kind: str, roles: list[str | None],
-             fit: GroundFit | None, fired: int) -> BodyVerdict:
+             fit: GroundFit | None, fired: int, *,
+             off_sheet: int = 0) -> BodyVerdict:
     order: dict[str, int] = {}
     for r in roles:
         order[r or "<none>"] = order.get(r or "<none>", 0) + 1
@@ -242,7 +295,8 @@ def _verdict(g, kind: str, roles: list[str | None],
         limit_m=0.0 if fit is None else fit.limit_m,
         relief_m=g.relief_m,
         roles=tuple(k for k, _n in sorted(order.items(), key=lambda kv: -kv[1])),
-        anchor_lat=lo_lat, anchor_lon=lo_lon, anchor_residual_m=lo_res)
+        anchor_lat=lo_lat, anchor_lon=lo_lon, anchor_residual_m=lo_res,
+        feet_off_sheet=off_sheet)
 
 
 class _FaceIndex:
@@ -279,6 +333,42 @@ class _FaceIndex:
         self._vw = vw
         self._tree = STRtree(polys) if polys else None
         self._tris: dict[int, list[tuple[int, int, int]]] = {}
+        # THE BASIN RIMS (11x (3)): the EXTERIOR ring of every emitted
+        # basin void face — the same ring ``emit/graded`` publishes as
+        # the ``structure_rim`` breakline that ``airport/placement_plan.
+        # _rim_of`` reads when it classes a body ``basin``, read here
+        # pre-emit off the map it is minted from.  Holes are DROPPED on
+        # purpose: the floor faces inside the void are the pit too.
+        self._rims: list[Polygon] = []
+        for f in vw.faces_of_role((WALL_ROLE,)):
+            if not str(f.ref).startswith(BASIN_WALL_REF):
+                continue                 # a tunnel / corridor wall, not a pit
+            ring = vw.rings[f.id]
+            if len(ring) < 3:
+                continue
+            poly = Polygon([vw.xy[v] for v in ring])
+            if not poly.is_valid:
+                poly = poly.buffer(0.0)
+            if isinstance(poly, Polygon) and not poly.is_empty:
+                self._rims.append(poly)
+        self._rim_tree = STRtree(self._rims) if self._rims else None
+
+    def basin_body(self, feet, pts) -> bool:
+        """§14's class (11x (3)), read the way ``airport/placement_plan.
+        _rim_of`` reads it: a foot authored BELOW the object's own zero
+        standing inside an emitted basin rim.  Containment alone is NOT
+        the test — a terminal whose ground floor sits over a cut pit is
+        not the pit (the LEMD ``Terminal4sBlue-LEMD35`` precedent)."""
+        if self._rim_tree is None:
+            return False
+        for f, p in zip(feet, pts):
+            if float(f.y) >= 0.0:
+                continue
+            pt = Point(p)
+            for j in self._rim_tree.query(pt):
+                if self._rims[int(j)].covers(pt):
+                    return True
+        return False
 
     def kind(self, role: str | None) -> str:
         if role is None:
@@ -310,7 +400,10 @@ class _FaceIndex:
             return None
         tris = self._tris.get(fid)
         if tris is None:
-            tris = _triangles(self._vw, fid, self._polys[self._at[fid]])
+            # THE ONE TRIANGULATION (11x (4)): ``geom`` is the leaf both
+            # this layer and ``solve/rows`` may import — no copy here.
+            tris = face_triangles(self._vw.xy, self._vw.rings[fid],
+                                  self._vw.holes[fid])
             self._tris[fid] = tris
         xy = self.pm.vertices
         for a, b, c in tris:
@@ -319,44 +412,6 @@ class _FaceIndex:
                 continue
             return ((a, w[0]), (b, w[1]), (c, w[2]))
         return None
-
-
-def _triangles(vw, fid: int, poly: Polygon) -> list[tuple[int, int, int]]:
-    """A triangulation of one face — its ring and hole vertices'
-    Delaunay, keeping the triangles whose centroid lies inside the face
-    (a concave face and a face with holes triangulate correctly).
-
-    DEVIATION, REPORTED (round 6): this is the same SHAPE as
-    ``solve/rows._face_triangles`` and cannot share code with it — the
-    layering law (``tests/auto_patch_v2/test_model.test_dependency_
-    direction``) lets ``constraints`` import only ``law`` and ``model``,
-    ``solve`` only ``law`` and ``model``, and ``model`` may import
-    neither ``shapely`` nor ``numpy``.  The two are answers to different
-    questions (the solver's is the domain it integrates curvature over;
-    this one is "where in the face is this point"), so they are not
-    required to agree — but a shared home for them is the owner's call,
-    not the lane's."""
-    import shapely
-    ring = vw.rings[fid]
-    ids = list(dict.fromkeys([*ring, *(v for h in vw.holes[fid] for v in h)]))
-    if len(ids) < 3:
-        return []
-    xy = {v: vw.xy[v] for v in ids}
-    of_pt = {(round(x, 6), round(y, 6)): v for v, (x, y) in xy.items()}
-    try:
-        tri = shapely.delaunay_triangles(
-            MultiPoint([xy[v] for v in ids]), only_edges=False)
-    except Exception:
-        return []
-    out: list[tuple[int, int, int]] = []
-    for g in shapely.get_parts(tri):
-        if not poly.contains(g.representative_point()):
-            continue
-        vs = [of_pt.get((round(x, 6), round(y, 6)))
-              for x, y in list(g.exterior.coords)[:3]]
-        if all(v is not None for v in vs):
-            out.append((vs[0], vs[1], vs[2]))
-    return out
 
 
 #: a point this far outside a triangle in barycentric units still counts

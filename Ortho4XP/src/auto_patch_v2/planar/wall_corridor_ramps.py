@@ -34,7 +34,7 @@ from ..law.tables import role_side
 from ..airport.wall_corridors import CLASS_GARAGE
 from .object_corridor import Group
 from .structure_approach import unit
-from .structure_geometry import rim_standoff
+from .structure_geometry import pad_hit as _pad_hit, rim_standoff
 
 __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "airside_stops",
            "stop_and_steepen", "wall_corridor_profile", "wall_corridor_note"]
@@ -114,18 +114,6 @@ def airside_stops(cells, polys, law: Law, runway_family) -> list:
     return [(p, c.ref) for p, c in zip(polys, cells)
             if c.kind != "structure" and c.role not in runway_family
             and (role_side(law, c.role) == "airside" or c.role == "building")]
-
-
-def _pad_hit(outer, pads, tree, gap: float, exclude=()) -> str | None:
-    if tree is None:
-        return None
-    for j in tree.query(outer.buffer(gap), predicate="intersects"):
-        p, ref = pads[int(j)]
-        if ref in exclude:
-            continue
-        if p.distance(outer) < gap - 1e-9:
-            return ref
-    return None
 
 
 def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,

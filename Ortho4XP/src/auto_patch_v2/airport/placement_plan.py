@@ -59,7 +59,7 @@ from . import line_object as _lo
 from . import obj8_split as _split
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
-           "authored_offset"]
+           "authored_offset", "pads_rims_from_graded", "pads_rims_from_graded_doc"]
 
 
 # ── reading a plan this tree did not write ───────────────────────────────
@@ -81,6 +81,43 @@ def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
     if int(d.get("version", 0)) > PLAN_VERSION:
         d = dict(d, version=PLAN_VERSION)
     return RebakePlan.from_dict(d), abut
+
+
+#: The graded roles §6's class rule reads: the emitted object PADS and the
+#: emitted structure RIMS.  One derivation, two callers — the shipped
+#: engine path (``auto_patch/engine_v2._place_objects``) and the dry run
+#: (``tools/obj8_split_report.surface_from_graded``).  A second copy is the
+#: census-wrapper defect: the engine ran for weeks with ``pads=()`` and
+#: ``rims=()`` — nothing shipped could ever classify ``building`` or
+#: ``basin`` — while the tool, deriving them, classified both.
+PAD_FACE_ROLE = "building"
+RIM_BREAKLINE_KIND = "structure_rim"
+
+
+def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
+                              ) -> tuple[tuple[_ar.PadRing, ...],
+                                         tuple[_ar.RimRing, ...]]:
+    """``(pads, rims)`` from a parsed ``<ICAO>.graded.json`` document: the
+    ``building`` faces' rings and the ``structure_rim`` breaklines, each
+    as its ``(lat, lon)`` ring.  A ring shorter than 3 kept vertices is
+    not a ring and is dropped (the same floor both callers used)."""
+    by_id = {v[0]: (v[1], v[2]) for v in d["vertices"]}
+    pads = tuple(_ar.PadRing(f["ref"],
+                             tuple(by_id[i] for i in f["ring"] if i in by_id))
+                 for f in d["faces"]
+                 if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3)
+    rims = tuple(_ar.RimRing(b["ref"],
+                             tuple(by_id[i] for i in b["vertices"] if i in by_id))
+                 for b in d["breaklines"]
+                 if b["kind"] == RIM_BREAKLINE_KIND and len(b["vertices"]) >= 3)
+    return pads, rims
+
+
+def pads_rims_from_graded(path: str) -> tuple[tuple[_ar.PadRing, ...],
+                                              tuple[_ar.RimRing, ...]]:
+    """:func:`pads_rims_from_graded_doc` of the file at ``path``."""
+    with open(path, encoding="utf-8") as fh:
+        return pads_rims_from_graded_doc(json.loads(fh.read()))
 
 
 # ── the product ──────────────────────────────────────────────────────────

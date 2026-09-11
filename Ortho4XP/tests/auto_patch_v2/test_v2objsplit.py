@@ -673,3 +673,200 @@ def test_segments_of_one_component_are_cut_by_triangle_not_by_component(tmp_path
     assert not res.kept_whole and len(res.files) == 2
     assert [f.tris for f in res.files] == [len(left), len(right)]
     assert res.counts["segment"] == len(tris)
+
+
+# ── lane v2planfix: THE SHIPPED PATH'S pads AND rims ─────────────────────
+#
+# ``engine_v2._place_objects`` called ``build_plan`` with neither ``pads``
+# nor ``rims``, so in a SHIPPED build ``classify_body`` could never answer
+# ``building`` or ``basin`` — only ``tools/obj8_split_report.py`` supplied
+# them.  Both now read ONE derivation,
+# ``placement_plan.pads_rims_from_graded``.
+
+_PAD_RING = ((40.0010, -3.6010), (40.0010, -3.6000),
+             (40.0020, -3.6000), (40.0020, -3.6010))
+_RIM_RING = ((40.0040, -3.6030), (40.0040, -3.6020),
+             (40.0050, -3.6020), (40.0050, -3.6030))
+#: a point inside each
+_IN_PAD = (40.0015, -3.6005)
+_IN_RIM = (40.0045, -3.6025)
+
+
+def _graded_doc():
+    """A minimal ``<ICAO>.graded.json`` document carrying one ``building``
+    face and one ``structure_rim`` breakline — plus one face and one
+    breakline of other kinds, which must NOT be read as either."""
+    ring = list(_PAD_RING) + list(_RIM_RING) + [(40.0, -3.61), (40.0, -3.60),
+                                                (40.001, -3.60)]
+    verts = [[i, la, lo, 100.0] for i, (la, lo) in enumerate(ring)]
+    return {
+        "schema": "o4.graded_surface/1", "icao": "TEST", "ruleset": "icao",
+        "frame": {"origin": [40.0, -3.6], "crs": "ll", "identity_dp": 11},
+        "vertices": verts,
+        "faces": [{"id": 0, "role": "building", "ref": "building16",
+                   "ring": [0, 1, 2, 3], "holes": []},
+                  {"id": 1, "role": "apron", "ref": "apron1",
+                   "ring": [8, 9, 10], "holes": []}],
+        "breaklines": [{"kind": "structure_rim", "ref": "rim7",
+                        "vertices": [4, 5, 6, 7]},
+                       {"kind": "terrain_edge", "ref": "edge2",
+                        "vertices": [8, 9, 10]}],
+    }
+
+
+def test_pads_and_rims_are_derived_once_for_the_engine_and_the_tool(tmp_path):
+    """ONE derivation site: the dry-run tool's ``surface_from_graded`` and
+    the engine's own reader return IDENTICAL pads and rims from one file
+    — and only the ``building`` faces and ``structure_rim`` breaklines."""
+    import json as _json
+
+    p = tmp_path / "TEST.graded.json"
+    p.write_text(_json.dumps(_graded_doc()))
+
+    pads, rims = PP.pads_rims_from_graded(str(p))
+    assert [q.ref for q in pads] == ["building16"]
+    assert [q.ref for q in rims] == ["rim7"]
+    assert pads[0].ring == _PAD_RING and rims[0].ring == _RIM_RING
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import obj8_split_report as RPT
+    _s, tool_pads, tool_rims = RPT.surface_from_graded(str(p))
+    assert tool_pads == pads and tool_rims == rims
+
+
+def _plan_with_a_building_and_a_basin(tmp_path, icao="TEST"):
+    """A pack and a one-unit rebake plan with two placements: one standing
+    inside the emitted object PAD at its authored zero (a ``building``),
+    one standing inside the emitted structure RIM below its zero (a
+    ``basin``).  Nothing here depends on the OBJ8 bytes — the measure-only
+    path never cuts a file."""
+    from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
+
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    nav = pack / "Earth nav data" / "+40-010"
+    nav.mkdir(parents=True)
+    dsf = nav / "+40-004.dsf"
+    dsf.write_text("\n".join([
+        "PROPERTY sim/west -4", "OBJECT_DEF objects/bld.obj",
+        "OBJECT_DEF objects/pit.obj",
+        "OBJECT 0 -3.6005 40.0015 0.0",
+        "OBJECT 1 -3.6025 40.0045 0.0"]) + "\n")
+
+    def _member(idx, name, ll, base_y):
+        path = pack / "objects" / name
+        path.write_text("I\n800\nOBJ\n")
+        part = Part(pid=idx, comp=0, lat=ll[0], lon=ll[1], base_y=base_y,
+                    area_m2=40.0,
+                    box=(ll[0] - 1e-5, ll[1] - 1e-5, ll[0] + 1e-5, ll[1] + 1e-5),
+                    feet=((ll[0], ll[1], base_y),))
+        return Member(id=f"dsf:obj{idx}", resource="objects/" + name,
+                      authored_path=str(path), live_path=str(path),
+                      heading_deg=0.0, parts=(part,))
+
+    plan = RebakePlan(
+        icao=icao, pack_name="pack", pack_root=str(pack),
+        units=(Unit("u0", _IN_PAD, 0.0,
+                    (_member(0, "bld.obj", _IN_PAD, 0.0),
+                     _member(1, "pit.obj", _IN_RIM, -4.0))),),
+        skipped=(), counts={})
+    return pack, dsf, plan
+
+
+def _place(plan, patch_dir, monkeypatch, dsf):
+    """Drive ``engine_v2._place_objects`` — the SHIPPED call path — in its
+    measure-only arm (no cut, no DSF write, no DSFTool)."""
+    from auto_patch import dsf_reader as DSFR
+    from auto_patch import engine_v2 as EV2
+    from auto_patch_v2.law import Law
+
+    monkeypatch.setattr(DSFR, "ensure_dsf_text_path",
+                        lambda src, cache: str(dsf), raising=False)
+
+    class _Tile:
+        lat, lon = 40, -4
+
+    return EV2._place_objects(plan, Law.for_airport("TEST"),
+                              lambda la, lo: (100.0, False), _Tile(),
+                              str(patch_dir), write_enabled=False,
+                              measure_only=True)
+
+
+def test_the_shipped_path_classifies_building_and_basin(tmp_path, monkeypatch):
+    """THE DEFECT AND ITS FIX, interventionally: the SAME engine call
+    path, run with and without the design surface beside the patch.  With
+    it, the two bodies read ``building`` and ``basin``; without it both
+    fall through to ``other`` — which is what every shipped build did."""
+    import json as _json
+
+    from auto_patch import engine_v2 as EV2
+
+    pack, dsf, plan = _plan_with_a_building_and_a_basin(tmp_path)
+    patch_dir = tmp_path / "patch"
+    patch_dir.mkdir()
+
+    # ARM A — no <ICAO>.graded.json beside the patch (the shipped state)
+    a = _place(plan, patch_dir, monkeypatch, dsf)
+    assert a.get("class_other") == 2, a
+    assert "class_building" not in a and "class_basin" not in a, a
+
+    # ARM B — the design surface placed beside the patch, as the build now
+    # places it (``_place_graded_surface``)
+    (patch_dir / "TEST.graded.json").write_text(_json.dumps(_graded_doc()))
+    b = _place(plan, patch_dir, monkeypatch, dsf)
+    assert b.get("class_building") == 1, b
+    assert b.get("class_basin") == 1, b
+    assert "class_other" not in b, b
+
+    # and the path the two halves agree on is one function
+    assert EV2.graded_surface_path(str(patch_dir), "TEST") == \
+        str(patch_dir / "TEST.graded.json")
+
+
+def test_the_build_places_the_graded_surface_beside_the_patch(tmp_path):
+    """``_place_graded_surface`` is the piece that makes the engine's read
+    possible at all: the whole-airport surface the pipeline wrote into its
+    scratch dir, copied to ``<patch dir>/<ICAO>.graded.json``."""
+    from auto_patch import engine_v2 as EV2
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    src = scratch / "TEST.graded.json"
+    src.write_text('{"vertices":[],"faces":[],"breaklines":[]}')
+
+    class _Paths:
+        graded = src
+
+    patch_dir = tmp_path / "Patches" / "+40-004"
+    patch_dir.mkdir(parents=True)
+    task = {"auto_patch_file": str(patch_dir / "TEST_auto.patch.osm")}
+    dest = EV2._place_graded_surface(task, _Paths(), "TEST")
+    assert dest == str(patch_dir / "TEST.graded.json")
+    assert os.path.isfile(dest)
+    assert PP.pads_rims_from_graded(dest) == ((), ())
+    # a pipeline that wrote none is not a failure
+    assert EV2._place_graded_surface(task, None, "TEST") is None
+
+
+def test_pad_hit_is_one_implementation(tmp_path):
+    """Lane v2planfix (b): ``planar/structures`` and
+    ``planar/wall_corridor_ramps`` carried byte-equal private copies of
+    the pad probe.  One function, upstream of both."""
+    from auto_patch_v2.planar import structure_geometry as G
+    from auto_patch_v2.planar import structures as S
+    from auto_patch_v2.planar import wall_corridor_ramps as W
+
+    assert S._pad_hit is G.pad_hit
+    assert W._pad_hit is G.pad_hit
+
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+
+    pads = [(Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]), "building1")]
+    tree = STRtree([p for p, _r in pads])
+    probe = Polygon([(11, 0), (12, 0), (12, 1), (11, 1)])
+    assert G.pad_hit(probe, pads, tree, 2.0) == "building1"
+    assert G.pad_hit(probe, pads, tree, 0.5) is None
+    assert G.pad_hit(probe, pads, tree, 2.0, exclude=("building1",)) is None
+    assert G.pad_hit(probe, pads, None, 2.0) is None

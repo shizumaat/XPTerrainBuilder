@@ -34,8 +34,31 @@ import math
 import typing as _t
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
+from shapely.strtree import STRtree
 
 from ..model.frame import XY
+
+
+def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | None,
+            gap: float, exclude: _t.Collection[str] = ()) -> str | None:
+    """The ref of a building pad (or, for a door ramp, any governed cell
+    not among its host ``exclude`` refs) the footprint touches (closer
+    than the gap), or ``None``.
+
+    ONE implementation (lane v2planfix): ``planar/structures`` and
+    ``planar/wall_corridor_ramps`` both ask this question, and carried
+    byte-equal private copies of it.  It lives here because ``structures``
+    imports ``wall_corridor_ramps`` — the shared home has to be upstream
+    of both."""
+    if tree is None:
+        return None
+    for j in tree.query(outer.buffer(gap), predicate="intersects"):
+        p, ref = pads[int(j)]
+        if ref in exclude:
+            continue
+        if p.distance(outer) < gap - 1e-9:
+            return ref
+    return None
 
 
 def _unit(a: XY, b: XY) -> XY:

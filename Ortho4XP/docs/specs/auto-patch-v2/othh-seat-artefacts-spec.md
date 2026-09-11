@@ -1377,3 +1377,59 @@ files** (`North_FSX-LEMDzaun` −19.67, `Terminal4_green-LEMDzaun` +10.74,
 `structures.toml [rebake]`: `line_object_ratio = 20.0`, `line_object_max_h = 6.0`,
 `line_object_stations_max = 64`. `line_object_ratio = 0` disables the class
 (the pre-10bb reading).
+
+### 16.4 What was measured (lane `v2fence`; LEMD patch build 342 s + the matched control at `1af5ce78`, replayed on the owner's meshes)
+
+THE CONTROL IS A REAL BUILD AT THIS BRANCH'S PARENT, not the owner's
+1.0.310 result: main moved to `454e4f35` mid-lane, and the 1.0.310 census
+the brief quotes (`> 3 m` 13, 297 feet) is a THIRD code version. At
+`1af5ce78` the same instrument reads **23** over 3 m. Both arms replay
+their own build's plan against the owner's mesh `Data+40-004.mesh`.
+
+* **The patch is byte-identical**: `body_sha256 9ceb5f84576e7ac3` on both
+  arms, `verify_defects {}` — DEFECTs **0**. The change is post-mesh only.
+* `seat_feet_census.py`, 873 measured placements:
+  **`> 3 m` 23 → 14** with **no row entering** the class; feet over 0.3 m
+  **297 → 284**. The three fences leave outright: `North_FSX-LEMDzaun`
+  **−19.67 → +0.19**, `Terminal4_green-LEMDzaun` **+10.74 → +1.37**,
+  `Munoza-LEMDzaun` **−5.91 → +0.04**; with them `Bridge2` +7.25 → −0.00,
+  `Bridge3` +3.93 → −0.08, `T2BCK` +5.15 → +1.17, `Cargo-T3PL1`
+  +3.08 → +1.80, and `Terminal4_green-LEMD50` **−6.86 → +0.51** (its
+  sibling −1.34 → +0.42). Every draped line object is inside 1.80 m.
+* 53 line-object resources, 4,282 line parts, 12,494 drape stations;
+  **6,760 contact edges bound nothing**; 4,282 line bodies.
+* `pairs --floor 0.05 --bar 2.0`: over 2 m **22 → 18**; under the floor
+  31,307 → 33,829 — one line component per body means adjacent fence
+  components drape to their own stations, and the sub-0.05 m steps at
+  their boundary sit under `cluster_seat_tolerance_m`. Reported.
+* **OTHH** (`Data+25+051.mesh`, the owner's plan, `--line-objects`):
+  **20 written resources, the same set, ZERO differing deltas, max
+  difference 0.000000** — Dewatering Drainage 9 (+3.816…+13.142),
+  tunnels 8 (−2.289…+3.094), Fire Fuel 3 (−1.130). 153 resources /
+  3,201 parts classify, 1,100 line bodies form, 5,502 edges bind
+  nothing, 27 orphan bodies are sampled — and **not one line object is
+  written**: every drape delta there is under `min_delta_m`, so the pack
+  is unchanged. The exemption held with no special case.
+
+**Three bars MISSED, attributed, not iterated on (attempt cap):**
+
+1. *feet over 0.3 m ≤ 100* is out of this ruling's reach. **165 of the
+   297 are MULTI-ANCHOR placements the plan never seats** (10ax (3)'s
+   class, max 1.29 m); the seatable population is 132, and the line rule
+   takes it to **119**.
+2. *compact bodies (span < 300 m) over 3 m → 0*: **9 → 6**. The six are
+   `VRDCH` −10.56, `elect` −9.17, `T2LG1` +5.86, `LEMD49` −6.26,
+   `Bridge4` +4.11, `T2SL3` +3.25 — none is a line object, and all six
+   stand in the CONTROL unchanged.
+3. *`LEMD49` within 0.3 m*: **unchanged at −6.26**, and it is NOT a
+   line-object question. Attributed: its parts sit in body k228 — 201
+   parts, 13 resources, ⌀151 m — whose **two** measured feet agree to
+   0.03 m at one end and found the body at 600.87 while LEMD49's own
+   ground is 6.26 m above. 10i (2)'s span rule does not fire (⌀151 m
+   needs 2 feet and the body has exactly 2). This is 10i (2)'s class:
+   a body may need one foot per span *per member*, not per body.
+   `LEMD50` at **+0.51** is the SEGMENT SEAT's own quantisation (4
+   stations over 158 m, nearest-station is piecewise constant); linear
+   interpolation between the two nearest stations would halve it and was
+   NOT written — it is outside 10bb's "seat each segment on its own
+   ground".

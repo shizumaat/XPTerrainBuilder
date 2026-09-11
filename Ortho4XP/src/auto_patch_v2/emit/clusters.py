@@ -236,6 +236,10 @@ class _P:
     #: founds no foot for anything else, is its OWN body, and is seated
     #: PER SEGMENT on its stations (``feet``).
     line: bool = False
+    #: THE DRAPE STATIONS of a line part (10bb rule 3): ``(lat, lon, seat
+    #: target)`` per foot that read the design surface.  Empty for a part
+    #: the seat never sampled (off the mesh, on water, structure-seated).
+    stations: tuple[tuple[float, float, float], ...] = ()
     fixed: str | None = None    # the unit id of a structure seat this part follows
     family: str | None = None   # the unit id of the deck family this part may attach to
 

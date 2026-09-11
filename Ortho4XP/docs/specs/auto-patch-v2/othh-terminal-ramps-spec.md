@@ -897,5 +897,13 @@ escape it. `stats.refused` stays geometry-only.
 `TerminalWitness`) — 10ap closes 10ac-1 as (B), so the (A) mechanism is a refuted branch,
 deleted rather than gated. Its measurement stays above in §12f.
 
-**Closing builds (counts, materiality = counts).** LEMD patch: Law C shapes 0, the 21 OSM
-road-bore ramps unchanged, DEFECTs 0. OTHH patch: 43 corridors identical to round 7.
+**Closing builds (counts, materiality = counts).** LEMD `r8_lemd` vs main `2fb83ce3`
+(control served from the artifact ledger, `v2pit2_base`): Law C shapes **17 → 0** — the
+sidecar's `tunnel_objects` 17 → 1, the one survivor `tunnel-object:Bridge4.obj@0` (Law B);
+`tunnel_ramp` shapes 38 → **21**, exactly the OSM road bores, unchanged; `basin_facilities`
+0 → 0; v2-verify DEFECTs **0**; census adjudicated **555 → 394** (total 3,318 → 3,131).
+OTHH `r8_othh` vs round 7 `1d3c0d78` (ledger `v2corr_r7_othh`): **43 corridors** (bay 13,
+level 60 halves) from 69 pairs of 268 bands in 10 families, refused 26 — the patch body is
+**byte-identical** (`e921644fe5cd5806…`, body sha `58b3045f42fe570b`), the rebake plan is
+byte-identical (`493af639e41a5f25…`), the sidecar differs only in two wall-clock fields,
+and v2-verify reads the same 4 rows with **DEFECTs 0**.

@@ -16,8 +16,9 @@ pure ``edit_dump`` the writer runs, and prints the rows that moved.
 
 With ``--plan`` the plan is READ instead of derived (the split half of
 the spec, lane ``v2objsplit``, writes one); without it the §5 rule is
-applied: every ``OBJECT_MSL`` / ``OBJECT_AGL`` of a pack resource
-converts, every stock ``lib/…`` resource is KEPT and reported.
+applied: every ``OBJECT_MSL`` / ``OBJECT_AGL`` placement converts — pack
+and stock ``lib/…`` resources alike (owner RULINGS 2026-09-11d: a
+placement edit modifies no object); nothing is kept at this step.
 
 ``--verify`` additionally encodes the edited text with DSFTool into a
 TEMP directory and runs ``verify_roundtrip`` on it — still writing

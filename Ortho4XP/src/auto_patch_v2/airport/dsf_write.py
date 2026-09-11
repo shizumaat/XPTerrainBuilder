@@ -124,7 +124,27 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, KIND_AGL,
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "PLACEMENT_KINDS", "RoundTripReport", "WriteResult", "placement_rows",
            "edit_dump", "dump", "encode", "verify_roundtrip", "write_pack",
-           "live_install_roots"]
+           "live_install_roots", "pristine_dsf_path", "written_body_files"]
+
+
+def pristine_dsf_path(dsf_path: str) -> str:
+    """THE ONE READ FRAME of the object stage (RULINGS 2026-09-11m).
+
+    ``<dsf>.anchor_bak`` when one is there, else the live file.  Once
+    :func:`write_pack` has run, the live DSF carries the bodies this
+    stage minted and the backup beside it is the pack as installed; a
+    plan derived from the LIVE file names placements (``dsf:obj3021`` …)
+    that the write half — which dumps the backup — cannot find, and
+    ``edit_dump`` refuses.  EVERY object-stage read resolves through
+    here, so a second build over a written pack plans exactly what the
+    first one planned.
+
+    A path that already IS a backup is returned unchanged (never
+    ``.anchor_bak.anchor_bak``)."""
+    if not dsf_path or dsf_path.endswith(BACKUP_SUFFIX):
+        return dsf_path
+    bak = dsf_path + BACKUP_SUFFIX
+    return bak if os.path.isfile(bak) else dsf_path
 
 #: The three placement rows (``airport/dsf.read_dump``'s grammar).
 PLACEMENT_KINDS = (KIND_ON_GROUND, KIND_MSL, KIND_AGL)
@@ -597,11 +617,38 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def written_body_files(pack_root: str, dsf_path: str) -> tuple[str, ...]:
+    """The body files the PREVIOUS write of this DSF made, as absolute
+    paths, from ``o4_placement_provenance.json`` beside it (11m).
+
+    The restore step removes exactly these before writing again — a plan
+    that cuts fewer bodies than the last one would otherwise leave the
+    surplus ``__b<k>.obj`` in the pack forever.  A pack with no
+    provenance, or provenance from before this key existed, names
+    nothing and NOTHING is removed."""
+    prov = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
+    try:
+        with open(prov) as fh:
+            rows = json.load(fh).get("body_files") or []
+    except (OSError, ValueError, AttributeError):
+        return ()
+    out: list[str] = []
+    root = os.path.abspath(pack_root)
+    for rel in rows:
+        if not isinstance(rel, str) or not rel:
+            continue
+        p = os.path.abspath(os.path.join(root, *rel.replace("\\", "/").split("/")))
+        if p.startswith(root + os.sep):
+            out.append(p)
+    return tuple(out)
+
+
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
                engine_version: str = "",
-               law_digest: str = "") -> WriteResult:
+               law_digest: str = "",
+               body_files: _t.Sequence[str] = ()) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -665,6 +712,12 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "law_digest": law_digest or plan.provenance.law_digest,
         "counts": counts,
         "roundtrip": report.to_dict(),
+        # 11m: what the NEXT restore removes — pack-relative, sorted, and
+        # ONLY the files this writer made.
+        "body_files": sorted(
+            os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
+                            ).replace(os.sep, "/")
+            for f in body_files),
     }
     prov_path = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
     with open(prov_path, "w") as fh:

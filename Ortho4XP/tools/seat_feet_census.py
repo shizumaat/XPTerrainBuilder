@@ -79,18 +79,23 @@ _CLASSES = (("stock", "stock library"),
 def find_dsf_dump(pack_root: str) -> str | None:
     """The pack's cached DSFTool text dump, READ-ONLY.
 
-    The cache names a dump ``<dsf basename>.<sha1(abs dsf path)[:8]>.text``
+    The cache names a dump ``<dsf basename>.<sha256(dsf bytes)[:8]>.text``
     under the airport mod cache (``auto_patch.dsf_reader``); this looks
     only for one that already EXISTS — DSFTool is never run here, so a
     census can never regenerate a shared-repo artefact as a side effect.
+
+    The DSF it names is the PRISTINE one (RULINGS 2026-09-11m,
+    ``dsf_write.pristine_dsf_path``): a census of a written pack reads
+    the frame the plan was made in, not the bodies the write minted.
     """
     from auto_patch.dsf_reader import airport_mod_cache_dir, _default_pack_text_cache_path
+    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     cache = airport_mod_cache_dir(pack_root)
     if not cache:
         return None
     for d in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))
                     + glob.glob(os.path.join(pack_root, "Earth nav data", "*.dsf"))):
-        cand = _default_pack_text_cache_path(cache, d)
+        cand = _default_pack_text_cache_path(cache, pristine_dsf_path(d))
         if os.path.isfile(cand):
             return cand
     return None

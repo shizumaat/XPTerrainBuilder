@@ -172,8 +172,7 @@ def _write_pack(a, plan, ss, sampler) -> None:
     dsf_path = dsfs[0]
     tool = a.dsftool or _dsftool_path()
     work = tempfile.mkdtemp(prefix="o4_split_write_")
-    src = dsf_path + ".anchor_bak" if os.path.isfile(dsf_path + ".anchor_bak") \
-        else dsf_path
+    src = _dw.pristine_dsf_path(dsf_path)          # the ONE resolver (11m)
     dump_text = os.path.join(work, os.path.basename(dsf_path) + ".text")
     _dw.dump(src, dump_text, tool)
     dump = _dsf.read_dump(dump_text)

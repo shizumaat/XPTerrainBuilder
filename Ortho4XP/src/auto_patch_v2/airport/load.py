@@ -24,6 +24,7 @@ from . import apt_dat as _apt
 from . import cifp as _cifp
 from . import dem as _dem
 from . import dsf as _dsf
+from . import dsf_write as _dw
 from . import obj8 as _obj8
 from . import osm as _osm
 from . import pack as _pack
@@ -264,7 +265,12 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
     # ── DSF: facades, object footprints, placements ────────────────
     dsf_objects: list[DsfObject] = []
-    pack_dsf = _dsf.dsf_path_in_pack(sel.root, *tile)
+    # THE READ FRAME (RULINGS 2026-09-11m): the PRISTINE DSF — the
+    # ``.dsf.anchor_bak`` the object stage moved aside, else the live
+    # file.  A plan derived from a WRITTEN DSF names the bodies the last
+    # write minted (LEMD: 3,934 placements against a 3,021-row pristine
+    # dump) and the write half refuses it.
+    pack_dsf = _dw.pristine_dsf_path(_dsf.dsf_path_in_pack(sel.root, *tile))
     dump_path = inputs.dsf_dump_path or (
         _dsf.find_text_dump(inputs.mod_cache_root, sel.name, *tile,
                             dsf_path=pack_dsf)

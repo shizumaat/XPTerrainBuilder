@@ -18,7 +18,9 @@ same sequence and nobody grows a second one:
    pass is idempotent (a pack with no backup restores nothing, a pack
    already restored copies nothing) and the backups are KEPT: they are
    what ``placement_plan.pristine_path`` reads, and §8 deletes them with
-   the seat, not before;
+   the seat, not before.  The PREVIOUS write's OWN body files go in the
+   same step (11m) — the ones ``o4_placement_provenance.json`` names,
+   and only those, each confirmed to carry this writer's ``CUT_MARK``;
 1. the PLAN — ``conversions`` for every MSL / AGL row of the dump (11d:
    stock placements convert too), ``splits`` for the placements whose
    bodies were coarsened into more than one file, ``kept`` for the rest;
@@ -69,11 +71,14 @@ class RestoreResult:
 
     backups: tuple[str, ...] = ()
     restored: tuple[str, ...] = ()
+    #: the PREVIOUS write's body files, removed before this one (11m)
+    bodies_removed: tuple[str, ...] = ()
 
     @property
     def counts(self) -> dict[str, int]:
         return {"restore_backups": len(self.backups),
-                "restore_restored": len(self.restored)}
+                "restore_restored": len(self.restored),
+                "restore_bodies_removed": len(self.bodies_removed)}
 
 
 @_dc.dataclass(frozen=True)
@@ -174,8 +179,8 @@ def write_files(pack_root: str, files: _t.Sequence, *,
 
 # ── step 0: the restore ─────────────────────────────────────────────────
 
-def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False
-                         ) -> RestoreResult:
+def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
+                         dsf_path: str = "") -> RestoreResult:
     """Put every ``<obj>.anchor_bak`` back over its object (11f (1)).
 
     A BYTE copy of the pristine file, only where the live file differs
@@ -218,7 +223,26 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False
             except OSError:
                 continue
             restored.append(live)
-    return RestoreResult(tuple(sorted(backups)), tuple(sorted(restored)))
+    # 11m: the PREVIOUS write's own body files go too — and ONLY those.
+    # ``o4_placement_provenance.json`` beside the DSF names them; a
+    # pack with no provenance removes nothing.  Each is confirmed to
+    # carry this writer's CUT_MARK before it is unlinked, so a corrupt
+    # or hand-edited provenance can never delete an authored object.
+    removed: list[str] = []
+    if dsf_path:
+        for path in _dw.written_body_files(pack_root, dsf_path):
+            try:
+                if not os.path.isfile(path):
+                    continue
+                with open(path, "r", errors="replace") as fh:
+                    if CUT_MARK not in fh.read(4096):
+                        continue
+                os.remove(path)
+            except OSError:
+                continue
+            removed.append(path)
+    return RestoreResult(tuple(sorted(backups)), tuple(sorted(restored)),
+                         tuple(sorted(removed)))
 
 
 # ── steps 0-5: the whole write ──────────────────────────────────────────
@@ -231,13 +255,14 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                ) -> PlacementWriteResult:
     """The writes in the one lawful order (module doc, steps 0-5)."""
     restore = restore_pack_objects(plan.pack_root,
-                                   allow_live_install=allow_live_install)
+                                   allow_live_install=allow_live_install,
+                                   dsf_path=plan.dsf_path)
     written = write_files(plan.pack_root, files,
                           allow_live_install=allow_live_install)
     dsf = _dw.write_pack(plan.pack_root, plan, tool,
                          allow_live_install=allow_live_install,
                          work_dir=work_dir, engine_version=engine_version,
-                         law_digest=law_digest)
+                         law_digest=law_digest, body_files=written)
     refreshed = None
     if refresh_dump is not None:
         # §3.6: the READ path keys its text dump on the DSF's mtime, which

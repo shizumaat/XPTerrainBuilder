@@ -79,7 +79,11 @@ def main(argv: list[str] | None = None) -> int:
     tmp = tempfile.mkdtemp(prefix="o4_dsf_diff_")
     dump_path = a.dump
     if dump_path is None:
-        dump_path = _w.dump(a.dsf, os.path.join(tmp, "pristine.text"), tool)
+        # the ONE resolver (11m): a DSF the object stage has written
+        # carries its own bodies; the pristine backup beside it is what
+        # a plan is derived from.
+        dump_path = _w.dump(_w.pristine_dsf_path(a.dsf),
+                            os.path.join(tmp, "pristine.text"), tool)
     with open(dump_path, "r", errors="replace") as fh:
         text = fh.read()
     dump_obj = _dsf.read_dump(dump_path)

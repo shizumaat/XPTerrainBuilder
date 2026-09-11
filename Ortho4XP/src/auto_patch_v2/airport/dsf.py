@@ -84,10 +84,20 @@ def dsf_path_in_pack(pack_root: str, lat: int, lon: int) -> str:
 
 def text_dump_tag(dsf_path: str) -> str:
     """The 8-hex tag the engine's DSFTool cache puts in the dump name —
-    ``sha1(abspath)[:8]`` (the v1 dsf_reader's default pack text cache
-    path; twin-asserted equal in ``test_airport_load``)."""
+    ``sha256(the DSF's own bytes)[:8]`` since RULINGS 2026-09-11m (the v1
+    ``dsf_reader.dsf_content_tag``; twin-asserted equal in
+    ``test_airport_load``).  A PATH key let a DSF the object stage had
+    rewritten serve the dump of the pristine file it replaced.  Falls
+    back to ``sha1(abspath)[:8]`` when the bytes cannot be read."""
     import hashlib
-    return hashlib.sha1(os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+    try:
+        h = hashlib.sha256()
+        with open(dsf_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()[:8]
+    except OSError:
+        return hashlib.sha1(os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
 
 
 def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,

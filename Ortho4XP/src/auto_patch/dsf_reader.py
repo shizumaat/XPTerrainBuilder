@@ -352,17 +352,63 @@ def _interpolate_dsf_ring(
 _DSF_LINES_CACHE: dict[tuple[str, float], list[str]] = {}
 
 
-def _default_pack_text_cache_path(cache_dir: str, dsf_path: str) -> str:
-    """Filename for the default (pack) text cache, keyed by the DSF's
-    ABSOLUTE path: ``airport_mod_cache_dir`` folders are named by pack
-    basename alone, so same-named packs/tiles (a second X-Plane install,
-    test fixtures) must never be able to serve one another's dump on
-    mtime luck."""
+#: ``(abspath, mtime, size) -> tag`` — the content digest of a DSF is
+#: read once per file per process.  ``ensure_dsf_text_path`` is called by
+#: every reader that walks the same DSF and a tile DSF is megabytes.
+_DSF_CONTENT_TAG_CACHE: dict[tuple[str, float, int], str] = {}
+
+
+def dsf_content_tag(dsf_path: str) -> str:
+    """The 8-hex tag that names a DSF's text dump: sha256 over the DSF's
+    OWN BYTES (RULINGS 2026-09-11m).
+
+    Keyed by path — what it was until the object stage started WRITING
+    the pack's DSF — a dump is named for where the file lives, so the
+    same path serves one entry for two different files: app 1.0.313
+    rewrote LEMD's DSF in place and the next build's plan read re-derived
+    from the WRITTEN file under the pristine file's name, planning 3,934
+    placements against a 3,021-row dump.  Content is the only key that
+    distinguishes them.  mtime staleness stays as a SECOND guard in
+    :func:`ensure_dsf_text_path`.
+
+    Falls back to ``sha1(abspath)[:8]`` when the bytes cannot be read
+    (a vanished/unreadable file), which is the pre-11m behaviour and
+    keeps the caller's ``None`` paths intact."""
     import hashlib
-    path_tag = hashlib.sha1(
-        os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+    try:
+        st = os.stat(dsf_path)
+        key = (os.path.abspath(dsf_path), st.st_mtime, st.st_size)
+    except OSError:
+        return hashlib.sha1(
+            os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+    hit = _DSF_CONTENT_TAG_CACHE.get(key)
+    if hit is not None:
+        return hit
+    h = hashlib.sha256()
+    try:
+        with open(dsf_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return hashlib.sha1(
+            os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+    tag = h.hexdigest()[:8]
+    _DSF_CONTENT_TAG_CACHE[key] = tag
+    return tag
+
+
+def _default_pack_text_cache_path(cache_dir: str, dsf_path: str) -> str:
+    """Filename for the text cache, keyed by the DSF's CONTENT
+    (:func:`dsf_content_tag`).
+
+    ``airport_mod_cache_dir`` folders are named by pack basename alone,
+    so same-named packs/tiles (a second X-Plane install, test fixtures)
+    must never be able to serve one another's dump on mtime luck — and
+    since 11m the same PATH must not serve two different files either
+    (the object stage rewrites the pack's DSF in place; the pristine
+    ``.dsf.anchor_bak`` beside it is what the read frame resolves to)."""
     return os.path.join(
-        cache_dir, f"{os.path.basename(dsf_path)}.{path_tag}.text")
+        cache_dir, f"{os.path.basename(dsf_path)}.{dsf_content_tag(dsf_path)}.text")
 
 
 def ensure_dsf_text_path(dsf_path: str,
@@ -446,10 +492,23 @@ def ensure_dsf_text_path(dsf_path: str,
             except OSError:
                 pass
     if text_path is None:
-        text_path = os.path.join(
-            cache_dir,
-            os.path.basename(dsf_path) + ".text",
-        )
+        # 11m: the explicit-``cache_dir`` branch is content-keyed too —
+        # the untagged ``<basename>.text`` is the name that let a
+        # rewritten DSF serve its own pristine dump.  A LEGACY untagged
+        # dump already on disk is still ADOPTED while it is fresh (never
+        # re-dumped, never rewritten): the default-terrain cache under
+        # the shared data repo must not be re-derived by a re-key, and a
+        # build has no licence to write it.
+        text_path = _default_pack_text_cache_path(cache_dir, dsf_path)
+        if not os.path.isfile(text_path):
+            legacy = os.path.join(
+                cache_dir, os.path.basename(dsf_path) + ".text")
+            try:
+                if (os.path.isfile(legacy)
+                        and os.path.getmtime(legacy) >= mtime):
+                    return legacy
+            except OSError:
+                pass
     # Re-convert if text is missing or older than the DSF.
     needs_convert = (not os.path.isfile(text_path)
                      or (os.path.getmtime(text_path) < mtime))

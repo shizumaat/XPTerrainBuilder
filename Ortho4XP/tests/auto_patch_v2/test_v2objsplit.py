@@ -550,13 +550,15 @@ def test_restore_puts_every_anchor_bak_back_and_counts_it(tmp_path):
     (pack / "Earth nav data" / "t.dsf.anchor_bak").write_text("old")
 
     r = PW.restore_pack_objects(str(pack))
-    assert r.counts == {"restore_backups": 1, "restore_restored": 1}
+    assert r.counts == {"restore_backups": 1, "restore_restored": 1,
+                        "restore_bodies_removed": 0}
     assert baked.read_text() == "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n"
     assert (pack / "objects" / "a.obj.anchor_bak").is_file()
     assert (pack / "Earth nav data" / "t.dsf").read_text() == "new"
 
     again = PW.restore_pack_objects(str(pack))          # idempotent
-    assert again.counts == {"restore_backups": 1, "restore_restored": 0}
+    assert again.counts == {"restore_backups": 1, "restore_restored": 0,
+                            "restore_bodies_removed": 0}
 
 
 def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
@@ -567,7 +569,8 @@ def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
     (pack / "objects").mkdir(parents=True)
     (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
     r = PW.restore_pack_objects(str(pack))
-    assert r.counts == {"restore_backups": 0, "restore_restored": 0}
+    assert r.counts == {"restore_backups": 0, "restore_restored": 0,
+                        "restore_bodies_removed": 0}
     assert (pack / "objects" / "a.obj").read_text() == "I\n800\nOBJ\n"
 
 
@@ -870,3 +873,227 @@ def test_pad_hit_is_one_implementation(tmp_path):
     assert G.pad_hit(probe, pads, tree, 0.5) is None
     assert G.pad_hit(probe, pads, tree, 2.0, exclude=("building1",)) is None
     assert G.pad_hit(probe, pads, None, 2.0) is None
+
+
+# ── 11m: the object stage is IDEMPOTENT over a written pack ──────────────
+# app 1.0.313 wrote LEMD's DSF (3,021 -> 3,934 placements); the next build's
+# plan read re-derived from the WRITTEN file and named ``dsf:obj3021`` ...
+# ``dsf:obj3933``, which the write half — dumping the pristine backup —
+# refused.  The read frame is the pristine DSF and the dump cache is keyed
+# on its CONTENT.
+
+def _stand_in_dsftool(tmp_path, module):
+    """``--dsf2text`` / ``--text2dsf`` as a byte copy (the encoder has its
+    own twin in ``test_v2dsfagl``); returns ``(tool_path, restore)``."""
+    tool = tmp_path / "dsftool.py"
+    tool.write_text("import shutil, sys\n"
+                    "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
+    real_run = module.subprocess.run
+
+    def fake_run(args, **kw):
+        return real_run([sys.executable, str(tool)] + list(args[1:]), **kw)
+
+    module.subprocess.run = fake_run
+    return str(tool), (lambda: setattr(module, "subprocess", module.subprocess)
+                       or module.__dict__["subprocess"].__setattr__("run", real_run))
+
+
+def _one_pack(tmp_path):
+    """A pack with two placements — one MSL to convert, one to split."""
+    from auto_patch_v2.model import placement as PM
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    nav = pack / "Earth nav data"
+    nav.mkdir()
+    dsf = nav / "+40-004.dsf"
+    dsf.write_text("\n".join(
+        ["PROPERTY sim/west -4", "OBJECT_DEF objects/a.obj",
+         "OBJECT_DEF objects/b.obj",
+         "OBJECT_MSL 0 -3.5 40.5 601.0 12.5",
+         "OBJECT 1 -3.6 40.6 90.0"]) + "\n")
+    split = PM.Split(
+        placement=PM.PlacementRef(1, "objects/b.obj", -3.6, 40.6, 90.0),
+        bodies=(PM.Body("b0", "other", (0,), PM.Anchor(-3.61, 40.61, 90.0),
+                        "surface at the body's zero", "objects/b__b0.obj"),
+                PM.Body("b1", "other", (1,), PM.Anchor(-3.62, 40.62, 90.0),
+                        "surface at the body's zero", "objects/b__b1.obj")))
+    plan = PM.PlacementPlan(
+        icao="LEMD", pack_name="pack", pack_root=str(pack), dsf_path=str(dsf),
+        dsf_backup_path=str(dsf) + ".anchor_bak",
+        provenance=PM.Provenance("", "", ""),
+        conversions=(PM.Conversion(0, "objects/a.obj", -3.5, 40.5, 12.5,
+                                   "OBJECT_MSL", 601.0),),
+        splits=(split,), kept=())
+    return pack, dsf, plan
+
+
+def test_pristine_dsf_path_is_the_backup_when_there_is_one(tmp_path):
+    """(a) the ONE resolver: backup present -> the backup; absent -> the
+    live file; a backup path resolves to itself (never doubled)."""
+    from auto_patch_v2.airport import dsf_write as DW
+
+    dsf = tmp_path / "+40-004.dsf"
+    dsf.write_text("written")
+    assert DW.pristine_dsf_path(str(dsf)) == str(dsf)
+    bak = tmp_path / "+40-004.dsf.anchor_bak"
+    bak.write_text("authored")
+    assert DW.pristine_dsf_path(str(dsf)) == str(bak)
+    assert DW.pristine_dsf_path(str(bak)) == str(bak)
+    assert DW.pristine_dsf_path("") == ""
+
+
+def test_dump_cache_is_keyed_by_content_not_by_path(tmp_path):
+    """(b) two same-named DSFs with different content get different cache
+    files, and a REWRITTEN live DSF whose backup is unchanged still hits
+    the SAME entry — the 11m defect was a cache name that did not move
+    when the file under it did."""
+    from auto_patch import dsf_reader as DR
+    from auto_patch_v2.airport import dsf as D
+    from auto_patch_v2.airport import dsf_write as DW
+
+    cache = str(tmp_path / "cache")
+    one = tmp_path / "one" / "+40-004.dsf"
+    two = tmp_path / "two" / "+40-004.dsf"
+    for p, body in ((one, b"AAAA"), (two, b"BBBB")):
+        p.parent.mkdir(parents=True)
+        p.write_bytes(body)
+    n1 = DR._default_pack_text_cache_path(cache, str(one))
+    n2 = DR._default_pack_text_cache_path(cache, str(two))
+    assert n1 != n2 and os.path.basename(n1) != "+40-004.dsf.text"
+    # the same bytes at a different path ARE the same dump
+    three = tmp_path / "three" / "+40-004.dsf"
+    three.parent.mkdir(parents=True)
+    three.write_bytes(b"AAAA")
+    assert os.path.basename(DR._default_pack_text_cache_path(
+        cache, str(three))) == os.path.basename(n1)
+    # the v2 twin of the tag (``airport/dsf.text_dump_tag``) agrees
+    assert os.path.basename(n1) == f"+40-004.dsf.{D.text_dump_tag(str(one))}.text"
+
+    # the write case: the live file changes, the backup does not
+    before = DR._default_pack_text_cache_path(
+        cache, DW.pristine_dsf_path(str(one)))
+    (tmp_path / "one" / "+40-004.dsf.anchor_bak").write_bytes(b"AAAA")
+    one.write_bytes(b"AAAA plus 913 new placements")
+    after = DR._default_pack_text_cache_path(
+        cache, DW.pristine_dsf_path(str(one)))
+    # SAME entry in the only sense that matters: the same CONTENT tag, so
+    # the dump the plan reads is the dump of the pack as installed.  (The
+    # file is named for what was dumped, so the backup's name carries the
+    # suffix — it is dumped once, when the backup first appears.)
+    assert after.split(".")[-2] == before.split(".")[-2]
+    assert DR.dsf_content_tag(str(one)) != DR.dsf_content_tag(
+        str(tmp_path / "one" / "+40-004.dsf.anchor_bak"))
+
+
+def test_apply_plan_twice_is_byte_identical(tmp_path):
+    """(c) THE LANE'S TARGET: the same plan applied twice over one pack
+    leaves the same DSF bytes, the same file list and the same counts —
+    no ``__b<N>__b<M>``, provenance rewritten."""
+    import hashlib
+
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack, dsf, plan = _one_pack(tmp_path)
+    tool, _ = _stand_in_dsftool(tmp_path, PW._dw)
+    real_run = PW._dw.subprocess.run
+
+    class _F:
+        def __init__(self, res):
+            self.resource = res
+            self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body {res}\n"
+
+    def _files():
+        return [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")]
+
+    def _sha(p):
+        return hashlib.sha256(open(p, "rb").read()).hexdigest()
+
+    def _objs():
+        return sorted(p.name for p in (pack / "objects").iterdir())
+
+    try:
+        first = PW.apply_plan(plan, _files(), tool,
+                              patch_dir=str(tmp_path / "patch"))
+        sha1, objs1 = _sha(dsf), _objs()
+        prov = pack / "Earth nav data" / "o4_placement_provenance.json"
+        import json as _json
+        assert _json.loads(prov.read_text())["body_files"] == [
+            "objects/b__b0.obj", "objects/b__b1.obj"]
+        assert first.counts["restore_bodies_removed"] == 0
+
+        second = PW.apply_plan(plan, _files(), tool,
+                               patch_dir=str(tmp_path / "patch"))
+    finally:
+        PW._dw.subprocess.run = real_run
+
+    assert _sha(dsf) == sha1
+    assert _objs() == objs1 == ["b__b0.obj", "b__b1.obj"]
+    assert not any("__b0__b" in n or "__b1__b" in n for n in _objs())
+    assert dict(second.counts) | {"restore_bodies_removed": 0} == \
+        dict(first.counts) | {"restore_bodies_removed": 0}
+    # the previous write's bodies were removed before this one wrote them
+    assert second.counts["restore_bodies_removed"] == 2
+    assert _json.loads(prov.read_text())["body_files"] == [
+        "objects/b__b0.obj", "objects/b__b1.obj"]
+    # the backup is still the PRISTINE pack, not the first write's output
+    assert not second.dsf.backup_created
+    assert (pack / "Earth nav data" / "+40-004.dsf.anchor_bak").read_text(
+        ).count("OBJECT") == 4          # 2 OBJECT_DEF + OBJECT_MSL + OBJECT
+
+
+def test_a_stale_body_file_from_a_bigger_previous_plan_is_removed(tmp_path):
+    """§10 (1) + 11m: a plan that cuts FEWER bodies than the last one
+    leaves no surplus ``__b<k>.obj`` behind — and an authored object the
+    provenance happens to name is never touched (no ``CUT_MARK``)."""
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack = tmp_path / "pack"
+    nav = pack / "Earth nav data"
+    (pack / "objects").mkdir(parents=True)
+    nav.mkdir()
+    dsf = nav / "+40-004.dsf"
+    dsf.write_text("PROPERTY sim/west -4\n")
+    (pack / "objects" / "b__b7.obj").write_text(
+        f"I\n800\nOBJ\n{PW.CUT_MARK}b body 7\n")
+    (pack / "objects" / "authored.obj").write_text("I\n800\nOBJ\n")
+    (nav / "o4_placement_provenance.json").write_text(
+        '{"body_files": ["objects/b__b7.obj", "objects/authored.obj",'
+        ' "../escape.obj"]}')
+
+    r = PW.restore_pack_objects(str(pack), dsf_path=str(dsf))
+    assert r.counts["restore_bodies_removed"] == 1
+    assert not (pack / "objects" / "b__b7.obj").exists()
+    assert (pack / "objects" / "authored.obj").is_file()
+
+
+def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(tmp_path):
+    """(d) THE DEFECT ITSELF: after a write the live DSF carries 3 rows
+    and the plan read must still see the pristine 2 — every id below the
+    pristine placement count, so ``edit_dump`` accepts the plan."""
+    from auto_patch_v2.airport import dsf as D
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack, dsf, plan = _one_pack(tmp_path)
+    tool, _ = _stand_in_dsftool(tmp_path, PW._dw)
+    real_run = PW._dw.subprocess.run
+
+    class _F:
+        def __init__(self, res):
+            self.resource = res
+            self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body {res}\n"
+
+    try:
+        PW.apply_plan(plan, [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")],
+                      tool, patch_dir=str(tmp_path / "patch"))
+        live = D.read_dump(str(dsf))
+        pristine_path = PW._dw.pristine_dsf_path(str(dsf))
+        pristine = D.read_dump(pristine_path)
+        assert len(live.placements) == 3 and len(pristine.placements) == 2
+        assert pristine_path.endswith(".anchor_bak")
+        # the ids a plan built on the pristine frame carries
+        assert max(range(len(pristine.placements))) < len(pristine.placements)
+        # and the write half accepts them (it dumps the same frame)
+        text = open(pristine_path).read()
+        PW._dw.edit_dump(text, plan)                    # no ValueError
+    finally:
+        PW._dw.subprocess.run = real_run

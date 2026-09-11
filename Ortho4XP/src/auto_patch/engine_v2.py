@@ -122,10 +122,15 @@ def _fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | N
         from auto_patch_v2.airport import dsf as _dsf2
         from auto_patch_v2.airport.pack import select_pack
         from . import dsf_reader as _DSFR
+        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
         sel = select_pack(xplane_root, icao)
         if sel is None:
             return None
-        dsf_path = _dsf2.dsf_path_in_pack(sel.root, lat, lon)
+        # 11m: the READ FRAME is the PRISTINE DSF — once the object stage
+        # has written the pack, the live file carries the bodies it minted
+        # and a plan derived from it names placements the write half
+        # (which dumps the backup) cannot find.
+        dsf_path = pristine_dsf_path(_dsf2.dsf_path_in_pack(sel.root, lat, lon))
         if not os.path.isfile(dsf_path):
             return None
         return _DSFR.ensure_dsf_text_path(
@@ -671,11 +676,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF at {dsf_path}; skipped")
         return {}
     cache = _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), pack_name)
-    # the PRISTINE dump: once a DSF has been written the backup is the
-    # authored file (§3.4, the .anchor_bak discipline)
-    src = dsf_path + ".anchor_bak" if os.path.isfile(dsf_path + ".anchor_bak") \
-        else dsf_path
-    dump_path = _DSFR.ensure_dsf_text_path(src, cache)
+    # the PRISTINE dump (§3.4, RULINGS 2026-09-11m): ONE resolver, and
+    # the cache entry is keyed on that file's CONTENT
+    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+    dump_path = _DSFR.ensure_dsf_text_path(pristine_dsf_path(dsf_path), cache)
     if not dump_path:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF text dump; skipped")
         return {}

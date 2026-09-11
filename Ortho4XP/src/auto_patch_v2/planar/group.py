@@ -72,6 +72,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..model.ground_fit import GroundFit, ground_fit
 from ..model.rebake import Member, Part, RebakePlan
 
 __all__ = ["Foot", "Group", "GroupSet", "derive", "bodies_of_plan", "BODY_KEY"]
@@ -147,10 +148,39 @@ class Group:
     #: fraction.  A group over ``pad_slope_max`` is INFEASIBLE — its pad
     #: cannot carry the authored relief and stay a lawful surface.
     relief_slope: float = 0.0
-    #: the group's pad is INFEASIBLE (``relief_slope`` over the law's
-    #: ``pad_slope_max``).  A LONG connecting body then RELEASES (§11 (4));
-    #: a short one is REPORTED with its residual and never split (11i).
+    #: the group is INFEASIBLE.  A LONG connecting body then RELEASES
+    #: (§11 (4)); a short one is REPORTED with its residual and never
+    #: split (11i).
+    #:
+    #: THE VERDICT NOW PRICES THE DEM'S FALL (owner RULINGS 2026-09-11q,
+    #: amended 11x (2); spec §11b (3)), not the authored relief alone:
+    #: with a ``dem_at`` sampler :func:`derive` fits the body's level to
+    #: the ground under its feet (:func:`ground_fit`) and the verdict is
+    #: read between NEIGHBOURING feet — ``|(target_a - target_b) -
+    #: (dem_a - dem_b)|`` against ``bank_slope`` x their own spacing, the
+    #: fall the sheet actually has to make between two rows.  So a body
+    #: whose authored relief MATCHES the ground's fall is feasible at
+    #: zero cost however steep both are, and one that fights the ground
+    #: is infeasible however gentle it is.
+    #: Without a sampler the pre-11q reading stands (``relief_slope``
+    #: over ``pad_slope_max``), which is what every caller that has no
+    #: DEM — the twins, the dry-run readers — still gets.
     infeasible: bool = False
+    #: the fitted level and its worst residual where a DEM was sampled
+    #: (``None`` / 0.0 otherwise) — the numbers the report quotes and
+    #: ``constraints/foot_rows.py`` re-derives over the GROUND-CONTACT
+    #: subset of the same feet.
+    fit_level: float | None = None
+    fit_residual_m: float = 0.0
+    fit_limit_m: float = 0.0
+    #: EVERY BODY'S OWN COMPONENTS, ``(unit, member, (comp, ...))`` in
+    #: ``bodies`` order — the address ``classify/evidence._body_pads``
+    #: reads the body's PLAN FOOTPRINT at (``airport/skirt.
+    #: component_footprint``; spec §11a (3), measured round 5).  The pad
+    #: of a body the OSM does not know is that footprint, so the group
+    #: must carry which components the body is made of; nothing else here
+    #: reads it.
+    body_comps: tuple[tuple[int, int, tuple[int, ...]], ...] = ()
     #: the junior bodies actually RELEASED — long AND infeasible.  They
     #: are no longer members of this group; each is its own object at its
     #: own low-side foot (§6 deck row superseded, 10ay).
@@ -330,8 +360,18 @@ def _eligible(m: Member) -> bool:
     return bool(m.parts)
 
 
+def _body_comps(keys, bodies, part_of) -> tuple[tuple[int, int, tuple[int, ...]], ...]:
+    """``(unit, member, (comp, ...))`` per body, in ``keys`` order — the
+    address the pad law reads a body's plan footprint at (``Group.
+    body_comps``).  One expression, three construction sites."""
+    return tuple((k[0], k[1], tuple(sorted({part_of[q].comp for q in bodies[k]})))
+                 for k in keys)
+
+
 def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
-           pad_slope_max: float = 0.0) -> GroupSet:
+           pad_slope_max: float = 0.0,
+           dem_at: _t.Callable[[float, float], float | None] | None = None,
+           bank_slope: float = 0.0) -> GroupSet:
     """Every group of ``plan`` (module doc).
 
     ``pad_slope_max`` is ``emit.within_shape.pad_slope_max`` — the hard
@@ -342,6 +382,13 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     reported with its residual and never split — 11i is explicit that the
     owner rules those per case.  ``0`` disarms the test (nothing is ever
     infeasible, so nothing is ever released).
+
+    ``dem_at(lat, lon) -> metres | None`` and ``bank_slope`` arm 11q's
+    reading of that same verdict: the level is FITTED to the ground under
+    the feet (:func:`ground_fit`) and the residual between NEIGHBOURING
+    feet (11x (2)) is judged against the bank the terrain may lawfully
+    make over their own spacing.  Without a sampler the pre-11q
+    reading stands, so every DEM-less caller is unchanged.
 
     ``span_max_m`` is ``law.tables.group_span_max_m`` — the airport's own
     where it states one; ``0`` disarms the long-span verdict entirely, so
@@ -376,6 +423,19 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
               "infeasible_short": 0, "relief_bodies": 0}
 
     area = {k: float(sum(part_of[q].area_m2 for q in ps)) for k, ps in bodies.items()}
+
+    def _verdict(feet: _t.Sequence[Foot], y_zero: float
+                 ) -> tuple[float, bool, float | None, float, float]:
+        """``(relief_slope, infeasible, fit_level, residual, limit)`` —
+        11q's DEM reading where a sampler was given, the pre-11q authored
+        reading otherwise (``Group.infeasible``)."""
+        slope = _relief_slope(feet)
+        if dem_at is None:
+            return slope, pad_slope_max > 0.0 and slope > pad_slope_max, None, 0.0, 0.0
+        fit = ground_fit(feet, y_zero, dem_at, bank_slope)
+        if fit is None:
+            return slope, False, None, 0.0, 0.0
+        return slope, not fit.feasible, fit.level, fit.residual_m, fit.limit_m
 
     cross: set[tuple[BODY_KEY, BODY_KEY]] = set()
     for a, b in plan.abutments:
@@ -433,8 +493,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
                    for k, sp in zip(keys, bspan)}
         rel = tuple(k for k in sorted(juniors) if long_of[k])
         long_span = bool(rel)
-        slope = _relief_slope(feet)
-        infeasible = pad_slope_max > 0.0 and slope > pad_slope_max
+        slope, infeasible, fit_level, fit_res, fit_lim = _verdict(feet, y_zero)
         released = rel if (infeasible and rel) else ()
         if released:
             # THE LONG SPAN LETS GO (§11 (4)): the released juniors leave
@@ -445,12 +504,15 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
                 continue
             bspan = tuple(_span_m(_feet_of([part_of[q] for q in bodies[k]])) for k in keys)
             span = _span_m(feet)
-            slope = _relief_slope(feet)
+            slope, _inf2, fit_level, fit_res, fit_lim = _verdict(feet, y_zero)
         groups.append(Group(gid=_gid(members[s[:2]], s), bodies=keys, senior=s,
                             y_zero=float(y_zero), feet=tuple(feet), span_m=span,
                             cross_placement=len(keys) > 1, long_span=long_span,
                             releasable=rel, body_span_m=bspan,
                             relief_slope=slope, infeasible=infeasible,
+                            fit_level=fit_level, fit_residual_m=fit_res,
+                            fit_limit_m=fit_lim,
+                            body_comps=_body_comps(keys, bodies, part_of),
                             released=released))
         seen.update(keys)
         counts["long_span"] += int(long_span)
@@ -467,12 +529,15 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
         if not feet:
             continue
         sp = _span_m(feet)
-        slope = _relief_slope(feet)
-        infeasible = pad_slope_max > 0.0 and slope > pad_slope_max
+        y0 = float(min(f.y for f in feet))
+        slope, infeasible, fit_level, fit_res, fit_lim = _verdict(feet, y0)
         groups.append(Group(gid=_gid(members[k[:2]], k), bodies=(k,), senior=k,
-                            y_zero=float(min(f.y for f in feet)), feet=tuple(feet),
+                            y_zero=y0, feet=tuple(feet),
                             span_m=sp, cross_placement=False,
                             long_span=False, releasable=(), body_span_m=(sp,),
+                            body_comps=_body_comps((k,), bodies, part_of),
+                            fit_level=fit_level, fit_residual_m=fit_res,
+                            fit_limit_m=fit_lim,
                             relief_slope=slope, infeasible=infeasible))
         counts["infeasible"] += int(infeasible)
         counts["infeasible_short"] += int(infeasible)
@@ -484,11 +549,16 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
             if not feet or k in seen:
                 continue
             sp = _span_m(feet)
+            y0 = float(min(f.y for f in feet))
+            slope, r_inf, fit_level, fit_res, fit_lim = _verdict(feet, y0)
             groups.append(Group(gid=_gid(members[k[:2]], k), bodies=(k,), senior=k,
-                                y_zero=float(min(f.y for f in feet)), feet=tuple(feet),
+                                y_zero=y0, feet=tuple(feet),
                                 span_m=sp, cross_placement=False, long_span=True,
                                 releasable=(), body_span_m=(sp,),
-                                relief_slope=_relief_slope(feet)))
+                                body_comps=_body_comps((k,), bodies, part_of),
+                                fit_level=fit_level, fit_residual_m=fit_res,
+                                fit_limit_m=fit_lim,
+                                infeasible=r_inf, relief_slope=slope))
             seen.add(k)
     counts["relief_bodies"] = sum(1 for g in groups if g.relief_m > 0.0)
     groups.sort(key=lambda g: g.senior)

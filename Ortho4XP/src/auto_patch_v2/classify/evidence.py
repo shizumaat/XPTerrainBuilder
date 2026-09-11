@@ -13,7 +13,7 @@ import re
 import typing as _t
 
 import shapely
-from shapely.geometry import LineString, MultiPoint, MultiPolygon, Point, Polygon
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -485,65 +485,21 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                 dropped += 1
                 continue
             out.append((f"building{len(out) + 1}", piece))
-    out, dropped = _body_pads(airport, law, out, dropped, gate,
-                              pavement_union, runway_union, min_area)
+    # THE BARE-GROUND BODY PAD IS WITHDRAWN (owner RULINGS 2026-09-11q;
+    # spec §11b (1)).  Round 5 minted a pad here from each bare-ground
+    # body's own plan footprint (LEMD pads 123 -> 503) and MEASURED it
+    # worse at the owner's own site: a rigid plane cut into sloping
+    # ground STEPS wherever an unpadded neighbour straddles its edge
+    # (the three rows' worst body 1.94 -> 3.33 m, ``pad_flat`` verify
+    # rows 39 -> 98, HECA's released T3 bodies +1.5 -> +8.7 m).  The
+    # colonnade's columns carry 2.63 m of authored relief BECAUSE the
+    # real ground slopes there; a flat pad fights the authoring.  A body
+    # on bare ground now takes FOOT ROWS priced as ground targets
+    # (``constraints/foot_rows.py``, §11b (2)) and NO pad entity, so
+    # this derivation mints pads from the OSM alone again.  A body
+    # standing INSIDE an OSM pad still gets that pad's relief offsets
+    # (``constraints/pad_relief.py``, §11a (2)) — unchanged.
     return _drop_skirted(airport, law, cache, out, dropped)
-
-
-def _body_pads(airport: Airport, law, pads: list[tuple[str, Polygon]], dropped: int,
-               gate, pavement_union, runway_union, min_area: float
-               ) -> tuple[list[tuple[str, Polygon]], int]:
-    """A PAD PER BODY THE OSM DOES NOT KNOW (owner RULINGS 2026-09-11j;
-    spec §11a (3)).
-
-    Until 11j a pad existed only where OSM carried a building footprint,
-    so the site's dominant residual — LEMD38's 150 canopy modules, nine
-    column feet each, authored 2.63 m apart — stood on NO pad at all and
-    the relief target had nothing to be a target of (round 1 measured
-    those bodies as role ``other``).  The pack's own BODIES are the
-    authority on where an object stands: a body whose feet fall on no OSM
-    pad gets one of its feet's CONVEX FOOTPRINT buffered by the pad law's
-    own margin (``building_pad.footprint_outside_pad_m``), and a body
-    whose feet already stand on an OSM pad changes nothing — the OSM
-    union stays the pad's plan extent where one exists.
-
-    PAVEMENT IS SENIOR (09af-1): a body standing on apron or taxiway is
-    not padded here at all; the pavement law owns that surface and the
-    object goes to the terrain.  The boundary gate, the runway
-    difference, the minimum area and the SKIRT drop are the OSM pads'
-    own, applied unchanged."""
-    groups = getattr(airport, "groups", None)
-    if groups is None or not getattr(groups, "groups", ()):
-        return pads, dropped
-    margin = float(law.tables.structures.building_pad.footprint_outside_pad_m) \
-        if law is not None else 0.0
-    to_xy, _to_ll = airport.frame.transformers()
-    have = unary_union([p for _r, p in pads]) if pads else None
-    out = list(pads)
-    for g in groups.groups:
-        if len(g.feet) < 3:
-            continue
-        pts = [to_xy(f.lon, f.lat) for f in g.feet]
-        hull = MultiPoint(pts).convex_hull
-        if hull.geom_type != "Polygon":
-            hull = hull.buffer(max(margin, 0.5))
-        elif margin > 0.0:
-            hull = hull.buffer(margin)
-        if hull.is_empty or hull.geom_type != "Polygon":
-            continue
-        if have is not None and not have.is_empty and have.intersects(hull):
-            continue                     # the OSM union is the plan extent
-        if not pavement_union.is_empty and pavement_union.contains(
-                hull.representative_point()):
-            continue                     # PAVEMENT IS SENIOR (09af-1)
-        if not runway_union.is_empty and hull.intersects(runway_union):
-            hull = hull.difference(runway_union)
-        for piece in polygon_parts(hull):
-            if piece.area < min_area or not gate.contains(piece.representative_point()):
-                dropped += 1
-                continue
-            out.append((f"building{len(out) + 1}", piece))
-    return out, dropped
 
 
 def _drop_skirted(airport: Airport, law, cache, pads: list[tuple[str, Polygon]],

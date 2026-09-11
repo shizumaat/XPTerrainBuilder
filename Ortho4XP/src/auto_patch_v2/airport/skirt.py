@@ -106,6 +106,41 @@ def footprint(cache: _obj8.ResourceCache, path: str):
     return hull if hull.geom_type == "Polygon" and hull.area > 0.0 else None
 
 
+def component_footprint(cache: _obj8.ResourceCache, path: str,
+                        comps: _t.Sequence[int]):
+    """:func:`footprint` restricted to the NAMED components (indices into
+    ``cache.components(path)``, which is what ``Part.comp`` is) — ONE
+    BODY's own plan extent in the authored frame, or ``None``.
+
+    A body's PAD needs the body's footprint, not the resource's: Aerosoft
+    LEMD authors 150 separate canopy modules into one ``.obj``, so
+    :func:`footprint` there is the whole old terminal.  Measured round 5
+    (owner RULINGS 2026-09-11p (1)): the alternatives both fail — the
+    FEET's convex hull of a colonnade is a 0.18 m ribbon (nine column
+    bases on a line: 9.7 m² over a 52.8 m span, folded by
+    ``building_pad.min_area_m2`` and unemittable in a 0.5 m identity
+    grid), and the union of the parts' AXIS-ALIGNED plan boxes
+    over-covers a diagonal canopy by 6x (2,358 m² for the same module)
+    and puts its representative point outside the boundary gate.  The
+    components' own triangles are the body's real footprint."""
+    geom = cache.geometry(path)
+    if geom is None or geom.solid.shape[0] == 0:
+        return None
+    all_comps = cache.components(path)
+    tris = [all_comps[i].tris for i in comps if 0 <= i < len(all_comps)]
+    if not tris:
+        return None
+    u = _plan_union(geom.vertices, tris)
+    if u is not None and u.area > 0.0:
+        return u
+    # a hollow shell of vertical faces only — :func:`footprint`'s own
+    # fallback, restricted to these components
+    import numpy as _np
+    pts = geom.vertices[_np.concatenate(tris).reshape(-1)][:, [0, 2]]
+    hull = MultiPoint([tuple(p) for p in pts.tolist()]).convex_hull
+    return hull if hull.geom_type == "Polygon" and hull.area > 0.0 else None
+
+
 def _exteriors(geom) -> list:
     return [g.exterior for g in shapely.get_parts(geom)
             if g.geom_type == "Polygon"] or (

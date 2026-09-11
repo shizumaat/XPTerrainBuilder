@@ -14,7 +14,8 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
-from . import (apron, ceiling, flat_site, groundside, junction_mesh, no_step, pads,
+from . import (apron, ceiling, flat_site, foot_rows, groundside, junction_mesh,
+               no_step, pads,
                proximity, roads, routes, runway_chord, runway_profile, seams, strips,
                structures,
                taxi, transverse, water, zones)
@@ -62,6 +63,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("water_pins", water.water_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
+    # THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b): a rigid body
+    # on BARE ground takes no pad — its feet take GROUND targets.
+    ("foot_rows", foot_rows.foot_rows),
     ("structures", structures.structures),
     ("rim_level", structures.rim_level),
     ("basins", structures.basins),

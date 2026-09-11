@@ -292,8 +292,29 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # (1:3).  Priced at the pad's own 1 % tilt instead, every body with
     # any authored relief came out infeasible (LEMD 7,627 of 13,064
     # groups), which is a verdict that says nothing.
-    _groups = _derive_groups(_part, _span_max(law),
-                             float(law.tables.emit.design.bank_slope))
+    # THE FEASIBILITY VERDICT PRICES THE DEM'S FALL (owner RULINGS
+    # 2026-09-11q; spec §11b (3)).  Round 5's reading judged the AUTHORED
+    # relief alone, which says a colonnade rising 2.63 m over 52.8 m is
+    # feasible on flat ground and infeasible on the hillside it was
+    # authored for — exactly backwards.  The body's level is FITTED to the
+    # ground under its feet and the residual judged against the bank the
+    # terrain may lawfully make (``bank_slope``, 1:3).
+    _to_xy, _ = airport.frame.transformers()
+
+    def _dem_at(lat: float, lon: float) -> float | None:
+        x, y = _to_xy(lon, lat)
+        try:
+            z = airport.dem.z(x, y)
+        except Exception:
+            return None
+        if z is None:
+            return None
+        z = float(z)
+        return None if z != z else z        # NaN outside the raster
+
+    _bank = float(law.tables.emit.design.bank_slope)
+    _groups = _derive_groups(_part, _span_max(law), _bank,
+                             dem_at=_dem_at, bank_slope=_bank)
     airport = _dc.replace(airport, partition=_part, groups=_groups)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "

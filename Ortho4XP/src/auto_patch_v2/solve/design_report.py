@@ -73,6 +73,10 @@ class DesignReport:
     #: ``graded_strip`` family minus the pavement vertices and minus the
     #: interior pockets enclosed by pavement (09g (1))
     ground_datum_rows: int = 0
+    #: THE FOOT ROWS (owner RULINGS 2026-09-11q; spec §11b (2)): the
+    #: per-foot ground targets of every bare-ground body, priced at
+    #: ``ground_datum`` (``constraints/foot_rows.py``)
+    foot_rows: int = 0
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0

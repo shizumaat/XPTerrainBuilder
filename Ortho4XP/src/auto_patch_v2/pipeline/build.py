@@ -280,7 +280,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     from ..planar.group import derive as _derive_groups
     pack_objects, pack_report = _read_objects(airport, law, ocache)
     _part = _partition_pack(airport, pack_objects, ocache, law)
-    _groups = _derive_groups(_part, _span_max(law))
+    _groups = _derive_groups(_part, _span_max(law),
+                             float(law.tables.emit.within_shape.pad_slope_max))
     airport = _dc.replace(airport, partition=_part, groups=_groups)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
@@ -288,7 +289,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"contacts {_part.counts['contacts']}  abutments {_part.counts['abutments']}  "
          f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']} "
          f"(cross-placement {_groups.counts['cross_groups']}, long span "
-         f"{_groups.counts['long_span']})", out)
+         f"{_groups.counts['long_span']}, relief {_groups.counts['relief_bodies']}, "
+         f"infeasible {_groups.counts['infeasible']} of which short "
+         f"{_groups.counts['infeasible_short']}, released "
+         f"{_groups.counts['released']})", out)
     t = time.perf_counter()
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t

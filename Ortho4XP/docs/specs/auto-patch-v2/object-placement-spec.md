@@ -462,3 +462,72 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
    §11 (5): LEMD38 / LEMD84 / LEMD60 within 0.3 m of their bodies' anchors,
    `> 3 m` 25 → ≤ 22, files ≤ 4×, suite green, load-stage time within the
    26 s / 108 s moved.
+
+7. **Measured** (lane `v2canopy` round 2, branch `claude/v2canopy2`; the
+   partition-order twin on the real LEMD pack, the LEMD closing build,
+   and the round's 16 twins in `tests/auto_patch_v2/test_v2canopy2.py`).
+
+   * **THE PARTITION MOVED, AND IT IS NOT A FREE MOVE.**
+     `airport/pack_partition.partition_pack()` reads the pack once at
+     LOAD — objects to members, welded parts, ground feet, the ε-contact
+     graph, the authored-frame abutments and the deck / skirt / line
+     verdicts — and `airport/rebake_plan.plan()` is now the SCREEN (the
+     planar and solved facts about which members and components leave the
+     seat) plus the attachment of the deck ring, the deck datum and the
+     plate stations. `pipeline/build` runs it between load and classify
+     and hands `planar` the same objects, so the pack is still read once.
+     §11a (3)'s "a MOVE of 26 s, not an addition" is REFUTED at LEMD: the
+     UNFILTERED partition is 2,493 members against the filtered set's
+     1,187, and the twin measures **87.6 s against 48.7 s** on the same
+     pack in the same process. The surplus is the multi-anchor members
+     (LEMD repeats one resource at many anchors and the old order dropped
+     them before partitioning), whose drop CANNOT move to load: the
+     exemption is the tunnel-wall PLATE set, which is a planar product.
+     The lane kept the deferred drop — correctness over time — and
+     reports the cost rather than trading OTHH's plates for it.
+   * **THE TWO ORDERS, MEASURED** (`v2_rebake_replay.py order LEMD`, the
+     load-derivable screen; the basin exclusions and the tunnel plates
+     have no value outside a build). `members` 1,187 = 1,187 EQUAL,
+     `parts` 30,428 = 30,428 EQUAL and every surviving part is the SAME
+     part (resource, component, position); `contacts` 33,406 → 33,389
+     (−17, 0.05 %) and `abutments` 3,305 → 3,267 (−38, 1.1 %). The
+     difference is the one the module doc predicts and is in ONE
+     direction only: the ε-contact edge set is a connectivity-equivalent
+     SPANNING subset, so an edge the old order would have tested directly
+     between two parts is, in the new order, already implied through a
+     part the screen later removes. No edge is INVENTED — the twin
+     asserts `filtered ⊆ unfiltered` for both sets.
+   * **THE RELIEF TARGET IS THE MECHANISM AND IT IS ONE FIELD.**
+     `Diff.rel` (`offset[a] − offset[b]`) shifts both one-sided rows in
+     `solve/rows._law_sides`, so a pad under a body with authored relief
+     is priced FLAT ON ITS LEVEL PLANE and a flat-footed body's rows are
+     bit-for-bit today's. `constraints/pad_relief.py` is the ONE
+     derivation of the per-vertex offset (nearest foot within
+     `[placement] relief_radius_m` = 12 m, never interpolated; feet on
+     PAVEMENT take no row, 09af-1) and `classify/evidence._body_pads`
+     mints a pad for a body the OSM does not know — the OSM union stays
+     the plan extent where one exists, otherwise the feet's convex
+     footprint buffered by `building_pad.footprint_outside_pad_m`.
+   * **CONSUMERS TOUCHED** (§11a (4)'s rule, held): `constraints/pads.py`
+     `_pad_rows` (both `pad_flats` and `pad_slope_ceiling` — the tilt
+     CEILING must read the offsets too, or an authored 2.63 m over 28 m
+     is refused as a 9 % pad), `solve/rows._law_sides`,
+     `solve/design_report` and `solve/why` (a row's zero moved),
+     `verify/pads.pad_flat`, and the sidecar key `pad_relief` that
+     carries the offsets to it (`emit/osm_adapter.SIDECAR_KEYS`,
+     `pipeline/publication`). NOTHING that reads a pad's polygon,
+     contacts, rim or level was edited. `solve/design.py`'s `pad_flat_i`
+     / `pad_follow` needed NO edit: they are index registers over the
+     one-sided rows, which already carry the shift.
+   * **THE SPAN LAW IS PER BODY, AND ROUND 1's WAS NOT.** `group.py` now
+     carries `body_span_m` and binds `group_span_max_m` to a CONNECTING
+     body's own diagonal. The twin that proves the difference is
+     `test_a_far_but_short_junior_is_not_the_railway_class`: a canopy
+     10 m long joining a building 400 m away has a group footprint over
+     150 m and is NOT releasable.
+   * **FEASIBILITY IS A READING OF THE GROUP'S OWN FEET.** `Group.
+     relief_slope` is `max |y_i − y_j| / d_ij` over the feet; over
+     `emit.within_shape.pad_slope_max` the group is INFEASIBLE. Only then
+     does a long connecting body RELEASE (and become its own object at
+     its own low-side foot); a short infeasible group keeps its canopy and
+     is REPORTED, exactly as 11i requires.

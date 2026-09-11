@@ -222,8 +222,12 @@ def _law_sides(cs: ConstraintSet) -> tuple[list[_Side], list[_Side]]:
     eq: list[_Side] = []
     for d in cs.diffs:
         bound = d.cap * d.d
-        one.append((((d.a, 1.0), (d.b, -1.0)), bound, d))
-        one.append((((d.b, 1.0), (d.a, -1.0)), bound, d))
+        # THE RELIEF TARGET (owner RULINGS 2026-09-11j; spec §11a (2)):
+        # ``rel`` shifts the two sides of the row, so a pad under a body
+        # with authored relief is priced FLAT ON ITS LEVEL PLANE.
+        rel = float(getattr(d, "rel", 0.0))
+        one.append((((d.a, 1.0), (d.b, -1.0)), bound + rel, d))
+        one.append((((d.b, 1.0), (d.a, -1.0)), bound - rel, d))
     for o in cs.offsets:
         one.append((((o.b, 1.0), (o.a, -1.0)), -o.min_delta, o))
     for ln in cs.linears:

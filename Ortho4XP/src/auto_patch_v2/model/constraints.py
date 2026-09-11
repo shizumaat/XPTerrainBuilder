@@ -80,6 +80,19 @@ class Diff:
     #: one_way_rulings``) only these vertices keep their columns; every
     #: other foot is the LEADER and enters the right-hand side lagged.
     follows: int | tuple[int, ...] | None = None
+    #: THE ROW IS PRICED AGAINST A RELIEF TARGET (owner RULINGS
+    #: 2026-09-11j; spec §11a (2)): ``rel`` is ``offset[a] - offset[b]``,
+    #: so the row reads
+    #:
+    #:     -cap·d <= (z[a] - offset[a]) - (z[b] - offset[b]) <= cap·d
+    #:
+    #: A building pad under a body whose feet are AUTHORED at different y
+    #: is not flat: X-Plane drapes the whole body at one anchor, so the
+    #: terrain under every foot must be ``level + (y_foot - y_zero)``.
+    #: The pad is still ONE pad entity with ONE level — flatness is
+    #: simply priced on the LEVEL plane, with the offsets subtracted.
+    #: ``0.0`` (the default) is every other row in the engine.
+    rel: float = 0.0
 
     @property
     def bound_m(self) -> float:

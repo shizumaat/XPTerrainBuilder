@@ -28,7 +28,8 @@ import numpy as np
 
 from .frame import Patch, Row, Shape, row
 
-__all__ = ["pad_flat", "plane_fit", "plane_fit_quantum", "plane_residual"]
+__all__ = ["pad_flat", "plane_fit", "plane_fit_quantum", "plane_residual",
+           "relief_offsets"]
 
 FAMILY = "pad_flat"
 
@@ -68,13 +69,47 @@ def plane_residual(xy: list[tuple[float, float]], z: list[float]) -> float:
     return plane_fit(xy, z)[0]
 
 
-def _pad_points(p: Patch, sh: Shape) -> tuple[list[tuple[float, float]], list[float], list[int]]:
+def relief_offsets(p: Patch) -> dict[int, float]:
+    """THE PAD'S RELIEF TARGET as published (owner RULINGS 2026-09-11j;
+    spec §11a (2)/(4)): ``vertex -> metres above the pad's LEVEL``.
+
+    A pad under an OBJ8 body whose ground-contact feet are authored at
+    different ``y`` is NOT flat and must not be: X-Plane drapes the whole
+    body at one anchor, so the terrain under every foot has to be
+    ``level + (y_foot - y_zero)``.  The pad is still ONE pad with ONE
+    level, and the flatness reading below is taken on that LEVEL PLANE —
+    the offsets subtracted — which is exactly how the solve priced it
+    (``constraints/pad_relief.py``, ``Diff.rel``).  Without this the
+    reader would report every relief pad as a plane-residual row it was
+    never asked to make flat.
+
+    Joined by the published lat/lon through the patch's own ``ll``: the
+    sidecar carries coordinates, never the build's vertex ids."""
+    rows = p.publication.get("pad_relief") or ()
+    if not rows:
+        return {}
+    of_ll = {(round(la, 7), round(lo, 7)): i for i, (la, lo) in p.ll.items()}
+    out: dict[int, float] = {}
+    for r in rows:
+        try:
+            la, lo, off = float(r[0]), float(r[1]), float(r[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        i = of_ll.get((round(la, 7), round(lo, 7)))
+        if i is not None:
+            out[i] = off
+    return out
+
+
+def _pad_points(p: Patch, sh: Shape, off: dict[int, float] | None = None
+                ) -> tuple[list[tuple[float, float]], list[float], list[int]]:
     ids = list(sh.ids)
     for h in p.features:
         if h.feature == "gap_interior_ring" and h.ref == sh.ref \
                 and not set(h.ids) <= set(ids):
             ids.extend(h.ids)
-    return [p.xy[i] for i in ids], [p.z[i] for i in ids], ids
+    o = off or {}
+    return [p.xy[i] for i in ids], [p.z[i] - o.get(i, 0.0) for i in ids], ids
 
 
 def pad_flat(p: Patch) -> list[Row]:
@@ -92,11 +127,13 @@ def pad_flat(p: Patch) -> list[Row]:
     # reads over it by the plane fit's rounding sensitivity × q/2 (the 04x
     # allowance the census's plane_gradient reader grants)
     half_q = 0.5 * p.law.tables.emit.materiality.elevation_m
+    # 11j: the flatness reading is taken on the pad's LEVEL PLANE
+    off = relief_offsets(p)
     out: list[Row] = []
     for sh in p.shapes:
         if not p.is_rigid(sh.role) or len(sh.ids) < 2:
             continue
-        xy, z, ids = _pad_points(p, sh)
+        xy, z, ids = _pad_points(p, sh, off)
         lo_i = min(range(len(z)), key=z.__getitem__)
         hi_i = max(range(len(z)), key=z.__getitem__)
         spread = z[hi_i] - z[lo_i]

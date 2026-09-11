@@ -85,6 +85,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon (``publication.face_holes_ll``)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
     "design_target",  # RULINGS 2026-09-08t/v: one record per law row the surface missed — the census's ``design_target`` heading
+    "pad_relief",  # owner RULINGS 2026-09-11j (spec §11a (2)/(4)): per pad vertex, the metres the terrain stands above the pad's LEVEL — the relief a body's authored feet ask for.  The pad's flatness READER measures on the level plane with these subtracted (``verify/pads.relief_offsets``); without them every relief pad reads as a plane-residual row.
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
 )
 

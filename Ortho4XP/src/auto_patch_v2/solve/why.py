@@ -252,7 +252,10 @@ def _bindings_of(prep: Prepared, v: int, rows: list[Row], idx, tol: float
         elif isinstance(r, Diff):
             bound = r.cap * r.d
             other = r.b if r.a == v else r.a
-            s_up = bound - (z[v] - z[other])       # v above other by the max
+            # 11j: a relief-target row's zero is shifted by ``rel``
+            rel = float(getattr(r, "rel", 0.0))
+            rel = rel if r.a == v else -rel
+            s_up = bound - (z[v] - z[other] - rel)  # v above other by the max
             if s_up <= tol:
                 note = "" if r.soft is None else f"target group {r.soft}"
                 out.append(Binding(v, r, fam, s_up, bound, (other,),

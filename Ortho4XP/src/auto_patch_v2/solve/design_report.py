@@ -213,7 +213,9 @@ def residual(cs: ConstraintSet, z: np.ndarray, objective: float) -> Residual:
     for p in cs.pins:
         mp = max(mp, abs(float(z[p.v]) - p.z))
     for d in cs.diffs:
-        md = max(md, abs(float(z[d.a]) - float(z[d.b])) - d.cap * d.d)
+        # 11j: the row's relief target shifts its zero (``Diff.rel``)
+        md = max(md, abs(float(z[d.a]) - float(z[d.b]) - float(getattr(d, "rel", 0.0)))
+                 - d.cap * d.d)
     for f in cs.flats:
         g = z[list(f.group)]
         mf = max(mf, float(g.max() - g.min()))

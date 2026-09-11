@@ -463,6 +463,67 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
    `> 3 m` 25 → ≤ 22, files ≤ 4×, suite green, load-stage time within the
    26 s / 108 s moved.
 
+### §11a Measured (round 5, lane `v2canopy5`; owner RULINGS 2026-09-11p)
+
+**(3)'s "the feet's convex footprint" is REFUTED, and its "applied
+unchanged" gate with it.** Round 4 measured the whole clause as a NO-OP;
+round 5 attributed it inside `classify/evidence._body_pads`, at the one
+derivation site, to two refusals:
+
+* A COLONNADE'S FEET ARE A LINE. LEMD38's 150 canopy modules hull to
+  5–21 m² over 22–114 m spans — a 0.18 m ribbon — and
+  `building_pad.min_area_m2` (250) folded **1,101 of the 1,116** candidate
+  pads. The union of the parts' AXIS-ALIGNED plan boxes over-covers a
+  diagonal canopy **6×** (2,358 m² where the roof is 658) and pushes the
+  representative point outside the boundary gate. THE PAD IS THE BODY'S
+  OWN PLAN FOOTPRINT — `airport/skirt.component_footprint`, `footprint`
+  restricted to the body's components (`Group.body_comps`, filled at
+  `planar/group.derive`'s three construction sites), placed by
+  `obj8.placement_affine` and unioned with the feet's hull. LEMD38's
+  modules then read 658–917 m² and `min_area_m2` needs no exemption.
+* THE OSM PADS' LOCATION GATE DOES NOT BIND A PACK BODY. It screens the
+  surrounding CITY's mapped buildings, a population a pack does not have.
+  It refused **130 of LEMD38's 150** modules: Aerosoft's old terminal
+  stands outside LEMD's apt.dat 130 boundary AND more than 200 m from
+  graded apt.dat pavement, so widening the gate to the union of the pad
+  law's two expressions recovered only 33 of 157 refusals. `_body_pads`
+  takes no `gate`.
+
+MEASURED, LEMD (pristine frame, build `LEMD_20260911T131821`, 330.4 s
+against round 4's 352.8 s; partition 87.5 s): pads **123 → 503**,
+`pad_relief` vertices **623 → 2,706**, `seat_feet_census --placement-plan
+--graded` **`> 3 m` 16 → 15** and `< 0.3 m` **50.1 % → 53.1 %** of
+measured bodies, files 1,088 → 1,169 (3.87×), bodies classed `building`
+193 → 297. HECA (`HECA_20260911T132857`, 205.4 s against 200.2 s):
+`road_train/metal_titles.obj b0` **+15.95 → +1.11 m**; the census moves
+the wrong way by a little (`< 0.3` 38,992 → 38,773, `> 3` 1,558 → 1,578)
+and `Airport/T23/T3_brick_clean` b0/b3/b4 go +0.46/+1.51/+11.58 →
++3.83/+8.71/+15.29.
+
+**THE STANDING RESIDUAL, for the owner.** A body pad is a RIGID PLANE cut
+into bare sloping ground, so it makes a STEP where an UNPADDED neighbour
+straddles its edge: LEMD38's worst body goes 0.98 → 3.33 m (a body classed
+`other`, 7 feet over 39 m, beside a new pad), and LEMD's `pad_flat` verify
+rows read **98** against the round's bar of 39. Two fix iterations were
+spent (the body footprint, then the gate) and the round STOPPED there.
+The open question is whether a body pad should be minted at all where the
+DEM under it is steeper than the pad law can carry as one plane —
+`Group.infeasible` prices the body's AUTHORED relief against `bank_slope`,
+not the ground's own fall.
+
+**(2) THE NEGATIVE RELIEF OFFSET is the CROSS-PLACEMENT group's own law,
+not the skirt rule's.** All 12 of LEMD's negative-offset groups are
+cross-placement: `Group.y_zero` is the SENIOR body's lowest ground contact,
+so a junior deck standing below it reads negative by construction, and a
+single-body group cannot (its zero is the minimum over its own feet). Only
+2 of the 12 seniors carry a skirt reading at all (0.52 m / 1.36 m, neither
+near its group's −3.51 / −0.02 magnitude), so 10ag does not own the class;
+5 of the 12 are already refused by the `bank_slope` feasibility gate and
+never reach `pad_relief`. The published −9.92 m end of round 4's range is
+`OldTerminal_FSX-LEMD44#b4` (6 feet, relief slope 0.189, feasible). With
+the body pads in, the published range closes to **−0.02 … +8.08 m**.
+
+
 ## §12 The pristine frame and idempotence (RULINGS 2026-09-11m; lane `v2idempotent`)
 
 1. **ONE RESOLVER.** `dsf_write.pristine_dsf_path(dsf)` returns `<dsf>.anchor_bak`

@@ -312,7 +312,18 @@ def test_the_pad_is_no_longer_a_merged_flat_group(pad_map, law):  # noqa: F811
     # ALREADY one-sided (``constraints.pads._two_sided`` mints the equality
     # as its two halves, so the generator's own count is the row count).
     level = counts["pad_frontage_level"]
-    assert level > 0, "the fixture's pad fronts the apron"
+    # A PURE-HOLE PAD MINTS NO LEVEL ROW (owner RULINGS 2026-09-10ax (1)).
+    # This fixture's pad sits WHOLLY inside the apron, so every one of its
+    # four rim vertices is the apron's own (09-01g: one vertex, one value).
+    # Under 10ax the row's FOLLOWERS are the pad's OWN vertices — a shared
+    # contact is a pavement vertex and enters as a LEADER — so such a pad
+    # has no degree of freedom of its own to govern: it is flush with the
+    # apron's edge BY IDENTITY and needs no row.  Before 10ax the row
+    # existed here with pavement followers, which is exactly how a pad's
+    # mean moved the pavement +1.30 m at LEMD's T4S corner (10at).  The
+    # positive case — a MIXED rim, and a pad fronting by PROXIMITY with no
+    # shared vertex at all — is ``tests/auto_patch_v2/test_v2padprox.py``.
+    assert level == 0, "a pure-hole pad is flush by identity"
     assert base.pad_flat
     assert len(base.pad_flat) == 2 * counts["pad_flats"] + level
     heads = collections.Counter(ruling_head(base.one[i][2]) for i in base.pad_flat)
@@ -395,7 +406,14 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     assert resid <= 0.03, (resid, "the level row's trade, not a bowl")
     rows_no_level = [r for r in cs2.rows()
                      if r.source.generator != padgen.GEN_LEVEL]
-    assert len(rows_no_level) < len(list(cs2.rows())), "the pad fronts the apron"
+    # RE-SCOPED (owner RULINGS 2026-09-10ax (1)): this fixture's pad is a
+    # PURE HOLE in the apron, so it mints no level row at all now (see the
+    # note in ``test_the_pad_is_no_longer_a_merged_flat_group``) and the
+    # arm below is the SAME solve.  It still holds what it was written to
+    # hold — one PLANE inside the 1 % ceiling under the two pins — and the
+    # 0.0249 m plate residual it attributed to the level row is gone with
+    # the row: ``resid`` above is now inside the same bar as ``resid_b``.
+    assert len(rows_no_level) == len(list(cs2.rows()))
     sol_b, _rb = solve_design(pm, stack(rows_no_level), law)
     (resid_b, tilt_b), ids_b = _pad_plane(pm, sol_b.z, fid)
     assert resid_b <= tol, (resid_b, "one PLANE, not a bowl")

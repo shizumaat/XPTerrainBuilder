@@ -126,6 +126,11 @@ class Design:
     #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
     #: fronts NO pavement.
     pad_level_rulings: tuple[str, ...]
+    #: A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): the
+    #: plan distance within which a pad EDGE fronts a pavement EDGE,
+    #: shared vertex or not.  ``constraints.pads.frontage_radius_m`` is
+    #: the one derivation site; 0 leaves the identity-only read of 10l.
+    pad_frontage_m: float
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -256,6 +261,10 @@ def check_design(d: Design, err: type[Exception],
     if not d.pad_flat_rulings:
         raise err("emit.design.pad_flat_rulings: at least one ruling "
                   "(RULINGS 2026-09-09c: the pad's flatness is a target)")
+    if d.pad_frontage_m < 0.0:
+        raise err(f"emit.design.pad_frontage_m {d.pad_frontage_m}: a plan "
+                  "distance in metres, never negative (owner RULINGS "
+                  "2026-09-10ax (1))")
     if not d.pad_flat > d.law:
         raise err(f"emit.design.pad_flat {d.pad_flat}: heavier than the law's "
                   f"target weight {d.law} — a pad targets FLAT (09-09c)")

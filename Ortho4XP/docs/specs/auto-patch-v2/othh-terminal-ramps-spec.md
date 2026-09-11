@@ -709,3 +709,99 @@ exactly that.  One consequence downstream: `Bridge_06_LOD0_000`'s `deck_datum_z`
 rebake plan is otherwise identical (111 units, 948 members, ids and member counts equal).
 Refusal population unchanged (10 ↔ 10, same sites, restated in the authored frame).
 Census adjudicated 4 → 4.
+
+## §12e Round 6 — the NARROW-CUT TEST MEASURED (RULINGS 2026-09-10af) — lane `v2corridor`, 2026-09-10: NO CLAUSE READS OTHH 43 / LEMD CARGO 0; STOP, nothing implemented in law
+
+**The instrument** (`airport/below_zero.py` + `stats.narrow_cut`, printed as the `NARROW`
+table; `--stage structures` only, never a gate and never a build cost). Per CANDIDATE
+corridor, in the SEATED frame (§12d):
+
+* **the WALL-PAIR SPACING** — the inner faces' distance (the corridor's width), and the
+  stationed `width_m` beside it;
+* **the BELOW-ZERO PERIMETER FRACTION** — the placement's plan geometry (every genuine
+  component's triangles projected; a vertical face widened to
+  `tunnel.object.wall_face_max_thickness_m`), the polygon of it holding the site, and the
+  share of that polygon's exterior lined by geometry authored `min_wall_depth_m` or more
+  under the object's OWN zero (`fsite`); `fobj` is the same share over EVERY polygon of the
+  placement. *Authored plan BOUNDING BOXES were tried first and refused: a pack's component
+  boxes overlap, so the union collapses a whole cargo area into one polygon and every
+  candidate in it reads the same fraction (CGVRW 0.073 for all 17).*
+* **the CUT WIDTH across the axis** against the footprint's own (`wr`), and — the fourth
+  reading, added when the first three did not separate — the BELOW-ZERO END COVER (`ec`:
+  does the below-zero geometry itself close an end, as a foundation ring would?).
+
+**THE TABLE** (structure replays, ONE lane tree, production DEM, the §12d admission — OTHH
+43 corridors / 62 candidates, LEMD 77 / 118, byte-identical before and after the module
+split).
+
+| airport | placement | cand. | spacing m | `fsite` | `fobj` | `wr` | `ec` max |
+|---|---|---|---|---|---|---|---|
+| OTHH | `Bridge_06_LOD0_002` | 15 | 11.88..15.14 | 0.87..0.95 | 0.91..0.94 | 0.98..1.00 | 1.00 |
+| OTHH | `Terminal_Base_2_1` (bays) | 5 | 9.86 | 0.02 | 0.01 | 0.23..0.24 | 1.00 |
+| OTHH | `TerminalRoads_Parking_004` | 4 | 10.00..10.07 | 1.00 | 1.00 | 1.00 | 0.04 |
+| OTHH | `TerminalRoads_03_004` | 4 | 12.30..12.35 | 0.92 | 0.92 | 1.00 | 0.02 |
+| OTHH | `TerminalRoads_02_004` | 4 | 11.45..12.06 | 0.99 | 0.99 | 1.00 | 1.00 |
+| OTHH | `Terminal_Parking_VCN_004` | 4 | 6.13..11.37 | 0.11..0.37 | 0.11..0.26 | 0.31..1.00 | 0.15 |
+| OTHH | `Qatar_DutyFree_003` | 3 | 12.17..12.61 | 0.66 | 0.83 | 1.00 | 1.00 |
+| OTHH | `Bridge_02_LOD0_002` | 3 | 14.21..14.48 | 1.00 | 1.00 | 1.00 | 0.07 |
+| OTHH | `Terminal_Base_2_5` (the underpass) | 1 | 9.85 | 0.99 | 0.02 | 1.00 | 0.00 |
+| LEMD | `grass_FSX-LEMDgrass` | 31 | 6.12..19.03 | 0.60..1.00 | 0.20 | 0.98..1.00 | 0.96 |
+| LEMD | `Airport_Cargo-CGVRW` | 17 | 6.47..15.89 | 1.00 | 1.00 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-NEWCO` | 9 | 9.53..19.38 | 1.00 | 0.97 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD79` | 5 | 8.54..17.62 | 1.00 | 0.80 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-GAVIA` | 4 | 8.03..12.99 | 0.65 | 0.68 | 0.96..1.00 | 1.00 |
+| LEMD | `Airport_Cargo-FLEDI` | 2 | 6.73..6.99 | 1.00 | 0.94 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD70` | 2 | 7.38..14.02 | 1.00 | 0.49 | 1.00 | 1.00 |
+| LEMD | `Sim-wings-LEMDzaun` | 2 | 9.76..10.78 | 0.05..0.37 | 0.05..0.52 | 0.00..0.90 | 0.41 |
+| LEMD | `Airport_Cargo-LEMD64` | 1 | 19.04 | 1.00 | 0.79 | 1.00 | 0.00 |
+| LEMD | `Airport_Cargo-EATzwei` | 1 | 17.18 | 0.97 | 0.60 | 1.00 | 1.00 |
+| LEMD | `Airport_Cargo-EAT` | 1 | 17.22 | 1.00 | 0.60 | 1.00 | 1.00 |
+| LEMD | `Airport_Munoza-LEMD73` | 1 | 8.04 | 0.79 | 0.31 | 1.00 | 0.00 |
+| LEMD | `Sim-wings-SWbaume` | 1 | 8.06 | 1.00 | 1.00 | 1.00 | 0.12 |
+
+**(i) THE SPACING DOES NOT SEPARATE THEM.** OTHH's 43 span 6.13..15.14 m; LEMD's 77 span
+6.12..19.38 m. `corridor_max_width_m` at OTHH's own maximum (15.14 m, no margin) still keeps
+57 of LEMD's 77 (54 of the 74 on the owner's witness families) — the cargo docks the owner
+named sit INSIDE OTHH's band (FLEDI 6.73..6.99, CGVRW 6.47..15.89, GAVIA 8.03..12.99,
+NEWCO 9.53, LEMD79 8.54). With a margin it is worse. **Refuted as a clause.**
+
+**(ii) THE PERIMETER FRACTION DOES NOT SEPARATE THEM EITHER — and it is the OWNER'S
+picture that fails, not the reading.** LEMD's cargo docks DO read as foundation skirts
+(CGVRW/NEWCO/FLEDI/EAT/LEMD64/LEMD70 `fsite` 1.00 — the whole bottom below zero, exactly
+10af). But so do OTHH's own kerb corridors: `TerminalRoads_Parking_004` 1.00,
+`Bridge_02_LOD0_002` 1.00, `TerminalRoads_02_004` 0.99, `Terminal_Base_2_5` (the
+underpass!) 0.987 — because a FREE-STANDING kerb wall's footprint IS the wall, so every
+metre of its perimeter is authored below zero. `corridor_skirt_fraction` 0.5 keeps 9 of
+OTHH's 43. The whole-placement denominator (`fobj`) only trades the error: it reads OTHH's
+underpass 0.02 (right) but LEMD's `grass` 0.20 and `LEMD70` 0.49 (wrong). **Refuted.**
+
+**(iii) THE CUT WIDTH across the axis is 1.00 at 17 of 22 families on BOTH packs** (the
+below-zero geometry spans its own footprint by construction: the pair's two walls ARE the
+footprint's two sides). Only OTHH's `Terminal_Base_2_1` bays (0.23) and
+`Terminal_Parking_VCN_004` (0.31) read as notches in a larger building. **Refuted.**
+
+**(iv) THE BELOW-ZERO END COVER does not separate them.** A foundation ring should close
+its own ends; 11 of OTHH's 43 have an end closed below zero and 33 of LEMD's 77 do; NEITHER
+pack has a candidate closed below zero at BOTH ends. **Refuted.**
+
+**Every other geometric quantity overlaps too** (measured on the same arms): corridor
+length OTHH 2.58..38.89 m vs LEMD 2.48..80.30 (71 of 76 inside OTHH's range); depth
+1.07..12.21 vs 0.66..7.02 (69 inside); length/width aspect 0.18..3.95 vs 0.18..4.67 (74
+inside); the thinner band's plan thickness OTHH 0.00..0.66 m vs LEMD 0.00..1.39 — 16 of
+OTHH's own 43 corridors are ZERO-THICKNESS SHEETS (`TerminalRoads_02/03/Parking`), the same
+sheet authoring as LEMD's cargo skirts.
+
+**What round 6 DID attribute.** An IDEAL foundation skirt — four walls carried 2 m under the
+object's zero with a roof over them — is ALREADY refused by 08n's own rule: its ring closes
+both ends and Law C calls it "a sunken yard between four kerbs, not a corridor" (twin
+`test_a_foundation_skirt_reads_the_same_fraction_as_a_kerb_corridor`). LEMD's cargo docks
+survive because their skirts are single SHEETS whose bands RUN PAST the shed: `Cargo-CGVRW`
+pairs bands of 21.8 m and 58.8 m 7.02 m apart into a 7.2 m corridor whose ends cover
+0 %/1 %. The next clause to measure is therefore about the PAIR, not the placement: two
+bands of one closed skirt ring are not a corridor however their overlap window falls.
+
+**Nothing landed in law.** The instrument (`below_zero.py`, `stats.narrow_cut`) and its
+twins landed; `wall_corridors.py` was 1,401 lines with them and is split under the
+1,000-line law into `wall_geometry.py` (the band plan geometry, `WallBand`, the merge, the
+seated frame) and `wall_corridor_probe.py` (the §12c probes) — OTHH's and LEMD's structure
+records are byte-identical across the split.

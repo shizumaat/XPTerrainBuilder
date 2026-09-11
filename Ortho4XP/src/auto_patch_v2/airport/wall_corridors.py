@@ -102,6 +102,13 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
 from . import obj8 as _obj8
+from .below_zero import read_below_zero
+from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_slab,
+                                  _RoadLevels, mouth_roads)
+from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
+                            _bearing, _densified, _merge_walls, _overlap_along,
+                            _plan_polys, _plan_segments, _plan_segments_indexed,
+                            _rect_axis, _rect_sides, _straight_runs, _tri_normals_y)
 from .deck_signature import family_key
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
 
@@ -111,40 +118,8 @@ __all__ = ["WallBand", "WallCorridorRecord", "WallCorridorStats", "read_wall_cor
 
 ID_PREFIX = "wall-corridor"
 CLASS_LEVEL, CLASS_BAY, CLASS_GARAGE = "level", "bay", "garage_ramp"
-#: A face's plan segment shorter than this is a point (a degenerate face).
-_MIN_SEG_M = 0.02
-#: A single SHEET (no plan thickness) is represented this wide so the ring
-#: walker (``shapely.simplify`` at 0.01 m inside ``read_wall_lines``) keeps
-#: it; its MEASURED thickness stays 0 (the rim law floors at the spacing).
-_SHEET_BAND_M = 0.05
-#: Face edges are densified this fine, and the bottom profile reads the
-#: lowest sample within this of a station (a descending bottom is read
-#: at most this far downhill: 0.5 m × the grade).
-_DENSIFY_M = 0.5
-_MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 
-@_dc.dataclass(frozen=True)
-class WallBand:
-    """One kerb-wall band in the airport frame: its plan polygon (a thin
-    rectangle), measured plan thickness (0 for a sheet), axis (a
-    ``LineString`` along its length), bearing (0..180°), and its faces'
-    vertices as ``(x, y, z_rendered, y_authored)`` rows (edges densified;
-    the fourth column is the sample's height in the OBJECT's own frame —
-    RULINGS 2026-09-10u, depth is read there, never against the terrain
-    under a placement whose anchor plane may sit under it)."""
-
-    owner: str
-    resource: str
-    comp: int
-    poly: Polygon
-    thickness_m: float
-    axis: LineString
-    length_m: float
-    bearing_deg: float
-    pts: np.ndarray
-    top_z: float
-    bottom_z: float
 
 
 @_dc.dataclass(frozen=True)
@@ -236,421 +211,12 @@ class WallCorridorStats:
     #: test — the two discriminators MEASURED (floor vs the mouth road's
     #: level; the floor slab), whatever the admission then says.
     floor_probe: list[dict] = _dc.field(default_factory=list)
+    #: RULINGS 2026-09-10af: one row per candidate — the NARROW-CUT
+    #: reading (the wall pair's spacing; the placement's below-zero
+    #: perimeter fraction; the cut's width across the axis against the
+    #: footprint's), whatever the admission then says.
+    narrow_cut: list[dict] = _dc.field(default_factory=list)
     read_s: float = 0.0
-
-
-# ── bands ────────────────────────────────────────────────────────────────
-
-def _tri_normals_y(v: np.ndarray, tris: np.ndarray) -> np.ndarray:
-    p0, p1, p2 = v[tris[:, 0]], v[tris[:, 1]], v[tris[:, 2]]
-    nrm = np.cross(p1 - p0, p2 - p0)
-    ln = np.linalg.norm(nrm, axis=1)
-    ny = np.zeros(tris.shape[0])
-    ok = ln > 1e-12
-    ny[ok] = np.abs(nrm[ok, 1] / ln[ok])
-    return ny
-
-
-def _plan_segments(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]
-                   ) -> list[LineString]:
-    """The plan segment of each (vertical) triangle in the frame: the
-    farthest pair of its three plan points."""
-    return [seg for seg, _k in _plan_segments_indexed(v, tris, mat)]
-
-
-def _plan_segments_indexed(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]
-                           ) -> list[tuple[LineString, int]]:
-    """:func:`_plan_segments` with each segment's triangle row."""
-    a, b, d, e, xoff, yoff = mat
-    pts = v[tris][:, :, [0, 2]]
-    xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
-    ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
-    out = []
-    for k in range(tris.shape[0]):
-        P = [(float(xs[k, i]), float(ys[k, i])) for i in range(3)]
-        best = max(((math.dist(P[i], P[j]), i, j) for i in range(3) for j in range(i + 1, 3)),
-                   key=lambda t: t[0])
-        if best[0] >= _MIN_SEG_M:
-            out.append((LineString([P[best[1]], P[best[2]]]), k))
-    return out
-
-
-def _bearing(seg: LineString) -> float:
-    (x0, y0), (x1, y1) = seg.coords[0], seg.coords[-1]
-    return (math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
-
-
-def _angle_diff(a: float, b: float) -> float:
-    d = abs(a - b) % 180.0
-    return min(d, 180.0 - d)
-
-
-def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_max: float
-                   ) -> list[list[int]]:
-    """A vertical component split into STRAIGHT RUNS: its plan segments
-    clustered by bearing (within ``parallel_deg``) and, within a bearing,
-    by proximity (segments closer than a wall's plan thickness ``t_max``
-    are one wall: its two faces and their joins) — a welded U-shaped
-    kerb yields its two side walls and its end wall apart.  Each run is
-    a list of indices into ``segs``."""
-    clusters: list[tuple[float, list[int]]] = []
-    for k, (seg, _t) in enumerate(segs):
-        b = _bearing(seg)
-        for cl in clusters:
-            if _angle_diff(b, cl[0]) <= parallel_deg:
-                cl[1].append(k)
-                break
-        else:
-            clusters.append((b, [k]))
-    runs: list[list[int]] = []
-    for _b, idx in clusters:
-        merged = unary_union([segs[k][0].buffer(t_max / 2.0, cap_style="flat", **_MITRE)
-                              for k in idx])
-        for part in shapely.get_parts(merged):
-            members = [k for k in idx if segs[k][0].intersects(part)]
-            if members:
-                runs.append(members)
-    return runs
-
-
-def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]) -> list[Polygon]:
-    """The valid plan polygons of ``tris`` in the frame."""
-    if tris.shape[0] == 0:
-        return []
-    a, b, d, e, xoff, yoff = mat
-    pts = v[tris][:, :, [0, 2]]
-    xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
-    ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
-    polys = shapely.polygons(np.stack([xs, ys], axis=2))
-    ok = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9)
-    return [p for p, k in zip(polys, ok.tolist()) if k]
-
-
-def _densified(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float], base: float
-               ) -> np.ndarray:
-    """``(x, y, z_rendered, y_authored)`` rows: every triangle edge
-    densified every ``_DENSIFY_M`` in the frame.  The fourth column is
-    the sample's height in the OBJECT's own frame (``z_rendered - base``,
-    RULINGS 2026-09-10u), carried per row so a merged band spanning two
-    placements still states each sample's authored height."""
-    a, b, d, e, xoff, yoff = mat
-    rows = []
-    for t in tris.tolist():
-        for i in range(3):
-            p, q = v[t[i]], v[t[(i + 1) % 3]]
-            L = float(np.linalg.norm(q - p))
-            n = max(1, int(math.ceil(L / _DENSIFY_M)))
-            for k in range(n + 1):
-                f = k / n
-                x, y, z = (p + (q - p) * f).tolist()
-                rows.append((a * x + b * z + xoff, d * x + e * z + yoff, base + y, y))
-    return np.asarray(rows, dtype=float).reshape(-1, 4)
-
-
-def _band_polygon(segs: list[LineString]) -> tuple[Polygon | None, float]:
-    """The band's plan polygon and measured thickness from a straight
-    run's face segments: the run's minimum rotated rectangle (a wall's
-    two faces and their joins: OTHH 77.8 × 0.54 m), or — a single sheet
-    with no plan extent across — the line widened to ``_SHEET_BAND_M``
-    (thickness 0)."""
-    if not segs:
-        return None, 0.0
-    lines = unary_union(segs)
-    rect = rotated_rectangle(lines)
-    if rect.geom_type == "Polygon" and rect.area > _MIN_SEG_M * _SHEET_BAND_M:
-        L, W = _rect_sides(rect)
-        if W >= _SHEET_BAND_M:
-            return rect, W
-    poly = lines.buffer(_SHEET_BAND_M / 2.0, cap_style="flat", **_MITRE)
-    if poly.geom_type != "Polygon":
-        poly = max((g for g in shapely.get_parts(poly) if g.geom_type == "Polygon"),
-                   key=lambda g: g.area, default=None)
-    return poly, 0.0
-
-
-def _rect_sides(poly: Polygon) -> tuple[float, float]:
-    rect = rotated_rectangle(poly)
-    c = list(rect.exterior.coords)[:4]
-    if len(c) < 4:
-        return 0.0, 0.0
-    lens = [math.dist(c[i], c[(i + 1) % 4]) for i in range(4)]
-    return max(lens), min(lens)
-
-
-def _rect_axis(poly: Polygon) -> tuple[LineString, float, float] | None:
-    """``(axis midline, length, bearing 0..180)`` of the plan rectangle."""
-    rect = rotated_rectangle(poly)
-    if rect.geom_type != "Polygon":
-        return None
-    c = list(rect.exterior.coords)[:4]
-    if len(c) < 4:
-        return None
-    lens = [math.dist(c[i], c[(i + 1) % 4]) for i in range(4)]
-    li = max(range(4), key=lambda i: lens[i])
-    p, q = c[li], c[(li + 1) % 4]
-    r, s_ = c[(li + 3) % 4], c[(li + 2) % 4]
-    a = ((p[0] + r[0]) / 2.0, (p[1] + r[1]) / 2.0)
-    b = ((q[0] + s_[0]) / 2.0, (q[1] + s_[1]) / 2.0)
-    brg = (math.degrees(math.atan2(b[0] - a[0], b[1] - a[1])) + 360.0) % 180.0
-    return LineString([a, b]), float(lens[li]), float(brg)
-
-
-# ── the SEATED frame (RULINGS 2026-09-10ad) ──────────────────────────────
-
-def _seat_base(o: _obj8.PlacedObject, xy: XY, dem_z) -> float:
-    """The object's y = 0 plane in the SEATED frame at ``xy``: the rebake
-    puts an object's zero on the LOCAL GROUND (09af-1, ``emit/rebake``'s
-    ``base = anchor ground + agl``), so a component renders at ``dem(its
-    own plan centroid) + agl + authored y``.  Law C reads depth THERE and
-    never against ``anchor_z`` — a shared-datum pack (Aerosoft LEMD) puts
-    ONE anchor at 596 m under components up to 4 km away where the terrain
-    stands at 605, and every wall then reads 8-10 m "below ground", with a
-    160-200 m ramp for a 2.6 m door (RULINGS 2026-09-10ad).  The pack's
-    own anchor is the fallback where the DEM states nothing."""
-    local = float(dem_z(xy[0], xy[1]))
-    if math.isnan(local):
-        return float(o.anchor_z + o.agl_m)
-    return local + float(o.agl_m)
-
-
-# ── the groundside mouth (RULINGS 2026-09-10z (b'')) ──────────────
-
-#: The classification roles whose faces ARE patch road ribbons for the
-#: mouth test: the road cross-section family and the groundside pavement
-#: a kerb road runs over (``classify/roles.py``).
-ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
-#: The OSM feeds a ``highway=*`` way is read from (``airport/osm.FEEDS``).
-ROAD_FEEDS = ("airport_small_roads", "big_roads")
-
-
-@_dc.dataclass(frozen=True)
-class MouthRoad:
-    """One road the mouth test reads: its plan geometry (an OSM way's
-    line, a patch ribbon's face), the line whose bearing states its
-    DIRECTION there, and the witness the refusal or admission names.
-    ``centre`` is the centreline the LEVEL reader clamps (the way itself;
-    a ribbon's own axis) and ``levelled`` says whether the core would
-    level it (an asserted ``bridge`` / ``tunnel`` way it would not:
-    RULINGS 2026-09-10ab reads the DEM there)."""
-
-    geom: _t.Any
-    axis: LineString
-    witness: str
-    centre: tuple[XY, ...] = ()
-    levelled: bool = True
-
-
-def mouth_roads(airport: Airport, classification: _t.Any = None) -> list[MouthRoad]:
-    """Every road a Law C mouth may be entered by: the tile's OSM
-    ``highway=*`` ways (the small-roads / big-roads feeds) and, when the
-    classification is at hand, the patch's own road ribbons
-    (:data:`ROAD_ROLES`).  Frame coordinates throughout."""
-    out: list[MouthRoad] = []
-    for w in airport.osm_ways:
-        if w.kind not in ROAD_FEEDS or not w.tags.get("highway"):
-            continue
-        if len(w.points) < 2:
-            continue
-        ln = LineString(w.points)
-        if ln.length < _MIN_SEG_M:
-            continue
-        levelled = all(not w.tags.get(k) or w.tags.get(k) == "no"
-                       for k in ("bridge", "tunnel"))
-        out.append(MouthRoad(ln, ln, f"osm way {w.id} ({w.tags.get('highway')})",
-                             tuple((float(x), float(y)) for x, y in w.points), levelled))
-    for c in getattr(classification, "cells", ()) or ():
-        if c.role not in ROAD_ROLES or len(c.ring) < 3:
-            continue
-        poly = Polygon(c.ring, c.holes)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty or poly.geom_type != "Polygon":
-            continue
-        ra = _rect_axis(poly)
-        if ra is None:
-            continue
-        out.append(MouthRoad(poly, ra[0], f"patch {c.role} cell {c.id} ({c.ref})",
-                             tuple((float(x), float(y)) for x, y in ra[0].coords), True))
-    return out
-
-
-# ── the round-4 discriminators (RULINGS 2026-09-10ab) ────────────────────
-
-@_dc.dataclass(frozen=True)
-class FloorRoad:
-    """(i) FLOOR-vs-ROAD for one candidate: the nearest road within
-    ``corridor_road_level_m`` of a MOUTH, its LEVEL at the point nearest
-    that mouth (the core's own clamp on its centreline — a levelled road
-    profile; the DEM where the core levels nothing) and the level minus
-    the corridor's floor at that mouth."""
-
-    distance_m: float
-    level_z: float
-    floor_z: float
-    source: str
-    witness: str
-    mouth_k: int
-
-    @property
-    def delta_m(self) -> float:
-        return self.level_z - self.floor_z
-
-
-class _RoadLevels:
-    """The LEVEL of a mouth road at a point: Ortho4XP's own longitudinal
-    clamp (``airport/road_profile.clamp_way`` — the mid-envelope every
-    v2 road-family vertex is fitted to) over the road's centreline, on
-    the production DEM, clamped ways cached per road.  A road the core
-    does not level (an asserted ``bridge`` / ``tunnel`` way) and a
-    centreline the clamp cannot state (outside the warm tiles) fall back
-    to the DEM at the point, which the source names."""
-
-    def __init__(self, airport: Airport, law: Law) -> None:
-        from ..law.tables import role_cap
-        from . import road_profile as _rp
-        self._rp = _rp
-        self._sample = _rp._sample_fn(airport)
-        self._inside = _rp._inside_fn(airport)
-        rp = law.tables.emit.road_profile
-        self._cap = float(role_cap(law, "service_road").longitudinal)
-        self._station = float(rp.station_m)
-        self._dem_z = airport.dem.z
-        self._ways: dict[int, list] = {}
-
-    def _centre(self, road: MouthRoad) -> list[XY]:
-        if getattr(road.geom, "geom_type", "") == "Polygon":
-            ring = list(road.geom.exterior.coords)[:-1]
-            ax = self._rp.face_axis(ring, self._station / 2.0)
-            if ax and len(ax) >= 2:
-                return list(ax)
-        return list(road.centre)
-
-    def level(self, idx: int, road: MouthRoad, pt: XY) -> tuple[float, str]:
-        z_dem = float(self._dem_z(pt[0], pt[1]))
-        kind = "ribbon" if getattr(road.geom, "geom_type", "") == "Polygon" else "osm way"
-        if not road.levelled:
-            return z_dem, f"DEM at an unlevelled {kind}"
-        if idx not in self._ways:
-            pts = self._centre(road)
-            self._ways[idx] = (self._rp.clamp_way("probe", str(idx), pts, self._sample,
-                                                  self._cap, self._station, self._inside)
-                               if len(pts) >= 2 else [])
-        ways = self._ways[idx]
-        if not ways:
-            return z_dem, f"DEM ({kind}: the clamp states no profile there)"
-        P = Point(pt)
-        w = min(ways, key=lambda w_: w_.line.distance(P))
-        return float(w.at(w.line.project(P))), f"levelled {kind} profile"
-
-
-def _floor_road(mouths: _t.Sequence[tuple[int, XY, float]], roads: _t.Sequence[MouthRoad],
-                tree: STRtree | None, max_m: float, levels: _RoadLevels) -> FloorRoad | None:
-    """(i): over every MOUTH, the nearest road within ``max_m`` and its
-    level there against that mouth's floor (``None`` = no road at all)."""
-    if tree is None or not roads:
-        return None
-    best: tuple[float, int, XY, float, int] | None = None
-    for k, pt, floor_z in mouths:
-        P = Point(pt)
-        for i in tree.query(P.buffer(max_m), predicate="intersects").tolist():
-            d = float(roads[int(i)].geom.distance(P))
-            if d > max_m:
-                continue
-            if best is None or d < best[0]:
-                best = (d, int(i), pt, floor_z, k)
-    if best is None:
-        return None
-    d, i, pt, floor_z, k = best
-    r = roads[i]
-    z, src = levels.level(i, r, pt)
-    return FloorRoad(d, z, floor_z, src, r.witness, k)
-
-
-def _floor_slab(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                trench: Polygon, axis_ln: LineString, orig_s: _t.Sequence[float],
-                floors: _t.Sequence[float], max_thick: float, tol: float,
-                normal_min: float, dem_z) -> tuple[float, str]:
-    """(ii) FLOOR SLAB: the share of the corridor's length spanned by a
-    HORIZONTAL PLATE of the family (a component thinner than
-    ``max_thick``) lying within ``tol`` of the floor inside the trench —
-    the fraction and the witness plate (``(0.0, "")`` = no slab)."""
-    L = axis_ln.length
-    if L <= 0.0 or trench.is_empty:
-        return 0.0, ""
-    minx, miny, maxx, maxy = trench.bounds
-    s_arr = np.asarray(orig_s, dtype=float)
-    f_arr = np.asarray(floors, dtype=float)
-    ivals: list[tuple[float, float]] = []
-    best_area = 0.0
-    witness = ""
-    for o in members:
-        g = cache.geometry(o.resolved)
-        if g is None:
-            continue
-        mat = _obj8.placement_affine(o.xy, o.heading_deg)
-        v = g.vertices
-        bounds = cache.component_bounds(o.resolved)
-        comps = cache.components(o.resolved)
-        for ci, comp in enumerate(comps):
-            if ci >= bounds.shape[0]:
-                break
-            if comp.max_y - comp.min_y > max_thick:
-                continue                     # a wall, a shell: not a slab
-            x0, x1, z0, z1 = bounds[ci].tolist()
-            corners = [_obj8._to_frame(o.xy, o.heading_deg, x, z)
-                       for x in (x0, x1) for z in (z0, z1)]
-            base = _seat_base(o, ((corners[0][0] + corners[3][0]) / 2.0,
-                                  (corners[0][1] + corners[3][1]) / 2.0), dem_z)
-            if max(c[0] for c in corners) < minx or min(c[0] for c in corners) > maxx \
-                    or max(c[1] for c in corners) < miny or min(c[1] for c in corners) > maxy:
-                continue
-            ny = _tri_normals_y(v, comp.tris)
-            horiz = ny >= normal_min
-            if not horiz.any():
-                continue
-            t = comp.tris[horiz]
-            a, b, d, e, xoff, yoff = mat
-            pts = v[t][:, :, [0, 2]]
-            xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
-            ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
-            zs = base + v[t][:, :, 1].mean(axis=1)
-            polys = shapely.polygons(np.stack([xs, ys], axis=2))
-            hit = shapely.intersects(polys, trench) & shapely.is_valid(polys)
-            area = 0.0
-            for kk in np.nonzero(hit)[0].tolist():
-                inter = polys[kk].intersection(trench)
-                if inter.is_empty:
-                    continue
-                ss = [axis_ln.project(Point(p)) for p in inter.envelope.exterior.coords] \
-                    if inter.geom_type in ("Polygon", "MultiPolygon", "GeometryCollection") else []
-                if not ss:
-                    continue
-                lo, hi = max(0.0, min(ss)), min(L, max(ss))
-                if hi <= lo:
-                    continue
-                fl = float(np.interp((lo + hi) / 2.0, s_arr, f_arr))
-                if abs(float(zs[kk]) - fl) > tol:
-                    continue
-                ivals.append((lo, hi))
-                area += float(inter.area)
-            if area > best_area:
-                best_area = area
-                witness = f"plate comp {ci} of {os.path.basename(o.path)} ({o.id})"
-    if not ivals:
-        return 0.0, ""
-    ivals.sort()
-    covered = 0.0
-    cur: tuple[float, float] | None = None
-    for lo, hi in ivals:
-        if cur is None or lo > cur[1]:
-            if cur is not None:
-                covered += cur[1] - cur[0]
-            cur = (lo, hi)
-        else:
-            cur = (cur[0], max(cur[1], hi))
-    if cur is not None:
-        covered += cur[1] - cur[0]
-    return covered / L, witness
 
 
 def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
@@ -726,73 +292,6 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
 
 
 # ── pairs → corridors ────────────────────────────────────────────────────
-
-def _merge_walls(bands: list[WallBand], parallel_deg: float, t_max: float, gap_m: float
-                 ) -> list[WallBand]:
-    """Rule 1's family merge: parallel bands within ``t_max`` of each
-    other laterally and ``gap_m`` along the axis are ONE wall — the
-    union's plan rectangle, the samples concatenated."""
-    n = len(bands)
-    parent = list(range(n))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-    for i in range(n):
-        for j in range(i + 1, n):
-            A, B = bands[i], bands[j]
-            if _angle_diff(A.bearing_deg, B.bearing_deg) > parallel_deg:
-                continue
-            brg = math.radians(A.bearing_deg)
-            u = (math.sin(brg), math.cos(brg))
-            nrm = (-u[1], u[0])
-            ca, cb = A.poly.centroid, B.poly.centroid
-            lateral = abs((cb.x - ca.x) * nrm[0] + (cb.y - ca.y) * nrm[1])
-            if lateral > t_max:
-                continue
-            lo, hi, ov = _overlap_along(u, A, B)
-            if ov < -gap_m:
-                continue
-            parent[find(i)] = find(j)
-    groups: dict[int, list[WallBand]] = {}
-    for i in range(n):
-        groups.setdefault(find(i), []).append(bands[i])
-    out: list[WallBand] = []
-    for members in groups.values():
-        if len(members) == 1:
-            out.append(members[0])
-            continue
-        members.sort(key=lambda b: -b.length_m)
-        first = members[0]
-        rect = rotated_rectangle(unary_union([b.poly for b in members]))
-        if rect.geom_type != "Polygon":
-            out.append(first)
-            continue
-        L, W = _rect_sides(rect)
-        ra = _rect_axis(rect)
-        if ra is None:
-            out.append(first)
-            continue
-        axis, length, brg = ra
-        pts = np.concatenate([b.pts for b in members])
-        out.append(WallBand(first.owner, first.resource, first.comp, rect, float(W), axis,
-                            length, brg, pts, float(pts[:, 2].max()), float(pts[:, 2].min())))
-    return out
-
-
-def _overlap_along(u: XY, a: WallBand, b: WallBand) -> tuple[float, float, float]:
-    """The bands' extents projected on direction ``u``: ``(lo, hi,
-    overlap)`` of their intersection."""
-    def span(band: WallBand) -> tuple[float, float]:
-        ps = [(x * u[0] + y * u[1]) for x, y in band.poly.exterior.coords]
-        return min(ps), max(ps)
-    a0, a1 = span(a)
-    b0, b1 = span(b)
-    lo, hi = max(a0, b0), min(a1, b1)
-    return lo, hi, hi - lo
-
 
 def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Sequence[float],
                    window: float) -> tuple[list[float], list[float]]:
@@ -1042,6 +541,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     # RULINGS 2026-09-10ab (i): the LEVEL reader for a mouth road (the
     # replay's measurement only)
     levels = _RoadLevels(airport, law) if measure else None
+    #: the per-placement below-zero walk, memoised across candidates
+    bz_store: dict = {}
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
     for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
@@ -1056,6 +557,7 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     for fk, members in sorted(fams.items(), key=lambda kv: kv[0]):
         bands: list[WallBand] = []
         faces: list[LineString] = []
+        faces_low: list[LineString] = []
         by_id = {o.id: o for o in members}
         for o in members:
             bs, verts = _bands_of(o, cache, dem_z, law)
@@ -1065,7 +567,19 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 mat = _obj8.placement_affine(o.xy, o.heading_deg)
                 comps = cache.genuine(o.resolved)
                 for ci, mask in verts:
-                    faces.extend(_plan_segments(g.vertices, comps[ci].tris[mask], mat))
+                    rows = comps[ci].tris[mask]
+                    faces.extend(_plan_segments(g.vertices, rows, mat))
+                    # RULINGS 2026-09-10af: the BELOW-ZERO faces alone — a
+                    # foundation skirt CLOSES its pair's ends with more of
+                    # itself (the building's other two sides are skirted
+                    # too); a corridor's trench OPENS at its mouth.  The
+                    # 08n end-cap test reads EVERY vertical face, so a wall
+                    # standing over a trench closes an end that is open
+                    # below the ground.
+                    low = (g.vertices[rows][:, :, 1].min(axis=1) <= -wc.min_wall_depth_m
+                           if measure else np.zeros(rows.shape[0], dtype=bool))
+                    if low.any():
+                        faces_low.extend(_plan_segments(g.vertices, rows[low], mat))
         if len(bands) < 2:
             continue
         bands = _merge_walls(bands, wc.parallel_max_deg, ob.wall_face_max_thickness_m,
@@ -1073,6 +587,7 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
         stats.families += 1
         stats.bands += len(bands)
         face_tree = STRtree(faces) if faces else None
+        low_tree = STRtree(faces_low) if faces_low else None
         fam_name = f"{fk[0]:.3f},{fk[1]:.3f},{fk[2]:.3f}"
         # RULE 2: the pairs
         for i in range(len(bands)):
@@ -1169,6 +684,46 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     continue
                 clause_a = (f"(a) admitted — wall bottom authored {max(authored_depths):.2f} m "
                             f"under the object's zero")
+                # RULINGS 2026-09-10af — (d) THE NARROW-CUT TEST: a
+                # corridor is a road-width cut in a building that is
+                # otherwise above its own zero; a placement whose whole
+                # bottom stands below zero is FOUNDATIONS (the author's
+                # slope affordance) and is left to its seat.
+                bz = (read_below_zero([by_id[A.owner], by_id[B.owner]], cache,
+                                      wc.min_wall_depth_m, plate.centroid.coords[0],
+                                      ob.wall_face_max_thickness_m, store=bz_store)
+                      if measure else None)
+                cut_w, foot_w = (0.0, 0.0) if bz is None else bz.widths(u)
+                frac = 0.0 if bz is None else bz.fraction
+                nc_row: dict | None = None
+                if measure:
+                    nc_row = {"airport": airport.icao, "resource": name,
+                              "bands": f"{A.comp}/{B.comp}", "site": site,
+                              "spacing_m": round(gap, 2),
+                              "width_m": None, "perimeter_m": 0.0 if bz is None
+                              else round(bz.perimeter_m, 1),
+                              "below_perimeter_m": 0.0 if bz is None
+                              else round(bz.below_perimeter_m, 1),
+                              "fraction": round(frac, 3),
+                              "fraction_total": 0.0 if bz is None
+                              else round(bz.fraction_total, 3),
+                              "total_perimeter_m": 0.0 if bz is None
+                              else round(bz.total_perimeter_m, 1),
+                              "total_below_perimeter_m": 0.0 if bz is None
+                              else round(bz.total_below_perimeter_m, 1),
+                              "cut_width_m": round(cut_w, 1),
+                              "footprint_width_m": round(foot_w, 1),
+                              "width_ratio": round(cut_w / foot_w, 3) if foot_w > 0 else None,
+                              "site_area_m2": 0.0 if bz is None
+                              else round(bz.site_area_m2, 1),
+                              "site_thickness_m": 0.0 if bz is None
+                              else round(bz.site_thickness_m, 2),
+                              "axis_inside_frac": 0.0 if bz is None else round(
+                                  axis_ln.intersection(bz.footprint).length
+                                  / max(axis_ln.length, 1e-9), 3),
+                              "end_cover": [0.0, 0.0], "end_cover_below": [0.0, 0.0],
+                              "admitted": False}
+                    stats.narrow_cut.append(nc_row)
                 descending = (zmax - zmin) >= wc.min_wall_depth_m
                 # RULE 4: the ends
                 def end_line(k: int) -> tuple[XY, XY]:
@@ -1182,9 +737,17 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                             (p[0] - nx * st.half_r, p[1] - ny_ * st.half_r))
                 covers = [_end_cover(end_line(k), faces, face_tree, ob.end_cap_open_m)
                           for k in (0, 1)]
+                covers_low = [_end_cover(end_line(k), faces_low, low_tree,
+                                         ob.end_cap_open_m) for k in (0, 1)] \
+                    if measure else [0.0, 0.0]
                 closed = [c >= wc.end_cap_cover_min for c in covers]
                 width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts) / len(sts)
                 thick = sum((s.thick_l + s.thick_r) / 2.0 for s in sts) / len(sts)
+                if nc_row is not None:
+                    nc_row["width_m"] = round(width, 2)
+                    nc_row["end_cover"] = [round(covers[0], 3), round(covers[1], 3)]
+                    nc_row["end_cover_below"] = [round(covers_low[0], 3),
+                                                 round(covers_low[1], 3)]
                 trench0 = _trench(axis, sts)
                 # THE MOUTHS: the open ends (a garage's shallow end).  A
                 # pair closed at BOTH ends is a sunken yard, not a corridor.
@@ -1250,6 +813,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                                            f"{headroom:.2f} m REFUSED under min_headroom_m "
                                            f"{wc.min_headroom_m} ({deck_w})")
                     continue
+                if nc_row is not None:
+                    nc_row["admitted"] = True
                 stats.admission.append(
                     f"{head}: {clause_a}; headroom "
                     + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")

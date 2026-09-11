@@ -74,7 +74,30 @@ def objs(tmp_path_factory):
         # SLAB between its walls at the wall bottom
         "deep6": _corridor_obj(d / "deep6.obj", depth=6.0),
         "slabbed": _floor_slab_obj(d / "slabbed.obj"),
+        # RULINGS 2026-09-10af: a SKIRTED SHED — four walls carried 2 m
+        # under the object's zero (the author's slope affordance) with a
+        # roof over them: the LEMD cargo-dock shape the owner described
+        # as "just foundations"
+        "skirt": _skirt_shed(d / "skirt.obj"),
     }
+
+
+def _skirt_shed(path, width=12.0, depth=2.0, top=8.0, thick=0.3, half_len=40.0):
+    """A shed whose WHOLE bottom stands ``depth`` under its own zero —
+    two long walls ``width`` apart, two end walls, a roof (RULINGS
+    2026-09-10af: foundations, not a corridor)."""
+    vt: list = []
+    tris: list = []
+    hw = width / 2.0
+    _vwall(vt, tris, -hw - thick, -hw, -half_len, half_len, -depth, -depth, top)
+    _vwall(vt, tris, hw, hw + thick, -half_len, half_len, -depth, -depth, top)
+    _vwall(vt, tris, -hw - thick, hw + thick, -half_len - thick, -half_len, -depth, -depth, top)
+    _vwall(vt, tris, -hw - thick, hw + thick, half_len, half_len + thick, -depth, -depth, top)
+    # the roof stands clear of the wall tops: welded to them it would be
+    # ONE component carrying a wide horizontal face, which rule 1 skips
+    _slab(vt, tris, -hw - thick, hw + thick, -half_len - thick, half_len + thick,
+          top + 0.5, top + 0.8)
+    return _write(path, vt, tris)
 
 
 def _floor_slab_obj(path, width=10.0, depth=2.0, thick=0.3, half_len=40.0):
@@ -264,6 +287,54 @@ def test_the_floor_slab_probe_finds_a_slab_only_where_one_is_authored(objs, law)
     _r2, st2 = _corridors(objs, law, "deep")
     assert st2.floor_probe[0]["slab"] is False
     assert st2.floor_probe[0]["slab_cover"] == 0.0
+
+
+# ── RULINGS 2026-09-10af: the NARROW-CUT reading, MEASURED ───────────────
+# Round 6's instrument (spec §12e).  It states the wall pair's SPACING,
+# the placement's BELOW-ZERO PERIMETER FRACTION and the cut's width
+# across the axis against the footprint's.  It separates NOTHING: a
+# free-standing kerb corridor (OTHH's own shape) reads the SAME fraction
+# 1.0 as a foundation skirt, because a kerb wall's footprint IS the wall.
+# These twins hold that refutation honest.
+
+def test_the_narrow_cut_probe_states_the_spacing_and_the_fraction(objs, law):
+    """The fixture kerb corridor: inner faces 10 m apart (road scale) and
+    a below-zero perimeter fraction of 1.0 — the walls ARE the object, so
+    every metre of their footprint's perimeter is authored below zero."""
+    _r, st = _corridors(objs, law, "deep")
+    assert st.narrow_cut, (st.refused, st.pairs, st.bands)
+    row = st.narrow_cut[0]
+    assert row["spacing_m"] == pytest.approx(10.0, abs=0.05), row
+    assert row["width_m"] == pytest.approx(10.0, abs=0.1), row
+    assert row["fraction"] >= 0.9, row
+    assert row["admitted"] is True
+
+
+def test_a_foundation_skirt_reads_the_same_fraction_as_a_kerb_corridor(objs, law):
+    """RULINGS 2026-09-10af asked whether a foundation skirt is separable
+    by the perimeter fraction.  It is NOT: a shed whose whole bottom is
+    2 m under its zero reads ≈ 1.0 — and so does the free-standing kerb
+    corridor above, because a kerb wall's footprint IS the wall (spec
+    §12e; OTHH's `TerminalRoads_Parking_004` 1.00, `Bridge_02` 1.00,
+    `Terminal_Base_2_5` 0.99 against LEMD's cargo docks at 1.00).  No
+    threshold on the fraction keeps OTHH's 43 and refuses LEMD's docks;
+    the clause is not law, and this twin fails the day one is written on
+    the fraction alone.
+
+    The IDEAL skirt is already refused for another reason — its ring
+    closes both ends (a sunken yard, 08n).  LEMD's cargo docks survive
+    because their skirt walls are single SHEETS whose pairs run past the
+    shed's ends: ends cover 0 %/1 % there (spec §12e)."""
+    recs, st = _corridors(objs, law, "skirt")
+    assert st.narrow_cut, (st.refused, st.pairs, st.bands)
+    row = st.narrow_cut[0]
+    assert row["fraction"] >= 0.9, row
+    assert row["spacing_m"] == pytest.approx(12.0, abs=0.05), row
+    _r2, st2 = _corridors(objs, law, "deep")
+    assert abs(row["fraction"] - st2.narrow_cut[0]["fraction"]) < 0.2, (
+        row, st2.narrow_cut[0])
+    assert not recs and st.corridors == 0
+    assert any("no mouth" in r for r in st.refused), st.refused
 
 
 # ── RULINGS 2026-09-10ad: the SEATED frame ───────────────────────────────

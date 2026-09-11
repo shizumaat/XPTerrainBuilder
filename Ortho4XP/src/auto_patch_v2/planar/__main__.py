@@ -183,6 +183,25 @@ def main(argv: list[str] | None = None) -> int:
                       f"{'Y' if r['slab'] else 'n'} ({r['slab_cover']:.2f}) | "
                       f"len {r['length_m']:.1f} m | {r['road_source']}: {r['road_witness']} | "
                       f"{r['slab_witness']}")
+        # RULINGS 2026-09-10af: ONE TABLE — spacing, below-zero perimeter
+        # fraction, cut width vs footprint width, current admission
+        ncs = rec["wall_corridor_narrow_cut"]
+        if ncs:
+            print(f"  wall corridor narrow-cut table ({len(ncs)} candidates): airport | "
+                  f"placement@bands | spacing | width | below-zero perimeter fraction | "
+                  f"cut width / footprint width | admitted")
+            for r in ncs:
+                w = "    -" if r["width_m"] is None else f"{r['width_m']:5.1f}"
+                wr = "    -" if r["width_ratio"] is None else f"{r['width_ratio']:5.3f}"
+                print(f"  NARROW {r['airport']} | {r['resource']}@{r['bands']} at {r['site']} | "
+                      f"spacing {r['spacing_m']:6.2f} m | width {w} m | frac "
+                      f"{r['fraction']:5.3f} ({r['below_perimeter_m']:.1f}/"
+                      f"{r['perimeter_m']:.1f} m) | obj frac {r['fraction_total']:5.3f} "
+                      f"({r['total_below_perimeter_m']:.1f}/{r['total_perimeter_m']:.1f} m)"
+                      f" | site {r['site_area_m2']:9.1f} m2 thick {r['site_thickness_m']:7.2f} m "
+                      f"inside {r['axis_inside_frac']:5.3f} | cut {r['cut_width_m']:7.1f} / "
+                      f"{r['footprint_width_m']:7.1f} m = {wr} | "
+                      f"{'ADMITTED' if r['admitted'] else 'refused'}")
         for t in rec["tunnels"]:
             print(f"  tunnel {t['id']}: mouth_z {t['mouth_z']:.2f}  top_s {t['top_s']:.1f}  "
                   f"climb_from {t['climb_from_s']:.1f}  grade {t['design_grade']:.4f}  "
@@ -323,6 +342,8 @@ def structure_records(airport, cl, law) -> dict:
         # RULINGS 2026-09-10ab: the two round-4 discriminators MEASURED
         # per candidate (floor vs the mouth road's level; the floor slab)
         "wall_corridor_floor_probe": list(wstats.floor_probe),
+        # RULINGS 2026-09-10af: the NARROW-CUT reading per candidate
+        "wall_corridor_narrow_cut": list(wstats.narrow_cut),
         "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
                                 if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),

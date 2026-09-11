@@ -67,7 +67,8 @@ from . import obj8 as _obj8
 from . import skirt as _skirt
 from .pack import live_path_of
 
-__all__ = ["Screen", "PackPartition", "partition_pack", "counts_zero"]
+__all__ = ["Screen", "PackPartition", "partition_pack", "extend_partition",
+           "counts_zero"]
 
 
 def counts_zero() -> dict[str, int]:
@@ -137,13 +138,19 @@ class PackPartition:
     #: LIVE path).
     member_object: _t.Mapping[tuple[int, int], tuple[str, str]] = \
         _dc.field(default_factory=dict)
-    #: the resources dropped because one file cannot carry per-placement
-    #: offsets (I-4).  A PLATE-seated resource is exempt, and the exemption
-    #: is a screen fact, so the drop is DEFERRED to :meth:`filtered`.
+    #: unused since the two-phase order (11l (1)): the multi-anchor drop
+    #: is applied AT LOAD, so nothing is left for :meth:`filtered` to drop
     multi_anchor: frozenset[str] = frozenset()
-    #: how many anchors each multi-anchor resource is placed at — the
-    #: deferred drop's own message, so the two orders read identically
+    #: how many anchors each multi-anchor resource is placed at
     anchor_count: _t.Mapping[str, int] = _dc.field(default_factory=dict)
+    #: THE SECOND PHASE (owner RULINGS 2026-09-11l (1)): the multi-anchor
+    #: placements dropped at load, kept so the PLATE exemption — a planar
+    #: product — can be partitioned back in INCREMENTALLY by
+    #: :func:`extend_partition`.  Load partition only.
+    deferred: tuple[tuple[tuple[float, float, float], _obj8.PlacedObject], ...] = ()
+    #: the geometry index the incremental phase queries (``_LoadGeom``);
+    #: ``None`` on a filtered or already-extended reading
+    geom: _t.Any = None
 
     def member_at(self, key: tuple[int, int]) -> Member:
         return self.units[key[0]].members[key[1]]
@@ -163,7 +170,9 @@ class PackPartition:
         counts["terrain_adapted"] = 0
         counts["below_grade"] = 0
         counts["below_grade_parts"] = 0
-        counts["multi_anchor"] = 0
+        # the drop already ran at LOAD (11l (1)); ``self.multi_anchor`` is
+        # empty and the count is carried through untouched
+        counts["multi_anchor"] = int(self.counts.get("multi_anchor", 0))
         dropped_multi: set[str] = set()
         for ui, u in enumerate(self.units):
             members: list[Member] = []
@@ -202,7 +211,7 @@ class PackPartition:
                 member_object[(len(units), len(members) - 1)] = (oid, opath)
             if members:
                 units.append(_dc.replace(u, members=tuple(members)))
-        counts["multi_anchor"] = len(dropped_multi)
+        counts["multi_anchor"] += len(dropped_multi)
         for r in sorted(dropped_multi):
             skipped[r] = (f"placed at {self.anchor_count.get(r, 0)} anchors — one "
                           "file cannot carry per-placement offsets (I-4)")
@@ -219,7 +228,70 @@ class PackPartition:
                                      if m.parts and all(p.line for p in m.parts))
         return _dc.replace(self, units=tuple(units), skipped=tuple(sorted(skipped.items())),
                            counts=counts, contacts=contacts, abutments=abutments,
-                           member_object=member_object, multi_anchor=frozenset())
+                           member_object=member_object, multi_anchor=frozenset(),
+                           deferred=(), geom=None)
+
+
+@_dc.dataclass(frozen=True)
+class _LoadGeom:
+    """What the incremental second phase queries (11l (1)): the load
+    partition's part boxes and component ids, the member geometry it was
+    read from (references into the one ``ResourceCache``, so holding it
+    costs nothing), and the anchor-plane numbering it must extend."""
+
+    index: _contact.BaseIndex
+    members: tuple
+    member_ref: tuple
+    anchor_of_member: tuple[int, ...]
+    anchor_ix: _t.Mapping[tuple[float, float, float], int]
+    deck_family_ids: frozenset[str]
+
+
+def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
+                  sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
+                  counts: dict[str, int], skipped: dict[str, str]):
+    """One placement as a :class:`Member` plus the geometry the contact
+    pass places, or ``None`` when nothing about it can be seated.  ONE
+    implementation: the load loop and :func:`extend_partition` build a
+    member identically, so an incrementally added plate is the member the
+    whole pass would have built."""
+    rb = law.tables.structures.rebake
+    sk = law.tables.structures.skirt
+    geom = cache.geometry(o.resolved)
+    if geom is None:
+        skipped.setdefault(o.path, "unreadable OBJ8")
+        return None
+    deep = set(sc.below_comps.get(o.id, ()))
+    comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
+             if c.max_y - c.min_y >= cache.thickness_m and i not in deep]
+    counts["below_grade_parts"] += len(deep)
+    in_deck_family = o.id in sc.deck_family or o.id in deck_family_ids
+    if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
+            and o.id not in sc.plate_paths and o.path not in sc.plate_paths \
+            and o.hard_deck is None:
+        counts["no_parts"] += 1
+        skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
+        return None
+    rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
+        else live_path_of(o.resolved)
+    # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3)
+    skirted = bool(sk.seat_low_side and _skirt.is_skirt(cache, o.resolved, law))
+    counts["skirted_members"] += int(skirted)
+    # THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5): the
+    # GATE on the cross-placement abutment group, read off the cache
+    deck_body = bool(_deck.elevated_deck(cache, o.resolved, law).deck)
+    counts["elevated_decks"] += int(deck_body)
+    # THE LINE OBJECT (owner RULINGS 2026-09-10bb; spec §16).  The
+    # STRUCTURE-SEAT exemptions of 14.1 rule 4 are a screen fact and
+    # are applied by :meth:`PackPartition.filtered`.
+    is_line = (o.id not in sc.structure_seated
+               and _line.is_line_object(cache, o.resolved, rb))
+    if is_line:
+        counts["line_objects"] += 1
+    member = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
+                    o.heading_deg, (), None, None, None, o.deck_kind, None,
+                    (), (), (), None, (), skirted, deck_body)
+    return member, (o, geom, list(comps)), bool(is_line)
 
 
 def _inside(path: str, root: str) -> bool:
@@ -317,16 +389,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         keyed.append((key, o))
 
     multi = {r for r, ks in anchors_by_resource.items() if len(ks) > 1}
-    # THE MULTI-ANCHOR DROP IS DEFERRED (module doc): a PLATE-seated
-    # resource is exempt and the plate set is a screen fact, so the load
-    # partition keeps every anchor and ``filtered`` drops the rest.
-    drop_now: set[str] = set()
-    if not sc.is_empty():
-        drop_now = multi - set(sc.plate_paths)
-        counts["multi_anchor"] = len(drop_now)
-        for r in sorted(drop_now):
-            skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "
-                          "file cannot carry per-placement offsets (I-4)")
+    # THE MULTI-ANCHOR DROP RUNS AT LOAD (owner RULINGS 2026-09-11l (1)).
+    # Round 2 deferred it to ``filtered`` because a PLATE-seated resource
+    # is exempt and the plate set is a planar fact — and paid 2,493
+    # members instead of 1,187 at LEMD for it (+37 s; OTHH +263 s).  So
+    # the drop is applied HERE, on the screened set, and the exempted
+    # plates come back INCREMENTALLY in :func:`extend_partition`.
+    drop_now = multi - set(sc.plate_paths)
+    counts["multi_anchor"] = len(drop_now)
+    for r in sorted(drop_now):
+        skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "
+                      "file cannot carry per-placement offsets (I-4)")
+    deferred = tuple((key, o) for key, o in keyed
+                     if o.path in drop_now) if sc.is_empty() else ()
 
     units_by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
     placed: list[tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
@@ -339,41 +414,15 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         members = units_by_key.setdefault(key, {})
         if o.path in members:
             continue        # the same resource at the same anchor twice: one bake
-        geom = cache.geometry(o.resolved)
-        if geom is None:
-            skipped.setdefault(o.path, "unreadable OBJ8")
+        built = _build_member(o, cache, law, sc, deck_family_ids, pack_root,
+                              counts, skipped)
+        if built is None:
             continue
-        deep = set(sc.below_comps.get(o.id, ()))
-        comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
-                 if c.max_y - c.min_y >= cache.thickness_m and i not in deep]
-        counts["below_grade_parts"] += len(deep)
-        in_deck_family = o.id in sc.deck_family or o.id in deck_family_ids
-        if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
-                and o.id not in sc.plate_paths and o.path not in sc.plate_paths \
-                and o.hard_deck is None:
-            counts["no_parts"] += 1
-            skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
-            continue
-        rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
-            else live_path_of(o.resolved)
-        # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3)
-        skirted = bool(sk.seat_low_side and _skirt.is_skirt(cache, o.resolved, law))
-        counts["skirted_members"] += int(skirted)
-        # THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5): the
-        # GATE on the cross-placement abutment group, read off the cache
-        deck_body = bool(_deck.elevated_deck(cache, o.resolved, law).deck)
-        counts["elevated_decks"] += int(deck_body)
-        # THE LINE OBJECT (owner RULINGS 2026-09-10bb; spec §16).  The
-        # STRUCTURE-SEAT exemptions of 14.1 rule 4 are a screen fact and
-        # are applied by :meth:`PackPartition.filtered`.
-        if o.id not in sc.structure_seated \
-                and _line.is_line_object(cache, o.resolved, rb):
+        member, mgeom, is_line = built
+        if is_line:
             line_members.add(len(placed))
-            counts["line_objects"] += 1
-        members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
-                                 o.heading_deg, (), None, None, None, o.deck_kind, None,
-                                 (), (), (), None, (), skirted, deck_body)
-        placed.append((o, geom, list(comps)))
+        members[o.path] = member
+        placed.append(mgeom)
         member_ref.append((key, o.path, o.id))
 
     # THE ANCHOR PLANE per member (owner RULINGS 2026-09-10ay; spec §17)
@@ -416,11 +465,15 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts["structures"] = part.structures
     counts["pairs_tested"] = part.pairs_tested
     counts["pairs_unproved"] = part.pairs_unproved
+    geom = _LoadGeom(_contact.base_index(part), tuple(placed), tuple(member_ref),
+                     tuple(anchor_of_member), dict(anchor_ix),
+                     frozenset(deck_family_ids)) if sc.is_empty() else None
     return PackPartition(airport.icao, airport.pack.name, pack_root, tuple(units),
                          tuple(sorted(skipped.items())), counts,
                          part.contacts, part.abutments, member_object,
-                         frozenset() if not sc.is_empty() else frozenset(multi),
-                         {r: len(ks) for r, ks in anchors_by_resource.items()})
+                         frozenset(),
+                         {r: len(ks) for r, ks in anchors_by_resource.items()},
+                         deferred, geom)
 
 
 def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Part]]:
@@ -469,3 +522,111 @@ def frame_xy(airport: Airport) -> _t.Callable[[float, float], XY]:
     def f(lat: float, lon: float) -> XY:
         return to_xy(lon, lat)
     return f
+
+
+def extend_partition(part: PackPartition, airport: Airport,
+                     cache: _obj8.ResourceCache, law: Law,
+                     plate_paths: _t.Collection[str]) -> PackPartition:
+    """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
+
+    The load partition ran on the SCREENED object set, so every
+    multi-anchor resource was dropped — including the tunnel-wall PLATE
+    placements, whose exemption (09s (1)) is a PLANAR product and cannot
+    be known at load.  This adds those back: their members are built by
+    the same :func:`_build_member`, their parts and feet by the same
+    ``contact.placed_parts``, and their ε-contacts and abutments are
+    sought by SPATIAL QUERY against the existing part boxes
+    (``contact.extend``) — the whole pack is never repartitioned.
+
+    Returns ``part`` unchanged when nothing is exempt, which is the usual
+    case; the caller then filters exactly as before.
+    """
+    geom: _LoadGeom | None = part.geom
+    if geom is None or not part.deferred:
+        return part
+    pp = set(plate_paths)
+    add = [(key, o) for key, o in part.deferred if o.path in pp or o.id in pp]
+    if not add:
+        return part
+    rb = law.tables.structures.rebake
+    counts = dict(part.counts)
+    skipped = dict(part.skipped)
+    sc = Screen()
+    new_members: list = []
+    new_ref: list[tuple[tuple[float, float, float], str, str]] = []
+    new_member_rows: list[Member] = []
+    line_members: set[int] = set()
+    seen: set[tuple[tuple[float, float, float], str]] = set()
+    readded: set[str] = set()
+    for key, o in add:
+        if (key, o.path) in seen:
+            continue
+        seen.add((key, o.path))
+        built = _build_member(o, cache, law, sc, geom.deck_family_ids,
+                              part.pack_root, counts, skipped)
+        if built is None:
+            continue
+        member, mgeom, is_line = built
+        if is_line:
+            line_members.add(len(new_members))
+        new_members.append(mgeom)
+        new_member_rows.append(member)
+        new_ref.append((key, o.path, o.id))
+        readded.add(o.path)
+        skipped.pop(o.path, None)
+    if not new_members:
+        return part
+    anchor_ix = dict(geom.anchor_ix)
+    anchor_of = list(geom.anchor_of_member) + \
+        [anchor_ix.setdefault(k, len(anchor_ix)) for k, _p, _o in new_ref]
+    ext = _contact.extend(geom.index, geom.members, new_members,
+                          rb.contact_epsilon_m, rb.contact_weld_m,
+                          rb.contact_narrow_budget, rb.contact_batch_rows,
+                          law.tables.structures.basin.contact_band_m,
+                          rb.foot_samples_max, rb.elevated_base_m,
+                          line_members, rb.body_feet_span_m,
+                          rb.line_object_stations_max, anchor_of,
+                          rb.plate_gap_max_m, rb.abutment_extent_min_m,
+                          law.tables.emit.identity.min_distinct_spacing_m)
+    to_ll_batch = _batch_to_ll(airport.frame)
+    fake = _contact.Partition(ext.parts, (), 0, 0, 0, 0, ())
+    rows = _parts_by_member(fake, to_ll_batch)
+    base_n = len(geom.members)
+    # ── merge: rebuild the units from the load reading plus the added ──
+    by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
+    for ui, u in enumerate(part.units):
+        for mi, m in enumerate(u.members):
+            oid, opath = part.member_object.get((ui, mi), (m.id, m.resource))
+            by_key.setdefault((u.anchor[0], u.anchor[1], u.agl_m), {})[opath] = m
+    for i, (key, opath, _oid) in enumerate(new_ref):
+        by_key.setdefault(key, {})[opath] = _dc.replace(
+            new_member_rows[i], parts=tuple(rows.get(base_n + i, ())))
+    units: list[Unit] = []
+    member_object: dict[tuple[int, int], tuple[str, str]] = {}
+    oid_of = {(k, p): o for k, p, o in list(geom.member_ref) + new_ref}
+    for key, members in sorted(by_key.items()):
+        if not members:
+            continue
+        names = sorted(members)
+        ms = tuple(members[n] for n in names)
+        for mi, nm in enumerate(names):
+            member_object[(len(units), mi)] = (oid_of.get((key, nm), ms[mi].id), nm)
+        units.append(Unit(f"unit:{len(units)}", (key[0], key[1]), key[2], ms))
+    counts["units"] = len(units)
+    counts["members"] = sum(len(u.members) for u in units)
+    counts["parts"] = sum(len(m.parts) for u in units for m in u.members)
+    counts["multi_anchor"] = max(0, int(counts.get("multi_anchor", 0)) - len(readded))
+    contacts = tuple(sorted(set(part.contacts) | set(ext.contacts)))
+    abutments = tuple(sorted(set(part.abutments) | set(ext.abutments)))
+    counts["contacts"] = len(contacts)
+    counts["abutments"] = len(abutments)
+    counts["structures"] = ext.structures
+    counts["pairs_tested"] = int(counts.get("pairs_tested", 0)) + ext.pairs_tested
+    counts["pairs_unproved"] = int(counts.get("pairs_unproved", 0)) + ext.pairs_unproved
+    counts["line_objects"] = sum(1 for u in units for m in u.members
+                                 if m.parts and all(p.line for p in m.parts))
+    counts["plate_readded"] = len(readded)
+    counts["plate_neighbours"] = ext.neighbours
+    return _dc.replace(part, units=tuple(units), skipped=tuple(sorted(skipped.items())),
+                       counts=counts, contacts=contacts, abutments=abutments,
+                       member_object=member_object, deferred=(), geom=None)

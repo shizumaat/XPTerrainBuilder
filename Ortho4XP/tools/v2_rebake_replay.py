@@ -268,7 +268,8 @@ def cmd_order(args) -> int:
     import time
     from auto_patch_v2.airport.load import load
     from auto_patch_v2.airport.obj8 import ResourceCache
-    from auto_patch_v2.airport.pack_partition import partition_pack
+    from auto_patch_v2.airport.pack_partition import (extend_partition,
+                                                      partition_pack)
     from auto_patch_v2.airport.rebake_plan import screen_of
     from auto_patch_v2.law import Law
     from auto_patch_v2.planar.basins import read_objects
@@ -283,19 +284,62 @@ def cmd_order(args) -> int:
     objects, _rep = read_objects(airport, law, cache)
     t_load = time.perf_counter() - t
     screen, objs = screen_of(objects, cache, law)
+    # THE CACHE MUST BE WARM FOR BOTH ARMS (round 3).  Round 2 ran the
+    # load arm first and the old arm second on ONE ``ResourceCache``, so
+    # the old arm never paid the OBJ8 parse and its 47.0 s / 150.4 s were
+    # a WARM reading of a COLD one.  In a real build the parse is paid
+    # once whichever order runs — classify's skirt reader warms it for
+    # the old order, the load partition warms it for the new — so the
+    # only honest partition-vs-partition bar is a warm cache on both.
     t = time.perf_counter()
-    loaded = partition_pack(airport, objs, cache, law)
-    t_new = time.perf_counter() - t
-    new = loaded.filtered(screen, law)
-    t = time.perf_counter()
-    old = partition_pack(airport, objs, cache, law, screen)
-    t_old = time.perf_counter() - t
-    print(f"[{icao}] load+object read {t_load:.2f} s; partition (load order) "
-          f"{t_new:.2f} s; partition (old order) {t_old:.2f} s; "
+    for o in objs:
+        if o.resolved is not None:
+            cache.geometry(o.resolved)
+            cache.components(o.resolved)
+            cache.genuine(o.resolved)
+    t_warm = time.perf_counter() - t
+    print(f"[{icao}] pack parse (warm-up, paid once in any order) {t_warm:.2f} s")
+    def _load_arm():
+        t0 = time.perf_counter()
+        ld = partition_pack(airport, objs, cache, law)
+        t1 = time.perf_counter()
+        mg = extend_partition(ld, airport, cache, law, screen.plate_paths)
+        return ld, mg, t1 - t0, time.perf_counter() - t1
+
+    def _old_arm():
+        t0 = time.perf_counter()
+        o = partition_pack(airport, objs, cache, law, screen)
+        return o, time.perf_counter() - t0
+
+    # ORDER MATTERS FOR THE CLOCK, NOT FOR THE COUNTS (round 3): the two
+    # arms do the same work on the same warm cache, and the arm that runs
+    # FIRST is ~50 % slower at LEMD.  ``--old-first`` runs the control arm
+    # first so the 1 % timing bar is read both ways.
+    if getattr(args, "old_first", False):
+        old, t_old = _old_arm()
+        loaded, merged, t_new, t_ext = _load_arm()
+    else:
+        loaded, merged, t_new, t_ext = _load_arm()
+        old, t_old = _old_arm()
+    new = merged.filtered(screen, law)
+    print(f"[{icao}] load+object read {t_load:.2f} s; partition phase 1 (load, "
+          f"screened) {t_new:.2f} s + phase 2 (incremental plates) {t_ext:.2f} s "
+          f"= {t_new + t_ext:.2f} s; partition (old order) {t_old:.2f} s; "
           f"{len(objs)} placements")
-    print(f"[{icao}] UNFILTERED load partition: parts {loaded.counts['parts']}  "
+    print(f"[{icao}] LOAD partition: parts {loaded.counts['parts']}  "
           f"contacts {loaded.counts['contacts']}  abutments {loaded.counts['abutments']}  "
-          f"members {loaded.counts['members']}")
+          f"members {loaded.counts['members']}  deferred multi-anchor placements "
+          f"{len(loaded.deferred)}; phase 2 re-added "
+          f"{merged.counts.get('plate_readded', 0)} resources against "
+          f"{merged.counts.get('plate_neighbours', 0)} neighbour parts")
+    print(f"[{icao}] partition work: load  pairs_tested "
+          f"{loaded.counts['pairs_tested']} unproved {loaded.counts['pairs_unproved']} "
+          f"pools {loaded.counts['pools']} structures {loaded.counts['structures']} "
+          f"line_members {loaded.counts['line_objects']}")
+    print(f"[{icao}] partition work: old   pairs_tested "
+          f"{old.counts['pairs_tested']} unproved {old.counts['pairs_unproved']} "
+          f"pools {old.counts['pools']} structures {old.counts['structures']} "
+          f"line_members {old.counts['line_objects']}")
     rows = ("members", "parts", "contacts", "abutments", "line_objects",
             "no_parts", "below_grade", "terrain_adapted", "multi_anchor")
     bad = 0
@@ -685,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
                                      "filter-a-partition vs partition-a-filtered-set")
     o.add_argument("icao")
     o.add_argument("--dem-frame", default="production", choices=("production", "authored"))
+    o.add_argument("--old-first", action="store_true",
+                   help="run the CONTROL arm first (the arm that runs first is "
+                        "the slower one: read the timing bar both ways)")
     o.set_defaults(fn=cmd_order)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")

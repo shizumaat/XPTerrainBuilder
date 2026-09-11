@@ -49,7 +49,8 @@ import numpy as np
 from ..model.frame import XY
 from . import obj8 as _obj8
 
-__all__ = ["PlacedPart", "Partition", "partition"]
+__all__ = ["PlacedPart", "Partition", "partition", "BaseIndex", "Extension",
+           "base_index", "extend"]
 
 
 @_dc.dataclass(frozen=True)
@@ -531,3 +532,193 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
                      _pools(parts, len(members), pool_overlap_m),
                      uf.groups() if parts else 0, len(pend), unproved,
                      tuple(sorted({(min(a, b), max(a, b)) for a, b in abut})))
+
+
+# ── THE INCREMENTAL EXTENSION (owner RULINGS 2026-09-11l (1); spec §11a) ──
+
+
+@_dc.dataclass(frozen=True)
+class BaseIndex:
+    """What :func:`extend` needs to know about a partition it did not
+    keep the geometry of: every part's 3-D box, which member and
+    component it is, its line verdict and which contact COMPONENT it
+    already belongs to.
+
+    The full ``PlacedPart`` set of a real pack is the whole OBJ geometry
+    placed (OTHH: 152 k parts), so it is NOT retained across a build.
+    The boxes are (152 k × 48 B × 2 ≈ 15 MB) and they are enough to find
+    the handful of neighbours an added member can touch; those
+    neighbours' geometry is re-placed on demand from the resource cache,
+    which is the same parse the load partition read."""
+
+    box_lo: np.ndarray          # (n_parts, 3)
+    box_hi: np.ndarray          # (n_parts, 3)
+    member: np.ndarray          # (n_parts,) member index
+    comp: np.ndarray            # (n_parts,) component index in the file
+    line: np.ndarray            # (n_parts,) bool
+    root: np.ndarray            # (n_parts,) contact-component id
+
+
+def base_index(part: Partition) -> BaseIndex:
+    """``part``'s :class:`BaseIndex` — built while its geometry is still
+    in hand, at the end of the LOAD partition."""
+    n = len(part.parts)
+    lo = np.zeros((n, 3)); hi = np.zeros((n, 3))
+    mem = np.zeros(n, dtype=np.int64); cmp_ = np.zeros(n, dtype=np.int64)
+    ln = np.zeros(n, dtype=bool)
+    uf = _UnionFind(n)
+    for a, b in part.contacts:
+        uf.union(int(a), int(b))
+    for p in part.parts:
+        lo[p.pid] = p.box_min
+        hi[p.pid] = p.box_max
+        mem[p.pid] = p.member
+        cmp_[p.pid] = p.comp
+        ln[p.pid] = bool(p.line)
+    root = np.array([uf.find(i) for i in range(n)], dtype=np.int64)
+    return BaseIndex(lo, hi, mem, cmp_, ln, root)
+
+
+@_dc.dataclass(frozen=True)
+class Extension:
+    """What :func:`extend` adds: the new parts (global pids), the edges
+    and abutments they bring, and the recomputed structure count."""
+
+    parts: tuple[PlacedPart, ...]
+    contacts: tuple[tuple[int, int], ...]
+    abutments: tuple[tuple[int, int], ...]
+    structures: int
+    pairs_tested: int
+    pairs_unproved: int
+    neighbours: int
+
+
+def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
+           new_members: _t.Sequence[MemberGeometry],
+           eps: float, weld_mm: float, budget: int, chunk_rows: int,
+           foot_band_m: float = 1.0, foot_samples_max: int = 4,
+           elevated_base_m: float | None = None,
+           line_members: _t.Collection[int] = (),
+           station_span_m: float = 0.0, stations_max: int = 0,
+           anchor_of_member: _t.Sequence[int] = (),
+           abutment_gap_m: float = 0.0, abutment_extent_min_m: float = 0.0,
+           abutment_spacing_m: float = 0.0) -> Extension:
+    """Partition ``new_members`` INTO an existing reading (module doc).
+
+    The new members' parts and feet are computed exactly as
+    :func:`partition` computes them; their ε-contacts and abutments are
+    sought ONLY against the parts whose boxes come within ``eps`` of one
+    of them — a spatial query over ``base``'s boxes, not a repartition.
+    Every base–base edge already stands, so a pair of two base parts is
+    never re-tested; the union-find is seeded with ``base.root`` so a new
+    pair already joined THROUGH the base is skipped exactly as the whole
+    pass would skip it.
+
+    ``anchor_of_member`` covers base members first, then the new ones
+    (the caller's own numbering).  ``line_members`` indexes ``new_members``.
+    """
+    n_base_parts = int(base.box_lo.shape[0])
+    n_base_members = len(base_members)
+    fresh = placed_parts(new_members, foot_band_m, foot_samples_max,
+                         line_members, station_span_m, stations_max)
+    if not fresh:
+        return Extension((), (), (), int(np.unique(base.root).size) if n_base_parts else 0,
+                         0, 0, 0)
+    # ── the neighbourhood: base parts within ε of a new part's box ──────
+    flo = np.array([p.box_min for p in fresh])
+    fhi = np.array([p.box_max for p in fresh])
+    near: set[int] = set()
+    if n_base_parts:
+        for i in range(flo.shape[0]):
+            m = ((base.box_lo - eps <= fhi[i]) & (flo[i] - eps <= base.box_hi)).all(axis=1)
+            near.update(np.flatnonzero(m).tolist())
+    # ── re-place just those members' geometry from the resource cache ──
+    by_member: dict[int, list[int]] = {}
+    for pid in sorted(near):
+        by_member.setdefault(int(base.member[pid]), []).append(pid)
+    nb: list[PlacedPart] = []
+    nb_global: list[int] = []
+    nb_member: list[int] = []
+    for mi, pids in by_member.items():
+        got = {p.comp: p for p in placed_parts([base_members[mi]], foot_band_m, 1)}
+        for pid in pids:
+            p = got.get(int(base.comp[pid]))
+            if p is None:
+                continue
+            nb.append(_dc.replace(p, pid=len(nb), member=mi,
+                                  line=bool(base.line[pid]),
+                                  feet=np.zeros((0, 3), dtype=float)))
+            nb_global.append(pid)
+            nb_member.append(mi)
+    # local pids 0..L-1: the neighbours first, then the new parts
+    local: list[PlacedPart] = []
+    local_member: list[int] = []          # local member index per local part
+    member_ix: dict[int, int] = {}
+    for p, mi in zip(nb, nb_member):
+        li = member_ix.setdefault(mi, len(member_ix))
+        local.append(_dc.replace(p, pid=len(local), member=li))
+        local_member.append(li)
+    n_nb = len(local)
+    for p in fresh:
+        li = member_ix.setdefault(n_base_members + p.member, len(member_ix))
+        local.append(_dc.replace(p, pid=len(local), member=li))
+        local_member.append(li)
+    globals_of = list(nb_global) + [n_base_parts + p.pid for p in fresh]
+    is_new = np.array([i >= n_nb for i in range(len(local))])
+    # the union-find is seeded with the base's own components so a pair
+    # already joined THROUGH the base is skipped, as the whole pass skips it
+    uf = _UnionFind(len(local))
+    seed: dict[int, int] = {}
+    for li in range(n_nb):
+        r = int(base.root[globals_of[li]])
+        if r in seed:
+            uf.union(seed[r], li)
+        else:
+            seed[r] = li
+    edges: list[tuple[int, int]] = []
+
+    def _keep(a: int, b: int) -> bool:
+        return bool(is_new[a] or is_new[b])
+
+    for a, b in _weld_pairs(local, weld_mm).tolist():
+        a, b = int(a), int(b)
+        if not _keep(a, b):
+            continue
+        if uf.union(a, b) or local[a].member == local[b].member:
+            edges.append((a, b))
+    pend = [(int(a), int(b)) for a, b in _broad_pairs(local, eps).tolist()
+            if _keep(int(a), int(b))
+            and (uf.find(int(a)) != uf.find(int(b))
+                 or local[int(a)].member == local[int(b)].member)]
+    found, unproved = _narrow_pass(local, pend, eps, budget, chunk_rows, uf)
+    edges.extend(found)
+    abut: list[tuple[int, int]] = []
+    if anchor_of_member:
+        anc_local = [0] * len(member_ix)
+        for gi, li in member_ix.items():
+            anc_local[li] = int(anchor_of_member[gi])
+        abut = [(a, b) for a, b in
+                _abutment_pairs(local, anc_local, abutment_gap_m,
+                                abutment_extent_min_m, abutment_spacing_m, uf)
+                if _keep(a, b)]
+    out_parts = [_dc.replace(p, pid=n_base_parts + p.pid,
+                             member=n_base_members + p.member) for p in fresh]
+    if elevated_base_m is not None:
+        out_parts = [p if (p.line or p.base_y <= elevated_base_m)
+                     else _dc.replace(p, feet=np.zeros((0, 3), dtype=float))
+                     for p in out_parts]
+    # the structure count over base ∪ new
+    total = n_base_parts + len(out_parts)
+    uf2 = _UnionFind(total)
+    for i in range(n_base_parts):
+        uf2.union(i, int(base.root[i]))
+    for a, b in edges:
+        uf2.union(globals_of[a], globals_of[b])
+    return Extension(tuple(out_parts),
+                     tuple(sorted({(min(globals_of[a], globals_of[b]),
+                                    max(globals_of[a], globals_of[b]))
+                                   for a, b in edges})),
+                     tuple(sorted({(min(globals_of[a], globals_of[b]),
+                                    max(globals_of[a], globals_of[b]))
+                                   for a, b in abut})),
+                     uf2.groups(), len(pend), unproved, n_nb)

@@ -30,7 +30,8 @@ from ..model.frame import XY
 from ..model.rebake import FlatDatum, Member, RebakePlan, Unit
 from . import deck_signature as _deck
 from . import obj8 as _obj8
-from .pack_partition import PackPartition, Screen, partition_pack
+from .pack_partition import (PackPartition, Screen, extend_partition,
+                             partition_pack)
 
 __all__ = ["plan", "screen_of", "DeckDatum"]
 
@@ -136,7 +137,12 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     if partition is None:
         part = partition_pack(airport, objs, cache, law, screen)
     else:
-        part = partition.filtered(screen, law)
+        # THE SECOND PHASE (owner RULINGS 2026-09-11l (1)): the load
+        # partition ran on the SCREENED set, so the PLATE-exempt
+        # multi-anchor placements — a planar fact — are partitioned back
+        # in INCREMENTALLY here, against the existing part set only.
+        part = extend_partition(partition, airport, cache, law,
+                                screen.plate_paths).filtered(screen, law)
     _to_xy, to_ll = airport.frame.transformers()
     by_id = {o.id: o for o in objs}
     counts = dict(part.counts)

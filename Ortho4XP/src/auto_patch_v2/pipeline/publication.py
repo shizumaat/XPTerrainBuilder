@@ -87,6 +87,7 @@ from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
 from ..law import Law
+from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
@@ -207,6 +208,18 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "seam_pins": [ll[v] for v in pins],
             "station_caps": stations,
             "basin_facilities": basin_facilities(planar, law, z),
+            # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
+            # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],
+            # ...``.  Published because the pad's flatness READER
+            # (``verify/pads.pad_flat``) sees only the emitted product: a
+            # pad under a body with authored relief is one plane ON ITS
+            # LEVEL PLANE, and without this the reader would report every
+            # such pad as a plane-residual row.  Empty list = no pad
+            # carries a target, which is every airport whose objects are
+            # authored flat-footed and the law disarmed.
+            "pad_relief": [[ll[v][0], ll[v][1], round(o, 4)]
+                           for v, o in sorted(pad_relief_offsets(planar, law,
+                                                                 airport).items())],
             "tunnel_objects": tunnel_objects(planar, airport)}
 
 

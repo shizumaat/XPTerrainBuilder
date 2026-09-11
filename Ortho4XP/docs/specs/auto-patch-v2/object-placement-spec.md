@@ -499,3 +499,243 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
    `test_v2objsplit.py` (resolver, content key, twice-byte-identical, stale-body
    removal with the escape and corrupt-provenance refusals, plan read over a
    written pack) and `test_airport_load.py` (no name crossing).
+7. **Measured** (lane `v2canopy` round 2, branch `claude/v2canopy2`; the
+   partition-order twin on the real LEMD pack, the LEMD closing build,
+   and the round's 16 twins in `tests/auto_patch_v2/test_v2canopy2.py`).
+
+   * **THE PARTITION MOVED, AND IT IS NOT A FREE MOVE.**
+     `airport/pack_partition.partition_pack()` reads the pack once at
+     LOAD — objects to members, welded parts, ground feet, the ε-contact
+     graph, the authored-frame abutments and the deck / skirt / line
+     verdicts — and `airport/rebake_plan.plan()` is now the SCREEN (the
+     planar and solved facts about which members and components leave the
+     seat) plus the attachment of the deck ring, the deck datum and the
+     plate stations. `pipeline/build` runs it between load and classify
+     and hands `planar` the same objects, so the pack is still read once.
+     §11a (3)'s "a MOVE of measured 26 s (LEMD) / 108 s (OTHH), not an
+     addition" is **REFUTED, and it is the round's most important
+     number.** The UNFILTERED partition is a bigger problem than the
+     filtered one — LEMD 2,493 members / 44,414 parts against 1,187 /
+     30,428, OTHH 5,090 / 212,738 against 1,814 / 160,624 — and the
+     order twin measures, one pack per process:
+
+     | | load order | old order | delta |
+     |---|---|---|---|
+     | LEMD partition | 84.4 s | 47.0 s | **+37 s** |
+     | OTHH partition | 413.0 s | 150.4 s | **+263 s** |
+
+     In the LEMD closing build the stage line reads `pack partition
+     90.56 s` at load against `rebake plan 0.19 s` after the solve, for a
+     whole-build 405 s. The surplus is the MULTI-ANCHOR members (LEMD
+     repeats one resource at up to 72 anchors, OTHH 129, and the old
+     order dropped them BEFORE partitioning), and that drop cannot simply
+     move to load: its one exemption is the tunnel-wall PLATE set, which
+     is a planar product. The lane kept the deferred drop — correctness
+     over time, OTHH's plates over a faster OTHH — and reports the cost.
+     This is a SPEC PREMISE, not an implementation choice, and it is the
+     owner's to rule: either the load partition narrows (and OTHH's
+     plate objects need another way to survive it) or the move is
+     accepted at +37 s / +263 s.
+   * **THE TWO ORDERS, MEASURED** (`v2_rebake_replay.py order LEMD`, the
+     load-derivable screen; the basin exclusions and the tunnel plates
+     have no value outside a build). `members` 1,187 = 1,187 EQUAL,
+     `parts` 30,428 = 30,428 EQUAL, and keyed by a part's IDENTITY
+     (resource, component index, position — the `pid` is partition-local
+     and renumbers) the two part sets are the SAME SET: only-old 0,
+     only-new 0. The edges differ, in ONE direction only:
+
+     | | old | new | only-old | only-new | shared |
+     |---|---|---|---|---|---|
+     | LEMD contacts | 33,406 | 33,389 | 17 | **0** | 33,389 |
+     | LEMD abutments | 3,305 | 3,267 | 38 | **0** | 3,267 |
+     | OTHH contacts | 347,480 | 347,386 | 94 | — | — |
+     | OTHH abutments | 20,301 | 20,030 | 271 | — | — |
+
+     Nothing is INVENTED: the filtered reading is a strict SUBSET of what
+     the old order found, 0.05 % / 1.1 % of it missing at LEMD and
+     0.03 % / 1.3 % at OTHH. The mechanism is the one the
+     `pack_partition` module doc predicts — the ε-contact edge set is a
+     connectivity-equivalent SPANNING subset, so an edge the old order
+     tested directly between two parts is, in the new order, already
+     implied through a part the screen later removes, and removing that
+     part removes the implication with it. On a fixture pack small enough
+     that no such chain exists the two orders agree EXACTLY, and that is
+     a twin (`test_m6a_rebake.test_the_new_order_plans_the_same_pack`:
+     same units, members, parts, deck rings, plate fields and skip
+     records), so a divergence there is a defect rather than this class.
+     `no_parts` (+211 LEMD, +6,817 OTHH) and `multi_anchor` (−6, −34) are
+     report counts taken over different populations — the load partition
+     counts its skips over the whole object set — and name no geometry.
+   * **THE RELIEF TARGET IS THE MECHANISM AND IT IS ONE FIELD.**
+     `Diff.rel` (`offset[a] − offset[b]`) shifts both one-sided rows in
+     `solve/rows._law_sides`, so a pad under a body with authored relief
+     is priced FLAT ON ITS LEVEL PLANE and a flat-footed body's rows are
+     bit-for-bit today's. `constraints/pad_relief.py` is the ONE
+     derivation of the per-vertex offset (nearest foot within
+     `[placement] relief_radius_m` = 12 m, never interpolated; feet on
+     PAVEMENT take no row, 09af-1) and `classify/evidence._body_pads`
+     mints a pad for a body the OSM does not know — the OSM union stays
+     the plan extent where one exists, otherwise the feet's convex
+     footprint buffered by `building_pad.footprint_outside_pad_m`.
+   * **CONSUMERS TOUCHED** (§11a (4)'s rule, held): `constraints/pads.py`
+     `_pad_rows` (both `pad_flats` and `pad_slope_ceiling` — the tilt
+     CEILING must read the offsets too, or an authored 2.63 m over 28 m
+     is refused as a 9 % pad), `solve/rows._law_sides`,
+     `solve/design_report` and `solve/why` (a row's zero moved),
+     `verify/pads.pad_flat`, and the sidecar key `pad_relief` that
+     carries the offsets to it (`emit/osm_adapter.SIDECAR_KEYS`,
+     `pipeline/publication`). NOTHING that reads a pad's polygon,
+     contacts, rim or level was edited. `solve/design.py`'s `pad_flat_i`
+     / `pad_follow` needed NO edit: they are index registers over the
+     one-sided rows, which already carry the shift.
+   * **THE SPAN LAW IS PER BODY, AND ROUND 1's WAS NOT.** `group.py` now
+     carries `body_span_m` and binds `group_span_max_m` to a CONNECTING
+     body's own diagonal. The twin that proves the difference is
+     `test_a_far_but_short_junior_is_not_the_railway_class`: a canopy
+     10 m long joining a building 400 m away has a group footprint over
+     150 m and is NOT releasable.
+   * **FEASIBILITY IS A READING OF THE GROUP'S OWN FEET.** `Group.
+     relief_slope` is `max |y_i − y_j| / d_ij` over the feet; over
+     `emit.within_shape.pad_slope_max` the group is INFEASIBLE. Only then
+     does a long connecting body RELEASE (and become its own object at
+     its own low-side foot); a short infeasible group keeps its canopy and
+     is REPORTED, exactly as 11i requires.
+
+   * **THE FEASIBILITY BAR IS THE GROUND'S, AND AN INFEASIBLE BODY IS NOT
+     ADAPTED.** The round's first LEMD build priced feasibility at the
+     PAD's own `pad_slope_max` (1 %) and admitted every body's relief:
+     7,627 of 13,064 groups came out "infeasible" — a verdict that says
+     nothing — and the published `pad_relief` reached **+35.53 /
+     −14.51 m**, which is not a relief profile but a body whose "feet"
+     are vertices up its own structure. The terrain under an object's
+     feet is GROUND, so the bar is `emit.design.bank_slope` (1:3, "a
+     slope a pilot reads as ground, not a wall"), and §11 (4)'s own
+     sentence does the rest: an INFEASIBLE group's pad is NOT adapted —
+     it keeps today's flat pad, anchors at its low-side foot (§9) and is
+     REPORTED. One rebuild, one iteration:
+
+     | LEMD | first arm | with the gate |
+     |---|---|---|
+     | `pad_relief` vertices | 2,356 (+35.53 / −14.51 m) | **927 (+5.07 / +0.00 m)** |
+     | in-build verify rows | 27,583 | **4,351** |
+     | of which `pad_flat` | 97 | **48** |
+     | off-DEM `building` > 0.5 m | 1,778 / 2,733 (max 35.33 m) | **898 / 2,733 (max 8.09 m)** |
+     | §7 census feet < 0.3 m | 56,532 | **63,803** |
+     | 0.3–1 m / 1–3 m | 25,339 / 7,416 | **21,366 / 3,985** |
+     | > 3 m | 4,296 | 4,371 |
+     | floating | 7,655 | **6,705** |
+     | groups infeasible | 7,627 (short 7,626) | **6,790 (short 6,789)** |
+     | wall | 405.4 s | 404.9 s |
+
+     Both arms are THIS branch's: the artifact ledger holds no LEMD
+     control at main `06b51fa0`, and the round's build budget was two
+     builds.
+
+8. **Measured (round 3)** (lane `v2canopy` round 3, branch
+   `claude/v2canopy2`; the partition-order twin on the real LEMD and OTHH
+   packs, the LEMD closing build, and the harness twins in
+   `tests/test_harness.py`). Round 3 did what RULINGS 2026-09-11l (1)/(2)
+   ordered: the TWO-PHASE partition and the harness's `pad_relief` key.
+
+   * **ROUND 2's TIMING NUMBER WAS AN INSTRUMENT ARTIFACT, AND THE MOVE
+     IS FREE.** The order tool ran both arms in ONE process, load arm
+     first. It is the arm that runs FIRST that is slow, whichever arm it
+     is — on a warm cache, with `pairs_tested` equal to 1.4 %:
+
+     | LEMD, one process | arm 1 | arm 2 | sum |
+     |---|---|---|---|
+     | load order first | 75.2 s | 49.7 s (old) | 124.9 s |
+     | old order first | 72.3 s (old) | 49.3 s | 121.6 s |
+
+     The sum is conserved: the ~25 s is a once-per-process first-touch
+     cost (a 30 k-part / 34 k-edge heap being built for the first time),
+     not work either order does. Read in the SAME position the two orders
+     are **49.27 s (load, two-phase) against 49.71 s (old) = −0.9 %**,
+     inside the round's ±1 % bar. OTHH, the same way: **151.20 s against
+     148.67 s = +1.7 %**, the residual tracking its +1.9 % `pairs_tested`
+     (2,111,971 vs 2,072,663) — the load reading is unscreened for the
+     PLANAR facts (below-grade components, structure-seat line verdicts)
+     by design, and that is the whole of it. `order` gains `--old-first`
+     so the bar is read both ways, and forces a parse warm-up before
+     either arm (LEMD 0.03 s, OTHH 4–5 s — the object read had already
+     warmed it, so cache warmth was NOT the mechanism).
+   * **THE TWO PHASES.** `partition_pack()` at load now applies the
+     multi-anchor drop (the old order's own drop) and keeps the dropped
+     placements on the partition (`deferred`) beside a box index of the
+     parts already read (`contact.base_index` — boxes, member and
+     component ids, line verdict, contact-component id; ~15 MB at OTHH's
+     161 k parts, never the geometry). `pack_partition.extend_partition`,
+     called by `rebake_plan.plan()`, adds the PLATE-exempt placements
+     back: members by the ONE `_build_member`, parts and feet by the same
+     `contact.placed_parts`, ε-contacts and abutments by SPATIAL QUERY
+     against the existing part boxes only (`contact.extend`), with the
+     union-find SEEDED from the base components so a pair already joined
+     through the base is skipped exactly as the whole pass would skip it.
+     No repartition of the pack.
+   * **THE ORDER TWIN, ROUND 3.** The reading is now the old order's on
+     every count the old order takes over the same population, and the
+     accepted transitive-subset class SHRANK:
+
+     | | round 2 | round 3 |
+     |---|---|---|
+     | LEMD `members` / `parts` | EQUAL / EQUAL | EQUAL / EQUAL |
+     | LEMD `no_parts` | +211 | **EQUAL** |
+     | LEMD `multi_anchor` | −6 | **EQUAL** |
+     | LEMD contacts / abutments | −17 / −38 | **−9** / −38 |
+     | OTHH `no_parts` | +6,817 | **EQUAL** |
+     | OTHH `multi_anchor` | −34 | **EQUAL** |
+     | OTHH contacts / abutments | −94 / −271 | **−79** / −261 |
+
+     Parts keyed by identity: only-old 0, only-new 0 at both airports.
+     Contact pairs only-new 0 (LEMD) and 1 (OTHH) — the subset class
+     RULINGS 11l accepts. LEMD's load partition carries 1,188 members /
+     30,743 parts against the old order's 1,187 / 30,428; the one extra
+     member and 315 extra parts are the PLANAR screen's, applied by
+     `filtered` as designed.
+   * **PHASE 2 IS EMPTY AT BOTH SITES, AND THAT IS THE ANSWER TO "ARE THE
+     PLATES THE WHOLE COST".** LEMD defers 1,517 multi-anchor placements
+     and OTHH 10,084; of those, **0 are plate-seated at either airport**,
+     so `extend_partition` returns the partition unchanged in 0.00 s. The
+     machinery exists for OTHH's 43 kerb-wall corridors when a tunnel-wall
+     plate IS a multi-anchor resource; today the plates cost nothing and
+     the whole +37 s / +263 s of round 2 was the multi-anchor members
+     plus the first-touch artifact, in that order.
+   * **THE CLOSING LEMD BUILD** (`v2canopy-r3`, one build, against round
+     2's `v2canopy2b` on this branch): `pack partition` **90.21 → 81.05 s**
+     at 2,493 → 1,188 members and 44,414 → 30,743 parts; `rebake plan`
+     0.17 → 0.24 s. The stage does NOT fall in proportion to the members
+     because it is where the process pays the first-touch cost. `planar`
+     130.20 → 151.74 s, `solve` 72.12 → 84.68 s and the wall 404.89 →
+     445.41 s move in the direction nothing in this change touches
+     (identical LP: 24,193 vs 24,205 columns, 80,518 vs 80,588 rows), and
+     the build's own guard reports another process writing the shared mod
+     cache in the window — so they are NOT attributed here.
+   * **THE PAD NUMBERS ARE ROUND 2's, UNMOVED**, as a cost-and-order
+     change should leave them: `pad_relief` **915 vertices**, +0.0010 to
+     **+5.0700 m** (mean 0.1413, six over 3 m) against 927 in round 2;
+     in-build verify **4,345 rows** (4,351), of which `pad_flat` **48**
+     (48); the §7 float census over 93,690 feet of 2,358 bodies reads
+     `<0.3 m` 63,777, `0.3–1` 21,396, `1–3` 3,985, `>3` 4,367,
+     **floating 6,689** (6,705), buried 23,059.
+   * **THE HARNESS READS THE KEY (11l (2)), AND IT MOVES THE REAL SITE.**
+     `check_grade` registers `pad_relief` in `SIDECAR_LAW_KEYS` as LAW
+     INPUT; `_crown_drops_by_nid` generalises to ONE per-vertex field
+     reader (`_field_by_nid`) both `crown_drops` and `pad_relief` go
+     through; the offsets are applied in exactly the two places a pad's
+     own flatness is judged — `_check_plane_gradient` reads the triangle
+     at `z − offset` (the subtraction `verify/pads._pad_points` makes) and
+     `iter_shape_grade_constraints`, THE single source of constrained
+     pairs, sets a pad pair's designed `offset` to `off_a − off_b` in one
+     post-pass, so no family keeps its own copy. Interventional A/B on the
+     SAME emitted LEMD patch, key read vs key stripped: **law-true total
+     6,283 against 6,344 (−61 rows), all of it `within_shape` 4,276
+     against 4,337**. A sidecar without the key reads exactly as before.
+     Twins (`tests/test_harness.py`): one relief pad censuses 0
+     `within_shape` and 0 `plane_gradient` through the harness AND 0 rows
+     through `verify/pads.pad_flat`; with the key stripped the same pad
+     prices rows on BOTH sides; the registration and the by-coordinate
+     join are pinned. Suite `tests/auto_patch_v2` + `tests/test_harness.py`
+     1,026 passed, 1 skipped.
+   * **NOT DONE, BY THE BRIEF:** no `--write-pack`, no placement-level
+     three-row read (the LEMD DSF/dump frame is scout `v2dsfframe`'s and
+     those rows are round 4's), no OTHH build.

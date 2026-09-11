@@ -382,3 +382,49 @@ def test_family_takes_the_agreeing_coalition(law):
     assert coal is None and "tie" in why
     assert R._coalition([1.0, 3.0, 5.0], rb.agreement_window_m)[0] is None
     assert R._coalition([2.0], rb.agreement_window_m)[0] is None
+
+
+# ── THE TWO ORDERS, SIDE BY SIDE (owner RULINGS 2026-09-11j; spec §11a (3)) ──
+
+def test_the_new_order_plans_the_same_pack(pack, law):
+    """``plan()`` FILTERING a load-time partition against ``plan()``
+    partitioning a filtered object set, over one real fixture pack with
+    every skip class in it: the same units, the same members, the same
+    deck ring and plate fields, the same skip reasons.
+
+    The real-pack difference (the ε-contact edge set is a spanning
+    subset, so the filter can lose an edge the old order tested
+    directly) is measured by ``v2_rebake_replay.py order``; here the pack
+    is small enough that the two orders must agree exactly, which is what
+    makes a divergence a DEFECT rather than the known class."""
+    from auto_patch_v2.airport.pack_partition import partition_pack
+    a = _airport(pack, law, [
+        ("a", (0.0, 0.0), 0.0, 0.0),
+        ("b", (0.0, 0.0), 90.0, 0.0),
+        ("deck", (300.0, 0.0), 0.0, 0.0),
+        ("twice", (500.0, 0.0), 0.0, 0.0),
+        ("twice", (600.0, 0.0), 0.0, 0.0),
+        ("lib", (800.0, 0.0), 0.0, 0.0),
+        ("baked", (-400.0, 0.0), 0.0, 0.0),
+        ("pit", (-900.0, 0.0), 0.0, 0.0),
+    ])
+    objs, _ = read_objects(a, law)
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    old = _plan(a, objs, cache, law)
+    part = partition_pack(a, objs, cache, law)
+    new = _plan(a, objs, cache, law, partition=part)
+    assert [u.anchor for u in new.units] == [u.anchor for u in old.units]
+    assert [[m.resource for m in u.members] for u in new.units] \
+        == [[m.resource for m in u.members] for u in old.units]
+    for k in ("units", "members", "parts", "contacts", "abutments",
+              "deck_members", "multi_anchor", "stock", "below_grade"):
+        assert new.counts[k] == old.counts[k], (k, new.counts[k], old.counts[k])
+    assert dict(new.skipped) == dict(old.skipped)
+    o_by = {m.resource: m for u in old.units for m in u.members}
+    n_by = {m.resource: m for u in new.units for m in u.members}
+    for r, m in o_by.items():
+        assert n_by[r].deck_ring == m.deck_ring and n_by[r].deck_top_y == m.deck_top_y
+        assert n_by[r].plate_y == m.plate_y and n_by[r].skirted == m.skirted
+        assert n_by[r].elevated_deck == m.elevated_deck
+        assert [(p.comp, p.lat, p.lon, p.base_y, p.line) for p in n_by[r].parts] \
+            == [(p.comp, p.lat, p.lon, p.base_y, p.line) for p in m.parts]

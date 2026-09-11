@@ -283,3 +283,14 @@ class Airport:
     #: The flat-site verdict, measured after the load (``pipeline`` sets it
     #: through ``dataclasses.replace``); ``None`` before the detector ran.
     flat_site: FlatVerdict | None = None
+    #: THE PACK PARTITION, read ONCE at load (owner RULINGS 2026-09-11j;
+    #: spec §11a (3)) — ``airport.pack_partition.PackPartition``.  The
+    #: pack is a load-stage input like the DEM, and the pad law needs its
+    #: BODIES and ABUTMENTS before ``classify`` runs.  ``None`` where the
+    #: caller never read a pack (fixtures, ``explain``).  Typed loosely:
+    #: ``model`` stays importable without the airport package.
+    partition: _t.Any = None
+    #: THE CANOPY-AND-BUILDING GROUPS derived from it (``planar/group.py``
+    #: ``GroupSet``, owner RULINGS 2026-09-11i) — the ONE derivation, read
+    #: by the pad law and by the placement plan.  Same ``None`` rule.
+    groups: _t.Any = None

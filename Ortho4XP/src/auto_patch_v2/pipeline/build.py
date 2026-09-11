@@ -267,11 +267,46 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # plan read the same parsed geometry, so the pack is parsed once
     from ..airport.obj8 import ResourceCache as _RCache
     ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
+    # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
+    # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack
+    # is read and partitioned HERE, once, and ``rebake_plan.plan()``
+    # FILTERS this reading after the solve instead of re-partitioning a
+    # filtered object set.  ``planar`` is handed the same objects, so the
+    # pack is still read once.
+    from ..airport.pack_partition import partition_pack as _partition_pack
+    from ..law.tables import group_span_max_m as _span_max
+    from ..planar.basins import read_objects as _read_objects
+    from ..planar.group import derive as _derive_groups
+    pack_objects, pack_report = _read_objects(airport, law, ocache)
+    _part = _partition_pack(airport, pack_objects, ocache, law)
+    # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
+    # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
+    # terrain under an object's feet is GROUND, and the slope a pilot
+    # reads as ground rather than a wall is ``emit.design.bank_slope``
+    # (1:3).  Priced at the pad's own 1 % tilt instead, every body with
+    # any authored relief came out infeasible (LEMD 7,627 of 13,064
+    # groups), which is a verdict that says nothing.
+    _groups = _derive_groups(_part, _span_max(law),
+                             float(law.tables.emit.design.bank_slope))
+    airport = _dc.replace(airport, partition=_part, groups=_groups)
+    wall["partition"] = time.perf_counter() - t
+    _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
+         f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
+         f"contacts {_part.counts['contacts']}  abutments {_part.counts['abutments']}  "
+         f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']} "
+         f"(cross-placement {_groups.counts['cross_groups']}, long span "
+         f"{_groups.counts['long_span']}, relief {_groups.counts['relief_bodies']}, "
+         f"infeasible {_groups.counts['infeasible']} of which short "
+         f"{_groups.counts['infeasible_short']}, released "
+         f"{_groups.counts['released']})", out)
+    t = time.perf_counter()
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
     t = time.perf_counter()
     objects_out: list = []
-    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache)
+    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
+                              objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
@@ -696,7 +731,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                 exclude=excluded,
                                 tunnel_objects=plates,
                                 below_grade=[(_basin_polygon(b), tuple(b.objects))
-                                             for b in pm.basins])
+                                             for b in pm.basins],
+                                partition=airport.partition)
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             rebake_path.write_text(rplan.to_json())

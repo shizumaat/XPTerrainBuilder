@@ -89,16 +89,25 @@ class BuildStats:
 
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None, objects_out: list | None = None,
-          cache=None) -> tuple[PlanarMap, BuildStats]:
+          cache=None, objects=None, object_report=None) -> tuple[PlanarMap, BuildStats]:
     """The planar map for ``airport`` under ``law``, validated.
     ``objects_out``, when given, receives ``[objects, cache]`` — the
     placed objects read here and their parsed geometry — so the emit
-    stage's re-bake plan (``emit/rebake.py``) reads the pack ONCE."""
+    stage's re-bake plan (``emit/rebake.py``) reads the pack ONCE.
+
+    ``objects`` / ``object_report``, when given, are the pack ALREADY READ
+    at load (owner RULINGS 2026-09-11j; spec §11a (3): the pack partition
+    is a load-stage input, so the objects are read before ``classify``) —
+    passing them keeps "the pack is read ONCE" true now that the first
+    reader is upstream of this stage."""
     import time as _time
     t0 = _time.perf_counter()
     from ..airport.obj8 import ResourceCache
     cache = cache or ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
-    objects, orep = read_objects(airport, law, cache)
+    if objects is None:
+        objects, orep = read_objects(airport, law, cache)
+    else:
+        orep = object_report
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0

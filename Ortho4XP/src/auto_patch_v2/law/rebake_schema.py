@@ -108,3 +108,13 @@ class Placement:
     #: exception (no group is ever releasable).  Per airport in
     #: ``airports.toml`` (``Affordances.group_span_max_m``).
     group_span_max_m: float = 150.0
+
+    #: THE RELIEF TARGET'S REACH (owner RULINGS 2026-09-11j; spec §11a
+    #: (2)).  The terrain under a body's ground-contact FOOT is asked for
+    #: ``level + (y_foot - y_zero)``; a pad vertex this far from a foot
+    #: takes that foot's target, and a vertex no foot is that close to
+    #: keeps the pad's LEVEL — which is today's flat pad.  Nearest, never
+    #: interpolated: only the object's own contacts are places where the
+    #: terrain is constrained to a value.  0 disarms the relief target
+    #: (every pad targets flat, the pre-11j law).
+    relief_radius_m: float = 12.0

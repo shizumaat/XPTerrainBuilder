@@ -80,6 +80,7 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
+from .pad_relief import pad_relief_offsets
 from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
@@ -87,7 +88,8 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
-           "frontage_leaders", "_two_sided", "frontage_radius_m"]
+           "frontage_leaders", "_two_sided", "frontage_radius_m",
+           "pad_relief_offsets"]
 
 GEN = "pads"
 #: The LEVEL rows carry their own generator so ``DesignReport.families``
@@ -374,13 +376,25 @@ def _pairs(group: list[int]) -> list[tuple[int, int]]:
     return sorted(pairs)
 
 
-def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str) -> list[Row]:
+def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
+              airport: Airport | None = None) -> list[Row]:
     """One ``Diff`` at ``cap`` over every priced pair of every pad — the
     hard 1 % tilt ceiling's row set (09c).  Over EVERY pair, the contacts
     included: "the plane's tilt" is exactly "no two points of the pad
     differ by more than 1 % of their separation", and a contact is a point
-    of the pad."""
+    of the pad.
+
+    THE RELIEF TARGET (owner RULINGS 2026-09-11j; spec §11a (2)): where a
+    pad stands under a BODY whose ground-contact feet are authored at
+    different ``y``, each vertex carries an OFFSET above the pad's level
+    (``pad_relief.pad_relief_offsets``, the one derivation) and the row is
+    priced on the LEVEL plane — ``rel = offset[a] - offset[b]``.  Both
+    the flatness target and the tilt CEILING read it: what those laws
+    bound is the pad's own tilt, and the authored relief is a datum the
+    terrain reproduces, not a tilt of the pad.  A flat-footed body has
+    every offset 0 and the rows are exactly today's."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    off = pad_relief_offsets(planar, law, airport) if airport is not None else {}
     rows: list[Row] = []
     for fid, ref, group in _pad_groups(planar, law):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
@@ -390,7 +404,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str) -> list[Row]
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
                 continue
-            rows.append(Diff(a, b, cap, d, src))
+            rows.append(Diff(a, b, cap, d, src,
+                             rel=off.get(a, 0.0) - off.get(b, 0.0)))
     return rows
 
 
@@ -413,7 +428,7 @@ def pad_flats(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     times harder than any level row can answer, and the pad came out
     0.34 m BELOW the round-0 surface.  The plate is soft on purpose."""
     return _pad_rows(planar, law, 0.0, FLAT_RULING + " (2026-09-09c; "
-                     "09-01g weld = value; 03h pads yield)")
+                     "09-01g weld = value; 03h pads yield)", airport)
 
 
 #: THE FRONTAGE IS READ IN A BAND (owner RULINGS 2026-09-10y, measured by
@@ -633,7 +648,7 @@ def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     pairs at ``emit.within_shape.pad_slope_max``, a constraint of the
     design solve's active set (``[design] hard_rulings``)."""
     cap = float(law.tables.emit.within_shape.pad_slope_max)
-    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c)")
+    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c)", airport)
 
 
 def frontage_contacts(planar: PlanarMap, law: Law

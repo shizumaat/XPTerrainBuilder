@@ -710,14 +710,16 @@ def _seam_nids_from_pins(nodes: Dict[str, Tuple[float, float]],
     return out
 
 
-def _crown_drops_by_nid(nodes: Dict[str, Tuple[float, float]],
-                        crown_drops_ll: list) -> Dict[str, float]:
-    """Map each nid to its solver crown drop (axes sidecar ``crown_drops``,
-    ``[[lat, lon, drop], …]``) — nids coincident (≤ ``SHARED_VERTEX_TOL_M``)
-    with an exported field node.  The within-shape law re-centres each
-    pair's budget on ``grade_law.crown_pair_offset`` from this field, so
-    the validator reads the SAME designed crown the solver built (part
-    30).  Empty/None ⇒ offset 0 everywhere (uncrowned/old patches)."""
+def _field_by_nid(nodes: Dict[str, Tuple[float, float]],
+                  rows_ll: list) -> Dict[str, float]:
+    """ONE reader for every published PER-VERTEX SCALAR FIELD in the
+    sidecar (``[[lat, lon, value], …]``): map each nid to the value of the
+    field node it is coincident with (≤ ``SHARED_VERTEX_TOL_M``).  Two
+    fields use it — ``crown_drops`` (the designed runway crown, part 30)
+    and ``pad_relief`` (the pad's per-vertex relief target, owner RULINGS
+    2026-09-11j/11l (2)).  Empty/None ⇒ the empty map, which leaves every
+    reader byte-identical to its pre-field behaviour (an older patch)."""
+    crown_drops_ll = rows_ll
     if not crown_drops_ll:
         return {}
     # coarse lat/lon grid (~SHARED_VERTEX_TOL_M cells) for O(1) lookups.
@@ -748,6 +750,31 @@ def _crown_drops_by_nid(nodes: Dict[str, Tuple[float, float]],
         if best is not None:
             out[nid] = best[1]
     return out
+
+
+def _crown_drops_by_nid(nodes: Dict[str, Tuple[float, float]],
+                        crown_drops_ll: list) -> Dict[str, float]:
+    """The solver's designed crown drop per nid (sidecar ``crown_drops``)."""
+    return _field_by_nid(nodes, crown_drops_ll)
+
+
+def _pad_relief_by_nid(nodes: Dict[str, Tuple[float, float]],
+                       pad_relief_ll: list) -> Dict[str, float]:
+    """THE PAD'S RELIEF TARGET per nid (owner RULINGS 2026-09-11j; spec
+    §11a (2)/(4); sidecar ``pad_relief``): metres the emitted terrain
+    stands ABOVE the pad's own LEVEL, because the body over it has feet
+    authored at different ``y`` and X-Plane drapes the whole body at one
+    anchor.
+
+    THE PAD IS STILL ONE PAD WITH ONE LEVEL, and its flatness is read on
+    THAT LEVEL PLANE — the offsets subtracted — which is how the solve
+    priced it (``auto_patch_v2.constraints.pad_relief``, ``Diff.rel``) and
+    how the in-build verify reads it (``auto_patch_v2.verify.pads.
+    relief_offsets`` / ``pad_flat``).  Without this key the census would
+    report every relief pad as within-shape and plane-gradient rows the
+    law never asked it to make flat.  A patch with no key reads exactly as
+    before (11l (2))."""
+    return _field_by_nid(nodes, pad_relief_ll)
 
 
 def _crown_centerline_nids(nodes: Dict[str, Tuple[float, float]],
@@ -811,6 +838,7 @@ def _check_plane_gradient(ways: List[Way],
                           max_grade: float,
                           seam_nids: Optional[set] = None,
                           crown_by_nid: Optional[Dict[str, float]] = None,
+                          pad_relief_by_nid: Optional[Dict[str, float]] = None,
                           ) -> List[Violation]:
     """For each 3-vertex polygon (a triangle, which X-Plane renders
     as a planar surface), compute the plane's elevation gradient
@@ -844,6 +872,11 @@ def _check_plane_gradient(ways: List[Way],
     """
     seam_nids = seam_nids or set()
     crown_by_nid = crown_by_nid or {}
+    # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j / 11l (2)): the
+    # plane is read on the pad's own LEVEL PLANE, ``z' = z - offset`` —
+    # the same subtraction ``verify/pads._pad_points`` makes.  An empty
+    # field leaves ``z' = z``, byte-identical to the pre-11l reading.
+    pad_relief_by_nid = pad_relief_by_nid or {}
     out: List[Violation] = []
     for w in ways:
         grade_cap = _role_grade_limit(w, max_grade)
@@ -866,6 +899,7 @@ def _check_plane_gradient(ways: List[Way],
             e = w.elevs[k]
             if e is None:
                 continue
+            e -= pad_relief_by_nid.get(nid, 0.0)
             pts.append((x, y, e))
             # ``None`` = UNDECLARED, and an undeclared node is UNKNOWN, NOT
             # ON THE RIDGE (``grade_law.crown_pair_offset_interval``).
@@ -1910,6 +1944,7 @@ def iter_shape_grade_constraints(
         pair_caps_ll: Optional[list] = None,
         interior_zones_m: Optional[list] = None,
         face_holes_m: Optional[dict] = None,
+        pad_relief_by_nid: Optional[Dict[str, float]] = None,
         ) -> "list[ShapePairConstraint]":
     """Yield every within-shape vertex-pair the grade check constrains.
 
@@ -2294,6 +2329,23 @@ def iter_shape_grade_constraints(
                 c, cap=_APRON_MAX_GRADE,
                 allowance=min(c.allowance,
                               _pair_grade_allowance(_apron_allow, c.dist, c.way)))
+    # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j / 11l (2); spec
+    # §11a (2)/(4)), applied at the ONE derivation site so no family has
+    # its own copy: a pair whose BOTH endpoints carry a published relief
+    # offset is DESIGNED to differ by ``off_a - off_b`` — the pad is one
+    # pad with one level, and its flatness is read on that LEVEL PLANE
+    # (``verify/pads._pad_points`` subtracts exactly this).  The crown
+    # offset and the pad offset never meet (a crown is a runway field, a
+    # pad is a rigid ``building`` ring), so this REPLACES nothing: a pair
+    # with no published offsets keeps the offset it already had, which is
+    # what a patch without the key reads.
+    if pad_relief_by_nid:
+        for k, c in enumerate(out):
+            oa = pad_relief_by_nid.get(c.nid_a)
+            ob = pad_relief_by_nid.get(c.nid_b)
+            if oa is None or ob is None or oa == ob:
+                continue
+            out[k] = dataclasses.replace(c, offset=c.offset + (oa - ob))
     return out
 
 
@@ -6175,6 +6227,7 @@ def _check_within_shape(ways: List[Way],
                         taxi_box: Optional["_StretchBox"] = None,
                         taxi_box_out: Optional[List] = None,
                         apron_tier: Optional[dict] = None,
+                        pad_relief_by_nid: Optional[Dict[str, float]] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -6214,7 +6267,8 @@ def _check_within_shape(ways: List[Way],
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
             crown_centerline_nids=crown_centerline_nids,
             pair_caps_ll=pair_caps_ll,
-            interior_zones_m=interior_zones_m, face_holes_m=face_holes_m):
+            interior_zones_m=interior_zones_m, face_holes_m=face_holes_m,
+            pad_relief_by_nid=pad_relief_by_nid):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
         # JUNCTION STRETCH CAPS (RULINGS 2026-09-04y, applying 04t-3): a
@@ -7636,6 +7690,16 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
     "face_holes": "face_holes_ll",
     "crown_drops": "crown_drops_ll",
+    # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; ratified 11l (2);
+    # spec ``object-placement-spec.md`` §11a (2)/(4)): per pad vertex, the
+    # metres the emitted terrain stands ABOVE the pad's own LEVEL.  LAW
+    # INPUT, and of the strongest kind: the solve PRICED the pad flat on
+    # its level plane (``constraints/pad_relief``, ``Diff.rel``) and the
+    # in-build verify reads it there (``verify/pads.relief_offsets``), so
+    # a census without this key judges a law the build never ran under and
+    # reports every relief pad's designed steps as ``within_shape`` /
+    # ``plane_gradient`` rows.  A patch with no key reads exactly as before.
+    "pad_relief": "pad_relief_ll",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
     # TAXIWAY STRETCHES (RULINGS 2026-09-04t-3 / 04y): the v2 emitter's
@@ -7989,6 +8053,9 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
+    # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
+    # 11j, which reads exactly as it did then.
+    ctx["pad_relief_ll"] = data.get("pad_relief") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
     ctx["stretches_ll"] = data.get("stretches") or None
@@ -8020,6 +8087,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["mesh_edges_ll"] else "")
               + (f", {len(ctx['crown_drops_ll'])} crown drops"
                  if ctx["crown_drops_ll"] else "")
+              + (f", {len(ctx['pad_relief_ll'])} pad relief vertices"
+                 if ctx["pad_relief_ll"] else "")
               + (f", {len(ctx['terrace_joints_ll'])} terrace joints"
                  if ctx["terrace_joints_ll"] else "")
               + (f", {len(ctx['fan_ramp_zones_ll'])} fan-ramp zones"
@@ -8448,6 +8517,7 @@ def run_checks(
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
+    pad_relief_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
     station_caps_ll: Optional[list] = None,
@@ -8612,6 +8682,13 @@ def run_checks(
     # crown target (grade_law.crown_pair_offset) — the SAME field the
     # solver built to.  Absent ⇒ offsets 0 (uncrowned/old patches).
     crown_by_nid = _crown_drops_by_nid(nodes, crown_drops_ll or [])
+    # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j / 11l (2)): the
+    # per-vertex field the pad's flatness is read AGAINST, so the census
+    # and ``verify/pads.pad_flat`` measure one pad on one level plane.
+    pad_relief_by_nid = _pad_relief_by_nid(nodes, pad_relief_ll or [])
+    if pad_relief_by_nid and not quiet:
+        print(f"  pad relief target: {len(pad_relief_by_nid)} pad vertex(es) "
+              "read on their pad's LEVEL PLANE (11j)")
     if crown_by_nid and not quiet:
         print(f"  crown drop field: {len(crown_by_nid)} node(s) crowned")
     # CROWN CENTERLINE nids (Phase 0 hotfix): runway ridge vertices the
@@ -8692,7 +8769,7 @@ def run_checks(
         transverse_road_out=_road_xsec_rows,
         stretches_m=stretches_m, face_holes_m=face_holes_m,
         taxi_box=taxi_box, taxi_box_out=_taxi_box_rows,
-        apron_tier=apron_tier))
+        apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -8733,7 +8810,7 @@ def run_checks(
 
     plane = _fam("plane_gradient", _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
-        crown_by_nid=crown_by_nid))
+        crown_by_nid=crown_by_nid, pad_relief_by_nid=pad_relief_by_nid))
     # The triangle-plane split went with it (§2): an unresolved triangle
     # is REPORTED (``solve.triangle_plane_disposition``) and its plane
     # violation stays visible here.

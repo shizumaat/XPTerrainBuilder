@@ -14,11 +14,12 @@ four sentences of the law and the one number:
 3. BUILDING + BUILDING abutting, neither an elevated deck: never one
    group (11a/10i — each seats on its own feet).  This is the gate
    round 1 of ``v2bridgegroup`` failed and 11g fixed;
-4. THE LONG SPAN (§11 (4)): the same canopy-and-building pair stretched
-   past ``[placement] group_span_max_m`` reads ``long_span`` and names
-   its releasable junior — the HECA railway class.  Under the law's own
-   150 m it is short and NOT releasable, which is the whole point of the
-   number: an infeasible SHORT group is reported, never split;
+4. THE LONG SPAN (§11 (4)), AMENDED BY §11a (1): the span law binds the
+   CONNECTING BODY's own plan diagonal, never the group's footprint.  A
+   canopy 10 m long joining a building 400 m away is NOT the HECA railway
+   class and is never releasable — round 1 priced the group's footprint
+   and released exactly the canopies 11i exists to keep.  A 400 m
+   connecting SPAN is, and it names itself releasable;
 5. §11 (2)'s per-foot target: ``level + (y_foot - y_zero)``, flat when
    every foot is authored at zero and the group's authored RELIEF
    otherwise — read at a foot, and absent outside every foot's radius.
@@ -100,7 +101,10 @@ def test_canopy_and_building_are_one_group():
     g = next(x for x in gs.groups if x.cross_placement)
     # the BUILDING is senior (the larger plan area), the canopy its junior
     assert g.senior == (0, 0, 0)
-    assert g.releasable == ((0, 1, 0),)
+    assert g.bodies == ((0, 0, 0), (0, 1, 0))
+    # §11a (1): the canopy BODY is 10 m long, so it is never releasable
+    assert g.releasable == ()
+    assert g.body_span_m[1] < 20.0
     assert len(g.bodies) == 2
     # every column foot is IN the group — the terrain must meet them all
     assert len(g.feet) == 8
@@ -153,11 +157,32 @@ def test_short_group_is_never_releasable(law):
     assert gs.counts["released_candidates"] == 0
 
 
-def test_long_span_group_names_its_releasable_junior():
-    """The HECA railway class: two far buildings joined by one span."""
+def _span_deck(pid0=2, length=400.0, y_high=0.0):
+    """THE HECA RAILWAY CLASS: one elevated body that is ITSELF long —
+    a span whose two ends stand ``length`` apart."""
+    return _member("RAIL", [_part(pid0, 0, length / 2.0, 0.0,
+                                  [(12.0, -3.0, 0.0), (12.0, 3.0, 0.0),
+                                   (length, -3.0, y_high), (length, 3.0, y_high)],
+                                  area=90.0)], deck=True)
+
+
+def test_a_far_but_short_junior_is_not_the_railway_class():
+    """§11a (1): round 1 read the GROUP's footprint and called this long.
+    The connecting BODY is 10 m; 11i forbids releasing it."""
     gs = _derive([_building(), _canopy(x=400.0)], [(1, 2)], span_max=150.0)
     g = next(x for x in gs.groups if x.cross_placement)
-    assert g.span_m > 150.0
+    assert g.span_m > 150.0                 # the group footprint IS long
+    assert max(g.body_span_m) < 150.0       # no BODY is
+    assert not g.long_span
+    assert g.releasable == ()
+    assert gs.counts["released_candidates"] == 0
+
+
+def test_long_span_group_names_its_releasable_junior():
+    """The HECA railway class: one CONNECTING BODY longer than the law."""
+    gs = _derive([_building(), _span_deck()], [(1, 2)], span_max=150.0)
+    g = next(x for x in gs.groups if x.cross_placement)
+    assert g.body_span_m[1] > 150.0
     assert g.long_span
     assert g.releasable == ((0, 1, 0),)
     assert gs.counts["long_span"] == 1
@@ -165,7 +190,7 @@ def test_long_span_group_names_its_releasable_junior():
 
 
 def test_span_max_zero_disarms_the_exception():
-    gs = _derive([_building(), _canopy(x=400.0)], [(1, 2)], span_max=0.0)
+    gs = _derive([_building(), _span_deck()], [(1, 2)], span_max=0.0)
     g = next(x for x in gs.groups if x.cross_placement)
     assert not g.long_span and gs.counts["released_candidates"] == 0
 

@@ -247,6 +247,152 @@ def cmd_seat(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def cmd_order(args) -> int:
+    """THE PARTITION-ORDER TWIN (owner RULINGS 2026-09-11j; spec §11a (3)).
+
+    ``rebake_plan.plan()`` used to PARTITION A FILTERED object set; it now
+    FILTERS A PARTITION read once at load.  The two orders are not
+    identical by construction (``airport/pack_partition`` module doc), so
+    this runs both over ONE airport's real pack and reports
+    ``parts`` / ``contacts`` / ``abutments`` — equal, or the difference
+    named.  It builds NOTHING: load + classify-free object read only, and
+    the DSF text dump is read from the mod cache, never regenerated.
+
+    The screen here is the LOAD-DERIVABLE half (the below-grade
+    components, the deck families, the structure-seat exemptions).  The
+    basin exclusions and the tunnel-wall plates are PLANAR products and
+    have no value outside a build; a run with those is the closing
+    build's own ``rebake plan`` line.
+    """
+    import time
+    from auto_patch_v2.airport.load import load
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    from auto_patch_v2.airport.pack_partition import (extend_partition,
+                                                      partition_pack)
+    from auto_patch_v2.airport.rebake_plan import screen_of
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.basins import read_objects
+    from auto_patch_v2.planar.__main__ import ENGINE_DIR, default_inputs
+    os.chdir(ENGINE_DIR)
+    icao = args.icao.upper()
+    law = Law.for_airport(icao)
+    inputs = default_inputs(None, None, None, 60.0, args.dem_frame, True)
+    t = time.perf_counter()
+    airport = load(icao, inputs, law)
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    t_load = time.perf_counter() - t
+    screen, objs = screen_of(objects, cache, law)
+    # THE CACHE MUST BE WARM FOR BOTH ARMS (round 3).  Round 2 ran the
+    # load arm first and the old arm second on ONE ``ResourceCache``, so
+    # the old arm never paid the OBJ8 parse and its 47.0 s / 150.4 s were
+    # a WARM reading of a COLD one.  In a real build the parse is paid
+    # once whichever order runs — classify's skirt reader warms it for
+    # the old order, the load partition warms it for the new — so the
+    # only honest partition-vs-partition bar is a warm cache on both.
+    t = time.perf_counter()
+    for o in objs:
+        if o.resolved is not None:
+            cache.geometry(o.resolved)
+            cache.components(o.resolved)
+            cache.genuine(o.resolved)
+    t_warm = time.perf_counter() - t
+    print(f"[{icao}] pack parse (warm-up, paid once in any order) {t_warm:.2f} s")
+    def _load_arm():
+        t0 = time.perf_counter()
+        ld = partition_pack(airport, objs, cache, law)
+        t1 = time.perf_counter()
+        mg = extend_partition(ld, airport, cache, law, screen.plate_paths)
+        return ld, mg, t1 - t0, time.perf_counter() - t1
+
+    def _old_arm():
+        t0 = time.perf_counter()
+        o = partition_pack(airport, objs, cache, law, screen)
+        return o, time.perf_counter() - t0
+
+    # ORDER MATTERS FOR THE CLOCK, NOT FOR THE COUNTS (round 3): the two
+    # arms do the same work on the same warm cache, and the arm that runs
+    # FIRST is ~50 % slower at LEMD.  ``--old-first`` runs the control arm
+    # first so the 1 % timing bar is read both ways.
+    if getattr(args, "old_first", False):
+        old, t_old = _old_arm()
+        loaded, merged, t_new, t_ext = _load_arm()
+    else:
+        loaded, merged, t_new, t_ext = _load_arm()
+        old, t_old = _old_arm()
+    new = merged.filtered(screen, law)
+    print(f"[{icao}] load+object read {t_load:.2f} s; partition phase 1 (load, "
+          f"screened) {t_new:.2f} s + phase 2 (incremental plates) {t_ext:.2f} s "
+          f"= {t_new + t_ext:.2f} s; partition (old order) {t_old:.2f} s; "
+          f"{len(objs)} placements")
+    print(f"[{icao}] LOAD partition: parts {loaded.counts['parts']}  "
+          f"contacts {loaded.counts['contacts']}  abutments {loaded.counts['abutments']}  "
+          f"members {loaded.counts['members']}  deferred multi-anchor placements "
+          f"{len(loaded.deferred)}; phase 2 re-added "
+          f"{merged.counts.get('plate_readded', 0)} resources against "
+          f"{merged.counts.get('plate_neighbours', 0)} neighbour parts")
+    print(f"[{icao}] partition work: load  pairs_tested "
+          f"{loaded.counts['pairs_tested']} unproved {loaded.counts['pairs_unproved']} "
+          f"pools {loaded.counts['pools']} structures {loaded.counts['structures']} "
+          f"line_members {loaded.counts['line_objects']}")
+    print(f"[{icao}] partition work: old   pairs_tested "
+          f"{old.counts['pairs_tested']} unproved {old.counts['pairs_unproved']} "
+          f"pools {old.counts['pools']} structures {old.counts['structures']} "
+          f"line_members {old.counts['line_objects']}")
+    rows = ("members", "parts", "contacts", "abutments", "line_objects",
+            "no_parts", "below_grade", "terrain_adapted", "multi_anchor")
+    bad = 0
+    for k in rows:
+        a, b = int(old.counts.get(k, 0)), int(new.counts.get(k, 0))
+        flag = "EQUAL" if a == b else f"DIFFER {b - a:+d}"
+        if a != b and k in ("parts", "contacts", "abutments"):
+            bad += 1
+        print(f"    {k:<16} old {a:>8}   new {b:>8}   {flag}")
+    # THE PID IS PARTITION-LOCAL and renumbers between the two orders, so
+    # every set below is keyed by a part's IDENTITY: its member's
+    # resource, its component index in that file and where it stands.
+    def _key(m, p):
+        return (m.resource, p.comp, round(p.lat, 6), round(p.lon, 6))
+
+    def _ident(part):
+        return {p.pid: _key(m, p) for u in part.units for m in u.members
+                for p in m.parts}
+
+    oi, ni = _ident(old), _ident(new)
+
+    def _pairs(part, ident):
+        out = set()
+        for a, b in part.contacts:
+            ka, kb = ident.get(a), ident.get(b)
+            if ka is not None and kb is not None:
+                out.add((ka, kb) if ka <= kb else (kb, ka))
+        return out
+
+    def _abuts(part, ident):
+        out = set()
+        for a, b in part.abutments:
+            ka, kb = ident.get(a), ident.get(b)
+            if ka is not None and kb is not None:
+                out.add((ka, kb) if ka <= kb else (kb, ka))
+        return out
+
+    oc, nc = _pairs(old, oi), _pairs(new, ni)
+    oa, na = _abuts(old, oi), _abuts(new, ni)
+    print(f"    contact pairs  only-old {len(oc - nc)}  only-new {len(nc - oc)}"
+          f"  shared {len(oc & nc)}")
+    print(f"    abutment pairs only-old {len(oa - na)}  only-new {len(na - oa)}"
+          f"  shared {len(oa & na)}")
+    op = set(oi.values())
+    npp = set(ni.values())
+    print(f"    parts          only-old {len(op - npp)}  only-new {len(npp - op)}")
+    for k in sorted({k[0] for k in (op - npp)})[:8]:
+        print(f"      only-old part in {k}")
+    for k in sorted({k[0] for k in (npp - op)})[:8]:
+        print(f"      only-new part in {k}")
+    return 0 if bad == 0 else 1
+
+
 def cmd_disk(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import obj8
     root = args.pack_root
@@ -579,6 +725,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="the carrier rule's [rebake] plate_gap_max_m for the write half "
                         "(0 = the pre-10u pure-nearest fallback)")
     p.set_defaults(fn=cmd_pairs)
+    o = sub.add_parser("order", help="THE PARTITION-ORDER TWIN (11j / spec §11a (3)): "
+                                     "filter-a-partition vs partition-a-filtered-set")
+    o.add_argument("icao")
+    o.add_argument("--dem-frame", default="production", choices=("production", "authored"))
+    o.add_argument("--old-first", action="store_true",
+                   help="run the CONTROL arm first (the arm that runs first is "
+                        "the slower one: read the timing bar both ways)")
+    o.set_defaults(fn=cmd_order)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")

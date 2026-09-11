@@ -1433,3 +1433,222 @@ their own build's plan against the owner's mesh `Data+40-004.mesh`.
    interpolation between the two nearest stations would halve it and was
    NOT written — it is outside 10bb's "seat each segment on its own
    ground".
+
+## 17. RULINGS 2026-09-10ay: THE ABUTMENT GROUP — one anchor plane, one authored relation (lane `v2bridgegroup`)
+
+The T4 departures viaduct (`Terminal4_green-STRT4`, 58 components) is 32 bodies,
+each on its own piers, deltas **+18.44 … +27.71** — up to 6.77 m OVER the
+terminal (`Terminal4-LEMD01`, one body of 558 parts, +20.937) whose kerb it was
+authored to run 2.24 m under (deck top +11.85, kerb bottom +14.09, plan boxes
+overlapping, **no ε-contact edge at all**). Both placements are in unit 21 — one
+of the pack's 31 anchors, 171 members — so their authored relation is exact.
+
+### 17.1 The rules
+
+1. **THE ABUTMENT** (`airport/contact.py`, at PLAN time, pass 3). Two parts of ONE
+   ANCHOR PLANE (the plan's unit key: same `anchor_z + agl`, so placed y differs
+   from authored y by one constant) ABUT when their plan boxes come within
+   `emit.identity.min_distinct_spacing_m` on both axes, meet over at least
+   `[rebake] abutment_extent_min_m` of one of them (a corner graze is not an
+   abutment), their authored z intervals lie within `plate_gap_max_m`, and they
+   carry NO ε-contact edge. Across units the anchor ground differs by the DEM and
+   nothing about the authored relation is known: no pair is proposed. A LINE part
+   proposes none (10bb rule 2). `RebakePlan.abutments`, `PLAN_VERSION` 7 → **8**.
+2. **THE GROUP** (`emit/clusters.py`, after the bodies). A placement's OWN
+   abutments CHAIN (10i rule 1 extended to its separated components: the viaduct's
+   32 deck sections are one thing first); ACROSS placements the abutment is ONE
+   HOP — a chain is a JUNIOR of the largest chain it abuts, only when that one is
+   strictly larger, and a junior never founds a group of its own.
+3. **THE SENIOR'S DELTA.** Every body of the group takes the senior's ground —
+   largest plan footprint, then most measured feet, then lowest body id. Footprint
+   leads because feet do not track seniority (the 264,783 m² terminal has fewer
+   measured feet than the 66,540 m² viaduct). Inside one anchor plane every member
+   shares a base, so one ground IS one delta.
+4. **BURIAL IS LAWFUL.** A junior is exempt from the A3 guard (its own feet are
+   not its authority) and raises NO pad request: "allow either end to be submerged
+   into the terrain" is the ruling, and a pad request is the ask to daylight it.
+   A LINE body, an ORPHAN, a STRUCTURE-seated body (a deck / plate / basin — this
+   is what keeps OTHH's decks under their own abutment law) and a FACILITY never
+   join a group. THE DECK-PIN MECHANISM IS UNCHANGED: `deck_pins` / `deck_datum_z`
+   are patch-time, keyed on `deck_kind`, and STRT4 carries no deck flag — the
+   ruling's "keep the existing mechanism", not a new one.
+
+### 17.2 Consumer census (owner ruling 2026-08-30l): every reader of a body, a delta and a foot
+
+| # | Consumer | Reads | Ruling |
+|---|---|---|---|
+| C1 | `airport/contact.py::partition` | placed parts, the contact UF | EXTENDED: pass 3 emits `abutments` (rule 1) |
+| C2 | `airport/rebake_plan.py` | the unit key per member | EXTENDED: passes `anchor_of_member`, carries `abutments`, counts them; `PLAN_VERSION` 8 |
+| C3 | `model/rebake.py::RebakePlan` | the plan JSON | EXTENDED: `abutments` (appended, defaulted — a 6/7 plan reads as an 8 with none) |
+| C4 | `emit/clusters.py` body union-find + cut | `plan.contacts` | UNCHANGED: an abutment binds NO body, it groups bodies |
+| C5 | `emit/clusters.py` seat | `grounds_of`, `lows_of` | THE SITE of rules 2–4 |
+| C6 | `emit/clusters.py` A3 guard / pad requests | a body's own residual | EXEMPT for a junior (rule 4) |
+| C7 | `model/rebake.py::ClusterSeat` | the seat record | EXTENDED: `group` (the senior's id, appended, defaulted) |
+| C8 | `model/rebake.py::SeatResult` | the counts | EXTENDED: `abutment_groups`, `grouped_bodies`, `group_pairs_refused` |
+| C9 | `emit/rebake.py` `_plate_seats`, `stay`, `_one_file_one_delta` | `fixed` / `family` per member | unchanged — a structure-seated body never groups (rule 4) |
+| C10 | `auto_patch/engine_v2.py::_decision_from_seats` | `ms.part_deltas` | unchanged: a junior's parts carry the senior's delta like any other |
+| C11 | `airport/rigid.py::complete_component_deltas` | free components, the carrier | unchanged — the group changes a delta's VALUE, never a component's identity |
+| C12 | `tools/seat_feet_census.py` | `part_deltas` of a result | unchanged (the acceptance instrument); a junior's feet are EXPECTED off their ground |
+| C13 | `tools/v2_rebake_replay.py` `seat` | plan + result | EXTENDED: prints the groups; `--no-groups` is the OFF arm over ONE build |
+| C14 | patch-time `deck_pins` / `deck_datum_z` (`airport/rebake_plan.py`, `law/emit.toml [rebake]`) | `deck_kind`, the deck ring | UNCHANGED (rule 4) |
+
+### 17.3 Law key
+
+`structures.toml [rebake] abutment_extent_min_m = 1.0`; `0` disables the class
+(the pre-10ay reading, and `v2_rebake_replay seat --no-groups` offline).
+
+### 17.4 What was measured (lane `v2bridgegroup`; LEMD patch build 315 s ×3, both arms replayed on the owner's mesh `Data+40-004.mesh` off ONE build with `--no-groups`)
+
+* **The patch is byte-identical** — `body_sha f17415899827` on all three builds,
+  verify rows 768 both arms, DEFECTs **0**. The change is post-mesh only.
+* **The site.** `Terminal4_green-STRT4` **+18.437 … +27.708 → +20.111 … +20.937**:
+  54 of its 58 parts now carry the terminal's delta **exactly** (+20.937, 0.000 m),
+  the deck standing at the kerb it was authored to meet. The 4 remaining parts are
+  3 ramp bodies **156 m, 365 m and 370 m** clear of the terminal in plan (+20.111,
+  +20.141, +20.336 — 0.60–0.83 m under it) and one 2.73 m clear: lawfully their own
+  bodies by the ruling's own "a deck 10 m from any building is its own body". The
+  viaduct's ends BURY: its feet read up to 5 m above where it now sits and raise no
+  pad. `Terminal4_green-LEMD02` +15.691…+27.708 → +16.553…+20.937.
+* `v2_rebake_replay pairs` (the 10i tear census): over 2 m **18 pairs in 7
+  resources → 11 in 6**; every STRT4 pair (6.735, 6.709, 6.255, 6.145, 4.151 m) is
+  GONE. `Terminal4_green-TWY` (2 bodies, +17.514…+17.550) and `-rada` (7 bodies,
+  +17.514…+17.678) are unchanged in both arms and carry NO pair over 0.05 m — 10i's
+  "separate, 17.9 m" was closed by an earlier lane, not by this one.
+* Plan: 10,085 abutments over 29,402 parts (rebake plan 23.67 s, unchanged); seat:
+  285 groups, 1,009 junior bodies, 7 pairs refused; pad requests 562 → 385.
+* **THE COST, and the STOP.** `seat_feet_census` `> 3 m` **14 → 23**: 9 placements
+  enter, 1 leaves. Two are the ruling's own subject (`Terminal4_green-LEMD02` +5.27,
+  `PKT4` +5.18 — T4, buried against the terminal); **seven are OldTerminal buildings
+  one hop from a larger neighbour** (`LEMD38` +7.17, `LEMD84` +5.17, `P2CNX` +4.97,
+  `LEMD62` +3.97, `STRT1` +3.71, `CGVRW` +3.42, `LEMD60` +3.18). Two rules were
+  measured and refuted first: the full transitive closure (the site solved, `> 3 m`
+  **36**) and one hop with no intra-placement chain (`> 3 m` **16**, but 27 of the
+  viaduct's 32 bodies ungrouped again, +18.44…+23.56 — the site itself). The shipped
+  rule is the third; at the attempt cap this is a **STOP-and-report**, and whether
+  those seven buildings may bury against their neighbours is an owner question.
+* **OTHH** (its own patch build, 614 s, `body_sha bd190a4d248a`, verify rows 33,
+  DEFECTs 0; 102,749 abutments over 140,280 parts, 95 groups, 1,215 juniors,
+  **1,441 pairs REFUSED** by the structure-seat / line / facility exemption — both
+  arms replayed on the owner's `Data+25+051.mesh` off the one build):
+  **`Bridge_*` and `TerminalRoads_*`: 88 members, all 88 with a byte-identical
+  written delta, and NOT ONE of their bodies in a group** — rule 4's exemption held
+  by construction, no special case. `seat_feet_census` is identical on both arms
+  (3,262 measured placements, `> 3 m` **19**, max 5.79 m, buckets 797 / 82).
+  THE ONE CHANGE, and the second STOP: the **`Fire Fuel` family's three written
+  files** (`Fuel_01_LOD0_004`, `Fuel_01_CLUTTER_LOD0_001/002`) lose their
+  **−1.1295 m** delta and STAY at their authored y — body 7134 (19 parts, its own
+  feet reading 2.8325 on a hollow) is a junior of body 7130 (543 parts, 6
+  resources, 3.9620, the flat fuel farm around it), so the group's correction falls
+  under `min_delta_m`. Written resources 22 → 19; `Dewatering Drainage` (14) and
+  `tunnels` (8) are untouched. It is the rule working as ruled on a body that is
+  not a deck, and it is an OWNER QUESTION, not a fix.
+
+### 17.5 RULINGS 2026-09-11a: THE GATE — only an ELEVATED DECK may be a cross-placement junior (round 2)
+
+Round 1's rule was general: any body of one anchor plane could become the junior of
+a larger neighbour it abutted. It fixed the viaduct and cost seven OldTerminal
+buildings (`> 3 m` 14 → 23) and OTHH's `Fire Fuel` delta. The ruling: **cross-
+placement grouping applies only where the JUNIOR is an ELEVATED DECK abutting a
+building's kerb; buildings never group with buildings — each seats on its own feet
+(10i).** Rules 1–4 of §17.1 stand unchanged; this is one new gate on rule 2's
+CROSS hop (a placement's own chain, rule 2's first half, is untouched).
+
+**Rule 5 — THE ELEVATED DECK** (`airport/deck_signature.elevated_deck`, at PLAN
+time, per resource, geometry only — no DEM, no mesh). A resource is an elevated
+deck when all three hold:
+
+1. it carries a **PLATE**: the dominant `deck_plane_bin_m` bin of near-horizontal
+   solid faces (`deck_plate_normal_y_min`) standing `deck_min_elevation_m` or more
+   above its own lowest solid vertex, of at least `deck_min_area_m2` of face;
+2. the plate is **ONE PIECE**: the largest connected piece of its filled plan trace
+   holds `deck_plate_connected_min` of it — a deck is one carriageway, not a
+   scatter of panels (this is what keeps a file-wide floor honest: LEMD authors 279
+   fence panels in `OldTerminal_FSX-VRDCH` and 1,059 pieces in `Terminal4-LEMD01`,
+   and against the file's lowest component every panel reads as a plate on piers);
+3. it stands on **PIERS, not WALLS**: of the geometry UNDER the plate, the section
+   halfway between the plate and that geometry's own floor covers no more than
+   `deck_pier_footprint_max` of the plate's footprint. A building's walls run the
+   whole height and fill it; a deck's piers are a few blobs in open space. Both
+   footprints are the HOLE-FILLED plan TRACE — a wall is a zero-area sliver in
+   plan, so only its filled trace is a footprint — rasterised at
+   `deck_pier_close_m` (a raster, not a shapely union: the union nodes every
+   segment against every other and LEMD's scatter files ran for minutes).
+
+**Rule 6 — THE GATE AT THE GROUP** (`emit/abutment_group.py`). A cross-placement
+abutment pair is proposed only if one side's BODY is an elevated deck, and a chain
+becomes a JUNIOR only if the chain itself is one. A body / chain is an elevated
+deck when its parts belonging to elevated-deck resources hold at least
+`[rebake] abutment_deck_share_min` of its plan area — a share, not "every member",
+because contact welds a kerb or a parking slab of another resource into a deck body
+(LEMD's viaduct chain: `PKT4` 50 parts, `STRT4` 42, `LEMD02` 41, `LEMD03` 12 —
+share 0.81).
+
+**Rule 7 — THE SENIOR IS READ OVER THE SENIOR'S OWN CHAIN.** The ground a junior
+takes is the largest-footprint body OF THE SENIOR CHAIN (§17.1 rule 3's order,
+applied to `chain_members[senior]`), never the largest body of the whole group.
+Reading it over the group made the value depend on which OTHER juniors happened to
+join: with rule 6 removing the building juniors, LEMD's viaduct moved 6.77 m
+(616.75 → 623.52) by that alone.
+
+**Who groups (measured, LEMD `LEMD.a2.rebake.json` and OTHH `OTHH.a.rebake.json`):**
+
+| resource | plate m² | connected | section / plate | verdict |
+|---|---|---|---|---|
+| `Terminal4_green-STRT4` (the T4 viaduct) | 27,780 | 1.00 | 970 / 27,780 = **0.035** | DECK — the junior |
+| `Terminal4_green-LEMD02` | 6,945 | 1.00 | 142 / 6,945 = **0.021** | DECK |
+| `Terminal4SAT_green-STRT4`, `Terminal4sBlue-STRT4` | — | — | — | no plate over its own floor |
+| `OldTerminal_FSX-LEMD60` | 6,710 | 1.00 | 6,794 / 6,710 = **1.013** | building |
+| `OldTerminal_FSX-STRT1` | 11,262 | 1.00 | 6,939 / 11,262 = **0.616** | building |
+| `OldTerminal_FSX-P2CNX` | 3,782 | 0.55 | 2,235 / 3,782 = **0.591** | building |
+| `OldTerminal_FSX-LEMD41` | 34,083 | 1.00 | 38,212 / 34,083 = **1.121** | building |
+| `OldTerminal_FSX-LEMD38` | 66,376 | **0.02** | — | a scatter, not one deck |
+| `OldTerminal_FSX-VRDCH` (279 fence panels) | 38,894 | **0.03** | — | a scatter, not one deck |
+| `OldTerminal_FSX-LEMD84` | 32 m² of face | — | — | no plate (< `deck_min_area_m2`) |
+| `Cargo-CGVRW`, `Terminal4_green-PKT4` | — | — | — | no plate over its own floor |
+| OTHH `Bridge_*` / `TerminalRoads_*` | — | — | — | STRUCTURE-seated: never in a group at all (§17.1 rule 4), gate not reached |
+| OTHH `Fire Fuel` (19 parts on a 2.83 hollow) | — | — | — | not a deck → NOT a junior; keeps its own −1.13 m |
+
+### 17.6 Law keys (round 2)
+
+`structures.toml [bridge] deck_plate_connected_min = 0.50`,
+`deck_pier_footprint_max = 0.20`, `deck_pier_close_m = 0.5`;
+`[rebake] abutment_deck_share_min = 0.50` (0 = round 1's ungated rule, refuted).
+`Member.elevated_deck` on the plan, `PLAN_VERSION` 8 → **9** (appended, defaulted:
+a version-8 plan reads as a 9 with no elevated deck in it, i.e. no cross-placement
+group at all). `tools/v2_rebake_replay.py seat --elevated-decks` stamps the verdict
+onto an older plan, read off the authored files — the 11a what-if offline.
+
+### 17.7 What was measured (round 2; LEMD replayed on the owner's `Data+40-004.mesh` off round 1's build, and the closing LEMD patch build)
+
+* **The closing build.** LEMD patch build **327.6 s**, rc 0, `body_sha
+  **f17415899827**` — the control's and round 1's, byte for byte: the change is
+  post-mesh only. Plan `PLAN_VERSION` 9, **29 of 302 members elevated decks**,
+  10,085 abutments; seat 119 groups, 583 junior bodies, 4,854 pairs refused (round
+  1: 285 / 1,009 / 7). The build's own plan replays to the same seat as the
+  `--elevated-decks` what-if on round 1's plan, part for part.
+* **The site holds.** `Terminal4_green-STRT4` **+20.111 … +20.937**, 42 parts at the
+  terminal's +20.937 exactly — identical to round 1 part for part. `pairs` over 2 m
+  **10 in 6 resources** (control 18 in 7, round 1 11 in 6); no STRT4 pair.
+* **The seven buildings.** `> 3 m` 14 (control) → **18** (round 1: 23). Back at their
+  own feet: `P2CNX` (+4.97 → −2.92), `LEMD62` (+3.97 → +0.41), `STRT1` (+3.71 →
+  +2.60), `CGVRW` (+3.42 → +1.73), and `T2SL3` LEAVES the class (+3.25 → +1.15).
+  **STILL OVER**, and the residual this round reports: `LEMD38` −6.89, `LEMD84`
+  −5.17, `LEMD60` −3.36 — none of them an elevated deck, all three carried by BODIES
+  whose parts are welded to canopy resources that ARE decks by rule 5
+  (`OldTerminal_FSX-LEMD03` 0.046, `LEMD54` 0.001, `LEMD51` 0.014: roofs on columns
+  over 1,819 / 2,249 / 802 m², which is what a canopy is). Their junior chains read
+  share 0.82–0.90 against the viaduct chain's 0.81, so no `abutment_deck_share_min`
+  separates them. The remaining two over the bar are the ruling's own subject
+  (`LEMD02` −5.27 and `PKT4` −5.18, welded into the viaduct's body).
+  **At the attempt cap this is a STOP-and-report**: whether a CANOPY on columns is
+  an elevated deck for this rule — and so whether the building pieces welded to one
+  travel with it — is an owner question.
+* **OTHH, on the owner's `Data+25+051.mesh` (no rebuild: the gate is post-mesh).**
+  The seat is the CONTROL's exactly — **0 of 953 members with a differing delta**,
+  the **88 `Bridge_*` / `TerminalRoads_*` members byte-identical**, 22 files written
+  in 4 families (`Dewatering Drainage` 9, `tunnels` 8, **`Fire Fuel` 4 with its
+  −1.130 m** restored, `PowerStation-Hangar` 1). Round 1's one regression — the Fire
+  Fuel family's three files stranded at their authored y as a junior of the 543-part
+  flat farm — is GONE: the farm is not a deck, so it founds no cross-placement
+  group. 233 groups / 827 juniors / 16,791 pairs refused, none with a written
+  effect (every correction under `min_delta_m`).

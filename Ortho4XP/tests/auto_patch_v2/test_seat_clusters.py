@@ -107,7 +107,7 @@ def test_plan_carries_parts_and_contacts(row):
     assert all(p.base_y == pytest.approx(0.0) for m in by.values() if m.resource != "objects/e.obj"
                for p in m.parts)
     back = R.RebakePlan.from_json(pl.to_json())
-    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 7
+    assert back == pl and json.loads(pl.to_json())["version"] == R.PLAN_VERSION == 9
 
 
 def test_four_welded_objects_on_a_slope_cut_into_three_clusters(row, law):

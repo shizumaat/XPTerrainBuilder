@@ -130,7 +130,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "units": 0, "members": 0, "deck_members": 0,
                               "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
-                                  "skirted_members": 0,
+                                  "skirted_members": 0, "elevated_decks": 0,
                               "terrain_adapted": 0, "line_objects": 0,
                               "below_grade": 0, "below_grade_parts": 0,
                               "deck_families": len(deck_keys),
@@ -293,6 +293,13 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         skirted = bool(sk.seat_low_side
                        and _skirt.is_skirt(cache, o.resolved, law))
         counts["skirted_members"] += int(skirted)
+        # THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5): a
+        # plate on PIERS, read off the same cache.  It is the GATE on the
+        # cross-placement abutment group — only an elevated deck may take
+        # another placement's delta (``emit/clusters.py``); a building
+        # seats on its own feet (10i).
+        deck_body = bool(_deck.elevated_deck(cache, o.resolved, law).deck)
+        counts["elevated_decks"] += int(deck_body)
         # THE LINE OBJECT (owner RULINGS 2026-09-10bb; spec §16): a fence /
         # kerb / jet-blast line / light string forms no body and founds no
         # foot — it drapes.  A STRUCTURE-seated member is never one: a deck,
@@ -306,11 +313,19 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                                  o.heading_deg, (), deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
-                                 deck_stations, plate_y, plate_stations, skirted)
+                                 deck_stations, plate_y, plate_stations, skirted,
+                                 deck_body)
         placed.append((o, geom, list(comps)))
         member_ref.append((key, o.path))
     # THE PARTITION (06g): every member's genuine components as placed
     # parts, the pack-wide contact graph, the pool / structure counts
+    # THE ANCHOR PLANE per member (owner RULINGS 2026-09-10ay; spec §17):
+    # the unit key a member was filed under.  Placements sharing it share
+    # ``anchor_z + agl``, so their AUTHORED relation is exact and the
+    # abutment test below is lawful between them — and only between them.
+    anchor_ix: dict[tuple[float, float, float], int] = {}
+    anchor_of_member = [anchor_ix.setdefault(key, len(anchor_ix))
+                        for key, _path in member_ref]
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
                               rb.contact_batch_rows,
@@ -318,7 +333,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               rb.foot_samples_max,
                               rb.elevated_base_m,
                               line_members, rb.body_feet_span_m,
-                              rb.line_object_stations_max)
+                              rb.line_object_stations_max,
+                              anchor_of_member, rb.plate_gap_max_m,
+                              rb.abutment_extent_min_m,
+                              law.tables.emit.identity.min_distinct_spacing_m)
     parts_by_member: dict[int, list[Part]] = {}
     if part.parts:
         xs = np.array([p.centroid[0] for p in part.parts])
@@ -357,9 +375,11 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                          m.heading_deg, ps, m.deck_ring, m.deck_top_y,
                                          m.deck_datum_z, m.deck_kind, m.deck_ends,
                                          m.deck_profile, m.deck_evidence, m.deck_stations,
-                                         m.plate_y, m.plate_stations, m.skirted)
+                                         m.plate_y, m.plate_stations, m.skirted,
+                                         m.elevated_deck)
         counts["parts"] += len(ps)
     counts["contacts"] = len(part.contacts)
+    counts["abutments"] = len(part.abutments)
     counts["pools"] = part.pools
     counts["structures"] = part.structures
     counts["pairs_tested"] = part.pairs_tested
@@ -384,4 +404,5 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                for outer, holes in fv.region))
         counts["flat_site"] = int(flat.substitutes)
     return RebakePlan(airport.icao, airport.pack.name, pack_root, tuple(units),
-                      tuple(sorted(skipped.items())), counts, part.contacts, flat)
+                      tuple(sorted(skipped.items())), counts, part.contacts, flat,
+                      part.abutments)

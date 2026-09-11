@@ -35,8 +35,10 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "U
 #: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
 #: flat-site datum and its region (08d); 6: the parts' FEET (09s — the
 #: per-component ground reading); 7: the LINE OBJECT verdict per part and
-#: its widened DRAPE STATIONS (10bb, spec §16).
-PLAN_VERSION = 7
+#: its widened DRAPE STATIONS (10bb, spec §16); 8: the AUTHORED-FRAME
+#: ABUTMENTS (10ay, spec §17 — cross-placement grouping inside one
+#: anchor plane).
+PLAN_VERSION = 9
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -136,6 +138,15 @@ class Member:
     #: buries into the skirt.  Absent from an older plan = ``False`` =
     #: the pre-10ag law exactly.
     skirted: bool = False
+    #: THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5;
+    #: ``airport/deck_signature.elevated_deck``): this member's resource
+    #: carries a PLATE on PIERS — a plate elevated over its own floor
+    #: whose ground-contact footprint is a small fraction of it.  It is
+    #: the GATE on the cross-placement abutment group: only an elevated
+    #: deck may become the JUNIOR of a body in another placement (a
+    #: building seats on its own feet, 10i).  Absent from an older plan
+    #: = ``False`` = no cross-placement group at all.
+    elevated_deck: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -203,6 +214,13 @@ class RebakePlan:
     counts: _t.Mapping[str, int]
     contacts: tuple[tuple[int, int], ...] = ()
     flat: FlatDatum | None = None
+    #: THE AUTHORED-FRAME ABUTMENTS (owner RULINGS 2026-09-10ay; spec
+    #: §17): ``(pid, pid)`` pairs of ONE anchor plane whose plan
+    #: footprints overlap and whose authored z lies within ``[rebake]
+    #: plate_gap_max_m``, carrying no ε-contact edge.  They bind no body
+    #: — they GROUP the bodies they fall in, which take the senior
+    #: body's delta.  Empty in a plan written before 10ay.
+    abutments: tuple[tuple[int, int], ...] = ()
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -228,6 +246,7 @@ class RebakePlan:
             "counts": dict(self.counts),
             "skipped": [list(s) for s in self.skipped],
             "contacts": [[a, b] for a, b in self.contacts],
+            "abutments": [[a, b] for a, b in self.abutments],
             "flat": None if self.flat is None else self.flat.to_dict(),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
@@ -249,6 +268,7 @@ class RebakePlan:
                     "plate_y": m.plate_y,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
+                    "elevated_deck": m.elevated_deck,
                 } for m in u.members],
             } for u in self.units],
         }
@@ -258,12 +278,16 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
-        # Version 7 is version 6 plus ``Part.line`` (RULINGS 2026-09-10bb):
-        # a 6 reads as a 7 with no line object in it — the pre-10bb seat
+        # Version 9 is version 8 plus ``Member.elevated_deck`` (owner
+        # RULINGS 2026-09-11a), version 8 is version 7 plus
+        # ``RebakePlan.abutments`` (RULINGS
+        # 2026-09-10ay) and version 7 is version 6 plus ``Part.line``
+        # (2026-09-10bb): an older plan reads as the current one with no
+        # abutment and no line object in it — the pre-10ay / pre-10bb seat
         # exactly — so an OWNER's plan from an earlier build still replays
-        # offline (``tools/v2_rebake_replay.py``).  Nothing else is
-        # accepted: the earlier versions changed fields the seat reads.
-        if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1):
+        # offline (``tools/v2_rebake_replay.py``).  Nothing earlier is
+        # accepted: those versions changed fields the seat reads.
+        if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),
@@ -295,12 +319,14 @@ class RebakePlan:
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
                 skirted=bool(m.get("skirted", False)),
+                elevated_deck=bool(m.get("elevated_deck", False)),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,
                    skipped=tuple((str(a), str(b)) for a, b in d.get("skipped", ())),
                    counts=dict(d.get("counts", {})),
                    contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())),
+                   abutments=tuple((int(a), int(b)) for a, b in d.get("abutments", ())),
                    flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]))
 
     @classmethod
@@ -397,6 +423,11 @@ class ClusterSeat:
     #: ...and the ORPHAN (§16.1 rule 4): a body with no ground part at
     #: all, seated by sampling the design surface under its parts.
     orphan: bool = False
+    #: THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay; spec §17): the id
+    #: of the SENIOR body of the group this body abuts into, or ``None``
+    #: when it is in no group.  A body whose ``group`` is not its own id
+    #: is a JUNIOR: it took the senior's ground, not its own feet's.
+    group: int | None = None
 
     @property
     def bakes(self) -> bool:
@@ -471,6 +502,13 @@ class SeatResult:
     line_bodies: int = 0
     line_edges_dropped: int = 0
     orphan_bodies_seated: int = 0
+    #: owner RULINGS 2026-09-10ay (spec §17): the ABUTMENT GROUPS formed
+    #: in the authored frame, the JUNIOR bodies that took a senior's
+    #: ground instead of their own feet's, and the abutment pairs a rule
+    #: refused (a line body, a structure seat, a facility, a held body).
+    abutment_groups: int = 0
+    grouped_bodies: int = 0
+    group_pairs_refused: int = 0
 
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
@@ -486,7 +524,10 @@ class SeatResult:
              "parts": 0, "ground_parts": 0, "members_multi_delta": 0,
              "line_objects": 0, "line_stations": 0, "orphan_bodies": 0,
              "line_bodies": self.line_bodies,
-             "line_edges_dropped": self.line_edges_dropped}
+             "line_edges_dropped": self.line_edges_dropped,
+             "abutment_groups": self.abutment_groups,
+             "grouped_bodies": self.grouped_bodies,
+             "group_pairs_refused": self.group_pairs_refused}
         for u in self.units:
             c["findings"] += len(u.findings)
             c["facility_members"] += sum(1 for m in u.members if m.facility)
@@ -538,6 +579,9 @@ class SeatResult:
                 "line_bodies": self.line_bodies,
                 "line_edges_dropped": self.line_edges_dropped,
                 "orphan_bodies_seated": self.orphan_bodies_seated,
+                "abutment_groups": self.abutment_groups,
+                "grouped_bodies": self.grouped_bodies,
+                "group_pairs_refused": self.group_pairs_refused,
                 "units": [_dc.asdict(u) for u in self.units],
                 "clusters": [_dc.asdict(k) for k in self.clusters],
                 "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

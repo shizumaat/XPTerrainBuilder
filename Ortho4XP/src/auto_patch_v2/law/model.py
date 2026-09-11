@@ -327,6 +327,9 @@ class Bridge:
     abutment_walk_max_m: float
     abutment_min_land_samples: int
     deck_stations: int
+    deck_plate_connected_min: float
+    deck_pier_footprint_max: float
+    deck_pier_close_m: float
     deck_min_clearance_under_m: float
 
 

@@ -52,6 +52,15 @@ class Rebake:
     line_object_ratio: float
     line_object_max_h: float
     line_object_stations_max: int
+    #: owner RULINGS 2026-09-10ay (spec §17): the minimum plan EXTENT
+    #: along which two parts of ONE anchor plane must meet to ABUT —
+    #: their plan boxes within ``emit.identity.min_distinct_spacing_m``
+    #: on both axes, meeting over at least this on one of them, their
+    #: authored z within ``plate_gap_max_m``, and no ε-contact edge.  It
+    #: binds no body; it GROUPS the two bodies, which take the SENIOR
+    #: body's delta.  0 disables the class (the pre-10ay reading).
+    abutment_extent_min_m: float
+    abutment_deck_share_min: float
     min_delta_m: float
     cluster_span_pad_m: float
     cluster_residual_pad_m: float

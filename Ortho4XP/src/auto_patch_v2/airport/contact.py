@@ -26,6 +26,16 @@ law was calibrated on (``object_clusters`` module doc).  Measured HECA
 (415 members, 55,569 parts): 28.7 s with the pairwise quick-accept,
 the global pass below cuts the triangle tests to the unwelded remainder.
 
+Pass 3, THE AUTHORED-FRAME ABUTMENT (owner RULINGS 2026-09-10ay; spec
+§17): inside ONE anchor plane (a unit — every placement of it carries
+the same ``anchor_z + agl``, so the authored relation between them is
+exact) two parts whose plan boxes come within the identity spacing on
+both axes, meet over ``abutment_extent_min_m`` of one of them, and whose
+authored z intervals lie within ``[rebake] plate_gap_max_m`` ABUT even
+though they carry no ε-contact edge — LEMD's T4 departures viaduct, authored 2.24 m
+under the terminal kerb it runs along.  An abutment binds NO body; it
+GROUPS the two bodies, which then take the senior body's delta.
+
 Pure geometry over numpy; no I/O, no environment.
 """
 from __future__ import annotations
@@ -86,6 +96,13 @@ class Partition:
     structures: int
     pairs_tested: int
     pairs_unproved: int
+    #: THE CROSS-PLACEMENT ABUTMENTS (owner RULINGS 2026-09-10ay; spec
+    #: §17): ``(pid, pid)`` pairs of ONE SHARED ANCHOR PLANE that ABUT in
+    #: the AUTHORED frame — plan boxes meeting, authored z within
+    #: ``[rebake] plate_gap_max_m`` — but carry no ε-contact edge.  They
+    #: bind no body; they GROUP the bodies they belong to (``emit/
+    #: clusters.py``), which then take the senior body's delta.
+    abutments: tuple[tuple[int, int], ...] = ()
 
 
 def _place(geom: _obj8.ObjGeometry, o: _obj8.PlacedObject, ids: np.ndarray) -> np.ndarray:
@@ -416,11 +433,66 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
     return edges, unproved
 
 
+def _abutment_pairs(parts: _t.Sequence[PlacedPart], anchor_of_member: _t.Sequence[int],
+                    gap_m: float, extent_min_m: float, spacing_m: float,
+                    uf: "_UnionFind") -> list[tuple[int, int]]:
+    """THE AUTHORED-FRAME ABUTMENT (owner RULINGS 2026-09-10ay; spec §17).
+
+    Two parts ABUT when their plan boxes come within ``spacing_m``
+    (``emit.identity.min_distinct_spacing_m`` — two points closer than it
+    are the same point to every emit law) on BOTH plan axes, they meet
+    along at least ``extent_min_m`` of one of them (so a corner graze is
+    not an abutment), and their authored z intervals lie within ``gap_m``
+    of each other — a viaduct deck's kerb edge meeting the terminal's
+    kerb 2.2 m above it, a pier standing under its own deck, the next
+    deck slab end-to-end with this one.
+
+    THE FRAME.  The test is the AUTHORED one, so it is confined to parts
+    whose members share ONE ANCHOR PLANE (``anchor_of_member``, the
+    plan's unit key): inside a unit every placement carries the same
+    ``anchor_z + agl``, so the placed y HERE differs from the authored y
+    by one constant and the authored relation is exact.  Across units the
+    anchor ground differs by the DEM — that is what separated LEMD's T4
+    viaduct from its terminal in the first place — and nothing about the
+    authored relation is known, so no pair is proposed.
+
+    A pair already in one contact component is skipped: it is one body
+    already, and grouping it would be a no-op.  The pairs bind no body —
+    ``emit/clusters.py`` groups the BODIES they fall in."""
+    if gap_m <= 0.0 or extent_min_m <= 0.0 or len(parts) < 2:
+        return []
+    cand = _broad_pairs(parts, gap_m)
+    if cand.shape[0] == 0:
+        return []
+    lo = np.array([p.box_min for p in parts])
+    hi = np.array([p.box_max for p in parts])
+    anc = np.array([anchor_of_member[p.member] for p in parts])
+    line = np.array([p.line for p in parts])
+    a, b = cand[:, 0], cand[:, 1]
+    # the signed plan OVERLAP on each axis (negative = a gap) and the
+    # authored z gap (negative = the intervals overlap)
+    ox = np.minimum(hi[a, 0], hi[b, 0]) - np.maximum(lo[a, 0], lo[b, 0])
+    oz = np.minimum(hi[a, 2], hi[b, 2]) - np.maximum(lo[a, 2], lo[b, 2])
+    gy = np.maximum(lo[a, 1] - hi[b, 1], lo[b, 1] - hi[a, 1])
+    m = ((anc[a] == anc[b]) & ~line[a] & ~line[b]
+         & (np.minimum(ox, oz) >= -spacing_m)
+         & (np.maximum(ox, oz) >= extent_min_m)
+         & (gy <= gap_m))
+    if not m.any():
+        return []
+    return [(int(x), int(y)) for x, y in cand[m].tolist()
+            if uf.find(int(x)) != uf.find(int(y))]
+
+
 def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, budget: int,
               pool_overlap_m: float, chunk_rows: int, foot_band_m: float = 1.0,
               foot_samples_max: int = 4, elevated_base_m: float | None = None,
               line_members: _t.Collection[int] = (),
-              station_span_m: float = 0.0, stations_max: int = 0) -> Partition:
+              station_span_m: float = 0.0, stations_max: int = 0,
+              anchor_of_member: _t.Sequence[int] = (),
+              abutment_gap_m: float = 0.0,
+              abutment_extent_min_m: float = 0.0,
+              abutment_spacing_m: float = 0.0) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
@@ -441,6 +513,11 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
             or parts[int(a)].member == parts[int(b)].member]
     found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
+    # THE ABUTMENTS (owner RULINGS 2026-09-10ay; spec §17), read off the
+    # SETTLED contact union-find so a pair already in one body is skipped.
+    abut = _abutment_pairs(parts, anchor_of_member or [0] * len(members),
+                           abutment_gap_m, abutment_extent_min_m,
+                           abutment_spacing_m, uf) if anchor_of_member else []
     if elevated_base_m is not None and parts:
         # THE FEET travel in the plan for the GROUND parts only (RULINGS
         # 2026-09-09s (2)): an ELEVATED part never votes and never founds
@@ -452,4 +529,5 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
                  for p in parts]
     return Partition(tuple(parts), tuple(sorted(set(edges))),
                      _pools(parts, len(members), pool_overlap_m),
-                     uf.groups() if parts else 0, len(pend), unproved)
+                     uf.groups() if parts else 0, len(pend), unproved,
+                     tuple(sorted({(min(a, b), max(a, b)) for a, b in abut})))

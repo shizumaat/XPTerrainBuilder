@@ -15,7 +15,9 @@ prints the counts, the largest seats and every unit matching ``--filter``
 (member seats, witnesses, water, outliers), and writes
 ``PLAN.seat.json`` beside the plan, and the resources that would be
 written BY FAMILY (the pack's second path component) with their deltas.
-``--flat Z0`` stamps a flat-site datum (RULINGS 2026-09-08d) over the
+``--no-groups`` drops the plan's authored-frame ABUTMENTS (10ay, spec
+§17) — the pre-10ay seat over the SAME build, so one build serves both
+arms of the group A/B.  ``--flat Z0`` stamps a flat-site datum (RULINGS 2026-09-08d) over the
 plan's bounds onto a plan that carries none (a pre-08d version-4 plan is
 read as version 5): the what-if of the 08d rules on an older build's plan
 and mesh.  It NEVER writes a pack.
@@ -101,6 +103,33 @@ def cmd_seat(args: argparse.Namespace) -> int:
         plan = dataclasses.replace(plan, units=tuple(units))
         print(f"  --line-objects: {n_res} resource(s), {n_part} part(s) stamped "
               "LINE (10bb; the plan's own feet stand in for the drape stations)")
+    if getattr(args, "elevated_decks", False):
+        # owner RULINGS 2026-09-11a, spec §17.5: stamp the ELEVATED-DECK
+        # verdict onto a plan that predates it, read off the AUTHORED
+        # files the plan names — the same what-if as --line-objects.  The
+        # reading is geometry only, so it is the build's exactly.
+        from auto_patch_v2.airport import deck_signature as _DS
+        from auto_patch_v2.airport import obj8 as _O8
+        cache_d = _O8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+        n_deck = 0
+        units = []
+        for u in plan.units:
+            ms = []
+            for m in u.members:
+                d_ = _DS.elevated_deck(cache_d, m.authored_path, law).deck
+                n_deck += int(d_)
+                ms.append(dataclasses.replace(m, elevated_deck=d_))
+            units.append(dataclasses.replace(u, members=tuple(ms)))
+        plan = dataclasses.replace(plan, units=tuple(units))
+        print(f"  --elevated-decks: {n_deck} resource(s) stamped ELEVATED DECK (11a)")
+    if args.no_groups:
+        # owner RULINGS 2026-09-10ay (spec §17): the OFF arm of the
+        # abutment group, offline — one build serves both arms, since the
+        # group is a post-mesh rule over a field the plan already carries.
+        n_ab = len(plan.abutments)
+        plan = dataclasses.replace(plan, abutments=())
+        print(f"  --no-groups: {n_ab} authored-frame abutment(s) dropped "
+              "(the pre-10ay seat)")
     print(f"{plan.icao} plan: {dict(plan.counts)} skipped {len(plan.skipped)}")
     print("  skip reasons:", collections.Counter(
         r.split(" (")[0].split(":")[0] for _, r in plan.skipped).most_common(6))
@@ -205,6 +234,9 @@ def cmd_seat(args: argparse.Namespace) -> int:
           f"{sum(r[2] for r in lo_rows)} station(s); "
           f"{res.line_bodies} line bod(y/ies), {res.line_edges_dropped} contact edge(s) bound "
           f"nothing, {res.orphan_bodies_seated} orphan bod(y/ies) sampled")
+    print(f"abutment groups (10ay): {res.abutment_groups} group(s), "
+          f"{res.grouped_bodies} junior bod(y/ies) on a senior's ground, "
+          f"{res.group_pairs_refused} pair(s) refused")
     for r, nc, ns, lo, hi in sorted(lo_rows, key=lambda x: -x[2])[:25]:
         print(f"  {os.path.basename(r)[-56:]:56} comps {nc:4d} stations {ns:5d} "
               f"delta {lo:+.3f} … {hi:+.3f}")
@@ -500,6 +532,15 @@ def main(argv: list[str] | None = None) -> int:
                         "that predates it, read off the authored files — the 10bb what-if on an "
                         "earlier build's plan and mesh (the plan's own feet stand in for the "
                         "widened drape stations)")
+    s.add_argument("--elevated-decks", action="store_true",
+                   help="stamp the ELEVATED-DECK verdict (owner RULINGS 2026-09-11a, spec §17.5) "
+                        "onto a plan that predates it, read off the authored files — the 11a "
+                        "what-if (which bodies may be a cross-placement JUNIOR) on an earlier "
+                        "build's plan and mesh")
+    s.add_argument("--no-groups", action="store_true",
+                   help="drop the plan's AUTHORED-FRAME ABUTMENTS (owner RULINGS 2026-09-10ay, "
+                        "spec §17): the pre-10ay seat over the SAME build, so one build serves "
+                        "both arms of the abutment-group A/B")
     s.set_defaults(fn=cmd_seat)
     b = sub.add_parser("bodies", help="the rigid-body completeness of the write half (09b (5))")
     b.add_argument("plan")

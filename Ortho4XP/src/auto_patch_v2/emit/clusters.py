@@ -53,6 +53,14 @@ the mesh:
   REFUSED (v1 A3); ground relief over ``cluster_span_pad_m`` bakes and
   pads; ground parts left further than ``cluster_residual_pad_m`` off the
   mesh raise PAD REQUESTS by connected group (reported);
+* THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay; spec §17): bodies of
+  ONE ANCHOR PLANE that ABUT in the AUTHORED frame — the plan's
+  ``abutments``, plan footprints overlapping with authored z within
+  ``plate_gap_max_m`` and no contact edge — form ONE GROUP taking the
+  SENIOR body's ground (most measured feet, then largest footprint).
+  A LINE body, an ORPHAN, a STRUCTURE-seated body and a FACILITY never
+  join one; a JUNIOR is exempt from the A3 guard and raises no pad
+  request (its burial is lawful);
 * THE FACILITY RULE at cluster level (05p / 05q): within one STRUCTURE
   (a contact component), a cluster standing more than ``[basin]
   contact_band_m`` under the mesh AND that much beyond the structure's
@@ -69,6 +77,7 @@ import math
 import statistics
 import typing as _t
 
+from .abutment_group import groups as _groups
 from ..model.rebake import ClusterSeat, PadRequest, Part, RebakePlan
 
 __all__ = ["Outcome", "MemberParts", "seat_clusters", "metres_per_degree", "coalition"]
@@ -184,6 +193,14 @@ class Outcome:
     line_bodies: int = 0
     line_edges_dropped: int = 0
     orphan_bodies: int = 0
+    #: THE ABUTMENT GROUPS (owner RULINGS 2026-09-10ay, spec §17): how
+    #: many groups of two or more bodies the authored-frame abutments
+    #: formed, how many JUNIOR bodies took a senior's ground instead of
+    #: their own feet's, and how many abutment pairs were refused (a line
+    #: body, a structure seat, a facility, a held body).
+    groups: int = 0
+    grouped_bodies: int = 0
+    group_pairs_refused: int = 0
 
 
 class _UF:
@@ -259,6 +276,18 @@ def _diameter(parts: _t.Sequence[_P]) -> float:
     la1 = max(p.part.box[2] for p in parts); lo1 = max(p.part.box[3] for p in parts)
     m_lat, m_lon = metres_per_degree((la0 + la1) / 2.0)
     return math.hypot((la1 - la0) * m_lat, (lo1 - lo0) * m_lon)
+
+
+def _plan_area(pids: _t.Sequence[int], ps: _t.Mapping[int, "_P"]) -> float:
+    """A body's plan FOOTPRINT in m² — the area of the bounding box over
+    its parts' plan boxes (the seniority measure of RULINGS 2026-09-10ay)."""
+    if not pids:
+        return 0.0
+    bx = [ps[pid].part.box for pid in pids]
+    la0 = min(b[0] for b in bx); lo0 = min(b[1] for b in bx)
+    la1 = max(b[2] for b in bx); lo1 = max(b[3] for b in bx)
+    m_lat, m_lon = metres_per_degree((la0 + la1) / 2.0)
+    return (la1 - la0) * m_lat * (lo1 - lo0) * m_lon
 
 
 def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.Mapping[MemberKey, float | None],
@@ -640,6 +669,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             lf = lifts[k]
             if lf is not None and lf > d0 + band and lf > band:
                 facility.add(k)
+    # THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay, gated 11a; spec
+    # §17) — the law and its evidence live in ``emit/abutment_group.py``
+    # (the 1,000-line file law).
+    group_of, group_ground, n_group_refused = _groups(
+        plan_, rb, ps, members_of, cluster_of, line_body_ks, orphan_ks, facility,
+        attached, grounds_of, lows_of, _plan_area)
     seats: list[ClusterSeat] = []
     pads: list[PadRequest] = []
     members: dict[MemberKey, MemberParts] = {}
@@ -683,6 +718,14 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         if gs:
             ground_m = float(min(lows)) if skirted_body and lows \
                 else float(statistics.median(gs))
+        # THE GROUP'S ONE DELTA (owner RULINGS 2026-09-10ay; spec §17):
+        # a JUNIOR body takes the SENIOR's ground, not its own feet's —
+        # including a body that measured nothing at all (the viaduct's
+        # elevated deck sections).  Within one anchor plane every member
+        # carries the same base, so one ground IS one delta.
+        junior = k in group_of and group_of[k] != k
+        if k in group_ground:
+            ground_m = group_ground[k]
         skip: str | None = None
         held = False
         if ground_m is None:
@@ -730,7 +773,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         if skip is None and max_delta < rb.min_delta_m:
             skip = (f"below_threshold: largest resource correction |{max_delta:.3f}| m < "
                     f"{rb.min_delta_m} m — the cluster stays at its authored y and the terrain adapts")
-        if skip is None and measured and diam <= rb.a3_guard_max_diameter_m:
+        # A JUNIOR is not put to the A3 guard (spec §17): the guard asks
+        # whether ONE offset seats this body's own feet better than none,
+        # and the whole point of the group is that this body's feet are
+        # NOT its authority — the senior's are.  A buried ramp end would
+        # fail it by construction.
+        if skip is None and measured and not junior and diam <= rb.a3_guard_max_diameter_m:
             corrected = statistics.mean(abs(ground_m - p.target) for p in measured)
             uncorrected = statistics.mean(abs(p.base - p.target) for p in measured)
             if corrected > uncorrected + rb.a3_tolerance_m:
@@ -742,7 +790,11 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         floor = rb.cluster_residual_pad_m if bakes else rb.nobake_pad_floor_m
         residual: dict[int, float] = {}
         rendered: dict[int, float] = {}
-        if bakes or (skip or "").startswith("below_threshold"):
+        # ...and it raises NO PAD REQUEST (spec §17): its residual against
+        # the ground under it is the BURIAL the ruling makes lawful — "no
+        # lift to daylight them" — and a pad request is exactly the ask to
+        # daylight it.
+        if (bakes or (skip or "").startswith("below_threshold")) and not junior:
             for p in measured:
                 rg = (p.base + (_delta(p) or 0.0)) if bakes else p.base
                 rendered[p.pid] = rg
@@ -770,7 +822,8 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
                                  len(measured), ground_m, lifts[k], span, diam,
                                  needs_pad and bakes, k in facility, held, skip, n_res,
                                  foot_res, max((abs(x) for x in foot_res), default=0.0),
-                                 sampled_of.get(k, 0), is_line_body, k in orphan_ks))
+                                 sampled_of.get(k, 0), is_line_body, k in orphan_ks,
+                                 group_of.get(k)))
         for p in parts:
             mp = members[p.key]
             mp.part_deltas.append((p.part.comp, k, _delta(p) if bakes else None))
@@ -802,4 +855,6 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
         mp.part_deltas.sort()
     return Outcome(seats, members, pads, n_cut, len({struct_of[pid] for pid in ps}),
                    n_intra_kept, len(held_parts), n_groups, n_group_ties,
-                   len(line_body_ks), n_line_edges, len(orphan_ks))
+                   len(line_body_ks), n_line_edges, len(orphan_ks),
+                   len(set(group_of.values())),
+                   sum(1 for k, s in group_of.items() if k != s), n_group_refused)

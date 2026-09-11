@@ -247,7 +247,7 @@ def test_the_datum_extends_under_every_footprint_inside_the_region(law):
 def test_plan_carries_the_datum(law):
     pl = _plan([R.Unit("a", (0.0, 0.0), 0.0, (_member("x", [_part(0, 0.001)]),))])
     d = json.loads(pl.to_json())
-    assert d["version"] == R.PLAN_VERSION == 7 and d["flat"]["z0_m"] == Z0
+    assert d["version"] == R.PLAN_VERSION == 9 and d["flat"]["z0_m"] == Z0
     assert R.RebakePlan.from_json(pl.to_json()) == pl
     d["version"] = 4
     with pytest.raises(ValueError):

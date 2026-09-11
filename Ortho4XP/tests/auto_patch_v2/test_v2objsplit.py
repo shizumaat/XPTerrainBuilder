@@ -1490,11 +1490,16 @@ def test_a_basin_resource_is_one_file_anchored_on_its_rim(tmp_path):
 
 
 def test_plan_overlap_binds_bodies_the_contact_graph_left_apart(tmp_path):
-    """§14 (3): two bodies of one resource that OVERLAP IN PLAN are ONE
-    body whatever the contact graph says — the floor under the walls, the
-    ledge inside the wall — even when the terrain under them differs by
-    more than ``split_tol_m``, which is exactly when §9 would have split
-    them.  Bodies APART in plan still split."""
+    """§14 (3) AS §15 (2) LEAVES IT.  The plan-overlap union welds bodies
+    the contact graph left apart — the floor under the walls, the ledge
+    inside the wall — but the bond now holds only WITHIN A TERRAIN GROUP:
+    a bound group whose members' intended zeros span more than
+    ``split_tol_m`` is re-cut by §9's own rule, because a rigid body is
+    never wider than the terrain it can stand on (LEMD's
+    ``green-LEMD03__b0``: 1,384 x 590 m over 5.80 m of surface, lifting
+    the garage roof 8.68 m).  The one exemption is the BASIN, whose pit
+    was cut TO the object — see
+    ``test_a_basin_resource_is_one_file_anchored_on_its_rim``."""
     (tmp_path / "apart").mkdir()
     over, _t = _two_boxes(tmp_path, with_anim=False)
     apart, _t2 = _two_boxes(tmp_path / "apart", with_anim=False)
@@ -1508,8 +1513,16 @@ def test_plan_overlap_binds_bodies_the_contact_graph_left_apart(tmp_path):
                                  (1, -4.0, 3.0, 0.0, -4.0, 10.0)],
                           "objects/pit.obj")])
     ss = PP.build_splits(p_over, surface, write=False, **_elev_args())
-    assert len(ss.all[0].bodies) == 1
-    assert ss.all[0].bodies[0].components == (0, 1)
+    assert len(ss.all[0].bodies) == 2               # §15 (2): re-cut
+    assert ss.counts["groups_re_cut"] == 1
+    # ... and where the two DO read one terrain the bond holds: the
+    # contact graph had them apart, the plan overlap makes them one file
+    p_same = _unit_plan([(over, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
+                                 (1, 0.0, 3.0, 0.0, 0.0, 10.0)],
+                          "objects/ledge.obj")])
+    ss_same = PP.build_splits(p_same, surface, write=False, **_elev_args())
+    assert len(ss_same.all[0].bodies) == 1
+    assert ss_same.all[0].bodies[0].components == (0, 1)
     # the same two, 200 m apart in plan over terrain that differs: split
     p_apart = _unit_plan([(apart, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
                                    (1, 0.0, 200.0, 0.0, 0.0, 10.0)],
@@ -1636,3 +1649,183 @@ def test_a_one_body_placement_whose_row_reads_other_terrain_is_written(tmp_path)
     # ... and where the row DOES read the body's own surface, it is kept
     ss2 = PP.build_splits(plan, _flat(616.0), write=True, **_elev_args())
     assert ss2.splits == () and [k.reason for k in ss2.kept] == ["one_body"]
+
+
+# ── §15 (owner RULINGS 2026-09-11ae): STANDS-OVER IS THE CARRIER; THE
+# BINDING RE-CUTS; DUPLICATE ROWS ARE ONE PLACEMENT ──────────────────────
+# The owner's 1.0.316 LEMD read: hangar roofs floating over their
+# buildings, a garage roof 8.65 m up, a terminal roof "slightly
+# floating".  Every one is a HEIGHT defect and none is a missing file:
+# the roof took a carrier 250 m away inside its own placement, a rigid
+# body was bound 1,384 m wide across 5.80 m of terrain, and a resource
+# with two identical rows had one of them replaced and one left drawing
+# the whole un-split object at the datum.
+
+def test_a_roof_resource_rides_the_walls_of_ANOTHER_resource(tmp_path):
+    """§15 (1): the carrier is what the body STANDS OVER, across the
+    whole unit and every resource alike.  The pack names its roofs as
+    their own resources (``TEJ*``), so the walls a roof rides are almost
+    never its own file — and its own file's ground body may be hundreds
+    of metres away, which is exactly how LEMD's ``LEMD38`` roof took a
+    carrier 250 m off and floated 6.11 m."""
+    (tmp_path / "roof_dir").mkdir()
+    walls, _t = _two_boxes(tmp_path, with_anim=False)
+    roof, _t2 = _two_boxes(tmp_path / "roof_dir", with_anim=False)
+    plan = _unit_plan([
+        # the ROOF resource: its own ground body 250 m north (on terrain
+        # at 616), and the roof plate 9 m up over the hangar at the origin
+        (roof, [(0, 0.0, 250.0, 0.0, 0.0, 8.0),
+                (1, 9.0, 0.0, 0.0, 9.0, 10.0)], "objects/tej.obj"),
+        # the HANGAR: walls on the ground at the origin (terrain 595.8)
+        (walls, [(0, 0.0, 0.0, 0.0, 0.0, 10.0)], "objects/hangar.obj"),
+    ])
+
+    def surface(lat, lon):
+        return 616.0 if (lat - 40.0) * 111_000.0 > 100.0 else 595.8
+
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    tej = [s for s in ss.all if s.resource == "objects/tej.obj"][0]
+    carried = [b for b in tej.bodies if b.merged_into]
+    assert len(carried) == 1, "the roof did not leave its own placement"
+    # the hangar is a one-body placement KEPT on its own (correct) row,
+    # so the carried file names the resource itself and says so
+    assert carried[0].merged_into == "objects/hangar.obj"
+    assert carried[0].merged_into_written is False
+    assert "stands over" in carried[0].anchor.reason
+    assert "carrier kept whole" in carried[0].anchor.reason
+    # ONE zero plane for the two of them: the hangar's, not its own
+    # resource's ground body 250 m north
+    assert carried[0].anchor.surface_z == 595.8
+    assert ss.counts["elevated_ride_other_file"] == 1
+
+
+def test_a_bound_group_wider_than_its_terrain_is_re_cut(tmp_path):
+    """§15 (2): §14 (3)'s plan-overlap bond welds bodies that overlap in
+    plan whatever the terrain does, and at LEMD that made ONE rigid body
+    1,384 x 590 m whose feet span 5.80 m of surface — its low-side anchor
+    then lifted the garage roof 8.68 m over the garage's own walls.  A
+    rigid body is never wider than the terrain it can stand on."""
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    # three parts in a plan-overlapping CHAIN (each box touches the next)
+    # over ground that climbs 5 m from end to end
+    plan = _unit_plan([(path, [(0, 0.0, 0.0, 0.0, 0.0, 12.0),
+                               (1, 0.0, 20.0, 0.0, 0.0, 12.0),
+                               (2, 0.0, 40.0, 0.0, 0.0, 12.0)],
+                        "objects/terminal.obj")])
+
+    def ramp(lat, lon):
+        return 595.0 + (lat - 40.0) * 111_132.954 * 0.125
+
+    ss = PP.build_splits(plan, ramp, write=False, **_elev_args())
+    bodies = [b for s in ss.all for b in s.bodies]
+    zeros = [b.anchor.surface_z - b.anchor.y_zero for b in bodies]
+    assert len(bodies) >= 2, "the 5 m chain was welded into one rigid body"
+    assert max(zeros) - min(zeros) > 0.3      # they read DIFFERENT ground
+    assert ss.counts["groups_re_cut"] == 1
+    # ... and over FLAT ground the bond holds: one body, one file
+    flat = PP.build_splits(plan, _flat(595.0), write=False, **_elev_args())
+    assert sum(len(s.bodies) for s in flat.all) == 1
+    assert flat.counts["groups_re_cut"] == 0
+
+
+def test_duplicate_rows_of_one_resource_are_one_placement(tmp_path):
+    """§15 (4): rows of one resource identical in lon/lat/heading are ONE
+    placement to the split.  LEMD's pristine DSF carries two rows for 19
+    ``Airport_Cargo`` resources on the shared datum; the plan reads the
+    resource once, the writer replaced ONE row, and the other went on
+    drawing the whole un-split object at the datum point."""
+    from auto_patch_v2.airport import dsf_write as DW
+    from auto_patch_v2.model import placement as PM
+
+    text = ("OBJECT_DEF objects/a.obj\n"
+            "OBJECT_DEF objects/b.obj\n"
+            "OBJECT 0 -3.564788 40.492764 0.000000\n"
+            "OBJECT 1 -3.560000 40.490000 12.000000\n"
+            "OBJECT 0 -3.564788 40.492764 0.000000\n")
+    lines = text.splitlines(keepends=True)
+    assert DW.duplicate_rows(lines) == {0: [2]}
+    assert DW.duplicate_rows(lines, {1}) == {}      # no split names row 0
+
+    plan = PM.PlacementPlan(
+        icao="TEST", pack_name="p", pack_root=str(tmp_path),
+        dsf_path=str(tmp_path / "x.dsf"), dsf_backup_path="",
+        provenance=PM.Provenance("", "", "", {}),
+        splits=(PM.Split(placement=PM.PlacementRef(0, "objects/a.obj",
+                                                   -3.564788, 40.492764, 0.0),
+                         bodies=(PM.Body(body_id="b0", body_class="other",
+                                         components=(0,),
+                                         anchor=PM.Anchor(-3.5, 40.5, 0.0),
+                                         anchor_reason="r",
+                                         new_resource="objects/a__b0.obj"),)),))
+    out = DW.edit_dump(text, plan)
+    rows = [r for r in out.splitlines() if r.startswith("OBJECT ")]
+    # the body row replaced the FIRST; the duplicate is gone, and the
+    # unrelated placement is untouched
+    assert sum(1 for r in rows if r.split()[1] == "0") == 0
+    assert any(r.startswith("OBJECT 2 ") for r in rows)     # the new def
+    assert sum(1 for r in rows if "40.490000" in r) == 1
+    assert len(rows) == 2
+
+
+def test_an_off_sheet_anchor_is_excluded_from_every_comparison(tmp_path):
+    """§15 (5): the tool samples the GRADED SURFACE, the shipped plan
+    samples the MESH.  A body whose anchor stands on no graded face reads
+    NO surface here — it is marked off-sheet, excluded from the census's
+    bins and from the §15 (3) bar, and never guessed at."""
+    from auto_patch_v2.airport import placement_carrier as PC
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import obj8_split_report as OSR
+
+    path, _t = _two_boxes(tmp_path, with_anim=False)
+    plan = _unit_plan([(path, [(0, 0.0, 0.0, 0.0, 0.0, 8.0)],
+                        "objects/hangar.obj")])
+    ss = PP.build_splits(plan, lambda la, lo: None, write=False, **_elev_args())
+    cen = OSR.census(ss, lambda la, lo: None, 1.0, rows_of=("hangar",))
+    assert cen["bins"].get("off-sheet") and "off-surface" not in cen["bins"]
+    assert cen["rows"][0]["off_sheet"] == cen["rows"][0]["feet"]
+    assert cen["rows"][0]["within_0_3"] is None     # no verdict, not a pass
+    import dataclasses as _dc
+    wh, _kp = PP.to_placement_records(_dc.replace(ss, splits=ss.all))
+    v15 = PC.census_v15([q.to_dict() for q in wh])
+    assert v15["off_sheet_bodies"] == 1
+    assert v15["stands_over"] == 0 and v15["carried_float_gt"] == 0
+
+
+def test_the_v15_census_fails_a_carried_body_left_above_what_it_stands_on():
+    """§15 (3): the residual the EYE reads, and why no foot census can see
+    it — a CARRIED body has no feet at all, and a body anchored at its own
+    low-side foot reads every foot of its own as lawful while standing
+    metres above the walls under it.  The bar is 0 for carried bodies; a
+    FOOTED one's float is reported, never barred (two footed bodies over
+    genuinely different terrain lawfully differ)."""
+    from auto_patch_v2.airport import placement_carrier as PC
+
+    def _b(res, box, sz, y0, feet, elevated=False):
+        return {"new_resource": res, "plan_box": list(box), "surface_z": sz,
+                "y_zero": y0, "feet": feet, "elevated": elevated}
+
+    walls = {"placement": {"index": 1, "lat": 40.0, "lon": -3.0},
+             "bodies": [_b("objects/hangar__b0.obj",
+                           (40.0, -3.0, 40.001, -2.999), 100.0, 0.0, 8)]}
+    roof = {"placement": {"index": 2, "lat": 40.0, "lon": -3.0},
+            "bodies": [_b("objects/tej__b0.obj",
+                          (40.0, -3.0, 40.0005, -2.9995), 106.11, 0.0, 0, True)]}
+    bad = PC.census_v15([walls, roof])
+    assert bad["stands_over"] == 1 and bad["carried_float_gt"] == 1
+    assert bad["bars_ok"] is False
+    assert round(bad["carried_worst"][0][0], 2) == 6.11
+    assert "VIOLATED" in "\n".join(PC.census_v15_lines(bad))
+
+    roof["bodies"][0]["surface_z"] = 100.0          # carried at the walls' zero
+    good = PC.census_v15([walls, roof])
+    assert good["carried_float_gt"] == 0 and good["bars_ok"] is True
+    assert "VIOLATED" not in "\n".join(PC.census_v15_lines(good))
+
+    # a body of ANOTHER unit (another row) is out of §15 (1)'s reach and
+    # is reported as its own number, never as a float the law could close
+    roof["placement"]["lat"] = 41.0
+    roof["bodies"][0]["surface_z"] = 106.11
+    other = PC.census_v15([walls, roof])
+    assert other["stands_over"] == 0 and other["carried_float_gt"] == 0
+    assert other["stands_over_other_unit_only"] == 1

@@ -185,6 +185,14 @@ class Body:
     #: file's zero plane in world height)
     surface_z: float | None = None
     y_zero: float = 0.0
+    #: §15 (3): the body's PLAN box ``(lat0, lon0, lat1, lon1)`` and how
+    #: many GROUND-CONTACT FEET it holds.  The stands-over census reads
+    #: both: which footed body of another placement lies under this one's
+    #: footprint, and whether this one is footed at all.  A foot census
+    #: cannot see the class — a carried body has no feet, and a body on
+    #: its own low-side foot reads every foot of its own as lawful.
+    plan_box: tuple[float, float, float, float] | None = None
+    feet: int = 0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -193,7 +201,9 @@ class Body:
                 "authored_offset": list(self.authored_offset),
                 "elevated_members": self.elevated_members,
                 "elevated": self.elevated, "merged_into": self.merged_into or None,
-                "surface_z": self.surface_z, "y_zero": self.y_zero}
+                "surface_z": self.surface_z, "y_zero": self.y_zero,
+                "plan_box": None if self.plan_box is None else list(self.plan_box),
+                "feet": self.feet}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
@@ -207,7 +217,10 @@ class Body:
                    int(d.get("elevated_members", 0)),
                    bool(d.get("elevated", False)),
                    str(d.get("merged_into") or ""),
-                   None if sz is None else _f(sz), _f(d.get("y_zero", 0.0)))
+                   None if sz is None else _f(sz), _f(d.get("y_zero", 0.0)),
+                   None if d.get("plan_box") is None
+                   else tuple(_f(q) for q in d["plan_box"]),
+                   int(d.get("feet", 0)))
 
 
 @_dc.dataclass(frozen=True)

@@ -19,7 +19,12 @@ Three sites, all hermetic and v2-pure:
    own body, its own feet;
 3. a LINE OBJECT (a fence) spanning two buildings that touch nothing
    else — bodies that abut only through a line object never group
-   (RULINGS 2026-09-10bb rule 2).
+   (RULINGS 2026-09-10bb rule 2);
+4. THE GATE (owner RULINGS 2026-09-11a): the same body in the same
+   place, WALLED to the ground instead of carried on piers, abutting
+   the same terminal — a BUILDING, which never groups with a building.
+   Round 1's ungated rule pulled 7 of LEMD's OldTerminal buildings one
+   hop toward a larger neighbour.
 
 The fixture's ground is 5 m HIGHER under the viaduct, not lower: it is
 the direction that makes the BURIAL observable, and it is the direction
@@ -64,9 +69,14 @@ def pack(tmp_path_factory):
     # THE VIADUCT, a SEPARATE placement: a deck slab under the slab's
     # overhang (z -20..-12, y 10..11.8 — 2.2 m clear of the slab's
     # bottom, no contact) on two piers reaching the ground.
-    _boxes_obj(d / "viaduct.obj", [(0.0, -16.0, 40.0, 4.0, 10.0, 11.8),
-                                   (-30.0, -16.0, 1.0, 1.0, 0.0, 10.0),
-                                   (30.0, -16.0, 1.0, 1.0, 0.0, 10.0)])
+    _boxes_obj(d / "viaduct.obj", [(0.0, -16.0, 60.0, 4.0, 10.0, 11.8),
+                                   (-25.0, -16.0, 1.0, 1.0, 0.0, 10.0),
+                                   (25.0, -16.0, 1.0, 1.0, 0.0, 10.0)])
+    # THE ANNEX: the same body in the same place, WALLED to the ground —
+    # a building, not a deck.  It abuts the terminal exactly as the
+    # viaduct does and must NOT group with it (owner RULINGS 2026-09-11a:
+    # buildings never group with buildings, each seats on its own feet).
+    _boxes_obj(d / "annex.obj", [(0.0, -16.0, 60.0, 4.0, 0.0, 11.8)])
     # TWO BUILDINGS 10 m apart in plan, and a FENCE spanning both: a
     # ribbon 0.2 m wide, 60 m long, 2 m high, overlapping each building's
     # plan box and standing within the gap of each.
@@ -230,3 +240,40 @@ def test_two_buildings_joined_only_by_a_fence_never_group(pack, law):
     seats = {k.id: k for k in res.clusters}
     assert seats[wk[0]].group is None and seats[ek[0]].group is None
     assert ed[0] - wd[0] == pytest.approx(5.0, abs=0.05)        # each on its own ground
+
+
+# ── 4. THE GATE: only an ELEVATED DECK may be a cross-placement junior ──
+
+def test_the_plan_reads_the_deck_on_piers_and_the_walled_body(kerb):
+    """owner RULINGS 2026-09-11a: the plate-on-piers reading, on the plan."""
+    _a, pl = kerb
+    by = {m.resource: m for u in pl.units for m in u.members}
+    assert by["objects/viaduct.obj"].elevated_deck, \
+        "a plate 10 m up on two 1 m piers IS an elevated deck"
+    assert not by["objects/terminal.obj"].elevated_deck, \
+        "a slab carried on a walled core is NOT"
+    assert pl.counts["elevated_decks"] == 1
+
+
+def test_a_building_abutting_a_larger_building_never_groups(pack, law):
+    """The annex stands exactly where the viaduct's deck does and abuts
+    the same terminal — but it is WALLED to the ground, so it seats on
+    its own feet (11a; 10i: each body on its own feet)."""
+    _a, pl = _planned(pack, law, [("terminal", (0.0, 0.0), 0.0, 0.0),
+                                  ("annex", (0.0, 0.0), 0.0, 0.0)])
+    by = {m.resource: m for u in pl.units for m in u.members}
+    assert not by["objects/annex.obj"].elevated_deck
+    term = {p.pid for p in by["objects/terminal.obj"].parts}
+    ann = {p.pid for p in by["objects/annex.obj"].parts}
+    assert [(a, b) for a, b in pl.abutments
+            if (a in term and b in ann) or (a in ann and b in term)], \
+        "the fixture's annex must ABUT the terminal (the gate, not the geometry)"
+    res = R.seat(pl, _site_sampler(), law)
+    tk, td = _body(res, "terminal.obj")
+    ak, ad = _body(res, "annex.obj")
+    seats = {k.id: k for k in res.clusters}
+    assert seats[ak[0]].group is None and seats[tk[0]].group is None
+    # each on its OWN ground: the terminal 710, the annex 715
+    assert seats[tk[0]].ground_m == pytest.approx(710.0, abs=0.05)
+    assert seats[ak[0]].ground_m == pytest.approx(715.0, abs=0.05)
+    assert ad[0] - td[0] == pytest.approx(5.0, abs=0.05)

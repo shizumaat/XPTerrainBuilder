@@ -68,6 +68,7 @@ import typing as _t
 
 import numpy as np
 import shapely
+from scipy import ndimage as _ndimage
 from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
@@ -76,7 +77,7 @@ from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way",
-           "is_bridge_way", "bridge_lines", "family_key"]
+           "is_bridge_way", "bridge_lines", "family_key", "PierReading", "elevated_deck"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
 EVIDENCE_BELOW_GRADE = "below_grade"
@@ -550,3 +551,200 @@ def promote(objects: _t.Sequence[_obj8.PlacedObject], regions: _t.Sequence,
             o = objects[i]
             out[i] = _apply(o, o.deck_plate if o.deck_kind == "candidate" else None, rec)
     return out, n
+
+
+# ── THE ELEVATED DECK: a plate on PIERS ──────────────────────────────────
+
+@_dc.dataclass(frozen=True)
+class PierReading:
+    """What ``elevated_deck`` read off one resource (the numbers the spec
+    and the lane reports quote)."""
+
+    plate_m2: float                 #: the plate's filled plan footprint
+    ground_m2: float                #: ...and the ground-contact footprint
+    ratio: float                    #: ``ground_m2 / plate_m2`` (inf: no plate)
+    plane_y: float                  #: the plate's area-weighted authored height
+    floor_y: float                  #: the resource's lowest solid vertex
+    deck: bool                      #: the verdict
+    note: str
+
+
+def _raster(xz: np.ndarray, cell_m: float):
+    """``(filled grid, origin, cell)`` of a set of face
+    rings — the plan trace of the faces, HOLE-FILLED.
+
+    A WALL is a zero-area sliver in plan, so an area union reads nothing
+    where a building's walls stand; its TRACE, filled, is the footprint
+    the building carries (that is the whole discrimination here).  The
+    trace is rasterised on a ``cell_m`` grid — every face edge sampled at
+    half a cell — and ``binary_fill_holes`` encloses it: a wall ring
+    fills to the building's whole plan, a pier's outline to the pier.
+    A raster, not a shapely union, because the union NODES every segment
+    against every other: LEMD's 1,400-component scatter files ran for
+    minutes, this is milliseconds and reads the same footprint to within
+    a cell.
+    """
+    lo = xz.reshape(-1, 2).min(axis=0)
+    hi = xz.reshape(-1, 2).max(axis=0)
+    span = float(max(hi[0] - lo[0], hi[1] - lo[1]))
+    # the grid never exceeds 2,000 cells on a side (a 1 km scatter file)
+    cell = max(cell_m, span / 2000.0) if span > 0 else cell_m
+    nx = int(math.ceil((hi[0] - lo[0]) / cell)) + 5
+    nz = int(math.ceil((hi[1] - lo[1]) / cell)) + 5
+    grid = np.zeros((nx, nz), dtype=bool)
+    o = lo - 2.0 * cell
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        p0, p1 = xz[:, a, :], xz[:, b, :]
+        d = np.abs(p1 - p0).max(axis=1)
+        n = int(np.ceil(float(d.max()) / (0.5 * cell))) + 1 if d.size else 1
+        n = max(1, min(n, 4096))
+        ts = np.linspace(0.0, 1.0, n).reshape(1, n, 1)
+        pts = p0[:, None, :] + ts * (p1 - p0)[:, None, :]
+        ij = ((pts.reshape(-1, 2) - o) / cell).astype(np.int64)
+        np.clip(ij[:, 0], 0, nx - 1, out=ij[:, 0])
+        np.clip(ij[:, 1], 0, nz - 1, out=ij[:, 1])
+        grid[ij[:, 0], ij[:, 1]] = True
+    return _ndimage.binary_fill_holes(grid), o, cell
+
+
+def _footprint_m2(xz: np.ndarray, cell_m: float) -> tuple[float, float]:
+    """``(filled footprint m², the LARGEST connected piece's share of it)``."""
+    if xz.shape[0] == 0:
+        return 0.0, 0.0
+    filled, _o, cell = _raster(xz, cell_m)
+    total = float(filled.sum())
+    if total <= 0.0:
+        return 0.0, 0.0
+    lab, n = _ndimage.label(filled)
+    sizes = np.bincount(lab.ravel())[1:]
+    return total * cell * cell, (float(sizes.max()) / total if n else 0.0)
+
+
+def elevated_deck(cache: _obj8.ResourceCache, path: str, law) -> PierReading:
+    """THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5).
+
+    A resource is an elevated deck when it carries a PLATE — the dominant
+    ``deck_plane_bin_m`` bin of near-horizontal solid faces standing
+    ``deck_min_elevation_m`` or more above its own lowest solid vertex,
+    of at least ``deck_min_area_m2`` of face — and what it STANDS ON is
+    PIERS: the filled plan trace of the solid faces reaching within
+    ``[basin] contact_band_m`` of that floor holds no more than
+    ``deck_pier_footprint_max`` of the plate's own filled trace.
+
+    A BUILDING fails the second half by construction: its walls trace the
+    whole plate back down onto the ground, so the filled ring IS the
+    plate's footprint (LEMD's OldTerminal ``P2CNX`` 1.42, ``LEMD84``
+    1.28, ``LEMD60`` 1.03, ``LEMD38`` 0.27).  A VIADUCT stands on a few
+    small blobs (``Terminal4_green-STRT4``: 2.4k m² of pier under 27k m²
+    of deck).  This is the gate the CROSS-PLACEMENT abutment group is
+    confined to: buildings never group with buildings (10i — each seats
+    on its own feet); an elevated deck abutting a building's kerb takes
+    the building's delta (10ay).
+
+    Read-only, geometry only, no DEM and no mesh — the plan-time reading
+    ``airport/rebake_plan.py`` records on the member."""
+    br = law.tables.structures.bridge
+    band = law.tables.structures.basin.contact_band_m
+    memo = getattr(cache, "deck_pier", None)
+    if memo is None:
+        memo = {}
+        setattr(cache, "deck_pier", memo)
+    if path in memo:
+        return memo[path]
+
+    def _done(r: PierReading) -> PierReading:
+        memo[path] = r
+        return r
+
+    none = PierReading(0.0, 0.0, math.inf, 0.0, 0.0, False, "")
+    g = cache.geometry(path)
+    if g is None or g.solid.shape[0] == 0:
+        return _done(_dc.replace(none, note="no solid geometry"))
+    f = _Faces(g)
+    if f.n == 0:
+        return _done(_dc.replace(none, note="no solid geometry"))
+    v, t = g.vertices, g.solid
+    ylo = np.minimum(np.minimum(v[t[:, 0], 1], v[t[:, 1], 1]), v[t[:, 2], 1])
+    floor = float(ylo.min())
+    m = (f.ny >= br.deck_plate_normal_y_min) & (f.cy >= floor + br.deck_min_elevation_m)
+    if not m.any():
+        return _done(_dc.replace(none, floor_y=floor,
+                                 note=f"no near-horizontal face {br.deck_min_elevation_m} m "
+                                      "above its own floor: nothing is carried"))
+    bins: dict[int, float] = {}
+    for k, a in zip(np.round(f.cy[m] / br.deck_plane_bin_m).astype(int).tolist(),
+                    f.area[m].tolist()):
+        bins[k] = bins.get(k, 0.0) + a
+    top = max(bins.values())
+    dom = max(k for k, a in bins.items() if a >= br.deck_plane_area_tie * top)
+    inplane = m & (np.round(f.cy / br.deck_plane_bin_m).astype(int) == dom)
+    face_m2 = float(f.area[inplane].sum())
+    if face_m2 < br.deck_min_area_m2:
+        return _done(_dc.replace(none, floor_y=floor,
+                                 note=f"plate {face_m2:.0f} m2 of face "
+                                      f"< {br.deck_min_area_m2} m2"))
+    plane_y = float(np.average(f.cy[inplane], weights=f.area[inplane]))
+    plate_m2, connected = _footprint_m2(f.xz[inplane], br.deck_pier_close_m)
+    if plate_m2 <= 0.0:
+        return _done(_dc.replace(none, floor_y=floor, plane_y=plane_y,
+                                 note="plate has no plan footprint"))
+    if connected < br.deck_plate_connected_min:
+        # A DECK IS ONE PLATE — one carriageway, not a scatter of panels.
+        # This is what keeps a file-wide FLOOR honest: LEMD authors whole
+        # classes of small things in one resource (``OldTerminal_FSX-
+        # VRDCH``: 279 fence panels on posts over 32 m of relief, its
+        # lowest post 3 m under the rest), and against that one floor
+        # every panel reads as a plate carried on piers.  A real deck's
+        # plate is CONNECTED (LEMD ``STRT4`` 1.00, ``LEMD02`` 1.00; the
+        # fence 0.03, ``Terminal4-LEMD01`` 0.05 over 1,059 pieces).
+        return _done(_dc.replace(none, plate_m2=plate_m2, floor_y=floor, plane_y=plane_y,
+                                 note=f"plate is {connected:.2f} connected "
+                                      f"(< {br.deck_plate_connected_min}): a scatter of "
+                                      "plates, not one deck"))
+    # WHAT CARRIES IT — read UNDER THE PLATE, at the plate's OWN floor.
+    # A file-wide floor is not the ground under this plate: LEMD authors
+    # whole building classes in one resource (``OldTerminal_FSX-LEMD03``,
+    # ``LEMD41``, ``Terminal4_05``), and against the file's lowest
+    # component a building's walls stand metres above "the floor" and read
+    # as no ground contact at all — every big roof passed for a deck.  The
+    # faces whose plan centroid lies INSIDE the plate footprint are what
+    # stands under it; their lowest vertex is the floor that plate is
+    # carried from, and what reaches within ``[basin] contact_band_m`` of
+    # THAT is the footprint it stands on: a viaduct's piers, a building's
+    # own walls.
+    filled, org, cell = _raster(f.xz[inplane], br.deck_pier_close_m)
+    # one cell of slack: a wall stands ON the plate's outline, and its
+    # triangles' corners fall on the boundary cells either side of it
+    filled = _ndimage.binary_dilation(filled, iterations=2)
+    under = np.zeros(f.n, dtype=bool)
+    for c in range(3):
+        ij = ((f.xz[:, c, :] - org) / cell).astype(np.int64)
+        ok = ((ij[:, 0] >= 0) & (ij[:, 0] < filled.shape[0])
+              & (ij[:, 1] >= 0) & (ij[:, 1] < filled.shape[1]))
+        hit = np.zeros(f.n, dtype=bool)
+        hit[ok] = filled[ij[ok, 0], ij[ok, 1]]
+        under |= hit
+    if not under.any():
+        return _done(_dc.replace(none, plate_m2=plate_m2, floor_y=floor, plane_y=plane_y,
+                                 note="nothing stands under the plate"))
+    floor_u = float(ylo[under].min())
+    # THE SECTION HALFWAY UP: what stands between that floor and the
+    # plate.  A BUILDING's walls run the whole height, so the section
+    # fills the plate's own footprint; a DECK's piers are a few blobs in
+    # an otherwise open space.  A section, not a band at the floor,
+    # because the floor under a plate is not always the ground a wall
+    # starts from — LEMD's ``OldTerminal_FSX-LEMD03`` drops one small
+    # footing 2.6 m under a building whose walls start at −0.1, and a
+    # floor band there reads 6 m² under a 1,819 m² roof.
+    yhi = np.maximum(np.maximum(v[t[:, 0], 1], v[t[:, 1], 1]), v[t[:, 2], 1])
+    y_mid = 0.5 * (floor_u + plane_y)
+    gm = under & (ylo <= y_mid) & (yhi >= y_mid)
+    ground_m2 = _footprint_m2(f.xz[gm], br.deck_pier_close_m)[0] if gm.any() else 0.0
+    ratio = ground_m2 / plate_m2
+    deck = ratio <= br.deck_pier_footprint_max
+    note = (f"plate {plate_m2:.0f} m2 at y {plane_y:.2f} over a floor {floor:.2f}; "
+            f"{connected:.2f} connected; the section at y {y_mid:.2f} carries "
+            f"{ground_m2:.0f} m2 = {ratio:.3f} of it "
+            f"({'piers' if deck else 'walls'}; the gate is "
+            f"{br.deck_pier_footprint_max})")
+    return _done(PierReading(plate_m2, ground_m2, ratio, plane_y, floor, deck, note))

@@ -77,6 +77,7 @@ import math
 import statistics
 import typing as _t
 
+from .abutment_group import groups as _groups
 from ..model.rebake import ClusterSeat, PadRequest, Part, RebakePlan
 
 __all__ = ["Outcome", "MemberParts", "seat_clusters", "metres_per_degree", "coalition"]
@@ -668,121 +669,12 @@ def seat_clusters(plan_: RebakePlan, sampler: Sampler, law, base_by_member: _t.M
             lf = lifts[k]
             if lf is not None and lf > d0 + band and lf > band:
                 facility.add(k)
-    # ── THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay; spec §17) ──────
-    # In a SHARED-DATUM pack the authored relation between two placements
-    # is exact, so bodies of one ANCHOR PLANE that ABUT in the AUTHORED
-    # frame — plan footprints overlapping, authored z within
-    # ``plate_gap_max_m``, no ε-contact edge (``plan.abutments``, read at
-    # plan time by ``airport/contact.py``) — form ONE GROUP with ONE
-    # delta: THE SENIOR BODY'S (most measured feet, then largest
-    # footprint).  LEMD's T4 departures viaduct is 58 components in 32
-    # bodies, each on its own piers, deltas +18.44 … +27.71, standing
-    # over the terminal (one body, 558 parts, +20.94) whose kerb it was
-    # authored to run 2.24 m under.  Grouped, the deck stays at the kerb
-    # and its ramp ends BURY where the ground is higher — lawful (10ay:
-    # "allow either end to be submerged … and the ground will join it").
-    #
-    # A body is OUT of the class when a rule already governs its
-    # elevation: a LINE body (10bb rule 2 — bodies that abut only through
-    # a line object never group), an ORPHAN, a STRUCTURE-seated body (a
-    # deck / plate / basin, 14.1 rule 4 — this is what keeps OTHH's decks
-    # where their abutment law puts them) and a FACILITY (05p: the
-    # terrain adapts to it, it is never seated).
-    group_of: dict[int, int] = {}
-    group_ground: dict[int, float] = {}
-    n_group_refused = 0
-    if plan_.abutments:
-        def _eligible(k: int) -> bool:
-            return (k not in line_body_ks and k not in orphan_ks and k not in facility
-                    and not any(pid in attached for pid in members_of[k]))
-        # A PLACEMENT'S OWN abutments CHAIN; ACROSS placements the
-        # abutment is ONE HOP to the senior.  10i rule 1 already makes one
-        # placement's TOUCHING set one body; 10ay's authored frame extends
-        # that to its separated components, so the viaduct's 32 deck
-        # sections are one thing before they meet the terminal at all —
-        # and then that one thing takes the terminal's delta.
-        #
-        # The full transitive closure was measured first and REFUTED: it
-        # swept LEMD's OldTerminal facades — placement abutting placement
-        # abutting placement — into single groups and put 36 placements'
-        # feet over 3 m off their ground against 14 at base (`T2SL4`
-        # +8.27, `LEMD38` +7.17, `LEMD84` +6.10, not a deck among them).
-        # One hop with NO intra-placement chain was measured too: 16 over
-        # 3 m, but the viaduct came apart again (27 of its 32 bodies
-        # ungrouped, deltas +18.44 … +23.56), which is the site itself.
-        own = _UF(list(members_of))
-        cross: list[tuple[int, int]] = []
-        for a, b in plan_.abutments:
-            ka, kb = cluster_of.get(a), cluster_of.get(b)
-            if ka is None or kb is None or ka == kb:
-                continue
-            if not (_eligible(ka) and _eligible(kb)):
-                n_group_refused += 1
-                continue
-            if ps[a].key == ps[b].key:
-                own.union(ka, kb)
-            else:
-                cross.append((ka, kb))
-        chain_of = {k: own.find(k) for k in members_of}
-        chain_parts: dict[int, list[int]] = {}
-        for k, c in chain_of.items():
-            chain_parts.setdefault(c, []).extend(members_of[k])
-        area_of = {c: _plan_area(pids, ps) for c, pids in chain_parts.items()}
-        abuts: dict[int, set[int]] = {}
-        for ka, kb in cross:
-            ca, cb = chain_of[ka], chain_of[kb]
-            if ca == cb:
-                continue
-            abuts.setdefault(ca, set()).add(cb)
-            abuts.setdefault(cb, set()).add(ca)
-        # a CHAIN is a JUNIOR of the LARGEST chain it abuts, and only when
-        # that one is strictly larger (a tie is two peers and no group);
-        # a junior never founds a group of its own — one hop, never two
-        senior_of: dict[int, int] = {}
-        for c, ns in abuts.items():
-            best = max(ns, key=lambda n: (area_of[n], -n))
-            if area_of[best] > area_of[c]:
-                senior_of[c] = best
-        chain_members: dict[int, list[int]] = {}
-        for k, c in chain_of.items():
-            chain_members.setdefault(c, []).append(k)
-        groups_by_senior: dict[int, list[int]] = {}
-        for c, s in senior_of.items():
-            if s in senior_of:
-                continue
-            g = groups_by_senior.setdefault(s, list(chain_members[s]))
-            g.extend(chain_members[c])
-        # a chain of several bodies with no cross abutment at all is still
-        # ONE group: the placement's own separated components, one delta
-        for c, kss in chain_members.items():
-            if len(kss) > 1 and c not in senior_of and c not in groups_by_senior:
-                groups_by_senior[c] = list(kss)
-        for ks in groups_by_senior.values():
-            if len(ks) < 2:
-                continue
-            # THE SENIOR (10ay: "most feet / largest footprint: the
-            # terminal"): the LARGEST PLAN FOOTPRINT first, then the most
-            # measured feet, then the lowest body id.  Footprint leads
-            # because feet do not track seniority — LEMD's T4 terminal
-            # (264,783 m², one ground slab, RULINGS 2026-09-10i (2)'s
-            # "authored with its floor 5.36 m above the pack's y = 0")
-            # carries FEWER measured feet than the 66,540 m² viaduct it
-            # must govern, which is one pier per span.  The senior must
-            # have a ground of its own to lend; a group of bodies that
-            # all read nothing keeps what it had.
-            order = sorted(ks, key=lambda k: (-_plan_area(members_of[k], ps),
-                                              -len(grounds_of.get(k, ())), k))
-            senior = next((k for k in order if grounds_of.get(k)), None)
-            if senior is None:
-                continue
-            gs_s = grounds_of[senior]
-            skirted_s = all(plan_.units[ps[pid].key[0]].members[ps[pid].key[1]].skirted
-                            for pid in members_of[senior])
-            lows_s = lows_of.get(senior, ())
-            gm = float(min(lows_s)) if skirted_s and lows_s else float(statistics.median(gs_s))
-            for k in ks:
-                group_of[k] = senior
-                group_ground[k] = gm
+    # THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay, gated 11a; spec
+    # §17) — the law and its evidence live in ``emit/abutment_group.py``
+    # (the 1,000-line file law).
+    group_of, group_ground, n_group_refused = _groups(
+        plan_, rb, ps, members_of, cluster_of, line_body_ks, orphan_ks, facility,
+        attached, grounds_of, lows_of, _plan_area)
     seats: list[ClusterSeat] = []
     pads: list[PadRequest] = []
     members: dict[MemberKey, MemberParts] = {}

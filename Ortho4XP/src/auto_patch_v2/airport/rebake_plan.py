@@ -130,7 +130,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               "units": 0, "members": 0, "deck_members": 0,
                               "parts": 0, "no_parts": 0, "contacts": 0, "pools": 0,
                               "structures": 0, "pairs_tested": 0, "pairs_unproved": 0,
-                                  "skirted_members": 0,
+                                  "skirted_members": 0, "elevated_decks": 0,
                               "terrain_adapted": 0, "line_objects": 0,
                               "below_grade": 0, "below_grade_parts": 0,
                               "deck_families": len(deck_keys),
@@ -293,6 +293,13 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         skirted = bool(sk.seat_low_side
                        and _skirt.is_skirt(cache, o.resolved, law))
         counts["skirted_members"] += int(skirted)
+        # THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5): a
+        # plate on PIERS, read off the same cache.  It is the GATE on the
+        # cross-placement abutment group — only an elevated deck may take
+        # another placement's delta (``emit/clusters.py``); a building
+        # seats on its own feet (10i).
+        deck_body = bool(_deck.elevated_deck(cache, o.resolved, law).deck)
+        counts["elevated_decks"] += int(deck_body)
         # THE LINE OBJECT (owner RULINGS 2026-09-10bb; spec §16): a fence /
         # kerb / jet-blast line / light string forms no body and founds no
         # foot — it drapes.  A STRUCTURE-seated member is never one: a deck,
@@ -306,7 +313,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         members[o.path] = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
                                  o.heading_deg, (), deck_ring, deck_top_y, deck_datum_z,
                                  o.deck_kind, deck_ends, deck_profile, tuple(o.deck_evidence),
-                                 deck_stations, plate_y, plate_stations, skirted)
+                                 deck_stations, plate_y, plate_stations, skirted,
+                                 deck_body)
         placed.append((o, geom, list(comps)))
         member_ref.append((key, o.path))
     # THE PARTITION (06g): every member's genuine components as placed
@@ -367,7 +375,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                          m.heading_deg, ps, m.deck_ring, m.deck_top_y,
                                          m.deck_datum_z, m.deck_kind, m.deck_ends,
                                          m.deck_profile, m.deck_evidence, m.deck_stations,
-                                         m.plate_y, m.plate_stations, m.skirted)
+                                         m.plate_y, m.plate_stations, m.skirted,
+                                         m.elevated_deck)
         counts["parts"] += len(ps)
     counts["contacts"] = len(part.contacts)
     counts["abutments"] = len(part.abutments)

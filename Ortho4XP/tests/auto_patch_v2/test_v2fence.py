@@ -266,7 +266,7 @@ def test_the_plan_round_trips_the_line_verdict():
     """§16.2 C2: ``Part.line`` travels in the plan (version 7; the
     current ``PLAN_VERSION`` is 8, spec §17's abutments)."""
     from auto_patch_v2.model.rebake import PLAN_VERSION, RebakePlan
-    assert PLAN_VERSION == 8
+    assert PLAN_VERSION == 9
     pl = _fence_plan()
     back = RebakePlan.from_json(pl.to_json())
     assert [p.line for u in back.units for m in u.members for p in m.parts] == \

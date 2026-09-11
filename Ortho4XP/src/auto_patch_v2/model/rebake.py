@@ -38,7 +38,7 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "U
 #: its widened DRAPE STATIONS (10bb, spec §16); 8: the AUTHORED-FRAME
 #: ABUTMENTS (10ay, spec §17 — cross-placement grouping inside one
 #: anchor plane).
-PLAN_VERSION = 8
+PLAN_VERSION = 9
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -138,6 +138,15 @@ class Member:
     #: buries into the skirt.  Absent from an older plan = ``False`` =
     #: the pre-10ag law exactly.
     skirted: bool = False
+    #: THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5;
+    #: ``airport/deck_signature.elevated_deck``): this member's resource
+    #: carries a PLATE on PIERS — a plate elevated over its own floor
+    #: whose ground-contact footprint is a small fraction of it.  It is
+    #: the GATE on the cross-placement abutment group: only an elevated
+    #: deck may become the JUNIOR of a body in another placement (a
+    #: building seats on its own feet, 10i).  Absent from an older plan
+    #: = ``False`` = no cross-placement group at all.
+    elevated_deck: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -259,6 +268,7 @@ class RebakePlan:
                     "plate_y": m.plate_y,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
+                    "elevated_deck": m.elevated_deck,
                 } for m in u.members],
             } for u in self.units],
         }
@@ -268,7 +278,9 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
-        # Version 8 is version 7 plus ``RebakePlan.abutments`` (RULINGS
+        # Version 9 is version 8 plus ``Member.elevated_deck`` (owner
+        # RULINGS 2026-09-11a), version 8 is version 7 plus
+        # ``RebakePlan.abutments`` (RULINGS
         # 2026-09-10ay) and version 7 is version 6 plus ``Part.line``
         # (2026-09-10bb): an older plan reads as the current one with no
         # abutment and no line object in it — the pre-10ay / pre-10bb seat
@@ -307,6 +319,7 @@ class RebakePlan:
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
                 skirted=bool(m.get("skirted", False)),
+                elevated_deck=bool(m.get("elevated_deck", False)),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

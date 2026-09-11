@@ -103,6 +103,25 @@ def cmd_seat(args: argparse.Namespace) -> int:
         plan = dataclasses.replace(plan, units=tuple(units))
         print(f"  --line-objects: {n_res} resource(s), {n_part} part(s) stamped "
               "LINE (10bb; the plan's own feet stand in for the drape stations)")
+    if getattr(args, "elevated_decks", False):
+        # owner RULINGS 2026-09-11a, spec §17.5: stamp the ELEVATED-DECK
+        # verdict onto a plan that predates it, read off the AUTHORED
+        # files the plan names — the same what-if as --line-objects.  The
+        # reading is geometry only, so it is the build's exactly.
+        from auto_patch_v2.airport import deck_signature as _DS
+        from auto_patch_v2.airport import obj8 as _O8
+        cache_d = _O8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+        n_deck = 0
+        units = []
+        for u in plan.units:
+            ms = []
+            for m in u.members:
+                d_ = _DS.elevated_deck(cache_d, m.authored_path, law).deck
+                n_deck += int(d_)
+                ms.append(dataclasses.replace(m, elevated_deck=d_))
+            units.append(dataclasses.replace(u, members=tuple(ms)))
+        plan = dataclasses.replace(plan, units=tuple(units))
+        print(f"  --elevated-decks: {n_deck} resource(s) stamped ELEVATED DECK (11a)")
     if args.no_groups:
         # owner RULINGS 2026-09-10ay (spec §17): the OFF arm of the
         # abutment group, offline — one build serves both arms, since the
@@ -513,6 +532,11 @@ def main(argv: list[str] | None = None) -> int:
                         "that predates it, read off the authored files — the 10bb what-if on an "
                         "earlier build's plan and mesh (the plan's own feet stand in for the "
                         "widened drape stations)")
+    s.add_argument("--elevated-decks", action="store_true",
+                   help="stamp the ELEVATED-DECK verdict (owner RULINGS 2026-09-11a, spec §17.5) "
+                        "onto a plan that predates it, read off the authored files — the 11a "
+                        "what-if (which bodies may be a cross-placement JUNIOR) on an earlier "
+                        "build's plan and mesh")
     s.add_argument("--no-groups", action="store_true",
                    help="drop the plan's AUTHORED-FRAME ABUTMENTS (owner RULINGS 2026-09-10ay, "
                         "spec §17): the pre-10ay seat over the SAME build, so one build serves "

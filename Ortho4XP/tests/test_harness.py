@@ -7790,3 +7790,140 @@ def test_a_structure_ramp_is_priced_at_the_ramp_laws_ceiling(cg, tmp_path):
     old = _families(cg, _ramp_patch(tmp_path, grade=0.082, law="service_road",
                                     cap="0.08", name="OLD"))
     assert len(old["within_shape"]) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE PAD'S RELIEF TARGET — one pad, one level plane, two readers
+# (owner RULINGS 2026-09-11j; ratified 11l (2); spec §11a (2)/(4))
+# ══════════════════════════════════════════════════════════════════════
+# A pad under an OBJ8 body whose ground-contact feet are authored at
+# different ``y`` is NOT flat and must not be: X-Plane drapes the whole
+# body at one anchor, so the terrain under every foot has to stand at
+# ``level + (y_foot − y_zero)``.  The solve prices it flat ON ITS LEVEL
+# PLANE (``constraints/pad_relief``, ``Diff.rel``) and publishes the
+# per-vertex offsets as the sidecar key ``pad_relief``.
+#
+# THE TWIN: the in-build reader (``verify/pads.pad_flat``) and the
+# HARNESS reader (``check_grade``'s ``within_shape`` / ``plane_gradient``
+# families) must make the SAME reading of the SAME emitted pad — zero
+# rows with the key, the designed steps priced without it.  Round 2 landed
+# the key; round 3 taught the harness to read it, and this is what stops
+# the two instruments drifting again (the census-wrapper defect class).
+
+_PAD_RELIEF = (0.0, 1.2, 2.4, 1.2)      # metres above the pad's level
+
+
+def _relief_pad_geometry(side: float = 20.0):
+    """A square ``building`` pad at the twin anchor, its four vertices
+    emitted at ``level + offset``: ``[(lat, lon, z, offset), …]``."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+    level = 100.0
+    corners = ((0.0, 0.0), (side, 0.0), (side, side), (0.0, side))
+    out = []
+    for (x, y), off in zip(corners, _PAD_RELIEF):
+        lat = _TWIN_ANCHOR[0] + math.degrees(y / r)
+        lon = _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0))
+        out.append((lat, lon, level + off, off))
+    return out
+
+
+def _relief_pad_patch(tmp_path: Path, *, publish: bool, name: str) -> Path:
+    """The pad as an emitted patch, with or without the ``pad_relief``
+    sidecar key (``publish=False`` is an older build's patch)."""
+    pts = _relief_pad_geometry()
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='pad-relief-twin'>"]
+    nids = []
+    for i, (lat, lon, z, _off) in enumerate(pts):
+        n = str(-1 - i)
+        nids.append(n)
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{z:.2f}' /></node>")
+    out.append("  <way id='-99'>")
+    out += [f"    <nd ref='{n}' />" for n in nids + [nids[0]]]
+    out += ["    <tag k='role' v='building' />",
+            "    <tag k='shapeID' v='P1' />",
+            "  </way>", "</osm>"]
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    side = {"anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}
+    if publish:
+        side["pad_relief"] = [[lat, lon, off] for lat, lon, _z, off in pts]
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    return osm
+
+
+def _verify_relief_pad(publish: bool):
+    """The SAME pad read by the in-build instrument: ``pad_flat`` rows."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.verify.frame import Patch, Shape
+    from auto_patch_v2.verify.pads import pad_flat
+    pts = _relief_pad_geometry()
+    law = Law.for_airport("ZZZZ")
+    lat0, lon0 = _TWIN_ANCHOR
+    p = Patch(law, lat0, lon0, {}, {}, {}, (), (),
+              {"pad_relief": [[lat, lon, off]
+                              for lat, lon, _z, off in pts]} if publish else {})
+    xy = {i: p.to_m(lat, lon) for i, (lat, lon, _z, _o) in enumerate(pts)}
+    z = {i: zz for i, (_la, _lo, zz, _o) in enumerate(pts)}
+    ll = {i: (lat, lon) for i, (lat, lon, _z, _o) in enumerate(pts)}
+    sh = Shape(0, "building", "building:1", tuple(xy),
+               tuple(xy[i] for i in xy), tuple(z[i] for i in z))
+    p = _dc_replace_patch(p, xy=xy, z=z, ll=ll, shapes=(sh,))
+    return pad_flat(p)
+
+
+def _dc_replace_patch(p, **kw):
+    import dataclasses
+    return dataclasses.replace(p, **kw)
+
+
+def _pad_families(cg, osm) -> dict:
+    fo: dict = {}
+    cg.run_checks_law_true(osm, family_out=fo, quiet=True)
+    return fo
+
+
+def test_a_relief_pad_reads_zero_through_both_instruments(cg, tmp_path):
+    """11l (2): with ``pad_relief`` published, the pad's designed relief
+    is read on its LEVEL PLANE — the harness census prices no
+    ``within_shape`` / ``plane_gradient`` row and the in-build
+    ``verify/pads.pad_flat`` returns no row.  ONE pad, ONE level, TWO
+    readers that agree by construction."""
+    fo = _pad_families(cg, _relief_pad_patch(tmp_path, publish=True,
+                                             name="PADREL"))
+    assert len(fo.get("within_shape", [])) == 0, fo.get("within_shape")
+    assert len(fo.get("plane_gradient", [])) == 0, fo.get("plane_gradient")
+    assert _verify_relief_pad(publish=True) == []
+
+
+def test_without_the_key_both_instruments_price_the_same_relief(cg, tmp_path):
+    """The key is what does it, in BOTH readers: strip ``pad_relief`` and
+    the same emitted pad prices rows on both sides — so an older patch
+    reads exactly as it did before 11j, and neither instrument is quietly
+    ignoring the relief on its own."""
+    fo = _pad_families(cg, _relief_pad_patch(tmp_path, publish=False,
+                                             name="PADRAW"))
+    assert len(fo.get("within_shape", [])) > 0
+    assert _verify_relief_pad(publish=False) != []
+
+
+def test_the_pad_relief_key_is_registered_as_law_input(cg):
+    """The sidecar contract is ONE table (``SIDECAR_LAW_KEYS``): a reader
+    that forgot to register the key would silently degrade every census
+    to the pre-11j frame, which is the census-wrapper defect class."""
+    assert cg.SIDECAR_LAW_KEYS["pad_relief"] == "pad_relief_ll"
+    import inspect
+    assert "pad_relief_ll" in inspect.signature(cg.run_checks).parameters
+
+
+def test_the_relief_offsets_join_by_coordinate_in_both_readers(cg):
+    """Both readers join the published rows to vertices BY COORDINATE —
+    the sidecar carries lat/lon, never the build's vertex ids."""
+    pts = _relief_pad_geometry()
+    nodes = {str(-1 - i): (lat, lon) for i, (lat, lon, _z, _o) in enumerate(pts)}
+    got = cg._pad_relief_by_nid(nodes, [[lat, lon, off]
+                                        for lat, lon, _z, off in pts])
+    assert [got[str(-1 - i)] for i in range(len(pts))] == list(_PAD_RELIEF)

@@ -319,3 +319,27 @@ def test_authored_offset_inverts_the_placement_affine(heading):
     assert dx == pytest.approx(x, abs=1e-3)
     assert dz == pytest.approx(z, abs=1e-3)
     assert dy == 1.5
+
+
+# ── the join with §2's model (lane v2dsfagl) ─────────────────────────────
+
+def test_split_records_translate_into_the_placement_model():
+    """§2 is the interface the two lanes meet at: this lane's bodies must
+    land in ``model/placement.py``'s own records, anchor and offset
+    intact, with no second copy of either model."""
+    from auto_patch_v2.model import placement as PM
+    a = AR.Anchor(AR.BUILDING, 40.5, -3.5, 1.25, "pad point (building16)",
+                  601.0, (12.0, 1.25, -8.0))
+    body = PP.Body(0, AR.BUILDING, (3, 4), a, "objects/x__b0.obj")
+    s = PP.Split(2950, "dsf:obj2950", "objects/x.obj", "/tmp/x.obj",
+                 40.4, -3.4, 269.2, (body,))
+    ss = PP.SplitSet((s,), (PP.Kept(7, "dsf:obj7", "objects/y.obj", "anim"),), {})
+    splits, kept = PP.to_placement_records(ss)
+    assert isinstance(splits[0], PM.Split) and isinstance(kept[0], PM.Kept)
+    assert splits[0].placement.index == 2950
+    b = splits[0].bodies[0]
+    assert (b.anchor.lat, b.anchor.lon) == (40.5, -3.5)
+    assert b.anchor.heading_deg == 269.2
+    assert b.authored_offset == (12.0, 1.25, -8.0)
+    assert b.anchor_reason == "pad point (building16)"
+    assert kept[0].reason == "anim"

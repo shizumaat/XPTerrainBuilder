@@ -346,3 +346,29 @@ def _index_of(placement_id: str) -> int:
     """``dsf:obj2950`` -> 2950; ``-1`` when the id does not carry one."""
     digits = "".join(ch for ch in placement_id if ch.isdigit())
     return int(digits) if digits else -1
+
+
+# ── the join with lane ``v2dsfagl`` (§2's model) ─────────────────────────
+
+def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
+    """This lane's :class:`SplitSet` as §2's own ``Split`` / ``Kept``
+    records — ``model/placement.py``'s dataclasses, which lane
+    ``v2dsfagl`` owns and the DSF writer consumes.
+
+    The two halves meet HERE and only here: §4/§6 decide what the bodies
+    are, where each anchor goes and what offset the vertices take; §3
+    assigns the new ``OBJECT_DEF`` indices and writes the DSF.  Nothing in
+    this function decides anything — a translation, so that neither lane
+    grows a copy of the other's model."""
+    from ..model import placement as _pm
+    splits = tuple(_pm.Split(
+        placement=_pm.PlacementRef(s.index, s.resource, s.lon, s.lat, s.heading),
+        bodies=tuple(_pm.Body(
+            body_id=f"b{b.body_id}", body_class=b.body_class,
+            components=tuple(b.components),
+            anchor=_pm.Anchor(b.anchor.lon, b.anchor.lat, s.heading),
+            anchor_reason=b.anchor.reason, new_resource=b.new_resource,
+            authored_offset=tuple(b.anchor.offset)) for b in s.bodies))
+        for s in ss.splits)
+    kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
+    return splits, kept

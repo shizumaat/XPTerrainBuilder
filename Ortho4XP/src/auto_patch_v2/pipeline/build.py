@@ -267,11 +267,35 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # plan read the same parsed geometry, so the pack is parsed once
     from ..airport.obj8 import ResourceCache as _RCache
     ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
+    # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
+    # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack
+    # is read and partitioned HERE, once, and ``rebake_plan.plan()``
+    # FILTERS this reading after the solve instead of re-partitioning a
+    # filtered object set.  ``planar`` is handed the same objects, so the
+    # pack is still read once.
+    from ..airport.pack_partition import partition_pack as _partition_pack
+    from ..law.tables import group_span_max_m as _span_max
+    from ..planar.basins import read_objects as _read_objects
+    from ..planar.group import derive as _derive_groups
+    pack_objects, pack_report = _read_objects(airport, law, ocache)
+    _part = _partition_pack(airport, pack_objects, ocache, law)
+    _groups = _derive_groups(_part, _span_max(law))
+    airport = _dc.replace(airport, partition=_part, groups=_groups)
+    wall["partition"] = time.perf_counter() - t
+    _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
+         f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
+         f"contacts {_part.counts['contacts']}  abutments {_part.counts['abutments']}  "
+         f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']} "
+         f"(cross-placement {_groups.counts['cross_groups']}, long span "
+         f"{_groups.counts['long_span']})", out)
+    t = time.perf_counter()
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
     t = time.perf_counter()
     objects_out: list = []
-    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache)
+    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
+                              objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
@@ -696,7 +720,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                 exclude=excluded,
                                 tunnel_objects=plates,
                                 below_grade=[(_basin_polygon(b), tuple(b.objects))
-                                             for b in pm.basins])
+                                             for b in pm.basins],
+                                partition=airport.partition)
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             rebake_path.write_text(rplan.to_json())

@@ -247,6 +247,83 @@ def cmd_seat(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def cmd_order(args) -> int:
+    """THE PARTITION-ORDER TWIN (owner RULINGS 2026-09-11j; spec §11a (3)).
+
+    ``rebake_plan.plan()`` used to PARTITION A FILTERED object set; it now
+    FILTERS A PARTITION read once at load.  The two orders are not
+    identical by construction (``airport/pack_partition`` module doc), so
+    this runs both over ONE airport's real pack and reports
+    ``parts`` / ``contacts`` / ``abutments`` — equal, or the difference
+    named.  It builds NOTHING: load + classify-free object read only, and
+    the DSF text dump is read from the mod cache, never regenerated.
+
+    The screen here is the LOAD-DERIVABLE half (the below-grade
+    components, the deck families, the structure-seat exemptions).  The
+    basin exclusions and the tunnel-wall plates are PLANAR products and
+    have no value outside a build; a run with those is the closing
+    build's own ``rebake plan`` line.
+    """
+    import time
+    from auto_patch_v2.airport.load import load
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    from auto_patch_v2.airport.pack_partition import partition_pack
+    from auto_patch_v2.airport.rebake_plan import screen_of
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.basins import read_objects
+    from auto_patch_v2.planar.__main__ import ENGINE_DIR, default_inputs
+    os.chdir(ENGINE_DIR)
+    icao = args.icao.upper()
+    law = Law.for_airport(icao)
+    inputs = default_inputs(None, None, None, 60.0, args.dem_frame, True)
+    t = time.perf_counter()
+    airport = load(icao, inputs, law)
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    t_load = time.perf_counter() - t
+    screen, objs = screen_of(objects, cache, law)
+    t = time.perf_counter()
+    loaded = partition_pack(airport, objs, cache, law)
+    t_new = time.perf_counter() - t
+    new = loaded.filtered(screen, law)
+    t = time.perf_counter()
+    old = partition_pack(airport, objs, cache, law, screen)
+    t_old = time.perf_counter() - t
+    print(f"[{icao}] load+object read {t_load:.2f} s; partition (load order) "
+          f"{t_new:.2f} s; partition (old order) {t_old:.2f} s; "
+          f"{len(objs)} placements")
+    print(f"[{icao}] UNFILTERED load partition: parts {loaded.counts['parts']}  "
+          f"contacts {loaded.counts['contacts']}  abutments {loaded.counts['abutments']}  "
+          f"members {loaded.counts['members']}")
+    rows = ("members", "parts", "contacts", "abutments", "line_objects",
+            "no_parts", "below_grade", "terrain_adapted", "multi_anchor")
+    bad = 0
+    for k in rows:
+        a, b = int(old.counts.get(k, 0)), int(new.counts.get(k, 0))
+        flag = "EQUAL" if a == b else f"DIFFER {b - a:+d}"
+        if a != b and k in ("parts", "contacts", "abutments"):
+            bad += 1
+        print(f"    {k:<16} old {a:>8}   new {b:>8}   {flag}")
+    oc, nc = set(old.contacts), set(new.contacts)
+    oa, na = set(old.abutments), set(new.abutments)
+    print(f"    contact pairs  only-old {len(oc - nc)}  only-new {len(nc - oc)}")
+    print(f"    abutment pairs only-old {len(oa - na)}  only-new {len(na - oa)}")
+    # the pid is a PARTITION-LOCAL index and renumbers between the two
+    # orders; a part's identity is its member's resource, its component
+    # index in that file and where it stands
+    def _key(m, p):
+        return (m.resource, p.comp, round(p.lat, 6), round(p.lon, 6))
+    op = {_key(m, p) for u in old.units for m in u.members for p in m.parts}
+    npp = {_key(m, p) for u in new.units for m in u.members for p in m.parts}
+    print(f"    parts          only-old {len(op - npp)}  only-new {len(npp - op)}")
+    for k in sorted({k[0] for k in (op - npp)})[:8]:
+        print(f"      only-old part in {k}")
+    for k in sorted({k[0] for k in (npp - op)})[:8]:
+        print(f"      only-new part in {k}")
+    return 0 if bad == 0 else 1
+
+
 def cmd_disk(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import obj8
     root = args.pack_root
@@ -579,6 +656,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="the carrier rule's [rebake] plate_gap_max_m for the write half "
                         "(0 = the pre-10u pure-nearest fallback)")
     p.set_defaults(fn=cmd_pairs)
+    o = sub.add_parser("order", help="THE PARTITION-ORDER TWIN (11j / spec §11a (3)): "
+                                     "filter-a-partition vs partition-a-filtered-set")
+    o.add_argument("icao")
+    o.add_argument("--dem-frame", default="production", choices=("production", "authored"))
+    o.set_defaults(fn=cmd_order)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")

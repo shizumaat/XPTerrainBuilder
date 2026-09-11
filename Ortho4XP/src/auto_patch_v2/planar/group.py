@@ -15,6 +15,20 @@ restated here: the gate is ``Member.elevated_deck``
 (``airport/deck_signature.elevated_deck``), the seniority is plan area,
 the hop count is one, and buildings never group with buildings (10i).
 
+**THE PARTITION IS THE INPUT** (owner RULINGS 2026-09-11j; spec §11a (3)).
+:func:`derive` reads a ``PackPartition`` — the pack read ONCE at LOAD by
+``airport/pack_partition.partition_pack`` — or, for a fixture, any object
+carrying its ``units`` / ``contacts`` / ``abutments`` (a ``RebakePlan``
+does).  That is what breaks round 1's cycle: the groups exist before
+``classify``, so ``classify/evidence._pads`` can mint a body's pad from
+its FEET.
+
+**THE SPAN LAW IS PER BODY** (§11a (1)).  ``group_span_max_m`` binds a
+CONNECTING body's own plan diagonal (``Group.body_span_m``), not the
+group's footprint.  Round 1 priced it on the group and a canopy module
+60 m long joining a terminal 200 m away came out "long"; the HECA railway
+class is a body that is itself long.
+
 **THE UNIT IS THE BODY, NOT THE PLACEMENT** — measured, and a deviation
 from §11's own reading, which says "the bodies that share one object" but
 then states the span law and the pad union as if a PLACEMENT were the
@@ -121,6 +135,13 @@ class Group:
     #: the junior bodies a release would let go (the elevated decks); a
     #: single-body group has none and can never be released
     releasable: tuple[BODY_KEY, ...] = ()
+    #: THE SPAN LAW IS PER BODY (owner RULINGS 2026-09-11j; spec §11a (1)):
+    #: every body's OWN plan diagonal, in ``bodies`` order.  The group's
+    #: ``span_m`` is a report figure; what ``group_span_max_m`` binds is a
+    #: CONNECTING body's own span — a canopy module 60 m long joining a
+    #: terminal is never the HECA railway, however far apart the two
+    #: buildings' far corners stand.
+    body_span_m: tuple[float, ...] = ()
 
     @property
     def relief_m(self) -> float:
@@ -181,6 +202,7 @@ class GroupSet:
                             "feet": len(g.feet),
                             "relief_m": round(g.relief_m, 3),
                             "span_m": round(g.span_m, 1),
+                            "body_span_m": [round(v, 1) for v in g.body_span_m],
                             "cross_placement": g.cross_placement,
                             "long_span": g.long_span,
                             "releasable": [list(b) for b in g.releasable]}
@@ -189,7 +211,7 @@ class GroupSet:
 
 # ── the bodies (imported, never re-implemented) ──────────────────────────
 
-def bodies_of_plan(plan: RebakePlan
+def bodies_of_plan(plan: "RebakePlan | _t.Any"
                    ) -> tuple[dict[BODY_KEY, tuple[int, ...]], dict[int, BODY_KEY]]:
     """``(body -> its part ids, part id -> its body)`` over the whole
     plan, from ``placement_plan._bodies_of`` — §9's own body law, the
@@ -256,7 +278,7 @@ def _eligible(m: Member) -> bool:
     return bool(m.parts)
 
 
-def derive(plan: RebakePlan, span_max_m: float = 0.0) -> GroupSet:
+def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0) -> GroupSet:
     """Every group of ``plan`` (module doc).
 
     ``span_max_m`` is ``law.tables.group_span_max_m`` — the airport's own
@@ -340,14 +362,21 @@ def derive(plan: RebakePlan, span_max_m: float = 0.0) -> GroupSet:
         senior_feet = _feet_of([part_of[q] for q in bodies[s]])
         y_zero = min(f.y for f in (senior_feet or feet))
         span = _span_m(feet)
-        long_span = span_max_m > 0.0 and span > span_max_m
+        # §11a (1): the span law binds a BODY's connecting span, never the
+        # group's footprint diagonal.  Only a junior whose OWN body is long
+        # is the HECA railway class, and only it may ever be released.
+        bspan = tuple(_span_m(_feet_of([part_of[q] for q in bodies[k]])) for k in keys)
+        long_of = {k: (span_max_m > 0.0 and sp > span_max_m)
+                   for k, sp in zip(keys, bspan)}
+        rel = tuple(k for k in sorted(juniors) if long_of[k])
+        long_span = bool(rel)
         groups.append(Group(gid=_gid(members[s[:2]], s), bodies=keys, senior=s,
                             y_zero=float(y_zero), feet=tuple(feet), span_m=span,
                             cross_placement=True, long_span=long_span,
-                            releasable=tuple(sorted(juniors))))
+                            releasable=rel, body_span_m=bspan))
         seen.update(keys)
         counts["long_span"] += int(long_span)
-        counts["released_candidates"] += len(juniors) if long_span else 0
+        counts["released_candidates"] += len(rel)
     counts["cross_groups"] = len(groups)
 
     for k in sorted(bodies):
@@ -356,10 +385,11 @@ def derive(plan: RebakePlan, span_max_m: float = 0.0) -> GroupSet:
         feet = _feet_of([part_of[q] for q in bodies[k]])
         if not feet:
             continue
+        sp = _span_m(feet)
         groups.append(Group(gid=_gid(members[k[:2]], k), bodies=(k,), senior=k,
                             y_zero=float(min(f.y for f in feet)), feet=tuple(feet),
-                            span_m=_span_m(feet), cross_placement=False,
-                            long_span=False, releasable=()))
+                            span_m=sp, cross_placement=False,
+                            long_span=False, releasable=(), body_span_m=(sp,)))
 
     groups.sort(key=lambda g: g.senior)
     of_body: dict[BODY_KEY, int] = {}

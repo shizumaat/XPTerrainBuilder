@@ -926,8 +926,8 @@ the generator's own cost there is 1.77 s).
   what X-Plane drapes at one anchor.
 * `model/ground_fit.py` is the ONE expression of the fit; `planar/group.derive`
   and `constraints/foot_rows` both call it.
-## §13 An ELEVATED body never has a file of its own (RULINGS 2026-09-11r/s)
 
+## §13 An ELEVATED body never has a file of its own (RULINGS 2026-09-11r/s)
 
 The owner's LEMD read: roofs, road decks and tower parts sit on the ground. The
 app's own `o4_v2_placement_LEMD.json` shows why: 218 of the 1,092 bodies written

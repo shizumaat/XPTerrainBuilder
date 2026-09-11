@@ -37,6 +37,18 @@ the emitter published them.  A run with neither prints values only.
         --lon-from -135.06665 --lon-to -135.0545 --step 5 \
         --alt "…/Data+60-136.alt" --tile 60 -136 [--json OUT.json]
 
+THE SPAN MAY RUN ANY BEARING (added for lane `v2aprontrend`, RULINGS
+2026-09-10ar): `--from LAT,LON --to LAT,LON`, or `--from-ref REF --to
+LAT,LON`, which starts at the ring node of the way `REF` NEAREST the
+target — the "does the apron fall into the pit" read of 10an/10ar, which
+runs from an apron ring node toward a rim vertex on no particular bearing.
+It is the same station walk, the same value model and the same control-arm
+column; only the direction is free.  `--lat/--lon-from/--lon-to` stands
+unchanged (it is the CYXY 10o transect the tool was promoted on).
+
+    venv/bin/python tools/patch_transect.py ARM.osm CONTROL.osm \
+        --from-ref pav16 --to 40.49098918,-3.57037578 --step 1
+
 Two patches may be passed: the second is the CONTROL arm and every station
 reports both, with the delta — the arm-to-arm read a lane's bar is quoted
 on.  Quote it on identical options, never as a verdict.
@@ -142,18 +154,43 @@ def shapes_of(path: Path) -> tuple[dict[str, tuple[float, float]], list[Shape]]:
     return nodes, list(by.values())
 
 
-def transect(path: Path, lat: float, lon_from: float, lon_to: float,
+def ring_node_nearest(path: Path, ref: str,
+                      to: tuple[float, float]) -> tuple[float, float]:
+    """The node of the way(s) tagged ``ref`` NEAREST ``to`` — station 0 of a
+    ``--from-ref`` span.  REFUSES an unknown ref rather than guessing one."""
+    nodes, ways = _parse_osm(path)
+    cand = [nodes[n] for w in ways if (w.ref or "") == ref
+            for n in w.nids if n in nodes]
+    if not cand:
+        raise SystemExit(f"REFUSING: no way with ref {ref!r} in {path}")
+    mlon = 111320.0 * math.cos(math.radians(to[0]))
+    return min(cand, key=lambda p: ((p[0] - to[0]) * 111320.0) ** 2
+               + ((p[1] - to[1]) * mlon) ** 2)
+
+
+def transect(path: Path, p0: tuple[float, float], p1: tuple[float, float],
              step_m: float) -> list[dict[str, Any]]:
+    """The stations from ``p0`` to ``p1`` (both ``(lat, lon)``), ``step_m``
+    apart along the straight line between them — any bearing."""
     nodes, shapes = shapes_of(path)
-    mlon = 111320.0 * math.cos(math.radians(lat))
-    dstep = step_m / mlon
+    mlon = 111320.0 * math.cos(math.radians(0.5 * (p0[0] + p1[0])))
+    dy = (p1[0] - p0[0]) * 111320.0
+    dx = (p1[1] - p0[1]) * mlon
+    span = math.hypot(dx, dy)
+    # EXACT STATIONS, as the east-west form has always walked them: every
+    # station is a whole ``step_m`` from the start and the walk stops at or
+    # before the end, so a span's last station is never stretched.
+    n = int(math.floor(span / step_m + 1e-9)) if span > 0.0 else 0
     out: list[dict[str, Any]] = []
-    lon = lon_from
-    while lon <= lon_to + 1e-12:
+    for k in range(n + 1):
+        f = 0.0 if span <= 0.0 else (k * step_m) / span
+        lat = p0[0] + f * (p1[0] - p0[0])
+        lon = p0[1] + f * (p1[1] - p0[1])
         hits = [s for s in shapes if s.covers(lon, lat)]
         hits.sort(key=lambda s: (_order(s.role), s.role, s.ref))
         rec: dict[str, Any] = {
-            "dist_m": round((lon - lon_from) * mlon, 1),
+            "dist_m": round(f * span, 1),
+            "lat": lat,
             "lon": lon,
             "covered_by": "; ".join(f"{s.role}:{s.ref}" for s in hits)
                           or "OUTSIDE PATCH",
@@ -167,7 +204,6 @@ def transect(path: Path, lat: float, lon_from: float, lon_to: float,
             rec["role"] = rec["ref"] = None
             rec["z_m"] = None
         out.append(rec)
-        lon += dstep
     return out
 
 
@@ -176,17 +212,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("patch", type=Path, nargs="+",
                     help="the patch, and optionally the CONTROL arm second")
-    ap.add_argument("--lat", type=float, required=True)
-    ap.add_argument("--lon-from", type=float, required=True)
-    ap.add_argument("--lon-to", type=float, required=True)
+    ap.add_argument("--lat", type=float)
+    ap.add_argument("--lon-from", type=float)
+    ap.add_argument("--lon-to", type=float)
+    ap.add_argument("--from", dest="frm", metavar="LAT,LON",
+                    help="a free-bearing span's start")
+    ap.add_argument("--from-ref", metavar="REF",
+                    help="start at this way's ring node nearest --to")
+    ap.add_argument("--to", metavar="LAT,LON",
+                    help="a free-bearing span's end")
     ap.add_argument("--step", type=float, default=5.0, help="metres")
     ap.add_argument("--alt", type=Path, help="the tile's Data<tile>.alt")
     ap.add_argument("--tile", type=float, nargs=2, metavar=("LAT", "LON"))
     ap.add_argument("--json", type=Path)
     args = ap.parse_args(argv)
-    if args.lon_to <= args.lon_from:
-        print("REFUSING: --lon-to must be east of --lon-from", file=sys.stderr)
-        return 2
+
+    def _pt(s: str) -> tuple[float, float]:
+        a, b = s.split(",")
+        return float(a), float(b)
+
+    free = args.to is not None or args.frm is not None or args.from_ref
+    if free:
+        if args.to is None or (args.frm is None and not args.from_ref):
+            print("REFUSING: a free-bearing span needs --to and one of "
+                  "--from / --from-ref", file=sys.stderr)
+            return 2
+        if args.lat is not None or args.lon_from is not None:
+            print("REFUSING: --lat/--lon-from is the EAST-WEST form; a "
+                  "free-bearing span uses --from/--from-ref and --to only",
+                  file=sys.stderr)
+            return 2
+    else:
+        if args.lat is None or args.lon_from is None or args.lon_to is None:
+            print("REFUSING: give --lat --lon-from --lon-to, or --from/"
+                  "--from-ref with --to", file=sys.stderr)
+            return 2
+        if args.lon_to <= args.lon_from:
+            print("REFUSING: --lon-to must be east of --lon-from", file=sys.stderr)
+            return 2
     if args.alt and not args.tile:
         print("REFUSING: --alt needs --tile LAT LON (the raster's own origin)",
               file=sys.stderr)
@@ -196,13 +259,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"REFUSING: no patch at {p}", file=sys.stderr)
             return 2
 
-    rows = [transect(p, args.lat, args.lon_from, args.lon_to, args.step)
-            for p in args.patch]
+    if free:
+        p1 = _pt(args.to)
+        p0 = (_pt(args.frm) if args.frm
+              else ring_node_nearest(args.patch[0], args.from_ref, p1))
+    else:
+        p0 = (args.lat, args.lon_from)
+        p1 = (args.lat, args.lon_to)
+    rows = [transect(p, p0, p1, args.step) for p in args.patch]
     dem: list[Optional[float]] = [None] * len(rows[0])
     if args.alt:
         from mesh_elevation_sampler import AltRaster
         raster = AltRaster(str(args.alt), int(args.tile[0]), int(args.tile[1]))
-        dem = [raster.elevation_at(args.lat, r["lon"]) for r in rows[0]]
+        dem = [raster.elevation_at(r["lat"], r["lon"]) for r in rows[0]]
 
     head = f"{'dist':>6} {'lon':>13} {'z':>9} {'DEM':>9} {'z-DEM':>8}"
     if len(rows) > 1:
@@ -222,7 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(line + "   " + r["covered_by"])
     if args.json:
         args.json.write_text(json.dumps(
-            {"lat": args.lat, "step_m": args.step,
+            {"from": p0, "to": p1, "step_m": args.step,
              "patches": [str(p) for p in args.patch],
              "dem_m": dem, "arms": rows}, indent=1))
         print(f"[patch_transect] wrote {args.json}")

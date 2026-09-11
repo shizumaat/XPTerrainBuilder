@@ -691,6 +691,47 @@ apron vertex held by its trend no longer reads "held by bending alone";
 `airport/load.py` gains `report.load.apron_trend` (coverage, fit wall); the census law
 families are UNCHANGED (no law row moves).
 
+### 8.7.1 MEASURED (lane `v2aprontrend`, branch `claude/v2aprontrend`) — the weight is 30 and the LEMD bar is MISSED at the cap
+
+Four patch-only arms against `--base-arm` controls at main `2fb83ce3`; DEFECTs
+(`verify.census.DEFECT_KEYS`) **0** on all eight.
+
+**LEMD T4S (the site).** `pad_level_report transect` from `pav16`'s ring node
+(v21431) to the rim vertex v21785, 23.8 m, on `v2_solve_replay --solved-out`
+arms of ONE capture — the instrument 10ar's number was read on, with the
+replay fixed first: it published NEITHER `taxi_trend` NOR `apron_trend`, so
+two arms of this round came back byte-identical (`_targets`, now the build's
+own order). Control **−0.972 m**, arm **−0.432 m**; max 1 m station step
+0.042 → **0.019** (bar 0.05 MET); the apron corner's z − DEM −0.96 → **−0.66**.
+The 0.10 m bar is MISSED, and the WEIGHT IS NOT THE KNOB: `apron_trend` 30 →
+100 → 300 reads −0.432 / −0.384 / −0.339 and saturates (two iterations, the
+attempt cap). `why` on v21785 (duals): the only binding row is `rim_level`
+(dual 166); the chain to the terminal runs v21785 → v21779 → v21778 → v21748
+with the fall split **`pad_frontage_level` +1.30 m**, `apron_preference`
+(1 % × 44 m) +0.45, `rim_level` +0.08 — i.e. what is left of the T4S fall is
+the BUILDING PAD's frontage level (10l/10y) pulling the apron's last hops
+down, not the body datum this round replaced. Reported, not iterated.
+Adjudicated 555 → 584.
+
+**HECA** (undulation RMS 2nd difference, arm/control): apron **0.987×**,
+junction **0.965×**, cross_connector 1.001×, primary_parallel 0.987×, stub
+0.986× — every role ≤ control (cross_connector's excess is 1.7e-6 in the RMS
+itself, under materiality), and the 10aj junction residual is paid.
+Bows unchanged: 05C/23C −3.58 (control −3.55), 05L/23R −1.74 (−1.73).
+Adjudicated 6096 → 6264.
+
+**SPJC** the terminal apron `pav40` (the 10t body), `patch_transect` 200 m of
+covered path: arm **0.37 %** end-to-end (control 0.91 %), worst 10 m station
+3.2 % (control 3.4 %) — bar ≤ 1.5 % MET; its z − DEM |0.04–0.98| where the
+control runs to −2.19. The taxi at −12.0284851, −77.1128014: **−0.14 m**
+(bar ±1.5 MET), unchanged from control. Adjudicated 262 → 275.
+
+**OTHH** is NOT byte-identical (`dc136a7383d8` vs `f340732abaf1`): 6 bodies
+exceed the window even on its flat site. Quoted per the bar — row-side 382 of
+19,959 nodes moved > 0.01 m, worst **0.21 m**; solve-owned 45 of 13,268,
+worst **0.010 m**; 0 welded to the road family. Adjudicated 4 → 15 (14
+groundside, 1 airside).
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

@@ -207,6 +207,25 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 # from the patch boundary to the DEM outside it.  The DEM's only entries
 # left are the threshold pins, the tile-seam preference and a detached
 # body's own terrain plane.
+# THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23).  09b (3)
+# above deleted the DEM from the patch entirely, and a surface built only
+# from ONE-SIDED rows has no level at all: CYXY's 14R/32L end corridor cut
+# 1.9 m into lawful natural ground (strip 700.1, DEM 701.96) and a 45 % cut
+# bank climbed back to a foot that was correctly ON the DEM.  Every
+# ADJACENT-GROUND vertex — the ``graded_strip`` family, zone 1, zone 2, the
+# end corridors and the clearance skirts, never a pavement vertex and never
+# an interior pocket enclosed by pavement (09g (1)) — therefore carries ONE
+# WEAK row ``z = DEM`` at this weight, while its law rows stay one-sided and
+# ONE-WAY (``one_way_rulings`` below: the ground follows the pavement and
+# never pulls it; pavement keeps NO DEM pull, 08t (1)).
+# WEAK BY DESIGN, two orders under ``law``: where the ground already
+# satisfies the zone law no row is active and the datum is the only term
+# with a level, so the strip EQUALS the natural ground; where a law row
+# binds, the law outprices the datum and the strip is cut or filled TO THE
+# LAW LINE and no further.  The bank (09g) then starts from a ring already
+# on the DEM and vanishes there — ``daylight_feet`` resolves at
+# ``bank_min_width_m`` with zero drop, by the walk it already runs.
+ground_datum  = 3.0
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
 # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
 # §8.6).  ``taxi_profile`` is a SECOND DIFFERENCE with RHS 0 — curvature,

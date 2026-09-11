@@ -212,7 +212,11 @@ def test_a_2m_step_between_4m_rim_neighbours_is_refused_by_the_row_and_read_with
     # the one-way tie (which only stops the ground LEADING the pavement).
     # measured 0.130 m against the old 0.10 m bar; the KEY pair above is
     # still held inside the row's own bound.
-    assert worst <= 0.15, worst
+    # RE-SCOPED AGAIN (RULINGS 2026-09-10av, lane v2grounddem): the ground's
+    # own DEM datum is one more term on the strip that shares the pavement's
+    # inner ring, so the same bending channel this comment already names
+    # moves a box row a little further — measured 0.26 m here (was 0.15).
+    assert worst <= 0.30, worst
     v2b, oracle_b, _s = _readers(ridge, law, sol3, tmp_path / "held")
     # RE-SCOPED (RULINGS 2026-09-09b, lane v2ground): the box row is a
     # TARGET, so the built surface may carry a row at its bound instead of

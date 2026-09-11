@@ -261,6 +261,35 @@ def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
     return defs, last + 1
 
 
+def duplicate_rows(lines: _t.Sequence[str],
+                   of: _t.AbstractSet[int] | None = None
+                   ) -> dict[int, list[int]]:
+    """§15 (4): the DUPLICATE placement rows, ``{first ordinal: [the
+    others]}``.
+
+    Rows of one resource identical in DEF, longitude, latitude and
+    HEADING are ONE placement: the pack drew the same object twice on
+    the same spot, and the re-seat plan reads it once.  Splitting then
+    replaced ONE of them and left the other drawing the WHOLE un-split
+    object at the datum — measured on LEMD's pristine DSF, 19 of the
+    ``Airport_Cargo`` resources carry two identical rows on the shared
+    datum ``-3.564788 40.492764``, so 19 whole objects survived every
+    split the plan made.
+
+    ``of`` restricts the answer to groups whose FIRST row is one of
+    those ordinals — the plan's SPLIT indices, an EMPTY set meaning no
+    split and so no group: a pack that authors the same info sign twice
+    on purpose is the pack's business, and nothing here touches a row no
+    split replaces.  ``None`` is every group (what the twin reads)."""
+    seen: dict[tuple, list[int]] = {}
+    for o, _i, toks in placement_rows(lines):
+        hdg = toks[4] if toks[0] == KIND_ON_GROUND else (
+            toks[5] if len(toks) > 5 else "")
+        seen.setdefault((toks[0], toks[1], toks[2], toks[3], hdg), []).append(o)
+    return {v[0]: v[1:] for v in seen.values()
+            if len(v) > 1 and (of is None or v[0] in of)}
+
+
 def _eol(lines: _t.Sequence[str]) -> str:
     for raw in lines:
         if raw.endswith("\r\n"):
@@ -315,13 +344,25 @@ def edit_dump(text: str, plan: PlacementPlan) -> str:
         if not s.bodies:
             raise ValueError(f"placement {idx}: split with no body")
 
+    # §15 (4): a split replaces EVERY row of its placement, not one of
+    # them.  The first row of a duplicate group takes the body rows (the
+    # object is drawn once); the rest are DELETED, so none survives to
+    # draw the un-split object at the datum.
+    dups = duplicate_rows(lines, set(spl))
+    drop = {o for others in dups.values() for o in others}
+    if drop & set(conv):
+        raise ValueError(f"placements both split-duplicate and converted: "
+                         f"{sorted(drop & set(conv))[:8]}")
+
     eol = _eol(lines)
     new_res = plan.new_resources()
     new_index = {r: len(defs) + k for k, r in enumerate(new_res)}
 
     edits: dict[int, list[str]] = {}
     for o, i, toks in rows:
-        if o in conv:
+        if o in drop:
+            edits[i] = []                       # §15 (4): one placement
+        elif o in conv:
             # OBJECT_MSL/AGL idx lon lat z hdg -> OBJECT idx lon lat hdg
             # (tokens copied verbatim: no coordinate is re-formatted)
             hdg = toks[5] if len(toks) > 5 else "0.000000"

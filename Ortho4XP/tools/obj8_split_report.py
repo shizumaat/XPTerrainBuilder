@@ -41,7 +41,7 @@ what the placement law makes of the float —
 seat RESULT, read instead from the plan and the design surface, so the
 bars of §7 (LEMD feet > 0.3 m 284 -> <= 60) are comparable.  A foot or an
 anchor standing outside every graded face reads NO surface and is counted
-as ``off-surface``, never guessed at: the DEM governs there, and this
+as ``off-sheet`` (§15 (5)), never guessed at: the DEM governs there, and this
 tool does not open the DEM.
 
 The design surface is sampled by linear interpolation over the emitted
@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses as _dc
 import json
 import os
 import sys
@@ -90,6 +91,13 @@ def surface_from_graded(path: str):
 def census(ss: PP.SplitSet, sampler, band_m: float,
            rows_of: tuple[str, ...] = ()) -> dict:
     """§7: the float per ground-contact foot under the placement law.
+
+    §15 (5) THE INSTRUMENT: this tool samples the GRADED SURFACE; the
+    shipped plan samples the MESH.  An anchor or a foot standing on no
+    graded face is marked OFF-SHEET and excluded from every comparison
+    and every bar — it reads no surface here, the DEM governs there, and
+    this tool does not open the DEM.  A body's dry-run number is evidence
+    only on-sheet.
 
     A foot counts when it is a ground-contact foot OF THE BODY: within
     ``band_m`` (``[basin] contact_band_m``, the same band the plan itself
@@ -129,28 +137,28 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
                                  "anchor": (b.anchor.lat, b.anchor.lon),
                                  "anchor_z": za, "y_zero": b.anchor.y_zero,
                                  "reason": b.anchor.reason, "feet": 0,
-                                 "off_surface": 0, "worst": None,
+                                 "off_sheet": 0, "worst": None,
                                  "worst_abs": None, "within_0_3": None})
                 continue
             row = {"resource": s.resource, "body": b.body_id,
                    "body_class": b.body_class,
                    "anchor": (b.anchor.lat, b.anchor.lon),
                    "anchor_z": za, "y_zero": b.anchor.y_zero,
-                   "reason": b.anchor.reason, "feet": 0, "off_surface": 0,
+                   "reason": b.anchor.reason, "feet": 0, "off_sheet": 0,
                    "worst": None, "worst_abs": None, "within_0_3": None}
             floor = min(f[2] for f in b.feet)
             for lat, lon, y in [f for f in b.feet if f[2] - floor <= band_m]:
                 row["feet"] += 1
                 if za is None:
-                    bins["off-surface"] += 1
-                    by_class[b.body_class]["off-surface"] += 1
-                    row["off_surface"] += 1
+                    bins["off-sheet"] += 1
+                    by_class[b.body_class]["off-sheet"] += 1
+                    row["off_sheet"] += 1
                     continue
                 zf = sampler(lat, lon)
                 if zf is None:
-                    bins["off-surface"] += 1
-                    by_class[b.body_class]["off-surface"] += 1
-                    row["off_surface"] += 1
+                    bins["off-sheet"] += 1
+                    by_class[b.body_class]["off-sheet"] += 1
+                    row["off_sheet"] += 1
                     continue
                 signed = zf - (za + y - b.anchor.y_zero)
                 d = abs(signed)
@@ -241,6 +249,22 @@ def _write_pack(a, plan, ss, sampler) -> None:
     want = set(pl.new_resources())
     have = set(d2.object_defs)
     rows = sum(1 for q in d2.placements if q.def_path in want)
+    # §15 (4): the DUPLICATE ROWS.  A resource whose pristine DSF carries
+    # two identical rows is ONE placement to the split; before this lane
+    # one of them survived, drawing the whole un-split object at the
+    # datum (LEMD: 19 `Airport_Cargo` resources).  Read on the WRITTEN
+    # DSF, against the pristine rows the plan replaced.
+    with open(dump_text, encoding="latin-1", errors="replace") as fh:
+        pri = fh.read().splitlines(keepends=True)
+    dups = _dw.duplicate_rows(pri, {s.placement.index for s in splits})
+    n_before = sum(len(v) for v in dups.values())
+    want_gone = {(s.placement.resource, round(s.placement.lon, 7),
+                  round(s.placement.lat, 7)) for s in splits}
+    survive = sum(1 for q in d2.placements
+                  if (q.def_path, round(q.lon, 7), round(q.lat, 7)) in want_gone)
+    print(f"  §15 (4) duplicate rows of a SPLIT placement: {n_before} in the "
+          f"pristine DSF; surviving after the write: {survive} (bar 0)"
+          + ("" if not survive else "   *** §15 (4) VIOLATED ***"))
     print(f"  read back: {len(d2.placements)} placement(s), "
           f"{len(want & have)}/{len(want)} new OBJECT_DEF(s) present, "
           f"{rows} row(s) on them; "
@@ -312,7 +336,7 @@ def main() -> int:
     print(f"  bodies {c['bodies']} (uncoarsened {c.get('bodies_uncoarsened')}; "
           f"{c.get('placements_coarsened', 0)} placement(s) coarsened); anchors: "
           f"{c.get('anchor_residual', 0)} low-side with a residual, "
-          f"{c.get('anchor_off_surface', 0)} off-surface; "
+          f"{c.get('anchor_off_surface', 0)} off-sheet; "
           f"{c.get('bodies_elevated', 0)} elevated bodies joined a ground group; "
           f"files per placement {c['files'] / max(1, c['placements']):.2f}")
     # §13 (3): the two classes the owner's 11r read turns on.  The first
@@ -339,10 +363,18 @@ def main() -> int:
     # population is the census-wrapper defect, CLAUDE.md).
     from auto_patch_v2.airport import placement_carrier as PC
     _sp, _kp = PP.to_placement_records(ss)
+    _wh, _ = PP.to_placement_records(_dc.replace(ss, splits=ss.whole))
     v14 = PC.census_v14([q.to_dict() for q in _sp], [q.to_dict() for q in _kp],
                         elevated_base_m=rb.elevated_base_m, split_tol_m=tol_m)
     for line in PC.census_v14_lines(v14, elevated_base_m=rb.elevated_base_m,
                                     split_tol_m=tol_m):
+        print(line)
+    # §15 (3): the residual the EYE reads — a carried body has no feet and
+    # a body on its own low-side foot reads every foot of its own as
+    # lawful, so neither bar above can see a roof standing 6 m over the
+    # walls it belongs to.
+    v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh])
+    for line in PC.census_v15_lines(v15):
         print(line)
     if c.get("line_segments"):
         print(f"  line segments: {c['line_segments']} from "
@@ -406,7 +438,7 @@ def main() -> int:
         print(f"\nNAMED ROWS ({', '.join(rows_of)}): "
               f"{len(cen['rows'])} bodies")
         for r in cen["rows"]:
-            az = "off-surface" if r["anchor_z"] is None else f"{r['anchor_z']:.2f}"
+            az = "OFF-SHEET" if r["anchor_z"] is None else f"{r['anchor_z']:.2f}"
             w = ("no foot" if r["worst_abs"] is None
                  else f"{r['worst']:+.2f} (|{r['worst_abs']:.2f}|)")
             v = ("-" if r["within_0_3"] is None
@@ -415,7 +447,7 @@ def main() -> int:
                   f"[{r['body_class']}] anchor {r['anchor'][0]:.7f},"
                   f"{r['anchor'][1]:.7f} z {az} y0 {r['y_zero']:+.2f} "
                   f"({r['reason']})  feet {r['feet']} "
-                  f"(off-surface {r['off_surface']})  worst {w}  {v}")
+                  f"(off-sheet {r['off_sheet']})  worst {w}  {v}")
     print(f"\nCENSUS (§7) over {cen['feet']} ground-contact feet of "
           f"{sum(len(s.bodies) for s in ss.all)} bodies:")
     print("  " + "  ".join(f"{k} {v}" for k, v in sorted(cen["bins"].items())))

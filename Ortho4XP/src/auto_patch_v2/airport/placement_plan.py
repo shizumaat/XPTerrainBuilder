@@ -158,6 +158,10 @@ class Body:
     elevated: bool = False
     #: how many of the group's bodies were elevated and are CARRIED here
     elevated_members: int = 0
+    #: §15 (3): the body's PLAN box ``(lat0, lon0, lat1, lon1)`` — what
+    #: the stands-over census asks "which footed body is under this one"
+    #: with, and the box §15 (1)'s carrier search itself reads
+    plan_box: tuple[float, float, float, float] | None = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         a = self.anchor
@@ -171,7 +175,9 @@ class Body:
                 "segment_tris": len(self.tris),
                 "elevated": self.elevated,
                 "elevated_members": self.elevated_members,
-                "merged_into": self.merged_into or None}
+                "merged_into": self.merged_into or None,
+                "plan_box": None if self.plan_box is None else list(self.plan_box),
+                "feet": len(self.feet)}
 
 
 @_dc.dataclass(frozen=True)
@@ -504,16 +510,13 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
 
 def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                   m: Member, u: Unit, counts: dict[str, int],
-                  by_class: dict[str, int]) -> list[Body]:
+                  by_class: dict[str, int],
+                  part_boxes: _t.Sequence[_t.Sequence[tuple]] = ()) -> list[Body]:
     """The groups of one member as :class:`Body` records, each on its
-    SENIOR body's anchor (11e (1)) — except that a BASIN body's anchor
-    always wins its group (§14 (2): floor, walls and parapet share the
-    rim's one zero, and the floor plate has the most feet)."""
+    SENIOR body's anchor (:func:`placement_carrier.senior_of`)."""
     bodies: list[Body] = []
     for k, grp in enumerate(merged):
-        cands = [i for i in grp if not raw[i][4]] or list(grp)
-        basins = [i for i in cands if raw[i][1] == _ar.BASIN]
-        senior = max(basins or cands, key=lambda i: (len(raw[i][3]), -i))
+        senior = _pc.senior_of(raw, grp)
         parts = [p for i in grp for p in raw[i][0]]
         a = raw[senior][2]
         off = authored_offset(a.lat, a.lon, a.y_zero, u.anchor[0], u.anchor[1],
@@ -545,8 +548,61 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                            tuple(sorted(p.pid for p in parts)), feet=feet,
                            cut_components=cut_comps, tris=tris,
                            elevated=n_elev == len(grp),
-                           elevated_members=n_elev))
+                           elevated_members=n_elev,
+                           # THE GROUND FOOTPRINT (§15 (3)): a carried
+                           # roof does not widen what its file STANDS ON,
+                           # and the §15 (1) search read the group before
+                           # any roof joined it — one box, one relation
+                           plan_box=_pc.hull_of(
+                               b for i in grp if not raw[i][4]
+                               for b in part_boxes[i])
+                           or _pc.hull_of(b for i in grp for b in part_boxes[i])
+                           if part_boxes else _pc.box_of(feet, parts)))
     return bodies
+
+
+def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
+                  u: Unit, c: _pc.Candidate, why: str, carrier_res: str,
+                  written: bool, body_id: int, counts: dict[str, int],
+                  by_class: dict[str, int],
+                  part_boxes: _t.Sequence[_t.Sequence[tuple]] = ()) -> Body:
+    """§14 (1) / §15 (1): the bodies of ``grp`` as ONE file written at
+    their CARRIER's anchor with the carrier's ``y_zero``.
+
+    One zero plane for the two of them — which is what "the roof stays
+    on its walls" means when the walls are the only thing either of them
+    can read.  The translation is computed in THIS member's own authored
+    frame (the offset every body file already carries), so the carried
+    file lands exactly where the unit authored it relative to the
+    carrier; with one unit, one row and one heading that is numerically
+    the carrier's own :func:`authored_offset`.
+
+    Bodies sharing a carrier share a file: one carrier, one zero, one
+    cut.  §15 (1) is why the carrier may belong to ANOTHER RESOURCE of
+    the unit — this pack names its roofs as their own resources, and the
+    walls a roof stands over are almost never its own file."""
+    parts = [p for i in grp for p in raw[i][0]]
+    cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
+    off = authored_offset(c.anchor.lat, c.anchor.lon, c.anchor.y_zero,
+                          u.anchor[0], u.anchor[1], m.heading_deg)
+    a = _dc.replace(c.anchor, body_class=cls, offset=off,
+                    reason=f"carried by {carrier_res} ({why})"
+                    + ("" if written else " [carrier kept whole on its "
+                       "authored row]"))
+    by_class[cls] = by_class.get(cls, 0) + 1
+    counts["bodies_elevated_carried"] = \
+        counts.get("bodies_elevated_carried", 0) + len(grp)
+    tris = tuple(t for i in grp for t in raw[i][5])
+    cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
+                              for p in raw[i][0]}))
+    return Body(body_id, cls, tuple(sorted(p.comp for p in parts)), a,
+                _split.body_resource_name(m.resource, body_id),
+                tuple(sorted(p.pid for p in parts)), feet=(),
+                merged_into=carrier_res, merged_into_written=written,
+                cut_components=cut_comps, tris=tris, elevated=True,
+                elevated_members=len(grp),
+                plan_box=_pc.hull_of(b for i in grp for b in part_boxes[i])
+                if part_boxes else _pc.box_of((), parts))
 
 
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
@@ -596,59 +652,28 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     splits.append(_dc.replace(record, files=files))
 
 
-def _carried_bodies(raw: _t.Sequence[_Raw], boxes: _t.Sequence[tuple],
-                    m: Member, u: Unit, cands: _t.Sequence[_pc.Candidate],
-                    adj: _t.Mapping[int, _t.AbstractSet[int]],
-                    counts: dict[str, int], by_class: dict[str, int]
-                    ) -> list[Body]:
-    """§14 (1): one FOOTLESS placement, written at its CARRIER's anchor
-    with the carrier's ``y_zero``.
+@_dc.dataclass
+class _Staged:
+    """One member of a unit, bodied but not yet cut — §15 (1) makes the
+    carrier search a UNIT-WIDE question, so every member's bodies exist
+    before any member's file is decided."""
 
-    A footless placement is ONE body ("a split body OR a whole
-    placement", §14 (1)): a footbridge is a rigid span and a terminal
-    roof a rigid plate, and splitting one across two carriers would give
-    its halves two zeros — the very scatter §14 (3) closes.  So the
-    carrier search runs once, over the placement's whole part set and its
-    whole plan box, and the placement becomes one file.
-
-    The translation is computed in THIS member's own authored frame —
-    the offset every body file already carries — so the carried file
-    lands exactly where the unit authored it relative to the carrier;
-    with one unit, one row and one heading (the shared-datum case §14
-    names) that is numerically the carrier's own ``authored_offset``.
-    Bodies sharing a carrier share a file: one carrier, one zero, one
-    cut."""
-    pids = frozenset(p.pid for r in raw for p in r[0])
-    box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
-           max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
-    c, why = _pc.carrier_for(pids, box, cands, adj)
-    if c is None:
-        return []
-    groups = {c.resource: list(range(len(raw)))}
-    carrier_of = {c.resource: c}
-    why_of = {c.resource: why}
-    bodies: list[Body] = []
-    for k, res in enumerate(sorted(groups, key=lambda q: min(groups[q]))):
-        grp = groups[res]
-        c = carrier_of[res]
-        parts = [p for i in grp for p in raw[i][0]]
-        cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
-        off = authored_offset(c.anchor.lat, c.anchor.lon, c.anchor.y_zero,
-                              u.anchor[0], u.anchor[1], m.heading_deg)
-        a = _dc.replace(c.anchor, body_class=cls, offset=off,
-                        reason=f"carried by {res} ({why_of[res]})"
-                        + ("" if c.written else " [carrier kept whole on its "
-                           "authored row]"))
-        by_class[cls] = by_class.get(cls, 0) + 1
-        counts["bodies_elevated_carried"] = \
-            counts.get("bodies_elevated_carried", 0) + len(grp)
-        bodies.append(Body(k, cls, tuple(sorted(p.comp for p in parts)), a,
-                           _split.body_resource_name(m.resource, k),
-                           tuple(sorted(p.pid for p in parts)), feet=(),
-                           merged_into=res, merged_into_written=c.written,
-                           cut_components=tuple(sorted({p.comp for p in parts})),
-                           elevated=True, elevated_members=len(grp)))
-    return bodies
+    mi: int
+    m: Member
+    raw: list[_Raw]
+    #: one HULL box per body (feet where it has them, else its parts')
+    boxes: list[tuple[float, float, float, float]]
+    #: one body's PART boxes — what it actually covers in plan (§14 (3):
+    #: the hull is a crude proxy, and the carrier search reads both)
+    part_boxes: list[list[tuple[float, float, float, float]]]
+    elevated: frozenset[int]
+    footless: bool
+    #: the member's own GROUND groups (each becomes a body file)
+    groups: list[list[int]] = _dc.field(default_factory=list)
+    #: ``(body indices, carrier, why)`` — the elevated bodies that ride a
+    #: file of ANOTHER member (or, for a footless placement, all of them)
+    carried: list[tuple[list[int], _pc.Candidate, str]] = \
+        _dc.field(default_factory=list)
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -677,22 +702,30 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     §13 (owner RULINGS 2026-09-11r/s) rules the ELEVATED body: one whose
     file's intended zero is not the ground (:func:`is_elevated`) NEVER has
-    a file of its own — it joins its CARRIER's file at its authored
-    offset, no vertex rewrite, relative heights intact.
+    a file of its own — it joins its CARRIER at its authored offset, no
+    vertex rewrite, relative heights intact.  §14 (11u/11v) rules the
+    FOOTLESS placement the same way.
 
-    §14 (11u/11v) rules what §13 left as an interim, and the walk is
-    therefore per UNIT, in two passes:
+    §15 (owner RULINGS 2026-09-11ae) rules WHICH body is the carrier, and
+    that makes the whole walk one UNIT-WIDE question in four passes:
 
-    1. every FOOTED member is bodied, coarsened, PLAN-OVERLAP BOUND
-       (§14 (3)) and cut as before, and each of its files becomes a
-       carrier candidate;
-    2. every FOOTLESS member — no body of it stands on the ground — is
-       then written at its CARRIER's anchor (§14 (1)): the footed body of
-       the unit it abuts, else the nearest, else the largest.  §13's
-       "kept whole" is superseded; only a unit holding NO footed body at
-       all still keeps one whole, with the reason
-       ``footless_no_carrier``, and that class is counted and reported by
-       name rather than guessed at.
+    1. every member is BODIED — its parts classed, anchored, judged
+       elevated or footed;
+    2. every FOOTED member's ground bodies are coarsened (§9),
+       PLAN-OVERLAP BOUND (§14 (3)) and the bond RE-CUT where the bound
+       group's terrain spans more than ``split_tol_m`` (§15 (2)); each
+       resulting group is a carrier CANDIDATE;
+    3. every ELEVATED body and every FOOTLESS placement takes the
+       candidate it STANDS OVER — largest plan overlap, else largest
+       contact, else nearest, across the unit and every resource alike
+       (§15 (1)).  A carrier in the same member is a group the body
+       JOINS; a carrier in another member is a file the body RIDES, at
+       that file's anchor and ``y_zero``;
+    4. the members are CUT, carriers first.
+
+    Only a unit holding NO footed body at all still keeps a placement
+    whole, with the reason ``footless_no_carrier`` — counted and reported
+    by name rather than guessed at.
 
     ``abutments`` are the plan's own 10ay pairs when the caller lifted
     them out of a later-versioned plan (``read_plan``); by default the
@@ -716,14 +749,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
-                              # §13 (3) / §14 (4)'s reported classes
+                              # §13 (3) / §14 (4) / §15's reported classes
                               "footless": 0, "elevated_own_files": 0,
                               "footless_carried": 0, "footless_no_carrier": 0,
-                              "basin_bodies_bound": 0, "bodies_plan_bound": 0}
+                              "basin_bodies_bound": 0, "bodies_plan_bound": 0,
+                              "groups_re_cut": 0, "elevated_ride_other_file": 0}
     by_class: dict[str, int] = {}
     for ui, u in enumerate(plan.units):
-        pending: list[tuple[int, Member, list[_Raw], list[tuple]]] = []
-        cands: list[_pc.Candidate] = []
+        # ── PASS 1: every member's bodies ────────────────────────────
+        staged: list[_Staged] = []
         for mi, m in enumerate(u.members):
             counts["placements"] += 1
             raw = _raw_bodies(m, u, intra.get(id_of((ui, mi)), []), surface,
@@ -733,80 +767,125 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               line_stations_max=line_stations_max,
                               line_ratio=line_ratio, line_max_h=line_max_h,
                               foot_band_m=foot_band_m)
-            counts["bodies_uncoarsened"] = counts.get("bodies_uncoarsened", 0) + len(raw)
+            counts["bodies_uncoarsened"] = \
+                counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])
-            counts["bodies_elevated"] = counts.get("bodies_elevated", 0) + len(elevated)
+            counts["bodies_elevated"] = \
+                counts.get("bodies_elevated", 0) + len(elevated)
             boxes = [_pc.box_of(r[3], r[0]) for r in raw]
-            if raw and len(elevated) == len(raw):
-                # §14 (1): FOOTLESS — the unit's carrier decides it, in
-                # pass 2, once every footed member has its anchor
+            # a SEGMENT covers its own station span, not its parent
+            # line's: its box IS its footprint (11f (2))
+            part_boxes = [([boxes[i]] if r[5] else [p.box for p in r[0]])
+                          for i, r in enumerate(raw)]
+            staged.append(_Staged(mi, m, list(raw), boxes, part_boxes, elevated,
+                                  bool(raw) and len(elevated) == len(raw)))
+            if staged[-1].footless:
                 counts["footless"] += 1
-                pending.append((mi, m, list(raw), boxes))
+
+        # ── PASS 2: the footed members' ground groups = the candidates ─
+        cands: list[_pc.Candidate] = []
+        for st in staged:
+            if st.footless:
                 continue
-            merged = coarsen([(i, r[2], len(r[3])) for i, r in enumerate(raw)],
-                             split_tol_m, elevated, boxes)
+            raw, boxes, part_boxes = st.raw, st.boxes, st.part_boxes
+            keys = [(i, r[2], len(r[3])) for i, r in enumerate(raw)]
+            classes = [r[1] for r in raw]
+            merged = coarsen(keys, split_tol_m, st.elevated, boxes,
+                             attach_elevated=False)
             # §14 (2)/(3): ONE RIGID OBJECT IS ONE BODY — every BASIN
             # body of the resource binds (its floor, walls and parapet
             # share the rim's one zero however far the pit's own depth
             # separates their terrain), and so does every pair of bodies
             # that OVERLAP IN PLAN, whatever the contact graph said.
             # the PART boxes, not the body hull: what stands over what
-            part_boxes = [([f[:4] for f in (r[5] and (boxes[i],) or ())]
-                           or [p.box for p in r[0]])
-                          for i, r in enumerate(raw)]
-            bound = _pc.bind_plan_overlaps(merged, part_boxes,
-                                           [r[1] for r in raw])
+            bound = _pc.bind_plan_overlaps(merged, part_boxes, classes)
             if len(bound) < len(merged):
                 counts["bodies_plan_bound"] += len(merged) - len(bound)
-                if any(r[1] == _ar.BASIN for r in raw):
+                if any(c == _ar.BASIN for c in classes):
                     counts["basin_bodies_bound"] += 1
-            merged = bound
-            if len(merged) < len(raw):
-                counts["placements_coarsened"] = counts.get("placements_coarsened", 0) + 1
-            bodies = _group_bodies(raw, merged, m, u, counts, by_class)
-            counts["bodies"] += len(bodies)
-            record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
-                           u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
-            before = len(splits)
-            # §14 (1)'s own sentence, read on the case §14 (3) creates.
-            # A ONE-BODY placement is KEPT — its row untouched — and on a
-            # SHARED-DATUM row that row is the datum: LEMD's unit:25 puts
-            # 171 resources on one point, and 73 of the airport's 104
-            # one-body keeps then drape more than 3 m (worst 31.0 m,
-            # `Munoza-LEMD73`) from where their own anchor says their
-            # zero is.  Binding bodies in plan makes MORE such
-            # placements, so the keep is admitted only where the row and
-            # the anchor read the SAME surface: otherwise the placement is
-            # written at its anchor like any other body file.
-            z_row = surface(u.anchor[0], u.anchor[1])
-            z_anchor = bodies[0].anchor.surface_z if bodies else None
-            off_row = (z_row is not None and z_anchor is not None
-                       and abs(float(z_row) - float(z_anchor)) > split_tol_m)
-            if off_row and len(bodies) < 2:
-                counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
-            _cut_and_file(record, m, write, counts, splits, kept, whole,
-                          always_write=off_row)
-            # a member that was NOT split keeps its AUTHORED row: its file
-            # is its own resource, and its anchor is the point the generic
-            # rule computed but the DSF never moved it to.  Carrying a
-            # footless body onto such a carrier puts the two at different
-            # heights, so the class is recorded and reported.
-            was_split = len(splits) > before
-            for b in bodies:
-                if b.elevated:
-                    continue
+            # §15 (2): ...and a bond wider than the terrain it stands on
+            # is re-cut by §9's own rule
+            bound, n_recut = _pc.re_cut_by_terrain(bound, keys, split_tol_m,
+                                                  classes)
+            counts["groups_re_cut"] += n_recut
+            st.groups = bound
+            if len(bound) < len(raw) - len(st.elevated):
+                counts["placements_coarsened"] = \
+                    counts.get("placements_coarsened", 0) + 1
+            for gi, g in enumerate(bound):
+                feet = tuple(f for i in g for f in raw[i][3])
+                parts = [p for i in g for p in raw[i][0]]
+                # THE FOOTPRINT, NOT THE FEET: a body's feet are SAMPLES
+                # (``foot_samples_max``), and a 60 m hangar whose plan
+                # recorded two of them has a two-point box — LEMD's
+                # ``LEMD41`` b0, under which the T3 roof then "stood
+                # over" nothing.  What a body covers in plan is its
+                # PARTS' boxes (a SEGMENT's is its own station span).
                 cands.append(_pc.Candidate(
-                    mi, b.new_resource if was_split else m.resource, b.anchor,
-                    frozenset(b.pids), len(b.feet),
-                    _pc.box_of(b.feet, [p for p in m.parts if p.pid in set(b.pids)]),
-                    written=was_split))
-        if not pending:
-            continue
-        unit_pids = {p.pid for m in u.members for p in m.parts}
-        adj = _pc.unit_edges(pairs, unit_pids)
-        for mi, m, raw, boxes in pending:
-            bodies = _carried_bodies(raw, boxes, m, u, cands, adj, counts, by_class)
-            if not bodies:
+                    st.mi, _split.body_resource_name(st.m.resource, gi),
+                    raw[_pc.senior_of(raw, g)][2],
+                    frozenset(p.pid for p in parts), len(feet),
+                    _pc.hull_of(b for i in g for b in part_boxes[i])
+                    or _pc.box_of(feet, parts),
+                    part_boxes=tuple(b for i in g for b in part_boxes[i]),
+                    group=gi))
+
+        # ── PASS 3: what does each elevated body STAND OVER? ──────────
+        adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
+        by_key = {(c.member, c.group): c for c in cands}
+        for st in staged:
+            if st.footless:
+                # §14 (1): a footless placement is ONE body — a footbridge
+                # is a rigid span and a terminal roof a rigid plate, and
+                # splitting one across two carriers would give its halves
+                # two zeros, the very scatter §14 (3) closes
+                box = _pc.hull_of(b for bs in st.part_boxes for b in bs)
+                c, why = _pc.carrier_for(
+                    frozenset(p.pid for r in st.raw for p in r[0]), box, cands,
+                    adj, [b for bs in st.part_boxes for b in bs])
+                if c is not None:
+                    st.carried = [(list(range(len(st.raw))), c, why)]
+                continue
+            rides: dict[tuple[int, int], tuple[list[int], str]] = {}
+            for i in sorted(st.elevated):
+                c, why = _pc.carrier_for(
+                    frozenset(p.pid for p in st.raw[i][0]),
+                    _pc.hull_of(st.part_boxes[i]), cands, adj, st.part_boxes[i])
+                if c is None:                       # a footed member has one
+                    continue
+                if c.member == st.mi:
+                    st.groups[c.group].append(i)    # its own file carries it
+                    continue
+                # §9 STILL RULES THE FILE: a carrier in another member
+                # decides the body's ZERO, and where one of this member's
+                # own groups already stands at that zero (within
+                # ``split_tol_m``) the body joins it — same height, one
+                # file fewer.  A split exists only where the terrain
+                # differs under the object; §15 (1) says WHICH terrain
+                # reading is the body's, not that it must be written
+                # alone.
+                cz = (None if c.anchor.surface_z is None
+                      else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                same = _pc.group_at_zero(st.groups, st.raw, cz, split_tol_m,
+                                         _pc.senior_of)
+                if same >= 0:
+                    counts["elevated_ride_own_file_same_zero"] = \
+                        counts.get("elevated_ride_own_file_same_zero", 0) + 1
+                    st.groups[same].append(i)
+                    continue
+                counts["elevated_ride_other_file"] += 1
+                rides.setdefault((c.member, c.group), ([], why))[0].append(i)
+            st.carried = _pc.merge_rides(rides, by_key, split_tol_m)
+
+        # ── PASS 4: the cut, carriers first ──────────────────────────
+        by_mi = {st.mi: st for st in staged}
+        written_of: dict[int, bool] = {}
+        deps = {st.mi: {c.member for _g, c, _w in st.carried
+                        if c.member != st.mi} for st in staged}
+        for mi in _pc.cut_order(deps):
+            st = by_mi[mi]
+            m = st.m
+            if st.footless and not st.carried:
                 # no footed body ANYWHERE in this unit: nothing in the
                 # plan reads the ground under it, so the placement keeps
                 # its own authored row (which for a one-member unit IS
@@ -818,18 +897,50 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 whole.append(Split(_index_of(m.id), m.id, m.resource,
                                    m.authored_path, u.anchor[0], u.anchor[1],
                                    m.heading_deg,
-                                   (Body(0, raw[0][2].body_class, (), raw[0][2],
+                                   (Body(0, st.raw[0][2].body_class, (), st.raw[0][2],
                                          m.resource, elevated=True),)))
+                written_of[mi] = False
                 continue
-            counts["footless_carried"] += 1
-            if not all(b.merged_into_written for b in bodies):
-                counts["footless_carrier_kept_whole"] = \
-                    counts.get("footless_carrier_kept_whole", 0) + 1
+            bodies = ([] if st.footless
+                      else _group_bodies(st.raw, st.groups, m, u, counts,
+                                         by_class, st.part_boxes))
+            for grp, c, why in st.carried:
+                cw = written_of.get(c.member, True)
+                bodies.append(_carried_file(
+                    st.raw, grp, m, u, c, why,
+                    c.resource if cw else by_mi[c.member].m.resource, cw,
+                    len(bodies), counts, by_class, st.part_boxes))
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
-            _cut_and_file(record, m, write, counts, splits, kept, whole,
-                          always_write=True)
+            before = len(splits)
+            if st.footless:
+                counts["footless_carried"] += 1
+                if not all(b.merged_into_written for b in bodies):
+                    counts["footless_carrier_kept_whole"] = \
+                        counts.get("footless_carrier_kept_whole", 0) + 1
+                _cut_and_file(record, m, write, counts, splits, kept, whole,
+                              always_write=True)
+            else:
+                # §14 (1)'s own sentence, read on the case §14 (3) creates.
+                # A ONE-BODY placement is KEPT — its row untouched — and on a
+                # SHARED-DATUM row that row is the datum: LEMD's unit:25 puts
+                # 171 resources on one point, and 73 of the airport's 104
+                # one-body keeps then drape more than 3 m (worst 31.0 m,
+                # `Munoza-LEMD73`) from where their own anchor says their
+                # zero is.  Binding bodies in plan makes MORE such
+                # placements, so the keep is admitted only where the row and
+                # the anchor read the SAME surface: otherwise the placement is
+                # written at its anchor like any other body file.
+                z_row = surface(u.anchor[0], u.anchor[1])
+                z_anchor = bodies[0].anchor.surface_z if bodies else None
+                off_row = (z_row is not None and z_anchor is not None
+                           and abs(float(z_row) - float(z_anchor)) > split_tol_m)
+                if off_row and len(bodies) < 2:
+                    counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
+                _cut_and_file(record, m, write, counts, splits, kept, whole,
+                              always_write=off_row)
+            written_of[mi] = len(splits) > before
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole))
@@ -879,7 +990,8 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             authored_offset=tuple(b.anchor.offset),
             elevated_members=b.elevated_members, elevated=b.elevated,
             merged_into=b.merged_into, surface_z=b.anchor.surface_z,
-            y_zero=b.anchor.y_zero) for b in s.bodies))
+            y_zero=b.anchor.y_zero, plan_box=b.plan_box,
+            feet=len(b.feet)) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

@@ -71,8 +71,14 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # minus that channel.  Adding it reds `test_why`'s chain-trace twin
     # (the trace's own dz changes), which is §21's ground, not this
     # round's; the lane reports it rather than widening someone else's twin.
+    from ..constraints.apron_trend import with_apron_trend
     from ..constraints.taxi_trend import with_taxi_trend
     pm = with_taxi_trend(pm, law, airport)
+    # THE APRON BODY'S 2-D TREND (spec §8.7) is published for the same
+    # reason and in the same order the pipeline publishes it: without it an
+    # apron vertex held by its trend reads "held by bending alone" and the
+    # objective table cannot name the ``apron_trend`` term at all.
+    pm = with_apron_trend(pm, law, airport)
     stage = _dc.replace(stage, pm=pm)
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)

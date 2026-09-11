@@ -59,6 +59,15 @@ class DesignReport:
     taxi_trend: dict[str, _t.Any] = _dc.field(default_factory=dict)
     #: how many vertices carry a trend target row
     taxi_trend_rows: int = 0
+    #: THE APRON BODY'S 2-D TREND (owner RULINGS 2026-09-10ar; spec §8.7):
+    #: per body carrying a 2-D trend, the built surface against its
+    #: published target (RMS and max) and its mean z − DEM — filled by the
+    #: pipeline after the projection
+    #: (``constraints/apron_trend.apron_trend_block``)
+    apron_trend: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: how many apron vertices carry a 2-D trend row (such a body carries
+    #: NO affine ``body_datum`` rows)
+    apron_trend_rows: int = 0
     #: law rows whose one foot is the terrain beyond the zone's outer ring:
     #: the BANK (08t answers 2/3) — reported, never a design target
     bank_rows: int = 0
@@ -112,6 +121,8 @@ class DesignReport:
                 "body_datums": self.body_datums,
                 "taxi_trend": self.taxi_trend,
                 "taxi_trend_rows": self.taxi_trend_rows,
+                "apron_trend": self.apron_trend,
+                "apron_trend_rows": self.apron_trend_rows,
                 "bank_rows": self.bank_rows,
                 "hard_rows": self.hard_rows, "hard_active": self.hard_active,
                 "hard_rounds": self.hard_rounds, "hard_settled": self.hard_settled,
@@ -138,6 +149,16 @@ class DesignReport:
             f"{r['max_m']:.2f} m over {r['length_m']:.0f} m" for r in by[:3])
             + ")")
 
+    def _apron_trend_line(self) -> str:
+        """THE APRON BODIES' 2-D TREND RESIDUALS (spec §8.7) — the worst
+        three bodies by |residual|, each with its plan diameter."""
+        by = self.apron_trend.get("by_body") or []
+        if not by:
+            return ""
+        return (" (worst apron trends " + ", ".join(
+            f"{r['max_m']:.2f} m over {r['diameter_m']:.0f} m" for r in by[:3])
+            + ")")
+
     def _body_plane_line(self) -> str:
         """THE APRON BODIES' PLANE RESIDUALS — the worst three by the larger
         of |level| and |tilt| (metres of rise over the body's own radius)."""
@@ -161,6 +182,8 @@ class DesignReport:
                 + self._body_plane_line()
                 + f", {self.taxi_trend_rows} taxi trend rows"
                 + self._taxi_trend_line()
+                + f", {self.apron_trend_rows} apron trend rows"
+                + self._apron_trend_line()
                 + f", {self.bank_rows} bank rows off the "
                 f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "

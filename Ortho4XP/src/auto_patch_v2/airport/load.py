@@ -128,6 +128,9 @@ class LoadReport:
     #: the taxi chains' trend fit coverage (owner RULINGS 2026-09-10v (1);
     #: ``constraints/taxi_trend.py``, spec §8.6)
     taxi_trend: dict | None = None
+    #: the apron bodies' 2-D trend fit coverage (owner RULINGS
+    #: 2026-09-10ar; ``constraints/apron_trend.py``, spec §8.7)
+    apron_trend: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

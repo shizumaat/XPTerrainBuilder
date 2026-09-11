@@ -28,7 +28,7 @@ __all__ = [
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
-    "design_weight", "sliver_area_factor",
+    "design_weight", "sliver_area_factor", "bend_class", "apron_roles",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -108,6 +108,39 @@ def pavement_roles(law: Law) -> tuple[str, ...]:
     the pad itself (a rigid role is a value role too)."""
     return tuple(r for r in law.tables.precedence.roles
                  if is_value_role(law, r) and not is_structure_role(law, r))
+
+
+def bend_class(law: Law, role: str) -> str:
+    """The BENDING CLASS of ``role`` (``design_schema.BEND_CLASSES``, RULINGS
+    2026-09-08v): ``runway`` / ``taxi`` for the two named families,
+    ``road`` for the road cross-section's roles, ``apron`` for every other
+    role that carries its own value, ``strip`` for the rest (the graded
+    strip, the clearances, the cuts — the ground the blend happens in).
+
+    IT LIVES IN THE LAW LAYER because two packages read it and neither may
+    import the other (M0 §1): ``solve/design_roles.py`` prices the bending
+    row by it, and ``constraints/apron_trend.py`` forms the apron BODIES it
+    fits the ground's 2-D trend under (owner RULINGS 2026-09-10ar).  ``design_roles``
+    re-exports both names, so every existing importer is unchanged."""
+    if role in law.tables.precedence.runway_family.members:
+        return "runway"
+    if role in law.tables.precedence.taxi_family.members:
+        return "taxi"
+    if role in law.tables.families["road_cross_section"].roles:
+        return "road"
+    return "apron" if is_value_role(law, role) else "strip"
+
+
+def apron_roles(law: Law) -> frozenset[str]:
+    """The roles of an APRON BODY — every role the bending term prices at
+    ``bend_apron`` (a value role that is not the runway family, the taxi
+    family or the road cross-section).  These are the bodies the PER-BODY
+    DATUM sits on (RULINGS 2026-09-09p (3)) and the bodies the 2-D trend
+    values (RULINGS 2026-09-10ar); the runway family is excluded because the threshold
+    chord and its pins ARE its datum, and a structure's own surface is not
+    a body at all."""
+    return frozenset(r for r in pavement_roles(law)
+                     if bend_class(law, r) == "apron")
 
 
 def role_cap(law: Law, role: str, code_number: int | None = None,

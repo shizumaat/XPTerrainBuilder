@@ -212,6 +212,15 @@ class PlanarMap:
     #: carries the runway's ``chord`` and the core's ``road`` profile.  A
     #: runway-contact vertex is absent (the runway owns its value).
     taxi_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
+    #: §8.7, ``constraints/apron_trend.py``): vertex id -> the ground's 2-D
+    #: LONG-WAVE TREND under it — a moving quadratic SURFACE fit of the
+    #: production DEM over the same window.  Published only for an apron
+    #: body whose plan DIAMETER exceeds that window; such a body carries NO
+    #: affine ``body_datum`` rows, and a body at or under the window keeps
+    #: them and is absent here.  Its own channel, priced weak
+    #: (``[design] apron_trend``), like ``taxi_trend_z``.
+    apron_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

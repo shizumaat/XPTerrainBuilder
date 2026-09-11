@@ -647,6 +647,50 @@ stands RED at v1 22 / v2 30 (control 6 / 6, tolerance 4.4): the same class
 round 1 reported at v1 22 / v2 28 — when a taxi body follows its ground, its
 own short-pair box rows appear. Not widened.
 
+### 8.7 AMENDMENT 4 — THE APRON FOLLOWS THE GROUND'S 2-D TREND (owner RULINGS 2026-09-10ar; lane `v2aprontrend`)
+
+§8.6 (2) gave an apron body THREE affine rows. 10ar measured what a plane leaves
+open: over LEMD's 439 × 1,242 m T4S body it has no LOCAL REACH, so the pit corner
+sat 1.2 m under its own DEM and the sheet fell 0.79 m over the last 23.8 m into
+it — the 1-D chain's "right mean, no tilt" defect (10t) one order up.
+
+1. **An APRON body targets the ground's 2-D LONG-WAVE TREND at every vertex.** A
+   moving QUADRATIC SURFACE least-squares fit of the production DEM —
+   `[1, u, v, u², uv, v²]` in the query's own centred plan frame, TRICUBE-weighted
+   over radius `[design] runway_profile_window_m`, the fit's value AT the query
+   (`constraints/surface_trend.py`, the 2-D sibling of `trend.py`; the 1-D
+   construction is untouched). Samples are the production DEM under the body's OWN
+   vertices, averaged per `window/10` cell — the 2-D analogue of `trend_of`'s
+   per-station averaging, and what makes the fit affordable over thousands of
+   vertices. The DEGREE is bounded by what the in-window samples resolve
+   (quadratic only where they span at least half the window, else the plane, else
+   their weighted mean) — the same bound `Trend.at` puts on the 1-D fit, for the
+   same reason: through a handful of near points a quadratic is interpolation,
+   i.e. the per-vertex DEM pull 08t (1) removed.
+2. **The replacement rule is the body's EXTENT.** A body whose plan DIAMETER
+   exceeds the window takes ONE trend row per vertex at the new weak weight
+   `[design] apron_trend` (30, `taxi_trend`'s price) and NO affine rows: over more
+   than one window a plane cannot speak locally. A body at or under the window
+   keeps its three `body_datum` rows unchanged — inside one window the trend IS
+   its plane to the fit's own precision, and three rows are cheaper than N.
+   Derived in `constraints/apron_trend.py`, published as `PlanarMap.apron_trend_z`
+   (its own channel, like `taxi_trend_z`); `solve/design.py` drops the plane rows
+   of any body a published target touches, so ONE gate decides both.
+3. **Unchanged:** pads (10y/10ah — a `pad_level` vertex takes no trend row, as it
+   takes no datum row), rims (`structures.rim_level`, 10ar), the within-shape
+   apron rows (§8.6 (3)), the taxi trend (§8.6.1), every hard law. A vertex the
+   apron shares with the RUNWAY family takes no trend row (the runway owns it),
+   nor does one already carrying a `taxi_trend` row (two authorities on one vertex
+   is the `emit consensus mints violations` class).
+
+Consumers touched: `pipeline/why.py` publishes `apron_trend_z` before its LP, so an
+apron vertex held by its trend no longer reads "held by bending alone";
+`solve/design_report.py` — the design line and the sidecar `design` block gain
+`apron_trend` (per body: vertices, diameter, target RMS/max, mean z − DEM) and
+`apron_trend_rows`, `body_datums` records only the bodies that KEPT their plane, and
+`airport/load.py` gains `report.load.apron_trend` (coverage, fit wall); the census law
+families are UNCHANGED (no law row moves).
+
 ## §9 THE BANK and THE PAD PLANE (RULINGS 2026-09-09e / 2026-09-09c)
 
 ### 9.1 What is being added

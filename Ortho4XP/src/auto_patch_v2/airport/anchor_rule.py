@@ -1,63 +1,59 @@
-"""THE ANCHOR RULE PER BODY CLASS (spec ``object-placement-spec.md`` §6;
-owner RULINGS 2026-09-11b).
+"""THE GENERIC ANCHOR RULE (owner RULINGS 2026-09-11e (2); spec
+``object-placement-spec.md`` §9, superseding §6's per-class table).
 
-X-Plane places an ``OBJECT`` (AGL) placement's ORIGIN at the terrain
-height under its anchor.  So the anchor is not a label: it is the one
-point whose DESIGN-SURFACE height the body's intended zero is declared
-equal to, and the whole of §6 is the table of where that point is per
-class.  This module answers, for one body:
+X-Plane places an ``OBJECT`` (AGL) placement's ORIGIN at the design
+surface under its anchor.  So the anchor is not a label and not a class:
+it is THE FOOTPRINT POINT WHERE THE DESIGN SURFACE EQUALS THE BODY'S
+INTENDED ZERO.  In one reading —
 
-    anchor (lat, lon) · y_zero (the authored y that must touch the ground)
-    · the class · the reason, in the spelling §2's ``anchor_reason`` takes
+    the body's ZERO PLANE, in world height:
+        D = median over its ground-contact vertices of (surface(v) - y_v)
+    the ANCHOR: the ground-contact vertex v minimising |surface(v) - y_v - D|,
+        ties to the vertex whose authored y is nearest the object's zero
+    the body's y_zero: that vertex's own authored y
 
-and the authored offset the split writer applies, ``(anchor_x, y_zero,
-anchor_z)`` in the AUTHORED frame (§6's last paragraph) — the body's own
-plan position under the anchor, and its foot at zero.
+— because anchoring at ``v`` puts the body's authored ``y = y_v`` on the
+ground there, i.e. its ``y = 0`` plane at ``surface(v) - y_v``, and every
+other foot then renders ``zero(f) - zero(v)`` off its own ground.  So the
+vertex whose GROUND IS AT THE OBJECT'S ZERO is the vertex whose reading of
+the zero plane IS the body's, and the residual left over is the body's
+AUTHORED RELIEF — exactly what 11e (2)'s "authored relief beyond its
+skirt" names.  (Scoring ``|surface(v) - D|`` instead — the sentence read
+without the vertex's own y — measures a body's SKIRT DEPTH, not its
+relief: at LEMD it reported 1,012 of 1,403 bodies as having no point at
+their zero because their feet are authored 0.6 m below it.)  It falls out
+of nothing but the surface and the authored geometry:
 
-THE TABLE, AND WHERE EACH READING COMES FROM
---------------------------------------------
+* a PIT object (rim authored at ``y = 0``, floor plate 7 m down over a
+  basin cut 7 m down) reads ``D = grade`` from both its rings and anchors
+  on its RIM (``|grade - D| = 0``; the floor ring scores 7);
+* a TUNNEL object whose zero is its ROAD LEVEL (the floor ring at
+  ``y = 0`` over the cut floor, its wall crests 5 m up at grade) reads
+  ``D = floor`` and anchors on its FLOOR RING;
+* a building on a pad, a skirted building, a fence segment: every foot
+  reads the same zero plane, and the tie goes to the foot whose authored
+  ``y`` is nearest the object's own zero.
 
-``building``      a skirt-less building: the anchor goes INSIDE its flat
-                  pad (the pad's centroid, or the pad vertex nearest that
-                  centroid when the centroid falls outside a concave pad),
-                  and the intended zero is the pad plane.  The pad rings
-                  are the design surface's own ``building`` faces — the
-                  pass that cut them (``classify/evidence._pads``,
-                  09c/10l/10y/10bd) is the authority, and this reads its
-                  product, never a second derivation.
-``skirted``       10ag: the LOW-SIDE FOOT.  Among the body's ground-contact
-                  components, the one whose DESIGN-SURFACE height is
-                  lowest; the anchor is that component's lowest foot.  The
-                  low side touches and the high side buries into the
-                  skirt, which is what the skirt is for.
-``basin``         10ba: a RIM point — the floor plate's rim vertex nearest
-                  the ORIGINAL anchor, projected onto the emitted
-                  ``basin_wall`` ring (the design surface's
-                  ``structure_rim`` breaklines).  The object's zero is its
-                  RIM, not its floor: the floor plate hangs the authored
-                  depth below it and the basin was cut to exactly that.
-``line_segment``  10bb: a fence / kerb / light string segment — the
-                  mid-foot, the ground under its lowest vertex at mid
-                  length.  Each segment is its own body, so the line
-                  drapes segment by segment.
-``deck``          11a: an elevated deck abutting a kerb has NO anchor of
-                  its own — it is merged into the body of the building it
-                  abuts (one file, the building's anchor), so the deck
-                  stays AT the kerb whatever the terrain does.  The caller
-                  performs the merge; this returns the reason.
-``plate_only`` /  the centroid of the body's LOWEST component, and the
-``other``         ground there.
+A body with NO such point within ``[placement] split_tol_m`` — authored
+relief larger than its skirt, so no single terrain sample describes it —
+anchors at its LOW-SIDE FOOT (the ground-contact foot whose design
+surface is lowest) and is REPORTED with the residual (11e (2)).  A body
+whose surface reads NOWHERE (outside every graded face, where the DEM
+governs) is likewise reported, never guessed at.
+
+THE CLASS IS NOW A LABEL.  :func:`classify_body` still names what a body
+IS — the report and the census read by class, and 11a's elevated DECK
+still takes no anchor of its own (it is merged into the building it
+abuts) — but no class picks a different POINT any more: the per-class
+table of §6 was the round-1 reading and is superseded.
 
 WHAT IS AND IS NOT A NUMBER HERE
 --------------------------------
 
 No law constant lives in this module.  The design surface is read through
-one injected callable ``surface(lat, lon) -> z | None`` (the pipeline
-binds the solved surface; a replay binds the same surface read back from
-``<ICAO>.graded.json``), and ``None`` — a body standing outside every
-graded face, where the DEM governs — is reported, never guessed at: the
-anchor still lands where the class says, and only the ``surface_*``
-readings are absent.
+one injected callable ``surface(lat, lon) -> z | None``, and the
+tolerance ``tol_m`` is passed in by the caller from
+``[placement] split_tol_m``.
 """
 from __future__ import annotations
 
@@ -138,16 +134,6 @@ def _inside(ring: _t.Sequence[tuple[float, float]], lat: float, lon: float) -> b
     return inside
 
 
-def _centroid(ring: _t.Sequence[tuple[float, float]]) -> tuple[float, float]:
-    return (sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring))
-
-
-def _nearest_point(ring: _t.Sequence[tuple[float, float]], lat: float, lon: float
-                   ) -> tuple[float, float]:
-    ml, mo = _m_per_deg(lat)
-    return min(ring, key=lambda p: ((p[0] - lat) * ml) ** 2 + ((p[1] - lon) * mo) ** 2)
-
-
 def _pad_of(pads: _t.Sequence[PadRing], lat: float, lon: float) -> PadRing | None:
     for p in pads:
         if len(p.ring) >= 3 and _inside(p.ring, lat, lon):
@@ -193,17 +179,25 @@ class BodyGeometry:
 
 def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
-               *, merged_into: str = "") -> Anchor:
-    """§6 for one body.  ``geom.parts`` are its ground-contact components
+               *, merged_into: str = "", tol_m: float = 0.0) -> Anchor:
+    """THE GENERIC RULE (module doc; 11e (2)) for one body.
+
+    ``geom.parts`` are its ground-contact components
     ``(lat, lon, base_y, feet)``; ``surface`` the design surface;
-    ``pads`` / ``rims`` the emitted object pads and basin-wall rings.
+    ``tol_m`` the admission (``[placement] split_tol_m``) — a body with no
+    ground-contact vertex whose surface reads within it of the body's own
+    ZERO PLANE anchors at its low-side foot and says so in
+    :attr:`Anchor.reason`, carrying the residual.
+
+    ``pads`` / ``rims`` are accepted and unused: the per-class table they
+    served is superseded.  An 11a DECK is still the one body with no
+    anchor of its own (merged into the building it abuts).
 
     The returned :attr:`Anchor.offset` is ``(0, y_zero, 0)`` in the y axis
     only — the plan half (``anchor_x``, ``anchor_z``) is the AUTHORED
     position of the anchor point, which only the caller holding the
     authored frame can spell, and it fills that in before handing the cut
-    to the writer.  What is decided HERE is the anchor POINT and the
-    body's ZERO, which is all §6 is about."""
+    to the writer."""
     if not geom.parts:
         return Anchor(body_class, geom.origin_lat, geom.origin_lon, 0.0,
                       "no ground-contact component: the placement's own anchor",
@@ -212,82 +206,54 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         z = surface(geom.origin_lat, geom.origin_lon)
         return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
                       f"kerb (merged into {merged_into or 'the abutting building'})", z)
-    if body_class == BASIN and rims:
-        # the rim vertex nearest the ORIGINAL anchor, on the emitted ring
-        # §6 says "nearest the ORIGINAL anchor"; the reference point used
-        # here is the body's OWN lowest component instead, and the
-        # deviation is deliberate: the original anchor is exactly the
-        # thing this whole round removes — at LEMD one anchor serves 171
-        # members over kilometres, so "nearest the original anchor" picks
-        # the same rim vertex for every pit in the pack.  Nearest THE
-        # BODY is what the sentence means once the bodies exist.
-        la0, lo0 = _lowest_part(geom)[0:2]
-        ml, mo = _m_per_deg(la0)
-        cands = [(_nearest_point(r.ring, la0, lo0), r) for r in rims if r.ring]
-        (la, lo), ring = min(cands, key=lambda c: ((c[0][0] - la0) * ml) ** 2
-                             + ((c[0][1] - lo0) * mo) ** 2)
-        # §6, verbatim: "the object's zero is the rim, its floor plate
-        # 7.05 m down on the floor ring".  A pit object is AUTHORED with
-        # its rim at y = 0 and its floor below — the basin was cut to
-        # exactly that depth (10ba) — so the zero is 0, never the body's
-        # own highest or lowest part.
-        y_zero = 0.0
-        return Anchor(BASIN, la, lo, y_zero, f"rim point ({ring.ref})", surface(la, lo))
-    if body_class == BUILDING:
-        la0, lo0 = _lowest_part(geom)[0:2]
-        pad = _pad_of(pads, la0, lo0)
-        if pad is not None:
-            c = _centroid(pad.ring)
-            if not _inside(pad.ring, *c):
-                c = _nearest_point(pad.ring, *c)
-            y_zero = min(p[2] for p in geom.parts)
-            return Anchor(BUILDING, c[0], c[1], y_zero, f"pad point ({pad.ref})",
-                          surface(*c))
-    if body_class == LINE_SEGMENT:
-        la, lo, y = _mid_foot(geom)
-        return Anchor(LINE_SEGMENT, la, lo, y, "segment mid-foot", surface(la, lo))
-    if body_class == SKIRTED:
-        low = _low_side(geom, surface)
-        if low is not None:
-            la, lo, y, z = low
-            return Anchor(SKIRTED, la, lo, y, "low-side foot", z)
-    # plate_only / other, and every class whose own reading was unavailable
-    la, lo, y = _lowest_part(geom)
-    reason = "centroid of the lowest component"
-    if body_class == BUILDING:
-        reason = "no pad under the body: centroid of the lowest component"
-    elif body_class == SKIRTED:
-        reason = "no design surface under any foot: centroid of the lowest component"
-    return Anchor(body_class, la, lo, y, reason, surface(la, lo))
+
+    # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
+    # in for itself at its own base), read against the design surface
+    cands: list[tuple[float, float, float, float]] = []
+    for la, lo, base_y, feet in geom.parts:
+        for f in (feet or ((la, lo, base_y),)):
+            z = surface(f[0], f[1])
+            if z is not None:
+                cands.append((float(f[0]), float(f[1]), float(f[2]), float(z)))
+    if not cands:
+        la, lo, y = _lowest_part(geom)
+        return Anchor(body_class, la, lo, y,
+                      "no design surface under any foot: the lowest component",
+                      None)
+    # the body's ZERO PLANE in world height, and the vertex whose GROUND
+    # is at it.  The tie (a body every foot of which reads the same plane
+    # — the common case) goes to the foot whose authored y is nearest the
+    # object's own zero, then to the southern/western one, so the rule is
+    # deterministic over a pack.
+    zero = _median(tuple(z - y for _la, _lo, y, z in cands))
+    best = min(cands, key=lambda c: (round(abs(c[3] - c[2] - zero), 6),
+                                     round(abs(c[2]), 6), c[0], c[1]))
+    # THE RESIDUAL IS THE BODY'S OWN SPREAD, not the anchor's distance to
+    # the median: with an odd number of ground contacts some vertex always
+    # attains the median exactly, so "the minimum is above the tolerance"
+    # would fire on nothing but even counts.  What 11e (2) names — "no
+    # such point ... (authored relief beyond its skirt)" — is a body that
+    # has no ONE zero plane: some ground contact stands further than
+    # ``tol_m`` from the anchor's.
+    z_best = best[3] - best[2]
+    residual = max(abs(z - y - z_best) for _la, _lo, y, z in cands)
+    if tol_m > 0.0 and residual > tol_m:
+        # 11e (2): authored relief beyond the body's skirt — no point on
+        # the footprint stands where the surface equals the zero
+        low = min(cands, key=lambda c: (c[3], c[2], c[0], c[1]))
+        return Anchor(body_class, low[0], low[1], low[2],
+                      f"low-side foot (no point within {tol_m:g} m of the body's "
+                      f"zero plane: authored relief {residual:.2f} m)", low[3])
+    return Anchor(body_class, best[0], best[1], best[2],
+                  "surface at the body's zero", best[3])
+
+
+def _median(xs: _t.Sequence[float]) -> float:
+    q = sorted(xs)
+    n = len(q)
+    return q[n // 2] if n % 2 else 0.5 * (q[n // 2 - 1] + q[n // 2])
 
 
 def _lowest_part(geom: BodyGeometry) -> tuple[float, float, float]:
     p = min(geom.parts, key=lambda q: q[2])
     return p[0], p[1], p[2]
-
-
-def _mid_foot(geom: BodyGeometry) -> tuple[float, float, float]:
-    """A segment's MID-FOOT: the foot nearest the plan midpoint of the
-    body's feet, carrying its own authored y."""
-    feet = [f for p in geom.parts for f in p[3]] \
-        or [(p[0], p[1], p[2]) for p in geom.parts]
-    mid_lat = (max(f[0] for f in feet) + min(f[0] for f in feet)) / 2.0
-    mid_lon = (max(f[1] for f in feet) + min(f[1] for f in feet)) / 2.0
-    ml, mo = _m_per_deg(mid_lat)
-    f = min(feet, key=lambda q: ((q[0] - mid_lat) * ml) ** 2 + ((q[1] - mid_lon) * mo) ** 2)
-    return float(f[0]), float(f[1]), float(f[2])
-
-
-def _low_side(geom: BodyGeometry, surface: Surface
-              ) -> tuple[float, float, float, float] | None:
-    """10ag: the ground-contact component whose design surface is LOWEST,
-    and its own lowest foot.  ``None`` when the surface reads nowhere."""
-    best: tuple[float, float, float, float] | None = None
-    for la, lo, base_y, feet in geom.parts:
-        z = surface(la, lo)
-        if z is None:
-            continue
-        if best is None or z < best[3]:
-            f = min(feet, key=lambda q: q[2]) if feet else (la, lo, base_y)
-            best = (float(f[0]), float(f[1]), float(f[2]), float(z))
-    return best

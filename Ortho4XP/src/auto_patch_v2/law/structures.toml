@@ -337,6 +337,7 @@ in_runway_strip = false            # no wall inside the runway strip keep-out (0
 # cluster's ground parts, the delta written PER VERTEX through v1's writer
 # (object_rebake.apply: the OBJ8 vertex y tokens, never the DSF, the authored
 # file kept as <name>.anchor_bak).  Anchor spelling is only the subtrahend.
+placement           = "agl"        # THE OBJECT STAGE (owner RULINGS 2026-09-11b/11e (3)): "agl" = X-Plane places every object on the terrain under its own anchor — the placements convert to on-ground, mega-objects are cut into bodies and each body takes the anchor where the design surface equals its zero (spec object-placement-spec.md §9), and NO SEAT IS COMPUTED; "seat" = the pre-11b path (the per-vertex re-seat of 09ac-10be) unchanged.  The ONE permitted gate: a mechanism awaiting the owner's sim adjudication (29e); the seat path is DELETED after the read (§8)
 restore_before_read = true         # the loader reads <obj>.anchor_bak where one exists — the AUTHORED geometry, never a previous bake (04f-1; m4b-report §9 Q1)
 ground_datum        = "cluster"    # a ground object seats by its contact clusters (06g; v1 object_clusters.form_clusters + object_anchor._seat_clusters)
 deck_datum          = "deck_top"   # a hard-deck object seats its deck TOP on the solved surface at the deck (bridge.deck_datum; R12: the y=0 datum was the defect)
@@ -385,3 +386,16 @@ structure_seat_threshold_exempt = false  # RULINGS 2026-09-08d (d): a STRUCTURE 
 anchor_water_founds_seat = false   # an anchor whose mesh sample is WATER: false = it takes Z0 where a site datum exists and is HELD (no write) where none does (08d: OTHH's canal at 0.00 founded 45 Bridges Bus writes against a base 3.96 m under the plane); true = the water surface founds the base (1.0.293's law; v1's, which wrote Bridge_05 +1.6450 / Bridge_04 +2.5672 / Bridge_01 +4.1589)
 flat_site_anchor_datum   = true    # a LAND anchor inside the datum region within basin.contact_band_m of Z0 takes Z0 as its ground (the plane's sub-band residual is the datum's); deeper = a cut, the mesh stays
 flat_site_ground_datum   = true    # the datum extends under every object footprint: the pack's seat is AUTHORITATIVE for an object anchored inside the region, over its WHOLE footprint (Terminal_Parking_VCN: two parts on the canal bank beyond the region's edge wrote −1.89), and for any part standing inside it — a CLUSTER ground part reads its object's authored y = 0 plane as its ground (delta 0: never the canal bank, Terminal_Parking_VCN −1.89; never the raw inset DEM outside the patch, Emiri −1.07…−2.09; never −agl, Bridge_05 +3.50 under a literal "ground = Z0") and a deck unit keeps its authored deck (TerminalRoads −10.87); plate stations read the raw mesh (a floor or a rim by construction: the cut compensations)
+
+
+[placement]
+# THE PLACEMENT STAGE (owner RULINGS 2026-09-11e (1)/(2); spec
+# object-placement-spec.md §9).  A split exists only where the terrain
+# DIFFERS under the object: the bodies of one placement whose intended-zero
+# terrain heights (the design surface at each body's anchor minus its
+# y_zero) agree within split_tol_m are ONE file, anchored by the senior
+# body (the one with the most ground-contact vertices).  The same number is
+# the generic anchor rule's admission: a body with no ground-contact vertex
+# whose design surface reads within split_tol_m of the body's own zero
+# plane anchors at its LOW-SIDE foot and is reported with its residual.
+split_tol_m         = 0.3          # round 1 measured LEMD 302 placements -> 13,924 cut files and OTHH 954 -> 65,360: the SEAT's bodies are far finer than a PLACEMENT needs (11e).  0.3 m is the materiality the sim read is judged at; 0 would restore round 1's one-file-per-body reading

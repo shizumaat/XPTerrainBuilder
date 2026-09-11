@@ -57,7 +57,7 @@ from ..model.rebake import Member, RebakePlan, Unit
 from . import anchor_rule as _ar
 from . import obj8_split as _split
 
-__all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits",
+__all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
            "authored_offset"]
 
 
@@ -231,11 +231,85 @@ def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
     return any(len(r.ring) >= 3 and _ar._inside(r.ring, lat, lon) for r in rims)
 
 
+def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
+            elevated: _t.AbstractSet[int] = frozenset()) -> list[list[int]]:
+    """BODY COARSENING (owner RULINGS 2026-09-11e (1); spec §9).
+
+    ``bodies`` are ``(body index, its anchor, its ground-contact vertex
+    count)``; the answer is the groups of indices that become ONE file.
+    Two bodies of the same placement are one file when their INTENDED-ZERO
+    TERRAIN HEIGHTS — the design surface at each body's anchor minus its
+    ``y_zero``, i.e. each body's own zero plane in world height — agree
+    within ``tol_m``: a split exists only where the terrain DIFFERS under
+    the object.  The group is anchored by its SENIOR body (the most
+    ground-contact vertices; ties by body order), and the walk is
+    senior-first so that "agree" is always measured against the anchor the
+    group will actually take — never a chain of pairwise steps that lets a
+    group span many times the tolerance.
+
+    A body whose surface reads NOWHERE has no zero plane to compare: all
+    of a placement's off-surface bodies are ONE group (no reading is no
+    evidence that the terrain differs).  ``tol_m <= 0`` restores round
+    one's reading: one file per body.
+
+    ``elevated`` are the bodies standing wholly above
+    ``[rebake] elevated_base_m`` — a terminal's interior clutter on a
+    mezzanine, a sign on a gantry.  The seat law has always held that such
+    a part never votes on a seat and inherits the body it stands over
+    (``elevated_base_m``, v1 I-8); at PLACEMENT level that reading is the
+    same sentence as 11e (1)'s own: there is no terrain under an elevated
+    body for the terrain to DIFFER under, so it never founds a group of
+    its own — it joins the group whose anchor is nearest it in plan (and,
+    with no ground body in the placement at all, they coarsen among
+    themselves like any other).  Measured at OTHH: without this the
+    terminals' interior clutter alone made the pack 3.09 files per
+    placement against 11e's bar of 2."""
+    ground = [i for i in range(len(bodies)) if i not in elevated]
+    if not ground:
+        ground = list(range(len(bodies)))
+        elevated = frozenset()
+    order = sorted(ground, key=lambda i: (-bodies[i][2], bodies[i][0]))
+    groups: list[list[int]] = []
+    zeros: list[float | None] = []
+    for i in order:
+        _bi, a, _n = bodies[i]
+        z = None if a.surface_z is None else float(a.surface_z) - float(a.y_zero)
+        placed = False
+        if tol_m > 0.0:
+            for gi, g0 in enumerate(zeros):
+                if (z is None) == (g0 is None) and (
+                        z is None or abs(z - g0) <= tol_m):
+                    groups[gi].append(i)
+                    placed = True
+                    break
+        elif z is None:
+            # no tolerance at all: only the off-surface bodies still merge
+            for gi, g0 in enumerate(zeros):
+                if g0 is None:
+                    groups[gi].append(i)
+                    placed = True
+                    break
+        if not placed:
+            groups.append([i])
+            zeros.append(z)
+    for i in sorted(elevated):
+        a = bodies[i][1]
+        ml, mo = _ar._m_per_deg(a.lat)
+        gi = min(range(len(groups)),
+                 key=lambda k: ((bodies[groups[k][0]][1].lat - a.lat) * ml) ** 2
+                 + ((bodies[groups[k][0]][1].lon - a.lon) * mo) ** 2)
+        groups[gi].append(i)
+    return [sorted(g) for g in sorted(groups, key=min)]
+
+
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  pads: _t.Sequence[_ar.PadRing] = (),
                  rims: _t.Sequence[_ar.RimRing] = (),
-                 *, write: bool = True) -> SplitSet:
-    """Every placement of ``plan`` cut into its bodies (module doc).
+                 *, write: bool = True, split_tol_m: float = 0.0,
+                 elevated_base_m: float = 0.0) -> SplitSet:
+    """Every placement of ``plan`` cut into its bodies (module doc), the
+    bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
+    (1)) and each anchored by the generic rule of 11e (2).
     ``write`` False skips the OBJ8 cut itself and reports bodies only —
     the cheap pass when the question is the body COUNTS."""
     intra: dict[int, list[tuple[int, int]]] = {}
@@ -261,8 +335,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             counts["placements"] += 1
             groups = _bodies_of(m, intra.get(id_of((ui, mi)), []))
             pid_of = {p.pid: p for p in m.parts}
-            bodies: list[Body] = []
-            for k, g in enumerate(groups):
+            raw: list[tuple[list, str, _ar.Anchor, tuple]] = []
+            for g in groups:
                 parts = [pid_of[q] for q in g]
                 lowest = min(parts, key=lambda p: p.base_y)
                 cls = _ar.classify_body(
@@ -276,16 +350,38 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     tuple((p.lat, p.lon, p.base_y,
                            tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
                     u.anchor[0], u.anchor[1])
-                a = _ar.anchor_for(cls, geom, surface, pads, rims)
+                a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m)
+                feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
+                    or tuple((p.lat, p.lon, p.base_y) for p in parts)
+                raw.append((parts, a.body_class, a, feet,
+                            min(p.base_y for p in parts) > elevated_base_m
+                            if elevated_base_m > 0.0 else False))
+            counts["bodies_uncoarsened"] = counts.get("bodies_uncoarsened", 0) + len(raw)
+            elevated = frozenset(i for i, r in enumerate(raw) if r[4])
+            counts["bodies_elevated"] = counts.get("bodies_elevated", 0) + len(elevated)
+            merged = coarsen([(i, r[2], len(r[3])) for i, r in enumerate(raw)],
+                             split_tol_m, elevated)
+            if len(merged) < len(raw):
+                counts["placements_coarsened"] = counts.get("placements_coarsened", 0) + 1
+            bodies: list[Body] = []
+            for k, grp in enumerate(merged):
+                # the SENIOR body carries the group's anchor (11e (1))
+                cands = [i for i in grp if not raw[i][4]] or list(grp)
+                senior = max(cands, key=lambda i: (len(raw[i][3]), -i))
+                parts = [p for i in grp for p in raw[i][0]]
+                a = raw[senior][2]
                 off = authored_offset(a.lat, a.lon, a.y_zero, u.anchor[0], u.anchor[1],
                                       m.heading_deg)
                 a = _dc.replace(a, offset=off)
                 by_class[a.body_class] = by_class.get(a.body_class, 0) + 1
-                feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
-                    or tuple((p.lat, p.lon, p.base_y) for p in parts)
+                feet = tuple(f for i in grp for f in raw[i][3])
+                if a.reason.startswith("low-side foot ("):
+                    counts["anchor_residual"] = counts.get("anchor_residual", 0) + 1
+                elif a.surface_z is None:
+                    counts["anchor_off_surface"] = counts.get("anchor_off_surface", 0) + 1
                 bodies.append(Body(k, a.body_class, tuple(sorted(p.comp for p in parts)),
                                    a, _split.body_resource_name(m.resource, k),
-                                   tuple(sorted(g)), feet=feet))
+                                   tuple(sorted(p.pid for p in parts)), feet=feet))
             counts["bodies"] += len(bodies)
             index = _index_of(m.id)
             record = Split(index, m.id, m.resource, m.authored_path,

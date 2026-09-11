@@ -37,6 +37,12 @@ elevation (MSL / AGL)        0.031067 m          ``TOL_ELEV_M`` 0.0625
 row ORDER                    ``OBJECT`` rows and whole polygons are
                              REORDERED by the encoder; the per-keyword
                              counts and the def lists are not.
+FILTER                       a filter command is STATE: ``-1`` is the
+                             default, the encoder emits the default rows
+                             ahead of any ``FILTER`` line and drops one
+                             that became redundant.  Compared as the
+                             filter IN FORCE per placement / polygon,
+                             never as a row sequence (OTHH, 11e).
 comments                     ``# file:`` names the encoded path and the
                              ``# pool`` block is regenerated wholesale.
 ===========================  ==================  =====================
@@ -372,11 +378,24 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
     ``+40-004.dsf``, 7,218 segments, node 249 -> 243 on an untouched
     round trip)."""
     struct: list[list[str]] = []
-    places: dict[tuple[str, int], list[tuple[float, ...]]] = {}
+    places: dict[tuple[str, int, str], list[tuple[float, ...]]] = {}
     polys: list[tuple] = []
     segs: dict[tuple, list[tuple[float, ...]]] = {}
     cur: list | None = None
     seg: list | None = None
+    #: THE FILTER IS STATE, NOT A ROW (measured at OTHH 2026-09-11e): a
+    #: ``FILTER`` command sets the filter in force for the rows that
+    #: follow, and ``-1`` IS the default (no filter) — so the encoder
+    #: emits the default rows first, ahead of any ``FILTER`` line, and
+    #: drops a ``FILTER -1`` that has become redundant.  Converting every
+    #: elevated row to on-ground does exactly that: OTHH's 36 rows under
+    #: an explicit ``FILTER -1`` came back in the default region and the
+    #: dump lost two structural rows (2642 -> 2640) with every row's
+    #: filter intact.  Comparing the FILTER ROWS in order therefore reads
+    #: a canonicalisation as a loss; what must be preserved — and what is
+    #: compared here — is the filter IN FORCE at each placement and each
+    #: polygon.
+    filt = "-1"
     for raw in text.splitlines():
         s = raw.strip()
         if not s or s[0] == "#":
@@ -390,9 +409,12 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
             # under RULINGS 2026-09-11d).  The quantum is the invariant.
             struct.append(toks[:2])
             continue
+        if kw == "FILTER" and len(toks) >= 2:
+            filt = "-1" if toks[1] == "-1" else toks[1]
+            continue
         if kw in PLACEMENT_KINDS:
             try:
-                key = (kw, int(toks[1]))
+                key = (kw, int(toks[1]), filt)
                 places.setdefault(key, []).append(tuple(float(x) for x in toks[2:]))
             except ValueError:
                 struct.append(toks)
@@ -420,7 +442,7 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
             seg = None
             continue
         if kw == "BEGIN_POLYGON":
-            cur = [tuple(toks[1:]), []]
+            cur = [tuple(toks[1:]) + (filt,), []]
             continue
         if kw == "BEGIN_WINDING" and cur is not None:
             cur[1].append(0)
@@ -501,7 +523,8 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
         b = list(pb.get(key, []))
         total += len(a)
         if len(a) != len(b):
-            findings.append(f"{key[0]} def {key[1]}: {len(a)} -> {len(b)} placements")
+            findings.append(f"{key[0]} def {key[1]} (filter {key[2]}): "
+                            f"{len(a)} -> {len(b)} placements")
         u, pairs = _match(a, b, TOL_DEG, True)
         unmatched += u
         has_z = key[0] in CONVERTIBLE_KINDS

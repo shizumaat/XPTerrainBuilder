@@ -20,7 +20,7 @@ from pathlib import Path
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
-from .rebake_schema import Rebake  # noqa: F401
+from .rebake_schema import Placement, Rebake  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 # the unit-sanity register (grades are fractions; RULINGS 2026-09-08n bound)
@@ -35,7 +35,8 @@ from .airports_schema import (Affordances, NO_AFFORDANCES, Resolution,  # noqa: 
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
     "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
-    "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Structures", "ReliefFloor",
+    "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
+    "Structures", "ReliefFloor",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
     "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
@@ -402,6 +403,7 @@ class Structures:
     cutout: Cutout
     retaining_wall: RetainingWall
     rebake: Rebake
+    placement: Placement
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

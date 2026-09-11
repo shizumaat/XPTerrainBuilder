@@ -603,6 +603,93 @@ def _decision_from_seats(plan_, result, measure_only: bool,
                           seat_datum_by_resource=datums, seat_note_by_resource=notes)
 
 
+# ── THE PLACEMENT PATH (owner RULINGS 2026-09-11b / 11e (3)) ─────────────
+# ``[rebake] placement = "agl"``: X-Plane places every object on the
+# terrain under its own anchor.  NO SEAT IS COMPUTED — the plan is built
+# (conversions for every MSL/AGL row, splits with coarsened bodies and
+# placed anchors), the cut files are written into the pack's ``objects/``
+# under new names, the DSF is edited, encoded, verified and backed up, the
+# READ path's text-dump cache is refreshed and the placement plan lands
+# beside the patch.  ``"seat"`` runs the pre-11b path below, unchanged:
+# the ONE permitted gate, a mechanism awaiting the owner's sim read (29e).
+
+def object_stage_is_placement(law) -> bool:
+    """THE ONE GATE (owner RULINGS 2026-09-11e (3)): ``[rebake] placement``
+    — ``"agl"`` routes the object stage through the PLACEMENT path below
+    (no seat is computed); anything else runs the pre-11b seat unchanged."""
+    return str(law.tables.structures.rebake.placement) == "agl"
+
+
+def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
+                   write_enabled: bool, measure_only: bool) -> dict:
+    """One airport's placement write (RULINGS 2026-09-11e (3)).  Returns
+    the counts; raises nothing the caller does not already catch."""
+    import O4_File_Names as FNAMES
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import placement_write as _pw
+    from . import dsf_reader as _DSFR
+
+    pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
+    dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, tile.lat, tile.lon)
+    if not os.path.isfile(dsf_path):
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF at {dsf_path}; skipped")
+        return {}
+    cache = _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), pack_name)
+    # the PRISTINE dump: once a DSF has been written the backup is the
+    # authored file (§3.4, the .anchor_bak discipline)
+    src = dsf_path + ".anchor_bak" if os.path.isfile(dsf_path + ".anchor_bak") \
+        else dsf_path
+    dump_path = _DSFR.ensure_dsf_text_path(src, cache)
+    if not dump_path:
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: no DSF text dump; skipped")
+        return {}
+    dump = _dsf2.read_dump(dump_path)
+
+    def _surface(lat: float, lon: float):
+        s = mesh_sample(lat, lon)
+        return None if s is None else float(s[0])
+
+    from auto_patch_v2.law.tables import law_tables_digest
+    digest = str(law_tables_digest().get("sha256") or "")
+    plan, files, _ss = _pw.build_plan(
+        plan_, dump, _surface, icao=plan_.icao, pack_name=pack_name,
+        pack_root=plan_.pack_root, dsf_path=dsf_path,
+        split_tol_m=law.tables.structures.placement.split_tol_m,
+        elevated_base_m=law.tables.structures.rebake.elevated_base_m,
+        engine_version=_engine_version(), law_digest=digest,
+        write_cuts=bool(write_enabled and not measure_only))
+    c = dict(plan.counts())
+    if not write_enabled or measure_only:
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
+                     f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
+                     f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
+        return c
+    res = _pw.apply_plan(
+        plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
+        allow_live_install=True,
+        refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
+        engine_version=_engine_version(), law_digest=digest)
+    UI.vprint(1, f"  [v2 placement] {plan_.icao}: {c['conversions']} placement(s) "
+                 f"converted to on-ground, {c['splits']} split into "
+                 f"{len(res.files_written)} body file(s), {c['kept']} kept whole; "
+                 f"DSF rewritten (backup {os.path.basename(res.dsf.backup_path)}, "
+                 f"round trip {'ok' if res.dsf.report.ok else 'FAILED'}), dump cache "
+                 f"{'refreshed' if res.dump_refreshed else 'not refreshed'} -> "
+                 f"{os.path.basename(res.plan_path)}")
+    out = dict(res.counts)
+    out["packs_written"] = 1
+    return out
+
+
+def _engine_version() -> str:
+    try:
+        from . import provenance as _prov
+        return str(_prov.engine_version() or "")
+    except Exception:
+        return ""
+
+
 def rebake_after_mesh(tile) -> dict:
     """Re-seat every object of the airports v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
@@ -683,6 +770,19 @@ def rebake_after_mesh(tile) -> dict:
                         return None
                     z = float(s.elevation_metres)
                     return (z, bool(s.is_water)) if math.isfinite(z) else None
+
+                if object_stage_is_placement(law):
+                    # 11e (3): the PLACEMENT path — no seat is computed
+                    pc = _place_objects(plan_, law, _sample, tile, patch_dir,
+                                        write_enabled, measure_only)
+                    counts["airports"] += 1
+                    for k, v in pc.items():
+                        if k in ("packs_written",):
+                            continue
+                        counts["placement_" + k] = counts.get("placement_" + k, 0) + int(v)
+                    if pc.get("packs_written"):
+                        written_packs.add(plan_.pack_root)
+                    continue
 
                 res = _rb.seat(plan_, _sample, law)
                 if write_enabled:

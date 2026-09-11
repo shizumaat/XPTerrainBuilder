@@ -18,6 +18,22 @@ census each result here.
     venv/bin/python tools/seat_feet_census.py RESULT.json --mesh MESH \\
         [--plan PLAN.json] [--pack ROOT] [--dsf-dump DUMP.text] \\
         [--label L] [--top 30] [--json OUT.json]
+    venv/bin/python tools/seat_feet_census.py --placement-plan PLAN.json \\
+        {--mesh MESH | --graded ICAO.graded.json} [--pack ROOT] [--top 30]
+
+THE PLACEMENT PLAN (owner RULINGS 2026-09-11e (3), spec §7/§9): with
+``--placement-plan`` there is no seat and no delta — the object stage is
+X-Plane's own drape, so the rows are the plan's OWN placements (every
+split body at ITS anchor, reading the file the split writer wrote; every
+converted placement at its authored anchor) and the residual is what the
+terrain does between the anchor and each foot:
+
+    |dz| = surface(foot) - (surface(anchor) + y_foot)
+
+— the same instrument, the same histogram, one source further back.  The
+elevation comes from the built mesh (``--mesh``) or, for a dry run with
+no tile built, from the emitted DESIGN SURFACE (``--graded``), which is
+the terrain the drape will read.
 
 ``--plan`` supplies the pack root and the skip reasons that name each
 unseated placement's CLASS (the by-class table below); without it every
@@ -229,6 +245,45 @@ def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict
     in the CLI below; a stub in the twins).
     """
     defs, plc = read_placements(dump)
+    return measure_rows(pack_root, defs, plc, sampler, deltas, member_delta,
+                        stations, thickness)
+
+
+def placement_plan_rows(plan: dict) -> tuple[list[str], list[tuple[int, float, float, float]]]:
+    """``(defs, placements)`` from a ``o4_v2_placement_<ICAO>.json`` —
+    the plan's OWN rows in the DSF's own shape, so the census below is
+    one code path for a dump and for a plan (11e (3)).
+
+    Every SPLIT body is a row at its own anchor on its own new resource;
+    every CONVERSION is a row at its authored anchor.  A KEPT placement
+    that is not also a conversion carries no coordinate in the plan (it
+    is the authored row, untouched) and is counted, not measured."""
+    defs: list[str] = []
+    idx: dict[str, int] = {}
+    plc: list[tuple[int, float, float, float]] = []
+
+    def _def(res: str) -> int:
+        if res not in idx:
+            idx[res] = len(defs)
+            defs.append(res)
+        return idx[res]
+
+    for s in plan.get("splits", ()):
+        for b in s.get("bodies", ()):
+            a = b["anchor"]
+            plc.append((_def(b["new_resource"]), float(a["lon"]), float(a["lat"]),
+                        float(a.get("heading", 0.0))))
+    for c in plan.get("conversions", ()):
+        plc.append((_def(c["resource"]), float(c["lon"]), float(c["lat"]),
+                    float(c.get("heading", 0.0))))
+    return defs, plc
+
+
+def measure_rows(pack_root: str, defs: list[str],
+                 plc: list[tuple[int, float, float, float]], sampler,
+                 deltas: dict, member_delta: dict,
+                 stations: dict | None = None, thickness: float = 0.5) -> list[dict]:
+    """The measurement itself, over placements from EITHER source."""
     if not plc:
         return []
     resources: dict[int, dict | str] = {}
@@ -278,11 +333,69 @@ def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict
     return rows
 
 
+
+class _GradedSampler:
+    """A ``--graded`` design surface in the sampler's own shape."""
+
+    def __init__(self, path: str):
+        tools = os.path.dirname(os.path.abspath(__file__))
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        from obj8_split_report import surface_from_graded
+        self._f, self.pads, self.rims = surface_from_graded(path)
+
+    def elevation_at_or_none(self, lat: float, lon: float):
+        return self._f(lat, lon)
+
+
+def _census_placement_plan(ap, args) -> int:
+    """§7 read from the PLACEMENT plan (11e (3)) — no seat, no delta."""
+    with open(args.placement_plan) as fh:
+        plan = json.load(fh)
+    pack = args.pack or plan.get("pack_root", "")
+    if not pack or not os.path.isdir(pack):
+        ap.error("no pack root: pass --pack (or a plan carrying pack_root)")
+    defs, plc = placement_plan_rows(plan)
+    if not plc:
+        ap.error(f"{args.placement_plan} carries no placement row")
+    if args.graded:
+        sampler = _GradedSampler(args.graded)
+    else:
+        sampler = MeshElevationSampler(args.mesh,
+                                       (min(q[2] for q in plc), min(q[1] for q in plc),
+                                        max(q[2] for q in plc), max(q[1] for q in plc)))
+    rows = measure_rows(pack, defs, plc, sampler, {}, {}, None, args.thickness)
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(rows, fh)
+    c = plan.get("counts", {})
+    label = args.label or f"{plan.get('icao', '?')} placement plan"
+    census(rows, {}, set(), label, args.top)
+    n_split_rows = sum(len(s.get("bodies", ())) for s in plan.get("splits", ()))
+    print(f"   PLAN: {c.get('splits', 0)} split placement(s) -> {n_split_rows} body "
+          f"row(s), {c.get('conversions', 0)} conversion(s), {c.get('kept', 0)} kept "
+          f"(a kept placement that is already on-ground carries no coordinate in the "
+          f"plan and is counted, not measured)")
+    meas = [r for r in rows if r["kind"] == "measured"]
+    if meas:
+        over = [r for r in meas if abs(r["dmax"]) > 0.3]
+        big = [r for r in meas if abs(r["dmax"]) > 3.0]
+        print(f"   rows with a foot > 0.3 m: {len(over)}; > 3 m: {len(big)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("result", help="a seat result (o4_v2_rebake_result_<ICAO>.json) or a "
-                                   "v2_rebake_replay.py *.seat.json")
-    ap.add_argument("--mesh", required=True, help="the built Data+XX+YYY.mesh")
+    ap.add_argument("result", nargs="?", default="",
+                    help="a seat result (o4_v2_rebake_result_<ICAO>.json) or a "
+                         "v2_rebake_replay.py *.seat.json")
+    ap.add_argument("--placement-plan", default="",
+                    help="an o4_v2_placement_<ICAO>.json: census the PLACEMENT "
+                         "plan's own rows, no seat and no delta (11e (3))")
+    ap.add_argument("--mesh", default="", help="the built Data+XX+YYY.mesh")
+    ap.add_argument("--graded", default="", help="an emitted <ICAO>.graded.json — the "
+                                                 "DESIGN SURFACE, for a dry run with no "
+                                                 "tile built")
     ap.add_argument("--plan", default="", help="the rebake plan: supplies the pack root and "
                                                "the skip reason behind each class")
     ap.add_argument("--pack", default="", help="the pack root (default: the plan's)")
@@ -294,6 +407,14 @@ def main(argv: list[str] | None = None) -> int:
                     help="a ground component's minimum y-extent in metres")
     ap.add_argument("--json", default="", help="write the per-placement rows here")
     args = ap.parse_args(argv)
+
+    if not args.result and not args.placement_plan:
+        ap.error("pass a seat result, or --placement-plan")
+    if not args.mesh and not args.graded:
+        ap.error("pass --mesh (the built mesh) or --graded (the design surface)")
+
+    if args.placement_plan:
+        return _census_placement_plan(ap, args)
 
     plan = {}
     if args.plan:

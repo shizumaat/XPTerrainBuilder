@@ -10,7 +10,17 @@ own two products and NOTHING ELSE: the re-seat plan
 
     venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
         [--write-into DIR] [--json OUT.json] [--top N] [--filter SUBSTR]
-        [--no-cut]
+        [--no-cut] [--split-tol M]
+    venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
+        --write-pack PACK_COPY [--patch-dir DIR] [--dsftool BIN]
+
+``--write-pack`` runs THE WHOLE WRITE HALF (owner RULINGS 2026-09-11e (3),
+``airport/placement_write.apply_plan``) into a pack COPY: the cut files
+into its ``objects/``, the DSF edited / encoded / VERIFIED with its
+``.anchor_bak`` backup and provenance, the text-dump cache refreshed and
+``o4_v2_placement_<ICAO>.json`` written into ``--patch-dir``.  It REFUSES
+a pack under a live X-Plane install — a lane copies the pack, and only
+the app writes the real one.
 
 Per placement it reports the bodies, their §6 CLASSES, each body's anchor
 and authored offset, the files that would be written, and the
@@ -118,18 +128,93 @@ def census(ss: PP.SplitSet, sampler, band_m: float) -> dict:
                     bins["off-surface"] += 1
                     by_class[b.body_class]["off-surface"] += 1
                     continue
-                d = abs(zf - (za + y - b.anchor.y_zero))
+                signed = zf - (za + y - b.anchor.y_zero)
+                d = abs(signed)
                 key = ("<0.3" if d < 0.3 else "0.3-1" if d < 1.0
                        else "1-3" if d < 3.0 else ">3")
                 bins[key] += 1
+                # THE DIRECTION IS THE READ (memory band-lawful-displacement /
+                # the skirt law): a foot the ground stands OVER is BURIED —
+                # lawful, invisible; a foot ABOVE its ground FLOATS, and that
+                # is the defect the eye reads.  The low-side anchor of 11e (2)
+                # trades float for burial by construction, so a census that
+                # only takes |Δ| cannot tell the two arms apart.
+                if d >= 0.3:
+                    bins["buried" if signed > 0 else "floating"] += 1
                 by_class[b.body_class][key] += 1
                 if d >= 0.3:
                     per_placement[s.resource] += 1
                 worst.append((d, f"{s.resource} b{b.body_id} [{b.body_class}]", lat, lon))
     worst.sort(reverse=True)
-    return {"bins": dict(bins), "worst": worst[:20], "feet": sum(bins.values()),
+    return {"bins": dict(bins), "worst": worst[:20],
+            "feet": sum(v for k, v in bins.items()
+                        if k not in ("buried", "floating")),
             "placements_over_0_3": len(per_placement),
             "by_class": {k: dict(v) for k, v in by_class.items()}}
+
+
+
+def _write_pack(a, plan, ss, sampler) -> None:
+    """THE WRITE HALF into a pack COPY (11e (3)) — the same order the
+    engine runs (``airport/placement_write.apply_plan``), never a second
+    one."""
+    import glob
+    import tempfile
+
+    from auto_patch.dsf_reader import _dsftool_path
+    from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import placement_write as PW
+    from auto_patch_v2.law.tables import law_tables_digest
+
+    root = os.path.abspath(a.write_pack)
+    dsfs = sorted(glob.glob(os.path.join(root, "Earth nav data", "*", "*.dsf"))
+                  + glob.glob(os.path.join(root, "Earth nav data", "*.dsf")))
+    if not dsfs:
+        raise SystemExit(f"no DSF under {root}/Earth nav data")
+    dsf_path = dsfs[0]
+    tool = a.dsftool or _dsftool_path()
+    work = tempfile.mkdtemp(prefix="o4_split_write_")
+    src = dsf_path + ".anchor_bak" if os.path.isfile(dsf_path + ".anchor_bak") \
+        else dsf_path
+    dump_text = os.path.join(work, os.path.basename(dsf_path) + ".text")
+    _dw.dump(src, dump_text, tool)
+    dump = _dsf.read_dump(dump_text)
+    splits, kept = PP.to_placement_records(ss)
+    from auto_patch_v2.model.placement import PlacementPlan, Provenance
+    conversions, _k = _dw.conversions_for_dump(dump, root)
+    split_idx = frozenset(s.placement.index for s in splits)
+    conversions = tuple(c for c in conversions if c.index not in split_idx)
+    counts = dict(ss.counts)
+    counts["conversions"] = len(conversions)
+    pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),
+                       pack_root=root, dsf_path=dsf_path,
+                       dsf_backup_path=dsf_path + ".anchor_bak",
+                       provenance=Provenance("", "", str(
+                           law_tables_digest().get("sha256") or ""), counts),
+                       conversions=conversions, splits=splits, kept=kept)
+    files = tuple(f for s in ss.splits for f in s.files)
+    res = PW.apply_plan(pl, files, tool, patch_dir=a.patch_dir or root,
+                        work_dir=work)
+    print(f"\nWRITE HALF into {root}:")
+    print(f"  {len(res.files_written)} cut file(s) written; DSF rewritten "
+          f"(backup {'created' if res.dsf.backup_created else 'reused'}: "
+          f"{os.path.basename(res.dsf.backup_path)}); round trip "
+          f"{'OK' if res.dsf.report.ok else 'FAILED: ' + '; '.join(res.dsf.report.findings[:3])}")
+    print(f"  plan -> {res.plan_path}")
+    # THE READ-BACK: the written DSF dumped again must carry every new
+    # placement, on its own new OBJECT_DEF
+    back = os.path.join(work, "readback.text")
+    _dw.dump(dsf_path, back, tool)
+    d2 = _dsf.read_dump(back)
+    want = set(pl.new_resources())
+    have = set(d2.object_defs)
+    rows = sum(1 for q in d2.placements if q.def_path in want)
+    print(f"  read back: {len(d2.placements)} placement(s), "
+          f"{len(want & have)}/{len(want)} new OBJECT_DEF(s) present, "
+          f"{rows} row(s) on them; "
+          f"{sum(1 for q in d2.placements if q.kind != 'OBJECT')} row(s) still carry an "
+          f"elevation")
 
 
 def main() -> int:
@@ -143,12 +228,24 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--filter", default="", help="only placements whose resource "
                                                  "contains this")
+    ap.add_argument("--split-tol", type=float, default=None,
+                    help="override [placement] split_tol_m (the body-coarsening "
+                         "and anchor-admission tolerance, 11e)")
+    ap.add_argument("--write-pack", default="", help="a pack COPY to apply the whole "
+                                                     "write half into (11e (3))")
+    ap.add_argument("--patch-dir", default="", help="where o4_v2_placement_<ICAO>.json "
+                                                    "lands (default: --write-pack)")
+    ap.add_argument("--dsftool", default=None, help="DSFTool binary (default: the "
+                                                    "bundled one v1 resolves)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
 
     from auto_patch_v2.law import Law
-    band_m = Law.load().tables.structures.basin.contact_band_m
+    _law = Law.load()
+    band_m = _law.tables.structures.basin.contact_band_m
+    tol_m = _law.tables.structures.placement.split_tol_m if a.split_tol is None \
+        else a.split_tol
     plan, abut = PP.read_plan(a.plan)
     sampler, pads, rims = surface_from_graded(a.graded)
     print(f"plan {plan.icao}  pack {plan.pack_name}\n"
@@ -156,15 +253,36 @@ def main() -> int:
           f"  parts {plan.counts.get('parts')}  contacts {len(plan.contacts)}"
           f"  abutments {len(abut)}\n"
           f"  surface: {len(pads)} object pads, {len(rims)} structure rims")
-    ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut)
+    print(f"  coarsening: [placement] split_tol_m {tol_m:g} m")
+    ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
+                         split_tol_m=tol_m,
+                         elevated_base_m=_law.tables.structures.rebake.elevated_base_m)
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
+    print(f"  bodies {c['bodies']} (uncoarsened {c.get('bodies_uncoarsened')}; "
+          f"{c.get('placements_coarsened', 0)} placement(s) coarsened); anchors: "
+          f"{c.get('anchor_residual', 0)} low-side with a residual, "
+          f"{c.get('anchor_off_surface', 0)} off-surface; "
+          f"{c.get('bodies_elevated', 0)} elevated bodies joined a ground group; "
+          f"files per placement {c['files'] / max(1, c['placements']):.2f}")
     print("  kept-whole reasons: " + ", ".join(
         f"{k} {v}" for k, v in sorted(collections.Counter(
             k.reason for k in ss.kept).items(), key=lambda kv: -kv[1])))
     print("  body classes: " + ", ".join(f"{k[6:]} {v}" for k, v in sorted(c.items())
                                          if k.startswith("class_")))
+
+    # THE KEPT-WHOLE PLACEMENTS (11e): they keep their AUTHORED anchor, so
+    # what the drape puts on the ground is their authored y = 0 — the
+    # generic rule's y_zero for their single body says how far that is
+    # from the body's own zero, and that IS their residual class.
+    wh = [(b.anchor.y_zero, s.resource) for s in ss.whole for b in s.bodies]
+    if wh:
+        ok = sum(1 for y, _r in wh if abs(y) <= tol_m)
+        wh.sort(key=lambda q: -abs(q[0]))
+        print(f"\nKEPT WHOLE {len(wh)}: {ok} whose authored origin is within "
+              f"{tol_m:g} m of the body's own zero; worst: "
+              + ", ".join(f"{os.path.basename(r)[:34]} {y:+.1f}" for y, r in wh[:5]))
 
     rows = [s for s in ss.splits if a.filter in s.resource]
     rows.sort(key=lambda s: -len(s.bodies))
@@ -197,6 +315,9 @@ def main() -> int:
                           f"parse_obj8 reads {g.solid.shape[0] + g.draped.shape[0]}")
         print(f"\nwrote {wrote} files into {a.write_into}; "
               f"{parsed} parse back with the written triangle count")
+
+    if a.write_pack:
+        _write_pack(a, plan, ss, sampler)
 
     cen = census(ss, sampler, band_m)
     print(f"\nCENSUS (§7) over {cen['feet']} ground-contact feet of "

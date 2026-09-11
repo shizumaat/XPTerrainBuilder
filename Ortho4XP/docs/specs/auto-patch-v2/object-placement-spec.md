@@ -152,3 +152,52 @@ When §7 passes and the owner's reads accept LEMD and OTHH: `emit/rebake.py`'s s
 (restore every pack from its backups first — a one-shot restore tool), the `o4_v2_rebake_*`
 JSON and their replays (`v2_rebake_replay.py`) are DELETED (refuted mechanisms are deleted,
 not gated); body formation moves under `airport/placement/`.
+
+## §9 Coarsening, the generic anchor, and the write half (RULINGS 2026-09-11e)
+
+Round 1 cut every SEAT body into its own file (LEMD 13,924, OTHH 65,360): far
+finer than a PLACEMENT needs. §6's per-class anchor table and §4's one-file-per-
+body reading are superseded by this section.
+
+1. **Body coarsening** (11e (1), `[placement] split_tol_m`, 0.3 m). Within one
+   placement, bodies whose INTENDED-ZERO TERRAIN HEIGHTS — the design surface at
+   each body's anchor minus its `y_zero`, i.e. its zero plane in world height —
+   agree within `split_tol_m` become ONE file, anchored by the SENIOR body (the
+   most ground-contact vertices). The walk is senior-first, so "agree" is always
+   measured against the anchor the group takes. A split exists only where the
+   terrain DIFFERS under the object. Bodies whose surface reads nowhere are one
+   group (no reading is no evidence). An ELEVATED body (lowest authored y above
+   `[rebake] elevated_base_m`) has no terrain under it to differ and never founds
+   a group: it joins the group whose anchor is nearest it in plan — the seat law's
+   own elevated rule (v1 I-8) one level up. Bars: OTHH ≤ 2× its placements,
+   LEMD ≤ 4×.
+2. **The generic anchor** (11e (2)). The anchor is the footprint point where the
+   design surface equals the body's intended zero: with `zero(v) = surface(v) −
+   y_v` over the body's ground-contact vertices and `D = median zero(v)`, the
+   anchor is the vertex minimising `|zero(v) − D|`, ties to the vertex whose
+   authored y is nearest the object's own zero, and `y_zero` is that vertex's y.
+   A pit object anchors on its rim, a tunnel object whose zero is its road level
+   on its floor ring, and both fall out of the one rule. A body with no such
+   point within `split_tol_m` anchors at its LOW-SIDE FOOT and is reported with
+   the residual; a body whose surface reads nowhere likewise. The class
+   (§6's table) survives only as a LABEL for the report and the census.
+3. **The write half** (11e (3)), `[rebake] placement = "agl"` (default) |
+   `"seat"` — the one permitted gate, awaiting the owner's sim read; `"seat"`
+   runs the pre-11b path unchanged. Under `"agl"` NO SEAT IS COMPUTED and
+   `engine_v2.rebake_after_mesh` routes through `airport/placement_write.py`, in
+   this order: the plan (conversions for every MSL/AGL row, 11d; splits; kept) →
+   the cut files into the pack's `objects/` under NEW names only → the DSF
+   edited, encoded, VERIFIED and backed up (`dsf_write.write_pack`, §3) → the
+   READ path's text-dump cache refreshed (`dsf_reader.ensure_dsf_text_path` on
+   the written DSF — §3.6's mtime key) → `o4_v2_placement_<ICAO>.json` beside
+   the patch. The app is the only writer of the real pack (`allow_live_install`);
+   lanes and tools write COPIES.
+4. **Consumers touched** (the §3.6 table): the dump cache — refreshed by step 3,
+   never as a read-time side effect; `airport/dsf.read_dump` — reads the new defs
+   and rows back (LEMD 914/914, OTHH 1,090/1,090, 0 rows left carrying an
+   elevation); the Swift console lines — the `[v2 placement]` line replaces
+   `[v2 rebake]`'s under the gate; the object-anchor worklist — unchanged
+   (the seat's, and it is not written on this path); `seat_feet_census.py
+   --placement-plan` — §7's figures from the plan's own rows, `--graded` for a
+   dry run with no mesh. A DSF `FILTER` is STATE, not a row: the round-trip
+   verifier compares the filter IN FORCE per placement and polygon (OTHH).

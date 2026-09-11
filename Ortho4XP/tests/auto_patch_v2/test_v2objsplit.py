@@ -10,6 +10,8 @@ means the readers downstream accept it, not that the text looks right.
 from __future__ import annotations
 
 import math
+import os
+import sys
 
 import pytest
 
@@ -214,7 +216,7 @@ def test_point_counts_and_index_rows_are_lawful(tmp_path):
         assert "# o4 split of twobox body" in f.text
 
 
-# ── §6: the anchor rule ──────────────────────────────────────────────────
+# ── §9 / 11e (2): the GENERIC anchor rule ────────────────────────────────
 
 def _geom(parts, origin=(40.0, -3.0)):
     return AR.BodyGeometry(tuple(parts), origin[0], origin[1])
@@ -224,67 +226,119 @@ def _flat(z=100.0):
     return lambda lat, lon: z
 
 
-def test_anchor_building_lands_inside_its_pad():
-    pad = AR.PadRing("building16", ((40.0, -3.0), (40.0, -2.999),
-                                    (40.001, -2.999), (40.001, -3.0)))
-    g = _geom([(40.0005, -2.9995, 0.0, ((40.0005, -2.9995, 0.0),))])
-    a = AR.anchor_for(AR.BUILDING, g, _flat(), pads=(pad,))
-    assert a.body_class == AR.BUILDING
-    assert a.reason == "pad point (building16)"
-    assert AR._inside(pad.ring, a.lat, a.lon)
-    assert a.y_zero == 0.0
+def test_anchor_pit_object_lands_on_its_rim():
+    """11e (2): a pit authored with its RIM at y = 0 and its floor 7 m
+    down, over a basin cut 7 m down, reads ONE zero plane from both rings
+    — and the vertex whose ground IS that plane is the rim."""
+    grade, floor = 600.0, 593.0
 
-
-def test_anchor_skirted_takes_the_low_side_foot():
-    """10ag: among the body's ground components the one whose DESIGN
-    SURFACE is lowest, and that component's own lowest foot."""
     def surface(lat, lon):
-        return 100.0 if lat < 40.0005 else 108.0
-    g = _geom([(40.0000, -3.0, -1.0, ((40.0000, -3.0, -1.0), (40.0000, -3.0, -0.5))),
-               (40.0010, -3.0, -1.0, ((40.0010, -3.0, -1.0),))])
-    a = AR.anchor_for(AR.SKIRTED, g, surface)
-    assert a.reason == "low-side foot"
-    assert a.lat == pytest.approx(40.0000)
-    assert a.surface_z == 100.0
-    assert a.y_zero == pytest.approx(-1.0)
+        return grade if lat < 40.00005 else floor
+
+    g = _geom([(40.0000, -3.0, 0.0, ((40.0000, -3.0, 0.0),)),
+               (40.0001, -3.0, -7.0, ((40.0001, -3.0, -7.0),))])
+    a = AR.anchor_for(AR.BASIN, g, surface, tol_m=0.3)
+    assert a.reason == "surface at the body's zero"
+    assert a.lat == pytest.approx(40.0000) and a.y_zero == pytest.approx(0.0)
+    assert a.surface_z == grade
 
 
-def test_anchor_basin_lands_on_the_emitted_rim():
-    rim = AR.RimRing("basin_wall:3", ((40.0, -3.0), (40.0, -2.999),
-                                      (40.001, -2.999), (40.001, -3.0)))
-    far = AR.RimRing("basin_wall:9", ((41.0, -3.0), (41.0, -2.999),
-                                      (41.001, -2.999), (41.001, -3.0)))
-    g = _geom([(40.0005, -2.9995, -7.05, ((40.0005, -2.9995, -7.05),)),
-               (40.0006, -2.9994, 0.0, ((40.0006, -2.9994, 0.0),))],
-              origin=(40.5, -3.0))
-    a = AR.anchor_for(AR.BASIN, g, _flat(), rims=(rim, far))
-    assert a.body_class == AR.BASIN and a.reason.startswith("rim point (basin_wall:3")
-    assert (a.lat, a.lon) in rim.ring
-    # the object's zero is its RIM, not its floor plate 7.05 m down
-    assert a.y_zero == 0.0
+def test_anchor_tunnel_object_lands_on_its_floor_ring():
+    """11e (2): a tunnel whose ZERO is its road level — the floor ring at
+    y = 0 over the cut floor, its wall crests 5 m up at grade — anchors on
+    the FLOOR ring, by the same rule and with no class of its own."""
+    floor, grade = 588.0, 593.0
+
+    def surface(lat, lon):
+        return floor if lat < 40.00005 else grade
+
+    g = _geom([(40.0000, -3.0, 0.0, ((40.0000, -3.0, 0.0),)),
+               (40.0001, -3.0, 5.0, ((40.0001, -3.0, 5.0),))])
+    a = AR.anchor_for(AR.OTHER, g, surface, tol_m=0.3)
+    assert a.y_zero == pytest.approx(0.0)
+    assert a.lat == pytest.approx(40.0000) and a.surface_z == floor
 
 
-def test_anchor_line_segment_is_the_mid_foot():
-    g = _geom([(40.0, -3.0, 0.0, ((40.0, -3.0, 0.0), (40.001, -3.0, 0.3),
-                                  (40.002, -3.0, 0.6)))])
-    a = AR.anchor_for(AR.LINE_SEGMENT, g, _flat())
-    assert a.reason == "segment mid-foot"
-    assert a.lat == pytest.approx(40.001)
-    assert a.y_zero == pytest.approx(0.3)
+def test_anchor_with_no_point_at_its_zero_takes_the_low_side_foot():
+    """11e (2): authored relief beyond the body's skirt — every foot reads
+    a different zero plane, so none of them IS the body's; the anchor is
+    the low-side foot and the reason carries the residual."""
+    def surface(lat, lon):
+        return 100.0 + (lat - 40.0) * 111_132.0      # 1 m per 9 µdeg
+
+    g = _geom([(40.00000, -3.0, 0.0, ((40.00000, -3.0, 0.0),)),
+               (40.00005, -3.0, 0.0, ((40.00005, -3.0, 0.0),)),
+               (40.00010, -3.0, 0.0, ((40.00010, -3.0, 0.0),))])
+    a = AR.anchor_for(AR.SKIRTED, g, surface, tol_m=0.3)
+    assert a.reason.startswith("low-side foot (no point within 0.3 m")
+    assert "authored relief 5.56 m" in a.reason
+    assert a.lat == pytest.approx(40.00000)          # the LOW side
+    assert a.surface_z == pytest.approx(100.0)
+
+
+def test_anchor_off_surface_is_reported_never_guessed():
+    g = _geom([(40.0, -3.0, 4.0, ()), (40.002, -3.0, 1.0, ())])
+    a = AR.anchor_for(AR.OTHER, g, lambda la, lo: None, tol_m=0.3)
+    assert a.surface_z is None
+    assert a.reason == "no design surface under any foot: the lowest component"
+    assert a.lat == pytest.approx(40.002) and a.y_zero == pytest.approx(1.0)
 
 
 def test_anchor_deck_is_merged_into_the_building_it_abuts():
+    """11a survives §9: an elevated deck takes no anchor of its own."""
     g = _geom([(40.0, -3.0, 5.0, ((40.0, -3.0, 5.0),))])
     a = AR.anchor_for(AR.DECK, g, _flat(), merged_into="objects/T4.obj")
     assert a.body_class == AR.DECK
     assert a.reason == "kerb (merged into objects/T4.obj)"
 
 
-def test_anchor_other_is_the_lowest_component_centroid():
-    g = _geom([(40.0, -3.0, 4.0, ()), (40.002, -3.0, 1.0, ())])
-    a = AR.anchor_for(AR.OTHER, g, _flat())
-    assert a.reason == "centroid of the lowest component"
-    assert a.lat == pytest.approx(40.002) and a.y_zero == pytest.approx(1.0)
+# ── §9 / 11e (1): BODY COARSENING ────────────────────────────────────────
+
+def _body(i, z, y, n_feet=1, cls=AR.OTHER, lat=40.0, lon=-3.0):
+    return (i, AR.Anchor(cls, lat, lon, y, "surface at the body's zero", z), n_feet)
+
+
+def test_two_bodies_on_the_same_ground_become_one_file():
+    """11e (1): their zero planes agree within the tolerance, so the split
+    does not exist — one file, the SENIOR body's anchor."""
+    g = PP.coarsen([_body(0, 100.0, 0.0, 3), _body(1, 100.2, 0.2, 9)], 0.3)
+    assert g == [[0, 1]]
+    # senior = the most ground-contact vertices (body 1 here)
+    assert max(g[0], key=lambda i: (3, 9)[i]) == 1
+
+
+def test_two_bodies_one_metre_apart_stay_two_files():
+    """... and where the terrain DOES differ under the object, the split
+    is exactly what is kept."""
+    assert PP.coarsen([_body(0, 100.0, 0.0, 3), _body(1, 101.0, 0.0, 9)], 0.3) \
+        == [[0], [1]]
+
+
+def test_coarsening_is_senior_first_never_a_chain():
+    """Three bodies 0.25 m apart must not chain into one group spanning
+    0.5 m: every member agrees with the anchor the group TAKES."""
+    bodies = [_body(0, 100.0, 0.0, 1), _body(1, 100.25, 0.0, 9),
+              _body(2, 100.5, 0.0, 1)]
+    groups = PP.coarsen(bodies, 0.3)
+    assert groups == [[0, 1, 2]]        # all three agree with the senior (1)
+    bodies[1] = _body(1, 100.0, 0.0, 9)
+    assert PP.coarsen(bodies, 0.3) == [[0, 1], [2]]
+
+
+def test_an_elevated_body_never_founds_a_group_of_its_own():
+    """11e (1) with the seat law's elevated rule: a mezzanine body has no
+    terrain under it to differ — it joins the nearest ground group."""
+    bodies = [_body(0, 100.0, 0.0, 5, lat=40.0), _body(1, 130.0, 0.0, 1, lat=40.01),
+              _body(2, 105.0, 0.0, 5, lat=40.02)]
+    assert PP.coarsen(bodies, 0.3, frozenset({1})) == [[0, 1], [2]]
+    # ... and with no ground body at all they coarsen among themselves
+    assert PP.coarsen(bodies, 0.3, frozenset({0, 1, 2})) == [[0], [1], [2]]
+
+
+def test_off_surface_bodies_are_one_group():
+    bodies = [_body(0, None, 0.0, 2), _body(1, None, 0.0, 1),
+              _body(2, 100.0, 0.0, 3)]
+    assert PP.coarsen(bodies, 0.3) == [[0, 1], [2]]
 
 
 def test_classify_orders_structure_over_shape():
@@ -343,3 +397,133 @@ def test_split_records_translate_into_the_placement_model():
     assert b.authored_offset == (12.0, 1.25, -8.0)
     assert b.anchor_reason == "pad point (building16)"
     assert kept[0].reason == "anim"
+
+
+# ── §9 / 11e (3): THE GATE AND THE WRITE HALF ────────────────────────────
+
+def test_the_gate_defaults_to_agl_and_seat_runs_the_old_path_unchanged():
+    """``[rebake] placement`` is the ONE permitted gate: ``agl`` by
+    default, and under ``seat`` the pre-11b seat is not merely reachable —
+    it produces the SAME bytes, because nothing in the seat reads the new
+    law at all."""
+    import dataclasses as dc
+    import json as _json
+
+    from auto_patch.engine_v2 import object_stage_is_placement
+    from auto_patch_v2.emit import rebake as R
+    from auto_patch_v2.law import Law
+
+    law = Law.for_airport("OTHH")
+    assert law.tables.structures.rebake.placement == "agl"
+    assert object_stage_is_placement(law) is True
+
+    def _with(mode):
+        rb = dc.replace(law.tables.structures.rebake, placement=mode)
+        st = dc.replace(law.tables.structures, rebake=rb)
+        return dc.replace(law, tables=dc.replace(law.tables, structures=st))
+
+    seat_law = _with("seat")
+    assert object_stage_is_placement(seat_law) is False
+    assert object_stage_is_placement(_with("agl")) is True
+
+    part = R.Part(1, 0, 0.001, 1e-5, 0.0, 100.0, (0.0, 0.0, 2e-3, 2e-5))
+    member = R.Member("m", "objects/m.obj", "m", "m", 0.0, (part,))
+    plan = R.RebakePlan("OTHH", "p", "/p", (R.Unit("unit:1", (0.0, 0.0), 0.0,
+                                                   (member,)),), (), {}, ())
+
+    def sample(lat, lon):
+        return (7.0, False)
+
+    a = _json.dumps(R.seat(plan, sample, seat_law).to_dict(), sort_keys=True)
+    b = _json.dumps(R.seat(plan, sample, _with("agl")).to_dict(), sort_keys=True)
+    assert a == b
+
+
+def test_the_write_half_on_a_pack_copy(tmp_path):
+    """11e (3): the cut files, the DSF, its backup, the provenance and the
+    plan — and the WRITTEN DSF dumped back must list every new placement
+    on its own new ``OBJECT_DEF``, with no row left carrying an elevation.
+    A hand-built dump stands in for DSFTool (the encoder is v2dsfagl's own
+    twin); what is tested here is the ORDER and the products."""
+    from auto_patch_v2.airport import dsf as D
+    from auto_patch_v2.airport import placement_write as PW
+    from auto_patch_v2.model import placement as PM
+
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    nav = pack / "Earth nav data"
+    nav.mkdir()
+    dsf = nav / "+40-004.dsf"
+    dump = ["PROPERTY sim/west -4", "OBJECT_DEF objects/a.obj",
+            "OBJECT_DEF objects/b.obj",
+            "OBJECT_MSL 0 -3.5 40.5 601.0 12.5",
+            "OBJECT 1 -3.6 40.6 90.0"]
+    dsf.write_text("\n".join(dump) + "\n")
+
+    # a DSFTool stand-in: --dsf2text copies the text, --text2dsf copies back
+    tool = tmp_path / "dsftool.py"
+    tool.write_text(
+        "import shutil, sys\n"
+        "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
+
+    real_run = PW._dw.subprocess.run
+
+    def fake_run(args, **kw):
+        return real_run([sys.executable, str(tool)] + list(args[1:]), **kw)
+
+    PW._dw.subprocess.run = fake_run
+    try:
+        split = PM.Split(
+            placement=PM.PlacementRef(1, "objects/b.obj", -3.6, 40.6, 90.0),
+            bodies=(PM.Body("b0", "other", (0,), PM.Anchor(-3.61, 40.61, 90.0),
+                            "surface at the body's zero", "objects/b__b0.obj"),
+                    PM.Body("b1", "other", (1,), PM.Anchor(-3.62, 40.62, 90.0),
+                            "surface at the body's zero", "objects/b__b1.obj")))
+        plan = PM.PlacementPlan(
+            icao="LEMD", pack_name="pack", pack_root=str(pack), dsf_path=str(dsf),
+            dsf_backup_path=str(dsf) + ".anchor_bak",
+            provenance=PM.Provenance("", "", ""),
+            conversions=(PM.Conversion(0, "objects/a.obj", -3.5, 40.5, 12.5,
+                                       "OBJECT_MSL", 601.0),),
+            splits=(split,), kept=())
+
+        class _F:
+            def __init__(self, res):
+                self.resource = res
+                self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}b body 0 offset 0 0 0\n"
+
+        files = [_F("objects/b__b0.obj"), _F("objects/b__b1.obj")]
+        seen: list[str] = []
+        res = PW.apply_plan(plan, files, str(tool), patch_dir=str(tmp_path / "patch"),
+                            refresh_dump=lambda p: seen.append(p) or p)
+    finally:
+        PW._dw.subprocess.run = real_run
+
+    assert len(res.files_written) == 2
+    assert all(os.path.isfile(p) for p in res.files_written)
+    assert os.path.isfile(str(dsf) + ".anchor_bak") and res.dsf.backup_created
+    assert res.dsf.report.ok, res.dsf.report.findings
+    assert seen == [str(dsf)]                       # §3.6: the cache refresh
+    assert os.path.basename(res.plan_path) == "o4_v2_placement_LEMD.json"
+    assert os.path.isfile(os.path.join(str(nav), PM.PROVENANCE_FILENAME))
+
+    back = D.read_dump(str(dsf))
+    assert [p.kind for p in back.placements] == ["OBJECT"] * 3
+    got = {p.def_path for p in back.placements}
+    assert {"objects/b__b0.obj", "objects/b__b1.obj", "objects/a.obj"} <= got
+
+
+def test_the_write_half_refuses_to_overwrite_an_authored_object(tmp_path):
+    """§4.5: the split names are NEW names only."""
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
+
+    class _F:
+        resource = "objects/a.obj"
+        text = "cut"
+
+    with pytest.raises(ValueError, match="authored object"):
+        PW.write_files(str(pack), [_F()])

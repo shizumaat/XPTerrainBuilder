@@ -1,0 +1,168 @@
+"""THE WRITE HALF, JOINED (owner RULINGS 2026-09-11e (3); spec
+``object-placement-spec.md`` §9).
+
+Round one produced the two halves and no join: ``placement_plan`` decides
+the bodies, their anchors and the cut files; ``dsf_write`` edits, encodes
+and verifies the pack's DSF.  THIS module is the single order in which a
+pack is changed, so that the engine's write half and every tool run the
+same sequence and nobody grows a second one:
+
+1. the PLAN — ``conversions`` for every MSL / AGL row of the dump (11d:
+   stock placements convert too), ``splits`` for the placements whose
+   bodies were coarsened into more than one file, ``kept`` for the rest;
+2. the CUT FILES into the pack's ``objects/`` under NEW names
+   (``<stem>__b<k>.obj``): an authored file is never opened for writing,
+   so no ``.anchor_bak`` is needed for them and a rerun overwrites only
+   what this writer itself made;
+3. the DSF — ``dsf_write.write_pack``: the pristine DSF is kept once as
+   ``<name>.dsf.anchor_bak`` and is the source of every dump, the edited
+   text is encoded, VERIFIED against the re-dump, and only then moved
+   into place beside ``o4_placement_provenance.json``;
+4. the DUMP CACHE — the read path (v1's DSF reader and its mtime-keyed
+   ``<dsf>.<tag>.text``) is keyed on the DSF's mtime, which
+   step 3 just changed; the caller passes its own
+   ``refresh_dump(dsf_path)`` (v2 imports no v1 module) and it is called
+   AFTER the move, so the next build reads the pack it wrote and not the
+   07-30 dump (the OTHH precedent);
+5. the PLAN JSON beside the patch — ``o4_v2_placement_<ICAO>.json``,
+   which ``tools/seat_feet_census.py --placement-plan`` censuses.
+
+NOTHING HERE DECIDES ANYTHING.  The bodies are ``placement_plan``'s, the
+anchors ``anchor_rule``'s, the edit ``dsf_write``'s; what this adds is the
+ORDER and the refusals — a split index that is also a conversion, a cut
+file that would land on an authored name, a pack under a live X-Plane
+install without the app's explicit ``allow_live_install``.
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+import json
+import os
+import typing as _t
+
+from ..model.placement import (PLAN_FILENAME, PlacementPlan, Provenance)
+from . import dsf_write as _dw
+from . import placement_plan as _pp
+
+__all__ = ["PlacementWriteResult", "build_plan", "write_files", "apply_plan"]
+
+
+@_dc.dataclass(frozen=True)
+class PlacementWriteResult:
+    """What the write did, in the shape the engine's summary prints."""
+
+    plan: PlacementPlan
+    plan_path: str
+    files_written: tuple[str, ...]
+    dsf: _dw.WriteResult | None
+    dump_refreshed: str | None
+    counts: _t.Mapping[str, int]
+
+
+# ── step 1: the plan ────────────────────────────────────────────────────
+
+def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
+               *, icao: str, pack_name: str, pack_root: str, dsf_path: str,
+               split_tol_m: float, elevated_base_m: float = 0.0,
+               pads: _t.Sequence = (), rims: _t.Sequence = (),
+               engine_version: str = "", law_digest: str = "",
+               write_cuts: bool = True) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+    """``(plan, cut files, the SplitSet behind it)``.
+
+    ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
+    pack read once, its parts and the ε-contact graph — the bodies ARE
+    its); ``dump`` a ``airport/dsf.DsfDump`` of the pack's DSF;
+    ``surface`` the design surface X-Plane will drape on
+    (``surface(lat, lon) -> z | None``).
+
+    A placement that is SPLIT is never also converted: its rows are
+    replaced outright (``dsf_write.edit_dump`` refuses the overlap), so
+    the conversions are filtered by the split indices here, where the two
+    lists are first seen together."""
+    ss = _pp.build_splits(rebake_plan, surface, pads, rims, write=write_cuts,
+                          split_tol_m=split_tol_m, elevated_base_m=elevated_base_m)
+    splits, kept = _pp.to_placement_records(ss)
+    conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
+    split_idx = frozenset(s.placement.index for s in splits)
+    conversions = tuple(c for c in conversions if c.index not in split_idx)
+    files = tuple(f for s in ss.splits for f in s.files)
+    counts = dict(ss.counts)
+    counts["conversions"] = len(conversions)
+    plan = PlacementPlan(
+        icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
+        dsf_backup_path=dsf_path + ".anchor_bak",
+        provenance=Provenance("", engine_version, law_digest, counts),
+        conversions=conversions, splits=splits, kept=kept)
+    return plan, files, ss
+
+
+# ── step 2: the cut files ───────────────────────────────────────────────
+
+#: every file this writer makes carries it (``obj8_split``'s provenance
+#: line), and it is what says a file on a split's name is OURS to replace.
+CUT_MARK = "# o4 split of "
+
+
+def write_files(pack_root: str, files: _t.Sequence, *,
+                allow_live_install: bool = False) -> tuple[str, ...]:
+    """Write the cut OBJ8s into the pack under their new names.
+
+    REFUSES to overwrite anything that is not itself a cut file of this
+    writer (an authored object must never be replaced by a body of
+    itself), and refuses a live X-Plane install without the app's own
+    ``allow_live_install`` (§3.5: a lane writes a COPY)."""
+    if not files:
+        return ()
+    if _dw.live_install_roots(pack_root) and not allow_live_install:
+        raise PermissionError(
+            f"REFUSING to write a live X-Plane installation: {pack_root!r} "
+            f"(spec §3.5 — a lane writes a COPY of the pack)")
+    out: list[str] = []
+    for f in files:
+        rel = f.resource.replace("\\", "/")
+        path = os.path.join(pack_root, *rel.split("/"))
+        if os.path.isfile(path):
+            with open(path, "r", errors="replace") as fh:
+                head = fh.read(4096)
+            if CUT_MARK not in head:
+                raise ValueError(
+                    f"REFUSING to overwrite an authored object with a cut body: "
+                    f"{rel!r} (the split names are new names only, §4.5)")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="latin-1", errors="replace") as fh:
+            fh.write(f.text)
+        out.append(path)
+    return tuple(out)
+
+
+# ── steps 2-5: the whole write ──────────────────────────────────────────
+
+def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
+               patch_dir: str = "", allow_live_install: bool = False,
+               work_dir: str | None = None,
+               refresh_dump: _t.Callable[[str], str | None] | None = None,
+               engine_version: str = "", law_digest: str = ""
+               ) -> PlacementWriteResult:
+    """The four writes in the one lawful order (module doc, steps 2-5)."""
+    written = write_files(plan.pack_root, files,
+                          allow_live_install=allow_live_install)
+    dsf = _dw.write_pack(plan.pack_root, plan, tool,
+                         allow_live_install=allow_live_install,
+                         work_dir=work_dir, engine_version=engine_version,
+                         law_digest=law_digest)
+    refreshed = None
+    if refresh_dump is not None:
+        # §3.6: the READ path keys its text dump on the DSF's mtime, which
+        # the move above just changed — refresh it HERE, where the write
+        # is known to have happened, never as a read-time side effect
+        refreshed = refresh_dump(plan.dsf_path)
+    plan_path = ""
+    if patch_dir:
+        os.makedirs(patch_dir, exist_ok=True)
+        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan.icao))
+        with open(plan_path + ".tmp", "w") as fh:
+            json.dump(plan.to_dict(), fh, indent=1)
+        os.replace(plan_path + ".tmp", plan_path)
+    counts = dict(plan.counts())
+    counts["files_written"] = len(written)
+    return PlacementWriteResult(plan, plan_path, written, dsf, refreshed, counts)

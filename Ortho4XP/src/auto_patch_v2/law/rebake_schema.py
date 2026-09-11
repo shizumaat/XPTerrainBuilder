@@ -7,13 +7,17 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["Rebake"]
+__all__ = ["Rebake", "Placement"]
 
 
 @_dc.dataclass(frozen=True)
 class Rebake:
     """Object re-seat law (RULINGS 2026-09-04i 04f-1; memory othh-bridge-deck-datum-r12)."""
 
+    #: RULINGS 2026-09-11e (3): the object stage's ONE gate — ``"agl"``
+    #: (the placement path: conversions, coarsened split bodies, placed
+    #: anchors, no seat) or ``"seat"`` (the pre-11b re-seat, unchanged).
+    placement: str
     restore_before_read: bool
     ground_datum: str
     deck_datum: str
@@ -69,3 +73,15 @@ class Rebake:
     anchor_water_founds_seat: bool
     flat_site_anchor_datum: bool
     flat_site_ground_datum: bool
+
+
+@_dc.dataclass(frozen=True)
+class Placement:
+    """``structures.toml [placement]`` — the object PLACEMENT law (owner
+    RULINGS 2026-09-11e (1)/(2); spec ``object-placement-spec.md`` §9)."""
+
+    #: bodies of one placement whose intended-zero terrain heights agree
+    #: within this are ONE file (the senior body's anchor), and a body
+    #: with no ground-contact vertex whose surface reads within this of
+    #: its own zero plane anchors at its low-side foot and is REPORTED.
+    split_tol_m: float

@@ -151,6 +151,14 @@ class Group:
     #: ``pad_slope_max``).  A LONG connecting body then RELEASES (§11 (4));
     #: a short one is REPORTED with its residual and never split (11i).
     infeasible: bool = False
+    #: EVERY BODY'S OWN COMPONENTS, ``(unit, member, (comp, ...))`` in
+    #: ``bodies`` order — the address ``classify/evidence._body_pads``
+    #: reads the body's PLAN FOOTPRINT at (``airport/skirt.
+    #: component_footprint``; spec §11a (3), measured round 5).  The pad
+    #: of a body the OSM does not know is that footprint, so the group
+    #: must carry which components the body is made of; nothing else here
+    #: reads it.
+    body_comps: tuple[tuple[int, int, tuple[int, ...]], ...] = ()
     #: the junior bodies actually RELEASED — long AND infeasible.  They
     #: are no longer members of this group; each is its own object at its
     #: own low-side foot (§6 deck row superseded, 10ay).
@@ -330,6 +338,14 @@ def _eligible(m: Member) -> bool:
     return bool(m.parts)
 
 
+def _body_comps(keys, bodies, part_of) -> tuple[tuple[int, int, tuple[int, ...]], ...]:
+    """``(unit, member, (comp, ...))`` per body, in ``keys`` order — the
+    address the pad law reads a body's plan footprint at (``Group.
+    body_comps``).  One expression, three construction sites."""
+    return tuple((k[0], k[1], tuple(sorted({part_of[q].comp for q in bodies[k]})))
+                 for k in keys)
+
+
 def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
            pad_slope_max: float = 0.0) -> GroupSet:
     """Every group of ``plan`` (module doc).
@@ -451,6 +467,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
                             cross_placement=len(keys) > 1, long_span=long_span,
                             releasable=rel, body_span_m=bspan,
                             relief_slope=slope, infeasible=infeasible,
+                            body_comps=_body_comps(keys, bodies, part_of),
                             released=released))
         seen.update(keys)
         counts["long_span"] += int(long_span)
@@ -473,6 +490,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
                             y_zero=float(min(f.y for f in feet)), feet=tuple(feet),
                             span_m=sp, cross_placement=False,
                             long_span=False, releasable=(), body_span_m=(sp,),
+                            body_comps=_body_comps((k,), bodies, part_of),
                             relief_slope=slope, infeasible=infeasible))
         counts["infeasible"] += int(infeasible)
         counts["infeasible_short"] += int(infeasible)
@@ -488,6 +506,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
                                 y_zero=float(min(f.y for f in feet)), feet=tuple(feet),
                                 span_m=sp, cross_placement=False, long_span=True,
                                 releasable=(), body_span_m=(sp,),
+                                body_comps=_body_comps((k,), bodies, part_of),
                                 relief_slope=_relief_slope(feet)))
             seen.add(k)
     counts["relief_bodies"] = sum(1 for g in groups if g.relief_m > 0.0)

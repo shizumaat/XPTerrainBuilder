@@ -3363,3 +3363,7 @@ Consequences (Fable):
 * Round 5's attribution stands: round 4's clause was a no-op because a colonnade's feet hull to a 0.18 m ribbon under `building_pad.min_area_m2` 250 and the OSM location gate refused 130 of LEMD38's 150 modules (the old terminal lies outside the apt.dat boundary and > 200 m from graded pavement). Both findings carry into §11b (no area floor, no gate for pack bodies).
 * Negative `pad_relief` offsets (12 groups, all cross-placement, junior decks below the senior's `y_zero`) are lawful by construction; not the skirt rule; with body pads the range closed to −0.02 … +8.08.
 * Round 6 continues on `claude/v2canopy5` (its helpers `skirt.component_footprint` / `Group.body_comps` are reused for the feet), withdrawing the bare-ground pad minting.
+
+## 2026-09-11r — OWNER READ OF LEMD (1.0.313/1.0.315 tiles): "objects are badly broken, I think maybe individual pieces, like roofs, road decks, are getting set to sit on the ground instead of staying grouped... that's a possible issue with modifying everything in the DSF since many structures are constructed from multiple objects that have to stay at their same relative height to each other" — THE SWITCH'S FIRST ADJUDICATION: the AGL placement of FOOTLESS pieces is refuted; relative heights within a structure are LAW
+
+* Verbatim above. Attribution + fix follow (11s); the seat is NOT retired (§8 waits).

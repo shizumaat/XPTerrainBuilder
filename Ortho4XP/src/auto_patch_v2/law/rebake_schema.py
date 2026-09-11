@@ -38,6 +38,16 @@ class Rebake:
     #: is within this of its bottom (the eave / parapet gap), instead of
     #: the nearest carrier in 3-D.  0 = the pre-10u pure-nearest rule.
     plate_gap_max_m: float
+    #: RULINGS 2026-09-10bb (spec §16): a LINE OBJECT — a resource every
+    #: genuine component of which is a low plan RIBBON (plan-box diagonal
+    #: over plan-area width above ``line_object_ratio``, height under
+    #: ``line_object_max_h``) — forms no body, founds no foot and DRAPES:
+    #: it is seated per SEGMENT at up to ``line_object_stations_max``
+    #: stations spread at ``body_feet_span_m``.  ``line_object_ratio = 0``
+    #: disables the class (the pre-10bb reading).
+    line_object_ratio: float
+    line_object_max_h: float
+    line_object_stations_max: int
     min_delta_m: float
     cluster_span_pad_m: float
     cluster_residual_pad_m: float

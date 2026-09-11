@@ -81,7 +81,8 @@ def find_dsf_dump(pack_root: str) -> str | None:
 
 
 def read_result(path: str) -> tuple[dict[str, dict[int, float]], dict[str, float]]:
-    """``resource -> {component: delta}`` and the member's own delta.
+    """``resource -> {component: delta}``, the member's own delta, and
+    the LINE OBJECTS' drape stations (RULINGS 2026-09-10bb).
 
     Reads either a seat RESULT (``o4_v2_rebake_result_<ICAO>.json``) or a
     ``v2_rebake_replay.py seat`` ``*.seat.json`` (whose ``seat`` key
@@ -93,9 +94,18 @@ def read_result(path: str) -> tuple[dict[str, dict[int, float]], dict[str, float
     res = res.get("seat", res)
     deltas: dict[str, dict[int, float]] = {}
     member_delta: dict[str, float] = {}
+    # THE LINE OBJECT'S DRAPE STATIONS (RULINGS 2026-09-10bb, spec §16):
+    # resource -> comp -> [(lat, lon, delta)].  A foot inside a draped
+    # component reads the station NEAREST it, not the component's median
+    # — otherwise the census measures a seat the writer never applied.
+    stations: dict[str, dict[int, list[tuple[float, float, float]]]] = {}
     for u in res["units"]:
         for m in u["members"]:
             d = deltas.setdefault(m["resource"], {})
+            for row in (m.get("line_stations") or []):
+                comp, la, lo, dz = row
+                stations.setdefault(m["resource"], {}).setdefault(
+                    int(comp), []).append((float(la), float(lo), float(dz)))
             for row in (m.get("part_deltas") or []):
                 comp, _cluster, dz = row
                 if dz is not None:
@@ -104,7 +114,7 @@ def read_result(path: str) -> tuple[dict[str, dict[int, float]], dict[str, float
                 member_delta[m["resource"]] = float(m["delta_m"])
             elif u.get("delta_m") is not None and u.get("datum") == "plate":
                 member_delta.setdefault(m["resource"], float(u["delta_m"]))
-    return deltas, member_delta
+    return deltas, member_delta, stations
 
 
 def read_placements(dump: str) -> tuple[list[str], list[tuple[int, float, float, float]]]:
@@ -161,9 +171,11 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
 
 
 def census(rows: list[dict], skipped: dict[str, str], seated: set[str],
-           label: str, top: int) -> None:
+           label: str, top: int, line_objects: set[str] = frozenset()) -> None:
     """The histogram, the by-class table and the worst ``top``."""
     def klass(path: str) -> str:
+        if path in line_objects:
+            return "SEATED (line object, draped)"
         if path in seated:
             return "SEATED"
         s = skipped.get(path)
@@ -201,8 +213,15 @@ def census(rows: list[dict], skipped: dict[str, str], seated: set[str],
               f"span={r['span']:5.0f} {klass(r['path'])}")
 
 
+def _nearest_station(st: list, lat: float, lon: float) -> float:
+    """The delta of the drape station nearest ``(lat, lon)`` in plan."""
+    mlon = MLAT * math.cos(math.radians(lat))
+    return min(st, key=lambda r: ((r[0] - lat) * MLAT) ** 2
+               + ((r[1] - lon) * mlon) ** 2)[2]
+
+
 def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict,
-            thickness: float = 0.5) -> list[dict]:
+            stations: dict | None = None, thickness: float = 0.5) -> list[dict]:
     """One row per OBJ placement: its worst foot residual, or its kind.
 
     ``sampler`` is anything with ``elevation_at_or_none(lat, lon)`` — the
@@ -235,6 +254,7 @@ def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict
         s, c = math.sin(h), math.cos(h)
         mlon = MLAT * math.cos(math.radians(lat))
         by_comp = deltas.get(r["path"], {})
+        st_of = (stations or {}).get(r["path"], {})
         md = member_delta.get(r["path"])
         ds = []
         for (ci, x, y, z, _area) in r["feet"]:
@@ -243,13 +263,18 @@ def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict
             z_foot = sampler.elevation_at_or_none(lat + north / MLAT, lon + east / mlon)
             if z_foot is None:
                 continue
-            dz = by_comp.get(ci, md if md is not None else 0.0)
+            la_f = lat + north / MLAT
+            lo_f = lon + east / mlon
+            st = st_of.get(ci)
+            dz = _nearest_station(st, la_f, lo_f) if st \
+                else by_comp.get(ci, md if md is not None else 0.0)
             ds.append(z_foot - (z_anchor + y + dz))
         if not ds:
             continue
         rows.append(dict(path=r["path"], kind="measured", lat=lat, lon=lon,
                          dmax=max(ds, key=abs), dmean=float(np.mean(ds)), n=len(ds),
-                         span=r["span"], seated=bool(by_comp or md is not None)))
+                         span=r["span"], seated=bool(by_comp or md is not None),
+                         line=bool(st_of)))
     return rows
 
 
@@ -280,18 +305,26 @@ def main(argv: list[str] | None = None) -> int:
     dump = args.dsf_dump or find_dsf_dump(pack)
     if not dump or not os.path.isfile(dump):
         ap.error(f"no DSF text dump for {pack}: pass --dsf-dump (it is never generated here)")
-    deltas, member_delta = read_result(args.result)
+    deltas, member_delta, stations = read_result(args.result)
     _defs, plc = read_placements(dump)
     if not plc:
         ap.error(f"{dump} carries no OBJECT placement")
     sampler = MeshElevationSampler(args.mesh, (min(q[1] for q in plc), min(q[2] for q in plc),
                                                max(q[1] for q in plc), max(q[2] for q in plc)))
-    rows = measure(pack, dump, sampler, deltas, member_delta, args.thickness)
+    rows = measure(pack, dump, sampler, deltas, member_delta, stations, args.thickness)
     if args.json:
         with open(args.json, "w") as fh:
             json.dump(rows, fh)
     census(rows, dict(plan.get("skipped") or []), set(deltas) | set(member_delta),
-           args.label or os.path.basename(args.result), args.top)
+           args.label or os.path.basename(args.result), args.top, set(stations))
+    if stations:
+        n_st = sum(len(v) for c in stations.values() for v in c.values())
+        print(f"   LINE OBJECTS (10bb): {len(stations)} resource(s) draped on "
+              f"{n_st} station(s)")
+        for r in sorted(stations)[:40]:
+            c = stations[r]
+            print(f"     {os.path.basename(r)[-56:]:56} comps {len(c):4d} "
+                  f"stations {sum(len(v) for v in c.values()):5d}")
     return 0
 
 

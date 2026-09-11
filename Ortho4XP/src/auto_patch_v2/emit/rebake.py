@@ -552,10 +552,14 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
                             if ds else ""))
             if mp.facility:
                 note += " — facility member (05p at cluster level): authored y kept"
+            if mp.line_stations:
+                note += (f" — LINE OBJECT (10bb): {len(mp.line_stations)} drape station(s), "
+                         "every vertex takes the nearest")
             seats.append(MemberSeat(m.resource, DATUM_CLUSTER, one, mp.witnesses, mp.water,
                                     mp.off_mesh, mp.outliers, note,
                                     tuple(rd.records) if rd is not None else (), False,
-                                    mp.facility, mp.ground_m, tuple(mp.part_deltas)))
+                                    mp.facility, mp.ground_m, tuple(mp.part_deltas),
+                                    tuple(mp.line_stations)))
         findings = list(rec["findings"])
         n_fac = sum(1 for s in seats if s.facility)
         if n_fac:
@@ -584,7 +588,8 @@ def seat(plan_: RebakePlan, sampler: Sampler, law: Law) -> SeatResult:
     return SeatResult(plan_.icao, tuple(_one_file_one_delta(units, rb)), tuple(out.clusters),
                       tuple(out.pad_requests), out.cut_edges, out.structures,
                       out.intra_placement_kept, out.held_parts,
-                      out.elevated_groups, out.group_ties)
+                      out.elevated_groups, out.group_ties,
+                      out.line_bodies, out.line_edges_dropped, out.orphan_bodies)
 
 
 def _one_file_one_delta(units: list[UnitSeat], rb) -> list[UnitSeat]:

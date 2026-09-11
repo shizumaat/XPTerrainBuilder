@@ -345,9 +345,10 @@ def test_seat_feet_census_reads_a_seat_result_or_a_replay_result(tmp_path):
                                   {"resource": "b.obj", "part_deltas": []}]}]}
     p = tmp_path / "r.json"
     p.write_text(json.dumps(rec))
-    deltas, member = M.read_result(str(p))
+    deltas, member, stations = M.read_result(str(p))
     assert deltas["a.obj"] == {0: -1.5}            # a None part is NOT a delta
     assert member == {"b.obj": 6.0, "a.obj": 6.0}
+    assert stations == {}                          # no line object here (10bb)
     p.write_text(json.dumps({"seat": rec}))        # the replay's wrapper
     assert M.read_result(str(p))[0]["a.obj"] == {0: -1.5}
 

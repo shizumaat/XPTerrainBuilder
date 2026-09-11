@@ -65,6 +65,11 @@ class PlacedPart:
     #: vertices within the foot band of its own minimum, spread over the
     #: plan.  Empty for an ELEVATED part (culled in :func:`partition`).
     feet: np.ndarray = _dc.field(default=None, repr=False, compare=False)
+    #: THE LINE OBJECT (owner RULINGS 2026-09-10bb; ``airport/line_object``):
+    #: a component of a fence / kerb / jet-blast line / light string.  It
+    #: forms no body and founds no foot; its ``feet`` are its DRAPE
+    #: STATIONS, widened here to one per ``body_feet_span_m``.
+    line: bool = False
 
     @property
     def plan_box(self) -> tuple[float, float, float, float]:
@@ -136,11 +141,20 @@ def _feet(pts: np.ndarray, min_y: float, base_plane: float, band: float, k_max: 
 
 
 def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
-                 foot_samples_max: int = 4) -> list[PlacedPart]:
+                 foot_samples_max: int = 4,
+                 line_members: _t.Collection[int] = (),
+                 station_span_m: float = 0.0, stations_max: int = 0) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
-    member order then component order (deterministic pids)."""
+    member order then component order (deterministic pids).  A member in
+    ``line_members`` is a LINE OBJECT (RULINGS 2026-09-10bb): its parts
+    are flagged and their feet are widened to the DRAPE STATIONS — one
+    per ``station_span_m`` of the part's plan length, capped at
+    ``stations_max`` — so the segment seat reads the design surface
+    along the whole fence and not at four points of a 5 km run."""
     parts: list[PlacedPart] = []
+    lines = set(line_members)
     for mi, (o, geom, comps) in enumerate(members):
+        is_line = mi in lines
         for ci, c in comps:
             tris = np.asarray(c.tris)
             ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
@@ -155,11 +169,17 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                 cy = float((cen[:, 2] * areas).sum() / total)
             else:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
+            k_max = foot_samples_max
+            if is_line and station_span_m > 0.0 and stations_max > 0:
+                span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
+                                  float(pts[:, 2].max() - pts[:, 2].min()))
+                k_max = max(foot_samples_max,
+                            min(stations_max, int(math.ceil(span / station_span_m))))
             parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
-                                          foot_band_m, foot_samples_max)))
+                                          foot_band_m, k_max), is_line))
     return parts
 
 
@@ -398,13 +418,16 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
 
 def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, budget: int,
               pool_overlap_m: float, chunk_rows: int, foot_band_m: float = 1.0,
-              foot_samples_max: int = 4, elevated_base_m: float | None = None) -> Partition:
+              foot_samples_max: int = 4, elevated_base_m: float | None = None,
+              line_members: _t.Collection[int] = (),
+              station_span_m: float = 0.0, stations_max: int = 0) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
     feet into the plan, and ``emit/clusters`` reads that verdict straight
     off the plan."""
-    parts = placed_parts(members, foot_band_m, foot_samples_max)
+    parts = placed_parts(members, foot_band_m, foot_samples_max,
+                         line_members, station_span_m, stations_max)
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
     for a, b in _weld_pairs(parts, weld_mm).tolist():
@@ -422,7 +445,9 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
         # THE FEET travel in the plan for the GROUND parts only (RULINGS
         # 2026-09-09s (2)): an ELEVATED part never votes and never founds
         # a seat, so its feet would be dead weight in a 152 k-part plan
-        parts = [p if p.base_y <= elevated_base_m
+        # a LINE part keeps its stations whatever its base_y: it drapes
+        # on its own ground, it never votes in a body (10bb, spec §16)
+        parts = [p if (p.line or p.base_y <= elevated_base_m)
                  else _dc.replace(p, feet=np.zeros((0, 3), dtype=float))
                  for p in parts]
     return Partition(tuple(parts), tuple(sorted(set(edges))),

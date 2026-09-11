@@ -34,8 +34,9 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "U
 #: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
 #: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
 #: flat-site datum and its region (08d); 6: the parts' FEET (09s — the
-#: per-component ground reading).
-PLAN_VERSION = 6
+#: per-component ground reading); 7: the LINE OBJECT verdict per part and
+#: its widened DRAPE STATIONS (10bb, spec §16).
+PLAN_VERSION = 7
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -77,6 +78,12 @@ class Part:
     area_m2: float
     box: tuple[float, float, float, float]
     feet: tuple[tuple[float, float, float], ...] = ()
+    #: THE LINE OBJECT (owner RULINGS 2026-09-10bb; ``airport/line_object``,
+    #: spec §16): a component of a fence / kerb / jet-blast line / light
+    #: string.  It forms NO body with what it touches and founds NO foot
+    #: for one; its ``feet`` are its DRAPE STATIONS and it is seated per
+    #: SEGMENT — every vertex takes the delta of the nearest station.
+    line: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -229,7 +236,7 @@ class RebakePlan:
                     "authored_path": m.authored_path, "live_path": m.live_path,
                     "heading_deg": m.heading_deg,
                     "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box,
-                               [list(f) for f in p.feet]] for p in m.parts],
+                               [list(f) for f in p.feet], p.line] for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
@@ -251,7 +258,12 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
-        if d.get("version") != PLAN_VERSION:
+        # Version 7 is version 6 plus ``Part.line`` (RULINGS 2026-09-10bb):
+        # a 6 reads as a 7 with no line object in it — the pre-10bb seat
+        # exactly — so an OWNER's plan from an earlier build still replays
+        # offline (``tools/v2_rebake_replay.py``).  Nothing else is
+        # accepted: the earlier versions changed fields the seat reads.
+        if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),
@@ -264,7 +276,8 @@ class RebakePlan:
                                  float(p[5]), (float(p[6]), float(p[7]), float(p[8]),
                                                float(p[9])),
                                  tuple((float(a), float(b), float(c))
-                                       for a, b, c in (p[10] if len(p) > 10 else ())))
+                                       for a, b, c in (p[10] if len(p) > 10 else ())),
+                                 bool(p[11]) if len(p) > 11 else False)
                             for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),
@@ -329,6 +342,13 @@ class MemberSeat:
     #: SEAT TARGET (09s (2) — the y = 0 plane its feet found).
     ground_m: float | None = None
     part_deltas: tuple[tuple[int, int, float | None], ...] = ()
+    #: THE SEGMENT SEAT of a LINE OBJECT (owner RULINGS 2026-09-10bb, spec
+    #: §16.1 rule 3): rows ``(comp, lat, lon, delta)`` — every VERTEX of
+    #: that component takes the delta of the station NEAREST it in plan,
+    #: so a fence drapes instead of taking one delta over kilometres.
+    #: The component's entry in ``part_deltas`` carries the MEDIAN of
+    #: them, which is what a consumer with no plan position reads.
+    line_stations: tuple[tuple[int, float, float, float], ...] = ()
 
     @property
     def bakes(self) -> bool:
@@ -370,6 +390,13 @@ class ClusterSeat:
     foot_residuals: tuple[float, ...] = ()
     foot_residual_max_m: float = 0.0
     feet_sampled: int = 0
+    #: RULINGS 2026-09-10bb: this body is ONE LINE OBJECT component,
+    #: draped on its own stations (spec §16) — it bound nothing and
+    #: founded no foot for anything else.
+    line_object: bool = False
+    #: ...and the ORPHAN (§16.1 rule 4): a body with no ground part at
+    #: all, seated by sampling the design surface under its parts.
+    orphan: bool = False
 
     @property
     def bakes(self) -> bool:
@@ -438,6 +465,12 @@ class SeatResult:
     #: and those that resolved with no plan overlap (the body-id tie).
     elevated_groups: int = 0
     group_ties: int = 0
+    #: RULINGS 2026-09-10bb (spec §16): LINE-OBJECT bodies, the contact
+    #: edges their rule refused to bind, and the ORPHAN bodies seated by
+    #: sampling because everything they touched was a line object.
+    line_bodies: int = 0
+    line_edges_dropped: int = 0
+    orphan_bodies_seated: int = 0
 
     def counts(self) -> dict[str, int]:
         c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
@@ -450,7 +483,10 @@ class SeatResult:
              "intra_placement_kept": self.intra_placement_kept,
              "held_parts": self.held_parts, "feet_sampled": 0,
              "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
-             "parts": 0, "ground_parts": 0, "members_multi_delta": 0}
+             "parts": 0, "ground_parts": 0, "members_multi_delta": 0,
+             "line_objects": 0, "line_stations": 0, "orphan_bodies": 0,
+             "line_bodies": self.line_bodies,
+             "line_edges_dropped": self.line_edges_dropped}
         for u in self.units:
             c["findings"] += len(u.findings)
             c["facility_members"] += sum(1 for m in u.members if m.facility)
@@ -486,6 +522,11 @@ class SeatResult:
             if k.needs_pad:
                 c["clusters_padded"] += 1
             c["feet_sampled"] += k.feet_sampled
+            c["line_objects"] += int(k.line_object)
+            c["orphan_bodies"] += int(k.orphan)
+        for u in self.units:
+            for m in u.members:
+                c["line_stations"] += len(m.line_stations)
         return c
 
     def to_dict(self) -> dict[str, _t.Any]:
@@ -494,6 +535,9 @@ class SeatResult:
                 "intra_placement_kept": self.intra_placement_kept,
                 "held_parts": self.held_parts,
                 "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
+                "line_bodies": self.line_bodies,
+                "line_edges_dropped": self.line_edges_dropped,
+                "orphan_bodies_seated": self.orphan_bodies_seated,
                 "units": [_dc.asdict(u) for u in self.units],
                 "clusters": [_dc.asdict(k) for k in self.clusters],
                 "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

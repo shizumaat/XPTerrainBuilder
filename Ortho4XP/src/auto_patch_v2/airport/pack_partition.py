@@ -141,6 +141,9 @@ class PackPartition:
     #: offsets (I-4).  A PLATE-seated resource is exempt, and the exemption
     #: is a screen fact, so the drop is DEFERRED to :meth:`filtered`.
     multi_anchor: frozenset[str] = frozenset()
+    #: how many anchors each multi-anchor resource is placed at — the
+    #: deferred drop's own message, so the two orders read identically
+    anchor_count: _t.Mapping[str, int] = _dc.field(default_factory=dict)
 
     def member_at(self, key: tuple[int, int]) -> Member:
         return self.units[key[0]].members[key[1]]
@@ -201,8 +204,8 @@ class PackPartition:
                 units.append(_dc.replace(u, members=tuple(members)))
         counts["multi_anchor"] = len(dropped_multi)
         for r in sorted(dropped_multi):
-            skipped[r] = ("placed at several anchors — one file cannot carry "
-                          "per-placement offsets (I-4)")
+            skipped[r] = (f"placed at {self.anchor_count.get(r, 0)} anchors — one "
+                          "file cannot carry per-placement offsets (I-4)")
         contacts = tuple((a, b) for a, b in self.contacts
                          if a in keep_pids and b in keep_pids)
         abutments = tuple((a, b) for a, b in self.abutments
@@ -256,9 +259,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     sk = law.tables.structures.skirt
     counts = counts_zero()
     counts["signature_decks"] = sum(1 for o in objects if o.deck_kind == "signature")
-    counts["deck_families"] = len({_deck.family_key(o) for o in objects
-                                   if o.resolved is not None
-                                   and o.deck_kind in ("flag", "signature")})
+    # THE DECK FAMILIES readable at LOAD (R12-2 completeness): a
+    # FLAG deck is ``ATTR_hard_deck`` in the authored file, so its family
+    # is a load fact.  A SIGNATURE deck is promoted by the planar pass and
+    # is a screen fact — but the screen only ever REMOVES members, so the
+    # load partition must keep every member a deck family might claim or
+    # the filter has nothing to restore: a deck-family member with no
+    # genuine solid (Bridge_01_LOD0_004, a two-triangle sheet) still seats
+    # WITH its deck and must not be dropped here.
+    _fam = {o.id: _deck.family_key(o) for o in objects if o.resolved is not None}
+    _deck_keys = {_fam[o.id] for o in objects
+                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
+    deck_family_ids = {o.id for o in objects if _fam.get(o.id) in _deck_keys}
+    counts["deck_families"] = len(_deck_keys)
     counts["plate_objects"] = len(sc.plate_paths)
     skipped: dict[str, str] = {}
     _to_xy, to_ll = airport.frame.transformers()
@@ -334,7 +347,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
                  if c.max_y - c.min_y >= cache.thickness_m and i not in deep]
         counts["below_grade_parts"] += len(deep)
-        if not comps and not (o.id in sc.deck_family and rb.deck_family_seats_rigid) \
+        in_deck_family = o.id in sc.deck_family or o.id in deck_family_ids
+        if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
                 and o.id not in sc.plate_paths and o.path not in sc.plate_paths \
                 and o.hard_deck is None:
             counts["no_parts"] += 1
@@ -405,7 +419,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     return PackPartition(airport.icao, airport.pack.name, pack_root, tuple(units),
                          tuple(sorted(skipped.items())), counts,
                          part.contacts, part.abutments, member_object,
-                         frozenset() if not sc.is_empty() else frozenset(multi))
+                         frozenset() if not sc.is_empty() else frozenset(multi),
+                         {r: len(ks) for r, ks in anchors_by_resource.items()})
 
 
 def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Part]]:

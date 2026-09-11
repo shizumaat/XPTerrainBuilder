@@ -210,8 +210,17 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
             cls, reason = "strip", (f"width {width:.1f} m, through {through:.0f} m >= "
                                     f"{lot.through_min_fraction:g} x {half_perim:.0f} m, "
                                     f"{pieces} road piece(s)")
+    # THE APRON VETO (owner RULINGS 2026-09-11ac item 6): a page with a
+    # MAPPED APRON on it is not a car park.  It reads
+    # ``lot.apron_cover_fraction`` — the same key ``open_default``'s
+    # evidence ladder reads, one physical fact and one threshold — and
+    # that threshold is a NOISE FLOOR, not a majority: OSM never draws
+    # ``aeroway=apron`` over a car park, and a pack's own pavement page is
+    # routinely far larger than any one mapped apron polygon.  Until
+    # 2026-09-11 this read ``parking_cover_fraction`` at 0.5 and LEMD's
+    # ``pav126`` (the owner's shapeID 83, 25 % apron) shipped a lot.
     if cls == "open" and no_taxi and starts == 0 and \
-            acov < lot.parking_cover_fraction and not apron_named(description, rules):
+            acov < lot.apron_cover_fraction and not apron_named(description, rules):
         if pcov >= lot.parking_cover_fraction:
             cls, reason = "lot", f"amenity=parking covers {pcov:.0%}"
         elif aisle_m > 0.0 and carries_osm:

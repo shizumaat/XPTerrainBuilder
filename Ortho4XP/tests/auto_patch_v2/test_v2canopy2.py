@@ -228,6 +228,26 @@ def test_a_pad_vertex_takes_the_nearest_foot_and_the_far_one_keeps_the_level(mon
     assert 12 not in off                                      # no foot within r
 
 
+def test_an_infeasible_body_gets_no_relief_target(monkeypatch):
+    """§11 (4): the terrain is only adapted where the adapted surface
+    stays lawful.  A body whose authored relief asks more of the ground
+    than the ground law allows keeps TODAY'S FLAT PAD, anchors at its
+    low-side foot (§9) and is REPORTED — measured at LEMD, without this
+    gate the published targets reached +35.53 / -14.51 m, which is not a
+    relief profile but a body whose feet are vertices up its own
+    structure."""
+    law = _law()
+    # 2 m over 20 m = 10 %, refused by a 1 % bar and admitted by 33 %
+    steep = G.derive(_partition([_columns(n=3, pitch=20.0, rise=2.0)]), 0.0, 0.01)
+    gentle = G.derive(_partition([_columns(n=3, pitch=20.0, rise=2.0)]), 0.0, 0.33)
+    assert steep.groups[0].infeasible and not gentle.groups[0].infeasible
+    verts = {10: (0.0, 0.0), 11: (40.0, 0.0)}
+    pad = Polygon([(-20, -20), (60, -20), (60, 20), (-20, 20)])
+    assert _offsets(monkeypatch, law, _Airport(steep), verts, pad, []) == {}
+    assert _offsets(monkeypatch, law, _Airport(gentle), verts, pad, [])[11] \
+        == pytest.approx(2.0, abs=1e-6)
+
+
 def test_feet_on_pavement_take_no_row(monkeypatch):
     """09af-1: the pavement law owns that surface, so the body's feet
     there found no target and the pad keeps its level."""

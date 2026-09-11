@@ -81,6 +81,15 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     for g in groups.groups:
         if not g.feet:
             continue
+        if g.infeasible:
+            # §11 (4): an INFEASIBLE group's pad is NOT adapted.  The
+            # terrain cannot carry its authored relief and stay lawful,
+            # so the body anchors at its low-side foot (§9) and the
+            # residual is REPORTED — measured at LEMD, without this gate
+            # the published targets reached +35.53 / -14.51 m, which is
+            # not a relief profile but a body whose "feet" are vertices
+            # up its own structure.  The group keeps today's flat pad.
+            continue
         for f in g.feet:
             x, y = to_xy(f.lon, f.lat)
             feet.append((x, y, float(f.y) - float(g.y_zero)))

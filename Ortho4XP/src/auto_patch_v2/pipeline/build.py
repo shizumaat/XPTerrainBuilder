@@ -280,8 +280,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     from ..planar.group import derive as _derive_groups
     pack_objects, pack_report = _read_objects(airport, law, ocache)
     _part = _partition_pack(airport, pack_objects, ocache, law)
+    # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
+    # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
+    # terrain under an object's feet is GROUND, and the slope a pilot
+    # reads as ground rather than a wall is ``emit.design.bank_slope``
+    # (1:3).  Priced at the pad's own 1 % tilt instead, every body with
+    # any authored relief came out infeasible (LEMD 7,627 of 13,064
+    # groups), which is a verdict that says nothing.
     _groups = _derive_groups(_part, _span_max(law),
-                             float(law.tables.emit.within_shape.pad_slope_max))
+                             float(law.tables.emit.design.bank_slope))
     airport = _dc.replace(airport, partition=_part, groups=_groups)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "

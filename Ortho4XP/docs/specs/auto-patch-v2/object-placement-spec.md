@@ -739,3 +739,44 @@ Round 1 measured §11's premises and refuted two of them. The owner's intent
    * **NOT DONE, BY THE BRIEF:** no `--write-pack`, no placement-level
      three-row read (the LEMD DSF/dump frame is scout `v2dsfframe`'s and
      those rows are round 4's), no OTHH build.
+
+## §11b Bodies on bare ground take FOOT ROWS, not pads (Fable, 2026-09-11; RULINGS 2026-09-11q)
+
+Round 5 minted a flat pad from each bare-ground body's own footprint (503 pads at
+LEMD, `pad_flat` rows 39 → 98) and the three owner rows got WORSE (worst 1.94 →
+3.33 m): a rigid plane cut into sloping ground steps wherever an unpadded
+neighbour straddles its edge, and HECA's T3 released bodies went +1.5 → +8.7 m.
+The colonnade's columns carry 2.63 m of authored relief BECAUSE the real ground
+slopes there; a flat pad fights the authoring. Restated:
+
+1. **A rigid body on BARE ground (its anchor on no graded face, its feet on no
+   OSM building and no pavement) gets NO pad entity.** Round 5's bare-ground
+   minting in `classify/evidence._body_pads` is withdrawn for that class; bodies
+   INSIDE an OSM pad keep the pad with relief offsets (§11a (2)); bodies on
+   pavement stay pavement-senior (09af-1) and are reported.
+2. **FOOT ROWS.** The body goes to the terrain (09af-1): its LEVEL is the
+   least-squares fit of `dem(foot) − (y_foot − y_zero)` over its ground-contact
+   feet, and each foot gets ONE target row `z(foot) = level + (y_foot − y_zero)`
+   priced as a GROUND target (the per-vertex ground datum weight of
+   `design.ground_datum`, §23 — not `pad_flat`, not `law`). The sheet blends
+   between feet as it does everywhere on adjacent ground; no polygon, no rim, no
+   pad consumer is touched (§11a (4) holds by construction), and a neighbour's
+   feet get their own rows, so there is no edge to straddle.
+3. **FEASIBILITY** is the fit's residual: `max |dem(foot) − target(foot)|` over
+   the feet against `bank_slope × (distance to the nearest other foot)`; within
+   it the rows fire; beyond it the body is INFEASIBLE — no rows, low-side anchor,
+   reported (the HECA `metal_titles` class). A long infeasible junior releases as
+   §11 (4) says. `Group.infeasible` therefore prices the DEM's FALL against the
+   authored relief, which answers round 5's open question: a body whose authored
+   relief matches the ground's fall is feasible at zero cost; one that fights it
+   is not.
+4. **THE ANCHOR** of a foot-row body is the foot whose target equals the design
+   surface after the solve — the low-side foot in practice, its residual reported;
+   `y_zero` stays the senior body's lowest contact (round 5's negative-offset
+   attribution stands: a junior deck below the senior's zero is negative by
+   construction and lawful).
+5. **Bars (round 6):** the three owner rows' bodies within 0.3 m except
+   pavement-anchored ones (listed); LEMD `> 3 m` ≤ 15; files ≤ 4×; `pad_flat`
+   rows ≤ 39 (round 4's); HECA railway bodies within 0.3 m and `T3_brick_clean`
+   b0/b3/b4 not above round 4's +0.46 / +1.51 / +11.58; wall within +5 % of
+   round 4.

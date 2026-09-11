@@ -7,6 +7,18 @@ and verifies the pack's DSF.  THIS module is the single order in which a
 pack is changed, so that the engine's write half and every tool run the
 same sequence and nobody grows a second one:
 
+0. the RESTORE (owner RULINGS 2026-09-11f (1); spec §8's one-shot
+   restore, run on every ``agl`` write): every ``<obj>.anchor_bak`` in
+   the pack is copied back over its object BEFORE any file is written.
+   The v1 seat baked its deltas into the pack's own ``.obj`` files and
+   kept the originals beside them; under the placement law those deltas
+   are wrong twice over — a body's vertices are re-anchored by the CUT,
+   and a placement the plan keeps WHOLE is never rewritten at all, so it
+   would otherwise render on the old seat's vertex offsets forever.  The
+   pass is idempotent (a pack with no backup restores nothing, a pack
+   already restored copies nothing) and the backups are KEPT: they are
+   what ``placement_plan.pristine_path`` reads, and §8 deletes them with
+   the seat, not before;
 1. the PLAN — ``conversions`` for every MSL / AGL row of the dump (11d:
    stock placements convert too), ``splits`` for the placements whose
    bodies were coarsened into more than one file, ``kept`` for the rest;
@@ -44,7 +56,24 @@ from ..model.placement import (PLAN_FILENAME, PlacementPlan, Provenance)
 from . import dsf_write as _dw
 from . import placement_plan as _pp
 
-__all__ = ["PlacementWriteResult", "build_plan", "write_files", "apply_plan"]
+__all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
+           "restore_pack_objects", "apply_plan"]
+
+#: v1's seat kept the authored bytes beside the file it baked.
+ANCHOR_BAK = ".anchor_bak"
+
+
+@_dc.dataclass(frozen=True)
+class RestoreResult:
+    """Step 0 (11f (1)): the backups found and the objects put back."""
+
+    backups: tuple[str, ...] = ()
+    restored: tuple[str, ...] = ()
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return {"restore_backups": len(self.backups),
+                "restore_restored": len(self.restored)}
 
 
 @_dc.dataclass(frozen=True)
@@ -57,6 +86,7 @@ class PlacementWriteResult:
     dsf: _dw.WriteResult | None
     dump_refreshed: str | None
     counts: _t.Mapping[str, int]
+    restore: RestoreResult = RestoreResult()
 
 
 # ── step 1: the plan ────────────────────────────────────────────────────
@@ -64,6 +94,9 @@ class PlacementWriteResult:
 def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                *, icao: str, pack_name: str, pack_root: str, dsf_path: str,
                split_tol_m: float, elevated_base_m: float = 0.0,
+               line_segment_m: float = 0.0, line_stations_max: int = 0,
+               line_ratio: float = 0.0, line_max_h: float = 0.0,
+               foot_band_m: float = 0.0,
                pads: _t.Sequence = (), rims: _t.Sequence = (),
                engine_version: str = "", law_digest: str = "",
                write_cuts: bool = True) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
@@ -80,7 +113,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     the conversions are filtered by the split indices here, where the two
     lists are first seen together."""
     ss = _pp.build_splits(rebake_plan, surface, pads, rims, write=write_cuts,
-                          split_tol_m=split_tol_m, elevated_base_m=elevated_base_m)
+                          split_tol_m=split_tol_m, elevated_base_m=elevated_base_m,
+                          line_segment_m=line_segment_m,
+                          line_stations_max=line_stations_max,
+                          line_ratio=line_ratio, line_max_h=line_max_h,
+                          foot_band_m=foot_band_m)
     splits, kept = _pp.to_placement_records(ss)
     conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
     split_idx = frozenset(s.placement.index for s in splits)
@@ -135,7 +172,56 @@ def write_files(pack_root: str, files: _t.Sequence, *,
     return tuple(out)
 
 
-# ── steps 2-5: the whole write ──────────────────────────────────────────
+# ── step 0: the restore ─────────────────────────────────────────────────
+
+def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False
+                         ) -> RestoreResult:
+    """Put every ``<obj>.anchor_bak`` back over its object (11f (1)).
+
+    A BYTE copy of the pristine file, only where the live file differs
+    from it (so a second run writes nothing and no mtime moves), and only
+    for ``.obj`` — the DSF's own ``<name>.dsf.anchor_bak`` is §3's
+    backup, whose discipline ``dsf_write`` owns and which is the SOURCE
+    of the dump, never a thing to copy back under it.  The backups
+    themselves are kept.
+
+    Refuses a live X-Plane install without the app's explicit
+    ``allow_live_install``, exactly as :func:`write_files` does: this
+    writes pack files."""
+    if _dw.live_install_roots(pack_root) and not allow_live_install:
+        raise PermissionError(
+            f"REFUSING to restore inside a live X-Plane installation: "
+            f"{pack_root!r} (spec §3.5 — a lane writes a COPY of the pack)")
+    backups: list[str] = []
+    restored: list[str] = []
+    for root, _dirs, names in os.walk(pack_root):
+        for n in names:
+            if not n.endswith(ANCHOR_BAK):
+                continue
+            live = os.path.join(root, n[: -len(ANCHOR_BAK)])
+            if not live.lower().endswith(".obj"):
+                continue
+            bak = os.path.join(root, n)
+            backups.append(bak)
+            try:
+                with open(bak, "rb") as fh:
+                    want = fh.read()
+                have = b""
+                if os.path.isfile(live):
+                    with open(live, "rb") as fh:
+                        have = fh.read()
+                if have == want:
+                    continue
+                with open(live + ".tmp", "wb") as fh:
+                    fh.write(want)
+                os.replace(live + ".tmp", live)
+            except OSError:
+                continue
+            restored.append(live)
+    return RestoreResult(tuple(sorted(backups)), tuple(sorted(restored)))
+
+
+# ── steps 0-5: the whole write ──────────────────────────────────────────
 
 def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                patch_dir: str = "", allow_live_install: bool = False,
@@ -143,7 +229,9 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
                engine_version: str = "", law_digest: str = ""
                ) -> PlacementWriteResult:
-    """The four writes in the one lawful order (module doc, steps 2-5)."""
+    """The writes in the one lawful order (module doc, steps 0-5)."""
+    restore = restore_pack_objects(plan.pack_root,
+                                   allow_live_install=allow_live_install)
     written = write_files(plan.pack_root, files,
                           allow_live_install=allow_live_install)
     dsf = _dw.write_pack(plan.pack_root, plan, tool,
@@ -156,6 +244,10 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         # the move above just changed — refresh it HERE, where the write
         # is known to have happened, never as a read-time side effect
         refreshed = refresh_dump(plan.dsf_path)
+    # the restore is PROVENANCE (11f (1)): the plan beside the patch says
+    # how many of the pack's objects were put back before it was written
+    plan = _dc.replace(plan, provenance=_dc.replace(
+        plan.provenance, counts={**dict(plan.provenance.counts), **restore.counts}))
     plan_path = ""
     if patch_dir:
         os.makedirs(patch_dir, exist_ok=True)
@@ -165,4 +257,6 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         os.replace(plan_path + ".tmp", plan_path)
     counts = dict(plan.counts())
     counts["files_written"] = len(written)
-    return PlacementWriteResult(plan, plan_path, written, dsf, refreshed, counts)
+    counts.update(restore.counts)
+    return PlacementWriteResult(plan, plan_path, written, dsf, refreshed, counts,
+                                restore)

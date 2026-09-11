@@ -26,6 +26,7 @@ Pure geometry over the resource cache; no I/O of its own, no environment.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import typing as _t
 
@@ -33,7 +34,8 @@ import numpy as np
 
 from . import obj8 as _obj8
 
-__all__ = ["component_shape", "is_line_shaped", "is_line_object", "station_delta"]
+__all__ = ["component_shape", "is_line_shaped", "is_line_object", "station_delta",
+           "LineLaw", "Segment", "farthest_point_stations", "segment_by_station"]
 
 
 def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
@@ -108,3 +110,97 @@ def station_deltas_at(stations: _t.Sequence[_t.Sequence[float]],
     dla = (st[None, :, 0] - lats[:, None]) * ml
     dlo = (st[None, :, 1] - lons[:, None]) * mo
     return st[np.argmin(dla * dla + dlo * dlo, axis=1), 2]
+
+
+# ── THE SEGMENT CUT (owner RULINGS 2026-09-11f (2); spec §10) ────────────
+
+@_dc.dataclass(frozen=True)
+class LineLaw:
+    """The two numbers :func:`is_line_shaped` reads, for a caller that
+    holds no ``[rebake]`` table (the split half passes them in).  Any
+    object carrying the two attributes serves — the law table itself
+    does."""
+
+    line_object_ratio: float
+    line_object_max_h: float
+
+
+@_dc.dataclass(frozen=True)
+class Segment:
+    """One STATION's share of a line body: the authored triangles whose
+    plan centroid is nearest that station, and the station itself."""
+
+    station: tuple[float, float]
+    tris: np.ndarray
+    index: int
+
+
+def farthest_point_stations(plan: np.ndarray, k: int, start: int = 0) -> np.ndarray:
+    """``k`` indices into ``plan`` ``(n, 2)`` spread by the FARTHEST-POINT
+    walk from ``start`` — the ONE spreading rule this tree has (the drape
+    stations of 10bb, ``contact._feet``'s thinning, and §10's segment
+    stations are the same walk), so a fence's stations do not depend on
+    which caller asked for them.  Returns them sorted, deterministic; the
+    walk stops early when every remaining point coincides with one
+    already chosen."""
+    n = int(plan.shape[0])
+    if n == 0 or k <= 0:
+        return np.zeros((0,), dtype=np.int64)
+    if k >= n:
+        return np.arange(n, dtype=np.int64)
+    start = int(min(max(start, 0), n - 1))
+    chosen = [start]
+    d2 = ((plan - plan[start]) ** 2).sum(1)
+    while len(chosen) < k:
+        nxt = int(np.argmax(d2))
+        if d2[nxt] <= 0.0:
+            break
+        chosen.append(nxt)
+        d2 = np.minimum(d2, ((plan - plan[nxt]) ** 2).sum(1))
+    return np.asarray(sorted(chosen), dtype=np.int64)
+
+
+def segment_by_station(geom: _obj8.ObjGeometry, tris: np.ndarray,
+                       span_m: float, stations_max: int) -> list[Segment]:
+    """A LINE BODY cut into SEGMENTS by triangle station (11f (2)).
+
+    ``tris`` are the body's authored triangles ``(n, 3)`` (vertex indices
+    into ``geom.vertices``).  The stations are one per ``span_m`` of the
+    body's plan extent, capped at ``stations_max``, spread over the
+    triangle CENTROIDS by :func:`farthest_point_stations` — the same walk
+    that spreads 10bb's drape stations, so a perimeter fence's stations
+    follow the LOOP and never chain its two far sides together the way a
+    projection onto one principal axis would.  Each triangle joins the
+    station nearest its centroid in plan.
+
+    Fewer than two stations (a body shorter than one span, or a cap of
+    one) returns ONE segment holding everything — the caller then leaves
+    the body exactly as it was."""
+    t = np.asarray(tris, dtype=np.int64).reshape(-1, 3)
+    if t.shape[0] == 0:
+        return []
+    v = geom.vertices
+    cen = (v[t[:, 0]] + v[t[:, 1]] + v[t[:, 2]]) / 3.0
+    plan = cen[:, [0, 2]]
+    extent = math.hypot(float(plan[:, 0].max() - plan[:, 0].min()),
+                        float(plan[:, 1].max() - plan[:, 1].min()))
+    k = 1 if span_m <= 0.0 else int(math.ceil(extent / span_m))
+    if stations_max > 0:
+        k = min(k, int(stations_max))
+    k = max(1, k)
+    if k < 2:
+        return [Segment((float(plan[:, 0].mean()), float(plan[:, 1].mean())), t, 0)]
+    # deterministic start: the plan-lexicographically smallest centroid
+    start = int(np.lexsort((plan[:, 1], plan[:, 0]))[0])
+    st = farthest_point_stations(plan, k, start)
+    sp = plan[st]
+    d = ((plan[:, None, 0] - sp[None, :, 0]) ** 2
+         + (plan[:, None, 1] - sp[None, :, 1]) ** 2)
+    owner = np.argmin(d, axis=1)
+    out: list[Segment] = []
+    for j in range(sp.shape[0]):
+        mask = owner == j
+        if not mask.any():
+            continue
+        out.append(Segment((float(sp[j, 0]), float(sp[j, 1])), t[mask], len(out)))
+    return out

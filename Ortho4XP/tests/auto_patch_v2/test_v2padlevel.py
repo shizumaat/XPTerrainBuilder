@@ -141,6 +141,19 @@ def _fronting_cells():
             Cell(2, "building", "padA", pad, (), None, None, "airside", "pad", {})]
 
 
+def _mixed_rim_cells():
+    """The same pad, with the apron's hole covering only its western half:
+    the rim is MIXED — some vertices the apron's own, some the pad's.  The
+    shape ``building16`` really has at LEMD (49 rim vertices on a basin's
+    retaining wall against 11 on the apron it fronts)."""
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
+    return [RUNWAY,
+            Cell(1, "apron", "apronA", _rect(-260.0, Y0, 20.0, Y1),
+                 (_rect(-60.0, 180.0, 20.0, 240.0),),
+                 None, None, "airside", "apron", {}),
+            Cell(2, "building", "padA", pad, (), None, None, "airside", "pad", {})]
+
+
 def test_a_pad_fronting_an_apron_is_flush_with_it_and_does_not_tier_it(law):
     """The pad's ground is 3 m below the apron's; under 10l the pad takes
     the APRON'S edge level, so the apron does not step down into it and
@@ -202,17 +215,27 @@ def test_the_level_row_is_the_pads_own_mean_one_way_read_in_the_band(law):
     metre away (it carries the pad's own pull; MEASURED at LEMD, spec
     §20.4 arm B)."""
     airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_fronting_cells()), (), {}, ()), law)
+    # A MIXED RIM (re-scoped, owner RULINGS 2026-09-10ax (1)): the apron's
+    # hole covers only the pad's western half, so the pad keeps vertices of
+    # its OWN.  ``_fronting_cells``' pure hole shares its WHOLE rim, and
+    # under 10ax the row's followers are the pad's own vertices only — a
+    # shared contact is a PAVEMENT vertex (09-01g) and enters as a LEADER —
+    # so a pure-hole pad has nothing of its own to govern and mints no row
+    # (it is flush by identity).  Keeping the row there with pavement
+    # followers is exactly how the pad moved the pavement +1.30 m at LEMD's
+    # T4S corner (10at).
+    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
     pad_fid = _face(pm, "padA").id
     pad = _verts(pm, "padA")
     shared = pad_shared(pm, law)[pad_fid]
+    assert shared and (pad - shared)
     rows = [r for r in pad_frontage_level(pm, law, airport)
             if f"face:{pad_fid}" in r.source.inputs]
     assert len(rows) == 2                            # one row, two sides
     for r in rows:
         assert isinstance(r, Linear) and r.lo is None and r.hi == 0.0
         assert r.source.generator == GEN_LEVEL
-        assert set(r.follows) == pad                 # §9b reads the whole pad
+        assert set(r.follows) == pad - shared        # §9b: the pad's OWN plane
         head = {v for v, _c in r.terms} & pad
         assert head == pad                           # the pad's OWN MEAN
         leaders = {v for v, _c in r.terms} - pad

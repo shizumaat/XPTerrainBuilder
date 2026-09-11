@@ -136,19 +136,19 @@ def test_edit_refuses_a_stale_plan(tmp_path):
                                 "objects/t__b0.obj"),)),)))
 
 
-def test_conversions_for_dump_leaves_stock_alone(tmp_path):
-    """§5 / 09z (2): a ``lib/…`` resource is KEPT, a pack resource
-    converts — and a plain ``OBJECT`` row is neither."""
+def test_conversions_for_dump_converts_stock_too(tmp_path):
+    """§5 as RE-SCOPED by owner RULINGS 2026-09-11d: a ``lib/…`` placement
+    converts like a pack resource (a placement edit modifies no object);
+    a plain ``OBJECT`` row is listed by neither."""
     p = tmp_path / "d.text"
     p.write_text(DUMP)
     (tmp_path / "objects").mkdir()
     for n in ("tower.obj", "hangar.obj"):
         (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n")
     conv, kept = W.conversions_for_dump(D.read_dump(str(p)), str(tmp_path))
-    assert [c.index for c in conv] == [1, 2]
-    assert [c.kind_before for c in conv] == ["OBJECT_MSL", "OBJECT_AGL"]
-    assert [k.index for k in kept] == [3]
-    assert "stock" in kept[0].reason
+    assert [c.index for c in conv] == [1, 2, 3]
+    assert [c.kind_before for c in conv] == ["OBJECT_MSL", "OBJECT_AGL", "OBJECT_MSL"]
+    assert kept == []
 
 
 def test_live_install_is_refused(tmp_path):
@@ -267,10 +267,11 @@ def test_dsf_placement_diff_tool_reports_the_same_edit(tmp_path, capsys):
                    "--icao", "TEST", "--json"])
     assert rc == 0
     rep = json.loads(capsys.readouterr().out)
-    assert rep["counts"]["conversions"] == 2
-    assert rep["kept_by_reason"] == {"stock library resource (09z (2))": 1}
+    assert rep["counts"]["conversions"] == 3          # 11d: stock converts too
+    assert rep["kept_by_reason"] == {}
     assert rep["per_resource"] == {"objects/tower.obj": 1,
-                                   "objects/hangar.obj": 1}
+                                   "objects/hangar.obj": 1,
+                                   "lib/cars/car_static_invar.obj": 1}
     assert rep["lines_before"] == rep["lines_after"]
     news = {c["index"]: c["new"] for c in rep["changes"]}
     assert news[1] == "OBJECT 0 -94.719717041 39.294637407 352.787366"

@@ -155,33 +155,24 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
                          ) -> tuple[list, list]:
     """``(conversions, kept)`` for a ``airport/dsf.DsfDump`` (§5).
 
-    EVERY ``OBJECT_MSL`` / ``OBJECT_AGL`` placement of a PACK resource
-    converts to on-ground.  A stock/library resource is KEPT exactly as
-    authored (09z (2): X-Plane places the catalogue's objects, and a
-    shared asset never carries one airport's decision), and so is a
-    resource that resolves outside the pack.  A placement that is
-    already ``OBJECT`` is not listed at all — there is nothing to do.
+    EVERY ``OBJECT_MSL`` / ``OBJECT_AGL`` placement converts to on-ground
+    — pack-authored AND stock library resources alike (owner RULINGS
+    2026-09-11d: "it's only changing the placement, not modifying the
+    object, and this will then allow them to sit on the new terrain
+    better"; 09z (2) forbids REWRITING a library object, never placing
+    it).  Nothing is kept here: the ``Kept`` reasons belong to the SPLIT
+    (§4 — a stock object is never split or re-anchored).  A placement
+    that is already ``OBJECT`` is not listed at all — there is nothing to
+    do.
 
     An ``OBJECT_MSL`` that is a genuine flying object is not
     distinguishable from the DSF; the law is on-ground for everything
-    the pack authored, and the owner's sim read is the acceptance."""
-    from ..model.placement import Conversion, Kept
-    from . import obj8 as _obj8
+    placed, and the owner's sim read is the acceptance."""
+    from ..model.placement import Conversion
     conversions: list = []
     kept: list = []
     for i, p in enumerate(dump_obj.placements):
         if p.kind not in CONVERTIBLE_KINDS:
-            continue
-        if _obj8.is_stock_library_resource(p.def_path):
-            kept.append(Kept(i, p.def_path, "stock library resource (09z (2))"))
-            continue
-        resolved = _obj8.resolve_resource(p.def_path, pack_root, library_index)
-        if pack_root and resolved and not os.path.abspath(resolved).startswith(
-                os.path.abspath(pack_root) + os.sep):
-            kept.append(Kept(i, p.def_path, "resolves outside the pack"))
-            continue
-        if pack_root and resolved is None:
-            kept.append(Kept(i, p.def_path, "resource not found in the pack"))
             continue
         conversions.append(Conversion(i, p.def_path, p.lon, p.lat,
                                       p.heading_deg, p.kind,
@@ -392,6 +383,13 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
             continue
         toks = s.split()
         kw = toks[0]
+        if kw == "HEIGHTS":
+            # the encoder's DERIVED height pool (quantum, base, comment):
+            # its base follows the elevations that remain, so converting
+            # every MSL row moves it (measured: "-9.0" -> "0.0" on KMCI
+            # under RULINGS 2026-09-11d).  The quantum is the invariant.
+            struct.append(toks[:2])
+            continue
         if kw in PLACEMENT_KINDS:
             try:
                 key = (kw, int(toks[1]))

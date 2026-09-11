@@ -10,7 +10,7 @@ own two products and NOTHING ELSE: the re-seat plan
 
     venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
         [--write-into DIR] [--json OUT.json] [--top N] [--filter SUBSTR]
-        [--no-cut] [--split-tol M]
+        [--rows SUBSTR,SUBSTR] [--no-cut] [--split-tol M]
     venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
         --write-pack PACK_COPY [--patch-dir DIR] [--dsftool BIN]
 
@@ -87,7 +87,8 @@ def surface_from_graded(path: str):
     return sampler, pads, rims
 
 
-def census(ss: PP.SplitSet, sampler, band_m: float) -> dict:
+def census(ss: PP.SplitSet, sampler, band_m: float,
+           rows_of: tuple[str, ...] = ()) -> dict:
     """§7: the float per ground-contact foot under the placement law.
 
     A foot counts when it is a ground-contact foot OF THE BODY: within
@@ -103,27 +104,53 @@ def census(ss: PP.SplitSet, sampler, band_m: float) -> dict:
     the single body of one that stays whole alike, because the law is the
     same for both: the placement is AGL, its origin lands on the surface
     at its anchor, and the foot floats by whatever the surface does
-    between the two points."""
+    between the two points.
+
+    ``rows_of`` names placements (resource substrings — the owner's three
+    LEMD rows, ``OldTerminal_FSX-LEMD38`` and friends) whose PER-BODY
+    rows come back under ``"rows"``: the body's anchor, the feet counted,
+    the worst foot signed and |Δ|, and the 0.3 m verdict.  They are read
+    off THIS SAME pass — a second instrument over the same population is
+    the census-wrapper defect (CLAUDE.md)."""
     bins: collections.Counter = collections.Counter()
     worst: list[tuple[float, str, float, float]] = []
     per_placement: collections.Counter = collections.Counter()
     by_class: dict[str, collections.Counter] = collections.defaultdict(
         collections.Counter)
+    rows: list[dict] = []
     for s in ss.all:
+        named = any(n in s.resource for n in rows_of)
         for b in s.bodies:
             za = b.anchor.surface_z
             if not b.feet:
+                if named:
+                    rows.append({"resource": s.resource, "body": b.body_id,
+                                 "body_class": b.body_class,
+                                 "anchor": (b.anchor.lat, b.anchor.lon),
+                                 "anchor_z": za, "y_zero": b.anchor.y_zero,
+                                 "reason": b.anchor.reason, "feet": 0,
+                                 "off_surface": 0, "worst": None,
+                                 "worst_abs": None, "within_0_3": None})
                 continue
+            row = {"resource": s.resource, "body": b.body_id,
+                   "body_class": b.body_class,
+                   "anchor": (b.anchor.lat, b.anchor.lon),
+                   "anchor_z": za, "y_zero": b.anchor.y_zero,
+                   "reason": b.anchor.reason, "feet": 0, "off_surface": 0,
+                   "worst": None, "worst_abs": None, "within_0_3": None}
             floor = min(f[2] for f in b.feet)
             for lat, lon, y in [f for f in b.feet if f[2] - floor <= band_m]:
+                row["feet"] += 1
                 if za is None:
                     bins["off-surface"] += 1
                     by_class[b.body_class]["off-surface"] += 1
+                    row["off_surface"] += 1
                     continue
                 zf = sampler(lat, lon)
                 if zf is None:
                     bins["off-surface"] += 1
                     by_class[b.body_class]["off-surface"] += 1
+                    row["off_surface"] += 1
                     continue
                 signed = zf - (za + y - b.anchor.y_zero)
                 d = abs(signed)
@@ -142,8 +169,16 @@ def census(ss: PP.SplitSet, sampler, band_m: float) -> dict:
                 if d >= 0.3:
                     per_placement[s.resource] += 1
                 worst.append((d, f"{s.resource} b{b.body_id} [{b.body_class}]", lat, lon))
+                if row["worst_abs"] is None or d > row["worst_abs"]:
+                    row["worst_abs"] = d
+                    row["worst"] = signed
+            if named:
+                if row["worst_abs"] is not None:
+                    row["within_0_3"] = row["worst_abs"] < 0.3
+                rows.append(row)
     worst.sort(reverse=True)
-    return {"bins": dict(bins), "worst": worst[:20],
+    rows.sort(key=lambda r: (r["resource"], r["body"]))
+    return {"bins": dict(bins), "worst": worst[:20], "rows": rows,
             "feet": sum(v for k, v in bins.items()
                         if k not in ("buried", "floating")),
             "placements_over_0_3": len(per_placement),
@@ -224,6 +259,11 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--filter", default="", help="only placements whose resource "
                                                  "contains this")
+    ap.add_argument("--rows", default="", help="comma-separated resource "
+                    "substrings whose PER-BODY census rows are printed by "
+                    "name (anchor, feet, worst foot, the 0.3 m verdict) — "
+                    "the owner's named sites, e.g. "
+                    "'OldTerminal_FSX-LEMD38,OldTerminal_FSX-LEMD84'")
     ap.add_argument("--split-tol", type=float, default=None,
                     help="override [placement] split_tol_m (the body-coarsening "
                          "and anchor-admission tolerance, 11e)")
@@ -331,7 +371,22 @@ def main() -> int:
     if a.write_pack:
         _write_pack(a, plan, ss, sampler)
 
-    cen = census(ss, sampler, band_m)
+    rows_of = tuple(n.strip() for n in a.rows.split(",") if n.strip())
+    cen = census(ss, sampler, band_m, rows_of=rows_of)
+    if rows_of:
+        print(f"\nNAMED ROWS ({', '.join(rows_of)}): "
+              f"{len(cen['rows'])} bodies")
+        for r in cen["rows"]:
+            az = "off-surface" if r["anchor_z"] is None else f"{r['anchor_z']:.2f}"
+            w = ("no foot" if r["worst_abs"] is None
+                 else f"{r['worst']:+.2f} (|{r['worst_abs']:.2f}|)")
+            v = ("-" if r["within_0_3"] is None
+                 else "WITHIN 0.3" if r["within_0_3"] else "OVER 0.3")
+            print(f"  {os.path.basename(r['resource'])[:40]:<40} b{r['body']} "
+                  f"[{r['body_class']}] anchor {r['anchor'][0]:.7f},"
+                  f"{r['anchor'][1]:.7f} z {az} y0 {r['y_zero']:+.2f} "
+                  f"({r['reason']})  feet {r['feet']} "
+                  f"(off-surface {r['off_surface']})  worst {w}  {v}")
     print(f"\nCENSUS (§7) over {cen['feet']} ground-contact feet of "
           f"{sum(len(s.bodies) for s in ss.all)} bodies:")
     print("  " + "  ".join(f"{k} {v}" for k, v in sorted(cen["bins"].items())))
@@ -347,7 +402,8 @@ def main() -> int:
         out["wrote"] = wrote
         out["parsed"] = parsed
         out["census"] = {"bins": cen["bins"], "feet": cen["feet"],
-                         "placements_over_0_3": cen["placements_over_0_3"]}
+                         "placements_over_0_3": cen["placements_over_0_3"],
+                         "rows": cen["rows"]}
         json.dump(out, open(a.json, "w", encoding="utf-8"))
         print(f"report -> {a.json}")
     return 0

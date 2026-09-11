@@ -1097,3 +1097,63 @@ def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(tmp_path
         PW._dw.edit_dump(text, plan)                    # no ValueError
     finally:
         PW._dw.subprocess.run = real_run
+
+
+# ── §7's NAMED ROWS (lane v2canopy4): one instrument, read by name ───
+# The owner names three LEMD rows (OldTerminal_FSX-LEMD38 / -LEMD84 /
+# -LEMD60).  Reporting them needed a per-body read; a SECOND pass over
+# the same population is the census-wrapper defect, so ``--rows`` is a
+# projection of the SAME census pass and the twin holds it to that.
+
+
+def _split_set_for_rows(tmp_path):
+    """A SplitSet over the pad/basin fixture plus its graded sampler."""
+    import json as _json
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import obj8_split_report as RPT
+
+    g = tmp_path / "TEST.graded.json"
+    g.write_text(_json.dumps(_graded_doc()))
+    sampler, pads, rims = RPT.surface_from_graded(str(g))
+    _pack, _dsf, plan = _plan_with_a_building_and_a_basin(tmp_path)
+    ss = PP.build_splits(plan, sampler, pads, rims, write=False)
+    return RPT, ss, sampler
+
+
+def test_named_rows_are_a_projection_of_the_one_census_pass(tmp_path):
+    """``rows_of`` changes WHAT IS REPORTED, never what is measured: the
+    bins, feet and worst list are identical with and without it, and each
+    named row's worst |Δ| is the worst the same pass recorded for that
+    body."""
+    RPT, ss, sampler = _split_set_for_rows(tmp_path)
+
+    plain = RPT.census(ss, sampler, 1.0)
+    named = RPT.census(ss, sampler, 1.0, rows_of=("bld.obj",))
+    assert plain["bins"] == named["bins"]
+    assert plain["feet"] == named["feet"]
+    assert plain["worst"] == named["worst"]
+    assert plain["rows"] == []
+
+    assert named["rows"] and all("bld.obj" in r["resource"] for r in named["rows"])
+    for r in named["rows"]:
+        if r["worst_abs"] is None:
+            continue
+        mine = [d for d, who, _la, _lo in named["worst"]
+                if who.startswith(r["resource"] + f" b{r['body']} ")]
+        assert mine and math.isclose(r["worst_abs"], max(mine), abs_tol=1e-9)
+        assert r["within_0_3"] is (r["worst_abs"] < 0.3)
+
+
+def test_named_rows_carry_the_bodys_own_anchor_and_a_0_3_verdict(tmp_path):
+    """Each row reports the body's anchor (the point the drape lands on),
+    its reason, and the 0.3 m verdict the owner's bar is read against."""
+    RPT, ss, sampler = _split_set_for_rows(tmp_path)
+    rows = RPT.census(ss, sampler, 1.0, rows_of=("bld.obj", "pit.obj"))["rows"]
+    assert {os.path.basename(r["resource"]) for r in rows} == {"bld.obj",
+                                                               "pit.obj"}
+    for r in rows:
+        assert r["reason"]
+        assert r["anchor"][0] and r["anchor"][1]
+        assert r["within_0_3"] in (True, False, None)

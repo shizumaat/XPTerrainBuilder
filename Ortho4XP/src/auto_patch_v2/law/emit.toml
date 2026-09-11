@@ -425,6 +425,7 @@ one_way_rulings = [
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
   "structures.building_pad frontage_level junior",
+  "structures.structure_rim frontage_level",                # 09-10an: a structure RIM is flush with the pavement it sits in — the crest rises to the apron, it never pulls the apron down into the pit
 ]
 one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)

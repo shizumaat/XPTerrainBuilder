@@ -69,6 +69,7 @@ being one plane (``pad_flat`` rows 5 -> 38) and was REFUTED and deleted
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
@@ -84,7 +85,8 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
            "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
-           "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL"]
+           "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
+           "frontage_leaders", "_two_sided"]
 
 GEN = "pads"
 #: The LEVEL rows carry their own generator so ``DesignReport.families``
@@ -329,7 +331,6 @@ def pad_frontage_leaders(planar: PlanarMap, law: Law
     in the band falls back to its nearest ``_LEADER_K`` — a face smaller
     than the band is all edge, and its own level is the only one it has."""
     faces = _pavement_faces(planar, law)
-    xy = {v: vx.xy for v, vx in planar.vertices.items()}
     out: dict[int, dict[str, list[tuple[int, list[tuple[int, float]]]]]] = {}
     for fid, _ref, group in _pad_groups(planar, law):
         pad_vs = set(group)
@@ -343,27 +344,47 @@ def pad_frontage_leaders(planar: PlanarMap, law: Law
             own.update(vs - pad_vs)
         got: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
         for role, (contacts, own) in by_role.items():
-            own_l = sorted(own)
-            if not own_l:
-                continue
-            per: list[tuple[int, list[tuple[int, float]]]] = []
-            for c in sorted(contacts):
-                qx, qy = xy[c]
-                d = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v)
-                            for v in own_l))
-                band = [(dd, v) for dd, v in d
-                        if _LEADER_MIN_M <= dd <= _LEADER_MAX_M][:_LEADER_K]
-                if not band:
-                    band = d[:_LEADER_K]
-                inv = [1.0 / max(1e-3, dd) for dd, _v in band]
-                tot = sum(inv)
-                per.append((c, [(v, w / tot)
-                                for (_dd, v), w in zip(band, inv)]))
+            per = frontage_leaders(planar, contacts, own)
             if per:
                 got[role] = per
         if got:
             out[fid] = got
     return out
+
+
+def frontage_leaders(planar: PlanarMap, contacts: _t.Iterable[int],
+                     own: _t.Iterable[int]
+                     ) -> list[tuple[int, list[tuple[int, float]]]]:
+    """THE PAVEMENT'S OWN VALUE BESIDE EACH CONTACT — ``[(contact vertex,
+    [(leader vertex, weight), ...])]``, the leaders read from ``own`` in
+    the band ``_LEADER_MIN_M .. _LEADER_MAX_M`` of the contact and
+    inverse-distance weighted (the weights sum to 1, so a row stated over
+    them reads in METRES OF SURFACE).
+
+    ONE derivation site (owner ruling 7e90032, extend a near-fit): the pad
+    frontage level (10l/10y) and the STRUCTURE RIM's flush contact
+    (2026-09-10an, ``constraints.structures.rim_level``) ask the same
+    question — where does the pavement stand beside this vertex — and a
+    second implementation of the band would be the census-wrapper defect
+    in miniature.  ``own`` with no member in the band falls back to its
+    nearest ``_LEADER_K``: a face smaller than the band is all edge, and
+    its own level is the only one it has."""
+    own_l = sorted(own)
+    if not own_l:
+        return []
+    xy = {v: planar.vertices[v].xy for v in {*own_l, *contacts}}
+    per: list[tuple[int, list[tuple[int, float]]]] = []
+    for c in sorted(contacts):
+        qx, qy = xy[c]
+        d = sorted(((math.hypot(xy[v][0] - qx, xy[v][1] - qy), v) for v in own_l))
+        band = [(dd, v) for dd, v in d
+                if _LEADER_MIN_M <= dd <= _LEADER_MAX_M][:_LEADER_K]
+        if not band:
+            band = d[:_LEADER_K]
+        inv = [1.0 / max(1e-3, dd) for dd, _v in band]
+        tot = sum(inv)
+        per.append((c, [(v, w / tot) for (_dd, v), w in zip(band, inv)]))
+    return per
 
 
 def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport

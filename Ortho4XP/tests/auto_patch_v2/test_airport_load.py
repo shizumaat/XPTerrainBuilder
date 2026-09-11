@@ -365,3 +365,43 @@ def test_uv_mapped_pol_columns_are_texture_coordinates(tmp_path):
     assert len(bez.windings[0]) > 3                    # the bezier polygon still flattens
     blons = [pt[0] for pt in bez.windings[0]]
     assert max(blons) - min(blons) < 0.01
+
+
+def test_find_text_dump_never_crosses_the_live_and_pristine_names(tmp_path):
+    """RULINGS 2026-09-11m: ``+40-004.dsf`` and ``+40-004.dsf.anchor_bak``
+    BOTH start ``+40-004.dsf.`` in the cache, and the write makes the live
+    file's dump the NEWEST — so the old tile-wide freshness fallback could
+    serve the WRITTEN dump for a plan read of the PRISTINE file (LEMD:
+    3,934 placements against a 3,021-row frame).  The candidate set is the
+    dumps named for the file asked about."""
+    import time
+    pack = tmp_path / "xp" / "Custom Scenery" / "LEMD Pack"
+    dsf = pack / "Earth nav data" / "+40-010" / "+40-004.dsf"
+    dsf.parent.mkdir(parents=True)
+    bak = dsf.parent / "+40-004.dsf.anchor_bak"
+    root = tmp_path / "mod_cache"
+    d = root / "LEMD Pack"
+    d.mkdir(parents=True)
+
+    t0 = time.time() - 3600
+    bak.write_bytes(b"XPLNEDSF pristine")
+    os.utime(bak, (t0, t0))
+    pristine_dump = d / f"+40-004.dsf.anchor_bak.{S.text_dump_tag(str(bak))}.text"
+    pristine_dump.write_text("OBJECT_DEF objects/a.obj\n")
+    os.utime(pristine_dump, (t0 + 60, t0 + 60))
+
+    dsf.write_bytes(b"XPLNEDSF written with 913 body placements")
+    os.utime(dsf, (t0 + 600, t0 + 600))
+    written_dump = d / f"+40-004.dsf.{S.text_dump_tag(str(dsf))}.text"
+    written_dump.write_text("OBJECT_DEF objects/a__b0.obj\n")   # the NEWEST
+    os.utime(written_dump, (t0 + 700, t0 + 700))
+
+    # the pristine frame gets the pristine dump, never the newer one
+    assert S.find_text_dump(str(root), "LEMD Pack", 40, -4,
+                            dsf_path=str(bak)) == str(pristine_dump)
+    # and a live-file lookup never gets the backup's dump
+    assert S.find_text_dump(str(root), "LEMD Pack", 40, -4,
+                            dsf_path=str(dsf)) == str(written_dump)
+    written_dump.unlink()
+    assert S.find_text_dump(str(root), "LEMD Pack", 40, -4,
+                            dsf_path=str(dsf)) is None

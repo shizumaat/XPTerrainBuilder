@@ -111,13 +111,25 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
     legacy ``+25+051.dsf.text`` of 07-30 over the fresh
     ``+25+051.dsf.e9df4ffc.text`` (``'t' > 'e'``), so no v2 build saw
     them.  Without ``dsf_path`` (a fixture) the newest dump by mtime.
+
+    The candidate set is the dumps named for THIS FILE (RULINGS
+    2026-09-11m): with ``dsf_path`` the prefix is its own basename, so a
+    dump of the WRITTEN ``<tile>.dsf`` can never be served for the
+    PRISTINE ``<tile>.dsf.anchor_bak`` the plan is read from, nor the
+    other way round — both start ``<tile>.dsf.`` and the freshness
+    fallback below would otherwise pick whichever was made last.  The
+    tile-wide prefix stays for the no-``dsf_path`` fixture case.
     """
     d = mod_cache_dir(mod_cache_root, pack_name)
     if not os.path.isdir(d):
         return None
-    prefix = f"{lat:+03d}{lon:+04d}.dsf."
+    prefix = (os.path.basename(dsf_path) + "."
+              if dsf_path else f"{lat:+03d}{lon:+04d}.dsf.")
     hits = [os.path.join(d, n) for n in os.listdir(d)
             if n.startswith(prefix) and n.endswith(".text")]
+    if dsf_path and not dsf_path.endswith(".anchor_bak"):
+        # ... and the live file's prefix also matches the BACKUP's dumps
+        hits = [h for h in hits if ".anchor_bak." not in os.path.basename(h)]
     if not hits:
         return None
     if dsf_path and os.path.isfile(dsf_path):

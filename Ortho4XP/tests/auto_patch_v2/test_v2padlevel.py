@@ -324,7 +324,31 @@ def test_a_pad_between_two_pavements_half_a_percent_apart_stays_flat_and_tiers_n
     tilt rows over a coplanarity row set) buys 16 % of the frontage's own
     difference and COSTS 0.5 m at the LEMD T4S site, where it let the pad
     sink into the basin it also fronts (spec §20.4 arms G and I).  The two
-    bars conflict; the site-first reading is what ships."""
+    bars conflict; the site-first reading is what ships.
+
+    ROUND 3 (lane ``v2green2``).  This twin went RED at main 1af5ce78 —
+    the pad came out 699.506, 0.164 m BELOW the LOWER of its two
+    frontages (taxi 699.670, apron 700.306) — and the attribution is
+    INTERVENTIONAL, one mechanism neutralised at a time:
+
+    * 10av's ground datum ON / OFF:  0.164 m -> 0.031 m.  IT IS THE
+      TRIGGER.  With a weak DEM datum on every ``graded_strip`` vertex a
+      pavement face now TILTS ACROSS ITS WIDTH between its two ground
+      edges: this apron stood at 700.44 m where the pad fronts it and at
+      ~699.3 m on its far side 40 m away.
+    * 10bb's PROXIMITY frontage on / off:  NO EFFECT (0.164 m both ways).
+      Both frontages here are shared by identity; the proximity read is
+      not in this path.
+    * the DEFECT is the LEADER BAND: a radial 10..50 m read around a
+      contact in the middle of a 40 m apron contains ONLY the far edge,
+      so the row stated the pad's mean against 699.32 m — 1.1 m below the
+      edge the pad actually fronts — and dragged the pad under the senior
+      taxiway.  FIXED at the single derivation site
+      (``pads.frontage_leaders``, ``_LEADER_NEAR_M``): the leaders are
+      the pavement's own vertices in its NEAREST RING to the pad, still
+      no nearer than ``LEVEL_MIN_BAND_M`` to the contact (10y arm B's
+      protection is the MIN and is kept).  The pad is 699.635 against
+      the taxi's 699.647."""
     cells, dem = _two_pavement_cells(0.3)
     pm, z, _rep, _cs = _solve(law, cells, dem)
     lo, hi, tilt = _pad_plane(pm, z)
@@ -337,6 +361,34 @@ def test_a_pad_between_two_pavements_half_a_percent_apart_stays_flat_and_tiers_n
     assert min(float(np.mean(z[apron])), float(np.mean(z[taxi]))) - 0.05 <= pad
     assert pad <= max(float(np.mean(z[apron])), float(np.mean(z[taxi]))) + 0.05
     assert abs(float(np.mean(z[apron])) - float(np.mean(z[taxi]))) <= 0.6
+
+
+def test_the_leaders_stand_on_the_frontage_never_the_faces_far_edge(law):
+    """THE LEADER RULE (lane ``v2green2``): the pavement's value at a
+    contact is read from its NEAREST RING to the pad — the edge the pad
+    fronts — never from the far edge a radial band happens to reach.
+
+    Here the apron is 40 m wide (y 140..180) and the pad fronts its
+    y = 180 edge, so a 10..50 m radial read of a contact at the middle of
+    that edge sees ONLY the y = 140 far side.  Since 10av that far side
+    stands ~1.1 m below the edge, and reading it put the pad under BOTH
+    its frontages."""
+    cells, dem = _two_pavement_cells(0.3)
+    airport = _airport(law, dem)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    pad_fid = _face(pm, "padA").id
+    lead = pad_frontage_leaders(pm, law)[pad_fid]
+    ys = {v for _c, lw in lead["apron"] for v, _w in lw}
+    assert ys, "the apron frontage mints leaders"
+    # every apron leader is on the y = 180 edge the pad fronts, and the
+    # MIN band still holds it off the contact itself
+    assert all(pm.vertices[v].xy[1] > 170.0 for v in ys), \
+        sorted(pm.vertices[v].xy for v in ys)
+    for _c, lw in lead["apron"]:
+        cx, cy = pm.vertices[_c].xy
+        for v, _w in lw:
+            x, y = pm.vertices[v].xy
+            assert math.hypot(x - cx, y - cy) >= LEVEL_MIN_BAND_M - 1e-9
 
 
 def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):

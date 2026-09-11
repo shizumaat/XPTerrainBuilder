@@ -90,7 +90,8 @@ from .structure_approach import (PavementDeck, carriageway_width_m, chains, deck
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, unit)
-from .structure_geometry import beyond_strip, corner_distance, geometry
+from .structure_geometry import (beyond_strip, corner_distance, geometry,
+                                 pad_hit as _pad_hit)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -890,22 +891,6 @@ def _reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airpo
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:
     ids = {t.id for t, k in zip(tunnels, keep) if k}
     return cell[3] in ids
-
-
-def _pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | None,
-             gap: float, exclude: _t.Collection[str] = ()) -> str | None:
-    """The ref of a building pad (or, for a door ramp, any governed cell
-    not among its host ``exclude`` refs) the footprint touches (closer
-    than the gap), or ``None``."""
-    if tree is None:
-        return None
-    for j in tree.query(outer.buffer(gap), predicate="intersects"):
-        p, ref = pads[int(j)]
-        if ref in exclude:
-            continue
-        if p.distance(outer) < gap - 1e-9:
-            return ref
-    return None
 
 
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,

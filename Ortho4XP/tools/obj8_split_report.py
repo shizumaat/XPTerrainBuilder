@@ -62,7 +62,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 
 import numpy as np                                             # noqa: E402
 
-from auto_patch_v2.airport import anchor_rule as AR            # noqa: E402
 from auto_patch_v2.airport import obj8                         # noqa: E402
 from auto_patch_v2.airport import placement_plan as PP         # noqa: E402
 
@@ -73,7 +72,6 @@ def surface_from_graded(path: str):
     vs = d["vertices"]
     pts = np.asarray([[v[1], v[2]] for v in vs], dtype=float)
     zs = np.asarray([v[3] for v in vs], dtype=float)
-    by_id = {v[0]: (v[1], v[2]) for v in vs}
     from scipy.interpolate import LinearNDInterpolator
     interp = LinearNDInterpolator(pts, zs)
 
@@ -82,11 +80,10 @@ def surface_from_graded(path: str):
         z = float(np.asarray(z).reshape(-1)[0])
         return None if not np.isfinite(z) else z
 
-    pads = tuple(AR.PadRing(f["ref"], tuple(by_id[i] for i in f["ring"] if i in by_id))
-                 for f in d["faces"] if f["role"] == "building" and len(f["ring"]) >= 3)
-    rims = tuple(AR.RimRing(b["ref"], tuple(by_id[i] for i in b["vertices"] if i in by_id))
-                 for b in d["breaklines"] if b["kind"] == "structure_rim"
-                 and len(b["vertices"]) >= 3)
+    # ONE derivation site for pads/rims (lane v2planfix): the shipped
+    # engine path calls the same function, so the tool and the build
+    # cannot classify differently.
+    pads, rims = PP.pads_rims_from_graded_doc(d)
     return sampler, pads, rims
 
 

@@ -344,6 +344,13 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         # the post-mesh re-seat plan (04f-1) beside the patch, read by
         # ``rebake_after_mesh`` at the end of build_mesh
         rebake_plan_path = _place_rebake_plan(task, res.rebake_plan, icao)
+        # and the WHOLE-AIRPORT design surface beside it: §6's class rule
+        # reads the emitted object pads and structure rims, and the object
+        # stage runs post-mesh, long after ``res`` is gone (lane
+        # v2planfix).  ``res.paths`` is the whole surface even when tile
+        # pieces were also written — the same file
+        # ``tools/obj8_split_report.py`` is pointed at.
+        _place_graded_surface(task, res.paths, icao)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "write", "engine": ENGINE_V2,
                 "error": f"[v2] {exc}", "auto_patch_file": task["auto_patch_file"],
@@ -424,6 +431,34 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     dest = os.path.join(os.path.dirname(task["auto_patch_file"]),
                         PLAN_FILENAME.format(icao=icao))
     shutil.copyfile(str(src_plan), dest + ".tmp")
+    os.replace(dest + ".tmp", dest)
+    return dest
+
+
+#: ``<ICAO>.graded.json`` beside the patch — the emitted DESIGN SURFACE the
+#: post-mesh object stage reads its §6 classes off (``placement_plan.
+#: pads_rims_from_graded``).  The pipeline writes it into the engine's
+#: ``tmp/`` scratch; the object stage runs at the end of ``build_mesh``,
+#: with no handle on that build's ``res`` — so it is PLACED here exactly
+#: as the re-seat plan is.  ``include_patches`` reads ``*.patch.osm`` only,
+#: so a JSON beside the patch is inert to every other consumer.
+GRADED_SURFACE_FILENAME = "{icao}.graded.json"
+
+
+def graded_surface_path(patch_dir: str, icao: str) -> str:
+    """Where :func:`_place_graded_surface` puts it / the object stage
+    looks for it."""
+    return os.path.join(patch_dir, GRADED_SURFACE_FILENAME.format(icao=icao))
+
+
+def _place_graded_surface(task: dict, paths, icao: str) -> str | None:
+    """Copy the pipeline's whole-airport graded surface beside the patch."""
+    import shutil
+    src = getattr(paths, "graded", None) if paths is not None else None
+    if src is None or not os.path.isfile(str(src)):
+        return None
+    dest = graded_surface_path(os.path.dirname(task["auto_patch_file"]), icao)
+    shutil.copyfile(str(src), dest + ".tmp")
     os.replace(dest + ".tmp", dest)
     return dest
 
@@ -650,9 +685,30 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         s = mesh_sample(lat, lon)
         return None if s is None else float(s[0])
 
+    # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
+    # the pads and rims ``classify_body`` can never answer ``building`` or
+    # ``basin``, and the shipped path passed NEITHER — every shipped body
+    # fell through to ``other`` while ``tools/obj8_split_report.py``,
+    # deriving them from the same file, classified both.  ONE derivation,
+    # ``placement_plan.pads_rims_from_graded``, two callers.
+    from auto_patch_v2.airport import placement_plan as _pp
+    pads, rims = (), ()
+    graded = graded_surface_path(patch_dir, plan_.icao)
+    if os.path.isfile(graded):
+        try:
+            pads, rims = _pp.pads_rims_from_graded(graded)
+            UI.vprint(1, f"  [v2 placement] {plan_.icao}: design surface "
+                         f"{len(pads)} object pad(s), {len(rims)} structure rim(s)")
+        except Exception as exc:                   # a malformed surface
+            UI.vprint(1, f"  [v2 placement] {plan_.icao}: {os.path.basename(graded)} "
+                         f"unreadable ({exc}) — pads/rims unavailable")
+    else:
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: no {os.path.basename(graded)} "
+                     "beside the patch — no body can classify as building or basin")
+
     from auto_patch_v2.law.tables import law_tables_digest
     digest = str(law_tables_digest().get("sha256") or "")
-    plan, files, _ss = _pw.build_plan(
+    plan, files, ss = _pw.build_plan(
         plan_, dump, _surface, icao=plan_.icao, pack_name=pack_name,
         pack_root=plan_.pack_root, dsf_path=dsf_path,
         split_tol_m=law.tables.structures.placement.split_tol_m,
@@ -662,9 +718,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         line_ratio=law.tables.structures.rebake.line_object_ratio,
         line_max_h=law.tables.structures.rebake.line_object_max_h,
         foot_band_m=law.tables.structures.basin.contact_band_m,
+        pads=pads, rims=rims,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())
+    # §6's CLASSES ride out with the counts (lane v2planfix): they are the
+    # only reading that says whether the pads and rims above were seen at
+    # all — with none, every body reads ``class_other``.
+    c.update({k: int(v) for k, v in ss.counts.items() if k.startswith("class_")})
     if not write_enabled or measure_only:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: MEASURE ONLY — "
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
@@ -685,6 +746,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                  f"{'refreshed' if res.dump_refreshed else 'not refreshed'} -> "
                  f"{os.path.basename(res.plan_path)}")
     out = dict(res.counts)
+    out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out["packs_written"] = 1
     return out
 

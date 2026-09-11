@@ -53,6 +53,16 @@ RUNWAY_FAMILY = ("runway", "runway_crossing")
 
 
 def _nearest_ridge(px: float, py: float, spines):
+    """The vertex's PERPENDICULAR foot on its ridge chain and the lateral
+    distance to it — INTERIOR feet only.  A vertex beyond a chain's end
+    has no lateral distance: clamping it to the end point measures its
+    ALONG-AXIS offset and reads the runway's longitudinal fall as a
+    transverse one (SPLP, app 1.0.307–1.0.310: 29 "transverse" DEFECT rows
+    at d = 229–340 m on a 45 m runway, every one −1.5156 % — the end
+    zone's longitudinal grade — the first build whose runway followed the
+    ground's trend instead of a straight chord; RULINGS 2026-09-10au).
+    Such a vertex is the longitudinal / end-zone readers' business and
+    is skipped here (``None``)."""
     best_d, best_z, best_pt = float("inf"), None, None
     for pts in spines:
         for i in range(len(pts) - 1):
@@ -60,7 +70,11 @@ def _nearest_ridge(px: float, py: float, spines):
             bx, by, bz = pts[i + 1]
             vx, vy = bx - ax, by - ay
             l2 = vx * vx + vy * vy
-            t = 0.0 if l2 < 1e-12 else max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+            if l2 < 1e-12:
+                continue
+            t = ((px - ax) * vx + (py - ay) * vy) / l2
+            if t < 0.0 or t > 1.0:
+                continue                      # no perpendicular foot on this segment
             qx, qy = ax + t * vx, ay + t * vy
             d = math.hypot(px - qx, py - qy)
             if d < best_d:

@@ -413,4 +413,15 @@ flat_site_ground_datum   = true    # the datum extends under every object footpr
 # the generic anchor rule's admission: a body with no ground-contact vertex
 # whose design surface reads within split_tol_m of the body's own zero
 # plane anchors at its LOW-SIDE foot and is reported with its residual.
+# THE SEGMENT CUT (owner RULINGS 2026-09-11f (2)): a LINE OBJECT authored as
+# ONE component — Aerosoft LEMD's Munoza-LEMDzaun is the whole 2 km perimeter
+# fence in one — has exactly one body, so the body split cannot touch it and
+# its far end floats by whatever the terrain does over the run (14.68 m, the
+# airport's worst row).  Its triangles are assigned by centroid to stations
+# this far apart along the line and each station becomes its own body, file
+# and placement, anchored at its MID-FOOT.  It is body_feet_span_m's own span
+# — 10bb's drape stations, restated for the placement stage, which is why the
+# two readings of a fence agree — and the cap on the stations is
+# [rebake] line_object_stations_max.  0 disarms the segment cut.
+line_segment_m      = 100.0        # = [rebake] body_feet_span_m (10i (2) / 10bb): one station per 100 m of fence; LEMD's perimeter reads 52 stations under the 64 cap
 split_tol_m         = 0.3          # round 1 measured LEMD 302 placements -> 13,924 cut files and OTHH 954 -> 65,360: the SEAT's bodies are far finer than a PLACEMENT needs (11e).  0.3 m is the materiality the sim read is judged at; 0 would restore round 1's one-file-per-body reading

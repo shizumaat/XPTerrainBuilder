@@ -94,3 +94,8 @@ class Placement:
     #: with no ground-contact vertex whose surface reads within this of
     #: its own zero plane anchors at its low-side foot and is REPORTED.
     split_tol_m: float
+
+    #: THE SEGMENT CUT (11f (2)): a line object's triangles are assigned
+    #: by centroid to stations this far apart and each station becomes
+    #: its own body / file / placement at its mid-foot.  0 disarms it.
+    line_segment_m: float = 100.0

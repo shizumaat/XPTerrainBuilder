@@ -237,6 +237,9 @@ def main() -> int:
                                                     "lands (default: --write-pack)")
     ap.add_argument("--dsftool", default=None, help="DSFTool binary (default: the "
                                                     "bundled one v1 resolves)")
+    ap.add_argument("--line-segment", type=float, default=None,
+                    help="override [placement] line_segment_m (the line-object "
+                         "segment station span, 11f (2); 0 disarms the cut)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -254,9 +257,19 @@ def main() -> int:
           f"  abutments {len(abut)}\n"
           f"  surface: {len(pads)} object pads, {len(rims)} structure rims")
     print(f"  coarsening: [placement] split_tol_m {tol_m:g} m")
+    rb = _law.tables.structures.rebake
+    seg_m = (_law.tables.structures.placement.line_segment_m
+             if a.line_segment is None else a.line_segment)
+    print(f"  line segments: [placement] line_segment_m {seg_m:g} m "
+          f"(cap {rb.line_object_stations_max} stations)")
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
                          split_tol_m=tol_m,
-                         elevated_base_m=_law.tables.structures.rebake.elevated_base_m)
+                         elevated_base_m=rb.elevated_base_m,
+                         line_segment_m=seg_m,
+                         line_stations_max=rb.line_object_stations_max,
+                         line_ratio=rb.line_object_ratio,
+                         line_max_h=rb.line_object_max_h,
+                         foot_band_m=band_m)
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -266,6 +279,9 @@ def main() -> int:
           f"{c.get('anchor_off_surface', 0)} off-surface; "
           f"{c.get('bodies_elevated', 0)} elevated bodies joined a ground group; "
           f"files per placement {c['files'] / max(1, c['placements']):.2f}")
+    if c.get("line_segments"):
+        print(f"  line segments: {c['line_segments']} from "
+              f"{c.get('line_bodies_segmented', 0)} one-line bodies (11f (2))")
     print("  kept-whole reasons: " + ", ".join(
         f"{k} {v}" for k, v in sorted(collections.Counter(
             k.reason for k in ss.kept).items(), key=lambda kv: -kv[1])))

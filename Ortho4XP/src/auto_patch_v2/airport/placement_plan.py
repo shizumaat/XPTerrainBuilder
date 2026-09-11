@@ -53,8 +53,9 @@ import math
 import os as _os
 import typing as _t
 
-from ..model.rebake import Member, RebakePlan, Unit
+from ..model.rebake import Member, Part, RebakePlan, Unit
 from . import anchor_rule as _ar
+from . import line_object as _lo
 from . import obj8_split as _split
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
@@ -100,6 +101,12 @@ class Body:
     #: — §7's census reads the design surface under each of these against
     #: the surface at the anchor
     feet: tuple[tuple[float, float, float], ...] = ()
+    #: the components the CUT takes whole (``components`` also names the
+    #: parent component of a SEGMENT, which the cut takes by triangle)
+    cut_components: tuple[int, ...] = ()
+    #: a SEGMENT's own authored triangles (11f (2)); empty for a body that
+    #: is a set of whole components
+    tris: tuple[tuple[int, int, int], ...] = _dc.field(default=(), repr=False)
 
     def to_dict(self) -> dict[str, _t.Any]:
         a = self.anchor
@@ -110,6 +117,7 @@ class Body:
                 "authored_offset": {"dx": a.offset[0], "dy": a.offset[1],
                                     "dz": a.offset[2]},
                 "surface_z": a.surface_z, "y_zero": a.y_zero,
+                "segment_tris": len(self.tris),
                 "merged_into": self.merged_into or None}
 
 
@@ -302,16 +310,178 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
     return [sorted(g) for g in sorted(groups, key=min)]
 
 
+# ── THE LINE SEGMENT (owner RULINGS 2026-09-11f (2); spec §10) ───────────
+
+def authored_latlon(x: float, z: float, placement_lat: float,
+                    placement_lon: float, heading_deg: float
+                    ) -> tuple[float, float]:
+    """The inverse of :func:`authored_offset`'s plan half: the authored
+    point ``(x, z)`` of a placement as ``(lat, lon)``.
+
+    The map ``(e, n) -> (x, z)`` of ``authored_offset`` is a REFLECTION
+    (its determinant is −1), so it is its own inverse — the same two
+    lines, read the other way."""
+    h = math.radians(heading_deg)
+    s, c = math.sin(h), math.cos(h)
+    e = x * c - z * s
+    n = -x * s - z * c
+    ml, mo = _ar._m_per_deg(placement_lat)
+    return (placement_lat + n / ml, placement_lon + e / mo)
+
+
+class _LineCutter:
+    """The SEGMENT CUT of one member (11f (2)).
+
+    A LINE OBJECT authored as one component — LEMD's ``Munoza-LEMDzaun``
+    is the whole 2 km perimeter fence in ONE component — has exactly one
+    body, so the body split cannot touch it and the placement is kept
+    whole on a single anchor: the far end of the fence floats by whatever
+    the terrain does over the run (14.68 m, the airport's worst row,
+    11f).  10bb's drape answered this with a per-station VERTEX REWRITE,
+    which dies with the seat.  The placement law's own answer is to cut
+    the fence into SEGMENTS — triangles assigned by centroid to stations
+    of ``[placement] line_segment_m`` — and give each segment its own
+    file, its own placement and its own MID-FOOT anchor (§6's line row).
+
+    The verdict is 10bb's, unchanged and per RESOURCE: every genuine
+    component of the file line-shaped (per component the reader swallows
+    building walls — 4,207 of LEMD's 9,423 ground parts).  The plan's
+    PARTS are that genuine set, so the test runs over them and needs no
+    thickness constant of its own.  Nothing is parsed until a member
+    actually spans more than one segment."""
+
+    def __init__(self, m: Member, segment_m: float, stations_max: int,
+                 foot_band_m: float, ratio: float, max_h: float,
+                 lat: float, lon: float) -> None:
+        self.m = m
+        self.segment_m = segment_m
+        self.stations_max = stations_max
+        self.foot_band_m = foot_band_m
+        self.law = _lo.LineLaw(ratio, max_h)
+        self.lat = lat
+        self.lon = lon
+        self._geom: _t.Any = False        # False = not parsed yet
+        self._comps: list = []
+        self._is_line: bool | None = None
+
+    @property
+    def armed(self) -> bool:
+        return (self.segment_m > 0.0 and self.stations_max > 0
+                and self.law.line_object_ratio > 0.0)
+
+    def _read(self) -> bool:
+        if self._geom is False:
+            from . import obj8 as _obj8
+            try:
+                self._geom = _obj8.parse_obj8(pristine_path(self.m))
+            except (OSError, ValueError):
+                self._geom = None
+            self._comps = (_obj8.solid_components(self._geom)
+                           if self._geom is not None else [])
+        return self._geom is not None and bool(self._comps)
+
+    def is_line_object(self) -> bool:
+        """10bb's RESOURCE verdict over the plan's own genuine set."""
+        if self._is_line is None:
+            self._is_line = False
+            if self._read() and self.m.parts:
+                self._is_line = all(
+                    0 <= p.comp < len(self._comps)
+                    and _lo.is_line_shaped(self._geom, self._comps[p.comp], self.law)
+                    for p in self.m.parts)
+        return self._is_line
+
+    def segments(self, parts: _t.Sequence[Part]
+                 ) -> list[tuple[tuple[tuple[int, int, int], ...],
+                                 tuple[tuple[float, float, float], ...]]]:
+        """One body's ``(triangles, feet)`` per segment, or ``[]`` when
+        the body is not a line object or is shorter than one segment."""
+        if not self.armed or not parts:
+            return []
+        span = _plan_span_m(parts)
+        if span <= self.segment_m or not self.is_line_object():
+            return []
+        import numpy as np
+        tris = [self._comps[p.comp].tris for p in parts
+                if 0 <= p.comp < len(self._comps)]
+        if not tris:
+            return []
+        segs = _lo.segment_by_station(self._geom, np.concatenate(tris),
+                                      self.segment_m, self.stations_max)
+        if len(segs) < 2:
+            return []
+        v = self._geom.vertices
+        out = []
+        for sg in segs:
+            ids = np.unique(np.asarray(sg.tris).reshape(-1))
+            ys = v[ids, 1]
+            # the segment's GROUND CONTACTS, the plan's own band, thinned
+            # by the same farthest-point walk so one segment's feet never
+            # outweigh a building's in the coarsening's seniority
+            foot = ids[ys <= float(ys.min()) + self.foot_band_m]
+            if foot.shape[0] == 0:
+                foot = ids[:1]
+            if foot.shape[0] > self.stations_max:
+                pick = _lo.farthest_point_stations(
+                    v[foot][:, [0, 2]], self.stations_max)
+                foot = foot[pick]
+            feet = tuple(authored_latlon(float(v[i, 0]), float(v[i, 2]),
+                                         self.lat, self.lon, self.m.heading_deg)
+                         + (float(v[i, 1]),) for i in foot.tolist())
+            out.append((tuple(tuple(int(q) for q in row)
+                              for row in np.asarray(sg.tris).tolist()), feet))
+        return out
+
+
+def _plan_span_m(parts: _t.Sequence[Part]) -> float:
+    """The plan diagonal of the parts' own boxes, in metres."""
+    lo_la = min(p.box[0] for p in parts)
+    lo_lo = min(p.box[1] for p in parts)
+    hi_la = max(p.box[2] for p in parts)
+    hi_lo = max(p.box[3] for p in parts)
+    ml, mo = _ar._m_per_deg(0.5 * (lo_la + hi_la))
+    return math.hypot((hi_la - lo_la) * ml, (hi_lo - lo_lo) * mo)
+
+
+def segment_anchor(feet: _t.Sequence[tuple[float, float, float]],
+                   surface: _ar.Surface, index: int, total: int) -> _ar.Anchor:
+    """A SEGMENT's anchor: its MID-FOOT (§6's line row) — the segment's
+    own ground contact nearest the plan centre of its feet, so the drape
+    reads the terrain in the MIDDLE of the segment and the two ends float
+    by half a segment's relief each instead of a whole run's."""
+    ml, mo = _ar._m_per_deg(feet[0][0])
+    clat = sum(f[0] for f in feet) / len(feet)
+    clon = sum(f[1] for f in feet) / len(feet)
+    best = min(feet, key=lambda f: (round(((f[0] - clat) * ml) ** 2
+                                          + ((f[1] - clon) * mo) ** 2, 6),
+                                    f[0], f[1]))
+    return _ar.Anchor(_ar.LINE_SEGMENT, best[0], best[1], best[2],
+                      f"line segment {index + 1}/{total}: mid-foot",
+                      surface(best[0], best[1]))
+
+
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  pads: _t.Sequence[_ar.PadRing] = (),
                  rims: _t.Sequence[_ar.RimRing] = (),
                  *, write: bool = True, split_tol_m: float = 0.0,
-                 elevated_base_m: float = 0.0) -> SplitSet:
+                 elevated_base_m: float = 0.0, line_segment_m: float = 0.0,
+                 line_stations_max: int = 0, line_ratio: float = 0.0,
+                 line_max_h: float = 0.0, foot_band_m: float = 0.0) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
     ``write`` False skips the OBJ8 cut itself and reports bodies only —
-    the cheap pass when the question is the body COUNTS."""
+    the cheap pass when the question is the body COUNTS.
+
+    A LINE OBJECT whose body spans more than ``line_segment_m``
+    (``[placement] line_segment_m``) is first cut into SEGMENTS by
+    triangle station (11f (2), :class:`_LineCutter`) — the segments are
+    bodies like any other and go on to coarsen and be cut with them, so a
+    fence over flat ground still lands in one file.  ``line_ratio`` /
+    ``line_max_h`` are 10bb's own ``[rebake]`` shape keys and
+    ``foot_band_m`` the plan's ``[basin] contact_band_m``; with any of
+    them zero the segment cut is not armed and the pre-11f reading
+    stands."""
     intra: dict[int, list[tuple[int, int]]] = {}
     member_of_pid: dict[int, tuple[int, int]] = {}
     for ui, u in enumerate(plan.units):
@@ -335,9 +505,23 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             counts["placements"] += 1
             groups = _bodies_of(m, intra.get(id_of((ui, mi)), []))
             pid_of = {p.pid: p for p in m.parts}
-            raw: list[tuple[list, str, _ar.Anchor, tuple]] = []
+            cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
+                                 line_ratio, line_max_h, u.anchor[0], u.anchor[1])
+            raw: list[tuple[list, str, _ar.Anchor, tuple, bool, tuple]] = []
             for g in groups:
                 parts = [pid_of[q] for q in g]
+                pieces = cutter.segments(parts)
+                if pieces:
+                    # 11f (2): the body IS the line, cut into its stations
+                    counts["line_bodies_segmented"] = \
+                        counts.get("line_bodies_segmented", 0) + 1
+                    counts["line_segments"] = \
+                        counts.get("line_segments", 0) + len(pieces)
+                    for si, (tris, feet) in enumerate(pieces):
+                        raw.append((parts, _ar.LINE_SEGMENT,
+                                    segment_anchor(feet, surface, si, len(pieces)),
+                                    feet, False, tris))
+                    continue
                 lowest = min(parts, key=lambda p: p.base_y)
                 cls = _ar.classify_body(
                     skirted=m.skirted,
@@ -355,7 +539,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     or tuple((p.lat, p.lon, p.base_y) for p in parts)
                 raw.append((parts, a.body_class, a, feet,
                             min(p.base_y for p in parts) > elevated_base_m
-                            if elevated_base_m > 0.0 else False))
+                            if elevated_base_m > 0.0 else False, ()))
             counts["bodies_uncoarsened"] = counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])
             counts["bodies_elevated"] = counts.get("bodies_elevated", 0) + len(elevated)
@@ -379,9 +563,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     counts["anchor_residual"] = counts.get("anchor_residual", 0) + 1
                 elif a.surface_z is None:
                     counts["anchor_off_surface"] = counts.get("anchor_off_surface", 0) + 1
+                # a SEGMENT is cut by TRIANGLE; its parent component must
+                # NOT also be handed to the cutter as a whole component,
+                # or this file would claim the whole fence (11f (2))
+                tris = tuple(t for i in grp for t in raw[i][5])
+                cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
+                                          for p in raw[i][0]}))
                 bodies.append(Body(k, a.body_class, tuple(sorted(p.comp for p in parts)),
                                    a, _split.body_resource_name(m.resource, k),
-                                   tuple(sorted(p.pid for p in parts)), feet=feet))
+                                   tuple(sorted(p.pid for p in parts)), feet=feet,
+                                   cut_components=cut_comps, tris=tris))
             counts["bodies"] += len(bodies)
             index = _index_of(m.id)
             record = Split(index, m.id, m.resource, m.authored_path,
@@ -395,8 +586,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             files: tuple[_split.SplitFile, ...] = ()
             err = ""
             if write:
-                cuts = [_split.BodyCut(b.body_id, b.components, b.anchor.offset)
-                        for b in bodies]
+                cuts = [_split.BodyCut(b.body_id, b.cut_components, b.anchor.offset,
+                                       b.tris) for b in bodies]
                 try:
                     res = _split.split_obj8(pristine_path(m), cuts, m.resource)
                 except (OSError, ValueError, IndexError) as exc:

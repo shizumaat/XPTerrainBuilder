@@ -527,3 +527,149 @@ def test_the_write_half_refuses_to_overwrite_an_authored_object(tmp_path):
 
     with pytest.raises(ValueError, match="authored object"):
         PW.write_files(str(pack), [_F()])
+
+
+# ── 11f (1): THE RESTORE BEFORE THE WRITE ────────────────────────────────
+
+def test_restore_puts_every_anchor_bak_back_and_counts_it(tmp_path):
+    """11f (1): the pack's baked objects are the PRISTINE bytes again
+    before a single file is written, the backups are KEPT (the split
+    reads them), and only what actually differed is rewritten."""
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    baked = pack / "objects" / "a.obj"
+    baked.write_text("I\n800\nOBJ\nVT\t0 -7.5 0\t0 1 0\t0 0\n")      # v1's bake
+    (pack / "objects" / "a.obj.anchor_bak").write_text(
+        "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n")                    # authored
+    (pack / "objects" / "b.obj").write_text("I\n800\nOBJ\n")         # never baked
+    # the DSF's own backup is §3's, not this pass's
+    (pack / "Earth nav data").mkdir()
+    (pack / "Earth nav data" / "t.dsf").write_text("new")
+    (pack / "Earth nav data" / "t.dsf.anchor_bak").write_text("old")
+
+    r = PW.restore_pack_objects(str(pack))
+    assert r.counts == {"restore_backups": 1, "restore_restored": 1}
+    assert baked.read_text() == "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n"
+    assert (pack / "objects" / "a.obj.anchor_bak").is_file()
+    assert (pack / "Earth nav data" / "t.dsf").read_text() == "new"
+
+    again = PW.restore_pack_objects(str(pack))          # idempotent
+    assert again.counts == {"restore_backups": 1, "restore_restored": 0}
+
+
+def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
+    """11f (1): idempotent at the other end — a pack v1 never baked."""
+    from auto_patch_v2.airport import placement_write as PW
+
+    pack = tmp_path / "pack"
+    (pack / "objects").mkdir(parents=True)
+    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
+    r = PW.restore_pack_objects(str(pack))
+    assert r.counts == {"restore_backups": 0, "restore_restored": 0}
+    assert (pack / "objects" / "a.obj").read_text() == "I\n800\nOBJ\n"
+
+
+# ── 11f (2): THE SEGMENT CUT of a one-component line object ──────────────
+
+def _fence(tmp_path, length_m: float, name: str = "fence.obj", step: float = 5.0,
+           h: float = 2.0):
+    """A fence as ONE component: a continuous vertical strip along +x,
+    every panel sharing its neighbour's posts (so the welded reader sees
+    one component) — the LEMDzaun shape, at any length."""
+    n = int(length_m / step) + 1
+    verts = []
+    for i in range(n):
+        verts.append((i * step, 0.0, 0.0))
+        verts.append((i * step, h, 0.0))
+    tris = []
+    for i in range(n - 1):
+        a, b, c, d = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+        tris.append((a, b, d))
+        tris.append((a, d, c))
+    return _write_obj(tmp_path / name, verts, [("", tris)]), n
+
+
+def _fence_plan(path, length_m, icao="TEST", heading=0.0, lat=40.0, lon=-3.0):
+    """A one-member, one-part rebake plan over ``path``."""
+    from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
+
+    ml, mo = AR._m_per_deg(lat)
+    part = Part(pid=0, comp=0, lat=lat, lon=lon + 0.5 * length_m / mo, base_y=0.0,
+                area_m2=length_m * 2.0,
+                box=(lat, lon, lat, lon + length_m / mo),
+                feet=((lat, lon, 0.0),))
+    m = Member(id="dsf:obj1", resource="objects/" + os.path.basename(str(path)),
+               authored_path=str(path), live_path=str(path), heading_deg=heading,
+               parts=(part,))
+    return RebakePlan(icao=icao, pack_name="pack", pack_root=os.path.dirname(str(path)),
+                      units=(Unit("u0", (lat, lon), 0.0, (m,)),), skipped=(), counts={})
+
+
+def _line_args(seg_m=100.0):
+    return dict(split_tol_m=0.0, line_segment_m=seg_m, line_stations_max=64,
+                line_ratio=20.0, line_max_h=6.0, foot_band_m=1.0)
+
+
+def test_a_one_component_fence_is_cut_into_segments_anchored_at_their_mid_feet(tmp_path):
+    """11f (2): the perimeter-fence class.  One component, one body, one
+    anchor before — now one body per station, each anchored on a foot of
+    ITS OWN segment, near the segment's middle, and every triangle of the
+    fence lands in exactly one file."""
+    path, _n = _fence(tmp_path, 400.0)
+    plan = _fence_plan(path, 400.0)
+    ss = PP.build_splits(plan, lambda la, lo: 100.0, write=True, **_line_args())
+
+    assert len(ss.splits) == 1, ss.counts
+    s = ss.splits[0]
+    assert ss.counts["line_bodies_segmented"] == 1
+    assert ss.counts["line_segments"] == 4          # 400 m / 100 m stations
+    assert len(s.bodies) == 4 and len(s.files) == 4
+    assert {b.body_class for b in s.bodies} == {AR.LINE_SEGMENT}
+    for b in s.bodies:
+        assert "mid-foot" in b.anchor.reason
+        # the anchor is a foot OF THIS SEGMENT, and no further from the
+        # segment's own feet than half a segment
+        lons = [f[1] for f in b.feet]
+        assert min(lons) <= b.anchor.lon <= max(lons)
+        assert (b.anchor.lat, b.anchor.lon) in [(f[0], f[1]) for f in b.feet]
+    # the segments partition the fence: every triangle exactly once
+    assert sum(f.tris for f in s.files) == 2 * (int(400.0 / 5.0))
+    # each cut file parses back with the triangles it claims
+    for f in s.files:
+        p = tmp_path / os.path.basename(f.resource)
+        p.write_text(f.text)
+        g = obj8.parse_obj8(str(p))
+        assert g.solid.shape[0] + g.draped.shape[0] == f.tris
+
+
+def test_a_short_one_component_wall_is_one_body(tmp_path):
+    """11f (2) the other way: a 30 m wall is shorter than one station —
+    no segment cut, and the placement stays whole exactly as before."""
+    path, _n = _fence(tmp_path, 30.0, name="wall.obj")
+    plan = _fence_plan(path, 30.0)
+    ss = PP.build_splits(plan, lambda la, lo: 100.0, write=True, **_line_args())
+    assert not ss.splits and len(ss.kept) == 1
+    assert ss.kept[0].reason == "one_body"
+    assert "line_segments" not in ss.counts
+
+
+def test_segments_of_one_component_are_cut_by_triangle_not_by_component(tmp_path):
+    """The cutter's body definition (11f (2)): two segments of the SAME
+    component share the vertices of the panel they meet at, and a vertex
+    VOTE cannot separate them — the triangle map is senior."""
+    path, _n = _fence(tmp_path, 200.0, name="two.obj")
+    geom = obj8.parse_obj8(str(path))
+    comps = obj8.solid_components(geom)
+    assert len(comps) == 1
+    tris = comps[0].tris
+    left = [tuple(int(q) for q in t) for t in tris.tolist()
+            if geom.vertices[t].mean(axis=0)[0] < 100.0]
+    right = [tuple(int(q) for q in t) for t in tris.tolist()
+             if geom.vertices[t].mean(axis=0)[0] >= 100.0]
+    res = OS.split_obj8(str(path), [OS.BodyCut(0, (), (0.0, 0.0, 0.0), tuple(left)),
+                                    OS.BodyCut(1, (), (100.0, 0.0, 0.0), tuple(right))])
+    assert not res.kept_whole and len(res.files) == 2
+    assert [f.tris for f in res.files] == [len(left), len(right)]
+    assert res.counts["segment"] == len(tris)

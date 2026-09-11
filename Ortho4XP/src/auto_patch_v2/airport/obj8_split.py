@@ -127,11 +127,22 @@ def _attr_group(kw: str) -> str:
 class BodyCut:
     """One body to cut out: its component indices into
     ``obj8.solid_components`` of the SAME pristine file, and the authored
-    offset (§4.3 / §6) subtracted from every vertex it keeps."""
+    offset (§4.3 / §6) subtracted from every vertex it keeps.
+
+    A body is NOT always a set of components (owner RULINGS 2026-09-11f
+    (2); spec §10): a LINE OBJECT authored as one component is cut into
+    SEGMENTS, and a segment is a set of TRIANGLES of that component.
+    ``tris`` names them as authored vertex triples — the same triples the
+    ``IDX`` table spells — and, where it is given, it is SENIOR to the
+    vertex vote: a triangle named here belongs to this body whatever its
+    vertices are shared with (two segments share the vertices of the
+    panel they meet at, and a vote cannot separate them)."""
 
     body_id: int
     comps: tuple[int, ...]
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: authored vertex triples this body owns outright (a SEGMENT)
+    tris: tuple[tuple[int, int, int], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -271,6 +282,9 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     # vertex -> body, from the bodies' own components
     body_of_vertex: dict[int, int] = {}
     centroid: dict[int, np.ndarray] = {}
+    #: the SEGMENT map (11f (2)): an authored triangle this body owns
+    #: outright, senior to every vote below
+    tri_owner: dict[tuple[int, int, int], int] = {}
     for b in bodies:
         pts: list[np.ndarray] = []
         for ci in b.comps:
@@ -279,6 +293,14 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 for v in vi.tolist():
                     body_of_vertex[int(v)] = b.body_id
                 pts.append(verts[vi[vi < verts.shape[0]]])
+        if b.tris:
+            t = np.asarray(b.tris, dtype=np.int64).reshape(-1, 3)
+            for row in t.tolist():
+                tri_owner[tuple(sorted(row))] = b.body_id
+            vi = np.unique(t.reshape(-1))
+            for v in vi.tolist():
+                body_of_vertex[int(v)] = b.body_id
+            pts.append(verts[vi[vi < verts.shape[0]]])
         centroid[b.body_id] = (np.concatenate(pts).mean(axis=0) if pts
                                else np.zeros(3))
     if not body_of_vertex:
@@ -294,10 +316,16 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     nv = verts.shape[0]
 
     def tri_body(a: int, b: int, c: int) -> int:
-        """The body of one triangle: the majority vote of its vertices,
-        and the NEAREST body when it owns none (a thin sheet under the
-        thickness gate, an exporter's ground paint — geometry a body
-        formation never saw and that must not be dropped)."""
+        """The body of one triangle: the SEGMENT that names it outright
+        (11f (2)), else the majority vote of its vertices, and the NEAREST
+        body when it owns none (a thin sheet under the thickness gate, an
+        exporter's ground paint — geometry a body formation never saw and
+        that must not be dropped)."""
+        if tri_owner:
+            hit = tri_owner.get((a, b, c) if a <= b <= c else tuple(sorted((a, b, c))))
+            if hit is not None:
+                counts["segment"] = counts.get("segment", 0) + 1
+                return hit
         votes: dict[int, int] = {}
         for v in (a, b, c):
             bid = body_of_vertex.get(v)

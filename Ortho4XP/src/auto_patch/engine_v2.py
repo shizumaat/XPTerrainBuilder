@@ -657,6 +657,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         pack_root=plan_.pack_root, dsf_path=dsf_path,
         split_tol_m=law.tables.structures.placement.split_tol_m,
         elevated_base_m=law.tables.structures.rebake.elevated_base_m,
+        line_segment_m=law.tables.structures.placement.line_segment_m,
+        line_stations_max=law.tables.structures.rebake.line_object_stations_max,
+        line_ratio=law.tables.structures.rebake.line_object_ratio,
+        line_max_h=law.tables.structures.rebake.line_object_max_h,
+        foot_band_m=law.tables.structures.basin.contact_band_m,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())
@@ -670,7 +675,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         allow_live_install=True,
         refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
         engine_version=_engine_version(), law_digest=digest)
-    UI.vprint(1, f"  [v2 placement] {plan_.icao}: {c['conversions']} placement(s) "
+    UI.vprint(1, f"  [v2 placement] {plan_.icao}: "
+                 f"{len(res.restore.restored)}/{len(res.restore.backups)} object(s) "
+                 f"restored from .anchor_bak, {c['conversions']} placement(s) "
                  f"converted to on-ground, {c['splits']} split into "
                  f"{len(res.files_written)} body file(s), {c['kept']} kept whole; "
                  f"DSF rewritten (backup {os.path.basename(res.dsf.backup_path)}, "

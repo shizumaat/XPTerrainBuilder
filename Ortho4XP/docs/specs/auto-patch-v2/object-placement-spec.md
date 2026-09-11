@@ -201,3 +201,57 @@ body reading are superseded by this section.
    --placement-plan` — §7's figures from the plan's own rows, `--graded` for a
    dry run with no mesh. A DSF `FILTER` is STATE, not a row: the round-trip
    verifier compares the filter IN FORCE per placement and polygon (OTHH).
+
+## §10 The restore and the segment cut (RULINGS 2026-09-11f)
+
+1. **RESTORE FIRST** (11f (1)). Under `placement = "agl"`, before ANY file is
+   written, `placement_write.apply_plan` copies every `<obj>.anchor_bak` in the
+   pack back over its object — §8's one-shot restore, run on every `agl` write
+   and recorded in the provenance (`restore_backups` / `restore_restored`). v1's
+   seat baked its deltas into the pack's own `.obj` files; under the placement
+   law those deltas are wrong twice over — a cut body is re-anchored by the CUT,
+   and a placement the plan keeps WHOLE is never rewritten at all and would
+   otherwise render on the old seat's offsets forever. The pass is idempotent
+   (a pack with no backup restores nothing; a second run rewrites nothing) and
+   it KEEPS the backups: they are what `pristine_path` reads, and §8 deletes
+   them with the seat, not before. A DSF's own `.dsf.anchor_bak` is §3's backup
+   and is never copied back under it. Measured on pack copies: LEMD 310 of its
+   322 backups differed and were restored, OTHH 93 of 229.
+2. **THE SEGMENT CUT** (11f (2), `[placement] line_segment_m` = 100 m =
+   `[rebake] body_feet_span_m`, capped by `line_object_stations_max`). A LINE
+   OBJECT (10bb's verdict, per RESOURCE, over the plan's own genuine parts)
+   whose body spans more than one station is cut into SEGMENTS: its triangles
+   join the station nearest their plan CENTROID, the stations being spread over
+   those centroids by the farthest-point walk that spreads 10bb's drape stations
+   (so a perimeter fence's stations follow the LOOP — a projection onto one
+   principal axis would chain its two far sides together). Each segment is a
+   BODY: its own file, placement and MID-FOOT anchor (§6's line row — its own
+   ground contact nearest the plan centre of its feet, so each end floats by
+   half a segment's relief instead of a whole run's). Segments then coarsen and
+   are cut with every other body, so a fence over flat ground still lands in one
+   file. The cutter's body definition widens for it: `BodyCut.tris` names
+   authored vertex triples and is SENIOR to the vertex vote — two segments share
+   the vertices of the panel they meet at, and a vote cannot separate them.
+   ANIM / LOD rules are unchanged.
+3. **Measured** (pack copies, LEMD `LEMD_20260910T230749` / OTHH
+   `OTHH_20260910T230730` artefacts, `seat_feet_census --placement-plan
+   --graded`). LEMD 897 segments from 271 one-line bodies; 985 → 1,086 files
+   (3.60×, bar 4×); `> 3 m` **30 → 25**, the ruling's bar of ≤ 5 MISSED, and the
+   residual is attributed: only 5 of the 30 were the line class (the two
+   `LEMDzaun` rows at 14.68 / 10.16 m and three `grass_FSX` rows are gone). The
+   other 20 are RIGID bodies with authored relief — `Bridge3` 8.70, the
+   `SWbaume` tree clusters 6.80 / 5.79 / 5.10, the `OldTerminal_FSX` buildings
+   6.37 / 5.17 / 3.43, `Terminal4SAT` 4.41 — which the segment cut cannot reach
+   and must not: cutting a rigid body into terrain stations would TEAR it, which
+   is exactly why 10i binds one placement's touching set into one body. Closing
+   that tail is a new question for the owner, not this mechanism. OTHH
+   unchanged: `> 3 m` 0 (worst 2.82 Drainage), 1,187 files (1.24×, bar 2×), 210
+   conversions, round trip ok, 1,187/1,187 new defs read back, 0 rows carrying
+   an elevation.
+4. **Refuted in this round, deleted**: a plan-DISTANCE limit on a segment's
+   coarsening (a segment joins only a group whose anchor is within one station
+   span). It was written to stop 11e (1)'s off-surface rule re-assembling a
+   fence — measured at LEMD `North_FSX-LEMDzaun`, 215 off-surface segments came
+   back as one 2,071 m body — but it cost 377 extra files (1,463 = 4.84×, OVER
+   the 4× bar) and moved `> 3 m` the wrong way (25 → 26). The coarsening of
+   11e (1) stands as ruled.

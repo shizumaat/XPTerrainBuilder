@@ -927,6 +927,121 @@ the generator's own cost there is 1.77 s).
 * `model/ground_fit.py` is the ONE expression of the fit; `planar/group.derive`
   and `constraints/foot_rows` both call it.
 
+### §11b Measured (round 7, lane `v2canopy5`; branch `claude/v2canopy5`)
+
+11x implemented as written — all-or-nothing per body, the neighbour-pair
+feasibility, basin bodies out, one face triangulation. **Every bar met or
+unmeasurable; the mechanism is now HONEST about how little it governs.**
+
+MEASURED, LEMD (`v2canopy7_lemd`, engine total 379.9 s against round 6's
+365.3 s on the same instrument, +4.0 %, bar 383.3 s; harness wall 396.8 s
+against round 6's 385.4 s, +3.0 %; `foot_rows` generator 0.95 s):
+
+| bar | round 4 | round 6 | **round 7** | |
+|---|---|---|---|---|
+| the three rows, ON-SHEET non-basin bodies within 0.3 m | — | — | **2 of 2** (−0.08, −0.09) | MET |
+| the three rows, all 29 bodies within 0.3 m | 13 of 24 | 9 of 31 | 10 of 29 | (context) |
+| worst NON-BASIN body | +1.94 | — | **+1.94** (LEMD60 b4, off-sheet) | |
+| worst body overall | +1.94 | +7.88 (basin) | **+4.06** (LEMD84 b4, basin) | |
+| `> 3 m` (`seat_feet_census --placement-plan --graded`) | 16 | 18 | **16** | baseline UNAVAILABLE |
+| `pad_flat` verify rows | 39 | 18 | **23** | |
+| files (body rows) | 1,088 | 1,127 | **847** | |
+
+**THE MATCHED BASELINE DOES NOT EXIST.** The artifact ledger holds no LEMD
+control at main's tree as of `3656a64c` (`artifact_ledger.load_entries()`,
+141 entries, zero on that tree), and the brief forbids building one. `> 3 m`
+16 is quoted against round 6's 18 and round 4's 16 instead.
+
+**THE CENSUS** (`constraints.by_generator.foot_rows`):
+
+| | LEMD | HECA |
+|---|---|---|
+| bodies | 9,561 | 21,981 |
+| `padded` (the pad law, §11a) | 5,127 | 13,524 |
+| `pavement` (09af-1) | 2,753 | 2,415 |
+| `basin` (§14, NEW) | 195 | 0 |
+| **`off_sheet`** | **1,117** | **6,040** |
+| `infeasible` | 144 | 0 |
+| `bare` (rows fired) | 225 | 2 |
+| rows / feet off the sheet | 717 / 6,841 | 6 / 20,142 |
+| **`partial`** | **0** | **0** |
+
+`no_dem` is 0 at both. `partial` is 0 BY CONSTRUCTION and the twin
+(`test_a_partial_profile_is_impossible`) asserts the invariant per body,
+not the counter.
+
+**THE THREE ROWS ARE NOT §11b's.** Per body, over the emitted design
+surface's own faces (each body's feet tested for containment in a face of
+`LEMD.graded.json`, the same predicate the generator uses pre-solve): of
+the 29 bodies, **25 are OFF-SHEET, 2 are `basin`, and 2 are on-sheet and
+non-basin** — `OldTerminal_FSX-LEMD60` b3 (−0.08 m) and b8 (−0.09 m), both
+within 0.3 m. The off-sheet 25 are LEMD38 b0–b14 (every body; 1,116 of its
+1,120 feet stand on no face), LEMD60 b0/b1/b2/b4/b6/b7 and LEMD84
+b0/b1/b2/b3. Their residuals — worst +1.94 m — are the SPLIT and ANCHOR
+law's (§9/§13, 09af-1), not a foot row's: no row was ever minted for them.
+Round 6's worst body, the `basin` LEMD84 b3 at +7.88 m, is gone: the basin
+class is excluded and the worst basin body now reads +4.06 m.
+
+Note the instrument disagreement, reported not decided:
+`obj8_split_report` reads `off-surface 0` for all 29 bodies while the
+face-containment test reads 25 of them off-sheet — the split report's
+surface sampler answers "is there a surface value here" (it falls back),
+the generator's answers "is this foot inside a face". They are different
+questions and only the second one mints a row.
+
+**HECA** (`v2canopy7_heca`, 236.2 s against round 6's 236.5 s, −0.1 %):
+`road_train/metal_titles.obj` b0 reads **+1.80 m**, exactly round 6's
+figure. `T3_brick_clean` has TWO placements and neither is above round 6's
+`+0.43 / +11.24 / +1.21`: b0/b3/b4 read **−0.11 / −0.11 / (no design
+surface under any foot)** and **+0.45 / +0.64 / −0.47**. The 11 m member is
+gone. The foot rows fired SIX times at HECA — the class is inert there, as
+in round 6.
+
+**WHAT ROUND 7 DID NOT FIX, and the round-8 questions (not decided here).**
+
+1. **The sheet still does not reach the bodies** — 1,117 of LEMD's 1,486
+   sheet-tested bodies and 6,040 of HECA's 6,042. All-or-nothing makes that
+   HONEST (no partial profiles) but does not make it smaller. This is 11x's
+   own reading of round 6 item 1 and still the owner's region question.
+2. **Where the rows DO fire they are still outpriced.**
+   `design.families.foot_rows` reads `rows 1434, missed 715, max 5.702 m` —
+   essentially every fired foot row loses to the laws beside it at
+   `ground_datum` (3). The feasibility bar now says the sheet COULD carry
+   these bodies; the pricing says it will not. A row that is always
+   outpriced is decoration, and whether `ground_datum` is the right price
+   for a body's own feet is an owner question.
+3. `infeasible` fell to 144 (LEMD) / 0 (HECA) only because the sheet test
+   runs FIRST — a body off the sheet is never priced for feasibility. The
+   two counts are not comparable with round 6's.
+
+**DEVIATIONS REPORTED (never decided by the lane).**
+
+* 11x (4) resolved by a NEW LEAF PACKAGE. `constraints` may import only
+  `law` and `model` (`test_model.test_dependency_direction`) and `model`
+  may import neither `shapely` nor `numpy`, so no existing module could
+  host the shared triangulation. `src/auto_patch_v2/geom/` is that leaf —
+  pure shape, importing nothing of v2 — and the layering law was EXTENDED
+  to register it (`order[0]`, `producers["geom"] = set()`).
+  `solve/rows._face_triangles` is now a map-reading adapter over
+  `geom.face_triangles`, which is its own former body verbatim;
+  `constraints/foot_rows._triangles` is deleted. The solve's triangulation
+  is unchanged by construction.
+* The NEIGHBOUR GRAPH is the feet's Euclidean MINIMUM SPANNING TREE
+  (`model/ground_fit.neighbour_pairs`), not the Delaunay: it is the
+  nearest-neighbour graph made CONNECTED, a Delaunay subgraph, and pure
+  Python (the model layer may not import `scipy`). A bare nearest-neighbour
+  graph leaves clustered feet — two columns' corner pairs — connected only
+  within a cluster, so nothing between the clusters is ever tested.
+* The BASIN class is read GEOMETRICALLY in the generator (a foot authored
+  below the object's own zero inside a `retaining_wall` face whose ref
+  starts `basin_wall:`), because the body class itself is minted after the
+  emit, in `airport/placement_plan`. It is the same predicate `_rim_of`
+  applies to the emitted `structure_rim` rings, read off the map those
+  rings come from.
+* A body whose DEM does not sample EVERY foot is `no_dem` and fires
+  nothing — a fit over a subset is a partial profile by another name. It
+  did not occur at either airport (0 / 0).
+
 ## §13 An ELEVATED body never has a file of its own (RULINGS 2026-09-11r/s)
 
 The owner's LEMD read: roofs, road decks and tower parts sit on the ground. The

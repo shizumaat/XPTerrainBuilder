@@ -3310,3 +3310,13 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * Segment cut: `[placement] line_segment_m = 100` (= `body_feet_span_m`), `line_object_stations_max`; stations by farthest-point walk over triangle centroids; each segment its own file/placement/mid-foot anchor. LEMD 897 segments from 271 one-line bodies (`Munoza-LEMDzaun` 2 km → 52 stations, 24 bodies).
 * Dry run on pack copies (live install untouched): LEMD 985 → 1,086 files (3.60×), 0 elevated rows; `> 3 m` 30 → 25 — 5 line-class, 20 rigid bodies with authored relief (Bridge3 8.70, SWbaume trees 6.80/5.79/5.10, OldTerminal 6.37/5.17/3.43, Terminal4SAT 4.41/3.99/3.79) — cutting them by terrain would tear them (10i). OTHH `> 3 m` 0 (worst 2.82), 1,187 files, 210 conversions. A coarsening reach limit was tried once, refuted and deleted (4.84×, 26).
 * Below-bar merge, residual quoted: under 11b a rigid body drapes at ONE anchor by design, so a foot census over its whole footprint measures authored relief, not floating; the census bar for rigid bodies is retired with the seat (§8) — feet of LINE bodies stay the instrument. Suite 981 → main.
+
+## 2026-09-11i — OWNER 11g-1 ANSWERED: a canopy on columns STAYS CONNECTED to its columns, and to an adjacent building (a roadway canopy along a terminal) — the group is ONE object; a LONG span joining two far buildings (the HECA railway class) MAY disconnect so the buildings seat; where feasible, ADAPT THE TERRAIN to the canopy-and-building group rather than split it
+
+Owner, verbatim: "11g-1, a canopy on columns needs to stay connected to it's columns, and if it's adjacent to a building, like a roadway then it needs to stay connected to the building as well. If it's a long thing like the railway connecting two far buildings at HECA we accept disconnecting it so the buildings can seat. But if it's feasible, adapting the terrain to accommodate the canopy and building group would be preferred."
+
+Consequences (Fable):
+* The v2bridgegroup r2 grouping (11g) stands: LEMD38/84/60 welded to canopies LEMD03/54/51 are ONE object each. Their `> 3 m` feet are not a grouping defect but a TERRAIN one — the design surface must accommodate the group.
+* GROUP PAD: a welded canopy-and-building group takes ONE pad across its footprint union, the level by the pad law (10l apron-edge, 10ag skirt, pads by proximity) applied to the group; the surface ADAPTS to it where lawful. Feasibility = the adapted surface stays within the pavement laws it touches; infeasible → the long-span exception.
+* LONG SPAN: a connecting body may disconnect only when it is long (HECA railway class) AND the group pad is infeasible; a law-table length, per airport where needed.
+* Spec `object-placement-spec.md` §11 (Fable); lane `v2canopy`.

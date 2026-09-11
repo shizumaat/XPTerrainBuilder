@@ -780,3 +780,43 @@ slopes there; a flat pad fights the authoring. Restated:
    rows ≤ 39 (round 4's); HECA railway bodies within 0.3 m and `T3_brick_clean`
    b0/b3/b4 not above round 4's +0.46 / +1.51 / +11.58; wall within +5 % of
    round 4.
+
+## §13 An ELEVATED body never has a file of its own (RULINGS 2026-09-11r/s)
+
+The owner's LEMD read: roofs, road decks and tower parts sit on the ground. The
+app's own `o4_v2_placement_LEMD.json` shows why: 218 of the 1,092 bodies written
+as their own file carry `authored_offset.y` (the `y_zero` the file is shifted by
+so that its lowest vertex lands on the terrain) more than 2 m above the object's
+zero — a roof at 69.55 m (`Munoza-LEMD76__b13`), tower parts at 65–68 m
+(`Terminal4sBlue-LEMD20`, `-LEMDz3alpha`, `-ZNTWR`), canopies at 40 m. §9's
+"an elevated body joins the nearest ground group" was a coarsening preference,
+not a law: a body whose intended zero (surface − y_zero) agrees with no ground
+body's became its own file, and §6's "plate-only / other: the centroid of its
+lowest component" placed it ON THE GROUND. The foot census read those bodies as
+perfect (their lowest vertex IS on the ground), which is why the numbers were
+green while the sim was broken.
+
+1. **THE LAW.** A body is a candidate for its own file ONLY if its lowest
+   vertex is a GROUND CONTACT of the object: `y_zero` within
+   `[rebake] elevated_base_m` of the object's zero plane (below it is lawful:
+   basins, skirts, foundations). Every other body is ELEVATED and NEVER a file
+   of its own, whatever the coarsening says: it joins the file of its CARRIER —
+   the ground body of the SAME placement with the largest plan overlap, else
+   the nearest ground body of the placement in plan — at its authored offset in
+   the carrier's frame (no vertex rewrite; the same authored coordinates, the
+   carrier's anchor). A placement with NO ground body at all (a roof object, a
+   deck object, a sign) is KEPT WHOLE, unsplit, its row untouched: X-Plane
+   drapes it at its own anchor and its authored y keeps it above the ground
+   there, which is the pack's shared-datum frame — the design surface's pad
+   under it is what keeps it level with its neighbours.
+2. **The intended zero of a file** is its carrier's; an elevated body
+   contributes none to §9's coarsening.
+3. **The census reports the class**: `seat_feet_census --placement-plan` and
+   `obj8_split_report` print, per airport, `elevated bodies as own files` (must
+   be 0) and `footless placements kept whole`, and a twin fails on a plan that
+   writes an elevated body alone. The feet histogram excludes elevated bodies'
+   vertices (they are not feet).
+4. **Bars (lane `v2elevated`):** LEMD `elevated bodies as own files` 218 → 0,
+   files fewer than 1,092, the DSF round trip ok, `> 3 m` not above 16, OTHH's
+   groups unchanged (dry run on its artefact); the owner's read of the next app
+   build is the acceptance.

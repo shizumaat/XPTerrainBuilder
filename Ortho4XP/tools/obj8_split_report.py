@@ -315,6 +315,16 @@ def main() -> int:
           f"{c.get('anchor_off_surface', 0)} off-surface; "
           f"{c.get('bodies_elevated', 0)} elevated bodies joined a ground group; "
           f"files per placement {c['files'] / max(1, c['placements']):.2f}")
+    # §13 (3): the two classes the owner's 11r read turns on.  The first
+    # bar is ZERO — a file whose whole content is elevated is the defect
+    # (a roof, a deck, a tower part set on the ground); the second is the
+    # lawful answer for a placement that has no ground body at all.
+    own = c.get("elevated_own_files", 0)
+    print(f"  elevated bodies as own files: {own}"
+          f"{'' if own == 0 else '   *** §13 (1) VIOLATED (bar 0) ***'}; "
+          f"footless placements kept whole: {c.get('footless', 0)}; "
+          f"elevated bodies carried by a ground body's file: "
+          f"{c.get('bodies_elevated_carried', 0)}")
     if c.get("line_segments"):
         print(f"  line segments: {c['line_segments']} from "
               f"{c.get('line_bodies_segmented', 0)} one-line bodies (11f (2))")

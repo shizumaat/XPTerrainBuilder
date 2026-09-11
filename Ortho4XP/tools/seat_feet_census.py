@@ -386,7 +386,55 @@ def _census_placement_plan(ap, args) -> int:
         over = [r for r in meas if abs(r["dmax"]) > 0.3]
         big = [r for r in meas if abs(r["dmax"]) > 3.0]
         print(f"   rows with a foot > 0.3 m: {len(over)}; > 3 m: {len(big)}")
+    _print_elevated(plan)
     return 0
+
+
+#: §13's threshold when the plan carries no law digest of its own: the
+#: shipped ``[rebake] elevated_base_m``.  The plan is DATA — a census
+#: never re-derives the law it is judging.
+def _elevated_base_m(plan: dict) -> float:
+    v = plan.get("provenance", {}).get("counts", {}).get("elevated_base_m")
+    if v is not None:
+        return float(v)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "src"))
+    from auto_patch_v2.law import Law
+    return float(Law.load().tables.structures.rebake.elevated_base_m)
+
+
+def _print_elevated(plan: dict) -> None:
+    """§13 (3): THE TWO CLASSES THE OWNER'S 11r READ TURNS ON.
+
+    ``elevated bodies as own files`` counts split bodies whose file's
+    intended zero (``authored_offset[1]``, the ``y`` the writer shifts
+    the body by so its own lowest vertex lands on the terrain) stands
+    above ``elevated_base_m``: a roof, a road deck or a tower part set on
+    the ground.  The bar is ZERO.  ``footless placements kept whole`` is
+    the lawful answer for a placement with no ground body at all.
+
+    The feet histogram above already EXCLUDES elevated vertices — a
+    component whose own base stands more than a metre above the file's
+    (``read_feet``) is not a foot — so this line, not the histogram, is
+    what catches the class: the 218 LEMD bodies of 11s censused PERFECT
+    because the writer had put each one's lowest vertex on the ground."""
+    base = _elevated_base_m(plan)
+    own = [(b.get("authored_offset", (0, 0, 0))[1], b.get("new_resource", "?"))
+           for s in plan.get("splits", ())
+           for b in s.get("bodies", ())
+           if len(b.get("authored_offset", ())) > 1
+           and float(b["authored_offset"][1]) > base]
+    carried = sum(int(b.get("elevated_members", 0))
+                  for s in plan.get("splits", ()) for b in s.get("bodies", ()))
+    footless = sum(1 for k in plan.get("kept", ())
+                   if str(k.get("reason", "")) == "footless")
+    print(f"   §13 elevated bodies as own files: {len(own)} "
+          f"(bar 0, [rebake] elevated_base_m {base:g} m)"
+          + ("" if not own else "   *** VIOLATED ***"))
+    for y, res in sorted(own, reverse=True)[:5]:
+        print(f"      +{y:.2f} m  {res}")
+    print(f"   §13 footless placements kept whole: {footless}; "
+          f"elevated bodies carried at their authored offset: {carried}")
 
 
 def main(argv: list[str] | None = None) -> int:

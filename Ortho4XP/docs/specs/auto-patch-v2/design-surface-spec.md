@@ -4045,3 +4045,47 @@ three feeds — LEMD has 7). No timing claim is made from one run per side.
 holes (owed — OTHH's 773,141 m² is the largest debt); no other airport was BUILT
 (dry run only, per §25 (5)); the five-airport sweep is the orchestrator's; the
 owner's other 1.0.319 items (floating signs, roof planes, basin gap) are other lanes'.
+
+## §27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c; Fable 2026-09-12e) — lane `v2airsideedge`
+
+Owner: "shapeID 81 at 40.461514, −3.5732897 cannot be groundside because it shares a
+long edge with an apron. Something can only be groundside if it has no connection to
+airside other than a service road." Scout `v2lemd320t`: shape 81 is `pav137`
+(2,571 m², `parking_lot`, groundside, apt.dat 110 polygon) sharing 140.2 m of its
+270.9 m perimeter with the aprons `pav171` (77.8 m) and `pav92` (62.4 m); every joint
+is welded at 0.00 — what the owner sees is the 5 % lot cap running a 2.2 % ramp and a
+5.3 % corner through one continuous concrete page against an apron at 1.5 %. The
+mechanism: `classify/roles.py:191-199` makes a `lot` source's face `parking_lot`
+unconditionally (`continue` — it never reaches `_groundside`'s touch chain or the
+apron-evidence ladder); v1's AIRSIDE-ADJACENCY VETO (`auto_patch/junction_repair.py:
+2752-2789`, owner 2026-07-27, "a wide paved lot reachable ONLY via a service road",
+shared edge ≥ 1.0 m) was dropped in the v2 port.
+
+1. **THE RULE.** A lot-class face whose boundary shares at least `[lot]
+   airside_edge_min_m` (10 m, weld-tolerant at `emit.weld_spacing_m` — the cell
+   boundaries are pre-weld and under-read exact coincidence by ~30 %) with AIRSIDE
+   PAVEMENT (the `side = airside` roles of `precedence.toml` except `building`) is
+   NOT a lot: it is `apron`. A face whose only airside contact is through a
+   `service_road` / `service_junction` face stays a lot. Slivers (area / perimeter
+   < 1 m, an emit artefact) never flip.
+2. **ONE DERIVATION SITE** (08-30l): the lot branch of `classify/roles.py` (and the
+   symmetric guard on the 11ac demotion at `roles.py:300-313`); `side` stays a pure
+   function of `role` (`law/tables.role_side`) and no downstream consumer changes.
+3. **CLASS** (shipped 1.0.320 products): LEMD 13 substantive faces, 150,472 m²
+   (`pav125` 79,408 m² / 828 m on apron; `pav124`; `pav119`; `pav25`; `pav3`; `pav70`
+   ×6; `pav137` ×2); SPJC 5 / 167,163 m² (`pav46` 100,590 m², 2,089 m on `pav49`);
+   HECA 5 / 56,231 m² (the twin terminal-frontage lots); CYXY 4 / 15,054 m²; OTHH 2 /
+   8,443 m²; HEAZ 0; KCLT unmeasured (v1 patch). 41 LEMD slivers excluded by (1).
+   A flipped face comes under airside law (1.5 % cap, `airside_no_step`, apron
+   reach): by hand on the SHIPPED geometry the 13 carry ~294 pairs over 1.5 % —
+   the solver regrades them; that is the intent.
+4. **BARS**: shape 81's face `apron` (or absorbed into `pav171`/`pav92`), joints
+   0.00, no pair over 1.5 % inside it after the solve; the 13 LEMD faces flipped and
+   named; `explain --sources` dry runs on OTHH/HECA/CYXY/SPJC/HEAZ + a v2 `explain
+   KCLT --sources` (flips named, none built); ONE `--engine v2` LEMD build as the
+   closing test (base arm 4,600 / 1,861, groundside 73, in the ledger) — harness
+   census before/after, airside adjudicated rows quoted; twins; INDEX; suite.
+5. **OWNER QUESTION 12c-1, not decided here:** the 61 LEMD `service_road` faces that
+   share an apron edge (up to 828 m). The free-road ruling (2026-07-27) reads
+   "a road sharing an edge with an apron IS the apron"; 12c names the service road
+   as the lot's exemption channel. This spec flips LOTS only; roads wait.

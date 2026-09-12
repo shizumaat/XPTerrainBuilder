@@ -4311,3 +4311,36 @@ shapes 175 → 68, the 28 remaining all slivers / 789 m²). 3 **MET** (rows with
 130 m of the owner's point 16 → 7). 4 **NOT MET** (3 short `apron|apron` pairs
 inside `pav137` over 1.5 %: 3.572 / 1.887 / 1.869 %, |de| ≤ 0.180 m, all at the
 `building4` frontage). 5 **ATTRIBUTED AND WITHDRAWN as a §27 regression** — see (2).
+
+## §28 GROUNDSIDE FRONTAGES TAKE THE PAD'S EDGE LEVEL (owner RULINGS 2026-09-11ai-1 → 2026-09-12r "grade frontages only") — lane `v2frontage`
+
+Owner (11ah/11ai): `building4` (now 132,884 m² after §25) is one flat plateau; its
+car-park and service-road neighbours terrace 1–2.6 m against it (`pav124` +2.63,
+`pav137` +1.80, `route6` +1.80, `pav146` −1.01 at 1.0.317; the apron joints are 0.00
+since 11af). The owner chose "grade frontages only": the plateau stays; the
+neighbours meet it at its level.
+
+1. **THE FRONTAGE RULE OF §20 (10l) EXTENDS TO PARKING AND ROAD FACES.** A
+   `parking_lot` / `groundside_pavement` / `service_road` / `service_junction` face
+   that shares an edge with a building pad takes the pad's edge level ALONG THAT
+   EDGE (joint 0.00) and blends into its own body as a bank at the groundside
+   terrace law's slope; where such a face fronts two pads at different levels, each
+   frontage takes its own pad's level and the face grades between them under its
+   own cap (8 %); where it cannot (the pads differ by more than the cap allows over
+   the face's width), the SENIOR pad (largest shared edge) sets the level and the
+   step is reported at the junior edge.
+2. **THE PAD'S LEVEL IS UNCHANGED** — the apron frontage (§20's senior) still sets
+   it; a groundside neighbour never pulls a pad (airside is king).
+3. **CONSUMER CENSUS at spec time (08-30l)**: the pad-frontage constraint's
+   derivation site (`constraints/` pad_level / frontage rows, `pad_level_report`
+   leaders), the groundside terrace law (`constraints/groundside.py`), `no_step`
+   pairing across the pad edge, `verify/steps`, and the harness families
+   `terrace_joints_ll` / `pad_relief` — the lane confirms the list, adds nothing
+   downstream, and lands the rule where the apron frontage lands today.
+4. **BARS**: the `building4` pad's groundside joints 0.00 (today +2.63 / +1.80 /
+   +1.80 / −1.01); every LEMD pad's parking/road frontage joints ≤ 0.3 unless
+   reported as a junior-edge step with its numbers; no pad level moves (pad
+   levels before/after byte-equal); harness census before/after (`pad_relief`,
+   `terrace_joints_ll`, groundside rows); ONE `--engine v2` LEMD build against the
+   ledger base; the other airports' pad-frontage census by dry run where the
+   products exist; twins; suite.

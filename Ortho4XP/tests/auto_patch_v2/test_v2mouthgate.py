@@ -58,7 +58,7 @@ TAGS_T = {"highway": "secondary", "tunnel": "yes", "lanes": "2", "layer": "-1"}
 TAGS_R = {"highway": "secondary", "lanes": "2"}
 
 
-def _run(law, bore_pts, approaches=()):
+def _run(law, bore_pts, approaches=(), extra_cells=()):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 522.5), (60.5, -135.5), 0.0, 0.0, 697.0, "fixture"),
             RunwayEnd("27", (600.0, 522.5), (60.5, -135.5), 0.0, 0.0, 703.0, "fixture"))
@@ -69,7 +69,7 @@ def _run(law, bore_pts, approaches=()):
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
                       (), (), (), tuple(ways), (), (), pack, _PlaneDem(), law.ruleset_key)
-    cl = Classification(tuple(_cells()), (), {}, ())
+    cl = Classification(tuple(_cells()) + tuple(extra_cells), (), {}, ())
     return build_structures(airport, cl, law)
 
 
@@ -113,37 +113,54 @@ def test_a_bore_admitted_only_by_cover_emits_nothing(law):
 
 
 def test_the_gate_is_the_cover_grown_by_the_standoff(law):
-    """The region is the classified cover ⊕ ``mouth_standoff_m``: a mouth
-    just inside the standoff of the apron edge is built, one just beyond
-    it is dropped — and a bore admitted by NO cover at all but ending on
-    the field is admitted (admission follows the mouth, both ways)."""
+    """The region is the classified cover ⊕ ``mouth_standoff_m`` (100 m,
+    RULINGS 2026-09-12aa — the on-field highway mouths measured at LEMD
+    stand 50–66 m off the nearest cell, the rail mouths 4,000 m): a mouth
+    inside the standoff of the apron edge is built, one well beyond it is
+    dropped.  The law value is read, never retyped."""
     so = law.tables.structures.tunnel.mouth_standoff_m
+    assert so >= 66.0, "the standoff must clear the measured on-field mouths"
     x_in = 80.0 + 0.5 * so
     x_out = 80.0 + 2.0 * so
     _cl, _t, st_in = _run(law, ((0.0, -6.0), (x_in, -6.0)))
     assert st_in.mouths == 2 and st_in.mouths_off_field == 0   # both within the standoff
     _cl, _t, st_out = _run(law, ((0.0, -6.0), (x_out, -6.0)))
     assert st_out.mouths == 1 and st_out.mouths_off_field == 1  # the far end is beyond it
-    # a bore entirely OFF the cover whose end stands within the standoff:
-    # the retired test refused it, the mouth admits it — and the counter
-    # that measures the change of population sees it.
-    _cl, _t, st_new = _run(law, ((x_in, -6.0), (x_in + 300.0, -6.0)))
-    assert st_new.bores_no_mouth == 0 and st_new.mouths == 1
-    assert st_new.bores_admitted_by_mouth_only == 1
-    # and a bore that IS under the cover is not counted as a new admission
-    _cl, _t, st_old = _run(law, ((-80.0, -6.0), (80.0, -6.0)))
-    assert st_old.bores_admitted_by_mouth_only == 0
+
+
+def test_a_mouth_on_the_field_is_built_though_its_bore_covers_nothing(law):
+    """§29 (2) as the owner ruled it (2026-09-12ab, "Build them"): a bore
+    whose mouth stands on the field is BUILT whether or not the bore
+    passes under an airport surface — a portal on the field is visible on
+    approach — and is counted and named where the retired cover test
+    would have refused it (LEMD: 8 such bores, 9 corridors, +329 census
+    rows, accepted)."""
+    so = law.tables.structures.tunnel.mouth_standoff_m
+    x = 80.0 + 0.5 * so                       # on the field, under nothing
+    cl2, tunnels, st = _run(law, ((x, -6.0), (x + 300.0, -6.0)))
+    assert st.mouths == 1 and st.mouths_off_field == 1 and st.bores_no_mouth == 0
+    assert st.bores_mouth_only == 1 and st.mouth_only_bores == ["-101"]
+    assert st.tunnels == 1 and len(tunnels) == 1
+    assert [c.role for c in cl2.cells].count("tunnel_ramp") == 1
+    # a bore that IS under the cover is built too, and is not counted there
+    _cl, t2, st2 = _run(law, ((-80.0, -6.0), (80.0, -6.0)))
+    assert st2.bores_mouth_only == 0 and st2.bores_no_mouth == 0
+    assert st2.tunnels == 2 and len(t2) == 2
 
 
 def test_a_mouth_off_the_cover_whose_ramp_reaches_the_field_is_kept(law):
-    """§29 (1) tests the mouth point AND ITS RAMP REACH: a mapped end 220 m
-    off the apron whose approach runs back ONTO it keeps its mouth (the
-    ramp is built across the field it serves), while the far end of the
-    same bore — no approach, nothing but hillside — is dropped."""
+    """§29 (1) tests the mouth point AND ITS RAMP REACH: a mapped end far
+    outside the standoff of every cell, whose approach corridor runs ON
+    to a cell beyond it, keeps its mouth (the ramp is built across the
+    field it serves); the other end of the same bore — nothing but
+    hillside beyond it — is dropped."""
     so = law.tables.structures.tunnel.mouth_standoff_m
     x = 80.0 + 4.0 * so                                   # far outside the standoff
-    cl2, tunnels, st = _run(law, ((x, -6.0), (x + 700.0, -6.0)),
-                            (((x, -6.0), (-900.0, -6.0)),))
+    far = Cell(3, "apron", "apron2", _rect(x + 2.0 * so, -60, x + 4.0 * so, 60), (), None,
+               None, "airside", "apron", {})
+    cl2, tunnels, st = _run(law, ((-2000.0, -6.0), (x, -6.0)),
+                            (((x, -6.0), (x + 900.0, -6.0)),), (far,))
     assert st.mouths == 1 and st.mouths_off_field == 1
-    assert st.bores_no_mouth == 0 and st.tunnels == 1
+    assert st.bores_no_mouth == 0
+    assert st.tunnels == 1
     assert tunnels[0].axis[0][0] == pytest.approx(x, abs=1.0)

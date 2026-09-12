@@ -114,6 +114,22 @@ tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-z
 motion_step_m = 0.05  # §31 (1) MOTION: a step or ridge over this between welded neighbours of two ROLLED-ON roles (the runway family, the taxi family, the apron/stands of precedence.toml) is CRITICAL; the aircraft feels it
 visual_m      = 0.5   # §31 (1) VISUAL: off those surfaces a cut / rise / seam / float / burial / terrace under this is invisible to the pilot and is REPORTED, never gated; over it, a defect
 approach_km   = 5.0   # §31 (2) the APPROACH range: terrain within this of a runway axis is seen on final and climb-out; a visual defect beyond it, and outside the airport boundary, is a REPORT
+# §31 (7) THE CLIFF (owner RULINGS 2026-09-12af).  A SPANNED step-family row
+# is a SLOPE and is REPORT (12ad) — but only up to a point: a row whose
+# implied grade |dz| / span exceeds this is a CUT or a RISE, not ground, and
+# comes back as the defect it is (CRITICAL VISUAL in view; on rolled-on
+# pavement CRITICAL MOTION, because no aircraft rolls a 1:3).  LEMD's
+# `strip_seam_tear` — 8.27 m over 3.01 m, a 275 % slope — is the row that
+# made the rule.
+#
+# IT IS A REFERENCE, NOT A NUMBER.  The value is the DESIGN SURFACE'S OWN
+# BANK: `[design] bank_slope`, "an embankment / cut slope a pilot reads as
+# ground, not a wall" — the steepest thing this engine ever builds as
+# natural ground, which is exactly the line the ruling draws.  Writing 0.33
+# again here would be a second copy of one law that could drift from the
+# first; the accessor resolves this dotted path (`tables.cliff_grade`) and
+# the loader REFUSES a path that does not name a grade in (0, 1].
+cliff_grade   = "emit.design.bank_slope"   # §31 (7): the 1:3 bank, read from where it already lives
 
 [lateral_contiguity]
 # THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,

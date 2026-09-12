@@ -8454,9 +8454,10 @@ COCKPIT_BUCKETS: Tuple[str, ...] = (COCKPIT_MOTION, COCKPIT_VISUAL,
                                     COCKPIT_REPORT)
 
 #: The owner rulings this block reads under, quoted in its heading.  12ad
-#: is round 2's SPAN RULE: a step-family row read over more than the law's
-#: weld spacing is a SLOPE, judged by its cap, and is REPORT.
-COCKPIT_RULING = "2026-09-12x/12y/12ad"
+#: is round 2's SPAN RULE (a step-family row read over more than the law's
+#: weld spacing is a SLOPE, judged by its cap, and is REPORT) and 12af is
+#: round 3's CLIFF ESCAPE, which bounds it.
+COCKPIT_RULING = "2026-09-12x/12y/12ad/12af"
 
 _COCKPIT_LAW_CACHE: Optional[dict] = None
 
@@ -8464,8 +8465,8 @@ _COCKPIT_LAW_CACHE: Optional[dict] = None
 def cockpit_law(*, refresh: bool = False) -> dict:
     """THE COCKPIT FRAME's own numbers, from the law tables.
 
-    ``{motion_step_m, visual_m, approach_km, approach_m, rolled_on,
-    runway_family, family_class}`` — the three ``emit.toml [cockpit]`` keys, the ROLLED-ON
+    ``{motion_step_m, visual_m, approach_km, approach_m, cliff_grade,
+    weld_tol_m, rolled_on, runway_family, family_class}`` — the three ``emit.toml [cockpit]`` keys, the ROLLED-ON
     role set derived from ``precedence.toml``, and every law family's
     declared cockpit class from ``families.toml``.
 
@@ -8493,6 +8494,9 @@ def cockpit_law(*, refresh: bool = False) -> dict:
         "approach_km": float(ck.approach_km),
         "approach_m": float(ck.approach_km) * 1000.0,
         "rolled_on": frozenset(_T.rolled_on_roles(law)),
+        # §31 (7) THE CLIFF (RULINGS 2026-09-12af), resolved from the design
+        # surface's own bank slope — never a number typed here
+        "cliff_grade": float(_T.cliff_grade(law)),
         # §31 (1) says "between WELDED NEIGHBOURS", and owner RULINGS
         # 2026-09-12ad made that clause a BUCKET RULE: a step-family row
         # whose two ends are farther apart than this is a SLOPE — grade,
@@ -8614,6 +8618,14 @@ def cockpit_classify(family: str, row, *, law: dict,
       threshold and no span test to apply;
     * a WELDED ``step``-class row over ``visual_m`` that is IN VIEW is
       CRITICAL VISUAL — a sharp cut, rise, seam or tear the pilot sees;
+    * §31 (7) THE CLIFF ESCAPE (owner RULINGS 2026-09-12af): a SPANNED row
+      whose implied grade ``|dz| / span`` exceeds ``cliff_grade`` — the
+      design surface's own 1:3 bank, the steepest slope it builds as
+      natural ground — is a CUT or a RISE, not a slope, and is judged as
+      though it were welded, under the reason ``cliff``.  LEMD's
+      ``strip_seam_tear``, 8.27 m over 3.01 m, is the row that made the
+      rule; on rolled-on pavement such a row is CRITICAL MOTION, because
+      no aircraft rolls a 1:3;
     * everything else is REPORT: every SPANNED step-family reading, every
       ``grade``-class slope excess, every ``keepout`` presence row,
       everything under a threshold, and every visual row beyond the
@@ -8630,21 +8642,31 @@ def cockpit_classify(family: str, row, *, law: dict,
     if cls == "step":
         over_motion = both_rolled and mag > law["motion_step_m"]
         over_visual = mag > law["visual_m"]
-        if float(getattr(row, "distance_m", 0.0) or 0.0) > law["weld_tol_m"]:
+        span = float(getattr(row, "distance_m", 0.0) or 0.0)
+        cliff = span > 0.0 and (mag / span) > law["cliff_grade"]
+        if span > law["weld_tol_m"] and not cliff:
             # 12ad: the row is a SLOPE.  Reported with WHICH threshold it
             # would have crossed had it been welded, so the count the
             # ruling moved stays visible instead of vanishing into a total.
             return COCKPIT_REPORT, ("spanned_over_motion" if over_motion
                                     else "spanned_over_visual" if over_visual
                                     else "spanned")
+        # §31 (7) THE CLIFF ESCAPE (owner RULINGS 2026-09-12af): a spanned
+        # row steeper than the design surface's own bank is a CUT or a
+        # RISE, not ground, and returns to the bucket it would have had
+        # welded — under its own name, so the reader can see which of the
+        # critical rows are cliffs rather than joints.  It restores the
+        # BUCKET, never the threshold: a 0.4 m cliff is still under
+        # ``visual_m`` and still invisible.
+        step_why = "cliff" if (cliff and span > law["weld_tol_m"]) else None
         if over_motion:
-            return COCKPIT_MOTION, "step_on_pavement"
+            return COCKPIT_MOTION, step_why or "step_on_pavement"
         if over_visual:
             in_view, why = cockpit_in_view(
                 geometry, getattr(row, "lat", None), getattr(row, "lon", None),
                 law["approach_m"])
             if in_view:
-                return COCKPIT_VISUAL, why
+                return COCKPIT_VISUAL, step_why or why
             return COCKPIT_REPORT, "beyond_view"
         return COCKPIT_REPORT, ("under_motion" if both_rolled
                                 else "under_visual")
@@ -8748,6 +8770,7 @@ def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
         "unlocated_rows": unlocated,
         "step_exempt_rows": exempt,
         "weld_tol_m": law["weld_tol_m"],
+        "cliff_grade": law["cliff_grade"],
         COCKPIT_MOTION: _pack(COCKPIT_MOTION),
         COCKPIT_VISUAL: _pack(COCKPIT_VISUAL),
         COCKPIT_REPORT: _pack(COCKPIT_REPORT),
@@ -8765,6 +8788,30 @@ def _cockpit_where(d: dict) -> str:
     return f"{float(lat):.7f},{float(lon):.7f}"
 
 
+#: How each cockpit reason reads in the block, so a critical bucket names
+#: WHAT its rows are rather than leaving the reader to subtract counts.
+#: (Round 3 printed "N a forbidden grade BREAK" for N cliffs, because the
+#: line took a residual instead of the tally.)
+COCKPIT_REASON_TEXT: Dict[str, str] = {
+    "step_on_pavement": "a WELDED step between two rolled-on faces",
+    "grade_break": "a forbidden grade BREAK, which carries no span test",
+    "cliff": "a CLIFF steeper than the design surface's own bank, judged "
+             "as if welded (§31 (7))",
+    "taxi": "inside the airport boundary",
+    "approach": "in the approach corridor",
+    "unlocated": "carrying no coordinate, so read as IN VIEW",
+}
+
+
+def _cockpit_why(b: dict, c: dict) -> str:
+    """One critical bucket's REASON TALLY — never an arithmetic residual."""
+    parts = [f"{n} {COCKPIT_REASON_TEXT.get(k, k)}"
+             for k, n in sorted(b["reasons"].items(), key=lambda q: -q[1])]
+    return (f"{b['welded']} between WELDED neighbours <= "
+            f"{c['weld_tol_m']:g} m apart"
+            + ("; " + ", ".join(parts) if parts else ""))
+
+
 def cockpit_block_lines(c: dict) -> List[str]:
     """The COCKPIT block as the lines every reader prints — ONE
     implementation, called by ``tools/harness/census.py``, by this
@@ -8778,17 +8825,16 @@ def cockpit_block_lines(c: dict) -> List[str]:
         f"what he sees, and what is report) ---",
         f"  frame: motion {c['motion_step_m']:g} m on rolled-on pavement "
         f"({', '.join(c['rolled_on'])}); visual {c['visual_m']:g} m within "
-        f"the boundary or {c['approach_km']:g} km of a runway axis; "
+        f"the boundary or {c['approach_km']:g} km of a runway axis; a "
+        f"SPANNED row steeper than {c['cliff_grade']:g} "
+        f"(1:{1.0 / c['cliff_grade']:.2g}, the design surface's own bank) "
+        f"is a CLIFF and is judged as if welded; "
         f"{frame}; {c['rows']} census row(s) classified"
         + (f", {c['unlocated_rows']} with no coordinate (read as IN VIEW)"
            if c.get("unlocated_rows") else ""),
         f"  CRITICAL motion: {mo['n']}"
-        + (f" ({mo['welded']} between WELDED neighbours <= "
-           f"{c['weld_tol_m']:g} m apart"
-           + (f", {mo['n'] - mo['welded']} a forbidden grade BREAK, which "
-              f"carries no span test"
-              if mo["n"] - mo["welded"] else "")
-           + f") — worst {mo['worst_m']:.3f} m over {mo['worst_over_m']:g} m  "
+        + (f" ({_cockpit_why(mo, c)})"
+           f" — worst {mo['worst_m']:.3f} m over {mo['worst_over_m']:g} m  "
            f"{mo['worst_family']} [{mo['worst_roles']}]  at "
            f"{_cockpit_where(mo)}"
            if mo["n"] else " (none: no WELDED step over "
@@ -8801,7 +8847,7 @@ def cockpit_block_lines(c: dict) -> List[str]:
                    f"at {r['lat']},{r['lon']}")
     out.append(
         f"  CRITICAL visual: {vi['n']}"
-        + (f" (all welded <= {c['weld_tol_m']:g} m)"
+        + (f" ({_cockpit_why(vi, c)})"
            f" — worst {vi['worst_m']:.3f} m over {vi['worst_over_m']:g} m  "
            f"{vi['worst_family']} [{vi['worst_roles']}]  at "
            f"{_cockpit_where(vi)}"

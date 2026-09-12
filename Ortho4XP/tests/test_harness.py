@@ -8137,12 +8137,19 @@ def test_a_forbidden_grade_break_carries_no_span_test(cg):
         assert cg.cockpit_classify(
             "raoa", _CkStep("runway", "runway", 0.02, distance_m=d),
             law=law) == (cg.COCKPIT_MOTION, "grade_break")
-    # ...and off rolled-on pavement it is REPORT at any distance (the
-    # graded strip's own arc rate: nothing rolls there)
+    # ...and off rolled-on pavement a rate row is REPORT — it is the
+    # graded strip's own arc law and nothing rolls there
     assert cg.cockpit_classify(
         "strip_arc", _CkStep("graded_strip", "graded_strip", 3.0,
-                             distance_m=0.1), law=law)[0] == \
+                             distance_m=100.0), law=law)[0] == \
         cg.COCKPIT_REPORT
+    # unless the same row is ALSO a CLIFF, which every family can be
+    # since 12aj (c): 3 m over 5 m of strip is a wall, and the pilot sees
+    # walls wherever they stand
+    assert cg.cockpit_classify(
+        "strip_arc", _CkStep("graded_strip", "graded_strip", 3.0,
+                             distance_m=5.0), law=law) == (
+        cg.COCKPIT_VISUAL, "cliff")
 
 
 def test_the_same_step_on_a_car_park_is_report(cg):
@@ -8229,9 +8236,13 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
                                   lat=0.001, lon=0.001),
                           _CkStep("building", "building", 9.9,
                                   lat=0.001, lon=0.001)],
-        "within_shape": [_CkStep("runway", "runway", 4.0)],
-        "raoa": [_CkStep("runway", "runway", 0.02)],
-        "wall_in_runway_strip": [_CkStep("retaining_wall", "runway", 9.0)],
+        # a 4 m rise over 200 m of runway is a 2 % SLOPE: grade, REPORT.
+        # (Over 2 m it would be a cliff and CRITICAL MOTION — 12aj (c),
+        # twinned in test_the_cliff_escape_reaches_every_family.)
+        "within_shape": [_CkStep("runway", "runway", 4.0, distance_m=200.0)],
+        "raoa": [_CkStep("runway", "runway", 0.02, distance_m=60.0)],
+        "wall_in_runway_strip": [_CkStep("retaining_wall", "runway", 9.0,
+                                         distance_m=100.0)],
     }
     c = cg.cockpit_block(rows_by_family, geometry=_ck_geometry(cg))
     # the LAW's own step exemption is applied first and counted, never
@@ -8309,3 +8320,176 @@ def test_the_object_stage_reads_the_same_three_law_keys():
     assert "COCKPIT CRITICAL visual: 1" in txt
     # the refusal set under the threshold is REPORT, never dropped
     assert "refused carrier" in txt
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §7b THE THREE READER DEFECTS (owner RULINGS 2026-09-12aj, round 4)
+# ══════════════════════════════════════════════════════════════════════
+# All three were found by the cockpit block pointing at a place, a scout
+# going there, and the place being wrong.  Each is pinned at the reader,
+# not at the block: an instrument that cannot say WHERE, or that halves
+# the span its own number is taken over, or that reads the ring a pair
+# was walked on instead of the faces that meet there, will mislead the
+# next attribution the same way.
+
+def test_a_rate_row_carries_its_own_midpoint_not_its_rings_centroid(cg):
+    """(a), the strong form — on the reader's own output.
+
+    A ring whose vertices span hundreds of metres has ONE centroid; a
+    rate row found on it has a place of its own.  Built here as a
+    synthetic ring so the two are far apart on purpose (that separation
+    IS the defect: 560 m at LEMD)."""
+    inv_calls = []
+
+    class _LLM:
+        def __call__(self, lat, lon):
+            return (lon * 1000.0, lat * 1000.0)
+
+        def inverse(self, x, y):
+            inv_calls.append((x, y))
+            return (y / 1000.0, x / 1000.0)
+
+    ll = _LLM()
+    lat, lon = cg._rate_row_site(ll, (100.0, 200.0), (300.0, 600.0))
+    assert (lat, lon) == pytest.approx((0.4, 0.2))
+    assert len(inv_calls) == 2
+    # a projection with no inverse degrades to "no coordinate", never to
+    # a wrong one
+    assert cg._rate_row_site(lambda a, b: (0.0, 0.0), (0.0, 0.0),
+                             (1.0, 1.0)) == (None, None)
+    # and the census's own projection round-trips
+    f = cg._ll_to_m_factory({"1": (40.49, -3.59)}, anchor=(40.49, -3.59))
+    x, y = f(40.4946510, -3.5903587)
+    back = f.inverse(x, y)
+    assert back == pytest.approx((40.4946510, -3.5903587), abs=1e-9)
+
+
+def test_a_rate_rows_span_is_the_separation_its_de_is_taken_over(cg):
+    """(b) ``de_m`` spans a -> c = ``dp + dn``; ``distance_m`` published
+    the HALF span ``0.5*(dp + dn)``, which is the rate law's averaging
+    term and not the row's geometry.  Every implied grade therefore read
+    2x — LEMD's five apron rate rows printed 0.37-0.46 and are really
+    0.20-0.23, so the cliff rule promoted five slopes it should not have.
+
+    Both the block's WELD test and its SLOPE/CLIFF rule read
+    ``distance_m``; this pins the three readers that build it."""
+    src = (ROOT / "tools" / "check_grade.py").read_text()
+    assert "distance_m=0.5 * (dp + dn)" not in src
+    assert "span = 0.5 * (dp + dn)" not in src
+    # the ALLOWANCE keeps the half span — it is the rate law's own term
+    assert src.count("* 0.5 * (dp + dn)") == 3, (
+        "the three rate readers price their allowance at the half span "
+        "(the law's averaging term); only distance_m changed")
+    assert src.count("distance_m=dp + dn") == 3
+    # ...and on a real patch: no rate row's published span is under the
+    # straight-line separation of its own endpoints, and every one of
+    # them carries a coordinate of its own rather than its ring's
+    # centroid (the (a) defect, asserted on the same population)
+    import math
+    fam: dict = {}
+    cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True, family_out=fam,
+                  **cg.LAW_TRUE_KNOBS)
+    seen = 0
+    for key in ("airside_no_step", "strip_arc", "raoa"):
+        for r in fam.get(key, ()) or ():
+            if r.way_a is not r.way_b or r.pt_a is None:
+                continue
+            seen += 1
+            sep = math.hypot(r.pt_a[0] - r.pt_b[0], r.pt_a[1] - r.pt_b[1])
+            # ``airside_no_step``'s station coordinate is ARC LENGTH along
+            # the polyline, so its span is at least the chord.  The other
+            # two project onto an axis (the runway's, the RAOA's), so
+            # theirs can fall a little under it — what must never happen
+            # again is the HALF span, and 0.55x is the bound that says so
+            # whatever the obliquity.
+            floor = sep - 1e-6 if key == "airside_no_step" else 0.55 * sep
+            assert float(r.distance_m) >= floor, (
+                f"{key}: distance_m {r.distance_m} against a straight-line "
+                f"separation {sep} of its own endpoints — the half-span "
+                f"defect (12aj (b))")
+            assert r.lat is not None and r.lon is not None, (
+                f"{key}: a rate row with no coordinate falls back to its "
+                f"RING CENTROID (12aj (a))")
+    assert seen, "the fixture carries no rate row — the twin proves nothing"
+
+
+def test_a_shared_vertex_reads_the_senior_face_not_the_ring(cg):
+    """(c) ``row_roles`` read the RING a pair was walked on, so a
+    within-shape pair on LEMD's pad ``building12`` reported
+    ``building|building`` — although its vertex is SHARED with apron
+    ``pav12`` and the law's own answer to who owns a shared value is the
+    SENIOR face.  The block's rolled-on test therefore called the 81 %
+    rise in front of four heavy stands "landside, visual only"."""
+    class _W:
+        def __init__(self, role):
+            self.tags = {"role": role}
+
+    class _Row:
+        way_a = _W("building")
+        way_b = _W("building")
+        de_m = 1.22
+        distance_m = 1.498
+        lat = lon = None
+        role_a = role_b = None
+
+    r = _Row()
+    assert cg.row_roles(r) == ("building", "building")
+    # ...and once run_checks has stamped the faces that meet there
+    r.role_a = r.role_b = "apron"
+    assert cg.row_roles(r) == ("apron", "apron")
+    # the stamp is the SENIOR face by the emitter's own authority rank,
+    # which is where "apron beats building" comes from — not a literal
+    assert cg._authority_rank("apron") < cg._authority_rank("building")
+
+
+def test_the_cliff_escape_reaches_every_family(cg):
+    """(c) The escape lived inside the ``step`` branch, so the two
+    SHARPEST readings of LEMD's T4S wall could not be cliffs at all:
+    ``within_shape`` and ``cross_shape`` are class ``grade``, and a grade
+    class meant REPORT however steep.  A cut is a cut whichever family
+    found it."""
+    law = cg.cockpit_law(refresh=True)
+    geo = _ck_geometry(cg)
+
+    class _W:
+        def __init__(self, role):
+            self.tags = {"role": role}
+
+    def _row(fam_roles, de, dist, lat=None, lon=None, faces=None):
+        class _R:
+            pass
+        r = _R()
+        r.way_a, r.way_b = _W(fam_roles[0]), _W(fam_roles[1])
+        r.de_m, r.distance_m = de, dist
+        r.lat, r.lon = lat, lon
+        r.role_a, r.role_b = (faces or (None, None))
+        return r
+
+    # LEMD's own two rows, at their true numbers
+    wall = _row(("building", "building"), 1.22, 1.498, faces=("apron", "apron"))
+    assert cg.cockpit_classify("within_shape", wall, law=law,
+                               geometry=geo) == (cg.COCKPIT_MOTION, "cliff")
+    cross = _row(("apron", "apron"), 1.20, 0.499)
+    assert cg.cockpit_classify("cross_shape", cross, law=law,
+                               geometry=geo) == (cg.COCKPIT_MOTION, "cliff")
+    # a grade row that is a SLOPE is still REPORT, however big
+    assert cg.cockpit_classify(
+        "within_shape", _row(("apron", "apron"), 3.0, 200.0), law=law,
+        geometry=geo) == (cg.COCKPIT_REPORT, "grade")
+    # off rolled-on pavement a grade cliff is VISUAL, and only over
+    # visual_m: the escape restores the bucket, never the threshold
+    assert cg.cockpit_classify(
+        "within_shape", _row(("parking_lot", "parking_lot"), 1.0, 1.0,
+                             lat=0.001, lon=0.001),
+        law=law, geometry=geo) == (cg.COCKPIT_VISUAL, "cliff")
+    assert cg.cockpit_classify(
+        "within_shape", _row(("parking_lot", "parking_lot"), 0.4, 1.0,
+                             lat=0.001, lon=0.001),
+        law=law, geometry=geo)[0] == cg.COCKPIT_REPORT
+    # and LEMD's five rate rows, at their TRUE span, are slopes again
+    for de, span in ((1.22, 5.49), (1.22, 5.99), (1.27, 5.49),
+                     (1.23, 5.99), (1.28, 6.10)):
+        assert cg.cockpit_classify(
+            "airside_no_step", _row(("apron", "apron"), de, span),
+            law=law, geometry=geo) == (cg.COCKPIT_REPORT,
+                                       "spanned_over_motion")

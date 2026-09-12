@@ -643,8 +643,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # under the bridge the mesh triangulates), never void
             wall_geom = outer.difference(unary_union([ramp, du]))
         ramp_parts = _parts(ramp_geom)
-        # a door ramp is its own role (09-08b/c: the tunnel_ramp cap is 4 %
-        # in both instruments, the door law 8 %); its ref is the role; a
+        # a door ramp is its own role (09-08b/c; since 09-12m both face caps
+        # are the road 8 %, but the generation and oracle law differ); a
         # wall corridor names its own (Law C: wall_corridor_ramp / garage_ramp)
         ramp_role = g.ramp_role or ("door_ramp" if g.kind == "door" else "tunnel_ramp")
         for part in ramp_parts:

@@ -1303,7 +1303,8 @@ except Exception:                                      # pragma: no cover
 # the cut leaves in the pavement — and OTHH's two rings (-12315/-12316)
 # minted 78 step + 9 within-shape rows purely by falling through to the
 # CALLER's default cap (1.5 %) and to AIRSIDE, while the ring's own host is
-# the 4 % groundside tunnel ramp whose vertices it literally is.
+# the groundside tunnel ramp whose vertices it literally is (4 % then,
+# 8 % since RULINGS 2026-09-12m: this clause is the HOST CAP, not a number).
 #
 # THE SCOPE, AND WHY IT IS NOT A ROLE STAMP.  The cap clause is applied
 # through ``law_role`` — ONE accessor, read by the ONE cap resolver

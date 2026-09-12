@@ -387,10 +387,15 @@ class TestRunReachesGrade:
     def test_climbing_ground_extends_the_run_past_the_r14_minimum(
         self, monkeypatch
     ) -> None:
-        # Ground climbs 1 %; the ramp climbs 3.5 %.  It closes the
+        # Ground climbs 5 %; the ramp climbs 7.5 %.  It closes the
         # clearance depth at 2.5 %/m, so it meets the ground at
         # depth/0.025 — about twice the R14 minimum run.
-        climb = 0.01
+        # (RULINGS 2026-09-12m took the ramp cap 4 % -> 8 %; the closing
+        # RATE this twin is about is unchanged, so the scene's ground
+        # climb moved 1 % -> 5 % with it.  At the old 1 % the ramp now
+        # closes 6.5 %/m and the R14 floor binds instead — a different
+        # twin, the flat one below.)
+        climb = 0.05
         layout = _install_scene(monkeypatch, climb_rate=climb)
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
@@ -416,17 +421,21 @@ class TestRunReachesGrade:
     def test_flat_ground_run_is_grade_sized_and_under_200_m(
         self, monkeypatch
     ) -> None:
-        # NO 200 m MINIMUM COMES BACK.  On flat ground the run is exactly
-        # what the emitted grade needs — depth/3.5 % ≈ 146 m — even
-        # though the walk is 400 m long and ``ramp_min_length_m``
-        # defaults to 200 m.
+        # NO 200 m MINIMUM COMES BACK.  On flat ground the run is the
+        # LONGER of what the emitted grade needs and the R14 floor
+        # (depth / TUNNEL_APPROACH_GRADE) — never the 200 m
+        # ``ramp_min_length_m``, even though the walk is 400 m long.
+        # RULINGS 2026-09-12m: at the road cap the ramp needs only
+        # depth/7.5 % ≈ 68 m, so it is the R14 5 % FLOOR that binds here
+        # now (≈ 102 m) — at the old 4 % it was the grade (≈ 146 m).
         layout = _install_scene(monkeypatch, climb_rate=0.0)
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         reach = _east_ramp_reach_m(layout)
-        assert reach == pytest.approx(BORE_DEPTH_M / EMIT_GRADE, abs=12.0)
+        assert reach == pytest.approx(
+            max(BORE_DEPTH_M / EMIT_GRADE, R14_MINIMUM_RUN_M), abs=12.0)
         assert reach < 200.0, reach
-        assert reach > R14_MINIMUM_RUN_M   # the 5 % sizing was shorter
+        assert reach >= R14_MINIMUM_RUN_M - 1e-6
 
     def test_falling_ground_keeps_the_r14_minimum_run(
         self, monkeypatch

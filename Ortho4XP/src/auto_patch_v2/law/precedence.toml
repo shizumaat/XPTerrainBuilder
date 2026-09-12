@@ -42,7 +42,10 @@ junction            = { family = "taxi",   side = "airside",    value = true,  a
 tunnel_ramp         = { family = "common", side = "groundside", value = true,  aeroway = "taxiway", structure = true }
 # THE DOOR RAMP (RULINGS 2026-09-08b/c; spec othh-terminal-ramps-spec.md §2 / §4):
 # a basement access door's ramp, a structure face of its own class — the
-# tunnel_ramp cap is 4 % in BOTH instruments and the door law is 8 %.  Omitted
+# tunnel_ramp cap is 8 % in BOTH instruments (RULINGS 2026-09-12m: the road
+# cap; it was 4 % when this role was minted) and the door law is the same 8 %.
+# The door ramp stays its OWN role: same cap, different generation and
+# oracle law (structure_ramp 10 %).  Omitted
 # from [authority] order (a governed role the order omits follows the named
 # ones); groundside like the tunnel ramp.  The oracle reads it under
 # tunnel_ramp (its partition and structure semantics) and prices it at the

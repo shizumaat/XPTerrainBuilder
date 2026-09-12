@@ -8052,7 +8052,11 @@ def _emit_tunnel_portals(
         tile_lat: int,
         tile_lon: int,
         tunnel_depth_m: float = 8.0,
-        max_ramp_grade: float = 0.04,
+        # RULINGS 2026-09-12m (owner): the ramp cap is the ROAD cap.  The
+        # number is NOT retyped here — ``None`` resolves to
+        # ``_CFG.TUNNEL_RAMP_MAX_GRADE`` at CALL time (never a bound copy,
+        # the same discipline as BRIDGE_ROAD_CLEARANCE_M above).
+        max_ramp_grade: float | None = None,
         ramp_min_length_m: float = 200.0,
         arm_max_length_m: float = 500.0,
         carriageway_width_m: float = TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M,
@@ -8179,7 +8183,9 @@ def _emit_tunnel_portals(
     # a recognisable approach.  The planning grade is reduced by
     # 0.005 to leave headroom for the 0.1 m altitude rounding —
     # without it, short segments (e.g. 9 m) could round up to
-    # ~4.4 % when the design grade is exactly 4 %.
+    # ~4.4 % when the design grade is exactly at the cap.
+    if max_ramp_grade is None:                       # RULINGS 2026-09-12m
+        max_ramp_grade = float(_CFG.TUNNEL_RAMP_MAX_GRADE)
     plan_grade = max(
         max_ramp_grade - TUNNEL_RAMP_GRADE_SAFETY_MARGIN, 1e-3)
     # A surface gap between two bores shorter than a full down+up ramp
@@ -14793,7 +14799,11 @@ def _emit_through_airport_depressed_roads(
         xplane_root: str,
         icao: str,
         depression_depth_m: float = 8.0,
-        max_ramp_grade: float = 0.04,
+        # RULINGS 2026-09-12m (owner): the ramp cap is the ROAD cap.  The
+        # number is NOT retyped here — ``None`` resolves to
+        # ``_CFG.TUNNEL_RAMP_MAX_GRADE`` at CALL time (never a bound copy,
+        # the same discipline as BRIDGE_ROAD_CLEARANCE_M above).
+        max_ramp_grade: float | None = None,
         ramp_min_length_m: float = 200.0,
         arm_max_length_m: float = 500.0,
         road_width_m: float = 22.0,
@@ -14820,7 +14830,8 @@ def _emit_through_airport_depressed_roads(
       2. At each boundary entry/exit point, a ramp polygon
          OUTSIDE the airport that climbs from the depressed
          level back up to the local DEM, capped at
-         ``max_ramp_grade`` (default 4 %).
+         ``max_ramp_grade`` (default: ``config.TUNNEL_RAMP_MAX_GRADE``,
+         the road cap since RULINGS 2026-09-12m).
 
     Per user 2026-04-29 (KPHX Sky Harbor Blvd): when a road
     passes under multiple airport bridges, the road MUST be
@@ -14866,6 +14877,8 @@ def _emit_through_airport_depressed_roads(
     if not depressed_set:
         return (0, set())
 
+    if max_ramp_grade is None:                       # RULINGS 2026-09-12m
+        max_ramp_grade = float(_CFG.TUNNEL_RAMP_MAX_GRADE)
     plan_grade = max(
         max_ramp_grade - TUNNEL_RAMP_GRADE_SAFETY_MARGIN, 1e-3)
     arm_walk_max_m = max(arm_max_length_m, ramp_min_length_m,

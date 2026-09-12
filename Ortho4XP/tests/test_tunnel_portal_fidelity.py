@@ -609,7 +609,12 @@ class TestRampInternalCornerAgreement:
                (60.0, 14.0), (80.0, 22.0)]
     _ARM_A = _SHARED + [(110.0, 40.0), (150.0, 70.0)]
     _ARM_B = _SHARED + [(110.0, 20.0), (150.0, 0.0)]
-    _FAR_DEM = 104.0
+    # RULINGS 2026-09-12m took the ramp cap 4 % -> 8 %: at the old far DEM
+    # the walk's nominal grade (7.1 %) no longer OVERRAN the law, so the
+    # clamp this class exists to exercise never fired.  The scene's far DEM
+    # rose 104 -> 110 m to keep the nominal grade (10.6 %) over the cap —
+    # the guard below asserts it.
+    _FAR_DEM = 110.0
 
     def _emit(self):
         layout = SimpleNamespace(shapes=[])

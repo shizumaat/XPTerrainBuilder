@@ -16,7 +16,8 @@ within ``cutout.door.max_length_m``; the ramp is the sill's width; the
 rim ``rim_standoff`` of the well's side walls inside the well (09-08a),
 the OSM stand-off beyond it; the ramp STOPS at a pavement it would
 enter (``Group.stop_at_pavement``).  A ``door_ramp`` face, never
-``tunnel_ramp`` (spec §4: the 4 % cap of both instruments).
+``tunnel_ramp`` (spec §4: a different generation and a different
+oracle law; since RULINGS 2026-09-12m the two FACE caps are both 8 %).
 
 LAW B — the SUNKEN ROAD.  s = 0 at the deep-end cut (the plate at
 ``max_depth_m``), the axis the plate's own to the top, the floor the

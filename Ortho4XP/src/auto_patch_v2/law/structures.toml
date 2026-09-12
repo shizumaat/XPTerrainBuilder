@@ -8,7 +8,7 @@ bore_datum_m      = 5.1     # the mouth wall node stands this above the ramp's m
 wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad
-ramp_max_grade    = 0.040   # descent grade of the ramp (common.roles.tunnel_ramp; user 2026-05-08)
+ramp_max_grade    = 0.080   # descent grade of the ramp (common.roles.tunnel_ramp; RULINGS 2026-09-12m owner: the road cap, was 0.040 user 2026-05-08) — never above that role cap (checked at load)
 bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
 ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
@@ -155,7 +155,7 @@ seat             = "none"           # the family is NEVER re-seated by its trenc
 # kind "II"); the FLOOR is the walls' BOTTOM edge PER STATION (08n: level —
 # the underpass, the bays — or DESCENDING — a garage ramp: the wall bottom
 # runs from grade down to the garage floor, cut AS AUTHORED, the mouth where
-# it meets grade, the deep end closed by the garage; the 4 % / 8 % ramp laws
+# it meets grade, the deep end closed by the garage; the ramp laws (8 %)
 # do not gate a pack-authored ramp, max_authored_grade refuses loudly above
 # it); an end is CLOSED when a family vertical face crosses it within
 # tunnel.object.end_cap_open_m (over end_cap_cover_min of the end line), else

@@ -729,8 +729,9 @@ def test_a_role_less_interior_ring_is_judged_at_its_hosts_cap(cg):
     pavement — is judged at its HOST shape's role, cap and SIDE, not at the
     caller's airside default.  OTHH's two rings (-12315/-12316) minted 78
     step + 9 within-shape rows purely by falling through to 1.5 %/airside
-    while their host was the 4 % groundside tunnel ramp whose vertices they
-    are."""
+    while their host was the groundside tunnel ramp whose vertices they are
+    (4 % then, 8 % since RULINGS 2026-09-12m -- this twin is about the
+    host-cap CLAUSE, not the number)."""
     class _W:
         def __init__(self, **tags):
             self.tags = dict(tags)
@@ -7783,8 +7784,8 @@ def test_a_structure_ramp_is_priced_at_the_ramp_laws_ceiling(cg, tmp_path):
         f"a 10.5 % ramp priced {len(steep['within_shape'])} row(s): the "
         f"ceiling must still BIND")
     assert steep["within_shape"][0].cap_pct == pytest.approx(10.0), (
-        "the row must be priced at the RAMP law, not at tunnel_ramp's 4 % "
-        "nor service_road's 8 %")
+        "the row must be priced at the RAMP law (10 %), not at the road 8 % "
+        "the tunnel ramp and the service road now share (RULINGS 2026-09-12m)")
     # and the old law is what minted them: the same 8.2 % ramp under
     # service_road's 8 % reports
     old = _families(cg, _ramp_patch(tmp_path, grade=0.082, law="service_road",

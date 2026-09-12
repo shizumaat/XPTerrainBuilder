@@ -1416,7 +1416,7 @@ RUNWAY_END_FRACTION = 0.25      # extent of each runway end zone (fraction of le
 # genuinely infeasible even with the outer end zone fully at the 1.5% law
 # (then the solver WARNs loudly with the achieved threshold-band cap).
 RUNWAY_THRESHOLD_STRICT_M = 90.0
-TUNNEL_RAMP_MAX_GRADE = 0.040   # navigable ramp grade for tunnel portals (user 2026-05-08)
+TUNNEL_RAMP_MAX_GRADE = 0.080   # RULINGS 2026-09-12m (owner): a tunnel ramp takes the ROAD cap (= SERVICE_ROAD_MAX_GRADE, VDOT GS-9); was 0.040 (user 2026-05-08).  This constant is what the CENSUS prices tunnel_ramp at (ROLE_GRADE_LIMITS -> tools/check_grade.py) and the v2 law tables twin it (tests/auto_patch_v2/test_law_tables.py: rulesets tunnel_ramp.longitudinal / structures tunnel.ramp_max_grade) — ONE cap for verify and census
 # THE STRUCTURE RAMP LAW (owner RULINGS 2026-09-08m (a) / 08u (2)): a v2
 # structure's own access ramp — a basement door's ramp, a kerb-wall
 # corridor's climb — is a private vehicle ramp, not a portal taxi ramp

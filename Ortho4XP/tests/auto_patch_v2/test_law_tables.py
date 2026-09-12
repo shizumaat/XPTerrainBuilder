@@ -410,7 +410,9 @@ def test_every_value_equals_v1(tables, capsys):
                              tuple(v1_layout.AUTHORITY_PRECEDENCE) + ("parking_lot",),
                              "owner 2026-09-04j"),
         # RULINGS 2026-09-08b/c: door_ramp is a v2-only role (a basement
-        # access door's 8 % ramp; tunnel_ramp caps 4 % in both instruments),
+        # access door's 8 % ramp; since RULINGS 2026-09-12m tunnel_ramp
+        # carries the SAME 8 % road cap in both instruments, the door ramp
+        # keeping its own generation and oracle law),
         # groundside like the tunnel ramp, omitted from the order; the
         # oracle reads it under tunnel_ramp at service_road's law (oracle_law)
         # RULINGS 2026-09-08m/08n Law C: wall_corridor_ramp (10 %) and

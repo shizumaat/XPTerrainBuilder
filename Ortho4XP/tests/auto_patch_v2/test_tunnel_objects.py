@@ -145,6 +145,10 @@ def objs(tmp_path_factory):
         "dir": d,
         "wall": _wall_obj(d / "wall.obj", end_a=True),                        # U, 100 m
         "wall_long": _wall_obj(d / "wall_long.obj", length=160.0, end_a=True),  # U, 160 m
+        # RULINGS 2026-09-12m: the ramp cap is 8 %, so 5 m of depth needs only
+        # 62.5 m — the "walls too short" twin below needs a wall SHORTER than
+        # that (the 100 m "wall" was too short at the old 4 %, and now holds)
+        "wall_short": _wall_obj(d / "wall_short.obj", length=40.0, end_a=True),  # U, 40 m
         "wall_open": _wall_obj(d / "wall_open.obj"),                          # two bands
         "wall_box": _wall_obj(d / "wall_box.obj", end_a=True, end_b=True),     # O
         "arc": _arc_wall_obj(d / "arc.obj"),                                  # curved U
@@ -346,11 +350,15 @@ def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
 
 
 def test_wall_too_short_ramp_beyond_at_ramp_max_grade(objs, law):
-    """A 100 m wall cannot hold 5 m at 4 %: the ramp continues beyond the
-    wall end at exactly ``ramp_max_grade`` along the approach."""
+    """A 40 m wall cannot hold 5 m at 8 % (62.5 m needed): the ramp
+    continues beyond the wall end at exactly ``ramp_max_grade`` along the
+    approach.  (RULINGS 2026-09-12m took the cap 4 % -> 8 %, which halved
+    the ramp: the 100 m wall this twin used to ride is now long enough, so
+    the fixture is the 40 m ``wall_short`` — the MECHANISM is unchanged.)"""
     tn = law.tables.structures.tunnel
     airport, objects, cache, cs, st = _corridors(
-        objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], _bore(y_in=-40.0))
+        objs, law, [("wall_short", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+        _bore(y_in=-15.0, y_open=20.0))
     assert st.corridors == 1, st.refused
     cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)

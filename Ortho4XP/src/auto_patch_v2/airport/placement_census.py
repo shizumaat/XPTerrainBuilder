@@ -190,6 +190,13 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
                                 for fb in b.get("foot_boxes", ()) or ()),
                 "cls": str(b.get("class", "")),
                 "fill": float(b.get("fill", 1.0)),
+                # §16a (2): how far this body's own zero stands from the
+                # ground under its own feet — the law's third carrier
+                # test, read here so the instrument's "beneath" is the
+                # law's own candidate set (CLAUDE.md, one relation read
+                # ONE way)
+                "ground_off": (None if b.get("ground_off") is None
+                               else float(b["ground_off"])),
                 "zero": None if sz is None
                         else float(sz) - float(b.get("y_zero", 0.0)),
                 "feet": int(b.get("feet") or 0),
@@ -205,7 +212,7 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
 def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                kept: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
                *, float_tol_m: float = STANDS_OVER_TOL_M,
-               fill_min: float = 0.0) -> dict:
+               fill_min: float = 0.0, ground_tol_m: float = 0.0) -> dict:
     """§15 (3), over the PLACEMENT PLAN's own rows — the same shape and
     the same code path as :func:`census_v14`.
 
@@ -235,6 +242,16 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     ground = [r for r in rows if r["feet"] and r["box"] and r["zero"] is not None
               and r["cls"] != _ar.LINE_SEGMENT
               and (fill_min <= 0.0 or r["fill"] >= fill_min)]
+    # §16a (2): which of these the LAW REFUSES to let carry anything —
+    # its own zero more than ``ground_tol_m`` from the ground under its
+    # own feet.  The census does NOT drop them from the "beneath"
+    # population: §16a (3) makes ``zero - zero_beneath`` THE bar and says
+    # nothing about narrowing it, and narrowing it at LEMD took the
+    # stands-over population from 610 bodies to 117.  What is reported
+    # instead is how many of the floats are measured against a body the
+    # law refused — the attribution the number needs to be read with,
+    # because a body over a refused carrier rides whatever came next and
+    # the difference is the refusal, not the placement.
     in_unit: dict[_t.Any, list[dict]] = {}
     for g in ground:
         in_unit.setdefault(g["unit"], []).append(g)
@@ -243,6 +260,10 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     n_stands = 0
     cross = 0
     off_sheet = sum(1 for r in rows if r["zero"] is None or not r["box"])
+    refused = {id(g) for g in ground
+               if ground_tol_m > 0.0 and g["ground_off"] is not None
+               and g["ground_off"] > ground_tol_m}
+    over_refused = 0
     for r in rows:
         if r["zero"] is None or not r["box"]:
             continue
@@ -265,6 +286,8 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         if f > float_tol_m:
             (carried_over if r["carried"] else footed_over).append(
                 (f, r["res"], under["res"]))
+            if r["carried"] and id(under) in refused:
+                over_refused += 1
     carried_over.sort(reverse=True)
     footed_over.sort(reverse=True)
     return {"stands_over": n_stands,
@@ -276,6 +299,8 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "off_sheet_bodies": off_sheet,
             "stands_over_other_unit_only": cross,
             "float_tol_m": float_tol_m,
+            "refused_as_carrier": len(refused),
+            "carried_over_refused": over_refused,
             "bars_ok": not carried_over}
 
 
@@ -291,7 +316,11 @@ def census_v15_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            f"— CARRIED {c['carried_float_gt']} (bar 0)"
            + ("" if not c["carried_float_gt"] else
               "   *** §15 (1) VIOLATED (bar 0) ***")
-           + f", footed {c['footed_float_gt']} (reported, not barred)"]
+           + f", footed {c['footed_float_gt']} (reported, not barred)"
+           + (f"; {c['carried_over_refused']} of the carried floats stand "
+              f"over one of the {c['refused_as_carrier']} footed body(ies) "
+              f"the law REFUSES as a carrier (§16a (2))"
+              if c.get("refused_as_carrier") else "")]
     for f, res, under in c.get("carried_worst", ()):
         out.append(f"      carried +{f:.2f} m  {res}  over {under}")
     for f, res, under in c.get("footed_worst", ()):
@@ -425,8 +454,14 @@ def census_v16(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     ``carried ground float``  a CARRIED body (its zero is its carrier's)
                               whose carrier's zero stands more than
                               ``carried_tol_m`` from the ground under its
-                              own geometry: the carrier was the wrong
-                              reading of the ground.  Bar 0.
+                              own geometry.  §16a (3): INFORMATION ONLY.
+                              §16 (3) barred it at 0, and that is the
+                              reading 11aj deletes — walls on sloping
+                              ground anchor at their low-side foot, so a
+                              roof lawfully on its walls reads metres
+                              from the ground under itself.  THE BAR for
+                              a carried body is §15 (3)'s
+                              ``zero - zero_beneath``.
     ``own-geometry ground``   any body whose ground, read under its own
                               geometry, departs more than ``geom_tol_m``
                               from the ground at the row it is placed on
@@ -470,7 +505,9 @@ def census_v16(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "carried_ground_gt": len(carried), "carried_worst": carried[:10],
             "geom_ground_gt": len(wide), "geom_worst": wide[:10],
             "carried_tol_m": carried_tol_m, "geom_tol_m": geom_tol_m,
-            "bars_ok": not carried}
+            # §16a (3): neither number is a bar — §15 (3)'s
+            # ``zero - zero_beneath`` is THE bar for a carried body
+            "bars_ok": True}
 
 
 def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
@@ -479,9 +516,9 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            f"{c['bodies_read']} body(ies) ({c['off_sheet']} off-sheet):",
            f"   §16 CARRIED bodies whose carrier's zero is over "
            f"{c['carried_tol_m']:g} m from the ground under their own "
-           f"geometry: {c['carried_ground_gt']} (bar 0)"
-           + ("" if not c["carried_ground_gt"]
-              else "   *** §16 (3) VIOLATED (bar 0) ***"),
+           f"geometry: {c['carried_ground_gt']} (§16a (3): INFORMATION "
+           f"ONLY — the bar for a carried body is §15 (3)'s "
+           f"zero - zero_beneath)",
            f"   §16 files whose own-geometry ground departs over "
            f"{c['geom_tol_m']:g} m from the ground at their row: "
            f"{c['geom_ground_gt']} (reported; §16 (2)'s re-cut closes it)"]

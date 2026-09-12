@@ -211,6 +211,11 @@ class Body:
     #: carry another body's zero (and therefore, for the census, whether
     #: it is a body another body can be said to STAND OVER at all)
     fill: float = 1.0
+    #: §16a (2): how far this body's own zero stands from the ground
+    #: under its OWN feet — the law's carrier test, published so the
+    #: census asks it too before calling this body "the body beneath".
+    #: ``None`` off-sheet, and for a body that is itself carried.
+    ground_off: float | None = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -224,7 +229,7 @@ class Body:
                 "feet": self.feet,
                 "geom_box": None if self.geom_box is None else list(self.geom_box),
                 "foot_boxes": [list(b) for b in self.foot_boxes],
-                "fill": self.fill}
+                "fill": self.fill, "ground_off": self.ground_off}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
@@ -246,7 +251,9 @@ class Body:
                    else tuple(_f(q) for q in d["geom_box"]),
                    tuple(tuple(_f(q) for q in b)
                          for b in d.get("foot_boxes", ())),
-                   _f(d.get("fill", 1.0)))
+                   _f(d.get("fill", 1.0)),
+                   None if d.get("ground_off") is None
+                   else _f(d["ground_off"]))
 
 
 @_dc.dataclass(frozen=True)

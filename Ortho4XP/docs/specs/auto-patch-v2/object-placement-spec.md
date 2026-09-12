@@ -1496,3 +1496,82 @@ garage pavilions −1.27 … +3.70 against the slab). Resolved:
    at OTHH; the §16 (4) bars held (datum rows 0, fences never carry, carriers off the
    ground 0); plan stage back within LEMD ≤ 5 s / OTHH ≤ 35 s (the carried-body
    ground sampling removed); files quoted.
+
+**MEASURED (lane `v2skipped2`, 2026-09-11; branch `claude/v2skipped2`).**
+Implemented in `airport/placement_cut.py` (§16a (1): `_raw_bodies` asks §6
+of the WHOLE body first and a body that comes out ELEVATED or FOOTLESS
+leaves it in one piece; `_LineCutter.carrier_groups` is the carrier cut,
+and `_whole_body` is §6 read once for both), `airport/placement_plan.py`
+(`_carrier_pieces`, and pass 3 now walks the elevated and the footless
+members through ONE path), `airport/placement_carrier.py` (§16a (2):
+`carriers_for` returns the RANKED accepted carriers a body stands over —
+`carrier_for` is its first element — and `anchor_ground_off` /
+`Candidate.ground_off` is the mis-anchoring test) and
+`airport/placement_census.py` (§16a (3)).
+
+* **THE CUT (1)** runs on the CARRIER's groups: a carried body's triangles
+  are assigned to the first carrier whose FOOTPRINT boxes their plan
+  centroid falls in, best-ranked first, and one piece is made per carrier
+  with triangles; a triangle over no carrier joins the winner.  No surface
+  is sampled — which is the point, and also most of what §16 (2)'s cost
+  was.  Carriers standing at ONE zero (within `split_tol_m`) are collapsed
+  before the cut: cutting against them would make pieces `merge_rides`
+  puts straight back into one file, and at a flat airport that is the
+  whole bill (OTHH asks for 3,869 cuts and needs 176).
+* **THE GROUND CHECK (2), AND THE READING IT TURNS ON.**  "The ground under
+  its OWN feet" says the body's zero is `surface(foot) - y_foot`, the
+  MEDIAN over its feet — not `surface(foot)`.  Read as the raw surface it
+  refuses every building on a slope: LEMD **313** footed bodies refused as
+  carriers, `green-TEJ1` one piece instead of five, and carried float 49.
+  Read per foot: **117** refused, carried float 4.  The 117 are §6's
+  low-side-foot fallbacks with metres of authored relief (`PKT4__b8`,
+  worst foot +7.43 m) — genuinely metres off the ground under their own
+  feet, and that is what the clause bars.
+* **THE BARS (4), matched arms on the app's 1.50.1763 LEMD frame** (the
+  rebake plan + `LEMD.graded.json`, `--admit-skipped`), `v2skipped` (main
+  `9bc5b8c2`) beside:
+
+  | bar | v2skipped | v2skipped2 |
+  |---|---|---|
+  | carried `stands-over float > 0.5 m` (bar 0) | 58 | **4** — MISSED |
+  | footed `stands-over float > 0.5 m` (reported) | 128 | 123 |
+  | `green-TEJ1` (the garage pavilions) | 9 ground groups, −1.27 … +3.70 m | **2 pieces**, on `PKT4__b5` / `__b7`, both within the bar |
+  | `T4SAT_green-TEJ3` | 5 ground groups | 3 pieces, on `elect__b2` / `b6` / `b8` |
+  | `green-TEJ3` | +0.00 on `NAVEATR4` | +0.00 on `NAVEATR4__b2` |
+  | `green-rada__b1` | −0.13 | its own ground, worst foot −0.26 (WITHIN 0.3) |
+  | `rows on the datum outside the plan` | 0 | **0** |
+  | `elevated bodies as own files` / `footless at datum` | 0 / 0 | **0 / 0** (OTHH 10 → **0**) |
+  | fences carrying anything | 0 | **0** (`line` 4,615 refusals) |
+  | carriers refused for their own ground | 10,938 searches | 954 searches |
+  | files | 1,591 | **1,328** (own-ground files 102 → 38) |
+  | plan stage, 3 runs | 9.9 s | **6.30 / 6.29 / 6.36 s** — bar ≤ 5 s MISSED |
+  | round trip (write half into a pack COPY) | OK | **OK**, 1,327 files, 1,327/1,327 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+
+  OTHH, same arms: carried float 7 → **39** (bar ≤ 7 MISSED), files 1,440 →
+  1,686, `footless at datum` 10 → **0**, plan stage 48.1 → **60.0 / 60.2 /
+  60.3 s** (bar ≤ 35 s MISSED).
+* **THE RESIDUAL, ATTRIBUTED.**  3 of LEMD's 4 and 23 of OTHH's 39 stand
+  over one of the footed bodies §16a (2) REFUSES as a carrier: the body
+  rides whatever the search reached next, and the census still names the
+  refused one as "beneath".  The census is NOT narrowed to the law's
+  candidate set — §16a (3) makes `zero - zero_beneath` THE bar and says
+  nothing about narrowing it, and narrowing it took LEMD's stands-over
+  population from 610 bodies to 117.  The count is printed with the
+  attribution beside it instead.  OTHH's other 16 are decks and roads
+  (`Bridge_03` over `Bridge_02`, `TerminalRoads_01` over
+  `TerminalRoads_Parking`) that §16 (2) used to cut by their own ground
+  into pieces that happened to match; §16a (1) gives them their carrier's
+  zero across the span, and the body the census finds beneath is a
+  different one.  Reported, not decided.
+* **THE ARM WITH (2) DISARMED**, measured on this same tree: LEMD carried
+  float 2, files 1,338, `green-TEJ1` 5 pieces; OTHH carried float 21 —
+  but OTHH `footless at datum` **5 (bar 0 VIOLATED)**, because a body with
+  no carrier the law refuses is a body that keeps its row.  The clause
+  earns its place; its residual is the open item, not the clause.
+* **BUILD TIME.**  LEMD 9.9 → 6.3 s (§16's own cost partly given back: the
+  ground under a carried body is no longer sampled).  OTHH 46.4 → 60.2 s:
+  the carrier cut PARSES a member's OBJ8 where §16 (2)'s triangle cut did
+  not (`solid_components` on OTHH's objects, 42 s of the stage in the
+  first arm, 176 members in the last).  Over the 1 % threshold and
+  reported for the owner's decision; a vectorised `solid_components` or a
+  per-member component cache would take most of it and is not this lane.

@@ -203,6 +203,49 @@ def ground_under(surface: _t.Callable[[float, float], "float | None"],
     return None if not zs else zs[len(zs) // 2]
 
 
+#: §16a (2): how many of a body's own FEET the mis-anchoring test reads.
+#: A terminal publishes 132 of them and the answer is a MEDIAN; the
+#: sampling resolution costs nothing the reading needs (LEMD publishes
+#: 82k feet over the airport, and reading every one of them put 0.6 s in
+#: the plan stage for a number that did not move).
+GROUND_OFF_FEET_MAX = 32
+
+
+def anchor_ground_off(anchor: _ar.Anchor,
+                      feet: _t.Sequence[tuple[float, float, float]],
+                      surface: _t.Callable[[float, float], "float | None"]
+                      ) -> float | None:
+    """§16a (2): IS THIS BODY MIS-ANCHORED — how far its own zero stands
+    from the ground under its OWN FEET.
+
+    The ground under a foot is not the surface there: the foot stands at
+    its own authored height ``y`` above the body's zero plane, so what
+    the ground under it SAYS the body's zero is, is
+    ``surface(foot) - y_foot``.  (§7's float per foot is exactly this
+    minus the body's zero.)  Reading the raw surface instead makes every
+    building on a slope look mis-anchored — measured at LEMD: 313 of the
+    airport's footed bodies refused as carriers, and the roofs over them
+    then rode whatever came next, 49 of them more than 0.5 m off the
+    walls they stand on.
+
+    The MEDIAN over the feet, because one foot hanging over a ditch is
+    not the body's anchoring.  ``None`` where nothing reads: no reading
+    is no evidence that the body is wrong."""
+    if anchor.surface_z is None or not feet:
+        return None
+    zero = float(anchor.surface_z) - float(anchor.y_zero)
+    step = max(1, len(feet) // GROUND_OFF_FEET_MAX)
+    zs = []
+    for f in feet[::step]:
+        z = surface(f[0], f[1])
+        if z is not None:
+            zs.append(float(z) - float(f[2]))
+    if not zs:
+        return None
+    zs.sort()
+    return abs(zs[len(zs) // 2] - zero)
+
+
 def stands_over_rank(box: tuple[float, float, float, float],
                      other: tuple[float, float, float, float],
                      boxes: _t.Sequence[tuple[float, float, float, float]] = (),
@@ -556,6 +599,16 @@ class Candidate:
     #: ``[placement] carrier_fill_min`` of its own plan box
     body_class: str = ""
     fill: float = 1.0
+    #: §16a (2): HOW FAR THIS CANDIDATE'S OWN ZERO STANDS FROM THE GROUND
+    #: UNDER ITS OWN FEET.  §16 (3) refused a carrier by the ground under
+    #: the CARRIED body, which is the reading §16a deletes: walls on
+    #: sloping ground anchor at their low-side foot, and a roof judged
+    #: against the ground under itself then lands metres off them (LEMD
+    #: carried ``stands-over float > 0.5 m`` 1 -> 58).  What disqualifies
+    #: a carrier is that IT is mis-anchored — it would carry its own
+    #: error — and that is read on its own feet, ONCE per candidate
+    #: rather than once per (body, candidate) search.  ``None`` off-sheet.
+    ground_off: float | None = None
 
     @property
     def centre(self) -> tuple[float, float]:
@@ -579,18 +632,27 @@ def unit_edges(pairs: _t.Iterable[tuple[int, int]],
     return adj
 
 
-def carrier_for(pids: _t.AbstractSet[int],
-                box: tuple[float, float, float, float] | None,
-                cands: _t.Sequence[Candidate],
-                adj: _t.Mapping[int, _t.AbstractSet[int]],
-                part_boxes: _t.Sequence[tuple[float, float, float,
-                                              float]] = (),
-                *, fill_min: float = 0.0, ground_under: float | None = None,
-                tol_m: float = 0.0,
-                refusals: dict[str, int] | None = None,
-                ) -> tuple[Candidate | None, str]:
-    """§15 (1) (superseding §14 (1)(a) and §13 (1)'s same-placement
-    scope): ``(carrier, why)`` for one elevated or footless body.
+def carriers_for(pids: _t.AbstractSet[int],
+                 box: tuple[float, float, float, float] | None,
+                 cands: _t.Sequence[Candidate],
+                 adj: _t.Mapping[int, _t.AbstractSet[int]],
+                 part_boxes: _t.Sequence[tuple[float, float, float,
+                                               float]] = (),
+                 *, fill_min: float = 0.0, tol_m: float = 0.0,
+                 refusals: dict[str, int] | None = None,
+                 ) -> list[tuple[Candidate, str]]:
+    """§15 (1) + §16a (1): EVERY carrier this body stands over, ranked.
+
+    The list is the plan-overlap ranking of §15 (1)(a) — every candidate
+    the law accepts whose footprint the body stands over, best first —
+    and §16a (1) cuts the carried body against it: one piece per carrier
+    group, each riding that group's zero.  Where the body stands over NO
+    candidate the list holds the single answer of the fallback rules
+    ((b) largest contact, else (c) nearest, else (d) largest), and where
+    even those find nothing it is empty.
+
+    :func:`carrier_for` is this function's first element, and is what
+    §15 (1)'s single-carrier reading means.
 
     THE CARRIER IS WHAT THE BODY STANDS OVER, over the whole UNIT, every
     resource alike: (a) the footed body with the largest PLAN OVERLAP
@@ -614,12 +676,17 @@ def carrier_for(pids: _t.AbstractSet[int],
     §16 (3): A CARRIER IS A SOLID.  A candidate that is a LINE SEGMENT,
     or whose footprint fills less than ``fill_min`` of its own plan box
     (a grass strip, a sign, a fence), never carries — its box says
-    nothing about where the ground under the carried body is.  And a
-    candidate whose own zero stands more than ``tol_m`` from
-    ``ground_under`` (the ground under the CARRIED body, §16 (2)) is
-    REFUSED and the search continues: a carrier is a reading of the
-    ground under this body, and one that disagrees with it by metres is
-    not that reading.  ``refusals`` collects the counts by reason."""
+    nothing about where the ground under the carried body is.
+
+    §16a (2): AND THE GROUND CHECK IS ON THE CARRIER.  A candidate whose
+    own zero stands more than ``tol_m`` from the ground under ITS OWN
+    FEET (:attr:`Candidate.ground_off`, read once where the candidate is
+    made) is REFUSED and the search continues — it is itself
+    mis-anchored and would carry its error.  The ground under the CARRIED
+    body is never compared: walls on sloping ground anchor at their
+    low-side foot, so a roof judged against the ground under itself is
+    judged against a surface its carrier never stood on.
+    ``refusals`` collects the counts by reason."""
     # PER SEARCH, not per candidate: what the report asks is how many
     # bodies had a candidate refused, not how many (body, candidate)
     # pairs a unit of 111 candidates makes
@@ -628,7 +695,7 @@ def carrier_for(pids: _t.AbstractSet[int],
     def _bump(k: str) -> None:
         local[k] = local.get(k, 0) + 1
 
-    def _out(r: tuple["Candidate | None", str]) -> tuple["Candidate | None", str]:
+    def _out(r: list[tuple[Candidate, str]]) -> list[tuple[Candidate, str]]:
         if refusals is not None:
             for k in local:
                 refusals[k] = refusals.get(k, 0) + 1
@@ -644,15 +711,14 @@ def carrier_for(pids: _t.AbstractSet[int],
             continue
         solid.append(c)
     if not solid:
-        return _out((None, ""))
+        return _out([])
 
     def _ok(c: Candidate) -> bool:
-        """The candidate's zero against the ground under the carried
-        body (§16 (3))."""
-        if ground_under is None or tol_m <= 0.0 or c.anchor.surface_z is None:
+        """§16a (2): the candidate's OWN zero against the ground under
+        its OWN feet."""
+        if c.ground_off is None or tol_m <= 0.0:
             return True
-        z = float(c.anchor.surface_z) - float(c.anchor.y_zero)
-        if abs(z - ground_under) <= tol_m:
+        if c.ground_off <= tol_m:
             return True
         _bump("zero_off_ground")
         return False
@@ -668,10 +734,10 @@ def carrier_for(pids: _t.AbstractSet[int],
             if ov > (0.0, 0.0):
                 ranked.append((ov, c))
         ranked.sort(key=lambda q: (q[0][0], q[0][1], -q[1].member), reverse=True)
-        for _ov, c in ranked:
-            if _ok(c):
-                return _out((c, f"stands over {overlap_m2(box, c.box):.0f} m2 "
-                             f"of it in plan"))
+        over = [(c, f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")
+                for _ov, c in ranked if _ok(c)]
+        if over:
+            return _out(over)
     # the body's neighbours, walked ONCE: a unit's candidate list is
     # long (LEMD's unit:25 offers 111 footed bodies) and re-walking the
     # adjacency per candidate costs more than the whole carrier rule
@@ -684,7 +750,7 @@ def carrier_for(pids: _t.AbstractSet[int],
     touch.sort(key=lambda q: (q[0], -q[1].member), reverse=True)
     for n, c in touch:
         if _ok(c):
-            return _out((c, f"abuts {n} part contact(s)"))
+            return _out([(c, f"abuts {n} part contact(s)")])
     if box is not None:
         clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
         ml, mo = _ar._m_per_deg(clat)
@@ -695,13 +761,26 @@ def carrier_for(pids: _t.AbstractSet[int],
 
         for c in sorted(solid, key=_d2):
             if _ok(c):
-                return _out((c, f"nearest footed body of the unit "
-                             f"({_d2(c)[0] ** 0.5:.0f} m)"))
-        return _out((None, ""))
+                return _out([(c, f"nearest footed body of the unit "
+                              f"({_d2(c)[0] ** 0.5:.0f} m)")])
+        return _out([])
     for c in sorted(solid, key=lambda c: (-c.feet, c.member)):
         if _ok(c):
-            return _out((c, "the unit's largest footed body"))
-    return _out((None, ""))
+            return _out([(c, "the unit's largest footed body")])
+    return _out([])
+
+
+def carrier_for(pids: _t.AbstractSet[int],
+                box: tuple[float, float, float, float] | None,
+                cands: _t.Sequence[Candidate],
+                adj: _t.Mapping[int, _t.AbstractSet[int]],
+                part_boxes: _t.Sequence[tuple[float, float, float,
+                                              float]] = (),
+                **kw: _t.Any) -> tuple[Candidate | None, str]:
+    """§15 (1)'s single answer: the FIRST of :func:`carriers_for`, or
+    ``(None, "")`` when the unit offers the law no carrier at all."""
+    out = carriers_for(pids, box, cands, adj, part_boxes, **kw)
+    return out[0] if out else (None, "")
 
 
 def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],

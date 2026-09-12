@@ -1450,16 +1450,16 @@ def test_a_footless_roof_with_no_abutment_takes_the_nearest_footed_body(tmp_path
     r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
     assert r.bodies[0].merged_into.startswith("objects/near")
     assert "nearest footed body of the unit" in r.bodies[0].anchor.reason
-    # §16 (3): ON A SLOPE THE NEAREST BODY IS REFUSED.  With the ground
-    # under the roof 0.4 m off the nearest body's zero (2 % over the 20 m
-    # between them), no candidate of the unit reads the ground the roof
-    # stands on, and the roof takes its OWN ground instead of a carrier
-    # that would put it 0.4 m wrong.
+    # §16a (2): ON A SLOPE THE NEAREST BODY IS STILL THE CARRIER.  §16 (3)
+    # refused it here — the ground under the ROOF stood 0.4 m off the
+    # nearest body's zero — and that is the reading 11aj deletes: a
+    # carried body lives in its carrier's frame, and the ground under
+    # itself is never compared.  What disqualifies a carrier is that IT
+    # is mis-anchored, read on ITS OWN feet, and this one is not.
     ss2 = PP.build_splits(plan, surface, write=False, **_elev_args())
     r2 = [s for s in ss2.all if s.resource == "objects/roof.obj"][0]
-    assert r2.bodies[0].merged_into == ""
-    assert PP.OWN_GROUND in r2.bodies[0].anchor.reason
-    assert ss2.counts["carrier_refused_zero_off_ground"] >= 1
+    assert r2.bodies[0].merged_into.startswith("objects/near")
+    assert ss2.counts.get("carrier_refused_zero_off_ground", 0) == 0
 
 
 def test_a_basin_resource_is_one_file_anchored_on_its_rim(tmp_path):
@@ -1909,24 +1909,29 @@ def test_a_roof_only_resource_enters_the_plan_and_is_carried(tmp_path):
 
 
 def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
-    """§16 (2): EVERY BODY IS RE-CUT BY TERRAIN — including a body
+    """§16 (2): EVERY GROUND BODY IS RE-CUT BY TERRAIN — including a body
     authored as ONE welded component, which the part cut cannot divide.
     LEMD's ``Terminal4_green-TEJ3`` is a roof-panel resource scattered
     over 1 x 2 km of terminal: one body, one zero, and its own ground
     spanning 5.02 m.  The cut is by TRIANGLE, over the ground under
-    each."""
+    each.
+
+    §16a (1) draws the line this twin now stands on both sides of: the
+    cut is for a body that STANDS ON THE GROUND.  A CARRIED body — the
+    same strip, raised — is never cut by the ground under itself; its
+    pieces are its carrier's."""
     ml, _mo = AR._m_per_deg(40.0)
     span = 600.0
     v, tris = [], []
     n = 13                                      # ONE welded strip, 600 m long
     for k in range(n):
         z0 = -k * span / (n - 1)
-        v += [(0.0, 6.0, z0), (20.0, 6.0, z0)]
+        v += [(0.0, 0.0, z0), (20.0, 0.0, z0)]
     for k in range(n - 1):
         a, b, c2, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
         tris += [(a, b, d), (a, d, c2)]
     path = _write_obj(tmp_path / "tej3.obj", v, [("", tris)])
-    plan = _member_plan(path, [(0, 6.0, 0.0, 6.0)], span_m=0.0)
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
     # the ground falls 1 m per panel northwards
     m0 = plan.units[0].members[0]
     p0 = m0.parts[0]
@@ -1945,23 +1950,42 @@ def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
             zs = _PC.ground_samples(surface, b.foot_boxes, b.geom_box)
             if zs and b.anchor.surface_z is not None:
                 assert max(abs(z - b.anchor.surface_z) for z in zs) <= 1.0
+    # §16a (1): THE SAME STRIP, ELEVATED, IS NOT CUT BY ITS OWN GROUND.
+    # Nothing about the terrain under a carried body may divide it — the
+    # garage pavilions cut that way landed -1.27 ... +3.70 m against the
+    # slab they stand on.
+    hi = _member_plan(_write_obj(tmp_path / "tej3hi.obj",
+                                 [(x, y + 9.0, z) for x, y, z in v],
+                                 [("", tris)]),
+                      [(0, 9.0, 0.0, 9.0)], span_m=0.0)
+    p1 = hi.units[0].members[0].parts[0]
+    hi = _dc_replace_part(hi, box=(40.0 - span / ml, p1.lon, 40.0, p1.lon))
+    ss2 = PP.build_splits(hi, surface, write=False,
+                          **_elev_args(line_stations_max=64, foot_band_m=1.0))
+    assert ss2.counts.get("bodies_re_cut_by_triangle", 0) == 0
+    assert ss2.counts.get("carried_bodies_uncut") == 1
 
 
-def test_a_fence_never_carries_and_a_carrier_off_the_ground_is_refused():
+def test_a_fence_never_carries_and_a_mis_anchored_carrier_is_refused():
     """§16 (3): A CARRIER IS A SOLID.  A fence segment's axis-aligned plan
     box contains the garage roof its footprint never touches — which is
     how LEMD's ``PKT4__b1`` came to ride ``LEMDzaun__b5`` 6 m under the
     slab.  A LINE body never carries; nor does one filling less than
-    ``[placement] carrier_fill_min`` of its own box; and a candidate whose
-    zero stands further than the tolerance from the ground under the
-    carried body is REFUSED and the search goes on."""
-    def _cand(member, cls, box, part_boxes, z):
+    ``[placement] carrier_fill_min`` of its own box.
+
+    §16a (2): and the GROUND CHECK IS ON THE CARRIER — a candidate whose
+    own zero stands further than the tolerance from the ground under ITS
+    OWN feet (``Candidate.ground_off``) is refused, because it is itself
+    mis-anchored and would carry its error.  The ground under the CARRIED
+    body is not an input to the search at all."""
+    def _cand(member, cls, box, part_boxes, z, ground_off=0.0):
         return _PC.Candidate(member, f"objects/c{member}.obj",
                              AR.Anchor(cls, 0.5 * (box[0] + box[2]),
                                        0.5 * (box[1] + box[3]), 0.0, "r", z),
                              frozenset({member}), 4, box, part_boxes=part_boxes,
                              group=0, body_class=cls,
-                             fill=_PC.fill_of(box, part_boxes))
+                             fill=_PC.fill_of(box, part_boxes),
+                             ground_off=ground_off)
 
     big = (40.0, -3.0, 40.01, -2.99)            # a 1 km box
     thin = [(40.0, -3.0, 40.01, -2.99999)]      # ... holding one thin strip
@@ -1972,13 +1996,14 @@ def test_a_fence_never_carries_and_a_carrier_off_the_ground_is_refused():
     roof_box = (40.0042, -3.0008, 40.0048, -3.0002)
     args = dict(fill_min=0.2, tol_m=0.3)
     c, why = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, walls], {},
-                             [roof_box], ground_under=106.0, **args)
+                             [roof_box], **args)
     assert c is walls and "stands over" in why   # not the fence, not the grass
-    # the same walls, now reading a ground 6 m from the roof's own: refused
+    # the same walls, now standing 6 m off the ground under their OWN feet:
+    # mis-anchored, refused, and the search goes on
     refusals: dict = {}
-    c2, _w = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, walls], {},
-                             [roof_box], ground_under=112.0, refusals=refusals,
-                             **args)
+    bad = _cand(2, AR.BUILDING, walls_box, [walls_box], 106.0, ground_off=6.0)
+    c2, _w = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, bad], {},
+                             [roof_box], refusals=refusals, **args)
     assert c2 is None and refusals.get("zero_off_ground") == 1
     assert refusals.get("line") == 1 and refusals.get("fill") == 1
 
@@ -1998,9 +2023,13 @@ def test_the_16_census_reads_the_ground_under_the_bodys_own_geometry():
     good = {"placement": {"index": 1}, "bodies": [_body("a.obj", box, 106.0, "w.obj")]}
     bad = {"placement": {"index": 2}, "bodies": [_body("b.obj", box, 100.0, "f.obj")]}
     c = _PC.census_v16([good, bad], lambda la, lo: 106.0)
-    assert c["carried_ground_gt"] == 1 and c["bars_ok"] is False
+    # §16a (3): the number is INFORMATION ONLY — §16 (3) barred it at 0,
+    # and that is the reading 11aj deletes.  THE bar for a carried body
+    # is §15 (3)'s ``zero - zero_beneath``.
+    assert c["carried_ground_gt"] == 1 and c["bars_ok"] is True
     assert c["carried_worst"][0][1] == "b.obj"
-    assert "VIOLATED" in "\n".join(_PC.census_v16_lines(c))
+    assert "INFORMATION ONLY" in "\n".join(_PC.census_v16_lines(c))
+    assert "VIOLATED" not in "\n".join(_PC.census_v16_lines(c))
     ok = _PC.census_v16([good], lambda la, lo: 106.0)
     assert ok["carried_ground_gt"] == 0 and ok["bars_ok"] is True
 
@@ -2012,3 +2041,170 @@ def test_the_16_census_reads_the_ground_under_the_bodys_own_geometry():
     assert pop["datum_rows_outside_plan"] == 1 and pop["bars_ok"] is False
     assert pop["lawful_skips"] == 1 and sum(pop["other_skips"].values()) == 1
     assert "VIOLATED" in "\n".join(_PC.census_population_lines(pop))
+
+
+# ── §16a: a carried body lives in its carrier's frame (RULINGS 11aj) ─────
+
+def _strip(x0, x1, y, n, z0=-10.0, z1=10.0):
+    """ONE WELDED sheet from ``x0`` to ``x1`` at height ``y``, ``n`` quads
+    long — the shape a roof-panel resource actually is (LEMD's
+    ``green-TEJ3`` is one welded component over 1 x 2 km), and the shape
+    no PART cut can divide."""
+    v, t = [], []
+    for k in range(n + 1):
+        x = x0 + (x1 - x0) * k / n
+        v += [(x, y, z0), (x, y, z1)]
+    for k in range(n):
+        a, b, c, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
+        t += [(a, b, d), (a, d, c)]
+    return v, t
+
+
+def _stepped(levels):
+    """A surface that steps with LONGITUDE: ``levels`` is
+    ``[(east_m_from, east_m_to, z), ...]`` about (40.0, -3.0)."""
+    _ml, mo = AR._m_per_deg(40.0)
+
+    def surface(lat, lon):
+        e = (lon - (-3.0)) * mo
+        for a, b, z in levels:
+            if a <= e <= b:
+                return z
+        return levels[-1][2]
+    return surface
+
+
+def _carrier_of(b):
+    """The body a carried file rides, named without its body suffix (a
+    carrier KEPT WHOLE keeps its own resource name)."""
+    return b.merged_into.replace("__b0.obj", ".obj")
+
+
+def test_a_carried_roof_over_two_buildings_is_cut_into_one_piece_per_carrier(tmp_path):
+    """§16a (1): A CARRIED BODY IS CUT WHERE ITS CARRIER IS CUT — one
+    piece per carrier group it stands over, each riding THAT group's zero
+    at the authored offset.  A welded roof spanning two buildings 10 m
+    apart in height is two pieces, not one rigid plate at one of the
+    two."""
+    va, ta = _box(-2.0, -2.0)
+    a_path = _write_obj(tmp_path / "a.obj", va, [("", ta)])
+    vb, tb = _box(38.0, -2.0)
+    b_path = _write_obj(tmp_path / "b.obj", vb, [("", tb)])
+    rv, rt = _strip(-10.0, 50.0, 6.0, 12)
+    roof = _write_obj(tmp_path / "roof.obj", rv, [("", rt)])
+    plan = _unit_plan([
+        (a_path, [(0, 0.0, 0.0, 0.0, 0.0, 10.0)], "objects/a.obj"),
+        (b_path, [(0, 0.0, 0.0, 40.0, 0.0, 10.0)], "objects/b.obj"),
+        (roof, [(0, 6.0, 0.0, 20.0, 6.0, 30.0)], "objects/roof.obj"),
+    ])
+    surface = _stepped([(-12.0, 12.0, 600.0), (28.0, 52.0, 610.0)])
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
+    assert len(r.bodies) == 2, [b.merged_into for b in r.bodies]
+    assert sorted(_carrier_of(b) for b in r.bodies) == \
+        ["objects/a.obj", "objects/b.obj"]
+    zeros = sorted(b.anchor.surface_z - b.anchor.y_zero for b in r.bodies)
+    assert zeros == pytest.approx([600.0, 610.0], abs=1e-6)
+    assert ss.counts.get("carried_bodies_cut_by_carrier") == 1
+    assert ss.counts.get("carrier_pieces") == 2
+    # ... and the ground under the roof itself was never asked
+    assert ss.counts.get("bodies_re_cut_by_triangle", 0) == 0
+    assert ss.counts.get("carried_bodies_uncut") == 1
+
+
+def test_a_carried_roof_follows_its_walls_own_terrain_re_cut(tmp_path):
+    """§16a (1), the case 11aj is named for: walls the terrain re-cut into
+    THREE groups carry the roof over them in three pieces, each on its
+    own group's zero.  §16 (2) cut the roof by the ground under ITSELF
+    instead, and LEMD's garage pavilions then read -1.27 ... +3.70 m
+    against the slab they stand on."""
+    verts, tris = [], []
+    for k, x0 in enumerate((-2.0, 38.0, 78.0)):
+        v, t = _box(x0, -2.0)
+        tris += [(a + 8 * k, b + 8 * k, c + 8 * k) for a, b, c in t]
+        verts += v
+    walls = _write_obj(tmp_path / "walls.obj", verts, [("", tris)])
+    rv, rt = _strip(-10.0, 90.0, 6.0, 20)
+    roof = _write_obj(tmp_path / "roof.obj", rv, [("", rt)])
+    plan = _unit_plan([
+        (walls, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
+                 (1, 0.0, 0.0, 40.0, 0.0, 10.0),
+                 (2, 0.0, 0.0, 80.0, 0.0, 10.0)], "objects/walls.obj"),
+        (roof, [(0, 6.0, 0.0, 40.0, 6.0, 50.0)], "objects/roof.obj"),
+    ], contacts=((0, 1), (1, 2)))          # ONE welded body of three parts
+    surface = _stepped([(-12.0, 12.0, 600.0), (28.0, 52.0, 605.0),
+                        (68.0, 92.0, 610.0)])
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    w = [s for s in ss.all if s.resource == "objects/walls.obj"][0]
+    assert ss.counts.get("bodies_re_cut_by_terrain") == 1
+    assert len(w.bodies) == 3                     # the walls' own terrain groups
+    r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
+    assert len(r.bodies) == 3, [b.merged_into for b in r.bodies]
+    assert ss.counts.get("carrier_pieces") == 3
+    # each piece stands at the zero of the wall group under it — the bar
+    # §16a (3) makes THE bar, ``zero - zero_beneath``, read here directly
+    wall_zero = {b.new_resource: b.anchor.surface_z - b.anchor.y_zero
+                 for b in w.bodies}
+    for b in r.bodies:
+        assert b.merged_into in wall_zero
+        assert (b.anchor.surface_z - b.anchor.y_zero) == \
+            pytest.approx(wall_zero[b.merged_into], abs=1e-6)
+    assert sorted(round(b.anchor.surface_z - b.anchor.y_zero, 3)
+                  for b in r.bodies) == [600.0, 605.0, 610.0]
+
+
+def test_the_carried_bar_is_zero_beneath_and_the_ground_reading_is_information():
+    """§16a (3): ``zero - zero_beneath`` is THE bar for a carried body
+    (:func:`census_v15`); ``zero - ground_under_geometry``
+    (:func:`census_v16`) is printed for information only.
+
+    The two disagree wherever walls stand on sloping ground — the walls
+    anchor at their low-side foot, so a roof lawfully ON them reads
+    metres from the ground under itself.  This is the body that is
+    LAWFUL by the bar and loud by the other reading."""
+    box = (40.0, -3.0, 40.0002, -2.9998)
+    walls = {"new_resource": "w.obj", "class": AR.BUILDING, "plan_box": list(box),
+             "geom_box": list(box), "foot_boxes": [list(box)], "fill": 1.0,
+             "surface_z": 600.0, "y_zero": 0.0, "feet": 8, "merged_into": None}
+    roof = {"new_resource": "r.obj", "class": AR.BUILDING, "plan_box": list(box),
+            "geom_box": list(box), "foot_boxes": [list(box)], "fill": 1.0,
+            "surface_z": 600.0, "y_zero": 0.0, "feet": 0,
+            "merged_into": "w.obj", "elevated": True}
+    splits = [{"placement": {"index": 1, "lat": 40.0, "lon": -3.0},
+               "bodies": [walls]},
+              {"placement": {"index": 2, "lat": 40.0, "lon": -3.0},
+               "bodies": [roof]}]
+    v15 = _PC.census_v15(splits, ())
+    assert v15["carried_float_gt"] == 0 and v15["bars_ok"] is True
+    # the ground under the roof's own geometry stands 4 m below the walls'
+    # zero: LOUD in §16's reading, and not a bar
+    v16 = _PC.census_v16(splits, lambda la, lo: 596.0)
+    assert v16["carried_ground_gt"] == 1 and v16["bars_ok"] is True
+
+
+def test_the_mis_anchoring_test_reads_each_foots_own_authored_height():
+    """§16a (2)'s reading: the ground under a body's own FEET says its
+    zero is ``surface(foot) - y_foot``, not ``surface(foot)``.
+
+    A building on a slope whose feet were AUTHORED to that slope is
+    correctly anchored and carries; one whose zero stands 6 m off what
+    its own feet read is mis-anchored and is refused.  Reading the raw
+    surface instead made the first look like the second — measured at
+    LEMD: 313 footed bodies refused as carriers instead of 117, and 49
+    roofs over them more than 0.5 m off the walls they stand on."""
+    ml, _mo = AR._m_per_deg(40.0)
+
+    def slope(lat, lon):
+        return 600.0 + (lat - 40.0) * ml * 0.05        # 5 % northwards
+
+    # feet authored to the slope: (lat, lon, y) with y matching the fall
+    feet = tuple((40.0 + d / ml, -3.0, d * 0.05) for d in (0.0, 20.0, 40.0))
+    good = AR.Anchor(AR.BUILDING, 40.0, -3.0, 0.0, "low-side foot", 600.0)
+    assert _PC.anchor_ground_off(good, feet, slope) == pytest.approx(0.0, abs=1e-6)
+    # the same body whose file says its zero is 6 m higher: mis-anchored
+    bad = AR.Anchor(AR.BUILDING, 40.0, -3.0, -6.0, "low-side foot", 600.0)
+    assert _PC.anchor_ground_off(bad, feet, slope) == pytest.approx(6.0, abs=1e-6)
+    # off-sheet, or footless: no reading is no evidence
+    assert _PC.anchor_ground_off(good, (), slope) is None
+    assert _PC.anchor_ground_off(
+        AR.Anchor(AR.BUILDING, 40.0, -3.0, 0.0, "r", None), feet, slope) is None

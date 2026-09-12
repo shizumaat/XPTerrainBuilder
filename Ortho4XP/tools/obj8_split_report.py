@@ -516,7 +516,8 @@ def main() -> int:
     # lawful, so neither bar above can see a roof standing 6 m over the
     # walls it belongs to.
     v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
-                        fill_min=_law.tables.structures.placement.carrier_fill_min)
+                        fill_min=_law.tables.structures.placement.carrier_fill_min,
+                        ground_tol_m=tol_m)
     for line in PC.census_v15_lines(v15):
         print(line)
     # §16 (1): THE POPULATION — every OBJECT row of the pack is in the
@@ -531,6 +532,10 @@ def main() -> int:
         print(line)
     print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "
           f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s); "
+          f"§16a carried bodies left uncut by the ground "
+          f"{c.get('carried_bodies_uncut', 0)}, cut by their CARRIER "
+          f"{c.get('carried_bodies_cut_by_carrier', 0)} into "
+          f"{c.get('carrier_pieces', 0)} piece(s); "
           f"own-ground files {c.get('footless_own_ground', 0)}; carriers "
           f"refused: " + (", ".join(f"{k[16:]} {v}" for k, v in sorted(c.items())
                                     if k.startswith("carrier_refused_")) or "none"))

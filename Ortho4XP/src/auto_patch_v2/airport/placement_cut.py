@@ -250,6 +250,79 @@ class _LineCutter:
         return out
 
 
+    def carrier_groups(self, parts: _t.Sequence[Part],
+                       carrier_boxes: _t.Sequence[
+                           _t.Sequence[tuple[float, float, float, float]]]
+                       ) -> list[tuple[int, tuple[tuple[int, int, int], ...],
+                                       tuple[float, float, float, float]]]:
+        """§16a (1): ONE BODY'S TRIANGLES ASSIGNED TO THE CARRIER GROUP
+        EACH STANDS OVER — ``(carrier index, triangles, plan box)`` per
+        piece, best-ranked carrier first.
+
+        ``carrier_boxes`` are the ranked candidates' FOOTPRINT boxes
+        (``placement_carrier.Candidate.part_boxes``, the same geometry
+        the stands-over relation is measured on): a triangle belongs to
+        the first carrier whose footprint its plan centroid falls in,
+        and one over no carrier's footprint at all joins the winner —
+        the body stands over the winner as a whole, and inventing a
+        piece with no carrier would be the very drop §16 (3) closed.
+
+        Returns ``[]`` where the body reads ONE carrier (it is not cut
+        at all then — §14 (1)'s rigid span is unbroken), or where the
+        file cannot be parsed.  No surface is sampled here: §16a (1)'s
+        whole point is that the ground under a carried body is never
+        read."""
+        if len(carrier_boxes) < 2 or not parts or not self._read():
+            return []
+        import numpy as np
+        tri_list = [self._comps[p.comp].tris for p in parts
+                    if 0 <= p.comp < len(self._comps)]
+        if not tri_list:
+            return []
+        tris = np.concatenate(tri_list)
+        v = self._geom.vertices
+        xs = v[tris, 0].mean(axis=1)
+        zs = v[tris, 2].mean(axis=1)
+        # the authored (x, z) -> (lat, lon) map of :func:`authored_latlon`,
+        # vectorised: one reflection and one rotation, no per-triangle call
+        ml, mo = _ar._m_per_deg(self.lat)
+        h = math.radians(self.m.heading_deg)
+        s, c = math.sin(h), math.cos(h)
+        e = xs * c - zs * s
+        n = -(xs * s + zs * c)
+        la = self.lat + n / ml
+        lo = self.lon + e / mo
+        who = np.full(tris.shape[0], -1, dtype=np.int64)
+        for k, boxes in enumerate(carrier_boxes):
+            free = who < 0
+            if not free.any():
+                break
+            for b in boxes:
+                hit = (free & (la >= b[0]) & (la <= b[2])
+                       & (lo >= b[1]) & (lo <= b[3]))
+                if hit.any():
+                    who[hit] = k
+                    free = who < 0
+        who[who < 0] = 0
+        out = []
+        for k in range(len(carrier_boxes)):
+            sel = np.nonzero(who == k)[0]
+            if sel.shape[0] == 0:
+                continue
+            sub = tris[sel]
+            ids = np.unique(np.asarray(sub).reshape(-1))
+            pla, plo = [], []
+            for i in ids.tolist():
+                a_, b_ = authored_latlon(float(v[i, 0]), float(v[i, 2]),
+                                         self.lat, self.lon, self.m.heading_deg)
+                pla.append(a_)
+                plo.append(b_)
+            out.append((k, tuple(tuple(int(q) for q in row)
+                                 for row in np.asarray(sub).tolist()),
+                        (min(pla), min(plo), max(pla), max(plo))))
+        return out if len(out) > 1 else []
+
+
 def _plan_span_m(parts: _t.Sequence[Part]) -> float:
     """The plan diagonal of the parts' own boxes, in metres."""
     lo_la = min(p.box[0] for p in parts)
@@ -404,15 +477,28 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 *, split_tol_m: float, elevated_base_m: float,
                 line_segment_m: float, line_stations_max: int,
                 line_ratio: float, line_max_h: float,
-                foot_band_m: float) -> list[_Raw]:
+                foot_band_m: float, cutter: "_LineCutter | None" = None
+                ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
     unchanged by §14 except that the basin's rim anchor is now wired
     (``anchor_rule``) and the segment cut still never touches an elevated
-    body (§13 (1))."""
+    body (§13 (1)).
+
+    §16a (1): A CARRIED BODY IS NEVER CUT BY THE GROUND UNDER ITSELF.
+    The body is classed and anchored WHOLE first; one that comes out
+    ELEVATED or FOOTLESS leaves this function in one piece, and
+    ``placement_plan``'s pass 3 cuts it against its CARRIER's terrain
+    groups instead.  §16 (2)'s part and triangle cuts stay exactly as
+    they were for a body that stands on the ground."""
     groups = _bodies_of(m, edges)
     pid_of = {p.pid: p for p in m.parts}
-    cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
-                         line_ratio, line_max_h, u.anchor[0], u.anchor[1])
+    # ONE cutter per member: it holds the parsed OBJ8 and its components,
+    # and §16a (1)'s carrier cut (pass 3) reads the same geometry.  Two
+    # cutters meant two parses — 618 of OTHH's members parsed twice, 42 s
+    # of ``solid_components`` in the plan stage, measured.
+    if cutter is None:
+        cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
+                             line_ratio, line_max_h, u.anchor[0], u.anchor[1])
     raw: list[_Raw] = []
     for g in groups:
         parts = [pid_of[q] for q in g]
@@ -440,6 +526,16 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # standing 7 m under its rim is the authoring, not two bodies).
         lowest0 = min(parts, key=lambda p: p.base_y)
         is_basin = _rim_of(rims, lowest0.lat, lowest0.lon, lowest0.base_y)
+        # §16a (1): IS THIS BODY CARRIED?  Asked of the WHOLE body,
+        # before any terrain cut — because a carried body's pieces are
+        # its CARRIER's terrain groups, not its own ground's, and the
+        # ground under a roof is exactly the reading §16a deletes.
+        whole0 = _whole_body(parts, m, u, surface, pads, rims, split_tol_m)
+        if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
+            counts["carried_bodies_uncut"] = \
+                counts.get("carried_bodies_uncut", 0) + 1
+            raw.append((list(parts), whole0[0], whole0[1], whole0[2], True, ()))
+            continue
         pieces_p = ([list(parts)] if is_basin
                     else _cut_parts_by_terrain(parts, surface, split_tol_m))
         if len(pieces_p) > 1:
@@ -494,37 +590,55 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                 is_elevated(tlow[2], ta, elevated_base_m)
                                 or tfootless, tris))
                 continue
-            cls = _ar.classify_body(
-                skirted=m.skirted,
-                basin_member=_rim_of(rims, lowest.lat, lowest.lon, lowest.base_y),
-                line=all(p.line for p in parts),
-                deck=m.deck_kind in ("flag", "signature"),
-                plate=m.plate_y is not None,
-                has_pad=_ar._pad_of(pads, lowest.lat, lowest.lon) is not None)
-            geom = _ar.BodyGeometry(
-                tuple((p.lat, p.lon, p.base_y,
-                       tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
-                u.anchor[0], u.anchor[1])
-            a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m)
-            feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
-                or tuple((p.lat, p.lon, p.base_y) for p in parts)
-            # §16 (1): A BODY WITH NO GROUND CONTACT AT ALL IS FOOTLESS.
-            # The fallback above gives a body with no part feet its parts'
-            # own positions so that it still has a box — read as FEET they
-            # make a ground body out of geometry that never met the
-            # ground.  The resources §16 (1) admits are exactly that (no
-            # genuine solid, so the partition strips their feet), and one
-            # of them — a two-triangle VOR marker reaching 50 m below its
-            # own zero — was offered to the carrier search as ground and
-            # read by the census as something to stand over.  The
-            # structure-seated classes are excluded: a plate, a deck and a
-            # basin member carry drape stations rather than feet, and
-            # another law governs their elevation (14.1 rule 4).
-            footless = (not any(p.feet for p in parts)
-                        and a.body_class not in (_ar.BASIN, _ar.PLATE_ONLY,
-                                                 _ar.DECK))
+            cls, a, feet, footless = (
+                # one piece IS the whole body: §6 was read on it already
+                whole0 if len(pieces_p) == 1
+                else _whole_body(parts, m, u, surface, pads, rims, split_tol_m))
             raw.append((list(parts), a.body_class, a, feet,
                         is_elevated(base_min, a, elevated_base_m) or footless, ()))
     return raw
+
+
+def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
+                surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
+                rims: _t.Sequence[_ar.RimRing], split_tol_m: float
+                ) -> tuple[str, _ar.Anchor, tuple, bool]:
+    """One set of parts CLASSED and ANCHORED as a body: ``(class, anchor,
+    feet, footless)`` — §6's rule, read once.
+
+    §16a (1) needs this answer BEFORE the terrain cut runs (a carried
+    body is cut by its carrier, not by its own ground) and the cut's own
+    pieces need it after, so it is one function rather than two readings
+    of §6 in one file.
+
+    §16 (1): A BODY WITH NO GROUND CONTACT AT ALL IS FOOTLESS.  The feet
+    fallback gives a body with no part feet its parts' own positions so
+    that it still has a box — read as FEET they would make a ground body
+    out of geometry that never met the ground.  The resources §16 (1)
+    admits are exactly that (no genuine solid, so the partition strips
+    their feet), and one of them — a two-triangle VOR marker reaching
+    50 m below its own zero — was offered to the carrier search as
+    ground and read by the census as something to stand over.  The
+    structure-seated classes are excluded: a plate, a deck and a basin
+    member carry drape stations rather than feet, and another law
+    governs their elevation (14.1 rule 4)."""
+    lowest = min(parts, key=lambda p: p.base_y)
+    cls = _ar.classify_body(
+        skirted=m.skirted,
+        basin_member=_rim_of(rims, lowest.lat, lowest.lon, lowest.base_y),
+        line=all(p.line for p in parts),
+        deck=m.deck_kind in ("flag", "signature"),
+        plate=m.plate_y is not None,
+        has_pad=_ar._pad_of(pads, lowest.lat, lowest.lon) is not None)
+    geom = _ar.BodyGeometry(
+        tuple((p.lat, p.lon, p.base_y,
+               tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
+        u.anchor[0], u.anchor[1])
+    a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m)
+    feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
+        or tuple((p.lat, p.lon, p.base_y) for p in parts)
+    footless = (not any(p.feet for p in parts)
+                and a.body_class not in (_ar.BASIN, _ar.PLATE_ONLY, _ar.DECK))
+    return (cls, a, feet, footless)
 
 

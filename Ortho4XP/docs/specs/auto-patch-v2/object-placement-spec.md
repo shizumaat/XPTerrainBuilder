@@ -2486,6 +2486,15 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   cost is elsewhere in the stage (344,838 `_surface` calls at OTHH
   against LEMD's 141,306).
 * **LEMD plan stage 10.31 s** against main's 13.53 — MET.
+* **OTHH, MEASURED TO COMPLETION UNDER THE GUARD** (round 3 -> round 4):
+  torn seams outside line/arc **0 — MET**, single-component resources in
+  >= 2 files **0 — MET**, §15 carried float **0 — MET**, files 1,362 ->
+  **1,376**, §16b carried piece float 177 -> 183, wide 74 -> **70**,
+  round trip **OK** (1,375/1,375 new `OBJECT_DEF`s, 0 rows carrying an
+  elevation), `[guard] shared repo UNCHANGED`.
+* **LEMD, ROUND 4**: files **2,171**, seams **0**, single-component
+  **0**, §15 carried float **0**, round trip **OK** (2,171/2,171),
+  guard **UNCHANGED**.
 * **THE §16a (2) REFUSAL SET (244), BY CLASS**, read over the written
   files (`ground_off` > 0.3 m, basins exempt; 358 files, of which 114
   are line segments §16 (3) bars from carrying anyway): **other 158,

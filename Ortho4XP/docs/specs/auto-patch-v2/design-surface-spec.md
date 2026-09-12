@@ -4396,8 +4396,10 @@ decks 3  cells cut 2  refused 118`.
 
 * **(1) THE SITE IS GONE.**  The two rail mouths at 40.4805, −3.6395 build nothing:
   ramp faces 960/962, rims 691/692 and banks 694/695 (149 vertices) are absent, and
-  the patch's western bbox edge is back at the airside extent — lon min −3.64071 →
-  −3.59384 (the base's 149 nodes west of −3.60 → 0).  `bore_cut_clearance_m` is
+  the patch's western bbox edge comes back 3.5 km — lon min −3.64071 → −3.59912, and
+  the base's 149 nodes west of −3.60 are 0.  It is not the airside extent −3.59384:
+  the westernmost feature is now one of the NEWLY ADMITTED corridors (40.48619,
+  −3.59878, see (4)), and without those the edge stands at the extent.  `bore_cut_clearance_m` is
   deleted; no reader, no twin named it.
 * **(2) THE GATE READS THE MOUTH *AND ITS RAMP REACH*, AND THE ROOFED CORRIDORS ARE
   FIELD.**  The first arm read the mouth POINT only against the classified cover:

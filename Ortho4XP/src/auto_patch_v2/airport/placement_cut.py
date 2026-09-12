@@ -180,9 +180,10 @@ class _LineCutter:
         intra-contacts as component index pairs).  A bound cluster is
         ONE rigid body for anchoring: one zero, one carrier.
 
-        Built once per member; the distance test is a KD-tree pair count
-        over the components' vertices, and is skipped entirely when the
-        epsilon is 0 or the member has one component."""
+        Built once per member; the distance test is ONE radius pair
+        query over every vertex of the member labelled by component, and
+        is skipped entirely when the epsilon is 0 or the member has one
+        component."""
         if self._clusters is not None:
             return self._clusters
         if not self._read():
@@ -207,31 +208,25 @@ class _LineCutter:
             if 0 <= a < n and 0 <= b < n:
                 _union(a, b)
         if n > 1 and self.contact_eps_m > 0.0:
+            # ONE tree over every vertex, labelled by component, and ONE
+            # radius pair query — never a tree per component and an n^2
+            # Python loop over pairs: OTHH's clutter objects publish
+            # thousands of components, and the pairwise form is
+            # quadratic in them (measured: the OTHH plan stage).
             from scipy.spatial import cKDTree
             v = self._geom.vertices
-            pts = [v[np.unique(np.asarray(c.tris).reshape(-1))]
-                   for c in self._comps]
-            # the BOX is the cheap reject: a KD-tree per component is
-            # cheap, but n^2 tree queries over a 3,000-component clutter
-            # object is not
-            box = np.asarray([[p.min(axis=0), p.max(axis=0)] if p.size
-                              else [np.zeros(3), np.zeros(3)] for p in pts])
-            trees: dict[int, _t.Any] = {}
-            e = float(self.contact_eps_m)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    if _find(i) == _find(j):
-                        continue
-                    if (box[i][0] > box[j][1] + e).any() or \
-                            (box[j][0] > box[i][1] + e).any():
-                        continue
-                    for k in (i, j):
-                        if k not in trees:
-                            trees[k] = cKDTree(pts[k]) if pts[k].size else None
-                    if trees[i] is None or trees[j] is None:
-                        continue
-                    if trees[i].count_neighbors(trees[j], e) > 0:
-                        _union(i, j)
+            lab = np.concatenate([np.full(len(np.unique(
+                np.asarray(c.tris).reshape(-1))), ci, dtype=np.int64)
+                for ci, c in enumerate(self._comps)])
+            ids = np.concatenate([np.unique(np.asarray(c.tris).reshape(-1))
+                                  for c in self._comps])
+            pts = v[ids]
+            if pts.shape[0]:
+                for a, b in cKDTree(pts).query_pairs(
+                        float(self.contact_eps_m)):
+                    la, lb = int(lab[a]), int(lab[b])
+                    if la != lb:
+                        _union(la, lb)
         self._clusters = [_find(i) for i in range(n)]
         return self._clusters
 

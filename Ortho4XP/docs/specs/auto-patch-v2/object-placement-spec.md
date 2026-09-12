@@ -2228,8 +2228,14 @@ grouping by cluster, `[placement] contact_eps_m` in
   **0 -> 0**, files **2,804 -> 2,776**, §15 carried float **0**, round
   trip **OK** (2,776 files, 2,776/2,776 new `OBJECT_DEF`s, 0 rows
   carrying an elevation, duplicate rows surviving 0), plan stage on the
-  graded sampler **9.56 / 9.60 / 9.71 s** (main 13.53), `_surface` calls
-  186,263 -> **184,219**.  Suite **1,129 / 1 skipped**.
+  graded sampler **8.86 / 9.28 / 9.37 s** (main 13.53), `_surface` calls
+  186,263 -> **184,219**, §16b carried piece float 124 -> **122** and
+  wide 1,417 -> **1,405**, §16a (2) refusal set 157 -> **169**.  Suite
+  **1,129 / 1 skipped**.  The distance test is ONE labelled radius pair
+  query over the member's vertices: the first form (a KD-tree per
+  component and an n^2 pair loop) was quadratic in a clutter object's
+  thousands of components and did not finish OTHH's plan stage in ten
+  minutes.
 * **`Terminal4_48` FIXED BY IT.**  Its zero spread **3.58 -> 0.69 m**
   and the owner-site reading `zero - ground under its own geometry`
   **+3.26 -> +0.04 m** (1.0.319 read +1.81): the piece that rode

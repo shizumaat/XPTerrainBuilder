@@ -122,10 +122,16 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # A PAD'S FRONTAGE LEVEL ROW IS THE SAME CASE (owner 2026-09-10l/10y):
     # a cap-0 ONE-WAY row twinned two-way at 5 % is a route by which the
     # pad could pull the pavement edge it is supposed to follow.
+    # A GROUNDSIDE FRONTAGE ROW IS THE SAME CASE AGAIN (owner RULINGS
+    # 2026-09-12r, spec §28): a cap-0 ONE-WAY row twinned two-way at 5 %
+    # is a route by which the LOT could pull the PAD it is supposed to
+    # follow, and §28 (2) is that a pad's level never moves.
+    from .pad_frontage_gs import GS_LEVEL_JUNIOR_RULING as _GS_LVL_J
+    from .pad_frontage_gs import GS_LEVEL_RULING as _GS_LVL
     from .pads import CEILING_RULING as _PAD_CEIL
     from .pads import LEVEL_JUNIOR_RULING as _PAD_LVL_J
     from .pads import LEVEL_RULING as _PAD_LVL
-    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J}
+    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J}
     for row in rows:
         if row.source.ruling.split(" (")[0].strip() in _skip:
             continue

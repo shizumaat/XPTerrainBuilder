@@ -41,14 +41,18 @@ ANCHOR = (30.12, 31.40)
 
 
 def _patch(tmp_path, name, rings):
-    """One emitted patch from ``(tags, ring_in_metres)`` pairs.  Nodes at
-    the SAME coordinate are the SAME node — what the planar weld emits,
-    and what the census joins on."""
+    """One emitted patch from ``(tags, ring_in_metres)`` pairs, or
+    ``(tags, ring, z)`` where the ring stands at its own altitude (the
+    ``--pad-frontage`` read needs a STEP to measure).  Nodes at the SAME
+    coordinate are the SAME node — what the planar weld emits, and what
+    the census joins on."""
     out = ["<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"]
     seen: dict[tuple[float, float], int] = {}
     nid = [-1]
     body = []
-    for tags, pts in rings:
+    for row in rings:
+        tags, pts = row[0], row[1]
+        z = row[2] if len(row) > 2 else 100.0
         nids = []
         for (x, y) in pts:
             key = (round(x, 6), round(y, 6))
@@ -57,7 +61,7 @@ def _patch(tmp_path, name, rings):
                 lon = ANCHOR[1] + x / (111320.0 * math.cos(math.radians(ANCHOR[0])))
                 out.append(f"  <node id='{nid[0]}' lat='{lat:.11f}' "
                            f"lon='{lon:.11f}'>\n"
-                           f"    <tag k='alt_abs' v='100.00' />\n  </node>\n")
+                           f"    <tag k='alt_abs' v='{z:.2f}' />\n  </node>\n")
                 seen[key] = nid[0]
                 nid[0] -= 1
             nids.append(seen[key])
@@ -160,6 +164,71 @@ def test_the_sliver_split_and_the_lot_class_population(tmp_path, capsys):
     assert set(rows["271"]) == {"shapeID", "ref", "role", "cls", "area_m2",
                                 "perim_m", "airside_pav_m", "service_m",
                                 "building_m", "radius_m", "neighbours"}
+
+
+# ── --pad-frontage: the §28 read ─────────────────────────────────────────
+
+def test_the_pad_frontage_read_measures_the_step_across_a_proximity_gap(tmp_path):
+    """§28's question (owner RULINGS 2026-09-12r): pad -> neighbour ->
+    shared edge m -> STEP m.  The LEMD shape it stands for — ``building4``
+    and ``pav124`` — shares NOT ONE node while standing 0.71-1.50 m apart,
+    so the step must be read across the facing gap; a node-identity-only
+    read would report nothing at all.  The step is signed NEIGHBOUR MINUS
+    PAD, so a car park standing above its terminal reads POSITIVE."""
+    p = _patch(tmp_path, "e.osm", [
+        ({"role": "apron", "ref": "pav92", "shapeID": "83"},
+         _rect(0, 0, 200, 100), 602.30),
+        ({"role": "building", "ref": "building4", "shapeID": "75"},
+         _rect(0, 101, 200, 200), 602.33),
+        ({"role": "groundside_pavement", "class": "parking_lot",
+          "ref": "pav124", "shapeID": "881"}, _rect(0, 201, 200, 300), 605.36),
+    ])
+    rows = REC.pad_frontage(p, near=2.0, min_step=0.05)
+    assert len(rows) == 1 and rows[0]["ref"] == "building4"
+    nb = rows[0]["neighbours"]
+    assert [n["ref"] for n in nb] == ["pav124"]
+    assert nb[0]["step_m"] == pytest.approx(3.03, abs=0.01)
+    assert nb[0]["shared_edge_m"] == 0.0        # the gap: no node in common
+    assert nb[0]["pairs"] >= 2
+    # the APRON is not a §28 neighbour — §20 owns that frontage
+    assert all(n["role"] in REC.GROUNDSIDE_FRONTAGE_ROLES for n in nb)
+
+
+def test_the_pad_frontage_read_uses_the_node_identity_join_where_there_is_one(tmp_path):
+    """Where the two shapes DO share their edge the join is node identity
+    and the shared metres are reported: one node has one value, so the
+    step across a welded edge is 0 by construction and the row is below
+    the floor."""
+    p = _patch(tmp_path, "f.osm", [
+        ({"role": "building", "ref": "b1", "shapeID": "75"},
+         _rect(0, 0, 200, 100), 600.00),
+        ({"role": "service_road", "ref": "route6", "shapeID": "882"},
+         _rect(0, 100, 200, 140), 600.00),
+    ])
+    assert REC.pad_frontage(p, near=2.0, min_step=0.05) == []
+    rows = REC.pad_frontage(p, near=2.0, min_step=0.0)
+    assert rows[0]["neighbours"][0]["shared_edge_m"] == pytest.approx(200.0, rel=0.01)
+    assert rows[0]["neighbours"][0]["step_m"] == 0.0
+
+
+def test_the_pad_frontage_read_prices_no_law_and_names_the_senior_by_edge(tmp_path, capsys):
+    """It counts no defects and applies no cap — §28's SENIORITY is the
+    largest contact, which is the number this reports, not a verdict."""
+    p = _patch(tmp_path, "g.osm", [
+        ({"role": "building", "ref": "padA", "shapeID": "10"},
+         _rect(0, 0, 200, 100), 600.00),
+        ({"role": "building", "ref": "padB", "shapeID": "11"},
+         _rect(0, 143, 20, 200), 604.00),
+        ({"role": "groundside_pavement", "class": "parking_lot",
+          "ref": "lotA", "shapeID": "12"}, _rect(0, 101, 200, 142), 603.00),
+    ])
+    assert REC.main([str(p), "--pad-frontage"]) == 0
+    txt = capsys.readouterr().out
+    assert "PAD FRONTAGE" in txt and "lotA" in txt
+    assert "grade" not in txt and "DEFECT" not in txt
+    rows = {r["ref"]: r for r in REC.pad_frontage(p, near=2.0, min_step=0.05)}
+    assert rows["padA"]["neighbours"][0]["step_m"] == pytest.approx(3.0, abs=0.01)
+    assert rows["padB"]["neighbours"][0]["step_m"] == pytest.approx(-1.0, abs=0.01)
 
 
 def test_the_tool_is_in_the_index():

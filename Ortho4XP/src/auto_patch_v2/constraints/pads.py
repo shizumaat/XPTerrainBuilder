@@ -89,6 +89,7 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
            "frontage_leaders", "_two_sided", "frontage_radius_m",
+           "pad_fronts_airside",
            "pad_relief_offsets"]
 
 GEN = "pads"
@@ -249,7 +250,23 @@ def _fronting(planar: PlanarMap, law: Law
       own.
 
     A pad fronting neither way is absent here and keeps its DEM datum
-    (09p (3)), exactly as ruled."""
+    (09p (3)), exactly as ruled.
+
+    A GROUNDSIDE FACE IS A FRONTAGE ONLY WHERE NOTHING AIRSIDE IS (owner
+    RULINGS 2026-09-12r, spec §28 (2): "the apron frontage (§20's senior)
+    still sets it; a groundside neighbour never pulls a pad — airside is
+    king").  Until §28 a car park or a service road entered here as a
+    JUNIOR frontage and PULLED the pad: measured on the twin fixture, a
+    lot standing 3 m above its pad moved the pad 0.032 m through exactly
+    these two rows.  §28 states the same relation the other way — the
+    face follows the pad (:mod:`constraints.pad_frontage_gs`) — so where
+    a pad has ANY airside frontage the groundside roles are dropped here
+    and the pull is gone.  Where it has NONE they are KEPT: that pad's
+    only frontage is its groundside neighbour, 10l's "the pad takes the
+    pavement's edge level" is all the level it has, and §28 in turn mints
+    no row back against it, so the pair is stated ONCE and in one
+    direction, never as a circular lag."""
+    from ..law.tables import role_side
     geoms = _pavement_geoms(planar, law)
     r = frontage_radius_m(law)
     tree = STRtree([g[2] for g in geoms]) if geoms else None
@@ -273,6 +290,7 @@ def _fronting(planar: PlanarMap, law: Law
             c, own = by_role.setdefault(role, (set(), set()))
             c.update(hit)
             own.update(vs - pad_vs)
+        by_role = _airside_only(by_role, law)
         if by_role:
             out[fid] = by_role
     # A pad with no polygon of its own (a sliver rim) still fronts by
@@ -290,9 +308,35 @@ def _fronting(planar: PlanarMap, law: Law
                 c, own = by_role.setdefault(role, (set(), set()))
                 c.update(hit)
                 own.update(vs - pad_vs)
+        by_role = _airside_only(by_role, law)
         if by_role:
             out[fid] = by_role
     return out
+
+
+def pad_fronts_airside(planar: PlanarMap, law: Law) -> set[int]:
+    """The pad face ids whose frontage is AIRSIDE pavement — §28 (2)'s
+    test, read from :func:`_fronting`'s own output so the two directions
+    of the relation cannot disagree.  A pad NOT here either fronts nothing
+    (its DEM datum, 09p (3)) or fronts only a groundside face, in which
+    case IT follows the face under 10l and ``constraints.pad_frontage_gs``
+    mints nothing back against it."""
+    from ..law.tables import role_side
+    return {fid for fid, by_role in _fronting(planar, law).items()
+            if any(role_side(law, r) == "airside" for r in by_role)}
+
+
+def _airside_only(by_role: dict[str, tuple[set[int], set[int]]], law: Law
+                  ) -> dict[str, tuple[set[int], set[int]]]:
+    """§28 (2): drop the GROUNDSIDE roles from a pad's frontage wherever
+    something AIRSIDE fronts it too (see :func:`_fronting`).  Where
+    nothing airside does, the groundside frontage is all the pad has and
+    is kept unchanged."""
+    from ..law.tables import role_side
+    if any(role_side(law, r) == "airside" for r in by_role):
+        return {r: v for r, v in by_role.items()
+                if role_side(law, r) == "airside"}
+    return by_role
 
 
 def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
@@ -761,3 +805,4 @@ def frontage_near_miss(planar: PlanarMap, law: Law, airport: Airport
             "(2026-08-08; 09-01g weld = value; 03h pads yield)",
             (f"face:{f.id}", f.ref, f"pad:{pid}", planar.faces[pid].ref))))
     return rows
+

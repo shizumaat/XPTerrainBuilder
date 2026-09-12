@@ -15,7 +15,7 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
 from . import (apron, ceiling, flat_site, foot_rows, groundside, junction_mesh,
-               no_step, pads,
+               no_step, pad_frontage_gs, pads,
                proximity, roads, routes, runway_chord, runway_profile, seams, strips,
                structures,
                taxi, transverse, water, zones)
@@ -60,6 +60,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("pad_frontage_level", pads.pad_frontage_level),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
     ("frontage_near_miss", pads.frontage_near_miss),
+    # §28 THE GROUNDSIDE FRONTAGE TAKES THE PAD'S EDGE LEVEL (owner RULINGS
+    # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage
+    # rule read the other way — the lot / service road follows the pad.
+    ("groundside_frontage_level", pad_frontage_gs.groundside_frontage_level),
     ("water_pins", water.water_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),

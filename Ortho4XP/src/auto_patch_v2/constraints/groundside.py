@@ -14,10 +14,29 @@ from ..law.tables import groundside_ramp_max
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["RAMP_FAMILY", "groundside_ramps"]
+__all__ = ["RAMP_FAMILY", "groundside_face_roles", "groundside_ramps"]
 
 #: The generator name its rows carry.
 RAMP_FAMILY = "groundside_ramp"
+
+
+def groundside_face_roles(law: Law) -> tuple[str, ...]:
+    """THE GROUNDSIDE PAVEMENT ROLES — ONE derivation site (owner ruling
+    ``7e90032``), read by this generator and by the §28 frontage rule
+    (``constraints/pads.groundside_frontage``, owner RULINGS 2026-09-11ai-1
+    -> 2026-09-12r "grade frontages only").
+
+    Every role the register sides GROUNDSIDE that carries a VALUE and is
+    not a STRUCTURE: ``groundside_pavement``, ``service_road``,
+    ``service_junction``, ``parking_lot`` — exactly the four §28 (1)
+    names, as DATA rather than a literal list.  A structure's role (a
+    tunnel ramp, a door ramp, a garage ramp, a retaining wall) is no lot
+    and no frontage: its rim stands at the ground by station and its
+    descent rows are its own law (``constraints/structures.py``)."""
+    from ..law.tables import is_structure_role, is_value_role, role_side
+    return tuple(r for r in law.tables.precedence.roles
+                 if role_side(law, r) == "groundside" and is_value_role(law, r)
+                 and not is_structure_role(law, r))
 
 
 def groundside_ramps(pm: PlanarMap, law: Law, airport=None) -> list[Row]:
@@ -32,11 +51,10 @@ def groundside_ramps(pm: PlanarMap, law: Law, airport=None) -> list[Row]:
     other law row (RULINGS 2026-09-08t) and a ramp is free — the groundside
     lifts or cuts to meet the apron edge and grades away at its own cap.
     A generator (``constraints.GENERATORS``)."""
-    from ..law.tables import is_structure_role, is_value_role, role_side, snap_margin_m
+    from ..law.tables import snap_margin_m
     from .precedence import view
     vw = view(pm, law)
     ramp_max = groundside_ramp_max(law)
-    reg = law.tables.precedence.roles
     # the groundside PAVEMENT only: a structure's role (a tunnel ramp, a door
     # ramp, a retaining wall — groundside value roles too) is no lot the
     # apron ramps to; its rim stands at the ground by station and its
@@ -44,8 +62,7 @@ def groundside_ramps(pm: PlanarMap, law: Law, airport=None) -> list[Row]:
     # 2026-09-08 (lane v2shapes): six rows apron <-> tunnel_ramp rim at
     # 1.0-1.4 m lifted a ramp 8 mm over its descent law and pulled the apron
     # 0.46 m under the DEM at a door well
-    ground = tuple(r for r in reg if role_side(law, r) == "groundside" and is_value_role(law, r)
-                   and not is_structure_role(law, r))
+    ground = groundside_face_roles(law)
     gv: dict[int, tuple[float, float]] = {}
     for f in vw.faces_of_role(ground):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

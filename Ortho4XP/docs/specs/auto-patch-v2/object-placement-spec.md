@@ -1471,3 +1471,28 @@ implementation for both tools).  Law: `[placement] carrier_fill_min = 0.2`.
   sampling the re-cut needs (913k reads at LEMD; the per-cell memo already took
   1.9 s of it back).  A vectorised surface sampler would take most of the rest
   and is not in this lane.
+
+## §16a A carried body lives in its carrier's frame (RULINGS 2026-09-11aj)
+
+§16 (2) and (3) as written cut and judged a carried body by the GROUND under its own
+geometry; §15 (3) judges it by the ZERO of the body beneath. They disagree wherever
+walls stand on sloping ground: the walls anchor at their low-side foot, the roof cut
+by ground lands metres off them (LEMD carried `stands-over float > 0.5 m` 1 → 58; the
+garage pavilions −1.27 … +3.70 against the slab). Resolved:
+
+1. **A carried body is cut where its CARRIER is cut.** Its pieces are the carrier's
+   terrain groups intersected with its own footprint — one piece per carrier group
+   it stands over, each riding that group's zero at the authored offset. It is never
+   cut by the ground under itself. A carried body standing over several carriers
+   (a roof over two buildings) gets one piece per carrier.
+2. **§16 (3)'s ground check is on the CARRIER**: a candidate whose zero is more than
+   `split_tol_m` off the ground under its OWN feet is refused (it is itself
+   mis-anchored, and would carry its error). The ground under the carried body is
+   never compared.
+3. **The bar for carried bodies is §15 (3)'s** `zero − zero_beneath` (≤ 0.3 m);
+   `zero − ground_under_geometry` is printed for information only.
+4. **Bars (lane `v2skipped2`):** garage pavilions `green-TEJ1` within 0.3 of the slab
+   group beneath each piece; carried `stands-over float > 0.5 m` 58 → 0 at LEMD, ≤ 7
+   at OTHH; the §16 (4) bars held (datum rows 0, fences never carry, carriers off the
+   ground 0); plan stage back within LEMD ≤ 5 s / OTHH ≤ 35 s (the carried-body
+   ground sampling removed); files quoted.

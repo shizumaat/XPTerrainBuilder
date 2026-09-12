@@ -633,6 +633,11 @@ def carriers_for(pids: _t.AbstractSet[int],
     body is never compared: walls on sloping ground anchor at their
     low-side foot, so a roof judged against the ground under itself is
     judged against a surface its carrier never stood on.
+    §16c (8) (RULINGS 2026-09-12q): AND THE REFUSAL YIELDS TO WHAT THE
+    BODY RESTS ON — a candidate whose TOP under the overlap meets the
+    body's base within ``tol_m`` is accepted however far its own zero
+    stands from its feet, because it is the thing the body sits on
+    (``_rests_on``).
     §16b (3): AND THE FALLBACK CARRIER IS BOUNDED.  The candidates above
     are ranked by the body STANDING OVER them, which is itself evidence
     about the ground under it.  The fallbacks — (b) contact, (c) nearest,
@@ -752,6 +757,38 @@ def carriers_for(pids: _t.AbstractSet[int],
                         return max(hits)
                 return c.top_y
 
+            def _rests_on(c: Candidate) -> bool:
+                """§16c (8): THE REST-ON CARRIER IS NOT REFUSED FOR ITS
+                OWN GROUND (owner RULINGS 2026-09-12q).
+
+                §16a (2) refuses a candidate whose own zero stands off
+                the ground under its own feet, because it would carry
+                its error.  But where the candidate's TOP under the
+                overlap MEETS this body's base within ``tol_m``, the
+                candidate is what the body physically rests on: LEMD's
+                T3 roof ``tej2`` rests on ``P2PK__b0`` (|Δ| 1.45 m
+                against 14.64 m for the runner-up) and the refusal —
+                ``P2PK``'s own feet 0.42 m off — sent the roof to a
+                body 14 m away.  Handing a roof to something it does
+                not touch is a worse error than inheriting its wall's
+                mis-anchoring, and the wall's residual is reported in
+                its own right (§16a (2)'s refusal set).  The refusal
+                stands for every other candidate."""
+                if tol_m <= 0.0:
+                    return False
+                top = _top_under(c)
+                if top is None or c.ground_off is None:
+                    return False
+                return abs(float(base_y) - float(top)) <= tol_m
+
+            def _admit(c: Candidate) -> bool:
+                if _ok(c):
+                    return True
+                if _rests_on(c):
+                    _bump("zero_off_ground_yielded_rest_on")
+                    return True
+                return False
+
             def _rest_key(q):
                 ov, c = q
                 top = _top_under(c)
@@ -771,7 +808,7 @@ def carriers_for(pids: _t.AbstractSet[int],
                         f"{overlap_m2(box, c.box):.0f} m2 in plan)"
                      if _top_under(c) is not None else
                      f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")
-                    for _ov, c in ranked if _ok(c)]
+                    for _ov, c in ranked if _admit(c)]
         else:
             ranked.sort(key=lambda q: (q[0][0], q[0][1], -q[1].member),
                         reverse=True)

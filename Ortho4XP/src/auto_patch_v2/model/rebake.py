@@ -1,23 +1,21 @@
-"""THE RE-SEAT PLAN AND RESULT — data only (RULINGS 2026-09-04i 04f-1;
-the CONTACT-CLUSTER law 2026-09-06g).
+"""THE OBJECT-STAGE PLAN — data only (RULINGS 2026-09-04i 04f-1; the
+CONTACT-CLUSTER law 2026-09-06g; THE SEAT RETIRED 2026-09-12s, spec §8).
 
 A :class:`RebakePlan` is what the tile build writes beside the patch
-(``o4_v2_rebake_<ICAO>.json``) and the post-mesh seat reads.  Since 06g
-the seat's unit is no longer the anchor family but the CONTACT CLUSTER
-(v1's law as v2 code): every member carries its welded solid PARTS —
-one per genuine component of the authored file: the plan-centroid the
-mesh is read under, the part's lowest authored ``y`` (``base_y``), its
-plan area and box — and the plan carries the ε-CONTACT EDGES among all
-parts of the pack (``airport/contact.py``).  After the mesh
-``emit/clusters.py`` cuts the ground-to-ground edges whose seat targets
-disagree by more than ``cluster_seat_tolerance_m`` and seats every
-cluster on the median ground under its ground parts, PER VERTEX — one
-file may carry several deltas.  Anchor families (``Unit``) survive as
-the SUBTRAHEND (a member's rendered ``y = 0`` plane is the mesh at its
-anchor + AGL) and as the scope of the STRUCTURE seats: a deck plate at
-its abutment grade (R12), a tunnel wall / basin floor plate (05n-4 /
-06b-3).  Built by ``airport/rebake_plan.py``, seated by
-``emit/rebake.py``.  No numpy, no shapely, no I/O here.
+(``o4_v2_rebake_<ICAO>.json``) and the post-mesh object stage reads.
+Every member carries its welded solid PARTS — one per genuine component
+of the authored file: the plan-centroid the mesh is read under, the
+part's lowest authored ``y`` (``base_y``), its plan area and box — and
+the plan carries the ε-CONTACT EDGES among all parts of the pack
+(``airport/contact.py``).  Anchor families (``Unit``) carry the
+SUBTRAHEND (a member's rendered ``y = 0`` plane is the mesh at its
+anchor + AGL).  Built by ``airport/rebake_plan.py``, consumed by the
+PLACEMENT path (``airport/placement_*.py``, spec §4/§6).
+
+THE SEAT'S RESULT TYPES ARE DELETED (2026-09-12s): ``MemberSeat``,
+``UnitSeat``, ``ClusterSeat``, ``PadRequest``, ``SeatResult`` and the
+``DATUM_*`` constants belonged to v1's vertex rewrite, a refuted
+mechanism — deleted, not gated.  No numpy, no shapely, no I/O here.
 """
 from __future__ import annotations
 
@@ -27,9 +25,8 @@ import typing as _t
 
 from .frame import LL
 
-__all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan", "MemberSeat", "UnitSeat",
-           "ClusterSeat", "PadRequest", "SeatResult", "PLAN_VERSION", "PLAN_FILENAME",
-           "DATUM_CLUSTER", "DATUM_DECK_TOP", "DATUM_PLATE"]
+__all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
+           "PLAN_VERSION", "PLAN_FILENAME"]
 
 #: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
 #: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
@@ -42,12 +39,6 @@ PLAN_VERSION = 9
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
-#: A ground object seats by its CONTACT CLUSTERS (06g; v1 ``form_clusters``).
-DATUM_CLUSTER = "cluster"
-DATUM_DECK_TOP = "deck_top"
-#: A tunnel wall object seats its top PLATE on the ground at its wall band
-#: (RULINGS 2026-09-05n-4; ``tunnel.object.plate_datum = "ground"``).
-DATUM_PLATE = "plate"
 
 
 # ── the plan ─────────────────────────────────────────────────────────────
@@ -344,256 +335,3 @@ class RebakePlan:
     @classmethod
     def from_json(cls, text: str) -> "RebakePlan":
         return cls.from_dict(json.loads(text))
-
-
-# ── the seat ─────────────────────────────────────────────────────────────
-
-@_dc.dataclass(frozen=True)
-class MemberSeat:
-    """One member's seat.  ``delta_m`` is the ONE delta applied to the
-    whole file when it has one (a structure seat, or every part in one
-    cluster), else ``None`` with the per-part map in ``part_deltas``:
-    ``(comp, cluster id, delta | None)`` — ``None`` = that part keeps its
-    authored y (its cluster stayed: below threshold, refused, facility,
-    held).  ``witnesses`` counts the member's MEASURED ground parts."""
-
-    resource: str
-    datum: str
-    delta_m: float | None
-    witnesses: int
-    water: int
-    off_mesh: int
-    outliers: int
-    note: str = ""
-    #: The abutment records of a signature deck (per end: walked metres,
-    #: land samples, samples over water, found) and the mid-span
-    #: clearance reading — the evidence trail per member (04k).
-    records: tuple[str, ...] = ()
-    #: Whether this member FOUNDED the unit's structure seat (a deck plate
-    #: with a measured abutment grade, a wall plate on its band).
-    founding: bool = False
-    #: A FACILITY member (RULINGS 2026-09-05p, at cluster level 06g): every
-    #: one of its ground parts lies in a facility cluster — it keeps its
-    #: authored y (the terrain's cutout is the basin pass's affair).
-    facility: bool = False
-    #: The GROUND under the member's measured ground parts: the median
-    #: SEAT TARGET (09s (2) — the y = 0 plane its feet found).
-    ground_m: float | None = None
-    part_deltas: tuple[tuple[int, int, float | None], ...] = ()
-    #: THE SEGMENT SEAT of a LINE OBJECT (owner RULINGS 2026-09-10bb, spec
-    #: §16.1 rule 3): rows ``(comp, lat, lon, delta)`` — every VERTEX of
-    #: that component takes the delta of the station NEAREST it in plan,
-    #: so a fence drapes instead of taking one delta over kilometres.
-    #: The component's entry in ``part_deltas`` carries the MEDIAN of
-    #: them, which is what a consumer with no plan position reads.
-    line_stations: tuple[tuple[int, float, float, float], ...] = ()
-
-    @property
-    def bakes(self) -> bool:
-        """Some vertex of this member moves."""
-        return self.delta_m is not None or any(d is not None for _c, _k, d in self.part_deltas)
-
-
-@_dc.dataclass(frozen=True)
-class ClusterSeat:
-    """One contact cluster (06g): ``ground_m`` the median SEAT TARGET of
-    its measured ground parts (09s (2): the ``y = 0`` plane their own
-    feet found), ``lift_m`` the median of their seat deltas
-    (``target − base``: positive = the parts stand under the mesh),
-    ``span_m`` the relief across those targets.  ``delta_m`` is per
-    RESOURCE (``ground_m − base(member)``) and lives in the members'
-    ``part_deltas``; ``skip_reason`` says why the cluster stays."""
-
-    id: int
-    structure: int
-    resources: tuple[str, ...]
-    n_parts: int
-    n_ground: int
-    n_measured: int
-    ground_m: float | None
-    lift_m: float | None
-    span_m: float
-    diameter_m: float
-    needs_pad: bool = False
-    facility: bool = False
-    held: bool = False
-    skip_reason: str | None = None
-    residual_parts: int = 0
-    #: THE FEET ACROSS THE BODY (RULINGS 2026-09-10i (2)): one residual
-    #: per measured ground part — its own feet-founded target minus the
-    #: body's median ``ground_m`` — rounded to the millimetre, and their
-    #: largest absolute value.  ``feet_sampled`` counts the additional
-    #: feet the seat had to SAMPLE off the design surface because the
-    #: body was wider than ``body_feet_span_m`` per measured foot.
-    foot_residuals: tuple[float, ...] = ()
-    foot_residual_max_m: float = 0.0
-    feet_sampled: int = 0
-    #: RULINGS 2026-09-10bb: this body is ONE LINE OBJECT component,
-    #: draped on its own stations (spec §16) — it bound nothing and
-    #: founded no foot for anything else.
-    line_object: bool = False
-    #: ...and the ORPHAN (§16.1 rule 4): a body with no ground part at
-    #: all, seated by sampling the design surface under its parts.
-    orphan: bool = False
-    #: THE ABUTMENT GROUP (owner RULINGS 2026-09-10ay; spec §17): the id
-    #: of the SENIOR body of the group this body abuts into, or ``None``
-    #: when it is in no group.  A body whose ``group`` is not its own id
-    #: is a JUNIOR: it took the senior's ground, not its own feet's.
-    group: int | None = None
-
-    @property
-    def bakes(self) -> bool:
-        return self.ground_m is not None and self.skip_reason is None and not self.held
-
-
-@_dc.dataclass(frozen=True)
-class PadRequest:
-    """A maximal connected group of a cluster's ground parts the seat
-    still leaves further than ``cluster_residual_pad_m`` off the mesh
-    (v1 ``ClusterPadRequest``, spec §5.3): the terrain's to close —
-    REPORTED here, consumed by no v2 pass yet (06g)."""
-
-    cluster: int
-    resource: str
-    lat: float
-    lon: float
-    residual_m: float
-    target_ground_m: float
-    part_count: int
-    over_relief_cap: bool
-    seated: bool
-
-
-@_dc.dataclass(frozen=True)
-class UnitSeat:
-    """The unit's structure seat (a deck top, a wall plate: ONE delta for
-    the members it founds), or ``DATUM_CLUSTER``: its members seat by
-    their contact clusters and ``delta_m`` is ``None``."""
-
-    unit_id: str
-    resources: tuple[str, ...]
-    anchor_ground_m: float | None
-    datum: str
-    delta_m: float | None
-    seat_datum_m: float | None
-    members: tuple[MemberSeat, ...]
-    skip_reason: str | None = None
-    findings: tuple[str, ...] = ()
-    #: HELD: v2 cannot judge the unit (its anchor is off the mesh, or a
-    #: one-file-several-anchors disagreement) — the pack's CURRENT bytes
-    #: are kept, neither seated nor reverted.
-    held: bool = False
-
-    @property
-    def bakes(self) -> bool:
-        """Some member of the unit moves."""
-        if self.skip_reason is not None or self.held:
-            return False
-        return self.delta_m is not None or any(m.bakes for m in self.members)
-
-
-@_dc.dataclass(frozen=True)
-class SeatResult:
-    icao: str
-    units: tuple[UnitSeat, ...]
-    clusters: tuple[ClusterSeat, ...] = ()
-    pad_requests: tuple[PadRequest, ...] = ()
-    cut_edges: int = 0
-    structures: int = 0
-    #: RULINGS 2026-09-10i (1)/(3): intra-placement ground edges KEPT
-    #: despite disagreeing feet, and parts held for touching no body.
-    intra_placement_kept: int = 0
-    held_parts: int = 0
-    #: RULINGS 2026-09-10u (1): elevated cohesion groups assigned as one,
-    #: and those that resolved with no plan overlap (the body-id tie).
-    elevated_groups: int = 0
-    group_ties: int = 0
-    #: RULINGS 2026-09-10bb (spec §16): LINE-OBJECT bodies, the contact
-    #: edges their rule refused to bind, and the ORPHAN bodies seated by
-    #: sampling because everything they touched was a line object.
-    line_bodies: int = 0
-    line_edges_dropped: int = 0
-    orphan_bodies_seated: int = 0
-    #: owner RULINGS 2026-09-10ay (spec §17): the ABUTMENT GROUPS formed
-    #: in the authored frame, the JUNIOR bodies that took a senior's
-    #: ground instead of their own feet's, and the abutment pairs a rule
-    #: refused (a line body, a structure seat, a facility, a held body).
-    abutment_groups: int = 0
-    grouped_bodies: int = 0
-    group_pairs_refused: int = 0
-
-    def counts(self) -> dict[str, int]:
-        c = {"units": len(self.units), "baked": 0, "below_threshold": 0,
-             "held": 0, "skipped": 0, "resources_baked": 0, "findings": 0,
-             "deck_units": 0, "facility_members": 0, "plate_units": 0,
-             "structures": self.structures, "clusters": len(self.clusters),
-             "clusters_baked": 0, "clusters_below_threshold": 0, "clusters_refused": 0,
-             "clusters_facility": 0, "clusters_held": 0, "clusters_padded": 0,
-             "cut_edges": self.cut_edges, "pad_requests": len(self.pad_requests),
-             "intra_placement_kept": self.intra_placement_kept,
-             "held_parts": self.held_parts, "feet_sampled": 0,
-             "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
-             "parts": 0, "ground_parts": 0, "members_multi_delta": 0,
-             "line_objects": 0, "line_stations": 0, "orphan_bodies": 0,
-             "line_bodies": self.line_bodies,
-             "line_edges_dropped": self.line_edges_dropped,
-             "abutment_groups": self.abutment_groups,
-             "grouped_bodies": self.grouped_bodies,
-             "group_pairs_refused": self.group_pairs_refused}
-        for u in self.units:
-            c["findings"] += len(u.findings)
-            c["facility_members"] += sum(1 for m in u.members if m.facility)
-            c["resources_baked"] += sum(1 for m in u.members if m.bakes and not u.held)
-            c["members_multi_delta"] += sum(
-                1 for m in u.members if m.delta_m is None
-                and len({d for _c, _k, d in m.part_deltas if d is not None}) > 1)
-            if u.datum == DATUM_DECK_TOP:
-                c["deck_units"] += 1
-            if u.datum == DATUM_PLATE:
-                c["plate_units"] += 1
-            if u.bakes:
-                c["baked"] += 1
-            elif u.skip_reason and u.skip_reason.startswith("below_threshold"):
-                c["below_threshold"] += 1
-            elif u.held:
-                c["held"] += 1
-            else:
-                c["skipped"] += 1
-        for k in self.clusters:
-            c["parts"] += k.n_parts
-            c["ground_parts"] += k.n_ground
-            if k.bakes:
-                c["clusters_baked"] += 1
-            elif k.held:
-                c["clusters_held"] += 1
-            elif k.facility:
-                c["clusters_facility"] += 1
-            elif k.skip_reason and k.skip_reason.startswith("below_threshold"):
-                c["clusters_below_threshold"] += 1
-            else:
-                c["clusters_refused"] += 1
-            if k.needs_pad:
-                c["clusters_padded"] += 1
-            c["feet_sampled"] += k.feet_sampled
-            c["line_objects"] += int(k.line_object)
-            c["orphan_bodies"] += int(k.orphan)
-        for u in self.units:
-            for m in u.members:
-                c["line_stations"] += len(m.line_stations)
-        return c
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        return {"icao": self.icao, "counts": self.counts(),
-                "cut_edges": self.cut_edges, "structures": self.structures,
-                "intra_placement_kept": self.intra_placement_kept,
-                "held_parts": self.held_parts,
-                "elevated_groups": self.elevated_groups, "group_ties": self.group_ties,
-                "line_bodies": self.line_bodies,
-                "line_edges_dropped": self.line_edges_dropped,
-                "orphan_bodies_seated": self.orphan_bodies_seated,
-                "abutment_groups": self.abutment_groups,
-                "grouped_bodies": self.grouped_bodies,
-                "group_pairs_refused": self.group_pairs_refused,
-                "units": [_dc.asdict(u) for u in self.units],
-                "clusters": [_dc.asdict(k) for k in self.clusters],
-                "pad_requests": [_dc.asdict(p) for p in self.pad_requests]}

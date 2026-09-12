@@ -362,7 +362,6 @@ in_runway_strip = false            # no wall inside the runway strip keep-out (0
 # cluster's ground parts, the delta written PER VERTEX through v1's writer
 # (object_rebake.apply: the OBJ8 vertex y tokens, never the DSF, the authored
 # file kept as <name>.anchor_bak).  Anchor spelling is only the subtrahend.
-placement           = "agl"        # THE OBJECT STAGE (owner RULINGS 2026-09-11b/11e (3)): "agl" = X-Plane places every object on the terrain under its own anchor — the placements convert to on-ground, mega-objects are cut into bodies and each body takes the anchor where the design surface equals its zero (spec object-placement-spec.md §9), and NO SEAT IS COMPUTED; "seat" = the pre-11b path (the per-vertex re-seat of 09ac-10be) unchanged.  The ONE permitted gate: a mechanism awaiting the owner's sim adjudication (29e); the seat path is DELETED after the read (§8)
 restore_before_read = true         # the loader reads <obj>.anchor_bak where one exists — the AUTHORED geometry, never a previous bake (04f-1; m4b-report §9 Q1)
 ground_datum        = "cluster"    # a ground object seats by its contact clusters (06g; v1 object_clusters.form_clusters + object_anchor._seat_clusters)
 deck_datum          = "deck_top"   # a hard-deck object seats its deck TOP on the solved surface at the deck (bridge.deck_datum; R12: the y=0 datum was the defect)

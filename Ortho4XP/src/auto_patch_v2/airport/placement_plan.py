@@ -562,9 +562,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         for mi, m in enumerate(u.members):
             for p in m.parts:
                 member_of_pid[p.pid] = (ui, mi)
+    # §16c (7): and the UNIT's own pairs, cross-member ones included —
+    # a terminal is authored as walls, roofs and skylights in separate
+    # RESOURCES that touch, and §16c (6) bound only within one member
+    unit_pairs: dict[int, list[tuple[int, int]]] = {}
     for a, b in plan.contacts:
         ka, kb = member_of_pid.get(a), member_of_pid.get(b)
-        if ka is not None and ka == kb:
+        if ka is None or kb is None or ka[0] != kb[0]:
+            continue
+        unit_pairs.setdefault(ka[0], []).append((a, b))
+        if ka == kb:
             intra.setdefault(id_of(ka), []).append((a, b))
     pairs = tuple(abutments) or tuple(getattr(plan, "abutments", ()) or ())
     pairs = tuple(plan.contacts) + pairs
@@ -582,6 +589,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               "groups_re_cut": 0, "elevated_ride_other_file": 0,
                               "footless_own_ground": 0}
     refused: dict[str, int] = {}
+    #: §16c (7): the plan extent of every rigid cluster of more than one
+    #: body, for the report (a cluster is ONE body no cut may divide)
+    cl_spans: list[tuple[float, int]] = []
     by_class: dict[str, int] = {}
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
@@ -721,6 +731,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                             else None)),
                     part_tops=_ft))
 
+        # ── §16c (7): THE UNIT BINDS BY CONTACT ──────────────────────
+        # The bodies of the unit the plan's own ε-contact graph links —
+        # and every elevated body of a member with the footed body of
+        # its own member it stands over — are ONE RIGID CLUSTER at ONE
+        # zero: the SENIOR FOOTED body's, everything else riding it at
+        # its authored offset.  The law and its bounds live in
+        # ``placement_atom`` (RULINGS 2026-09-12q).
+        forced, cl_census = _atom.bind_unit(cands, staged, surface,
+                                            unit_pairs.get(ui, ()), counts)
+        cl_spans.extend(cl_census[:5])
+
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
@@ -770,22 +791,33 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             for grp, gboxes in targets:
                 bx = _pc.hull_of(gboxes)
-                over = _pc.carriers_for(
-                    frozenset(p.pid for i in grp for p in st.raw[i][0]),
-                    bx, cands, adj, _pc.foot_boxes(gboxes),
-                    tol_m=split_tol_m,
-                    refusals=refused,
-                    # §16b (3): the ground under the CARRIED PIECE — read
-                    # only if the search falls back past "stands over"
-                    # §16c (2): THE CONTACT GROUND, not the footprint's
-                    # median (a 1 km deck slab's median ground is the
-                    # underpass floor 15 m below its piers, 12d)
-                    carried_ground=lambda _b=bx, _g=gboxes, _gr=grp: (
-                        _pc.contact_ground(surface, st.raw, _gr, _g, _b,
-                                           cands)),
-                    base_y=min((q[2] for i in grp for q in st.raw[i][6]),
-                               default=None),
-                    solid_cands=_solid, index=_index)
+                _pids = frozenset(p.pid for i in grp for p in st.raw[i][0])
+                # §16c (7): IS THIS BODY PART OF A RIGID CLUSTER?  Then
+                # its zero is the cluster's and no search is asked.
+                _f = sorted({forced[(st.mi, i)] for i in grp
+                             if (st.mi, i) in forced})
+                if _f:
+                    counts["bodies_bound_to_cluster_by_contact"] = \
+                        counts.get("bodies_bound_to_cluster_by_contact", 0) + 1
+                    over = [(cands[_f[0]], "§16c (7) bound by contact into "
+                             "the unit's rigid cluster")]
+                else:
+                    over = _pc.carriers_for(
+                        _pids,
+                        bx, cands, adj, _pc.foot_boxes(gboxes),
+                        tol_m=split_tol_m,
+                        refusals=refused,
+                        # §16b (3): the ground under the CARRIED PIECE — read
+                        # only if the search falls back past "stands over"
+                        # §16c (2): THE CONTACT GROUND, not the footprint's
+                        # median (a 1 km deck slab's median ground is the
+                        # underpass floor 15 m below its piers, 12d)
+                        carried_ground=lambda _b=bx, _g=gboxes, _gr=grp: (
+                            _pc.contact_ground(surface, st.raw, _gr, _g, _b,
+                                               cands)),
+                        base_y=min((q[2] for i in grp for q in st.raw[i][6]),
+                                   default=None),
+                        solid_cands=_solid, index=_index)
                 if not over:
                     # §16 (3): no carrier the law will accept — the body
                     # anchors on the ground under its OWN footprint with

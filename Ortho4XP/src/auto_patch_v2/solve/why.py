@@ -136,6 +136,10 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # so a ``why`` trace on a pad names the pavement edge holding it rather
     # than its flatness target
     ("pad_level", "", "pad_frontage_level"),
+    # THE GROUNDSIDE FRONTAGE (owner RULINGS 2026-09-12r, spec §28): its own
+    # family, so a ``why`` trace on a car-park or service-road edge names the
+    # PAD holding it, and a JUNIOR pad's miss is a residual with a name
+    ("groundside_frontage", "", "groundside_frontage_level"),
     # THE BASIN FLOOR (owner RULINGS 2026-09-10ba): its own family, so a
     # ``why`` trace on a floor vertex names the RIM it follows rather than
     # the structure generator at large

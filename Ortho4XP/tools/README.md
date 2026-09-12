@@ -79,8 +79,7 @@ module-level work — they are libraries and are safe to import.
 | `profile_airport_build.py` | Wall-clock sampling profiler for one auto_patch build (~0.02 s interval, < 1 % overhead) — attribution matches the production phase numbers, unlike cProfile |
 | `profile_tile_build.py` | The whole-tile companion, sampling every thread through `sys._current_frames()` so parallel stages attribute correctly |
 | `fetch_airport_elevation_insets.py` | CLI front end to `O4_Airport_Elevation_Insets`: pre-warm or refresh one airport's inset cache and inspect it before a full tile build |
-| `reanchor_dsf_objects.py` | Re-anchors DSF scenery objects against a built mesh. A thin parser over `post_mesh.discover_and_rebake_airport`, shared with the build hook so the two cannot drift |
-| `reanchor_kclt_terminal_bakes.py` | The KCLT-hardcoded prototype `reanchor_dsf_objects.py` generalises. A **second independent writer** of `.o4_reanchor_provenance.json` with a duplicated filename constant — see `artifact_contracts.json` |
+| `reanchor_kclt_terminal_bakes.py` | The KCLT-hardcoded prototype of the deleted `reanchor_dsf_objects.py` (seat, retired 2026-09-12s). A **second independent writer** of `.o4_reanchor_provenance.json` with a duplicated filename constant — see `artifact_contracts.json` |
 | `run_with_ledger.py` | Skips a command that already passed at an identical code-tree hash with identical `O4_*` env; append-only JSONL |
 | `fast_suite.sh` | Development fast lane — cheap airports (CYXY, SPLP) plus every non-build unit test. **The full suite stays the merge gate** |
 

@@ -29,7 +29,6 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.structures import ramp_faces_of, structures, wall_faces_of
 from auto_patch_v2.emit.graded import graded_surface
-from auto_patch_v2.emit.rebake import DATUM_PLATE, seat
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, DsfObject, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Pin
@@ -491,12 +490,11 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
         assert rows_v[key] == [], (key, rows_v[key][:3])
 
 
-# ── §4: the re-seat ──────────────────────────────────────────────────────
+# ── §4: the plate plan (the re-seat it fed is RETIRED, 2026-09-12s) ──────────────────────────────────────────────────────
 
 def test_reseat_plate_to_ground(corridor_map, objs, law):
-    """05n-4: the wall object is planned with its plate and band
-    stations; the seat's delta = ground − (mesh(anchor) + agl + plate),
-    exempt from the 1 m threshold, datum ``plate``."""
+    """05n-4: the wall object is PLANNED with its plate and band
+    stations (the seat that consumed them is retired, 2026-09-12s)."""
     from auto_patch_v2.pipeline.build import _plate_seats
     airport, pm, stats = corridor_map
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
@@ -513,55 +511,12 @@ def test_reseat_plate_to_ground(corridor_map, objs, law):
     from auto_patch_v2.model.rebake import RebakePlan
     pl2 = RebakePlan.from_json(pl.to_json())
     assert pl2.units[0].members[0].plate_stations == members[0].plate_stations
-    # a mesh: the anchor sits in the cut trench 2.0 m under the ground,
-    # the wall band stations on the ground
-    unit = pl2.units[0]
-    ground = 700.0
-
-    def sampler(lat, lon):
-        if (round(lat, 7), round(lon, 7)) == (round(unit.anchor[0], 7), round(unit.anchor[1], 7)):
-            return ground - 3.5, False
-        return ground, False
-    res = seat(pl2, sampler, law)
-    us = res.units[0]
-    assert us.datum == DATUM_PLATE and us.bakes
-    # rendered plate = (ground − 3.5) + agl(−3.0) + 5.0 = ground − 1.5: the cut
-    # under the anchor is what the delta compensates (+1.5); a plate seat
-    # under min_delta_m would STAY (RULINGS 2026-09-08d d)
-    expect = ground - ((ground - 3.5) + unit.agl_m + 5.0)
-    assert us.delta_m == pytest.approx(expect)
-    assert us.skip_reason is None
-    assert res.counts()["plate_units"] == 1
-
-
-def test_one_file_one_delta_for_two_placements(objs, law):
-    """A plate-seated resource placed at two anchors (OTHH tunnel1 × 2)
-    is planned per anchor and bakes only when the seats agree."""
-    from auto_patch_v2.pipeline.build import _plate_seats
-    airport = _airport(objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL"),
-                                   ("wall_long", (600.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
-                       _bore(y_in=-70.0, y_open=80.0)
-                       + (OsmWay(-401, "big_roads", ((600.0, -70.0), (600.0, -400.0)),
-                                 False, {"highway": "secondary", "tunnel": "yes"}),))
-    cl = Classification(tuple(_cells(-200, -300, 800, 200)), (), {}, ())
-    pm, stats = build(airport, cl, law)
-    assert len([t for t in pm.structures if t.source == "object"]) == 2, stats.structures.refused
-    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
-    objects, rep = read_objects(airport, law, cache)
-    pl = rebake_plan(airport, objects, cache, law, None, tunnel_objects=_plate_seats(pm, law))
-    assert len(pl.units) == 2 and pl.counts["multi_anchor"] == 0
-    rb = law.tables.structures.rebake
-    res = seat(pl, lambda la, lo: (700.0, False), law)
-    assert all(u.bakes and u.datum == DATUM_PLATE for u in res.units)
-    # disagreeing seats: the second anchor's ground 1 m lower → held, both
-    anchors = {u.anchor for u in pl.units}
-    low = sorted(anchors)[0]
-
-    def sampler(lat, lon):
-        return (699.0 if (lat, lon) == low else 700.0), False
-    res2 = seat(pl, sampler, law)
-    assert all(u.held and "one file" in (u.skip_reason or "") for u in res2.units)
-    assert rb.agreement_window_m < 1.0
+    # THE SEAT IS RETIRED (owner RULINGS 2026-09-12s, spec §8): the delta
+    # half of this twin — ``seat()`` over a sampler, datum ``plate``,
+    # ground − (mesh(anchor) + agl + plate) — went with the mechanism, as
+    # did ``test_one_file_one_delta_for_two_placements``.  The PLAN half
+    # above (the plate y, the band stations, the round trip) is the live
+    # law: the placement path reads the same plan.
 
 
 def test_law_register(law):

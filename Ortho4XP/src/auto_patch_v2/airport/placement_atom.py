@@ -13,6 +13,7 @@ NO LAW CONSTANT LIVES HERE: the tolerances are the cutter's
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import typing as _t
 
 import numpy as np
@@ -40,8 +41,21 @@ RIGID_REACH_COMPONENTS_MAX = 64
 #: at this cap, 64.45 s at 100 m and 63.46 s with the reach disarmed.
 RIGID_CLUSTER_SPAN_MAX_M = 1200.0
 
-__all__ = ["comp_of", "comp_cluster", "comp_blocks",
-           "RIGID_REACH_COMPONENTS_MAX", "RIGID_CLUSTER_SPAN_MAX_M"]
+#: §16c (7): a UNIT-WIDE contact cluster never grows wider than this in
+#: PLAN.  The unit's ε-contact graph is not the member's: it chains 90 of
+#: LEMD's 327 members into one component through unit 25's 11,365
+#: cross-member pairs, and at ``RIGID_CLUSTER_SPAN_MAX_M`` it made
+#: clusters 1,190 m wide that collapsed a 10.46 m range of honest terrain
+#: readings onto ONE zero (measured, this lane).  What (7) is FOR is a
+#: building — "walls + roofs + skylights in contact is one building" —
+#: and a building is the scale this bounds.  Measured at LEMD: 1,200 m
+#: collapses fences and grass mats, 100 m leaves the T2 block in two
+#: clusters; 300 m is the block whole and nothing larger.
+UNIT_CLUSTER_SPAN_MAX_M = 300.0
+
+__all__ = ["comp_of", "comp_cluster", "comp_blocks", "unit_clusters",
+           "unit_rigid", "RigidNode", "bind_unit", "RIGID_REACH_COMPONENTS_MAX",
+           "RIGID_CLUSTER_SPAN_MAX_M", "UNIT_CLUSTER_SPAN_MAX_M"]
 
 
 def comp_of(cut, tris) -> "list[int]":
@@ -238,3 +252,374 @@ def comp_blocks(cut, tris) -> "list[list[int]]":
                               []).append(i)
     return [blocks[k] for k in sorted(blocks)] + loose
 
+
+def unit_clusters(cands: _t.Sequence[_t.Any],
+                  contacts: _t.Iterable[tuple[int, int]],
+                  span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M,
+                  bindable: "_t.Callable[[_t.Any], bool] | None" = None
+                  ) -> tuple[list[int], dict[int, list[int]]]:
+    """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
+
+    §16c (6) bound components of ONE MEMBER that touch; a terminal is
+    authored as walls, roofs and skylights in SEPARATE RESOURCES that
+    touch each other, and nothing bound those.  LEMD's T2: ``LEMD47``
+    and ``LEMD48`` share 228 ε-contacts in the rebake plan and are
+    written at four zeros; the block's walls stand at 602.89 ... 603.35
+    and every roof inherits whichever the ranking hands it.
+
+    The unit's FOOTED candidate groups are unioned wherever the plan's
+    own ε-contact graph links a part of one to a part of another —
+    intra-member pairs included, since a member's own groups are the
+    same rigid thing — and the union is refused where the merged
+    cluster's PLAN diagonal would exceed ``span_max_m``: a cluster is
+    ONE rigid body at ONE zero, and a chain of contacts that walks a
+    terminal makes a body wider than any terrain it can stand on
+    (§16b (1)).  The contact graph alone chains 90 of LEMD's members in
+    one component through unit 25's 11,365 cross-member pairs.
+
+    Returns ``(root, pid_index)`` — the cluster root per candidate
+    index, and the candidate indices each part id belongs to."""
+    from . import anchor_rule as _ar
+    n = len(cands)
+    par = list(range(n))
+
+    def _find(a: int) -> int:
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+
+    pid_index: dict[int, list[int]] = {}
+    for i, c in enumerate(cands):
+        for p in c.pids:
+            pid_index.setdefault(p, []).append(i)
+    if n < 2:
+        return ([_find(i) for i in range(n)], pid_index)
+    # A LINE OBJECT NEVER BINDS (§16c (8)'s own exclusion, for the same
+    # reason): §10 cuts a fence or a grass mat into stations ON PURPOSE,
+    # every station reading its own ground, and the contact graph links
+    # them end to end — unbound they were 11 `LEMDzaun` bodies over
+    # 1,190 m forced onto one zero across 10.46 m of real relief.
+    ok = [True if bindable is None else bool(bindable(c)) for c in cands]
+    box = [tuple(c.box) if c.box is not None else None for c in cands]
+    cbox: dict[int, tuple] = {i: box[i] for i in range(n) if box[i] is not None}
+
+    def _span(b: tuple) -> float:
+        ml, mo = _ar._m_per_deg(0.5 * (b[0] + b[2]))
+        return float(((b[2] - b[0]) * ml) ** 2
+                     + ((b[3] - b[1]) * mo) ** 2) ** 0.5
+
+    for a, b in contacts:
+        ia, ib = pid_index.get(a), pid_index.get(b)
+        if not ia or not ib:
+            continue
+        for i in ia:
+            for j in ib:
+                if not (ok[i] and ok[j]):
+                    continue
+                ra, rb = _find(i), _find(j)
+                if ra == rb:
+                    continue
+                ba, bb = cbox.get(ra), cbox.get(rb)
+                if ba is not None and bb is not None and span_max_m > 0.0:
+                    m0 = (min(ba[0], bb[0]), min(ba[1], bb[1]),
+                          max(ba[2], bb[2]), max(ba[3], bb[3]))
+                    if _span(m0) > span_max_m:
+                        continue
+                else:
+                    m0 = ba if bb is None else bb
+                par[ra] = rb
+                if m0 is not None:
+                    cbox[rb] = m0
+    return ([_find(i) for i in range(n)], pid_index)
+
+
+@_dc.dataclass(frozen=True)
+class RigidNode:
+    """§16c (7): one BODY of a unit as the rigid-cluster law sees it."""
+
+    #: the member this body belongs to
+    member: int
+    #: its part ids (the ε-contact graph's own keys)
+    pids: frozenset
+    #: its plan box, ``(lat0, lon0, lat1, lon1)``
+    box: "tuple[float, float, float, float] | None"
+    #: its FOOTPRINT in m2 — the union area of the boxes it actually
+    #: stands on, not its hull box: a kiosk whose parts are scattered
+    #: over a terminal has a hull box bigger than the terminal's own
+    #: walls and took the seniority of `Terminal4_48`'s cluster
+    #: (measured, this lane).  0 where the plan publishes none.
+    footprint_m2: float = 0.0
+    #: does it stand on the ground?  Only a FOOTED body can be a
+    #: cluster's senior — a cluster of roofs has no zero of its own.
+    footed: bool = False
+    #: may it bind at all (a LINE object never does)
+    bindable: bool = True
+    #: its own zero plane in world height, for the §9 low-side tie
+    zero: "float | None" = None
+    #: how many GROUND-CONTACT vertices it publishes — §9's own
+    #: seniority, which decides the senior inside a file already
+    feet: int = 0
+
+
+def unit_rigid(nodes: _t.Sequence[RigidNode],
+               contacts: _t.Iterable[tuple[int, int]],
+               span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M
+               ) -> tuple[list[int], list[tuple[float, int, int]]]:
+    """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
+
+    §16c (6) bound the components of ONE MEMBER that touch.  A terminal
+    is authored as walls, roofs and skylights in SEPARATE RESOURCES that
+    touch each other, and nothing bound those: LEMD's ``LEMD47`` and
+    ``LEMD48`` share 228 ε-contacts in the rebake plan and were written
+    at four zeros, and the T2 block's walls stood at 602.89 ... 603.35
+    with every roof inheriting whichever the carrier ranking handed it.
+
+    The bodies of one unit the plan's own ε-contact graph links — walls
+    to walls, roofs to walls, a roof of one resource to the roof of the
+    next — are ONE RIGID CLUSTER, and an ELEVATED body joins its own
+    member's footed cluster whether or not the graph records an edge
+    between them (a member is one authored object).  The cluster's zero
+    is its SENIOR FOOTED body's: the largest footprint, ties to the LOW
+    side (§9).  Every other body of the cluster rides that zero at its
+    AUTHORED offset — which is what "the roof stays on its walls" means
+    when the walls are the only thing any of them can read.
+
+    THE CHAIN IS BOUNDED IN PLAN (``span_max_m``).  The unit's contact
+    graph is not a building: at ``RIGID_CLUSTER_SPAN_MAX_M`` it made
+    clusters 1,190 m wide that collapsed 10.46 m of honest terrain
+    reading onto one zero (fences and grass mats, chained station to
+    station).  A LINE object never binds at all, for §10's reason.
+
+    ``contacts`` are the unit's ε-contact PART pairs.  Returns
+    ``(senior, census)`` — the senior node of each node (``-1`` where
+    the node is its own, or its cluster holds no footed body) and
+    ``(plan span, bodies, members)`` per cluster of more than one body,
+    largest span first."""
+    from . import anchor_rule as _ar
+    n = len(nodes)
+    par = list(range(n))
+
+    def _find(a: int) -> int:
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+
+    pid_node: dict[int, list[int]] = {}
+    for i, q in enumerate(nodes):
+        if not q.bindable:
+            continue
+        for p in q.pids:
+            pid_node.setdefault(p, []).append(i)
+    cbox = {i: (tuple(q.box) if q.box is not None else None)
+            for i, q in enumerate(nodes)}
+
+    def _span(b: tuple) -> float:
+        ml, mo = _ar._m_per_deg(0.5 * (b[0] + b[2]))
+        return float(((b[2] - b[0]) * ml) ** 2
+                     + ((b[3] - b[1]) * mo) ** 2) ** 0.5
+
+    def _union(i: int, j: int) -> None:
+        ra, rb = _find(i), _find(j)
+        if ra == rb:
+            return
+        ba, bb = cbox.get(ra), cbox.get(rb)
+        m0 = None
+        if ba is not None and bb is not None:
+            m0 = (min(ba[0], bb[0]), min(ba[1], bb[1]),
+                  max(ba[2], bb[2]), max(ba[3], bb[3]))
+            if span_max_m > 0.0 and _span(m0) > span_max_m:
+                return
+        elif ba is not None or bb is not None:
+            m0 = ba if bb is None else bb
+        par[ra] = rb
+        cbox[rb] = m0
+    # (a) THE MEMBER IS ONE AUTHORED OBJECT: its ELEVATED bodies join
+    # the footed body of their own member they stand over.  The plan's
+    # graph records contacts between PARTS, and a roof welded into its
+    # own walls often shares no part with them (LEMD `LEMD47`: 228
+    # ε-contacts with `LEMD48` and not one with its own walls).
+    #
+    # TWO FOOTED BODIES OF ONE MEMBER ARE NEVER UNIONED HERE: they were
+    # cut apart because the ground under them differs (§9 / §16b (1)),
+    # and unioning them forced `Terminal4-LEMD01`'s two bodies 20.5 m
+    # onto one zero (measured, this lane).  An elevated body with NO
+    # footed body of its own member under it is left to the carrier
+    # search, which is what §15 is for.
+    by_member: dict[int, list[int]] = {}
+    for i, q in enumerate(nodes):
+        if q.bindable:
+            by_member.setdefault(q.member, []).append(i)
+    for _m, idx in by_member.items():
+        feet_i = [i for i in idx if nodes[i].footed and nodes[i].box is not None]
+        if not feet_i:
+            continue
+        if len(feet_i) == 1:
+            # the common case, and the cheap one: OTHH publishes 49,793
+            # elevated bodies and the overlap loop below is per pair
+            for i in idx:
+                if not nodes[i].footed:
+                    _union(i, feet_i[0])
+            continue
+        for i in idx:
+            if nodes[i].footed or nodes[i].box is None:
+                continue
+            b = nodes[i].box
+            best, best_ov = -1, 0.0
+            for j in feet_i:
+                q = nodes[j].box
+                ov = (max(0.0, min(b[2], q[2]) - max(b[0], q[0]))
+                      * max(0.0, min(b[3], q[3]) - max(b[1], q[1])))
+                if ov > best_ov:
+                    best, best_ov = j, ov
+            if best >= 0:
+                _union(i, best)
+    # (b) AND THE ε-CONTACT GRAPH BINDS ACROSS MEMBERS
+    for a, b in contacts:
+        ia, ib = pid_node.get(a), pid_node.get(b)
+        if not ia or not ib:
+            continue
+        for i in ia:
+            for j in ib:
+                _union(i, j)
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(_find(i), []).append(i)
+
+    def _area(i: int) -> float:
+        if nodes[i].footprint_m2:
+            return float(nodes[i].footprint_m2)
+        b = nodes[i].box
+        if b is None:
+            return 0.0
+        ml, mo = _ar._m_per_deg(0.5 * (b[0] + b[2]))
+        return float((b[2] - b[0]) * ml * (b[3] - b[1]) * mo)
+
+    senior = [-1] * n
+    census: list[tuple[float, int, int]] = []
+    for _r, idx in groups.items():
+        if len(idx) < 2:
+            continue
+        # THE SENIOR MUST HAVE A ZERO TO GIVE.  A body whose anchor
+        # reads no design surface (off-sheet, §15 (5)) has none, and
+        # binding a cluster to it put LEMD's `Cargo-EAT` 599 m down onto
+        # its authored row (measured, this lane).
+        footed = [i for i in idx if nodes[i].footed and nodes[i].zero is not None]
+        if not footed:
+            continue
+        b = [nodes[i].box for i in idx if nodes[i].box is not None]
+        if b:
+            lo0 = min(x[0] for x in b); lo1 = min(x[1] for x in b)
+            hi0 = max(x[2] for x in b); hi1 = max(x[3] for x in b)
+            census.append((_span((lo0, lo1, hi0, hi1)), len(idx),
+                           len({nodes[i].member for i in idx})))
+        # §9's OWN SENIORITY FIRST, then the footprint: the body with
+        # the most ground-contact vertices is the one whose reading of
+        # the terrain the cluster should ride, and it is the rule
+        # ``senior_of`` already applies inside a file.  Footprint alone
+        # gave `Terminal4_48`'s cluster to a KIOSK whose parts are
+        # scattered over the terminal (hull box) and the T2 block to a
+        # body 0.9 m below (area); measured both ways, this lane.
+        top = max(footed, key=lambda i: (nodes[i].feet, _area(i),
+                                         -(nodes[i].zero or 0.0), -nodes[i].member))
+        for i in idx:
+            if i != top:
+                senior[i] = top
+    census.sort(reverse=True)
+    return (senior, census)
+
+
+def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
+          surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
+          counts: dict) -> tuple[dict, list]:
+    """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
+
+    Builds the unit's rigid nodes — every footed CANDIDATE and every
+    elevated or footless BODY — asks :func:`unit_rigid` for the
+    clusters, and applies the answer:
+
+    * a FOOTED body of a cluster is re-anchored on the cluster's SENIOR
+      (its file stays its own, standing where the cluster stands);
+    * an ELEVATED body of a cluster RIDES the senior — the returned
+      ``forced`` map, which ``placement_plan``'s pass 3 takes INSTEAD of
+      the carrier search, because the question for such a body is not
+      what it stands over but what it is part of.
+
+    ``cands`` is mutated in place (the re-anchored candidates) and so is
+    each ``staged`` member's ``raw`` / ``ground_off``.  Returns
+    ``(forced, cluster census)``."""
+    from . import anchor_rule as _ar
+    from . import placement_carrier as _pc
+    import dataclasses as _dc0
+    _never_bind = (_ar.LINE_SEGMENT, _ar.BASIN)
+    # the nodes: every footed CANDIDATE, then every elevated body
+    nodes: list[RigidNode] = []
+    cand_of_node: list[int] = []
+    node_of: dict[tuple[int, int], int] = {}
+    for _ci, c in enumerate(cands):
+        _z = (None if c.anchor.surface_z is None else
+              float(c.anchor.surface_z) - float(c.anchor.y_zero))
+        node_of[(c.member, ~c.group)] = len(nodes)
+        cand_of_node.append(_ci)
+        nodes.append(RigidNode(
+            c.member, frozenset(c.pids), c.box, True,
+            sum(_pc.box_area_m2(b) for b in c.part_boxes),
+            c.body_class not in _never_bind, _z, c.feet))
+    for st in staged:
+        for _bi, _r in enumerate(st.raw):
+            if not (_r[4] or st.footless):
+                continue
+            node_of[(st.mi, _bi)] = len(nodes)
+            cand_of_node.append(-1)
+            nodes.append(RigidNode(
+                st.mi,
+                frozenset(p.pid for p in _r[0]),
+                _pc.hull_of(st.part_boxes[_bi]), False,
+                sum(_pc.box_area_m2(b) for b in st.part_boxes[_bi]),
+                _r[1] not in _never_bind, None))
+    senior_node, cl_census = unit_rigid(
+        nodes, contacts,
+        span_max_m=UNIT_CLUSTER_SPAN_MAX_M)
+    counts["unit_clusters"] = counts.get("unit_clusters", 0) + len(cl_census)
+    by_mi0 = {st.mi: st for st in staged}
+    # (a) a FOOTED body of the cluster takes the senior's zero: its
+    #     file stays its own, anchored where the cluster is
+    for (mi0, key), ni in node_of.items():
+        sn = senior_node[ni]
+        if sn < 0 or key >= 0 or cand_of_node[sn] < 0:
+            continue
+        ci, si = cand_of_node[ni], cand_of_node[sn]
+        c, sc = cands[ci], cands[si]
+        a = _dc0.replace(sc.anchor, body_class=c.anchor.body_class,
+                        reason=f"§16c (7) bound by contact to "
+                               f"{sc.resource} (the unit's rigid "
+                               f"cluster, senior by footprint)")
+        st0 = by_mi0.get(mi0)
+        if st0 is None or not (0 <= c.group < len(st0.groups)):
+            continue
+        grp0 = st0.groups[c.group]
+        if not grp0:
+            continue
+        k0 = _pc.senior_of(st0.raw, grp0)
+        r0 = st0.raw[k0]
+        st0.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
+        _off0 = _pc.anchor_ground_off(
+            a, tuple(f for j0 in grp0 for f in st0.raw[j0][3]), surface)
+        if c.group < len(st0.ground_off):
+            st0.ground_off[c.group] = _off0
+        cands[ci] = _dc0.replace(c, anchor=a, ground_off=_off0)
+        counts["bodies_bound_by_unit_contact"] = \
+            counts.get("bodies_bound_by_unit_contact", 0) + 1
+    # (b) an ELEVATED body of the cluster RIDES its senior — the
+    #     carrier search is not asked, because the answer is not
+    #     "what does it stand over" but "what is it part of"
+    forced: dict[tuple[int, int], int] = {}
+    for (mi0, key), ni in node_of.items():
+        sn = senior_node[ni]
+        if sn < 0 or key < 0 or cand_of_node[sn] < 0:
+            continue
+        forced[(mi0, key)] = cand_of_node[sn]
+
+
+    return (forced, cl_census)

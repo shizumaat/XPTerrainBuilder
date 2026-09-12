@@ -404,44 +404,13 @@ def test_split_records_translate_into_the_placement_model():
     assert kept[0].reason == "anim"
 
 
-# ── §9 / 11e (3): THE GATE AND THE WRITE HALF ────────────────────────────
+# ── §9 / 11e (3): THE WRITE HALF ────────────────────────────
 
-def test_the_gate_defaults_to_agl_and_seat_runs_the_old_path_unchanged():
-    """``[rebake] placement`` is the ONE permitted gate: ``agl`` by
-    default, and under ``seat`` the pre-11b seat is not merely reachable —
-    it produces the SAME bytes, because nothing in the seat reads the new
-    law at all."""
-    import dataclasses as dc
-    import json as _json
-
-    from auto_patch.engine_v2 import object_stage_is_placement
-    from auto_patch_v2.emit import rebake as R
-    from auto_patch_v2.law import Law
-
-    law = Law.for_airport("OTHH")
-    assert law.tables.structures.rebake.placement == "agl"
-    assert object_stage_is_placement(law) is True
-
-    def _with(mode):
-        rb = dc.replace(law.tables.structures.rebake, placement=mode)
-        st = dc.replace(law.tables.structures, rebake=rb)
-        return dc.replace(law, tables=dc.replace(law.tables, structures=st))
-
-    seat_law = _with("seat")
-    assert object_stage_is_placement(seat_law) is False
-    assert object_stage_is_placement(_with("agl")) is True
-
-    part = R.Part(1, 0, 0.001, 1e-5, 0.0, 100.0, (0.0, 0.0, 2e-3, 2e-5))
-    member = R.Member("m", "objects/m.obj", "m", "m", 0.0, (part,))
-    plan = R.RebakePlan("OTHH", "p", "/p", (R.Unit("unit:1", (0.0, 0.0), 0.0,
-                                                   (member,)),), (), {}, ())
-
-    def sample(lat, lon):
-        return (7.0, False)
-
-    a = _json.dumps(R.seat(plan, sample, seat_law).to_dict(), sort_keys=True)
-    b = _json.dumps(R.seat(plan, sample, _with("agl")).to_dict(), sort_keys=True)
-    assert a == b
+# THE GATE IS GONE (owner RULINGS 2026-09-12s, spec §8): the twin that
+# stood here pinned ``[rebake] placement`` defaulting to ``agl`` and the
+# ``seat`` arm producing identical bytes.  The seat is DELETED, the key
+# with it, and the placement path is the only object stage — there is no
+# gate left to pin.
 
 
 def test_the_write_half_on_a_pack_copy(tmp_path, monkeypatch):
@@ -1419,7 +1388,11 @@ def test_a_footless_deck_abutting_a_footed_building_rides_its_anchor(tmp_path):
     assert len(bridge.bodies) == 1              # a rigid span is one file
     b = bridge.bodies[0]
     assert b.elevated is True and b.merged_into.startswith("objects/terminal")
-    assert "abuts 1 part contact" in b.anchor.reason
+    # §16c (7) AMENDS THE REASON, not the answer: the deck and the
+    # terminal are in ε-contact, so they are ONE RIGID CLUSTER and the
+    # deck rides the cluster's senior — which is the same body the
+    # "abuts 1 part contact" fallback used to name, at the same zero.
+    assert "§16c (7) bound by contact" in b.anchor.reason
     # the CARRIER's anchor and the CARRIER's zero, never the datum and
     # never the deck's own lowest vertex
     assert b.anchor.surface_z == 616.0 and b.anchor.y_zero == 0.0
@@ -1911,8 +1884,7 @@ def test_a_roof_only_resource_enters_the_plan_and_is_carried(tmp_path):
     counts, skipped, no_solid = PZ.counts_zero(), {}, set()
     built = PZ._build_member(o, cache, law, PZ.Screen(), (), str(tmp_path),
                              counts, skipped, no_solid)
-    assert law.tables.structures.rebake.placement == "agl"
-    assert built is not None                    # the gate is not applied
+    assert built is not None                    # footless is admitted
     assert skipped == {} and counts["no_parts"] == 0
     assert o.path in no_solid                   # ... and it is FOOTLESS
     assert counts["no_solid_admitted"] == 1
@@ -3297,3 +3269,112 @@ def test_the_16b_float_bar_excludes_a_footed_body():
     assert c["carried_own_ground_gt"] == 1
     assert c["footed_carried_excluded"] == 1
     assert "FOOTED body(ies)" in "\n".join(_PCE.census_v16b_lines(c))
+
+
+# ── §16c (7)-(8): the unit binds by contact (owner RULINGS 2026-09-12q) ──
+
+def _t2_block(tmp_path, contacts):
+    """Two members of one unit standing on ground that differs by 0.5 m:
+    a WALL with feet and a second walled body beside it, plus a ROOF
+    authored 8 m up over the second."""
+    (tmp_path / "wall_dir").mkdir(exist_ok=True)
+    (tmp_path / "roof_dir").mkdir(exist_ok=True)
+    a_path, _n = _two_boxes(tmp_path / "wall_dir", with_anim=False)
+    b_path, _n2 = _two_boxes(tmp_path / "roof_dir", with_anim=False)
+    return _unit_plan([
+        (a_path, [(0, 0.0, 0.0, 0.0, 0.0, 12.0)], "objects/wallA.obj"),
+        (a_path, [(0, 0.0, 40.0, 0.0, 0.0, 12.0)], "objects/wallB.obj"),
+        (b_path, [(0, 8.0, 40.0, 0.0, 8.0, 12.0)], "objects/roof.obj"),
+    ], contacts=contacts), a_path, b_path
+
+
+def _stepped_surface(lat, lon):
+    """0.5 m of fall between the two walls — enough that §9 gives them
+    two files and two zeros of their own."""
+    return 600.0 if (lat - 40.0) * 111_000.0 < 20.0 else 600.5
+
+
+def test_the_unit_binds_by_contact(tmp_path):
+    """§16c (7): two MEMBERS of one unit whose parts the plan's ε-contact
+    graph links are ONE RIGID BODY at ONE zero — the senior footed
+    body's — and the roof of one of them rides that zero too.
+
+    Measured at LEMD: the T2 block's walls stood at 602.89 ... 603.35
+    and `LEMD47` at three zeros 1.19 m apart, each roof inheriting
+    whichever the carrier ranking handed it (RULINGS 2026-09-12q)."""
+    plan, _a, _b = _t2_block(tmp_path, contacts=((0, 1), (1, 2)))
+    ss = PP.build_splits(plan, _stepped_surface, write=False, **_elev_args())
+    zeros = {}
+    for sp in ss.all:
+        for bd in sp.bodies:
+            zeros[sp.resource] = bd.anchor.surface_z - bd.anchor.y_zero
+    assert len(set(round(v, 3) for v in zeros.values())) == 1, zeros
+    assert ss.counts.get("bodies_bound_by_unit_contact", 0) >= 1
+    # ... and WITHOUT the contact the two walls keep their own readings
+    plan2, _a2, _b2 = _t2_block(tmp_path, contacts=())
+    ss2 = PP.build_splits(plan2, _stepped_surface, write=False, **_elev_args())
+    z2 = {sp.resource: bd.anchor.surface_z - bd.anchor.y_zero
+          for sp in ss2.all for bd in sp.bodies}
+    assert len(set(round(v, 3) for v in z2.values())) > 1, z2
+
+
+def test_a_cluster_never_grows_wider_than_a_building(tmp_path):
+    """§16c (7): the chain is BOUNDED in plan.  The unit's contact graph
+    is not a building — unbounded it chained LEMD's fences and grass
+    mats over 1,190 m and collapsed 10.46 m of honest terrain reading
+    onto one zero — so a union whose cluster would exceed
+    ``UNIT_CLUSTER_SPAN_MAX_M`` is refused."""
+    from auto_patch_v2.airport import placement_atom as ATOM
+    far = ATOM.UNIT_CLUSTER_SPAN_MAX_M * 2.0 / 111_000.0
+    near = ATOM.RigidNode(0, frozenset([1]), (40.0, -3.0, 40.0005, -2.9995),
+                          True, 100.0, True, 600.0, 8)
+    away = ATOM.RigidNode(1, frozenset([2]),
+                          (40.0 + far, -3.0, 40.0005 + far, -2.9995),
+                          True, 10.0, True, 610.0, 2)
+    senior, census = ATOM.unit_rigid([near, away], [(1, 2)])
+    assert senior == [-1, -1] and census == []
+    close = ATOM.RigidNode(1, frozenset([2]), (40.0004, -3.0, 40.0009, -2.9995),
+                           True, 10.0, True, 610.0, 2)
+    senior2, census2 = ATOM.unit_rigid([near, close], [(1, 2)])
+    assert senior2[1] == 0 and senior2[0] == -1      # the senior is the
+    assert census2 and census2[0][1] == 2            # body with the feet
+
+
+def test_a_line_object_and_a_basin_never_join_a_unit_cluster():
+    """§16c (7): §10 cuts a fence into stations ON PURPOSE and each reads
+    its own ground; §14 (2) makes a basin's zero its RIM.  Neither binds
+    — bound, LEMD's `LEMDzaun` came onto one zero across 10.46 m of real
+    relief and the pits at LEMD03/36/85 split into 8 torn seams."""
+    from auto_patch_v2.airport import placement_atom as ATOM
+    a = ATOM.RigidNode(0, frozenset([1]), (40.0, -3.0, 40.0005, -2.9995),
+                       True, 100.0, True, 600.0, 8)
+    fence = ATOM.RigidNode(1, frozenset([2]), (40.0002, -3.0, 40.0007, -2.9995),
+                           True, 10.0, False, 610.0, 2)
+    senior, _c = ATOM.unit_rigid([a, fence], [(1, 2)])
+    assert senior == [-1, -1]
+
+
+def test_the_rest_on_carrier_is_not_refused_for_its_own_ground():
+    """§16c (8): §16a (2) refuses a candidate whose own zero stands off
+    the ground under its own feet — but not the one the body RESTS ON.
+    LEMD's `tej2` was sent to a body 14.6 m away because `P2PK`, whose
+    top meets its base, is 0.42 m off its own feet."""
+    from auto_patch_v2.airport import placement_carrier as PC
+    box = (40.0, -3.0, 40.001, -2.999)
+
+    def _cand(member, top, off):
+        a = AR.Anchor("building", 40.0005, -2.9995, 0.0, "r", 600.0, (0, 0, 0))
+        return PC.Candidate(member, f"objects/c{member}.obj", a,
+                            frozenset([member]), 4, box, part_boxes=(box,),
+                            ground_off=off, group=0, body_class="building",
+                            fill=1.0, top_y=top, part_tops=(top,))
+
+    rests_on = _cand(1, 10.0, 0.42)          # what the roof sits on
+    far = _cand(2, 4.0, 0.0)                 # 6 m below it, lawfully anchored
+    out = PC.carriers_for(frozenset([9]), box, [rests_on, far], {}, (box,),
+                          tol_m=0.3, base_y=10.2)
+    assert out and out[0][0].member == 1, [c.member for c, _r in out]
+    # and the refusal STANDS for a candidate the body does not rest on
+    out2 = PC.carriers_for(frozenset([9]), box, [_cand(1, 14.0, 0.42), far],
+                           {}, (box,), tol_m=0.3, base_y=10.2)
+    assert out2 and out2[0][0].member == 2

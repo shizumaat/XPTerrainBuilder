@@ -8,10 +8,20 @@ mouth; 2026-08-31h dual carriageways; 2026-09-01c/e gap; 2026-09-03b
 crest = DEM; law ``structures.toml [tunnel]``):
 
 * a BORE is a chain of mapped ``tunnel=yes`` ways; it is generated only
-  where it passes UNDER an airport surface (a classified cell) — a bore
-  that touches no cell drapes the DEM like any road v2 does not emit;
+  where a MAPPED END of it stands ON THE FIELD — that end, or the ramp
+  reach beyond it, inside the classified cover (with the roofed
+  corridors) ⊕ ``mouth_standoff_m`` (spec §29 (1)/(2); owner RULINGS
+  2026-09-12r "we should never emit anything for actual tunnels, only
+  the tunnel mouths and entrance/exit ramps"; Fable 2026-09-12t; owner
+  2026-09-12ab).  A bore with no on-field mouth emits NOTHING however
+  much of its length runs under a cell (LEMD's rail bores, 4.0 km out);
+  a bore with an on-field mouth is built whether or not it passes under
+  an airport surface — a portal on the field is visible on approach —
+  and is counted and named where the cover test would have refused it;
 * the MOUTH is the mapped end of the bore (08-07 ruling 1: "mapped ends
-  are preserved unconditionally"); the bore itself is never emitted —
+  are preserved unconditionally" — WHERE IT STANDS ON THE FIELD, §29 (1);
+  an end outside the governed region is dropped at ``mouths()`` and
+  counted, never built); the bore itself is never emitted —
   the covering surface keeps its own law (08-07 ruling 2: mapped-bore
   interiors are roofed by definition);
 * the RAMP descends the approach corridor to the mouth line: its axis
@@ -86,7 +96,8 @@ from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (PavementDeck, carriageway_width_m, chains, deck_intervals,
+from .structure_approach import (FieldRegion, PavementDeck, carriageway_width_m, chains,
+                                 deck_intervals,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, unit)
@@ -110,8 +121,23 @@ class StructureStats:
     """What the structure pass found, made and refused."""
 
     bores: int = 0
-    bores_uncovered: int = 0
+    #: spec §29 (2): bores with NO mouth on the field — nothing is built for
+    #: them (the old ``bores_uncovered``, whose test was the bore's cover).
+    bores_no_mouth: int = 0
+    #: spec §29 (2) (owner 2026-09-12ab, "Build them"): bores BUILT on an
+    #: on-field mouth alone — they pass under no classified cell, so the
+    #: retired cover test refused them.  Counted and named so the
+    #: population the owner ruled in stays visible without a rebuild.
+    bores_mouth_only: int = 0
+    mouth_only_bores: list[str] = _dc.field(default_factory=list)
     mouths: int = 0
+    #: spec §29 (1): mapped ends DROPPED for standing off the field —
+    #: neither the mouth point nor its ramp reach inside the classified
+    #: cover (with the roofed corridors) ⊕ ``[tunnel] mouth_standoff_m``.
+    mouths_off_field: int = 0
+    #: the NEAREST of those, reported under the structures line so a drop
+    #: at the margin is visible without a rebuild.
+    mouths_off_field_nearest: list[str] = _dc.field(default_factory=list)
     duals_merged: int = 0
     tunnels: int = 0
     decks: int = 0
@@ -134,6 +160,19 @@ class StructureStats:
     sunken_roads: int = 0
     #: RULINGS 2026-09-08m/08n Law C: kerb-wall corridors built
     wall_corridors: int = 0
+
+
+def _under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
+    """The RETIRED admission test (spec §29 (2)) — ≥ 1 m of the bore under
+    the classified cover — kept only to count the bores the new
+    mouth-based admission and it disagree on
+    (``bores_mouth_only``).  Reads the cell tree rather than a
+    union of every cell (same answer, no union to build)."""
+    if tree is None:
+        return False
+    parts = [line.intersection(polys[int(j)]) for j in tree.query(line, predicate="intersects")]
+    parts = [g for g in parts if not g.is_empty]
+    return bool(parts) and unary_union(parts).length >= 1.0
 
 
 def _dem(airport: Airport, p: XY) -> float:
@@ -230,19 +269,34 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         return classification, (), stats
     cells = list(classification.cells)
     polys = [Polygon(c.ring, c.holes) for c in cells]
-    cover = unary_union(polys)
+    cell_tree = STRtree(polys) if polys else None
     bores = chains(tunnel_ways) if tunnel_ways else []
     stats.bores = len(bores)
-    covered = []
-    for b in bores:
-        if b.line.intersection(cover).length >= 1.0:
-            covered.append(b)
-        else:
-            stats.bores_uncovered += 1
+    reach = tn.max_ramp_length_m + 2 * (tn.wall_gap_m + tn.wall_band_width_m)
+    # ADMISSION IS BY THE MOUTH (spec §29 (1)/(2); RULINGS 2026-09-12r/12t,
+    # owner 2026-09-12ab answering 12aa-1 "Build them"): a bore is built iff
+    # a MAPPED END stands ON THE FIELD — that end, or its ramp reach, inside
+    # the cover (with the roofed corridors) ⊕ ``mouth_standoff_m`` — whether
+    # or not it passes under an airport surface (a portal on the field is
+    # visible on approach, §31 (2)).  The retired cover test is DELETED: it
+    # admitted LEMD's 4.9 km rail bores by 125–162 m under ONE pad and built
+    # their mouths 4.0 km west, and refused 8 real portals ON the field.
+    # Those 8 are counted (``bores_mouth_only``) and named.
+    on_field = FieldRegion(polys + [c.footprint for c in corridors], tn.mouth_standoff_m)
+    mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
+                           if bores else ([], []))
+    stats.mouths_off_field = len(dropped)
+    stats.mouths_off_field_nearest = [
+        f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off the field"
+        for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
+    with_mouth = {id(b) for b in bores if any(m.bore is b for m in mouth_list)}
+    covered = [b for b in bores if id(b) in with_mouth]
+    mouth_only = [b for b in covered if not _under_cover(b.line, polys, cell_tree)]
+    stats.bores_no_mouth = len(bores) - len(covered)
+    stats.bores_mouth_only = len(mouth_only)
+    stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
     if not covered and not corridors and not extra_groups:
         return classification, (), stats
-    reach = tn.max_ramp_length_m + 2 * (tn.wall_gap_m + tn.wall_band_width_m)
-    mouth_list = mouths(covered, list(airport.osm_ways), law, reach) if covered else []
     # THE PRECEDENCE PER MOUTH (05n-3, ``tunnel.object.source_precedence``):
     # an OSM bore mouth inside an object corridor's footprint is the
     # object's — its OSM ramp is not built; a mouth outside every object
@@ -305,7 +359,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # a WALL-CORRIDOR ramp stops at AIRSIDE cells and pads only (Law C)
     stops_air = airside_stops(cells, polys, law, RUNWAY_FAMILY)
     stop_air_tree = STRtree([p for p, _r in stops_air]) if stops_air else None
-    cell_tree = STRtree(polys) if polys else None
     strip: list[Polygon] = []
     for p, c in zip(polys, cells):
         if c.role in RUNWAY_FAMILY:

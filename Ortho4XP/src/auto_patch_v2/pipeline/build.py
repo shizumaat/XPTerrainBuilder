@@ -384,8 +384,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused sunken road {r}", out)
     if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
             or ts.refused:
-        _say(f"[{icao}] structures: bores {ss.bores} (uncovered {ss.bores_uncovered}, replaced by "
-             f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths}  duals merged "
+        _say(f"[{icao}] structures: bores {ss.bores} (no on-field mouth {ss.bores_no_mouth}, "
+             f"mouth-only built {ss.bores_mouth_only}, replaced by "
+             f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths} (off-field "
+             f"{ss.mouths_off_field})  duals merged "
              f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
              f"{ts.signatures} of {ts.resources} resources, merged {ts.merged}, "
              f"{ts.signature_s:.2f} s)  door ramps {ss.door_ramps}  sunken roads "
@@ -396,6 +398,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused object {r}", out)
         for r in ss.refused:
             _say(f"    refused {r}", out)
+        if ss.mouth_only_bores:
+            _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
+                 f"{', '.join(ss.mouth_only_bores)}", out)
+        for r in ss.mouths_off_field_nearest:
+            _say(f"    {r}", out)
         for r in ss.bore_precedence:
             _say(f"    {r}", out)
         for tn in pm.structures:

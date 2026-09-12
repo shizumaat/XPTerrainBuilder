@@ -4205,3 +4205,109 @@ joint. One line, guarded.
 * The tunnel-ramp regression above (bar 5).
 * KCLT needed **6** rounds and flips 90 faces / 399,980 m² — by far the largest
   class, and unbuilt (v1 patch, no v2 arm). Nothing was built for it.
+
+### §27 **ROUND 2 — MEASURED** (owner RULINGS 2026-09-12i; lane `v2airsideedge`, branch `claude/v2airsideedge`)
+
+**(1) The class is widened to `groundside_pavement`.** `_AIRSIDE_EDGE_CANDIDATES`
+is now `parking_lot`, `service_road`, `service_junction`, `groundside_pavement`.
+The groundside STRUCTURE ramps (`tunnel_ramp`, `door_ramp`, `garage_ramp`,
+`wall_corridor_ramp`) are not pavement an aircraft drives on and are never
+candidates. Nothing else changed: same measure, same mouth, same fixpoint.
+
+**It moves ONE face in the whole battery.** Re-dry-run, seven airports, both arms
+in one tree at one code version:
+
+| airport | lots | m² | roads | m² | **open pages** | m² | rounds |
+|---|---|---|---|---|---|---|---|
+| LEMD | 23 | 144,162 | 43 | 44,692 | **0** | 0 | 3 |
+| KCLT | 64 | 347,785 | 26 | 52,195 | **0** | 0 | 6 |
+| SPJC | 24 | 71,519 | 7 | 6,319 | **0** | 0 | 3 |
+| CYXY | 4 | 18,037 | 3 | 2,941 | **1** | **518** | 3 |
+| HECA | 0 | 0 | 15 | 67,084 | **0** | 0 | 3 |
+| OTHH | 2 | 9,837 | 1 | 236 | **0** | 0 | 2 |
+| HEAZ | 0 | 0 | 2 | 35,268 | **0** | 0 | 2 |
+
+Kept by a MOUTH, named: HECA `route2` (505.6 m, all of it end-caps where the
+corridor crosses taxiways), `route7` 25.0, `route18` 16.4, `route14` 16.0,
+`route17` 8.0; CYXY `dsf:pol121` 138.3, `pav29` 42.9, `pav2` 9.9, `dsf:pol118`
+8.8, `pav30` 7.8; OTHH `route6` 8.0, `dsf:pol16` 2.1; SPJC `route6` 6.5 lateral /
+3.5 mouth, `route1` 8.0; HEAZ `pav17` 8.9; KCLT `dsf:pol66` 41.4. Every other kept
+face is a sliver. No face anywhere reads ≥ 10 m of lateral airside edge and stays
+groundside.
+
+**LEMD is unchanged by the widening** — its 2 `groundside_pavement` cells carry no
+lateral airside edge. Proven, not assumed: the round-2 build's patch body hash is
+**`42f098178170`, byte-identical to round 1's**.
+
+`test_round3` rewritten with the reason, plus a new twin
+`test_an_open_page_welded_to_the_runway_is_apron`. 04u's default is now read on a
+NARROW page (6 m) on the runway edge — still chain-seeded, so the open default is
+what speaks rather than the touch-chain demotion, and every shared edge (with the
+runway AND with its own proximity-band junction) is under 10 m. The same page at
+its original 200 m width is `apron` with or without a road reaching it — before 12i
+it flipped only when a road made it a lot, and read `groundside_pavement` without
+one, on the SAME runway edge. That split is what 12i closed. Suite **1,133**.
+
+**(2) THE TUNNEL-RAMP REGRESSION IS REFUTED AS A §27 MECHANISM.** Round 1 said
+"the flip moved the apron the ramp's mouth sits on". Measured, that is FALSE.
+
+* **Nothing at the mouth moved.** Every way within 60 m of the ramp's top
+  (40.492496, −3.581971) reads the same altitude to the centimetre in both arms:
+  `pav61` cross_connector 607.85–614.19/614.20, the two `tunnel_wall` rims
+  609.26–610.11 and 602.16–610.00, `adjacent_ground:taxi:F:zone1#15` 609.66–614.19.
+  The ramp's own TOP is 609.65 in both. At the floor end (40.495260, −3.583146) the
+  only neighbour is the same `tunnel_wall` rim, identical in both arms. **No flipped
+  face is adjacent to the ramp at either end.**
+* **The plan geometry is identical**: 91 nodes, same top and floor coordinates,
+  same 351.3 m longest chord. Only the elevations differ — the FLOOR moved
+  597.34 → 596.99 m (−0.35 m) with the top pinned.
+* **The corridor CAN hold 4 %.** Drop 12.66 m over a 323.4 m top→floor run =
+  **3.91 %**, inside `[tunnel] ramp_max_grade` 0.040 with slack; a 4 % ramp needs
+  **316 m** and `max_ramp_length_m` is **600**. So this is NOT a cap-versus-corridor
+  conflict and NOT an owner question about the law. The law is satisfiable here and
+  the solve does not satisfy it — the build's own line says so: "1820/126498 hard
+  rows active (max violation 4.7518 m, **HARD SET NOT SETTLED**)".
+* **The rows are not the same geometry.** Of 66 base row sites only **24** survive;
+  **134** are new. Median pair distance 107.4 → 71.4 m, median |de| 4.33 → 2.92 m,
+  and on the 24 shared sites the mean grade change is only **+0.06 pp**. The ramp's
+  interior profile re-solved; it did not tilt.
+* **A third arm settles it.** Round 1's FIRST build (`v2airsideedge`, ledger
+  `7d95679b6539`) carried the 12e rule — lots only, no road flips, and no flipped
+  face near the ramp either. Censused now:
+
+  | arm | law-true | adjudicated | groundside | `tunnel_ramp` rows | worst grade | ramp floor |
+  |---|---|---|---|---|---|---|
+  | BASE (shipped 1.0.320) | 4,600 | 1,861 | 73 | 67 | 6.21 % | 597.34 |
+  | A — 12e, lots only | 4,991 | 2,299 | 134 | 132 | **9.32 %** | 597.00 |
+  | B — 12f/12i, lots+roads | 4,812 | 1,983 | 166 | **165** | 7.89 % | 596.99 |
+
+  Two §27 variants with disjoint flip sets, neither touching the ramp, both move its
+  floor ~0.35 m and multiply its over-cap rows — **non-monotonically** (A worse in
+  grade, B worse in count). That is the signature of an LP re-solve of an unsettled
+  interior, not of a mechanism. The base arm already missed the cap on 67 rows at
+  6.21 %; §27 changes how much of a pre-existing miss is visible, not whether it
+  exists.
+* **Verdict:** not a §27 defect and not an owner question about `ramp_max_grade`.
+  It belongs to the tunnel ramp's own unsettled solve (the ramp's interior is free,
+  its top pinned, and its profile is whatever the objective leaves). Reported, not
+  fixed, and the round-1 claim is withdrawn.
+
+**(3) Closing test** — ONE `--engine v2` LEMD build, foreground, `--tag
+v2airsideedge12i`, **378.9 s**, rc 0, `body_sha 42f098178170`, artifact ledger
+**`3959b22219cb`**, shared repo UNCHANGED. Base arm reused from the ledger, never
+rebuilt. Census identical to round 1 (same patch body):
+
+| census | BASE | ROUND 2 |
+|---|---|---|
+| LAW-TRUE | 4,600 (within 4,581 / cross 10 / **steps 9**) | 4,812 (4,793 / 19 / **0**) |
+| ADJUDICATED | 1,861 — airside 1,786 / gs 73 / mixed 2 | 1,983 — airside 1,817 / gs 166 / mixed **0** |
+| `vertex_to_edge_step` / `mid_edge_step` / `road_cross_section` | 1 / 8 / 3 | **0 / 0 / 0** |
+| terrace-joint families | 0 | 0 |
+
+**BARS re-quoted.** 1 **MET** (shape 81 `apron`, own face, its 5.327 % corner gone).
+2 **MET** (emitted groundside shapes sharing ≥ 10 m with airside pavement:
+71 substantive / 182,604 m² → **0**; lot-class 13 / 145,262 m² → 0; groundside
+shapes 175 → 68, the 28 remaining all slivers / 789 m²). 3 **MET** (rows within
+130 m of the owner's point 16 → 7). 4 **NOT MET** (3 short `apron|apron` pairs
+inside `pav137` over 1.5 %: 3.572 / 1.887 / 1.869 %, |de| ≤ 0.180 m, all at the
+`building4` frontage). 5 **ATTRIBUTED AND WITHDRAWN as a §27 regression** — see (2).

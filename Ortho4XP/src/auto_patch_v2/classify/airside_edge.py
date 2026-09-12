@@ -46,11 +46,19 @@ _LOT_SLIVER_RADIUS_M = 1.0
 #: many degrees of the strip axis' NORMAL is transverse.
 _MOUTH_TRANSVERSE_DEG = 45.0
 
-#: §27 (1) + (5): the groundside roles the airside-edge rule judges — the
-#: LOT class and the FREE ROADS (owner 2026-09-12f (a), the free-road
-#: ruling 2026-07-27).  `groundside_pavement` is NOT in the class the
-#: owner ruled and is left alone.
-_AIRSIDE_EDGE_CANDIDATES = ("parking_lot", "service_road", "service_junction")
+#: §27 (1) + (5) + (6): the groundside roles the airside-edge rule judges.
+#: The owner's 12c sentence is UNIVERSAL — "something can only be
+#: groundside if it has no connection to airside other than a service
+#: road" — so every groundside PAVEMENT role is judged: the LOT class,
+#: the FREE ROADS (12f (a), the free-road ruling 2026-07-27) and the OPEN
+#: PAGE (12i).  04u's "open pavement is never apron BY DEFAULT" holds
+#: where no airside edge exists; a >= `airside_edge_min_m` lateral airside
+#: edge IS evidence, and a default yields to evidence.  The groundside
+#: STRUCTURE ramps (`tunnel_ramp`, `door_ramp`, `garage_ramp`,
+#: `wall_corridor_ramp`) are NOT pavement anyone drives an aircraft on and
+#: are never candidates.
+_AIRSIDE_EDGE_CANDIDATES = ("parking_lot", "service_road", "service_junction",
+                            "groundside_pavement")
 
 #: The FREE ROADS: the only faces that offer a MOUTH (§27 (5)).
 _ROAD_ROLES = ("service_road", "service_junction")

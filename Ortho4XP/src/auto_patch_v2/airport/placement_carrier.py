@@ -36,7 +36,8 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
            "box_gap_m", "CandidateIndex", "CANDIDATE_CELL_M",
            "carrier_for", "unit_edges", "box_of", "overlap", "overlap_m2",
            "re_cut_by_terrain", "hull_of", "stands_over_rank", "foot_boxes",
-           "fill_of", "parts_overlap", "ground_at_box", "ground_under",
+           "fill_of", "parts_overlap", "ground_at_box", "ground_under", "contact_ground",
+           "foot_box_index", "CONTACT_PTS_MAX",
            "ground_samples", "box_area_m2",
            "census_v16", "census_v16_lines", "census_v16b",
            "census_v16b_lines", "census_population",
@@ -60,7 +61,9 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
 from .placement_boxes import (                           # noqa: E402
     FOOT_BOXES_MAX, GROUND_OFF_FEET_MAX, anchor_ground_off, box_area_m2,
     box_gap_m, box_of, fill_of, foot_boxes, ground_at_box, ground_samples,
-    ground_under, hull_of, overlap, overlap_m2, parts_overlap,
+    CONTACT_PTS_MAX, contact_ground, foot_box_index, ground_under,
+    hull_of, overlap,
+    overlap_m2, parts_overlap,
     stands_over_rank)
 
 # ── §13 (1): is this body's file standing on the ground at all? ──────────
@@ -459,7 +462,7 @@ class Candidate:
     group: int = -1
     #: §16 (3): the body's §6 CLASS and its FOOTPRINT FILL — a line
     #: segment never carries, and neither does a body filling less than
-    #: ``[placement] carrier_fill_min`` of its own plan box
+    #: REPORTED ONLY since 2026-09-12j (the fill gate is deleted)
     body_class: str = ""
     fill: float = 1.0
     #: §16a (2): HOW FAR THIS CANDIDATE'S OWN ZERO STANDS FROM THE GROUND
@@ -472,6 +475,19 @@ class Candidate:
     #: error — and that is read on its own feet, ONCE per candidate
     #: rather than once per (body, candidate) search.  ``None`` off-sheet.
     ground_off: float | None = None
+    #: §16c (4): the candidate's TOP in the AUTHORED frame — the highest
+    #: authored ``y`` of its components (``placement_cut.top_y``).  THE
+    #: CARRIER IS WHAT THE BODY RESTS ON: among the candidates a body
+    #: plan-overlaps, the one whose top lies nearest BELOW the body's own
+    #: base plane, largest overlap breaking ties only.  Before this a
+    #: 129,113 m2 floor slab 17 m below a roof beat the 158 m2 wall the
+    #: roof rests on (LEMD's T2 roofs 0.57-0.70 m low, RULINGS 2026-09-12d).
+    #: ``None`` where the file could not be read.
+    top_y: float | None = None
+    #: §16c (4): one authored TOP per entry of ``part_boxes`` — so the
+    #: rest-on test reads the candidate's top UNDER THE OVERLAP rather
+    #: than the top of a coarsened group a hundred metres away.
+    part_tops: tuple[float, ...] = ()
 
     @property
     def centre(self) -> tuple[float, float]:
@@ -563,11 +579,12 @@ def carriers_for(pids: _t.AbstractSet[int],
                  adj: _t.Mapping[int, _t.AbstractSet[int]],
                  part_boxes: _t.Sequence[tuple[float, float, float,
                                                float]] = (),
-                 *, fill_min: float = 0.0, tol_m: float = 0.0,
+                 *, tol_m: float = 0.0,
                  refusals: dict[str, int] | None = None,
                  carried_ground: _t.Callable[[], "float | None"] | None = None,
                  solid_cands: _t.Sequence[Candidate] | None = None,
                  index: "CandidateIndex | None" = None,
+                 base_y: "float | None" = None,
                  ) -> list[tuple[Candidate, str]]:
     """§15 (1) + §16a (1): EVERY carrier this body stands over, ranked.
 
@@ -601,10 +618,12 @@ def carriers_for(pids: _t.AbstractSet[int],
     (``TEJ*``/``tej*``, *tejado*), so the walls a roof rides are almost
     never its own file.
 
-    §16 (3): A CARRIER IS A SOLID.  A candidate that is a LINE SEGMENT,
-    or whose footprint fills less than ``fill_min`` of its own plan box
-    (a grass strip, a sign, a fence), never carries — its box says
-    nothing about where the ground under the carried body is.
+    §16 (3) as amended (RULINGS 2026-09-12j): A CARRIER IS A SOLID — by
+    CLASS.  A LINE SEGMENT never carries: a fence's axis-aligned plan box
+    says nothing about where the ground under the carried body is.  The
+    FOOTPRINT FILL fraction that stood beside it is DELETED: it struck
+    the wall RINGS the roofs actually rest on (LEMD's `LEMD54` /
+    `LEMD59` fill 0.005-0.031) before §16c (4) could rank them.
 
     §16a (2): AND THE GROUND CHECK IS ON THE CARRIER.  A candidate whose
     own zero stands more than ``tol_m`` from the ground under ITS OWN
@@ -655,9 +674,6 @@ def carriers_for(pids: _t.AbstractSet[int],
         for c in cands:
             if c.body_class == _ar.LINE_SEGMENT:
                 _bump("line")
-                continue
-            if fill_min > 0.0 and c.fill < fill_min:
-                _bump("fill")
                 continue
             solid.append(c)
     if not solid:
@@ -716,9 +732,51 @@ def carriers_for(pids: _t.AbstractSet[int],
             ov = stands_over_rank(box, c.box, part_boxes, c.part_boxes)
             if ov > (0.0, 0.0):
                 ranked.append((ov, c))
-        ranked.sort(key=lambda q: (q[0][0], q[0][1], -q[1].member), reverse=True)
-        over = [(c, f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")
-                for _ov, c in ranked if _ok(c)]
+        # §16c (4): THE CARRIER IS WHAT THE BODY RESTS ON.  Among the
+        # candidates the body plan-overlaps, the one whose TOP lies
+        # NEAREST the body's own base plane — in ABSOLUTE distance,
+        # above or below (12n) — wins; the overlap breaks ties only.  Largest-overlap alone put LEMD's T2 roofs on
+        # ``LEMD38``'s 129,113 m2 floor pieces 17 m below them rather
+        # than on the 158 m2 walls they rest on, 0.57-0.70 m low
+        # (RULINGS 2026-09-12d); the one roof that happened to be bound
+        # to its wall read 0.01 m.  Both y's are AUTHORED and the unit
+        # shares one datum, so the difference is the rendered one.
+        if base_y is not None and any(c.top_y is not None
+                                      for _o, c in ranked):
+            def _top_under(c: Candidate) -> "float | None":
+                if c.part_tops and len(c.part_tops) == len(c.part_boxes):
+                    hits = [tv for tb, tv in zip(c.part_boxes, c.part_tops)
+                            if not (tb[2] < box[0] or tb[0] > box[2]
+                                    or tb[3] < box[1] or tb[1] > box[3])]
+                    if hits:
+                        return max(hits)
+                return c.top_y
+
+            def _rest_key(q):
+                ov, c = q
+                top = _top_under(c)
+                if top is None:
+                    return (1, 0.0, -ov[0], -ov[1], c.member)
+                # §16c (4) as amended 2026-09-12n: NEAREST IN ABSOLUTE
+                # DISTANCE, above or below.  A roof let INTO a parapet
+                # rests on walls whose top stands ABOVE its base, and
+                # "nearest below" sent LEMD's T2 roofs to bodies 6 m off
+                # while the wall rings they sit in ranked last.
+                return (0, round(abs(float(base_y) - float(top)), 3),
+                        -ov[0], -ov[1], c.member)
+            ranked.sort(key=_rest_key)
+            over = [(c, f"rests on it (its top "
+                        f"{float(base_y) - float(_top_under(c) or 0.0):+.2f} m "
+                        f"from this body's base; stands over "
+                        f"{overlap_m2(box, c.box):.0f} m2 in plan)"
+                     if _top_under(c) is not None else
+                     f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")
+                    for _ov, c in ranked if _ok(c)]
+        else:
+            ranked.sort(key=lambda q: (q[0][0], q[0][1], -q[1].member),
+                        reverse=True)
+            over = [(c, f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")
+                    for _ov, c in ranked if _ok(c)]
         if over:
             return _out(over)
     # the body's neighbours, walked ONCE: a unit's candidate list is
@@ -891,4 +949,5 @@ from .placement_census import (                          # noqa: E402
     KEPT_NO_CARRIER, LAWFUL_SKIPS, OWN_GROUND, STANDS_OVER_TOL_M,
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
+    census_torn_seams, census_torn_seams_lines,
     census_v16_lines, census_v16b, census_v16b_lines)

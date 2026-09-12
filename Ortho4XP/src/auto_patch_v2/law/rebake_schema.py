@@ -119,14 +119,19 @@ class Placement:
     #: (every pad targets flat, the pre-11j law).
     relief_radius_m: float = 12.0
 
-    #: A CARRIER IS A SOLID (owner RULINGS 2026-09-11ai; spec §16 (3)).
-    #: The FOOTPRINT FILL — the area a body's PART boxes cover over the
-    #: area of its own plan box — a candidate must reach before it may
-    #: carry another body's zero.  A line segment, a grass strip and a
-    #: sign fill a few thousandths of their boxes and carry nothing.
-    #: 0 disarms the test (every footed body a carrier, the pre-11ai
-    #: reading).
-    carrier_fill_min: float = 0.2
+    # A CARRIER IS A SOLID — THE CLASS, NOT THE FILL FRACTION (owner
+    # RULINGS 2026-09-12j; spec §16 (3) amended).  ``carrier_fill_min``
+    # is DELETED, not disarmed.  The CLASS exclusion stays and is the
+    # whole of the rule: a line segment, a grass strip and a sign never
+    # carry, because a fence's plan box is not a thing to stand on
+    # (LEMD's ``green-PKT4__b1`` on ``LEMDzaun__b5``, 11ai).  The FILL
+    # FRACTION was the wrong instrument for it and struck the right
+    # answers: a terminal's WALL RING is a thin loop, and LEMD's
+    # ``LEMD54`` / ``LEMD59`` — the walls the T2 roofs rest on, which
+    # overlap every one of them and pass §16a (2)'s ground test — fill
+    # 0.005-0.031 of their own boxes and were removed as carriers before
+    # the rest-on rule ranked anything, leaving tops 2.5-14.6 m below
+    # the roofs (measured, lane v2atom round 2).
 
     #: PLAN CONTIGUITY (owner RULINGS 2026-09-11ap; spec §16b (1)).  §9
     #: joined bodies of one placement into ONE file whenever their
@@ -145,3 +150,33 @@ class Placement:
     #: away is forbidden by the TERRAIN-GROUP test beside this one (the
     #: design surface under each must agree too), never by the reach.
     coarsen_reach_m: float = 100.0
+
+    #: §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h).
+    #: §16c (1) made the connected COMPONENT the atom of every group, and
+    #: an exporter's "one solid" is often several components that TOUCH:
+    #: OTHH's ``OTHH_Fuel_02_LOD0_007`` has two 0.4 mm apart — under the
+    #: millimetre key ``obj8.solid_components`` welds on they are two
+    #: components, and written at two zeros they showed a 2.70 m seam.
+    #: Components of ONE resource whose geometry comes within this are
+    #: ONE RIGID BODY for anchoring: one zero, the senior component's
+    #: carrier.  It is a CONTACT tolerance, not a reach — the plan's own
+    #: ε-contact graph binds the rest — so it is millimetres, and raising
+    #: it welds things that merely stand near each other (measured at
+    #: LEMD, see spec §16c MEASURED).  0 disarms the distance test and
+    #: leaves the plan's contact graph alone.
+    contact_eps_m: float = 0.002
+
+    #: §16c (7) THE RIGID REACH (owner RULINGS 2026-09-12j).  §16c (6)'s
+    #: CONTACT tolerance is millimetres and cannot reach what an
+    #: exporter authored as one object in separate pieces: LEMD's
+    #: ``OldTerminal_FSX-HANG3`` is a hangar whose four vault arcs stand
+    #: 1.507-1.853 m from its two spine components with ZERO ε-contacts
+    #: in the rebake plan, and round 2 wrote them at six zeros spanning
+    #: 1.37 m — a continuous arcing roof with steps in it, which is what
+    #: the owner read at 1.0.320.  SOLID components of ONE resource
+    #: whose geometry comes within this CHAIN into one rigid cluster,
+    #: and the cluster is the atom of every §16c (1) group.  Line
+    #: classes are excluded: a fence's posts are metres apart by design
+    #: and chaining them would re-assemble the 2 km run §10 exists to
+    #: cut.  0 disarms the reach and leaves §16c (6)'s contact alone.
+    rigid_reach_m: float = 2.0

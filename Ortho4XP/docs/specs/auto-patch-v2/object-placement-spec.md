@@ -2072,3 +2072,439 @@ the finer footed triangle cut for "tearing rigid solids" and kept the same atom.
    sign −0.15, T4 deck −0.05); files ≈ 900–1,400 (counterfactual estimate 899);
    plan stage on the GRADED sampler ≤ main's and the `_surface` call count quoted
    (the mesh-sampler cost is 12a's, measured separately); round trip OK; suite.
+
+**MEASURED (lane `v2atom`, 2026-09-12; branch `claude/v2atom`).**
+Implemented in `airport/obj8_split.py` (§16c (1)'s writer half: the
+triangle goes to the body owning ITS COMPONENT, an unowned component
+goes WHOLE to the nearest body, and the vertex vote and per-triangle
+nearest fallback are DELETED), `airport/placement_cut.py` (§16c (1)'s
+cut half: `_LineCutter.comp_of` / `_comp_blocks` — the vectorised
+triangle→component map every cut now groups by; `terrain_groups`,
+`foot_groups` and `carrier_groups` place WHOLE components;
+`carrier_groups` takes the piece's own written triangles; `part_tops`),
+`airport/placement_body.py` (the footed triangle cut reads the same
+`own_tris` its pre-test measured), `airport/placement_boxes.py`
+(§16c (2)'s `contact_ground`, `foot_box_index`, `CONTACT_PTS_MAX`),
+`airport/placement_carrier.py` (§16c (4)'s rest-on ranking and
+`Candidate.top_y` / `part_tops`), `airport/placement_plan.py` (the
+wiring) and `airport/placement_seams.py` (NEW: §16c (5)'s torn-seam
+census, the scout `v2lemd320`'s `tear.py` promoted).
+
+* **THE FOUR SITES AND THE CLASS REPRODUCED** on the live 1.0.320
+  written pack, read-only, by the promoted census: `HANG3` 10 files /
+  **14 torn seams** worst 3.05 m; `green-LEMD50` 7 files / spread
+  11.12 m; `Bridge2` 8 files / 11.72 m; `green-STRT4` **53 files**,
+  `__b44` seams up to **16.29 m**; whole plan **2,554 seams, 1,994 over
+  0.30 m** (974 + 1,580 line/arc, 790 + 1,204 over) — the scout's
+  figures to the unit.
+* **§16c (3) IS REFUTED AND IS NOT IMPLEMENTED.**  `PKT4__b0`'s zero is
+  611.00 on the 1.0.320 frame (611.23 was 1.0.319's) and its anchor
+  reason is its own: `low-side foot (no point within 0.3 m of the body's
+  zero plane: authored relief 0.95 m)`.  NOTHING of it stands on a
+  structure cut: all 8 of its foot boxes and all 32 of its written
+  geometry samples lie on NO graded face at all (`tunnel_ramp` ×17 and
+  `tunnel_trench` ×1 are the only structure roles `LEMD.graded.json`
+  carries; the nearest is 65 m away in latitude), and 0 of 32 samples
+  and 0 of 8 foot boxes fall inside any of the 19 structure RIM rings.
+  "A foot over a structure cut is not a ground foot" has no instance
+  here; the deck slab's real mechanism is §16c (2)'s, which is
+  implemented.
+* **THE BARS**, matched replay arms on the 1.0.320 LEMD rebake plan +
+  `LEMD.graded.json`, `--admit-skipped` on the live pack, the write half
+  into APFS clones (BEFORE is this lane's instrument commit `3dff7879`
+  on main's law, so both arms are read by one instrument):
+
+  | bar | 1.0.320 written | before | after |
+  |---|---|---|---|
+  | torn seams outside line/arc pieces (bar 0) | 974 (790 > 0.3 m) | 723 (575 > 0.3 m) | **0 — MET** |
+  | single-component resources in >= 2 files (bar 0) | 131 | 128 | **0 — MET** |
+  | bodies on a torn seam | 1,011 | 816 | **0** |
+  | line/arc station seams (lawful, apart) | 1,580 | 1,446 | 891 |
+  | §15 carried `stands-over float > 0.5 m` (bar 0) | — | 0 | **0 — MET** |
+  | §14 `footless at datum` / `on ground` / `basin split` | — | 0 / 0 / 0 | **0 / 0 / 0** |
+  | §16 `rows on the datum outside the plan` | — | 0 | **0** |
+  | §14a basin ring bar (<= 0.3 m) | — | 0.18 m, 0 over | **0.18 m, 0 over** |
+  | §16b carried piece float > 0.5 m (bar 0) | — | 120 | 124 |
+  | §16b body wider than its terrain group (bar 0) | — | 1,532 | **1,417** |
+  | files | 3,561 | 3,253 | **2,804** |
+  | round trip (write half into a pack COPY) | — | OK | **OK**, 2,804 files, 2,804/2,804 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | plan stage, graded sampler, 3 runs | — | 13.53 / 13.52 / 13.53 s | **9.84 / 10.48 / 10.32 s — MET (<= main's)** |
+  | `_surface` calls | — | 194,853 (+104,091 vectorised points) | **186,263 (+104,619)** |
+
+  OTHH, same arms: torn seams **639 (342 > 0.3 m) -> 1**, single-
+  component resources in >= 2 files **165 -> 1**, §15 carried float
+  **0 -> 0**, `footless at datum` 0, files 1,897 -> 1,898, §16b carried
+  piece float **200 -> 172** and wide **144 -> 85**, round trip **OK**
+  (1,897/1,897 new `OBJECT_DEF`s, 0 rows carrying an elevation), the
+  §16a (2) refusal set 21 -> 57.  The ONE
+  residue is `Buildings/Fire Fuel/OTHH_Fuel_02_LOD0_007.obj`
+  b0<->b1, step +2.70 m: two components `obj8.solid_components`
+  reports as SEPARATE share an authored vertex POSITION to the
+  millimetre (vertex ids 378/399 and 379/411).  Named, not closed.
+* **THE FOUR SITES AFTER** (files / written base spread; live 1.0.320 ->
+  before -> after): `HANG3` **10 / 3.51 m -> 6 / 1.90 -> 6 / 1.37**, and
+  every file is now a whole number of components (seams 14 -> 0);
+  `green-LEMD50` **7 / 11.12 -> 4 / 2.73 -> 1 / 0.00 (bar <= 2 files
+  MET)**; `green-STRT4` **53 / 16.29 -> 31 / 10.13 -> 24 / 8.90**;
+  `Bridge2` **8 / 11.72 -> 6 / 1.66 -> 5 / 1.73**.
+* **THE 11at SITES HELD, AND TWO MOVED THE WRONG WAY** (zero minus the
+  design surface under the body's own written geometry, before ->
+  after): item 3 `green-TEJ3` **+0.44 -> +0.18**, item 5 **-0.40 ->
+  -0.29**, the gate-5 sign **-0.02 -> -0.02**; but the T4 landside deck
+  `green-STRT4` **+0.90 -> +1.11** and the T4 roof `Terminal4_48`
+  **+1.81 -> +3.26**.  Both are the atom's own cost: those pieces were
+  carried bodies the old cut divided THROUGH a welded slab, and a slab
+  that stays whole takes one zero over ground that moves under it.
+  §16c (5)'s "no piece more than `split_tol_m` below its pier feet" is
+  therefore **MISSED** and named.
+* **§16c (4) IMPROVED THE WORST CASE AND MISSED THE BAR.**  T2 roofs
+  (`TEJ3`/`tej2`/`tej2_teilb`/`LEMD58`/`LEMD50`/`T2CSG`) against the top
+  of the named wall geometry directly under them, read in WORLD
+  coordinates from the written files: live 1.0.320 **7 of 9 over 0.3 m,
+  worst 2.80 m**; before **5 of 7, worst 6.56 m**; after **5 of 7, worst
+  0.97 m**.  148 bodies take the new `rests on it` reason.  The bar
+  ("within 0.3 m") is MISSED.
+* **THE COST OF THE ATOM, NAMED.**  §16a (2)'s refusal set at LEMD goes
+  **37 -> 157** footed bodies (20 carried bodies stand over one, was 0),
+  because 11ak (2)'s FOOT cut can no longer divide a body authored as
+  ONE welded component: such a body's feet genuinely disagree and it is
+  honestly mis-anchored.  11ak's twin is AMENDED to read both halves —
+  three treads in three components are still cut by their feet, the same
+  ribbon welded is written whole and refused.  HANG3's four vault arcs
+  are four separate components written at four zeros 1.37 m apart: no
+  seam, but adjacent rigid pieces of one resource at different zeros are
+  a class §16c does not reach (they do not overlap in plan, so §14 (3)
+  never binds them).  Reported for the owner.
+* **TWO READINGS CORRECTED IN PASSING** (both §16b (1)'s own sentence,
+  both forced by the twins): the FOOTED triangle cut and the CARRIER cut
+  now read the same `own_tris` their pre-test measures — a member the
+  plan records as ONE part is WRITTEN as the whole object, so a cut over
+  the parts' components measured a span it could not act on.
+* **SPEED.**  §16c (2)'s first form was two thirds of the plan stage
+  (154 M box comparisons in `contact_ground`); bounded to the piece's
+  `foot_boxes`, candidates whose hull box it meets, and
+  `CONTACT_PTS_MAX` samples, the whole stage came out FASTER than main's
+  (13.5 -> 10.2 s).  `comp_of` is a packed-key `searchsorted`, not a
+  Python dict.
+* **Twins:** `test_no_cut_crosses_a_connected_component`,
+  `test_split_obj8_never_assigns_a_triangle_across_a_component`,
+  `test_the_carrier_is_what_the_body_rests_on`,
+  `test_the_bounded_fallback_reads_the_contact_ground_not_the_median`,
+  `test_the_torn_seam_census_reads_the_written_files`; four twins
+  AMENDED where §16c supersedes them (the scattered roof, the carried
+  roof over two buildings, the carried roof re-cut by its walls, and
+  11ak (2)'s foot re-cut — each now authored in SEPARATE components,
+  with the welded case asserting the new law).  Suite **1,127 passed /
+  1 skipped** (main 1,122 / 1).  `_Staged` moved to
+  `airport/placement_record.py` for the 1,000-line law.
+* **NOT DONE:** no airport build (§16c needs none); §16c (3) refuted and
+  left out; the `--write-pack` arms are pack COPIES and the live pack was
+  read-only throughout.
+
+### §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h)
+
+§16c (1) made the connected COMPONENT the atom of every group.  An
+exporter's "one solid" is often several components that TOUCH, and
+written at two zeros they read as a break: OTHH's
+`OTHH_Fuel_02_LOD0_007` carries two components **0.4 mm** apart — under
+the millimetre key `obj8.solid_components` welds on (`np.round(v, 3)`)
+they are two — and round 1 wrote them 2.70 m apart, the airport's last
+seam.
+
+Components of ONE resource bind into ONE RIGID BODY for anchoring —
+one zero, the senior component's carrier — when they share a vertex
+position within `[placement] contact_eps_m` (2 mm), OR when the REBAKE
+PLAN's own ε-contact graph already links their parts.  A bound cluster
+is the atom every §16c (1) group is formed over.
+
+**MEASURED (lane `v2atom` round 2, 2026-09-12; branch `claude/v2atom`).**
+`_LineCutter.comp_cluster` (union-find over the plan's intra-member
+contact pairs and a box-rejected KD-tree pair count), `_comp_blocks`
+grouping by cluster, `[placement] contact_eps_m` in
+`law/structures.toml` + `law/rebake_schema.py`, wired through
+`placement_plan.build_splits` / `placement_write` / `engine_v2` and
+`obj8_split_report --contact-eps`.
+
+* **THE BAR, LEMD** (same matched frame; round 1 -> round 2): torn seams
+  outside line/arc **0 -> 0**, single-component resources in >= 2 files
+  **0 -> 0**, files **2,804 -> 2,776**, §15 carried float **0**, round
+  trip **OK** (2,776 files, 2,776/2,776 new `OBJECT_DEF`s, 0 rows
+  carrying an elevation, duplicate rows surviving 0), plan stage on the
+  graded sampler **8.86 / 9.28 / 9.37 s** (main 13.53), `_surface` calls
+  186,263 -> **184,219**, §16b carried piece float 124 -> **122** and
+  wide 1,417 -> **1,405**, §16a (2) refusal set 157 -> **169**.  Suite
+  **1,129 / 1 skipped**.  The distance test is ONE labelled radius pair
+  query over the member's vertices: the first form (a KD-tree per
+  component and an n^2 pair loop) was quadratic in a clutter object's
+  thousands of components and did not finish OTHH's plan stage in ten
+  minutes.
+* **THE BAR, OTHH** (round 1 -> round 2): torn seams outside line/arc
+  **1 -> 0 — MET**, single-component resources in >= 2 files **1 -> 0 —
+  MET**, files 1,898 -> **1,891**, §16b carried piece float 172 -> 175
+  and wide 85 -> **76**, §15 carried float **0**, round trip **OK**
+  (1,890/1,890 new `OBJECT_DEF`s, 0 rows carrying an elevation).  The
+  airport's LAST seam — `OTHH_Fuel_02_LOD0_007` b0<->b1, +2.70 m — is
+  exactly the two components 0.4 mm apart, and it is closed.
+* **`Terminal4_48` FIXED BY IT.**  Its zero spread **3.58 -> 0.69 m**
+  and the owner-site reading `zero - ground under its own geometry`
+  **+3.26 -> +0.04 m** (1.0.319 read +1.81): the piece that rode
+  `green-STRT4__b11` at a top 3.38 m below it is now bound to its own
+  neighbours and takes their zero.  The other 11at sites are byte-equal
+  (item 3 +0.18, item 5 -0.29, gate-5 sign -0.02).
+* **`HANG3`'s FOUR VAULT ARCS ARE NOT REACHED, AND THE BAR IS REFUTED AS
+  WRITTEN.**  Measured pairwise minimum vertex distance between its 7
+  components: the arcs stand **1.507-1.853 m** from the two spine
+  components and 9.65-65.31 m from each other; and the rebake plan
+  records **ZERO** intra-member ε-contacts for this resource (the
+  airport has 37,324 contacts in all).  Neither half of §16c (6)
+  can bind them: a 2 mm contact tolerance does not reach 1.5 m, and the
+  plan's graph has no edge.  Binding them needs `contact_eps_m` >= 1.86
+  m, which is a REACH and not a contact — it would weld anything
+  standing within two metres across every resource of the pack.  The
+  vault stays 6 files at 6 zeros spanning 1.37 m.  NOT FIXED; the
+  question is the owner's (a "one resource, one rigid object" rule is a
+  different law from contact).
+* **THE T2 ROOFS ARE NOT §16c (4)'s TO FIX.**  Attribution: the named
+  wall bodies DO plan-overlap every roof and are NOT refused by
+  §16a (2) (`ground_off` 0.00-0.08) — they are removed by §16 (3)'s
+  FILL gate before the rest-on ranking ever sees them.  `LEMD54`'s
+  bodies under the roofs carry `fill` **0.005 / 0.010 / 0.031** and
+  `LEMD59`'s **0.031**, against `[placement] carrier_fill_min` **0.2**:
+  a terminal's wall RING is a thin loop, and its parts-hull over its
+  plan box is one to three per cent.  What the rest-on rule is then left
+  to choose between are bodies whose top under the overlap is +2.46,
+  +7.93, +8.39, +14.63 m below the roof's base — it picks the nearest
+  below, which is what it is for.  Raising or qualifying the fill gate
+  is a RULING (it exists so a fence's box cannot carry a zero); not
+  changed here.
+* **THE `green-STRT4` DECK IS AN INSTRUMENT ARTEFACT, NOT A FLOAT.**  The
+  +1.11 m body is FOOTED (6 feet, fill 1.000, not carried, not
+  elevated), and its `y_zero` is **-1.668**: its anchor vertex is a
+  SKIRT 1.67 m below the object's zero plane.  `zero - ground under the
+  geometry` therefore reads the skirt depth, not a float — the body's
+  own lowest vertex lands on the design surface at its anchor
+  (616.449).  Its real residual is §7's, `ground_off` **0.397 m** over
+  0.43 m of authored foot relief: 11ak (2)'s class, which §16c (1) can
+  no longer foot-cut because the deck is one welded component.  Not a
+  defect to fix here; the §16b `carried piece float` bar should not
+  count a footed skirted body at all, which is a census question.
+* **THE §16a (2) REFUSAL SET, NAMED** (LEMD round 2, 169 candidate
+  bodies; over WRITTEN files with `ground_off > 0.3 m`, basins exempt,
+  524 files of which 353 are line segments that §16 (3) bars from
+  carrying anyway): **other 97, skirted 69, building 5**.  Worst-off:
+  `green-STRT4__b0` 7.16 m (building, 4 feet), `LEMDblast__b1` 7.14
+  (line), `Munoza-LEMD50__b2` 5.96 (line), `Terminal4sBlue-STRT4__b1`
+  5.08, `green-PKT4__b0` 4.50 (skirted), `Munoza-TWY__b1` 4.16,
+  `Cargo-NEWCO__b0` 3.35, `P2CNX__b4` 3.19.  Every one is the same
+  class: a body whose FEET are authored over metres of relief on ground
+  that barely moves, which 11ak (2)'s foot cut used to divide and §16c
+  (1) forbids dividing.
+* **THE FILE COUNT, EXPLAINED.**  2,776 files by §6 class: **line_segment
+  1,141**, other 1,232, skirted 246, building 166, basin 19.  By
+  resource the top two are `grass_FSX-LEMDgrass` **894 files** and
+  `Taxisigns-SENRG` **310** — 1,204 files, 43 % of the airport, from two
+  line/clutter resources cut by §10's 100 m station law.  The 899
+  counterfactual counted SOLID bodies only; the solid half here is
+  **1,663**.  Nothing in §16c makes line files: round 1 took them 1,446
+  -> 891 seams and the count is §10's, not the atom's.
+* **Twins:** `test_components_in_contact_are_one_rigid_body`,
+  `test_the_plans_contact_graph_binds_components_whatever_the_distance`.
+
+### §16c (7)-(9) THE FILL GATE GOES, THE RIGID REACH CHAINS, A SKIRT IS NOT A FLOAT (owner RULINGS 2026-09-12j)
+
+**(7) THE FILL FRACTION LEAVES CARRIER CANDIDACY.** §16 (3)'s "a carrier
+is a SOLID" stays as a CLASS rule — a line segment, a grass strip, a sign
+never carry — and `[placement] carrier_fill_min` is DELETED, not gated.
+It was the wrong instrument for that rule: a terminal's wall RING is a
+thin loop, and `LEMD54` / `LEMD59` — the walls the T2 roofs rest on,
+which overlap every roof and pass §16a (2)'s ground test — fill
+0.005-0.031 of their boxes and were struck as carriers before §16c (4)
+ranked anything.
+
+**(8) THE RIGID REACH** (`[placement] rigid_reach_m` 2.0).  SOLID
+components of one resource whose geometry comes within the reach CHAIN
+into one rigid cluster; the cluster is the atom of every group and of the
+BODY.  Line objects are excluded (§10 cuts a fence into stations on
+purpose).
+
+**(9) A SKIRT IS NOT A FLOAT.** §16b's carried-float bar reads only a
+carried body WITH NO FEET OF ITS OWN; a footed body's number is
+`ground_off`.
+
+**MEASURED (lane `v2atom` round 3, 2026-09-12; branch `claude/v2atom`).**
+Implemented in `law/structures.toml` + `law/rebake_schema.py`
+(`carrier_fill_min` deleted, `rigid_reach_m` added),
+`airport/placement_carrier.py` (the fill test gone from `carriers_for`),
+`airport/placement_census.py` (the fill test gone from the §15 census
+population; the §16b float bar skips a footed body),
+`airport/placement_cut.py` (`comp_cluster` at the reach, line objects
+excluded), `airport/placement_body.py` (THE CLUSTER IS ONE BODY: the
+`_bodies_of` groups are unioned by cluster and the PART cut may not
+divide one) and `airport/placement_plan.py` / `placement_write.py` /
+`auto_patch/engine_v2.py` / `tools/obj8_split_report.py --rigid-reach`.
+
+* **THE SHARED-REPO WRITE, CLOSED FIRST.**  `obj8_split_report.py` armed
+  nothing, and round 2's OTHH `--admit-skipped` run created
+  `Airport_mod_cache/Global Airports/+25+051.dsf.e0518fe0.text` (3.25 MB)
+  and rewrote `o4_dsf_object_positions_+25+051.cache` in the shared repo
+  with both lane-local cache env vars exported.  The entry now runs
+  inside `harness/shared_repo_guard`'s guard and its before/after audit —
+  the ONE implementation `build_airport.py` arms — and every round-3 run
+  prints `[guard] shared repo UNCHANGED by this build (full-surface
+  before/after snapshot)`.  Proven independently: a file list of
+  `/Users/noah/XPTerrainBuilderData/Airport_mod_cache/` (1,523 files,
+  name+size+mtime) taken before and after a full guarded OTHH
+  `--admit-skipped --write-pack` run is **byte-identical**.  The env
+  redirect itself was measured and HOLDS (`airport_mod_cache_root()`
+  returns the lane-local dir before and after every engine import); what
+  failed was that nothing refused or reported the write, which is what
+  the guard now does.  Twin:
+  `test_the_report_tool_arms_the_shared_repo_write_guard`.
+* **THE BARS, LEMD** (matched frame, round 2 -> round 3):
+
+  | bar | round 2 | round 3 |
+  |---|---|---|
+  | torn seams outside line/arc (0) | 0 | **0 — MET** |
+  | single-component resources in >= 2 files (0) | 0 | **0 — MET** |
+  | `HANG3` — the (8) bar | 6 files, zeros spanning **1.37 m** | **3 files, 1.12 m** (the vault arcs and the spines bind; the bar "one zero" is NOT met) |
+  | nothing new rides a fence | 0 | **0 — MET** |
+  | 11at item 3 / item 5 / gate-5 sign | +0.18 / -0.29 / -0.02 | **+0.06 / -0.29 / -0.02 — HELD** |
+  | 12h `Terminal4_48` | +0.04 | **+0.49** (spread 0.69 -> 0.86) |
+  | `green-STRT4` deck | +1.11 (23 files) | **+0.14 (19 files, spread 8.90 -> 6.09)** |
+  | §15 carried float > 0.5 m (0) | 0 | **0 — MET** |
+  | §16b carried piece float (0) | 122 | **107** |
+  | §16b wider than its terrain group (0) | 1,405 | **979** |
+  | files | 2,776 | **2,174** |
+  | round trip | OK | **OK**, 2,174/2,174 new `OBJECT_DEF`s, 0 rows carrying an elevation |
+  | §16a (2) refusal set | 169 | **244** |
+  | plan stage, graded, 3 runs | 9.3 s | **9.92 / 9.96 / 9.85 s** (main 13.53) |
+
+* **THE RIGID CLUSTERS DO NOT RUN AWAY.**  Five largest cluster plan
+  extents at LEMD: **5,157 m / 2,890 m / 2,514 m / 2,271 m / 2,234 m —
+  every one of them a SINGLE component** (`Munoza-LEMDzaun`,
+  `North_FSX-LEMDzaun`, three `AESlite-LEMD-VOR` markers), i.e. authored
+  that way and not chained by the reach.  129 of 7,816 clusters exceed
+  300 m, all of that class.  `Terminal4SAT_green-TEJ3`: **9 components ->
+  9 clusters** — its panels do NOT chain, which is the bar.
+* **THE COST, NAMED.**  `grass_FSX-LEMDgrass` goes 894 -> 458 files: the
+  reach chains grass tufts within 2 m into rigid mats.  Reported, not
+  judged — the resource reads as a line object per component in places
+  and not in others.
+* **(9) IS A NO-OP AT LEMD AND IS STILL RIGHT.**  `footed_carried_excluded`
+  is **0**: no carried body at LEMD publishes feet, so the bar never
+  counted one.  The `green-STRT4` +1.11 m round 2 reported was never in
+  the §16b census at all — it was this lane's own site probe reading
+  `zero - ground` on a FOOTED body with `y_zero` -1.668.  The census now
+  cannot make that mistake, and the probe's number for that body is
+  +0.14 m after (8).
+* **THE BARS, OTHH** (matched frame, round 2 -> round 3): torn seams
+  outside line/arc **1 -> 0 — MET**, single-component resources in >= 2
+  files **1 -> 0 — MET**, files 1,891 -> **1,362**, §16b carried piece
+  float 172 -> 177, wide 85 -> **74**, §16a (2) refusal set 57 -> 99,
+  round trip **OK** (1,361/1,361 new `OBJECT_DEF`s, 0 rows carrying an
+  elevation), `[guard] shared repo UNCHANGED`.  The arm is SLOW — the
+  three refuted forms did not finish it at all (45 min and counting) and
+  the shipped one takes tens of minutes against round 2's ~10; the reach
+  costs OTHH more than it costs LEMD, and that cost is not measured as a
+  stage time this round.  Owed.
+* **THE T2 ROOFS ARE STILL MISSED, AND THE ATTRIBUTION HAS MOVED.**  5 of
+  7 over 0.3 m, worst 6.12 m (round 2: 5 of 7, worst 0.97; live 1.0.320:
+  7 of 9, worst 2.80) — and it MOVES with every change to the carrier
+  set, which is itself the finding: the choice is not pinned by the law.  With the fill gate gone the `LEMD54` bodies ARE
+  candidates (`ground_off` 0.08-0.11, overlapping every roof) — and
+  §16c (4) still does not pick them, because their top under the overlap
+  stands ABOVE the roof's own base plane and "nearest BELOW the base" is
+  category 1 for anything above it.  These walls are parapets and upper
+  storeys: the roof is let INTO them, not laid on top.  The §16c (5) bar
+  (roof base within 0.3 m of the wall TOP) and the §16c (4) rule
+  (carrier top nearest below the roof base) are asking for two different
+  geometries.  Not guessed at: it is a ruling.
+* **THE REACH'S COST, MEASURED AND THEN BOUNDED.**  A radius pair query
+  over every vertex of a member returns MILLIONS of pairs at 2 m: the
+  LEMD plan stage went **9.3 -> 108-126 s** over 3 runs.  A KD-tree per
+  component with an n^2 loop is quadratic in a clutter object's
+  thousands of components (it did not finish OTHH in ten minutes).  What
+  ships is a SWEEP: the components sorted by the low corner of their
+  box, the pairs whose boxes come within the reach walked once, anything
+  already unioned skipped, and the trees asked only then
+  (`airport/placement_atom.py`, NEW — the §16c atom law lifted out of
+  `placement_cut` for the 1,000-line law), and the pair TEST is a
+  nearest-neighbour query with an upper bound, not `count_neighbors`:
+  counting EVERY pair within 2 m between two dense clouds is billions,
+  and it is what left OTHH's plan stage unfinished after 45 minutes and
+  LEMD's at 26.3 s.  FOUR forms measured — all-pairs `query_pairs`
+  (**108-126 s**), the same vectorised (**~117 s**), a box SWEEP with
+  `count_neighbors` (**26.3 s**, OTHH unfinished at 45 min), and the
+  sweep with a bounded nearest-neighbour query: **9.92 / 9.96 / 9.85 s**
+  over 3 runs against main's 13.53 — the "plan stage <= main's" bar
+  **MET**.  `_surface` calls 184,219 -> **141,466**.  A member with more
+  than `placement_atom.RIGID_REACH_COMPONENTS_MAX` (64) components keeps
+  §16c (6)'s contact binding only — an affordability bound, named.
+* **Twins:** `test_the_rigid_reach_chains_solids_and_never_a_line_object`,
+  `test_the_16b_float_bar_excludes_a_footed_body`,
+  `test_the_report_tool_arms_the_shared_repo_write_guard`; the fence
+  twin AMENDED (the fill fraction gone, the CLASS rule kept), and two
+  cut twins amended where §16c (6)/(8) supersede them — a contact-bound
+  ribbon is ONE rigid body and 11ak (2)'s foot cut can no longer divide
+  it, which the twin now reads from both sides.
+
+**MEASURED (lane `v2atom` round 4, 2026-09-12; branch `claude/v2atom`; RULINGS 2026-09-12n).**
+
+* **§16c (4) IS NOW ABSOLUTE DISTANCE** (`placement_carrier._rest_key`):
+  the overlapping candidate whose top under the overlap is nearest the
+  body's base plane, above or below.  Five of the nine T2 roof bodies
+  now rest within 0.36 m of their chosen carrier's top (−0.03, −0.18,
+  −0.24, −0.36); four still take one 2.5–14.6 m away.
+* **THE T2 BAR IS STILL MISSED: 7 of 8 over 0.3 m, worst 6.12 m**
+  (round 3: 6 of 7, worst 6.12; live 1.0.320: 7 of 9, worst 2.80).  The
+  rule is satisfied — each roof rests on the nearest-top candidate it
+  overlaps — so the residue is the CANDIDATE SET, not the ranking: the
+  wall body the eye reads as "under" those four roofs is not one they
+  plan-overlap in `stands_over_rank`.
+* **ONE MECHANISM TESTED AND REFUTED, REVERTED:** that the wall rings
+  were outside the stands-over set because only a body's eight largest
+  part boxes are published (`FOOT_BOXES_MAX`).  Raised to 32 the bar
+  moved 7 of 8 → 6 of 7 with the worst unchanged at 6.12 m, for a
+  larger plan; not kept.
+* **THE 11at / 12h SITES ALL HOLD:** item 3 **+0.06**, item 5 **−0.29**,
+  gate-5 sign **−0.02**, `green-STRT4` deck **+0.14**, `Terminal4_48`
+  **+0.49**; `HANG3` **3 files / 1.12 m**, `green-LEMD50` 1 file,
+  `Bridge2` 5 files, nothing rides a fence (**0**).
+* **§16c (8) IS BOUNDED BY A CLUSTER SPAN CAP**
+  (`placement_atom.RIGID_CLUSTER_SPAN_MAX_M` 1,200 m): a cluster is one
+  rigid body no cut may divide, so a chain of 2 m hops that walks a
+  terminal makes a body wider than any terrain it can stand on —
+  unbounded, the reach chains `OTHH_Terminal_Base_*` into clusters
+  spanning 1,042–1,175 m over 3–15 components.  A 100 m cap was measured
+  and REJECTED: it broke the sites the reach exists for (`Terminal4_48`
+  +0.49 → +3.26, `HANG3` 3 → 5 files).
+* **THE REACH IS NOT WHAT COSTS OTHH, MEASURED ON MATCHED ARMS.**  OTHH
+  plan stage, same code, graded sampler: **64.33 s** at the 1,200 m cap,
+  **64.45 s** at 100 m, **63.46 s with the reach DISARMED**.  The reach
+  accounts for **0.9 s**; deleting it would not bring OTHH under the
+  45 s bar, so it is KEPT.  The **≤ 45 s bar is MISSED at 64 s** and the
+  cost is elsewhere in the stage (344,838 `_surface` calls at OTHH
+  against LEMD's 141,306).
+* **LEMD plan stage 10.31 s** against main's 13.53 — MET.
+* **OTHH, MEASURED TO COMPLETION UNDER THE GUARD** (round 3 -> round 4):
+  torn seams outside line/arc **0 — MET**, single-component resources in
+  >= 2 files **0 — MET**, §15 carried float **0 — MET**, files 1,362 ->
+  **1,376**, §16b carried piece float 177 -> 183, wide 74 -> **70**,
+  round trip **OK** (1,375/1,375 new `OBJECT_DEF`s, 0 rows carrying an
+  elevation), `[guard] shared repo UNCHANGED`.
+* **LEMD, ROUND 4**: files **2,171**, seams **0**, single-component
+  **0**, §15 carried float **0**, round trip **OK** (2,171/2,171),
+  guard **UNCHANGED**.
+* **THE §16a (2) REFUSAL SET (244), BY CLASS**, read over the written
+  files (`ground_off` > 0.3 m, basins exempt; 358 files, of which 114
+  are line segments §16 (3) bars from carrying anyway): **other 158,
+  skirted 76, building 10**.  Worst-off: `LEMDblast__b1` 7.14 m (line),
+  `Terminal4sBlue-STRT4__b1` 5.08, `LEMD03__b6` 4.98, `Munoza-LEMD50__b1`
+  4.92 (line), `green-PKT4__b0` 4.50, `Munoza-TWY__b1` 4.16,
+  `Munoza-LEMD69__b12` 3.95 (140 feet), `Cargo-NEWCO__b0` 3.35,
+  `Munoza-LEMD03__b5` 3.32, `P2CNX__b3` 3.19 — every one the same class:
+  feet authored over metres of relief on ground that barely moves, which
+  §16c (1) forbids foot-cutting.
+* **Merged main `30a61c9f`** (§27, the mesh-sampler grid, `v2_rebake_replay
+  plan`); `tools/INDEX.md` resolved keeping BOTH rows.  Full twin set
+  **1,169 passed / 1 skipped**.

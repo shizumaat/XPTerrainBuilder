@@ -46,6 +46,9 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 line_segment_m: float, line_stations_max: int,
                 line_ratio: float, line_max_h: float,
                 foot_band_m: float, coarsen_reach_m: float = 0.0,
+                contact_eps_m: float = 0.0,
+                contact_pairs: _t.Sequence[tuple[int, int]] = (),
+                rigid_reach_m: float = 0.0,
                 cutter: "_LineCutter | None" = None
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
@@ -61,13 +64,46 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     they were for a body that stands on the ground."""
     groups = _bodies_of(m, edges)
     pid_of = {p.pid: p for p in m.parts}
+    if cutter is None:
+        cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
+                             line_ratio, line_max_h, u.anchor[0], u.anchor[1],
+                             contact_eps_m=contact_eps_m,
+                             contact_pairs=contact_pairs,
+                             rigid_reach_m=rigid_reach_m)
+    # §16c (6)/(7): THE CLUSTER IS THE ATOM, and that is a statement
+    # about the BODY and not only about the cut.  The ε-contact graph
+    # forms one body per component where it records no contact at all
+    # (LEMD `HANG3`: 7 parts, 7 bodies, ZERO intra-contacts), and the
+    # terrain cut can then only decline to divide them further — each
+    # still takes its own zero, and the hangar's vault stepped 1.37 m
+    # across its arcs.  So the groups themselves are unioned by cluster:
+    # one cluster, one body, one zero, one carrier.
+    cl = cutter.comp_cluster()
+    if cl:
+        by_cluster: dict[int, int] = {}
+        merged: list[list[int]] = []
+        for g in groups:
+            key = None
+            for q in g:
+                ci = pid_of[q].comp
+                if 0 <= ci < len(cl):
+                    key = cl[ci]
+                    break
+            if key is None or key not in by_cluster:
+                if key is not None:
+                    by_cluster[key] = len(merged)
+                merged.append(list(g))
+            else:
+                merged[by_cluster[key]].extend(g)
+        if len(merged) < len(groups):
+            counts["bodies_bound_by_cluster"] = \
+                counts.get("bodies_bound_by_cluster", 0) + (len(groups)
+                                                            - len(merged))
+        groups = merged
     # ONE cutter per member: it holds the parsed OBJ8 and its components,
     # and §16a (1)'s carrier cut (pass 3) reads the same geometry.  Two
     # cutters meant two parses — 618 of OTHH's members parsed twice, 42 s
     # of ``solid_components`` in the plan stage, measured.
-    if cutter is None:
-        cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
-                             line_ratio, line_max_h, u.anchor[0], u.anchor[1])
     raw: list[_Raw] = []
     # §14a (2): the mark is applied to whatever the group's branch
     # appended, at the top of the next turn — the branches all ``continue``
@@ -212,7 +248,13 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 raw.append((list(parts), _ar.BASIN, aa, feet, False, tris,
                             apts, ag))
             continue
-        pieces_p = ([list(parts)] if is_basin
+        # §16c (6)/(7): A CLUSTER IS ONE RIGID BODY, so the PART cut may
+        # not divide it either — it reads one zero per part, and a
+        # hangar's vault arcs have one each.  Where the group's parts all
+        # belong to ONE cluster the body stands whole.
+        one_cluster = bool(cl) and len({cl[p.comp] for p in parts
+                                        if 0 <= p.comp < len(cl)}) == 1
+        pieces_p = ([list(parts)] if (is_basin or one_cluster)
                     else _cut_parts_by_terrain(parts, surface, split_tol_m,
                                                coarsen_reach_m))
         if len(pieces_p) > 1:
@@ -287,9 +329,17 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             # them spanning 6 m of fall.  A footed body reads its own
             # feet; the carried class §16b (1) names is cut by ground
             # above, where the body has no feet to read.
+            # §16c (1): THE CUT READS THE SAME TRIANGLES THE PRE-TEST DID
+            # — the body's OWN WRITTEN geometry (`own_tris`), not just
+            # the components the plan's parts happen to name.  A member
+            # the plan reads as ONE part is WRITTEN as the whole object
+            # (§16b (1)), so a cut over the parts' components measured a
+            # span it could not act on.
             tri_pieces = foot_pieces or (
                 cutter.terrain_groups(parts, surface, split_tol_m,
-                                      line_stations_max)
+                                      line_stations_max,
+                                      tris_in=own_tris if len(pieces_p) == 1
+                                      else ())
                 if span > split_tol_m else [])
             if tri_pieces:
                 if not foot_pieces:

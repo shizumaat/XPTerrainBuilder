@@ -28,7 +28,8 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "census_population_lines", "STANDS_OVER_TOL_M", "FOOTLESS_KEPT",
            "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND", "THICKNESS_SKIP",
            "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M",
-           "CARRIED_OWN_GROUND_TOL_M"]
+           "CARRIED_OWN_GROUND_TOL_M", "census_torn_seams",
+           "census_torn_seams_lines", "SEAM_STEP_TOL_M"]
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────
@@ -284,7 +285,7 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
 def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                kept: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
                *, float_tol_m: float = STANDS_OVER_TOL_M,
-               fill_min: float = 0.0, ground_tol_m: float = 0.0) -> dict:
+               ground_tol_m: float = 0.0) -> dict:
     """§15 (3), over the PLACEMENT PLAN's own rows — the same shape and
     the same code path as :func:`census_v14`.
 
@@ -314,13 +315,13 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     float is REPORTED by name: it reads its own ground, and two footed
     bodies over genuinely different terrain lawfully differ."""
     rows = _v15_rows(splits)
-    # §16 (3): what a body STANDS OVER is a SOLID — a line segment, a
-    # grass strip or a sign is not something anything stands on, and the
-    # carrier search refuses them.  The census reads the same population
-    # or it counts the disagreement rather than the defect.
+    # §16 (3) as amended (12j): what a body STANDS OVER is a SOLID by
+    # CLASS — a line segment is not something anything stands on, and
+    # the carrier search refuses it.  The FILL fraction is gone from
+    # both sides at once: the census reads the same population the
+    # search does, or it counts the disagreement rather than the defect.
     ground = [r for r in rows if r["feet"] and r["box"] and r["zero"] is not None
-              and r["cls"] != _ar.LINE_SEGMENT
-              and (fill_min <= 0.0 or r["fill"] >= fill_min)]
+              and r["cls"] != _ar.LINE_SEGMENT]
     # §16a (2): which of these the LAW REFUSES to let carry anything —
     # its own zero more than ``ground_tol_m`` from the ground under its
     # own feet.
@@ -715,9 +716,11 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     (``geom_pts``, one sample per cell of plan, the lowest thing the file
     puts over that patch), and both are ZERO:
 
-    ``carried piece float over its own ground``  a CARRIED body whose
-        zero stands more than ``float_tol_m`` from the ground under its
-        OWN geometry.  §16a (3) made this information only because a
+    ``carried piece float over its own ground``  a carried body WITH NO
+        FEET OF ITS OWN whose zero stands more than ``float_tol_m`` from
+        the ground under its OWN geometry.  §16c (3) (12j) put the
+        FOOTED bodies out of it: a skirt is not a float, and their
+        number is ``ground_off``.  §16a (3) made this information only because a
         carried body was cut by its carrier and a carrier on sloping
         ground anchors at its low-side foot; §16b (1)'s prior terrain cut
         and §16b (3)'s bounded fallback close that, so it is a bar again.
@@ -740,7 +743,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     # is the pit floor 7 m below).  Both are counted and named apart.
     cls_of = {str(b.get("new_resource") or ""): str(b.get("class") or "")
               for s in splits for b in s.get("bodies", ())}
-    basin_wide = basin_carried = 0
+    basin_wide = basin_carried = footed_carried = 0
     n = off_sheet = no_geom = 0
     span_sum = 0.0
     for s in splits:
@@ -781,13 +784,25 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                 by_class[k] = by_class.get(k, 0) + 1
             zero = float(sz) - float(b.get("y_zero", 0.0))
             g = sorted(zs)[len(zs) // 2]
-            if b.get("merged_into"):
+            # §16c (3) (RULINGS 2026-09-12j): A FOOTED BODY IS NOT IN
+            # THIS BAR.  ``zero - ground under the geometry`` is a FLOAT
+            # only for a body that has no feet of its own and takes a
+            # carrier's zero.  A footed body's zero plane is where ITS
+            # authoring puts it: LEMD's `green-STRT4` deck has
+            # ``y_zero`` -1.668 — a skirt 1.67 m BELOW its zero plane —
+            # so the same subtraction reads the skirt depth and called a
+            # correctly seated deck +1.11 m afloat.  Its number is
+            # ``ground_off`` (§16a (2), the median of what its own feet
+            # say its zero is), which the report prints beside this.
+            if b.get("merged_into") and not b.get("feet"):
                 d = zero - g
                 if abs(d) > float_tol_m:
                     if cls_of.get(str(b.get("merged_into"))) == "basin":
                         basin_carried += 1
                     else:
                         carried.append((d, res))
+            elif b.get("merged_into"):
+                footed_carried += 1
     carried.sort(key=lambda q: -abs(q[0]))
     wide.sort(reverse=True)
     return {"bodies_read": n, "off_sheet": off_sheet, "no_geom_pts": no_geom,
@@ -796,6 +811,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "geom_span_gt": len(wide), "geom_span_worst": wide[:10],
             "geom_span_gt_by_class": dict(sorted(by_class.items())),
             "basin_wide": basin_wide, "basin_carried": basin_carried,
+            "footed_carried_excluded": footed_carried,
             "geom_span_max_m": span_sum,
             "float_tol_m": float_tol_m, "split_tol_m": split_tol_m,
             "bars_ok": not carried and not wide}
@@ -818,6 +834,11 @@ def census_v16b_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + ")"
            + ("" if not c["geom_span_gt"]
               else "   *** §16b (4) VIOLATED (bar 0) ***")]
+    if c.get("footed_carried_excluded"):
+        out.append(
+            f"   §16c (3): {c['footed_carried_excluded']} FOOTED body(ies) "
+            f"that name a carrier are OUT of the float bar (a skirt is not "
+            f"a float; their number is §16a (2)'s `ground_off`)")
     if c.get("basin_wide") or c.get("basin_carried"):
         out.append(
             f"   §16b BASIN exemptions (§14 (2) / 11al, counted apart from "
@@ -849,3 +870,9 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     for d, res in c.get("geom_worst", ()):
         out.append(f"      own ground {d:.2f} m from the row  {res}")
     return out
+
+
+# §16c (5) lives in ``placement_seams`` (the 1,000-line law); both tools
+# read it through this module, which is the census front door.
+from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,F401
+                              census_torn_seams_lines)

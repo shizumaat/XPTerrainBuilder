@@ -459,19 +459,19 @@ group_span_max_m    = 150.0        # 11i: LEMD's kerbside canopies span 30-90 m 
 # the relief target and restores the pre-11j flat pad.
 relief_radius_m     = 12.0         # a column bay: LEMD38's feet stand 9-14 m apart, so every pad vertex between two columns reads one of them
 split_tol_m         = 0.3          # round 1 measured LEMD 302 placements -> 13,924 cut files and OTHH 954 -> 65,360: the SEAT's bodies are far finer than a PLACEMENT needs (11e).  0.3 m is the materiality the sim read is judged at; 0 would restore round 1's one-file-per-body reading
-# A CARRIER IS A SOLID (owner RULINGS 2026-09-11ai; spec §16 (3)).  A
-# carried body takes its carrier's zero, so a carrier is a claim about
-# where the GROUND is under that body — and a fence, a grass line or a
-# taxi sign says nothing about it.  Measured at LEMD 1.50.1763:
-# `Terminal4_green-PKT4__b1` (120 roof vertices) was carried by a fence
-# segment (`LEMDzaun__b5`) 6 m below the garage slab it belongs to,
-# because the fence's axis-aligned plan box contained the roof.  This is
-# the FOOTPRINT FILL a candidate must reach to carry: the area its PART
-# boxes cover over the area of its own plan box.  A wall ring or a
-# building fills 0.3-1.0 of its box; a 2 km fence segment, a grass strip
-# and a sign fill a few thousandths of theirs.  0 disarms the test (the
-# pre-11ai reading, every footed body a carrier).
-carrier_fill_min    = 0.2
+# A CARRIER IS A SOLID — THE CLASS, NOT THE FILL FRACTION (owner RULINGS
+# 2026-09-12j; spec §16 (3) amended).  `carrier_fill_min` is DELETED, not
+# disarmed.  What stays is the CLASS exclusion, which is the whole rule:
+# a LINE SEGMENT, a grass strip and a sign never carry another body's
+# zero, because a fence's axis-aligned plan box is not a thing to stand
+# on (LEMD's `green-PKT4__b1`, 120 roof vertices, was carried by
+# `LEMDzaun__b5` 6 m below the garage slab it belongs to — 11ai).  The
+# FILL FRACTION was the wrong instrument for that rule and struck the
+# right answers as well: a terminal's WALL RING is a thin loop, and the
+# `LEMD54` / `LEMD59` bodies the T2 roofs rest on — which overlap every
+# roof and pass §16a (2)'s own ground test — fill 0.005-0.031 of their
+# boxes and were removed as carriers before the rest-on rule ranked
+# anything, leaving it tops 2.5-14.6 m below the roofs.
 # PLAN CONTIGUITY (owner RULINGS 2026-09-11ap; spec §16b (1)).  A split
 # exists only where the terrain differs under the object — but zero
 # AGREEMENT alone is not evidence that two bodies are one thing: LEMD's
@@ -489,3 +489,29 @@ carrier_fill_min    = 0.2
 # TERRAIN-GROUP test beside this one — the design surface under each must
 # agree as well — never the reach alone.
 coarsen_reach_m     = 100.0
+
+# §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h).  §16c
+# (1) made the connected COMPONENT the atom of every group, and an
+# exporter's "one solid" is often several components that TOUCH: OTHH's
+# `OTHH_Fuel_02_LOD0_007` has two 0.4 mm apart, which the millimetre key
+# `obj8.solid_components` welds on reads as two components — written at
+# two zeros they showed a 2.70 m seam.  Components of ONE resource whose
+# geometry comes within this are ONE RIGID BODY for anchoring: one zero,
+# the senior component's carrier.  A CONTACT tolerance, not a reach (the
+# plan's own ε-contact graph binds the rest), so it is millimetres.
+# 0 disarms the distance test.
+contact_eps_m       = 0.002
+
+# §16c (7) THE RIGID REACH (owner RULINGS 2026-09-12j).  §16c (6)'s
+# CONTACT tolerance is millimetres and cannot reach what an exporter
+# authored as one object in separate pieces: LEMD's
+# `OldTerminal_FSX-HANG3` is a hangar whose four vault arcs stand
+# 1.507-1.853 m from its two spine components with ZERO ε-contacts in the
+# rebake plan, and round 2 wrote them at six zeros spanning 1.37 m — a
+# continuous arcing roof with steps in it, which is what the owner read.
+# SOLID components of ONE resource whose geometry comes within this CHAIN
+# into one rigid cluster, and the cluster is the atom of every §16c (1)
+# group.  LINE classes are excluded: a fence's posts stand metres apart
+# by design and chaining them would re-assemble the 2 km run §10 exists
+# to cut.  0 disarms the reach and leaves §16c (6)'s contact alone.
+rigid_reach_m       = 2.0

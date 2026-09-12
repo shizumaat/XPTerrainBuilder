@@ -291,10 +291,23 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     #: the SEGMENT map (11f (2)): an authored triangle this body owns
     #: outright, senior to every vote below
     tri_owner: dict[tuple[int, int, int], int] = {}
+    #: §16c (1): THE COMPONENT IS THE ATOM.  The authored triangle (as
+    #: its sorted vertex triple) -> its component index, and the body
+    #: that owns each component.  No triangle is ever assigned to a body
+    #: that does not own its component (owner RULINGS 2026-09-12d).
+    comp_of_tri: dict[tuple[int, int, int], int] = {}
+    for ci, c in enumerate(comps):
+        for row in np.asarray(c.tris).tolist():
+            comp_of_tri[tuple(sorted(int(q) for q in row))] = ci
+    body_of_comp: dict[int, int] = {}
+    comp_tri_keys: dict[int, list[tuple[int, int, int]]] = {}
+    for k, ci in comp_of_tri.items():
+        comp_tri_keys.setdefault(ci, []).append(k)
     for b in bodies:
         pts: list[np.ndarray] = []
         for ci in b.comps:
             if 0 <= ci < len(comps):
+                body_of_comp[ci] = b.body_id
                 vi = np.unique(np.asarray(comps[ci].tris).reshape(-1))
                 for v in vi.tolist():
                     body_of_vertex[int(v)] = b.body_id
@@ -321,25 +334,60 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     n_idx = int(src.idx.shape[0])
     nv = verts.shape[0]
 
+    #: §16c (1): the body a component with NO owner falls to, decided
+    #: ONCE for the whole component (its plan centroid) — never per
+    #: triangle, which is what tore the vault.
+    comp_fallback: dict[int, int] = {}
+
+    def _fallback(ci: int, among: "list[int] | None" = None) -> int:
+        hit = comp_fallback.get(ci)
+        if hit is not None and among is None:
+            return hit
+        pts = verts[np.unique(np.asarray(comps[ci].tris).reshape(-1))
+                    ] if 0 <= ci < len(comps) else np.zeros((1, 3))
+        p = pts.mean(axis=0) if pts.size else np.zeros(3)
+        if among:
+            # the component is already divided by a LAWFUL station cut
+            # (§10's segment, §14a's arc): its unclaimed triangles stay
+            # inside the component, with the nearest of ITS OWN pieces
+            sel = min(among, key=lambda bid: float(
+                (centroid[bid][0] - p[0]) ** 2 + (centroid[bid][2] - p[2]) ** 2))
+            return sel
+        comp_fallback[ci] = nearest(p)
+        return comp_fallback[ci]
+
     def tri_body(a: int, b: int, c: int) -> int:
-        """The body of one triangle: the SEGMENT that names it outright
-        (11f (2)), else the majority vote of its vertices, and the NEAREST
-        body when it owns none (a thin sheet under the thickness gate, an
-        exporter's ground paint — geometry a body formation never saw and
-        that must not be dropped)."""
+        """The body of one triangle (§16c (1): NO CUT CROSSES A CONNECTED
+        COMPONENT).
+
+        The SEGMENT or ARC that names the triangle outright (§10 / §14a,
+        the only lawful station cuts) is senior; otherwise the triangle
+        goes to the body that owns ITS COMPONENT, and a component no
+        body owns goes WHOLE to the nearest body.  The vertex vote and
+        the per-triangle nearest fallback are DELETED: a boundary drawn
+        between two triangles of one welded solid writes its halves at
+        two zeros, which is the mechanism behind every one of the
+        owner's 1.0.320 sites (RULINGS 2026-09-12d)."""
+        key = (a, b, c) if a <= b <= c else tuple(sorted((a, b, c)))
         if tri_owner:
-            hit = tri_owner.get((a, b, c) if a <= b <= c else tuple(sorted((a, b, c))))
+            hit = tri_owner.get(key)
             if hit is not None:
                 counts["segment"] = counts.get("segment", 0) + 1
                 return hit
-        votes: dict[int, int] = {}
-        for v in (a, b, c):
-            bid = body_of_vertex.get(v)
-            if bid is not None:
-                votes[bid] = votes.get(bid, 0) + 1
-        if votes:
-            counts["assigned"] += 1
-            return max(votes.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+        ci = comp_of_tri.get(key, -1)
+        if ci >= 0:
+            own = body_of_comp.get(ci)
+            if own is not None:
+                counts["assigned"] += 1
+                return own
+            counts["nearest"] += 1
+            # a component a STATION cut already divided keeps its own
+            # pieces; one no body claims at all goes whole to the nearest
+            share = sorted({tri_owner[k] for k in comp_tri_keys.get(ci, ())
+                            if k in tri_owner}) if tri_owner else []
+            return _fallback(ci, share or None)
+        # a triangle in no solid component at all (a thin sheet, an
+        # exporter's ground paint): it is its own atom
         counts["nearest"] += 1
         p = verts[[i for i in (a, b, c) if 0 <= i < nv]] if nv else np.zeros((1, 3))
         return nearest(p.mean(axis=0) if p.size else np.zeros(3))

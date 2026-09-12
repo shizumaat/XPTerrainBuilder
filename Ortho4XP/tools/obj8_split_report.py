@@ -60,6 +60,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
+# THE SHARED-REPO WRITE LAW (CLAUDE.md; owner ruling e9daef5), ONE
+# implementation — ``tools/harness/shared_repo_guard.py``, the same module
+# ``harness/build_airport.py`` and ``run_tile_mesh_only.py`` arm.  A lane
+# replay of a plan is a MEASUREMENT: it must cost the shared corpus zero
+# writes, and until 2026-09-12 this entry armed nothing — an OTHH
+# ``--admit-skipped`` run created
+# ``Airport_mod_cache/Global Airports/+25+051.dsf.e0518fe0.text`` (3.25 MB)
+# and rewrote ``o4_dsf_object_positions_+25+051.cache`` in the shared repo
+# with BOTH lane-local cache env vars exported (measured, lane v2atom
+# round 2; RULINGS 2026-09-12j).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "harness"))
 
 import numpy as np                                             # noqa: E402
 
@@ -341,6 +353,7 @@ def _write_pack(a, plan, ss, sampler) -> None:
     from auto_patch.dsf_reader import _dsftool_path
     from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import placement_carrier as PC
     from auto_patch_v2.airport import placement_write as PW
     from auto_patch_v2.law.tables import law_tables_digest
 
@@ -378,6 +391,11 @@ def _write_pack(a, plan, ss, sampler) -> None:
           f"{os.path.basename(res.dsf.backup_path)}); round trip "
           f"{'OK' if res.dsf.report.ok else 'FAILED: ' + '; '.join(res.dsf.report.findings[:3])}")
     print(f"  plan -> {res.plan_path}")
+    # §16c (5): THE BAR INSTRUMENT IS THE WRITTEN FRAME — the same
+    # census ``--torn-seams`` prints, on the pack this call just wrote.
+    for line in PC.census_torn_seams_lines(
+            PC.census_torn_seams([q.to_dict() for q in splits], root)):
+        print(line)
     # THE READ-BACK: the written DSF dumped again must carry every new
     # placement, on its own new OBJECT_DEF
     back = os.path.join(work, "readback.text")
@@ -410,10 +428,39 @@ def _write_pack(a, plan, ss, sampler) -> None:
 
 
 def main() -> int:
+    """The entry, under the SHARED-REPO WRITE GUARD (see the import
+    block): nothing this tool does is authorised to write the shared
+    data repo, so the guard refuses at the call site and the before /
+    after snapshot backstops what no Python-level guard can see."""
+    from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
+                                   report_unauthorised_writes,
+                                   require_no_unauthorised_writes,
+                                   shared_repo_snapshot, snapshot_diff)
+    before = shared_repo_snapshot()
+    guard = SharedRepoWriteGuard(set(), os.getcwd())
+    try:
+        with guard:
+            rc = _main()
+    finally:
+        # the audit runs even when the run raised: a replay that died
+        # halfway has still changed the corpus every other lane reads
+        changes = snapshot_diff(before, shared_repo_snapshot())
+        offenders = report_unauthorised_writes(changes, set(), None)
+    if guard.blocked:
+        print(f"\n  shared-repo writes REFUSED at the call site: "
+              f"{len(guard.blocked)}")
+        for b in list(guard.blocked)[:10]:
+            print(f"    {b}")
+    require_no_unauthorised_writes(offenders, entry="obj8_split_report")
+    return rc
+
+
+def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("plan", help="<ICAO>.rebake.json (or o4_v2_rebake_<ICAO>.json)")
-    ap.add_argument("--graded", required=True, help="<ICAO>.graded.json")
+    ap.add_argument("--graded", default="", help="<ICAO>.graded.json "
+                    "(required unless --torn-seams)")
     ap.add_argument("--write-into", default="", help="write the cut files here and "
                                                      "parse each back (scratch only)")
     ap.add_argument("--json", default="", help="write the whole report here")
@@ -446,9 +493,38 @@ def main() -> int:
                     help="override [placement] coarsen_reach_m (§16b (1)'s "
                          "PLAN CONTIGUITY: two bodies of one placement join "
                          "one file only within this; 0 disarms it)")
+    ap.add_argument("--torn-seams", default="", help="a pack ROOT whose "
+                    "WRITTEN files this plan describes: print §16c (5)'s "
+                    "TORN-SEAM CENSUS over them and exit.  The plan "
+                    "argument is then the WRITTEN plan "
+                    "(o4_v2_placement_<ICAO>.json), not the rebake plan, "
+                    "and --graded is not read")
+    ap.add_argument("--contact-eps", type=float, default=None,
+                    help="override [placement] contact_eps_m (§16c (6): "
+                         "components of one resource within this bind into "
+                         "ONE rigid body; 0 disarms the distance test)")
+    ap.add_argument("--rigid-reach", type=float, default=None,
+                    help="override [placement] rigid_reach_m (§16c (7): "
+                         "SOLID components of one resource within this chain "
+                         "into ONE rigid cluster; 0 disarms the reach)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
+
+    if a.torn_seams:
+        from auto_patch_v2.airport import placement_carrier as PC
+        # §16c (5): the WRITTEN frame, read on the files themselves —
+        # no surface, no cut, no law: the pack and the plan that wrote it.
+        written = json.loads(open(a.plan, encoding="utf-8").read())
+        root = os.path.abspath(a.torn_seams)
+        c = PC.census_torn_seams(written.get("splits", ()), root)
+        print(f"torn-seam census of {written.get('icao', '?')} over {root}")
+        for line in PC.census_torn_seams_lines(c):
+            print(line)
+        if a.json:
+            with open(a.json, "w", encoding="utf-8") as fh:
+                json.dump(c, fh, indent=1)
+        return 0
 
     from auto_patch_v2.law import Law
     _law = Law.load()
@@ -456,6 +532,8 @@ def main() -> int:
     rb0 = _law.tables.structures.rebake
     tol_m = _law.tables.structures.placement.split_tol_m if a.split_tol is None \
         else a.split_tol
+    if not a.graded:
+        ap.error("--graded is required")
     plan, abut = PP.read_plan(a.plan)
     sampler, pads, rims = surface_from_graded(a.graded)
     if a.admit_skipped:
@@ -485,12 +563,18 @@ def main() -> int:
                          line_ratio=rb.line_object_ratio,
                          line_max_h=rb.line_object_max_h,
                          foot_band_m=band_m, abutments=abut,
-                         carrier_fill_min=_law.tables.structures.placement
-                         .carrier_fill_min,
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None
-                                          else a.coarsen_reach))
+                                          else a.coarsen_reach),
+                         contact_eps_m=(_law.tables.structures.placement
+                                        .contact_eps_m
+                                        if a.contact_eps is None
+                                        else a.contact_eps),
+                         rigid_reach_m=(_law.tables.structures.placement
+                                        .rigid_reach_m
+                                        if a.rigid_reach is None
+                                        else a.rigid_reach))
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -544,7 +628,6 @@ def main() -> int:
     # lawful, so neither bar above can see a roof standing 6 m over the
     # walls it belongs to.
     v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
-                        fill_min=_law.tables.structures.placement.carrier_fill_min,
                         ground_tol_m=tol_m)
     for line in PC.census_v15_lines(v15):
         print(line)

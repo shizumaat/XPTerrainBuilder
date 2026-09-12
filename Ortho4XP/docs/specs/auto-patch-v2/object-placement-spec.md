@@ -2405,6 +2405,16 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   (roof base within 0.3 m of the wall TOP) and the §16c (4) rule
   (carrier top nearest below the roof base) are asking for two different
   geometries.  Not guessed at: it is a ruling.
+* **THE REACH'S COST, MEASURED AND THEN BOUNDED.**  A radius pair query
+  over every vertex of a member returns MILLIONS of pairs at 2 m: the
+  LEMD plan stage went **9.3 -> 108-126 s** over 3 runs.  A KD-tree per
+  component with an n^2 loop is quadratic in a clutter object's
+  thousands of components (it did not finish OTHH in ten minutes).  What
+  ships is a SWEEP: the components sorted by the low corner of their
+  box, the pairs whose boxes come within the reach walked once, anything
+  already unioned skipped, and the trees asked only then
+  (`airport/placement_atom.py`, NEW — the §16c atom law lifted out of
+  `placement_cut` for the 1,000-line law).
 * **Twins:** `test_the_rigid_reach_chains_solids_and_never_a_line_object`,
   `test_the_16b_float_bar_excludes_a_footed_body`,
   `test_the_report_tool_arms_the_shared_repo_write_guard`; the fence

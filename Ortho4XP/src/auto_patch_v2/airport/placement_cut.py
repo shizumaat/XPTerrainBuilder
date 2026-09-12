@@ -26,6 +26,7 @@ from ..model.rebake import Member, Part, Unit
 from . import anchor_rule as _ar
 from . import basin_ring as _br
 from . import line_object as _lo
+from . import placement_atom as _atom
 from . import placement_carrier as _pc
 
 __all__ = ["authored_latlon", "segment_anchor", "pristine_path",
@@ -124,136 +125,17 @@ class _LineCutter:
         return self._geom is not None and bool(self._comps)
 
     def comp_of(self, tris) -> "list[int]":
-        """§16c (1): THE COMPONENT EACH TRIANGLE BELONGS TO.
-
-        The connected component is the ATOM of every group (owner
-        RULINGS 2026-09-12d): a terrain, foot or carrier boundary that
-        falls INSIDE a welded solid writes its two halves at two zeros,
-        and the owner's 1.0.320 read found exactly that in the `HANG3`
-        vault, `Bridge2`'s deck and `green-STRT4`'s approach slabs.  So
-        every cut below groups COMPONENTS, and this is the map it groups
-        them by: the authored triangle (its sorted vertex triple, the
-        key ``obj8_split`` spells) -> its component index.  A triangle
-        belonging to no component reads ``-1`` and is its own atom.
-
-        The lookup is VECTORISED (one packed key per triangle and one
-        ``searchsorted``): the cuts ask it once per cut per member, and a
-        Python dict over 40,000 triangles costs more than the cut."""
-        import numpy as np
-        if self._tri_keys is None:
-            n = int(self._geom.vertices.shape[0]) + 1 if self._read() else 1
-            self._tri_base = np.int64(n)
-            rows = [np.sort(np.asarray(c.tris, dtype=np.int64), axis=1)
-                    for c in self._comps if len(c.tris)]
-            ids = np.concatenate([np.full(len(c.tris), ci, dtype=np.int64)
-                                  for ci, c in enumerate(self._comps)
-                                  if len(c.tris)]) if rows else \
-                np.zeros(0, dtype=np.int64)
-            if rows:
-                r = np.concatenate(rows)
-                keys = (r[:, 0] * self._tri_base + r[:, 1]) * self._tri_base \
-                    + r[:, 2]
-            else:
-                keys = np.zeros(0, dtype=np.int64)
-            order = np.argsort(keys, kind="stable")
-            self._tri_keys = keys[order]
-            self._tri_ids = ids[order]
-        q = np.sort(np.asarray(tris, dtype=np.int64).reshape(-1, 3), axis=1)
-        qk = (q[:, 0] * self._tri_base + q[:, 1]) * self._tri_base + q[:, 2]
-        if self._tri_keys.shape[0] == 0:
-            return [-1] * int(qk.shape[0])
-        pos = np.searchsorted(self._tri_keys, qk)
-        pos = np.clip(pos, 0, self._tri_keys.shape[0] - 1)
-        hit = self._tri_keys[pos] == qk
-        out = np.where(hit, self._tri_ids[pos], -1)
-        return [int(x) for x in out.tolist()]
+        """§16c (1): the COMPONENT of each triangle (``placement_atom``)."""
+        return _atom.comp_of(self, tris)
 
     def comp_cluster(self) -> "list[int]":
-        """§16c (6)/(7): THE RIGID CLUSTER of each component.
-
-        §16c (1) made the connected COMPONENT the atom, and an
-        exporter's "one solid" is often several: OTHH's
-        ``OTHH_Fuel_02_LOD0_007`` carries two 0.4 mm apart (the
-        millimetre weld key reads them as two) and LEMD's `HANG3` is a
-        hangar whose vault arcs stand 1.5-1.9 m from its spines with no
-        contact at all.  Components of ONE resource bind into one rigid
-        body — one zero, one carrier — when the PLAN's ε-contact graph
-        links their parts (``contact_pairs``), when they come within
-        ``[placement] contact_eps_m``, or, for a resource that is NOT a
-        line object, within ``[placement] rigid_reach_m``.
-
-        Built once per member; the distance test is ONE radius pair query
-        over the member's vertices labelled by component, and is skipped
-        when the epsilon is 0 or the member has one component."""
-        if self._clusters is not None:
-            return self._clusters
-        if not self._read():
-            self._clusters = []
-            return self._clusters
-        import numpy as np
-        n = len(self._comps)
-        par = list(range(n))
-
-        def _find(a: int) -> int:
-            while par[a] != a:
-                par[a] = par[par[a]]
-                a = par[a]
-            return a
-
-        def _union(a: int, b: int) -> None:
-            ra, rb = _find(a), _find(b)
-            if ra != rb:
-                par[ra] = rb
-
-        for a, b in self.contact_pairs:
-            if 0 <= a < n and 0 <= b < n:
-                _union(a, b)
-        # §16c (7) THE RIGID REACH: a hangar's vault arcs stand metres
-        # from its spines with no contact at all (LEMD `HANG3`,
-        # 1.507-1.853 m, ZERO plan ε-contacts) and step where the roof is
-        # continuous.  SOLID components chain at the reach; a LINE
-        # object's never do — §10 cuts a fence into stations ON PURPOSE.
-        eps = float(self.contact_eps_m)
-        if (self.rigid_reach_m > eps and n > 1
-                and not self.is_line_object()):
-            eps = float(self.rigid_reach_m)
-        if n > 1 and eps > 0.0:
-            # ONE tree over every vertex, labelled by component, and ONE
-            # radius pair query — never a tree per component and an n^2
-            # Python loop over pairs: OTHH's clutter objects publish
-            # thousands of components, and the pairwise form is
-            # quadratic in them (measured: the OTHH plan stage).
-            from scipy.spatial import cKDTree
-            v = self._geom.vertices
-            lab = np.concatenate([np.full(len(np.unique(
-                np.asarray(c.tris).reshape(-1))), ci, dtype=np.int64)
-                for ci, c in enumerate(self._comps)])
-            ids = np.concatenate([np.unique(np.asarray(c.tris).reshape(-1))
-                                  for c in self._comps])
-            pts = v[ids]
-            if pts.shape[0]:
-                for a, b in cKDTree(pts).query_pairs(eps):
-                    la, lb = int(lab[a]), int(lab[b])
-                    if la != lb:
-                        _union(la, lb)
-        self._clusters = [_find(i) for i in range(n)]
-        return self._clusters
+        """§16c (6)/(8): the RIGID CLUSTER of each component
+        (``placement_atom.comp_cluster`` — the law and its reading)."""
+        return _atom.comp_cluster(self)
 
     def _comp_blocks(self, tris) -> "list[list[int]]":
-        """§16c (1): the triangle indices of ``tris`` grouped by the
-        ATOM each belongs to — its component, or, under §16c (6), the
-        CLUSTER of components its own touches.  A triangle no component
-        owns is an atom of its own."""
-        cl = self.comp_cluster()
-        blocks: dict[int, list[int]] = {}
-        loose: list[list[int]] = []
-        for i, ci in enumerate(self.comp_of(tris)):
-            if ci < 0:
-                loose.append([i])
-            else:
-                blocks.setdefault(cl[ci] if ci < len(cl) else ci,
-                                  []).append(i)
-        return [blocks[k] for k in sorted(blocks)] + loose
+        """§16c (1): ``tris`` grouped by the ATOM each belongs to."""
+        return _atom.comp_blocks(self, tris)
 
     def is_line_object(self) -> bool:
         """10bb's RESOURCE verdict over the plan's own genuine set."""

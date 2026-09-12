@@ -166,7 +166,7 @@ def _under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
     """The RETIRED admission test (spec §29 (2)) — ≥ 1 m of the bore under
     the classified cover — kept only to count the bores the new
     mouth-based admission and it disagree on
-    (``bores_admitted_by_mouth_only``).  Reads the cell tree rather than a
+    (``bores_mouth_only``).  Reads the cell tree rather than a
     union of every cell (same answer, no union to build)."""
     if tree is None:
         return False

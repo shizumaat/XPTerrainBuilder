@@ -402,28 +402,27 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# THE RE-BAKE AFTER THE MESH (RULINGS 2026-09-04i 04f-1)
+# THE OBJECT STAGE AFTER THE MESH (RULINGS 2026-09-04i 04f-1;
+# THE SEAT RETIRED 2026-09-12s, spec §8)
 # ══════════════════════════════════════════════════════════════════════════
 # v1's Phase 2 (``post_mesh.rebake_dsf_objects``) runs at the END of
 # ``O4_Mesh_Utils.build_mesh`` / ``sort_mesh``; under ``auto_patch_engine =
-# v2`` the same hook routes HERE instead (one baker per pack per build —
-# two would fight through the reversion pass).  The v2 law half is pure
-# (``auto_patch_v2.emit.rebake.seat`` over the tile build's own
-# ``o4_v2_rebake_<ICAO>.json`` plans and a sampler of the built mesh);
-# this function is the I/O half: it reuses v1's mesh sampler, v1's
-# ordering / protected-root guards and — the ONE writer both engines
-# share — ``object_rebake.apply`` with its ``.anchor_bak`` discipline,
-# provenance sidecar and reversion pass.  ``modify_custom_airports`` is
-# honoured exactly as v1 honours it: OFF = measure-only, nothing is baked,
-# and an earlier bake is put back to the authored bytes.
-
-REBAKE_RESULT_FILENAME = "o4_v2_rebake_result_{icao}.json"
+# v2`` the same hook routes HERE instead.  What runs here is the PLACEMENT
+# path and nothing else: over the tile build's own ``o4_v2_rebake_<ICAO>.
+# json`` plans and a sampler of the built mesh, every object is cut,
+# re-anchored and placed ON the terrain (``airport/placement_*.py``).
+# NO SEAT IS COMPUTED and no authored vertex is rewritten — v1's vertex
+# re-bake (``_decision_from_seats`` -> ``object_rebake.apply``, the
+# ``o4_v2_rebake_result_*`` sidecars) is a refuted mechanism, DELETED.
+# The pack's ``.obj.anchor_bak`` survives as the RESTORE (spec §10): a
+# pack authored under the seat is put back before the placement writes.
+# ``modify_custom_airports`` is honoured exactly as v1 honours it: OFF =
+# measure-only, nothing is written.
 
 #: RULINGS 2026-09-09w (3): the pipeline's own plan file names —
 #: ``o4_v2_rebake_<ICAO>.json`` (``model.rebake.PLAN_FILENAME``) and
-#: nothing else in the patch directory.  ``o4_v2_rebake_result_<ICAO>.json``
-#: (this module's own output) and a tool's ``o4_v2_rebake_<ICAO>.seat.json``
-#: are NOT plans.
+#: nothing else in the patch directory.  A tool's
+#: ``o4_v2_rebake_<ICAO>.seat.json`` is NOT a plan.
 _PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$")
 
 
@@ -432,7 +431,7 @@ def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     import shutil
     if src_plan is None or not os.path.isfile(str(src_plan)):
         return None
-    from auto_patch_v2.emit.rebake import PLAN_FILENAME
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
     dest = os.path.join(os.path.dirname(task["auto_patch_file"]),
                         PLAN_FILENAME.format(icao=icao))
     shutil.copyfile(str(src_plan), dest + ".tmp")
@@ -468,197 +467,16 @@ def _place_graded_surface(task: dict, paths, icao: str) -> str | None:
     return dest
 
 
-def _line_drape(geom, comps, line_stations, anchor, heading_deg) -> dict:
-    """The per-vertex deltas of a LINE OBJECT's draped components (RULINGS
-    2026-09-10bb): each vertex takes the delta of the station NEAREST it
-    in plan.  The vertex world position is the anchor plus the OBJ8 offset
-    rotated by the heading (``obj8`` module doc: x east, z SOUTH,
-    ``east = x·cos h − z·sin h``, ``north = −(x·sin h + z·cos h)``),
-    converted with the local metres per degree — a nearest-station test
-    over a few kilometres, where the frame's own projection and a local
-    ENU agree to well under the station spacing."""
-    import math as _m
-
-    import numpy as _np
-
-    from auto_patch_v2.airport.line_object import station_deltas_at
-    by_comp: dict[int, list[tuple[float, float, float]]] = {}
-    for comp, la, lo, d in line_stations:
-        by_comp.setdefault(int(comp), []).append((float(la), float(lo), float(d)))
-    lat0, lon0 = float(anchor[0]), float(anchor[1])
-    m_lat = 111_132.954 - 559.822 * _m.cos(2 * _m.radians(lat0)) \
-        + 1.175 * _m.cos(4 * _m.radians(lat0))
-    m_lon = 111_412.84 * _m.cos(_m.radians(lat0)) - 93.5 * _m.cos(3 * _m.radians(lat0))
-    h = _m.radians(float(heading_deg))
-    sn, cs = _m.sin(h), _m.cos(h)
-    out: dict[int, float] = {}
-    for ci, st in by_comp.items():
-        if not (0 <= ci < len(comps)) or not st:
-            continue
-        ids = _np.unique(_np.asarray(comps[ci].tris).reshape(-1))
-        v = _np.asarray(geom.vertices)[ids]
-        east = v[:, 0] * cs - v[:, 2] * sn
-        north = -(v[:, 0] * sn + v[:, 2] * cs)
-        lats = lat0 + north / m_lat
-        lons = lon0 + east / m_lon
-        for i, d in zip(ids.tolist(), station_deltas_at(st, lats, lons).tolist()):
-            out[int(i)] = float(d)
-    return out
-
-
-def _decision_from_seats(plan_, result, measure_only: bool,
-                         contact_tol_m: float = 0.0,
-                         plate_gap_max_m: float = 0.0,
-                         rigid_stats: dict | None = None):
-    """A v1 ``RebakeDecision`` carrying v2's seat PER VERTEX (RULINGS
-    2026-09-06g): a structure-seated member's every solid vertex takes
-    the unit's one delta; a cluster-seated member's vertices take their
-    PART's cluster delta (``MemberSeat.part_deltas``: ``(component,
-    cluster, delta | None)`` — ``None`` keeps the authored y, so one file
-    may carry several deltas and unmoved parts).  The components are
-    v2's own deterministic partition of the AUTHORED file
-    (``auto_patch_v2.airport.obj8.solid_components``), the same the plan
-    was built from.  A resource with no bake (below threshold, held,
-    facility, off the mesh, measure-only) is listed in ``skipped`` and
-    still registered by anchor, so v1's reversion pass puts an earlier
-    bake back."""
-    from auto_patch_v2.airport import obj8 as _obj8
-    from auto_patch_v2.airport import rigid as _rigid
-    from .object_anchor import RebakeDecision, Structure
-    structures = []
-    deltas: dict[str, dict[int, float]] = {}
-    ground: dict[str, float] = {}
-    anchors: dict[str, tuple[float, float, float]] = {}
-    kinds: dict[str, str] = {}
-    datums: dict[str, float] = {}
-    notes: dict[str, str] = {}
-    skipped: list[tuple[str, str]] = []
-    for u, us in zip(plan_.units, result.units):
-        if us.held:
-            # HELD: unknown to the decision, so v1's reversion pass leaves
-            # the live bytes exactly as they are (reported, never reverted)
-            continue
-        by_res = {s.resource: s for s in us.members}
-        for m in u.members:
-            r = m.resource
-            ms = by_res[r]
-            anchors[r] = (u.anchor[0], u.anchor[1], m.heading_deg)
-            if us.anchor_ground_m is not None:
-                ground[r] = float(us.anchor_ground_m)
-            if measure_only:
-                skipped.append((r, "measure-only: modify_custom_airports is off"))
-                continue
-            if ms.facility:
-                # RULINGS 2026-09-05p (at cluster level 06g): a facility
-                # member keeps its authored y — the excluded path, so v1's
-                # reversion pass restores an earlier bake and the
-                # provenance records the exclusion
-                skipped.append((r, f"facility member (05p): stands more than the contact band "
-                                   f"below the mesh — keeps its authored y; the cutout is the "
-                                   f"basin pass's affair ({us.unit_id})"))
-                continue
-            if not (us.bakes and ms.bakes):
-                skipped.append((r, us.skip_reason or ms.note or "no seat"))
-                continue
-            try:
-                geom = _obj8.parse_obj8(m.authored_path)
-            except (OSError, ValueError) as exc:
-                skipped.append((r, f"authored file unreadable: {exc}"))
-                continue
-            comps = _obj8.solid_components(geom)
-            if not comps:
-                skipped.append((r, "no solid triangle: nothing to seat"))
-                continue
-            if ms.delta_m is not None and not ms.part_deltas:
-                by_comp = {i: float(ms.delta_m) for i in range(len(comps))}
-            else:
-                by_comp = {comp: float(d) for comp, _k, d in ms.part_deltas
-                           if d is not None and 0 <= comp < len(comps)}
-            if not by_comp:
-                skipped.append((r, ms.note or "no part seated"))
-                continue
-            # RULINGS 2026-09-09b (5): an object's CONNECTED geometry moves
-            # as one rigid body, and a horizontal plane is never split from
-            # the walls that carry it.  The seat mints deltas only for the
-            # THICKNESS-GATED components (the witness gate, 08-26 §2.1), so
-            # every floor/ceiling plane came out with none and stayed at its
-            # authored y while its walls moved (HECA 15,716 planes, to 45 m;
-            # OTHH the 44 planes of the interchange drainage basins).  Each
-            # free component follows the carrier it TOUCHES (09z (4):
-            # a plane always follows its walls, held or not — the
-            # identity spacing is the contact test), nearest only when
-            # nothing touches.
-            # a component the seat RULED to stay (a facility cluster 05p, a
-            # cluster under min_delta_m, an A3 refusal) keeps its authored y:
-            # the completion covers only what the seat never considered
-            held = {comp for comp, _k, d in ms.part_deltas if d is None}
-            n_free = len(comps) - len(by_comp) - len(held - set(by_comp))
-            by_comp = _rigid.complete_component_deltas(geom, comps, by_comp, held,
-                                                      contact_tol_m, plate_gap_max_m,
-                                                      rigid_stats)
-            per_vertex: dict[int, float] = {}
-            for ci, d in by_comp.items():
-                for i in set(comps[ci].tris.reshape(-1).tolist()):
-                    per_vertex[i] = d
-            # THE LINE OBJECT DRAPES (owner RULINGS 2026-09-10bb, spec §16.1
-            # rule 3): a fence / kerb / jet-blast line follows the ground it
-            # stands on — its component's vertices take the delta of the
-            # SEGMENT STATION nearest them in plan, not the body's one
-            # median.  The stations travel in the seat RESULT, so the write
-            # half stays offline (no mesh here, and none in the censuses).
-            if ms.line_stations:
-                per_vertex.update(_line_drape(geom, comps, ms.line_stations,
-                                              u.anchor, m.heading_deg))
-            if not per_vertex:
-                skipped.append((r, ms.note or "no part seated"))
-                continue
-            deltas[r] = per_vertex
-            ys = [float(geom.vertices[i][1]) for i in per_vertex]
-            tris = [tuple(int(x) for x in t) for c in comps for t in c.tris]
-            structures.append(Structure(
-                triangles_by_resource={r: tris}, surface_area_square_metres=0.0,
-                centroid_latitude=u.anchor[0], centroid_longitude=u.anchor[1],
-                minimum_base_y_by_resource={r: min(ys)}, is_ground_touching=True,
-                ground_span_metres=None, needs_pad=False, skip_reason=None,
-                inherited_from_structure_index=None))
-            kinds[r] = "v2_" + ms.datum
-            note = ms.note or ""
-            if n_free:
-                note = (note + "; " if note else "") + (
-                    f"{n_free} free component(s) follow the carrier they touch "
-                    "(09b (5)/09z (4): a plane is never split from its walls)")
-            if note:
-                notes[r] = note
-            if us.datum != "cluster" and us.seat_datum_m is not None:
-                datums[r] = float(us.seat_datum_m)
-            elif ms.delta_m is not None and us.anchor_ground_m is not None:
-                datums[r] = float(us.anchor_ground_m) + u.agl_m + float(ms.delta_m)
-            elif us.anchor_ground_m is not None:
-                # several deltas in one file: the datum is the base, the
-                # provenance records the spread (delta_range_m)
-                datums[r] = float(us.anchor_ground_m) + u.agl_m
-    return RebakeDecision(structures=structures, delta_by_resource_and_vertex=deltas,
-                          anchor_ground_by_resource=ground, skipped=skipped,
-                          anchor_by_resource=anchors, decision_kind_by_resource=kinds,
-                          seat_datum_by_resource=datums, seat_note_by_resource=notes)
-
-
 # ── THE PLACEMENT PATH (owner RULINGS 2026-09-11b / 11e (3)) ─────────────
-# ``[rebake] placement = "agl"``: X-Plane places every object on the
-# terrain under its own anchor.  NO SEAT IS COMPUTED — the plan is built
-# (conversions for every MSL/AGL row, splits with coarsened bodies and
-# placed anchors), the cut files are written into the pack's ``objects/``
-# under new names, the DSF is edited, encoded, verified and backed up, the
-# READ path's text-dump cache is refreshed and the placement plan lands
-# beside the patch.  ``"seat"`` runs the pre-11b path below, unchanged:
-# the ONE permitted gate, a mechanism awaiting the owner's sim read (29e).
-
-def object_stage_is_placement(law) -> bool:
-    """THE ONE GATE (owner RULINGS 2026-09-11e (3)): ``[rebake] placement``
-    — ``"agl"`` routes the object stage through the PLACEMENT path below
-    (no seat is computed); anything else runs the pre-11b seat unchanged."""
-    return str(law.tables.structures.rebake.placement) == "agl"
-
+# THE ONLY OBJECT STAGE (owner RULINGS 2026-09-12s, spec §8: the seat is
+# RETIRED — deleted, not gated, and with it the ``[rebake] placement``
+# key that used to choose between them).  X-Plane places every object on
+# the terrain under its own anchor: NO SEAT IS COMPUTED and no authored
+# vertex is rewritten — the plan is built (conversions for every MSL/AGL
+# row, splits with coarsened bodies and placed anchors), the cut files
+# are written into the pack's ``objects/`` under new names, the DSF is
+# edited, encoded, verified and backed up, the READ path's text-dump
+# cache is refreshed and the placement plan lands beside the patch.
 
 def _placement_surface(mesh_sample):
     """The placement stage's design surface over a mesh sampler
@@ -828,25 +646,20 @@ def _engine_version() -> str:
 
 
 def rebake_after_mesh(tile) -> dict:
-    """Re-seat every object of the airports v2 patched on ``tile``
+    """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
     (the mesh hook wraps it too); returns the counts for the summary."""
     import glob
     import math
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
-    from auto_patch_v2.emit import rebake as _rb
     from auto_patch_v2.law import Law
-    from . import object_rebake
+    from auto_patch_v2.model import rebake as _rb
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
     from .post_mesh import (_is_protected_scenery_root, _mesh_is_newer_than_alt,
                             object_anchor_worklist_path)
 
-    counts = {"airports": 0, "units": 0, "units_baked": 0, "units_below_threshold": 0,
-              "units_skipped": 0, "units_held": 0, "objects_written": 0,
-              "objects_reverted": 0, "clusters": 0, "clusters_baked": 0, "pad_requests": 0,
-              "vertices_offset": 0, "findings": 0, "airports_failed": 0,
-              "packs_written": 0}
+    counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
     try:
         patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
         # RULINGS 2026-09-09w (3): the engine loads ITS OWN plan files only.
@@ -859,26 +672,25 @@ def rebake_after_mesh(tile) -> dict:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
         if not os.path.isfile(mesh_path):
-            UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; re-seat skipped")
+            UI.vprint(1, f"  [v2 rebake] mesh not found at {mesh_path}; placement skipped")
             return counts
         if not _mesh_is_newer_than_alt(tile, mesh_path):
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
-                         "re-seat SKIPPED; rebuild the mesh after the elevation step")
+                         "placement SKIPPED; rebuild the mesh after the elevation step")
             return counts
         measure_only = not getattr(tile, "modify_custom_airports", True)
         if measure_only:
             UI.vprint(1, "  [v2 rebake] modify_custom_airports is off — measure-only: "
-                         "no object is reseated and any earlier bake is put back")
+                         "nothing is written to the pack")
         # v1's engine-wide kill switch (``O4_DSF_OBJECT_REANCHOR=0`` "leaves
         # every pack byte-identical"; function-local import so tests drive
-        # it): the seat still runs and its result sidecar is written — the
-        # measurement is the product — but nothing is applied and nothing
-        # is reverted.
+        # it): the placement plan is still built and reported — the
+        # measurement is the product — but nothing is written.
         from .config import DSF_OBJECT_REANCHOR
         write_enabled = bool(DSF_OBJECT_REANCHOR)
         if not write_enabled:
-            UI.vprint(1, "  [v2 rebake] DSF_OBJECT_REANCHOR is off — seats are measured "
-                         "and recorded, no pack file is written or reverted")
+            UI.vprint(1, "  [v2 rebake] DSF_OBJECT_REANCHOR is off — the placement plan "
+                         "is measured and recorded, no pack file is written")
         written_packs: set[str] = set()
         for plan_path in plans:
             icao = "?"
@@ -888,14 +700,14 @@ def rebake_after_mesh(tile) -> dict:
                 icao = plan_.icao
                 law = Law.for_airport(icao)
                 if not plan_.units:
-                    UI.vprint(1, f"  [v2 rebake] {icao}: no unit to seat "
+                    UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
                     counts["airports"] += 1
                     continue
                 if not os.path.isdir(plan_.pack_root) or \
                         _is_protected_scenery_root(plan_.pack_root):
                     UI.vprint(1, f"  [v2 rebake] {icao}: pack {plan_.pack_root} is not a "
-                                 "writable Custom Scenery pack — re-seat skipped")
+                                 "writable Custom Scenery pack — placement skipped")
                     counts["airports"] += 1
                     continue
                 sampler = MeshElevationSampler(mesh_path, plan_.bounds())
@@ -924,87 +736,20 @@ def rebake_after_mesh(tile) -> dict:
 
                 _sample.many = _sample_many
 
-                if object_stage_is_placement(law):
-                    # 11e (3): the PLACEMENT path — no seat is computed
-                    pc = _place_objects(plan_, law, _sample, tile, patch_dir,
-                                        write_enabled, measure_only)
-                    counts["airports"] += 1
-                    for k, v in pc.items():
-                        if k in ("packs_written",):
-                            continue
-                        counts["placement_" + k] = counts.get("placement_" + k, 0) + int(v)
-                    if pc.get("packs_written"):
-                        written_packs.add(plan_.pack_root)
-                    continue
-
-                res = _rb.seat(plan_, _sample, law)
-                if write_enabled:
-                    rigid_stats: dict = {}
-                    decision = _decision_from_seats(
-                        plan_, res, measure_only,
-                        law.tables.emit.identity.min_distinct_spacing_m,
-                        law.tables.structures.rebake.plate_gap_max_m, rigid_stats)
-                    if rigid_stats:
-                        # RULINGS 2026-09-10u (2): how the free components
-                        # found their carrier — touched / eave gap / nearest
-                        print(f"    [v2] rigid carriers: {rigid_stats}")
-                    report = object_rebake.apply(decision, plan_.pack_root, mesh_path)
-                else:
-                    report = object_rebake.RebakeReport()
-                rc = res.counts()
+                # THE PLACEMENT PATH (11e (3); the ONLY object stage
+                # since 2026-09-12s) — no seat is computed
+                pc = _place_objects(plan_, law, _sample, tile, patch_dir,
+                                    write_enabled, measure_only)
                 counts["airports"] += 1
-                counts["units"] += rc["units"]
-                counts["units_baked"] += rc["baked"]
-                counts["units_below_threshold"] += rc["below_threshold"]
-                counts["units_skipped"] += rc["skipped"]
-                counts["units_held"] += rc["held"]
-                counts["clusters"] += rc["clusters"]
-                counts["clusters_baked"] += rc["clusters_baked"]
-                counts["pad_requests"] += rc["pad_requests"]
-                counts["findings"] += rc["findings"]
-                counts["objects_written"] += len(report.objects_written)
-                counts["objects_reverted"] += len(report.objects_reverted)
-                counts["vertices_offset"] += report.vertices_offset_total
-                if report.objects_written or report.objects_reverted:
+                for k, v in pc.items():
+                    if k in ("packs_written",):
+                        continue
+                    counts["placement_" + k] = counts.get("placement_" + k, 0) + int(v)
+                if pc.get("packs_written"):
                     written_packs.add(plan_.pack_root)
-                out = {"icao": icao, "plan": plan_path, "mesh": mesh_path,
-                       "measure_only": measure_only, "write_enabled": write_enabled,
-                       "seat": res.to_dict(),
-                       "apply": {"objects_written": list(report.objects_written),
-                                 "objects_reverted": list(report.objects_reverted),
-                                 "vertices_offset": report.vertices_offset_total,
-                                 "skipped": [list(s) for s in report.skipped],
-                                 "reversions_missing_backup":
-                                     list(report.reversions_missing_backup),
-                                 "partially_baked": [list(s) for s in report.partially_baked],
-                                 "provenance_path": report.provenance_path}}
-                rp = os.path.join(patch_dir, REBAKE_RESULT_FILENAME.format(icao=icao))
-                with open(rp + ".tmp", "w") as fh:
-                    json.dump(out, fh, indent=1, default=str)
-                os.replace(rp + ".tmp", rp)
-                UI.vprint(1, f"  [v2 rebake] {icao}: {rc['structures']} structure(s), "
-                             f"{rc['clusters']} cluster(s) ({rc['cut_edges']} edge(s) cut): "
-                             f"{rc['clusters_baked']} seated, {rc['clusters_below_threshold']} "
-                             f"below the {law.tables.structures.rebake.min_delta_m} m threshold, "
-                             f"{rc['clusters_refused']} refused, {rc['clusters_facility']} facility, "
-                             f"{rc['clusters_held']} held, {rc['pad_requests']} pad request(s); "
-                             f"{rc['units']} unit(s) ({rc['deck_units']} deck-founded, "
-                             f"{rc['plate_units']} plate): {rc['baked']} bake, {rc['held']} held; "
-                             f"{len(report.objects_written)} object(s) written "
-                             f"({report.vertices_offset_total} vertices, "
-                             f"{rc['members_multi_delta']} with several deltas), "
-                             f"{len(report.objects_reverted)} reverted, "
-                             f"{rc['findings']} finding(s) -> {os.path.basename(rp)}")
-                for u in res.units:
-                    for f in u.findings:
-                        UI.vprint(2, f"  [v2 rebake] {icao}: {u.unit_id} "
-                                     f"{u.resources[0]}{'…' if len(u.resources) > 1 else ''}: {f}")
-                for r in report.reversions_missing_backup:
-                    UI.vprint(0, f"  [v2 rebake] {icao}: {r} carries a stale bake but its "
-                                 ".anchor_bak is missing — left untouched, NOT reverted")
             except Exception as exc:
                 counts["airports_failed"] += 1
-                UI.vprint(1, f"  [v2 rebake] {icao}: re-seat failed ({exc}); continuing")
+                UI.vprint(1, f"  [v2 rebake] {icao}: placement failed ({exc}); continuing")
                 UI.vprint(2, traceback.format_exc())
         counts["packs_written"] = len(written_packs)
         for pr in sorted(written_packs):

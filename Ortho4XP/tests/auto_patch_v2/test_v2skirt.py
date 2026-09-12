@@ -26,7 +26,6 @@ from auto_patch_v2.airport import obj8, skirt
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
 from auto_patch_v2.classify import load_rules
 from auto_patch_v2.classify.roles import classify
-from auto_patch_v2.emit.rebake import seat
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import (Airport, Building, DsfObject, Pavement,
                                          Runway, RunwayEnd, SceneryPack)
@@ -202,64 +201,12 @@ def test_a_building_with_no_skirt_keeps_todays_pad(objs, law):
     assert len(pads) == 1
 
 
-# ── the seat (§22.3) ─────────────────────────────────────────────────────
-
-def _seat(objs, law, name, grade):
-    a = _airport(objs, law, name, grade)
-    cache = _cache(law)
-    from auto_patch_v2.planar.basins import read_objects
-    objects, _rep = read_objects(a, law, cache)
-    p = rebake_plan(a, objects, cache, law)
-    dem = a.dem
-    to_xy = a.frame.transformers()[0]
-
-    def sampler(lat, lon):
-        x, y = to_xy(lon, lat)
-        return (dem.z(x, y), False)
-    return p, seat(p, sampler, law), a, dem, to_xy
-
-
-def test_skirted_body_seats_at_its_low_side_foot(objs, law):
-    """10ag (2): the low side's foot touches the ground and the high side
-    buries up to the relief — never 10i's median, which would float the
-    low side by half of it."""
-    p, res, a, dem, _to_xy = _seat(objs, law, "skirted", 1.5 / (2 * HX))
-    assert all(m.skirted for u in p.units for m in u.members)
-    assert p.counts["skirted_members"] == 1
-    lo, hi = dem.z(-HX, 0.0), dem.z(HX, 0.0)
-    assert hi - lo == pytest.approx(1.5, abs=0.01)
-    cl = [c for c in res.clusters if c.ground_m is not None]
-    assert len(cl) == 1
-    # the body's rendered y = 0 plane IS its seat ground; its skirt
-    # bottom stands 2 m under that
-    zero = cl[0].ground_m
-    bottom = zero - 2.0
-    assert bottom == pytest.approx(lo, abs=0.02)         # the LOW foot touches
-    assert hi - bottom == pytest.approx(1.5, abs=0.02)   # the high side buries
-    # ...and 10i's median over the same feet would have floated the low
-    # corner by half the relief (the part's own ``target``, 702.0)
-    assert zero == pytest.approx(min(
-        dem.z(sx * HX, sz * HZ) + 2.0 for sx in (-1, 1) for sz in (-1, 1)), abs=0.02)
-    assert zero == pytest.approx(lo + 2.0, abs=0.02)
-    assert zero < (lo + hi) / 2.0 + 2.0 - 0.5
-    # nothing floats: every wall foot of the body is at or under its ground
-    for sx in (-1, 1):
-        for sz in (-1, 1):
-            assert bottom <= dem.z(sx * HX, sz * HZ) + 1e-6
-
-
-def test_an_unskirted_body_keeps_the_median(objs, law):
-    """Every other body is 10i's median exactly — the deviation is the
-    skirted body's alone."""
-    p, res, a, dem, _to_xy = _seat(objs, law, "flat", 1.5 / (2 * HX))
-    assert not any(m.skirted for u in p.units for m in u.members)
-    assert p.counts["skirted_members"] == 0
-    cl = [c for c in res.clusters if c.ground_m is not None]
-    assert len(cl) == 1
-    # feet at the authored zero over ±0.75 m of relief: the median is the
-    # mid-slope value, NOT the low corner
-    assert cl[0].ground_m == pytest.approx(dem.z(0.0, 0.0), abs=0.02)
-    assert cl[0].ground_m > dem.z(-HX, 0.0) + 0.5
+# ── the seat (§22.3) — RETIRED ───────────────────────────────────────────
+# The three seat twins here (``_seat``, the skirted body's low-side seat
+# and the unskirted median) drove ``emit/rebake.seat``, DELETED with the
+# seat (owner RULINGS 2026-09-12s, spec §8).  ``skirt.seat_low_side``
+# survives as law the placement path reads; the READER twins above are
+# untouched.
 
 
 def test_the_law_register(law):

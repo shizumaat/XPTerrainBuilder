@@ -24,7 +24,6 @@ from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints.structures import ramp_faces_of
-from auto_patch_v2.emit import rebake as R
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, DsfObject, OsmWay, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.frame import Frame
@@ -153,22 +152,7 @@ def objs(tmp_path_factory):
             "offpit": _offset_pit(d / "offpit.obj")}
 
 
-def _mesh_sampler(airport, pm):
-    """The built mesh as the seat reads it: the trench floor inside a
-    basin's floor face, the DEM elsewhere (no water)."""
-    to_xy, _to_ll = airport.frame.transformers()
-    floors = [(Polygon(b.ring), b.floor_z) for b in pm.basins]
-
-    def sample(lat, lon):
-        x, y = to_xy(lon, lat)
-        for poly, z in floors:
-            if poly.contains(Point(x, y)):
-                return (z, False)
-        return (float(airport.dem.z(x, y)), False)
-    return sample
-
-
-def test_basin_family_seats_its_floor_plate_on_the_trench_floor(objs, law):
+def test_basin_family_plans_its_floor_plate_at_the_trench_floor(objs, law):
     """2026-09-06b (3): the pit's anchor lies INSIDE its trench — the
     seat's delta is the depth (the plate lands ON the floor, datum
     ``plate``, exempt from the 1 m threshold); the plan carries the
@@ -206,29 +190,12 @@ def test_basin_family_seats_its_floor_plate_on_the_trench_floor(objs, law):
                      below_grade=[(Polygon(b.region), tuple(b.objects)) for b in pm.basins])
     assert pl.counts["terrain_adapted"] == 0 and pl.counts["below_grade"] == 0
     assert pl.counts["plate_members"] == 2 and pl.counts["units"] == 2
-    res = R.seat(pl, _mesh_sampler(airport, pm), law)
-    by_res = {u.resources[0].rsplit("/", 1)[-1]: u for u in res.units}
-    pit, off = by_res["pit.obj"], by_res["offpit.obj"]
-    # §24 (2): the plate seats floor_clearance_m ABOVE the ground its
-    # stations read.  This fixture's mesh IS the declared floor (the solve
-    # that puts the terrain the clearance lower is not run here), so the
-    # delta carries the clearance; in a build the two cancel — the plate
-    # lands on the plate, the terrain the clearance under it.
-    _clear = law.tables.structures.basin.floor_clearance_m
-    assert pit.datum == R.DATUM_PLATE and pit.bakes and \
-        pit.delta_m == pytest.approx(6.0 + _clear, abs=0.3)
-    assert pit.anchor_ground_m == pytest.approx(inside.floor_z, abs=1e-6)
-    # the off-pit anchor's plate landed ON the fixture's floor, so all that
-    # is left of its delta is §24 (2)'s clearance — the plate is lifted off
-    # the floor by it (pre-11t this read None: under min_delta_m, it stayed)
-    assert off.datum == R.DATUM_PLATE
-    assert off.members[0].delta_m == pytest.approx(_clear, abs=0.01)
-    # after the seat the rendered plate stands the clearance ABOVE the
-    # trench floor this fixture's mesh carries — which is where a build's
-    # own floor, stated the clearance lower, puts the plate's own level
-    m = pit.members[0]
-    assert pit.anchor_ground_m + pl.units[0].agl_m + m.delta_m + inside.plate_y_m == \
-        pytest.approx(inside.floor_z + _clear, abs=0.3)
+    # THE SEAT IS RETIRED (owner RULINGS 2026-09-12s, spec §8): the seat
+    # half of this twin — the plate delta 6.0 + floor_clearance_m and the
+    # off-pit's bare clearance, read out of ``emit/rebake.seat`` over a
+    # mesh sampler — is DELETED with the mechanism.  What survives is the
+    # PLAN half above: the witness resource, its plate y, its stations
+    # inside the ring, and the two plate members the plan carries.
 
 
 # ── §1: the product ───────────────────────────────────────────────────────

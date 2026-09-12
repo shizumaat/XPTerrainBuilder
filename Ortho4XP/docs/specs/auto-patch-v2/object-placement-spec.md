@@ -145,13 +145,35 @@ their anchors on their rims / floors as §6 says); KBNA or KMCI: MSL → AGL con
 pack's DSF re-encodes and dumps back identically. Acceptance is the owner's sim read of
 LEMD and OTHH on the first build; the census is the report beside it.
 
-## §8 Retirement
+## §8 Retirement — DONE (owner RULINGS 2026-09-12s "Retire now", lane `v2seatretire`)
 
-When §7 passes and the owner's reads accept LEMD and OTHH: `emit/rebake.py`'s seat,
-`airport/rigid.py`'s completion, `_one_file_one_delta`, the `.anchor_bak` vertex rewrite
-(restore every pack from its backups first — a one-shot restore tool), the `o4_v2_rebake_*`
-JSON and their replays (`v2_rebake_replay.py`) are DELETED (refuted mechanisms are deleted,
-not gated); body formation moves under `airport/placement/`.
+The original clause: when §7 passes and the owner's reads accept LEMD and OTHH:
+`emit/rebake.py`'s seat, `airport/rigid.py`'s completion, `_one_file_one_delta`, the
+`.anchor_bak` vertex rewrite (restore every pack from its backups first — a one-shot restore
+tool), the `o4_v2_rebake_*` JSON and their replays (`v2_rebake_replay.py`) are DELETED
+(refuted mechanisms are deleted, not gated); body formation moves under `airport/placement/`.
+
+WHAT WAS DELETED (2026-09-12): `emit/rebake.py`'s `seat`, `Sampler`, `_Datum`,
+`_abutment_grade`, `_mid_span`, `_plate_reading`, `_deck_reading`, `_structure_seat` and
+`_one_file_one_delta` — the module survives holding `deck_datum_from_surface` alone, which
+`pipeline/build.py` calls to stamp `Member.deck_datum_z` into the plan; `emit/clusters.py`
+and `emit/abutment_group.py` whole; `airport/rigid.py` whole; `model/rebake.py`'s
+`MemberSeat` / `ClusterSeat` / `PadRequest` / `UnitSeat` / `SeatResult` and the `DATUM_*`
+constants (the PLAN types — `Part`, `Member`, `Unit`, `FlatDatum`, `RebakePlan` — stay: the
+placement path reads the same plan); `engine_v2._decision_from_seats`, `_line_drape`,
+`REBAKE_RESULT_FILENAME` and the seat branch of `rebake_after_mesh`; the `[rebake] placement`
+key and `engine_v2.object_stage_is_placement` (the placement path is the only object stage,
+so there is no gate to read); `tools/reanchor_dsf_objects.py`; and
+`v2_rebake_replay.py`'s `seat` / `bodies` / `pairs` subcommands. `seat_feet_census.py` keeps
+its `--placement-plan` mode and loses the seat-result mode (the name is kept: the INDEX row,
+`obj8_split_report` and the twins address it by it).
+
+WHAT STAYS: the `.obj.anchor_bak` RESTORE of §10 — how a pack authored under the seat is put
+back before the placement path writes — and v1's `auto_patch/object_rebake.py`, which is v1's
+own engine's writer and reachable only through `auto_patch_engine = v1`.
+
+NOT DONE: body formation does NOT move under `airport/placement/` (deferred — lane
+`v2unitbind` held `airport/placement_*.py` in parallel).
 
 ## §9 Coarsening, the generic anchor, and the write half (RULINGS 2026-09-11e)
 

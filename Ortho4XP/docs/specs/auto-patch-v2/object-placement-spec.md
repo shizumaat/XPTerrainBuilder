@@ -2395,12 +2395,16 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   `zero - ground` on a FOOTED body with `y_zero` -1.668.  The census now
   cannot make that mistake, and the probe's number for that body is
   +0.14 m after (8).
-* **OTHH IS NOT MEASURED THIS ROUND.**  Its guarded arm was started four
-  times and did not finish (45 min on the `count_neighbors` form, still
-  running after 25 min on the bounded nearest-neighbour one, against
-  ~10 min in round 2).  §16c (8)'s cost at OTHH is therefore UNKNOWN and
-  the round-2 numbers (seams 0, files 1,891) are the last measured ones.
-  Owed.
+* **THE BARS, OTHH** (matched frame, round 2 -> round 3): torn seams
+  outside line/arc **1 -> 0 — MET**, single-component resources in >= 2
+  files **1 -> 0 — MET**, files 1,891 -> **1,362**, §16b carried piece
+  float 172 -> 177, wide 85 -> **74**, §16a (2) refusal set 57 -> 99,
+  round trip **OK** (1,361/1,361 new `OBJECT_DEF`s, 0 rows carrying an
+  elevation), `[guard] shared repo UNCHANGED`.  The arm is SLOW — the
+  three refuted forms did not finish it at all (45 min and counting) and
+  the shipped one takes tens of minutes against round 2's ~10; the reach
+  costs OTHH more than it costs LEMD, and that cost is not measured as a
+  stage time this round.  Owed.
 * **THE T2 ROOFS ARE STILL MISSED, AND THE ATTRIBUTION HAS MOVED.**  5 of
   7 over 0.3 m, worst 6.12 m (round 2: 5 of 7, worst 0.97; live 1.0.320:
   7 of 9, worst 2.80) — and it MOVES with every change to the carrier

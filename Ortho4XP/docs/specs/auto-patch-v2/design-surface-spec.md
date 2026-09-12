@@ -3819,3 +3819,75 @@ clearance ABOVE the plate. The alternative is the shelf (1) exists to remove.
 stage, which needs the app's mesh) and a matched defect-gate control (the
 1.0.315 products are a four-airport TILE build; a single-airport arm is a
 different population, and a control build is a second build).
+
+## §25 OSM RELATIONS ARE EVIDENCE — a multipolygon's outer ways carry its tags (Fable, 2026-09-11; RULINGS 2026-09-11aq item B) — lane `v2relations`
+
+Owner (11ao): the large shape with a node at 40.4673861, −3.5681144 "is classified as
+groundside, but it should be a building pad connected to apron". Scout `v2lemd319t`:
+it is `pav146` / shapeID 105 (`parking_lot`, groundside, 63,643 m² emitted, apron
+joints already 0.00 since 11af, pad steps +0.99 m against `building4`), read as a lot
+because its mapped-apron cover is 5 % (`[lot] apron_cover_fraction` 0.1) and NO
+building footprint lies under it. The session verified the cause in the extract
+`+40-004_airports.osm.bz2`: `airport/osm.py:read_osm_file` reads `<node>` and `<way>`
+only — the seven `<relation>` elements are skipped. Relation −1 is **Terminal 2**
+(`building=transportation`, `aeroway=terminal`, `building:levels` 2; outer way −48,
+31,956 m² inside pav146; inners −610/−611), and relations −2 … −7 are the aprons
+R-1, R-2, R-4 … R-7 (`aeroway=apron`, type multipolygon; R-2's outer −1506 is 18,249 m²
+inside pav146). Their outer ways arrive TAGLESS, so `classify/evidence._pads` never
+sees the terminal and the apron cover reads 5 % instead of most of the shape.
+
+1. **A RELATION'S OUTER WAYS CARRY ITS TAGS.** After the ways of a feed are read, every
+   `<relation type=multipolygon>` (and `type=building`) hands its `TAGS_OF_INTEREST` to
+   each member way of role `outer`; a member way's own tags win where both exist.
+   An outer ring chained from several open ways is stitched into one closed way
+   (count reported); an outer that cannot be closed is dropped and named.
+2. **INNER RINGS ARE DROPPED THIS ROUND** (a courtyard in a pad is covered by the pad;
+   an island in an apron reads as apron) — count and area reported; holes owed.
+3. **CONSUMER CENSUS (owner ruling 08-30l), at spec time:** the only reader of the
+   extract is `airport/osm.load_feed` → `OsmDoc.ways`; every consumer of `OsmDoc`
+   (`classify/evidence.py` pads / aprons / lots / roads, `classify/sources.py`,
+   `planar/structures.py` bores and cover, `airport/deck_signature.py`, `airport/
+   tunnel_objects.py`) sees the same `RawWay` shape, now with tags on ways it
+   already had. No new shape class, no new region: the change lands at the single
+   derivation site. The lane greps `OsmDoc`/`load_feed` and confirms the list.
+4. **THE OUTCOME AT LEMD**: Terminal 2's footprint (−48) becomes a `_pads` building
+   pad unioned with its touching footprints (§20: the pad takes the apron's edge
+   level, joint 0.00); pav146's apron cover rises (R-2's −1506, R-1's −64) so the
+   remainder classifies as APRON or is absorbed; the `parking_lot` cell 15 is gone.
+   The owner's intent — a pad joined to the apron — falls out of the data, not a
+   new class. A pad across the approach of `tunnel:-17295+-7905@1` CLIPS its ramp
+   (`ramp_crosses_pad = false`) — with §26 the bore is gone anyway.
+5. **BARS**: at 40.4673861, −3.5681144 a `building` pad or `apron` face, joint to
+   `pav176`/`pav92` 0.00, no `parking_lot`/`groundside_pavement` face containing the
+   node; relation-derived ways at LEMD: 7 relations, N outer ways tagged (named);
+   `explain LEMD --sources` before/after diffed (sources that change role, named);
+   the same dry run on every airport whose products exist under the data repo's
+   `Patches/` (OTHH, HECA, KCLT, CYXY, SPJC …) — relations found and roles changed,
+   reported, none built; ONE LEMD build as the closing test (harness entry,
+   ledger); harness census before/after; suite green.
+
+## §26 A PASSAGE UNDER A BUILDING IS NOT A BORE (Fable, 2026-09-11; RULINGS 2026-09-11aq item A) — lane `v2relations`
+
+Owner (11ao): "Still see a tunnel here: 40.4661521, −3.5708203 where there should be
+no tunnel." Scout: the point is patch node −20478 in way −10946 = shapeID 933,
+`tunnel_ramp` (192.5 × 24.2 m, floor 600.42 … 604.08, walls 5.09–6.97 m at the deck
+end), the far portion of `tunnel:-17295+-7905@1` (mouth 596.90 = DEM 602.00 − 5.10,
+top 432 m, one deck −11828). The seeds are OSM ways −17295 and −7905, 25.8 m each,
+`tunnel=building_passage` — roads passing UNDER THE OLD TERMINAL, where the ground
+does not drop. `airport/deck_signature.py:153` `is_tunnel_way` admits any `tunnel`
+value other than `no`; `planar/structures.py:237` admits the bore because ≥ 1 m of
+it lies under a classified cell (pav146). Class: 10 of LEMD's 33 covered bores are
+`building_passage`; 27 of the 99 tunnel ways in the selection box.
+
+1. **`tunnel=building_passage` IS NOT A BORE.** `is_tunnel_way` admits `tunnel=yes`
+   (and the values `[tunnel] admitted_values` lists — default `["yes"]`) on a highway
+   or railway; `building_passage`, `avalanche_protector`, `culvert`, `flooded` and
+   `no` never seed a structure. The passage belongs to the building's pad (§22/§25).
+2. **Railway bores are unchanged and REPORTED** (4 of LEMD's covered bores): whether a
+   rail tunnel with no mouth inside the airport should seed a ramp is an OWNER
+   question, asked with the count beside it.
+3. **BARS**: no `tunnel_ramp` / `tunnel_mouth` / `tunnel_wall` face within 30 m of
+   40.4661521, −3.5708203; LEMD structures line: covered bores 33 → 23, tunnels 18 →
+   ≤ 13 (named), the 138 `within_shape` rows on shape 933 and the 4 + 1 mouth/deck
+   rows gone; every remaining LEMD tunnel named with its OSM tag; the harness
+   census before/after; the same ONE LEMD build as §25.

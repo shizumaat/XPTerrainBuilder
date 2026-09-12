@@ -4832,3 +4832,51 @@ but centimeter accuracy or anything invisible to the pilot is not important."
    corridor), and REPORT (all else) — with the worst of each named by coordinate.
    No new measurement; a classification of what the families already carry. Every
    spec's MEASURED block from now on quotes the cockpit block first.
+
+## §32 THE ZONE BAND IS PROJECTED, LIKE THE RUNWAY (Fable 2026-09-12; RULINGS 2026-09-12ag) — lane `v2zoneclamp`
+
+The cockpit block's first find (12ad): `strip_seam_tear` 8.270 m over 3.007 m at LEMD.
+Scout `v2striptear`: the census coordinate (40.4609988, −3.5417888) is a ring
+CENTROID 220 m from the pair — seam-tear rows carry no lat/lon (`check_grade.py:
+9576-9589` fallback). The pair is at **40.4609867, −3.5443920**: node −12917 of
+`adjacent_ground:taxi:E:zone2#65` (shape 474) at **569.75** against node −12474 of
+`adjacent_ground:taxi:E:zone1#79` (shape 463, the pavement-welded lip of junction
+`pav157`) at **578.02** — the 3.01 m IS `lip_width_m`. The DEM there reads 574.5–577
+(a hollow at 570 is 20–30 m SSW). Triangulated: an inverted cone ~8 m deep, 40–90 m
+across, apex 3 m from taxiway E's edge, 486 m beside runway 14R/32L. It persists on
+the post-§29 and post-§30 arms (569.76 / 578.01) — live in 1.0.322.
+
+Mechanism: the governing row exists — `constraints/zones.py:394-470` `zone_bands`,
+ONE-WAY (`follows=v`), bound 0.09–0.15 m below the lip — and the design solve MISSED
+it by 8.1195 m (the sidecar's worst `zones` miss; `foot_rows` 28 misses to 3.79 m and
+`junction_mesh` 1.81 m at the same vertex, the airport's worst of each). Only the
+RUNWAY family is projected onto its rows after the solve (`solve/project.py`, §16 /
+09y); every other family is a 300-weight quadratic that can ship an 8 m residual.
+Putting zone rows in the HARD set was REFUTED (KCLT/CYXY/SPJC/OTHH went infeasible —
+`zones.py` docstrings): do not retry. Class: `strip_seam_tear` is the tail of the
+`zones` miss distribution — LEMD 8.12 m → 1 row, SPJC 1.565 m → 2 rows (the same
+zone1/zone2 vertex class at −12.0312738, −77.1071535), HECA 0.849 → 0.
+
+1. **THE ADJACENT-GROUND ZONE BAND IS PROJECTED AFTER THE SOLVE**, the way the runway
+   family is: per vertex, one-way, its feet are pavement vertices already fixed —
+   a pure clamp of one ground vertex into `[lo, hi]` of its own band, no LP. Order:
+   after the runway projection, before emit. At LEMD the pit vertex 569.75 → 577.87
+   (smoother than what shipped: neighbours 578.03 / 575.78).
+2. **CONSUMER CENSUS at spec time (08-30l)**: the vertices moved are zone-1/zone-2
+   ground vertices; readers — the bank annulus (`bank_foot` rings, the 1:3 bank the
+   emit builds from the ring's normal), `foot_rows` targets at the same vertices,
+   `no_step` / `junction_mesh` rows that name them, the mesh's INTERP_ALT reading,
+   `verify/steps` and the harness step families. The lane rules each in one table
+   before editing; the bank must carry the drop the clamp restores.
+3. **THE INSTRUMENT**: `_check_strip_seam_tears` (`check_grade.py:4844-4864`) carries
+   the pair MIDPOINT as the row's lat/lon, exactly as `_check_airside_no_step` does
+   (`:3970-3971`); the engine verify's identical row (`lat: null`) likewise. The
+   cockpit block must send the owner to the defect, not 220 m away.
+4. **BARS**: ONE `--engine v2` LEMD build against the ledger base (`d8267d91ef6f`,
+   the §30 arm): the pit vertex within its band (≤ 0.151 m below the lip), the
+   `strip_seam_tear` row gone, LEMD's zone misses (2,182, worst 8.12) at their bound
+   by construction (worst quoted), the 16-row site's `airside_no_step` rows re-quoted
+   (worst 1.90), `foot_rows` worst at the vertex quoted, the bank annulus and mesh
+   counts quoted, the cockpit block first (critical visual expected 1 → 0 at LEMD;
+   a cliff check on the whole patch); SPJC's and HECA's zone misses by dry replay
+   where the capture exists (no build); census before/after; twins; suite twice.

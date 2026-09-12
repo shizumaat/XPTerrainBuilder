@@ -402,10 +402,17 @@ def strip_seam_tear(p: Patch) -> list[Row]:
                     de = abs(z2 - z)
                     if de <= SEAM_MIN_STEP_M or de / max(d, SEAM_MIN_DISTANCE_M) < SEAM_MIN_GRADE:
                         continue
+                    # THE ROW CARRIES THE PAIR MIDPOINT (spec §32 (3);
+                    # RULINGS 2026-09-12ag) — the twin of
+                    # ``check_grade._check_strip_seam_tears``.  A row that
+                    # left ``lat`` null was located by the reader's ring-
+                    # centroid fallback, 220 m off the LEMD tear.
                     out.append(row("strip_seam_tear", ("graded_strip",) * 2,
                                    p.side("graded_strip"), de,
                                    100 * de / max(d, SEAM_MIN_DISTANCE_M), None, d,
-                                   (x, y), (x2, y2), key, key2))
+                                   (x, y), (x2, y2), key, key2,
+                                   lat=0.5 * (p.ll[vid][0] + p.ll[vid2][0]),
+                                   lon=0.5 * (p.ll[vid][1] + p.ll[vid2][1])))
     out.sort(key=lambda r: -r["magnitude_m"])
     return out
 

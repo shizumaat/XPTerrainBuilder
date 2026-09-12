@@ -78,8 +78,9 @@ from ..law.tables import design as design_law
 from ..model.planar import PlanarMap
 from .rows import _law_sides, _one_matrix, _Reduction, _Side, _violation
 
-__all__ = ["ProjectionReport", "runway_family_vertices", "free_columns",
-           "project_runway"]
+__all__ = ["ProjectionReport", "ZoneClampReport", "ZONE_GENERATOR",
+           "ZONE_RULING", "runway_family_vertices", "free_columns",
+           "project_runway", "project_zone_bands", "zone_band_sides"]
 
 #: The ridge: the breakline kind the runway profile (and the census's own
 #: ``crown_spine``) is carried on.
@@ -489,3 +490,250 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
 
 
 # ── THE RUNWAY PROFILE BLOCK (spec §21.2 (4)) ───────────────────────────
+
+
+# ── §32 THE ZONE BAND IS PROJECTED, LIKE THE RUNWAY ─────────────────────
+# (Fable 2026-09-12, RULINGS 2026-09-12ag; spec §32 (1))
+#
+# The runway family is the only family the solve CERTIFIES: everything
+# above this line is about it.  Every other family is a 300-weight
+# quadratic that can ship its residual, and at LEMD the adjacent-ground
+# corridor shipped 8.10 m of it on ONE vertex — node -12917 of
+# ``adjacent_ground:taxi:E:zone2#65``, an 8 m inverted cone 3 m from
+# taxiway E's lip and 486 m beside 14R/32L, the census's worst
+# ``strip_seam_tear`` and the cockpit block's first CRITICAL VISUAL find.
+#
+# Putting the zone rows in the HARD set was REFUTED (``constraints/
+# zones.py`` docstrings: KCLT / CYXY / SPLP / SPJC / OTHH went
+# hard-infeasible on a rigid pad's rim carrying two bands).  This is the
+# other half of the runway's own answer and it needs no LP at all: the
+# corridor row governs ONE ground vertex against pavement FEET THE SOLVE
+# HAS ALREADY FIXED (``follows = v``, RULINGS 2026-09-09b (3)), so its
+# feasible set for that vertex is a closed interval and the projection
+# onto it is a clamp.
+#
+# THE DISCIPLINE IS ``free_columns``', restated for this population: a
+# reduced column is clampable only when EVERY vertex mapped to it is a
+# zone-governed ground vertex.  That is not a nicety — it is what keeps
+# the two REFUTED classes out by construction:
+#
+#   * a rigid PAD's rim.  ``zone_bands`` gives the band to the ONE rim
+#     vertex nearest a lip and to no other (the ``Flat`` carries the
+#     level); the group's other rim vertices are therefore ungoverned,
+#     the column is impure, and the pad is never levelled off one rim
+#     vertex's band — the exact contradiction that went infeasible at
+#     KCLT on 2026-09-05.
+#   * a ``Flat`` straddling pavement.  Its pavement vertices are
+#     ungoverned, so the group is never moved and the runway projection
+#     above cannot be undone by this one.
+#
+# ORDER: after the runway projection, before emit.  The runway family's
+# vertices carry no zone row (``zone_bands`` skips ``own_law``), and no
+# clampable column holds one, so the two projections are disjoint and
+# this one cannot disturb a certified runway row.
+#
+# THE BOUNDS ARE READ IN COLUMN SPACE off the ROW ITSELF, from the input
+# ``x`` only, and applied together: the projection is simultaneous, so it
+# does not depend on the order columns are visited.  A vertex's rows are
+# the pocket rule's (``zone_bands``): the NEAREST pavement contributes
+# floor and ceiling, every farther class its floor alone.  Their
+# intersection is normally non-empty; where it is not — a farther
+# pavement's floor above the nearest's ceiling — the vertex is moved to
+# the interval midpoint, which MINIMISES the worst of the two rows, and
+# the count is reported as ``conflicts``.  Nothing here invents a
+# precedence the law has not stated.
+
+@_dc.dataclass
+class ZoneClampReport:
+    """What the zone projection did — the report's ``zone_projection``
+    block (spec §32)."""
+
+    ran: bool = False
+    #: the zone rows read, and the governed ground vertices they name
+    rows: int = 0
+    vertices: int = 0
+    #: the columns actually clamped, and the governed vertices whose
+    #: column is IMPURE (a Flat carrying pavement or a pad's far rim) or
+    #: FIXED — reported, never silently dropped
+    columns: int = 0
+    impure_columns: int = 0
+    fixed_vertices: int = 0
+    #: how many clamped columns actually moved, and how many had an EMPTY
+    #: band intersection (moved to the midpoint instead)
+    moved: int = 0
+    conflicts: int = 0
+    #: the worst zone-row miss BEFORE and AFTER, in metres of surface
+    before_m: float = 0.0
+    after_m: float = 0.0
+    #: the worst miss left on a row the projection OWNS (a clamped
+    #: column, non-conflicting) — 0 by construction
+    after_owned_m: float = 0.0
+    max_move_m: float = 0.0
+    wall_s: float = 0.0
+    status: str = "skipped"
+
+    def as_dict(self) -> dict[str, _t.Any]:
+        return {"ran": self.ran, "rows": self.rows, "vertices": self.vertices,
+                "columns": self.columns,
+                "impure_columns": self.impure_columns,
+                "fixed_vertices": self.fixed_vertices,
+                "moved": self.moved, "conflicts": self.conflicts,
+                "before_m": round(self.before_m, 6),
+                "after_m": round(self.after_m, 6),
+                "after_owned_m": round(self.after_owned_m, 6),
+                "max_move_m": round(self.max_move_m, 6),
+                "wall_s": round(self.wall_s, 3), "status": self.status}
+
+    def line(self) -> str:
+        if not self.ran:
+            return f"zone projection (12ag): {self.status}"
+        return (f"zone projection (12ag): {self.rows} corridor rows over "
+                f"{self.vertices} ground vertices, {self.columns} columns "
+                f"clamped ({self.impure_columns} impure, "
+                f"{self.fixed_vertices} fixed vertices, {self.moved} moved, "
+                f"{self.conflicts} empty bands), worst zone miss "
+                f"{self.before_m:.4f} -> {self.after_m:.6f} m "
+                f"(owned {self.after_owned_m:.6f}), max move "
+                f"{self.max_move_m:.3f} m, {self.wall_s:.2f} s "
+                f"({self.status})")
+
+
+#: The generator whose rows this projection owns (``constraints/zones.GEN``).
+ZONE_GENERATOR = "zones"
+
+#: The RULING HEAD of the corridor rows — matched EXACTLY, never by
+#: prefix: ``zones.strip_transverse`` mints its rows under the head
+#: ``zones.adjacent_ground.runway.band_max_down strip tie`` from the same
+#: generator, and a ``startswith`` would sweep it in.  The strip tie is
+#: NOT a per-vertex band against fixed feet — it is two-sided against a
+#: runway-family edge the runway projection has just moved — so it is
+#: left alone and re-read as a report figure.
+ZONE_RULING = "zones.adjacent_ground"
+
+
+def zone_band_sides(base: _t.Any) -> list[int]:
+    """Indices into ``base.one`` of the ADJACENT-GROUND corridor rows —
+    the one population this projection owns."""
+    return [k for k, (_terms, _hi, row) in enumerate(base.one)
+            if row.source.generator == ZONE_GENERATOR
+            and row.source.ruling.split(" (")[0].strip() == ZONE_RULING]
+
+
+def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
+                       x: np.ndarray, *, verbose: bool = False
+                       ) -> tuple[np.ndarray, ZoneClampReport]:
+    """Clamp every adjacent-ground zone vertex into its own corridor band
+    (§32 (1)).  Returns the clamped column vector and the report."""
+    rep = ZoneClampReport()
+    t0 = time.perf_counter()
+    if not bool(design_law(law).zone_projection):
+        rep.status = "off (law [design] zone_projection = false)"
+        return x, rep
+    red: _Reduction = base.red
+    sides = zone_band_sides(base)
+    if not sides or red.n_cols == 0:
+        return x, rep
+
+    # the GOVERNED vertices: a corridor row's ``follows`` and nothing else
+    gov_v: set[int] = set()
+    for k in sides:
+        fv = getattr(base.one[k][2], "follows", None)
+        if isinstance(fv, int):
+            gov_v.add(int(fv))
+        elif fv is not None:
+            gov_v.update(int(v) for v in fv)
+    rep.rows = len(sides)
+    rep.vertices = len(gov_v)
+    if not gov_v:
+        return x, rep
+
+    # COLUMN PURITY (the module comment): a column is clampable only when
+    # every vertex mapped to it is governed.  Counted, not sampled.
+    col = red.col
+    total = np.bincount(col[col >= 0], minlength=red.n_cols)
+    gov_arr = np.array(sorted(v for v in gov_v if col[v] >= 0), dtype=np.int64)
+    rep.fixed_vertices = len(gov_v) - int(gov_arr.size)
+    if not gov_arr.size:
+        return x, rep
+    # ``gov_v`` is a set, so one bincount over its columns already counts
+    # DISTINCT governed vertices per column
+    governed = np.bincount(col[gov_arr], minlength=red.n_cols)
+    pure = (governed > 0) & (governed == total)
+    rep.columns = int(pure.sum())
+    rep.impure_columns = int(np.count_nonzero(governed) - rep.columns)
+    if not rep.columns:
+        rep.status = "no pure column"
+        return x, rep
+
+    def zof(v: int) -> float:
+        c = int(col[v])
+        return float(x[c]) if c >= 0 else float(red.value[v])
+
+    lo = np.full(red.n_cols, -np.inf)
+    hi = np.full(red.n_cols, np.inf)
+    before = 0.0
+    for k in sides:
+        terms, bound, _row = base.one[k]
+        val = 0.0
+        for v, c_ in terms:
+            val += c_ * zof(v)
+        before = max(before, val - float(bound))
+        # the row's coefficient on each PURE column it touches
+        acc: dict[int, float] = {}
+        rest = 0.0
+        for v, c_ in terms:
+            cc = int(col[v])
+            if cc >= 0 and pure[cc]:
+                acc[cc] = acc.get(cc, 0.0) + c_
+            else:
+                rest += c_ * zof(v)
+        if len(acc) != 1:
+            continue        # not a per-vertex band against fixed feet
+        cc, a = next(iter(acc.items()))
+        if abs(a) < 1e-12:
+            continue
+        b = (float(bound) - rest) / a
+        if a > 0.0:
+            hi[cc] = min(hi[cc], b)
+        else:
+            lo[cc] = max(lo[cc], b)
+    rep.before_m = max(0.0, before)
+
+    bounded = np.isfinite(lo) | np.isfinite(hi)
+    idx = np.flatnonzero(bounded)
+    empty = (lo > hi) & np.isfinite(lo) & np.isfinite(hi)
+    rep.conflicts = int(empty[idx].sum())
+    out = x.copy()
+    tgt = np.where(empty[idx], 0.5 * (lo[idx] + hi[idx]),
+                   np.clip(x[idx], lo[idx], hi[idx]))
+    move = np.abs(tgt - x[idx])
+    rep.moved = int(np.count_nonzero(move > 1e-9))
+    rep.max_move_m = float(np.max(move)) if move.size else 0.0
+    out[idx] = tgt
+
+    # the reading AFTER, over the same rows.  A row the projection OWNS is
+    # one whose only clamped column carries a NON-empty band: its miss is 0
+    # by construction, and the twin asserts it.
+    def zof2(v: int) -> float:
+        c = int(col[v])
+        return float(out[c]) if c >= 0 else float(red.value[v])
+
+    after = 0.0
+    owned = 0.0
+    for k in sides:
+        terms, bound, _row = base.one[k]
+        val = sum(c_ * zof2(v) for v, c_ in terms)
+        m = val - float(bound)
+        after = max(after, m)
+        cc = {int(col[v]) for v, _c in terms
+              if int(col[v]) >= 0 and bounded[int(col[v])]}
+        if len(cc) == 1 and not empty[cc.pop()]:
+            owned = max(owned, m)
+    rep.after_m = max(0.0, after)
+    rep.after_owned_m = max(0.0, owned)
+    rep.status = "optimal"
+    rep.ran = True
+    rep.wall_s = time.perf_counter() - t0
+    if verbose:
+        print("    " + rep.line())
+    return out, rep

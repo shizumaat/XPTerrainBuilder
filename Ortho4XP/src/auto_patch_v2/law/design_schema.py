@@ -212,6 +212,12 @@ class Design:
     #: the augmented Lagrangian above cannot certify them.  ``false``
     #: is the diagnostic arm and is never shipped.
     runway_projection: bool
+    #: THE ZONE PROJECTION (Fable 2026-09-12, RULINGS 2026-09-12ag; spec
+    #: §32): after the runway projection, every adjacent-ground zone
+    #: vertex is CLAMPED into its own one-way corridor band — a pure
+    #: per-vertex projection against feet the solve has already fixed,
+    #: no LP.  ``false`` is the diagnostic arm and is never shipped.
+    zone_projection: bool
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float

@@ -1832,7 +1832,8 @@ per-piece carrier question, own-ground per GROUP),
   OTHH, same arms: carried own-ground float **308 -> 200**, wide
   **141 -> 148** (32 basin bodies exempt), §15 carried float **0 -> 0**
   (the spec's "stays 0" MET), `footless at datum` 0, files 1,525 ->
-  2,482.
+  2,482, plan stage (3 runs) 48.7 / 41.3 / 41.8 -> **56.7 / 57.4 /
+  58.7 s — bar <= 45 s MISSED**.
 * **THE TWO BARS' RESIDUE, ATTRIBUTED — and the reading that says why
   they cannot be 0 as written.**  A body's cut ATOM is its TRIANGLE, and
   this pack authors slabs, ramps and roof plates as four of them:
@@ -1860,7 +1861,7 @@ per-piece carrier question, own-ground per GROUP),
   419 files.  A `coarsen_reach_m` at or above the station length would
   restore those joins; the number is the owner's to rule.
 * **BUILD TIME.**  LEMD plan stage 6.9 -> 11.4 s over 3 runs per arm
-  (bar <= 8 s MISSED), OTHH ~35 -> ~45 s.  The cost is the cut itself —
+  (bar <= 8 s MISSED), OTHH 43.9 -> 57.6 s (bar <= 45 s MISSED).  The cost is the cut itself —
   4,056 bodies where main makes 1,374, and §16b (2) asks the carrier
   question once per piece.  Three optimisations the measurement forced
   are already in (the vectorised surface read `placement_geom.surface_many`

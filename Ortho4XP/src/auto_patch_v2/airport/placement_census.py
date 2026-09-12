@@ -302,9 +302,20 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     cross = 0
     no_law_carrier = 0
     off_sheet = sum(1 for r in rows if r["zero"] is None or not r["box"])
+    # A BASIN body is EXEMPT from the refusal (RULINGS 2026-09-11al):
+    # its zero is the RIM by §14 (2) and its floor feet are authored
+    # below that zero by construction, so the feet test refuses every
+    # pit for the wrong reason.  Counted and printed separately as
+    # ``basin carriers`` — the law lets them carry, and the number says
+    # how many the feet test WOULD have taken out.
     refused = {id(g) for g in ground
                if ground_tol_m > 0.0 and g["ground_off"] is not None
-               and g["ground_off"] > ground_tol_m}
+               and g["ground_off"] > ground_tol_m
+               and g["cls"] != _ar.BASIN}
+    basin_cands = [g for g in ground if g["cls"] == _ar.BASIN]
+    basin_exempt = sorted(((g["ground_off"], g["res"]) for g in basin_cands
+                           if ground_tol_m > 0.0 and g["ground_off"] is not None
+                           and g["ground_off"] > ground_tol_m), reverse=True)
     over_refused = 0
     for r in rows:
         if r["zero"] is None or not r["box"]:
@@ -362,6 +373,9 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "stands_over_other_unit_only": cross,
             "float_tol_m": float_tol_m,
             "refused_as_carrier": len(refused),
+            "basin_carriers": len(basin_cands),
+            "basin_carriers_exempt": len(basin_exempt),
+            "basin_carriers_exempt_worst": basin_exempt[:10],
             "carried_over_refused": over_refused,
             "carried_over_refused_worst": refused_rows[:10],
             "carried_no_law_carrier": no_law_carrier,
@@ -384,6 +398,15 @@ def census_v15_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + (f" — the carried bar is read against the CARRIER THE LAW "
               f"CHOSE (11ak (1))"
               if c.get("refused_as_carrier") else "")]
+    if c.get("basin_carriers"):
+        out.append(
+            f"   §16a (2) basin carriers (EXEMPT from the refusal, §14 (2)): "
+            f"{c['basin_carriers']} basin body(ies) may carry, of which "
+            f"{c.get('basin_carriers_exempt', 0)} would have been refused by "
+            f"the feet test — a basin's zero is its RIM and its floor feet "
+            f"are authored below it")
+        for off, res in c.get("basin_carriers_exempt_worst", ()):
+            out.append(f"      basin exempt (feet off by {off:.2f} m)  {res}")
     if c.get("refused_as_carrier"):
         out.append(
             f"   §15 carried over a REFUSED body (counted separately, not "

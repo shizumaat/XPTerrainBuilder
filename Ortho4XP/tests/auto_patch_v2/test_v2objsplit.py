@@ -2217,6 +2217,64 @@ def test_the_mis_anchoring_test_reads_each_foots_own_authored_height():
         AR.Anchor(AR.BUILDING, 40.0, -3.0, 0.0, "r", None), feet, slope) is None
 
 
+def test_a_basin_body_is_never_refused_as_a_carrier():
+    """RULINGS 2026-09-11al: §16a (2)'s ground test does NOT read a BASIN
+    body.
+
+    A basin's zero is its RIM (§14 (2)) — the pit was cut to the object —
+    and its floor feet are authored metres BELOW that zero by
+    construction, so ``anchor_ground_off``, which reads the feet, refuses
+    every pit for a reason that is the basin law working (13 of LEMD's 21
+    refused carriers, the worst 6.17 m).  A basin may carry: the T4S
+    tower cluster rides its rim.
+
+    Here the basin's floor feet read 7 m below its rim zero.  A BUILDING
+    with the same reading is refused; the basin carries the footless
+    tower standing over its rim, and the census counts it under
+    ``basin carriers`` rather than in the refusal set."""
+    def _cand(member, cls, box, z, ground_off):
+        return _PC.Candidate(member, f"objects/c{member}.obj",
+                             AR.Anchor(cls, 0.5 * (box[0] + box[2]),
+                                       0.5 * (box[1] + box[3]), 0.0, "r", z),
+                             frozenset({member}), 4, box, part_boxes=[box],
+                             group=0, body_class=cls,
+                             fill=1.0, ground_off=ground_off)
+
+    pit_box = (40.0040, -3.0010, 40.0050, -3.0000)
+    tower_box = (40.0042, -3.0008, 40.0048, -3.0002)
+    args = dict(fill_min=0.2, tol_m=0.3)
+    # the SAME body, read as a building: mis-anchored on its own feet
+    refusals: dict = {}
+    bldg = _cand(2, AR.BUILDING, pit_box, 600.0, 7.0)
+    c, _w = _PC.carrier_for(frozenset({9}), tower_box, [bldg], {},
+                            [tower_box], refusals=refusals, **args)
+    assert c is None and refusals.get("zero_off_ground") == 1
+    # as a BASIN it is exempt, and carries
+    refusals2: dict = {}
+    basin = _cand(2, AR.BASIN, pit_box, 600.0, 7.0)
+    c2, why = _PC.carrier_for(frozenset({9}), tower_box, [basin], {},
+                              [tower_box], refusals=refusals2, **args)
+    assert c2 is basin and "stands over" in why
+    assert "zero_off_ground" not in refusals2
+
+    # ... and the census counts it as a basin carrier, not a refusal
+    def _body(res, cls, box, sz, off):
+        return {"new_resource": res, "plan_box": list(box), "surface_z": sz,
+                "y_zero": 0.0, "class": cls, "fill": 1.0, "ground_off": off,
+                "foot_boxes": [list(box)], "feet": 4}
+
+    splits = [{"unit": "unit:1", "resource": "objects/pit.obj",
+               "bodies": [_body("objects/pit__b0.obj", "basin", pit_box,
+                                600.0, 7.0)]},
+              {"unit": "unit:1", "resource": "objects/tower.obj",
+               "bodies": [_body("objects/tower__b0.obj", "building",
+                                tower_box, 600.0, 0.0)]}]
+    c15 = _PC.census_v15(splits, ground_tol_m=0.3)
+    assert c15["refused_as_carrier"] == 0
+    assert c15["basin_carriers"] == 1 and c15["basin_carriers_exempt"] == 1
+    assert any("basin carriers" in ln for ln in _PC.census_v15_lines(c15))
+
+
 # ── 11ak: the census split, the foot re-cut, the deck over a road ────────
 
 def test_the_carried_bar_is_read_against_the_carrier_the_law_chose():

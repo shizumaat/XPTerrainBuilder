@@ -1671,3 +1671,32 @@ BY FOOT) (2), and `airport/obj8.py` + `airport/placement_carrier.py` (4).
   0.96 on 41, `Munoza-LEMDz4__b9` 0.70 / `__b12` 0.69,
   `Terminal4_green-LEMD02__b4` 0.42, `Cargo-WFS__b10` 0.40,
   `OldTerminal_FSX-LEMD54__b5` 0.35.
+
+**MEASURED (round 4, lane `v2basincarry`, 2026-09-11; branch `claude/v2basincarry`).**
+RULED (RULINGS 2026-09-11al): §16a (2)'s carrier ground test does NOT read a BASIN
+body.  A basin's zero is its RIM by §14 (2) — the pit was cut to the object — and its
+floor feet are authored metres BELOW that zero by construction, so `anchor_ground_off`,
+which reads the feet, refuses every pit for a reason that is the basin law working (13
+of LEMD's 21 refused carriers, the worst 6.17 m), and no cut can close them because the
+foot re-cut is exempt for the same reason.  A basin body is therefore EXEMPT from the
+refusal — it may carry, and the tower cluster on the T4S pit rides the rim — and the
+census prints them as their own class, `§16a (2) basin carriers`, with how many of them
+the feet test WOULD have taken out.  One line in
+`placement_carrier.carriers_for._ok` (the class is the FIRST test, ahead of the
+`ground_off` reading) and one in `placement_census.census_v15` (the refusal set skips
+`_ar.BASIN`; `basin_carriers` / `basin_carriers_exempt` are new keys).  Matched arms on
+the pristine LEMD/OTHH frames (`obj8_split_report.py --admit-skipped`, identical
+inputs): LEMD refused carriers 21 → **8** (the eight named in 11al, `STRT4__b1` 4.18 m
+worst), basin carriers 14 of which 13 exempt; OTHH 19 → **4**, basin carriers 21 of
+which 15 exempt (the eight `tunnels/*` pits at 8.90 … 15.00 m, `Drainage_06_000__b4`
+1.81, `Terminal_Parking_VCN_002__b0` 1.56).  Carried `stands-over float > 0.5 m` stays
+**0 / 0**; `carried over a refused body` LEMD 0 → 0, OTHH 4 → **1**; `elevated bodies as
+own files`, `footless at datum`, `footless on ground`, `basin bodies split` and `rows on
+the datum` all stay **0**; the §7 foot census is byte-identical either side (74,275 feet,
+`> 3 m` 527, floating 9,606 at LEMD).  What moved: one LEMD footless placement that had
+no carrier the law would accept now rides a basin (footless carried 94 → 95, own-ground
+26 → 25, files 1,371 → **1,369**); at OTHH 26 elevated bodies join a basin's file
+(54,188 → 54,162 carried, files 1,622 both).  Round trip on a pack COPY: **OK** — 1,368
+cut files, 1,367/1,367 new `OBJECT_DEF`s, 1,368 rows, 0 rows carrying an elevation,
+duplicate rows surviving 0.  Twin:
+`test_a_basin_body_is_never_refused_as_a_carrier`.  Suite 1,097.

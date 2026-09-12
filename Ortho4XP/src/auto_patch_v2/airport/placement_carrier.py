@@ -725,7 +725,18 @@ def carriers_for(pids: _t.AbstractSet[int],
 
     def _ok(c: Candidate) -> bool:
         """§16a (2): the candidate's OWN zero against the ground under
-        its OWN feet."""
+        its OWN feet.
+
+        A BASIN body is EXEMPT (RULINGS 2026-09-11al): its zero is the
+        RIM by §14 (2) — the pit was cut to the object — and its floor
+        feet are authored metres BELOW that zero by construction, so the
+        test reads every pit as mis-anchored for a reason that is the
+        basin law working (13 of LEMD's 21 refused carriers, the worst
+        6.17 m).  Nothing can close them: the basin cut is exempt for
+        §14 (2)'s own reason.  A basin may carry — the T4S tower cluster
+        rides its rim."""
+        if c.body_class == _ar.BASIN:
+            return True
         if c.ground_off is None or tol_m <= 0.0:
             return True
         if c.ground_off <= tol_m:

@@ -724,6 +724,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         foot_band_m=law.tables.structures.basin.contact_band_m,
         carrier_fill_min=law.tables.structures.placement.carrier_fill_min,
         coarsen_reach_m=law.tables.structures.placement.coarsen_reach_m,
+        contact_eps_m=law.tables.structures.placement.contact_eps_m,
         pads=pads, rims=rims,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))

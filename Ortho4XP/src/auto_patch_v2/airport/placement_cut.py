@@ -81,7 +81,8 @@ class _LineCutter:
 
     def __init__(self, m: Member, segment_m: float, stations_max: int,
                  foot_band_m: float, ratio: float, max_h: float,
-                 lat: float, lon: float) -> None:
+                 lat: float, lon: float, contact_eps_m: float = 0.0,
+                 contact_pairs: _t.Sequence[tuple[int, int]] = ()) -> None:
         self.m = m
         self.segment_m = segment_m
         self.stations_max = stations_max
@@ -97,6 +98,10 @@ class _LineCutter:
         self._tri_keys: _t.Any = None
         self._tri_ids: _t.Any = None
         self._tri_base: _t.Any = 1
+        #: §16c (6): components of ONE resource that TOUCH are one atom
+        self.contact_eps_m = contact_eps_m
+        self.contact_pairs = tuple(contact_pairs)
+        self._clusters: _t.Any = None
 
     @property
     def armed(self) -> bool:
@@ -160,17 +165,90 @@ class _LineCutter:
         out = np.where(hit, self._tri_ids[pos], -1)
         return [int(x) for x in out.tolist()]
 
+    def comp_cluster(self) -> "list[int]":
+        """§16c (6): COMPONENTS IN CONTACT BIND — the cluster id of each
+        component of this member.
+
+        §16c (1) made the connected COMPONENT the atom, and an
+        exporter's "one solid" is often several components that touch:
+        OTHH's ``OTHH_Fuel_02_LOD0_007`` carries two 0.4 mm apart, which
+        the millimetre key ``obj8.solid_components`` welds on reads as
+        two, and written at two zeros they showed a 2.70 m seam.  Two
+        components of one resource bind when their geometry comes within
+        ``[placement] contact_eps_m``, or when the PLAN's own ε-contact
+        graph already links their parts (``contact_pairs``, the member's
+        intra-contacts as component index pairs).  A bound cluster is
+        ONE rigid body for anchoring: one zero, one carrier.
+
+        Built once per member; the distance test is a KD-tree pair count
+        over the components' vertices, and is skipped entirely when the
+        epsilon is 0 or the member has one component."""
+        if self._clusters is not None:
+            return self._clusters
+        if not self._read():
+            self._clusters = []
+            return self._clusters
+        import numpy as np
+        n = len(self._comps)
+        par = list(range(n))
+
+        def _find(a: int) -> int:
+            while par[a] != a:
+                par[a] = par[par[a]]
+                a = par[a]
+            return a
+
+        def _union(a: int, b: int) -> None:
+            ra, rb = _find(a), _find(b)
+            if ra != rb:
+                par[ra] = rb
+
+        for a, b in self.contact_pairs:
+            if 0 <= a < n and 0 <= b < n:
+                _union(a, b)
+        if n > 1 and self.contact_eps_m > 0.0:
+            from scipy.spatial import cKDTree
+            v = self._geom.vertices
+            pts = [v[np.unique(np.asarray(c.tris).reshape(-1))]
+                   for c in self._comps]
+            # the BOX is the cheap reject: a KD-tree per component is
+            # cheap, but n^2 tree queries over a 3,000-component clutter
+            # object is not
+            box = np.asarray([[p.min(axis=0), p.max(axis=0)] if p.size
+                              else [np.zeros(3), np.zeros(3)] for p in pts])
+            trees: dict[int, _t.Any] = {}
+            e = float(self.contact_eps_m)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if _find(i) == _find(j):
+                        continue
+                    if (box[i][0] > box[j][1] + e).any() or \
+                            (box[j][0] > box[i][1] + e).any():
+                        continue
+                    for k in (i, j):
+                        if k not in trees:
+                            trees[k] = cKDTree(pts[k]) if pts[k].size else None
+                    if trees[i] is None or trees[j] is None:
+                        continue
+                    if trees[i].count_neighbors(trees[j], e) > 0:
+                        _union(i, j)
+        self._clusters = [_find(i) for i in range(n)]
+        return self._clusters
+
     def _comp_blocks(self, tris) -> "list[list[int]]":
-        """§16c (1): the triangle indices of ``tris`` grouped by
-        COMPONENT — the atoms every cut below assigns.  A triangle no
-        component owns is an atom of its own."""
+        """§16c (1): the triangle indices of ``tris`` grouped by the
+        ATOM each belongs to — its component, or, under §16c (6), the
+        CLUSTER of components its own touches.  A triangle no component
+        owns is an atom of its own."""
+        cl = self.comp_cluster()
         blocks: dict[int, list[int]] = {}
         loose: list[list[int]] = []
         for i, ci in enumerate(self.comp_of(tris)):
             if ci < 0:
                 loose.append([i])
             else:
-                blocks.setdefault(ci, []).append(i)
+                blocks.setdefault(cl[ci] if ci < len(cl) else ci,
+                                  []).append(i)
         return [blocks[k] for k in sorted(blocks)] + loose
 
     def is_line_object(self) -> bool:

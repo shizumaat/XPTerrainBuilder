@@ -2198,3 +2198,99 @@ census, the scout `v2lemd320`'s `tear.py` promoted).
 * **NOT DONE:** no airport build (§16c needs none); §16c (3) refuted and
   left out; the `--write-pack` arms are pack COPIES and the live pack was
   read-only throughout.
+
+### §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h)
+
+§16c (1) made the connected COMPONENT the atom of every group.  An
+exporter's "one solid" is often several components that TOUCH, and
+written at two zeros they read as a break: OTHH's
+`OTHH_Fuel_02_LOD0_007` carries two components **0.4 mm** apart — under
+the millimetre key `obj8.solid_components` welds on (`np.round(v, 3)`)
+they are two — and round 1 wrote them 2.70 m apart, the airport's last
+seam.
+
+Components of ONE resource bind into ONE RIGID BODY for anchoring —
+one zero, the senior component's carrier — when they share a vertex
+position within `[placement] contact_eps_m` (2 mm), OR when the REBAKE
+PLAN's own ε-contact graph already links their parts.  A bound cluster
+is the atom every §16c (1) group is formed over.
+
+**MEASURED (lane `v2atom` round 2, 2026-09-12; branch `claude/v2atom`).**
+`_LineCutter.comp_cluster` (union-find over the plan's intra-member
+contact pairs and a box-rejected KD-tree pair count), `_comp_blocks`
+grouping by cluster, `[placement] contact_eps_m` in
+`law/structures.toml` + `law/rebake_schema.py`, wired through
+`placement_plan.build_splits` / `placement_write` / `engine_v2` and
+`obj8_split_report --contact-eps`.
+
+* **THE BAR, LEMD** (same matched frame; round 1 -> round 2): torn seams
+  outside line/arc **0 -> 0**, single-component resources in >= 2 files
+  **0 -> 0**, files **2,804 -> 2,776**, §15 carried float **0**, round
+  trip **OK** (2,776 files, 2,776/2,776 new `OBJECT_DEF`s, 0 rows
+  carrying an elevation, duplicate rows surviving 0), plan stage on the
+  graded sampler **9.56 / 9.60 / 9.71 s** (main 13.53), `_surface` calls
+  186,263 -> **184,219**.  Suite **1,129 / 1 skipped**.
+* **`Terminal4_48` FIXED BY IT.**  Its zero spread **3.58 -> 0.69 m**
+  and the owner-site reading `zero - ground under its own geometry`
+  **+3.26 -> +0.04 m** (1.0.319 read +1.81): the piece that rode
+  `green-STRT4__b11` at a top 3.38 m below it is now bound to its own
+  neighbours and takes their zero.  The other 11at sites are byte-equal
+  (item 3 +0.18, item 5 -0.29, gate-5 sign -0.02).
+* **`HANG3`'s FOUR VAULT ARCS ARE NOT REACHED, AND THE BAR IS REFUTED AS
+  WRITTEN.**  Measured pairwise minimum vertex distance between its 7
+  components: the arcs stand **1.507-1.853 m** from the two spine
+  components and 9.65-65.31 m from each other; and the rebake plan
+  records **ZERO** intra-member ε-contacts for this resource (the
+  airport has 37,324 contacts in all).  Neither half of §16c (6)
+  can bind them: a 2 mm contact tolerance does not reach 1.5 m, and the
+  plan's graph has no edge.  Binding them needs `contact_eps_m` >= 1.86
+  m, which is a REACH and not a contact — it would weld anything
+  standing within two metres across every resource of the pack.  The
+  vault stays 6 files at 6 zeros spanning 1.37 m.  NOT FIXED; the
+  question is the owner's (a "one resource, one rigid object" rule is a
+  different law from contact).
+* **THE T2 ROOFS ARE NOT §16c (4)'s TO FIX.**  Attribution: the named
+  wall bodies DO plan-overlap every roof and are NOT refused by
+  §16a (2) (`ground_off` 0.00-0.08) — they are removed by §16 (3)'s
+  FILL gate before the rest-on ranking ever sees them.  `LEMD54`'s
+  bodies under the roofs carry `fill` **0.005 / 0.010 / 0.031** and
+  `LEMD59`'s **0.031**, against `[placement] carrier_fill_min` **0.2**:
+  a terminal's wall RING is a thin loop, and its parts-hull over its
+  plan box is one to three per cent.  What the rest-on rule is then left
+  to choose between are bodies whose top under the overlap is +2.46,
+  +7.93, +8.39, +14.63 m below the roof's base — it picks the nearest
+  below, which is what it is for.  Raising or qualifying the fill gate
+  is a RULING (it exists so a fence's box cannot carry a zero); not
+  changed here.
+* **THE `green-STRT4` DECK IS AN INSTRUMENT ARTEFACT, NOT A FLOAT.**  The
+  +1.11 m body is FOOTED (6 feet, fill 1.000, not carried, not
+  elevated), and its `y_zero` is **-1.668**: its anchor vertex is a
+  SKIRT 1.67 m below the object's zero plane.  `zero - ground under the
+  geometry` therefore reads the skirt depth, not a float — the body's
+  own lowest vertex lands on the design surface at its anchor
+  (616.449).  Its real residual is §7's, `ground_off` **0.397 m** over
+  0.43 m of authored foot relief: 11ak (2)'s class, which §16c (1) can
+  no longer foot-cut because the deck is one welded component.  Not a
+  defect to fix here; the §16b `carried piece float` bar should not
+  count a footed skirted body at all, which is a census question.
+* **THE §16a (2) REFUSAL SET, NAMED** (LEMD round 2, 169 candidate
+  bodies; over WRITTEN files with `ground_off > 0.3 m`, basins exempt,
+  524 files of which 353 are line segments that §16 (3) bars from
+  carrying anyway): **other 97, skirted 69, building 5**.  Worst-off:
+  `green-STRT4__b0` 7.16 m (building, 4 feet), `LEMDblast__b1` 7.14
+  (line), `Munoza-LEMD50__b2` 5.96 (line), `Terminal4sBlue-STRT4__b1`
+  5.08, `green-PKT4__b0` 4.50 (skirted), `Munoza-TWY__b1` 4.16,
+  `Cargo-NEWCO__b0` 3.35, `P2CNX__b4` 3.19.  Every one is the same
+  class: a body whose FEET are authored over metres of relief on ground
+  that barely moves, which 11ak (2)'s foot cut used to divide and §16c
+  (1) forbids dividing.
+* **THE FILE COUNT, EXPLAINED.**  2,776 files by §6 class: **line_segment
+  1,141**, other 1,232, skirted 246, building 166, basin 19.  By
+  resource the top two are `grass_FSX-LEMDgrass` **894 files** and
+  `Taxisigns-SENRG` **310** — 1,204 files, 43 % of the airport, from two
+  line/clutter resources cut by §10's 100 m station law.  The 899
+  counterfactual counted SOLID bodies only; the solid half here is
+  **1,663**.  Nothing in §16c makes line files: round 1 took them 1,446
+  -> 891 seams and the count is §10's, not the atom's.
+* **Twins:** `test_components_in_contact_are_one_rigid_body`,
+  `test_the_plans_contact_graph_binds_components_whatever_the_distance`.

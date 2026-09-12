@@ -3109,3 +3109,57 @@ def test_the_torn_seam_census_reads_the_written_files(tmp_path):
     c2 = _PCE.census_torn_seams(splits, str(root))
     assert c2["rigid_seams"] == 0 and c2["station_seams"] == 1
     assert "VIOLATED" not in "\n".join(_PCE.census_torn_seams_lines(c2))
+
+
+def test_components_in_contact_are_one_rigid_body(tmp_path):
+    """§16c (6) (RULINGS 2026-09-12h): components of ONE resource that
+    TOUCH — within `[placement] contact_eps_m`, or linked by the plan's
+    own ε-contact graph — are ONE atom: one zero, one carrier.
+
+    OTHH's `OTHH_Fuel_02_LOD0_007` carries two components 0.4 mm apart
+    that `obj8.solid_components`' millimetre key reads as separate; §16c
+    (1) then wrote them at two zeros with a 2.70 m seam."""
+    # two 4 m plates a HAIR apart over ground that steps between them
+    v = [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, 4.0), (0.0, 0.0, 4.0),
+         (4.0016, 0.0, 0.0), (60.0, 0.0, 0.0), (60.0, 0.0, 4.0),
+         (4.0016, 0.0, 4.0)]
+    tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    path = _write_obj(tmp_path / "touch.obj", v, [("", tris)])
+    from auto_patch_v2.airport import obj8 as _o8
+    assert len(_o8.solid_components(_o8.parse_obj8(str(path)))) == 2
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
+    surface = _stepped([(-1.0, 5.0, 600.0), (10.0, 70.0, 610.0)])
+    # DISARMED: the two components are two atoms at two zeros
+    off = PP.build_splits(plan, surface, write=False,
+                          **_elev_args(line_stations_max=64, foot_band_m=1.0))
+    assert off.counts["bodies"] == 2
+    # ARMED at 2 mm: they TOUCH, so they are one rigid body at one zero
+    on = PP.build_splits(plan, surface, write=False, contact_eps_m=0.002,
+                         **_elev_args(line_stations_max=64, foot_band_m=1.0))
+    assert on.counts["bodies"] == 1
+    # and the law ships armed
+    from auto_patch_v2.law import Law
+    assert Law.load().tables.structures.placement.contact_eps_m > 0.0
+
+
+def test_the_plans_contact_graph_binds_components_whatever_the_distance(tmp_path):
+    """§16c (6), the other half: components the PLAN's own ε-contact
+    graph already calls touching bind whether or not the distance test
+    fires."""
+    v, tris = [], []
+    for k in range(3):                      # three plates 20 m apart
+        i = len(v)
+        x = 20.0 * k
+        v += [(x, 0.0, 0.0), (x + 4.0, 0.0, 0.0), (x + 4.0, 0.0, 4.0),
+              (x, 0.0, 4.0)]
+        tris += [(i, i + 1, i + 2), (i, i + 2, i + 3)]
+    path = _write_obj(tmp_path / "apart.obj", v, [("", tris)])
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
+    m = plan.units[0].members[0]
+    loose = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0,
+                             contact_eps_m=0.002)
+    assert len(set(loose.comp_cluster())) == 3
+    bound = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0,
+                             contact_eps_m=0.002,
+                             contact_pairs=((0, 1), (1, 2)))
+    assert len(set(bound.comp_cluster())) == 1

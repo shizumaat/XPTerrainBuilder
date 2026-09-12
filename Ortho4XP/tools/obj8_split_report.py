@@ -459,6 +459,10 @@ def main() -> int:
                     "argument is then the WRITTEN plan "
                     "(o4_v2_placement_<ICAO>.json), not the rebake plan, "
                     "and --graded is not read")
+    ap.add_argument("--contact-eps", type=float, default=None,
+                    help="override [placement] contact_eps_m (§16c (6): "
+                         "components of one resource within this bind into "
+                         "ONE rigid body; 0 disarms the distance test)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -520,7 +524,11 @@ def main() -> int:
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None
-                                          else a.coarsen_reach))
+                                          else a.coarsen_reach),
+                         contact_eps_m=(_law.tables.structures.placement
+                                        .contact_eps_m
+                                        if a.contact_eps is None
+                                        else a.contact_eps))
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")

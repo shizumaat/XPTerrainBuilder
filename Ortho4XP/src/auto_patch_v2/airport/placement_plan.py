@@ -507,6 +507,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  line_stations_max: int = 0, line_ratio: float = 0.0,
                  line_max_h: float = 0.0, foot_band_m: float = 0.0,
                  carrier_fill_min: float = 0.0, coarsen_reach_m: float = 0.0,
+                 contact_eps_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -591,9 +592,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             counts["placements"] += 1
             _cut0 = (counts.get("bodies_re_cut_by_terrain", 0)
                      + counts.get("bodies_re_cut_by_triangle", 0))
+            # §16c (6): the member's OWN ε-contact edges, as COMPONENT
+            # index pairs — components the plan already calls touching
+            # bind whatever the distance test says
+            _cmp = {p.pid: p.comp for p in m.parts}
+            _pairs = tuple((_cmp[a], _cmp[b])
+                           for a, b in intra.get(id_of((ui, mi)), [])
+                           if a in _cmp and b in _cmp)
             cutter = _LineCutter(m, line_segment_m, line_stations_max,
                                  foot_band_m, line_ratio, line_max_h,
-                                 u.anchor[0], u.anchor[1])
+                                 u.anchor[0], u.anchor[1],
+                                 contact_eps_m=contact_eps_m,
+                                 contact_pairs=_pairs)
             raw = _raw_bodies(m, u, intra.get(id_of((ui, mi)), []), surface,
                               pads, rims, counts, cutter=cutter,
                               split_tol_m=split_tol_m,

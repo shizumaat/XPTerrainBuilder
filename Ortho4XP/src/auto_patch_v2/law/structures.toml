@@ -489,3 +489,15 @@ carrier_fill_min    = 0.2
 # TERRAIN-GROUP test beside this one — the design surface under each must
 # agree as well — never the reach alone.
 coarsen_reach_m     = 100.0
+
+# §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h).  §16c
+# (1) made the connected COMPONENT the atom of every group, and an
+# exporter's "one solid" is often several components that TOUCH: OTHH's
+# `OTHH_Fuel_02_LOD0_007` has two 0.4 mm apart, which the millimetre key
+# `obj8.solid_components` welds on reads as two components — written at
+# two zeros they showed a 2.70 m seam.  Components of ONE resource whose
+# geometry comes within this are ONE RIGID BODY for anchoring: one zero,
+# the senior component's carrier.  A CONTACT tolerance, not a reach (the
+# plan's own ε-contact graph binds the rest), so it is millimetres.
+# 0 disarms the distance test.
+contact_eps_m       = 0.002

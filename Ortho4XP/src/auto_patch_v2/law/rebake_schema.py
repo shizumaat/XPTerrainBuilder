@@ -145,3 +145,18 @@ class Placement:
     #: away is forbidden by the TERRAIN-GROUP test beside this one (the
     #: design surface under each must agree too), never by the reach.
     coarsen_reach_m: float = 100.0
+
+    #: §16c (6) COMPONENTS IN CONTACT BIND (owner RULINGS 2026-09-12h).
+    #: §16c (1) made the connected COMPONENT the atom of every group, and
+    #: an exporter's "one solid" is often several components that TOUCH:
+    #: OTHH's ``OTHH_Fuel_02_LOD0_007`` has two 0.4 mm apart — under the
+    #: millimetre key ``obj8.solid_components`` welds on they are two
+    #: components, and written at two zeros they showed a 2.70 m seam.
+    #: Components of ONE resource whose geometry comes within this are
+    #: ONE RIGID BODY for anchoring: one zero, the senior component's
+    #: carrier.  It is a CONTACT tolerance, not a reach — the plan's own
+    #: ε-contact graph binds the rest — so it is millimetres, and raising
+    #: it welds things that merely stand near each other (measured at
+    #: LEMD, see spec §16c MEASURED).  0 disarms the distance test and
+    #: leaves the plan's contact graph alone.
+    contact_eps_m: float = 0.002

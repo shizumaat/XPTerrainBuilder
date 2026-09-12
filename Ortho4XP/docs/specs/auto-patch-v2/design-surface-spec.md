@@ -4381,3 +4381,44 @@ patch's whole western bbox edge. They carry zero grade rows; the census cannot s
    harness census unchanged (4,408 law-true on 1.0.321 — no tunnel rows exist);
    twins (an off-field mouth is dropped; an on-field one stays; a roofed corridor
    is untouched); suite.
+
+## §30 THE PAD CEILING CARRIES NO AUTHORED RELIEF (Fable 2026-09-12; RULINGS 2026-09-12u) — lane `v2padceiling`
+
+Scout `v2unsettled` reproduced the shipped `v2ramp8` LEMD solve bit-for-bit (142
+active-set rounds, `1457/125572`, 1.3037 m) and attributed `HARD SET NOT SETTLED`:
+NOT the runway family (8,490 hard rows, clean), NOT convergence (deterministic across
+seeds; the cap `polish_rounds_max` 2 is hit but no number of rounds resolves it), NOT
+the tunnel ramp (`tunnel_ramp` is `structure = true` and carries no hard row at all —
+12k's framing was wrong: its rows were soft targets re-forming with the active set).
+It is a MUTUALLY INFEASIBLE PAIR of hard rows on APRON vertices at the T4S block
+(40.4952, −3.5904): `pad_relief_offsets` (11j, `relief_radius_m` 12) applies pavement
+seniority to the FOOT, not the PAD VERTEX, so an apron vertex on the pad's rim within
+12 m of a foot inherits that foot's authored `y` (−2.20 m), and `pads.py:407-408`
+puts that `rel` into the 1 % pad-slope CEILING (hard) — a 2.20 m step demanded over
+3.0 m of apron, against the 5 % pavement ceiling (hard) allowing 0.15 m. No surface
+satisfies both; the augmented Lagrangian splits the difference (1.30 / 1.29 m) and the
+surface SHIPS with 725 violated hard rows (`pipeline/build.py:798-806`: the census
+reports, never blocks). Control: the same hard set with no object-derived relief
+settles to 0.0204 m.
+
+1. **THE CEILING ROW CARRIES NO `rel`.** `pad_slope_ceiling` passes `rel = 0`: "no
+   two points of the pad differ by more than 1 % of their separation" — its own
+   docstring. The authored relief stays expressed by the `pad_flat` TARGET (weight
+   3,000, ten times `law`), where a target belongs.
+2. **PAVEMENT SENIORITY IS BY VERTEX**: a pad rim vertex shared with airside
+   pavement takes relief offset 0 (extends `pad_relief.py:22-27` from feet to
+   vertices) — the second, surgical half.
+3. **THE INSTRUMENTS**: (a) `tools/v2_solve_replay.py --capture` omits the pack
+   partition / `airport.groups` that `pipeline/build.py:288-318` runs before
+   classify, so a replay silently solves a DIFFERENT problem (no foot rows, no
+   relief) — the scout's `capture2.py` is folded in; (b) `hard_active` is re-read
+   after the runway projection (today it is phase C's multiplier count, 1,457, not
+   the 725 violated rows); (c) `_inner`'s `converged` is not asserted while the
+   active set still flips thousands of rows per round.
+4. **BARS**: ONE `--engine v2` LEMD build against the ledger base — `HARD SET
+   SETTLED` (worst hard residual ≤ `hard_tol_m` 0.02 m; today 1.3037), the family
+   table quoted (pad ceiling 365 → ~0, pavement ceiling 357 → ~0, runway 3 at the
+   bar), the T4S block's apron within 0.05·d everywhere; harness census before/after
+   (4,408 law-true on 1.0.321); the foot rows' own residual (the pad_flat target)
+   quoted at the same block; `polish_rounds_max` and `hard_weight` untouched
+   (refuted levers); twins; suite. Spec §8.3 deviation 16 corrected.

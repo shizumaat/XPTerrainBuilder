@@ -82,7 +82,8 @@ class _LineCutter:
     def __init__(self, m: Member, segment_m: float, stations_max: int,
                  foot_band_m: float, ratio: float, max_h: float,
                  lat: float, lon: float, contact_eps_m: float = 0.0,
-                 contact_pairs: _t.Sequence[tuple[int, int]] = ()) -> None:
+                 contact_pairs: _t.Sequence[tuple[int, int]] = (),
+                 rigid_reach_m: float = 0.0) -> None:
         self.m = m
         self.segment_m = segment_m
         self.stations_max = stations_max
@@ -101,6 +102,9 @@ class _LineCutter:
         #: §16c (6): components of ONE resource that TOUCH are one atom
         self.contact_eps_m = contact_eps_m
         self.contact_pairs = tuple(contact_pairs)
+        #: §16c (7): SOLID components within this CHAIN into one rigid
+        #: cluster (line classes excluded — §10 cuts those on purpose)
+        self.rigid_reach_m = rigid_reach_m
         self._clusters: _t.Any = None
 
     @property
@@ -132,10 +136,9 @@ class _LineCutter:
         key ``obj8_split`` spells) -> its component index.  A triangle
         belonging to no component reads ``-1`` and is its own atom.
 
-        The lookup is VECTORISED — one packed key per triangle and one
-        ``searchsorted`` — because the cuts ask it once per cut per
-        member and a Python dict over 40,000 triangles costs more than
-        the cut (measured: the LEMD plan stage).  Built once per member."""
+        The lookup is VECTORISED (one packed key per triangle and one
+        ``searchsorted``): the cuts ask it once per cut per member, and a
+        Python dict over 40,000 triangles costs more than the cut."""
         import numpy as np
         if self._tri_keys is None:
             n = int(self._geom.vertices.shape[0]) + 1 if self._read() else 1
@@ -166,24 +169,22 @@ class _LineCutter:
         return [int(x) for x in out.tolist()]
 
     def comp_cluster(self) -> "list[int]":
-        """§16c (6): COMPONENTS IN CONTACT BIND — the cluster id of each
-        component of this member.
+        """§16c (6)/(7): THE RIGID CLUSTER of each component.
 
         §16c (1) made the connected COMPONENT the atom, and an
-        exporter's "one solid" is often several components that touch:
-        OTHH's ``OTHH_Fuel_02_LOD0_007`` carries two 0.4 mm apart, which
-        the millimetre key ``obj8.solid_components`` welds on reads as
-        two, and written at two zeros they showed a 2.70 m seam.  Two
-        components of one resource bind when their geometry comes within
-        ``[placement] contact_eps_m``, or when the PLAN's own ε-contact
-        graph already links their parts (``contact_pairs``, the member's
-        intra-contacts as component index pairs).  A bound cluster is
-        ONE rigid body for anchoring: one zero, one carrier.
+        exporter's "one solid" is often several: OTHH's
+        ``OTHH_Fuel_02_LOD0_007`` carries two 0.4 mm apart (the
+        millimetre weld key reads them as two) and LEMD's `HANG3` is a
+        hangar whose vault arcs stand 1.5-1.9 m from its spines with no
+        contact at all.  Components of ONE resource bind into one rigid
+        body — one zero, one carrier — when the PLAN's ε-contact graph
+        links their parts (``contact_pairs``), when they come within
+        ``[placement] contact_eps_m``, or, for a resource that is NOT a
+        line object, within ``[placement] rigid_reach_m``.
 
-        Built once per member; the distance test is ONE radius pair
-        query over every vertex of the member labelled by component, and
-        is skipped entirely when the epsilon is 0 or the member has one
-        component."""
+        Built once per member; the distance test is ONE radius pair query
+        over the member's vertices labelled by component, and is skipped
+        when the epsilon is 0 or the member has one component."""
         if self._clusters is not None:
             return self._clusters
         if not self._read():
@@ -207,7 +208,16 @@ class _LineCutter:
         for a, b in self.contact_pairs:
             if 0 <= a < n and 0 <= b < n:
                 _union(a, b)
-        if n > 1 and self.contact_eps_m > 0.0:
+        # §16c (7) THE RIGID REACH: a hangar's vault arcs stand metres
+        # from its spines with no contact at all (LEMD `HANG3`,
+        # 1.507-1.853 m, ZERO plan ε-contacts) and step where the roof is
+        # continuous.  SOLID components chain at the reach; a LINE
+        # object's never do — §10 cuts a fence into stations ON PURPOSE.
+        eps = float(self.contact_eps_m)
+        if (self.rigid_reach_m > eps and n > 1
+                and not self.is_line_object()):
+            eps = float(self.rigid_reach_m)
+        if n > 1 and eps > 0.0:
             # ONE tree over every vertex, labelled by component, and ONE
             # radius pair query — never a tree per component and an n^2
             # Python loop over pairs: OTHH's clutter objects publish
@@ -222,8 +232,7 @@ class _LineCutter:
                                   for c in self._comps])
             pts = v[ids]
             if pts.shape[0]:
-                for a, b in cKDTree(pts).query_pairs(
-                        float(self.contact_eps_m)):
+                for a, b in cKDTree(pts).query_pairs(eps):
                     la, lb = int(lab[a]), int(lab[b])
                     if la != lb:
                         _union(la, lb)

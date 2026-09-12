@@ -60,6 +60,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
+# THE SHARED-REPO WRITE LAW (CLAUDE.md; owner ruling e9daef5), ONE
+# implementation — ``tools/harness/shared_repo_guard.py``, the same module
+# ``harness/build_airport.py`` and ``run_tile_mesh_only.py`` arm.  A lane
+# replay of a plan is a MEASUREMENT: it must cost the shared corpus zero
+# writes, and until 2026-09-12 this entry armed nothing — an OTHH
+# ``--admit-skipped`` run created
+# ``Airport_mod_cache/Global Airports/+25+051.dsf.e0518fe0.text`` (3.25 MB)
+# and rewrote ``o4_dsf_object_positions_+25+051.cache`` in the shared repo
+# with BOTH lane-local cache env vars exported (measured, lane v2atom
+# round 2; RULINGS 2026-09-12j).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "harness"))
 
 import numpy as np                                             # noqa: E402
 
@@ -416,6 +428,34 @@ def _write_pack(a, plan, ss, sampler) -> None:
 
 
 def main() -> int:
+    """The entry, under the SHARED-REPO WRITE GUARD (see the import
+    block): nothing this tool does is authorised to write the shared
+    data repo, so the guard refuses at the call site and the before /
+    after snapshot backstops what no Python-level guard can see."""
+    from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
+                                   report_unauthorised_writes,
+                                   require_no_unauthorised_writes,
+                                   shared_repo_snapshot, snapshot_diff)
+    before = shared_repo_snapshot()
+    guard = SharedRepoWriteGuard(set(), os.getcwd())
+    try:
+        with guard:
+            rc = _main()
+    finally:
+        # the audit runs even when the run raised: a replay that died
+        # halfway has still changed the corpus every other lane reads
+        changes = snapshot_diff(before, shared_repo_snapshot())
+        offenders = report_unauthorised_writes(changes, set(), None)
+    if guard.blocked:
+        print(f"\n  shared-repo writes REFUSED at the call site: "
+              f"{len(guard.blocked)}")
+        for b in list(guard.blocked)[:10]:
+            print(f"    {b}")
+    require_no_unauthorised_writes(offenders, entry="obj8_split_report")
+    return rc
+
+
+def _main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("plan", help="<ICAO>.rebake.json (or o4_v2_rebake_<ICAO>.json)")
@@ -463,6 +503,10 @@ def main() -> int:
                     help="override [placement] contact_eps_m (§16c (6): "
                          "components of one resource within this bind into "
                          "ONE rigid body; 0 disarms the distance test)")
+    ap.add_argument("--rigid-reach", type=float, default=None,
+                    help="override [placement] rigid_reach_m (§16c (7): "
+                         "SOLID components of one resource within this chain "
+                         "into ONE rigid cluster; 0 disarms the reach)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -519,8 +563,6 @@ def main() -> int:
                          line_ratio=rb.line_object_ratio,
                          line_max_h=rb.line_object_max_h,
                          foot_band_m=band_m, abutments=abut,
-                         carrier_fill_min=_law.tables.structures.placement
-                         .carrier_fill_min,
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None
@@ -528,7 +570,11 @@ def main() -> int:
                          contact_eps_m=(_law.tables.structures.placement
                                         .contact_eps_m
                                         if a.contact_eps is None
-                                        else a.contact_eps))
+                                        else a.contact_eps),
+                         rigid_reach_m=(_law.tables.structures.placement
+                                        .rigid_reach_m
+                                        if a.rigid_reach is None
+                                        else a.rigid_reach))
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -582,7 +628,6 @@ def main() -> int:
     # lawful, so neither bar above can see a roof standing 6 m over the
     # walls it belongs to.
     v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
-                        fill_min=_law.tables.structures.placement.carrier_fill_min,
                         ground_tol_m=tol_m)
     for line in PC.census_v15_lines(v15):
         print(line)

@@ -462,7 +462,7 @@ class Candidate:
     group: int = -1
     #: §16 (3): the body's §6 CLASS and its FOOTPRINT FILL — a line
     #: segment never carries, and neither does a body filling less than
-    #: ``[placement] carrier_fill_min`` of its own plan box
+    #: REPORTED ONLY since 2026-09-12j (the fill gate is deleted)
     body_class: str = ""
     fill: float = 1.0
     #: §16a (2): HOW FAR THIS CANDIDATE'S OWN ZERO STANDS FROM THE GROUND
@@ -579,7 +579,7 @@ def carriers_for(pids: _t.AbstractSet[int],
                  adj: _t.Mapping[int, _t.AbstractSet[int]],
                  part_boxes: _t.Sequence[tuple[float, float, float,
                                                float]] = (),
-                 *, fill_min: float = 0.0, tol_m: float = 0.0,
+                 *, tol_m: float = 0.0,
                  refusals: dict[str, int] | None = None,
                  carried_ground: _t.Callable[[], "float | None"] | None = None,
                  solid_cands: _t.Sequence[Candidate] | None = None,
@@ -618,10 +618,12 @@ def carriers_for(pids: _t.AbstractSet[int],
     (``TEJ*``/``tej*``, *tejado*), so the walls a roof rides are almost
     never its own file.
 
-    §16 (3): A CARRIER IS A SOLID.  A candidate that is a LINE SEGMENT,
-    or whose footprint fills less than ``fill_min`` of its own plan box
-    (a grass strip, a sign, a fence), never carries — its box says
-    nothing about where the ground under the carried body is.
+    §16 (3) as amended (RULINGS 2026-09-12j): A CARRIER IS A SOLID — by
+    CLASS.  A LINE SEGMENT never carries: a fence's axis-aligned plan box
+    says nothing about where the ground under the carried body is.  The
+    FOOTPRINT FILL fraction that stood beside it is DELETED: it struck
+    the wall RINGS the roofs actually rest on (LEMD's `LEMD54` /
+    `LEMD59` fill 0.005-0.031) before §16c (4) could rank them.
 
     §16a (2): AND THE GROUND CHECK IS ON THE CARRIER.  A candidate whose
     own zero stands more than ``tol_m`` from the ground under ITS OWN
@@ -672,9 +674,6 @@ def carriers_for(pids: _t.AbstractSet[int],
         for c in cands:
             if c.body_class == _ar.LINE_SEGMENT:
                 _bump("line")
-                continue
-            if fill_min > 0.0 and c.fill < fill_min:
-                _bump("fill")
                 continue
             solid.append(c)
     if not solid:

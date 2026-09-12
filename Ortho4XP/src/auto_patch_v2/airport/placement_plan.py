@@ -506,8 +506,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  elevated_base_m: float = 0.0, line_segment_m: float = 0.0,
                  line_stations_max: int = 0, line_ratio: float = 0.0,
                  line_max_h: float = 0.0, foot_band_m: float = 0.0,
-                 carrier_fill_min: float = 0.0, coarsen_reach_m: float = 0.0,
-                 contact_eps_m: float = 0.0,
+                 coarsen_reach_m: float = 0.0,
+                 contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -603,7 +603,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                  foot_band_m, line_ratio, line_max_h,
                                  u.anchor[0], u.anchor[1],
                                  contact_eps_m=contact_eps_m,
-                                 contact_pairs=_pairs)
+                                 contact_pairs=_pairs,
+                                 rigid_reach_m=rigid_reach_m)
             raw = _raw_bodies(m, u, intra.get(id_of((ui, mi)), []), surface,
                               pads, rims, counts, cutter=cutter,
                               split_tol_m=split_tol_m,
@@ -728,8 +729,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         for c in cands:
             if c.body_class == _ar.LINE_SEGMENT:
                 refused["line"] = refused.get("line", 0) + 1
-            elif carrier_fill_min > 0.0 and c.fill < carrier_fill_min:
-                refused["fill"] = refused.get("fill", 0) + 1
             else:
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
@@ -771,7 +770,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 over = _pc.carriers_for(
                     frozenset(p.pid for i in grp for p in st.raw[i][0]),
                     bx, cands, adj, _pc.foot_boxes(gboxes),
-                    fill_min=carrier_fill_min, tol_m=split_tol_m,
+                    tol_m=split_tol_m,
                     refusals=refused,
                     # §16b (3): the ground under the CARRIED PIECE — read
                     # only if the search falls back past "stands over"

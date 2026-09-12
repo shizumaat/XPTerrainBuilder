@@ -2307,3 +2307,108 @@ grouping by cluster, `[placement] contact_eps_m` in
   -> 891 seams and the count is §10's, not the atom's.
 * **Twins:** `test_components_in_contact_are_one_rigid_body`,
   `test_the_plans_contact_graph_binds_components_whatever_the_distance`.
+
+### §16c (7)-(9) THE FILL GATE GOES, THE RIGID REACH CHAINS, A SKIRT IS NOT A FLOAT (owner RULINGS 2026-09-12j)
+
+**(7) THE FILL FRACTION LEAVES CARRIER CANDIDACY.** §16 (3)'s "a carrier
+is a SOLID" stays as a CLASS rule — a line segment, a grass strip, a sign
+never carry — and `[placement] carrier_fill_min` is DELETED, not gated.
+It was the wrong instrument for that rule: a terminal's wall RING is a
+thin loop, and `LEMD54` / `LEMD59` — the walls the T2 roofs rest on,
+which overlap every roof and pass §16a (2)'s ground test — fill
+0.005-0.031 of their boxes and were struck as carriers before §16c (4)
+ranked anything.
+
+**(8) THE RIGID REACH** (`[placement] rigid_reach_m` 2.0).  SOLID
+components of one resource whose geometry comes within the reach CHAIN
+into one rigid cluster; the cluster is the atom of every group and of the
+BODY.  Line objects are excluded (§10 cuts a fence into stations on
+purpose).
+
+**(9) A SKIRT IS NOT A FLOAT.** §16b's carried-float bar reads only a
+carried body WITH NO FEET OF ITS OWN; a footed body's number is
+`ground_off`.
+
+**MEASURED (lane `v2atom` round 3, 2026-09-12; branch `claude/v2atom`).**
+Implemented in `law/structures.toml` + `law/rebake_schema.py`
+(`carrier_fill_min` deleted, `rigid_reach_m` added),
+`airport/placement_carrier.py` (the fill test gone from `carriers_for`),
+`airport/placement_census.py` (the fill test gone from the §15 census
+population; the §16b float bar skips a footed body),
+`airport/placement_cut.py` (`comp_cluster` at the reach, line objects
+excluded), `airport/placement_body.py` (THE CLUSTER IS ONE BODY: the
+`_bodies_of` groups are unioned by cluster and the PART cut may not
+divide one) and `airport/placement_plan.py` / `placement_write.py` /
+`auto_patch/engine_v2.py` / `tools/obj8_split_report.py --rigid-reach`.
+
+* **THE SHARED-REPO WRITE, CLOSED FIRST.**  `obj8_split_report.py` armed
+  nothing, and round 2's OTHH `--admit-skipped` run created
+  `Airport_mod_cache/Global Airports/+25+051.dsf.e0518fe0.text` (3.25 MB)
+  and rewrote `o4_dsf_object_positions_+25+051.cache` in the shared repo
+  with both lane-local cache env vars exported.  The entry now runs
+  inside `harness/shared_repo_guard`'s guard and its before/after audit —
+  the ONE implementation `build_airport.py` arms — and every round-3 run
+  prints `[guard] shared repo UNCHANGED by this build (full-surface
+  before/after snapshot)`.  Proven independently: a file list of
+  `/Users/noah/XPTerrainBuilderData/Airport_mod_cache/` (1,523 files,
+  name+size+mtime) taken before and after a full guarded OTHH
+  `--admit-skipped --write-pack` run is **byte-identical**.  The env
+  redirect itself was measured and HOLDS (`airport_mod_cache_root()`
+  returns the lane-local dir before and after every engine import); what
+  failed was that nothing refused or reported the write, which is what
+  the guard now does.  Twin:
+  `test_the_report_tool_arms_the_shared_repo_write_guard`.
+* **THE BARS, LEMD** (matched frame, round 2 -> round 3):
+
+  | bar | round 2 | round 3 |
+  |---|---|---|
+  | torn seams outside line/arc (0) | 0 | **0 — MET** |
+  | single-component resources in >= 2 files (0) | 0 | **0 — MET** |
+  | `HANG3` — the (8) bar | 6 files, zeros spanning **1.37 m** | **2 files, 0.45 m** (the vault arcs AND both spines on ONE zero; the 0.45 m is the one component the reach does not touch) |
+  | nothing new rides a fence | 0 | **0 — MET** |
+  | 11at item 3 / item 5 / gate-5 sign | +0.18 / -0.29 / -0.02 | **+0.06 / -0.29 / -0.02 — HELD** |
+  | 12h `Terminal4_48` | +0.04 | **+0.49** (spread 0.69 -> 0.86) |
+  | `green-STRT4` deck | +1.11 (23 files) | **+0.14 (15 files, spread 8.90 -> 3.73)** |
+  | §15 carried float > 0.5 m (0) | 0 | **0 — MET** |
+  | §16b carried piece float (0) | 122 | **103** |
+  | §16b wider than its terrain group (0) | 1,405 | **967** |
+  | files | 2,776 | **2,121** |
+  | round trip | OK | **OK**, 2,121/2,121 new `OBJECT_DEF`s, 0 rows carrying an elevation |
+  | §16a (2) refusal set | 169 | **230** |
+
+* **THE RIGID CLUSTERS DO NOT RUN AWAY.**  Five largest cluster plan
+  extents at LEMD: **5,157 m / 2,890 m / 2,514 m / 2,271 m / 2,234 m —
+  every one of them a SINGLE component** (`Munoza-LEMDzaun`,
+  `North_FSX-LEMDzaun`, three `AESlite-LEMD-VOR` markers), i.e. authored
+  that way and not chained by the reach.  129 of 7,816 clusters exceed
+  300 m, all of that class.  `Terminal4SAT_green-TEJ3`: **9 components ->
+  9 clusters** — its panels do NOT chain, which is the bar.
+* **THE COST, NAMED.**  `grass_FSX-LEMDgrass` goes 894 -> 458 files: the
+  reach chains grass tufts within 2 m into rigid mats.  Reported, not
+  judged — the resource reads as a line object per component in places
+  and not in others.
+* **(9) IS A NO-OP AT LEMD AND IS STILL RIGHT.**  `footed_carried_excluded`
+  is **0**: no carried body at LEMD publishes feet, so the bar never
+  counted one.  The `green-STRT4` +1.11 m round 2 reported was never in
+  the §16b census at all — it was this lane's own site probe reading
+  `zero - ground` on a FOOTED body with `y_zero` -1.668.  The census now
+  cannot make that mistake, and the probe's number for that body is
+  +0.14 m after (8).
+* **THE T2 ROOFS ARE STILL MISSED, AND THE ATTRIBUTION HAS MOVED.**  5 of
+  7 over 0.3 m, worst 3.03 m (round 2: 5 of 7, worst 0.97; live 1.0.320:
+  7 of 9, worst 2.80).  With the fill gate gone the `LEMD54` bodies ARE
+  candidates (`ground_off` 0.08-0.11, overlapping every roof) — and
+  §16c (4) still does not pick them, because their top under the overlap
+  stands ABOVE the roof's own base plane and "nearest BELOW the base" is
+  category 1 for anything above it.  These walls are parapets and upper
+  storeys: the roof is let INTO them, not laid on top.  The §16c (5) bar
+  (roof base within 0.3 m of the wall TOP) and the §16c (4) rule
+  (carrier top nearest below the roof base) are asking for two different
+  geometries.  Not guessed at: it is a ruling.
+* **Twins:** `test_the_rigid_reach_chains_solids_and_never_a_line_object`,
+  `test_the_16b_float_bar_excludes_a_footed_body`,
+  `test_the_report_tool_arms_the_shared_repo_write_guard`; the fence
+  twin AMENDED (the fill fraction gone, the CLASS rule kept), and two
+  cut twins amended where §16c (6)/(8) supersede them — a contact-bound
+  ribbon is ONE rigid body and 11ak (2)'s foot cut can no longer divide
+  it, which the twin now reads from both sides.

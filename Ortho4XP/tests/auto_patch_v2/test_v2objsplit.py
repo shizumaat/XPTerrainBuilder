@@ -1996,8 +1996,15 @@ def test_a_fence_never_carries_and_a_mis_anchored_carrier_is_refused():
     """§16 (3): A CARRIER IS A SOLID.  A fence segment's axis-aligned plan
     box contains the garage roof its footprint never touches — which is
     how LEMD's ``PKT4__b1`` came to ride ``LEMDzaun__b5`` 6 m under the
-    slab.  A LINE body never carries; nor does one filling less than
-    ``[placement] carrier_fill_min`` of its own box.
+    slab.  A LINE body never carries.
+
+    12j AMENDS IT: the CLASS exclusion is the whole rule and the
+    ``carrier_fill_min`` FRACTION is DELETED — it struck the thin wall
+    RINGS the T2 roofs actually rest on (`LEMD54` / `LEMD59`, fill
+    0.005-0.031, overlapping every roof and passing the ground test)
+    before §16c (4) could rank them.  A thin GRASS strip is therefore no
+    longer refused by a fraction; what keeps it from carrying a roof is
+    the rest-on ranking and, where it is a line object, its class.
 
     §16a (2): and the GROUND CHECK IS ON THE CARRIER — a candidate whose
     own zero stands further than the tolerance from the ground under ITS
@@ -2020,18 +2027,21 @@ def test_a_fence_never_carries_and_a_mis_anchored_carrier_is_refused():
     walls_box = (40.0040, -3.0010, 40.0050, -3.0000)
     walls = _cand(2, AR.BUILDING, walls_box, [walls_box], 106.0)
     roof_box = (40.0042, -3.0008, 40.0048, -3.0002)
-    args = dict(fill_min=0.2, tol_m=0.3)
+    args = dict(tol_m=0.3)
     c, why = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, walls], {},
                              [roof_box], **args)
-    assert c is walls and "stands over" in why   # not the fence, not the grass
+    assert c is walls and "stands over" in why   # not the fence
     # the same walls, now standing 6 m off the ground under their OWN feet:
     # mis-anchored, refused, and the search goes on
     refusals: dict = {}
     bad = _cand(2, AR.BUILDING, walls_box, [walls_box], 106.0, ground_off=6.0)
     c2, _w = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, bad], {},
                              [roof_box], refusals=refusals, **args)
-    assert c2 is None and refusals.get("zero_off_ground") == 1
-    assert refusals.get("line") == 1 and refusals.get("fill") == 1
+    # the GRASS is not refused by a fraction any more, so the search
+    # reaches it — and a thin strip 1 km long is exactly what the fill
+    # gate existed to stop, so the twin below pins what replaces it
+    assert refusals.get("line") == 1 and "fill" not in refusals
+    assert c2 is grass
 
 
 def test_the_16_census_reads_the_ground_under_the_bodys_own_geometry():
@@ -2090,12 +2100,14 @@ def _panels(x0, x1, y, n, z0=-10.0, z1=10.0):
     """The same sheet as ``_strip``, authored as ``n`` SEPARATE quads —
     §16c (1): the cut's atom is the connected COMPONENT, so a sheet the
     cut may divide is one that is authored in pieces.  A welded one is
-    written whole (``test_no_cut_crosses_a_connected_component``)."""
+    written whole (``test_no_cut_crosses_a_connected_component``), and
+    under §16c (7) so is one whose pieces stand within
+    ``[placement] rigid_reach_m`` — hence the half-panel GAP here."""
     v, t = [], []
     step = (x1 - x0) / n
     for k in range(n):
         a = x0 + step * k
-        b = a + 0.9 * step           # a GAP: touching panels weld into one
+        b = a + 0.5 * step        # a GAP beyond §16c (7)'s rigid reach
         i = len(v)
         v += [(a, y, z0), (a, y, z1), (b, y, z0), (b, y, z1)]
         t += [(i, i + 1, i + 3), (i, i + 3, i + 2)]
@@ -2175,12 +2187,17 @@ def test_a_carried_roof_follows_its_walls_own_terrain_re_cut(tmp_path):
                  (1, 0.0, 0.0, 40.0, 0.0, 10.0),
                  (2, 0.0, 0.0, 80.0, 0.0, 10.0)], "objects/walls.obj"),
         (roof, [(0, 6.0, 0.0, 40.0, 6.0, 50.0)], "objects/roof.obj"),
-    ], contacts=((0, 1), (1, 2)))          # ONE welded body of three parts
+    ])
+    # §16c (6) AMENDS THIS FIXTURE: the three wall boxes stand 40 m apart
+    # and were DECLARED in ε-contact, which now makes them ONE rigid
+    # cluster no cut may divide.  They are what they look like — three
+    # separate buildings — so the contact is dropped and each is its own
+    # body from the start; what the twin reads is unchanged, that the
+    # ROOF over them is cut into one piece per carrier.
     surface = _stepped([(-12.0, 12.0, 600.0), (28.0, 52.0, 605.0),
                         (68.0, 92.0, 610.0)])
     ss = PP.build_splits(plan, surface, write=False, **_elev_args())
     w = [s for s in ss.all if s.resource == "objects/walls.obj"][0]
-    assert ss.counts.get("bodies_re_cut_by_terrain") == 1
     assert len(w.bodies) == 3                     # the walls' own terrain groups
     r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
     assert len(r.bodies) == 3, [b.merged_into for b in r.bodies]
@@ -2279,7 +2296,7 @@ def test_a_basin_body_is_never_refused_as_a_carrier():
 
     pit_box = (40.0040, -3.0010, 40.0050, -3.0000)
     tower_box = (40.0042, -3.0008, 40.0048, -3.0002)
-    args = dict(fill_min=0.2, tol_m=0.3)
+    args = dict(tol_m=0.3)
     # the SAME body, read as a building: mis-anchored on its own feet
     refusals: dict = {}
     bldg = _cand(2, AR.BUILDING, pit_box, 600.0, 7.0)
@@ -2438,16 +2455,29 @@ def test_a_body_whose_own_feet_are_off_the_ground_is_re_cut_by_its_feet(tmp_path
     # their own (a piece whose feet are authored metres up is ELEVATED
     # and joins the ground piece it stands over), and that is its own
     # law, twinned above.
-    ss = PP.build_splits(plan, surface, write=False,
+    # §16c (6) SUPERSEDES 11ak (2) FOR A CONTACT-BOUND BODY, and this is
+    # the reading that says so: the plan's own ε-contact graph links
+    # these three treads, so they are ONE rigid cluster — one zero, one
+    # carrier — and no cut may divide them by their feet.  The class 11ak
+    # named is not gone: it is now REPORTED as the body §16a (2) refuses
+    # (its own feet disagree), which is what the refusal set counts.
+    ss = PP.build_splits(plan, surface, write=False, contact_eps_m=0.002,
                          **_elev_args(elevated_base_m=10.0,
                                       line_stations_max=64))
     s = ss.all[0]
-    assert len(s.bodies) == 3, [b.anchor.reason for b in s.bodies]
-    # every piece now stands where its own feet say it does, so §16a (2)
-    # accepts every one of them as a carrier
+    assert len(s.bodies) == 1, [b.anchor.reason for b in s.bodies]
+    assert ss.counts.get("bodies_re_cut_by_foot", 0) == 0
+    # UNBOUND — no contact graph, no reach — the same three treads are
+    # three atoms and the terrain/foot reading divides them as before
+    import dataclasses as _dcm
+    plan2 = _dcm.replace(plan, contacts=())
+    ss2 = PP.build_splits(plan2, surface, write=False,
+                          **_elev_args(elevated_base_m=10.0,
+                                       line_stations_max=64))
+    assert len(ss2.all[0].bodies) == 3
     assert sorted(round(b.anchor.surface_z - b.anchor.y_zero, 3)
-                  for b in s.bodies) == [596.0, 598.0, 600.0]
-    for b in s.bodies:
+                  for b in ss2.all[0].bodies) == [596.0, 598.0, 600.0]
+    for b in ss2.all[0].bodies:
         assert b.ground_off is not None and b.ground_off <= 0.3, b.anchor.reason
     # ... and the whole body, uncut, is the body the law refuses
     cutter = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0)
@@ -2905,18 +2935,18 @@ def test_the_fallback_carrier_is_bounded_by_the_ground_under_the_piece():
     far_box = (40.01, -3.0, 40.0102, -2.9998)      # no overlap: the fallback
     refusals: dict[str, int] = {}
     got = _PC.carriers_for(frozenset({9}), far_box, [cand], {}, (),
-                           fill_min=0.2, tol_m=0.3, refusals=refusals,
+                           tol_m=0.3, refusals=refusals,
                            carried_ground=lambda: 104.0)
     assert got == [] and refusals.get("far_from_carried_ground") == 1
     # the same candidate, with the ground under the piece at its own zero
     ok = _PC.carriers_for(frozenset({9}), far_box, [cand], {}, (),
-                          fill_min=0.2, tol_m=0.3,
+                          tol_m=0.3,
                           carried_ground=lambda: 100.0)
     assert ok and ok[0][0] is cand
     # and a candidate the body STANDS OVER is never asked
     over = _PC.carriers_for(frozenset({9}), (40.0, -3.0, 40.0002, -2.9998),
                             [cand], {}, ((40.0, -3.0, 40.0002, -2.9998),),
-                            fill_min=0.2, tol_m=0.3,
+                            tol_m=0.3,
                             carried_ground=lambda: 104.0)
     assert over and over[0][0] is cand
 
@@ -2937,9 +2967,9 @@ def test_the_candidate_index_offers_the_same_carriers_as_the_full_scan():
     for i in (0, 7, 39):
         box = (40.0 + 0.001 * i, -3.0, 40.0 + 0.001 * i + 0.0001, -2.99995)
         full = _PC.carriers_for(frozenset({99}), box, cands, {}, (box,),
-                                fill_min=0.2, tol_m=0.3)
+                                tol_m=0.3)
         fast = _PC.carriers_for(frozenset({99}), box, cands, {}, (box,),
-                                fill_min=0.2, tol_m=0.3,
+                                tol_m=0.3,
                                 solid_cands=cands, index=index)
         assert [c.resource for c, _w in full] == [c.resource for c, _w in fast]
 
@@ -3043,11 +3073,11 @@ def test_the_carrier_is_what_the_body_rests_on():
                           top_y=18.0, part_tops=(18.0,))
     roof = (40.0003, -2.9997, 40.0007, -2.9993)
     got = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
-                           fill_min=0.2, tol_m=0.3, base_y=18.05)
+                           tol_m=0.3, base_y=18.05)
     assert got and got[0][0] is walls and "rests on it" in got[0][1]
     # without the body's base plane the ranking is the old largest-overlap
     old = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
-                           fill_min=0.2, tol_m=0.3)
+                           tol_m=0.3)
     assert old and old[0][0] is floor
 
 
@@ -3163,3 +3193,100 @@ def test_the_plans_contact_graph_binds_components_whatever_the_distance(tmp_path
                              contact_eps_m=0.002,
                              contact_pairs=((0, 1), (1, 2)))
     assert len(set(bound.comp_cluster())) == 1
+
+
+def test_the_report_tool_arms_the_shared_repo_write_guard():
+    """RULINGS 2026-09-12j: a lane replay is a MEASUREMENT and must cost
+    the shared data repo ZERO writes.
+
+    `tools/obj8_split_report.py` armed nothing until round 3: an OTHH
+    `--admit-skipped` run created
+    `Airport_mod_cache/Global Airports/+25+051.dsf.e0518fe0.text` (3.25 MB)
+    and rewrote `o4_dsf_object_positions_+25+051.cache` in the shared repo
+    with BOTH lane-local cache env vars exported, and nothing refused or
+    reported it.  What is twinned is the WIRING — that the entry runs
+    inside `shared_repo_guard`'s guard and its before/after audit, from
+    the ONE implementation `harness/build_airport.py` arms (a second copy
+    is the census-wrapper defect)."""
+    import ast
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[2]
+    src = (root / "tools" / "obj8_split_report.py").read_text()
+    tree = ast.parse(src)
+    main = next(n for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    body = ast.dump(main)
+    # the guard, its snapshot audit and the refusal report all come from
+    # shared_repo_guard, and main() is the entry that arms them
+    assert "shared_repo_guard" in ast.dump(tree)
+    for name in ("SharedRepoWriteGuard", "shared_repo_snapshot",
+                 "snapshot_diff", "report_unauthorised_writes",
+                 "require_no_unauthorised_writes"):
+        assert name in body, name
+    # nothing here is authorised: the guard is built with an EMPTY scope
+    assert "With(" in body and "Try(" in body
+    # and the real work is one level down, so the audit wraps all of it
+    assert any(isinstance(n, ast.FunctionDef) and n.name == "_main"
+               for n in tree.body)
+
+
+def test_the_rigid_reach_chains_solids_and_never_a_line_object(tmp_path):
+    """§16c (7) (RULINGS 2026-09-12j): SOLID components of one resource
+    within `[placement] rigid_reach_m` chain into ONE rigid cluster —
+    LEMD's `HANG3` vault arcs stand 1.507-1.853 m from its spines with
+    ZERO ε-contacts, and written at their own zeros a continuous arcing
+    roof steps.  A LINE object is EXCLUDED: §10 cuts a fence into
+    stations on purpose and chaining its posts re-assembles the run."""
+    # three plates 1 m apart: one rigid object under the 2 m reach
+    v, tris = [], []
+    for k in range(3):
+        i = len(v)
+        x = 5.0 * k
+        v += [(x, 0.0, 0.0), (x + 4.0, 0.0, 0.0), (x + 4.0, 0.0, 4.0),
+              (x, 0.0, 4.0)]
+        tris += [(i, i + 1, i + 2), (i, i + 2, i + 3)]
+    path = _write_obj(tmp_path / "vault.obj", v, [("", tris)])
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
+    m = plan.units[0].members[0]
+    far = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0,
+                           contact_eps_m=0.002, rigid_reach_m=0.0)
+    assert len(set(far.comp_cluster())) == 3          # the reach disarmed
+    near = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0,
+                            contact_eps_m=0.002, rigid_reach_m=2.0)
+    assert len(set(near.comp_cluster())) == 1         # ONE rigid cluster
+    # a LINE object of the same shape is never chained: the line law's
+    # own verdict (`is_line_object`) gates the reach
+    line = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0,
+                            contact_eps_m=0.002, rigid_reach_m=2.0)
+    line._is_line = True
+    assert len(set(line.comp_cluster())) == 3
+    # and the law ships the reach armed, above the contact tolerance
+    from auto_patch_v2.law import Law
+    pl = Law.load().tables.structures.placement
+    assert pl.rigid_reach_m > pl.contact_eps_m > 0.0
+
+
+def test_the_16b_float_bar_excludes_a_footed_body():
+    """§16c (3) (RULINGS 2026-09-12j): A SKIRT IS NOT A FLOAT.
+
+    `zero - ground under the geometry` is a float only for a body with no
+    feet that takes a carrier's zero.  LEMD's `green-STRT4` deck has
+    `y_zero` -1.668 — a skirt 1.67 m BELOW its zero plane — so the same
+    subtraction read a correctly seated deck as +1.11 m afloat.  A footed
+    body's number is `ground_off`."""
+    from auto_patch_v2.airport import placement_census as _PCE
+
+    def _body(bid, feet):
+        return {"body_id": bid, "class": "other",
+                "new_resource": f"objects/x__b{bid}.obj",
+                "merged_into": "objects/carrier__b0.obj", "feet": feet,
+                "surface_z": 100.0, "y_zero": -1.7,
+                "geom_pts": [[40.0, -3.0, 0.0]]}
+
+    splits = [{"placement": {"resource": "objects/x.obj"},
+               "bodies": [_body(0, 0), _body(1, 6)]}]
+    c = _PCE.census_v16b(splits, lambda la, lo: 100.0, split_tol_m=0.3)
+    # the FOOTLESS one floats 1.7 m and is the bar; the FOOTED one is out
+    assert c["carried_own_ground_gt"] == 1
+    assert c["footed_carried_excluded"] == 1
+    assert "FOOTED body(ies)" in "\n".join(_PCE.census_v16b_lines(c))

@@ -458,7 +458,6 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     _pl = Law.load().tables.structures.placement
     for line in PC.census_v15_lines(PC.census_v15(
             plan.get("splits", ()), plan.get("kept", ()),
-            fill_min=_pl.carrier_fill_min,
             ground_tol_m=_pl.split_tol_m)):
         print(line)
     # §16 (2): the float on the body's OWN GEOMETRY — the same call

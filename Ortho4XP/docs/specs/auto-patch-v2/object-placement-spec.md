@@ -2017,3 +2017,56 @@ from the one `census_v14` call).
   implemented (the deviation above). The three ring nodes with no wall cannot
   be closed by any placement law — there is no object there to place.
   Suite 1,102 passed / 1 skipped (main 1,097 / 1; five new twins).
+
+## §16c THE CONNECTED COMPONENT IS THE ATOM (Fable, 2026-09-12; RULINGS 2026-09-12b/12d)
+
+The owner's read of 1.0.320 (12b) found hangar vaults sliced, a canopy building in
+seven pieces over 11 m, the T4 approach deck in 39 pieces (worst seam 16.29 m), and
+the old terminal's roofs 0.57–0.70 m below their walls. Scout `v2lemd320`: §16b (1)'s
+cut has the authored TRIANGLE as its atom (`obj8_split.BodyCut`, `tri_owner` senior
+to the vertex vote, unowned triangles to the nearest body), so a terrain-group
+boundary falls INSIDE a connected solid and the halves are written at two zeros.
+Written-frame census: 2,554 seams where two sibling files share an authored vertex,
+1,994 with a step > 0.30 m, 2,275 of 3,561 bodies (63.9 %) on a torn seam; 19
+single-component resources written as ≥ 2 files. §16b's own MEASURED block refuted
+the finer footed triangle cut for "tearing rigid solids" and kept the same atom.
+
+1. **NO CUT CROSSES A CONNECTED COMPONENT.** Every group §9, §16 (2), §16a (1) and
+   §16b (1) form — terrain, foot, carrier — is formed over COMPONENTS
+   (`obj8.solid_components`), never over triangles: a component is keyed by the
+   design surface under its OWN geometry and joins ONE group whole. A component
+   wider than its terrain stays whole (a vault, a deck slab, a canopy) — one file,
+   one zero. The only station cuts are §10's line segments and §14a's basin arcs
+   (drape-class by ruling), and those pieces are the only sibling files allowed to
+   share an authored vertex. `split_obj8` never assigns a triangle to a body that
+   does not own its component.
+2. **THE CARRIER QUESTION IS ASKED ONCE PER COMPONENT** (§16b (2) read on
+   components), and the bounded fallback §16b (3) reads the ground under the
+   component's CONTACT — its feet, or where it stands over the candidate — never
+   the median of its footprint (the deck slab's median ground was the underpass
+   floor 15 m below its pier feet).
+3. **A FOOT OVER A STRUCTURE CUT IS NOT A GROUND FOOT.** §9's low-side rule and
+   §16a (2)'s carrier ground test ignore feet whose surface sample lands on a
+   `tunnel_ramp` / tunnel floor / basin-interior face: the body spans the cut. The
+   lane MEASURES this first — whether `PKT4__b0`'s zero 611 is a trench foot — and
+   implements it only if so; otherwise reports the refutation.
+4. **THE CARRIER IS WHAT THE BODY RESTS ON** (§15 (1)(a) amended): among the
+   candidates a body plan-overlaps, the carrier is the one whose TOP surface under
+   the overlap lies nearest below the body's base plane; largest overlap breaks
+   ties only. A 158 m² wall whose top meets the roof beats a 129,113 m² floor slab
+   17 m below it. (`LEMD41__b1` on `LEMD52__b0` reads 0.01 m today; every other T2
+   roof rode `LEMD38`'s floor pieces.)
+5. **THE BAR INSTRUMENT IS THE WRITTEN FRAME**: `obj8_split_report` (and the
+   `--write-pack` census) print the TORN-SEAM census — sibling files of one
+   placement sharing an authored vertex, the base step per seam, by class — from
+   the written files (the scout's `tear.py`, promoted on this second use). Bars,
+   LEMD 1.0.320 frame + OTHH: torn seams outside line/arc pieces **0**; single-
+   component resources in ≥ 2 files **0**; the four sites — `HANG3` vault one file
+   per component, seams 0; `green-LEMD50` ≤ 2 files; `green-STRT4` deck components
+   c0/c2/c3/c41/c42 one file each, no piece more than `split_tol_m` below its pier
+   feet; T2 roofs `TEJ3/tej2_teilb/LEMD58/LEMD50/T2CSG` within 0.3 m of the wall
+   tops (`LEMD52/53/59/T2BCK/LEMD54`, today 0.57–0.70 m low), skylight strips in
+   ONE file; §15 carried float 0; the 11at sites held (green-TEJ3 0.02/0.04, gate-5
+   sign −0.15, T4 deck −0.05); files ≈ 900–1,400 (counterfactual estimate 899);
+   plan stage on the GRADED sampler ≤ main's and the `_surface` call count quoted
+   (the mesh-sampler cost is 12a's, measured separately); round trip OK; suite.

@@ -476,8 +476,18 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
             for bs in boxes]
     live = [i for i in range(n)
             if classes[i] != _ar.LINE_SEGMENT and hull[i] is not None]
+    # ONE SWEEP, not the full product (11ak (4)): the scan is ordered by
+    # the hull's south edge, so once a candidate STARTS north of this
+    # body's north edge neither it nor anything after it can overlap.
+    # The partition is unchanged (union-find does not care in what order
+    # it is told); what changes is that OTHH's stage stops asking the
+    # question 77 million times.
+    live.sort(key=lambda i: hull[i][0])
     for a_i, i in enumerate(live):
+        north = hull[i][2]
         for j in live[a_i + 1:]:
+            if hull[j][0] > north:
+                break
             if find(i) == find(j) or overlap(hull[i], hull[j]) <= 0.0:
                 continue
             if any(overlap(a, b) > 0.0 for a in boxes[i] for b in boxes[j]):

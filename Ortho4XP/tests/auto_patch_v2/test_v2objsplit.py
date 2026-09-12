@@ -19,6 +19,7 @@ from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import obj8_split as OS
 from auto_patch_v2.airport import placement_carrier as _PC
+from auto_patch_v2.airport import placement_cut as _CUT
 from auto_patch_v2.airport import placement_plan as PP
 
 
@@ -1851,9 +1852,15 @@ def test_the_v15_census_fails_a_carried_body_left_above_what_it_stands_on():
     assert "VIOLATED" not in "\n".join(PC.census_v15_lines(good))
 
     # a body of ANOTHER unit (another row) is out of §15 (1)'s reach and
-    # is reported as its own number, never as a float the law could close
+    # is reported as its own number, never as a float the law could
+    # close.  It is read on a body the law gave NO carrier: 11ak (1)
+    # resolves a carried body's beneath by IDENTITY (``merged_into``),
+    # and the carrier the law chose is in the body's own unit by
+    # construction — so a carried body is never out of the reading's
+    # reach, whatever its row says.
     roof["placement"]["lat"] = 41.0
     roof["bodies"][0]["surface_z"] = 106.11
+    roof["bodies"][0]["merged_into"] = None
     other = PC.census_v15([walls, roof])
     assert other["stands_over"] == 0 and other["carried_float_gt"] == 0
     assert other["stands_over_other_unit_only"] == 1
@@ -2208,3 +2215,182 @@ def test_the_mis_anchoring_test_reads_each_foots_own_authored_height():
     assert _PC.anchor_ground_off(good, (), slope) is None
     assert _PC.anchor_ground_off(
         AR.Anchor(AR.BUILDING, 40.0, -3.0, 0.0, "r", None), feet, slope) is None
+
+
+# ── 11ak: the census split, the foot re-cut, the deck over a road ────────
+
+def test_the_carried_bar_is_read_against_the_carrier_the_law_chose():
+    """11ak (1): a CARRIED body's ``beneath`` is the carrier the LAW
+    CHOSE, and a REFUSED body under it is its own class.
+
+    The body below is a roof on walls at 600 whose footprint also lies
+    over a mis-anchored body at 593 — one §16a (2) REFUSES as a carrier.
+    The law therefore put the roof on the walls, by law; reading the
+    refused body as "beneath" reports +7 m of float that no placement
+    decision produced (LEMD 3 of 4 carried floats, OTHH 23 of 39, 11aj's
+    own attribution).  The refused body is not thrown away: it is
+    counted and named, with how far its own feet stand off."""
+    big = (40.0, -3.0, 40.0004, -2.9996)
+    small = (40.0, -3.0, 40.0002, -2.9998)
+    walls = {"new_resource": "w.obj", "class": AR.BUILDING, "plan_box": list(big),
+             "foot_boxes": [list(big)], "fill": 1.0, "surface_z": 600.0,
+             "y_zero": 0.0, "feet": 8, "merged_into": None, "ground_off": 0.0}
+    bad = {"new_resource": "bad.obj", "class": AR.BUILDING,
+           "plan_box": list(small), "foot_boxes": [list(small)], "fill": 1.0,
+           "surface_z": 593.0, "y_zero": 0.0, "feet": 8, "merged_into": None,
+           "ground_off": 2.0}
+    roof = {"new_resource": "r.obj", "class": AR.BUILDING,
+            "plan_box": list(small), "foot_boxes": [list(small)], "fill": 1.0,
+            "surface_z": 600.0, "y_zero": 0.0, "feet": 0,
+            "merged_into": "w.obj", "elevated": True}
+    splits = [{"placement": {"index": 1, "lat": 40.0, "lon": -3.0},
+               "bodies": [walls]},
+              {"placement": {"index": 2, "lat": 40.0, "lon": -3.0},
+               "bodies": [bad]},
+              {"placement": {"index": 3, "lat": 40.0, "lon": -3.0},
+               "bodies": [roof]}]
+    # the mis-anchored body is the one the FOOTPRINT reading picks (it
+    # covers the roof exactly, and of two bodies over one the smaller is
+    # what it stands on) — which is why the pre-11ak census reported
+    # +7 m of float here.  The FOOTED body beside it reads that way
+    # still: it takes no carrier, and what it stands over is the
+    # question.
+    footed = dict(roof, new_resource="f.obj", merged_into=None, feet=4,
+                  elevated=False, ground_off=0.0)
+    fs = splits[:2] + [{"placement": {"index": 4, "lat": 40.0, "lon": -3.0},
+                        "bodies": [footed]}]
+    assert _PC.census_v15(fs, (), ground_tol_m=0.3)["footed_worst"][0][2] \
+        == "bad.obj"
+    # the law's own reading: the carrier it chose, and the refused body
+    # counted as what it is
+    c = _PC.census_v15(splits, (), ground_tol_m=0.3)
+    assert c["carried_float_gt"] == 0 and c["bars_ok"] is True
+    assert c["refused_as_carrier"] == 1
+    assert c["carried_over_refused"] == 1
+    assert c["carried_over_refused_worst"][0][1] == "r.obj"
+    assert "own feet off by 2.00 m" in c["carried_over_refused_worst"][0][2]
+    lines = "\n".join(_PC.census_v15_lines(c))
+    assert "carried over a REFUSED body" in lines
+
+
+def _ramp(x1=30.0, slope=0.2, n=30, half_z=2.0):
+    """ONE WELDED ribbon rising with ``x`` — the shape of a body whose own
+    FEET are authored over metres of relief while the ground under it
+    barely moves (LEMD's ``green-PKT4``, 7.4 m of authored fall on 0.5 m
+    of terrain).  One component, so no PART cut can divide it."""
+    v, t = [], []
+    for k in range(n + 1):
+        x = x1 * k / n
+        v += [(x, x * slope, -half_z), (x, x * slope, half_z)]
+    for k in range(n):
+        a, b, c, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
+        t += [(a, b, d), (a, d, c)]
+    return v, t
+
+
+def test_a_body_whose_own_feet_are_off_the_ground_is_re_cut_by_its_feet(tmp_path):
+    """11ak (2) / §16 (2): A FOOTED BODY MIS-ANCHORED ON ITS OWN FEET IS
+    RE-CUT BY THEM.
+
+    Neither §16 (2) cut can see this class: the ground under the body is
+    FLAT, so the part cut reads one zero and the triangle cut's own
+    pre-test never fires, while the body's FEET are authored over 4 m and
+    §6 drops the whole body to its low-side foot.  That is exactly the
+    body §16a (2) then refuses as a carrier — LEMD 117 of them, and the
+    roofs over them ride whatever the search reaches next.
+
+    Cut by its feet, each piece anchors on feet that meet the ground."""
+    from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
+
+    v, t = _ramp()
+    path = _write_obj(tmp_path / "stair.obj", v, [("", t)])
+    ml, mo = AR._m_per_deg(40.0)
+    # ONE part, ONE component, THREE feet — the authored (x, z) -> plan
+    # map of ``authored_latlon`` puts x on the LONGITUDE axis
+    feet = tuple((40.0, -3.0 + x / mo, x * 0.2)
+                 for x in (0.0, 10.0, 20.0))
+    part = Part(pid=0, comp=0, lat=40.0, lon=-3.0 + 15.0 / mo, base_y=0.0,
+                area_m2=120.0,
+                box=(40.0 - 2.0 / ml, -3.0, 40.0 + 2.0 / ml, -3.0 + 30.0 / mo),
+                feet=feet)
+    m = Member(id="dsf:obj1", resource="objects/stair.obj",
+               authored_path=str(path), live_path=str(path),
+               heading_deg=0.0, parts=(part,))
+    plan = RebakePlan(icao="TEST", pack_name="pack", pack_root=str(tmp_path),
+                      units=(Unit("u0", (40.0, -3.0), 0.0, (m,)),), skipped=(),
+                      counts={})
+    surface = _flat(600.0)
+    # ``elevated_base_m`` is put out of the way so this twin reads the
+    # CUT and nothing else: §13 still decides which pieces get files of
+    # their own (a piece whose feet are authored metres up is ELEVATED
+    # and joins the ground piece it stands over), and that is its own
+    # law, twinned above.
+    ss = PP.build_splits(plan, surface, write=False,
+                         **_elev_args(elevated_base_m=10.0,
+                                      line_stations_max=64))
+    assert ss.counts.get("bodies_re_cut_by_foot") == 1
+    assert ss.counts.get("terrain_foot_groups") == 3
+    s = ss.all[0]
+    assert len(s.bodies) == 3, [b.anchor.reason for b in s.bodies]
+    # every piece now stands where its own feet say it does, so §16a (2)
+    # accepts every one of them as a carrier
+    assert sorted(round(b.anchor.surface_z - b.anchor.y_zero, 3)
+                  for b in s.bodies) == [596.0, 598.0, 600.0]
+    for b in s.bodies:
+        assert b.ground_off is not None and b.ground_off <= 0.3, b.anchor.reason
+    # ... and the whole body, uncut, is the body the law refuses
+    cutter = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0)
+    whole = _CUT._whole_body([part], m, plan.units[0], surface, (), (), 0.3)
+    assert _PC.anchor_ground_off(whole[1], whole[2], surface) > 0.3
+    assert len(cutter.foot_groups([part], surface, 0.3, 64)) == 3
+
+
+def test_a_deck_on_a_kept_whole_carrier_names_that_carrier(tmp_path):
+    """11ak (3), OTHH's bus-bridge decks: the carrier is a placement
+    written WHOLE, so ``merged_into`` names its MEMBER RESOURCE and not a
+    body file — and a census that resolves the law's carrier only among
+    body files finds nothing and falls back to whatever the deck's
+    footprint lies over.  That is the whole of OTHH's residual: every one
+    of the ten was a deck on a ramp, measured against the road body on
+    the ground beside it (+4.36 m of float no placement decision made).
+
+    Not the shared-zero collapse: the deck IS cut across its carriers —
+    the collapse only drops a candidate standing within ``split_tol_m``
+    of one already kept, and a ramp's groups stand metres apart."""
+    box = (40.0, -3.0, 40.0004, -2.9996)
+    # the deck stands over BOTH, and of two bodies that cover it the
+    # SMALLER is what the footprint reading picks: the road
+    small = (40.0, -3.0, 40.0002, -2.9998)
+    # the ramp: ONE body, kept whole, its file named without a __b suffix
+    ramp = {"new_resource": "ramp__b0.obj", "class": AR.BUILDING,
+            "plan_box": list(box), "foot_boxes": [list(box)], "fill": 1.0,
+            "surface_z": 600.0, "y_zero": -4.36, "feet": 8,
+            "merged_into": None, "ground_off": 0.0}
+    road = {"new_resource": "road__b0.obj", "class": AR.BUILDING,
+            "plan_box": list(small), "foot_boxes": [list(small)], "fill": 1.0,
+            "surface_z": 600.0, "y_zero": 0.0, "feet": 8, "merged_into": None,
+            "ground_off": 0.0}
+    deck = {"new_resource": "deck__b3.obj", "class": AR.BUILDING,
+            "plan_box": list(small), "foot_boxes": [list(small)], "fill": 1.0,
+            "surface_z": 600.0, "y_zero": -4.36, "feet": 0,
+            "merged_into": "objects/ramp.obj", "elevated": True}
+    splits = [{"placement": {"index": 1, "lat": 40.0, "lon": -3.0,
+                             "resource": "objects/ramp.obj"},
+               "bodies": [ramp]},
+              {"placement": {"index": 2, "lat": 40.0, "lon": -3.0,
+                             "resource": "objects/road.obj"},
+               "bodies": [road]},
+              {"placement": {"index": 3, "lat": 40.0, "lon": -3.0,
+                             "resource": "objects/deck.obj"},
+               "bodies": [deck]}]
+    c = _PC.census_v15(splits, (), ground_tol_m=0.3)
+    assert c["carried_float_gt"] == 0 and c["bars_ok"] is True
+    assert c["carried_no_law_carrier"] == 0
+    # ... and with the kept-whole key gone the census cannot name the
+    # carrier and reports the deck as 4.36 m over the ROAD beside it
+    blind = [dict(s, placement={k: v for k, v in s["placement"].items()
+                                if k != "resource"}) for s in splits]
+    b = _PC.census_v15(blind, (), ground_tol_m=0.3)
+    assert b["carried_float_gt"] == 1
+    assert b["carried_worst"][0][2] == "road__b0.obj"
+    assert b["carried_no_law_carrier"] == 1

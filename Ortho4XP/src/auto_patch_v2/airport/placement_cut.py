@@ -250,6 +250,121 @@ class _LineCutter:
         return out
 
 
+    def foot_groups(self, parts: _t.Sequence[Part], surface: _ar.Surface,
+                    tol_m: float, cap: int
+                    ) -> list[tuple[tuple[tuple[int, int, int], ...],
+                                    tuple[tuple[float, float, float], ...]]]:
+        """§16 (2) BY FOOT (11ak (2)): one FOOTED body's ``(triangles,
+        feet)`` per group of feet that meet the ground at ONE zero.
+
+        §16 (2)'s existing cuts ask what the GROUND under a body does —
+        the part cut reads one zero per part, the triangle cut the ground
+        under each triangle.  Neither sees the body whose own FEET
+        disagree over ground that barely moves: ``Terminal4_green-PKT4``
+        b8 stands on 0.5 m of relief and its feet are authored over 7.4 m
+        of it, so the anchor rule drops the whole body to its low-side
+        foot and every other foot floats.  That is exactly the body
+        §16a (2) then REFUSES as a carrier (LEMD 117 of them), and a
+        refused carrier is a body the roofs over it cannot ride.
+
+        So the feet themselves are grouped, by the zero each of them
+        SAYS the body has (``surface(foot) - y_foot``, §7's own reading
+        and :func:`placement_carrier.anchor_ground_off`'s), at ``tol_m``
+        by the same greedy rule the ground cut uses; each triangle joins
+        the group of the foot NEAREST it in plan, so a wall stays with
+        the floor it stands on rather than with whatever height its own
+        vertices reach.  Each piece then anchors on feet that meet the
+        ground.
+
+        Returns ``[]`` when the feet read one level, when fewer than two
+        feet read at all, or when the file cannot be parsed."""
+        if tol_m <= 0.0 or cap <= 0 or not parts or not self._read():
+            return []
+        feet = [(float(f[0]), float(f[1]), float(f[2]))
+                for p in parts for f in p.feet]
+        if len(feet) < 2:
+            return []
+        import numpy as np
+        ml, mo = _ar._m_per_deg(self.lat)
+        # the same per-cell sampling the triangle cut uses, and for the
+        # same reason: the design surface's faces are metres across
+        cell: dict[tuple[int, int], "float | None"] = {}
+
+        def _ground(la: float, lo: float) -> "float | None":
+            k = (int(round(la * ml / GROUND_CELL_M)),
+                 int(round(lo * mo / GROUND_CELL_M)))
+            if k not in cell:
+                cell[k] = surface(la, lo)
+            return cell[k]
+
+        zeros: list[float] = []
+        pick: list[tuple[float, float, float]] = []
+        for f in feet:
+            z = _ground(f[0], f[1])
+            if z is None:
+                continue
+            zeros.append(float(z) - f[2])
+            pick.append(f)
+        if len(pick) < 2 or max(zeros) - min(zeros) <= tol_m:
+            return []
+        buckets: list[list[int]] = []
+        levels: list[float] = []
+        for i in sorted(range(len(pick)), key=lambda q: zeros[q]):
+            for bi, lv in enumerate(levels):
+                if abs(zeros[i] - lv) <= tol_m:
+                    buckets[bi].append(i)
+                    break
+            else:
+                if len(buckets) >= cap:
+                    buckets[min(range(len(levels)),
+                               key=lambda bi: abs(zeros[i] - levels[bi]))
+                            ].append(i)
+                    continue
+                buckets.append([i])
+                levels.append(zeros[i])
+        if len(buckets) < 2:
+            return []
+        tri_list = [self._comps[p.comp].tris for p in parts
+                    if 0 <= p.comp < len(self._comps)]
+        if not tri_list:
+            return []
+        tris = np.concatenate(tri_list)
+        v = self._geom.vertices
+        xs = v[tris, 0].mean(axis=1)
+        zz = v[tris, 2].mean(axis=1)
+        h = math.radians(self.m.heading_deg)
+        sn, cs = math.sin(h), math.cos(h)
+        e = xs * cs - zz * sn
+        n = -(xs * sn + zz * cs)
+        tla = (self.lat + n / ml) * ml
+        tlo = (self.lon + e / mo) * mo
+        fla = np.array([f[0] for f in pick]) * ml
+        flo = np.array([f[1] for f in pick]) * mo
+        of_foot = np.empty(len(pick), dtype=np.int64)
+        for bi, b in enumerate(buckets):
+            for i in b:
+                of_foot[i] = bi
+        who = np.empty(tris.shape[0], dtype=np.int64)
+        # chunked so a 40k-triangle body against 250 feet never builds
+        # one 10M-cell matrix
+        step = max(1, 1 << 20 // max(1, len(pick)))
+        for a in range(0, tris.shape[0], step):
+            b = min(a + step, tris.shape[0])
+            d = ((tla[a:b, None] - fla[None, :]) ** 2
+                 + (tlo[a:b, None] - flo[None, :]) ** 2)
+            who[a:b] = of_foot[d.argmin(axis=1)]
+        out = []
+        for bi, b in enumerate(buckets):
+            sel = np.nonzero(who == bi)[0]
+            if sel.shape[0] == 0:
+                continue
+            sub = tris[sel]
+            out.append((tuple(tuple(int(q) for q in row)
+                              for row in np.asarray(sub).tolist()),
+                        tuple(pick[i] for i in b)))
+        return out if len(out) > 1 else []
+
+
     def carrier_groups(self, parts: _t.Sequence[Part],
                        carrier_boxes: _t.Sequence[
                            _t.Sequence[tuple[float, float, float, float]]]
@@ -546,6 +661,44 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         for parts in pieces_p:
             base_min = min(p.base_y for p in parts)
             lowest = min(parts, key=lambda p: p.base_y)
+            # §6 on THIS piece, read at most ONCE: the gate below needs
+            # the anchor it would take, and so does the fallback at the
+            # bottom of the loop — but a piece the cuts divide needs
+            # neither, and asking anyway put 68,721 anchor readings into
+            # OTHH's stage.
+            whole = whole0 if len(pieces_p) == 1 else None
+            # §16 (2) BY FOOT (11ak (2)): IS THIS BODY MIS-ANCHORED ON
+            # ITS OWN FEET?  Neither cut below can see that class — the
+            # ground under the body barely moves and its FEET are
+            # authored over metres of relief, so the anchor rule drops
+            # the whole body to its low-side foot.  That is the body
+            # §16a (2) refuses as a carrier (LEMD 117), and a refused
+            # carrier is a body the roofs over it cannot ride.  The test
+            # is the refusal's own (:func:`anchor_ground_off`), so one
+            # reading decides both.
+            # THE CHEAP PRE-TEST, and it is the class's own: a body
+            # mis-anchored on its own feet is one whose feet are
+            # AUTHORED over more relief than the tolerance.  A body whose
+            # feet all stand at one authored height can only be off
+            # because the GROUND moves under it, which is the cut below.
+            # Pure geometry: no surface read, no anchor.
+            _fy = [f[2] for p in parts for f in p.feet]
+            off = None
+            if (not is_basin and _fy and split_tol_m > 0.0
+                    and max(_fy) - min(_fy) > split_tol_m):
+                if whole is None:
+                    whole = _whole_body(parts, m, u, surface, pads, rims,
+                                        split_tol_m)
+                off = _pc.anchor_ground_off(whole[1], whole[2], surface)
+            foot_pieces = (cutter.foot_groups(parts, surface, split_tol_m,
+                                              line_stations_max)
+                           if (off is not None and split_tol_m > 0.0
+                               and off > split_tol_m) else [])
+            if foot_pieces:
+                counts["bodies_re_cut_by_foot"] = \
+                    counts.get("bodies_re_cut_by_foot", 0) + 1
+                counts["terrain_foot_groups"] = \
+                    counts.get("terrain_foot_groups", 0) + len(foot_pieces)
             # §16 (2) BY TRIANGLE: the part cut has nothing to divide in a
             # body authored as ONE welded component (LEMD's `green-TEJ3`,
             # a roof-panel resource over 1 x 2 km).  Where the ground
@@ -554,17 +707,20 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             # them.  The pre-test is five samples; the cut itself only
             # runs on a body that fails it.
             hull = _pc.hull_of([p.box for p in parts])
-            zs = _pc.ground_samples(surface, [p.box for p in parts], hull) \
-                + _pc.ground_samples(surface, (), hull)
-            tri_pieces = (cutter.terrain_groups(parts, surface, split_tol_m,
-                                                line_stations_max)
-                          if (not is_basin and split_tol_m > 0.0 and zs
-                              and max(zs) - min(zs) > split_tol_m) else [])
+            zs = ([] if foot_pieces
+                  else _pc.ground_samples(surface, [p.box for p in parts], hull)
+                  + _pc.ground_samples(surface, (), hull))
+            tri_pieces = foot_pieces or (
+                cutter.terrain_groups(parts, surface, split_tol_m,
+                                      line_stations_max)
+                if (not is_basin and split_tol_m > 0.0 and zs
+                    and max(zs) - min(zs) > split_tol_m) else [])
             if tri_pieces:
-                counts["bodies_re_cut_by_triangle"] = \
-                    counts.get("bodies_re_cut_by_triangle", 0) + 1
-                counts["terrain_triangle_groups"] = \
-                    counts.get("terrain_triangle_groups", 0) + len(tri_pieces)
+                if not foot_pieces:
+                    counts["bodies_re_cut_by_triangle"] = \
+                        counts.get("bodies_re_cut_by_triangle", 0) + 1
+                    counts["terrain_triangle_groups"] = \
+                        counts.get("terrain_triangle_groups", 0) + len(tri_pieces)
                 for tris, tfeet in tri_pieces:
                     tlow = min(tfeet, key=lambda f: f[2])
                     tcls = _ar.classify_body(
@@ -590,10 +746,10 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                 is_elevated(tlow[2], ta, elevated_base_m)
                                 or tfootless, tris))
                 continue
-            cls, a, feet, footless = (
-                # one piece IS the whole body: §6 was read on it already
-                whole0 if len(pieces_p) == 1
-                else _whole_body(parts, m, u, surface, pads, rims, split_tol_m))
+            if whole is None:
+                whole = _whole_body(parts, m, u, surface, pads, rims,
+                                    split_tol_m)
+            cls, a, feet, footless = whole
             raw.append((list(parts), a.body_class, a, feet,
                         is_elevated(base_min, a, elevated_base_m) or footless, ()))
     return raw

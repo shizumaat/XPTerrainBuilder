@@ -225,15 +225,24 @@ def solid_components(geom: ObjGeometry) -> list[Component]:
     _n, label = connected_components(g, directed=False)
     tri_label = label[t[:, 0]]
     v = geom.vertices
+    # THE COMPONENTS ARE READ IN ONE SORT (11ak (4)), not one MASK OVER
+    # EVERY TRIANGLE PER COMPONENT: a pack's clutter object publishes
+    # thousands of components over tens of thousands of triangles, and
+    # the mask form is quadratic in the two — measured at OTHH, 20 s of
+    # the plan stage inside this loop alone.  Sorting once and splitting
+    # at the label boundaries does the same work in O(n log n), and the
+    # components come out in the same (ascending-label) order.
+    order = np.argsort(tri_label, kind="stable")
+    lab_sorted = tri_label[order]
+    cuts = np.flatnonzero(lab_sorted[1:] != lab_sorted[:-1]) + 1
+    hard_deck = geom.hardness == HARD_DECK
     out: list[Component] = []
-    for lab in np.unique(tri_label):
-        mask = tri_label == lab
-        tris = geom.solid[mask]
+    for idx in np.split(order, cuts):
+        tris = geom.solid[idx]
         pts = v[tris.reshape(-1)]
         out.append(Component(tris, float(pts[:, 1].min()), float(pts[:, 1].max()),
                              float(pts[:, 0].mean()), float(pts[:, 2].mean()),
-                             bool((geom.hardness[mask] == HARD_DECK).any()),
-                             np.nonzero(mask)[0]))
+                             bool(hard_deck[idx].any()), idx))
     return out
 
 

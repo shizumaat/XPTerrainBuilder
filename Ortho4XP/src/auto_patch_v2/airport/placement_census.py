@@ -169,7 +169,8 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
     rows: list[dict] = []
     for s in splits:
         p = s.get("placement", {})
-        for b in s.get("bodies", ()):
+        bs = list(s.get("bodies", ()))
+        for b in bs:
             box = b.get("plan_box")
             sz = b.get("surface_z")
             rows.append({
@@ -205,6 +206,22 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
                 # ``footless_own_ground``) reads the terrain like a
                 # footed body and is judged like one
                 "carried": bool(b.get("merged_into")),
+                # 11ak (1): THE CARRIER THE LAW CHOSE — the file this
+                # body was merged into.  The carried-body bar is read
+                # against THIS body's zero, never against whatever the
+                # footprint happens to lie over (a candidate §16a (2)
+                # refused is not the body the law put underneath).
+                "carrier": str(b.get("merged_into") or ""),
+                # 11ak (3): a carrier KEPT WHOLE has no body file, so
+                # ``merged_into`` names its MEMBER RESOURCE
+                # (``_carried_file``'s ``carrier_res`` when the carrier
+                # was not written).  Without this key the law's carrier
+                # cannot be found at all and the census falls back to
+                # whatever the footprint lies over — OTHH's 10 remaining
+                # carried floats, every one of them a bus-bridge deck on
+                # a kept-whole ramp.
+                "whole_res": (str(p.get("resource", "")) if len(bs) == 1
+                              else ""),
             })
     return rows
 
@@ -223,11 +240,18 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 
         float = zero - zero_beneath
 
-    — where ``beneath`` is the FOOTED body of another placement with the
-    largest plan overlap under this body's footprint (the same
-    stands-over relation :func:`carrier_for` picks its carrier by, so the
+    — where ``beneath`` is, for a CARRIED body, THE CARRIER THE LAW
+    CHOSE (``merged_into``; 11ak (1)), and for a FOOTED one the body of
+    another placement with the largest plan overlap under its footprint
+    (the same stands-over relation :func:`carrier_for` ranks by, so the
     instrument and the law read the same geometry).  A body standing over
     nothing is not in the class.
+
+    A carried body whose footprint lies over a body the law REFUSES as a
+    carrier (§16a (2)) is counted and named separately — ``carried over a
+    refused body``, with how far that body's own feet stand off — because
+    what that number measures is the REFUSAL, not the placement: the body
+    rode whatever the search reached next, by law.
 
     Bar (§15 (6)): ``stands-over float > 0.5 m`` is ZERO for CARRIED
     bodies — a carried body takes its carrier's zero by construction, so
@@ -244,21 +268,39 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
               and (fill_min <= 0.0 or r["fill"] >= fill_min)]
     # §16a (2): which of these the LAW REFUSES to let carry anything —
     # its own zero more than ``ground_tol_m`` from the ground under its
-    # own feet.  The census does NOT drop them from the "beneath"
-    # population: §16a (3) makes ``zero - zero_beneath`` THE bar and says
-    # nothing about narrowing it, and narrowing it at LEMD took the
-    # stands-over population from 610 bodies to 117.  What is reported
-    # instead is how many of the floats are measured against a body the
-    # law refused — the attribution the number needs to be read with,
-    # because a body over a refused carrier rides whatever came next and
-    # the difference is the refusal, not the placement.
+    # own feet.
+    #
+    # THE CENSUS SPLIT (11ak (1)).  A CARRIED body's "beneath" is the
+    # carrier THE LAW CHOSE (``merged_into``), not the best-ranked body
+    # its footprint happens to lie over: the law refuses a mis-anchored
+    # candidate and the body rides whatever the search reached next, so
+    # reading the refused one as "beneath" measures the REFUSAL and
+    # calls it the placement's float (LEMD: 3 of 4, OTHH 23 of 39,
+    # 11aj's own attribution).  The refused body under it is not thrown
+    # away — it is counted and named as its own class, ``carried over a
+    # refused body``, with how far that body's own feet stand off.
+    # A FOOTED body keeps the geometric reading: it takes no carrier,
+    # and what it stands over is exactly the question.
     in_unit: dict[_t.Any, list[dict]] = {}
     for g in ground:
         in_unit.setdefault(g["unit"], []).append(g)
+    # the law's carrier is resolved over EVERY row that reads a zero,
+    # not over the stands-over population: what the law chose is a fact
+    # about the plan, and a carrier that is a line body or a kept-whole
+    # placement is still the body this one rides.
+    by_res: dict[str, dict] = {}
+    for r in rows:
+        if r["zero"] is not None:
+            by_res.setdefault(r["res"], r)
+    for r in rows:
+        if r["zero"] is not None and r["whole_res"]:
+            by_res.setdefault(r["whole_res"], r)
     carried_over: list[tuple[float, str, str]] = []
     footed_over: list[tuple[float, str, str]] = []
+    refused_rows: list[tuple[float, str, str]] = []
     n_stands = 0
     cross = 0
+    no_law_carrier = 0
     off_sheet = sum(1 for r in rows if r["zero"] is None or not r["box"])
     refused = {id(g) for g in ground
                if ground_tol_m > 0.0 and g["ground_off"] is not None
@@ -267,13 +309,34 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     for r in rows:
         if r["zero"] is None or not r["box"]:
             continue
-        best_ov, under = (0.0, 0.0), None
+        best_ov, geo = (0.0, 0.0), None
         for g in in_unit.get(r["unit"], ()):
             if g["idx"] == r["idx"]:
                 continue
             ov = stands_over_rank(r["box"], g["box"], r["fboxes"], g["fboxes"])
             if ov > best_ov:
-                best_ov, under = ov, g
+                best_ov, geo = ov, g
+        under = geo
+        if r["carried"]:
+            # the law's own answer, by the file the body was merged into
+            law_under = by_res.get(r["carrier"] or "")
+            if law_under is not None and law_under["zero"] is not None:
+                under = law_under
+            elif geo is not None:
+                # the carrier is off-sheet, or is not a body of this
+                # plan's stands-over population (a carrier whose own
+                # file the body joined): the geometric reading stands,
+                # and the count says so
+                no_law_carrier += 1
+            if (geo is not None and id(geo) in refused and geo is not under
+                    and r["zero"] - geo["zero"] > float_tol_m):
+                # the row the old reading counted as a carried float:
+                # the same threshold, the same body, named as what it
+                # is.  The two counts therefore ADD to the old one.
+                over_refused += 1
+                refused_rows.append((r["zero"] - geo["zero"], r["res"],
+                                     f"{geo['res']} (own feet off by "
+                                     f"{geo['ground_off']:.2f} m)"))
         if under is None:
             # it stands over a body of ANOTHER unit, which §15 (1)'s
             # search cannot reach: reported as its own number, never
@@ -286,10 +349,9 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         if f > float_tol_m:
             (carried_over if r["carried"] else footed_over).append(
                 (f, r["res"], under["res"]))
-            if r["carried"] and id(under) in refused:
-                over_refused += 1
     carried_over.sort(reverse=True)
     footed_over.sort(reverse=True)
+    refused_rows.sort(reverse=True)
     return {"stands_over": n_stands,
             "stands_over_float_gt": len(carried_over) + len(footed_over),
             "carried_float_gt": len(carried_over),
@@ -301,6 +363,8 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "float_tol_m": float_tol_m,
             "refused_as_carrier": len(refused),
             "carried_over_refused": over_refused,
+            "carried_over_refused_worst": refused_rows[:10],
+            "carried_no_law_carrier": no_law_carrier,
             "bars_ok": not carried_over}
 
 
@@ -317,12 +381,22 @@ def census_v15_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + ("" if not c["carried_float_gt"] else
               "   *** §15 (1) VIOLATED (bar 0) ***")
            + f", footed {c['footed_float_gt']} (reported, not barred)"
-           + (f"; {c['carried_over_refused']} of the carried floats stand "
-              f"over one of the {c['refused_as_carrier']} footed body(ies) "
-              f"the law REFUSES as a carrier (§16a (2))"
+           + (f" — the carried bar is read against the CARRIER THE LAW "
+              f"CHOSE (11ak (1))"
               if c.get("refused_as_carrier") else "")]
+    if c.get("refused_as_carrier"):
+        out.append(
+            f"   §15 carried over a REFUSED body (counted separately, not "
+            f"barred): {c['carried_over_refused']} carried body(ies) stand "
+            f"over one of the {c['refused_as_carrier']} footed body(ies) "
+            f"§16a (2) refuses as a carrier"
+            + (f"; {c['carried_no_law_carrier']} carried body(ies) have no "
+               f"carrier row in this population and keep the geometric "
+               f"reading" if c.get("carried_no_law_carrier") else ""))
     for f, res, under in c.get("carried_worst", ()):
         out.append(f"      carried +{f:.2f} m  {res}  over {under}")
+    for f, res, under in c.get("carried_over_refused_worst", ()):
+        out.append(f"      beneath refused ({f:+.2f} m)  {res}  over {under}")
     for f, res, under in c.get("footed_worst", ()):
         out.append(f"      footed  +{f:.2f} m  {res}  over {under}")
     return out

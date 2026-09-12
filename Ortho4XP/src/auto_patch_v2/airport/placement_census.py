@@ -19,6 +19,7 @@ from __future__ import annotations
 import typing as _t
 
 from . import anchor_rule as _ar
+from . import basin_ring as _br
 from .placement_carrier import (ground_samples, overlap, stands_over_rank)
 
 __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
@@ -48,7 +49,10 @@ FOOTLESS_KEPT = (KEPT_FOOTLESS, KEPT_NO_CARRIER)
 
 def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                kept: _t.Sequence[_t.Mapping[str, _t.Any]],
-               *, elevated_base_m: float, split_tol_m: float) -> dict:
+               *, elevated_base_m: float, split_tol_m: float,
+               rims: _t.Sequence[_ar.RimRing] = (),
+               arc_cap: int = 0,
+               counts: _t.Mapping[str, _t.Any] = {}) -> dict:
     """§14 (4), over the PLACEMENT PLAN's own rows
     (``model/placement.Split.to_dict()`` — the shape the app writes and
     the shape ``obj8_split_report`` renders, so the two instruments are
@@ -73,7 +77,19 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                             reported with the placement that carries it,
                             never silently.
 
-    Bars: 0 / 0 / 0 / <= ``split_tol_m``."""
+    Bars: 0 / 0 / 0 / <= ``split_tol_m``.
+
+    §14a (4) RE-DEFINES THE BASIN BAR.  ``spread`` over a ring measured
+    the pit's bodies against EACH OTHER (0.01 m at LEMD while the wall
+    stood 1.13 m off the apron), so with ``rims`` — the emitted rings
+    with their own node heights — the census reads
+    ``max |wall base - ring z|`` OVER THE RING'S NODES instead
+    (``basin_ring.ring_bar``), which is the gap the owner reads.  Without
+    ``rims`` the ring bar is not computed and the §14 reading stands.
+
+    §14a (1) also supersedes ``basin bodies split`` for the ARC pieces:
+    a basin resource written as one piece per rim arc is the law working,
+    so only bodies that are NOT §14a pieces count towards that bar."""
     at_datum: list[str] = []
     no_carrier: list[str] = []
     #: every BASIN body's zero plane, keyed by the emitted RING it
@@ -83,6 +99,10 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     #: scatter ACROSS them (593.30 ... 600.29, 7.0 m).  Per-placement
     #: alone the metric cannot see that.
     basin_ring: dict[str, list[float]] = {}
+    #: §14a (4): per ring ref, the zero of the piece written for each ARC
+    #: and the zero of its single §14 (2) piece where none was cut
+    ring_arc: dict[str, dict[int, float]] = {}
+    ring_whole: dict[str, float] = {}
     on_ground: list[tuple[float, str]] = []
     basin_split: list[str] = []
     spread: list[tuple[float, str]] = []
@@ -97,16 +117,25 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             y0 = float(off[1]) if len(off) > 1 else 0.0
             a = b.get("anchor", {})
             if b.get("class") == "basin":
-                basins += 1
+                # §14a (1): an ARC piece (and the INTERIOR remainder it
+                # leaves) is the ring cut, not a split
+                if _br.arc_index_of(b.get("anchor_reason", "")) is None \
+                        and "interior" not in str(b.get("anchor_reason", "")):
+                    basins += 1
             sz = b.get("surface_z")
             zero = None if sz is None else float(sz) - float(b.get("y_zero", y0))
             if zero is not None:
                 zeros.append(zero)
                 if b.get("class") == "basin":
                     why = str(b.get("anchor_reason", ""))
-                    key = (why.split("(", 1)[1].split(")", 1)[0]
-                           if why.startswith("basin rim (") else res)
-                    basin_ring.setdefault(key, []).append(zero)
+                    ref = _br.ring_ref_of(why)
+                    basin_ring.setdefault(ref or res, []).append(zero)
+                    if ref:
+                        k = _br.arc_index_of(why)
+                        if k is None:
+                            ring_whole.setdefault(ref, zero)
+                        else:
+                            ring_arc.setdefault(ref, {}).setdefault(k, zero)
             if not b.get("elevated"):
                 continue
             # §16 (3): a body anchored on the ground under its OWN
@@ -137,6 +166,21 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     on_ground.sort(reverse=True)
     worst = spread[0] if spread else (0.0, "")
     wbasin = basin_spread[0] if basin_spread else (0.0, "")
+    # §14a (4): THE BASIN BAR, read on the RING instead of on the bodies
+    ring_bars: list[dict] = []
+    for r in rims:
+        if not (_br.is_basin_ring(r.ref) and r.z and len(r.z) == len(r.ring)):
+            continue
+        if r.ref not in ring_arc and r.ref not in ring_whole:
+            continue
+        bar = _br.ring_bar(r.z, r.ring, ring_arc.get(r.ref, {}),
+                           ring_whole.get(r.ref), split_tol_m,
+                           arc_cap or len(r.z),
+                           wall_arcs=_br.wall_arcs_of(counts, r.ref))
+        bar["ref"] = r.ref
+        ring_bars.append(bar)
+    ring_bars.sort(key=lambda q: -q["worst"])
+    wring = ring_bars[0] if ring_bars else None
     return {"footless_at_datum": len(at_datum),
             "footless_at_datum_names": at_datum[:5],
             "footless_on_ground": len(on_ground),
@@ -147,6 +191,15 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "footless_no_carrier_names": no_carrier[:5],
             "spread_m": worst[0], "spread_resource": worst[1],
             "spread_basin_m": wbasin[0], "spread_basin_resource": wbasin[1],
+            "basin_rings": len(ring_bars),
+            "basin_ring_bars": ring_bars[:8],
+            "spread_basin_ring_m": (wring["worst"] if wring else 0.0),
+            "spread_basin_ring_ref": (wring["ref"] if wring else ""),
+            "basin_ring_nodes_over_tol": sum(q["over_tol"] for q in ring_bars),
+            "basin_ring_nodes_fallback": sum(q["fallback"] for q in ring_bars),
+            "basin_ring_fallback_worst": max((q["fallback_worst"]
+                                              for q in ring_bars), default=0.0),
+            "basin_ring_nodes_uncovered": sum(q["uncovered"] for q in ring_bars),
             "spread_over_tol": sum(1 for d, _r in spread if d > split_tol_m),
             "bars_ok": (not at_datum and not on_ground and not basin_split
                         and worst[0] <= split_tol_m)}
@@ -447,6 +500,29 @@ def census_v14_lines(c: _t.Mapping[str, _t.Any], *, elevated_base_m: float,
            f"{c['spread_basin_resource']}",
            f"   §14 footless with no footed body in their unit (their own "
            f"authored row, reported not barred): {c['footless_no_carrier']}"]
+    # §14a (4): THE BAR THE OWNER READS — the wall base against the apron
+    # edge at every node of the ring, not the pit's bodies against each
+    # other.  Printed only where the rings were handed in.
+    if c.get("basin_rings"):
+        out.append(
+            f"   §14a spread of a BASIN RING = max |wall base - ring z| over "
+            f"its nodes: {c['spread_basin_ring_m']:.2f} m "
+            f"(bar <= {split_tol_m:g} m) {c['spread_basin_ring_ref']}; "
+            f"{c['basin_ring_nodes_over_tol']} node(s) over; "
+            f"{c['basin_ring_nodes_fallback']} node(s) where the pit has NO "
+            f"WALL at all (reported, not barred, worst "
+            f"{c['basin_ring_fallback_worst']:.2f} m)"
+            + _bar(c["basin_ring_nodes_over_tol"]))
+        for q in c.get("basin_ring_bars", ()):
+            out.append(
+                f"      ring {q['ref']}: {q['nodes']} node(s), {q['arcs']} arc(s), "
+                f"{q['arcs_with_a_piece']} of them with a piece, "
+                f"wall base {q['min']:+.2f} ... {q['max']:+.2f} m over "
+                f"{q['covered']} node(s), {q['over_tol']} over; "
+                f"{q['fallback']} node(s) with no wall, {q['uncovered']} uncovered"
+                + (f" (z {', '.join('%.2f' % v for v in q['uncovered_z'])})"
+                   if q.get("uncovered_z") else ""))
+
     for name in c.get("footless_at_datum_names", ()):
         out.append(f"      at datum: {name}")
     for y, name in c.get("footless_on_ground_names", ()):

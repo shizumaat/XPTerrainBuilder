@@ -26,24 +26,25 @@ play, and that half needs no mesh at all:
 * an ε-contact edge INSIDE one placement is NEVER cut (10i (1)) — ground
   to ground, ground to elevated, elevated to elevated (10u (1)): one
   placement's touching set is ONE body.  The seat's cross-placement cut,
-  the only rule that reads a seat target, does not apply to a file cut;
+  the only rule reading a seat target, does not apply to a file cut;
 * a LINE OBJECT binds nothing (10bb): each line component is its own
-  body, and each is anchored at its own mid-foot, so a fence drapes
-  segment by segment instead of chaining 38 parts onto one foot;
+  body anchored at its own mid-foot, so a fence drapes segment by
+  segment instead of chaining 38 parts onto one foot;
 * an ELEVATED DECK abutting a kerb (10ay/11a) takes no anchor of its own
-  (§6): where the abutment is INSIDE the placement it is already the same
-  body, and where it crosses placements this reports the merge target and
-  keeps the deck's placement as authored — moving geometry BETWEEN two
-  authored files is not §4's writer and is not done here.
+  (§6): inside the placement it is already the same body, and across
+  placements this reports the merge target and keeps the deck's
+  placement as authored — moving geometry BETWEEN two authored files is
+  not §4's writer.
 
 THE CLASS OF A BODY (§6) is read off the plan and the emitted surface:
 ``basin`` when the body's lowest component stands inside an emitted
 ``structure_rim`` ring (the basin was cut to these members, 10ba, so
-containment IS the membership test at this stage); ``deck`` from the
-member's deck verdict; ``plate_only`` from its wall-plate seat (05n-4);
-``line_segment`` from the part's own 10bb verdict; ``skirted`` from
-10ag's reader, whose result the plan already carries; ``building`` when a
-skirt-less body stands inside an emitted object pad; else ``other``.
+containment IS the membership test at this stage; §14a then asks which
+of those members FORM the pit and which merely stand in it); ``deck``
+from the member's deck verdict; ``plate_only`` from its wall-plate seat
+(05n-4); ``line_segment`` from the part's own 10bb verdict; ``skirted``
+from 10ag's reader; ``building`` when a skirt-less body stands inside an
+emitted object pad; else ``other``.
 """
 from __future__ import annotations
 
@@ -55,6 +56,7 @@ import typing as _t
 
 from ..model.rebake import Member, Part, RebakePlan, Unit
 from . import anchor_rule as _ar
+from . import basin_ring as _br
 from . import line_object as _lo
 from . import obj8_split as _split
 from . import placement_carrier as _pc
@@ -105,12 +107,16 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
     as its ``(lat, lon)`` ring.  A ring shorter than 3 kept vertices is
     not a ring and is dropped (the same floor both callers used)."""
     by_id = {v[0]: (v[1], v[2]) for v in d["vertices"]}
+    # §14a: the ring carries its HEIGHTS (§24 (1) makes them the apron's)
+    z_id = {v[0]: v[3] for v in d["vertices"]}
     pads = tuple(_ar.PadRing(f["ref"],
                              tuple(by_id[i] for i in f["ring"] if i in by_id))
                  for f in d["faces"]
                  if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3)
     rims = tuple(_ar.RimRing(b["ref"],
-                             tuple(by_id[i] for i in b["vertices"] if i in by_id))
+                             tuple(by_id[i] for i in b["vertices"] if i in by_id),
+                             tuple(float(z_id[i]) for i in b["vertices"]
+                                   if i in by_id))
                  for b in d["breaklines"]
                  if b["kind"] == RIM_BREAKLINE_KIND and len(b["vertices"]) >= 3)
     return pads, rims
@@ -655,9 +661,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     3. every ELEVATED body and every FOOTLESS placement takes the
        candidate it STANDS OVER — largest plan overlap, else largest
        contact, else nearest, across the unit and every resource alike
-       (§15 (1)).  A carrier in the same member is a group the body
-       JOINS; a carrier in another member is a file the body RIDES, at
-       that file's anchor and ``y_zero``;
+       (§15 (1)); a §14a (2) FLOOR member takes none.  A carrier in the
+       same member is a group the body JOINS; one in another member is a
+       file the body RIDES, at that file's anchor and ``y_zero``;
     4. the members are CUT, carriers first.
 
     Only a unit holding NO footed body at all still keeps a placement
@@ -696,6 +702,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     by_class: dict[str, int] = {}
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
+        # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
+        # authored as several resources on one row, so no member can read
+        # it from its own parts
         staged: list[_Staged] = []
         for mi, m in enumerate(u.members):
             counts["placements"] += 1
@@ -747,7 +756,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # separates their terrain), and so does every pair of bodies
             # that OVERLAP IN PLAN, whatever the contact graph said.
             # the PART boxes, not the body hull: what stands over what
-            bound = _pc.bind_plan_overlaps(merged, part_boxes, classes)
+            # §14a (1): a basin's ARC pieces are held apart by their rim
+            bind_keys = [_br.bind_key_of(r[2].reason) for r in raw]
+            bound = _pc.bind_plan_overlaps(merged, part_boxes, classes,
+                                           bind_keys=bind_keys)
             if len(bound) < len(merged):
                 counts["bodies_plan_bound"] += len(merged) - len(bound)
                 if any(c == _ar.BASIN for c in classes):
@@ -805,10 +817,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # CARRIER — the pieces are the carrier's terrain groups
             # intersected with the body's own footprint, one per group,
             # each riding that group's zero at the authored offset.
-            targets = ([(list(range(len(st.raw))),
-                         [b for bs in st.part_boxes for b in bs])]
-                       if st.footless else
-                       [([i], list(st.part_boxes[i])) for i in sorted(st.elevated)])
+            # §14a (2): a FLOOR member takes NO carrier
+            targets, floor = _br.carrier_targets(
+                st.raw, st.part_boxes, st.elevated, st.footless)
+            if floor:
+                counts["basin_floor_own_ground"] = \
+                    counts.get("basin_floor_own_ground", 0) + len(floor)
+            st.own_ground.extend(i for i in sorted(floor)
+                                 if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             for grp, gboxes in targets:
                 bx = _pc.hull_of(gboxes)

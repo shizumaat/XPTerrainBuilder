@@ -507,10 +507,19 @@ def main() -> int:
     _sp, _kp = PP.to_placement_records(ss)
     _wh, _ = PP.to_placement_records(_dc.replace(ss, splits=ss.whole))
     v14 = PC.census_v14([q.to_dict() for q in _sp], [q.to_dict() for q in _kp],
-                        elevated_base_m=rb.elevated_base_m, split_tol_m=tol_m)
+                        elevated_base_m=rb.elevated_base_m, split_tol_m=tol_m,
+                        rims=rims, arc_cap=rb.line_object_stations_max,
+                        counts=ss.counts)
     for line in PC.census_v14_lines(v14, elevated_base_m=rb.elevated_base_m,
                                     split_tol_m=tol_m):
         print(line)
+    # §14a (2): the members the ring sent to the FLOOR (the plan's own count)
+    if ss.counts.get("basin_floor_members") or ss.counts.get("basin_bodies_arc_cut"):
+        print(f"   §14a basin FLOOR members (inside the ring, on the ground "
+              f"under their own footprint, never on the rim): "
+              f"{ss.counts.get('basin_floor_members', 0)}; basin bodies cut by "
+              f"the ring's ARCS: {ss.counts.get('basin_bodies_arc_cut', 0)} "
+              f"into {ss.counts.get('basin_arc_pieces', 0)} piece(s)")
     # §15 (3): the residual the EYE reads — a carried body has no feet and
     # a body on its own low-side foot reads every foot of its own as
     # lawful, so neither bar above can see a roof standing 6 m over the

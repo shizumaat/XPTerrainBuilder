@@ -17,12 +17,14 @@ documented where it stands.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import os as _os
 import typing as _t
 
 from ..model.rebake import Member, Part, Unit
 from . import anchor_rule as _ar
+from . import basin_ring as _br
 from . import line_object as _lo
 from . import placement_carrier as _pc
 
@@ -365,6 +367,31 @@ class _LineCutter:
         return out if len(out) > 1 else []
 
 
+    # ── §14a: THE BASIN BODY FOLLOWS ITS RING ────────────────────────
+    # The law itself is ``basin_ring`` (a ring is not a cut of a line and
+    # has no business in the line cutter); these two hand it the parsed
+    # geometry this cutter already holds.
+
+    def ring_reading(self, parts: _t.Sequence[Part], rim: _ar.RimRing
+                     ) -> "tuple[float, float] | None":
+        """``(interior fraction, base y)`` of one basin body against its
+        ring — §14a (2)'s own two numbers."""
+        if not parts or not self._read():
+            return None
+        return _br.ring_reading(self._geom, self._comps, parts, rim,
+                                self.lat, self.lon, self.m.heading_deg)
+
+    def ring_arcs(self, parts: _t.Sequence[Part], rim: _ar.RimRing,
+                  arcs: _t.Sequence["_br.Arc"], band_m: float
+                  ) -> "tuple[list, tuple[int, ...]]":
+        """§14a (1): ``(pieces, wall arcs)`` — one basin body's
+        ``(arc index, triangles, feet)`` per piece (``basin_ring``)."""
+        if not parts or not self._read():
+            return ([], ())
+        return _br.ring_arcs(self._geom, self._comps, parts, rim, arcs,
+                             band_m, self.lat, self.lon, self.m.heading_deg,
+                             self.foot_band_m, self.stations_max)
+
     def carrier_groups(self, parts: _t.Sequence[Part],
                        carrier_boxes: _t.Sequence[
                            _t.Sequence[tuple[float, float, float, float]]]
@@ -556,6 +583,42 @@ def _bodies_of(member: Member, edges: _t.Sequence[tuple[int, int]]
     return [groups[k] for k in sorted(groups, key=lambda k: min(groups[k]))]
 
 
+def _floor_member(r: _Raw, ref: str) -> _Raw:
+    """§14a (2): one raw body marked as a FLOOR member of ``ref``.
+
+    The mark rides the anchor's REASON — the plan's own wire between the
+    cut and everything downstream — so pass 3 sends the body to §16 (3)'s
+    own-ground anchor instead of a carrier, pass 2's bind keys
+    (``basin_ring.bind_key_of``) hold it out of the pit's group, and the
+    report says why it is where it is.  Nothing else changes: the anchor
+    itself is the generic rule's, computed with no ring at all."""
+    a = r[2]
+    return (r[0], r[1], _dc.replace(a, reason=f"{a.reason}{_br.FLOOR_MARK}{ref})"),
+            r[3], r[4], r[5])
+
+
+def _basin_floor_member(cutter: "_LineCutter", parts: _t.Sequence[Part],
+                        rim: _ar.RimRing, tol_m: float) -> bool:
+    """§14a (2): does this body merely STAND IN the pit rather than form
+    it (``basin_ring.member_kind``)?  A body the cutter cannot read is
+    never moved."""
+    r = cutter.ring_reading(parts, rim)
+    if r is None:
+        return False
+    frac, base_y = r
+    return _br.member_kind(frac, base_y, tol_m) == _br.FLOOR
+
+
+def _rim_ring_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
+                 base_y: float) -> "_ar.RimRing | None":
+    """:func:`_rim_of`'s own verdict with the RING it found — §14a needs
+    the ring itself (its nodes, their heights and its ref), and reading
+    it twice would be two answers waiting to disagree."""
+    if base_y >= 0.0:
+        return None
+    return _ar.rim_of(rims, lat, lon)
+
+
 def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
             base_y: float) -> bool:
     """A BASIN body: its lowest component stands BELOW the authored zero
@@ -615,7 +678,15 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
                              line_ratio, line_max_h, u.anchor[0], u.anchor[1])
     raw: list[_Raw] = []
+    # §14a (2): the mark is applied to whatever the group's branch
+    # appended, at the top of the next turn — the branches all ``continue``
+    floor_mark, n0 = "", 0
     for g in groups:
+        if floor_mark:
+            for _t_ in range(n0, len(raw)):
+                raw[_t_] = _floor_member(raw[_t_], floor_mark)
+            floor_mark = ""
+        n0 = len(raw)
         parts = [pid_of[q] for q in g]
         base_min = min(p.base_y for p in parts)
         # §13 (1): the line-segment cut NEVER applies to an elevated body
@@ -639,17 +710,64 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # level down, on its own parts.  A BASIN body is exempt for §14
         # (2)'s reason (the pit was cut TO the object, so its floor plate
         # standing 7 m under its rim is the authoring, not two bodies).
+        # §14a: THE BASIN BODY FOLLOWS ITS RING.  Every body standing in
+        # a basin ring is asked whether it FORMS the pit or merely STANDS
+        # IN it (§14a (2)) — not only the ones 10ba's ``base_y < 0`` test
+        # classes ``basin``, because the slab authored AT the rim inside
+        # the pit is exactly the body that test misses and §14 (3)'s plan
+        # overlap then binds into the pit's rim-anchored group (measured:
+        # ``Ground-FSX-LEMD13``'s 5 x 18 m slab, the loose white one in
+        # the garden).  A floor member reads NO ring from here on: the
+        # class, the anchor and every cut below take the generic rule,
+        # and its bind key holds it out of the pit's group.
         lowest0 = min(parts, key=lambda p: p.base_y)
-        is_basin = _rim_of(rims, lowest0.lat, lowest0.lon, lowest0.base_y)
+        ring0 = _ar.rim_of(rims, lowest0.lat, lowest0.lon)
+        is_basin = ring0 is not None and lowest0.base_y < 0.0
+        rim0 = ring0 if is_basin else None
+        arcs: tuple = ()
+        if (ring0 is not None and _br.is_basin_ring(ring0.ref) and ring0.z
+                and _basin_floor_member(cutter, parts, ring0, split_tol_m)):
+            counts["basin_floor_members"] = \
+                counts.get("basin_floor_members", 0) + 1
+            floor_mark = ring0.ref
+            is_basin = False
+            rim0 = None
+        elif is_basin and _br.is_basin_ring(rim0.ref) and rim0.z:
+            arcs = _br.arcs_of(rim0.z, rim0.ring, split_tol_m,
+                               line_stations_max)
+        body_rims = rims if is_basin else ()
         # §16a (1): IS THIS BODY CARRIED?  Asked of the WHOLE body,
         # before any terrain cut — because a carried body's pieces are
         # its CARRIER's terrain groups, not its own ground's, and the
         # ground under a roof is exactly the reading §16a deletes.
-        whole0 = _whole_body(parts, m, u, surface, pads, rims, split_tol_m)
+        whole0 = _whole_body(parts, m, u, surface, pads, body_rims, split_tol_m)
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
             counts["carried_bodies_uncut"] = \
                 counts.get("carried_bodies_uncut", 0) + 1
             raw.append((list(parts), whole0[0], whole0[1], whole0[2], True, ()))
+            continue
+        # §14a (1): THE WALL IS CUT BY THE RING'S STATIONS.  The body's
+        # WALL BAND — what stands at the ring — is cut into one piece per
+        # ARC, each anchored at its arc's rim point and so at the apron's
+        # own level there; the INTERIOR remainder (arc -1) keeps §14 (2)'s
+        # single rim point, because the trench floor under it is one level
+        # (§24 (2)) and a floor plate written per arc would step where the
+        # terrain beneath it does not.
+        arc_pieces, wall_arcs = (
+            cutter.ring_arcs(parts, rim0, arcs, _br.WALL_BAND_M)
+            if arcs and len(arcs) > 1 else ([], ()))
+        for _k in wall_arcs:
+            # §14a (4): this arc HAS a wall, whether or not a piece
+            # survives the coarsening — the bar reads it either way
+            counts[_br.wall_arc_key(rim0.ref, _k)] = 1
+        if arc_pieces:
+            counts["basin_bodies_arc_cut"] = \
+                counts.get("basin_bodies_arc_cut", 0) + 1
+            counts["basin_arc_pieces"] = \
+                counts.get("basin_arc_pieces", 0) + len(arc_pieces)
+            for k, tris, feet in arc_pieces:
+                aa = _br.arc_anchor(k, arcs, whole0[1], rim0, surface)
+                raw.append((list(parts), _ar.BASIN, aa, feet, False, tris))
             continue
         pieces_p = ([list(parts)] if is_basin
                     else _cut_parts_by_terrain(parts, surface, split_tol_m))
@@ -688,7 +806,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             off = None
             if not is_basin and any(p.feet for p in parts):
                 if whole is None:
-                    whole = _whole_body(parts, m, u, surface, pads, rims,
+                    whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                         split_tol_m)
                 off = _pc.anchor_ground_off(whole[1], whole[2], surface)
             foot_pieces = (cutter.foot_groups(parts, surface, split_tol_m,
@@ -735,7 +853,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                         ((tlow[0], tlow[1], tlow[2],
                           tuple((f[0], f[1], f[2]) for f in tfeet)),),
                         u.anchor[0], u.anchor[1])
-                    ta = _ar.anchor_for(tcls, tgeom, surface, pads, rims,
+                    ta = _ar.anchor_for(tcls, tgeom, surface, pads, body_rims,
                                         tol_m=split_tol_m)
                     # §16 (1): a triangle group of a body with no ground
                     # contact has none either (the VOR-marker class)
@@ -748,11 +866,14 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                 or tfootless, tris))
                 continue
             if whole is None:
-                whole = _whole_body(parts, m, u, surface, pads, rims,
+                whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                     split_tol_m)
             cls, a, feet, footless = whole
             raw.append((list(parts), a.body_class, a, feet,
                         is_elevated(base_min, a, elevated_base_m) or footless, ()))
+    if floor_mark:
+        for _t_ in range(n0, len(raw)):
+            raw[_t_] = _floor_member(raw[_t_], floor_mark)
     return raw
 
 

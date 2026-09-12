@@ -439,11 +439,18 @@ def _print_elevated(plan: dict, sampler=None) -> None:
           f"elevated bodies carried at their authored offset: {carried}")
     # §14 (4): the four bars, from the engine's own implementation — the
     # same call ``obj8_split_report`` makes over the same plan shape.
+    from auto_patch_v2.airport import basin_ring as _BR
     from auto_patch_v2.airport import placement_carrier as PC
     from auto_patch_v2.law import Law
     tol = float(Law.load().tables.structures.placement.split_tol_m)
+    # §14a: the bar reads the RINGS with their own heights, and the
+    # SPLIT counts — which the written plan carries under ``provenance``
+    # (``counts`` there is the WRITE half's tally).  Without a design
+    # surface to read the rings from, the §14 reading stands.
     c = PC.census_v14(plan.get("splits", ()), plan.get("kept", ()),
-                      elevated_base_m=base, split_tol_m=tol)
+                      elevated_base_m=base, split_tol_m=tol,
+                      rims=getattr(sampler, "rims", ()) or (),
+                      arc_cap=0, counts=_BR.plan_counts(plan))
     for line in PC.census_v14_lines(c, elevated_base_m=base, split_tol_m=tol):
         print(line)
     # §15 (3): the stands-over float — the class neither the foot census

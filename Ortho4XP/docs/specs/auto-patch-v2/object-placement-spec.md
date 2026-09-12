@@ -1793,3 +1793,99 @@ white slab in the garden.
    basin `spread` bar re-defined as max |wall base − ring z| over the ring's
    nodes; OTHH's 21 basin carriers (eight `tunnels/*` pits at 8.9–15.0 m) unchanged
    in float; round trip OK on a pack COPY; suite green; INDEX + twins.
+
+**MEASURED (lane `v2basinring`, 2026-09-11; branch `claude/v2basinring`).**
+Implemented in `airport/basin_ring.py` (NEW: the whole of §14a — `arcs_of`,
+`ring_reading`, `ring_arcs`, `member_kind`, `ring_bar`, and the ONE spelling
+of the wire between the cut and the bar), `airport/anchor_rule.py`
+(`RimRing.z`, additive), `airport/placement_plan.py` (the ring's heights are
+read off the graded doc; the bind keys; §14a (2)'s bodies take no carrier),
+`airport/placement_cut.py` (the basin branch of `_raw_bodies`),
+`airport/placement_carrier.py` (`bind_plan_overlaps(bind_keys=...)`, additive)
+and `airport/placement_census.py` (the re-defined bar, printed by both tools
+from the one `census_v14` call).
+
+* **THE SITE, REPRODUCED FIRST on the app's WRITTEN 1.0.319 frame**
+  (`o4_v2_placement_LEMD.json` + `LEMD.graded.json`): `basin_wall:0@851`,
+  **59 nodes, z 597.68 … 599.52** (1.84 m); **nine** basin bodies
+  (`Ground-FSX-LEMD03/13/36/37/85`, `T4STower-LEMDzaun`, `-SWbaume`,
+  `animRadarbig`, `Terminal4sBlue-LEMD35`) all on ONE rim zero **598.39**;
+  wall base vs the graded apron edge per ring node **+0.71 … −1.13 m, 9 of
+  59 nodes over 0.30**, while the §14 `spread` bar read **0.01**.
+* **THE READING §14a (2) NEEDED, AND WHAT THE MEASUREMENT CHANGED.** Read as
+  written — "more than half its vertices interior to the ring" — the rule
+  sends the pit's OWN WALL to the floor: the wall stands ON the ring, so
+  plain ray casting calls it interior (`LEMDzaun` 60 %, median distance to
+  the ring 0.35 m). Two readings the site forced, both reported:
+  (a) a vertex is INTERIOR only when it is inside AND further than the
+  identity spacing (1.0 m, §24 (1)'s own bar) from the ring, and the share
+  is taken over the vertices that are DECISIVELY one side or the other — a
+  body straddling the ring (`LEMD13` has half its vertices within 0.5 m of
+  it) reads 76 % interior instead of 46 %;
+  (b) what separates the pit's SHELL from a thing standing in it is the
+  RIM PLANE, not the footprint: the shell is authored INTO the pit (LEMD
+  −3.2 … −7.05, OTHH −1.4 … −15.0) and a thing standing in it is authored at
+  the rim like anything on the ground (`LEMD13` −0.08). The admission is
+  `[placement] split_tol_m`. At LEMD this admits `LEMD13` alone of the pit's
+  members; at OTHH it admits **none** of them, which is why the 21 basin
+  carriers are untouched.
+* **§14a (1) AS BUILT, and the one deviation.** The ring is cut into ARCS
+  whose z agrees within `split_tol_m` (LEMD: **6 arcs**), each carrying the
+  rim point nearest its mid-level; a basin body's WALL BAND — the triangles
+  whose nearest VERTEX stands within 3 m of a ring NODE — is cut by them,
+  one piece per arc at that arc's rim point. **DEVIATION, reported not
+  decided:** the body's INTERIOR remainder keeps §14 (2)'s single rim point
+  instead of following its arc. §14a (1)'s "the floor plate under each piece
+  follows (§24 (2) per arc)" needs the DESIGN SURFACE to cut the trench per
+  arc as well; the trench is one level today, so a floor plate written per
+  arc would step where the terrain under it does not and spend the 0.5 m
+  clearance the plate renders in. That half is §24's and is not this lane's.
+* **THE BAR (4), matched arms on the 1.0.319 frame** (`obj8_split_report.py`,
+  `--no-cut`, identical inputs; main `73fa97af` beside):
+
+  | bar | before | after |
+  |---|---|---|
+  | `max abs(wall base − ring z)` over the ring's nodes (bar ≤ 0.30) | **1.12 m, 9 of 59 nodes over**, +0.72 … −1.12 | **0.18 m, 0 over**, +0.11 … −0.18 |
+  | nodes on an arc the pit has NO WALL on (reported, not barred) | 0 | **3** (z 598.90 / 599.52 / 598.90; 8.6–15.8 m from the nearest basin vertex — nothing stands there) |
+  | `LEMD13__b0` | rim, zero 598.39, ground under its own base 597.18–597.67 | **own ground, 594.91 / 597.36 / 597.28** — off the rim, three pieces |
+  | LEMD basin bodies cut by the ring's arcs | — | 11 into 20 piece(s); floor members 18 |
+  | LEMD files | 1,371 | **1,394** |
+  | LEMD feet > 3 m / floating | 518 / 9,509 | **412 / 9,014** |
+  | LEMD §16 carried over 1 m / own-ground > 3 m | 82 / 38 | **72 / 36** |
+  | LEMD `footless at datum` / `on ground` / `basin bodies split` / `elevated own files` / carried stands-over float | 0 / 0 / 0 / 0 / 0 | **0 / 0 / 0 / 0 / 0** |
+  | LEMD footed stands-over float > 0.5 m (reported) | 57 | 63 |
+  | LEMD round trip (write half into a pack COPY) | OK | **OK**, 1,394 files, 1,394/1,394 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | OTHH basin carriers / exempt | 21 / 15 | **21 / 15** |
+  | OTHH feet census (87,577 feet, `> 3 m` 32, floating 4,338) | — | **byte-identical** |
+  | OTHH carried stands-over float | 0 | **0** |
+  | OTHH files | 1,525 | 1,558 |
+
+* **AN INDEPENDENT GEOMETRIC PROBE, on the WRITTEN pack copies of both arms**
+  (each ring node against the nearest written basin piece's own vertices,
+  reading nothing the plan says): **+0.71 … −0.50 m, 6 of the 48 walled
+  nodes over 0.30 → +0.11 … −0.66 m, 1 over**. The residual is one triangle
+  straddling the boundary between two arcs (node 3, its nearest geometry
+  0.23 m away belonging to the piece cut to the neighbouring arc): whole
+  triangles cannot be in two arcs at once.
+* **§14a (3), REPORTED.** The parapet top's horizontal offset, over the 660
+  wall-band top vertices of the T4S pit: **median −0.63 m, 38 % outside the
+  ring** (before: −0.58 m, 39 % outside) — the parapet stands mostly INSIDE
+  the ring, not outside it; §24 (1)'s 1.0 m identity spacing holds either
+  way and the reading barely moves. The 0.43 m outside quoted in §14a (3) is
+  not what this frame reads.
+* **WHAT ELSE MOVED, named.** At OTHH 33 plates authored at the rim plane
+  inside a drainage ring are §14a (2)'s own class and now stand on their own
+  ground (+33 files, `plate_only` 3 → 29); no basin body of OTHH changed
+  class, anchor or float. At LEMD the footed `stands-over float > 0.5 m`
+  reading rises 57 → 63 because 18 more bodies stand on their own ground and
+  are compared at all; it is reported, not barred.
+* **Build time:** the LEMD plan stage (`--no-cut`, 3 runs per arm,
+  foreground) **5.51 / 5.51 / 5.57 s → 5.75 / 5.79 / 5.74 s**: +0.24 s, 0.4 %
+  of the 60 s per-airport budget, under the 1 % threshold. OTHH 30.4 → 34.4 s
+  (one run per arm, not a timing claim).
+* **NOT DONE, and why.** No airport build (the brief forbids one): every
+  number above is the plan replay on the app's own 1.0.319 products plus the
+  write half into a pack COPY. §24 (2)'s per-arc trench floor is not
+  implemented (the deviation above). The three ring nodes with no wall cannot
+  be closed by any placement law — there is no object there to place.
+  Suite 1,102 passed / 1 skipped (main 1,097 / 1; five new twins).

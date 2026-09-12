@@ -2452,3 +2452,238 @@ def test_a_deck_on_a_kept_whole_carrier_names_that_carrier(tmp_path):
     assert b["carried_float_gt"] == 1
     assert b["carried_worst"][0][2] == "road__b0.obj"
     assert b["carried_no_law_carrier"] == 1
+
+
+# ── §14a THE BASIN BODY FOLLOWS ITS RING (RULINGS 2026-09-11ap item 6) ───
+
+def test_the_basin_ring_is_cut_into_arcs_that_agree_within_the_tolerance():
+    """§14a (1): ``arcs_of`` walks the ring ONCE and cuts it where the
+    apron steps.
+
+    Every arc is at most ``tol_m`` wide, and its RIM POINT — the piece's
+    zero — is within half of that of every node it covers, which is what
+    makes the bar of §14a (4) reachable at all.  ``tol_m <= 0`` disarms
+    the cut and restores §14 (2)'s single rim point."""
+    from auto_patch_v2.airport import basin_ring as BR
+
+    ml, mo = AR._m_per_deg(40.0)
+    n = 12
+    ring = tuple((40.0 + math.cos(2 * math.pi * k / n) * 30.0 / ml,
+                  -3.0 + math.sin(2 * math.pi * k / n) * 30.0 / mo)
+                 for k in range(n))
+    # a ring that steps: half of it at 100.0, half 1.5 m higher
+    z = [100.0 if k < 6 else 101.5 for k in range(n)]
+    arcs = BR.arcs_of(z, ring, 0.3, 64)
+    assert len(arcs) == 2
+    assert sum(len(a.nodes) for a in arcs) == n
+    for a in arcs:
+        zs = [z[j] for j in a.nodes]
+        assert max(zs) - min(zs) <= 0.3
+        assert max(abs(a.z - q) for q in zs) <= 0.15 + 1e-9
+        assert (a.lat, a.lon) in ring
+    assert [a.index for a in arcs] == [0, 1] and arcs[0].total == 2
+    # disarmed
+    assert len(BR.arcs_of(z, ring, 0.0, 64)) == 1
+    assert BR.arcs_of(z, ring[:3], 0.3, 64) == ()
+
+
+def test_the_basin_ring_bar_reads_the_wall_base_against_the_apron():
+    """§14a (4): the ``spread`` bar re-defined — ``max |wall base − ring
+    z|`` over the ring's own nodes, which is the gap the owner reads.
+
+    §14's reading (the pit's bodies against EACH OTHER) was 0.01 m at
+    LEMD while the wall stood 1.13 m off the apron.  A node on an arc no
+    piece was cut to reads the pit's single piece; one on an arc the pit
+    has NO WALL on is reported beside the bar, never inside it."""
+    from auto_patch_v2.airport import basin_ring as BR
+
+    ml, mo = AR._m_per_deg(40.0)
+    n = 12
+    ring = tuple((40.0 + math.cos(2 * math.pi * k / n) * 30.0 / ml,
+                  -3.0 + math.sin(2 * math.pi * k / n) * 30.0 / mo)
+                 for k in range(n))
+    z = [100.0 if k < 6 else 101.5 for k in range(n)]
+    # BEFORE: one piece at one zero over a ring that spans 1.5 m
+    before = BR.ring_bar(z, ring, {}, 100.0, 0.3, 64)
+    assert before["covered"] == n and before["over_tol"] == 6
+    assert abs(before["worst"] - 1.5) < 1e-9
+    # AFTER: a piece per arc
+    arcs = BR.arcs_of(z, ring, 0.3, 64)
+    after = BR.ring_bar(z, ring, {k: a.z for k, a in enumerate(arcs)},
+                        100.0, 0.3, 64)
+    assert after["over_tol"] == 0 and after["worst"] <= 0.3
+    # an arc the pit has NO WALL on is reported, not barred
+    part = BR.ring_bar(z, ring, {0: arcs[0].z}, 100.0, 0.3, 64,
+                       wall_arcs={0})
+    assert part["over_tol"] == 0 and part["fallback"] == len(arcs[1].nodes)
+    assert abs(part["fallback_worst"] - 1.5) < 1e-9
+
+
+def test_the_basin_ring_wire_agrees_with_its_readers():
+    """§14a's ONE wire between the cut, which reads geometry, and the
+    bars, which read the plan: the anchor REASON and the ``counts`` key.
+
+    A reader that spelled either differently would report a pit that
+    follows its ring as one that does not — silently, because both halves
+    look right on their own (the census-wrapper defect, CLAUDE.md)."""
+    from auto_patch_v2.airport import basin_ring as BR
+    from auto_patch_v2.constraints.foot_rows import BASIN_WALL_REF
+
+    assert BR.BASIN_WALL_REF == BASIN_WALL_REF
+    assert BR.is_basin_ring("basin_wall:0@851")
+    assert not BR.is_basin_ring("tunnel_wall@935")
+
+    ref = "basin_wall:0@851"
+    ring = ((40.0, -3.0), (40.001, -3.0), (40.001, -3.001))
+    arc = BR.Arc(2, 6, (0, 1), ring[0][0], ring[0][1], 598.4)
+    a = BR.arc_anchor(2, (None, None, arc), AR.Anchor(
+        AR.BASIN, 40.0, -3.0, 0.0, "x", 598.0), AR.RimRing(ref, ring), lambda la, lo: 598.4)
+    assert BR.arc_index_of(a.reason) == 2
+    assert BR.ring_ref_of(a.reason) == ref
+    assert BR.bind_key_of(a.reason) == f"{ref}#arc2"
+    whole = AR.Anchor(AR.BASIN, 40.0, -3.0, 0.0,
+                      f"basin rim ({ref}): the object's zero is the rim", 598.4)
+    inner = BR.arc_anchor(-1, (arc,), whole, AR.RimRing(ref, ring),
+                                   lambda la, lo: 598.4)
+    assert BR.arc_index_of(inner.reason) is None
+    assert BR.bind_key_of(inner.reason) == f"{ref}#interior"
+    assert BR.bind_key_of(whole.reason) == f"{ref}#rim"
+    # a TUNNEL ring keys on nothing: §6's tunnel row is untouched by §14a
+    assert BR.bind_key_of("basin rim (tunnel_wall@935): the object's zero "
+                          "is the rim") == ""
+    # the FLOOR mark, and the counts key
+    marked = _CUT._floor_member(([], AR.OTHER, whole, (), False, ()), ref)
+    assert BR.bind_key_of(marked[2].reason) == f"{ref}#floor"
+    counts = {BR.wall_arc_key(ref, 0): 1, BR.wall_arc_key(ref, 4): 1,
+              "placements": 3}
+    assert BR.wall_arcs_of(counts, ref) == {0, 4}
+    assert BR.wall_arcs_of({"placements": 3}, ref) is None
+    # a WRITTEN plan keeps the split half's tally under ``provenance``;
+    # a tool reading the top-level ``counts`` alone loses the wall arcs
+    # and reports a pit that follows its ring as one that does not
+    doc = {"counts": {"new_resources": 7}, "provenance": {"counts": counts}}
+    assert BR.wall_arcs_of(BR.plan_counts(doc), ref) == {0, 4}
+
+
+def test_a_member_standing_in_the_pit_is_a_floor_body_not_a_rim_one():
+    """§14a (2): the pit's SHELL rides the rim; a body that merely STANDS
+    IN the ring does not.
+
+    What tells them apart is the RIM PLANE: the shell is authored into
+    the pit, a thing standing in it is authored at the rim like anything
+    else on the ground.  (Read on containment alone the pit's own wall
+    comes out "inside" — LEMD's ``LEMDzaun`` 60 % by ray casting — and
+    the wall would be sent to the floor.)"""
+    from auto_patch_v2.airport import basin_ring as BR
+
+    tol = 0.3
+    # the shell: authored into the pit, wholly interior
+    assert BR.member_kind(1.0, -7.03, tol) == BR.RING
+    assert BR.member_kind(1.0, -1.85, tol) == BR.RING
+    # the slab at the rim plane, mostly interior: a FLOOR body
+    assert BR.member_kind(0.76, -0.08, tol) == BR.FLOOR
+    assert BR.member_kind(0.51, 0.0, tol) == BR.FLOOR
+    # ... but not one mostly OUTSIDE the ring
+    assert BR.member_kind(0.50, -0.08, tol) == BR.RING
+    assert BR.member_kind(0.08, 0.0, tol) == BR.RING
+
+
+def _ring_fixture(tmp_path):
+    """A pit whose CUT RING follows a stepped apron (§24 (1)): a 112 x 18 m
+    rectangle whose western half stands at 100.0 and eastern half 1.5 m
+    higher, with the pit's wall standing on the ring at each end and a
+    slab authored AT THE RIM PLANE deep inside it."""
+    ml, mo = AR._m_per_deg(40.0)
+
+    def _b(x0, z0, y0, y1, side=4.0):
+        v = [(x0, y0, z0), (x0 + side, y0, z0), (x0 + side, y0, z0 + side),
+             (x0, y0, z0 + side), (x0, y1, z0), (x0 + side, y1, z0),
+             (x0 + side, y1, z0 + side), (x0, y1, z0 + side)]
+        t = [(0, 1, 2), (0, 2, 3), (4, 6, 5), (4, 7, 6), (0, 4, 5), (0, 5, 1),
+             (1, 5, 6), (1, 6, 2), (2, 6, 7), (2, 7, 3), (3, 7, 4), (3, 4, 0)]
+        return v, t
+
+    # the WALL: two boxes authored 7 m into the pit, straddling the ring's
+    # northern edge at lon +0..4 m (west arc) and +100..104 m (east arc)
+    va, ta = _b(0.0, 0.0, -7.0, 0.0)
+    vb, tb = _b(100.0, 0.0, -7.0, 0.0)
+    pit = _write_obj(tmp_path / "pit.obj", va + vb,
+                     [("", ta + [(a + 8, b + 8, c + 8) for a, b, c in tb])])
+    # the SLAB: authored at the rim plane, wholly inside the ring
+    vs, ts = _b(50.0, 8.0, -0.08, 1.0)
+    slab = _write_obj(tmp_path / "slab.obj", vs, [("", ts)])
+
+    # the ring: north edge at lat -2 m, south edge at lat -20 m
+    nodes = []
+    for lon_m in range(-2, 112, 4):
+        nodes.append((2.0, float(lon_m)))
+    for lon_m in range(110, -6, -4):
+        nodes.append((20.0, float(lon_m)))
+    ring = tuple((40.0 - a / ml, -3.0 + b / mo) for a, b in nodes)
+    z = tuple(100.0 if b < 50.0 else 101.5 for _a, b in nodes)
+    rims = (AR.RimRing("basin_wall:0@777", ring, z),)
+
+    def surface(lat, lon):
+        a = (40.0 - lat) * ml
+        b = (lon + 3.0) * mo
+        if 3.0 <= a <= 19.0 and -1.0 <= b <= 111.0:
+            return 93.0                       # the trench floor
+        return 100.0 if b < 50.0 else 101.5   # the apron, at the ring's level
+
+    plan = _unit_plan([(pit, [(0, -7.0, -3.0, 2.0, -7.0, 2.0),
+                              (1, -7.0, -3.0, 102.0, -7.0, 2.0)],
+                        "objects/pit.obj"),
+                       (slab, [(0, -0.08, -10.0, 52.0, -0.08, 2.0)],
+                        "objects/slab.obj")])
+    # ``_unit_plan`` places a part at ``lat + dlat_m / ml``, so the ring's
+    # own offsets are taken the same way round
+    return plan, rims, surface, ring, z
+
+
+def test_a_basin_wall_follows_its_ring_and_a_slab_inside_takes_the_floor(tmp_path):
+    """§14a (1) + (2) END TO END, and the bar of §14a (4).
+
+    §14 (2) wrote every basin body at ONE rim point, so on a ring that
+    follows the apron (§24 (1); LEMD's T4 pit runs 597.68 … 599.52) the
+    wall base stood +0.71 m above the apron on one arc and −1.13 m below
+    it on another — the owner's "small gap between wall and apron", read
+    while the §14 ``spread`` bar said 0.01.  Here the ring steps 1.5 m:
+    the wall is cut into one piece per ARC and each rides its own arc's
+    level, and the slab authored AT THE RIM PLANE inside the ring — the
+    loose white one in LEMD's garden — takes the ground under its own
+    footprint instead of the rim."""
+    from auto_patch_v2.airport import basin_ring as BR
+
+    plan, rims, surface, ring, z = _ring_fixture(tmp_path)
+    ss = PP.build_splits(plan, surface, (), rims, write=False, **_elev_args())
+    pit = [s for s in ss.all if s.resource == "objects/pit.obj"][0]
+    slab = [s for s in ss.all if s.resource == "objects/slab.obj"][0]
+
+    # (1) THE WALL IS CUT BY THE RING'S STATIONS
+    arcs = BR.arcs_of(z, ring, 0.3, 64)
+    assert len(arcs) == 2
+    zeros = sorted(round(b.anchor.surface_z - b.anchor.y_zero, 2)
+                   for b in pit.bodies)
+    assert zeros == [100.0, 101.5]
+    for b in pit.bodies:
+        assert b.body_class == AR.BASIN
+        assert BR.arc_index_of(b.anchor.reason) is not None
+        assert BR.ring_ref_of(b.anchor.reason) == "basin_wall:0@777"
+
+    # (2) A MEMBER INSIDE THE RING IS A FLOOR BODY
+    assert all(b.body_class != AR.BASIN for b in slab.bodies)
+    assert all("basin rim" not in b.anchor.reason for b in slab.bodies)
+    assert all(abs(b.anchor.surface_z - 93.0) < 0.01 for b in slab.bodies)
+
+    # (4) THE BAR: the wall base within 0.3 m of the apron at EVERY node
+    from auto_patch_v2.airport import placement_census as PC
+    _sp, _kp = PP.to_placement_records(ss)
+    c = PC.census_v14([q.to_dict() for q in _sp], [q.to_dict() for q in _kp],
+                      elevated_base_m=_ELEV, split_tol_m=0.3, rims=rims,
+                      arc_cap=64, counts=ss.counts)
+    assert c["basin_rings"] == 1
+    assert c["basin_ring_nodes_over_tol"] == 0
+    assert c["spread_basin_ring_m"] <= 0.3
+    # and the pre-§14a reading of the same ring is the defect it replaces
+    before = BR.ring_bar(z, ring, {}, 100.0, 0.3, 64)
+    assert before["over_tol"] > 0 and before["worst"] >= 1.5 - 1e-9

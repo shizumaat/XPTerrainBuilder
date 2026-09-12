@@ -94,6 +94,14 @@ class RimRing:
 
     ref: str
     ring: tuple[tuple[float, float], ...]
+    #: §14a: the ring's own vertex HEIGHTS, in ring order.  §24 (1) puts
+    #: the rim vertices at the APRON's level, so this is not a constant:
+    #: LEMD's T4 pit runs 597.68 … 599.52 over its 59 nodes, and the arcs
+    #: of ``basin_ring.arcs_of`` are cut on it.  Empty where the caller
+    #: read the ring without its heights (every twin that builds a ring
+    #: by hand, and the pre-§14a readers) — the arc cut is then not armed
+    #: and §14 (2)'s single rim point stands.
+    z: tuple[float, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

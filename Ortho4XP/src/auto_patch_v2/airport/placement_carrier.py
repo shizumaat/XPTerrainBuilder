@@ -410,11 +410,27 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
 
 # ── §14 (3): PLAN OVERLAP BINDS ──────────────────────────────────────────
 
+def _key_apart(bind_keys: _t.Sequence[str], i: int, j: int) -> bool:
+    """§14a (1): are these two bodies held APART by their bind keys?
+
+    A key is a body's own reason to be its own file whatever the plan
+    overlap says: the pieces of a basin body cut by the ring's ARCS carry
+    their arc's rim point as their key, and binding them back together
+    would undo the cut that makes the wall follow the apron.  An empty
+    key never holds anything apart, so every pre-§14a caller reads
+    exactly as before."""
+    if not bind_keys or i >= len(bind_keys) or j >= len(bind_keys):
+        return False
+    a, b = bind_keys[i], bind_keys[j]
+    return bool(a) and bool(b) and a != b
+
+
 def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
                        boxes: _t.Sequence[_t.Sequence[tuple[float, float,
                                                             float, float]]],
                        classes: _t.Sequence[str],
-                       *, bind_basin: bool = True) -> list[list[int]]:
+                       *, bind_basin: bool = True,
+                       bind_keys: _t.Sequence[str] = ()) -> list[list[int]]:
     """§14 (3): bodies of ONE resource that OVERLAP IN PLAN are one body
     whatever the contact graph says — a floor under walls, a ledge inside
     a wall, a parapet over its own trench.  The split only ever separates
@@ -466,7 +482,8 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
         # a wall ring's box misses its floor's.
         basin = [i for i in range(n) if classes[i] == _ar.BASIN]
         for i in basin[1:]:
-            union(basin[0], i)
+            if not _key_apart(bind_keys, basin[0], i):
+                union(basin[0], i)
     # the body HULL is a cheap reject for the part-by-part scan below:
     # two bodies whose hulls miss cannot have a part pair that overlaps,
     # and a placement like LEMD's 113-body perimeter grass would
@@ -488,7 +505,8 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
         for j in live[a_i + 1:]:
             if hull[j][0] > north:
                 break
-            if find(i) == find(j) or overlap(hull[i], hull[j]) <= 0.0:
+            if (find(i) == find(j) or _key_apart(bind_keys, i, j)
+                    or overlap(hull[i], hull[j]) <= 0.0):
                 continue
             if any(overlap(a, b) > 0.0 for a in boxes[i] for b in boxes[j]):
                 union(i, j)

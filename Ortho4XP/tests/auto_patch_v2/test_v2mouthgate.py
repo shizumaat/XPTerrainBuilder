@@ -113,13 +113,15 @@ def test_a_bore_admitted_only_by_cover_emits_nothing(law):
 
 
 def test_the_gate_is_the_cover_grown_by_the_standoff(law):
-    """The region is the classified cover ⊕ ``mouth_standoff_m`` (100 m,
-    RULINGS 2026-09-12aa — the on-field highway mouths measured at LEMD
-    stand 50–66 m off the nearest cell, the rail mouths 4,000 m): a mouth
-    inside the standoff of the apron edge is built, one well beyond it is
-    dropped.  The law value is read, never retyped."""
+    """The region is the classified cover ⊕ ``mouth_standoff_m`` (150 m,
+    round 3 — the MEASURED population of on-field highway mouths at LEMD
+    ends at 146 m and the next drop stands at 208 m, so the value sits in
+    that gap; the rail mouths are 4,000 m out): a mouth inside the
+    standoff of the apron edge is built, one well beyond it is dropped.
+    The law value is read, never retyped."""
     so = law.tables.structures.tunnel.mouth_standoff_m
-    assert so >= 66.0, "the standoff must clear the measured on-field mouths"
+    assert so >= 146.0, ("the standoff must clear the whole measured on-field "
+                         "population (the farthest kept mouth stands 146 m off)")
     x_in = 80.0 + 0.5 * so
     x_out = 80.0 + 2.0 * so
     _cl, _t, st_in = _run(law, ((0.0, -6.0), (x_in, -6.0)))

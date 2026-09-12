@@ -2414,12 +2414,18 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   box, the pairs whose boxes come within the reach walked once, anything
   already unioned skipped, and the trees asked only then
   (`airport/placement_atom.py`, NEW — the §16c atom law lifted out of
-  `placement_cut` for the 1,000-line law).  That leaves the LEMD plan
-  stage at **26.29 / 26.36 / 26.28 s** over 3 runs against main's 13.53
-  and round 2's 9.3: the reach costs **~17 s** at LEMD and the "plan
-  stage <= main's" bar is **MISSED**.  `_surface` calls fall 184,219 ->
-  **139,222** (fewer bodies).  Reported for the owner: the reach's value
-  is the hangar and the deck, and its price is the pair search.
+  `placement_cut` for the 1,000-line law), and the pair TEST is a
+  nearest-neighbour query with an upper bound, not `count_neighbors`:
+  counting EVERY pair within 2 m between two dense clouds is billions,
+  and it is what left OTHH's plan stage unfinished after 45 minutes and
+  LEMD's at 26.3 s.  FOUR forms measured — all-pairs `query_pairs`
+  (**108-126 s**), the same vectorised (**~117 s**), a box SWEEP with
+  `count_neighbors` (**26.3 s**, OTHH unfinished at 45 min), and the
+  sweep with a bounded nearest-neighbour query: **9.92 / 9.96 / 9.85 s**
+  over 3 runs against main's 13.53 — the "plan stage <= main's" bar
+  **MET**.  `_surface` calls 184,219 -> **141,466**.  A member with more
+  than `placement_atom.RIGID_REACH_COMPONENTS_MAX` (64) components keeps
+  §16c (6)'s contact binding only — an affordability bound, named.
 * **Twins:** `test_the_rigid_reach_chains_solids_and_never_a_line_object`,
   `test_the_16b_float_bar_excludes_a_footed_body`,
   `test_the_report_tool_arms_the_shared_repo_write_guard`; the fence

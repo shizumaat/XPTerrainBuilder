@@ -17,7 +17,19 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["comp_of", "comp_cluster", "comp_blocks"]
+#: §16c (8): the reach is asked only of a member with at most this many
+#: components.  An AFFORDABILITY bound, measured and not a law: the reach
+#: exists for an object an exporter authored in PIECES — a hangar's seven,
+#: a deck's dozen — and a member with thousands of them is CLUTTER whose
+#: pieces are meant to stand apart.  Unbounded, the pair search took the
+#: LEMD plan stage 9.3 -> 26.3 s and did not finish OTHH in 43 minutes
+#: (its clutter objects publish thousands of components inside one 2 m
+#: box).  A member over the bound keeps §16c (6)'s CONTACT binding, which
+#: is millimetres and cheap.
+RIGID_REACH_COMPONENTS_MAX = 64
+
+__all__ = ["comp_of", "comp_cluster", "comp_blocks",
+           "RIGID_REACH_COMPONENTS_MAX"]
 
 
 def comp_of(cut, tris) -> "list[int]":
@@ -109,7 +121,7 @@ def comp_cluster(cut) -> "list[int]":
     # continuous.  SOLID components chain at the reach; a LINE
     # object's never do — §10 cuts a fence into stations ON PURPOSE.
     eps = float(cut.contact_eps_m)
-    if (cut.rigid_reach_m > eps and n > 1
+    if (cut.rigid_reach_m > eps and 1 < n <= RIGID_REACH_COMPONENTS_MAX
             and not cut.is_line_object()):
         eps = float(cut.rigid_reach_m)
     if n > 1 and eps > 0.0:
@@ -150,10 +162,23 @@ def comp_cluster(cut) -> "list[int]":
                         or lo[i0][2] > hi[j0][2] + eps
                         or lo[j0][2] > hi[i0][2] + eps):
                     continue
-                ti, tj = _tree(i0), _tree(j0)
-                if ti is None or tj is None:
+                # THE TEST IS A NEAREST-NEIGHBOUR QUERY, NOT A PAIR
+                # COUNT.  ``count_neighbors`` counts EVERY pair within
+                # the radius — at 2 m between two dense clouds that is
+                # billions, and it is what made OTHH's plan stage not
+                # finish in 45 minutes (measured).  What the union needs
+                # is whether ONE pair exists, so the smaller cloud is
+                # queried against the larger with an upper bound.
+                a_pts, b_pts = pts[i0], pts[j0]
+                if a_pts.shape[0] > b_pts.shape[0]:
+                    i0, j0 = j0, i0
+                    a_pts, b_pts = b_pts, a_pts
+                tj = _tree(j0)
+                if tj is None or not a_pts.size:
                     continue
-                if ti.count_neighbors(tj, eps) > 0:
+                d, _ix = tj.query(a_pts, k=1,
+                                  distance_upper_bound=eps)
+                if np.isfinite(d).any():
                     _union(i0, j0)
     cut._clusters = [_find(i) for i in range(n)]
     return cut._clusters

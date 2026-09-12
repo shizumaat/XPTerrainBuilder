@@ -2236,6 +2236,13 @@ grouping by cluster, `[placement] contact_eps_m` in
   component and an n^2 pair loop) was quadratic in a clutter object's
   thousands of components and did not finish OTHH's plan stage in ten
   minutes.
+* **THE BAR, OTHH** (round 1 -> round 2): torn seams outside line/arc
+  **1 -> 0 — MET**, single-component resources in >= 2 files **1 -> 0 —
+  MET**, files 1,898 -> **1,891**, §16b carried piece float 172 -> 175
+  and wide 85 -> **76**, §15 carried float **0**, round trip **OK**
+  (1,890/1,890 new `OBJECT_DEF`s, 0 rows carrying an elevation).  The
+  airport's LAST seam — `OTHH_Fuel_02_LOD0_007` b0<->b1, +2.70 m — is
+  exactly the two components 0.4 mm apart, and it is closed.
 * **`Terminal4_48` FIXED BY IT.**  Its zero spread **3.58 -> 0.69 m**
   and the owner-site reading `zero - ground under its own geometry`
   **+3.26 -> +0.04 m** (1.0.319 read +1.81): the piece that rode

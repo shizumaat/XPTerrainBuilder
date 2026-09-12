@@ -2567,3 +2567,14 @@ The plan records 175 cross-member ε-contacts among the T2 resources.
    OTHH seams 0 and its plan stage not worse than 64 s; collateral quoted airport-
    wide (carriers changed, zeros moved, largest move, cluster count and the five
    largest spans); files; round trip; suite.
+
+## §17 THE COCKPIT FRAME, object stage (owner RULINGS 2026-09-12x/12y; design-surface-spec §31)
+
+A body's float, burial, seam or step is CRITICAL when it exceeds 0.5 m (`[cockpit]
+visual_m`) and stands where a pilot looks — inside the boundary at taxi scale, or in
+the approach corridor; under 0.5 m it is a REPORT. On surfaces the aircraft rolls on,
+an object that stands on the pavement (a sign, a light, a marker) is judged at the
+motion threshold 0.05 m. The torn-seam census, the §15/§16 floats and the refusal set
+are printed in that frame first (lane `v2cockpit`): CRITICAL by count and worst
+coordinate, then REPORT. `split_tol_m` 0.3 stays the CUT tolerance (a partition
+choice), not an acceptance.

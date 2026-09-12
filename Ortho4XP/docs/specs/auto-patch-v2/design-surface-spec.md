@@ -4561,3 +4561,35 @@ settles to 0.0204 m.
    (4,408 law-true on 1.0.321); the foot rows' own residual (the pad_flat target)
    quoted at the same block; `polish_rounds_max` and `hard_weight` untouched
    (refuted levers); twins; suite. Spec §8.3 deviation 16 corrected.
+
+## §31 THE COCKPIT FRAME — the reading rule for every bar (owner RULINGS 2026-09-12x/12y)
+
+Owner: "our goal is to increase the realism of a simulated airports terrain so that it
+looks believable to a pilot viewing the world from inside an airplane cockpit, so sharp,
+unnatural cuts, or rises, things that would effect the airplanes motion are critical,
+but centimeter accuracy or anything invisible to the pilot is not important."
+
+1. **TWO THRESHOLDS.** MOTION: on any surface the aircraft rolls on (runway family,
+   taxiway family, apron, stands), a step or ridge over `[cockpit] motion_step_m`
+   **0.05 m** between welded neighbours, or a grade break the runway/taxi laws
+   forbid, is CRITICAL. VISUAL: off those surfaces, a cut, rise, seam, float, burial
+   or terrace under `[cockpit] visual_m` **0.5 m** is invisible — reported, never a
+   gate; over it, a defect.
+2. **TWO RANGES.** TAXI scale inside the airport boundary; APPROACH scale for the
+   terrain a pilot sees on final and climb-out within `[cockpit] approach_km` (a few
+   km, default 5) along the runway axes — a hillside cut there is visible, a 0.5 m
+   terrace is not.
+3. **LANDSIDE IS VISUAL ONLY, NATURAL SHAPES**: no cliffs, no floating or buried
+   buildings, no torn objects; grade laws there are TARGETS, never gates; terraces
+   under the visual threshold are lawful ground.
+4. **CENTIMETRES ARE NOT A GOAL.** A bar that prices what the pilot cannot see or feel
+   (a 0.3 m tolerance on a landside joint, a census family's count, a plan-stage
+   second) is a REPORT. The 0.1 m pad residual of §28 is accepted under this rule.
+5. **BUILD BUDGET**: 10 minutes per tile; speed work is dispatched only past it.
+6. **THE INSTRUMENT** (lane `v2cockpit`): `tools/harness/census.py` and the placement
+   census print a COCKPIT block from the existing families — CRITICAL motion rows
+   (step families and grade breaks on rolled-on roles over 0.05 m), CRITICAL visual
+   rows (cuts/rises/seams/floats over 0.5 m inside the boundary or the approach
+   corridor), and REPORT (all else) — with the worst of each named by coordinate.
+   No new measurement; a classification of what the families already carry. Every
+   spec's MEASURED block from now on quotes the cockpit block first.

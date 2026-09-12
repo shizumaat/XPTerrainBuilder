@@ -12,8 +12,8 @@ import math
 
 from pathlib import Path
 
-from .model import (Affordances, Declared, Family, FlatSite, Law, RoleCap,
-                    ZoneClass, load_tables, resolve_ruleset)
+from .model import (Affordances, Cockpit, Declared, Family, FlatSite, Law,
+                    RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
@@ -22,6 +22,7 @@ __all__ = [
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
+    "Cockpit", "cockpit", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles", "role_preferred_cap",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
@@ -475,6 +476,39 @@ def snap_margin_m(law: Law) -> float:
 def materiality_m(law: Law) -> float:
     """The elevation residual floor (owner 2026-08-02)."""
     return law.tables.emit.materiality.elevation_m
+
+
+def cockpit(law: Law) -> Cockpit:
+    """THE COCKPIT FRAME (owner RULINGS 2026-09-12x/12y; design-surface-spec
+    §31, object-placement-spec §17) — ONE derivation site for the three
+    numbers every census's COCKPIT block classifies with.
+
+    ``tools/check_grade.py`` (and through it the harness census and the
+    pytest fixtures) and the object stage's placement censuses all read
+    HERE.  A second copy of those three numbers anywhere — this docstring
+    included — is the census-wrapper defect applied to a reading rule."""
+    return law.tables.emit.cockpit
+
+
+def rolled_on_roles(law: Law) -> frozenset[str]:
+    """THE SURFACES THE AIRCRAFT ROLLS ON (§31 (1)), derived from
+    ``precedence.toml`` — never a literal list.
+
+    The runway family and the taxi family by their own registers, plus the
+    APRON-class bodies that are AIRSIDE and not RIGID: that is the apron
+    itself and its stands (a stand is apron pavement in v2's role register).
+    A rigid role is a PAD, not pavement — a building floor is not something
+    an aircraft rolls on — and the groundside apron-class roles (service
+    road, service junction, groundside pavement, car park) are landside by
+    ``role_side``, which §31 (3) rules VISUAL ONLY.
+
+    A new pavement role added to ``precedence.toml`` joins this set with no
+    code change; a new rigid or groundside class stays out of it."""
+    p = law.tables.precedence
+    out = set(p.runway_family.members) | set(p.taxi_family.members)
+    out |= {r for r in apron_roles(law)
+            if role_side(law, r) == "airside" and not is_rigid_role(law, r)}
+    return frozenset(out)
 
 
 # ── the flat-site datum (RULINGS 2026-09-05k-2) ──────────────────────────

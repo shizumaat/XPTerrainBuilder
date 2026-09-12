@@ -987,4 +987,6 @@ from .placement_census import (                          # noqa: E402
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
     census_torn_seams, census_torn_seams_lines,
-    census_v16_lines, census_v16b, census_v16b_lines)
+    census_v16_lines, census_v16b, census_v16b_lines,
+    # §17 THE COCKPIT FRAME, object stage (RULINGS 2026-09-12x/12y)
+    COCKPIT_RULING, cockpit_block, cockpit_block_lines)

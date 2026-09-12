@@ -323,14 +323,24 @@ def _print_elevated(plan: dict, sampler=None) -> None:
                       elevated_base_m=base, split_tol_m=tol,
                       rims=getattr(sampler, "rims", ()) or (),
                       arc_cap=0, counts=_BR.plan_counts(plan))
+    # §17 THE COCKPIT BLOCK FIRST (owner RULINGS 2026-09-12x/12y; §31 (6)).
+    # The same call ``obj8_split_report`` makes over the same plan shape,
+    # from the same census dicts — the §15 / §16b readings are taken here
+    # and printed in their own place below, unchanged.
+    _pl = Law.load().tables.structures.placement
+    _v15 = PC.census_v15(plan.get("splits", ()), plan.get("kept", ()),
+                         ground_tol_m=_pl.split_tol_m)
+    _v16b = (None if sampler is None else PC.census_v16b(
+        plan.get("splits", ()),
+        lambda la, lo: sampler.elevation_at_or_none(la, lo), split_tol_m=tol))
+    for line in PC.cockpit_block_lines(PC.cockpit_block(
+            splits=plan.get("splits", ()), v15=_v15, v16b=_v16b)):
+        print(line)
     for line in PC.census_v14_lines(c, elevated_base_m=base, split_tol_m=tol):
         print(line)
     # §15 (3): the stands-over float — the class neither the foot census
     # nor §14's bars can see (a carried body has no feet at all)
-    _pl = Law.load().tables.structures.placement
-    for line in PC.census_v15_lines(PC.census_v15(
-            plan.get("splits", ()), plan.get("kept", ()),
-            ground_tol_m=_pl.split_tol_m)):
+    for line in PC.census_v15_lines(_v15):
         print(line)
     # §16 (2): the float on the body's OWN GEOMETRY — the same call
     # ``obj8_split_report`` makes over the same plan shape, needing only
@@ -344,10 +354,7 @@ def _print_elevated(plan: dict, sampler=None) -> None:
             print(line)
         # §16b (4): the same two bars, read on the WRITTEN GEOMETRY the
         # plan publishes per body — one implementation, both tools.
-        for line in PC.census_v16b_lines(PC.census_v16b(
-                plan.get("splits", ()),
-                lambda la, lo: sampler.elevation_at_or_none(la, lo),
-                split_tol_m=tol)):
+        for line in PC.census_v16b_lines(_v16b):
             print(line)
 
 

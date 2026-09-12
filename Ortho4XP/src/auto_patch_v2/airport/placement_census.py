@@ -429,6 +429,16 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "stands_over_other_unit_only": cross,
             "float_tol_m": float_tol_m,
             "refused_as_carrier": len(refused),
+            # §17 (the COCKPIT frame): the refusal set's own numbers, not
+            # only its count — ``ground_off`` is how far a refused body's
+            # zero stands from the ground under its own feet, and the
+            # cockpit block prices exactly that at [cockpit] visual_m.
+            # Sorted worst-first and NEVER truncated: a truncated list
+            # would silently under-count the block that reads it.
+            "refused_ground_off": sorted(
+                ((g["ground_off"], g["res"]) for g in ground
+                 if id(g) in refused and g["ground_off"] is not None),
+                reverse=True),
             "basin_carriers": len(basin_cands),
             "basin_carriers_exempt": len(basin_exempt),
             "basin_carriers_exempt_worst": basin_exempt[:10],
@@ -876,3 +886,10 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
 # read it through this module, which is the census front door.
 from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,F401
                               census_torn_seams_lines)
+
+
+# §17 THE COCKPIT FRAME, object stage, lives in ``placement_cockpit`` (the
+# 1,000-line file law, as §16c (5) lives in ``placement_seams``); both
+# tools read it through this module, which is the census front door.
+from .placement_cockpit import (COCKPIT_RULING, cockpit_block,  # noqa: E402,F401
+                                cockpit_block_lines)

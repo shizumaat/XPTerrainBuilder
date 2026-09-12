@@ -30,6 +30,7 @@ from .units import sane as _sane  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 from .design_schema import Design, check_design as _check_design  # noqa: F401
+from .cockpit_schema import COCKPIT_CLASSES, Cockpit, check_cockpit as _check_cockpit  # noqa: E501,F401  the [cockpit] frame, 12x/12y
 # the per-airport affordances (RULINGS 2026-09-10ap) likewise
 from .airports_schema import (Affordances, NO_AFFORDANCES, Resolution,  # noqa: F401
                               load_airports as _load_airports, resolve_ruleset)
@@ -40,9 +41,10 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
     "Structures", "ReliefFloor",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
-    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Design",
+    "NoStep", "Transect", "WithinShape", "Instrument", "Cockpit", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
-    "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables"]
+    "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables",
+    "COCKPIT_CLASSES"]
 
 #: The eight files a law directory must contain (owner amendment
 #: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2,
@@ -516,6 +518,8 @@ class EmitLaw:
     transect: Transect
     within_shape: WithinShape
     instrument: Instrument
+    #: [cockpit]: THE READING RULE for every bar (2026-09-12x/12y, §31)
+    cockpit: Cockpit
     seam: Seam
     lateral_contiguity: LateralContiguity
     road_profile: RoadProfile
@@ -606,6 +610,8 @@ class Family:
     pairs: str
     ruling: str
     solver: str
+    #: §31 (6)'s class (``cockpit_schema.COCKPIT_CLASSES``); REQUIRED
+    cockpit: str
     key: str = ""
 
 
@@ -781,6 +787,8 @@ def _check_cross_refs(t: LawTables) -> None:
         if r not in roles:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     _check_terrace(t.emit.terrace, roles, LawError)
+    # §31: thresholds ordered, range real, EVERY family classed
+    _check_cockpit(t.emit.cockpit, t.families, LawError)
     # THE PROFILE WINDOW IS THE SCALE OF THE K LAW (spec §21.2 (1)): the
     # largest ``vertical_curve_k_m`` any loaded ruleset states, handed to
     # the design schema (which imports nothing from v2).

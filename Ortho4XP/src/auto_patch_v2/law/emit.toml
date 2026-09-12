@@ -98,6 +98,23 @@ step_contact_tol_m = 1.0   # a vertex touches a foreign edge within this (_STEP_
 edge_search_m      = 5.0   # step readers look this far for a foreign edge (LAW_TRUE_KNOBS edge_search_m)
 tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-zone (TILE_SEAM_ZONE_M)
 
+[cockpit]
+# THE COCKPIT FRAME (owner RULINGS 2026-09-12x/12y; design-surface-spec §31,
+# object-placement-spec §17).  The READING RULE for every bar this repo
+# prints, and nothing else: no row is created, moved or dropped by these
+# numbers — every census family measures exactly what it measured before and
+# each of its rows is CLASSIFIED into one of three buckets.  Owner: "sharp,
+# unnatural cuts, or rises, things that would effect the airplanes motion are
+# critical, but centimeter accuracy or anything invisible to the pilot is not
+# important."
+#
+# They live beside [instrument] because they are the same kind of thing — the
+# census's own reading envelope — and next to [placement] in structures.toml
+# the object stage reads exactly these three keys through the same tables.
+motion_step_m = 0.05  # §31 (1) MOTION: a step or ridge over this between welded neighbours of two ROLLED-ON roles (the runway family, the taxi family, the apron/stands of precedence.toml) is CRITICAL; the aircraft feels it
+visual_m      = 0.5   # §31 (1) VISUAL: off those surfaces a cut / rise / seam / float / burial / terrace under this is invisible to the pilot and is REPORTED, never gated; over it, a defect
+approach_km   = 5.0   # §31 (2) the APPROACH range: terrain within this of a runway axis is seen on final and climb-out; a visual defect beyond it, and outside the airport boundary, is a REPORT
+
 [lateral_contiguity]
 # THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
 # 2026-08-28 Amendment 2 "the cap lives at the STATION"; v1

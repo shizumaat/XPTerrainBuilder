@@ -4381,3 +4381,62 @@ patch's whole western bbox edge. They carry zero grade rows; the census cannot s
    harness census unchanged (4,408 law-true on 1.0.321 — no tunnel rows exist);
    twins (an off-field mouth is dropped; an on-field one stays; a roofed corridor
    is untouched); suite.
+
+**MEASURED** (lane `v2mouthgate`, branch `claude/v2mouthgate` off main `c1bcb73b`;
+ONE tree, two arms, the shared corpus).  Arms: BASE `c1bcb73b` (tag
+`v2mouthgate_base`, artifact ledger `aafb8a0b4800`, body `d3829dcb10c6`, 484 s) and
+the §29 tree (tag `v2mouthgate_new2`, ledger `c4361daea45b`, body `e09414e9bec6`,
+481 s).  The base reproduces the shipped 1.0.321 line and census exactly —
+`bores 68 (uncovered 47) mouths 41 duals merged 7 tunnels 17 decks 2 cells cut 0
+refused 118`, census 4,408 law-true / 1,859 adjudicated.
+
+§29 tree: `structures: bores 68 (no on-field mouth 41, mouth-only 8, replaced by
+objects 2)  mouths 37 (off-field 94)  duals merged 5  object corridors 1  tunnels 18
+decks 3  cells cut 2  refused 118`.
+
+* **(1) THE SITE IS GONE.**  The two rail mouths at 40.4805, −3.6395 build nothing:
+  ramp faces 960/962, rims 691/692 and banks 694/695 (149 vertices) are absent, and
+  the patch's western bbox edge is back at the airside extent — lon min −3.64071 →
+  −3.59384 (the base's 149 nodes west of −3.60 → 0).  `bore_cut_clearance_m` is
+  deleted; no reader, no twin named it.
+* **(2) THE GATE READS THE MOUTH *AND ITS RAMP REACH*, AND THE ROOFED CORRIDORS ARE
+  FIELD.**  The first arm read the mouth POINT only against the classified cover:
+  it dropped the OBJECT corridor's own bore mouth (`mouths_replaced_by_object`
+  1 → 0) and ten highway corridors, and left tunnels 12.  Both corrections are the
+  spec's own words (the parenthesis in (1); Laws B/C).  The region is the cover ∪
+  the corridors' footprints ⊕ 50 m; the nearest DROPPED mouths now stand 50, 52, 54,
+  58, 61, 62, 66, 66 m off it.
+* **(4) TWO BARS MISSED — OWED A RULING, not a lane decision.**  With the reach
+  clause the west site dies as ruled, but the population still moves at the margin
+  and the census is not unchanged:
+  - FIVE on-field highway corridors are still dropped (40.48701,−3.55443 /
+    40.48974,−3.54980 / 40.48995,−3.55896 / 40.49455,−3.55410 / 40.51063,−3.56311):
+    their mouths stand 50–66 m off the nearest classified cell and their approaches
+    never re-enter it.  A larger `mouth_standoff_m` (the reported drops are all
+    50–66 m; the rail mouths are 4.0 km) keeps them with no code change.
+  - EIGHT bores are admitted BY THE MOUTH that the retired cover test refused
+    (`mouths mouth-only 8`), building NINE new corridors 2–4 km south of the field
+    (40.4587…40.4751, −3.570…−3.579).  That is §29 (2) working as written —
+    admission follows the mouth — but it COSTS: census 4,408 → 4,737 law-true
+    (+329: `within_shape` +301, `airside_no_step` +14, `road_cross_section` +11),
+    adjudicated 1,859 → 1,910 (+51).  Keeping the retired cover test CONJUNCTIVELY
+    (a bore is admitted only if it is both under a cell and has an on-field mouth)
+    removes all nine and is one line; the brief's "kept only as a prefilter if it
+    changes nothing" does not apply — it changes eight bores.
+* **DRY READ (no build).**  OTHH's tunnel set is corridor-driven — object corridors
+  and kerb-wall corridors are built from the pack's own geometry through
+  `object_groups` / `extra_groups`, which never pass through `mouths()`, and the
+  corridors' footprints are now inside the governed region, so the six
+  object-replaced mouths of its shipped line (`bores 22 (uncovered 13, replaced by
+  objects 6) mouths 4 object corridors 8 tunnels 9`) cannot be gated away.  Its FOUR
+  remaining OSM mouths are NOT proven unchanged: LEMD showed that class drops at
+  50–66 m and no OTHH product on disk carries the distances.  SPJC's two on-field
+  mouths are the scout's reading (`2026-09-12t`); no SPJC v2 product exists in the
+  tree to re-read.
+* Twins: `tests/auto_patch_v2/test_v2mouthgate.py` (5) — an on-field mouth is kept
+  and built, an off-field one dropped and counted, a bore admitted only by cover
+  with no on-field mouth emits nothing, the standoff boundary both ways, and a mouth
+  off the cover whose ramp reach returns to the field is kept — plus
+  `test_v2wallcorridor.py::test_the_mouth_gate_leaves_the_roofed_corridor_untouched`.
+  Suite 1,175 passed / 1 skipped; targeted v1 tunnel set 151 passed with 12p's
+  pre-existing `test_tunnel_portal_fidelity::TestClearanceAnnulus` red.

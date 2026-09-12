@@ -2447,3 +2447,55 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   cut twins amended where §16c (6)/(8) supersede them — a contact-bound
   ribbon is ONE rigid body and 11ak (2)'s foot cut can no longer divide
   it, which the twin now reads from both sides.
+
+**MEASURED (lane `v2atom` round 4, 2026-09-12; branch `claude/v2atom`; RULINGS 2026-09-12n).**
+
+* **§16c (4) IS NOW ABSOLUTE DISTANCE** (`placement_carrier._rest_key`):
+  the overlapping candidate whose top under the overlap is nearest the
+  body's base plane, above or below.  Five of the nine T2 roof bodies
+  now rest within 0.36 m of their chosen carrier's top (−0.03, −0.18,
+  −0.24, −0.36); four still take one 2.5–14.6 m away.
+* **THE T2 BAR IS STILL MISSED: 7 of 8 over 0.3 m, worst 6.12 m**
+  (round 3: 6 of 7, worst 6.12; live 1.0.320: 7 of 9, worst 2.80).  The
+  rule is satisfied — each roof rests on the nearest-top candidate it
+  overlaps — so the residue is the CANDIDATE SET, not the ranking: the
+  wall body the eye reads as "under" those four roofs is not one they
+  plan-overlap in `stands_over_rank`.
+* **ONE MECHANISM TESTED AND REFUTED, REVERTED:** that the wall rings
+  were outside the stands-over set because only a body's eight largest
+  part boxes are published (`FOOT_BOXES_MAX`).  Raised to 32 the bar
+  moved 7 of 8 → 6 of 7 with the worst unchanged at 6.12 m, for a
+  larger plan; not kept.
+* **THE 11at / 12h SITES ALL HOLD:** item 3 **+0.06**, item 5 **−0.29**,
+  gate-5 sign **−0.02**, `green-STRT4` deck **+0.14**, `Terminal4_48`
+  **+0.49**; `HANG3` **3 files / 1.12 m**, `green-LEMD50` 1 file,
+  `Bridge2` 5 files, nothing rides a fence (**0**).
+* **§16c (8) IS BOUNDED BY A CLUSTER SPAN CAP**
+  (`placement_atom.RIGID_CLUSTER_SPAN_MAX_M` 1,200 m): a cluster is one
+  rigid body no cut may divide, so a chain of 2 m hops that walks a
+  terminal makes a body wider than any terrain it can stand on —
+  unbounded, the reach chains `OTHH_Terminal_Base_*` into clusters
+  spanning 1,042–1,175 m over 3–15 components.  A 100 m cap was measured
+  and REJECTED: it broke the sites the reach exists for (`Terminal4_48`
+  +0.49 → +3.26, `HANG3` 3 → 5 files).
+* **THE REACH IS NOT WHAT COSTS OTHH, MEASURED ON MATCHED ARMS.**  OTHH
+  plan stage, same code, graded sampler: **64.33 s** at the 1,200 m cap,
+  **64.45 s** at 100 m, **63.46 s with the reach DISARMED**.  The reach
+  accounts for **0.9 s**; deleting it would not bring OTHH under the
+  45 s bar, so it is KEPT.  The **≤ 45 s bar is MISSED at 64 s** and the
+  cost is elsewhere in the stage (344,838 `_surface` calls at OTHH
+  against LEMD's 141,306).
+* **LEMD plan stage 10.31 s** against main's 13.53 — MET.
+* **THE §16a (2) REFUSAL SET (244), BY CLASS**, read over the written
+  files (`ground_off` > 0.3 m, basins exempt; 358 files, of which 114
+  are line segments §16 (3) bars from carrying anyway): **other 158,
+  skirted 76, building 10**.  Worst-off: `LEMDblast__b1` 7.14 m (line),
+  `Terminal4sBlue-STRT4__b1` 5.08, `LEMD03__b6` 4.98, `Munoza-LEMD50__b1`
+  4.92 (line), `green-PKT4__b0` 4.50, `Munoza-TWY__b1` 4.16,
+  `Munoza-LEMD69__b12` 3.95 (140 feet), `Cargo-NEWCO__b0` 3.35,
+  `Munoza-LEMD03__b5` 3.32, `P2CNX__b3` 3.19 — every one the same class:
+  feet authored over metres of relief on ground that barely moves, which
+  §16c (1) forbids foot-cutting.
+* **Merged main `30a61c9f`** (§27, the mesh-sampler grid, `v2_rebake_replay
+  plan`); `tools/INDEX.md` resolved keeping BOTH rows.  Full twin set
+  **1,169 passed / 1 skipped**.

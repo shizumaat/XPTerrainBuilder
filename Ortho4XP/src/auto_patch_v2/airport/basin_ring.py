@@ -51,7 +51,6 @@ import typing as _t
 __all__ = ["BASIN_WALL_REF", "Arc", "is_basin_ring", "arcs_of", "arc_of_node",
            "member_kind", "ring_ref_of", "arc_index_of", "bind_key_of", "ring_bar",
            "ring_reading", "ring_arcs", "arc_anchor", "floor_bodies", "plan_counts",
-           "carrier_targets",
            "wall_arc_key", "wall_arcs_of", "WALL_ARC_KEY",
            "FLOOR_MARK",
            "REASON_RIM", "REASON_ARC",
@@ -257,25 +256,6 @@ def floor_bodies(raw: _t.Sequence) -> "set[int]":
     rim (measured: ``Ground-FSX-LEMD13`` rode ``LEMD03__b0`` at 598.39
     with the ground under its own base at 597.18-597.67)."""
     return {i for i, r in enumerate(raw) if FLOOR_MARK in r[2].reason}
-
-
-def carrier_targets(raw: _t.Sequence, part_boxes: _t.Sequence,
-                    elevated: _t.Iterable[int], footless: bool
-                    ) -> "tuple[list, set[int]]":
-    """§15's carrier search restricted by §14a (2): ``(targets, floor)``.
-
-    A FLOOR member is dropped from every target — a footless placement's
-    whole-placement group and an elevated body's own — and comes back in
-    ``floor`` for the caller to send to §16 (3)'s own-ground anchor."""
-    floor = floor_bodies(raw)
-    grp0 = [i for i in range(len(raw)) if i not in floor]
-    if footless:
-        targets = ([(grp0, [b for i in grp0 for b in part_boxes[i]])]
-                   if grp0 else [])
-    else:
-        targets = [([i], list(part_boxes[i]))
-                   for i in sorted(elevated) if i not in floor]
-    return (targets, floor)
 
 
 def plan_counts(doc: _t.Mapping[str, _t.Any]) -> dict:

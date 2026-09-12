@@ -762,9 +762,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # §14a (2): a FLOOR member takes NO carrier.  §16b (2) builds
             # the targets first (per terrain group, or per elevated body)
             # and the floor test then removes its members from every one
-            # of them — the same exclusion ``basin_ring.carrier_targets``
-            # applied to §14 (1)'s single whole-placement group, re-
-            # expressed over the pieces.  A target left empty disappears.
+            # of them — the same exclusion §14a applied to §14 (1)'s
+            # single whole-placement group, re-expressed over §16b's
+            # pieces (``basin_ring.floor_bodies`` is the ONE test both
+            # readings take).  A target left empty disappears.
             floor = _br.floor_bodies(st.raw)
             if floor:
                 counts["basin_floor_own_ground"] = \

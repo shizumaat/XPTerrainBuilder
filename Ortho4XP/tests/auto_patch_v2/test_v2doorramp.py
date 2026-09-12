@@ -189,7 +189,11 @@ def test_law_register(law):
     assert is_structure_role(law, "door_ramp") and role_side(law, "door_ramp") == "groundside"
     cap = role_cap(law, "door_ramp")
     assert cap is not None and d.ramp_grade <= cap.longitudinal
-    assert cap.longitudinal > role_cap(law, "tunnel_ramp").longitudinal
+    # RULINGS 2026-09-12m (owner): the tunnel ramp took the ROAD cap, so the
+    # door ramp no longer stands ABOVE it — all three are the road 8 % now.
+    # What keeps door_ramp a role of its own is its generation and its oracle
+    # law (structure_ramp 10 %), asserted above, not a distinct number.
+    assert cap.longitudinal == role_cap(law, "tunnel_ramp").longitudinal
     assert cap.longitudinal == role_cap(law, "service_road").longitudinal
     assert "door_ramp" not in law.tables.precedence.order
 

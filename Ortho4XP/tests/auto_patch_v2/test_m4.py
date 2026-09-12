@@ -53,9 +53,11 @@ def _cells():
         # the apron the bore passes under (x from -80 to 80)
         Cell(1, "apron", "apron1", _rect(-80, -60, 80, 60), (), None, None,
              "airside", "apron", {}),
-        # a building pad across the WEST approach, 120 m out (inside the
-        # ~150 m the 4 % climb needs)
-        Cell(2, "building", "padW", _rect(-220, -30, -180, 30), (), None, None,
+        # a building pad across the WEST approach, 40 m out (inside the
+        # ~64 m the 8 % climb needs).  RULINGS 2026-09-12m took the ramp cap
+        # 4 % -> 8 %, halving the climb: at x = -180 the ramp now TOPS before
+        # the pad and the clip twin measured nothing, so the pad moved in.
+        Cell(2, "building", "padW", _rect(-160, -30, -120, 30), (), None, None,
              "airside", "pad", {}),
     ]
 

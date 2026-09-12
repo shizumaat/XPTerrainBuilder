@@ -831,6 +831,17 @@ def _check_cross_refs(t: LawTables) -> None:
     for r in t.common.roles:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")
+    # RULINGS 2026-09-12m: the ramp is BUILT at structures.tunnel.ramp_max_grade
+    # and JUDGED at the tunnel_ramp role cap (rulesets.common.roles, the number
+    # the census reads through v1 ROLE_GRADE_LIMITS).  Building steeper than the
+    # judged cap would mint a violation by construction.
+    ramp_role_cap = t.common.roles.get("tunnel_ramp")
+    if ramp_role_cap is not None and \
+            t.structures.tunnel.ramp_max_grade > ramp_role_cap.longitudinal + 1e-12:
+        raise LawError(
+            f"structures.tunnel.ramp_max_grade {t.structures.tunnel.ramp_max_grade} "
+            f"exceeds the tunnel_ramp role's longitudinal cap "
+            f"{ramp_role_cap.longitudinal} (RULINGS 2026-09-12m)")
     door_cap = t.common.roles.get("door_ramp")
     wc_cap = t.common.roles.get("wall_corridor_ramp")
     gr_cap = t.common.roles.get("garage_ramp")

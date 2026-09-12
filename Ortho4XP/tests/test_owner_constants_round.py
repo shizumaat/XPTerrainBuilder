@@ -150,10 +150,18 @@ class TestOwnerConstants:
         it is `grade_law._cap_runs`, which segments a road's lateral
         stations at cap CHANGES — a road/lot cross-section is now one run
         instead of two, which is what "same cap" means and is why this
-        test pins the constants, not the map."""
+        test pins the constants, not the map.
+
+        NOTE (RULINGS 2026-09-12m, owner): the tunnel ramp is no longer one
+        of the distinct numbers — "a tunnel ramp IS a road", so it takes
+        SERVICE_ROAD_MAX_GRADE exactly, and a ramp/road cross-section is
+        deliberately ONE `_cap_runs` run for the same reason the road/lot
+        one is. The collision this test guards against is a ramp sharing an
+        UNRELATED cap; the deliberate identity is asserted, not forbidden."""
         from auto_patch import config as cfg
+        assert cfg.TUNNEL_RAMP_MAX_GRADE == pytest.approx(cfg.SERVICE_ROAD_MAX_GRADE)
         vals = [cfg.GROUNDSIDE_MAX_GRADE, cfg.SERVICE_ROAD_MAX_GRADE,
-                cfg.TUNNEL_RAMP_MAX_GRADE, cfg.TAXI_MAX_GRADE,
+                cfg.TAXI_MAX_GRADE,
                 cfg.APRON_MAX_GRADE, cfg.TAXI_MAX_GRADE_NARROW]
         assert len(set(round(v, 6) for v in vals)) == len(vals)
 

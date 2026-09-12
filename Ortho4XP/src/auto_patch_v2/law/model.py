@@ -296,7 +296,7 @@ class Tunnel:
     #: ``avalanche_protector``, ``flooded``, ``no`` — never seeds a structure.
     admitted_values: tuple[str, ...]
     ramp_max_grade: float
-    bore_cut_clearance_m: float
+    mouth_standoff_m: float   # spec §29 (1): cover ⊕ this = where a mouth may stand
     ramp_cuts_runway_family: bool
     ramp_crosses_pad: bool
     wall_band_width_m: float

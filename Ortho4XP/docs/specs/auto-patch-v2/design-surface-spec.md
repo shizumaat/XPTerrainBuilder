@@ -4537,6 +4537,79 @@ patch's whole western bbox edge. They carry zero grade rows; the census cannot s
    twins (an off-field mouth is dropped; an on-field one stays; a roofed corridor
    is untouched); suite.
 
+**MEASURED** (lane `v2mouthgate`, branch `claude/v2mouthgate` off main `c1bcb73b`;
+ONE tree, three arms, the shared corpus.  Rounds: the lane stopped on two misses,
+RULINGS `2026-09-12aa` ruled `mouth_standoff_m` 100 m, and owner `2026-09-12ab`
+answered 12aa-1 "Build them" — admission is BY THE MOUTH, the cover test deleted.)
+
+Arms — BASE `c1bcb73b` (`v2mouthgate_base`, artifact `aafb8a0b4800`, body
+`d3829dcb10c6`, 484 s) and the ruled tree (`v2mouthgate_r2`, artifact
+`4a2a66a539fc`, body `b758bc344c3b`, 383 s).  The base reproduces the shipped
+1.0.321 line and census exactly: `bores 68 (uncovered 47) mouths 41 duals merged 7
+tunnels 17 decks 2 cells cut 0 refused 118`, 4,408 law-true / 1,859 adjudicated.
+
+Ruled tree: `structures: bores 68 (no on-field mouth 36, mouth-only built 11,
+replaced by objects 2)  mouths 48 (off-field 83)  duals merged 7  object corridors 1
+door ramps 0  sunken roads 0  wall corridors 0  tunnels 26  decks 6  cells cut 2
+refused 118`.
+
+* **THE SITE IS GONE.**  The two rail mouths at 40.4805, −3.6395 build nothing:
+  ramps 960/962, rims 691/692, banks 694/695 (149 vertices) absent, the 149 patch
+  nodes west of −3.60 are 0, and the bbox west edge comes back 3.5 km — lon min
+  −3.64071 → −3.59918 (the westernmost feature is now one of the newly built
+  on-field portals at 40.48619, −3.59878; the airside extent is −3.59384).
+* **ROUND 3, THE STANDOFF AT 150 m** (`v2mouthgate_r3`, artifact `d27130a304b3`,
+  body `4d66e96d21b7`, 387 s; the 100 m arm `v2mouthgate_r2` / `4a2a66a539fc` /
+  `b758bc344c3b` is the previous step).  Of the five on-field highway corridors the
+  50 m standoff dropped, 100 m returned three (40.48701,−3.55443 / 40.48974,−3.54980
+  / 40.49455,−3.55410) and 150 m returns a FOURTH byte-identically (40.48995,−3.55896,
+  the same 16-vertex ramp, 0.3 m of centroid).  **40.51063,−3.56311 is still not
+  built**: its mouth (bore `-6028`) stands **208 m** off the field — outside 150.
+  The "natural gap" the value was chosen in (146 → 208) is exactly that corridor's
+  own drop; keeping it needs ≥ 210 m, after which the next drops are 228, 267, 277,
+  361, 383, 393, 429 m (the widest gap left is 208 → 228).  Unruled, so 150 stands
+  and the corridor is OWED a decision.
+  Line: `bores 68 (no on-field mouth 35, mouth-only built 12, replaced by objects 2)
+  mouths 55 (off-field 76)  duals merged 9  object corridors 1  tunnels 29  decks 6
+  cells cut 2  refused 118`; ramps 18 → 33.
+  Census 4,408 → **4,576** law-true (+168), adjudicated 1,859 → **1,928** (+69):
+  `within_shape` +132, `taxi_box` +65, `strip_transverse` +6; against
+  `airside_no_step` −22, `strip_longitudinal` −6, `transverse` −4,
+  `resa_transverse` −2, `frontage_near_miss` −1.  (At 100 m the same ruling read
+  +104 / −87; the extra corridors admitted between 100 and 150 m carry the +64
+  law-true and turn the adjudicated delta positive — the portals are real, so the
+  rows are their surfaces meeting the field, not the rail defect.)
+* **THE MOUTH-ONLY PORTALS ARE BUILT** (owner 12ab): at 150 m, **12** bores admitted
+  on an on-field mouth alone, named in the build line — `-16684, -16683, -15336,
+  -12795, -7847, -5284, -4054, -4043, -3829, -6339, -1581, -1568` — mostly 2–4 km
+  south (40.4587…40.4798, −3.570…−3.583).  `tunnels` 17 → 29, `decks` 2 → 6,
+  `mouths` 41 → 55 (76 ends dropped off-field).
+* **CENSUS BY STANDOFF** (harness, one tree, against the same base): 50 m with the
+  cover test deleted read 4,737 / 1,910 (+329 / +51); 100 m read 4,512 / 1,772
+  (+104 / −87); **150 m, the ruled value, reads 4,576 / 1,928 (+168 / +69)**.
+* **DEAD KEY** `bore_cut_clearance_m` deleted (toml + `model.py`; the law loader is
+  strict, so a stale key refuses).
+* **DRY READ (no build).**  OTHH's tunnel set is corridor-driven — object and
+  kerb-wall corridors are built from the pack's own geometry through
+  `object_groups` / `extra_groups`, which never pass through `mouths()`, and the
+  corridors' footprints are inside the governed region — so its shipped line
+  (`bores 22 (uncovered 13, replaced by objects 6) mouths 4 object corridors 8
+  tunnels 9`) keeps its object-replaced mouths.  Its four remaining OSM mouths are
+  NOT proven unchanged (LEMD drops that class beyond 100 m and no OTHH product on
+  disk carries the distances), and under 12ab OTHH's 13 uncovered bores may now be
+  ADMITTED wherever a mouth stands on the field — unmeasured.  SPJC's two on-field
+  mouths are the scout's reading (`2026-09-12t`); no SPJC v2 product is in the tree.
+* Twins: `tests/auto_patch_v2/test_v2mouthgate.py` (6) — an on-field mouth built,
+  an off-field one dropped and counted, a bore under cover with no on-field mouth
+  emits nothing, the standoff read from the law (both sides of the boundary), a
+  mouth outside every standoff whose RAMP REACH runs onto a cell beyond it kept,
+  and a mouth on the field whose bore covers nothing BUILT and named — plus
+  `test_v2wallcorridor.py::test_the_mouth_gate_leaves_the_roofed_corridor_untouched`.
+  Suite 1,176 passed / 1 skipped; targeted v1 tunnel set 151 passed with 12p's
+  pre-existing `test_tunnel_portal_fidelity::TestClearanceAnnulus` red.
+* A concurrent process wrote 11 New Zealand paths into the shared repo during the
+  DISCARDED first arm (CONTAMINATED flag worked, artifact not stored); the base and
+  both kept arms report the shared repo UNCHANGED.
 ## §30 THE PAD CEILING CARRIES NO AUTHORED RELIEF (Fable 2026-09-12; RULINGS 2026-09-12u) — lane `v2padceiling`
 
 Scout `v2unsettled` reproduced the shipped `v2ramp8` LEMD solve bit-for-bit (142

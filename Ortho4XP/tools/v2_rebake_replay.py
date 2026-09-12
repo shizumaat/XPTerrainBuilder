@@ -6,6 +6,19 @@ state without a build at all.
     venv/bin/python tools/v2_rebake_replay.py seat PLAN.json MESH [--filter TOKEN] [--flat Z0]
     venv/bin/python tools/v2_rebake_replay.py disk PACK_ROOT [--filter TOKEN]
     venv/bin/python tools/v2_rebake_replay.py bodies PLAN.json RESULT.json [--top N]
+    venv/bin/python tools/v2_rebake_replay.py plan PLAN.json MESH --graded G.json [--runs N]
+
+``plan`` (RULINGS 2026-09-12g) replays and TIMES the PLACEMENT stage —
+``placement_write.build_plan`` over ``engine_v2._placement_surface``, the
+surface the app itself builds — on a build's own written frame, and is
+the instrument the object stage's wall time is read on.  ``--sampler
+mesh`` (the default) is what the app calls; ``--sampler graded`` is the
+interpolator the lanes timed the stage on, 60x off it.  ``--src`` points
+the replay at another checkout's ``src``, so ONE tool measures both arms
+of a sampler change; ``--oracle-write`` / ``--oracle-check`` are the
+bit-identity instrument for any change to the sampler's candidate
+prefilter.  Promoted from the ``v2plantime`` scout's ``measure.py`` on
+its second use (lane ``v2meshgrid``).  Writes no pack and builds no tile.
 
 ``seat`` reads a tile build's ``o4_v2_rebake_<ICAO>.json`` plan (or the
 pipeline's ``<ICAO>.rebake.json``) and a built ``Data+XX+YYY.mesh``, seats
@@ -393,6 +406,276 @@ def cmd_order(args) -> int:
     return 0 if bad == 0 else 1
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
+
+    ``placement_write.build_plan`` on a tile build's own written frame,
+    over the sampler the APP calls — which is the whole point: the
+    object-stage time the lanes quoted (5.65 -> 9.9 s) was measured on
+    the GRADED interpolator, 60x off the mesh sampler the shipped path
+    uses, and the 1.0.320 mesh step was 706 s with 669 of them here.
+
+    Prints the wall time per run, the ``_surface`` call count (point and
+    batched) and its unique-point count, the plan's counts and file
+    total.  Nothing is written to the pack, the DSF text dump is READ
+    from the mod cache, and no tile is built.
+
+    ``--oracle-write`` saves every query's (lat, lon) -> (elevation,
+    terrain type, is_water | None-outside) answer; ``--oracle-check``
+    replays those points through the sampler and asserts every answer
+    BIT-identical — the identity instrument for any change to
+    ``mesh_sampler``'s candidate prefilter.  ``--src`` replays against
+    another checkout's ``src`` so one tool measures both arms.
+    """
+    import collections
+    import math
+    import pickle
+    import time
+
+    surface_source = args.src or os.path.join(os.path.dirname(HERE), "src")
+    if surface_source not in sys.path:
+        sys.path.insert(0, surface_source)
+
+    from auto_patch_v2.emit import rebake as _rb
+    from auto_patch_v2.airport import placement_write as _pw
+    from auto_patch_v2.airport import placement_plan as _pp
+    from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.law import Law
+    from auto_patch import dsf_reader as _DSFR
+    from auto_patch import engine_v2 as _ev2
+    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+    import O4_File_Names as FNAMES
+
+    with open(args.plan) as fh:
+        plan_ = _rb.RebakePlan.from_json(fh.read())
+    law = Law.for_airport(plan_.icao)
+    lat, lon = args.tile
+    dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, lat, lon)
+    pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
+    cache = _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), pack_name)
+    dump_path = args.dsf_dump or _DSFR.ensure_dsf_text_path(
+        pristine_dsf_path(dsf_path), cache)
+    if not dump_path:
+        print("no DSF text dump (and none in the mod cache) — pass --dsf-dump")
+        return 2
+    dump = _dsf2.read_dump(dump_path)
+    pads, rims = _pp.pads_rims_from_graded(args.graded)
+    print("%s: units %d, bounds %s, pads %d, rims %d, src %s"
+          % (plan_.icao, len(plan_.units), plan_.bounds(), len(pads),
+             len(rims), surface_source))
+
+    oracle: dict = {}
+    capture = [bool(args.oracle_write)]
+
+    def _mesh_sampler():
+        from auto_patch.mesh_sampler import (MeshElevationSampler,
+                                             OutsideMeshError)
+        started = time.perf_counter()
+        sampler = MeshElevationSampler(args.mesh, plan_.bounds())
+        construct = time.perf_counter() - started
+        print("  MeshElevationSampler: %d retained triangles, construct %.2fs"
+              % (len(sampler._triangles), construct))
+        if hasattr(sampler, "_grid_cells"):
+            print("  grid index: %d x %d cells, %d bucket entries "
+                  "(%.2f per triangle)"
+                  % (sampler._grid_cells, sampler._grid_cells,
+                     len(sampler._grid_triangles),
+                     len(sampler._grid_triangles)
+                     / max(1, len(sampler._triangles))))
+
+        def sample(la, lo, _s=sampler):
+            try:
+                s = _s.sample_at(la, lo)
+            except OutsideMeshError:
+                if capture[0]:
+                    oracle[(la, lo)] = None
+                return None
+            if capture[0]:
+                oracle[(la, lo)] = (float(s.elevation_metres),
+                                    int(s.terrain_type), bool(s.is_water))
+            z = float(s.elevation_metres)
+            return (z, bool(s.is_water)) if math.isfinite(z) else None
+
+        if hasattr(sampler, "sample_many") and not args.no_batch:
+            def sample_many(las, los, _s=sampler):
+                out = []
+                for s in _s.sample_many(las, los):
+                    if s is None:
+                        out.append(None)
+                        continue
+                    z = float(s.elevation_metres)
+                    out.append((z, bool(s.is_water))
+                               if math.isfinite(z) else None)
+                return out
+            sample.many = sample_many
+        return sample, construct, sampler
+
+    def _graded_sampler():
+        import numpy as np
+        from scipy.interpolate import LinearNDInterpolator
+        with open(args.graded, encoding="utf-8") as fh:
+            data = json.load(fh)
+        verts = data["vertices"]
+        started = time.perf_counter()
+        interp = LinearNDInterpolator(
+            np.asarray([[v[1], v[2]] for v in verts], dtype=float),
+            np.asarray([v[3] for v in verts], dtype=float))
+        construct = time.perf_counter() - started
+        print("  graded interpolator: %d vertices, construct %.2fs"
+              % (len(verts), construct))
+
+        def sample(la, lo):
+            z = float(np.asarray(interp(la, lo)).reshape(-1)[0])
+            return None if not np.isfinite(z) else (z, False)
+
+        def sample_many(las, los):
+            zs = np.asarray(interp(np.asarray(las, dtype=float),
+                                   np.asarray(los, dtype=float))).reshape(-1)
+            return [None if not np.isfinite(z) else (float(z), False)
+                    for z in zs]
+        sample.many = sample_many
+        return sample, construct, None
+
+    keywords = dict(
+        icao=plan_.icao, pack_name=pack_name, pack_root=plan_.pack_root,
+        dsf_path=dsf_path,
+        split_tol_m=law.tables.structures.placement.split_tol_m,
+        elevated_base_m=law.tables.structures.rebake.elevated_base_m,
+        line_segment_m=law.tables.structures.placement.line_segment_m,
+        line_stations_max=law.tables.structures.rebake.line_object_stations_max,
+        line_ratio=law.tables.structures.rebake.line_object_ratio,
+        line_max_h=law.tables.structures.rebake.line_object_max_h,
+        foot_band_m=law.tables.structures.basin.contact_band_m,
+        carrier_fill_min=law.tables.structures.placement.carrier_fill_min,
+        coarsen_reach_m=getattr(law.tables.structures.placement,
+                                "coarsen_reach_m", 0.0),
+        pads=pads, rims=rims, engine_version="", law_digest="",
+        write_cuts=False)
+    import inspect
+    accepted = set(inspect.signature(_pw.build_plan).parameters)
+    for key in [k for k in keywords if k not in accepted]:
+        print("  SIG DIFF: this src's build_plan takes no %r — dropped" % key)
+        keywords.pop(key)
+
+    times = []
+    last_plan = last_files = None
+    counters = None
+    for run in range(args.runs):
+        sample, construct, _sampler = (
+            _graded_sampler() if args.sampler == "graded" else _mesh_sampler())
+        counters = collections.Counter()
+        make = getattr(_ev2, "_placement_surface", None)
+        if make is None:
+            # A --src predating 12g (2): the BARE closure the app shipped,
+            # no .many and no memo — the arm this is measured against.
+            def surface(la, lo, _s=sample):
+                s = _s(la, lo)
+                return None if s is None else float(s[0])
+        else:
+            surface = make(sample)
+        watched = _watch_surface(surface, counters)
+        started = time.perf_counter()
+        out_plan, files, _ = _pw.build_plan(plan_, dump, watched, **keywords)
+        elapsed = time.perf_counter() - started
+        times.append(elapsed)
+        last_plan, last_files = out_plan, files
+        print("  run %d: build_plan %8.2fs   surface calls %d "
+              "(point %d, batched %d) unique %d   construct %.2fs"
+              % (run + 1, elapsed, counters["calls"], counters["point"],
+                 counters["batched"], counters["unique"], construct))
+        capture[0] = False          # the oracle is run 1's reading
+    print("%s sampler: wall %s  mean %.2fs  min %.2fs"
+          % (args.sampler, ["%.2f" % t for t in times],
+             sum(times) / len(times), min(times)))
+    print("  plan counts: %s   files %d"
+          % (dict(last_plan.counts()), len(last_files)))
+
+    if args.plan_out:
+        with open(args.plan_out, "w") as fh:
+            fh.write(last_plan.to_json())
+        print("  plan ->", args.plan_out)
+    if args.oracle_write:
+        with open(args.oracle_write, "wb") as fh:
+            pickle.dump(oracle, fh, protocol=4)
+        outside = sum(1 for v in oracle.values() if v is None)
+        print("  oracle: %d unique points (%d outside) -> %s"
+              % (len(oracle), outside, args.oracle_write))
+    if args.oracle_check:
+        return _oracle_check(args, plan_)
+    return 0
+
+
+def _watch_surface(surface, counters):
+    """Count what ``build_plan`` asks, without changing an answer."""
+    seen = set()
+
+    def watched(la, lo):
+        counters["calls"] += 1
+        counters["point"] += 1
+        seen.add((la, lo))
+        counters["unique"] = len(seen)
+        return surface(la, lo)
+
+    inner = getattr(surface, "many", None)
+    if inner is not None:
+        def watched_many(las, los):
+            las = list(las)
+            los = list(los)
+            counters["calls"] += len(las)
+            counters["batched"] += len(las)
+            counters["batches"] += 1
+            seen.update(zip(las, los))
+            counters["unique"] = len(seen)
+            return inner(las, los)
+        watched.many = watched_many
+    return watched
+
+
+def _oracle_check(args, plan_) -> int:
+    """Every oracle point through THIS src's sampler, bit for bit."""
+    import pickle
+    from auto_patch.mesh_sampler import MeshElevationSampler, OutsideMeshError
+    with open(args.oracle_check, "rb") as fh:
+        oracle = pickle.load(fh)
+    sampler = MeshElevationSampler(args.mesh, plan_.bounds())
+    points = list(oracle.items())
+    bad_point = bad_batch = outside = 0
+    worst = None
+    for (la, lo), expected in points:
+        try:
+            s = sampler.sample_at(la, lo)
+            got = (float(s.elevation_metres), int(s.terrain_type),
+                   bool(s.is_water))
+        except OutsideMeshError:
+            got = None
+            outside += 1
+        if got != expected:
+            bad_point += 1
+            if worst is None:
+                worst = (la, lo, expected, got)
+    if hasattr(sampler, "sample_many"):
+        step = 20000
+        for start in range(0, len(points), step):
+            chunk = points[start:start + step]
+            batch = sampler.sample_many([p[0][0] for p in chunk],
+                                        [p[0][1] for p in chunk])
+            for (key, expected), s in zip(chunk, batch):
+                got = None if s is None else (
+                    float(s.elevation_metres), int(s.terrain_type),
+                    bool(s.is_water))
+                if got != expected:
+                    bad_batch += 1
+                    if worst is None:
+                        worst = (key[0], key[1], expected, got)
+    print("ORACLE: %d points (%d outside) — sample_at differences %d, "
+          "sample_many differences %d" % (len(points), outside, bad_point,
+                                          bad_batch))
+    if worst is not None:
+        print("  first difference at (%.11f, %.11f): expected %s got %s"
+              % worst)
+    return 0 if not (bad_point or bad_batch) else 1
+
+
 def cmd_disk(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import obj8
     root = args.pack_root
@@ -733,6 +1016,42 @@ def main(argv: list[str] | None = None) -> int:
                    help="run the CONTROL arm first (the arm that runs first is "
                         "the slower one: read the timing bar both ways)")
     o.set_defaults(fn=cmd_order)
+    pl = sub.add_parser("plan", help="THE PLACEMENT STAGE, replayed and TIMED "
+                                     "over the sampler the app calls (12g)")
+    pl.add_argument("plan", help="the tile build's o4_v2_rebake_<ICAO>.json")
+    pl.add_argument("mesh", help="the built Data+XX+YYY.mesh")
+    pl.add_argument("--graded", required=True,
+                    help="the emitted design surface <ICAO>.graded.json "
+                         "(the pads and rims §6's class rule reads)")
+    pl.add_argument("--tile", nargs=2, type=int, default=(40, -4),
+                    metavar=("LAT", "LON"),
+                    help="the tile whose DSF the plan's pack is read from")
+    pl.add_argument("--runs", type=int, default=3,
+                    help="single-run wall times swing +-25%%: never one run "
+                         "per side (the standing timing law)")
+    pl.add_argument("--sampler", default="mesh", choices=("mesh", "graded"),
+                    help="mesh = what the APP calls (12g); graded = the "
+                         "interpolator the lanes timed the stage on, 60x off")
+    pl.add_argument("--no-batch", action="store_true",
+                    help="withhold the sampler's .many, so surface_many takes "
+                         "its per-point fallback — the pre-12g shipped path")
+    pl.add_argument("--src", default="",
+                    help="replay against ANOTHER checkout's src (a worktree "
+                         "at the base sha), so one tool measures both arms")
+    pl.add_argument("--dsf-dump", default="",
+                    help="the DSF text dump (default: read from the mod "
+                         "cache — never generated, the churn ruling)")
+    pl.add_argument("--plan-out", default="",
+                    help="write the replayed o4_v2_placement_<ICAO>.json here "
+                         "(lane-local) to diff against the shipped one")
+    pl.add_argument("--oracle-write", default="",
+                    help="save every query point's (elevation, terrain type, "
+                         "is_water | None) — the identity oracle")
+    pl.add_argument("--oracle-check", default="",
+                    help="replay an oracle's points through THIS src and "
+                         "assert every answer BIT-identical (rc 1 on any "
+                         "difference)")
+    pl.set_defaults(fn=cmd_plan)
     d = sub.add_parser("disk", help="a pack's current bake state (read-only)")
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")

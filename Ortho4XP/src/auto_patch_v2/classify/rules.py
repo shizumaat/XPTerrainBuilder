@@ -86,6 +86,8 @@ class Lot:
     through_min_fraction: float
     parking_cover_fraction: float
     apron_cover_fraction: float
+    airside_edge_min_m: float
+    mouth_width_factor: float
 
 
 @_dc.dataclass(frozen=True)

@@ -111,18 +111,33 @@ def _apron_lot_airport():
 
 
 def test_apron_never_absorbs_an_adjacent_lot(law):
+    """The lot page keeps ITS OWN FACE, cut at its own boundary — no
+    apron cell reaches into it (owner 2026-09-04j).
+
+    Its ROLE moved on 2026-09-12: this page shares its whole 80 m west
+    edge with the apron, so §27 (RULINGS 2026-09-12c) makes that face
+    `apron`.  What the cut guarantees is unchanged and is what this twin
+    pins: the face is the LOT PAGE's own, at the lot page's own extent,
+    never a lobe of the apron's cell."""
     a = _apron_lot_airport()
     cl = classify(a, law)
     cells = _cells(cl)
-    lots = [c for c in cells if c[0] == "parking_lot"]
-    assert [c[1] for c in lots] == ["lotpage"], lots
-    assert abs(lots[0][2] - 60.0 * 80.0) < 1.0
-    # the apron kept its own face(s) and none of them reaches into the lot
-    aprons = [c for c in cells if c[0] == "apron"]
-    assert aprons
-    for _r, _ref, _a, c in aprons:
+    page = [c for c in cells if c[1] == "lotpage"]
+    assert len(page) == 1 and abs(page[0][2] - 60.0 * 80.0) < 1.0
+    assert page[0][0] == "apron"                     # §27: the airside edge
+    ev = page[0][3].evidence
+    assert ev.get("airside_edge_flip") == 1.0 and ev.get("airside_edge_was") == "parking_lot"
+    # no OTHER apron face reaches into the lot page's rectangle
+    for _r, _ref, _a, c in cells:
+        if _ref == "lotpage" or _r != "apron":
+            continue
         assert not Polygon(c.ring, c.holes).intersection(
             Polygon(_rect(240.0, 320.0, 300.0, 400.0))).area > 1.0
+    # ...and a lot page that touches NO airside pavement is still a lot
+    far = _dc.replace(a, pavements=a.pavements[:-1] + (
+        Pavement("lotfar", Surface.ASPHALT, _rect(-400.0, 320.0, -340.0, 400.0), ()),))
+    roles = {c.ref: c.role for c in classify(far, law).cells}
+    assert roles.get("lotfar") in ("parking_lot", "groundside_pavement"), roles
 
 
 # ── 3. apron mis-evidence: an apron by name is never a corridor ──────────

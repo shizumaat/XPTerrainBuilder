@@ -2050,10 +2050,12 @@ the finer footed triangle cut for "tearing rigid solids" and kept the same atom.
    `tunnel_ramp` / tunnel floor / basin-interior face: the body spans the cut. The
    lane MEASURES this first — whether `PKT4__b0`'s zero 611 is a trench foot — and
    implements it only if so; otherwise reports the refutation.
-4. **THE CARRIER IS WHAT THE BODY RESTS ON** (§15 (1)(a) amended): among the
-   candidates a body plan-overlaps, the carrier is the one whose TOP surface under
-   the overlap lies nearest below the body's base plane; largest overlap breaks
-   ties only. A 158 m² wall whose top meets the roof beats a 129,113 m² floor slab
+4. **THE CARRIER IS WHAT THE BODY RESTS ON** (§15 (1)(a) amended; amended again
+   2026-09-12n): among the candidates a body plan-overlaps, the carrier is the one
+   whose TOP surface under the overlap lies NEAREST the body's base plane in
+   absolute distance — above or below: a roof let into a parapet rests on walls
+   whose top stands above its base, and "nearest below" (the first wording) sent
+   the T2 roofs to bodies 6 m off. Largest overlap breaks ties only. A 158 m² wall whose top meets the roof beats a 129,113 m² floor slab
    17 m below it. (`LEMD41__b1` on `LEMD52__b0` reads 0.01 m today; every other T2
    roof rode `LEMD38`'s floor pieces.)
 5. **THE BAR INSTRUMENT IS THE WRITTEN FRAME**: `obj8_split_report` (and the

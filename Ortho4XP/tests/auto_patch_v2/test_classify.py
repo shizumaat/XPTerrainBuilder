@@ -271,3 +271,175 @@ def test_route_territory_keeps_tight_pockets_and_returns_the_rest():
     # no contour on the face: no territory, nothing to report
     terr, near, rem = _route_territory(wide, box(500, 500, 600, 600), band, rules)
     assert terr.is_empty and near == 0.0 and rem == 0.0
+
+
+# ── §27 an airside edge makes a lot airside (RULINGS 2026-09-12c/12e,
+# ── roads and the mouth 2026-09-12f) ─────────────────────────────────────
+
+def _lot_flip_case(final_extra, law=None, rules=None):
+    """Run ``_airside_edge_flip`` over ``final_extra`` and give the roles
+    back.  Entries are ``(role, ref, polygon, letter, evidence)`` exactly
+    as ``classify``'s own final list."""
+    from auto_patch_v2.classify.airside_edge import airside_edge_flip as _airside_edge_flip
+    law = law or Law.for_airport("SYNT")
+    rules = rules or load_rules()
+    final = [list(t) + [str(t[4].get("kind", ""))] for t in final_extra]
+    n, rounds = _airside_edge_flip(final, [], law, rules)
+    return n, rounds, [f[0] for f in final], final
+
+
+def test_airside_edge_flips_a_lot_with_a_long_apron_edge():
+    """§27 (1): a lot running at least ``lot.airside_edge_min_m``
+    laterally along airside pavement IS an apron, and its evidence
+    records the metres."""
+    from shapely.geometry import box
+    rules = load_rules()
+    assert rules.lot.airside_edge_min_m == 10.0
+    apron = box(0, 0, 100, 100)
+    lot = box(100, 0, 200, 100)               # 100 m of lateral shared edge
+    far = box(400, 400, 500, 500)             # touches nothing
+    n, rounds, roles, final = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+        ("parking_lot", "pav3", far, None, {"kind": "lot"}),
+    ])
+    assert n == 1 and rounds == 2 and roles == ["apron", "apron", "parking_lot"]
+    assert final[1][4]["airside_edge_m"] >= 100.0
+    assert final[1][4]["airside_edge_flip"] == 1.0
+    assert final[1][4]["airside_edge_was"] == "parking_lot"
+    # side is a pure function of role — no consumer edit (§27 (2))
+    from auto_patch_v2.law.tables import role_side
+    law = Law.for_airport("SYNT")
+    assert role_side(law, final[1][0]) == "airside"
+    assert role_side(law, final[2][0]) == "groundside"
+
+
+def test_a_road_alongside_an_apron_flips_and_carries_the_lot_with_it():
+    """§27 (5) (owner RULINGS 2026-09-12f): a service road running
+    LATERALLY along an apron IS the apron (the free-road ruling), and the
+    flip PROPAGATES — the lot on its far side is then beside apron.  The
+    pass iterates to the fixpoint and says how many rounds it took."""
+    from shapely.geometry import box
+    road = box(0, 0, 10, 200)                 # a 10 m strip, 200 m long
+    apron = box(10, 0, 110, 200)              # 200 m LATERAL along the road
+    lot = box(-60, 0, 0, 200)                 # 200 m along the road's far side
+    n, rounds, roles, final = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("service_road", "r1", road, None, {}),
+        ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+    ])
+    assert roles == ["apron", "apron", "apron"] and n == 2
+    # round 1 flips the road, round 2 the lot it exposed, round 3 stops
+    assert rounds == 3
+    assert final[1][4]["airside_edge_round"] == 1.0
+    assert final[1][4]["airside_edge_was"] == "service_road"
+    assert final[2][4]["airside_edge_round"] == 2.0
+
+
+def test_a_mouth_keeps_a_shape_groundside():
+    """§27 (5): the exemption is the SHAPE OF THE CONTACT, not the
+    neighbour's role — a free road meeting the apron END-ON at its own
+    mouth (the strip's end cap, transverse, at most
+    ``lot.mouth_width_factor`` strip-widths) stays groundside, and so
+    does the lot at the road's other mouth."""
+    from shapely.geometry import box
+    rules = load_rules()
+    assert rules.lot.mouth_width_factor == 1.5
+    road = box(0, 0, 10, 200)                 # 10 m wide, axis north
+    apron = box(-100, -100, 100, 0)           # meets the road's SOUTH cap
+    lot = box(-40, 200, 10, 300)              # meets the road's NORTH cap
+    n, rounds, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("service_road", "r1", road, None, {}),
+        ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+    ])
+    assert n == 0 and rounds == 1 and roles == ["apron", "service_road", "parking_lot"]
+    # the SAME 10 m of contact laid LATERALLY is never a mouth: widen the
+    # cap beyond the factor and the road flips
+    wide = box(0, 0, 10, 200)
+    apron2 = box(-100, -100, 100, 0)
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron2.union(box(10, 0, 100, 30)), None, {}),
+        ("service_road", "r1", wide, None, {}),
+    ])
+    assert n == 1 and roles[1] == "apron"
+
+
+def test_airside_edge_never_flips_a_sliver():
+    """§27 (1): area / perimeter < 1 m is an emit artefact, never a face
+    that flips — LEMD's `dsf:pol255#2` rings share 100+ m each."""
+    from shapely.geometry import box
+    from auto_patch_v2.classify.airside_edge import _LOT_SLIVER_RADIUS_M
+    assert _LOT_SLIVER_RADIUS_M == 1.0
+    apron = box(0, 0, 200, 100)
+    sliver = box(0, 100, 200, 100.8)          # 200 m long, 0.8 m wide -> r ~ 0.4
+    assert sliver.area / sliver.length < 1.0
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav2", sliver, None, {"kind": "lot"}),
+    ])
+    assert n == 0 and roles[-1] == "parking_lot"
+    fat = box(0, 100, 200, 103)               # r = 1.48: a real strip, flips
+    assert fat.area / fat.length > 1.0
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav2", fat, None, {"kind": "lot"}),
+    ])
+    assert n == 1 and roles[-1] == "apron"
+
+
+def test_airside_edge_is_weld_tolerant():
+    """§27 (1): the cells are PRE-WELD, so exact coincidence under-reads
+    the edge the owner sees.  Measured at LEMD `pav137` (shapeID 81):
+    95.0 m exact, 140.2 m in the emitted patch — the buffered measure at
+    ``emit.identity.weld_spacing_m`` recovers it."""
+    from shapely.geometry import box
+    from shapely.strtree import STRtree
+    from auto_patch_v2.classify.airside_edge import _lateral_airside_m
+    law = Law.for_airport("SYNT")
+    rules = load_rules()
+    weld = float(law.tables.emit.identity.weld_spacing_m)
+    f = float(rules.lot.mouth_width_factor)
+    assert weld == 1.0
+    apron = box(0, 0, 100, 100)
+    gapped = box(100.6, 0, 200, 100)          # a 0.6 m gap the weld closes
+    assert gapped.boundary.intersection(apron.boundary).length == 0.0
+    tree = STRtree([apron])
+    assert _lateral_airside_m(gapped, False, tree, [(apron, False)], weld,
+                              f) == pytest.approx(100.0, abs=1.0)
+    # ...and the same lot 3 m away — beyond the weld — reads nothing
+    far = box(103.0, 0, 200, 100)
+    assert _lateral_airside_m(far, False, tree, [(apron, False)], weld, f) == 0.0
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav2", gapped, None, {"kind": "lot"}),
+        ("parking_lot", "pav3", box(103.0, 200, 200, 300), None, {"kind": "lot"}),
+    ])
+    assert n == 1 and roles == ["apron", "apron", "parking_lot"]
+
+
+def test_only_a_road_offers_a_mouth():
+    """§27 (5): the exemption is "a FREE ROAD meeting it end-on".  Where
+    neither face in contact is a road there is no mouth: a lot meeting an
+    apron head-on across a short edge is a lateral contact and flips.
+    And a road that ALREADY flipped still offers its mouth — the
+    exemption follows the road's ORIGINAL role, not its current one."""
+    from shapely.geometry import box
+    # 20 m of contact, transverse to the lot's own axis, no road anywhere
+    apron = box(0, 0, 200, 100)
+    lot = box(0, 100, 20, 300)                # a 20 m wide finger, end-on
+    n, _r, roles, final = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+    ])
+    assert n == 1 and roles[-1] == "apron"
+    assert final[1][4]["airside_edge_m"] == pytest.approx(21.0, abs=1.5)   # the weld band adds ~1 m at each corner
+    # the same finger reaching the apron through a road's mouth stays
+    road = box(0, 100, 20, 140)               # 20 m wide, 40 m long strip
+    lot2 = box(0, 140, 20, 300)
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("service_road", "r1", road, None, {}),
+        ("parking_lot", "pav2", lot2, None, {"kind": "lot"}),
+    ])
+    assert n == 0 and roles == ["apron", "service_road", "parking_lot"]

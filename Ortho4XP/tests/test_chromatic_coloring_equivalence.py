@@ -274,14 +274,27 @@ def test_precheck_respects_zero_iteration_cap():
     assert result == (0, False)
 
 
-def test_hub_coloring_is_fast():
-    # regression guard for the quadratic hub (generous bound: the accelerated
-    # scan is O(k); the original union-copy greedy took ~1 s at k = 8000).
-    import time
+def test_hub_coloring_star_every_edge_its_own_color():
     hub_degree = 8000
     iter_edges = [(0, leaf, 1.0, 0) for leaf in range(1, hub_degree + 1)]
-    start = time.perf_counter()
     colors = OS._color_edges_by_write(iter_edges)
-    elapsed = time.perf_counter() - start
     assert len(colors) == hub_degree           # star: every edge its own color
+
+
+@pytest.mark.timing
+def test_hub_coloring_is_fast(timing_runs):
+    # regression guard for the quadratic hub (generous bound: the accelerated
+    # scan is O(k); the original union-copy greedy took ~1 s at k = 8000).
+    # ``timing``-marked, deselected by default (RULINGS 2026-09-12z): a
+    # one-run wall-clock budget; read on the median of ``timing_runs``.
+    import time
+    from conftest import median_wall
+    hub_degree = 8000
+    iter_edges = [(0, leaf, 1.0, 0) for leaf in range(1, hub_degree + 1)]
+
+    def one():
+        start = time.perf_counter()
+        OS._color_edges_by_write(iter_edges)
+        return time.perf_counter() - start
+    elapsed = median_wall(one, timing_runs)
     assert elapsed < 0.5, f"hub coloring took {elapsed:.3f}s"

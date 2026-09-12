@@ -2,8 +2,9 @@
 I1-I7 with zero T-vertices, every edge once with both faces, faces
 covering the classified pavement, a DEM sample on every vertex, chords
 at the law's cap and vertices on the identity grid; the T-vertex
-detector fires on an injected one; the CLI writes its products under
-the 5 s target."""
+detector fires on an injected one; the CLI writes its products.  The
+5 s wall-clock targets are ``timing``-marked twins at the end of the
+file, deselected by default (RULINGS 2026-09-12z)."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -62,7 +63,6 @@ def test_invariants_and_counts(cyxy_map):
     assert len(two) > stats.edges // 2
     assert stats.min_vertex_spacing_m >= law.tables.emit.identity.min_distinct_spacing_m - 1e-9
     assert stats.max_chord_m <= law.tables.emit.chords.pavement_max_chord_m + 1e-6
-    assert wall < 5.0
 
 
 def test_faces_cover_the_classified_pavement(cyxy_map):
@@ -155,14 +155,50 @@ def test_index_and_geojson(cyxy_map, tmp_path):
 def test_cli_writes_products(tmp_path):
     from auto_patch_v2.planar.__main__ import main
     out = tmp_path / "planar"
-    t0 = time.perf_counter()
     rc = main(["CYXY", "--out", str(out), "--xplane-root", str(FIX),
                "--cifp-dir", str(FIX / "CIFP"), "--data-root", str(FIX),
                "--dem-frame", "authored"])
-    assert rc == 0 and time.perf_counter() - t0 < 5.0
+    assert rc == 0
     rep = json.loads((out / "report.json").read_text())
     assert rep["planar"]["t_vertices"] == 0 and rep["planar"]["faces"] > 0
     assert (out / "faces.geojson").stat().st_size > 1000
     assert (out / "breaklines.geojson").stat().st_size > 100
     assert rep["load"]["pack_name"] == "CYXY Fixture"
-    assert rep["wall_s"]["total"] < 5.0
+
+
+# ── wall-clock twins: ``timing``-marked, deselected by default ─────────────
+# (RULINGS 2026-09-12z; CLAUDE.md "Traps still on you": single-run wall
+# times swing +/-25 %, a budget is read on the MEDIAN of N runs)
+
+@pytest.mark.timing
+def test_planar_build_wall(cyxy_map, timing_runs):
+    """The CYXY fixture's planar map builds under 5 s (median)."""
+    from conftest import median_wall
+    a, law, cl, _pm, _stats, _wall = cyxy_map
+
+    def one():
+        t0 = time.perf_counter()
+        build(a, cl, law)
+        return time.perf_counter() - t0
+    assert median_wall(one, timing_runs) < 5.0
+
+
+@pytest.mark.timing
+def test_cli_wall(tmp_path, timing_runs):
+    """The planar CLI writes its products under 5 s (median), and its own
+    ``wall_s.total`` agrees."""
+    from conftest import median_wall
+    from auto_patch_v2.planar.__main__ import main
+
+    def one():
+        out = tmp_path / "planar"
+        t0 = time.perf_counter()
+        rc = main(["CYXY", "--out", str(out), "--xplane-root", str(FIX),
+                   "--cifp-dir", str(FIX / "CIFP"), "--data-root", str(FIX),
+                   "--dem-frame", "authored"])
+        wall = time.perf_counter() - t0
+        assert rc == 0
+        rep = json.loads((out / "report.json").read_text())
+        assert rep["wall_s"]["total"] <= wall + 1e-6
+        return wall
+    assert median_wall(one, timing_runs) < 5.0

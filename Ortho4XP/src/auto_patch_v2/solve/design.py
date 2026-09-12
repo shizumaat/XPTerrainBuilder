@@ -68,8 +68,7 @@ from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
 from .design_report import DesignReport, foot_row_diagnostic, residual, settled_flip
-from .project import (ProjectionReport, ZoneClampReport,
-                      project_runway, project_zone_bands)
+from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
@@ -900,19 +899,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # surrounding sheet states on runway vertices are re-read below as
     # REPORT FIGURES, which is exactly what the ruling asks of them.
     if x is not None:
-        x, rep.runway_projection = project_runway(planar, law, base_p, x,
-                                                  stacked=(A1, b1),
-                                                  verbose=opt.verbose)
-        # PHASE E — THE ZONE PROJECTION (Fable 2026-09-12, RULINGS
-        # 2026-09-12ag; spec §32).  The runway family is certified above;
-        # the adjacent-ground corridor was not, and at LEMD it shipped
-        # 8.10 m on one vertex 3 m from taxiway E.  Its rows are ONE-WAY
-        # per-vertex bands against feet this solve has already fixed, so
-        # the projection onto them is a CLAMP — no LP, and no runway
-        # column can move (a runway vertex carries no corridor row, so no
-        # clampable column holds one).
-        x, rep.zone_projection = project_zone_bands(planar, law, base_p, x,
-                                                    verbose=opt.verbose)
+        # ... then PHASE E, the ZONE projection (12ag, §32): one entry,
+        x, rep.runway_projection, rep.zone_projection = project_after_solve(
+            planar, law, base_p, x, stacked=(A1, b1), verbose=opt.verbose)
         # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
         # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:

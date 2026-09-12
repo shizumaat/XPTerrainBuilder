@@ -80,7 +80,8 @@ from .rows import _law_sides, _one_matrix, _Reduction, _Side, _violation
 
 __all__ = ["ProjectionReport", "ZoneClampReport", "ZONE_GENERATOR",
            "ZONE_RULING", "runway_family_vertices", "free_columns",
-           "project_runway", "project_zone_bands", "zone_band_sides"]
+           "project_runway", "project_zone_bands", "project_after_solve",
+           "zone_band_sides"]
 
 #: The ridge: the breakline kind the runway profile (and the census's own
 #: ``crown_spine``) is carried on.
@@ -737,3 +738,29 @@ def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
     if verbose:
         print("    " + rep.line())
     return out, rep
+
+
+def project_after_solve(planar: PlanarMap, law: Law, base: _t.Any,
+                        x: np.ndarray, *,
+                        stacked: tuple[sp.csr_matrix, np.ndarray] | None = None,
+                        verbose: bool = False
+                        ) -> tuple[np.ndarray, ProjectionReport, ZoneClampReport]:
+    """THE TWO PROJECTIONS, in their one lawful order (§16 then §32).
+
+    The runway family is settled first as a QP holding its hard rows
+    exactly (:func:`project_runway`, RULINGS 2026-09-09y); the
+    adjacent-ground corridor is then clamped per vertex against the feet
+    that solve has just fixed (:func:`project_zone_bands`, RULINGS
+    2026-09-12ag).  The order matters and the two are DISJOINT — a runway
+    vertex carries no corridor row, so no clampable column holds one and
+    the clamp cannot undo a certified runway row.
+
+    They are called through ONE entry so ``solve/design`` states the
+    phase in two lines: that module is AT the 1,000-line cap
+    (``tests/auto_patch_v2/test_model.py``), and the place for this
+    rationale is here, beside the code it describes.
+    """
+    x, rwy = project_runway(planar, law, base, x, stacked=stacked,
+                            verbose=verbose)
+    x, zone = project_zone_bands(planar, law, base, x, verbose=verbose)
+    return x, rwy, zone

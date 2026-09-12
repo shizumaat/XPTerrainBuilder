@@ -2508,3 +2508,40 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
 * **Merged main `30a61c9f`** (§27, the mesh-sampler grid, `v2_rebake_replay
   plan`); `tools/INDEX.md` resolved keeping BOTH rows.  Full twin set
   **1,169 passed / 1 skipped**.
+
+### §16c (7)–(8) The unit binds by contact; the rest-on carrier is not refused for its own ground (Fable, 2026-09-12; RULINGS 2026-09-12q)
+
+Scout `v2t2roofs` on main `fe5d7a87`: the four T2 roofs that miss are NOT a plan-overlap
+predicate (widening it — "inside the hull box" 72 carriers changed, "any hull-box
+overlap" 121 — fixes none of them). Three causes: `tej2__b0/b1` rest on `P2PK__b0`
+(|Δ| 1.45 m against 14.64 for the runner-up, only two candidates overlap) and §16a
+(2) REFUSES it for its own `ground_off` 0.42 > 0.30 — the ranking runs before the
+refusal, so the body it rests on is dropped and the next one taken; `LEMD48__b0` /
+`LEMD47__b1` have NO candidate at their height because `LEMD47`/`LEMD48` are one
+thing (114 ε-contacts between them in the rebake plan) and §16c (6) binds only
+within one member, with elevated bodies excluded from their member's coarsening;
+and the block's separation is the SPREAD — the T2 walls are separate footed bodies
+each at its own low-side ground (building bodies 602.89 … 603.35, `LEMD47` alone at
+three zeros 1.19 m apart), and every roof inherits whichever the ranking hands it.
+The plan records 175 cross-member ε-contacts among the T2 resources.
+
+7. **THE UNIT BINDS BY CONTACT.** §16c (6)'s contact binding is unit-wide: bodies
+   of one UNIT in ε-contact (the rebake plan's cross-member contact pairs, and the
+   rigid reach within `rigid_reach_m`) form ONE rigid cluster, and an elevated body
+   joins its own member's footed cluster. The cluster's zero is its senior FOOTED
+   body's anchor (largest footprint; §9 low side); every member rides it at the
+   authored offset. `RIGID_CLUSTER_SPAN_MAX_M` (1,200) bounds the chain. A terminal
+   authored as walls + roofs + skylights in contact is one building.
+8. **THE REST-ON CARRIER IS NOT REFUSED FOR ITS OWN GROUND.** §16a (2)'s refusal
+   yields when the candidate's top under the overlap meets the carried body's base
+   within `split_tol_m`: it is what the body rests on, and its mis-anchoring is its
+   own residual (reported under the refusal set), not a reason to hand the body to
+   something 14 m away. Refusal stays for every other candidate.
+9. **BARS (lane `v2unitbind`)**: T2 building bodies within 150 m of 40.4660017,
+   −3.5694045 at ONE zero (spread ≤ 0.3, today 0.46; `LEMD47` one zero, today 1.19
+   apart); every T2 roof within 0.3 m of the wall it rests on (today 4 of 9 at
+   2.85–20.6 m); `tej2` on `P2PK`; the 11at / 12h / 12o sites held (green-TEJ3,
+   gate-5, `Terminal4_48`, the deck, `HANG3`); torn seams 0; §15 carried float 0;
+   OTHH seams 0 and its plan stage not worse than 64 s; collateral quoted airport-
+   wide (carriers changed, zeros moved, largest move, cluster count and the five
+   largest spans); files; round trip; suite.

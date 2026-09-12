@@ -656,6 +656,15 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     never guessed at (§15 (5))."""
     carried: list[tuple[float, str]] = []
     wide: list[tuple[float, str]] = []
+    by_class: dict[str, int] = {}
+    # a BASIN is EXEMPT from every terrain cut (§14 (2): the pit was cut
+    # TO the object, so its floor stands the pit's depth under its rim by
+    # authoring) and so is a body a basin CARRIES (RULINGS 11al: the T4S
+    # tower cluster rides the rim, and the ground under its own geometry
+    # is the pit floor 7 m below).  Both are counted and named apart.
+    cls_of = {str(b.get("new_resource") or ""): str(b.get("class") or "")
+              for s in splits for b in s.get("bodies", ())}
+    basin_wide = basin_carried = 0
     n = off_sheet = no_geom = 0
     span_sum = 0.0
     for s in splits:
@@ -682,19 +691,35 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             span = max(zs) - min(zs)
             span_sum = max(span_sum, span)
             if span > split_tol_m:
-                wide.append((span, res))
+                if str(b.get("class")) == "basin":
+                    basin_wide += 1
+                else:
+                    wide.append((span, res))
+                # the RESIDUE, ATTRIBUTED: a basin is exempt from every
+                # terrain cut by §14 (2) (the pit was cut TO the object),
+                # and a body's class is what says which cut was allowed
+                # to divide it
+                k = ("basin" if str(b.get("class")) == "basin"
+                     else "line" if str(b.get("class")) == "line_segment"
+                     else "carried" if b.get("merged_into") else "footed")
+                by_class[k] = by_class.get(k, 0) + 1
             zero = float(sz) - float(b.get("y_zero", 0.0))
             g = sorted(zs)[len(zs) // 2]
             if b.get("merged_into"):
                 d = zero - g
                 if abs(d) > float_tol_m:
-                    carried.append((d, res))
+                    if cls_of.get(str(b.get("merged_into"))) == "basin":
+                        basin_carried += 1
+                    else:
+                        carried.append((d, res))
     carried.sort(key=lambda q: -abs(q[0]))
     wide.sort(reverse=True)
     return {"bodies_read": n, "off_sheet": off_sheet, "no_geom_pts": no_geom,
             "carried_own_ground_gt": len(carried),
             "carried_own_ground_worst": carried[:10],
             "geom_span_gt": len(wide), "geom_span_worst": wide[:10],
+            "geom_span_gt_by_class": dict(sorted(by_class.items())),
+            "basin_wide": basin_wide, "basin_carried": basin_carried,
             "geom_span_max_m": span_sum,
             "float_tol_m": float_tol_m, "split_tol_m": split_tol_m,
             "bars_ok": not carried and not wide}
@@ -711,9 +736,19 @@ def census_v16b_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
               else "   *** §16b (4) VIOLATED (bar 0) ***"),
            f"   §16b body wider than its terrain group (own-geometry ground "
            f"spans > {c['split_tol_m']:g} m): {c['geom_span_gt']} (bar 0; "
-           f"widest {c['geom_span_max_m']:.2f} m)"
+           f"widest {c['geom_span_max_m']:.2f} m; by class "
+           + (", ".join(f"{k} {v}" for k, v
+                        in c.get("geom_span_gt_by_class", {}).items()) or "-")
+           + ")"
            + ("" if not c["geom_span_gt"]
               else "   *** §16b (4) VIOLATED (bar 0) ***")]
+    if c.get("basin_wide") or c.get("basin_carried"):
+        out.append(
+            f"   §16b BASIN exemptions (§14 (2) / 11al, counted apart from "
+            f"both bars): {c.get('basin_wide', 0)} basin body(ies) wider than "
+            f"their own ground (the pit was cut TO the object), "
+            f"{c.get('basin_carried', 0)} body(ies) a basin CARRIES at its RIM "
+            f"(the ground under them is the pit floor)")
     for d, res in c.get("carried_own_ground_worst", ()):
         out.append(f"      carried {d:+.2f} m over its own ground  {res}")
     for d, res in c.get("geom_span_worst", ()):

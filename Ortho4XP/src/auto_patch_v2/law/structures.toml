@@ -471,3 +471,13 @@ split_tol_m         = 0.3          # round 1 measured LEMD 302 placements -> 13,
 # and a sign fill a few thousandths of theirs.  0 disarms the test (the
 # pre-11ai reading, every footed body a carrier).
 carrier_fill_min    = 0.2
+# PLAN CONTIGUITY (owner RULINGS 2026-09-11ap; spec §16b (1)).  A split
+# exists only where the terrain differs under the object — but zero
+# AGREEMENT alone is not evidence that two bodies are one thing: LEMD's
+# `Taxisigns-SENRG` is 80 signs over 835 x 2,319 m, and §9 wrote them
+# into files by height alone, so `SENRG__b10` rode a zero set 1,590 m
+# away and stood +4.58 m over the ground at the owner's gate 5 (11ap
+# item 2).  Bodies join one file only when they are also CONTIGUOUS IN
+# PLAN: their boxes within this of each other.  A building's parts and
+# a wall's rings stand metres apart; a sign and the next sign do not.
+coarsen_reach_m     = 30.0

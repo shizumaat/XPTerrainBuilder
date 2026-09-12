@@ -33,6 +33,7 @@ import typing as _t
 from . import anchor_rule as _ar
 
 __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
+           "box_gap_m", "CandidateIndex", "CANDIDATE_CELL_M",
            "carrier_for", "unit_edges", "box_of", "overlap", "overlap_m2",
            "re_cut_by_terrain", "hull_of", "stands_over_rank", "foot_boxes",
            "fill_of", "parts_overlap", "ground_at_box", "ground_under",
@@ -51,244 +52,16 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
 # for the reading.  One implementation, one import surface.
 
 
-# ── plan boxes ───────────────────────────────────────────────────────────
-
-def hull_of(boxes: _t.Iterable[tuple[float, float, float, float]]
-            ) -> tuple[float, float, float, float] | None:
-    """The bounding box of ``boxes``, or ``None`` when there are none."""
-    bs = list(boxes)
-    if not bs:
-        return None
-    return (min(b[0] for b in bs), min(b[1] for b in bs),
-            max(b[2] for b in bs), max(b[3] for b in bs))
-
-
-def box_of(feet: _t.Sequence[tuple[float, float, float]],
-           parts: _t.Sequence[_t.Any]) -> tuple[float, float, float, float]:
-    """A body's PLAN box ``(lat0, lon0, lat1, lon1)`` — from its own feet
-    when it has them (a SEGMENT's box is its segment's, not its parent
-    line's), else from its parts' boxes."""
-    if feet:
-        las = [f[0] for f in feet]
-        los = [f[1] for f in feet]
-        return (min(las), min(los), max(las), max(los))
-    return (min(p.box[0] for p in parts), min(p.box[1] for p in parts),
-            max(p.box[2] for p in parts), max(p.box[3] for p in parts))
-
-
-def overlap(a: tuple[float, float, float, float],
-            b: tuple[float, float, float, float]) -> float:
-    """The plan overlap AREA of two boxes in square degrees (a monotone
-    stand-in for square metres inside one placement)."""
-    dla = min(a[2], b[2]) - max(a[0], b[0])
-    dlo = min(a[3], b[3]) - max(a[1], b[1])
-    return dla * dlo if dla > 0.0 and dlo > 0.0 else 0.0
-
-
-def box_area_m2(b: tuple[float, float, float, float]) -> float:
-    """One plan box's area in square metres."""
-    ml, mo = _ar._m_per_deg(0.5 * (b[0] + b[2]))
-    return max(0.0, (b[2] - b[0]) * ml) * max(0.0, (b[3] - b[1]) * mo)
-
-
-def fill_of(box: tuple[float, float, float, float] | None,
-            part_boxes: _t.Sequence[tuple[float, float, float, float]]) -> float:
-    """§16 (3): the FOOTPRINT FILL of a body — the area its PART boxes
-    cover over the area of its own plan box, capped at 1.
-
-    This is what separates a SOLID from a line: a wall ring or a building
-    fills 0.3-1.0 of its box, while a 2 km fence segment, a grass strip
-    and a taxi sign fill a few thousandths of theirs.  Overlapping parts
-    are counted twice, which can only push a candidate ABOVE the bar —
-    the test is a floor, so the error is on the side of admitting a
-    genuine solid, never of admitting a line."""
-    if not box or not part_boxes:
-        return 0.0
-    area = box_area_m2(box)
-    if area <= 0.0:
-        return 1.0                      # a degenerate box is its own fill
-    return min(1.0, sum(box_area_m2(b) for b in part_boxes) / area)
-
-
-#: §16 (3): how many PART boxes stand for a body's footprint in the
-#: stands-over relation — its largest, by area.  The law and the census
-#: read the SAME bounded set (the plan publishes it per body), because a
-#: relation measured on one geometry by the law and another by the
-#: instrument counts the disagreement rather than the defect; and a plan
-#: carrying every part box of every body (LEMD: 29,402 parts) doubles its
-#: own size for a refinement the tail of the list never changes.
-FOOT_BOXES_MAX = 8
-
-
-def foot_boxes(part_boxes: _t.Sequence[tuple[float, float, float, float]],
-               cap: int = FOOT_BOXES_MAX
-               ) -> tuple[tuple[float, float, float, float], ...]:
-    """The ``cap`` largest of ``part_boxes`` (:data:`FOOT_BOXES_MAX`), in
-    the order given — a body's footprint, bounded."""
-    bs = list(part_boxes)
-    if len(bs) <= cap:
-        return tuple(bs)
-    keep = sorted(range(len(bs)), key=lambda i: -box_area_m2(bs[i]))[:cap]
-    return tuple(bs[i] for i in sorted(keep))
-
-
-def parts_overlap(a: _t.Sequence[tuple[float, float, float, float]],
-                  b: _t.Sequence[tuple[float, float, float, float]]) -> float:
-    """§16 (3): STANDS-OVER IS PARTS-HULL OVERLAP, not box overlap — the
-    overlap of the two bodies' PART boxes, summed pairwise (square
-    degrees, the same monotone unit :func:`overlap` speaks).
-
-    A body's hull box is a crude proxy for its footprint: LEMD's
-    ``LEMDzaun__b5``, a fence segment, has a box that CONTAINS the garage
-    roof and a footprint that touches none of it (11ai (C)).  Pairwise
-    summation double-counts parts that overlap each other, which can only
-    raise a candidate that genuinely stands under the body."""
-    return sum(overlap(p, q) for p in a for q in b)
-
-
-def ground_at_box(surface: _t.Callable[[float, float], "float | None"],
-                  box: tuple[float, float, float, float] | None) -> float | None:
-    """§16 (2)/(3): THE GROUND UNDER A BODY'S OWN GEOMETRY — the design
-    surface at the centre of the body's plan box, else at whichever of
-    its corners reads.  ONE point, read the same way by the law (which
-    refuses a carrier standing far from it) and by the census (which
-    prints ``zero - ground_under_geometry``); a second rule here would be
-    the census-wrapper defect."""
-    if not box or surface is None:
-        return None
-    pts = [(0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])),
-           (box[0], box[1]), (box[0], box[3]), (box[2], box[1]), (box[2], box[3])]
-    for la, lo in pts:
-        z = surface(la, lo)
-        if z is not None:
-            return float(z)
-    return None
-
-
-def ground_samples(surface: _t.Callable[[float, float], "float | None"],
-                   boxes: _t.Sequence[tuple[float, float, float, float]] = (),
-                   box: tuple[float, float, float, float] | None = None
-                   ) -> list[float]:
-    """§16 (2): the design surface UNDER A BODY'S OWN GEOMETRY, sampled at
-    the centre of each of its FOOTPRINT boxes (``foot_boxes``) — else, for
-    a body that publishes none, at the centre and corners of its plan box.
-
-    A body's box centre is not its geometry: an L-shaped terminal's centre
-    stands in the yard between its wings, and a re-cut roof's centre can
-    fall on the taxiway 8 m below it.  The parts are where the body
-    actually is.  ONE sampler, read the same way by the law (which refuses
-    a carrier standing far from this ground) and by the census."""
-    if surface is None:
-        return []
-    pts: list[tuple[float, float]] = [(0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3]))
-                                      for b in boxes]
-    if not pts and box:
-        pts = [(0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])),
-               (box[0], box[1]), (box[0], box[3]), (box[2], box[1]), (box[2], box[3])]
-    out = []
-    for la, lo in pts:
-        z = surface(la, lo)
-        if z is not None:
-            out.append(float(z))
-    return out
-
-
-def ground_under(surface: _t.Callable[[float, float], "float | None"],
-                 boxes: _t.Sequence[tuple[float, float, float, float]] = (),
-                 box: tuple[float, float, float, float] | None = None
-                 ) -> float | None:
-    """THE ground under a body: the MEDIAN of :func:`ground_samples` (a
-    median, because one part hanging over a ditch is not the ground the
-    body stands on).  ``None`` where nothing reads."""
-    zs = sorted(ground_samples(surface, boxes, box))
-    return None if not zs else zs[len(zs) // 2]
-
-
-#: §16a (2): how many of a body's own FEET the mis-anchoring test reads.
-#: A terminal publishes 132 of them and the answer is a MEDIAN; the
-#: sampling resolution costs nothing the reading needs (LEMD publishes
-#: 82k feet over the airport, and reading every one of them put 0.6 s in
-#: the plan stage for a number that did not move).
-GROUND_OFF_FEET_MAX = 32
-
-
-def anchor_ground_off(anchor: _ar.Anchor,
-                      feet: _t.Sequence[tuple[float, float, float]],
-                      surface: _t.Callable[[float, float], "float | None"]
-                      ) -> float | None:
-    """§16a (2): IS THIS BODY MIS-ANCHORED — how far its own zero stands
-    from the ground under its OWN FEET.
-
-    The ground under a foot is not the surface there: the foot stands at
-    its own authored height ``y`` above the body's zero plane, so what
-    the ground under it SAYS the body's zero is, is
-    ``surface(foot) - y_foot``.  (§7's float per foot is exactly this
-    minus the body's zero.)  Reading the raw surface instead makes every
-    building on a slope look mis-anchored — measured at LEMD: 313 of the
-    airport's footed bodies refused as carriers, and the roofs over them
-    then rode whatever came next, 49 of them more than 0.5 m off the
-    walls they stand on.
-
-    The MEDIAN over the feet, because one foot hanging over a ditch is
-    not the body's anchoring.  ``None`` where nothing reads: no reading
-    is no evidence that the body is wrong."""
-    if anchor.surface_z is None or not feet:
-        return None
-    zero = float(anchor.surface_z) - float(anchor.y_zero)
-    step = max(1, len(feet) // GROUND_OFF_FEET_MAX)
-    zs = []
-    for f in feet[::step]:
-        z = surface(f[0], f[1])
-        if z is not None:
-            zs.append(float(z) - float(f[2]))
-    if not zs:
-        return None
-    zs.sort()
-    return abs(zs[len(zs) // 2] - zero)
-
-
-def stands_over_rank(box: tuple[float, float, float, float],
-                     other: tuple[float, float, float, float],
-                     boxes: _t.Sequence[tuple[float, float, float, float]] = (),
-                     other_boxes: _t.Sequence[tuple[float, float, float, float]] = (),
-                     ) -> tuple[float, float]:
-    """The ranking key for "does this body stand over that one" — the
-    plan OVERLAP first, the tighter box second.
-
-    The second half is not decoration.  A body wholly inside several
-    large boxes ties on overlap at its own area, and LEMD has plenty of
-    them: a 4.5 km grass line segment's station box and a taxi-sign
-    body's box both contain the whole T4S roof, so the winner was
-    whichever the enumeration reached first — and the law and the census
-    enumerate in different orders, which made 11 bodies "float" on
-    nothing but that.  Of two bodies that both cover this one, the
-    SMALLER is what it stands on.
-
-    §16 (3): where both bodies' PART boxes are given the overlap is
-    measured between those (:func:`parts_overlap`) — the hull boxes then
-    serve only as the cheap reject, because two hulls that miss cannot
-    have a part pair that meets."""
-    ov = overlap(box, other)
-    if ov <= 0.0:
-        return (0.0, 0.0)
-    if boxes and other_boxes:
-        ov = parts_overlap(boxes, other_boxes)
-        if ov <= 0.0:
-            return (0.0, 0.0)
-    return (ov, -abs((other[2] - other[0]) * (other[3] - other[1])))
-
-
-def overlap_m2(a: tuple[float, float, float, float],
-               b: tuple[float, float, float, float]) -> float:
-    """:func:`overlap` in SQUARE METRES — square degrees are a monotone
-    stand-in for the comparison, but the REPORT says how much of one
-    body stands over the other, and that is read in metres."""
-    ov = overlap(a, b)
-    if ov <= 0.0:
-        return 0.0
-    ml, mo = _ar._m_per_deg(0.5 * (a[0] + a[2]))
-    return ov * ml * mo
-
+# ── the plan boxes and the ground under them (``placement_boxes``) ──────
+# The geometry every rule here measures on — plan boxes, footprints,
+# overlaps, and the design surface under a body — lives next door for the
+# 1,000-line law; it is re-exported because every caller and every twin
+# reads it as this module's.
+from .placement_boxes import (                           # noqa: E402
+    FOOT_BOXES_MAX, GROUND_OFF_FEET_MAX, anchor_ground_off, box_area_m2,
+    box_gap_m, box_of, fill_of, foot_boxes, ground_at_box, ground_samples,
+    ground_under, hull_of, overlap, overlap_m2, parts_overlap,
+    stands_over_rank)
 
 # ── §13 (1): is this body's file standing on the ground at all? ──────────
 
@@ -326,7 +99,9 @@ def is_elevated(base_y_min: float, anchor: _ar.Anchor,
 def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
             elevated: _t.AbstractSet[int] = frozenset(),
             boxes: _t.Sequence[tuple[float, float, float, float]] | None = None,
-            *, attach_elevated: bool = True) -> list[list[int]]:
+            *, attach_elevated: bool = True, reach_m: float = 0.0,
+            grounds: _t.Sequence["float | None"] | None = None
+            ) -> list[list[int]]:
     """BODY COARSENING (owner RULINGS 2026-09-11e (1); spec §9).
 
     ``bodies`` are ``(body index, its anchor, its ground-contact vertex
@@ -340,6 +115,24 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
     senior-first so that "agree" is always measured against the anchor the
     group will actually take — never a chain of pairwise steps that lets a
     group span many times the tolerance.
+
+    §16b (1) AMENDS THIS: agreement is necessary and not sufficient.  Two
+    bodies join one file only when they are ALSO CONTIGUOUS IN PLAN —
+    within ``reach_m`` (``[placement] coarsen_reach_m``) of a box already
+    in the group.  LEMD's ``Taxisigns-SENRG`` is 80 signs over
+    835 x 2,319 m of airfield: by zero alone they made files that took
+    their height from a sign a kilometre and a half away (+4.58 m at the
+    owner's gate 5, 11ap item 2).  ``reach_m <= 0`` or no ``boxes``
+    restores the pre-11ap reading.
+
+    And §9's coarsening acts WITHIN A TERRAIN GROUP, never across one
+    (§16b (1)): where ``grounds`` gives each body the design surface
+    under its OWN written geometry, two bodies join only when that
+    ground also agrees within ``tol_m``.  Without it the terrain cut is
+    undone by the very next pass — two pieces cut apart because the
+    ground under them differs have DIFFERENT authored y, so their zeros
+    can agree to the centimetre and the coarsening puts them back in one
+    file (measured: LEMD's wide-body count did not move until this).
 
     A body whose surface reads NOWHERE has no zero plane to compare: all
     of a placement's off-surface bodies are ONE group (no reading is no
@@ -365,6 +158,25 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
     order = sorted(ground, key=lambda i: (-bodies[i][2], bodies[i][0]))
     groups: list[list[int]] = []
     zeros: list[float | None] = []
+    near = (reach_m > 0.0 and boxes is not None)
+
+    def _contiguous(gi: int, i: int) -> bool:
+        """§16b (1): is body ``i`` within ``reach_m`` of the group?"""
+        if not near or i >= len(boxes) or boxes[i] is None:
+            return True
+        return any(j < len(boxes) and boxes[j] is not None
+                   and box_gap_m(boxes[i], boxes[j]) <= reach_m
+                   for j in groups[gi])
+
+    def _same_terrain(gi: int, i: int) -> bool:
+        """§16b (1): does body ``i`` stand on the group's own terrain?"""
+        if grounds is None or tol_m <= 0.0 or i >= len(grounds) \
+                or grounds[i] is None:
+            return True
+        return all(j >= len(grounds) or grounds[j] is None
+                   or abs(float(grounds[i]) - float(grounds[j])) <= tol_m
+                   for j in groups[gi])
+
     for i in order:
         _bi, a, _n = bodies[i]
         z = None if a.surface_z is None else float(a.surface_z) - float(a.y_zero)
@@ -372,7 +184,8 @@ def coarsen(bodies: _t.Sequence[tuple[int, _ar.Anchor, int]], tol_m: float,
         if tol_m > 0.0:
             for gi, g0 in enumerate(zeros):
                 if (z is None) == (g0 is None) and (
-                        z is None or abs(z - g0) <= tol_m):
+                        z is None or abs(z - g0) <= tol_m) \
+                        and _contiguous(gi, i) and _same_terrain(gi, i):
                     groups[gi].append(i)
                     placed = True
                     break
@@ -533,7 +346,11 @@ def senior_of(raw: _t.Sequence[_t.Any], grp: _t.Sequence[int]) -> int:
 
 def re_cut_by_terrain(groups: _t.Sequence[_t.Sequence[int]],
                       bodies: _t.Sequence[tuple[int, _ar.Anchor, int]],
-                      tol_m: float, classes: _t.Sequence[str]
+                      tol_m: float, classes: _t.Sequence[str],
+                      grounds: _t.Sequence["float | None"] | None = None,
+                      boxes: _t.Sequence[tuple[float, float, float,
+                                               float]] | None = None,
+                      reach_m: float = 0.0
                       ) -> tuple[list[list[int]], int]:
     """§15 (2): ``(groups, re-cut count)``.
 
@@ -552,6 +369,14 @@ def re_cut_by_terrain(groups: _t.Sequence[_t.Sequence[int]],
     and the plan-overlap bond holds only within one of them.  A rigid
     body is never wider than the terrain it can stand on.
 
+    §16b (1): the check is on the GROUND as well as on the zeros.  The
+    plan-overlap bond is a union-find over boxes and knows nothing about
+    terrain, so it welds back together exactly the pieces the
+    own-geometry cut has just divided — two neighbouring slices of one
+    garage slab overlap in plan by construction.  A bond whose members'
+    OWN GROUND spans more than ``tol_m`` is re-cut by the same rule, and
+    the sub-grouping is told the grounds too.
+
     A BASIN group is exempt and never re-cut: §14 (2) is the one case
     where the terrain differing under the object is not evidence of two
     bodies — the pit was cut TO the object (10ba), and its floor plate
@@ -565,12 +390,21 @@ def re_cut_by_terrain(groups: _t.Sequence[_t.Sequence[int]],
               else float(bodies[i][1].surface_z) - float(bodies[i][1].y_zero)
               for i in g]
         read = [z for z in zs if z is not None]
-        if (len(g) < 2 or not read or max(read) - min(read) <= tol_m
+        gr = ([] if grounds is None else
+              [float(grounds[i]) for i in g
+               if i < len(grounds) and grounds[i] is not None])
+        wide = bool(gr) and max(gr) - min(gr) > tol_m
+        if (len(g) < 2 or (not read and not wide)
+                or ((not read or max(read) - min(read) <= tol_m) and not wide)
                 or any(classes[i] == _ar.BASIN for i in g)):
             out.append(list(g))
             continue
         n_recut += 1
-        sub = coarsen([bodies[i] for i in g], tol_m)
+        sub = coarsen([bodies[i] for i in g], tol_m,
+                      boxes=None if boxes is None else [boxes[i] for i in g],
+                      reach_m=reach_m,
+                      grounds=None if grounds is None
+                      else [grounds[i] for i in g])
         out.extend(sorted(g[j] for j in s) for s in sub)
     return [sorted(v) for v in sorted(out, key=min)], n_recut
 
@@ -643,6 +477,68 @@ def unit_edges(pairs: _t.Iterable[tuple[int, int]],
     return adj
 
 
+#: §16b: the plan cell the candidate INDEX buckets a unit's carriers in.
+#: A sampling resolution, not a law: it only decides which candidates a
+#: search LOOKS at, and every candidate whose box covers the query box is
+#: looked at either way.
+CANDIDATE_CELL_M = 100.0
+
+
+class CandidateIndex:
+    """A unit's carrier candidates, bucketed by plan cell (§16b, speed).
+
+    §16b (1)'s cut multiplies the bodies of an airport (LEMD 1,374 ->
+    4,600) and §16b (2) asks the carrier question once per PIECE, so the
+    naive search — every candidate ranked against every body — went from
+    1.3 M pairs to 11 M and the plan stage from 5.6 s to 17.7 s.  The
+    relation itself is unchanged: a candidate is looked at when its plan
+    box shares a cell with the query's, and one too big to bucket is
+    looked at always.  The law and the census read the same ranking; this
+    only decides what is offered to it."""
+
+    __slots__ = ("cells", "big", "ml", "mo", "all", "cell_m")
+
+    def __init__(self, cands: _t.Sequence["Candidate"], lat: float,
+                 cell_m: float = CANDIDATE_CELL_M, big_cells: int = 64):
+        self.ml, self.mo = _ar._m_per_deg(lat)
+        self.all = list(cands)
+        self.cells: dict[tuple[int, int], list["Candidate"]] = {}
+        self.big: list["Candidate"] = []
+        for c in cands:
+            ks = self._keys(c.box, cell_m)
+            if ks is None or len(ks) > big_cells:
+                self.big.append(c)
+                continue
+            for k in ks:
+                self.cells.setdefault(k, []).append(c)
+        self.cell_m = cell_m
+
+    def _keys(self, box, cell_m: float):
+        if not box:
+            return None
+        a = int(box[0] * self.ml // cell_m)
+        b = int(box[2] * self.ml // cell_m)
+        c = int(box[1] * self.mo // cell_m)
+        d = int(box[3] * self.mo // cell_m)
+        if (b - a + 1) * (d - c + 1) > 4096:
+            return None
+        return [(i, j) for i in range(a, b + 1) for j in range(c, d + 1)]
+
+    def near(self, box) -> list["Candidate"]:
+        """The candidates whose plan box may meet ``box``."""
+        ks = self._keys(box, self.cell_m)
+        if ks is None:
+            return self.all
+        out: list["Candidate"] = list(self.big)
+        seen = {id(c) for c in out}
+        for k in ks:
+            for c in self.cells.get(k, ()):  # noqa: SIM118
+                if id(c) not in seen:
+                    seen.add(id(c))
+                    out.append(c)
+        return out
+
+
 def carriers_for(pids: _t.AbstractSet[int],
                  box: tuple[float, float, float, float] | None,
                  cands: _t.Sequence[Candidate],
@@ -651,6 +547,9 @@ def carriers_for(pids: _t.AbstractSet[int],
                                                float]] = (),
                  *, fill_min: float = 0.0, tol_m: float = 0.0,
                  refusals: dict[str, int] | None = None,
+                 carried_ground: _t.Callable[[], "float | None"] | None = None,
+                 solid_cands: _t.Sequence[Candidate] | None = None,
+                 index: "CandidateIndex | None" = None,
                  ) -> list[tuple[Candidate, str]]:
     """§15 (1) + §16a (1): EVERY carrier this body stands over, ranked.
 
@@ -697,6 +596,20 @@ def carriers_for(pids: _t.AbstractSet[int],
     body is never compared: walls on sloping ground anchor at their
     low-side foot, so a roof judged against the ground under itself is
     judged against a surface its carrier never stood on.
+    §16b (3): AND THE FALLBACK CARRIER IS BOUNDED.  The candidates above
+    are ranked by the body STANDING OVER them, which is itself evidence
+    about the ground under it.  The fallbacks — (b) contact, (c) nearest,
+    (d) largest — carry no such evidence: they are "some footed body of
+    the unit", and at LEMD they put T4's bamboo roof and its landside
+    road deck on the PARKING GARAGE across the road (zeros 611.23 /
+    612.19) with 615.6-616.2 m of ground under them, 4 m below the piers
+    that hold them up (11ap item 4).  So a fallback candidate is accepted
+    only when its zero stands within ``tol_m`` of the ground under the
+    CARRIED PIECE (``carried_ground``, read once and only if a fallback
+    is actually reached).  This is the carried-side test §16a struck for
+    the WHOLE body, restored on the PIECE §16b (1) cuts; §16a (2)'s
+    carrier-side test stays exactly as it is.
+
     ``refusals`` collects the counts by reason."""
     # PER SEARCH, not per candidate: what the report asks is how many
     # bodies had a candidate refused, not how many (body, candidate)
@@ -712,15 +625,23 @@ def carriers_for(pids: _t.AbstractSet[int],
                 refusals[k] = refusals.get(k, 0) + 1
         return r
 
-    solid = []
-    for c in cands:
-        if c.body_class == _ar.LINE_SEGMENT:
-            _bump("line")
-            continue
-        if fill_min > 0.0 and c.fill < fill_min:
-            _bump("fill")
-            continue
-        solid.append(c)
+    # THE SOLID SET IS THE UNIT'S, NOT THE SEARCH'S (§16b, speed): the
+    # class and fill tests do not depend on the body asking, and running
+    # them per search cost 16 M calls on a cut airport.  The caller
+    # passes the unit's own filtered list and the refusal counts it
+    # already booked.
+    if solid_cands is not None:
+        solid = list(solid_cands)
+    else:
+        solid = []
+        for c in cands:
+            if c.body_class == _ar.LINE_SEGMENT:
+                _bump("line")
+                continue
+            if fill_min > 0.0 and c.fill < fill_min:
+                _bump("fill")
+                continue
+            solid.append(c)
     if not solid:
         return _out([])
 
@@ -745,13 +666,35 @@ def carriers_for(pids: _t.AbstractSet[int],
         _bump("zero_off_ground")
         return False
 
+    seen_ground: list["float | None"] = []
+
+    def _near_carried(c: Candidate) -> bool:
+        """§16b (3): the FALLBACK test — this candidate's zero against
+        the ground under the CARRIED piece.  Read once per search, and
+        only when a fallback is reached (the stands-over path never asks
+        it: standing over the body IS the evidence)."""
+        if carried_ground is None or tol_m <= 0.0:
+            return True
+        if c.anchor.surface_z is None:
+            return True
+        if not seen_ground:
+            seen_ground.append(carried_ground())
+        g = seen_ground[0]
+        if g is None:
+            return True             # no reading is no evidence
+        cz = float(c.anchor.surface_z) - float(c.anchor.y_zero)
+        if abs(cz - float(g)) <= tol_m:
+            return True
+        _bump("far_from_carried_ground")
+        return False
+
     if box is not None:
         # ONE relation, read ONE way (CLAUDE.md, the census-wrapper
         # defect): the search and §15 (3)'s census rank the same
         # geometry — the body's plan box as the cheap reject and, where
         # the plan publishes them, its footprint boxes (§16 (3)).
         ranked = []
-        for c in solid:
+        for c in (index.near(box) if index is not None else solid):
             ov = stands_over_rank(box, c.box, part_boxes, c.part_boxes)
             if ov > (0.0, 0.0):
                 ranked.append((ov, c))
@@ -771,7 +714,7 @@ def carriers_for(pids: _t.AbstractSet[int],
             touch.append((n, c))
     touch.sort(key=lambda q: (q[0], -q[1].member), reverse=True)
     for n, c in touch:
-        if _ok(c):
+        if _ok(c) and _near_carried(c):
             return _out([(c, f"abuts {n} part contact(s)")])
     if box is not None:
         clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
@@ -782,12 +725,12 @@ def carriers_for(pids: _t.AbstractSet[int],
             return (((la - clat) * ml) ** 2 + ((lo - clon) * mo) ** 2, c.member)
 
         for c in sorted(solid, key=_d2):
-            if _ok(c):
+            if _ok(c) and _near_carried(c):
                 return _out([(c, f"nearest footed body of the unit "
                               f"({_d2(c)[0] ** 0.5:.0f} m)")])
         return _out([])
     for c in sorted(solid, key=lambda c: (-c.feet, c.member)):
-        if _ok(c):
+        if _ok(c) and _near_carried(c):
             return _out([(c, "the unit's largest footed body")])
     return _out([])
 
@@ -807,7 +750,8 @@ def carrier_for(pids: _t.AbstractSet[int],
 
 def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
                   raw: _t.Sequence[_t.Any], zero: float | None, tol_m: float,
-                  senior_of: _t.Callable[[_t.Any, _t.Sequence[int]], int]) -> int:
+                  senior_of: _t.Callable[[_t.Any, _t.Sequence[int]], int],
+                  ground: float | None = None) -> int:
     """The index of the member's own group standing at ``zero`` (within
     ``tol_m``), or ``-1``.
 
@@ -824,6 +768,13 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
         a = raw[senior_of(raw, g)][2]
         if a.surface_z is None:
             continue
+        # §16b (1): and only WITHIN one terrain group — a piece cut off
+        # because the ground under it differs never rejoins a group
+        # standing on the other ground
+        if ground is not None and any(
+                len(raw[i]) > 7 and raw[i][7] is not None
+                and abs(float(raw[i][7]) - float(ground)) > tol_m for i in g):
+            continue
         d = abs((float(a.surface_z) - float(a.y_zero)) - zero)
         if d <= best_d:
             best, best_d = gi, d
@@ -832,7 +783,11 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
 
 def merge_rides(rides: _t.Mapping[tuple[int, int], tuple[list[int], str]],
                  by_key: _t.Mapping[tuple[int, int], Candidate],
-                 tol_m: float) -> list[tuple[list[int], Candidate, str]]:
+                 tol_m: float,
+                 boxes: _t.Sequence[tuple[float, float, float, float]] | None
+                 = None, reach_m: float = 0.0,
+                 grounds: _t.Sequence["float | None"] | None = None
+                 ) -> list[tuple[list[int], Candidate, str]]:
     """§9's own rule read on the CARRIED set: two elevated bodies of one
     member whose CARRIERS' zero planes agree within ``split_tol_m`` are
     ONE file — a split exists only where the terrain differs under the
@@ -844,18 +799,45 @@ def merge_rides(rides: _t.Mapping[tuple[int, int], tuple[list[int], str]],
     Without this a pack that names its roofs as their own resources
     (LEMD's ``TEJ*``) writes one file per roof panel per carrier group:
     the unit-wide search is per BODY, and a terminal's roof stands over
-    a dozen wall groups whose zeros are the same flat apron."""
+    a dozen wall groups whose zeros are the same flat apron.
+
+    §16b (1): and it is §9's rule WHOLE, contiguity included — two
+    pieces of one roof riding carriers at the same height a kilometre
+    apart are not one file, or the join undoes the cut that made them
+    (``boxes`` one per body index, ``reach_m`` the plan gap)."""
     items = []
     for k, (g, w) in rides.items():
         c = by_key[k]
         z = (None if c.anchor.surface_z is None
              else float(c.anchor.surface_z) - float(c.anchor.y_zero))
         items.append([z, list(g), c, w])
+    near = (reach_m > 0.0 and boxes is not None)
+
+    def _hull(g: _t.Sequence[int]):
+        return hull_of(boxes[i] for i in g
+                       if i < len(boxes) and boxes[i] is not None)
+
+    def _one_terrain(a: _t.Sequence[int], b: _t.Sequence[int]) -> bool:
+        """§16b (1): pieces of one roof cut apart by the ground under
+        them are not put back in one file by their carriers agreeing."""
+        if grounds is None or tol_m <= 0.0:
+            return True
+        ga = [float(grounds[i]) for i in a
+              if i < len(grounds) and grounds[i] is not None]
+        gb = [float(grounds[i]) for i in b
+              if i < len(grounds) and grounds[i] is not None]
+        if not ga or not gb:
+            return True
+        return max(max(ga), max(gb)) - min(min(ga), min(gb)) <= tol_m
+
     groups: list[list] = []
     for it in sorted(items, key=lambda q: (-q[2].feet, q[2].member, q[2].group)):
         for gr in groups:
             if tol_m > 0.0 and (it[0] is None) == (gr[0] is None) and (
-                    it[0] is None or abs(it[0] - gr[0]) <= tol_m):
+                    it[0] is None or abs(it[0] - gr[0]) <= tol_m) and (
+                    not near
+                    or box_gap_m(_hull(it[1]), _hull(gr[1])) <= reach_m) and (
+                    _one_terrain(it[1], gr[1])):
                 gr[1].extend(it[1])
                 break
         else:

@@ -31,6 +31,11 @@ __all__ = ["authored_latlon", "segment_anchor", "pristine_path",
            "_Raw"]
 
 from .placement_carrier import is_elevated            # noqa: E402  (§13)
+# §16b's WRITTEN-GEOMETRY reading lives next door (the 1,000-line law);
+# every caller and every twin reads it as this module's.
+from .placement_geom import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402,F401
+                             _geom_ground, _geom_span, surface_many,
+                             thin_points)
 
 # ── THE LINE SEGMENT (owner RULINGS 2026-09-11f (2); spec §10) ───────────
 
@@ -156,7 +161,8 @@ class _LineCutter:
 
 
     def terrain_groups(self, parts: _t.Sequence[Part], surface: _ar.Surface,
-                       tol_m: float, cap: int
+                       tol_m: float, cap: int, *, by_ground: bool = False,
+                       tris_in: _t.Sequence[_t.Sequence[int]] = ()
                        ) -> list[tuple[tuple[tuple[int, int, int], ...],
                                        tuple[tuple[float, float, float], ...]]]:
         """§16 (2) BY TRIANGLE: one body's ``(triangles, feet)`` per TERRAIN
@@ -173,16 +179,36 @@ class _LineCutter:
         greedy rule at ``tol_m``, capped at ``cap`` groups (``[rebake]
         line_object_stations_max``, the same cap the segment cut takes).
 
+        §16b (1): ``by_ground`` groups by the DESIGN SURFACE under the
+        triangle instead of by its intended zero.  The zero reading asks
+        "where would this triangle's own lowest vertex have to sit" and
+        folds the object's authored relief into the terrain's — a roof
+        with 3 m of authored fall over ground that never moves comes out
+        in three groups, and a plate over 3 m of fall comes out in one.
+        What the bar reads (and what "the terrain it can stand on"
+        means) is the GROUND, so the cut that has to satisfy it reads
+        the ground.
+
         Returns ``[]`` when the body reads one terrain group, when the
         surface reads nowhere, or when the file cannot be parsed."""
         if tol_m <= 0.0 or cap <= 0 or not parts or not self._read():
             return []
         import numpy as np
-        tri_list = [self._comps[p.comp].tris for p in parts
-                    if 0 <= p.comp < len(self._comps)]
-        if not tri_list:
+        if len(tris_in):
+            tris = np.asarray(tris_in, dtype=np.int64)
+        else:
+            tri_list = [self._comps[p.comp].tris for p in parts
+                        if 0 <= p.comp < len(self._comps)]
+            if not tri_list:
+                return []
+            tris = np.concatenate(tri_list)
+        if tris.size == 0:
             return []
-        tris = np.concatenate(tri_list)
+        # §16b (1): IN GROUND MODE THE RADIUS IS HALF THE TOLERANCE.  The
+        # greedy walk admits a triangle within ``radius`` of the group's
+        # founding level, so a group's own SPAN is twice that — and the
+        # bar the cut has to satisfy is the span (0.3 m), not the radius.
+        radius = 0.5 * tol_m if by_ground else tol_m
         v = self._geom.vertices
         xs = v[tris, 0].mean(axis=1)
         zs = v[tris, 2].mean(axis=1)
@@ -211,11 +237,12 @@ class _LineCutter:
             la, lo = authored_latlon(float(xs[i]), float(zs[i]), self.lat,
                                      self.lon, self.m.heading_deg)
             z = _ground(la, lo)
-            zero = None if z is None else float(z) - float(ys[i])
+            zero = (None if z is None
+                    else float(z) - (0.0 if by_ground else float(ys[i])))
             placed = False
             for bi, lv in enumerate(levels):
                 if (zero is None) == (lv is None) and (
-                        zero is None or abs(zero - lv) <= tol_m):
+                        zero is None or abs(zero - lv) <= radius):
                     buckets[bi].append(i)
                     placed = True
                     break
@@ -427,17 +454,42 @@ class _LineCutter:
                 continue
             sub = tris[sel]
             ids = np.unique(np.asarray(sub).reshape(-1))
-            pla, plo = [], []
-            for i in ids.tolist():
-                a_, b_ = authored_latlon(float(v[i, 0]), float(v[i, 2]),
-                                         self.lat, self.lon, self.m.heading_deg)
-                pla.append(a_)
-                plo.append(b_)
+            # the same reflection, VECTORISED: the per-vertex call cost
+            # 2.8 M invocations and 3.5 s of the LEMD plan stage
+            vx = v[ids, 0]
+            vz = v[ids, 2]
+            ve = vx * c - vz * s
+            vn = -(vx * s + vz * c)
+            pla = self.lat + vn / ml
+            plo = self.lon + ve / mo
             out.append((k, tuple(tuple(int(q) for q in row)
                                  for row in np.asarray(sub).tolist()),
-                        (min(pla), min(plo), max(pla), max(plo))))
+                        (float(pla.min()), float(plo.min()),
+                         float(pla.max()), float(plo.max()))))
         return out if len(out) > 1 else []
 
+
+    def all_tris(self) -> tuple:
+        """EVERY triangle of the member's file — what the WRITER puts in
+        a body's file when the plan's bodies do not own it.
+
+        ``obj8_split.split_obj8`` assigns a triangle the plan never saw
+        (a thin sheet the thickness gate stripped, an exporter's ground
+        paint) to the NEAREST body, and a placement the plan reads as ONE
+        body therefore gets the WHOLE object.  LEMD's
+        ``Terminal4_green-TEJ3`` is exactly that: its member carries ONE
+        part of 4 triangles, and the file written for it is 53 triangles
+        over 1,025 x 2,106 m — which is why every reading of the plan's
+        own parts (``geom_box``, and this lane's first geometry samples
+        alike) said 0.22 m of ground while the eye read +16.22 m."""
+        if not self._read():
+            return ()
+        import numpy as np
+        tl = [c.tris for c in self._comps if len(c.tris)]
+        if not tl:
+            return ()
+        return tuple(tuple(int(q) for q in row)
+                     for row in np.concatenate(tl).tolist())
 
     def geom_points(self, parts: _t.Sequence[Part],
                     tris: _t.Sequence[_t.Sequence[int]] = (),
@@ -495,20 +547,6 @@ class _LineCutter:
                                  for i in sel.tolist()), cap or GEOM_PTS_MAX)
 
 
-def thin_points(pts: _t.Sequence[tuple[float, float, float]], cap: int
-                ) -> tuple[tuple[float, float, float], ...]:
-    """``pts`` thinned to ``cap`` by the farthest-point walk (the ONE
-    spreading rule, :func:`line_object.farthest_point_stations`) — the
-    EXTREMES survive, which is what a span reading needs."""
-    if cap <= 0 or len(pts) <= cap:
-        return tuple(pts)
-    import numpy as np
-    ml, mo = _ar._m_per_deg(pts[0][0])
-    plan = np.asarray([[p[0] * ml, p[1] * mo] for p in pts], dtype=float)
-    keep = _lo.farthest_point_stations(plan, cap)
-    return tuple(pts[i] for i in keep.tolist())
-
-
 def _plan_span_m(parts: _t.Sequence[Part]) -> float:
     """The plan diagonal of the parts' own boxes, in metres."""
     lo_la = min(p.box[0] for p in parts)
@@ -543,18 +581,14 @@ def segment_anchor(feet: _t.Sequence[tuple[float, float, float]],
 #: per-triangle form and 6.5 s of the stage in them.
 GROUND_CELL_M = 5.0
 
-#: §16b (4): the plan cell the WRITTEN GEOMETRY is sampled on, and how
-#: many samples a body publishes.  A sampling resolution, never a law:
-#: the census reads the ground under the body's own triangles, and the
-#: design surface's faces are metres across.  The cap bounds the plan
-#: file (LEMD writes ~1,400 bodies) and the farthest-point walk keeps
-#: the EXTREMES, which is what a span reading needs.
-GEOM_CELL_M = 10.0
-GEOM_PTS_MAX = 32
+
 
 #: one member's raw bodies before coarsening: ``(parts, class, anchor,
-#: feet, elevated, segment triangles, geometry samples)``.
-_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple]
+#: feet, elevated, segment triangles, geometry samples, terrain ground)``
+#: — the last two are §16b's: what the body WRITES, and the design
+#: surface under it (its terrain group's own height).
+_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple,
+                "float | None"]
 
 
 def _part_zero(p: Part, surface: _ar.Surface) -> float | None:
@@ -574,7 +608,7 @@ def _part_zero(p: Part, surface: _ar.Surface) -> float | None:
 
 
 def _cut_parts_by_terrain(parts: _t.Sequence[Part], surface: _ar.Surface,
-                          tol_m: float) -> list[list[Part]]:
+                          tol_m: float, reach_m: float = 0.0) -> list[list[Part]]:
     """§16 (2): EVERY BODY IS RE-CUT BY TERRAIN.
 
     §15 (2) gave the terrain check to the groups :func:`bind_plan_overlaps`
@@ -596,7 +630,10 @@ def _cut_parts_by_terrain(parts: _t.Sequence[Part], surface: _ar.Surface,
         return [list(parts)]
     keys = [(i, _ar.Anchor(_ar.OTHER, p.lat, p.lon, 0.0, "", z), len(p.feet))
             for i, (p, z) in enumerate((q, _part_zero(q, surface)) for q in parts)]
-    groups = _pc.coarsen(keys, tol_m)
+    # §16b (1): §9's rule WHOLE, contiguity included — parts of one body
+    # that agree in zero but stand a kilometre apart are not one piece
+    groups = _pc.coarsen(keys, tol_m, boxes=[p.box for p in parts],
+                         reach_m=reach_m)
     return [[parts[i] for i in g] for g in groups]
 
 
@@ -665,8 +702,11 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 
 
 #: one member's raw bodies before coarsening: ``(parts, class, anchor,
-#: feet, elevated, segment triangles, geometry samples)``.
-_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple]
+#: feet, elevated, segment triangles, geometry samples, terrain ground)``
+#: — the last two are §16b's: what the body WRITES, and the design
+#: surface under it (its terrain group's own height).
+_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple,
+                "float | None"]
 
 def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
@@ -674,7 +714,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 *, split_tol_m: float, elevated_base_m: float,
                 line_segment_m: float, line_stations_max: int,
                 line_ratio: float, line_max_h: float,
-                foot_band_m: float, cutter: "_LineCutter | None" = None
+                foot_band_m: float, coarsen_reach_m: float = 0.0,
+                cutter: "_LineCutter | None" = None
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
     unchanged by §14 except that the basin's rim anchor is now wired
@@ -710,12 +751,19 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             counts["line_bodies_segmented"] = \
                 counts.get("line_bodies_segmented", 0) + 1
             counts["line_segments"] = counts.get("line_segments", 0) + len(pieces)
+            # §16b (1) AND THE SEGMENT: measured and REPORTED (§16b
+            # MEASURED).  Cutting each station again by the ground under
+            # it took LEMD's fence and grass files 2,227 -> 7,722 for a
+            # class the eye does not read — §10's station is already a
+            # terrain reading every 100 m, at its own mid-foot — so the
+            # station law stands and the segments' residual span is
+            # reported by class instead.
             for si, (tris, feet) in enumerate(pieces):
                 sa = segment_anchor(feet, surface, si, len(pieces))
+                spts, _sp, sg = _geom_ground(cutter, parts, tris, surface)
                 raw.append((parts, _ar.LINE_SEGMENT, sa, feet,
                             is_elevated(min(f[2] for f in feet), sa,
-                                        elevated_base_m), tris,
-                            cutter.geom_points(parts, tris)))
+                                        elevated_base_m), tris, spts, sg))
             continue
         # §16 (2): EVERY BODY IS RE-CUT BY TERRAIN — the ε-contact body is
         # asked the same question §15 (2) asks a plan-overlap bond, one
@@ -728,15 +776,55 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # before any terrain cut — because a carried body's pieces are
         # its CARRIER's terrain groups, not its own ground's, and the
         # ground under a roof is exactly the reading §16a deletes.
+        # §16b (1)/(4): WHAT THE FILE WILL CONTAIN.  A placement the plan
+        # reads as ONE body is written as the WHOLE object (the writer
+        # gives every triangle no body owns to the nearest one), so for
+        # such a member the body's own written geometry is the file's own
+        # triangles — not the parts the partition happened to record.
+        own_tris = (cutter.all_tris() if len(groups) == 1 else ())
         whole0 = _whole_body(parts, m, u, surface, pads, rims, split_tol_m)
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
+            # §16b (1): THE TERRAIN CUT IS PRIOR AND UNIVERSAL, and it is
+            # read on the body's OWN WRITTEN TRIANGLES.  §16a (1) left a
+            # carried body whole and cut it against its CARRIER — which
+            # is right WITHIN a terrain group and wrong across one: a
+            # roof-panel resource authored as one welded component over
+            # 1 x 2 km of terminal (`green-TEJ3`) then rode ONE carrier
+            # at ONE zero and read +10.74 / +16.22 m at the owner's two
+            # sites (11ap).  So the body is first divided by the ground
+            # under its own geometry; §16a (1)'s carrier cut then runs
+            # inside each piece (``placement_plan._carrier_pieces``).
+            # A BASIN body is exempt for §14 (2)'s reason.
+            cpieces = ([] if (is_basin or split_tol_m <= 0.0
+                              or _geom_span(cutter, parts, own_tris,
+                                            surface)[1] <= split_tol_m)
+                       else cutter.terrain_groups(parts, surface, split_tol_m,
+                                                  line_stations_max,
+                                                  by_ground=True,
+                                                  tris_in=own_tris))
+            if cpieces:
+                counts["carried_bodies_cut_by_own_ground"] = \
+                    counts.get("carried_bodies_cut_by_own_ground", 0) + 1
+                counts["carried_own_ground_pieces"] = \
+                    counts.get("carried_own_ground_pieces", 0) + len(cpieces)
+                for tris, tpts in cpieces:
+                    cpts, _cs, cg = _geom_ground(cutter, parts, tris, surface)
+                    # ``tpts`` are the piece's own lowest vertices: its
+                    # PLAN EXTENT (``box_of``) and nothing else — an
+                    # elevated body's vertices are never feet (§13 (3)),
+                    # and every reader excludes them by the flag below.
+                    raw.append((list(parts), whole0[0], whole0[1], tuple(tpts),
+                                True, tris, cpts, cg))
+                continue
             counts["carried_bodies_uncut"] = \
                 counts.get("carried_bodies_uncut", 0) + 1
+            wpts, _ws, wg = _geom_ground(cutter, parts, own_tris, surface)
             raw.append((list(parts), whole0[0], whole0[1], whole0[2], True,
-                        (), cutter.geom_points(parts)))
+                        (), wpts, wg))
             continue
         pieces_p = ([list(parts)] if is_basin
-                    else _cut_parts_by_terrain(parts, surface, split_tol_m))
+                    else _cut_parts_by_terrain(parts, surface, split_tol_m,
+                                               coarsen_reach_m))
         if len(pieces_p) > 1:
             counts["bodies_re_cut_by_terrain"] = \
                 counts.get("bodies_re_cut_by_terrain", 0) + 1
@@ -791,15 +879,28 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             # tolerance, the TRIANGLES are grouped by the ground under
             # them.  The pre-test is five samples; the cut itself only
             # runs on a body that fails it.
-            hull = _pc.hull_of([p.box for p in parts])
-            zs = ([] if foot_pieces
-                  else _pc.ground_samples(surface, [p.box for p in parts], hull)
-                  + _pc.ground_samples(surface, (), hull))
+            # §16b (1): the pre-test is READ ON THE WRITTEN TRIANGLES
+            # (:func:`_geom_span`), never on the parts' hull box — the
+            # same reading the census makes, so a body the census calls
+            # wider than its terrain group is a body this cut was asked
+            # to divide.
+            span = (0.0 if foot_pieces or is_basin or split_tol_m <= 0.0
+                    else _geom_span(cutter, parts,
+                                    own_tris if len(pieces_p) == 1 else (),
+                                    surface)[1])
+            # THE KEY IS THE INTENDED ZERO, not the raw ground — measured
+            # and REPORTED (§16b MEASURED): read by ground this cut slices
+            # a rigid footed solid wherever the terrain under it moves
+            # 0.3 m (LEMD files 1,371 -> 5,891, a garage into 20 slices)
+            # and STILL cannot reach the bar, because a body's atom is its
+            # TRIANGLE and this pack authors slabs and ramps as four of
+            # them spanning 6 m of fall.  A footed body reads its own
+            # feet; the carried class §16b (1) names is cut by ground
+            # above, where the body has no feet to read.
             tri_pieces = foot_pieces or (
                 cutter.terrain_groups(parts, surface, split_tol_m,
                                       line_stations_max)
-                if (not is_basin and split_tol_m > 0.0 and zs
-                    and max(zs) - min(zs) > split_tol_m) else [])
+                if span > split_tol_m else [])
             if tri_pieces:
                 if not foot_pieces:
                     counts["bodies_re_cut_by_triangle"] = \
@@ -827,18 +928,20 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                  and ta.body_class not in (_ar.BASIN,
                                                            _ar.PLATE_ONLY,
                                                            _ar.DECK))
+                    tpts, _ts, tg = _geom_ground(cutter, parts, tris, surface)
                     raw.append((list(parts), ta.body_class, ta, tuple(tfeet),
                                 is_elevated(tlow[2], ta, elevated_base_m)
-                                or tfootless, tris,
-                                cutter.geom_points(parts, tris)))
+                                or tfootless, tris, tpts, tg))
                 continue
             if whole is None:
                 whole = _whole_body(parts, m, u, surface, pads, rims,
                                     split_tol_m)
             cls, a, feet, footless = whole
+            gpts, _gs, gg = _geom_ground(
+                cutter, parts, own_tris if len(pieces_p) == 1 else (), surface)
             raw.append((list(parts), a.body_class, a, feet,
                         is_elevated(base_min, a, elevated_base_m) or footless,
-                        (), cutter.geom_points(parts)))
+                        (), gpts, gg))
     return raw
 
 

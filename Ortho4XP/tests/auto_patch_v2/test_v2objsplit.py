@@ -1451,15 +1451,18 @@ def test_a_footless_roof_with_no_abutment_takes_the_nearest_footed_body(tmp_path
     r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
     assert r.bodies[0].merged_into.startswith("objects/near")
     assert "nearest footed body of the unit" in r.bodies[0].anchor.reason
-    # §16a (2): ON A SLOPE THE NEAREST BODY IS STILL THE CARRIER.  §16 (3)
-    # refused it here — the ground under the ROOF stood 0.4 m off the
-    # nearest body's zero — and that is the reading 11aj deletes: a
-    # carried body lives in its carrier's frame, and the ground under
-    # itself is never compared.  What disqualifies a carrier is that IT
-    # is mis-anchored, read on ITS OWN feet, and this one is not.
+    # §16b (3): THE FALLBACK CARRIER IS BOUNDED.  "Nearest" is not
+    # evidence about the ground under the carried piece — at LEMD it put
+    # T4's roof and its road deck on the PARKING GARAGE across the road,
+    # 4 m under the ground beneath them (11ap item 4) — so on a slope
+    # where the nearest body's zero stands more than ``split_tol_m`` from
+    # the ground under the ROOF, the candidate is refused and the piece
+    # takes its own ground.  §16a (2)'s carrier-side test is untouched.
     ss2 = PP.build_splits(plan, surface, write=False, **_elev_args())
     r2 = [s for s in ss2.all if s.resource == "objects/roof.obj"][0]
-    assert r2.bodies[0].merged_into.startswith("objects/near")
+    assert not r2.bodies[0].merged_into
+    assert PP.OWN_GROUND in r2.bodies[0].anchor.reason
+    assert ss2.counts.get("carrier_refused_far_from_carried_ground", 0) >= 1
     assert ss2.counts.get("carrier_refused_zero_off_ground", 0) == 0
 
 
@@ -1923,10 +1926,12 @@ def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
     spanning 5.02 m.  The cut is by TRIANGLE, over the ground under
     each.
 
-    §16a (1) draws the line this twin now stands on both sides of: the
-    cut is for a body that STANDS ON THE GROUND.  A CARRIED body — the
-    same strip, raised — is never cut by the ground under itself; its
-    pieces are its carrier's."""
+    §16b (1) SUPERSEDES §16a (1)'s reading of the same strip raised: the
+    terrain cut is PRIOR AND UNIVERSAL, so a CARRIED body is divided by
+    the ground under its own written geometry too, and §16a (1)'s carrier
+    cut then runs inside each piece.  §16a left it whole, and LEMD's
+    `green-TEJ3` rode ONE carrier across 2 km — +10.74 m at the owner's
+    item 3 and +16.22 m at item 5 (11ap)."""
     ml, _mo = AR._m_per_deg(40.0)
     span = 600.0
     v, tris = [], []
@@ -1970,7 +1975,16 @@ def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
     ss2 = PP.build_splits(hi, surface, write=False,
                           **_elev_args(line_stations_max=64, foot_band_m=1.0))
     assert ss2.counts.get("bodies_re_cut_by_triangle", 0) == 0
-    assert ss2.counts.get("carried_bodies_uncut") == 1
+    assert ss2.counts.get("carried_bodies_uncut", 0) == 0
+    assert ss2.counts.get("carried_bodies_cut_by_own_ground") == 1
+    assert ss2.counts.get("carried_own_ground_pieces", 0) >= 3
+    # and every piece stands on ground of its own within the tolerance
+    for s2 in ss2.all:
+        for b2 in s2.bodies:
+            zs2 = [surface(q[0], q[1]) for q in b2.geom_pts]
+            zs2 = [z for z in zs2 if z is not None]
+            if len(zs2) > 1:
+                assert max(zs2) - min(zs2) <= 1.0
 
 
 def test_a_fence_never_carries_and_a_mis_anchored_carrier_is_refused():
@@ -2452,3 +2466,169 @@ def test_a_deck_on_a_kept_whole_carrier_names_that_carrier(tmp_path):
     assert b["carried_float_gt"] == 1
     assert b["carried_worst"][0][2] == "road__b0.obj"
     assert b["carried_no_law_carrier"] == 1
+
+
+# ── §16b: the own-geometry cut is PRIOR; the census reads what is WRITTEN ──
+
+def test_the_16b_census_reads_the_written_geometry_not_the_plan_box():
+    """§16b (4): both bars are read on ``geom_pts`` — the body's own
+    written triangles — and never on ``geom_box``.
+
+    LEMD's ``Terminal4_green-TEJ3`` is the case: its plan member carries
+    ONE part of four triangles, the writer gives it every triangle no
+    body owns (``obj8_split``'s nearest rule) and the file spans
+    2,342 m, so the box every §16 number read said 0.22 m of ground
+    while the eye read +16.22 m (11ap)."""
+    def _body(res, pts, sz, carrier=None):
+        return {"new_resource": res, "surface_z": sz, "y_zero": 0.0,
+                "geom_box": [40.0, -3.0, 40.0002, -2.9998],
+                "foot_boxes": [[40.0, -3.0, 40.0002, -2.9998]],
+                "geom_pts": [list(p) for p in pts],
+                "merged_into": carrier, "elevated": bool(carrier),
+                "class": "other"}
+
+    # the ground falls 4 m across the body's own written geometry
+    def surface(la, lo):
+        return 100.0 + (la - 40.0) * 111_320.0 * 0.02
+
+    wide = _body("wide.obj", [(40.0, -3.0, 0.0), (40.0018, -3.0, 0.0)], 100.0)
+    tight = _body("tight.obj", [(40.0, -3.0, 0.0), (40.00001, -3.0, 0.0)], 100.0)
+    # a CARRIED piece riding a zero 4 m off the ground under itself
+    off = _body("off.obj", [(40.0018, -3.0, 0.0)], 100.0, "w.obj")
+    on = _body("on.obj", [(40.0018, -3.0, 0.0)], 104.0, "w.obj")
+    splits = [{"placement": {"index": 1}, "bodies": [wide, tight, off, on]}]
+    c = _PC.census_v16b(splits, surface, split_tol_m=0.3)
+    assert c["geom_span_gt"] == 1 and c["geom_span_worst"][0][1] == "wide.obj"
+    assert c["carried_own_ground_gt"] == 1
+    assert c["carried_own_ground_worst"][0][1] == "off.obj"
+    assert c["bars_ok"] is False
+    assert "VIOLATED" in "\n".join(_PC.census_v16b_lines(c))
+    ok = _PC.census_v16b([{"placement": {"index": 1}, "bodies": [tight, on]}],
+                         surface, split_tol_m=0.3)
+    assert ok["geom_span_gt"] == 0 and ok["carried_own_ground_gt"] == 0
+    assert ok["bars_ok"] is True
+    assert "VIOLATED" not in "\n".join(_PC.census_v16b_lines(ok))
+    # a body publishing no written geometry is counted apart, never guessed
+    none = dict(tight, geom_pts=[])
+    n = _PC.census_v16b([{"placement": {"index": 1}, "bodies": [none]}],
+                        surface, split_tol_m=0.3)
+    assert n["no_geom_pts"] == 1 and n["bodies_read"] == 0
+
+
+def test_a_basin_body_is_exempt_from_both_16b_bars():
+    """§14 (2) / 11al: the pit was cut TO the object, so a basin's own
+    ground spans the pit's depth by construction and a body riding its
+    RIM stands over the floor.  Both are counted apart from the bars."""
+    def surface(la, lo):
+        return 100.0 + (la - 40.0) * 111_320.0 * 0.02
+
+    pit = {"new_resource": "pit.obj", "surface_z": 100.0, "y_zero": 0.0,
+           "class": "basin", "merged_into": None,
+           "geom_pts": [[40.0, -3.0, 0.0], [40.0018, -3.0, 0.0]]}
+    tower = {"new_resource": "tower.obj", "surface_z": 100.0, "y_zero": 0.0,
+             "class": "other", "merged_into": "pit.obj",
+             "geom_pts": [[40.0018, -3.0, 0.0]]}
+    c = _PC.census_v16b([{"placement": {"index": 1}, "bodies": [pit, tower]}],
+                        surface, split_tol_m=0.3)
+    assert c["geom_span_gt"] == 0 and c["carried_own_ground_gt"] == 0
+    assert c["basin_wide"] == 1 and c["basin_carried"] == 1
+    assert c["bars_ok"] is True
+    assert "BASIN exemptions" in "\n".join(_PC.census_v16b_lines(c))
+
+
+def test_coarsening_joins_only_bodies_contiguous_in_plan():
+    """§16b (1): §9 joined bodies whose intended zeros agreed with NO
+    distance limit — LEMD's 80 taxi signs over 835 x 2,319 m became files
+    by height alone, and ``SENRG__b10`` took its zero from a sign 1,590 m
+    away (+4.58 m at the owner's gate 5).  Zero agreement is necessary
+    and not sufficient: the bodies must also be within
+    ``[placement] coarsen_reach_m`` of each other."""
+    ml, mo = AR._m_per_deg(40.0)
+
+    def _b(i, lat):
+        return (i, AR.Anchor(AR.OTHER, lat, -3.0, 0.0, "", 100.0), 4)
+
+    near = [_b(0, 40.0), _b(1, 40.0 + 10.0 / ml)]          # 10 m apart
+    far = [_b(0, 40.0), _b(1, 40.0 + 1500.0 / ml)]         # 1.5 km apart
+    boxes_near = [(40.0, -3.0, 40.0, -3.0),
+                  (40.0 + 10.0 / ml, -3.0, 40.0 + 10.0 / ml, -3.0)]
+    boxes_far = [(40.0, -3.0, 40.0, -3.0),
+                 (40.0 + 1500.0 / ml, -3.0, 40.0 + 1500.0 / ml, -3.0)]
+    assert len(_PC.coarsen(near, 0.3, boxes=boxes_near, reach_m=30.0)) == 1
+    assert len(_PC.coarsen(far, 0.3, boxes=boxes_far, reach_m=30.0)) == 2
+    # and with the reach disarmed the pre-11ap reading stands
+    assert len(_PC.coarsen(far, 0.3, boxes=boxes_far, reach_m=0.0)) == 1
+    # the gap itself is read between the BOXES, 0 where they touch
+    assert _PC.box_gap_m(boxes_far[0], boxes_far[1]) == pytest.approx(1500.0,
+                                                                     abs=5.0)
+    assert _PC.box_gap_m((40.0, -3.0, 40.001, -2.999),
+                         (40.0005, -2.9995, 40.002, -2.998)) == 0.0
+
+
+def test_the_coarsening_never_joins_across_a_terrain_group():
+    """§16b (1): §9's coarsening acts WITHIN a terrain group.  Two pieces
+    the own-geometry cut divided have different authored y, so their
+    ZEROS can agree to the centimetre — and without this the very next
+    pass puts them back in one file and the cut is undone (measured:
+    LEMD's wide-body count did not move until the grounds were read)."""
+    a = (0, AR.Anchor(AR.OTHER, 40.0, -3.0, 0.0, "", 100.0), 4)
+    b = (1, AR.Anchor(AR.OTHER, 40.0001, -3.0, 0.0, "", 100.0), 4)
+    boxes = [(40.0, -3.0, 40.0, -3.0), (40.0001, -3.0, 40.0001, -3.0)]
+    assert len(_PC.coarsen([a, b], 0.3, boxes=boxes, reach_m=30.0,
+                           grounds=[100.0, 100.0])) == 1
+    assert len(_PC.coarsen([a, b], 0.3, boxes=boxes, reach_m=30.0,
+                           grounds=[100.0, 104.0])) == 2
+
+
+def test_the_fallback_carrier_is_bounded_by_the_ground_under_the_piece():
+    """§16b (3): "nearest" says nothing about the ground under the
+    carried piece.  A candidate reached by a FALLBACK is accepted only
+    when its zero stands within ``split_tol_m`` of that ground; the
+    stands-over path never asks (standing over the body IS the
+    evidence)."""
+    a = AR.Anchor(AR.OTHER, 40.0, -3.0, 0.0, "", 100.0)
+    cand = _PC.Candidate(0, "objects/garage__b0.obj", a, frozenset({1}), 8,
+                         (40.0, -3.0, 40.0002, -2.9998),
+                         part_boxes=((40.0, -3.0, 40.0002, -2.9998),),
+                         group=0, body_class=AR.OTHER, fill=1.0,
+                         ground_off=0.0)
+    far_box = (40.01, -3.0, 40.0102, -2.9998)      # no overlap: the fallback
+    refusals: dict[str, int] = {}
+    got = _PC.carriers_for(frozenset({9}), far_box, [cand], {}, (),
+                           fill_min=0.2, tol_m=0.3, refusals=refusals,
+                           carried_ground=lambda: 104.0)
+    assert got == [] and refusals.get("far_from_carried_ground") == 1
+    # the same candidate, with the ground under the piece at its own zero
+    ok = _PC.carriers_for(frozenset({9}), far_box, [cand], {}, (),
+                          fill_min=0.2, tol_m=0.3,
+                          carried_ground=lambda: 100.0)
+    assert ok and ok[0][0] is cand
+    # and a candidate the body STANDS OVER is never asked
+    over = _PC.carriers_for(frozenset({9}), (40.0, -3.0, 40.0002, -2.9998),
+                            [cand], {}, ((40.0, -3.0, 40.0002, -2.9998),),
+                            fill_min=0.2, tol_m=0.3,
+                            carried_ground=lambda: 104.0)
+    assert over and over[0][0] is cand
+
+
+def test_the_candidate_index_offers_the_same_carriers_as_the_full_scan():
+    """§16b (speed): the plan index only decides which candidates a
+    search LOOKS at — the ranking, and the carrier it answers with, are
+    unchanged."""
+    def _cand(i, lat, lon):
+        a = AR.Anchor(AR.OTHER, lat, lon, 0.0, "", 100.0)
+        box = (lat, lon, lat + 0.0002, lon + 0.0002)
+        return _PC.Candidate(i, f"objects/c{i}__b0.obj", a, frozenset({i}), 8,
+                             box, part_boxes=(box,), group=0,
+                             body_class=AR.OTHER, fill=1.0, ground_off=0.0)
+
+    cands = [_cand(i, 40.0 + 0.001 * i, -3.0) for i in range(40)]
+    index = _PC.CandidateIndex(cands, 40.0)
+    for i in (0, 7, 39):
+        box = (40.0 + 0.001 * i, -3.0, 40.0 + 0.001 * i + 0.0001, -2.99995)
+        full = _PC.carriers_for(frozenset({99}), box, cands, {}, (box,),
+                                fill_min=0.2, tol_m=0.3)
+        fast = _PC.carriers_for(frozenset({99}), box, cands, {}, (box,),
+                                fill_min=0.2, tol_m=0.3,
+                                solid_cands=cands, index=index)
+        assert [c.resource for c, _w in full] == [c.resource for c, _w in fast]

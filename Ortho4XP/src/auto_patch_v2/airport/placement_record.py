@@ -1,0 +1,163 @@
+"""§2's RECORDS: the placement plan's own product (spec
+``object-placement-spec.md`` §2 ``splits`` / ``kept``).
+
+``Body`` / ``Split`` / ``Kept`` / ``SplitSet`` — what ``placement_plan``
+computes and ``tools/obj8_split_report`` renders, with the ``to_dict``
+shape both censuses read.  Data only: no rule of the placement law lives
+here, and the module exists apart from ``placement_plan`` for the
+1,000-line law.
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+import typing as _t
+
+from . import anchor_rule as _ar
+from . import obj8_split as _split
+
+__all__ = ["Body", "Split", "Kept", "SplitSet"]
+
+
+# ── the product ──────────────────────────────────────────────────────────
+
+@_dc.dataclass(frozen=True)
+class Body:
+    """§2's ``Body``."""
+
+    body_id: int
+    body_class: str
+    components: tuple[int, ...]
+    anchor: _ar.Anchor
+    new_resource: str
+    #: the part ids the body holds (the census reads their feet)
+    pids: tuple[int, ...] = ()
+    merged_into: str = ""
+    #: §14 (1): was the CARRIER itself written at its own anchor?  A
+    #: carrier kept whole keeps its AUTHORED row, so the two files then
+    #: stand at different heights — reported, never silent.
+    merged_into_written: bool = True
+    #: every ground-contact FOOT the body holds, ``(lat, lon, authored y)``
+    #: — §7's census reads the design surface under each of these against
+    #: the surface at the anchor
+    feet: tuple[tuple[float, float, float], ...] = ()
+    #: the components the CUT takes whole (``components`` also names the
+    #: parent component of a SEGMENT, which the cut takes by triangle)
+    cut_components: tuple[int, ...] = ()
+    #: a SEGMENT's own authored triangles (11f (2)); empty for a body that
+    #: is a set of whole components
+    tris: tuple[tuple[int, int, int], ...] = _dc.field(default=(), repr=False)
+    #: §13: this file's whole content is ELEVATED — it stands on no
+    #: ground contact.  The law forbids it for a SPLIT body (the census
+    #: bar ``elevated bodies as own files`` is 0); it is true only of the
+    #: single record standing in for a FOOTLESS placement kept whole.
+    elevated: bool = False
+    #: how many of the group's bodies were elevated and are CARRIED here
+    elevated_members: int = 0
+    #: §15 (3): the body's PLAN box ``(lat0, lon0, lat1, lon1)`` — what
+    #: the stands-over census asks "which footed body is under this one"
+    #: with, and the box §15 (1)'s carrier search itself reads
+    plan_box: tuple[float, float, float, float] | None = None
+    #: §16 (2): the body's OWN GEOMETRY box (every part it holds, the
+    #: carried ones included) — what the §16 census reads the ground
+    #: under.  ``plan_box`` stays the GROUND footprint §15 (3) reads.
+    geom_box: tuple[float, float, float, float] | None = None
+    #: §16 (3): the body's bounded FOOTPRINT boxes, the geometry the
+    #: stands-over relation is measured on by the law and the census
+    #: alike (``placement_carrier.foot_boxes``)
+    foot_boxes: tuple[tuple[float, float, float, float], ...] = ()
+    #: §16a (2): how far this body's own zero stands from the ground
+    #: under its own feet — what says whether the law would let it CARRY
+    #: anything, and therefore whether the census may call it "the body
+    #: beneath" (one relation, one reading).  ``None`` off-sheet.
+    ground_off: float | None = None
+    #: §16 (3): the body's FOOTPRINT FILL (``placement_carrier.fill_of``)
+    #: — what says whether it is a SOLID that may carry another body's
+    #: zero, and what the census must read to judge the same relation
+    fill: float = 1.0
+    #: §16b (4): THE WRITTEN GEOMETRY, sampled — ``(lat, lon, lowest y)``
+    #: per :data:`placement_cut.GEOM_CELL_M` cell of the body's own
+    #: triangles, thinned to :data:`placement_cut.GEOM_PTS_MAX`.  Every
+    #: §16 / §16a number is read HERE and never on ``geom_box``: the box
+    #: of a carried body the cut left whole is its CARRIER's patch
+    #: (124 m for ``green-TEJ3``, whose written file spans 2,342 m), so
+    #: every bar read 0 while the eye read +16 m (11ap).
+    geom_pts: tuple[tuple[float, float, float], ...] = ()
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        a = self.anchor
+        return {"body_id": self.body_id, "class": self.body_class,
+                "components": list(self.components),
+                "anchor": {"lat": a.lat, "lon": a.lon},
+                "anchor_reason": a.reason, "new_resource": self.new_resource,
+                "authored_offset": {"dx": a.offset[0], "dy": a.offset[1],
+                                    "dz": a.offset[2]},
+                "surface_z": a.surface_z, "y_zero": a.y_zero,
+                "segment_tris": len(self.tris),
+                "elevated": self.elevated,
+                "elevated_members": self.elevated_members,
+                "merged_into": self.merged_into or None,
+                "plan_box": None if self.plan_box is None else list(self.plan_box),
+                "geom_box": None if self.geom_box is None else list(self.geom_box),
+                "foot_boxes": [list(b) for b in self.foot_boxes],
+                "ground_off": self.ground_off,
+                "fill": self.fill,
+                "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
+                             for q in self.geom_pts],
+                "feet": len(self.feet)}
+
+
+@_dc.dataclass(frozen=True)
+class Split:
+    """§2's ``Split``: one original placement and the bodies replacing it."""
+
+    index: int
+    placement_id: str
+    resource: str
+    authored_path: str
+    lat: float
+    lon: float
+    heading: float
+    bodies: tuple[Body, ...]
+    files: tuple[_split.SplitFile, ...] = ()
+    write_error: str = ""
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"placement": {"index": self.index, "id": self.placement_id,
+                              "resource": self.resource, "lat": self.lat,
+                              "lon": self.lon, "heading": self.heading},
+                "bodies": [b.to_dict() for b in self.bodies],
+                "files": [f.resource for f in self.files]}
+
+
+@_dc.dataclass(frozen=True)
+class Kept:
+    index: int
+    placement_id: str
+    resource: str
+    reason: str
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"index": self.index, "id": self.placement_id,
+                "resource": self.resource, "reason": self.reason}
+
+
+@_dc.dataclass(frozen=True)
+class SplitSet:
+    splits: tuple[Split, ...]
+    kept: tuple[Kept, ...]
+    counts: _t.Mapping[str, int]
+    #: the KEPT-whole placements as single-body records — §7's census is
+    #: over the whole pack, and a placement that stays whole is still an
+    #: AGL placement standing on its anchor's surface
+    whole: tuple[Split, ...] = ()
+
+    @property
+    def all(self) -> tuple[Split, ...]:
+        return self.splits + self.whole
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"splits": [s.to_dict() for s in self.splits],
+                "kept": [k.to_dict() for k in self.kept],
+                "counts": dict(self.counts)}
+
+

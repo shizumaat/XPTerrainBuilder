@@ -1762,6 +1762,122 @@ written extent (2,342 m). The census was blind to what the eye reads.
    sampler 11al owed is in scope); files quoted; round trip OK on a pack COPY;
    suite green; `tools/INDEX.md` and the twins updated in the same commit.
 
+**MEASURED (lane `v2owncut`, 2026-09-11; branch `claude/v2owncut`).**
+Implemented in `airport/placement_cut.py` (§16b (1): the terrain cut is
+PRIOR and UNIVERSAL and is read on the body's own written triangles —
+`_LineCutter.all_tris` / `geom_points`, `terrain_groups(by_ground=True)`),
+`airport/placement_geom.py` (NEW: the written-geometry reading — the
+samples, the span, the median ground — ONE reading for the cut and the
+census), `airport/placement_plan.py` (§16b (2): `_footless_targets`, the
+per-piece carrier question, own-ground per GROUP),
+`airport/placement_carrier.py` (§16b (3): the bounded fallback,
+`box_gap_m`, the contiguity and terrain-group tests in `coarsen` /
+`merge_rides` / `re_cut_by_terrain` / `group_at_zero`, and the
+`CandidateIndex`), `airport/placement_boxes.py` + `placement_record.py`
+(NEW: the 1,000-line law) and `airport/placement_census.py` (§16b (4):
+`census_v16b`).  Law: `[placement] coarsen_reach_m = 30`.
+
+* **WHAT THE CENSUS WAS BLIND TO, and it was not only `geom_box`.**  The
+  plan's member for `Terminal4_green-TEJ3` carries ONE part of FOUR
+  triangles (component 3 of twelve), and `obj8_split.split_obj8` gives
+  every triangle no body owns to the NEAREST body — so a placement the
+  plan reads as one body is WRITTEN as the whole object.  Its own-ground
+  span read 0.22 m on the plan's parts and 8.06 m on the file, which is
+  why every §16 number was green while the eye read +16.22 m.  Each body
+  now publishes `geom_pts`: one sample per 10 m cell of the triangles ITS
+  FILE WILL CONTAIN (the lowest thing over each patch), thinned to 32 by
+  the farthest-point walk so the extremes survive.
+* **THE 1,371-vs-1,417 DISAGREEMENT (5), ATTRIBUTED.**  Same population
+  either side — 324 splits, 0 resources exclusive to either — and 101
+  placements differing in BODY COUNT in both directions (−14 `Runway
+  ILS/2`, +41 `OldTerminal_FSX-LEMD38`).  The cause is §15 (5)'s own:
+  the app samples the MESH and the replay the GRADED surface, and over
+  1,249 files common to both the surface at the same body's anchor
+  differs by a median 0.42 m, p90 5.84 m, worst 46.23 m — enough to move
+  a coarsening or terrain-group boundary at `split_tol_m` 0.3 m.  Not a
+  one-line matter and not fixed: the sim-read side is the WRITTEN (mesh)
+  frame, and the replay is comparative only.  Every site number below is
+  read on the written frame; every bar on matched replay arms.
+* **THE FIVE SITES, on the WRITTEN frame** (app 1.0.319's pack and plan
+  against this lane's write into a pack COPY, the same reader both
+  sides):
+
+  | site | 1.0.319 | `v2owncut` |
+  |---|---|---|
+  | item 3, `green-TEJ3` at 40.4841758,−3.585487 | ONE body at zero 616.27, plate at **622.98 = +10.74 m** over the ground, 3.4 m over `CNTRL__b0`'s roof | `TEJ3__b1` on `CNTRL__b1`'s zero 612.27, plate at **618.58** against that roof's own top **618.60** (0.02 m) |
+  | item 5, same body at 40.502207,−3.5821158 | **627.03 = +16.22 m** | `TEJ3__b3` on `CNTRL__b3`'s zero, plate **620.38** against `CNTRL__b2`'s top **620.27** (0.11 m) |
+  | item 4, `Terminal4_48` (T4 roof + Y-struts) | ONE body, zero 612.19 with **616.21 m of ground beneath it (−4.02 m)**, riding the garage across the road | 3 pieces, zero−ground median **−0.36**, worst −1.62 |
+  | item 4, `green-STRT4` (the landside road deck) | `__b10` zero 611.23, ground 616.34 (**−5.10 m**) | 41 pieces, median **−0.01**, 8 over 0.3 m |
+  | item 2, `Taxisigns-SENRG` at 40.4788449,−3.5745666 | `__b10` **+4.58 m**; 38 of the resource's 80 bodies over 0.3 m from their own ground (−4.05 … +5.35) | the sign at the site reads **−0.15 m**; 12 of 419 bodies over 0.3 m (−0.99 … +0.94) |
+  | item 1, the T2 roof plates at 40.4673861,−3.5681144 | five plates on `LEMD38__b51`'s one zero 602.25 — 616.08 / 616.69 / 616.97 / 618.82 / 618.93 against wall tops 615.34–615.75 | `tej2__b0` at **615.41** against `T2FT2zwei`'s top 615.75 (−0.34); the other plates split across their own carriers |
+
+* **THE BARS (5), matched replay arms on the same frame** (the 1.0.319
+  rebake plan + `LEMD.graded.json`, `--admit-skipped`; BEFORE is this
+  lane's instrument commit `0be4ef5a` on main's law, so both arms are
+  read by the same instrument):
+
+  | bar | before | after |
+  |---|---|---|
+  | `carried piece float over its own ground > 0.5 m` (bar 0) | 115 | **135 — MISSED** |
+  | `body wider than its terrain group` (bar 0) | 821 of 1,357 (widest 29.80 m) | **1,673 of 4,015 (widest 12.19 m) — MISSED** |
+  | §15 carried `stands-over float > 0.5 m` (bar 0) | 0 | **0** |
+  | §14 `footless at datum` / `on ground` / `basin split` | 0 / 0 / 0 | **0 / 0 / 0** |
+  | §16 `rows on the datum outside the plan` | 0 | **0** |
+  | §14 `spread` | 50.81 m, 170 placements over | 50.78 m, 197 over |
+  | files | 1,371 | **4,050** |
+  | §7 feet / `> 3 m` / floating | 74,316 / 518 / 9,509 | 86,793 / **457** / 14,538 |
+  | round trip (write half into a pack COPY) | — | **OK**, 4,050 cut files, 4,053/4,053 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | plan stage, 3 runs | 6.79 / 6.83 / 6.97 s | **11.27 / 11.50 / 11.48 s — bar <= 8 s MISSED** |
+
+  OTHH, same arms: carried own-ground float **308 -> 200**, wide
+  **141 -> 148** (32 basin bodies exempt), §15 carried float **0 -> 0**
+  (the spec's "stays 0" MET), `footless at datum` 0, files 1,525 ->
+  2,482.
+* **THE TWO BARS' RESIDUE, ATTRIBUTED — and the reading that says why
+  they cannot be 0 as written.**  A body's cut ATOM is its TRIANGLE, and
+  this pack authors slabs, ramps and roof plates as four of them:
+  `green-PKT4__b19` is 4 triangles over 6.22 m of fall, and no cut short
+  of re-meshing the object can make its own ground span 0.3 m.  The wide
+  residue is therefore dominated by two classes the law cannot divide —
+  big-triangle solids, and the BASIN bodies §14 (2) exempts (15 at LEMD,
+  32 at OTHH, counted apart).  The carried residue is the same class one
+  step on: a piece riding a carrier whose zero is its low-side foot (the
+  T4S tower cluster on the pit RIM, 7 m above the pit floor, is the
+  worst of them and is lawful by 11al).  Reported, not closed.
+* **TWO CUTS TRIED AND REFUTED, and DELETED.**  (a) The FOOTED triangle
+  cut read by GROUND instead of by intended zero: it slices a rigid
+  footed solid wherever the terrain under it moves 0.3 m (LEMD files
+  1,371 -> 5,891, a garage into 20 slices) and STILL misses the bar for
+  the atom reason above.  (b) The SEGMENT cut followed by a ground cut
+  per station: LEMD's fence and grass files 2,227 -> 7,722 for a class
+  the eye does not read — §10's station is already a terrain reading
+  every 100 m at its own mid-foot.  Both are gone; §16b (1)'s universal
+  cut runs on the CARRIED class, which is the class 11ap attributes.
+* **THE FILE COUNT, and where it comes from.**  1,371 -> 4,050 is
+  §16b (1)'s contiguity, not its cut: `coarsen_reach_m` 30 m is shorter
+  than §10's `line_segment_m` 100 m, so a fence's stations can never
+  share a file (line_segment files 300 -> 1,755) and 419 taxi signs are
+  419 files.  A `coarsen_reach_m` at or above the station length would
+  restore those joins; the number is the owner's to rule.
+* **BUILD TIME.**  LEMD plan stage 6.9 -> 11.4 s over 3 runs per arm
+  (bar <= 8 s MISSED), OTHH ~35 -> ~45 s.  The cost is the cut itself —
+  4,056 bodies where main makes 1,374, and §16b (2) asks the carrier
+  question once per piece.  Three optimisations the measurement forced
+  are already in (the vectorised surface read `placement_geom.surface_many`
+  and `sampler.many`; a per-unit SOLID set and a plan-cell
+  `CandidateIndex`, which took 11 M candidate rankings to 1 M; a
+  memoised `_m_per_deg` and a vectorised piece box), worth 6.3 s
+  together; the remainder is the body count.  Reported for the owner's
+  decision.
+* **Twins:** `test_the_16b_census_reads_the_written_geometry_not_the_plan_box`,
+  `test_a_basin_body_is_exempt_from_both_16b_bars`,
+  `test_coarsening_joins_only_bodies_contiguous_in_plan`,
+  `test_the_coarsening_never_joins_across_a_terrain_group`,
+  `test_the_fallback_carrier_is_bounded_by_the_ground_under_the_piece`,
+  `test_the_candidate_index_offers_the_same_carriers_as_the_full_scan`;
+  two §16a twins amended where §16b supersedes them.  Suite 1,103
+  passed / 1 skipped.
+
 ## §14a The basin body follows its RING (Fable, 2026-09-11; RULINGS 2026-09-11ap item 6)
 
 §24 (1) puts the apron's rim vertices ON the basin's cut ring AT THE APRON'S LEVEL —

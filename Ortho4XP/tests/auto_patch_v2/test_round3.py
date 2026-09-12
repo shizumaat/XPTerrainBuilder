@@ -178,11 +178,23 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     assert any(c.role == "junction" and c.evidence.get("near_route") == 1.0 for c in cells)
     # the apron itself (startup + taxi centreline) is still apron
     assert any(c.role == "apron" and c.ref == "apron" for c in cl.cells)
-    # ...and the same page with a route reaching it is a lot
+    # ...and the same page with a route reaching it is read as a LOT —
+    # which §27 (RULINGS 2026-09-12c/12f) then makes `apron`, because
+    # this page runs its whole 200 m north edge along the runway.  The
+    # 04u reading itself is what this twin pins, and the evidence says
+    # the lot verdict was reached before the airside edge moved it.
+    #
+    # NOTE (open, reported by lane `v2airsideedge`): §27's candidate set
+    # is the class the owner ruled — the LOTS and the FREE ROADS — so the
+    # reach=False page above stays `groundside_pavement` on the SAME
+    # runway edge.  Widening §27 to `groundside_pavement` would undo 04u
+    # ("open pavement is never apron by default") for every page welded
+    # to airside; that collision is an owner call, not a lane's.
     cl2 = classify(_bare_page_airport(reach=True), law, rules)
     cells2 = [c for c in cl2.cells if c.ref == "bare"]
-    assert cells2 and "parking_lot" in {c.role for c in cells2} and \
-        "apron" not in {c.role for c in cells2}, cells2
+    assert cells2 and {c.role for c in cells2} == {"apron"}, cells2
+    assert all(c.evidence.get("airside_edge_was") == "parking_lot"
+               for c in cells2), [c.evidence for c in cells2]
 
 
 # ── 4. a lot beside a pad keeps the set-back and its own level ───────────

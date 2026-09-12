@@ -4085,7 +4085,123 @@ shared edge ≥ 1.0 m) was dropped in the v2 port.
    KCLT --sources` (flips named, none built); ONE `--engine v2` LEMD build as the
    closing test (base arm 4,600 / 1,861, groundside 73, in the ledger) — harness
    census before/after, airside adjudicated rows quoted; twins; INDEX; suite.
-5. **OWNER QUESTION 12c-1, not decided here:** the 61 LEMD `service_road` faces that
-   share an apron edge (up to 828 m). The free-road ruling (2026-07-27) reads
-   "a road sharing an edge with an apron IS the apron"; 12c names the service road
-   as the lot's exemption channel. This spec flips LOTS only; roads wait.
+5. **ROADS FLIP TOO; THE EXEMPTION IS A MOUTH (owner RULINGS 2026-09-12f).** A
+   `service_road` / `service_junction` face sharing >= `airside_edge_min_m` of
+   LATERAL edge with airside pavement is `apron` (the free-road ruling, 2026-07-27).
+   A groundside shape stays groundside only when every airside contact it has is a
+   free road meeting it END-ON at the road's MOUTH — the strip's end cap, its
+   cross-section (shared edge <= the strip's width x `[lot] mouth_width_factor`
+   1.5, and transverse to the strip's axis) — never a lateral edge. Flips propagate
+   along lateral shared edges (a lot beside a road that became apron is beside
+   apron) and stop at mouths; the classifier iterates to the fixpoint. Bars add:
+   LEMD's 61 apron-edged service-road faces named with their flip; the lots whose
+   only contact is a mouth named as staying; the fixpoint's iteration count.
+
+### §27 **MEASURED** (lane `v2airsideedge`, 2026-09-12, branch `claude/v2airsideedge`)
+
+**Implementation.** One new module, ONE derivation site:
+`src/auto_patch_v2/classify/airside_edge.py::airside_edge_flip`, called once by
+`classify/roles.py` after every groundside verdict is in — the `lot` / `strip`
+source branch, the 11ac demotion, the 04u open default AND the corridor roads cut
+outside the pavement union (those are `final` entries now, so the free-road ruling
+does not depend on which side of the pavement union a road was cut from). It lives
+apart from `roles.py` only because that file is at its 1000-line ceiling
+(`test_model.py`). `side` stays `law.tables.role_side(role)`; no consumer changed.
+New keys: `[lot] airside_edge_min_m = 10.0`, `[lot] mouth_width_factor = 1.5`.
+
+* **The measure is weld-tolerant** at `emit.identity.weld_spacing_m` (1.0 m): each
+  airside boundary is buffered by the weld spacing and the candidate's boundary is
+  measured inside the band, the non-mouth pieces unioned. Proven on the owner's
+  face: LEMD `pav137` (shape 81) reads **95.0 m exact / 149.0 m welded** at
+  classification time against **140.2 m** in the emitted patch — the exact reading
+  under-counts by 32 %, the weld-tolerant one lands on the emitted number.
+* **The mouth** is the FREE ROAD's end cap: the strip is the ROAD of the pair (by
+  its ORIGINAL role, so a road that already flipped still offers its mouth), the
+  contact at most `mouth_width_factor` strip-widths long AND within 45° of the
+  strip axis' normal. Where NEITHER face is a road there is no mouth — a lot
+  meeting an apron head-on is a lateral contact. (An earlier draft took the
+  narrower of the two faces as the strip whatever it was; that exempted `pav3`'s
+  178.9 m of apron edge as five short "mouths" and is wrong.)
+* **The fixpoint** re-derives the airside set each round and stops when a round
+  moves nothing; it terminates because a role only ever moves groundside → apron.
+  Rounds: LEMD 3, OTHH 2, HECA 3, CYXY 3, SPJC 3, HEAZ 2, **KCLT 6**.
+
+**Per-airport flips** (classification dry runs, both arms in ONE tree at one code
+version, cell geometry read PRE pad-cutback — the frame the pass decides in):
+
+| airport | lots flipped | m² | roads flipped | m² | rounds | `parking_lot` | `service_road`+`_junction` | `apron` |
+|---|---|---|---|---|---|---|---|---|
+| LEMD | 23 | 144,162 | 43 | 44,692 | 3 | 56 → 33 | 93 → 50 | 40 → 106 |
+| KCLT | 64 | 347,785 | 26 | 52,195 | 6 | 172 → 108 | 91 → 65 | 29 → 119 |
+| SPJC | 24 | 71,519 | 7 | 6,319 | 3 | 43 → 19 | 16 → 9 | 23 → 54 |
+| CYXY | 4 | 18,037 | 3 | 2,941 | 3 | 27 → 23 | 21 → 18 | 7 → 14 |
+| HECA | 0 | 0 | 15 | 67,084 | 3 | 3 → 3 | 25 → 10 | 20 → 35 |
+| OTHH | 2 | 9,837 | 1 | 236 | 2 | 16 → 14 | 11 → 10 | 27 → 30 |
+| HEAZ | 0 | 0 | 2 | 35,268 | 2 | 0 → 0 | 5 → 3 | 9 → 11 |
+
+Kept groundside BY A MOUTH (the exemption doing its work): LEMD 0, CYXY 5, HECA 5,
+OTHH 2, SPJC 2, HEAZ 1, KCLT 1. Every other kept face is a SLIVER (LEMD 40 of the
+79 with airside contact). **No face anywhere reads ≥ 10 m of lateral airside edge
+and stays groundside** — the pass is self-consistent at all seven airports.
+
+**Closing test** — ONE `--engine v2` LEMD build, foreground, `--tag
+v2airsideedge12f`, 385.9 s, rc 0, `body_sha 42f098178170`, artifact ledger
+**`321c43eaba54`**, shared repo UNCHANGED. Base arm: the shipped 1.0.320 LEMD patch
+(4,600 / 1,861 / groundside 73), reused, never rebuilt.
+
+| census | BASE | AFTER |
+|---|---|---|
+| LAW-TRUE TOTAL | 4,600 | 4,812 |
+| — within / cross / **steps** | 4,581 / 10 / **9** | 4,793 / 19 / **0** |
+| ADJUDICATED | 1,861 | 1,983 |
+| — airside / groundside / mixed | 1,786 / 73 / 2 | 1,817 / 166 / **0** |
+| `vertex_to_edge_step` / `mid_edge_step` / `road_cross_section` | 1 / 8 / 3 | **0 / 0 / 0** |
+| `apron\|apron` adjudicated | 442 | 357 |
+| terrace joints (all three families) | 0 | 0 |
+
+**BARS.**
+
+1. **MET** — shape 81 is `apron`: `way -10085`, `ref pav137`, `role apron`,
+   `shapeID 81` kept (its own face, NOT absorbed into `pav171` / `pav92`). Its one
+   base row — `groundside_pavement|groundside_pavement` at **5.327 %** against the
+   5 % lot cap, the owner's corner — is GONE. Terrace-joint families 0.00 / 0 rows.
+2. **MET** — the class cleared on the EMITTED patch (`tools/role_edge_census.py`,
+   promoted this round): groundside shapes sharing ≥ 10 m with airside pavement
+   **71 substantive / 182,604 m² → 0**; the 13 LOT-class / 145,262 m² → 0; groundside
+   shapes 175 → 68; the 28 that remain are all slivers (789 m² in total). The
+   ruling's "61 apron-edged service-road faces" are inside the 58 non-lot
+   substantive shapes that cleared.
+3. **MET** — the site: rows within 130 m of 40.461514,−3.5732897 **16 → 7**; the 6
+   `mid_edge_step` and 1 `vertex_to_edge_step` (`apron|building`) at the lot's old
+   groundside boundary are gone.
+4. **NOT MET** — "no pair over 1.5 % inside shape 81 after the solve": 3
+   `apron|apron` within-shape rows remain inside `pav137`, **3.572 % / 1.887 % /
+   1.869 %** at |de| 0.080 / 0.180 / 0.160 m. All three are SHORT pairs (2–10 m) at
+   the `building4` frontage — the same pair carries the `frontage_near_miss` row —
+   not the lot terracing the owner reported. Attribution, not a fix, and not this
+   lane's to make.
+5. **NOT MET (regression, attributed)** — adjudicated groundside 73 → 166. The rise
+   is ENTIRELY one tunnel ramp: `tunnel_ramp|tunnel_ramp` 67 → 165 rows, 103 of them
+   in the cluster at 40.495,−3.582 (25 in base). Same ramp (`ref tunnel_ramp`), its
+   floor 597.34 → 596.99 m, worst grade 6.208 % → **7.890 %** against the 4 % cap;
+   worst |de| essentially unchanged (11.16 → 11.13 m). The flip moved the apron the
+   ramp's mouth sits on and the ramp got steeper. §26/§27 did not anticipate this
+   coupling; it wants a ruling, not a lane fix.
+
+**Collateral fix.** `planar/shapes.py::_joints_from` called
+`linemerge(unary_union(segs))`, and `unary_union` of ONE segment is a bare
+`LineString` that `linemerge` refuses ("Cannot linemerge LINESTRING ..."). Latent
+since the joint pass landed; surfaced at CYXY when the flip left a single contour
+joint. One line, guarded.
+
+**OPEN, for the owner (not decided by this lane).**
+
+* §27's candidate set is the class the rulings NAME — `parking_lot`,
+  `service_road`, `service_junction`. `groundside_pavement` is left alone, so the
+  synthetic page of `test_round3` is `apron` when a road reaches it (a lot, then
+  flipped) and `groundside_pavement` when none does — on the SAME 200 m runway edge.
+  Widening §27 to `groundside_pavement` would undo 04u ("open pavement is never
+  apron by default") for every page welded to airside. That collision is a ruling.
+* The tunnel-ramp regression above (bar 5).
+* KCLT needed **6** rounds and flips 90 faces / 399,980 m² — by far the largest
+  class, and unbuilt (v1 patch, no v2 arm). Nothing was built for it.

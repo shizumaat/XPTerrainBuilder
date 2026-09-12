@@ -1390,3 +1390,84 @@ is now per UNIT in two passes) and `airport/obj8_split.py`.
    outside the plan` 25 → 0; files whose own-geometry ground departs > 3 m from the
    row 138 → ≤ 20 (the residue named); carried bodies with carrier zero > 1 m off the
    ground beneath 54 → 0; round trip ok; OTHH dry run before/after.
+
+**MEASURED (lane `v2skipped`, 2026-09-11; branch `claude/v2skipped`).**
+Implemented in `airport/pack_partition.py` (§16 (1)), `airport/placement_cut.py`
+(NEW: §16 (2)'s terrain cut, with §10's segment cut and the body formation
+moved beside it), `airport/placement_plan.py` (the own-ground file, the
+footless verdict), `airport/placement_carrier.py` (§16 (3)) and
+`airport/placement_census.py` (NEW: §14/§15/§16's instruments, one
+implementation for both tools).  Law: `[placement] carrier_fill_min = 0.2`.
+
+* **THE POPULATION (1).** `_build_member`'s thickness gate is not applied
+  under `[rebake] placement = "agl"`: the member is admitted with its thin
+  components as parts, and ITS PARTS CARRY NO FEET — §16 (1)'s own sentence
+  ("a FOOTLESS body"), forced by measurement: a two-triangle `AESlite-LEMD-VOR`
+  marker reaching 50 m below its own zero was otherwise read as a footed body
+  with three feet 50 m down, offered to the carrier search as ground and read
+  by the census as something to stand over (every T4 body then "floated" 40 m).
+  A body no part of which has a foot is FOOTLESS wherever it comes from
+  (the structure-seated classes — basin, plate, deck — excluded: another law
+  governs their elevation).
+  LEMD `rows on the datum outside the plan` **25 → 0**, OTHH **99 → 0**.
+* **THE RE-CUT (2)** runs at two levels, because a body the ε-contact graph
+  formed is often ONE welded component the part cut cannot divide: the PARTS
+  are grouped by the ground under them (§9's own `coarsen`, one level down),
+  and where the body's own ground still spans more than `split_tol_m` its
+  TRIANGLES are (`placement_cut._LineCutter.terrain_groups`, capped at
+  `[rebake] line_object_stations_max`, the ground sampled once per
+  `GROUND_CELL_M` of plan rather than once per triangle).  LEMD 3,091 bodies
+  re-cut into 7,965 terrain groups.  A footless placement the cut DIVIDED is
+  no longer one rigid span: its pieces each take the carrier they stand over.
+* **THE CARRIER (3).** A LINE body never carries, nor one filling less than
+  `carrier_fill_min` of its own plan box, and a candidate whose zero stands
+  more than `split_tol_m` from the ground under the CARRIED body is refused
+  and the search continues (LEMD: 12.8k line rejections, 12.8k fill, 10.9k
+  ground refusals over the airport's searches).  With no candidate left the
+  body is written at the ground under its own footprint with its authored y
+  kept (`footless_own_ground`, 102 files at LEMD, 517 at OTHH) — where §15
+  silently DROPPED such a body from every file.
+* **THE BARS (4), matched arms on the app's 1.50.1763 LEMD frame** (the
+  rebake plan + `LEMD.graded.json`, `--admit-skipped` restoring §16 (1)'s
+  population into a plan written before it):
+
+  | bar | before | after |
+  |---|---|---|
+  | `rows on the datum outside the plan` | 25 | **0** (OTHH 99 → 0) |
+  | carried bodies with the carrier's zero > 1 m off the ground beneath | 39 | **0** |
+  | files whose own-geometry ground departs > 3 m from their row | 26 | **26** |
+  | `elevated bodies as own files` / `footless at datum` | 0 / 0 | **0 / 0** |
+  | files | 1,103 | **1,591** (OTHH 988 → 1,466) |
+  | DSF round trip (write half into a pack copy) | — | **OK**, 1,602 files, 1,601/1,601 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+
+  The 138 of 11ai (C) was measured on the WRITTEN pack by sampling 60 vertices
+  per file; the plan-side instrument above reads the body's own part boxes and
+  puts the same population at 26 before and after.  The §16 (2) re-cut does not
+  move it and CANNOT: the residue is bodies that lawfully ride one zero over
+  sloping ground — a garage slab, a terminal roof, the T4S roof — plus the
+  newly admitted `AESlite-LEMD-VOR` markers, whose two triangles span the
+  airfield.  Named by class, not closed.
+* **THE NAMED SITES.** `Terminal4_green-TEJ1` (the garage roof-top pavilions,
+  SKIPPED and 15.8 m under the slab) is in the plan, cut into 9 terrain groups
+  riding the garage's own bodies, float −1.27 … +3.70 m against the body each
+  stands over (bar 0.3 MISSED, and the spread is the garage's own: `PKT4` is
+  itself re-cut into terrain groups over 8 m of fall).  `Terminal4SAT_green-TEJ3`
+  (SKIPPED, +5.78 / +3.44) is in the plan, five groups, float +0.00 … +0.54.
+  `Terminal4_green-TEJ3` (one carried body over 1 × 2 km, +3.06 over `CNTRL`)
+  rides `NAVEATR4` at **+0.00**.  `Terminal4_green-PKT4__b1` is no longer
+  carried by a fence — no fence carries anything.  `green-rada__b1` reads
+  −0.13 (was +13.18 on a fence at 0 m²).
+* **THE REGRESSION, reported not decided.** §15 (3)'s `stands-over float > 0.5 m`
+  for CARRIED bodies (bar 0) is LEMD 1 → **58**, OTHH 6 → 7.  Mechanism: §16 (3)
+  chooses a carrier by the GROUND under the carried body while §15 (3) judges
+  the result against the ZERO of the footed body beneath — and after the re-cut
+  a neighbouring group anchored at its low-side foot can read a zero metres
+  from the ground over it.  The two bars now measure different things; §16 (2)'s
+  own (the carrier's zero against the ground beneath) is 0.  An owner ruling is
+  needed on which is the law.
+* **BUILD TIME.** The LEMD plan stage (dry run, no cut) **2.7 s → 9.9 s**, OTHH
+  **28.6 → 46.4 s** — +7.2 s, 12 % of the 60 s per-airport budget, over the 1 %
+  threshold and reported for the owner's decision.  The cost is the surface
+  sampling the re-cut needs (913k reads at LEMD; the per-cell memo already took
+  1.9 s of it back).  A vectorised surface sampler would take most of the rest
+  and is not in this lane.

@@ -92,6 +92,11 @@ class _LineCutter:
         self._geom: _t.Any = False        # False = not parsed yet
         self._comps: list = []
         self._is_line: bool | None = None
+        #: §16c (1): authored triangle -> component index, built once
+        #: (packed keys, sorted, for a vectorised lookup)
+        self._tri_keys: _t.Any = None
+        self._tri_ids: _t.Any = None
+        self._tri_base: _t.Any = 1
 
     @property
     def armed(self) -> bool:
@@ -108,6 +113,65 @@ class _LineCutter:
             self._comps = (_obj8.solid_components(self._geom)
                            if self._geom is not None else [])
         return self._geom is not None and bool(self._comps)
+
+    def comp_of(self, tris) -> "list[int]":
+        """§16c (1): THE COMPONENT EACH TRIANGLE BELONGS TO.
+
+        The connected component is the ATOM of every group (owner
+        RULINGS 2026-09-12d): a terrain, foot or carrier boundary that
+        falls INSIDE a welded solid writes its two halves at two zeros,
+        and the owner's 1.0.320 read found exactly that in the `HANG3`
+        vault, `Bridge2`'s deck and `green-STRT4`'s approach slabs.  So
+        every cut below groups COMPONENTS, and this is the map it groups
+        them by: the authored triangle (its sorted vertex triple, the
+        key ``obj8_split`` spells) -> its component index.  A triangle
+        belonging to no component reads ``-1`` and is its own atom.
+
+        The lookup is VECTORISED — one packed key per triangle and one
+        ``searchsorted`` — because the cuts ask it once per cut per
+        member and a Python dict over 40,000 triangles costs more than
+        the cut (measured: the LEMD plan stage).  Built once per member."""
+        import numpy as np
+        if self._tri_keys is None:
+            n = int(self._geom.vertices.shape[0]) + 1 if self._read() else 1
+            self._tri_base = np.int64(n)
+            rows = [np.sort(np.asarray(c.tris, dtype=np.int64), axis=1)
+                    for c in self._comps if len(c.tris)]
+            ids = np.concatenate([np.full(len(c.tris), ci, dtype=np.int64)
+                                  for ci, c in enumerate(self._comps)
+                                  if len(c.tris)]) if rows else \
+                np.zeros(0, dtype=np.int64)
+            if rows:
+                r = np.concatenate(rows)
+                keys = (r[:, 0] * self._tri_base + r[:, 1]) * self._tri_base \
+                    + r[:, 2]
+            else:
+                keys = np.zeros(0, dtype=np.int64)
+            order = np.argsort(keys, kind="stable")
+            self._tri_keys = keys[order]
+            self._tri_ids = ids[order]
+        q = np.sort(np.asarray(tris, dtype=np.int64).reshape(-1, 3), axis=1)
+        qk = (q[:, 0] * self._tri_base + q[:, 1]) * self._tri_base + q[:, 2]
+        if self._tri_keys.shape[0] == 0:
+            return [-1] * int(qk.shape[0])
+        pos = np.searchsorted(self._tri_keys, qk)
+        pos = np.clip(pos, 0, self._tri_keys.shape[0] - 1)
+        hit = self._tri_keys[pos] == qk
+        out = np.where(hit, self._tri_ids[pos], -1)
+        return [int(x) for x in out.tolist()]
+
+    def _comp_blocks(self, tris) -> "list[list[int]]":
+        """§16c (1): the triangle indices of ``tris`` grouped by
+        COMPONENT — the atoms every cut below assigns.  A triangle no
+        component owns is an atom of its own."""
+        blocks: dict[int, list[int]] = {}
+        loose: list[list[int]] = []
+        for i, ci in enumerate(self.comp_of(tris)):
+            if ci < 0:
+                loose.append([i])
+            else:
+                blocks.setdefault(ci, []).append(i)
+        return [blocks[k] for k in sorted(blocks)] + loose
 
     def is_line_object(self) -> bool:
         """10bb's RESOURCE verdict over the plan's own genuine set."""
@@ -232,31 +296,51 @@ class _LineCutter:
                 cell[k] = surface(la, lo)
             return cell[k]
 
+        # §16c (1): THE ATOM IS THE COMPONENT, not the triangle.  A
+        # boundary drawn between two triangles of ONE welded solid writes
+        # its halves at two zeros — the torn vault, the torn deck slab,
+        # the torn canopy of the owner's 1.0.320 read (12d).  So the
+        # walk below places WHOLE components, each keyed by the design
+        # surface under its OWN geometry (the median of its triangles'
+        # readings, so one stray panel cannot carry a hangar), and a
+        # component wider than its terrain stays whole.
+        atoms = self._comp_blocks(tris)
+        keys: list["float | None"] = []
+        lows: list[float] = []
+        for blk in atoms:
+            vals: list[float] = []
+            for i in blk:
+                la, lo = authored_latlon(float(xs[i]), float(zs[i]), self.lat,
+                                         self.lon, self.m.heading_deg)
+                z = _ground(la, lo)
+                if z is not None:
+                    vals.append(float(z) - (0.0 if by_ground else float(ys[i])))
+            keys.append(None if not vals else
+                        float(sorted(vals)[len(vals) // 2]))
+            lows.append(min(float(ys[i]) for i in blk))
         buckets: list[list[int]] = []
         levels: list[float] = []
-        order = sorted(range(tris.shape[0]), key=lambda i: float(ys[i]))
-        for i in order:
-            la, lo = authored_latlon(float(xs[i]), float(zs[i]), self.lat,
-                                     self.lon, self.m.heading_deg)
-            z = _ground(la, lo)
-            zero = (None if z is None
-                    else float(z) - (0.0 if by_ground else float(ys[i])))
+        order = sorted(range(len(atoms)),
+                       key=lambda k: (lows[k], keys[k] if keys[k] is not None
+                                      else float("inf")))
+        for k in order:
+            zero = keys[k]
             placed = False
             for bi, lv in enumerate(levels):
                 if (zero is None) == (lv is None) and (
                         zero is None or abs(zero - lv) <= radius):
-                    buckets[bi].append(i)
+                    buckets[bi].extend(atoms[k])
                     placed = True
                     break
             if not placed:
                 if len(buckets) >= cap:
-                    # the cap is reached: the triangle joins the nearest
+                    # the cap is reached: the component joins the nearest
                     # level rather than founding a group nothing bounds
                     known = [(abs(zero - lv), bi) for bi, lv in enumerate(levels)
                              if lv is not None and zero is not None]
-                    buckets[min(known)[1] if known else 0].append(i)
+                    buckets[min(known)[1] if known else 0].extend(atoms[k])
                     continue
-                buckets.append([i])
+                buckets.append(list(atoms[k]))
                 levels.append(zero)
         if len(buckets) < 2:
             return []
@@ -383,6 +467,18 @@ class _LineCutter:
             d = ((tla[a:b, None] - fla[None, :]) ** 2
                  + (tlo[a:b, None] - flo[None, :]) ** 2)
             who[a:b] = of_foot[d.argmin(axis=1)]
+        # §16c (1): THE ATOM IS THE COMPONENT.  The per-triangle vote
+        # above is what a welded solid gets torn by, so the component
+        # takes the group MOST of its triangles voted for, whole.
+        for blk in self._comp_blocks(tris):
+            if len(blk) < 2:
+                continue
+            vote: dict[int, int] = {}
+            for i in blk:
+                vote[int(who[i])] = vote.get(int(who[i]), 0) + 1
+            win = max(vote.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+            for i in blk:
+                who[i] = win
         out = []
         for bi, b in enumerate(buckets):
             sel = np.nonzero(who == bi)[0]
@@ -422,7 +518,8 @@ class _LineCutter:
 
     def carrier_groups(self, parts: _t.Sequence[Part],
                        carrier_boxes: _t.Sequence[
-                           _t.Sequence[tuple[float, float, float, float]]]
+                           _t.Sequence[tuple[float, float, float, float]]],
+                       tris_in: _t.Sequence[_t.Sequence[int]] = ()
                        ) -> list[tuple[int, tuple[tuple[int, int, int], ...],
                                        tuple[float, float, float, float]]]:
         """§16a (1): ONE BODY'S TRIANGLES ASSIGNED TO THE CARRIER GROUP
@@ -445,11 +542,18 @@ class _LineCutter:
         if len(carrier_boxes) < 2 or not parts or not self._read():
             return []
         import numpy as np
-        tri_list = [self._comps[p.comp].tris for p in parts
-                    if 0 <= p.comp < len(self._comps)]
-        if not tri_list:
+        # §16c (1): the piece's OWN WRITTEN triangles where the cut made
+        # one, else everything the file will contain
+        if len(tris_in):
+            tris = np.asarray(tris_in, dtype=np.int64)
+        else:
+            tri_list = [self._comps[p.comp].tris for p in parts
+                        if 0 <= p.comp < len(self._comps)]
+            if not tri_list:
+                return []
+            tris = np.concatenate(tri_list)
+        if tris.size == 0:
             return []
-        tris = np.concatenate(tri_list)
         v = self._geom.vertices
         xs = v[tris, 0].mean(axis=1)
         zs = v[tris, 2].mean(axis=1)
@@ -474,6 +578,17 @@ class _LineCutter:
                     who[hit] = k
                     free = who < 0
         who[who < 0] = 0
+        # §16c (1): THE ATOM IS THE COMPONENT — a welded solid rides ONE
+        # carrier, whatever its triangles' centroids fall in.
+        for blk in self._comp_blocks(tris):
+            if len(blk) < 2:
+                continue
+            vote: dict[int, int] = {}
+            for i in blk:
+                vote[int(who[i])] = vote.get(int(who[i]), 0) + 1
+            win = max(vote.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+            for i in blk:
+                who[i] = win
         out = []
         for k in range(len(carrier_boxes)):
             sel = np.nonzero(who == k)[0]
@@ -495,6 +610,47 @@ class _LineCutter:
                          float(pla.max()), float(plo.max()))))
         return out if len(out) > 1 else []
 
+
+    def top_y(self, parts: _t.Sequence[Part]) -> "float | None":
+        """§16c (4): THE TOP OF A BODY in the authored frame — the
+        highest authored ``y`` of its components.
+
+        The unit's members share ONE authored datum (§14's premise: the
+        shared-datum pack authored every object against one flat plane),
+        so a body's base and a candidate's top are directly comparable,
+        and their authored difference IS their world difference whichever
+        carrier is chosen (a carried body is written at the carrier's
+        anchor with the carrier's own offset, which cancels)."""
+        if not self._read():
+            return None
+        ys = [self._comps[p.comp].max_y for p in parts
+              if 0 <= p.comp < len(self._comps)]
+        return max(ys) if ys else None
+
+    def part_tops(self, raw: _t.Sequence[_t.Any]) -> "list[list[float]]":
+        """§16c (4): one authored TOP per PART of every raw body — the
+        highest authored ``y`` of that part's component, or of the
+        piece's own triangles where a cut made one.
+
+        A candidate's top is asked UNDER THE OVERLAP: a coarsened
+        carrier group spans a terminal, and its tallest part a hundred
+        metres away says nothing about what a roof twenty metres off
+        rests on."""
+        out: list[list[float]] = []
+        if not self._read():
+            return [[0.0] * len(r[0]) for r in raw]
+        import numpy as np
+        v = self._geom.vertices
+        for r in raw:
+            if r[5]:
+                ids = np.unique(np.asarray(r[5], dtype=np.int64).reshape(-1))
+                ids = ids[ids < v.shape[0]]
+                out.append([float(v[ids, 1].max()) if ids.size else 0.0])
+                continue
+            out.append([float(self._comps[p.comp].max_y)
+                        if 0 <= p.comp < len(self._comps) else 0.0
+                        for p in r[0]])
+        return out
 
     def all_tris(self) -> tuple:
         """EVERY triangle of the member's file — what the WRITER puts in

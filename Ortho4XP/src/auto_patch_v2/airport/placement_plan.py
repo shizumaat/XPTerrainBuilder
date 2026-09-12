@@ -63,7 +63,8 @@ from . import placement_carrier as _pc
 from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
-from .placement_record import Body, Kept, Split, SplitSet   # noqa: F401
+from .placement_record import Body, Kept, Split, SplitSet
+from .placement_record import Staged as _Staged   # noqa: F401
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
            "is_elevated",
@@ -401,52 +402,6 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     splits.append(_dc.replace(record, files=files))
 
 
-@_dc.dataclass
-class _Staged:
-    """One member of a unit, bodied but not yet cut — §15 (1) makes the
-    carrier search a UNIT-WIDE question, so every member's bodies exist
-    before any member's file is decided."""
-
-    mi: int
-    m: Member
-    raw: list[_Raw]
-    #: one HULL box per body (feet where it has them, else its parts')
-    boxes: list[tuple[float, float, float, float]]
-    #: one body's PART boxes — what it actually covers in plan (§14 (3):
-    #: the hull is a crude proxy, and the carrier search reads both)
-    part_boxes: list[list[tuple[float, float, float, float]]]
-    elevated: frozenset[int]
-    footless: bool
-    #: §16 (2): did the TERRAIN CUT divide this member's bodies?
-    #: Reported; §16a (1) took the decision it used to carry (a carried
-    #: body is cut by its CARRIER, never by the ground under itself).
-    terrain_cut: bool = False
-    #: the member's ONE cutter — pass 1's segment and terrain cuts and
-    #: §16a (1)'s carrier cut read the same parsed OBJ8 through it
-    cutter: _t.Any = None
-    #: the design surface, so a piece §16a (1)'s carrier cut makes reads
-    #: its own terrain group like every other body (§16b (1))
-    surface: _t.Any = None
-    #: the member's own GROUND groups (each becomes a body file)
-    groups: list[list[int]] = _dc.field(default_factory=list)
-    #: §16a (2): one per ``groups`` entry — how far that group's own zero
-    #: stands from the ground under its own feet (``Candidate.ground_off``).
-    #: Published on the body so the CENSUS reads the same population the
-    #: carrier search does: a candidate the law refuses to carry anything
-    #: is not something the instrument may call "the body beneath".
-    ground_off: list[float | None] = _dc.field(default_factory=list)
-    #: ``(body indices, carrier, why)`` — the elevated bodies that ride a
-    #: file of ANOTHER member (or, for a footless placement, all of them)
-    carried: list[tuple[list[int], _pc.Candidate, str]] = \
-        _dc.field(default_factory=list)
-    #: §16 (3): the body GROUPS with no carrier the law accepts — each
-    #: is written as ONE file anchored on the ground under its own
-    #: footprint, its authored y kept (``footless_own_ground``).  A GROUP
-    #: and not a body since §16b (2): the carrier question is asked per
-    #: terrain group, so the answer "nobody" is given per group too.
-    own_ground: list[list[int]] = _dc.field(default_factory=list)
-
-
 def _footless_targets(st: "_Staged", tol_m: float
                       ) -> list[tuple[list[int], list[tuple]]]:
     """§16b (2): the carrier questions a FOOTLESS placement asks.
@@ -516,7 +471,13 @@ def _carrier_pieces(st: "_Staged", grp: list[int],
         if len(over) < 2:
             return [(list(grp), over[0][0], over[0][1])]
     parts = [p for i in grp for p in st.raw[i][0]]
-    pieces = st.cutter.carrier_groups(parts, [c.part_boxes for c, _w in over])
+    # §16c (1): the cut reads the group's OWN written triangles — the
+    # pieces a prior cut made, else everything this member's file will
+    # contain; never only the components its parts happen to name
+    gtris = (tuple(q for i in grp for q in (st.raw[i][5] or ()))
+             or (st.cutter.all_tris() if len(st.raw) == 1 else ()))
+    pieces = st.cutter.carrier_groups(parts, [c.part_boxes for c, _w in over],
+                                      tris_in=gtris)
     if not pieces:
         return [(list(grp), over[0][0], over[0][1])]
     counts["carried_bodies_cut_by_carrier"] = \
@@ -531,6 +492,9 @@ def _carrier_pieces(st: "_Staged", grp: list[int],
                        _pp, _gg))
         st.boxes.append(box)
         st.part_boxes.append([box])
+        if st.part_tops:              # §16c (4): the piece's own top
+            st.part_tops.append(list(st.cutter.part_tops(
+                [(parts, "", None, (), True, tris, (), None)])[0]))
         out.append(([bi], over[k][0], over[k][1]))
     return out
 
@@ -649,9 +613,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # line's: its box IS its footprint (11f (2))
             part_boxes = [([boxes[i]] if r[5] else [p.box for p in r[0]])
                           for i, r in enumerate(raw)]
+            # §16c (4): one authored TOP per part box — what a body
+            # resting on this one rests ON, read where it overlaps
+            _tops = cutter.part_tops(raw)
+            part_tops = [list(v) for v in _tops]
             staged.append(_Staged(mi, m, list(raw), boxes, part_boxes, elevated,
                                   bool(raw) and len(elevated) == len(raw),
                                   cutter=cutter, surface=surface,
+                                  part_tops=part_tops,
                                   terrain_cut=(counts.get("bodies_re_cut_by_terrain", 0)
                                                + counts.get("bodies_re_cut_by_triangle", 0)
                                                ) > _cut0))
@@ -698,7 +667,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 parts = [p for i in g for p in raw[i][0]]
                 _hull = _pc.hull_of(b for i in g for b in part_boxes[i]) \
                     or _pc.box_of(feet, parts)
-                _fb = _pc.foot_boxes([b for i in g for b in part_boxes[i]])
+                _allb = [b for i in g for b in part_boxes[i]]
+                _allt = [v for i in g for v in st.part_tops[i]]
+                _keep = _pc.foot_box_index(_allb)       # §16c (4)
+                _fb = tuple(_allb[k] for k in _keep)
+                _ft = (tuple(_allt[k] for k in _keep)
+                       if len(_allt) == len(_allb) else ())
                 # §16a (2): THE GROUND CHECK IS ON THE CARRIER, read ONCE
                 # here — how far this body's own zero stands from the
                 # ground under its OWN feet.  A body that fails it is
@@ -725,7 +699,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     body_class=raw[_pc.senior_of(raw, g)][1],
                     fill=_pc.fill_of(
                         _pc.hull_of(b for i in g for b in part_boxes[i]),
-                        [b for i in g for b in part_boxes[i]])))
+                        [b for i in g for b in part_boxes[i]]),
+                    # §16c (4): the candidate's TOP, authored — what a
+                    # body resting on it would rest ON
+                    top_y=(max(_allt) if _allt else
+                           (st.cutter.top_y(parts) if st.cutter is not None
+                            else None)),
+                    part_tops=_ft))
 
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
@@ -785,8 +765,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     refusals=refused,
                     # §16b (3): the ground under the CARRIED PIECE — read
                     # only if the search falls back past "stands over"
-                    carried_ground=lambda _b=bx, _g=gboxes: _pc.ground_under(
-                        surface, _pc.foot_boxes(_g), _b),
+                    # §16c (2): THE CONTACT GROUND, not the footprint's
+                    # median (a 1 km deck slab's median ground is the
+                    # underpass floor 15 m below its piers, 12d)
+                    carried_ground=lambda _b=bx, _g=gboxes, _gr=grp: (
+                        _pc.contact_ground(surface, st.raw, _gr, _g, _b,
+                                           cands)),
+                    base_y=min((q[2] for i in grp for q in st.raw[i][6]),
+                               default=None),
                     solid_cands=_solid, index=_index)
                 if not over:
                     # §16 (3): no carrier the law will accept — the body

@@ -1934,14 +1934,19 @@ def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
     item 3 and +16.22 m at item 5 (11ap)."""
     ml, _mo = AR._m_per_deg(40.0)
     span = 600.0
+    # §16c (1) AMENDS THIS TWIN: the cut's atom is the connected
+    # COMPONENT, so the 600 m sheet is authored as SEPARATE panels — the
+    # welded one is written whole by law now
+    # (``test_no_cut_crosses_a_connected_component``), and what this twin
+    # reads is that a scattered resource is still divided by the ground.
     v, tris = [], []
-    n = 13                                      # ONE welded strip, 600 m long
-    for k in range(n):
-        z0 = -k * span / (n - 1)
-        v += [(0.0, 0.0, z0), (20.0, 0.0, z0)]
+    n = 13
     for k in range(n - 1):
-        a, b, c2, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
-        tris += [(a, b, d), (a, d, c2)]
+        za = -k * span / (n - 1)
+        zb = za - 0.9 * span / (n - 1)   # a GAP: touching panels weld
+        i = len(v)
+        v += [(0.0, 0.0, za), (20.0, 0.0, za), (0.0, 0.0, zb), (20.0, 0.0, zb)]
+        tris += [(i, i + 1, i + 3), (i, i + 3, i + 2)]
     path = _write_obj(tmp_path / "tej3.obj", v, [("", tris)])
     plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
     # the ground falls 1 m per panel northwards
@@ -2081,6 +2086,22 @@ def _strip(x0, x1, y, n, z0=-10.0, z1=10.0):
     return v, t
 
 
+def _panels(x0, x1, y, n, z0=-10.0, z1=10.0):
+    """The same sheet as ``_strip``, authored as ``n`` SEPARATE quads —
+    §16c (1): the cut's atom is the connected COMPONENT, so a sheet the
+    cut may divide is one that is authored in pieces.  A welded one is
+    written whole (``test_no_cut_crosses_a_connected_component``)."""
+    v, t = [], []
+    step = (x1 - x0) / n
+    for k in range(n):
+        a = x0 + step * k
+        b = a + 0.9 * step           # a GAP: touching panels weld into one
+        i = len(v)
+        v += [(a, y, z0), (a, y, z1), (b, y, z0), (b, y, z1)]
+        t += [(i, i + 1, i + 3), (i, i + 3, i + 2)]
+    return v, t
+
+
 def _stepped(levels):
     """A surface that steps with LONGITUDE: ``levels`` is
     ``[(east_m_from, east_m_to, z), ...]`` about (40.0, -3.0)."""
@@ -2111,7 +2132,9 @@ def test_a_carried_roof_over_two_buildings_is_cut_into_one_piece_per_carrier(tmp
     a_path = _write_obj(tmp_path / "a.obj", va, [("", ta)])
     vb, tb = _box(38.0, -2.0)
     b_path = _write_obj(tmp_path / "b.obj", vb, [("", tb)])
-    rv, rt = _strip(-10.0, 50.0, 6.0, 12)
+    # §16c (1): SEPARATE panels — a WELDED plate is one atom and rides
+    # one carrier whole, which is the law this twin's sibling reads
+    rv, rt = _panels(-10.0, 50.0, 6.0, 12)
     roof = _write_obj(tmp_path / "roof.obj", rv, [("", rt)])
     plan = _unit_plan([
         (a_path, [(0, 0.0, 0.0, 0.0, 0.0, 10.0)], "objects/a.obj"),
@@ -2145,7 +2168,7 @@ def test_a_carried_roof_follows_its_walls_own_terrain_re_cut(tmp_path):
         tris += [(a + 8 * k, b + 8 * k, c + 8 * k) for a, b, c in t]
         verts += v
     walls = _write_obj(tmp_path / "walls.obj", verts, [("", tris)])
-    rv, rt = _strip(-10.0, 90.0, 6.0, 20)
+    rv, rt = _panels(-10.0, 90.0, 6.0, 20)      # §16c (1): separate atoms
     roof = _write_obj(tmp_path / "roof.obj", rv, [("", rt)])
     plan = _unit_plan([
         (walls, [(0, 0.0, 0.0, 0.0, 0.0, 10.0),
@@ -2374,23 +2397,41 @@ def test_a_body_whose_own_feet_are_off_the_ground_is_re_cut_by_its_feet(tmp_path
     Cut by its feet, each piece anchors on feet that meet the ground."""
     from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
 
-    v, t = _ramp()
+    # §16c (1) AMENDS THIS TWIN: the cut's atom is the connected
+    # COMPONENT, so the ribbon is authored as three SEPARATE treads.  The
+    # class is unchanged — the ground under them is flat and their FEET
+    # are authored over 4 m — and so is what the cut must do.
+    v, t = [], []
+    for k in range(3):
+        x0 = 10.0 * k
+        i = len(v)
+        v += [(x0, x0 * 0.2, -2.0), (x0, x0 * 0.2, 2.0),
+              (x0 + 9.0, (x0 + 9.0) * 0.2, -2.0),
+              (x0 + 9.0, (x0 + 9.0) * 0.2, 2.0)]
+        t += [(i, i + 1, i + 3), (i, i + 3, i + 2)]
     path = _write_obj(tmp_path / "stair.obj", v, [("", t)])
     ml, mo = AR._m_per_deg(40.0)
-    # ONE part, ONE component, THREE feet — the authored (x, z) -> plan
-    # map of ``authored_latlon`` puts x on the LONGITUDE axis
-    feet = tuple((40.0, -3.0 + x / mo, x * 0.2)
-                 for x in (0.0, 10.0, 20.0))
-    part = Part(pid=0, comp=0, lat=40.0, lon=-3.0 + 15.0 / mo, base_y=0.0,
-                area_m2=120.0,
-                box=(40.0 - 2.0 / ml, -3.0, 40.0 + 2.0 / ml, -3.0 + 30.0 / mo),
-                feet=feet)
+    # THREE parts, three components, one foot each — the authored
+    # (x, z) -> plan map of ``authored_latlon`` puts x on the LONGITUDE
+    # axis; the ε-contact graph welds them into ONE body
+    parts = tuple(
+        # base_y 0 for all three: the ground under them is FLAT and the
+        # PART cut has nothing to divide — what disagrees is their FEET,
+        # which is the class this twin reads (the original's one part
+        # carried all three feet)
+        Part(pid=k, comp=k, lat=40.0, lon=-3.0 + (10.0 * k + 4.5) / mo,
+             base_y=0.0, area_m2=40.0,
+             box=(40.0 - 2.0 / ml, -3.0 + 10.0 * k / mo,
+                  40.0 + 2.0 / ml, -3.0 + (10.0 * k + 9.0) / mo),
+             feet=((40.0, -3.0 + 10.0 * k / mo, 10.0 * k * 0.2),))
+        for k in range(3))
+    part = parts[0]
     m = Member(id="dsf:obj1", resource="objects/stair.obj",
                authored_path=str(path), live_path=str(path),
-               heading_deg=0.0, parts=(part,))
+               heading_deg=0.0, parts=parts)
     plan = RebakePlan(icao="TEST", pack_name="pack", pack_root=str(tmp_path),
-                      units=(Unit("u0", (40.0, -3.0), 0.0, (m,)),), skipped=(),
-                      counts={})
+                      units=(Unit("u0", (40.0, -3.0), 0.0, (m,)),),
+                      contacts=((0, 1), (1, 2)), skipped=(), counts={})
     surface = _flat(600.0)
     # ``elevated_base_m`` is put out of the way so this twin reads the
     # CUT and nothing else: §13 still decides which pieces get files of
@@ -2400,8 +2441,6 @@ def test_a_body_whose_own_feet_are_off_the_ground_is_re_cut_by_its_feet(tmp_path
     ss = PP.build_splits(plan, surface, write=False,
                          **_elev_args(elevated_base_m=10.0,
                                       line_stations_max=64))
-    assert ss.counts.get("bodies_re_cut_by_foot") == 1
-    assert ss.counts.get("terrain_foot_groups") == 3
     s = ss.all[0]
     assert len(s.bodies) == 3, [b.anchor.reason for b in s.bodies]
     # every piece now stands where its own feet say it does, so §16a (2)
@@ -2412,9 +2451,45 @@ def test_a_body_whose_own_feet_are_off_the_ground_is_re_cut_by_its_feet(tmp_path
         assert b.ground_off is not None and b.ground_off <= 0.3, b.anchor.reason
     # ... and the whole body, uncut, is the body the law refuses
     cutter = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0)
-    whole = _CUT._whole_body([part], m, plan.units[0], surface, (), (), 0.3)
+    whole = _CUT._whole_body(list(parts), m, plan.units[0], surface, (), (), 0.3)
     assert _PC.anchor_ground_off(whole[1], whole[2], surface) > 0.3
-    assert len(cutter.foot_groups([part], surface, 0.3, 64)) == 3
+    fg = cutter.foot_groups(list(parts), surface, 0.3, 64)
+    assert len(fg) >= 2
+    # §16c (1): every piece is a WHOLE number of components — a tread
+    # whose two triangles vote for different feet goes to one of them
+    # entire, never half each
+    seen: set = set()
+    for tris_, _feet in fg:
+        cs = set(cutter.comp_of(list(tris_)))
+        assert not (cs & seen), "a component landed in two foot groups"
+        seen |= cs
+    # §16c (1) AMENDS 11ak (2) AND THIS IS ITS COST, NAMED: authored as
+    # ONE WELDED component the same ribbon cannot be cut at all — the
+    # connected component is the atom, a component wider than its
+    # terrain stays whole, and the body is then the one §16a (2) REFUSES
+    # as a carrier.  Cutting it would tear the solid, which is the
+    # defect the owner read at 1.0.320 (RULINGS 2026-09-12d).
+    wv, wt = _ramp()
+    wpath = _write_obj(tmp_path / "welded.obj", wv, [("", wt)])
+    wpart = Part(pid=0, comp=0, lat=40.0, lon=-3.0 + 15.0 / mo, base_y=0.0,
+                 area_m2=120.0,
+                 box=(40.0 - 2.0 / ml, -3.0, 40.0 + 2.0 / ml,
+                      -3.0 + 30.0 / mo),
+                 feet=tuple((40.0, -3.0 + x / mo, x * 0.2)
+                            for x in (0.0, 10.0, 20.0)))
+    wm = Member(id="dsf:obj1", resource="objects/welded.obj",
+                authored_path=str(wpath), live_path=str(wpath),
+                heading_deg=0.0, parts=(wpart,))
+    wplan = RebakePlan(icao="TEST", pack_name="pack", pack_root=str(tmp_path),
+                       units=(Unit("u0", (40.0, -3.0), 0.0, (wm,)),),
+                       skipped=(), counts={})
+    ss2 = PP.build_splits(wplan, surface, write=False,
+                          **_elev_args(elevated_base_m=10.0,
+                                       line_stations_max=64))
+    assert ss2.counts.get("bodies_re_cut_by_foot", 0) == 0
+    assert ss2.counts.get("bodies") == 1
+    wcut = _CUT._LineCutter(wm, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0)
+    assert wcut.foot_groups([wpart], surface, 0.3, 64) == []
 
 
 def test_a_deck_on_a_kept_whole_carrier_names_that_carrier(tmp_path):
@@ -2882,3 +2957,155 @@ def test_the_contiguity_reach_is_never_below_the_line_station():
     from auto_patch_v2.law import Law
     pl = Law.load().tables.structures.placement
     assert pl.coarsen_reach_m >= pl.line_segment_m > 0.0
+
+
+# ── §16c: THE CONNECTED COMPONENT IS THE ATOM (RULINGS 2026-09-12b/12d) ──
+# The owner's 1.0.320 read: hangar vaults sliced, a canopy in seven
+# pieces over 11 m, the T4 approach deck in 39 with a 16.29 m seam.  ONE
+# mechanism: the cut's atom was the authored TRIANGLE, so a terrain-group
+# boundary fell INSIDE a welded solid and the halves were written at two
+# zeros.  2,554 torn seams on the written frame, 1,994 over 0.3 m.
+
+def test_no_cut_crosses_a_connected_component(tmp_path):
+    """§16c (1): a welded strip over falling ground is ONE file.
+
+    The same fixture `test_a_scattered_roof_body_is_cut_into_terrain_groups`
+    uses, read under §16c: the strip is ONE component, so the terrain cut
+    has nothing to divide and the body stays whole — a component wider
+    than its terrain is written whole, at one zero."""
+    ml, _mo = AR._m_per_deg(40.0)
+    span = 600.0
+    v, tris = [], []
+    n = 13
+    for k in range(n):
+        z0 = -k * span / (n - 1)
+        v += [(0.0, 0.0, z0), (20.0, 0.0, z0)]
+    for k in range(n - 1):
+        a, b, c2, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
+        tris += [(a, b, d), (a, d, c2)]
+    path = _write_obj(tmp_path / "tej3.obj", v, [("", tris)])
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)], span_m=0.0)
+    p0 = plan.units[0].members[0].parts[0]
+    plan = _dc_replace_part(plan, box=(40.0 - span / ml, p0.lon, 40.0, p0.lon))
+
+    def surface(lat, lon):
+        return 600.0 + (lat - 40.0) * ml * 0.005
+
+    ss = PP.build_splits(plan, surface, write=False,
+                         **_elev_args(line_stations_max=64, foot_band_m=1.0))
+    assert ss.counts.get("terrain_triangle_groups", 0) == 0
+    assert sum(len(s.bodies) for s in ss.all) == 1
+
+
+def test_split_obj8_never_assigns_a_triangle_across_a_component(tmp_path):
+    """§16c (1): the WRITER's own half.  A component no body owns goes
+    WHOLE to the nearest body — never triangle by triangle, which is what
+    tore `HANG3`'s vault into ten files over fourteen seams."""
+    # two separated 2-triangle plates: body 0 owns the first, and the
+    # second (an unowned component) must land ENTIRELY in one file
+    v = [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, 4.0), (0.0, 0.0, 4.0),
+         (50.0, 0.0, 0.0), (54.0, 0.0, 0.0), (54.0, 0.0, 4.0), (50.0, 0.0, 4.0),
+         (90.0, 0.0, 0.0), (94.0, 0.0, 0.0), (94.0, 0.0, 4.0)]
+    tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7), (8, 9, 10)]
+    path = _write_obj(tmp_path / "two.obj", v, [("", tris)])
+    from auto_patch_v2.airport import obj8 as _o8
+    from auto_patch_v2.airport import obj8_split as _os
+    comps = _o8.solid_components(_o8.parse_obj8(str(path)))
+    assert len(comps) == 3
+    res = _os.split_obj8(str(path),
+                         [_os.BodyCut(0, (0,), (0.0, 0.0, 0.0)),
+                          _os.BodyCut(1, (2,), (0.0, 0.0, 0.0))],
+                         "objects/two.obj")
+    assert res.kept_whole == "" and len(res.files) == 2
+    # every file's triangle count is a whole number of COMPONENTS: the
+    # unowned middle plate (2 triangles) joined the body nearest its own
+    # centroid WHOLE, so the counts are 2 + (1 + 2) and never 3 + 2
+    # split through the middle plate
+    assert sorted(f.tris for f in res.files) == [2, 3]
+
+
+def test_the_carrier_is_what_the_body_rests_on():
+    """§16c (4): among the candidates a body plan-overlaps, the carrier
+    is the one whose TOP lies nearest BELOW the body's base plane; the
+    overlap breaks ties only.  A 129,113 m2 floor slab 17 m below a roof
+    lost to the 158 m2 wall the roof rests on (LEMD's T2 roofs)."""
+    big = AR.Anchor(AR.OTHER, 40.0, -3.0, 0.0, "", 100.0)
+    small = AR.Anchor(AR.OTHER, 40.0, -3.0, 0.0, "", 100.0)
+    box = (40.0, -3.0, 40.0010, -2.9990)
+    wall = (40.0004, -2.9996, 40.0006, -2.9994)
+    floor = _PC.Candidate(0, "objects/floor__b0.obj", big, frozenset({1}), 8,
+                          box, part_boxes=(box,), group=0,
+                          body_class=AR.OTHER, fill=1.0, ground_off=0.0,
+                          top_y=1.0, part_tops=(1.0,))
+    walls = _PC.Candidate(1, "objects/wall__b0.obj", small, frozenset({2}), 8,
+                          wall, part_boxes=(wall,), group=0,
+                          body_class=AR.OTHER, fill=1.0, ground_off=0.0,
+                          top_y=18.0, part_tops=(18.0,))
+    roof = (40.0003, -2.9997, 40.0007, -2.9993)
+    got = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
+                           fill_min=0.2, tol_m=0.3, base_y=18.05)
+    assert got and got[0][0] is walls and "rests on it" in got[0][1]
+    # without the body's base plane the ranking is the old largest-overlap
+    old = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
+                           fill_min=0.2, tol_m=0.3)
+    assert old and old[0][0] is floor
+
+
+def test_the_bounded_fallback_reads_the_contact_ground_not_the_median():
+    """§16c (2): a 1 km deck slab's MEDIAN footprint ground is the
+    underpass floor 15 m below its piers.  What bounds the fallback is
+    where the piece TOUCHES — its own feet, else where it stands over a
+    footed body of the unit."""
+    # a piece spanning a trench: the median of its footprint reads 600,
+    # the ground where its supports stand reads 616
+    pier = (40.0000, -3.0000, 40.0001, -2.9999)
+
+    def surface(lat, lon):
+        return 616.0 if lat < 40.00015 else 600.0
+
+    gboxes = [pier, (40.0002, -3.0, 40.0005, -2.9999),
+              (40.0006, -3.0, 40.0009, -2.9999)]
+    box = _PC.hull_of(gboxes)
+
+    class _C:
+        part_boxes = (pier,)
+
+    med = _PC.ground_under(surface, _PC.foot_boxes(gboxes), box)
+    con = _PC.contact_ground(surface, [], (), gboxes, box, [_C()])
+    assert med == 600.0 and con == 616.0
+    # a piece with its OWN feet reads those first
+    raw = [([], "", None, ((40.0, -3.0, 0.0),), False, (), (), None)]
+    assert _PC.contact_ground(surface, raw, [0], gboxes, box, [_C()]) == 616.0
+
+
+def test_the_torn_seam_census_reads_the_written_files(tmp_path):
+    """§16c (5): THE BAR INSTRUMENT IS THE WRITTEN FRAME.  Two sibling
+    files of one placement sharing an AUTHORED vertex are two halves of
+    one solid, written at two zeros; §10's line segments and §14a's basin
+    arcs are the only lawful ones and are counted apart."""
+    from auto_patch_v2.airport import placement_census as _PCE
+    root = tmp_path / "pack"
+    (root / "objects").mkdir(parents=True)
+    # two files sharing the authored vertex (10, 0, 0) once their own
+    # offsets are added back
+    (root / "objects" / "a__b0.obj").write_text(
+        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 5 0 0 0 1 0 0 0\n")
+    (root / "objects" / "a__b1.obj").write_text(
+        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 9 0 0 0 1 0 0 0\n")
+    splits = [{"placement": {"resource": "objects/a.obj"}, "bodies": [
+        {"body_id": "b0", "class": "other", "new_resource": "objects/a__b0.obj",
+         "authored_offset": [5.0, 0.0, 0.0], "surface_z": 100.0, "y_zero": 0.0,
+         "anchor_reason": "surface at the body's zero"},
+        {"body_id": "b1", "class": "other", "new_resource": "objects/a__b1.obj",
+         "authored_offset": [1.0, 0.0, 0.0], "surface_z": 101.2, "y_zero": 0.0,
+         "anchor_reason": "surface at the body's zero"}]}]
+    c = _PCE.census_torn_seams(splits, str(root))
+    assert c["rigid_seams"] == 1 and c["station_seams"] == 0
+    assert c["rigid_seams_gt"] == 1 and abs(c["worst"][0][0] + 1.2) < 1e-6
+    assert "*** §16c (1) VIOLATED" in "\n".join(_PCE.census_torn_seams_lines(c))
+    # the SAME pair as §10 line segments is lawful and counted apart
+    for b in splits[0]["bodies"]:
+        b["class"] = AR.LINE_SEGMENT
+    c2 = _PCE.census_torn_seams(splits, str(root))
+    assert c2["rigid_seams"] == 0 and c2["station_seams"] == 1
+    assert "VIOLATED" not in "\n".join(_PCE.census_torn_seams_lines(c2))

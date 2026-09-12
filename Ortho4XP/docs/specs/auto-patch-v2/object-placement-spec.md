@@ -2070,3 +2070,131 @@ the finer footed triangle cut for "tearing rigid solids" and kept the same atom.
    sign −0.15, T4 deck −0.05); files ≈ 900–1,400 (counterfactual estimate 899);
    plan stage on the GRADED sampler ≤ main's and the `_surface` call count quoted
    (the mesh-sampler cost is 12a's, measured separately); round trip OK; suite.
+
+**MEASURED (lane `v2atom`, 2026-09-12; branch `claude/v2atom`).**
+Implemented in `airport/obj8_split.py` (§16c (1)'s writer half: the
+triangle goes to the body owning ITS COMPONENT, an unowned component
+goes WHOLE to the nearest body, and the vertex vote and per-triangle
+nearest fallback are DELETED), `airport/placement_cut.py` (§16c (1)'s
+cut half: `_LineCutter.comp_of` / `_comp_blocks` — the vectorised
+triangle→component map every cut now groups by; `terrain_groups`,
+`foot_groups` and `carrier_groups` place WHOLE components;
+`carrier_groups` takes the piece's own written triangles; `part_tops`),
+`airport/placement_body.py` (the footed triangle cut reads the same
+`own_tris` its pre-test measured), `airport/placement_boxes.py`
+(§16c (2)'s `contact_ground`, `foot_box_index`, `CONTACT_PTS_MAX`),
+`airport/placement_carrier.py` (§16c (4)'s rest-on ranking and
+`Candidate.top_y` / `part_tops`), `airport/placement_plan.py` (the
+wiring) and `airport/placement_seams.py` (NEW: §16c (5)'s torn-seam
+census, the scout `v2lemd320`'s `tear.py` promoted).
+
+* **THE FOUR SITES AND THE CLASS REPRODUCED** on the live 1.0.320
+  written pack, read-only, by the promoted census: `HANG3` 10 files /
+  **14 torn seams** worst 3.05 m; `green-LEMD50` 7 files / spread
+  11.12 m; `Bridge2` 8 files / 11.72 m; `green-STRT4` **53 files**,
+  `__b44` seams up to **16.29 m**; whole plan **2,554 seams, 1,994 over
+  0.30 m** (974 + 1,580 line/arc, 790 + 1,204 over) — the scout's
+  figures to the unit.
+* **§16c (3) IS REFUTED AND IS NOT IMPLEMENTED.**  `PKT4__b0`'s zero is
+  611.00 on the 1.0.320 frame (611.23 was 1.0.319's) and its anchor
+  reason is its own: `low-side foot (no point within 0.3 m of the body's
+  zero plane: authored relief 0.95 m)`.  NOTHING of it stands on a
+  structure cut: all 8 of its foot boxes and all 32 of its written
+  geometry samples lie on NO graded face at all (`tunnel_ramp` ×17 and
+  `tunnel_trench` ×1 are the only structure roles `LEMD.graded.json`
+  carries; the nearest is 65 m away in latitude), and 0 of 32 samples
+  and 0 of 8 foot boxes fall inside any of the 19 structure RIM rings.
+  "A foot over a structure cut is not a ground foot" has no instance
+  here; the deck slab's real mechanism is §16c (2)'s, which is
+  implemented.
+* **THE BARS**, matched replay arms on the 1.0.320 LEMD rebake plan +
+  `LEMD.graded.json`, `--admit-skipped` on the live pack, the write half
+  into APFS clones (BEFORE is this lane's instrument commit `3dff7879`
+  on main's law, so both arms are read by one instrument):
+
+  | bar | 1.0.320 written | before | after |
+  |---|---|---|---|
+  | torn seams outside line/arc pieces (bar 0) | 974 (790 > 0.3 m) | 723 (575 > 0.3 m) | **0 — MET** |
+  | single-component resources in >= 2 files (bar 0) | 131 | 128 | **0 — MET** |
+  | bodies on a torn seam | 1,011 | 816 | **0** |
+  | line/arc station seams (lawful, apart) | 1,580 | 1,446 | 891 |
+  | §15 carried `stands-over float > 0.5 m` (bar 0) | — | 0 | **0 — MET** |
+  | §14 `footless at datum` / `on ground` / `basin split` | — | 0 / 0 / 0 | **0 / 0 / 0** |
+  | §16 `rows on the datum outside the plan` | — | 0 | **0** |
+  | §14a basin ring bar (<= 0.3 m) | — | 0.18 m, 0 over | **0.18 m, 0 over** |
+  | §16b carried piece float > 0.5 m (bar 0) | — | 120 | 124 |
+  | §16b body wider than its terrain group (bar 0) | — | 1,532 | **1,417** |
+  | files | 3,561 | 3,253 | **2,804** |
+  | round trip (write half into a pack COPY) | — | OK | **OK**, 2,804 files, 2,804/2,804 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | plan stage, graded sampler, 3 runs | — | 13.53 / 13.52 / 13.53 s | **9.84 / 10.48 / 10.32 s — MET (<= main's)** |
+  | `_surface` calls | — | 194,853 (+104,091 vectorised points) | **186,263 (+104,619)** |
+
+  OTHH, same arms: torn seams **639 (342 > 0.3 m) -> 1**, single-
+  component resources in >= 2 files **165 -> 1**, §15 carried float
+  **0 -> 0**, `footless at datum` 0, files 1,897 -> 1,898, §16b carried
+  piece float **200 -> 172** and wide **144 -> 85**, round trip **OK**
+  (1,897/1,897 new `OBJECT_DEF`s, 0 rows carrying an elevation), the
+  §16a (2) refusal set 21 -> 57.  The ONE
+  residue is `Buildings/Fire Fuel/OTHH_Fuel_02_LOD0_007.obj`
+  b0<->b1, step +2.70 m: two components `obj8.solid_components`
+  reports as SEPARATE share an authored vertex POSITION to the
+  millimetre (vertex ids 378/399 and 379/411).  Named, not closed.
+* **THE FOUR SITES AFTER** (files / written base spread; live 1.0.320 ->
+  before -> after): `HANG3` **10 / 3.51 m -> 6 / 1.90 -> 6 / 1.37**, and
+  every file is now a whole number of components (seams 14 -> 0);
+  `green-LEMD50` **7 / 11.12 -> 4 / 2.73 -> 1 / 0.00 (bar <= 2 files
+  MET)**; `green-STRT4` **53 / 16.29 -> 31 / 10.13 -> 24 / 8.90**;
+  `Bridge2` **8 / 11.72 -> 6 / 1.66 -> 5 / 1.73**.
+* **THE 11at SITES HELD, AND TWO MOVED THE WRONG WAY** (zero minus the
+  design surface under the body's own written geometry, before ->
+  after): item 3 `green-TEJ3` **+0.44 -> +0.18**, item 5 **-0.40 ->
+  -0.29**, the gate-5 sign **-0.02 -> -0.02**; but the T4 landside deck
+  `green-STRT4` **+0.90 -> +1.11** and the T4 roof `Terminal4_48`
+  **+1.81 -> +3.26**.  Both are the atom's own cost: those pieces were
+  carried bodies the old cut divided THROUGH a welded slab, and a slab
+  that stays whole takes one zero over ground that moves under it.
+  §16c (5)'s "no piece more than `split_tol_m` below its pier feet" is
+  therefore **MISSED** and named.
+* **§16c (4) IMPROVED THE WORST CASE AND MISSED THE BAR.**  T2 roofs
+  (`TEJ3`/`tej2`/`tej2_teilb`/`LEMD58`/`LEMD50`/`T2CSG`) against the top
+  of the named wall geometry directly under them, read in WORLD
+  coordinates from the written files: live 1.0.320 **7 of 9 over 0.3 m,
+  worst 2.80 m**; before **5 of 7, worst 6.56 m**; after **5 of 7, worst
+  0.97 m**.  148 bodies take the new `rests on it` reason.  The bar
+  ("within 0.3 m") is MISSED.
+* **THE COST OF THE ATOM, NAMED.**  §16a (2)'s refusal set at LEMD goes
+  **37 -> 157** footed bodies (20 carried bodies stand over one, was 0),
+  because 11ak (2)'s FOOT cut can no longer divide a body authored as
+  ONE welded component: such a body's feet genuinely disagree and it is
+  honestly mis-anchored.  11ak's twin is AMENDED to read both halves —
+  three treads in three components are still cut by their feet, the same
+  ribbon welded is written whole and refused.  HANG3's four vault arcs
+  are four separate components written at four zeros 1.37 m apart: no
+  seam, but adjacent rigid pieces of one resource at different zeros are
+  a class §16c does not reach (they do not overlap in plan, so §14 (3)
+  never binds them).  Reported for the owner.
+* **TWO READINGS CORRECTED IN PASSING** (both §16b (1)'s own sentence,
+  both forced by the twins): the FOOTED triangle cut and the CARRIER cut
+  now read the same `own_tris` their pre-test measures — a member the
+  plan records as ONE part is WRITTEN as the whole object, so a cut over
+  the parts' components measured a span it could not act on.
+* **SPEED.**  §16c (2)'s first form was two thirds of the plan stage
+  (154 M box comparisons in `contact_ground`); bounded to the piece's
+  `foot_boxes`, candidates whose hull box it meets, and
+  `CONTACT_PTS_MAX` samples, the whole stage came out FASTER than main's
+  (13.5 -> 10.2 s).  `comp_of` is a packed-key `searchsorted`, not a
+  Python dict.
+* **Twins:** `test_no_cut_crosses_a_connected_component`,
+  `test_split_obj8_never_assigns_a_triangle_across_a_component`,
+  `test_the_carrier_is_what_the_body_rests_on`,
+  `test_the_bounded_fallback_reads_the_contact_ground_not_the_median`,
+  `test_the_torn_seam_census_reads_the_written_files`; four twins
+  AMENDED where §16c supersedes them (the scattered roof, the carried
+  roof over two buildings, the carried roof re-cut by its walls, and
+  11ak (2)'s foot re-cut — each now authored in SEPARATE components,
+  with the welded case asserting the new law).  Suite **1,127 passed /
+  1 skipped** (main 1,122 / 1).  `_Staged` moved to
+  `airport/placement_record.py` for the 1,000-line law.
+* **NOT DONE:** no airport build (§16c needs none); §16c (3) refuted and
+  left out; the `--write-pack` arms are pack COPIES and the live pack was
+  read-only throughout.

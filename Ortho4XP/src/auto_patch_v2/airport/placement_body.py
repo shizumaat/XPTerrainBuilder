@@ -287,9 +287,17 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             # them spanning 6 m of fall.  A footed body reads its own
             # feet; the carried class §16b (1) names is cut by ground
             # above, where the body has no feet to read.
+            # §16c (1): THE CUT READS THE SAME TRIANGLES THE PRE-TEST DID
+            # — the body's OWN WRITTEN geometry (`own_tris`), not just
+            # the components the plan's parts happen to name.  A member
+            # the plan reads as ONE part is WRITTEN as the whole object
+            # (§16b (1)), so a cut over the parts' components measured a
+            # span it could not act on.
             tri_pieces = foot_pieces or (
                 cutter.terrain_groups(parts, surface, split_tol_m,
-                                      line_stations_max)
+                                      line_stations_max,
+                                      tris_in=own_tris if len(pieces_p) == 1
+                                      else ())
                 if span > split_tol_m else [])
             if tri_pieces:
                 if not foot_pieces:

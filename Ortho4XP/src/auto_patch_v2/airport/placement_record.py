@@ -14,8 +14,9 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import obj8_split as _split
+from ..model.rebake import Member
 
-__all__ = ["Body", "Split", "Kept", "SplitSet"]
+__all__ = ["Body", "Split", "Kept", "SplitSet", "Staged"]
 
 
 # ── the product ──────────────────────────────────────────────────────────
@@ -159,5 +160,55 @@ class SplitSet:
         return {"splits": [s.to_dict() for s in self.splits],
                 "kept": [k.to_dict() for k in self.kept],
                 "counts": dict(self.counts)}
+
+
+
+
+@_dc.dataclass
+class Staged:
+    """One member of a unit, bodied but not yet cut — §15 (1) makes the
+    carrier search a UNIT-WIDE question, so every member's bodies exist
+    before any member's file is decided."""
+
+    mi: int
+    m: Member
+    raw: list[_Raw]
+    #: one HULL box per body (feet where it has them, else its parts')
+    boxes: list[tuple[float, float, float, float]]
+    #: one body's PART boxes — what it actually covers in plan (§14 (3):
+    #: the hull is a crude proxy, and the carrier search reads both)
+    part_boxes: list[list[tuple[float, float, float, float]]]
+    elevated: frozenset[int]
+    footless: bool
+    #: §16 (2): did the TERRAIN CUT divide this member's bodies?
+    #: Reported; §16a (1) took the decision it used to carry (a carried
+    #: body is cut by its CARRIER, never by the ground under itself).
+    terrain_cut: bool = False
+    #: the member's ONE cutter — pass 1's segment and terrain cuts and
+    #: §16a (1)'s carrier cut read the same parsed OBJ8 through it
+    cutter: _t.Any = None
+    #: §16c (4): one authored TOP per entry of ``part_boxes``
+    part_tops: list[list[float]] = _dc.field(default_factory=list)
+    #: the design surface, so a piece §16a (1)'s carrier cut makes reads
+    #: its own terrain group like every other body (§16b (1))
+    surface: _t.Any = None
+    #: the member's own GROUND groups (each becomes a body file)
+    groups: list[list[int]] = _dc.field(default_factory=list)
+    #: §16a (2): one per ``groups`` entry — how far that group's own zero
+    #: stands from the ground under its own feet (``Candidate.ground_off``).
+    #: Published on the body so the CENSUS reads the same population the
+    #: carrier search does: a candidate the law refuses to carry anything
+    #: is not something the instrument may call "the body beneath".
+    ground_off: list[float | None] = _dc.field(default_factory=list)
+    #: ``(body indices, carrier, why)`` — the elevated bodies that ride a
+    #: file of ANOTHER member (or, for a footless placement, all of them)
+    carried: list[tuple[list[int], _pc.Candidate, str]] = \
+        _dc.field(default_factory=list)
+    #: §16 (3): the body GROUPS with no carrier the law accepts — each
+    #: is written as ONE file anchored on the ground under its own
+    #: footprint, its authored y kept (``footless_own_ground``).  A GROUP
+    #: and not a body since §16b (2): the carrier question is asked per
+    #: terrain group, so the answer "nobody" is given per group too.
+    own_ground: list[list[int]] = _dc.field(default_factory=list)
 
 

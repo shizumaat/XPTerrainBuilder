@@ -20,7 +20,8 @@ from . import anchor_rule as _ar
 
 __all__ = ["hull_of", "box_of", "overlap", "overlap_m2", "box_area_m2",
            "box_gap_m", "fill_of", "foot_boxes", "parts_overlap",
-           "ground_at_box", "ground_samples", "ground_under",
+           "ground_at_box", "ground_samples", "ground_under", "contact_ground",
+           "foot_box_index", "CONTACT_PTS_MAX",
            "anchor_ground_off", "stands_over_rank", "FOOT_BOXES_MAX",
            "GROUND_OFF_FEET_MAX"]
 
@@ -108,16 +109,24 @@ def fill_of(box: tuple[float, float, float, float] | None,
 FOOT_BOXES_MAX = 8
 
 
+def foot_box_index(part_boxes: _t.Sequence[tuple[float, float, float, float]],
+                   cap: int = FOOT_BOXES_MAX) -> tuple[int, ...]:
+    """WHICH of ``part_boxes`` :func:`foot_boxes` keeps — so a parallel
+    per-part reading (§16c (4)'s part TOPS) is selected the same way."""
+    bs = list(part_boxes)
+    if len(bs) <= cap:
+        return tuple(range(len(bs)))
+    keep = sorted(range(len(bs)), key=lambda i: -box_area_m2(bs[i]))[:cap]
+    return tuple(sorted(keep))
+
+
 def foot_boxes(part_boxes: _t.Sequence[tuple[float, float, float, float]],
                cap: int = FOOT_BOXES_MAX
                ) -> tuple[tuple[float, float, float, float], ...]:
     """The ``cap`` largest of ``part_boxes`` (:data:`FOOT_BOXES_MAX`), in
     the order given — a body's footprint, bounded."""
     bs = list(part_boxes)
-    if len(bs) <= cap:
-        return tuple(bs)
-    keep = sorted(range(len(bs)), key=lambda i: -box_area_m2(bs[i]))[:cap]
-    return tuple(bs[i] for i in sorted(keep))
+    return tuple(bs[i] for i in foot_box_index(bs, cap))
 
 
 def parts_overlap(a: _t.Sequence[tuple[float, float, float, float]],
@@ -278,3 +287,74 @@ def overlap_m2(a: tuple[float, float, float, float],
     return ov * ml * mo
 
 
+
+
+#: §16c (2): how many CONTACT samples bound one fallback.  A sampling
+#: resolution, not a law: the answer is a median.
+CONTACT_PTS_MAX = 64
+
+
+def contact_ground(surface: _t.Callable[[float, float], "float | None"],
+                   raw: _t.Sequence[_t.Any], grp: _t.Sequence[int],
+                   gboxes: _t.Sequence[tuple[float, float, float, float]],
+                   box: tuple[float, float, float, float] | None,
+                   cands: _t.Sequence[_t.Any] = ()) -> float | None:
+    """§16c (2): THE GROUND UNDER THE PIECE'S CONTACT — never the median
+    of its whole footprint.
+
+    §16b (3) bounds a FALLBACK carrier by the ground under the carried
+    piece, and read as the median of the piece's footprint that ground is
+    whatever happens to lie under the middle of it: LEMD's `green-STRT4`
+    approach deck is a kilometre long, its median ground is the UNDERPASS
+    FLOOR, and the parking garage across the road passed the test at
+    611.5 while the deck's own piers stand at 626 (RULINGS 2026-09-12d).
+
+    What bounds the piece is where it TOUCHES:
+
+    1. the piece's own ground FEET, where it has any;
+    2. else where it stands over a FOOTED body of the unit — the plan
+       intersections of its footprint with those bodies' own footprints,
+       which is where its supports meet the ground.  Every footed
+       candidate counts here, including the ones §16 (3) refuses to let
+       CARRY (a pier, a Y-strut, a column: too thin to carry a zero, and
+       exactly the thing a deck rests on);
+    3. else the median of its footprint, §16b (3)'s own reading — no
+       contact is no evidence, and the bound must still exist.
+
+    The MEDIAN of whichever set answers first."""
+    if surface is None:
+        return None
+    feet = [f for i in grp for f in (raw[i][3] or ())
+            if not raw[i][4]] if raw else []
+    if feet:
+        zs = sorted(z for z in (surface(f[0], f[1]) for f in feet)
+                    if z is not None)
+        if zs:
+            return float(zs[len(zs) // 2])
+    # BOUNDED: the piece's own footprint boxes (at most
+    # :data:`FOOT_BOXES_MAX`) against the candidates whose HULL box the
+    # piece meets at all, and at most :data:`CONTACT_PTS_MAX` samples —
+    # the unbounded form was 154 M box comparisons and two thirds of the
+    # LEMD plan stage, for a MEDIAN that does not move.
+    gbs = foot_boxes(gboxes)
+    pts: list[tuple[float, float]] = []
+    for c in cands:
+        cbox = getattr(c, "box", None)
+        if cbox is not None and box is not None and (
+                cbox[2] < box[0] or cbox[0] > box[2]
+                or cbox[3] < box[1] or cbox[1] > box[3]):
+            continue
+        for cb in getattr(c, "part_boxes", ()) or ():
+            for gb in gbs:
+                la0, lo0 = max(cb[0], gb[0]), max(cb[1], gb[1])
+                la1, lo1 = min(cb[2], gb[2]), min(cb[3], gb[3])
+                if la0 <= la1 and lo0 <= lo1:
+                    pts.append((0.5 * (la0 + la1), 0.5 * (lo0 + lo1)))
+        if len(pts) >= CONTACT_PTS_MAX:
+            break
+    if pts:
+        zs = sorted(z for z in (surface(la, lo) for la, lo in pts)
+                    if z is not None)
+        if zs:
+            return float(zs[len(zs) // 2])
+    return ground_under(surface, foot_boxes(gboxes), box)

@@ -46,12 +46,12 @@ def _seam_kind(a: _t.Mapping[str, _t.Any], b: _t.Mapping[str, _t.Any]) -> str:
 
 
 def _authored_vertices(path: str, offset: _t.Sequence[float]
-                       ) -> "set[tuple[int, int, int]]":
+                       ) -> "set[tuple[float, float, float]]":
     """The AUTHORED vertex keys of one written body file: its ``VT`` rows
     with ``authored_offset`` added back, to the millimetre — the same key
     ``obj8.solid_components`` welds on, so two files of one component
     meet on it."""
-    out: set[tuple[int, int, int]] = set()
+    out: set[tuple[float, float, float]] = set()
     try:
         fh = open(path, encoding="latin-1", errors="replace")
     except OSError:
@@ -64,9 +64,16 @@ def _authored_vertices(path: str, offset: _t.Sequence[float]
             if len(t) < 4:
                 continue
             try:
-                out.add((int(round((float(t[1]) + offset[0]) * 1000.0)),
-                         int(round((float(t[2]) + offset[1]) * 1000.0)),
-                         int(round((float(t[3]) + offset[2]) * 1000.0))))
+                # THE WELD'S OWN KEY, to the millimetre — ``round(x, 3)``
+                # exactly as ``obj8.solid_components`` spells it
+                # (``np.round(vertices, 3)``).  Keying on ``round(x *
+                # 1000)`` instead disagrees on the half-millimetre
+                # boundary and reads two genuinely separate components as
+                # one torn solid (measured: OTHH's
+                # ``OTHH_Fuel_02_LOD0_007``, the airport's last seam).
+                out.add((round(float(t[1]) + offset[0], 3),
+                         round(float(t[2]) + offset[1], 3),
+                         round(float(t[3]) + offset[2], 3)))
             except ValueError:
                 continue
     return out
@@ -123,16 +130,34 @@ def census_torn_seams(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                 shared = va & vb
                 if not shared:
                     continue
-                za = float(a.get("surface_z") or 0.0) - float(a.get("y_zero") or 0.0)
-                zb = float(b.get("surface_z") or 0.0) - float(b.get("y_zero") or 0.0)
+                # §15 (5): a body whose anchor stands on NO graded face
+                # reads no surface here.  The SEAM is still a seam — the
+                # solid is torn either way — but its step is not a
+                # number this instrument may quote, so it is counted
+                # and left out of the histogram and the worst list.
+                sa, sb = a.get("surface_z"), b.get("surface_z")
+                step = (None if sa is None or sb is None else
+                        (float(sa) - float(a.get("y_zero") or 0.0))
+                        - (float(sb) - float(b.get("y_zero") or 0.0)))
                 seams.append({"resource": res, "a": a.get("body_id"),
                               "b": b.get("body_id"), "shared": len(shared),
-                              "step": za - zb, "kind": _seam_kind(a, b)})
+                              "step": step, "kind": _seam_kind(a, b)})
+    # §16c (5)'s SECOND BAR, read on the written files like the first:
+    # a resource whose whole object is ONE connected component written
+    # as two or more files.  A partition of a connected solid always
+    # leaves a shared authored vertex, so the placements carrying a
+    # RIGID seam ARE that class — read from the plan's `components`
+    # field instead it is a false positive, because a member the plan
+    # records as one PART is written as the whole object (§16b (1)) and
+    # its many components all read `components=[0]`.
     station = [x for x in seams if x["kind"] in ("line", "arc")]
     rigid = [x for x in seams if x["kind"] not in ("line", "arc")]
     def _hist(rows):
         h: dict[str, int] = {}
         for x in rows:
+            if x["step"] is None:
+                h["off-sheet"] = h.get("off-sheet", 0) + 1
+                continue
             d = abs(x["step"])
             k = ("0.00-0.05" if d < 0.05 else "0.05-0.30" if d < 0.30
                  else "0.30-1.00" if d < 1.0 else "1.00-3.00" if d < 3.0
@@ -148,19 +173,24 @@ def census_torn_seams(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         "files_read": files, "placements_read": placements,
         "files_missing": missing,
         "seams": len(seams), "rigid_seams": len(rigid),
+        "single_component_multi_file": len({x["resource"] for x in rigid}),
         "station_seams": len(station),
-        "rigid_seams_gt": sum(1 for x in rigid if abs(x["step"]) > step_tol_m),
-        "station_seams_gt": sum(1 for x in station
-                                if abs(x["step"]) > step_tol_m),
+        "rigid_seams_gt": sum(1 for x in rigid if x["step"] is not None
+                              and abs(x["step"]) > step_tol_m),
+        "station_seams_gt": sum(1 for x in station if x["step"] is not None
+                                and abs(x["step"]) > step_tol_m),
+        "off_sheet_seams": sum(1 for x in seams if x["step"] is None),
         "step_tol_m": step_tol_m,
         "bodies_on_a_torn_seam": len(torn_bodies),
         "hist": _hist(rigid), "station_hist": _hist(station),
         "by_class": by_class,
         "worst": [(x["step"], x["resource"], x["a"], x["b"], x["shared"])
-                  for x in sorted(rigid, key=lambda y: -abs(y["step"]))[:worst]],
+                  for x in sorted((q for q in rigid if q["step"] is not None),
+                                  key=lambda y: -abs(y["step"]))[:worst]],
         "station_worst": [(x["step"], x["resource"], x["a"], x["b"], x["shared"])
-                          for x in sorted(station,
-                                          key=lambda y: -abs(y["step"]))[:4]],
+                          for x in sorted(
+                              (q for q in station if q["step"] is not None),
+                              key=lambda y: -abs(y["step"]))[:4]],
     }
 
 
@@ -174,8 +204,13 @@ def census_torn_seams_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + "):",
            f"   §16c torn seams OUTSIDE line/arc pieces: {n} (bar 0; "
            f"{c['rigid_seams_gt']} with a step > {c['step_tol_m']:g} m; "
-           f"{c['bodies_on_a_torn_seam']} body(ies) on one)"
+           f"{c['bodies_on_a_torn_seam']} body(ies) on one; "
+           f"{c.get('off_sheet_seams', 0)} seam(s) off-sheet, step not read)"
            + ("" if not n else "   *** §16c (1) VIOLATED (bar 0) ***"),
+           f"   §16c single-component resources in >= 2 files: "
+           f"{c.get('single_component_multi_file', 0)} (bar 0)"
+           + ("" if not c.get("single_component_multi_file")
+              else "   *** §16c (1) VIOLATED (bar 0) ***"),
            "      step histogram: "
            + (", ".join(f"{k} {v}" for k, v in sorted(c["hist"].items())) or "-")
            + "; by class: "

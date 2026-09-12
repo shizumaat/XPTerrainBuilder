@@ -1700,3 +1700,96 @@ no carrier the law would accept now rides a basin (footless carried 94 → 95, o
 cut files, 1,367/1,367 new `OBJECT_DEF`s, 1,368 rows, 0 rows carrying an elevation,
 duplicate rows surviving 0.  Twin:
 `test_a_basin_body_is_never_refused_as_a_carrier`.  Suite 1,097.
+
+## §16b The own-geometry cut is PRIOR; a rigid body is never wider than its terrain (Fable, 2026-09-11; RULINGS 2026-09-11ap)
+
+The owner's read of 1.0.319 (RULINGS 11an/11ao, scout `v2lemd319`) found five of
+its six items to be ONE mechanism §16a (1) created: a body written at ONE zero
+across geometry spanning hundreds of metres to kilometres. `Terminal4_green-TEJ3__b0`
+(53 triangles, 1,025 × 2,106 m) rides `NAVEATR4__b2` (111 × 56 m, 18 m² of overlap)
+at one zero and reads +10.74 m at 40.4841758, −3.585487 and +16.22 m at 40.502207,
+−3.5821158; T4's bamboo roof and Y-struts (`Terminal4_48__b0`, 289 × 1,168 m) and its
+landside road deck (`green-STRT4__b10/b11`) ride the PARKING GARAGE across the road
+(`PKT4__b0/b3`, zeros 611.23 / 612.19, the "nearest footed" fallback, fill 0.051) with
+615.6–616.2 m of ground under them — 4.0–4.4 m low against piers footed at
+615.8–617.0; 30 old-terminal roof plates ride `OldTerminal_FSX-LEMD38__b51`'s one
+zero 602.25 across 1.8 km while the storeys under them are footed at their own metre
+(coplanar plates at 614.28 … 616.33, a 2.05 m spread against wall tops within
+0.34 m); the taxi-sign body `Taxisigns-SENRG__b10` (835 × 2,319 m, §9-coarsened by
+intended zero with NO distance limit, zero set 1,590 m away) is +4.58 m at
+40.4788449, −3.5745666. Every bar read 0: §15 (3)'s `zero − zero_beneath` is 0 by
+construction for a body written at its carrier's zero, and every §16 number reads
+the plan's `geom_box` (the patch over the carrier, 124 m for TEJ3) instead of the
+written extent (2,342 m). The census was blind to what the eye reads.
+
+1. **THE TERRAIN CUT IS PRIOR AND UNIVERSAL.** Every body — footed, footless or
+   carried — is first cut into TERRAIN GROUPS by the design surface under its OWN
+   written geometry (§16 (2) restored; read on the triangles, never on `geom_box`).
+   §9's coarsening and §16a (1)'s carrier cut both act WITHIN a terrain group, never
+   across one. §9 amended: bodies of one placement join into one file only when
+   their intended zeros agree within `split_tol_m` AND they are plan-contiguous
+   (plan gap under `[placement] coarsen_reach_m`, default 30 m); zero agreement
+   alone never joins signs 1.5 km apart.
+2. **EACH PIECE THEN FINDS ITS CARRIER WHERE IT STANDS** (§15; §16a (1) applies
+   within the piece). A piece over a carrier of its own terrain group rides that
+   carrier's zero at the authored offset — the garage pavilions on the slab remain
+   exactly §16a. A piece standing over no accepted carrier anchors at the ground
+   under its OWN footprint at its authored offset (§16 (3)'s fallback).
+3. **THE FALLBACK CARRIER IS BOUNDED.** §15's "nearest footed" candidate (no plan
+   overlap) is accepted only when its zero is within `split_tol_m` of the ground
+   under the carried PIECE's footprint; otherwise it is refused and the piece takes
+   (2)'s own-ground anchor. §16a (2)'s carrier-side test stays; this is the
+   carried-side test, on the PIECE, which §16a struck for the WHOLE body. Under (1)
+   + (3) `Terminal4_48__b0` cannot ride `PKT4__b3` at 612.19 with 616.19 beneath it.
+4. **THE CENSUS READS THE WRITTEN GEOMETRY.** Every §16/§16a number is read over
+   the written file's extent, never `geom_box`. New bars, both 0: `carried piece
+   float over its own ground > 0.5 m` (items 3/4/5's class — 69 carried bodies
+   whose plan diagonal exceeds their carrier's by > 100 m today) and `body wider
+   than its terrain group` (a written body whose own-geometry ground spans more
+   than `split_tol_m`; items 1/2's class — 140 bodies today whose written extent
+   is > 50 m wider than their `geom_box`). §14's `spread` bar (50.81 m, 169
+   placements over) is the same defect read from the other side and comes with them.
+5. **BARS (lane `v2owncut`), matched arms on the APP'S WRITTEN 1.0.319 LEMD frame**
+   (`o4_v2_placement_LEMD.json` + `LEMD.graded.json`; the rebake-plan replay and
+   the written plan disagree — 1,371 vs 1,417 files, `> 3 m` 38 vs 235 — the lane
+   names the cause (§15 (5) mesh-vs-graded sampling) and quotes the sim-read side):
+   green-TEJ3's pieces within 0.3 m of the roof group beneath each (CNTRL__b0 tops
+   619.40; at item 5 the `CNTRL__b1/b2/b3` group); T4 roof / struts / deck pieces
+   within 0.3 m of the piers' zeros (~616); `SENRG__b10`'s panel at 604.02 within
+   0.3 m; the T2 roof plates within 0.3 m of the storey beneath each; the garage
+   pavilions unchanged (on the slab); OTHH carried float stays 0; plan stage LEMD
+   ≤ 8 s / OTHH ≤ 45 s (the own-geometry cut samples the surface — the vectorised
+   sampler 11al owed is in scope); files quoted; round trip OK on a pack COPY;
+   suite green; `tools/INDEX.md` and the twins updated in the same commit.
+
+## §14a The basin body follows its RING (Fable, 2026-09-11; RULINGS 2026-09-11ap item 6)
+
+§24 (1) puts the apron's rim vertices ON the basin's cut ring AT THE APRON'S LEVEL —
+the ring follows the apron, and at LEMD's T4 landside basin (`basin_wall:0@851`,
+breakline 715, 59 nodes) its z runs 597.68 … 599.52, a 1.84 m spread. §14 (2) writes
+every basin body at ONE rim point (598.39), so the wall base stands +0.71 m above
+the apron edge on one arc and −1.13 m below it on another: the owner's "small gap
+between wall and apron", read from 1.0.315 through 1.0.319 while the ring's
+`spread` bar read 0.01 (it measures the bodies' agreement with each other, not with
+the ring). And `Ground-FSX-LEMD13__b0` (5 × 18 m, 86 % of its vertices inside the
+ring) is anchored on the rim at 598.31 while the floor under it is ~591: the loose
+white slab in the garden.
+
+1. **THE WALL IS CUT BY THE RING'S STATIONS.** A basin body is cut like a line
+   object (§10): one piece per rim ARC over which the ring's z agrees within
+   `split_tol_m`, each piece anchored at ITS arc's rim point at that arc's z. The
+   floor plate under each piece follows (§24 (2): floor = plate − clearance, per
+   arc). The bar: wall base within 0.3 m of the graded apron edge at EVERY ring
+   node (today +0.71 / −1.13). §16b (1)'s universal cut does not read a basin's
+   floor feet (the §15 exemption stands); the ring IS its terrain.
+2. **A MEMBER INSIDE THE RING IS A FLOOR BODY.** A body of the basin resource with
+   more than half its vertices interior to the ring anchors on the FLOOR under its
+   own footprint at its authored offset (§16 (3)), never on the rim. `LEMD13__b0`
+   from 598.31 to the floor.
+3. **REPORTED, NOT BARRED HERE:** the parapet top's median 0.43 m horizontal
+   offset outside the ring (§24 (1)'s 1.0 m identity spacing holds); a second
+   round if the owner's read still shows a gap.
+4. **BARS (lane `v2basinring`)**: (1) and (2) above on the 1.0.319 frame; the
+   basin `spread` bar re-defined as max |wall base − ring z| over the ring's
+   nodes; OTHH's 21 basin carriers (eight `tunnels/*` pits at 8.9–15.0 m) unchanged
+   in float; round trip OK on a pack COPY; suite green; INDEX + twins.

@@ -25,6 +25,22 @@ pavement law owns that surface, the body then anchors at its low-side
 foot as §9 already says, and the residual is reported rather than graded
 away.
 
+**AND SENIORITY IS BY VERTEX, NOT ONLY BY FOOT** (owner RULINGS
+2026-09-12u, spec §30 (2)).  Until 12u the test was applied to the FOOT
+alone, so a foot standing on the pad a metre inside its rim still handed
+its authored ``y`` to the rim vertices within ``relief_radius_m`` (12 m)
+— and those rim vertices are the APRON's own (identity is the weld,
+09-01g).  At LEMD T4S that gave apron vertices a −2.20 m target: the
+pavement law owns them and no relief may be authored onto them.  A pad
+vertex SHARED with airside pavement therefore takes offset 0 and keeps
+the pad's level, whatever foot is nearest.  The population is
+the pavement faces this module already reads
+(``pads._pavement_geoms``, the ONE derivation of "a pavement face"),
+narrowed to the AIRSIDE side by ``law.tables.role_side`` — the same
+population ``no_step.pad_contacts`` calls a pad's contacts.  A GROUNDSIDE
+face's shared vertex is NOT senior here: 09-01g leaves it the lot's, and
+§28 is where a groundside frontage is stated.
+
 **NEAREST FOOT, NEVER INTERPOLATED.**  A pad vertex takes the target of
 the nearest foot within ``[placement] relief_radius_m`` and otherwise
 keeps the level.  Two feet 40 m apart say nothing about the ground
@@ -42,6 +58,7 @@ from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
@@ -72,9 +89,16 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     if not pads:
         return {}
     to_xy, _to_ll = airport.frame.transformers()
-    # PAVEMENT IS SENIOR: a foot standing on pavement founds no target
-    pav = [poly for _role, _vs, poly in _pavement_geoms(planar, law)]
+    # PAVEMENT IS SENIOR: a foot standing on pavement founds no target,
+    # AND (12u, §30 (2)) a pad vertex the AIRSIDE pavement shares takes
+    # none either — one read of the one derivation, `_pavement_geoms`.
+    geoms = _pavement_geoms(planar, law)
+    pav = [poly for _role, _vs, poly in geoms]
     pav_tree = STRtree(pav) if pav else None
+    senior: set[int] = set()
+    for role, vs, _poly in geoms:
+        if role_side(law, role) == "airside":
+            senior |= vs
 
     #: every group's feet in the frame, with the metres above its own zero
     feet: list[tuple[float, float, float]] = []
@@ -117,7 +141,7 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     r2 = radius * radius
     for _fid, _ref, group, poly in pads:
         for v in group:
-            if v in out:
+            if v in out or v in senior:
                 continue
             x, y = vw_xy[v]
             pt = Point(x, y)

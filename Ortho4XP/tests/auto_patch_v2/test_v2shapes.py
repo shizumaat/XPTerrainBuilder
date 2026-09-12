@@ -309,7 +309,12 @@ def test_a_road_crossing_between_two_shapes_ramps_at_its_cap_with_no_joint(law):
     sol, rep = solve_design(pm, pinned, law)
     # 08t: the design surface has no mode and no demotion — the report is a
     # RESIDUAL, and the twin's subject is the road ramp below
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.converged, rep.line()
+    # 2026-09-12u (§30 (3c)): ``converged`` is asserted only where the active
+    # set SETTLED, and this fixture's does not (32 rows still flip at 0.031 m,
+    # against a 2·tol band).  It used to read True off the objective-stall
+    # exit.  What the twin needs is a SOLVED surface with the flip REPORTED.
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
+    assert rep.converged or rep.set_flips > 0, rep.line()
     js = joint_steps(pm, law, stage, sol.z)
     (rr,) = js["ramps"]
     assert rr["face"] == road.id and rr["cap"] == pytest.approx(0.08)
@@ -380,7 +385,12 @@ def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_thro
     pinned = cs.merged(ConstraintSet.from_rows([Pin(a, 700.0, src), Pin(b, 712.0, src)]))
     w = None
     sol, rep = solve_design(pm, pinned, law)
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE) and rep.converged, rep.line()
+    # 2026-09-12u (§30 (3c)): ``converged`` is asserted only where the active
+    # set SETTLED, and this fixture's does not (32 rows still flip at 0.031 m,
+    # against a 2·tol band).  It used to read True off the objective-stall
+    # exit.  What the twin needs is a SOLVED surface with the flip REPORTED.
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), rep.line()
+    assert rep.converged or rep.set_flips > 0, rep.line()
     # 08t: the yield machinery is deleted — the apron rows the pinned pair
     # forces over their cap are the design report's own MISSED TARGETS
     fam = rep.families.get("apron")

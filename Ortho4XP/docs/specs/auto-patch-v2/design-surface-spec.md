@@ -475,6 +475,22 @@ design term.
     ZERO on all four airports, and the census reports 5 `pavement_ceiling`
     rows at HECA missed by at most 0.030 m.
 
+    **CORRECTED 2026-09-12 (owner RULINGS 2026-09-12u, §30; lane
+    `v2padceiling`).** LEMD's figure was WRONG BY TWO ORDERS: the shipped
+    `v2ramp8` LEMD solve violated **725** hard rows at **1.3037 m**, not
+    0.023 m — 365 pad-slope ceiling, 357 pavement ceiling, 3 runway (at
+    the 0.020 bar the projection holds).  Two readings hid it: the
+    reported `hard_active` was phase C's MULTIPLIER count (1,457), not
+    the violated rows, and the number quoted here was read before that
+    was fixed (§30 (3b)).  The class was also NOT "the ceiling rows'
+    small residual": it was a MUTUALLY INFEASIBLE PAIR of hard rows —
+    an authored −2.20 m of object relief in the pad's 1 % CEILING against
+    the 5 % pavement ceiling over 3.0 m of apron.  With §30 (1) + (2)
+    landed, the same offline arm settles: **0 violated rows, worst
+    0.0130 m** (matched arms on one capture, `HARD SET SETTLED`).  HECA's
+    and CYXY's figures stand as written and are UNMEASURED under §30 —
+    no build was paid for them this round (BUILD ECONOMY: one airport).
+
 ### 8.4 THE FINDING that needs an owner ruling: the mesh does NOT blend
 
 09-09b (3) rests on "the engine should automatically smooth between
@@ -4422,3 +4438,154 @@ settles to 0.0204 m.
    (4,408 law-true on 1.0.321); the foot rows' own residual (the pad_flat target)
    quoted at the same block; `polish_rounds_max` and `hard_weight` untouched
    (refuted levers); twins; suite. Spec §8.3 deviation 16 corrected.
+
+### §30 **MEASURED** (lane `v2padceiling`, 2026-09-12, branch `claude/v2padceiling`, base `ddd3c93f`)
+
+**THE ATTRIBUTION REPRODUCED FIRST.**  Scout `v2unsettled`'s capture replayed on
+this branch's tree reproduces the shipped `v2ramp8` solve BIT-FOR-BIT — 142
+active-set rounds, `1457/125572`, worst 1.3037 m, `HARD SET NOT SETTLED`, 725
+rows over `hard_tol_m` 0.02 (pad ceiling 365 / pavement ceiling 357 / runway 3),
+worst row the pair at 40.49522735828, −3.59036487286 with `bound = −2.1700` over
+3.0 m of apron.  Every arm below is that ONE capture, one tree, one code version.
+
+**THE TWO HALVES, MATCHED ARMS** (offline, `LEMD2.pkl`, the hard set re-read on
+each arm's own solved surface; the T4S column is the worst |Δz|/d over the 66
+apron vertices within 80 m of the site, against the 5 % pavement cap):
+
+| arm | hard rows violated | worst hard | pad ceil / pav ceil / runway | T4S apron worst pair | `pad_flat` worst miss at T4S | relief offsets (of which on an airside pavement vertex) |
+|---|---|---|---|---|---|---|
+| BASE `ddd3c93f` | **725** | **1.3037 m** | 365 / 357 / 3 | **241.15 %** | 1.3337 m | 300 (**220**) |
+| §30 (1) alone — the ceiling carries no `rel` | **0** | 0.0171 m | 0 / 0 / 0 | 3.465 % | **2.2194 m** | 300 (220) |
+| §30 (2) alone — seniority by vertex | 125 | 1.3620 m | 67 / 48 / 10 | 1.063 % | 0.0224 m | **80 (0)** |
+| **both** | **0** | **0.0130 m** | 0 / 0 / 0 | **1.022 %** | **0.0203 m** | 80 (0) |
+
+Each half answers a different thing and NEITHER is redundant.  (1) alone settles
+the hard set — no surface is asked for a 2.20 m step any more — but the authored
+relief is still written onto APRON vertices as a target, so the apron still tilts
+3.47 % under the terminal and the `pad_flat` target misses by 2.22 m at the block
+asking for it.  (2) alone takes the relief off the pavement's own vertices (300 →
+80 offsets, 220 → 0 on airside pavement) and the block comes right (1.06 %), but
+the hard set still does NOT settle: 125 rows at 1.3620 m, because the ceiling
+still reads the relief that remains on pad-only vertices ELSEWHERE.  Together:
+settled, and the site flat.
+
+**BARS (§30 (4)).**  ONE `--engine v2` LEMD build, foreground, `--tag
+v2padceiling30`, **337.5 s** wall, rc 0, `status feasible`, `body_sha
+acd834a6ebb5`, artifact ledger **`d8267d91ef6f`**, shared repo UNCHANGED by the
+build (full-surface before/after snapshot; 18 lock-churn operations, the allowed
+coordination class).  Base arm: the ledger patch `9a4a6b38bb6b`
+(`/tmp/harness/LEMD_20260912T114310`), reused, never rebuilt.
+
+1. **MET** — `HARD SET SETTLED`, **0/125572 hard rows violated**, worst
+   **0.0130 m** against `hard_tol_m` 0.02 (was 1,457-reported / 725-actual at
+   1.3037 m).  The runway projection now has nothing to cut: `0 solved in 0 cut
+   round(s)`, `held by the solve (nothing to settle)`, 0.01 s where the base paid
+   34.8 s.
+2. **MET — the family table** (the sidecar's own `design.families`):
+
+   | family | BASE `9a4a6b38bb6b` | AFTER |
+   |---|---|---|
+   | hard set | 1,457/125,572 reported (725 violated), **NOT SETTLED**, 1.3037 m | **0/125,572**, **SETTLED**, 0.0130 m |
+   | pad-slope ceiling rows violated | 365 | **0** |
+   | pavement ceiling rows violated | 357 | **0** |
+   | runway rows violated | 3 (at the 0.020 bar) | **0** |
+   | target `pavement_ceiling` | 469/97,332 max 1.2907 m | **16/97,332 max 0.0091 m** |
+   | target `pads` (`pad_flat`) | 6,376/39,792 max 1.3337 m | 3,713/39,792 max **2.1942 m** |
+   | target `pad_level` | 14/28 max 1.819 m | 14/28 max 1.8199 m |
+   | target `foot_rows` | 567/1,208 max 3.7919 m | 578/1,208 max 3.7915 m |
+   | sidecar `pad_relief` | 300 | **80** |
+3. **MET — the T4S block.**  Census rows (`census.py --rows-json`, law-true,
+   within 80 m of the site): **236 → 0**.  The base's worst there was an
+   `airside_no_step` `apron|apron` pair at **245.78 %** and a `cross_shape`
+   `apron|building` pair at 240.31 %; after, the block carries no law-true row at
+   all and the worst apron pair reads **1.022 %**, inside 0.05·d everywhere.
+4. **MET, with the residual named — the `pad_flat` target at the same block.**
+   Published `design_target` rows of family `pads` within 80 m: **418 rows, worst
+   1.3337 m → 3 rows, worst 0.0203 m**.  Patch-wide the `pads` target's WORST miss
+   RISES 1.3337 → 2.1942 m (at 40.49425, −3.59146, another pad of the same
+   terminal block) while its missed rows fall 6,376 → 3,713 and its energy falls
+   134,118 → 52,418.  That rise is the law working as ruled: the authored relief
+   is now stated ONLY as a target, so where the ground cannot reproduce it the
+   miss is REPORTED (§11a (2): the body anchors at its low-side foot and the
+   residual is reported) instead of being demanded of the surface as a hard row
+   no surface could hold.
+5. **MET — the harness census, both arms, one tree, one code version:**
+
+   | census | BASE `9a4a6b38bb6b` | AFTER |
+   |---|---|---|
+   | LAW-TRUE TOTAL | **4,408** | **3,471** (−937) |
+   | ADJUDICATED | **1,859** | **927** (−932) |
+   | `within_shape` | 3,407 | 2,737 |
+   | `airside_no_step` | 567 | 407 |
+   | `taxi_box` / `transverse` / `strip_transverse` | 248 / 90 / 41 | 177 / 79 / 38 |
+   | `cross_shape` / `frontage_near_miss` | 8 / 11 | **0** / 4 |
+   | `strip_longitudinal` / `strip_arc` / `resa_transverse` / `raoa` | 23 / 7 / 3 / 2 | 16 / 7 / 3 / 2 |
+   | `strip_seam_tear` | 1 | 1 |
+   | steps (`vertex_to_edge_step` / `mid_edge_step` / terrace joints) | 0 | 0 |
+6. **MET** — `polish_rounds_max` and `hard_weight` UNTOUCHED (both refuted as
+   levers by the scout); no law-table value changed by this round at all.
+
+**THE INSTRUMENTS (§30 (3)), each with its twin.**
+
+(a) `tools/v2_solve_replay.py --capture` now runs the PACK PARTITION and the
+GROUP derivation (`pipeline/build.py:288-318`) before classify, with ONE
+`ResourceCache` and the same objects handed to `build_planar` — the scout's
+`capture2.py`, folded in, never a second tool.  A capture predating it is
+REFUSED BY NAME at replay (`capture_has_groups`), because such a replay solves a
+DIFFERENT problem: no `foot_rows`, no `pad_relief` targets, no basin bodies.  The
+twin reads BOTH sources and fails if the capture skips a pre-solve stage
+`pipeline.build.build` calls.
+
+(b) `DesignReport.hard_active` is re-read AFTER the runway projection as the rows
+over `hard_tol_m` on the surface that SHIPS.  LEMD base: reported **1,457**
+(phase C's multiplier count), actual **725**.  The line now reads "hard rows
+violated", and the twin pins the invariant `hard_settled == (hard_active == 0)`.
+
+(c) `_inner`'s `converged` is asserted only under a SETTLED condition stated once
+(`solve.design._settled`): no row changed label, or every row that did sits
+within one tolerance band of its own bound (violation ≤ 2·`active_set_tol_m`).
+The objective stalling within 1e-6 and the line search buying nothing remain
+EXITS — there is nothing better to return — but no longer claim settlement, and
+the flip they exit on is reported: `set_flips` / `set_flip_max_m`, on the line as
+`SET NOT SETTLED: N rows flipped, worst X m`.  **Measured at LEMD: 240 rows
+flipped, worst 0.019 m** — a genuinely unsettled exit that the base reported as
+`converged=True`.  CONSEQUENCE, stated plainly: the build's `status` goes
+`optimal → feasible` at LEMD.  Nothing gates on the difference
+(`pipeline/build.py` accepts both) and the surface is byte-unaffected by the
+flag; what changed is that the report stopped claiming a convergence it did not
+have.
+
+**Twins.** `tests/auto_patch_v2/test_v2padceiling.py`, 10 tests: the ceiling's
+rows carry `rel = 0` over the same pairs at the same caps while `pad_flats`
+carries the relief; the ceiling's ruling HEAD still names `[design]
+hard_rulings`; a flat-footed body is the identity for both; a pad rim vertex
+shared with airside pavement takes no relief while a pad-only vertex still takes
+its foot; a GROUNDSIDE neighbour is not senior here (09-01g leaves that vertex
+the lot's, and §28 is where a groundside frontage is stated); the capture refusal
+predicate; the capture-runs-every-stage source read; and the two solve-report
+invariants above.
+
+**Spec §8.3 deviation 16 CORRECTED** in place (it read 0.023 m for LEMD where the
+shipped surface violated 725 rows at 1.3037 m — the stale figure was itself a
+reading of the mis-reported `hard_active`).
+
+**Tool discipline.** No new tool: `v2_solve_replay.py` extended in place, its
+`tools/INDEX.md` row updated in the same commit.  The lane's arm scripts stayed
+in the scratchpad (one use each).
+
+**Two consequences of (c), both landed and neither hidden.**  `solve/design.py`
+stood EXACTLY at the 1,000-line ceiling `test_model.py` enforces, so the two new
+readings are pure functions in `solve/design_report.py` — `settled_flip` (the
+settled condition, one derivation) and `DesignReport.read_hard_set` /
+`record_flip` — and `design.py` calls them.  The extraction is
+behaviour-preserving: the LEMD arm after it reproduces the arm before it
+line-for-line (199 rounds, `0/125572`, 0.0130 m, 240 flips at 0.019 m, T4S
+1.022 %), so the build's numbers above stand for the committed tree.  And two
+`tests/auto_patch_v2/test_v2shapes.py` assertions of `rep.converged` were reading
+True off the old stall exit on fixtures whose sets do NOT settle (32 rows still
+flipping at 0.031 m); they now assert a SOLVED surface with the flip REPORTED,
+with the reason at the assertion.
+
+**Suite** `tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py
+tests/test_mesh_sampler*.py`: **1,062 passed, 1 skipped**, run TWICE, no ERROR
+batch (base `ddd3c93f` collects 1,052; +10 new).

@@ -377,7 +377,7 @@ def _pairs(group: list[int]) -> list[tuple[int, int]]:
 
 
 def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
-              airport: Airport | None = None) -> list[Row]:
+              airport: Airport | None = None, relief: bool = True) -> list[Row]:
     """One ``Diff`` at ``cap`` over every priced pair of every pad — the
     hard 1 % tilt ceiling's row set (09c).  Over EVERY pair, the contacts
     included: "the plane's tilt" is exactly "no two points of the pad
@@ -388,13 +388,24 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     pad stands under a BODY whose ground-contact feet are authored at
     different ``y``, each vertex carries an OFFSET above the pad's level
     (``pad_relief.pad_relief_offsets``, the one derivation) and the row is
-    priced on the LEVEL plane — ``rel = offset[a] - offset[b]``.  Both
-    the flatness target and the tilt CEILING read it: what those laws
-    bound is the pad's own tilt, and the authored relief is a datum the
-    terrain reproduces, not a tilt of the pad.  A flat-footed body has
-    every offset 0 and the rows are exactly today's."""
+    priced on the LEVEL plane — ``rel = offset[a] - offset[b]``.  A
+    flat-footed body has every offset 0 and the rows are exactly today's.
+
+    ONLY THE TARGET CARRIES THE RELIEF (owner RULINGS 2026-09-12u, spec
+    §30 (1); ``relief=False``).  Until 12u the hard 1 % CEILING read the
+    offsets too, and that made the authored relief a DEMAND on the
+    surface: at LEMD T4S an apron rim vertex inheriting a foot's −2.20 m
+    put a 2.20 m step over 3.0 m of apron into the active set against the
+    5 % pavement ceiling's 0.15 m — a mutually infeasible pair no surface
+    satisfies, which shipped as 725 violated hard rows (365 pad ceiling /
+    357 pavement ceiling) and a worst residual of 1.3037 m.  The ceiling
+    says exactly what its own docstring says — "no two points of the pad
+    differ by more than 1 % of their separation" — and the relief stays
+    expressed by the ``pad_flat`` TARGET (weight 3,000, ten times
+    ``law``), which is where a target belongs."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    off = pad_relief_offsets(planar, law, airport) if airport is not None else {}
+    off = (pad_relief_offsets(planar, law, airport)
+           if (relief and airport is not None) else {})
     rows: list[Row] = []
     for fid, ref, group in _pad_groups(planar, law):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
@@ -646,9 +657,13 @@ def _two_sided(terms: tuple[tuple[int, float], ...], src: Source,
 def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE HARD 1 % TILT CEILING (owner RULINGS 2026-09-09c): the same
     pairs at ``emit.within_shape.pad_slope_max``, a constraint of the
-    design solve's active set (``[design] hard_rulings``)."""
+    design solve's active set (``[design] hard_rulings``).
+
+    IT CARRIES NO AUTHORED RELIEF (owner RULINGS 2026-09-12u, spec §30
+    (1)): ``rel = 0`` on every row — see :func:`_pad_rows`."""
     cap = float(law.tables.emit.within_shape.pad_slope_max)
-    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c)", airport)
+    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c; "
+                     "no authored relief 2026-09-12u)", airport, relief=False)
 
 
 def frontage_contacts(planar: PlanarMap, law: Law

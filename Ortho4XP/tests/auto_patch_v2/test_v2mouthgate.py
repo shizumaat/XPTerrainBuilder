@@ -133,3 +133,17 @@ def test_the_gate_is_the_cover_grown_by_the_standoff(law):
     # and a bore that IS under the cover is not counted as a new admission
     _cl, _t, st_old = _run(law, ((-80.0, -6.0), (80.0, -6.0)))
     assert st_old.bores_admitted_by_mouth_only == 0
+
+
+def test_a_mouth_off_the_cover_whose_ramp_reaches_the_field_is_kept(law):
+    """§29 (1) tests the mouth point AND ITS RAMP REACH: a mapped end 220 m
+    off the apron whose approach runs back ONTO it keeps its mouth (the
+    ramp is built across the field it serves), while the far end of the
+    same bore — no approach, nothing but hillside — is dropped."""
+    so = law.tables.structures.tunnel.mouth_standoff_m
+    x = 80.0 + 4.0 * so                                   # far outside the standoff
+    cl2, tunnels, st = _run(law, ((x, -6.0), (x + 700.0, -6.0)),
+                            (((x, -6.0), (-900.0, -6.0)),))
+    assert st.mouths == 1 and st.mouths_off_field == 1
+    assert st.bores_no_mouth == 0 and st.tunnels == 1
+    assert tunnels[0].axis[0][0] == pytest.approx(x, abs=1.0)

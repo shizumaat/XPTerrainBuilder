@@ -398,6 +398,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"    refused object {r}", out)
         for r in ss.refused:
             _say(f"    refused {r}", out)
+        for r in ss.mouths_off_field_nearest:
+            _say(f"    {r}", out)
         for r in ss.bore_precedence:
             _say(f"    {r}", out)
         for tn in pm.structures:

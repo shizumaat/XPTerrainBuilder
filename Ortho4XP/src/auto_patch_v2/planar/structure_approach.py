@@ -281,20 +281,35 @@ def unit(a: XY, b: XY) -> XY:
 
 class FieldRegion:
     """THE AIRPORT'S GOVERNED REGION for the mouth gate (spec §29 (1)):
-    the classified cover ⊕ ``[tunnel] mouth_standoff_m``.  Held as the
-    cell polygons in an STRtree with a ``dwithin`` query rather than a
-    buffered union — the same region, exactly, without buffering a
-    thousand-part union."""
+    the classified cover ⊕ ``[tunnel] mouth_standoff_m``, and with it the
+    ROOFED CORRIDORS' footprints — the object / kerb-wall corridors are
+    the owner's EGLL exception (Laws B/C, keyed on the pack's geometry,
+    never on OSM) and are the field authority where they stand, so a bore
+    mouth an object corridor takes is never gated away before the
+    precedence runs.  Held as polygons in an STRtree with a ``dwithin``
+    query rather than a buffered union — the same region, exactly,
+    without buffering a thousand-part union."""
 
     def __init__(self, polys: _t.Sequence[Polygon], standoff_m: float) -> None:
         self.standoff_m = float(standoff_m)
         self._tree = STRtree(list(polys)) if len(polys) else None
 
-    def contains(self, p: Point) -> bool:
+    def holds(self, geom) -> bool:
+        """``geom`` (a mouth point or its ramp reach) stands on the field."""
         if self._tree is None:
             return False
-        return len(self._tree.query(p, predicate="dwithin",
+        return len(self._tree.query(geom, predicate="dwithin",
                                     distance=self.standoff_m)) > 0
+
+    def distance_m(self, geom) -> float:
+        """How far off the field ``geom`` stands (the dropped-mouth report);
+        ``inf`` when there is no cover at all."""
+        if self._tree is None:
+            return float("inf")
+        j = self._tree.nearest(geom)
+        if j is None:
+            return float("inf")
+        return float(self._tree.geometries[int(j)].distance(geom))
 
 
 def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
@@ -303,12 +318,17 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     §29 (1), owner RULINGS 2026-09-12r; Fable 2026-09-12t): "a tunnel
     emits only its mouths and ramps", and a mouth is built only where it
     STANDS ON THE FIELD.  ``on_field`` is the airport's governed region —
-    the classified cover ⊕ ``[tunnel] mouth_standoff_m`` — prepared by
-    the caller; a mapped end outside it is DROPPED here (never given an
-    approach, so the gate is also cheaper than the corridor test it
-    replaced) and counted in the returned tally, which the structures
-    line names (``mouths off-field N``).  ``on_field = None`` gates
-    nothing (a caller with no classification).
+    the classified cover with the roofed corridors ⊕ ``[tunnel]
+    mouth_standoff_m`` — prepared by the caller.  THE TEST IS THE MOUTH
+    POINT *AND ITS RAMP REACH* (§29 (1)): a mapped end whose point stands
+    outside the region AND whose approach corridor — the reach the ramp
+    would be built along — never enters it is DROPPED here and counted in
+    the returned tally, which the structures line names (``mouths
+    off-field N``).  A mouth just off the cover whose ramp climbs onto the
+    field is what that clause protects; the rail mouths 4.0 km out are
+    neither.  ``on_field = None`` gates nothing (a caller with no
+    classification).  The second member of the return is the dropped
+    mouths — ``(way ids, xy, distance off the field)`` — for the report.
 
     LEMD's two rail bores are why: 4.9 km ways admitted by 125–162 m of
     cover under the ``building12`` pad whose SOUTH-WEST ends stand 4.0 km
@@ -317,20 +337,24 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     carry zero grade rows.
     """
     out: list[Mouth] = []
-    off_field = 0
+    dropped: list[tuple[str, XY, float]] = []
     for b in bores:
         width = max(carriageway_width_m(w.tags, law) for w in b.ways)
         wids = tuple(w.id for w in b.ways)
         for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
-            if on_field is not None and not on_field.contains(Point(end)):
-                off_field += 1
-                continue
             inward = unit(end, nxt)
-            out.append(Mouth(b, end, inward, width,
-                              approach(end, inward, osm, reach_m,
-                                       law.tables.structures.tunnel.admitted_values),
-                              wids))
-    return out, off_field
+            path = approach(end, inward, osm, reach_m,
+                            law.tables.structures.tunnel.admitted_values)
+            if on_field is not None:
+                pt = Point(end)
+                reach = LineString(path) if len(path) >= 2 else pt
+                if not (on_field.holds(pt) or on_field.holds(reach)):
+                    dropped.append(("+".join(str(i) for i in wids), end,
+                                    min(on_field.distance_m(pt),
+                                        on_field.distance_m(reach))))
+                    continue
+            out.append(Mouth(b, end, inward, width, path, wids))
+    return out, dropped
 
 
 def _parallel(a: Mouth, b: Mouth, sep_max: float) -> bool:

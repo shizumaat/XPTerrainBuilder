@@ -8,8 +8,9 @@ mouth; 2026-08-31h dual carriageways; 2026-09-01c/e gap; 2026-09-03b
 crest = DEM; law ``structures.toml [tunnel]``):
 
 * a BORE is a chain of mapped ``tunnel=yes`` ways; it is generated only
-  where a MAPPED END of it stands ON THE FIELD — inside the classified
-  cover ⊕ ``mouth_standoff_m`` (spec §29 (1)/(2); owner RULINGS
+  where a MAPPED END of it stands ON THE FIELD — that end, or the ramp
+  reach beyond it, inside the classified cover (with the roofed
+  corridors) ⊕ ``mouth_standoff_m`` (spec §29 (1)/(2); owner RULINGS
   2026-09-12r "we should never emit anything for actual tunnels, only
   the tunnel mouths and entrance/exit ramps"; Fable 2026-09-12t).  A
   bore with no on-field mouth emits NOTHING, however much of its length
@@ -125,9 +126,13 @@ class StructureStats:
     #: population, measured on every build rather than assumed zero.
     bores_admitted_by_mouth_only: int = 0
     mouths: int = 0
-    #: spec §29 (1): mapped ends DROPPED for standing off the field
-    #: (outside the classified cover ⊕ ``[tunnel] mouth_standoff_m``).
+    #: spec §29 (1): mapped ends DROPPED for standing off the field —
+    #: neither the mouth point nor its ramp reach inside the classified
+    #: cover (with the roofed corridors) ⊕ ``[tunnel] mouth_standoff_m``.
     mouths_off_field: int = 0
+    #: the NEAREST of those, reported under the structures line so a drop
+    #: at the margin is visible without a rebuild.
+    mouths_off_field_nearest: list[str] = _dc.field(default_factory=list)
     duals_merged: int = 0
     tunnels: int = 0
     decks: int = 0
@@ -274,9 +279,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # direction too (a bore that grazes no cell but ends on the apron), so
     # ``bores_admitted_by_mouth_only`` counts the newly admitted bores —
     # measured on every build, never assumed zero.
-    on_field = FieldRegion(polys, tn.mouth_standoff_m)
-    mouth_list, stats.mouths_off_field = (
-        mouths(bores, list(airport.osm_ways), law, reach, on_field) if bores else ([], 0))
+    on_field = FieldRegion(polys + [c.footprint for c in corridors], tn.mouth_standoff_m)
+    mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
+                           if bores else ([], []))
+    stats.mouths_off_field = len(dropped)
+    stats.mouths_off_field_nearest = [
+        f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off the field"
+        for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
     with_mouth = {id(m.bore) for m in mouth_list}
     covered = [b for b in bores if id(b) in with_mouth]
     stats.bores_no_mouth = len(bores) - len(covered)

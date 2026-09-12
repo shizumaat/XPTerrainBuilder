@@ -2414,7 +2414,12 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   box, the pairs whose boxes come within the reach walked once, anything
   already unioned skipped, and the trees asked only then
   (`airport/placement_atom.py`, NEW — the §16c atom law lifted out of
-  `placement_cut` for the 1,000-line law).
+  `placement_cut` for the 1,000-line law).  That leaves the LEMD plan
+  stage at **26.29 / 26.36 / 26.28 s** over 3 runs against main's 13.53
+  and round 2's 9.3: the reach costs **~17 s** at LEMD and the "plan
+  stage <= main's" bar is **MISSED**.  `_surface` calls fall 184,219 ->
+  **139,222** (fewer bodies).  Reported for the owner: the reach's value
+  is the hangar and the deck, and its price is the pair search.
 * **Twins:** `test_the_rigid_reach_chains_solids_and_never_a_line_object`,
   `test_the_16b_float_bar_excludes_a_footed_body`,
   `test_the_report_tool_arms_the_shared_repo_write_guard`; the fence

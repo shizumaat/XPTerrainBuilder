@@ -2364,17 +2364,18 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   |---|---|---|
   | torn seams outside line/arc (0) | 0 | **0 — MET** |
   | single-component resources in >= 2 files (0) | 0 | **0 — MET** |
-  | `HANG3` — the (8) bar | 6 files, zeros spanning **1.37 m** | **2 files, 0.45 m** (the vault arcs AND both spines on ONE zero; the 0.45 m is the one component the reach does not touch) |
+  | `HANG3` — the (8) bar | 6 files, zeros spanning **1.37 m** | **3 files, 1.12 m** (the vault arcs and the spines bind; the bar "one zero" is NOT met) |
   | nothing new rides a fence | 0 | **0 — MET** |
   | 11at item 3 / item 5 / gate-5 sign | +0.18 / -0.29 / -0.02 | **+0.06 / -0.29 / -0.02 — HELD** |
   | 12h `Terminal4_48` | +0.04 | **+0.49** (spread 0.69 -> 0.86) |
-  | `green-STRT4` deck | +1.11 (23 files) | **+0.14 (15 files, spread 8.90 -> 3.73)** |
+  | `green-STRT4` deck | +1.11 (23 files) | **+0.14 (19 files, spread 8.90 -> 6.09)** |
   | §15 carried float > 0.5 m (0) | 0 | **0 — MET** |
-  | §16b carried piece float (0) | 122 | **103** |
-  | §16b wider than its terrain group (0) | 1,405 | **967** |
-  | files | 2,776 | **2,121** |
-  | round trip | OK | **OK**, 2,121/2,121 new `OBJECT_DEF`s, 0 rows carrying an elevation |
-  | §16a (2) refusal set | 169 | **230** |
+  | §16b carried piece float (0) | 122 | **107** |
+  | §16b wider than its terrain group (0) | 1,405 | **979** |
+  | files | 2,776 | **2,174** |
+  | round trip | OK | **OK**, 2,174/2,174 new `OBJECT_DEF`s, 0 rows carrying an elevation |
+  | §16a (2) refusal set | 169 | **244** |
+  | plan stage, graded, 3 runs | 9.3 s | **9.92 / 9.96 / 9.85 s** (main 13.53) |
 
 * **THE RIGID CLUSTERS DO NOT RUN AWAY.**  Five largest cluster plan
   extents at LEMD: **5,157 m / 2,890 m / 2,514 m / 2,271 m / 2,234 m —
@@ -2394,9 +2395,16 @@ divide one) and `airport/placement_plan.py` / `placement_write.py` /
   `zero - ground` on a FOOTED body with `y_zero` -1.668.  The census now
   cannot make that mistake, and the probe's number for that body is
   +0.14 m after (8).
+* **OTHH IS NOT MEASURED THIS ROUND.**  Its guarded arm was started four
+  times and did not finish (45 min on the `count_neighbors` form, still
+  running after 25 min on the bounded nearest-neighbour one, against
+  ~10 min in round 2).  §16c (8)'s cost at OTHH is therefore UNKNOWN and
+  the round-2 numbers (seams 0, files 1,891) are the last measured ones.
+  Owed.
 * **THE T2 ROOFS ARE STILL MISSED, AND THE ATTRIBUTION HAS MOVED.**  5 of
-  7 over 0.3 m, worst 3.03 m (round 2: 5 of 7, worst 0.97; live 1.0.320:
-  7 of 9, worst 2.80).  With the fill gate gone the `LEMD54` bodies ARE
+  7 over 0.3 m, worst 6.12 m (round 2: 5 of 7, worst 0.97; live 1.0.320:
+  7 of 9, worst 2.80) — and it MOVES with every change to the carrier
+  set, which is itself the finding: the choice is not pinned by the law.  With the fill gate gone the `LEMD54` bodies ARE
   candidates (`ground_off` 0.08-0.11, overlapping every roof) — and
   §16c (4) still does not pick them, because their top under the overlap
   stands ABOVE the roof's own base plane and "nearest BELOW the base" is

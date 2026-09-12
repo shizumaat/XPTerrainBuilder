@@ -3973,7 +3973,75 @@ one predicate, and the law's value is threaded to it at all four call sites —
 law) and `planar/object_corridor.climb_path` (from `object_groups`). In LEMD's 0.05°
 selection box the tag census is: `tunnel=yes` on a highway 52, on a railway 6,
 `tunnel=building_passage` on a highway 22 — 80 ways seeded a structure before, 58
-after. **The 6 railway bores are the OWNER QUESTION §26 (2) names**: OSM ways
-`-26709`, `-26708`, `-22223`, `-15314`, `-8677`, `-518`, all `railway` +
-`tunnel=yes`, none with a mouth inside the field.
+after. **The RAILWAY bores are the OWNER QUESTION §26 (2) names** (6 ways in the
+box, 4 of them inside the built set): OSM ways `-26709`, `-26708`, `-22223`,
+`-15314`, `-8677`, `-518`, all `railway` + `tunnel=yes`, none with a mouth inside
+the field; they survive as `tunnel:-26708+-22223`, `tunnel:-26709+-8677` and the
+mixed chain `tunnel:-5938+-26709+-8677+-26708+-22223`. Whether a rail tunnel with
+no mouth on the field should seed a ramp at all is the owner's call, not the lane's.
 
+**THE CLOSING TEST — ONE LEMD BUILD PER ARM, THE HARNESS ENTRY, MATCHED.**
+`build_airport.py` defaults to `--engine v1`; a v2 lane's closing test MUST pass
+`--engine v2` or it measures a patch none of this code touched (this lane proved it
+the expensive way — the two `build_airport.py LEMD` runs came back BYTE-IDENTICAL,
+body_sha `bcbc08883d14`, and are not reported here). The arms below are both
+`--engine v2` on the shared corpus, DEM frame production, guard armed, shared repo
+UNCHANGED, both stored in the artifact ledger:
+
+| | BASE `0c7716a9` (`LEMD_20260911T223856`, ledger `af52d417abf3`) | LANE (`LEMD_20260911T223858`, ledger `93e48bce418e`) |
+| --- | --- | --- |
+| wall | 388.8 s | 391.0 s |
+| ways / nodes | 1,101 / 24,067 | 1,089 / 23,703 |
+| solve | optimal | optimal |
+| body_sha | `646e612e55c2` | `775a8d4f3b29` |
+| structures: bores | 91 (uncovered 62 ⇒ **covered 29**) | 68 (uncovered 47 ⇒ **covered 21**) |
+| mouths / duals merged | 57 / 11 | 41 / 7 |
+| **tunnels** | **18** | **16** |
+| decks / cells cut / refused | 1 / 3 / 129 | 0 / 2 / 119 |
+| v2 verify rows / DEFECTs | 2,691 / **0** | 2,433 / **0** |
+| `within_shape` rows on shape 933 | **69** | **0** |
+| `tunnel_mouth_canonical` / `tunnel_deck_clearance` | 7 / 1 | 3 / 0 |
+| harness census LAW-TRUE | 4,559 | 4,600 |
+| harness census ADJUDICATED | 1,995 (airside 1,877, gs 116) | **1,861** (airside 1,786, gs **73**) |
+
+The base arm reproduces the SHIPPED 1.0.319 LEMD patch's census exactly (4,559 /
+1,995) and its structures line exactly (bores 91, tunnels 18) — it is a true control.
+
+**§26 BAR — MET.** Tunnel-family faces within 30 m of 40.4661521, −3.5708203:
+**1 (`tunnel_ramp`, shape 933) → 0**. `tunnel:-17295+-7905` is gone from the built
+tunnel list; `tunnel_ramp` faces 20 → 17. The 69 `within_shape` rows on shape 933
+are 0, and the 4 mouth rows + 1 deck row §26 (3) names are gone
+(`tunnel_mouth_canonical` 7 → 3, `tunnel_deck_clearance` 1 → 0). **Every remaining
+LEMD tunnel, named with its OSM tag** — all 20 built tunnel names resolve to
+`tunnel=yes` seeds and nothing else: `-12918` service, `-15327` service, `-15327+-5980`,
+`-15347` tertiary, `-15349` tertiary, `-15349+-15347`, `-17028` service, `-17037`
+service, `-17265+-5946+-6640+-1359` (service + primary), `-5772`, `-5780+-5727`,
+`-5931`, `-5938`, `-5970`, `-5980`, `-6028`, `-9263` (all service), and the RAIL
+pair `-26708+-22223`, `-26709+-8677`, plus the mixed chain
+`-5938+-26709+-8677+-26708+-22223`. **RESIDUAL AGAINST THE BAR**: the spec expected
+covered bores 33 → 23 and tunnels 18 → ≤ 13. The instrument reads covered bores
+**29 → 21** (the same −8 the spec predicted, from a different base — 29 is what the
+harness's own structures line says, on both the shipped patch and the control) and
+tunnels **18 → 16**, not ≤ 13. Reported, not iterated (attempt cap): the remaining
+16 are all `tunnel=yes`, so no further §26 narrowing is available — the ≤ 13
+estimate counted bores, not built tunnels.
+
+**§25 BAR — MET.** At 40.4673861, −3.5681144 the containing face is `apron`
+(shapeID 84, ref `pav92`) in BOTH arms, but what stands beside it changes: in the
+base arm a `groundside_pavement` face (shape 105, `pav146`) touches the node at
+0.0 m and `pav146`'s two faces are both `groundside_pavement`; in the lane arm
+`pav146`'s three faces are all **`apron`**, no `groundside_pavement` or
+`parking_lot` face contains or touches the node, and `pav146` is ABSORBED into the
+apron body rather than jointed to it (0 shared coordinates with `pav176`/`pav92`
+faces — in the base arm the 30 + 46 shared coordinates already stepped 0.000 m, the
+11af result). Groundside faces 71 → 66, apron 56 ← 54, and the census's groundside
+adjudicated rows fall 116 → 73.
+
+**BUILD-TIME IMPACT.** 388.8 s → 391.0 s at LEMD (+0.6 %, inside the ±25 % single-run
+noise floor; the reader's extra work is one pass over the `<relation>` elements of
+three feeds — LEMD has 7). No timing claim is made from one run per side.
+
+**NOT MEASURED / NOT DONE by the lane**: the inner rings §25 (2) drops are NOT cut as
+holes (owed — OTHH's 773,141 m² is the largest debt); no other airport was BUILT
+(dry run only, per §25 (5)); the five-airport sweep is the orchestrator's; the
+owner's other 1.0.319 items (floating signs, roof planes, basin gap) are other lanes'.

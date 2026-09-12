@@ -12,6 +12,7 @@ import dataclasses as _dc
 import math
 import os
 import typing as _t
+import zlib
 
 from ..law import Law
 from ..law.tables import identity_dp
@@ -119,6 +120,9 @@ class LoadReport:
     objects_restored_for_read: int = 0
     library_index_path: str | None = None
     osm_sources: tuple[str, ...] = ()
+    #: §25 (RULINGS 2026-09-11aq item B): relations read, outer ways given
+    #: the relation's tags, rings stitched, unclosable outers, inners dropped
+    osm_relations: str = ""
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
     #: The flat-site verdict record (``airport/flat_site.record``; set by
@@ -247,11 +251,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     osm_ways: list[OsmWay] = []
     buildings: list[Building] = []
     sources: list[str] = []
+    osm_relations = _osm.RelationReport()
     if inputs.osm_root:
         for feed in _osm.FEEDS:
             doc = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
                                  inputs.radius_deg)
             sources.extend(doc.sources)
+            osm_relations = osm_relations.merge(doc.relations)
             for w in doc.ways:
                 pts = tuple(to_xy(lo, la) for la, lo in w.points)
                 osm_ways.append(OsmWay(_osm_id(w.id), feed, pts, w.closed, w.tags))
@@ -261,6 +267,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         _float_or_none(w.tags.get("height")),
                         _int_or_none(w.tags.get("building:levels"))))
     rep.osm_sources = tuple(sources)
+    rep.osm_relations = osm_relations.line()
     rep.buildings_by_source["osm"] = len(buildings)
 
     # ── DSF: facades, object footprints, placements ────────────────
@@ -431,12 +438,17 @@ def _is_building(tags: _t.Mapping[str, str]) -> bool:
 
 
 def _osm_id(wid: str) -> int:
-    """Namespaced way id -> a stable int (tile prefix folded in)."""
+    """Namespaced way id -> a stable int (tile prefix folded in).
+
+    A non-numeric id — §25's stitched relation rings, ``-2#0`` — folds
+    through CRC32, never ``hash()``: ``hash(str)`` is salted per process
+    (PYTHONHASHSEED), so the same extract would name the same ring a
+    different way on every run."""
     tail = wid.rsplit(":", 1)[-1]
     try:
         return int(tail)
     except ValueError:
-        return abs(hash(wid)) % (1 << 31)
+        return -(zlib.crc32(wid.encode("utf-8")) % (1 << 31)) - 1
 
 
 def _float_or_none(s: str | None) -> float | None:

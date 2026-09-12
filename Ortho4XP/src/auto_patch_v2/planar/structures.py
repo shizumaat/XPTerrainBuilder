@@ -224,7 +224,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          "2026-09-06b (1): no wall band, the mesh makes the wall)")
     corridors = list(corridors)
     extra_groups = list(extra_groups)
-    tunnel_ways = [w for w in airport.osm_ways if is_tunnel(w) and len(w.points) >= 2]
+    tunnel_ways = [w for w in airport.osm_ways
+                   if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     if (not tunnel_ways and not corridors and not extra_groups) or not classification.cells:
         return classification, (), stats
     cells = list(classification.cells)

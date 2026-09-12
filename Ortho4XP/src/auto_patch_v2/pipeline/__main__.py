@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
 def explain_main(args) -> int:
     """``explain``: classify once (read-only, degraded DEM accepted — the
     verdict does not read elevations) and print the verdict."""
-    from ..airport.load import load
+    from ..airport.load import load_with_report
     from ..classify import classify, load_rules
     from ..classify.evidence import build_evidence
     from ..classify.explain import explain_at, explain_polygon, render, shape_polygon
@@ -114,7 +114,7 @@ def explain_main(args) -> int:
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
                             60.0, args.dem_frame, True)
     law = Law.for_airport(icao)
-    airport = load(icao, inputs, law)
+    airport, load_rep = load_with_report(icao, inputs, law)
     rules = load_rules()
     cl = classify(airport, law, rules)
     ev = build_evidence(airport, rules, law.tables.structures.building_pad.min_area_m2,
@@ -122,6 +122,7 @@ def explain_main(args) -> int:
     print(f"[{icao}] {len(cl.cells)} cells; sources: "
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))
+    print(f"[{icao}] OSM relations (spec 25): {load_rep.osm_relations}")
     if args.sources:
         print(f"{'source':<12} {'cls':<5} {'area_m2':>9} {'width':>6} {'road':>7} "
               f"{'osm':>7} {'taxi':>6} {'strt':>4} {'apron%':>6} {'park%':>6}  "

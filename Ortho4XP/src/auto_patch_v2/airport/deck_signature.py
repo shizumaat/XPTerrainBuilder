@@ -76,7 +76,7 @@ from shapely.ops import unary_union
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
-__all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way",
+__all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
            "is_bridge_way", "bridge_lines", "family_key", "PierReading", "elevated_deck"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
@@ -150,12 +150,25 @@ def is_bridge_way(tags: _t.Mapping[str, str]) -> bool:
     return bool(b) and b != "no" and ("highway" in tags or "railway" in tags)
 
 
-def is_tunnel_way(tags: _t.Mapping[str, str]) -> bool:
-    """A mapped bore: ``tunnel`` set and not ``no`` on a highway or
-    railway (the one predicate ``planar/structures.py`` and
-    ``airport/tunnel_objects.py`` share)."""
+#: spec §26 (RULINGS 2026-09-11aq item A) — the fallback when no law is in
+#: hand; the authority is ``law.tables.structures.tunnel.admitted_values``.
+DEFAULT_TUNNEL_VALUES: tuple[str, ...] = ("yes",)
+
+
+def is_tunnel_way(tags: _t.Mapping[str, str],
+                  admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> bool:
+    """A mapped BORE: a ``tunnel`` value the law ADMITS (default
+    ``["yes"]``) on a highway or railway — the one predicate
+    ``planar/structures.py`` and ``airport/tunnel_objects.py`` share.
+
+    §26: the old test was ``tunnel`` set and not ``no``, which swept in
+    ``tunnel=building_passage`` — a road passing UNDER a building, where
+    the ground does not drop (10 of LEMD's 33 covered bores; the ramp at
+    40.4661521, −3.5708203 came from two 25.8 m passages under the old
+    terminal).  ``culvert``, ``avalanche_protector`` and ``flooded`` are
+    the same class of not-a-bore."""
     b = tags.get("tunnel")
-    return bool(b) and b != "no" and ("highway" in tags or "railway" in tags)
+    return bool(b) and b in admitted and ("highway" in tags or "railway" in tags)
 
 
 def bridge_lines(osm_ways) -> list[tuple[int, LineString]]:

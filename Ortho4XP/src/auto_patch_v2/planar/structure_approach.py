@@ -20,7 +20,8 @@ from ..law import Law
 from ..law.tables import role_family
 from ..model.airport import OsmWay
 from ..model.frame import XY
-from ..airport.deck_signature import is_bridge_way, is_tunnel_way
+from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
+                                      is_tunnel_way)
 from ..classify.roles import Cell
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -46,9 +47,11 @@ PARALLEL_COS = math.cos(math.radians(30))
 
 # ── tags ─────────────────────────────────────────────────────────────────
 
-def is_tunnel(w: OsmWay) -> bool:
-    """One predicate with ``airport/deck_signature.is_tunnel_way``."""
-    return is_tunnel_way(w.tags)
+def is_tunnel(w: OsmWay,
+              admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> bool:
+    """One predicate with ``airport/deck_signature.is_tunnel_way`` (§26:
+    ``admitted`` is ``law.tables.structures.tunnel.admitted_values``)."""
+    return is_tunnel_way(w.tags, admitted)
 
 
 def is_bridge(w: OsmWay) -> bool:
@@ -199,14 +202,15 @@ def chains(ways: list[OsmWay]) -> list[Bore]:
 
 # ── the approach ─────────────────────────────────────────────────────────
 
-def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float
-              ) -> list[XY]:
+def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
+             admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> list[XY]:
     """The centreline OUTWARD from the mouth: non-tunnel ways joined at
     the mouth node, followed up to ``reach_m``; a straight extension of
     the bore's own end direction where no way continues."""
     idx: dict[tuple[int, int], list[tuple[int, bool]]] = {}
     for i, w in enumerate(ways):
-        if is_tunnel(w) or ("highway" not in w.tags and "railway" not in w.tags):
+        if is_tunnel(w, admitted) or ("highway" not in w.tags
+                                      and "railway" not in w.tags):
             continue
         idx.setdefault(_key(w.points[0]), []).append((i, True))
         idx.setdefault(_key(w.points[-1]), []).append((i, False))
@@ -284,7 +288,9 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float
         for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
             inward = unit(end, nxt)
             out.append(Mouth(b, end, inward, width,
-                              approach(end, inward, osm, reach_m), wids))
+                              approach(end, inward, osm, reach_m,
+                                       law.tables.structures.tunnel.admitted_values),
+                              wids))
     return out
 
 

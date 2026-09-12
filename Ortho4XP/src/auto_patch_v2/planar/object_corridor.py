@@ -36,6 +36,7 @@ from shapely.geometry import LineString, Point, Polygon
 from ..law import Law
 from ..model.airport import OsmWay
 from ..model.frame import XY
+from ..airport.deck_signature import DEFAULT_TUNNEL_VALUES
 from .structure_approach import PARALLEL_COS, approach, is_tunnel, unit
 from .structure_geometry import rim_standoff
 
@@ -114,14 +115,15 @@ class Group:
     ramp_role: str | None = None
 
 
-def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float) -> list[XY]:
+def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float,
+               admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> list[XY]:
     """The centreline BEYOND a ground end: the mapped (non-tunnel) way
     whose node stands nearest the end within the corridor's width and
     leaves it the way the corridor points (31h's parallel angle — a
     kinked path folds the rings), else the straight extension."""
     best = None
     for w in osm:
-        if is_tunnel(w) or ("highway" not in w.tags and "railway" not in w.tags) \
+        if is_tunnel(w, admitted) or ("highway" not in w.tags and "railway" not in w.tags) \
                 or len(w.points) < 2:
             continue
         for e, nxt in ((w.points[0], w.points[1]), (w.points[-1], w.points[-2])):
@@ -129,7 +131,7 @@ def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: flo
             if d <= width and (best is None or d < best[0]):
                 best = (d, e, unit(e, nxt))
     if best is not None:
-        path = approach(best[1], (-out_dir[0], -out_dir[1]), osm, reach)
+        path = approach(best[1], (-out_dir[0], -out_dir[1]), osm, reach, admitted)
         dx, dy = end[0] - path[0][0], end[1] - path[0][1]
         path = [end] + [(p[0] + dx, p[1] + dy) for p in path[1:]]
         d0 = unit(path[0], path[1])
@@ -196,7 +198,8 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
             tl, tr = _interp(_sts, "thick_l", "thick_r", s, None)
             return standoff(tl), standoff(tr)
 
-        path = axis if c.flat else axis + climb_path(axis[-1], u_end, c.width_m, osm, reach)[1:]
+        path = (axis if c.flat else axis + climb_path(
+            axis[-1], u_end, c.width_m, osm, reach, tn.admitted_values)[1:])
         needed = c.depth_m / max(L, 1e-9)
         out.append(Group([], axis[0], inward, c.width_m, path, c, c.id, L, not c.flat,
                          c.mouth_closed, c.far_closed, half_fn, rim_fn,

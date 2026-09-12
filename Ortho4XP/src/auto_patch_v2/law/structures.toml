@@ -9,7 +9,7 @@ wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, toget
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad
 ramp_max_grade    = 0.080   # descent grade of the ramp (common.roles.tunnel_ramp; RULINGS 2026-09-12m owner: the road cap, was 0.040 user 2026-05-08) — never above that role cap (checked at load)
-bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
+mouth_standoff_m  = 50.0    # spec §29 (1) (owner RULINGS 2026-09-12r; Fable 12t): a MOUTH is built only where it stands ON THE FIELD — inside the classified cover grown by this. A mapped end beyond it is dropped (counted `mouths off-field`), and a bore with no on-field mouth emits nothing: admission follows the mouth, not the bore (LEMD's 4.9 km rail bores were admitted by 125–162 m of cover under one pad and built their far mouths 4.0 km west of the field)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
 ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
 wall_band_width_m = 1.0     # an OSM BORE's rim stands wall_gap_m + this off the ramp edge (the mesh wall's plan thickness where no object states a wall; 09-01c's band width, kept as the rim stand-off since [cutout] emit_wall_band = false, 2026-09-06)

@@ -209,7 +209,11 @@ def test_a_bore_end_within_the_tolerance_is_the_mouth_and_pairs(objs, law):
     assert len(cs) == 1, st.refused
     c = cs[0]
     assert c.mouth_kind == "bore" and -101 in c.bore_ways
-    cl = Classification(tuple(_wall_cells()), (), {}, ())
+    # spec §29 (1): the far mouth at y = −400 must stand ON THE FIELD for
+    # its OSM ramp to be built at all — the fixture's apron ends at −120,
+    # so the classification is extended to reach it (the twin is about the
+    # object taking the NEAR mouth, not about the mouth gate).
+    cl = Classification(tuple(_wall_cells(y0=-450)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
     assert not sst.refused, sst.refused
     assert sst.mouths_replaced_by_object == 1 and sst.bores_replaced_by_object == 0
@@ -218,6 +222,28 @@ def test_a_bore_end_within_the_tolerance_is_the_mouth_and_pairs(objs, law):
     # the bore's FAR mouth (y = −400) keeps its OSM ramp; none stands at the object
     osm = [x for x in tunnels if x.source == "osm"]
     assert len(osm) == 1 and osm[0].axis[0][1] == pytest.approx(-400.0, abs=5.0)
+
+
+def test_the_mouth_gate_leaves_the_roofed_corridor_untouched(objs, law):
+    """§29: the object/wall-corridor class (Laws B/C — the owner's EGLL
+    exception, keyed on the PACK's geometry, never on OSM) does not pass
+    through the OSM mouth gate.  With the fixture's own classification
+    (the apron ends at y = −120, so the bore's far mouth at y = −400 is
+    OFF the field) the corridor is still built exactly as before: only the
+    off-field OSM ramp is gone."""
+    ob = law.tables.structures.tunnel.object
+    outside = ob.end_cap_open_m + (ob.bore_end_tolerance_m - ob.end_cap_open_m) / 2.0
+    airport, cache, objects = _read(objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+                                    _bore(y_in=-50.0 - outside))
+    cs, st = read_corridors(airport, objects, cache, law)
+    assert len(cs) == 1, st.refused
+    cl = Classification(tuple(_wall_cells()), (), {}, ())
+    _cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+    assert not sst.refused, sst.refused
+    assert sst.mouths_off_field == 1 and sst.object_corridors == 1
+    obj = [x for x in tunnels if x.source == "object"]
+    assert len(obj) == 1 and -101 in obj[0].replaced_ways
+    assert [x for x in tunnels if x.source == "osm"] == []
 
 
 def test_a_bore_end_beyond_the_tolerance_is_not_the_mouth(objs, law):

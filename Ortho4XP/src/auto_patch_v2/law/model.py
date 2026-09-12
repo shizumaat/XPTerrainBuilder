@@ -788,7 +788,7 @@ def _check_cross_refs(t: LawTables) -> None:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     _check_terrace(t.emit.terrace, roles, LawError)
     # §31: thresholds ordered, range real, EVERY family classed
-    _check_cockpit(t.emit.cockpit, t.families, LawError)
+    _check_cockpit(t.emit.cockpit, t.families, LawError, t)
     # THE PROFILE WINDOW IS THE SCALE OF THE K LAW (spec §21.2 (1)): the
     # largest ``vertical_curve_k_m`` any loaded ruleset states, handed to
     # the design schema (which imports nothing from v2).

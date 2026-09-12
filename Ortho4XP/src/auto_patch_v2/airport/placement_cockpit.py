@@ -23,7 +23,10 @@ from .placement_census import CARRIED_OWN_GROUND_TOL_M, STANDS_OVER_TOL_M
 __all__ = ["cockpit_block", "cockpit_block_lines", "COCKPIT_RULING"]
 
 #: The owner rulings this block reads under, quoted in its heading.
-COCKPIT_RULING = "2026-09-12x/12y"
+#: 12ad is round 2's span rule — it changes nothing at this stage (see
+#: :func:`cockpit_block_lines`) and is cited so the two stages' headings
+#: name the same law.
+COCKPIT_RULING = "2026-09-12x/12y/12ad"
 
 
 def _cockpit_law() -> dict:
@@ -176,7 +179,10 @@ def cockpit_block_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     out = [f"   --- COCKPIT (owner RULINGS {c['ruling']}, object stage "
            f"§17): motion {c['motion_step_m']:g} m on pavement, visual "
            f"{c['visual_m']:g} m in view "
-           f"(taxi scale: every body of this pack stands at the airport)"
+           f"(taxi scale: every body of this pack stands at the airport; "
+           f"12ad's SPAN rule removes nothing here — a torn seam shares an "
+           f"AUTHORED VERTEX and a float is two zeros at one place, so "
+           f"every row below is welded by construction)"
            + ("" if c["torn_seams_read"] else "; torn seams NOT read in "
               "this run") + " ---",
            f"   COCKPIT motion: {c['motion_note']}",

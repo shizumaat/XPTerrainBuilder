@@ -22,7 +22,7 @@ __all__ = [
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
-    "Cockpit", "cockpit", "rolled_on_roles",
+    "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles", "role_preferred_cap",
     "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
@@ -488,6 +488,21 @@ def cockpit(law: Law) -> Cockpit:
     HERE.  A second copy of those three numbers anywhere — this docstring
     included — is the census-wrapper defect applied to a reading rule."""
     return law.tables.emit.cockpit
+
+
+def cliff_grade(law: Law) -> float:
+    """§31 (7) THE CLIFF (owner RULINGS 2026-09-12af) — ONE derivation site.
+
+    A SPANNED step-family row is a slope and is REPORT (12ad); a row whose
+    implied grade ``|dz| / span`` exceeds THIS is a CUT or a RISE and comes
+    back as the defect it is.  The number is not written in ``[cockpit]``:
+    that key holds a DOTTED LAW PATH at the design surface's own bank slope
+    — "an embankment / cut slope a pilot reads as ground, not a wall", the
+    steepest thing this engine builds as natural ground — and this resolves
+    it.  Change the bank and the cliff line follows; there is no second
+    copy to forget."""
+    from .cockpit_schema import value_at
+    return float(value_at(law.tables, law.tables.emit.cockpit.cliff_grade))
 
 
 def rolled_on_roles(law: Law) -> frozenset[str]:

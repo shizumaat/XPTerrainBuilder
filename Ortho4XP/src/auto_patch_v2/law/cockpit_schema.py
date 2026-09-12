@@ -14,9 +14,31 @@ itself.
 """
 from __future__ import annotations
 
+import collections.abc as _abc
 import dataclasses as _dc
 
-__all__ = ["Cockpit", "COCKPIT_CLASSES", "check_cockpit"]
+__all__ = ["Cockpit", "COCKPIT_CLASSES", "check_cockpit", "value_at"]
+
+
+def value_at(tables: object, dotted: str):
+    """The VALUE a dotted law path names in ``tables``, or ``None``.
+
+    ``model.resolves``'s sibling, for a key that REFERENCES another law
+    value instead of copying it (``emit.cockpit.cliff_grade`` ->
+    ``emit.design.bank_slope``, §31 (7) / RULINGS 2026-09-12af: one law,
+    one number, no second copy to drift).  Duck-typed over dataclasses and
+    mappings so this module still imports nothing from ``model``."""
+    obj: object = tables
+    for part in str(dotted).split("."):
+        if isinstance(obj, _abc.Mapping):
+            if part not in obj:
+                return None
+            obj = obj[part]
+        elif _dc.is_dataclass(obj) and hasattr(obj, part):
+            obj = getattr(obj, part)
+        else:
+            return None
+    return obj
 
 
 #: §31 (6): the COCKPIT classes a law family may declare.
@@ -61,8 +83,18 @@ class Cockpit:
     #: boundary and farther than this from every runway axis is a REPORT.
     approach_km: float
 
+    #: §31 (7) THE CLIFF (RULINGS 2026-09-12af), as a DOTTED LAW PATH, not
+    #: a number: a spanned step-family row whose implied grade exceeds the
+    #: value this names is a CUT or a RISE, not a slope, and returns to the
+    #: bucket it would have had welded.  It points at the design surface's
+    #: own bank slope so the two can never drift apart;
+    #: ``tables.cliff_grade`` resolves it and the loader refuses a path
+    #: that does not name a grade in (0, 1].
+    cliff_grade: str
 
-def check_cockpit(cockpit: Cockpit, families, error: type) -> None:
+
+def check_cockpit(cockpit: Cockpit, families, error: type,
+                  tables: object = None) -> None:
     """The frame's own cross-file rules.
 
     * the two thresholds are an ORDER, not two independent numbers — the
@@ -70,6 +102,8 @@ def check_cockpit(cockpit: Cockpit, families, error: type) -> None:
       aircraft feels is finer than what the pilot sees), and a table that
       inverted them would silently class every motion row as visual-only;
     * the approach range is a real distance;
+    * ``cliff_grade`` is a dotted law path that resolves, in ``tables``, to
+      a real grade in (0, 1] and over the motion threshold;
     * EVERY law family states its cockpit class.  A family with none would
       classify silently as REPORT and the owner would never see its rows —
       the census-wrapper defect wearing a reading rule's hat.
@@ -82,6 +116,22 @@ def check_cockpit(cockpit: Cockpit, families, error: type) -> None:
     if cockpit.approach_km <= 0.0:
         raise error(f"emit.cockpit: approach_km {cockpit.approach_km} must "
                     f"be > 0 (§31 (2): the range a pilot sees on final)")
+    cliff_grade = value_at(tables, cockpit.cliff_grade)
+    if not isinstance(cliff_grade, (int, float)):
+        raise error(
+            f"emit.cockpit: cliff_grade {cockpit.cliff_grade!r} does not "
+            f"name a value in the loaded tables (§31 (7): it is a dotted "
+            f"law path — the design surface's own bank slope — never a "
+            f"second copy of the number)")
+    if not 0.0 < float(cliff_grade) <= 1.0:
+        raise error(
+            f"emit.cockpit: cliff_grade {cockpit.cliff_grade!r} resolves to "
+            f"{cliff_grade}, not a grade in (0, 1] (§31 (7))")
+    if float(cliff_grade) <= cockpit.motion_step_m:
+        raise error(
+            f"emit.cockpit: cliff_grade resolves to {cliff_grade}, at or "
+            f"under motion_step_m {cockpit.motion_step_m} — the cliff "
+            f"escape would swallow every spanned row (§31 (7))")
     for key, fam in families.items():
         if fam.cockpit not in COCKPIT_CLASSES:
             raise error(

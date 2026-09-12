@@ -2545,3 +2545,119 @@ The plan records 175 cross-member ε-contacts among the T2 resources.
    OTHH seams 0 and its plan stage not worse than 64 s; collateral quoted airport-
    wide (carriers changed, zeros moved, largest move, cluster count and the five
    largest spans); files; round trip; suite.
+
+**MEASURED (lane `v2unitbind`, 2026-09-12; branch `claude/v2unitbind` from main
+`be882755`).**  Implemented in `airport/placement_atom.py` (`RigidNode`,
+`unit_clusters`, `unit_rigid`, `bind_unit` and `UNIT_CLUSTER_SPAN_MAX_M`),
+`airport/placement_carrier.py` (§16c (8)'s `_rests_on` / `_admit` inside
+`carriers_for`) and `airport/placement_plan.py` (the unit's own ε-contact pairs;
+pass 3 takes the cluster's senior INSTEAD of the carrier search for a bound
+body).  Matched arms on the 1.0.320 rebake plan + `LEMD.graded.json`,
+`--admit-skipped` on the live pack read-only, the write half into APFS clones,
+`[guard] shared repo UNCHANGED` on every run.
+
+* **§16c (8) ALONE FIXES NOTHING AT `tej2`, AND IS KEPT.**  `P2PK__b0`'s top
+  stands **1.45 m** from `tej2`'s base, not within `split_tol_m` 0.3, so the
+  yield never reaches it; what carries `tej2` onto `P2PK` is (7).  The rule
+  still fires **129 searches** at LEMD on its own (106 in the shipped
+  combination, 88 at OTHH) and takes files 2,171 → 2,160; the yield is counted
+  as `carrier_refused_zero_off_ground_yielded_rest_on` beside the refusal it
+  relieves.
+* **THE SITE, REPRODUCED** (main `be882755`, this instrument): `tej2__b0`
+  **+2.85** on `LEMD03__b0`, `tej2__b1` **+14.64** on `LEMD38__b27` (both with
+  `P2PK__b0` refused at `ground_off` **0.42**), `LEMD48__b0` **−3.90**,
+  `LEMD47__b1` **+20.57**; `LEMD47` at three zeros **1.19 m** apart; the T2
+  named block within 150 m of 40.4660017, −3.5694045 spread **1.365 m** over 12
+  bodies (building class 0.325 over 8); `LEMD47`/`LEMD48` **228** cross-member
+  ε-contacts, **164** among the named T2 resources, 12,408 cross-member in the
+  plan.
+* **THE BARS, LEMD** (before → after): torn seams outside line/arc **0 → 0 —
+  MET**; single-component resources in ≥ 2 files **0 → 0 — MET**; §15 carried
+  float **0 → 0 — MET**; §14 footless at datum / on ground / basin split
+  **0/0/0 → 0/0/0**; §16 rows on the datum **0 → 0**; round trip **OK**
+  (2,148/2,148 new `OBJECT_DEF`s, 0 rows carrying an elevation); files
+  **2,171 → 2,148**; §16b carried piece float **108 → 117** (worse, named),
+  wider than its terrain group **982 → 973**; plan stage on the graded sampler
+  **9.70 / 9.75 / 9.93 s** against main's **10.09 / 11.12 / 24.63 — MET**.
+* **THE T2 BLOCK, AND WHAT IS STILL MISSED.**  Named-block spread
+  **1.365 → 0.537 m** (bar ≤ 0.3, **MISSED**); building class 0.325 → **0.312**;
+  `LEMD48` **one zero — MET**; `LEMD47` three zeros → **two, 0.804 m apart**
+  (**MISSED**); `tej2`'s contacting piece rides **`P2PK__b0`** — the bar's own
+  sentence — while its two other terrain pieces, which the plan records no
+  contact for, keep `LEMD03` (+2.86) and `LEMD38` (+14.64).  Roof bodies whose
+  reason is still `rests on it` and whose authored gap exceeds 0.3 m: **7 of 12
+  → 5 of 7** (worst 20.57 → 15.96).  NAMED FOR THE OWNER: the "within 0.3 m of
+  the wall it rests on" reading is an AUTHORED number for `LEMD47`/`LEMD48` —
+  their roofs are authored 5–9 m above the top of the only wall geometry under
+  them (`LEMD47__b0` top 4.66 against a roof base of 9.62), so no carrier
+  choice can make it 0.3; what (7) can do, and does, is put the roof and the
+  walls at ONE zero.
+* **THE 11at / 12h / 12o SITES HELD**: item 3 **+0.06 → +0.05**, item 5
+  **−0.29 → −0.27**, gate-5 sign **−0.02**, the T4 deck **+0.14**, `HANG3`
+  **−0.81** (7 → 6 files), and `Terminal4_48` **+0.49 → −0.11** — improved by
+  the senior rule below.
+* **THE CLUSTERS, AND THEIR BOUNDS.**  LEMD **136** clusters of more than one
+  body, five largest plan spans **298.9 / 295.7 / 293.0 / 292.0 / 289.4 m**
+  (28 / 22 / 8 / 176 / 14 bodies); non-senior bodies bound: **168 footed, 733
+  elevated**.  OTHH **187** clusters, largest spans **299.7 / 299.7 / 299.5 /
+  299.4 / 299.0 m**; **386 footed, 10,119 elevated**.  `UNIT_CLUSTER_SPAN_MAX_M`
+  is **300 m** and is a measured constant, not a ruled key: at
+  `RIGID_CLUSTER_SPAN_MAX_M` (1,200) the unit graph made clusters **1,190 m**
+  wide that collapsed **10.46 m** of honest terrain reading onto one zero
+  (`LEMDzaun` stations, `LEMDgrass` mats), and at **100 m** the whole T2 fix is
+  lost (`LEMD47__b1` back to +20.57, `tej2__b1` to +14.64) exactly as 12o's
+  100 m cap broke `Terminal4_48`.
+* **THE SENIOR IS §9's, THEN THE FOOTPRINT.**  Three rules measured: the hull
+  BOX area gave the T2 block 0.568 m and `Terminal4_48` **+0.75** (a KIOSK whose
+  parts are scattered over the terminal took the cluster); the true FOOTPRINT
+  (part-box area) gave `Terminal4_48` −0.11 and the block **1.200**; the most
+  GROUND-CONTACT VERTICES then footprint — which is `senior_of`'s own seniority
+  — gives the block **0.537** and every named site held.  That is what ships.
+* **THREE MECHANISMS REFUTED AND DELETED.**  (i) Restricting an elevated body's
+  candidate set to the candidates it TOUCHES: `tej2_teilb` −0.24 → **−11.46**,
+  `LEMD58` −0.18 → **−11.79** — a body touches things it does not rest on.
+  (ii) A contact TIER ahead of §16c (4)'s rest-on ranking: the same class of
+  regression.  (iii) Ranking a body's own member's candidates first inside
+  `carriers_for`: superseded by the cluster, which answers "what is it part
+  of" instead of "what does it stand over".  All three are gone from the tree.
+* **TWO GUARDS THE MEASUREMENT FORCED.**  A cluster senior must READ A SURFACE
+  (an off-sheet anchor put `Cargo-EAT` 599 m down onto its authored row), and
+  a LINE object or a BASIN body never binds (§10's stations each read their own
+  ground; §14 (2) makes a pit's zero its rim — bound, LEMD03/36/85 split into
+  **8 torn seams and 3 basin splits**).  Two FOOTED bodies of one member are
+  never unioned by the member rule either: they were cut apart because the
+  ground under them differs, and unioning them moved `Terminal4-LEMD01`'s two
+  bodies **20.5 m** onto one zero.
+* **THE COLLATERAL, AIRPORT-WIDE** (keyed by part ids, never by file name — a
+  file's index is reassigned when the body count moves): **175 carriers
+  changed, 187 zeros moved**, largest real move **7.93 m**
+  (`Terminal4_green-PKT4`'s elevated body from `LEMD02__b6` to `STRT4__b8`),
+  then 4.28 / 3.88 / 2.09 m; two bodies moved **+565 m** OFF their authored
+  datum onto real ground (`Munoza-LEMD78` / `-LEMD76`, an improvement).
+* **THE BARS, OTHH** (matched before/after arms, both under the guard): torn
+  seams **0 → 0 — MET**, single-component resources in ≥ 2 files **0 → 0 —
+  MET**, §15 carried float **0 → 0 — MET**, files **1,376 → 1,337**, §14
+  footless at datum **5 → 4** and basin split **1 → 1** (both PRE-EXISTING,
+  neither made worse), §16b carried piece float **183 → 163**, wider **70 →
+  65**, round trip **OK** (1,336/1,336 new `OBJECT_DEF`s), `[guard] shared repo
+  UNCHANGED`.  Plan stage on the graded sampler, matched arms on this machine:
+  **73.2 / 83.4 / 84.2 s** against main's **68.6 / 77.2 / 82.4** — the cluster
+  pass costs OTHH a few seconds inside the noise, and BOTH arms are over 12o's
+  64 s figure today, so the ≤ 64 s bar is **MISSED on both sides** and the
+  regression is not this round's.  The unit pass was bounded once for cost: a
+  member with ONE footed body unions its elevated bodies without the
+  plan-overlap loop (OTHH publishes 49,793 elevated bodies), which took it from
+  87–93 s to 73–84 with the plan byte-identical.
+* **Twins:** `test_the_unit_binds_by_contact`,
+  `test_a_cluster_never_grows_wider_than_a_building`,
+  `test_a_line_object_and_a_basin_never_join_a_unit_cluster`,
+  `test_the_rest_on_carrier_is_not_refused_for_its_own_ground`; the footless-deck
+  twin AMENDED (the deck and the terminal are in ε-contact, so the reason is now
+  §16c (7)'s binding onto the same carrier at the same zero).  Suite **1,173
+  passed / 1 skipped** (main 1,169 / 1).
+* **NOT DONE:** no airport build (§16c needs none); the ≤ 0.3 m block-spread and
+  `LEMD47`-one-zero bars are MISSED and named above; `tej2`'s non-contacting
+  pieces are unchanged; the rigid REACH is NOT extended across members (only the
+  plan's ε-contact graph and the member rule bind a unit — the cross-member
+  reach was not measured and is owed); no `tools/INDEX.md` row changed (no tool
+  gained or lost a flag).

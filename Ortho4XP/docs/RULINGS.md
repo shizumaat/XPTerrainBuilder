@@ -3439,3 +3439,8 @@ THE LAW (Fable, spec §15): (a) STANDS-OVER IS THE CARRIER — an elevated body'
 
 * §15 (2) makes §14 (3)'s bond inert for non-basins (a bond across > `split_tol_m` of terrain is exactly what re-cuts) — accepted; the basin exemption is the surviving case, and the basin is one file anyway (§14 (2)).
 * Owed: 34–38 LEMD bodies stand only over a body of ANOTHER unit (grass / signs of unit:21 under unit:23 buildings) — the carrier search is unit-scoped; widen only if a read asks. → app 1.0.317 = the owner's re-read (sites 1, 3, 4; items 6/7; site 2 and item 5 re-identified by coordinate).
+
+## 2026-09-11ah — OWNER READ OF LEMD ON 1.0.317: "Hangars are fixed. There's a building here: 40.4841738, −3.5854522, with floating roof, could be library object? Building4, shapeID 83, has several layers, each appear to have about 1 m between them vertically. Parking garage (see image) is still missing components. A few more buildings with floating roof planes here: 40.4858658, −3.5676751."
+
+* The image (T4 garage from the west): a flat black roof slab; the six curved stair towers A–F along the west face at their walls; on the roof near A an elongated white oval ring and near B a rectangular white frame standing alone — the roof-top pavilions' rings without their walls/roofs; the east side's walkway decks present. "Missing components" = the pieces that should stand on the roof (pavilions / light-well structures / parapet furniture), not the roof itself (11ag put the roof on its walls).
+* Scout `v2lemd317` attributes all four before any fix; the 83 "layers" (a pad face emitted several times ~1 m apart) is a DESIGN-SURFACE question (pad per OSM building:part?), the other three are object-stage.

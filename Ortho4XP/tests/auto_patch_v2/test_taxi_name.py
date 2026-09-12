@@ -36,18 +36,19 @@ def rules():
     return load_rules()
 
 
-def _page_airport(description: str, reach: bool = True):
+def _page_airport(description: str, reach: bool = True, offset_y: float = 0.0):
     """A 200 x 75 m page on the runway's south edge (chain seed) with no
     centreline and no startup, a route ending at its east boundary (the
     04u lot reading), described as ``description``."""
     a = _synthetic(gate=True, island=False)
-    page = Pavement("page", Surface.ASPHALT, _rect(600.0, -90.0, 800.0, -15.0), (),
+    page = Pavement("page", Surface.ASPHALT,
+                    _rect(600.0, -90.0 + offset_y, 800.0, -15.0 + offset_y), (),
                     description)
     a = _dc.replace(a, pavements=a.pavements + (page,))
     if reach:
         nodes = dict(a.taxi_nodes)
-        nodes[40] = TaxiNode(40, (900.0, -50.0), "both")
-        nodes[41] = TaxiNode(41, (800.0, -50.0), "both")
+        nodes[40] = TaxiNode(40, (900.0, -50.0 + offset_y), "both")
+        nodes[41] = TaxiNode(41, (800.0, -50.0 + offset_y), "both")
         a = _dc.replace(a, taxi_nodes=nodes,
                         ground_routes=a.ground_routes + (GroundRoute(40, 41, "truck", False),))
     return a
@@ -93,11 +94,24 @@ def test_named_page_without_centreline_is_a_junction(law, rules):
 
 
 def test_default_name_and_aeronaval_stay_lots(law, rules):
+    """Neither name is the author's word: the page never becomes taxi
+    family.  §27 (RULINGS 2026-09-12c, 2026-09-12f) then acts on the
+    LOT verdict — this page runs its whole 200 m north edge along the
+    runway, so the lot it was read as is `apron` — but the taxi-name
+    rule is untouched: `junction` is still absent and `taxi_named`
+    still zero, which is what this twin is about."""
     for desc in ("New Taxiway 7", "Aeronaval"):
         cl = classify(_page_airport(desc), law, rules)
         roles = _page_roles(cl)
-        assert "parking_lot" in roles and "junction" not in roles, (desc, roles)
+        assert "junction" not in roles, (desc, roles)
         assert not cl.stats.get("taxi_named")
+        page = [c for c in cl.cells if c.ref == "page"]
+        assert page and all(c.role == "apron"
+                            and c.evidence.get("airside_edge_was") == "parking_lot"
+                            for c in page), (desc, [(c.role, c.evidence) for c in page])
+        # ...and the same page pulled OFF the runway edge is the lot it was
+        far = classify(_page_airport(desc, offset_y=-400.0), law, rules)
+        assert "parking_lot" in _page_roles(far), (desc, _page_roles(far))
 
 
 def test_named_page_with_centreline_keeps_the_corridor_role(law, rules):

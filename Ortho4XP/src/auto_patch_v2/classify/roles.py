@@ -27,6 +27,18 @@ evidence is a ``parking_lot``; one with none stays
 ``groundside_pavement``.  Pavement a network taxiway runs onto is
 airside even without a pavement touch-chain (item 4).
 
+§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c and
+2026-09-12f; ``rules.lot.airside_edge_min_m`` / ``mouth_width_factor``,
+``_airside_edge_flip``): a ``parking_lot`` / ``service_road`` /
+``service_junction`` face running at least 10 m LATERALLY along AIRSIDE
+PAVEMENT — weld-tolerant at ``emit.identity.weld_spacing_m`` — is an
+``apron``.  What keeps a shape groundside is the SHAPE OF THE CONTACT,
+not the neighbour's role: a free road meeting it END-ON at the road's
+MOUTH (the strip's end cap).  Slivers never flip; flips propagate and
+the pass iterates to a fixpoint.  One derivation site, after every
+groundside verdict (source lot / strip, 11ac demotion, 04u open
+default), so ``side`` stays a pure function of ``role``.
+
 THE TAXI-NAME RULE (RULINGS 2026-09-04z(1); ``rules.taxi_name``,
 ``evidence.taxi_name_match``): a face on a source whose apt.dat
 description names a taxiway is taxi family — ``junction`` — when no
@@ -59,6 +71,7 @@ from ..law import Law
 from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
+from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
@@ -290,6 +303,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         notes.append("no terminal: landside demotion skipped (user 2026-06-11)")
     road_ev = _road_evidence(scored, ev, rules)
     stats["demoted_lots"] = 0
+    final: list[list] = []
     for i, (face, role, ref, letter, evid, _net) in enumerate(scored):
         # THE DEMOTION YIELDS TO APRON EVIDENCE (owner RULINGS 2026-09-11ac
         # item 7).  The touch-chain is a CONNECTIVITY test and nothing
@@ -317,9 +331,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             role, evid = open_pavement_role(face, src_of.get(ref), evid, start_tree,
                                             i in road_ev, rules)
             stats["open_defaulted"] = stats.get("open_defaulted", 0) + int(role != "apron")
-        add(role, ref, face, str(evid.get("kind", "")), None, letter, evid)
+        final.append([role, ref, face, letter, evid, str(evid.get("kind", ""))])
 
-    # ── service roads outside pavement, pads ───────────────────────
+    # ── service roads outside pavement ─────────────────────────────
     corridors = []
     for c in ev.truck_chains:
         corridors.append(c.line.buffer(rules.service.road_width_m / 2,
@@ -333,7 +347,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             road = road.difference(ev.runway_union)
         for i, part in enumerate(polygon_parts(road)):
             if part.area >= rules.cells.min_area_m2:
-                add("service_road", f"route{i}", part, "service_road")
+                # a corridor face joins the §27 pass with the rest: the
+                # free-road ruling does not care which side of the
+                # pavement union the road was cut from
+                final.append(["service_road", f"route{i}", part, None, {},
+                              "service_road"])
+
+    # ── §27: an airside edge makes a lot (and a road) airside ──────
+    stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
+        airside_edge_flip(final, cells, law, rules)
+    for role, ref, face, letter, evid, kind in final:
+        add(role, ref, face, kind, None, letter, evid)
+
+    # ── pads ───────────────────────────────────────────────────────
     for ref, poly in ev.pads:
         add("building", ref, poly, "building")
     stats["pads_dropped"] = ev.dropped_pads

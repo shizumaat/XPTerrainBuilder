@@ -144,28 +144,44 @@ def test_open_page_a_route_reaches_is_a_lot(law):
 
 # ── 3. an open page with nothing is groundside, never apron ──────────────
 
-def _bare_page_airport(reach: bool):
+def _bare_page_airport(reach: bool, offset_y: float = 0.0, width: float = 200.0):
     """A 200 x 75 m open page on the RUNWAY's south edge (the chain seed:
     never demoted), touching no taxi centreline, no startup, no apron
     name, no road: within the runway's proximity band it is a junction
     (07-06), beyond it the slice scores APRON — the face the 04u default
     governs; optionally a route ending at its east boundary."""
     a = _synthetic(gate=True, island=False)
-    page = Pavement("bare", Surface.ASPHALT, _rect(600.0, -90.0, 800.0, -15.0), ())
+    page = Pavement("bare", Surface.ASPHALT,
+                    _rect(600.0, -90.0 + offset_y, 600.0 + width, -15.0 + offset_y), ())
     a = _dc.replace(a, pavements=a.pavements + (page,))
     if reach:
         nodes = dict(a.taxi_nodes)
-        nodes[40] = TaxiNode(40, (900.0, -50.0), "both")
-        nodes[41] = TaxiNode(41, (800.0, -50.0), "both")
+        nodes[40] = TaxiNode(40, (600.0 + width + 100.0, -50.0 + offset_y), "both")
+        nodes[41] = TaxiNode(41, (600.0 + width, -50.0 + offset_y), "both")
         a = _dc.replace(a, taxi_nodes=nodes,
                         ground_routes=a.ground_routes + (GroundRoute(40, 41, "truck", False),))
     return a
 
 
 def test_open_page_with_nothing_is_groundside_by_default(law):
+    """04u: an open page with NO evidence — no startup, no centreline, no
+    apron name, no `aeroway=apron` — is `groundside_pavement`, or a
+    `parking_lot` where a road reaches it.
+
+    THE DEFAULT HOLDS WHERE THERE IS NO AIRSIDE EDGE (owner RULINGS
+    2026-09-12i).  §27 widened its class to `groundside_pavement` at
+    12i: the owner's 12c sentence is universal, and a page running >= 10 m
+    LATERALLY along airside pavement has evidence, which a DEFAULT yields
+    to.  So this twin reads the default on a page pulled clear of the
+    runway, and asserts the airside-edge verdict on the page welded to it.
+    """
     rules = load_rules()
     assert rules.groundside.default_open_role == "groundside_pavement"
-    a = _bare_page_airport(reach=False)
+    # A NARROW page on the runway edge: chain-seeded, so the 04u OPEN
+    # DEFAULT is what speaks (not the touch-chain demotion), and every
+    # shared edge — with the runway, and with its own proximity-band
+    # junction — is under §27's 10 m, so nothing flips.
+    a = _bare_page_airport(reach=False, width=6.0)
     cl = classify(a, law, rules)
     cells = [c for c in cl.cells if c.ref == "bare"]
     roles = {c.role for c in cells}
@@ -174,15 +190,41 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     assert all(c.side == "groundside" and c.evidence.get("open_default") == 1.0
                and not c.evidence.get("demoted") for c in gs)
     assert cl.stats["open_defaulted"] >= 1
-    # the strip within the runway's proximity band is maneuvering surface
-    assert any(c.role == "junction" and c.evidence.get("near_route") == 1.0 for c in cells)
+    assert not any(c.evidence.get("airside_edge_flip") for c in cl.cells
+                   if c.ref == "bare")
     # the apron itself (startup + taxi centreline) is still apron
     assert any(c.role == "apron" and c.ref == "apron" for c in cl.cells)
     # ...and the same page with a route reaching it is a lot
-    cl2 = classify(_bare_page_airport(reach=True), law, rules)
+    cl2 = classify(_bare_page_airport(reach=True, width=6.0), law, rules)
     cells2 = [c for c in cl2.cells if c.ref == "bare"]
     assert cells2 and "parking_lot" in {c.role for c in cells2} and \
         "apron" not in {c.role for c in cells2}, cells2
+
+
+def test_an_open_page_welded_to_the_runway_is_apron(law):
+    """§27 (6) (owner RULINGS 2026-09-12i): the SAME bare page on the
+    runway's south edge runs 200 m of LATERAL airside boundary, so it is
+    `apron` — with or without a road reaching it.  Before 12i the page
+    flipped only when a road made it a lot, and the same page on the same
+    runway edge read `groundside_pavement` without one; that split is what
+    12i closed.  The strip inside the runway's proximity band stays the
+    junction the 07-06 band makes it."""
+    rules = load_rules()
+    for reach in (False, True):
+        cl = classify(_bare_page_airport(reach=reach), law, rules)
+        cells = [c for c in cl.cells if c.ref == "bare"]
+        flipped = [c for c in cells if c.evidence.get("airside_edge_flip")]
+        assert flipped, (reach, [(c.role, c.evidence.get("open_default")) for c in cells])
+        assert {c.role for c in flipped} == {"apron"}
+        was = {str(c.evidence.get("airside_edge_was")) for c in flipped}
+        assert was <= {"groundside_pavement", "parking_lot"}, was
+        assert was == ({"parking_lot"} if reach else {"groundside_pavement"}), (reach, was)
+        assert all(float(c.evidence["airside_edge_m"]) >= 10.0 for c in flipped)
+        # the proximity band's own verdict is untouched where the band
+        # splits the page (the road-reached page is one lot face, uncut)
+        if not reach:
+            assert any(c.role == "junction" and c.evidence.get("near_route") == 1.0
+                       for c in cells)
 
 
 # ── 4. a lot beside a pad keeps the set-back and its own level ───────────

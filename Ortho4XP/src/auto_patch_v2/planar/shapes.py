@@ -705,7 +705,12 @@ def _joints_from(pm: PlanarMap, segs: list[LineString], pairs: list[tuple[int, i
     pairs whose midpoints lie on it."""
     if not segs:
         return []
-    merged = linemerge(unary_union(segs))
+    # ``unary_union`` of ONE segment is a bare LineString, which
+    # ``linemerge`` refuses ("Cannot linemerge LINESTRING ...") — a
+    # single-joint contour is nothing to merge (surfaced at CYXY by §27,
+    # RULINGS 2026-09-12f, when the airside-edge flip left one segment)
+    union = unary_union(segs)
+    merged = union if union.geom_type == "LineString" else linemerge(union)
     lines = list(getattr(merged, "geoms", [merged]))
     pairs = sorted(set(pairs))
     mids = np.array([[0.5 * (pm.vertices[a].xy[0] + pm.vertices[b].xy[0]),

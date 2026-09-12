@@ -61,6 +61,9 @@ from . import line_object as _lo
 from . import obj8_split as _split
 from . import placement_carrier as _pc
 from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
+# §2's RECORDS live next door (the 1,000-line law) and are re-exported:
+# every caller and every twin reads them as this module's.
+from .placement_record import Body, Kept, Split, SplitSet   # noqa: F401
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
            "is_elevated",
@@ -129,139 +132,6 @@ def pads_rims_from_graded(path: str) -> tuple[tuple[_ar.PadRing, ...],
         return pads_rims_from_graded_doc(json.loads(fh.read()))
 
 
-# ── the product ──────────────────────────────────────────────────────────
-
-@_dc.dataclass(frozen=True)
-class Body:
-    """§2's ``Body``."""
-
-    body_id: int
-    body_class: str
-    components: tuple[int, ...]
-    anchor: _ar.Anchor
-    new_resource: str
-    #: the part ids the body holds (the census reads their feet)
-    pids: tuple[int, ...] = ()
-    merged_into: str = ""
-    #: §14 (1): was the CARRIER itself written at its own anchor?  A
-    #: carrier kept whole keeps its AUTHORED row, so the two files then
-    #: stand at different heights — reported, never silent.
-    merged_into_written: bool = True
-    #: every ground-contact FOOT the body holds, ``(lat, lon, authored y)``
-    #: — §7's census reads the design surface under each of these against
-    #: the surface at the anchor
-    feet: tuple[tuple[float, float, float], ...] = ()
-    #: the components the CUT takes whole (``components`` also names the
-    #: parent component of a SEGMENT, which the cut takes by triangle)
-    cut_components: tuple[int, ...] = ()
-    #: a SEGMENT's own authored triangles (11f (2)); empty for a body that
-    #: is a set of whole components
-    tris: tuple[tuple[int, int, int], ...] = _dc.field(default=(), repr=False)
-    #: §13: this file's whole content is ELEVATED — it stands on no
-    #: ground contact.  The law forbids it for a SPLIT body (the census
-    #: bar ``elevated bodies as own files`` is 0); it is true only of the
-    #: single record standing in for a FOOTLESS placement kept whole.
-    elevated: bool = False
-    #: how many of the group's bodies were elevated and are CARRIED here
-    elevated_members: int = 0
-    #: §15 (3): the body's PLAN box ``(lat0, lon0, lat1, lon1)`` — what
-    #: the stands-over census asks "which footed body is under this one"
-    #: with, and the box §15 (1)'s carrier search itself reads
-    plan_box: tuple[float, float, float, float] | None = None
-    #: §16 (2): the body's OWN GEOMETRY box (every part it holds, the
-    #: carried ones included) — what the §16 census reads the ground
-    #: under.  ``plan_box`` stays the GROUND footprint §15 (3) reads.
-    geom_box: tuple[float, float, float, float] | None = None
-    #: §16 (3): the body's bounded FOOTPRINT boxes, the geometry the
-    #: stands-over relation is measured on by the law and the census
-    #: alike (``placement_carrier.foot_boxes``)
-    foot_boxes: tuple[tuple[float, float, float, float], ...] = ()
-    #: §16a (2): how far this body's own zero stands from the ground
-    #: under its own feet — what says whether the law would let it CARRY
-    #: anything, and therefore whether the census may call it "the body
-    #: beneath" (one relation, one reading).  ``None`` off-sheet.
-    ground_off: float | None = None
-    #: §16 (3): the body's FOOTPRINT FILL (``placement_carrier.fill_of``)
-    #: — what says whether it is a SOLID that may carry another body's
-    #: zero, and what the census must read to judge the same relation
-    fill: float = 1.0
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        a = self.anchor
-        return {"body_id": self.body_id, "class": self.body_class,
-                "components": list(self.components),
-                "anchor": {"lat": a.lat, "lon": a.lon},
-                "anchor_reason": a.reason, "new_resource": self.new_resource,
-                "authored_offset": {"dx": a.offset[0], "dy": a.offset[1],
-                                    "dz": a.offset[2]},
-                "surface_z": a.surface_z, "y_zero": a.y_zero,
-                "segment_tris": len(self.tris),
-                "elevated": self.elevated,
-                "elevated_members": self.elevated_members,
-                "merged_into": self.merged_into or None,
-                "plan_box": None if self.plan_box is None else list(self.plan_box),
-                "geom_box": None if self.geom_box is None else list(self.geom_box),
-                "foot_boxes": [list(b) for b in self.foot_boxes],
-                "ground_off": self.ground_off,
-                "fill": self.fill,
-                "feet": len(self.feet)}
-
-
-@_dc.dataclass(frozen=True)
-class Split:
-    """§2's ``Split``: one original placement and the bodies replacing it."""
-
-    index: int
-    placement_id: str
-    resource: str
-    authored_path: str
-    lat: float
-    lon: float
-    heading: float
-    bodies: tuple[Body, ...]
-    files: tuple[_split.SplitFile, ...] = ()
-    write_error: str = ""
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        return {"placement": {"index": self.index, "id": self.placement_id,
-                              "resource": self.resource, "lat": self.lat,
-                              "lon": self.lon, "heading": self.heading},
-                "bodies": [b.to_dict() for b in self.bodies],
-                "files": [f.resource for f in self.files]}
-
-
-@_dc.dataclass(frozen=True)
-class Kept:
-    index: int
-    placement_id: str
-    resource: str
-    reason: str
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        return {"index": self.index, "id": self.placement_id,
-                "resource": self.resource, "reason": self.reason}
-
-
-@_dc.dataclass(frozen=True)
-class SplitSet:
-    splits: tuple[Split, ...]
-    kept: tuple[Kept, ...]
-    counts: _t.Mapping[str, int]
-    #: the KEPT-whole placements as single-body records — §7's census is
-    #: over the whole pack, and a placement that stays whole is still an
-    #: AGL placement standing on its anchor's surface
-    whole: tuple[Split, ...] = ()
-
-    @property
-    def all(self) -> tuple[Split, ...]:
-        return self.splits + self.whole
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        return {"splits": [s.to_dict() for s in self.splits],
-                "kept": [k.to_dict() for k in self.kept],
-                "counts": dict(self.counts)}
-
-
 # ── the authored frame ───────────────────────────────────────────────────
 
 def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
@@ -286,10 +156,20 @@ def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
 # §10's segment cut, §16 (2)'s terrain cut and the body formation they
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
-from .placement_cut import (GROUND_CELL_M, _bodies_of,  # noqa: E402
+from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
+                            GROUND_CELL_M, _bodies_of,
                             _cut_parts_by_terrain, _LineCutter, _part_zero,
                             _plan_span_m, _Raw, _raw_bodies, _rim_of,
-                            authored_latlon, pristine_path, segment_anchor)
+                            _geom_ground, authored_latlon, pristine_path,
+                            segment_anchor, surface_many, thin_points)
+
+
+def _geom_pts(raw: _t.Sequence[_Raw], grp: _t.Sequence[int]
+              ) -> tuple[tuple[float, float, float], ...]:
+    """§16b (4): the WRITTEN GEOMETRY of a file — every raw body in it,
+    thinned once more so a file made of many pieces publishes no more
+    samples than one body does."""
+    return thin_points(tuple(p for i in grp for p in raw[i][6]), GEOM_PTS_MAX)
 
 
 def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
@@ -366,7 +246,8 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                                [b for i in grp if not raw[i][4]
                                 for b in part_boxes[i]]
                                or [b for i in grp for b in part_boxes[i]])
-                               if part_boxes else 1.0)))
+                               if part_boxes else 1.0),
+                           geom_pts=_geom_pts(raw, grp)))
     return bodies
 
 
@@ -419,7 +300,8 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 fill=(_pc.fill_of(_pc.hull_of(b for i in grp
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
-                      if part_boxes else 1.0))
+                      if part_boxes else 1.0),
+                geom_pts=_geom_pts(raw, grp))
 
 
 #: §16 (3)'s named residual: a body with no carrier the law will accept,
@@ -468,7 +350,8 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 fill=(_pc.fill_of(_pc.hull_of(b for i in grp
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
-                      if part_boxes else 1.0))
+                      if part_boxes else 1.0),
+                geom_pts=_geom_pts(raw, grp))
 
 
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
@@ -541,6 +424,9 @@ class _Staged:
     #: the member's ONE cutter — pass 1's segment and terrain cuts and
     #: §16a (1)'s carrier cut read the same parsed OBJ8 through it
     cutter: _t.Any = None
+    #: the design surface, so a piece §16a (1)'s carrier cut makes reads
+    #: its own terrain group like every other body (§16b (1))
+    surface: _t.Any = None
     #: the member's own GROUND groups (each becomes a body file)
     groups: list[list[int]] = _dc.field(default_factory=list)
     #: §16a (2): one per ``groups`` entry — how far that group's own zero
@@ -553,10 +439,39 @@ class _Staged:
     #: file of ANOTHER member (or, for a footless placement, all of them)
     carried: list[tuple[list[int], _pc.Candidate, str]] = \
         _dc.field(default_factory=list)
-    #: §16 (3): body indices with NO carrier the law accepts — each is
-    #: written as its own file anchored on the ground under its own
-    #: footprint, its authored y kept (``footless_own_ground``)
-    own_ground: list[int] = _dc.field(default_factory=list)
+    #: §16 (3): the body GROUPS with no carrier the law accepts — each
+    #: is written as ONE file anchored on the ground under its own
+    #: footprint, its authored y kept (``footless_own_ground``).  A GROUP
+    #: and not a body since §16b (2): the carrier question is asked per
+    #: terrain group, so the answer "nobody" is given per group too.
+    own_ground: list[list[int]] = _dc.field(default_factory=list)
+
+
+def _footless_targets(st: "_Staged", tol_m: float
+                      ) -> list[tuple[list[int], list[tuple]]]:
+    """§16b (2): the carrier questions a FOOTLESS placement asks.
+
+    §14 (1) asked ONE — a footbridge is a rigid span and a terminal roof
+    a rigid plate, and two carriers would give its halves two zeros.
+    §16b (1)'s cut has already divided the placement WHERE THE GROUND
+    UNDER IT DIFFERS, so rigidity holds within a terrain group and the
+    question is asked once per group: a span over one terrain is still
+    one target, and LEMD's `green-TEJ3` — one welded roof-panel resource
+    over 1 x 2 km — asks per piece and rides the roof each piece stands
+    over."""
+    groups: list[list[int]] = []
+    levels: list[float | None] = []
+    for i in range(len(st.raw)):
+        g = st.raw[i][7] if len(st.raw[i]) > 7 else None
+        for gi, lv in enumerate(levels):
+            if (g is None) == (lv is None) and (
+                    g is None or tol_m <= 0.0 or abs(float(g) - float(lv)) <= tol_m):
+                groups[gi].append(i)
+                break
+        else:
+            groups.append([i])
+            levels.append(g)
+    return [(g, [b for i in g for b in st.part_boxes[i]]) for g in groups]
 
 
 def _carrier_pieces(st: "_Staged", grp: list[int],
@@ -611,7 +526,9 @@ def _carrier_pieces(st: "_Staged", grp: list[int],
     out: list[tuple[list[int], _pc.Candidate, str]] = []
     for k, tris, box in pieces:
         bi = len(st.raw)
-        st.raw.append(([p for p in parts], senior[1], senior[2], (), True, tris))
+        _pp, _sp, _gg = _geom_ground(st.cutter, parts, tris, st.surface)
+        st.raw.append(([p for p in parts], senior[1], senior[2], (), True, tris,
+                       _pp, _gg))
         st.boxes.append(box)
         st.part_boxes.append([box])
         out.append(([bi], over[k][0], over[k][1]))
@@ -625,7 +542,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  elevated_base_m: float = 0.0, line_segment_m: float = 0.0,
                  line_stations_max: int = 0, line_ratio: float = 0.0,
                  line_max_h: float = 0.0, foot_band_m: float = 0.0,
-                 carrier_fill_min: float = 0.0,
+                 carrier_fill_min: float = 0.0, coarsen_reach_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -720,7 +637,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               line_segment_m=line_segment_m,
                               line_stations_max=line_stations_max,
                               line_ratio=line_ratio, line_max_h=line_max_h,
-                              foot_band_m=foot_band_m)
+                              foot_band_m=foot_band_m,
+                              coarsen_reach_m=coarsen_reach_m)
             counts["bodies_uncoarsened"] = \
                 counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])
@@ -733,7 +651,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                           for i, r in enumerate(raw)]
             staged.append(_Staged(mi, m, list(raw), boxes, part_boxes, elevated,
                                   bool(raw) and len(elevated) == len(raw),
-                                  cutter=cutter,
+                                  cutter=cutter, surface=surface,
                                   terrain_cut=(counts.get("bodies_re_cut_by_terrain", 0)
                                                + counts.get("bodies_re_cut_by_triangle", 0)
                                                ) > _cut0))
@@ -749,7 +667,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             keys = [(i, r[2], len(r[3])) for i, r in enumerate(raw)]
             classes = [r[1] for r in raw]
             merged = coarsen(keys, split_tol_m, st.elevated, boxes,
-                             attach_elevated=False)
+                             attach_elevated=False, reach_m=coarsen_reach_m,
+                             grounds=[r[7] for r in raw])
             # §14 (2)/(3): ONE RIGID OBJECT IS ONE BODY — every BASIN
             # body of the resource binds (its floor, walls and parapet
             # share the rim's one zero however far the pit's own depth
@@ -766,8 +685,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     counts["basin_bodies_bound"] += 1
             # §15 (2): ...and a bond wider than the terrain it stands on
             # is re-cut by §9's own rule
-            bound, n_recut = _pc.re_cut_by_terrain(bound, keys, split_tol_m,
-                                                  classes)
+            bound, n_recut = _pc.re_cut_by_terrain(
+                bound, keys, split_tol_m, classes, [r[7] for r in raw],
+                boxes, coarsen_reach_m)
             counts["groups_re_cut"] += n_recut
             st.groups = bound
             if len(bound) < len(raw) - len(st.elevated):
@@ -810,6 +730,19 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
+        # §16b (speed): the unit's SOLID candidates and their plan index,
+        # computed ONCE — the class / fill tests and the "which candidate
+        # could this body stand over" question do not depend on the body
+        # asking, and per search they were 16 M and 11 M operations.
+        _solid = []
+        for c in cands:
+            if c.body_class == _ar.LINE_SEGMENT:
+                refused["line"] = refused.get("line", 0) + 1
+            elif carrier_fill_min > 0.0 and c.fill < carrier_fill_min:
+                refused["fill"] = refused.get("fill", 0) + 1
+            else:
+                _solid.append(c)
+        _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
         for st in staged:
             # §14 (1): a FOOTLESS placement is ONE body — a footbridge is
             # a rigid span and a terminal roof a rigid plate.  §16a (1):
@@ -817,14 +750,30 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # CARRIER — the pieces are the carrier's terrain groups
             # intersected with the body's own footprint, one per group,
             # each riding that group's zero at the authored offset.
-            # §14a (2): a FLOOR member takes NO carrier
-            targets, floor = _br.carrier_targets(
-                st.raw, st.part_boxes, st.elevated, st.footless)
+            # §16b (2): EACH PIECE FINDS ITS CARRIER WHERE IT STANDS.
+            # §14 (1) took ONE carrier for a whole footless placement —
+            # right for a rigid footbridge, wrong for a roof-panel
+            # resource the ground under it divides: §16b (1) has already
+            # cut every body into terrain groups, so a placement that IS
+            # one rigid span is still one target, and one the terrain
+            # divided asks per piece.
+            targets = (_footless_targets(st, split_tol_m) if st.footless else
+                       [([i], list(st.part_boxes[i])) for i in sorted(st.elevated)])
+            # §14a (2): a FLOOR member takes NO carrier.  §16b (2) builds
+            # the targets first (per terrain group, or per elevated body)
+            # and the floor test then removes its members from every one
+            # of them — the same exclusion ``basin_ring.carrier_targets``
+            # applied to §14 (1)'s single whole-placement group, re-
+            # expressed over the pieces.  A target left empty disappears.
+            floor = _br.floor_bodies(st.raw)
             if floor:
                 counts["basin_floor_own_ground"] = \
                     counts.get("basin_floor_own_ground", 0) + len(floor)
-            st.own_ground.extend(i for i in sorted(floor)
-                                 if st.footless or i in st.elevated)
+                targets = [(g, [b for i in g for b in st.part_boxes[i]])
+                           for g in ([j for j in grp if j not in floor]
+                                     for grp, _bx in targets) if g]
+                st.own_ground.extend([i] for i in sorted(floor)
+                                     if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             for grp, gboxes in targets:
                 bx = _pc.hull_of(gboxes)
@@ -832,15 +781,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     frozenset(p.pid for i in grp for p in st.raw[i][0]),
                     bx, cands, adj, _pc.foot_boxes(gboxes),
                     fill_min=carrier_fill_min, tol_m=split_tol_m,
-                    refusals=refused)
+                    refusals=refused,
+                    # §16b (3): the ground under the CARRIED PIECE — read
+                    # only if the search falls back past "stands over"
+                    carried_ground=lambda _b=bx, _g=gboxes: _pc.ground_under(
+                        surface, _pc.foot_boxes(_g), _b),
+                    solid_cands=_solid, index=_index)
                 if not over:
                     # §16 (3): no carrier the law will accept — the body
                     # anchors on the ground under its OWN footprint with
                     # its authored y kept, never dropped from the plan
                     # (before §16 it was silently left out of every file).
-                    # A FOOTLESS placement takes pass 4's own branch.
-                    if not st.footless:
-                        st.own_ground.extend(grp)
+                    # §16b (2): a PIECE with no carrier takes its own
+                    # ground, footless placement or not — where §14 (1)
+                    # asked once for the whole placement, the pieces are
+                    # asked one at a time, and a piece nothing carries
+                    # must still be written (pass 4's whole-placement
+                    # branch remains for the placement NOTHING carries).
+                    st.own_ground.append(list(grp))
                     continue
                 # the same cap the terrain cut takes (``[rebake]
                 # line_object_stations_max``); 0 means uncapped
@@ -861,8 +819,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     # must be written alone.
                     cz = (None if c.anchor.surface_z is None
                           else float(c.anchor.surface_z) - float(c.anchor.y_zero))
-                    same = _pc.group_at_zero(st.groups, st.raw, cz, split_tol_m,
-                                             _pc.senior_of)
+                    same = _pc.group_at_zero(
+                        st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
+                        next((st.raw[i][7] for i in bi
+                              if st.raw[i][7] is not None), None))
                     if same >= 0:
                         counts["elevated_ride_own_file_same_zero"] = \
                             counts.get("elevated_ride_own_file_same_zero", 0) + 1
@@ -871,7 +831,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     if not st.footless:
                         counts["elevated_ride_other_file"] += 1
                     rides.setdefault((c.member, c.group), ([], why))[0].extend(bi)
-            st.carried = _pc.merge_rides(rides, by_key, split_tol_m)
+            st.carried = _pc.merge_rides(rides, by_key, split_tol_m,
+                                         st.boxes, coarsen_reach_m,
+                                         [r[7] for r in st.raw])
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
@@ -904,8 +866,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                       else _group_bodies(st.raw, st.groups, m, u, counts,
                                          by_class, st.part_boxes,
                                          st.ground_off))
-            for i in st.own_ground:
-                bodies.append(_own_ground_file(st.raw, [i], m, u, surface,
+            for grp in st.own_ground:
+                bodies.append(_own_ground_file(st.raw, grp, m, u, surface,
                                                len(bodies), counts, by_class,
                                                st.part_boxes))
             for grp, c, why in st.carried:
@@ -919,7 +881,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
             before = len(splits)
             if st.footless:
-                counts["footless_carried"] += 1
+                # §16b (2): the placement is asked PER PIECE, so a
+                # footless placement can be partly carried and partly on
+                # its own ground — it counts as carried only where a
+                # carrier was actually found
+                if st.carried:
+                    counts["footless_carried"] += 1
+                else:
+                    counts["footless_no_carrier"] += 1
                 if not all(b.merged_into_written for b in bodies):
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
@@ -992,7 +961,7 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             merged_into=b.merged_into, surface_z=b.anchor.surface_z,
             y_zero=b.anchor.y_zero, plan_box=b.plan_box,
             geom_box=b.geom_box, foot_boxes=b.foot_boxes, fill=b.fill,
-            ground_off=b.ground_off,
+            ground_off=b.ground_off, geom_pts=b.geom_pts,
             feet=len(b.feet)) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)

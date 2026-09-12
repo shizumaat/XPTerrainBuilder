@@ -81,6 +81,17 @@ def surface_from_graded(path: str):
         z = float(np.asarray(z).reshape(-1)[0])
         return None if not np.isfinite(z) else z
 
+    def many(las, los):
+        """§16b: the VECTORISED read (``placement_cut.surface_many``).
+        The cut and the census both read a body's whole written geometry,
+        and a Delaunay interpolator's per-call overhead dwarfs the
+        interpolation — one call per body instead of one per point."""
+        z = np.asarray(interp(np.asarray(las, dtype=float),
+                              np.asarray(los, dtype=float))).reshape(-1)
+        return [None if not np.isfinite(q) else float(q) for q in z]
+
+    sampler.many = many                       # type: ignore[attr-defined]
+
     # ONE derivation site for pads/rims (lane v2planfix): the shipped
     # engine path calls the same function, so the tool and the build
     # cannot classify differently.
@@ -431,6 +442,10 @@ def main() -> int:
                     "gate back into the population (§16 (1)) by reading their "
                     "rows from the pack's own DSF — what a build's plan now "
                     "carries by itself, for a plan written before §16")
+    ap.add_argument("--coarsen-reach", type=float, default=None,
+                    help="override [placement] coarsen_reach_m (§16b (1)'s "
+                         "PLAN CONTIGUITY: two bodies of one placement join "
+                         "one file only within this; 0 disarms it)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -471,7 +486,11 @@ def main() -> int:
                          line_max_h=rb.line_object_max_h,
                          foot_band_m=band_m, abutments=abut,
                          carrier_fill_min=_law.tables.structures.placement
-                         .carrier_fill_min)
+                         .carrier_fill_min,
+                         coarsen_reach_m=(_law.tables.structures.placement
+                                          .coarsen_reach_m
+                                          if a.coarsen_reach is None
+                                          else a.coarsen_reach))
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -538,6 +557,14 @@ def main() -> int:
     v16 = PC.census_v16([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
                         sampler)
     for line in PC.census_v16_lines(v16):
+        print(line)
+    # §16b (4): the two bars read on the WRITTEN GEOMETRY — never on
+    # ``geom_box``, which for a carried body the cut left whole is the
+    # patch its CARRIER covers (11ap).
+    v16b = PC.census_v16b([q.to_dict() for q in _sp]
+                          + [q.to_dict() for q in _wh], sampler,
+                          split_tol_m=tol_m)
+    for line in PC.census_v16b_lines(v16b):
         print(line)
     print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "
           f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s), "

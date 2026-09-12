@@ -121,11 +121,24 @@ class Anchor:
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────
 
+#: metres per degree, MEMOISED at 1e-4 deg of latitude (11 m): the value
+#: changes by ~1e-5 m/deg over that, and §16b's cut asks for it three
+#: million times per airport (2.6 s of the LEMD plan stage, measured).
+_MPD: dict[int, tuple[float, float]] = {}
+
+
 def _m_per_deg(lat: float) -> tuple[float, float]:
-    return (111_132.954 - 559.822 * math.cos(2 * math.radians(lat))
-            + 1.175 * math.cos(4 * math.radians(lat)),
-            111_412.84 * math.cos(math.radians(lat))
-            - 93.5 * math.cos(3 * math.radians(lat)))
+    k = int(lat * 10_000.0)
+    hit = _MPD.get(k)
+    if hit is None:
+        r = math.radians(lat)
+        hit = (111_132.954 - 559.822 * math.cos(2 * r)
+               + 1.175 * math.cos(4 * r),
+               111_412.84 * math.cos(r) - 93.5 * math.cos(3 * r))
+        if len(_MPD) > 100_000:
+            _MPD.clear()
+        _MPD[k] = hit
+    return hit
 
 
 def _inside(ring: _t.Sequence[tuple[float, float]], lat: float, lon: float) -> bool:

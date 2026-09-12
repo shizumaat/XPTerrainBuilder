@@ -127,3 +127,21 @@ class Placement:
     #: 0 disarms the test (every footed body a carrier, the pre-11ai
     #: reading).
     carrier_fill_min: float = 0.2
+
+    #: PLAN CONTIGUITY (owner RULINGS 2026-09-11ap; spec §16b (1)).  §9
+    #: joined bodies of one placement into ONE file whenever their
+    #: intended zeros agreed, with NO distance limit: LEMD's taxi-sign
+    #: resource put 80 signs over 835 x 2,319 m into files by height
+    #: alone, and ``SENRG__b10`` took its zero from a sign 1,590 m away
+    #: (+4.58 m at the owner's site).  Two bodies join only when their
+    #: plan boxes stand within this of each other; 0 disarms the test
+    #: (the pre-11ap reading, zero agreement alone).
+    #:
+    #: IT IS NEVER BELOW ``line_segment_m`` (Fable's §16b (1) amendment):
+    #: §10 cuts a line object into stations THAT far apart on purpose, so
+    #: a shorter reach makes every station its own file by construction —
+    #: measured at 30 m, LEMD's line-segment files went 300 -> 1,755 and
+    #: the airport 1,371 -> 4,050.  Chaining a body onto one a kilometre
+    #: away is forbidden by the TERRAIN-GROUP test beside this one (the
+    #: design surface under each must agree too), never by the reach.
+    coarsen_reach_m: float = 100.0

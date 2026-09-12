@@ -471,6 +471,13 @@ def _print_elevated(plan: dict, sampler=None) -> None:
                 plan.get("splits", ()),
                 lambda la, lo: sampler.elevation_at_or_none(la, lo))):
             print(line)
+        # §16b (4): the same two bars, read on the WRITTEN GEOMETRY the
+        # plan publishes per body — one implementation, both tools.
+        for line in PC.census_v16b_lines(PC.census_v16b(
+                plan.get("splits", ()),
+                lambda la, lo: sampler.elevation_at_or_none(la, lo),
+                split_tol_m=tol)):
+            print(line)
 
 
 def main(argv: list[str] | None = None) -> int:

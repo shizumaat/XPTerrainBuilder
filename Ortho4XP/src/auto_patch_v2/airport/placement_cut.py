@@ -676,16 +676,17 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             # carrier is a body the roofs over it cannot ride.  The test
             # is the refusal's own (:func:`anchor_ground_off`), so one
             # reading decides both.
-            # THE CHEAP PRE-TEST, and it is the class's own: a body
-            # mis-anchored on its own feet is one whose feet are
-            # AUTHORED over more relief than the tolerance.  A body whose
-            # feet all stand at one authored height can only be off
-            # because the GROUND moves under it, which is the cut below.
-            # Pure geometry: no surface read, no anchor.
-            _fy = [f[2] for p in parts for f in p.feet]
+            # The test is §16a (2)'s OWN — the median of what this
+            # body's feet say its zero is, against the zero its anchor
+            # takes — so one reading decides both the cut and the
+            # refusal.  A cheaper stand-in was tried and REFUTED: gated
+            # on the feet's AUTHORED span alone the cut fired 195 times
+            # instead of 615 and LEMD's refusal set came back at 100
+            # rather than 21, because a body can be off its own feet
+            # over ground that moves under it as well as over relief it
+            # was authored with.
             off = None
-            if (not is_basin and _fy and split_tol_m > 0.0
-                    and max(_fy) - min(_fy) > split_tol_m):
+            if not is_basin and any(p.feet for p in parts):
                 if whole is None:
                     whole = _whole_body(parts, m, u, surface, pads, rims,
                                         split_tol_m)

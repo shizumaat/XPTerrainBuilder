@@ -1575,3 +1575,99 @@ members through ONE path), `airport/placement_carrier.py` (§16a (2):
   first arm, 176 members in the last).  Over the 1 % threshold and
   reported for the owner's decision; a vectorised `solid_components` or a
   per-member component cache would take most of it and is not this lane.
+
+**MEASURED (round 3, lane `v2skipped3`, 2026-09-11; branch `claude/v2skipped3`).**
+The owner's 11ak items (1)-(4), on the app's 1.50.1763 frame (the rebake
+plan + `<ICAO>.graded.json`, `--admit-skipped`), against main `adb64ed1`
+(= `v2skipped2`).  Implemented in `airport/placement_census.py` (1),
+`airport/placement_cut.py` (`_LineCutter.foot_groups`, the §16 (2) cut
+BY FOOT) (2), and `airport/obj8.py` + `airport/placement_carrier.py` (4).
+
+* **THE CENSUS SPLIT (1).**  A CARRIED body's `beneath` is the carrier
+  THE LAW CHOSE — `merged_into`, resolved BY IDENTITY over every row
+  that reads a zero, the kept-whole placements included.  A body the
+  law refused as a carrier (§16a (2)) is no longer called "beneath":
+  the row is counted and named as its own class, `carried over a
+  refused body`, printed with how far that body's own feet stand off.
+  The two counts ADD to the old one (LEMD 4 = 0 float + 3 refused + 1
+  the identity reading closed).
+* **THE FOOT RE-CUT (2).**  §16 (2)'s two cuts ask what the GROUND under
+  a body does; neither sees the body whose own FEET disagree over ground
+  that barely moves (`green-PKT4__b8`: 0.5 m of terrain, 7.43 m of
+  authored relief), which is exactly the body §16a (2) refuses.  The
+  feet are now grouped by the zero each of them says the body has
+  (`surface(foot) - y_foot`, §7's reading and `anchor_ground_off`'s, so
+  ONE reading decides both the cut and the refusal), and each triangle
+  joins the group of the foot nearest it in plan — a wall stays with the
+  floor it stands on.  LEMD refusal set **117 -> 21**; OTHH **55 -> 19**.
+  A cheaper gate — the feet's AUTHORED span alone, no surface read — was
+  tried and REFUTED: the cut then fired 195 times instead of 615 and
+  LEMD's refusal set came back at 100, because a body is off its own
+  feet over ground that moves under it as well as over relief it was
+  authored with.
+* **OTHH'S DECKS AND ROADS (3): NOT THE SHARED-ZERO COLLAPSE.**  The
+  decks ARE cut across their carriers (`Bridge_03_LOD0_000` in four
+  pieces at zeros 3.82 / 4.94 / 5.43 / 8.32), and the collapse cannot
+  have merged them: it drops only a candidate standing within
+  `split_tol_m` of one already kept, and a ramp's groups stand metres
+  apart.  The mechanism is the INSTRUMENT: those decks ride a carrier
+  written WHOLE, whose `merged_into` names its MEMBER RESOURCE
+  (`_carried_file`'s `carrier_res` when the carrier was not written)
+  and not a body file — 271 carried bodies at OTHH, 1 at LEMD — so the
+  census could not find the law's carrier at all and fell back to
+  whatever the footprint lay over: the road body on the ground beside
+  the ramp, +4.36 m.  Resolving the kept-whole key closes all ten.
+  What remains true of those placements is the class the report already
+  counts by name, `N onto a carrier still on its authored row` (OTHH
+  245): the carried body takes the carrier's COMPUTED anchor while the
+  carrier keeps its authored row.  Reported, not this lane's bar.
+* **THE TIME (4).**  The per-member PARSE CACHE was built and REFUTED:
+  one cutter per member and the member IS the file — 318 parses over 318
+  distinct files at OTHH (1 cache hit), 179 over 179 at LEMD (0) — and
+  it cost ~230 MB of RSS for nothing.  Deleted.  What the 42 s actually
+  was: `obj8.solid_components` masking EVERY triangle once per component
+  (a clutter object publishes thousands of components over tens of
+  thousands of triangles — quadratic in the two).  Read in ONE stable
+  sort and split at the label boundaries it is the same components in
+  the same order: OTHH 66 -> 43.5 s.  The rest was
+  `bind_plan_overlaps` asking `overlap` 77 million times: ordered by the
+  hull's south edge the scan breaks once a candidate starts north of
+  this body's north edge — the same partition, since union-find does not
+  care in what order it is told.  OTHH 43.5 -> 31 s.
+* **THE BARS, matched arms:**
+
+  | bar | main `adb64ed1` | `v2skipped3` |
+  |---|---|---|
+  | LEMD carried `stands-over float > 0.5 m` (bar 0) | 4 | **0** |
+  | LEMD `carried over a refused body` (new class) | (3 of the 4) | **0** |
+  | LEMD footed float > 0.5 m (reported) | 123 | 60 |
+  | LEMD bodies §16a (2) REFUSES as carriers | 117 | **21** — bar <= 20, MISSED BY ONE |
+  | LEMD files | 1,327 | **1,371** |
+  | LEMD feet > 3 m / floating | 583 / 9,885 | 527 / 9,606 |
+  | LEMD `rows on the datum` / `footless at datum` / elevated own files | 0 / 0 / 0 | **0 / 0 / 0** |
+  | LEMD fences carrying anything | 0 | **0** |
+  | LEMD plan stage, 3 runs | 6.37 / 6.14 / 6.21 s | **5.64 / 5.66 / 5.69 s** — bar <= 5 s MISSED |
+  | LEMD round trip (write half into a pack COPY) | — | **OK**, 1,371 files, 1,370/1,370 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | OTHH carried float (bar <= 7) | 42 | **0** |
+  | OTHH footed float | 74 | 72 |
+  | OTHH bodies refused as carriers | 55 | **19** |
+  | OTHH files | 1,679 | **1,622** |
+  | OTHH plan stage, 3 runs | 58.75 / 59.26 / 59.40 s | **31.24 / 31.36 / 31.05 s** — bar <= 35 s MET |
+
+* **THE RESIDUE, NAMED.**  LEMD's 21 refused carriers are 13 BASIN
+  bodies and 8 others.  The 13 are anchored at their RIM by §6/§14 (2) —
+  the pit was cut to the object, and the basin's zero is the rim and not
+  its feet — so `anchor_ground_off`, which reads their feet, refuses
+  every one of them by construction (`Ground-FSX-LEMD03__b0` 6.17 m,
+  `-LEMD85__b0` 5.87, `animRadarbig__b0` 5.09 on ONE foot,
+  `T4STower-LEMDzaun__b0` 4.34, `Bridge3__b0` 4.02, `LEMD60__b5` 3.96,
+  `LEMD35__b0` 1.23, `T2SL3__b0` 1.18, `TEJ1__b0` 1.12, `T2SL2__b0`
+  0.59, `T2LG2__b0` 0.50, `LEMD13__b0` 0.44, `LEMD37__b0` 0.35).  The
+  basin cut is EXEMPT for §14 (2)'s reason, so no cut can close them:
+  whether §16a (2)'s test should read a rim-anchored body at all is an
+  INTENT question for the owner, and read under its own law the number
+  is 8.  The 8: `Terminal4sBlue-STRT4__b1` 4.18 m on 2 feet,
+  `OldTerminal_FSX-LEMD61__b4` 1.10 on 2, `Terminal4_green-STRT4__b5`
+  0.96 on 41, `Munoza-LEMDz4__b9` 0.70 / `__b12` 0.69,
+  `Terminal4_green-LEMD02__b4` 0.42, `Cargo-WFS__b10` 0.40,
+  `OldTerminal_FSX-LEMD54__b5` 0.35.

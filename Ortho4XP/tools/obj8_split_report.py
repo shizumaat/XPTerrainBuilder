@@ -531,7 +531,11 @@ def main() -> int:
     for line in PC.census_v16_lines(v16):
         print(line)
     print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "
-          f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s); "
+          f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s), "
+          f"by TRIANGLE {c.get('bodies_re_cut_by_triangle', 0)} into "
+          f"{c.get('terrain_triangle_groups', 0)}, by FOOT (11ak (2)) "
+          f"{c.get('bodies_re_cut_by_foot', 0)} into "
+          f"{c.get('terrain_foot_groups', 0)}; "
           f"§16a carried bodies left uncut by the ground "
           f"{c.get('carried_bodies_uncut', 0)}, cut by their CARRIER "
           f"{c.get('carried_bodies_cut_by_carrier', 0)} into "

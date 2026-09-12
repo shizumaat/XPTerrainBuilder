@@ -4518,11 +4518,12 @@ the OSM load box, 4.0 km west of every other patch feature, 95 m above the field
 are built: ramps 960/962, rims 691/692, banks 694/695 (149 vertices) that set the
 patch's whole western bbox edge. They carry zero grade rows; the census cannot see it.
 
-1. **A MOUTH IS BUILT ONLY WHERE IT STANDS ON THE FIELD**: a `Mouth` whose point (and
-   whose ramp reach) lies outside the airport's governed region — the classified
-   cover ⊕ `[tunnel] mouth_standoff_m` (50 m) — is dropped at `mouths()`, named in
-   the structures line (`mouths off-field N`). A bore with no on-field mouth emits
-   nothing.
+1. **A MOUTH IS BUILT WHERE A PILOT WOULD SEE IT** (owner 12ab, 12al): a `Mouth`
+   whose point (and whose ramp reach) lies outside the governed region — the
+   classified cover ⊕ `[tunnel] mouth_standoff_m` (150 m; 12aa/12ac) ∪ the APPROACH
+   CORRIDOR of §31 (2) — is dropped at `mouths()`, named in the structures line
+   (`mouths off-field N`); outside both it is raw DEM. A bore with no such mouth
+   emits nothing. The corridor is ONE derivation shared with the cockpit block.
 2. **ADMISSION FOLLOWS THE MOUTH, NOT THE BORE**: the cover test moves from "≥ 1 m of
    the bore under any cell" to "a mouth on the field" — a bore 5 km long admitted by
    one cell far from its only surviving mouth is the defect generator.
@@ -4815,9 +4816,13 @@ but centimeter accuracy or anything invisible to the pilot is not important."
    or terrace under `[cockpit] visual_m` **0.5 m** is invisible — reported, never a
    gate; over it, a defect.
 2. **TWO RANGES.** TAXI scale inside the airport boundary; APPROACH scale for the
-   terrain a pilot sees on final and climb-out within `[cockpit] approach_km` (a few
-   km, default 5) along the runway axes — a hillside cut there is visible, a 0.5 m
-   terrace is not.
+   terrain a pilot sees on final and climb-out: THE APPROACH CORRIDOR — for each
+   runway end, `[cockpit] approach_km` (5) beyond the threshold along the extended
+   centreline, lateral half-width `[cockpit] approach_half_width_m` (2,000 m; owner
+   12al) — a hillside cut there is visible, a 0.5 m terrace is not. The corridor is
+   one derivation (`law/tables` or the harness's law-context), read by the cockpit
+   block's "in view" test and by §29's mouth gate alike; "within 5 km of a runway
+   axis" (the first reading) admitted the whole airport and is retired.
 3. **LANDSIDE IS VISUAL ONLY, NATURAL SHAPES**: no cliffs, no floating or buried
    buildings, no torn objects; grade laws there are TARGETS, never gates; terraces
    under the visual threshold are lawful ground.

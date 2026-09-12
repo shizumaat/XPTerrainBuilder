@@ -18,7 +18,33 @@ from .api import Residual
 from .project import ProjectionReport
 from .linear import DEFAULT_METHOD
 
-__all__ = ["DesignReport", "residual"]
+__all__ = ["DesignReport", "residual", "settled_flip"]
+
+
+def settled_flip(viol: np.ndarray, tol: float,
+                 active: _t.AbstractSet[int]) -> tuple[bool, int, float]:
+    """THE SETTLED CONDITION of the design solve's active set (owner
+    RULINGS 2026-09-12u, spec §30 (3c)), stated ONCE: given the current
+    one-sided violations, the tolerance and the set that was active,
+    return ``(settled, rows that flipped label, the worst violation
+    among them)``.
+
+    The set is SETTLED when no row changes label, or when every row that
+    does sits inside ONE tolerance band of the threshold (violation
+    ``<= 2 * tol``) — a row hovering at its own bound flips without
+    moving the surface, and that is the only flip settlement forgives.
+    Until 12u ``converged`` was asserted on TWO weaker exits — the
+    objective stalling within 1e-6, and the line search buying nothing —
+    either of which fires while thousands of rows are still crossing
+    their bounds by metres.  Both are still exits (there is nothing
+    better to return), but they no longer claim settlement, and the flip
+    they exit on is REPORTED (``set_flips`` / ``set_flip_max_m``)."""
+    nxt = set(np.flatnonzero(viol > tol).tolist())
+    flip = np.asarray(sorted(nxt ^ set(active)), dtype=np.int64)
+    if not flip.size:
+        return True, 0, 0.0
+    worst = float(np.max(np.abs(viol[flip])))
+    return worst <= 2.0 * tol, int(flip.size), worst
 
 
 # ── the report ──────────────────────────────────────────────────────────
@@ -30,7 +56,16 @@ class DesignReport:
     missed target is a residual, never a demotion."""
 
     rounds: int = 0
+    #: THE ACTIVE SET SETTLED (owner RULINGS 2026-09-12u, spec §30 (3c)):
+    #: asserted ONLY where no row changed label, or where every row that did
+    #: hovers within one tolerance band of its own bound
+    #: (``solve.design._settled``).  The objective stalling and the line
+    #: search buying nothing are EXITS, not settlement.
     converged: bool = False
+    #: the rows that changed label at the exit, and the worst violation
+    #: among them — the flip an unsettled exit is reported by
+    set_flips: int = 0
+    set_flip_max_m: float = 0.0
     method: str = DEFAULT_METHOD
     unknowns: int = 0
     fixed: int = 0
@@ -91,6 +126,14 @@ class DesignReport:
     #: how many polish rounds it took and the worst violation left (a
     #: constraint held exactly reads 0 to the solver's tolerance)
     hard_rows: int = 0
+    #: THE VIOLATED ROWS OF THE SHIPPED SURFACE (owner RULINGS 2026-09-12u,
+    #: spec §30 (3b)).  Until 12u this was phase C's MULTIPLIER count — how
+    #: many rows the augmented Lagrangian had ever charged, read before the
+    #: final projection — which at LEMD read 1,457 where the surface that
+    #: shipped violated 725.  A count nobody can act on is not an
+    #: instrument; the number reported is now the rows over ``hard_tol_m``
+    #: on the surface the build emits, re-read after the projection like
+    #: the worst violation beside it.
     hard_active: int = 0
     hard_rounds: int = 0
     hard_max_violation_m: float = 0.0
@@ -125,8 +168,35 @@ class DesignReport:
     families: dict[str, dict[str, _t.Any]] = _dc.field(default_factory=dict)
     terms: dict[str, float] = _dc.field(default_factory=dict)
 
+    def record_flip(self, res: tuple[bool, int, float]) -> bool:
+        """Record one active-set EXIT's flip (§30 (3c), ``settled_flip``) and
+        return whether that exit SETTLED."""
+        ok, n, worst = res
+        self.set_flips = max(self.set_flips, int(n))
+        self.set_flip_max_m = max(self.set_flip_max_m, round(float(worst), 4))
+        return bool(ok)
+
+    def read_hard_set(self, viol: np.ndarray, tol: float,
+                      ruling: _t.Callable[[int], str]) -> float:
+        """THE HARD SET READ OFF THE SHIPPED SURFACE (owner RULINGS
+        2026-09-12u, spec §30 (3b)): the worst violation, whether the set is
+        settled, HOW MANY ROWS ARE VIOLATED and the worst row's ruling.
+
+        ``hard_active`` used to be phase C's MULTIPLIER count, taken before
+        the final projection — at LEMD it read 1,457 where the surface that
+        shipped violated 725.  A count nobody can act on is not an
+        instrument.  Returns the worst violation."""
+        worst = float(np.max(viol)) if viol.size else 0.0
+        self.hard_max_violation_m = worst
+        self.hard_settled = worst <= tol
+        self.hard_active = int(np.count_nonzero(viol > tol))
+        self.hard_worst = "" if self.hard_settled else ruling(int(np.argmax(viol)))
+        return worst
+
     def as_dict(self) -> dict[str, _t.Any]:
         return {"rounds": self.rounds, "converged": self.converged,
+                "set_flips": self.set_flips,
+                "set_flip_max_m": round(self.set_flip_max_m, 4),
                 "method": self.method, "unknowns": self.unknowns,
                 "fixed": self.fixed, "rows": self.rows,
                 "triangles": self.triangles, "components": self.components,
@@ -190,7 +260,7 @@ class DesignReport:
     def line(self) -> str:
         worst = sorted(self.families.items(), key=lambda kv: -kv[1]["max_m"])[:6]
         return (f"design (08t): {self.rounds} active-set round(s)"
-                f"{'' if self.converged else ' (SET NOT SETTLED)'}, {self.method}, "
+                f"{'' if self.converged else f' (SET NOT SETTLED: {self.set_flips} rows flipped, worst {self.set_flip_max_m:.3f} m)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
                 f"({self.detached} detached), {self.body_datum_bodies} apron bodies on "
@@ -201,7 +271,7 @@ class DesignReport:
                 + f", {self.apron_trend_rows} apron trend rows"
                 + self._apron_trend_line()
                 + f", {self.bank_rows} bank rows off the "
-                f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows active "
+                f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows violated "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
                 f"{', HARD SET SETTLED' if self.hard_settled else ', HARD SET NOT SETTLED'}), "

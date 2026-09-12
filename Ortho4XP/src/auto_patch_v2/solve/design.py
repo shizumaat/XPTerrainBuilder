@@ -67,7 +67,7 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
-from .design_report import DesignReport, foot_row_diagnostic, residual
+from .design_report import DesignReport, foot_row_diagnostic, residual, settled_flip
 from .project import ProjectionReport, project_runway
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
                    _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
@@ -756,6 +756,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return (sp.vstack([A0f, W @ A1[sel]], format="csr"),
                 np.concatenate([b0f, sw[sel] * (b1[sel] - shift[sel])]))
 
+    def _settled(x_):    # §30 (3c): ONE derivation, ``design_report.settled_flip``
+        return settled_flip(A1 @ x_ - (b1 - shift), tol, active)
+
     def _inner(x0: np.ndarray | None) -> np.ndarray:
         """One damped active-set solve at the CURRENT multipliers."""
         nonlocal A, b, active, active_i, t_solver
@@ -784,7 +787,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                     f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_, Ub, cb)
                 if f_new > f_prev:
                     x_ = x_prev          # the step buys nothing: this is it
-                    rep.converged = True
+                    rep.converged = rep.record_flip(_settled(x_))
                     rep.rounds += rnd
                     return x_
                 f_prev = f_new
@@ -794,12 +797,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             viol = A1 @ x_ - (b1 - shift)
             nxt_i = np.flatnonzero(viol > tol)
             nxt = set(nxt_i.tolist())
-            # SETTLED: the same active set, or an objective that no longer
-            # moves (a row hovering at its bound flips label without moving
-            # the surface)
+            # SETTLED (§30 (3c), ONE derivation in ``_settled``): the same set,
+            # or a flip every row of which hovers at its own bound.  The
+            # objective STALLING is an exit, NOT settlement — it fires with
+            # thousands of rows still crossing their bounds by metres.
             if nxt == active or (f_prev < math.inf and
                                  abs(f_last - f_prev) <= 1e-6 * max(1.0, f_prev)):
-                rep.converged = True
+                rep.converged = rep.record_flip(_settled(x_))
                 rep.rounds += rnd
                 return x_
             if opt.verbose:
@@ -807,7 +811,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                       f"(was {len(active)}, changed {len(nxt ^ active)})")
             f_last = f_prev
             active, active_i = nxt, nxt_i
-        rep.converged = False
+        rep.converged = False            # the round cap: NEVER settlement
+        rep.record_flip(_settled(x_) if x_ is not None else (False, 0, 0.0))
         rep.rounds += int(d.active_set_max_rounds)
         return x_ if x_ is not None else np.zeros(red.n_cols)
 
@@ -897,17 +902,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         x, rep.runway_projection = project_runway(planar, law, base_p, x,
                                                   stacked=(A1, b1),
                                                   verbose=opt.verbose)
-        # the HARD SET's reading is of the SHIPPED surface, so it is re-read
-        # after the projection: the rows it owns are now held exactly, and
-        # what is left is what it does not own (a pad plane, a hard row with
-        # no runway vertex on it).
+        # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
+        # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:
-            v_h = np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0)
-            worst = float(np.max(v_h))
-            rep.hard_max_violation_m = worst
-            rep.hard_settled = worst <= float(d.hard_tol_m)
-            rep.hard_worst = ("" if rep.hard_settled else
-                              one[int(hard_i[int(np.argmax(v_h))])][2].source.ruling[:70])
+            worst = rep.read_hard_set(
+                np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0), float(d.hard_tol_m),
+                lambda k: one[int(hard_i[k])][2].source.ruling[:70])
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
     rep.solver_wall_s = t_solver

@@ -10,10 +10,14 @@ promoted on its second use by lane ``v2chord``).
     venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy]
 
-``--capture`` runs load → classify → planar (which labels the SHAPES,
-owner RULINGS 2026-09-08k) → flat site → road profile → shape stage
-exactly as ``pipeline/build.py`` does and pickles the airport, the
-classification, the planar map and the stage.  ``--replay`` resumes from
+``--capture`` runs load → PACK PARTITION + GROUPS (owner RULINGS
+2026-09-11j; folded in 2026-09-12u after a replay off a capture without
+them silently solved a different problem — no foot rows, no pad relief)
+→ classify → planar (which labels the SHAPES, owner RULINGS 2026-09-08k)
+→ flat site → road profile → shape stage exactly as ``pipeline/build.py``
+does and pickles the airport, the classification, the planar map and the
+stage.  A capture predating that is REFUSED BY NAME at replay
+(:func:`capture_has_groups`).  ``--replay`` resumes from
 the named stage (``constraints``: generators + joint filter + solve, the
 default; ``shapes``: the shape stage too; ``planar``: the planar build
 too — for a change in the map or the shapes) and
@@ -43,22 +47,80 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def capture_has_groups(cap: dict) -> bool:
+    """IS THIS CAPTURE THE BUILD'S WHOLE PRE-SOLVE HALF? (owner RULINGS
+    2026-09-12u, spec \u00a730 (3a)).  A capture written before the pack
+    partition was folded in carries an ``Airport`` with no ``partition``
+    and no derived ``groups``, and a replay off it silently solves a
+    DIFFERENT problem.  One derivation, so the refusal and its twin read
+    the same predicate."""
+    ap = cap.get("airport")
+    groups = getattr(ap, "groups", None)
+    return (getattr(ap, "partition", None) is not None
+            and groups is not None and bool(getattr(groups, "groups", ())))
+
+
 def capture(icao: str, out: Path) -> None:
+    """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
+    (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
+    load → classify → planar and SKIPPED the pack partition and the group
+    derivation ``build.py:288-318`` runs BEFORE classify — so the captured
+    ``Airport`` carried no ``partition`` and no ``groups``, and every
+    replay off it silently solved a DIFFERENT problem: no ``foot_rows``,
+    no ``pad_relief`` targets, no basin bodies.  Scout ``v2unsettled``
+    paid for that trap once (its ``capture2.py``, folded in here): the
+    replay of the shipped LEMD solve could not reproduce the shipped hard
+    set until the partition and the groups were captured with it.  ONE
+    ``ResourceCache`` for the whole capture, and the same objects handed
+    to ``build_planar`` — the pack is read once, as the build reads it."""
     from auto_patch_v2.airport import flat_site as _flat
     from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+    from auto_patch_v2.airport.pack_partition import partition_pack as _partition_pack
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.classify import classify, load_rules
     from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import group_span_max_m as _span_max
     from auto_patch_v2.pipeline.__main__ import default_inputs
     from auto_patch_v2.pipeline.shapes import shape_stage
+    from auto_patch_v2.planar.basins import read_objects as _read_objects
     from auto_patch_v2.planar.build import build as build_planar
+    from auto_patch_v2.planar.group import derive as _derive_groups
     law = Law.for_airport(icao)
     inputs = default_inputs()
     t = time.perf_counter()
     airport, _lrep = load_with_report(icao, inputs, law)
-    cl = classify(airport, law, load_rules())
+    # THE PACK PARTITION AND THE GROUPS (build.py:288-318, verbatim in
+    # kind — the pad law's bodies, feet and abutments, and the feasibility
+    # verdict priced against the DEM's own fall, RULINGS 09-11j / 09-11q).
+    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    pack_objects, pack_report = _read_objects(airport, law, ocache)
+    _part = _partition_pack(airport, pack_objects, ocache, law)
+    _to_xy, _ = airport.frame.transformers()
+
+    def _dem_at(lat: float, lon: float) -> float | None:
+        x, y = _to_xy(lon, lat)
+        try:
+            z = airport.dem.z(x, y)
+        except Exception:
+            return None
+        if z is None:
+            return None
+        z = float(z)
+        return None if z != z else z        # NaN outside the raster
+
+    _bank = float(law.tables.emit.design.bank_slope)
+    _groups = _derive_groups(_part, _span_max(law), _bank,
+                             dem_at=_dem_at, bank_slope=_bank)
+    airport = _dc.replace(airport, partition=_part, groups=_groups)
+    print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "
+          f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']}  "
+          f"relief {_groups.counts['relief_bodies']}  "
+          f"infeasible {_groups.counts['infeasible']}")
+    cl = classify(airport, law, load_rules(), cache=ocache)
     objects_out: list = []
-    pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out)
+    pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
+                               objects=pack_objects, object_report=pack_report)
     fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else ())
     airport = _dc.replace(airport, flat_site=fv)
     road_pref, _rep, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
@@ -290,6 +352,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
                                             cap["stage"], cap["inputs"])
+    if not capture_has_groups(cap):
+        raise SystemExit(
+            f"[{icao}] REFUSED: this capture carries no pack PARTITION / GROUPS, so the "
+            "replay would solve a DIFFERENT problem from the build (no foot rows, no pad "
+            "relief targets, no basin bodies) — the trap owner RULINGS 2026-09-12u names, "
+            "spec \u00a730 (3a).  Re-capture with the current tool: "
+            f"venv/bin/python tools/v2_solve_replay.py --capture {icao} --out {pkl}")
     law = Law.for_airport(icao)
     t0 = time.perf_counter()
     if resume == "planar":

@@ -478,6 +478,17 @@ def _ll_to_m_factory(nodes: Dict[str, Tuple[float, float]],
         x = math.radians(lon - lon0) * R_EARTH * cos0
         y = math.radians(lat - lat0) * R_EARTH
         return x, y
+
+    def _inv(x: float, y: float) -> Tuple[float, float]:
+        """The same frame, backwards — for a reader that works in METRES
+        and must still say WHERE its row is (owner RULINGS 2026-09-12aj
+        (a): the three rate readers built rows with no lat/lon, so every
+        one of them printed the ring CENTROID; 36 rows on LEMD's apron
+        ``pav12`` printed one coordinate 560 m from the wall they found)."""
+        return (lat0 + math.degrees(y / R_EARTH),
+                lon0 + math.degrees(x / (R_EARTH * cos0)))
+
+    _f.inverse = _inv
     return _f
 
 
@@ -606,6 +617,14 @@ class Violation:
     #: ``"taxi_box"`` for a within-shape row priced as the short-chord
     #: BOX (RULINGS 2026-09-06q (1)); ``None`` for the family's default.
     reading: Optional[str] = None
+    #: THE FACES ON EACH SIDE OF THE PAIR (owner RULINGS 2026-09-12aj (c)):
+    #: the SENIOR role of every face carrying this endpoint's node, which
+    #: for a vertex shared by an apron and a pad is the APRON — the face
+    #: the law says owns the shared value.  Stamped by ``run_checks``;
+    #: ``row_roles`` prefers them over the row's own two ways, which name
+    #: the RING a pair was walked on and not what meets there.
+    role_a: Optional[str] = None
+    role_b: Optional[str] = None
 
 
 @dataclass
@@ -621,6 +640,9 @@ class EdgeStep:
     lat: Optional[float] = None
     lon: Optional[float] = None
     out_of_scope: Optional[str] = None
+    #: the faces on each side (12aj (c)) — see ``Violation.role_a``
+    role_a: Optional[str] = None
+    role_b: Optional[str] = None
 
 
 # ELEV_ROUNDING_NOISE_M now imported from auto_patch.config (single source of
@@ -3053,6 +3075,27 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
 GRADE_MATERIALITY = 0.0001
 
 
+def _rate_row_site(ll_to_m, pt_a, pt_c) -> Tuple[Optional[float],
+                                                  Optional[float]]:
+    """THE PAIR MIDPOINT of a RATE row, in lat/lon (owner RULINGS
+    2026-09-12aj (a)).
+
+    The three rate/arc readers (``strip_arc``, ``raoa``,
+    ``airside_no_step``'s §1.2 half) work in the census's metre frame and
+    used to build their rows with no ``lat``/``lon`` at all — so
+    ``run_checks``'s fallback stamped each one with the CENTROID OF THE
+    RING it was found on.  At LEMD that put 36 rows of apron ``pav12`` on
+    one coordinate 560 m from the 220 m wall they had actually found, and
+    a whole round of attribution went looking in the wrong place.  A
+    reader that knows where its row is says so."""
+    inv = getattr(ll_to_m, "inverse", None)
+    if inv is None:                                        # pragma: no cover
+        return (None, None)
+    la, lo_a = inv(float(pt_a[0]), float(pt_a[1]))
+    lc, lo_c = inv(float(pt_c[0]), float(pt_c[1]))
+    return (0.5 * (la + lc), 0.5 * (lo_a + lo_c))
+
+
 def _rate_reader_blind_spot(way: "Way", dp: float, dn: float) -> float:
     """Grade-change reading below which a rate row is pure emit rounding
     (plus the grade materiality floor, ``GRADE_MATERIALITY``)."""
@@ -3155,13 +3198,22 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                         continue    # same physical station, another band
                     seen_sites.add(_site)
                     hit_ways.add(w.wid)
-                    span = 0.5 * (dp + dn)
+                    # THE SEPARATION THE ``de`` IS TAKEN OVER (12aj (b)):
+                    # ``de_m`` spans a -> c, which is dp + dn.  The half
+                    # span the ALLOWANCE is computed at is the rate law's
+                    # own averaging term and is not this row's geometry;
+                    # publishing it as ``distance_m`` made every implied
+                    # grade read 2x, and the cockpit block's weld and
+                    # cliff rules both read ``distance_m``.
+                    _lat, _lon = _rate_row_site(ll_to_m, pts[a], pts[c])
                     out.append(Violation(
                         grade_pct=100.0 * change,
                         excess_pct=100.0 * (change - allowed),
-                        distance_m=span, de_m=abs(float(zs[c]) - float(zs[a])),
+                        distance_m=dp + dn,
+                        de_m=abs(float(zs[c]) - float(zs[a])),
                         way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[c],
-                        elev_a=float(zs[a]), elev_b=float(zs[c])))
+                        elev_a=float(zs[a]), elev_b=float(zs[c]),
+                        lat=_lat, lon=_lon))
     out.sort(key=lambda v: -v.grade_pct)
     return out, n_stations, len(hit_ways)
 
@@ -3344,13 +3396,17 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
                     continue    # same physical station, another band
                 seen_sites.add(_site)
                 hit_ways.add(w.wid)
+                # 12aj (a)/(b): the pair midpoint, and the FULL separation
+                _lat, _lon = _rate_row_site(
+                    ll_to_m, pts[src[k - 1]], pts[src[k + 1]])
                 out.append(Violation(
                     grade_pct=100.0 * change,
                     excess_pct=100.0 * (change - allowed),
-                    distance_m=0.5 * (dp + dn), de_m=abs(z[k + 1] - z[k - 1]),
+                    distance_m=dp + dn, de_m=abs(z[k + 1] - z[k - 1]),
                     way_a=w, way_b=w,
                     pt_a=pts[src[k - 1]], pt_b=pts[src[k + 1]],
-                    elev_a=z[k - 1], elev_b=z[k + 1]))
+                    elev_a=z[k - 1], elev_b=z[k + 1],
+                    lat=_lat, lon=_lon))
     out.sort(key=lambda v: -v.grade_pct)
     return out, n_stations, len(hit_ways)
 
@@ -4130,13 +4186,16 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
                 continue                    # one row per physical station
             seen_sites.add(site)
             hit_ways.add(w.wid)
-            span = 0.5 * (dp + dn)
+            # 12aj (a)/(b): the pair midpoint, and the FULL separation
+            _lat, _lon = _rate_row_site(ll_to_m, pts[a], pts[c])
             out.append(Violation(
                 grade_pct=100.0 * change,
                 excess_pct=100.0 * (change - allowed),
-                distance_m=span, de_m=abs(float(zs[c]) - float(zs[a])),
+                distance_m=dp + dn,
+                de_m=abs(float(zs[c]) - float(zs[a])),
                 way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[c],
-                elev_a=float(zs[a]), elev_b=float(zs[c])))
+                elev_a=float(zs[a]), elev_b=float(zs[c]),
+                lat=_lat, lon=_lon))
     out.sort(key=lambda v: -v.grade_pct)
     return out, n_stations, len(hit_ways)
 
@@ -8416,12 +8475,26 @@ def row_roles(row) -> Tuple[str, str]:
 
     Read through ``effective_role``: a ROLE-LESS feature way reports its
     HOST's role (lead ruling 2026-08-07), so ``?|?`` in a class table means
-    "no host could be resolved", not "the emitter shipped a bare way"."""
+    "no host could be resolved", not "the emitter shipped a bare way".
+
+    THE FACES ON EACH SIDE, NOT THE RING THE PAIR WAS WALKED ON (owner
+    RULINGS 2026-09-12aj (c)).  A within-shape pair is walked on ONE ring,
+    so both its ways are that ring: LEMD's 81 % rise — the T4S pad rim
+    standing 1.22 m over the apron 1.5 m away, in front of the noses of
+    stands 336/338/334/340 — read ``building|building`` and the cockpit
+    block's rolled-on test therefore said "landside, visual only".  The
+    vertex is SHARED by apron ``pav12`` and pad ``building12``, and the
+    law's own answer to who owns a shared value is the SENIOR face
+    (``precedence.toml`` authority order).  ``run_checks`` stamps that
+    answer per endpoint (``role_a`` / ``role_b``) and this prefers it;
+    a row no vertex index could place keeps the way-based reading.
+    """
     def _r(w):
         return effective_role(w) or "?"
     a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
     b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
-    return (_r(a), _r(b))
+    return (getattr(row, "role_a", None) or _r(a),
+            getattr(row, "role_b", None) or _r(b))
 
 
 def row_magnitude(row) -> float:
@@ -8472,8 +8545,11 @@ COCKPIT_BUCKETS: Tuple[str, ...] = (COCKPIT_MOTION, COCKPIT_VISUAL,
 #: The owner rulings this block reads under, quoted in its heading.  12ad
 #: is round 2's SPAN RULE (a step-family row read over more than the law's
 #: weld spacing is a SLOPE, judged by its cap, and is REPORT) and 12af is
-#: round 3's CLIFF ESCAPE, which bounds it.
-COCKPIT_RULING = "2026-09-12x/12y/12ad/12af"
+#: round 3's CLIFF ESCAPE, which bounds it; 12aj is round 4, which repaired
+#: the three READER defects the block's own output exposed (a rate row with
+#: no coordinate, a rate row's half span, and the cliff escape unable to
+#: reach a grade-class family or to see the faces on each side of a pair).
+COCKPIT_RULING = "2026-09-12x/12y/12ad/12af/12aj"
 
 _COCKPIT_LAW_CACHE: Optional[dict] = None
 
@@ -8653,13 +8729,31 @@ def cockpit_classify(family: str, row, *, law: dict,
     roles = row_roles(row)
     rolled = law["rolled_on"]
     both_rolled = all(r in rolled for r in roles)
+    over_motion = both_rolled and mag > law["motion_step_m"]
+    over_visual = mag > law["visual_m"]
+    span = float(getattr(row, "distance_m", 0.0) or 0.0)
+    # §31 (7) as amended by owner RULINGS 2026-09-12aj (c): THE CLIFF
+    # ESCAPE REACHES EVERY FAMILY.  It was written inside the ``step``
+    # branch, so the two SHARPEST readings of LEMD's T4S wall — a
+    # ``within_shape`` 81 % and a ``cross_shape`` 240 % — could not be
+    # cliffs at all: those families are class ``grade``, and a grade class
+    # meant REPORT however steep.  A cut is a cut whichever family found
+    # it; a family's class decides how a row is PRICED, never whether the
+    # pilot can see a wall.
+    cliff = span > 0.0 and (mag / span) > law["cliff_grade"]
     if cls == "grade_break" and both_rolled:
         return COCKPIT_MOTION, "grade_break"
+    if cls != "step" and cliff:
+        if over_motion:
+            return COCKPIT_MOTION, "cliff"
+        if over_visual:
+            in_view, _why = cockpit_in_view(
+                geometry, getattr(row, "lat", None),
+                getattr(row, "lon", None), law["approach_m"])
+            if in_view:
+                return COCKPIT_VISUAL, "cliff"
+            return COCKPIT_REPORT, "beyond_view"
     if cls == "step":
-        over_motion = both_rolled and mag > law["motion_step_m"]
-        over_visual = mag > law["visual_m"]
-        span = float(getattr(row, "distance_m", 0.0) or 0.0)
-        cliff = span > 0.0 and (mag / span) > law["cliff_grade"]
         if span > law["weld_tol_m"] and not cliff:
             # 12ad: the row is a SLOPE.  Reported with WHICH threshold it
             # would have crossed had it been welded, so the count the
@@ -9676,13 +9770,64 @@ def run_checks(
 
     for v in within + cross:
         # A row that already KNOWS where it is keeps its own site: the
-        # within-shape check reports its pair MIDPOINT (R19-5).  The ring
-        # centroid stays the fallback for every row whose location is a
-        # whole shape.
+        # within-shape check reports its pair MIDPOINT (R19-5), and since
+        # 12aj (a) every RATE row does too.  The ring centroid stays the
+        # fallback for a row whose location genuinely is a whole shape.
         if v.lat is None:
             v.lat, v.lon = _way_latlon(v.way_a)
     for s in steps + mid_steps:
         s.lat, s.lon = _way_latlon(s.way_v)
+
+    # ── THE FACES ON EACH SIDE OF EVERY PAIR (owner RULINGS 2026-09-12aj
+    # (c)) ────────────────────────────────────────────────────────────
+    # A within-shape pair is walked on ONE ring, so ``way_a is way_b`` and
+    # ``row_roles`` reported that ring twice.  LEMD's 81 % rise — the T4S
+    # pad rim 1.22 m over the apron 1.5 m away, in front of four heavy
+    # stands — therefore read ``building|building``, the cockpit block's
+    # rolled-on test said "landside, visual only", and the sharpest
+    # reading of a real wall bucketed REPORT.
+    #
+    # The vertex is SHARED, and the law already answers who owns a shared
+    # value: the SENIOR face (``precedence.toml`` authority order, the
+    # same rank ``_authority_rank`` reads).  Every node is indexed to the
+    # senior role of the faces carrying it, ONCE, and every row's two
+    # endpoints are stamped from that index.  The join is by EXACT
+    # coordinate in the census's own metre frame at millimetre
+    # quantisation — the ``stamp_relaxed_rows`` idiom, an identity join on
+    # emitted coordinates, never a proximity match.
+    def _vkey(x: float, y: float) -> Tuple[int, int]:
+        return (int(round(float(x) * 1000.0)), int(round(float(y) * 1000.0)))
+
+    _senior_at: Dict[Tuple[int, int], str] = {}
+    for _w in ways:
+        _role = effective_role(_w)
+        if not _role:
+            continue
+        _rank = _authority_rank(_role)
+        for _nid in _w.nids:
+            if _nid not in nodes:
+                continue
+            _k = _vkey(*ll_to_m(*nodes[_nid]))
+            _cur = _senior_at.get(_k)
+            if _cur is None or _rank < _authority_rank(_cur):
+                _senior_at[_k] = _role
+    if _senior_at:
+        for _row, _pa, _pb in (
+                [(v, v.pt_a, v.pt_b) for v in within + cross]
+                + [(q, q.vert_pt, q.proj_pt) for q in steps + mid_steps]):
+            for _pt, _attr in ((_pa, "role_a"), (_pb, "role_b")):
+                if _pt is None:
+                    continue
+                # a published-edge family carries lat/lon endpoints and a
+                # ring family metres: try the metre reading first, then
+                # the projected one — a metre pair read as lat/lon lands
+                # nowhere and simply misses, which is the safe direction
+                # (the row keeps its way-based roles).
+                for _cand in (_pt, ll_to_m(float(_pt[0]), float(_pt[1]))):
+                    _hit = _senior_at.get(_vkey(*_cand))
+                    if _hit is not None:
+                        setattr(_row, _attr, _hit)
+                        break
 
     # ── OUT OF SCOPE: the TRULY DISCONNECTED groundside rings ──────────
     # RULINGS 2026-08-06 ("ONE graph"), binding point 3: geometry with no

@@ -13,6 +13,29 @@
 #              edges), "pin", "flat", "band", "offset", "construction"
 #              (true by how the planar map is built), "diagnostic" (an
 #              instrument row v2 emits nothing for)
+#   cockpit    THE COCKPIT FRAME's class for this family (owner RULINGS
+#              2026-09-12x/12y; design-surface-spec §31 (6)).  It says WHAT
+#              KIND OF THING a row of this family is, and therefore which
+#              of §31's two thresholds reads it — it never changes what the
+#              family measures or how many rows it has:
+#                "step"        a HEIGHT DISCONTINUITY between neighbours (a
+#                              step, joint, tear, stacked node, a vertex
+#                              standing off its neighbour's foot).  Priced
+#                              at [cockpit] motion_step_m where BOTH sides
+#                              are rolled-on roles — the aircraft feels it
+#                              — and at visual_m off them.
+#                "grade_break" a RATE-OF-CHANGE law (the arc / curve rates):
+#                              §31 (1)'s "a grade break the runway/taxi laws
+#                              forbid".  A row on rolled-on roles is
+#                              CRITICAL motion by its own law's bound; there
+#                              is no second threshold to apply.
+#                "grade"       a SLOPE excess.  Not one of §31 (1)'s visual
+#                              shapes (cut, rise, seam, float, burial,
+#                              terrace) and not a step: REPORT.
+#                "keepout"     the family measures a thing's PRESENCE in a
+#                              region, not a height at all: REPORT.
+#              A new family with no cockpit key does not load — the class
+#              is a decision, never a default.
 
 [within_shape]
 measures  = "ring vertex-pair grade vs the role's cap (apron: nearest-spine chord only)"
@@ -21,6 +44,7 @@ roles     = ["all"]
 pairs     = "within"
 ruling    = "2026-08-21b/c/d; 2026-08-24"
 solver    = "edge"
+cockpit   = "grade"
 
 [road_cross_section]
 measures  = "across-axis pairs on road rings vs the road transverse cap (axis split at common.road_transverse_axis_min_deg)"
@@ -29,6 +53,7 @@ roles     = ["service_road", "service_junction"]
 pairs     = "within"
 ruling    = "2026-08-25g"
 solver    = "edge"
+cockpit   = "grade"
 
 [taxi_box]
 measures  = "THE SHORT-PAIR BOX: a taxi-family pair of one ring (outer or hole; a junction's mesh edges and common-stretch pairs) under emit.within_shape.withdrawn_chord_min_m vs cL*|ds| + cT*|dt| against the nearest stretch axis (generator law, taxi tier)"
@@ -37,6 +62,7 @@ roles     = ["taxi_family"]
 pairs     = "within"
 ruling    = "2026-09-06q (1); 2026-09-06s"
 solver    = "edge"
+cockpit   = "grade"
 
 [plane_gradient]
 measures  = "triangle-plane slope of the junction mesh vs the role cap"
@@ -45,6 +71,7 @@ roles     = ["junction"]
 pairs     = "within"
 ruling    = "user 2026-07-05"
 solver    = "edge"
+cockpit   = "grade"
 
 [runway_end_skirt]
 measures  = "end-skirt down-grade and its rate beyond the runway end"
@@ -53,6 +80,7 @@ roles     = ["runway_clearance"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08"
 solver    = "edge"
+cockpit   = "grade"
 
 [terrace_joint_route]
 measures  = "a declared apron terrace joint crossing a taxi route"
@@ -61,6 +89,7 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-08-06"
 solver    = "construction"
+cockpit   = "step"
 
 [terrace_joint_strip]
 measures  = "a declared apron terrace joint inside a runway strip"
@@ -69,6 +98,7 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-08-06"
 solver    = "construction"
+cockpit   = "step"
 
 [terrace_actual_step]
 measures  = "an apron terrace's actual step past its declared step"
@@ -77,6 +107,7 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-08-06"
 solver    = "construction"
+cockpit   = "step"
 
 [basin_floor_declaration]
 measures  = "a basin facility floor disagreeing with its own body depth"
@@ -85,6 +116,7 @@ roles     = ["object_pad"]
 pairs     = "within"
 ruling    = "2026-08-26"
 solver    = "pin"
+cockpit   = "step"
 
 [adjacent_ground_tear]
 measures  = "graded-strip vertex outside the zone corridor (wall straddle exempt)"
@@ -93,6 +125,7 @@ roles     = ["graded_strip"]
 pairs     = "within"
 ruling    = "2026-08-01"
 solver    = "band"
+cockpit   = "step"
 
 [strip_seam_tear]
 measures  = "an adjacent-ground strip seam tear (wall straddle exempt)"
@@ -101,6 +134,7 @@ roles     = ["graded_strip"]
 pairs     = "within"
 ruling    = "2026-08-01"
 solver    = "construction"
+cockpit   = "step"
 
 [strip_transverse]
 measures  = "THE RUNWAY-EDGE TIE: any vertex (any role but the runway family and wall crests) abeam a runway edge inside the zone-2 half width standing above OR below the edge foot by more than the strip transverse bound (two-way, 06q (2)) — read geometrically over every vertex, never from a published pair list"
@@ -109,6 +143,7 @@ roles     = ["all"]
 pairs     = "within"
 ruling    = "2026-09-06b law 2; 2026-09-06p (1)/(3); 2026-09-06q (2)"
 solver    = "edge"
+cockpit   = "step"
 
 [transverse]
 measures  = "cross-corridor grade vs the taxi transverse cap"
@@ -117,6 +152,7 @@ roles     = ["taxi_family"]
 pairs     = "within"
 ruling    = "ICAO Annex 14 §3.9.11 (STANDARDS)"
 solver    = "edge"
+cockpit   = "grade"
 
 [drainage_spine]
 measures  = "an enclosed-pocket drainage spine at or above its lower pavement"
@@ -125,6 +161,7 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-08-01 clarification"
 solver    = "band"
+cockpit   = "step"
 
 [apron_lattice_membrane]
 measures  = "an apron interior lattice pair over the apron's own budget"
@@ -133,6 +170,7 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-08-24b/c; 2026-08-26"
 solver    = "edge"
+cockpit   = "grade"
 
 [airside_no_step]
 measures  = "direct-distance grade within the window plus rate of change, all airside pavement"
@@ -141,6 +179,7 @@ roles     = ["airside"]
 pairs     = "within"
 ruling    = "2026-08-27"
 solver    = "edge"
+cockpit   = "step"
 
 [lateral_contiguity]
 measures  = "a road cross-section vs the strictest touching pavement class"
@@ -149,6 +188,7 @@ roles     = ["service_road", "apron"]
 pairs     = "within"
 ruling    = "2026-08-25b"
 solver    = "edge"
+cockpit   = "grade"
 
 [strip_longitudinal]
 measures  = "graded-strip abeam slope vs the strip cap"
@@ -157,6 +197,7 @@ roles     = ["graded_strip"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08"
 solver    = "edge"
+cockpit   = "grade"
 
 [strip_arc]
 measures  = "graded-strip longitudinal grade-change rate"
@@ -165,6 +206,7 @@ roles     = ["graded_strip"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08"
 solver    = "edge"
+cockpit   = "grade_break"
 
 [resa_transverse]
 measures  = "end-corridor transverse grade"
@@ -173,6 +215,7 @@ roles     = ["runway_clearance"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08"
 solver    = "edge"
+cockpit   = "grade"
 
 [raoa]
 measures  = "radio-altimeter operating area grade-change rate (ICAO only)"
@@ -181,6 +224,7 @@ roles     = ["runway_family"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08"
 solver    = "edge"
+cockpit   = "grade_break"
 
 [drainage_minimum]
 measures  = "a surface flatter than its drainage minimum (runways: crown only)"
@@ -189,6 +233,7 @@ roles     = ["runway"]
 pairs     = "within"
 ruling    = "2026-08-13b/14"
 solver    = "diagnostic"
+cockpit   = "grade"
 
 [runway_crown]
 measures  = "runway crown below its declared drop"
@@ -197,6 +242,7 @@ roles     = ["runway"]
 pairs     = "within"
 ruling    = "2026-08-05"
 solver    = "offset"
+cockpit   = "grade"
 
 [wall_in_runway_strip]
 measures  = "a retaining wall inside the runway strip keep-out"
@@ -205,6 +251,7 @@ roles     = ["retaining_wall"]
 pairs     = "within"
 ruling    = "2026-08-21d"
 solver    = "construction"
+cockpit   = "keepout"
 
 [stacked_nodes]
 measures  = "one coordinate carrying disagreeing values"
@@ -213,6 +260,7 @@ roles     = ["all"]
 pairs     = "within"
 ruling    = "canonical identity (memory canonical-identity-join)"
 solver    = "construction"
+cockpit   = "step"
 
 [cross_shape]
 measures  = "proximity pairs across shapes vs the stricter cap"
@@ -221,6 +269,7 @@ roles     = ["all"]
 pairs     = "cross"
 ruling    = "LAW_TRUE_KNOBS"
 solver    = "construction"
+cockpit   = "grade"
 
 [frontage_near_miss]
 measures  = "a building pad and soft pavement across a sliver"
@@ -229,6 +278,7 @@ roles     = ["building"]
 pairs     = "cross"
 ruling    = "2026-08-08; 2026-09-01g"
 solver    = "construction"
+cockpit   = "step"
 
 [vertex_to_edge_step]
 measures  = "a vertex against a neighbouring edge, step past the step threshold"
@@ -237,6 +287,7 @@ roles     = ["all"]
 pairs     = "steps"
 ruling    = "2026-06-20"
 solver    = "construction"
+cockpit   = "step"
 
 [mid_edge_step]
 measures  = "two edges disagreeing mid-span past the step threshold"
@@ -245,3 +296,4 @@ roles     = ["all"]
 pairs     = "steps"
 ruling    = "2026-06-20"
 solver    = "construction"
+cockpit   = "step"

@@ -40,9 +40,10 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
     "Structures", "ReliefFloor",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
-    "NoStep", "Transect", "WithinShape", "Instrument", "Terrace", "Design",
+    "NoStep", "Transect", "WithinShape", "Instrument", "Cockpit", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
-    "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables"]
+    "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables",
+    "COCKPIT_CLASSES"]
 
 #: The eight files a law directory must contain (owner amendment
 #: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2,
@@ -479,6 +480,31 @@ class Instrument:
 
 
 @_dc.dataclass(frozen=True)
+class Cockpit:
+    """THE COCKPIT FRAME (owner RULINGS 2026-09-12x/12y; design-surface-spec
+    §31, object-placement-spec §17) — the READING RULE, not a law that moves
+    a row.  Every census family measures what it always measured; these three
+    numbers say which of its rows the pilot feels, which he sees, and which
+    are report."""
+
+    #: §31 (1) MOTION.  A step or ridge over this between welded neighbours
+    #: where BOTH sides are surfaces the aircraft rolls on (the runway
+    #: family, the taxi family, the apron and its stands — read from
+    #: ``precedence.toml``, never a literal list) is CRITICAL.
+    motion_step_m: float
+
+    #: §31 (1) VISUAL.  Off those surfaces a cut, rise, seam, float, burial
+    #: or terrace under this is invisible to the pilot: REPORTED, never a
+    #: gate.  Over it, and in view, it is a defect.
+    visual_m: float
+
+    #: §31 (2) the APPROACH range, in KILOMETRES: the terrain a pilot sees
+    #: on final and climb-out.  A visual defect outside the airport boundary
+    #: and farther than this from every runway axis is a REPORT.
+    approach_km: float
+
+
+@_dc.dataclass(frozen=True)
 class Seam:
     """The tile-seam cut (user 2026-05-10): the graticule band no face
     covers, ``half_width_m`` each side of an integer lat/lon line."""
@@ -516,6 +542,11 @@ class EmitLaw:
     transect: Transect
     within_shape: WithinShape
     instrument: Instrument
+    #: [cockpit]: THE READING RULE for every bar (RULINGS 2026-09-12x/12y) —
+    #: beside [instrument] because it is the same kind of key, the census's
+    #: own frame; the object stage (structures.toml [placement]) reads the
+    #: same three numbers through these tables.
+    cockpit: Cockpit
     seam: Seam
     lateral_contiguity: LateralContiguity
     road_profile: RoadProfile
@@ -606,6 +637,13 @@ class Family:
     pairs: str
     ruling: str
     solver: str
+    #: THE COCKPIT FRAME's class (owner RULINGS 2026-09-12x/12y; §31 (6)):
+    #: ``step`` / ``grade_break`` / ``grade`` / ``keepout``.  A READING
+    #: rule — it never changes what the family measures.  REQUIRED: a new
+    #: family must state which kind of thing its rows are, or the tables
+    #: refuse to load (the census-wrapper discipline applied to the
+    #: classification).
+    cockpit: str
     key: str = ""
 
 
@@ -627,6 +665,13 @@ class LawTables:
 
 
 # ── the loader ───────────────────────────────────────────────────────────
+
+#: §31 (6): the COCKPIT classes a law family may declare.  ``step`` is a
+#: height discontinuity (priced at ``motion_step_m`` between two rolled-on
+#: roles, at ``visual_m`` off them); ``grade_break`` is a rate-of-change law
+#: (CRITICAL motion on rolled-on roles by its own bound); ``grade`` is a
+#: slope excess and ``keepout`` a presence rule — both REPORT.
+COCKPIT_CLASSES: tuple[str, ...] = ("step", "grade_break", "grade", "keepout")
 
 _ROLE_FAMILIES = ("runway", "taxi", "common", "none")
 _SIDES = ("airside", "groundside")
@@ -781,6 +826,26 @@ def _check_cross_refs(t: LawTables) -> None:
         if r not in roles:
             raise LawError(f"precedence.authority.order: unknown role {r!r}")
     _check_terrace(t.emit.terrace, roles, LawError)
+    for k, f in t.families.items():
+        if f.cockpit not in COCKPIT_CLASSES:
+            raise LawError(
+                f"families.{k}.cockpit: {f.cockpit!r} is not one of "
+                f"{sorted(COCKPIT_CLASSES)} (§31 (6): every family states "
+                f"what KIND of thing its rows are)")
+    # THE COCKPIT FRAME (RULINGS 2026-09-12x/12y): the two thresholds are an
+    # ORDER, not two independent numbers — the motion threshold is the
+    # tighter one BY CONSTRUCTION (what the aircraft feels is finer than
+    # what the pilot sees), and a table that inverted them would silently
+    # class every motion row as visual-only.
+    ck = t.emit.cockpit
+    if not 0.0 < ck.motion_step_m < ck.visual_m:
+        raise LawError(
+            f"emit.cockpit: motion_step_m {ck.motion_step_m} must be > 0 and "
+            f"STRICTLY under visual_m {ck.visual_m} (§31 (1): the motion "
+            f"threshold is the tighter of the two)")
+    if ck.approach_km <= 0.0:
+        raise LawError(f"emit.cockpit: approach_km {ck.approach_km} must be "
+                       f"> 0 (§31 (2): the range a pilot sees on final)")
     # THE PROFILE WINDOW IS THE SCALE OF THE K LAW (spec §21.2 (1)): the
     # largest ``vertical_curve_k_m`` any loaded ruleset states, handed to
     # the design schema (which imports nothing from v2).

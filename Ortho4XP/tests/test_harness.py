@@ -7928,3 +7928,242 @@ def test_the_relief_offsets_join_by_coordinate_in_both_readers(cg):
     got = cg._pad_relief_by_nid(nodes, [[lat, lon, off]
                                         for lat, lon, _z, off in pts])
     assert [got[str(-1 - i)] for i in range(len(pts))] == list(_PAD_RELIEF)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §7 THE COCKPIT BLOCK IS ONE CODE PATH AND ONE PARTITION
+# (owner RULINGS 2026-09-12x/12y; design-surface-spec §31 (6),
+#  object-placement-spec §17 — lane ``v2cockpit``)
+# ══════════════════════════════════════════════════════════════════════
+# The block is a CLASSIFICATION of rows the census already has.  Two
+# things can silently break it and both are pinned here: a law family
+# added without a cockpit class (its rows would fall into REPORT and the
+# owner would never see them), and a bucket rule that drops or
+# double-counts a row (the two-instruments trap inside one report).
+
+class _CkWay:
+    def __init__(self, role):
+        self.tags = {"role": role}
+
+
+class _CkStep:
+    """A step row of the shape ``row_magnitude`` / ``row_roles`` read."""
+
+    def __init__(self, role_a, role_b, step_m, *, lat=None, lon=None,
+                 distance_m=0.2):
+        self.way_v = _CkWay(role_a)
+        self.way_e = _CkWay(role_b)
+        self.step_m = step_m
+        self.distance_m = distance_m
+        self.lat = lat
+        self.lon = lon
+
+
+def _ck_geometry(cg, *, ring_deg=0.01, runway_at=(0.0, 0.0)):
+    """A synthetic §31 (2) frame: ONE boundary ring around (0,0) and one
+    runway point at ``runway_at``, in the same metre projection the census
+    uses."""
+    import math
+
+    def ll_to_m(lat, lon):
+        return (lon * 111320.0 * math.cos(math.radians(lat)),
+                lat * 110540.0)
+    ring = [ll_to_m(a, b) for a, b in
+            ((-ring_deg, -ring_deg), (-ring_deg, ring_deg),
+             (ring_deg, ring_deg), (ring_deg, -ring_deg))]
+    return {"boundary_rings": [ring],
+            "runway_pts": [ll_to_m(*runway_at)],
+            "ll_to_m": ll_to_m}
+
+
+def test_the_cockpit_law_keys_come_from_the_tables(cg):
+    """§31 (1)/(2): the three numbers are LAW, read through
+    ``auto_patch_v2.law.tables.cockpit`` — never a literal in an
+    instrument."""
+    law = cg.cockpit_law(refresh=True)
+    assert law["motion_step_m"] == 0.05
+    assert law["visual_m"] == 0.5
+    assert law["approach_km"] == 5.0
+    assert law["approach_m"] == 5000.0
+    # the ROLLED-ON set is derived from precedence.toml, so it carries the
+    # runway family, the taxi family and the apron — and NOT a pad, a road
+    # or a car park (§31 (3): landside is visual only)
+    assert {"runway", "runway_crossing", "apron", "primary_parallel",
+            "stub"} <= law["rolled_on"]
+    assert not (law["rolled_on"]
+                & {"building", "parking_lot", "service_road",
+                   "groundside_pavement", "graded_strip"})
+
+
+def test_every_law_family_declares_a_cockpit_class(cg):
+    """A family registered in ``LAW_FAMILIES`` with no ``cockpit`` key in
+    ``families.toml`` would classify silently as REPORT — the census-
+    wrapper defect wearing a reading rule's hat.  ``cockpit_law`` refuses
+    instead; this asserts the register is total TODAY."""
+    law = cg.cockpit_law(refresh=True)
+    for key, _title, _bucket in cg.LAW_FAMILIES:
+        assert key in law["family_class"], key
+        assert law["family_class"][key] in (
+            "step", "grade_break", "grade", "keepout"), key
+
+
+def test_a_step_over_the_motion_threshold_on_apron_is_critical_motion(cg):
+    law = cg.cockpit_law(refresh=True)
+    row = _CkStep("apron", "apron", 0.06)
+    b, why = cg.cockpit_classify("vertex_to_edge_step", row, law=law)
+    assert (b, why) == (cg.COCKPIT_MOTION, "step_on_pavement")
+    # ...and under it, the same row is REPORT: centimetres are not a goal
+    b2, _ = cg.cockpit_classify("vertex_to_edge_step",
+                                _CkStep("apron", "apron", 0.04), law=law)
+    assert b2 == cg.COCKPIT_REPORT
+
+
+def test_the_same_step_on_a_car_park_is_report(cg):
+    """§31 (3): LANDSIDE IS VISUAL ONLY.  The aircraft does not roll on a
+    car park, so its 0.06 m step is invisible-and-report, not critical."""
+    law = cg.cockpit_law(refresh=True)
+    b, why = cg.cockpit_classify(
+        "vertex_to_edge_step", _CkStep("parking_lot", "parking_lot", 0.06),
+        law=law)
+    assert (b, why) == (cg.COCKPIT_REPORT, "under_visual")
+    # a MIXED pair is not rolled-on either: both sides must be
+    b2, _ = cg.cockpit_classify(
+        "vertex_to_edge_step", _CkStep("apron", "parking_lot", 0.06),
+        law=law)
+    assert b2 == cg.COCKPIT_REPORT
+
+
+def test_a_visual_float_inside_the_boundary_is_critical_and_under_it_is_report(cg):
+    law = cg.cockpit_law(refresh=True)
+    geo = _ck_geometry(cg)
+    at_home = {"lat": 0.001, "lon": 0.001}          # inside the ring
+    b, why = cg.cockpit_classify(
+        "mid_edge_step",
+        _CkStep("building", "groundside_pavement", 0.6, **at_home),
+        law=law, geometry=geo)
+    assert (b, why) == (cg.COCKPIT_VISUAL, "taxi")
+    b2, why2 = cg.cockpit_classify(
+        "mid_edge_step",
+        _CkStep("building", "groundside_pavement", 0.4, **at_home),
+        law=law, geometry=geo)
+    assert (b2, why2) == (cg.COCKPIT_REPORT, "under_visual")
+
+
+def test_a_terrace_far_from_every_runway_is_report(cg):
+    """§31 (2): the APPROACH range.  0.6 m of terrace 20 km from the
+    airport is over the visual threshold and still invisible — nobody is
+    looking at it."""
+    law = cg.cockpit_law(refresh=True)
+    geo = _ck_geometry(cg)
+    far = {"lat": 0.18, "lon": 0.0}                 # ~20 km north
+    b, why = cg.cockpit_classify(
+        "terrace_actual_step",
+        _CkStep("building", "groundside_pavement", 0.6, **far),
+        law=law, geometry=geo)
+    assert (b, why) == (cg.COCKPIT_REPORT, "beyond_view")
+    # ...and the SAME row 2 km out, inside the approach corridor, is seen
+    near = {"lat": 0.018, "lon": 0.0}
+    b2, why2 = cg.cockpit_classify(
+        "terrace_actual_step",
+        _CkStep("building", "groundside_pavement", 0.6, **near),
+        law=law, geometry=geo)
+    assert (b2, why2) == (cg.COCKPIT_VISUAL, "approach")
+
+
+def test_a_row_with_no_coordinate_is_in_view(cg):
+    """A defect whose place the census cannot name is never dismissed for
+    being far away, and the block counts how many there were."""
+    law = cg.cockpit_law(refresh=True)
+    geo = _ck_geometry(cg)
+    b, why = cg.cockpit_classify(
+        "mid_edge_step", _CkStep("building", "groundside_pavement", 0.9),
+        law=law, geometry=geo)
+    assert (b, why) == (cg.COCKPIT_VISUAL, "unlocated")
+
+
+def test_the_cockpit_buckets_partition_the_census_rows(cg):
+    """THE PARTITION.  Every row lands in exactly one bucket, and the
+    three buckets add to the population handed in — the claim the whole
+    block rests on, asserted in production too (``cockpit_block``
+    raises)."""
+    rows_by_family = {
+        "vertex_to_edge_step": [_CkStep("apron", "apron", 0.06),
+                                _CkStep("apron", "apron", 0.01),
+                                _CkStep("parking_lot", "parking_lot", 0.9,
+                                        lat=0.001, lon=0.001)],
+        # NOT building|building: that pair holds the registered
+        # ``building_to_building`` step exemption and is LAWFUL geometry,
+        # which the block filters before classifying (asserted below).
+        "mid_edge_step": [_CkStep("building", "groundside_pavement", 0.4,
+                                  lat=0.001, lon=0.001),
+                          _CkStep("building", "building", 9.9,
+                                  lat=0.001, lon=0.001)],
+        "within_shape": [_CkStep("runway", "runway", 4.0)],
+        "raoa": [_CkStep("runway", "runway", 0.02)],
+        "wall_in_runway_strip": [_CkStep("retaining_wall", "runway", 9.0)],
+    }
+    c = cg.cockpit_block(rows_by_family, geometry=_ck_geometry(cg))
+    # the LAW's own step exemption is applied first and counted, never
+    # silently dropped: a building-to-building step is lawful geometry
+    n = sum(len(v) for v in rows_by_family.values()) - 1
+    assert c["step_exempt_rows"] == 1
+    assert c["rows"] == n
+    assert (c[cg.COCKPIT_MOTION]["n"] + c[cg.COCKPIT_VISUAL]["n"]
+            + c[cg.COCKPIT_REPORT]["n"]) == n
+    assert c[cg.COCKPIT_MOTION]["n"] == 2      # the apron step, the raoa row
+    assert c[cg.COCKPIT_VISUAL]["n"] == 1      # the car-park 0.9 m, in view
+    # a `grade` row (within_shape) and a `keepout` row are REPORT however
+    # large: §31 (4), and neither is a cut, a rise or a step
+    assert set(c[cg.COCKPIT_REPORT]["by_family"]) == {
+        "vertex_to_edge_step", "mid_edge_step", "within_shape",
+        "wall_in_runway_strip"}
+    # and the lines render without a coordinate, a family or a count
+    # going missing
+    txt = "\n".join(cg.cockpit_block_lines(c))
+    assert "CRITICAL motion: 2" in txt and "CRITICAL visual: 1" in txt
+    assert "REPORT: 4 row(s)" in txt
+
+
+def test_the_cockpit_block_refuses_a_broken_partition(cg, monkeypatch):
+    """A classifier that returned a bucket outside the register would drop
+    rows from the report while the census beside it still counted them."""
+    monkeypatch.setattr(cg, "cockpit_classify",
+                        lambda *a, **k: ("nowhere", "?"))
+    with pytest.raises(Exception):
+        cg.cockpit_block({"mid_edge_step": [_CkStep("apron", "apron", 1.0)]})
+
+
+def test_the_census_and_the_cli_print_one_cockpit_block(cg, census_mod):
+    """ONE CODE PATH: the harness census renders the block through
+    ``check_grade.cockpit_block_lines``, and ``check_grade``'s own CLI
+    calls the same two functions — no second formatting of the same
+    numbers (the census-wrapper defect class)."""
+    src = (ROOT / "tools" / "harness" / "census.py").read_text()
+    assert "cockpit_block_lines(" in src and "cg.cockpit_block(" in src
+    assert "COCKPIT (" not in src, (
+        "the census formats the block itself instead of calling "
+        "check_grade.cockpit_block_lines")
+    cli = (ROOT / "tools" / "check_grade.py").read_text()
+    assert cli.count("def cockpit_block_lines") == 1
+    assert "cockpit_block_lines(cockpit_block(families))" in cli, (
+        "check_grade's CLI must print the block from the same run's "
+        "family_out, first")
+    assert callable(census_mod.print_report)
+
+
+def test_the_object_stage_reads_the_same_three_law_keys():
+    """§17: the placement censuses price at the SAME ``[cockpit]`` keys the
+    terrain census does.  Two stages, one frame — a second copy of 0.05 /
+    0.5 / 5.0 is the defect."""
+    from auto_patch_v2.airport import placement_carrier as PC
+    c = PC.cockpit_block(v15={"carried_float_gt": 1, "float_tol_m": 0.5,
+                              "carried_worst": [(0.9, "roof.obj", "wall.obj")],
+                              "footed_float_gt": 0, "carried_over_refused": 0,
+                              "refused_ground_off": [(0.2, "x.obj")]})
+    assert c["motion_step_m"] == 0.05 and c["visual_m"] == 0.5
+    assert c["approach_km"] == 5.0
+    assert c["critical_visual_n"] == 1
+    txt = "\n".join(PC.cockpit_block_lines(c))
+    assert "COCKPIT CRITICAL visual: 1" in txt
+    # the refusal set under the threshold is REPORT, never dropped
+    assert "refused carrier" in txt

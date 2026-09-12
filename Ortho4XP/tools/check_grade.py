@@ -43,7 +43,7 @@ import math
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8419,6 +8419,388 @@ def row_magnitude(row) -> float:
     return 0.0
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE COCKPIT BLOCK — the reading rule for every bar
+# (owner RULINGS 2026-09-12x/12y; design-surface-spec §31 (6),
+#  object-placement-spec §17)
+# ══════════════════════════════════════════════════════════════════════
+# Owner: "our goal is to increase the realism of a simulated airports
+# terrain so that it looks believable to a pilot viewing the world from
+# inside an airplane cockpit, so sharp, unnatural cuts, or rises, things
+# that would effect the airplanes motion are critical, but centimeter
+# accuracy or anything invisible to the pilot is not important."
+#
+# THIS IS A CLASSIFICATION, NOT A MEASUREMENT.  No row is created, moved,
+# dropped or re-priced here: ``run_checks`` produces exactly the rows it
+# always produced, and every one of them lands in exactly ONE of three
+# buckets.  The block therefore cannot change a census number — it says
+# which of the census's own numbers the pilot feels, which he sees, and
+# which are report.  ``cockpit_block`` asserts the partition in
+# production, the same way the site clustering does.
+#
+# ONE CODE PATH: ``tools/harness/census.py``, this module's CLI and the
+# pytest fixtures all call ``cockpit_block`` / ``cockpit_block_lines``.
+# The three numbers come from the law tables (``emit.toml [cockpit]``,
+# read through ``auto_patch_v2.law.tables.cockpit``) and the ROLLED-ON
+# role set from ``precedence.toml`` (``tables.rolled_on_roles``) — never a
+# literal list here: that is the census-wrapper defect applied to a
+# reading rule.
+
+#: The three buckets, in the order the block prints them.
+COCKPIT_MOTION = "critical_motion"
+COCKPIT_VISUAL = "critical_visual"
+COCKPIT_REPORT = "report"
+COCKPIT_BUCKETS: Tuple[str, ...] = (COCKPIT_MOTION, COCKPIT_VISUAL,
+                                    COCKPIT_REPORT)
+
+#: The owner rulings this block reads under, quoted in its heading.
+COCKPIT_RULING = "2026-09-12x/12y"
+
+_COCKPIT_LAW_CACHE: Optional[dict] = None
+
+
+def cockpit_law(*, refresh: bool = False) -> dict:
+    """THE COCKPIT FRAME's own numbers, from the law tables.
+
+    ``{motion_step_m, visual_m, approach_km, approach_m, rolled_on,
+    runway_family, family_class}`` — the three ``emit.toml [cockpit]`` keys, the ROLLED-ON
+    role set derived from ``precedence.toml``, and every law family's
+    declared cockpit class from ``families.toml``.
+
+    Raises when a registered ``LAW_FAMILIES`` key has no family table: an
+    unclassed family would silently fall into REPORT, which is exactly the
+    "a census dropped a family" failure this repo keeps paying for.
+    """
+    global _COCKPIT_LAW_CACHE
+    if _COCKPIT_LAW_CACHE is not None and not refresh:
+        return _COCKPIT_LAW_CACHE
+    from auto_patch_v2.law import tables as _T
+    law = _T.load_default()
+    ck = _T.cockpit(law)
+    fam_class = {k: f.cockpit for k, f in law.tables.families.items()}
+    missing = [k for k, _t, _b in LAW_FAMILIES if k not in fam_class]
+    if missing:
+        raise RuntimeError(
+            f"cockpit: law family(ies) {missing} are registered in "
+            f"check_grade.LAW_FAMILIES but carry no families.toml entry, so "
+            f"their rows would have no cockpit class — add the family (with "
+            f"its `cockpit` key) to law/families.toml")
+    _COCKPIT_LAW_CACHE = {
+        "motion_step_m": float(ck.motion_step_m),
+        "visual_m": float(ck.visual_m),
+        "approach_km": float(ck.approach_km),
+        "approach_m": float(ck.approach_km) * 1000.0,
+        "rolled_on": frozenset(_T.rolled_on_roles(law)),
+        # §31 (1) says "between WELDED NEIGHBOURS".  The census's own
+        # contact tolerance (``emit.instrument.step_contact_tol_m``) is
+        # where that is written down — a row whose two ends are farther
+        # apart than this is a SPANNED reading of the same law, a slope
+        # rather than a discontinuity.  It does NOT change which bucket a
+        # row lands in (that is the family's cockpit class and the two
+        # thresholds); it is printed beside every critical row so the
+        # reader can see a 2.7 m difference over 30 m of taxiway for the
+        # slope it is.  See the block's own note.
+        "weld_tol_m": float(law.tables.emit.instrument.step_contact_tol_m),
+        "runway_family": frozenset(law.tables.precedence.runway_family.members),
+        "family_class": fam_class,
+    }
+    return _COCKPIT_LAW_CACHE
+
+
+def cockpit_geometry(ways: List["Way"], nodes: Dict[str, Tuple[float, float]],
+                     ll_to_m, *, law: Optional[dict] = None) -> dict:
+    """§31 (2)'s TWO RANGES, from the patch's own geometry — the airport
+    BOUNDARY rings and the RUNWAY-family centre geometry, in the census's
+    own metre frame.
+
+    Both come out of the emitted patch that is already parsed; nothing is
+    measured and no file is read.  ``boundary_rings`` are the rings of the
+    ``boundary`` role (TAXI scale: inside one of them is inside the
+    airport); ``runway_pts`` are the runway-family vertices decimated to a
+    100 m grid — the APPROACH test asks whether a row is within
+    ``approach_km`` of a runway axis, and at that range the difference
+    between a runway vertex and the axis is under the decimation cell.
+
+    A patch with NO boundary ring (the boundary role is not always emitted)
+    falls back to the approach test alone, and that is stated in the block
+    rather than assumed away.
+    """
+    runway_family = (law or cockpit_law())["runway_family"]
+    rings: List[List[Tuple[float, float]]] = []
+    rwy_cells: Dict[Tuple[int, int], Tuple[float, float]] = {}
+    for w in ways:
+        role = effective_role(w)
+        if role is None:
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 2:
+            continue
+        if role == "boundary":
+            rings.append(pts)
+        elif role in runway_family:
+            for x, y in pts:
+                rwy_cells.setdefault(
+                    (int(math.floor(x / 100.0)), int(math.floor(y / 100.0))),
+                    (x, y))
+    return {"boundary_rings": rings,
+            "runway_pts": list(rwy_cells.values()),
+            "ll_to_m": ll_to_m}
+
+
+def _cockpit_in_ring(rings, x: float, y: float) -> bool:
+    """Ray-cast point-in-polygon over any of ``rings`` (metre frame)."""
+    for ring in rings:
+        inside = False
+        n = len(ring)
+        j = n - 1
+        for i in range(n):
+            xi, yi = ring[i]
+            xj, yj = ring[j]
+            if (yi > y) != (yj > y):
+                dy = yj - yi
+                if dy and x < xi + (y - yi) * (xj - xi) / dy:
+                    inside = not inside
+            j = i
+        if inside:
+            return True
+    return False
+
+
+def cockpit_in_view(geometry: Optional[dict], lat, lon,
+                    approach_m: float) -> Tuple[bool, str]:
+    """§31 (2): is this row where a pilot looks?  ``(in_view, why)``.
+
+    ``taxi`` inside a boundary ring, ``approach`` within ``approach_m`` of
+    the runway geometry, ``beyond`` outside both, ``unlocated`` for a row
+    the census could not give a coordinate.  AN UNLOCATED ROW IS IN VIEW:
+    a defect whose place we cannot name is never dismissed for being far
+    away, and the block prints how many there were.
+    """
+    if lat is None or lon is None or not geometry:
+        return True, "unlocated"
+    x, y = geometry["ll_to_m"](float(lat), float(lon))
+    if _cockpit_in_ring(geometry["boundary_rings"], x, y):
+        return True, "taxi"
+    lim = approach_m * approach_m
+    for px, py in geometry["runway_pts"]:
+        dx = px - x
+        dy = py - y
+        if dx * dx + dy * dy <= lim:
+            return True, "approach"
+    return False, "beyond"
+
+
+def cockpit_classify(family: str, row, *, law: dict,
+                     geometry: Optional[dict] = None) -> Tuple[str, str]:
+    """The bucket and the REASON for ONE census row — §31 (1)/(2)/(3).
+
+    * a ``step``-class family over ``motion_step_m`` with BOTH sides
+      rolled-on (runway family / taxi family / apron+stands) is CRITICAL
+      MOTION: the aircraft feels it;
+    * a ``grade_break``-class family (the arc / curve RATE laws) on
+      rolled-on roles is CRITICAL MOTION by its own law's bound — the row
+      exists only because the rate law was exceeded, so there is no second
+      threshold to apply;
+    * a ``step``-class row over ``visual_m`` that is IN VIEW is CRITICAL
+      VISUAL — a sharp cut, rise, seam or terrace the pilot sees;
+    * everything else is REPORT: every ``grade``-class slope excess, every
+      ``keepout`` presence row, everything under a threshold, and every
+      visual row beyond the boundary and the approach corridor (§31 (3):
+      landside grade laws are TARGETS, never gates).
+    """
+    cls = law["family_class"].get(family, "grade")
+    mag = row_magnitude(row)
+    roles = row_roles(row)
+    rolled = law["rolled_on"]
+    both_rolled = all(r in rolled for r in roles)
+    if cls == "grade_break" and both_rolled:
+        return COCKPIT_MOTION, "grade_break"
+    if cls == "step":
+        if both_rolled and mag > law["motion_step_m"]:
+            return COCKPIT_MOTION, "step_on_pavement"
+        if mag > law["visual_m"]:
+            in_view, why = cockpit_in_view(
+                geometry, getattr(row, "lat", None), getattr(row, "lon", None),
+                law["approach_m"])
+            if in_view:
+                return COCKPIT_VISUAL, why
+            return COCKPIT_REPORT, "beyond_view"
+        return COCKPIT_REPORT, ("under_motion" if both_rolled
+                                else "under_visual")
+    return COCKPIT_REPORT, cls
+
+
+def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
+                  law: Optional[dict] = None, worst: int = 5) -> dict:
+    """THE COCKPIT BLOCK over a census's OWN rows — §31 (6).
+
+    ``rows_by_family`` is ``{family key: [row, ...]}`` — a ``run_checks``
+    ``family_out`` (the ``_``-prefixed keys are ignored, and
+    ``_cockpit_geometry`` is picked up from it when ``geometry`` is not
+    passed) or the harness census's own already-exempt-filtered view of the
+    same dict.  The registered STEP EXEMPTIONS are applied here either way.  Returns the two
+    critical buckets with count / worst / coordinate, the REPORT bucket by
+    family, and the frame the ranges were read in.
+
+    THE PARTITION IS ASSERTED HERE, in production: the three buckets must
+    add to the rows handed in.  A block whose numbers do not add up to the
+    census printed beside it is the two-instruments trap inside one report,
+    and the whole claim of this block is that it re-reads the census's rows
+    rather than measuring again.
+    """
+    law = law or cockpit_law()
+    if geometry is None:
+        geometry = rows_by_family.get("_cockpit_geometry")
+    buckets: Dict[str, list] = {b: [] for b in COCKPIT_BUCKETS}
+    reasons: Dict[str, Counter] = {b: Counter() for b in COCKPIT_BUCKETS}
+    by_family: Dict[str, Dict[str, int]] = {}
+    n_in = 0
+    unlocated = 0
+    exempt = 0
+    for key, _title, _bucket in LAW_FAMILIES:
+        rows = list(rows_by_family.get(key, ()) or ())
+        # THE STEP EXEMPTION comes from the law register (``step_exempt`` /
+        # ``STEP_EXEMPTIONS``), never a copy: an exempt row is LAWFUL
+        # geometry and is not a cockpit row at all.  Idempotent, so a
+        # caller handing in the harness census's already-filtered view and
+        # one handing in a raw ``family_out`` classify the same population.
+        if key in STEP_EXEMPT_FAMILIES:
+            before = len(rows)
+            rows = [r for r in rows if not step_exempt(r)]
+            exempt += before - len(rows)
+        n_in += len(rows)
+        tally = by_family.setdefault(key, {b: 0 for b in COCKPIT_BUCKETS})
+        for r in rows:
+            b, why = cockpit_classify(key, r, law=law, geometry=geometry)
+            buckets[b].append((key, r, why))
+            reasons[b][why] += 1
+            tally[b] += 1
+            if why == "unlocated":
+                unlocated += 1
+    got = sum(len(v) for v in buckets.values())
+    if got != n_in:
+        raise SystemExit(
+            f"REFUSING: the cockpit block does not partition the census's "
+            f"own rows ({got} classified, {n_in} handed in) — the block and "
+            f"the census beside it would describe two populations")
+
+    def _pack(b: str) -> dict:
+        rows = sorted(buckets[b], key=lambda kr: -row_magnitude(kr[1]))
+        w = rows[0] if rows else None
+        return {
+            "n": len(rows),
+            "by_family": {k: v for k, v in
+                          sorted(Counter(q[0] for q in rows).items())},
+            "reasons": dict(sorted(reasons[b].items())),
+            "worst_m": round(row_magnitude(w[1]), 3) if w else None,
+            "worst_family": w[0] if w else None,
+            "worst_roles": "|".join(sorted(row_roles(w[1]))) if w else None,
+            "worst_lat": getattr(w[1], "lat", None) if w else None,
+            "worst_lon": getattr(w[1], "lon", None) if w else None,
+            "worst_over_m": (round(float(getattr(w[1], "distance_m", 0.0)
+                                         or 0.0), 2) if w else None),
+            "welded": sum(1 for q in rows
+                          if float(getattr(q[1], "distance_m", 0.0) or 0.0)
+                          <= law["weld_tol_m"]),
+            "top": [{"family": k,
+                     "m": round(row_magnitude(r), 3),
+                     "over_m": round(float(getattr(r, "distance_m", 0.0)
+                                           or 0.0), 2),
+                     "roles": "|".join(sorted(row_roles(r))),
+                     "side": row_side(r),
+                     "why": why,
+                     "lat": getattr(r, "lat", None),
+                     "lon": getattr(r, "lon", None)}
+                    for k, r, why in rows[:worst]],
+        }
+
+    return {
+        "ruling": COCKPIT_RULING,
+        "rows": n_in,
+        "motion_step_m": law["motion_step_m"],
+        "visual_m": law["visual_m"],
+        "approach_km": law["approach_km"],
+        "rolled_on": sorted(law["rolled_on"]),
+        "boundary_rings": (len(geometry["boundary_rings"]) if geometry
+                           else None),
+        "runway_pts": len(geometry["runway_pts"]) if geometry else None,
+        "unlocated_rows": unlocated,
+        "step_exempt_rows": exempt,
+        "weld_tol_m": law["weld_tol_m"],
+        COCKPIT_MOTION: _pack(COCKPIT_MOTION),
+        COCKPIT_VISUAL: _pack(COCKPIT_VISUAL),
+        COCKPIT_REPORT: _pack(COCKPIT_REPORT),
+        "report_by_family": {k: v[COCKPIT_REPORT]
+                             for k, v in by_family.items()
+                             if v[COCKPIT_REPORT]},
+        "by_family": by_family,
+    }
+
+
+def _cockpit_where(d: dict) -> str:
+    lat, lon = d.get("worst_lat"), d.get("worst_lon")
+    if lat is None or lon is None:
+        return "no coordinate"
+    return f"{float(lat):.7f},{float(lon):.7f}"
+
+
+def cockpit_block_lines(c: dict) -> List[str]:
+    """The COCKPIT block as the lines every reader prints — ONE
+    implementation, called by ``tools/harness/census.py``, by this
+    module's CLI and by the pytest fixtures."""
+    mo, vi, re_ = c[COCKPIT_MOTION], c[COCKPIT_VISUAL], c[COCKPIT_REPORT]
+    frame = (f"boundary {c['boundary_rings']} ring(s)"
+             if c.get("boundary_rings") else "NO boundary ring in the patch "
+             "— the approach test alone decides view")
+    out = [
+        f"--- COCKPIT (owner RULINGS {c['ruling']}: what the pilot feels, "
+        f"what he sees, and what is report) ---",
+        f"  frame: motion {c['motion_step_m']:g} m on rolled-on pavement "
+        f"({', '.join(c['rolled_on'])}); visual {c['visual_m']:g} m within "
+        f"the boundary or {c['approach_km']:g} km of a runway axis; "
+        f"{frame}; {c['rows']} census row(s) classified"
+        + (f", {c['unlocated_rows']} with no coordinate (read as IN VIEW)"
+           if c.get("unlocated_rows") else ""),
+        f"  CRITICAL motion: {mo['n']}"
+        + (f" ({mo['welded']} between WELDED neighbours <= "
+           f"{c['weld_tol_m']:g} m apart, {mo['n'] - mo['welded']} read "
+           f"SPANNED over a longer run — a slope, not a discontinuity)"
+           f" — worst {mo['worst_m']:.3f} m over {mo['worst_over_m']:g} m  "
+           f"{mo['worst_family']} [{mo['worst_roles']}]  at "
+           f"{_cockpit_where(mo)}"
+           if mo["n"] else " (none: no step over "
+           f"{c['motion_step_m']:g} m between two rolled-on faces, no "
+           f"forbidden grade break)"),
+    ]
+    for r in mo["top"][1:]:
+        out.append(f"      {r['m']:8.3f} m over {r['over_m']:7.2f} m  "
+                   f"{r['family']} [{r['roles']}] {r['why']}  "
+                   f"at {r['lat']},{r['lon']}")
+    out.append(
+        f"  CRITICAL visual: {vi['n']}"
+        + (f" ({vi['welded']} welded, {vi['n'] - vi['welded']} spanned)"
+           f" — worst {vi['worst_m']:.3f} m over {vi['worst_over_m']:g} m  "
+           f"{vi['worst_family']} [{vi['worst_roles']}]  at "
+           f"{_cockpit_where(vi)}"
+           if vi["n"] else f" (none: no cut, rise, seam or terrace over "
+           f"{c['visual_m']:g} m in view)"))
+    for r in vi["top"][1:]:
+        out.append(f"      {r['m']:8.3f} m over {r['over_m']:7.2f} m  "
+                   f"{r['family']} [{r['roles']}] {r['why']}  "
+                   f"at {r['lat']},{r['lon']}")
+    if vi["n"]:
+        out.append("      in view by: "
+                   + (", ".join(f"{k} {v}" for k, v
+                                in vi["reasons"].items()) or "-"))
+    out.append(f"  REPORT: {re_['n']} row(s) — centimetres and the "
+               f"invisible (§31 (4)), by family:")
+    for k, n in sorted(re_["by_family"].items(), key=lambda q: (-q[1], q[0])):
+        out.append(f"      {n:6d}  {k}")
+    if not re_["by_family"]:
+        out.append("      (none)")
+    return out
+
+
 def stamp_relaxed_rows(rows: List[Violation], relaxed_rows: list, ll_to_m,
                        tag: str = RELAXED_OUT_OF_SCOPE) -> int:
     """THE RELAXED-CAP PRICING (spawner ruling 04x-2; RULINGS 2026-09-04t(1)).
@@ -8625,6 +9007,14 @@ def run_checks(
     if family_out is not None:
         family_out["_feature_hosts"] = _feature_hosts
     ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
+    # THE COCKPIT FRAME's two RANGES (§31 (2)), taken off the SAME parsed
+    # patch every family below is read from — the boundary rings and the
+    # runway geometry, never a second read of the file and never a second
+    # projection.  Published through ``family_out`` so the census, this
+    # module's CLI and the fixtures classify in one frame.
+    if family_out is not None:
+        family_out["_cockpit_geometry"] = cockpit_geometry(
+            ways, nodes, ll_to_m)
     # CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): mark every
     # apron-adopting way's long shared runs ONCE, before any check, so the
     # within-shape, cross-shape and step readers price one reading.
@@ -9293,15 +9683,32 @@ def main(argv=None) -> int:
     except Exception as ex:
         print(f"  (axes sidecar unreadable, context-free check: {ex})")
         ctx = {}
-    within, cross, steps = run_checks(
-        args.osm,
-        max_grade_pct=args.max_grade,
-        proximity_m=args.proximity_m,
-        edge_search_m=args.edge_search_m,
-        edge_step_m=args.edge_step_m,
-        top_n=args.top_n,
-        **ctx,
-    )
+    # THE COCKPIT BLOCK IS PRINTED FIRST (§31 (6)) — and from the SAME
+    # run: ``run_checks`` reports as it goes, so its output is captured and
+    # replayed under the block rather than the checks being run twice.  One
+    # code path with the harness census: the same ``family_out``, the same
+    # ``cockpit_block`` / ``cockpit_block_lines``.
+    import io as _io
+    import contextlib as _ctx
+    families: dict = {}
+    _buf = _io.StringIO()
+    with _ctx.redirect_stdout(_buf):
+        within, cross, steps = run_checks(
+            args.osm,
+            max_grade_pct=args.max_grade,
+            proximity_m=args.proximity_m,
+            edge_search_m=args.edge_search_m,
+            edge_step_m=args.edge_step_m,
+            top_n=args.top_n,
+            family_out=families,
+            **ctx,
+        )
+    try:
+        for line in cockpit_block_lines(cockpit_block(families)):
+            print(line)
+    except Exception as ex:                                # pragma: no cover
+        print(f"  (COCKPIT block unavailable: {ex})")
+    print(_buf.getvalue(), end="")
     if args.strict and (within or cross or steps):
         return 1
     return 0

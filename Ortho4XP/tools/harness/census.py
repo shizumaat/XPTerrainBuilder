@@ -236,7 +236,7 @@ def load_check_grade():
 #: 2 — the entry carries ``notes``: the stdout the COMPUTATION emits (see
 #: :data:`CACHE_NOTES_DOC`).  Format-1 entries have no notes and would
 #: serve a report stripped of its own caveats, so the bump retires them.
-CENSUS_CACHE_FORMAT = 2
+CENSUS_CACHE_FORMAT = 3
 
 # ── WHY THE COMPUTATION'S STDOUT IS PART OF THE CACHED ARTIFACT ───────
 #
@@ -1578,6 +1578,16 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
                             if worst is not None else None),
         })
 
+    # THE COCKPIT BLOCK (owner RULINGS 2026-09-12x/12y; design-surface-spec
+    # §31 (6)) — printed FIRST by ``print_report``.  A CLASSIFICATION of the
+    # rows this census already has: ``check_grade.cockpit_block`` is the one
+    # implementation (this file, ``check_grade``'s CLI and the pytest
+    # fixtures call it), it reads its three numbers from the law tables, and
+    # it REFUSES if its buckets do not add up to the population handed in.
+    cockpit = cg.cockpit_block(
+        {k: rows for k, (_t, _b, rows) in rows_by_family.items()},
+        geometry=families.get("_cockpit_geometry"))
+
     all_rows = [(k, r) for k, (_t, _b, rs) in rows_by_family.items()
                 for r in rs]
     all_rows.sort(key=lambda kr: -cg.row_magnitude(kr[1]))
@@ -1636,6 +1646,9 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
 
     report = {
         "patch": str(osm),
+        # §31 (6): the reading rule, carried in the report so a JSON
+        # consumer reads the same three buckets the printed block shows.
+        "cockpit": cockpit,
         # THE FRAME (RULINGS 2026-08-06, binding point 3).  Two census JSONs
         # from two trees used to be indistinguishable: same keys, same
         # shape, nothing saying which sha, which gates, or which numeric
@@ -1752,9 +1765,20 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     return report
 
 
-def print_report(rep: dict, top: int) -> None:
+def print_report(rep: dict, top: int, cg=None) -> None:
     lt = rep["lawtrue"]
     print(f"\n=== CENSUS {rep['patch']} ===")
+    # THE COCKPIT BLOCK FIRST (owner RULINGS 2026-09-12x/12y; §31 (6):
+    # "Every spec's MEASURED block from now on quotes the cockpit block
+    # first").  Printed from ``check_grade``'s own lines function — never a
+    # second formatting of the same numbers.  A report from an older cache
+    # entry carries no block and says so rather than printing zeros.
+    if rep.get("cockpit"):
+        for line in (cg or load_check_grade()).cockpit_block_lines(
+                rep["cockpit"]):
+            print(line)
+    else:
+        print("  (no COCKPIT block in this report — it predates §31 (6))")
     # FRAME STAMP (RULINGS 2026-08-06, binding point 3) — the tree and gate
     # configuration the patch was BUILT by, decoded from its own <osm> root
     # by ``auto_patch.provenance.parse_patch_provenance``.
@@ -2539,7 +2563,7 @@ def main(argv=None) -> int:
                             notes=_notes_buf.getvalue())
         reports.append(rep)
         if not args.quiet:
-            print_report(rep, args.top)
+            print_report(rep, args.top, cg)
     if not args.quiet:
         print_compare(reports)
     if args.json:

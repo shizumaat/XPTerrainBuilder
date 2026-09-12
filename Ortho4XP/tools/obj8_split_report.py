@@ -393,8 +393,11 @@ def _write_pack(a, plan, ss, sampler) -> None:
     print(f"  plan -> {res.plan_path}")
     # §16c (5): THE BAR INSTRUMENT IS THE WRITTEN FRAME — the same
     # census ``--torn-seams`` prints, on the pack this call just wrote.
-    for line in PC.census_torn_seams_lines(
-            PC.census_torn_seams([q.to_dict() for q in splits], root)):
+    _torn = PC.census_torn_seams([q.to_dict() for q in splits], root)
+    for line in PC.cockpit_block_lines(PC.cockpit_block(
+            splits=[q.to_dict() for q in splits], torn=_torn)):
+        print(line)
+    for line in PC.census_torn_seams_lines(_torn):
         print(line)
     # THE READ-BACK: the written DSF dumped again must carry every new
     # placement, on its own new OBJECT_DEF
@@ -519,6 +522,9 @@ def _main() -> int:
         root = os.path.abspath(a.torn_seams)
         c = PC.census_torn_seams(written.get("splits", ()), root)
         print(f"torn-seam census of {written.get('icao', '?')} over {root}")
+        for line in PC.cockpit_block_lines(PC.cockpit_block(
+                splits=written.get("splits", ()), torn=c)):
+            print(line)
         for line in PC.census_torn_seams_lines(c):
             print(line)
         if a.json:
@@ -613,6 +619,16 @@ def _main() -> int:
                         elevated_base_m=rb.elevated_base_m, split_tol_m=tol_m,
                         rims=rims, arc_cap=rb.line_object_stations_max,
                         counts=ss.counts)
+    # §15 (3) / §16b (4) are computed HERE, before anything is printed, so
+    # the COCKPIT block can be printed FIRST (§31 (6): "Every spec's
+    # MEASURED block from now on quotes the cockpit block first").  Their
+    # own lines still print below, in their own order and unchanged.
+    _plan_rows = [q.to_dict() for q in _sp] + [q.to_dict() for q in _wh]
+    v15 = PC.census_v15(_plan_rows, ground_tol_m=tol_m)
+    v16b = PC.census_v16b(_plan_rows, sampler, split_tol_m=tol_m)
+    for line in PC.cockpit_block_lines(PC.cockpit_block(
+            splits=_plan_rows, v15=v15, v16b=v16b)):
+        print(line)
     for line in PC.census_v14_lines(v14, elevated_base_m=rb.elevated_base_m,
                                     split_tol_m=tol_m):
         print(line)
@@ -627,8 +643,6 @@ def _main() -> int:
     # a body on its own low-side foot reads every foot of its own as
     # lawful, so neither bar above can see a roof standing 6 m over the
     # walls it belongs to.
-    v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
-                        ground_tol_m=tol_m)
     for line in PC.census_v15_lines(v15):
         print(line)
     # §16 (1): THE POPULATION — every OBJECT row of the pack is in the
@@ -644,9 +658,6 @@ def _main() -> int:
     # §16b (4): the two bars read on the WRITTEN GEOMETRY — never on
     # ``geom_box``, which for a carried body the cut left whole is the
     # patch its CARRIER covers (11ap).
-    v16b = PC.census_v16b([q.to_dict() for q in _sp]
-                          + [q.to_dict() for q in _wh], sampler,
-                          split_tol_m=tol_m)
     for line in PC.census_v16b_lines(v16b):
         print(line)
     print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "

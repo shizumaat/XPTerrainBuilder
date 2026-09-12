@@ -181,6 +181,12 @@ def census_torn_seams(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                                 and abs(x["step"]) > step_tol_m),
         "off_sheet_seams": sum(1 for x in seams if x["step"] is None),
         "step_tol_m": step_tol_m,
+        # §17 (the COCKPIT frame): every rigid seam's own step, worst
+        # first — the block prices these at [cockpit] visual_m, which is
+        # a different number from this census's own ``step_tol_m``, and a
+        # count taken at the wrong tolerance is the two-instruments trap.
+        "rigid_steps": sorted((abs(x["step"]) for x in rigid
+                               if x["step"] is not None), reverse=True),
         "bodies_on_a_torn_seam": len(torn_bodies),
         "hist": _hist(rigid), "station_hist": _hist(station),
         "by_class": by_class,

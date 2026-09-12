@@ -1,56 +1,39 @@
-#!/usr/bin/env python3
-"""THE SEAT RESIDUAL AT EVERY PLACEMENT'S FEET (RULINGS 2026-09-09ac (3)).
+"""THE DRAPE RESIDUAL AT EVERY PLACEMENT'S FEET (RULINGS 2026-09-09ac (3);
+the PLACEMENT reading 2026-09-11e (3), spec §7/§9).
 
-The instrument the LEMD seat rounds are judged on: for every OBJ
-placement of a pack, the vertical gap between the mesh under each of the
-object's GROUND components' lowest vertices and where that vertex will
-render after the re-seat —
+THE SEAT-RESULT MODE IS DELETED (owner RULINGS 2026-09-12s, spec §8):
+this tool used to read an ``o4_v2_rebake_result_<ICAO>.json`` and price
+v1's vertex rewrite at each foot.  The seat is a refuted mechanism and
+its result files no longer exist, so the only mode is the live one — the
+PLACEMENT plan.  The name is kept: the INDEX row, ``obj8_split_report``
+and the twins all address it by it.
 
-    |dz| = mesh(foot) - (mesh(anchor) + y_foot + delta(component))
-
-computed from the AUTHORED pack (``.anchor_bak`` when one exists —
-restore-before-read, RULINGS 2026-09-04 v2rebake), a seat RESULT's
-per-component deltas and ONE mesh.  Nothing is written to the pack, so
-two seat arms are compared against the SAME terrain without a build
-between them: run ``v2_rebake_replay.py seat PLAN MESH`` per arm and
-census each result here.
-
-    venv/bin/python tools/seat_feet_census.py RESULT.json --mesh MESH \\
-        [--plan PLAN.json] [--pack ROOT] [--dsf-dump DUMP.text] \\
-        [--label L] [--top 30] [--json OUT.json]
-    venv/bin/python tools/seat_feet_census.py --placement-plan PLAN.json \\
-        {--mesh MESH | --graded ICAO.graded.json} [--pack ROOT] [--top 30]
-
-THE PLACEMENT PLAN (owner RULINGS 2026-09-11e (3), spec §7/§9): with
-``--placement-plan`` there is no seat and no delta — the object stage is
-X-Plane's own drape, so the rows are the plan's OWN placements (every
-split body at ITS anchor, reading the file the split writer wrote; every
-converted placement at its authored anchor) and the residual is what the
-terrain does between the anchor and each foot:
+For every placement of a ``o4_v2_placement_<ICAO>.json`` — every split
+body at ITS anchor, reading the file the split writer wrote; every
+converted placement at its authored anchor — the residual is what the
+terrain does between the anchor and each of the object's GROUND
+components' lowest vertices:
 
     |dz| = surface(foot) - (surface(anchor) + y_foot)
 
-— the same instrument, the same histogram, one source further back.  The
-elevation comes from the built mesh (``--mesh``) or, for a dry run with
-no tile built, from the emitted DESIGN SURFACE (``--graded``), which is
-the terrain the drape will read.
+The elevation comes from the built mesh (``--mesh``) or, for a dry run
+with no tile built, from the emitted DESIGN SURFACE (``--graded``),
+which is the terrain the drape will read.  Feet are read from the
+AUTHORED pack (``.anchor_bak`` when one exists — restore-before-read).
+Nothing is written to the pack.
 
-``--plan`` supplies the pack root and the skip reasons that name each
-unseated placement's CLASS (the by-class table below); without it every
-unseated placement reads "not in plan".  The DSF text dump is the
-DSFTool ``--dsf2text`` output already in the mod cache — it is only ever
-READ here (never regenerated: the churn ruling), and is found from the
-pack automatically when ``--dsf-dump`` is not given.
+    venv/bin/python tools/seat_feet_census.py --placement-plan PLAN.json \\
+        {--mesh MESH | --graded ICAO.graded.json} [--pack ROOT] [--top 30]
 
 Output: the |Δ| histogram (< 0.3 / 0.3-1 / 1-3 / > 3 m), the same by
-CLASS, and the worst N placements with lat/lon.  Promoted from the
-`v2lemdseats` lane's ``measure6.py`` on its third use.
+CLASS, the worst N placements with lat/lon, and §13's elevated-body /
+footless-carrier bars.  Promoted from the `v2lemdseats` lane's
+``measure6.py`` on its third use.
 """
 from __future__ import annotations
 
 import argparse
 import collections
-import glob
 import json
 import math
 import os
@@ -74,82 +57,6 @@ _CLASSES = (("stock", "stock library"),
             ("below-grade", "below-grade skip"),
             ("basin facility", "terrain-adapted (structure member)"),
             ("resolves outside", "outside pack"))
-
-
-def find_dsf_dump(pack_root: str) -> str | None:
-    """The pack's cached DSFTool text dump, READ-ONLY.
-
-    The cache names a dump ``<dsf basename>.<sha256(dsf bytes)[:8]>.text``
-    under the airport mod cache (``auto_patch.dsf_reader``); this looks
-    only for one that already EXISTS — DSFTool is never run here, so a
-    census can never regenerate a shared-repo artefact as a side effect.
-
-    The DSF it names is the PRISTINE one (RULINGS 2026-09-11m,
-    ``dsf_write.pristine_dsf_path``): a census of a written pack reads
-    the frame the plan was made in, not the bodies the write minted.
-    """
-    from auto_patch.dsf_reader import airport_mod_cache_dir, _default_pack_text_cache_path
-    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
-    cache = airport_mod_cache_dir(pack_root)
-    if not cache:
-        return None
-    for d in sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))
-                    + glob.glob(os.path.join(pack_root, "Earth nav data", "*.dsf"))):
-        cand = _default_pack_text_cache_path(cache, pristine_dsf_path(d))
-        if os.path.isfile(cand):
-            return cand
-    return None
-
-
-def read_result(path: str) -> tuple[dict[str, dict[int, float]], dict[str, float]]:
-    """``resource -> {component: delta}``, the member's own delta, and
-    the LINE OBJECTS' drape stations (RULINGS 2026-09-10bb).
-
-    Reads either a seat RESULT (``o4_v2_rebake_result_<ICAO>.json``) or a
-    ``v2_rebake_replay.py seat`` ``*.seat.json`` (whose ``seat`` key
-    holds the same record).  A structure-seated member carries one
-    ``delta_m``; a plate unit's delta stands in for its members.
-    """
-    with open(path) as fh:
-        res = json.load(fh)
-    res = res.get("seat", res)
-    deltas: dict[str, dict[int, float]] = {}
-    member_delta: dict[str, float] = {}
-    # THE LINE OBJECT'S DRAPE STATIONS (RULINGS 2026-09-10bb, spec §16):
-    # resource -> comp -> [(lat, lon, delta)].  A foot inside a draped
-    # component reads the station NEAREST it, not the component's median
-    # — otherwise the census measures a seat the writer never applied.
-    stations: dict[str, dict[int, list[tuple[float, float, float]]]] = {}
-    for u in res["units"]:
-        for m in u["members"]:
-            d = deltas.setdefault(m["resource"], {})
-            for row in (m.get("line_stations") or []):
-                comp, la, lo, dz = row
-                stations.setdefault(m["resource"], {}).setdefault(
-                    int(comp), []).append((float(la), float(lo), float(dz)))
-            for row in (m.get("part_deltas") or []):
-                comp, _cluster, dz = row
-                if dz is not None:
-                    d[int(comp)] = float(dz)
-            if m.get("delta_m") is not None:
-                member_delta[m["resource"]] = float(m["delta_m"])
-            elif u.get("delta_m") is not None and u.get("datum") == "plate":
-                member_delta.setdefault(m["resource"], float(u["delta_m"]))
-    return deltas, member_delta, stations
-
-
-def read_placements(dump: str) -> tuple[list[str], list[tuple[int, float, float, float]]]:
-    """``OBJECT_DEF`` paths and ``OBJECT`` placements from a text dump."""
-    defs: list[str] = []
-    plc: list[tuple[int, float, float, float]] = []
-    with open(dump, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            if line.startswith("OBJECT_DEF "):
-                defs.append(line[11:].strip())
-            elif line.startswith("OBJECT "):
-                p = line.split()
-                plc.append((int(p[1]), float(p[2]), float(p[3]), float(p[4])))
-    return defs, plc
 
 
 def read_feet(pack_root: str, path: str, thickness: float = 0.5,
@@ -191,14 +98,10 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
                 span=float(np.hypot(np.ptp(v[vi][:, 0]), np.ptp(v[vi][:, 2]))))
 
 
-def census(rows: list[dict], skipped: dict[str, str], seated: set[str],
-           label: str, top: int, line_objects: set[str] = frozenset()) -> None:
+def census(rows: list[dict], skipped: dict[str, str],
+           label: str, top: int) -> None:
     """The histogram, the by-class table and the worst ``top``."""
     def klass(path: str) -> str:
-        if path in line_objects:
-            return "SEATED (line object, draped)"
-        if path in seated:
-            return "SEATED"
         s = skipped.get(path)
         if s is None:
             return "not in plan"
@@ -218,7 +121,6 @@ def census(rows: list[dict], skipped: dict[str, str], seated: set[str],
     print(f"== {label}: {len(meas)} measured placements (of {len(rows)} OBJ placements)")
     for k in ("<0.3", "0.3-1", "1-3", ">3"):
         print(f"   {k:6s} {hist[k]:5d} {100 * hist[k] / len(meas):5.1f}%")
-    print("   seated:", sum(1 for r in meas if r["seated"]))
     by = collections.defaultdict(list)
     for r in meas:
         by[klass(r["path"])].append(abs(r["dmax"]))
@@ -232,26 +134,6 @@ def census(rows: list[dict], skipped: dict[str, str], seated: set[str],
         print(f"   {i:2d} {r['lat']:10.6f} {r['lon']:11.6f} "
               f"{os.path.basename(r['path'])[-44:]:44} {r['dmax']:8.2f} "
               f"span={r['span']:5.0f} {klass(r['path'])}")
-
-
-def _nearest_station(st: list, lat: float, lon: float) -> float:
-    """The delta of the drape station nearest ``(lat, lon)`` in plan."""
-    mlon = MLAT * math.cos(math.radians(lat))
-    return min(st, key=lambda r: ((r[0] - lat) * MLAT) ** 2
-               + ((r[1] - lon) * mlon) ** 2)[2]
-
-
-def measure(pack_root: str, dump: str, sampler, deltas: dict, member_delta: dict,
-            stations: dict | None = None, thickness: float = 0.5) -> list[dict]:
-    """One row per OBJ placement: its worst foot residual, or its kind.
-
-    ``sampler`` is anything with ``elevation_at_or_none(lat, lon)`` — the
-    mesh under both the anchor and each foot (``MeshElevationSampler``
-    in the CLI below; a stub in the twins).
-    """
-    defs, plc = read_placements(dump)
-    return measure_rows(pack_root, defs, plc, sampler, deltas, member_delta,
-                        stations, thickness)
 
 
 def placement_plan_rows(plan: dict) -> tuple[list[str], list[tuple[int, float, float, float]]]:
@@ -286,9 +168,8 @@ def placement_plan_rows(plan: dict) -> tuple[list[str], list[tuple[int, float, f
 
 def measure_rows(pack_root: str, defs: list[str],
                  plc: list[tuple[int, float, float, float]], sampler,
-                 deltas: dict, member_delta: dict,
-                 stations: dict | None = None, thickness: float = 0.5) -> list[dict]:
-    """The measurement itself, over placements from EITHER source."""
+                 thickness: float = 0.5) -> list[dict]:
+    """The measurement itself, over the plan's placement rows."""
     if not plc:
         return []
     resources: dict[int, dict | str] = {}
@@ -313,9 +194,6 @@ def measure_rows(pack_root: str, defs: list[str],
         h = math.radians(hdg)
         s, c = math.sin(h), math.cos(h)
         mlon = MLAT * math.cos(math.radians(lat))
-        by_comp = deltas.get(r["path"], {})
-        st_of = (stations or {}).get(r["path"], {})
-        md = member_delta.get(r["path"])
         ds = []
         for (ci, x, y, z, _area) in r["feet"]:
             east = x * c - z * s
@@ -323,18 +201,12 @@ def measure_rows(pack_root: str, defs: list[str],
             z_foot = sampler.elevation_at_or_none(lat + north / MLAT, lon + east / mlon)
             if z_foot is None:
                 continue
-            la_f = lat + north / MLAT
-            lo_f = lon + east / mlon
-            st = st_of.get(ci)
-            dz = _nearest_station(st, la_f, lo_f) if st \
-                else by_comp.get(ci, md if md is not None else 0.0)
-            ds.append(z_foot - (z_anchor + y + dz))
+            ds.append(z_foot - (z_anchor + y))
         if not ds:
             continue
         rows.append(dict(path=r["path"], kind="measured", lat=lat, lon=lon,
                          dmax=max(ds, key=abs), dmean=float(np.mean(ds)), n=len(ds),
-                         span=r["span"], seated=bool(by_comp or md is not None),
-                         line=bool(st_of)))
+                         span=r["span"], seated=False, line=False))
     return rows
 
 
@@ -369,13 +241,13 @@ def _census_placement_plan(ap, args) -> int:
         sampler = MeshElevationSampler(args.mesh,
                                        (min(q[2] for q in plc), min(q[1] for q in plc),
                                         max(q[2] for q in plc), max(q[1] for q in plc)))
-    rows = measure_rows(pack, defs, plc, sampler, {}, {}, None, args.thickness)
+    rows = measure_rows(pack, defs, plc, sampler, args.thickness)
     if args.json:
         with open(args.json, "w") as fh:
             json.dump(rows, fh)
     c = plan.get("counts", {})
     label = args.label or f"{plan.get('icao', '?')} placement plan"
-    census(rows, {}, set(), label, args.top)
+    census(rows, {}, label, args.top)
     n_split_rows = sum(len(s.get("bodies", ())) for s in plan.get("splits", ()))
     print(f"   PLAN: {c.get('splits', 0)} split placement(s) -> {n_split_rows} body "
           f"row(s), {c.get('conversions', 0)} conversion(s), {c.get('kept', 0)} kept "
@@ -481,21 +353,14 @@ def _print_elevated(plan: dict, sampler=None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("result", nargs="?", default="",
-                    help="a seat result (o4_v2_rebake_result_<ICAO>.json) or a "
-                         "v2_rebake_replay.py *.seat.json")
-    ap.add_argument("--placement-plan", default="",
+    ap.add_argument("--placement-plan", required=True,
                     help="an o4_v2_placement_<ICAO>.json: census the PLACEMENT "
-                         "plan's own rows, no seat and no delta (11e (3))")
+                         "plan's own rows (11e (3))")
     ap.add_argument("--mesh", default="", help="the built Data+XX+YYY.mesh")
     ap.add_argument("--graded", default="", help="an emitted <ICAO>.graded.json — the "
                                                  "DESIGN SURFACE, for a dry run with no "
                                                  "tile built")
-    ap.add_argument("--plan", default="", help="the rebake plan: supplies the pack root and "
-                                               "the skip reason behind each class")
     ap.add_argument("--pack", default="", help="the pack root (default: the plan's)")
-    ap.add_argument("--dsf-dump", default="", help="the DSFTool text dump (default: the "
-                                                   "pack's cached dump, read-only)")
     ap.add_argument("--label", default="", help="the census's name in the output")
     ap.add_argument("--top", type=int, default=30)
     ap.add_argument("--thickness", type=float, default=0.5,
@@ -503,45 +368,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", default="", help="write the per-placement rows here")
     args = ap.parse_args(argv)
 
-    if not args.result and not args.placement_plan:
-        ap.error("pass a seat result, or --placement-plan")
     if not args.mesh and not args.graded:
         ap.error("pass --mesh (the built mesh) or --graded (the design surface)")
 
-    if args.placement_plan:
-        return _census_placement_plan(ap, args)
-
-    plan = {}
-    if args.plan:
-        with open(args.plan) as fh:
-            plan = json.load(fh)
-    pack = args.pack or plan.get("pack_root", "")
-    if not pack or not os.path.isdir(pack):
-        ap.error("no pack root: pass --pack (or a --plan carrying pack_root)")
-    dump = args.dsf_dump or find_dsf_dump(pack)
-    if not dump or not os.path.isfile(dump):
-        ap.error(f"no DSF text dump for {pack}: pass --dsf-dump (it is never generated here)")
-    deltas, member_delta, stations = read_result(args.result)
-    _defs, plc = read_placements(dump)
-    if not plc:
-        ap.error(f"{dump} carries no OBJECT placement")
-    sampler = MeshElevationSampler(args.mesh, (min(q[1] for q in plc), min(q[2] for q in plc),
-                                               max(q[1] for q in plc), max(q[2] for q in plc)))
-    rows = measure(pack, dump, sampler, deltas, member_delta, stations, args.thickness)
-    if args.json:
-        with open(args.json, "w") as fh:
-            json.dump(rows, fh)
-    census(rows, dict(plan.get("skipped") or []), set(deltas) | set(member_delta),
-           args.label or os.path.basename(args.result), args.top, set(stations))
-    if stations:
-        n_st = sum(len(v) for c in stations.values() for v in c.values())
-        print(f"   LINE OBJECTS (10bb): {len(stations)} resource(s) draped on "
-              f"{n_st} station(s)")
-        for r in sorted(stations)[:40]:
-            c = stations[r]
-            print(f"     {os.path.basename(r)[-56:]:56} comps {len(c):4d} "
-                  f"stations {sum(len(v) for v in c.values()):5d}")
-    return 0
+    return _census_placement_plan(ap, args)
 
 
 if __name__ == "__main__":

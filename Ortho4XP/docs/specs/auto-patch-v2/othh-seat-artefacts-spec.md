@@ -1,3 +1,13 @@
+> **RETIRED (owner RULINGS 2026-09-12s "Retire now", spec `object-placement-spec.md` §8).**
+> Everything below describes THE SEAT — v1's vertex rewrite of a pack's `.obj` files to the
+> built mesh — which is a refuted mechanism and was DELETED on 2026-09-12 (lane
+> `v2seatretire`): `emit/rebake.seat`, `emit/clusters.py`, `emit/abutment_group.py`,
+> `airport/rigid.py`, `engine_v2._decision_from_seats`, the `o4_v2_rebake_result_*` sidecars
+> and `v2_rebake_replay.py seat|bodies|pairs`. This document is kept as the refutation
+> record, not as law. The live object stage is the PLACEMENT path
+> (`object-placement-spec.md` §4/§6/§9). Its §16 LINE-OBJECT reader and §17 abutment class
+> survive in `airport/line_object.py` and `planar/group.py`; every seat delta here does not.
+
 # v2 — OTHH seat artefacts: the flat-site datum reaches the seat (spec, 2026-09-08)
 
 RULINGS 2026-09-08a (owner: "OTHH should not require any object

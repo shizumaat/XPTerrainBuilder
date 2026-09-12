@@ -271,20 +271,21 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
     if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
             and o.id not in sc.plate_paths and o.path not in sc.plate_paths \
             and o.hard_deck is None:
-        # NO THICKNESS GATE UNDER ``placement = agl`` (owner RULINGS
-        # 2026-09-11ai; spec §16 (1)).  The skip is the SEAT's (08-26
-        # §2.1: a resource with no genuine solid has nothing to re-seat
-        # per vertex) and the placement stage has no such question — it
+        # NO THICKNESS GATE (owner RULINGS 2026-09-11ai; spec §16 (1);
+        # unconditional since the seat's retirement, 2026-09-12s).  The
+        # skip was the SEAT's (08-26 §2.1: a resource with no genuine
+        # solid has nothing to re-seat per vertex) and the placement
+        # stage — the only object stage — has no such question: it
         # asks where a body's ZERO goes, and a resource of nothing but
         # thin panels has one like any other.  Skipped, the resource
         # never enters the plan population and stays on the pack's
         # shared-datum row: LEMD's garage roof-top pavilions
         # (``Terminal4_green-TEJ1``) rendered 15.8 m UNDER the slab they
         # stand on, and 25 resources / 25 rows were outside the plan.
-        # Under ``agl`` the member is admitted with its thin components
-        # as its parts; with no ground contact at all it becomes a
-        # FOOTLESS body (§14) and is CARRIED by §15/§16's rule.
-        if rb.placement == "agl" and all_comps:
+        # The member is admitted with its thin components as its parts;
+        # with no ground contact at all it becomes a FOOTLESS body (§14)
+        # and is CARRIED by §15/§16's rule.
+        if all_comps:
             comps = [(i, c) for i, c in all_comps if i not in deep]
         if not comps:
             counts["no_parts"] += 1

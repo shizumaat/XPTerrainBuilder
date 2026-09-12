@@ -404,44 +404,13 @@ def test_split_records_translate_into_the_placement_model():
     assert kept[0].reason == "anim"
 
 
-# ── §9 / 11e (3): THE GATE AND THE WRITE HALF ────────────────────────────
+# ── §9 / 11e (3): THE WRITE HALF ────────────────────────────
 
-def test_the_gate_defaults_to_agl_and_seat_runs_the_old_path_unchanged():
-    """``[rebake] placement`` is the ONE permitted gate: ``agl`` by
-    default, and under ``seat`` the pre-11b seat is not merely reachable —
-    it produces the SAME bytes, because nothing in the seat reads the new
-    law at all."""
-    import dataclasses as dc
-    import json as _json
-
-    from auto_patch.engine_v2 import object_stage_is_placement
-    from auto_patch_v2.emit import rebake as R
-    from auto_patch_v2.law import Law
-
-    law = Law.for_airport("OTHH")
-    assert law.tables.structures.rebake.placement == "agl"
-    assert object_stage_is_placement(law) is True
-
-    def _with(mode):
-        rb = dc.replace(law.tables.structures.rebake, placement=mode)
-        st = dc.replace(law.tables.structures, rebake=rb)
-        return dc.replace(law, tables=dc.replace(law.tables, structures=st))
-
-    seat_law = _with("seat")
-    assert object_stage_is_placement(seat_law) is False
-    assert object_stage_is_placement(_with("agl")) is True
-
-    part = R.Part(1, 0, 0.001, 1e-5, 0.0, 100.0, (0.0, 0.0, 2e-3, 2e-5))
-    member = R.Member("m", "objects/m.obj", "m", "m", 0.0, (part,))
-    plan = R.RebakePlan("OTHH", "p", "/p", (R.Unit("unit:1", (0.0, 0.0), 0.0,
-                                                   (member,)),), (), {}, ())
-
-    def sample(lat, lon):
-        return (7.0, False)
-
-    a = _json.dumps(R.seat(plan, sample, seat_law).to_dict(), sort_keys=True)
-    b = _json.dumps(R.seat(plan, sample, _with("agl")).to_dict(), sort_keys=True)
-    assert a == b
+# THE GATE IS GONE (owner RULINGS 2026-09-12s, spec §8): the twin that
+# stood here pinned ``[rebake] placement`` defaulting to ``agl`` and the
+# ``seat`` arm producing identical bytes.  The seat is DELETED, the key
+# with it, and the placement path is the only object stage — there is no
+# gate left to pin.
 
 
 def test_the_write_half_on_a_pack_copy(tmp_path, monkeypatch):
@@ -1911,8 +1880,7 @@ def test_a_roof_only_resource_enters_the_plan_and_is_carried(tmp_path):
     counts, skipped, no_solid = PZ.counts_zero(), {}, set()
     built = PZ._build_member(o, cache, law, PZ.Screen(), (), str(tmp_path),
                              counts, skipped, no_solid)
-    assert law.tables.structures.rebake.placement == "agl"
-    assert built is not None                    # the gate is not applied
+    assert built is not None                    # footless is admitted
     assert skipped == {} and counts["no_parts"] == 0
     assert o.path in no_solid                   # ... and it is FOOTLESS
     assert counts["no_solid_admitted"] == 1

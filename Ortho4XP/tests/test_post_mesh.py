@@ -18,7 +18,6 @@ form: ``delta = (centroid_longitude - anchor_longitude) * SLOPE``.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import os
@@ -878,100 +877,12 @@ def test_one_broken_airport_never_blocks_the_next(phase_two_harness):
     assert counts["structures_baked"] == 1
 
 
-# ── the command line (tools/reanchor_dsf_objects.py) ─────────────────
-
-_CLI_TOOL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "tools",
-    "reanchor_dsf_objects.py",
-)
-
-
-@pytest.fixture(scope="module")
-def cli_module():
-    specification = importlib.util.spec_from_file_location(
-        "reanchor_dsf_objects_tool", _CLI_TOOL_PATH)
-    module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
-    return module
-
-
-def _mode_two_arguments(dsf_path, mesh_path, pack_root):
-    return ["--dsf", dsf_path, "--mesh", mesh_path,
-            "--pack-root", pack_root]
-
-
-def test_cli_dry_run_writes_nothing(phase_two_harness, cli_module,
-                                    capsys):
-    harness = phase_two_harness
-    dsf_path, pack_root = _make_pack(
-        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
-        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
-    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
-
-    exit_code = cli_module.main(
-        _mode_two_arguments(dsf_path, harness.mesh_path, pack_root)
-        + ["--dry-run"])
-    assert exit_code == 0
-
-    with open(live_path) as handle:
-        assert handle.read() == OFFSET_SLAB_OBJECT
-    assert not os.path.isfile(live_path + ".anchor_bak")
-    assert not os.path.isfile(
-        os.path.join(pack_root, ".o4_reanchor_provenance.json"))
-    output = capsys.readouterr().out
-    assert "would bake 1 structure(s)" in output
-    assert "4 vertices offset" in output
-
-
-def test_cli_apply_check_and_restore(phase_two_harness, cli_module,
-                                     capsys):
-    harness = phase_two_harness
-    dsf_path, pack_root = _make_pack(
-        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
-        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
-    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
-    common_arguments = _mode_two_arguments(
-        dsf_path, harness.mesh_path, pack_root)
-
-    # Apply (the default action).
-    assert cli_module.main(common_arguments) == 0
-    assert _vertex_y_values(live_path)[0] == pytest.approx(
-        _expected_slab_offset(), abs=1e-4)
-    capsys.readouterr()
-
-    # --check reports CURRENT against the same mesh.
-    assert cli_module.main(common_arguments + ["--check"]) == 0
-    assert "CURRENT" in capsys.readouterr().out
-
-    # --restore puts the original back byte-identically and removes the
-    # provenance sidecar.
-    assert cli_module.main(common_arguments + ["--restore"]) == 0
-    with open(live_path) as handle:
-        assert handle.read() == OFFSET_SLAB_OBJECT
-    assert not os.path.isfile(
-        os.path.join(pack_root, ".o4_reanchor_provenance.json"))
-
-
-def test_cli_worklist_mode_processes_every_airport(
-        phase_two_harness, cli_module, capsys):
-    harness = phase_two_harness
-    dsf_path, pack_root = _make_pack(
-        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
-        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
-    harness.write_worklist(
-        [harness.worklist_entry("KTST", dsf_path, pack_root)])
-
-    exit_code = cli_module.main([
-        "--worklist", str(harness.worklist_path),
-        "--mesh", harness.mesh_path,
-    ])
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert "KTST" in output and "baked 1 structure(s)" in output
-    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
-    assert _vertex_y_values(live_path)[0] == pytest.approx(
-        _expected_slab_offset(), abs=1e-4)
+# ── the command line (tools/reanchor_dsf_objects.py) — RETIRED ───────
+# Four CLI twins stood here (dry run, apply/check/restore, worklist
+# mode).  ``tools/reanchor_dsf_objects.py`` was DELETED with the seat
+# (owner RULINGS 2026-09-12s, spec §8): it was the hand entry into v1's
+# vertex re-bake, a refuted mechanism.  ``post_mesh``'s own library twins
+# above are untouched.
 
 
 # ── the driver's worklist writer (amendment A5) ──────────────────────

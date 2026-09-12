@@ -8453,8 +8453,10 @@ COCKPIT_REPORT = "report"
 COCKPIT_BUCKETS: Tuple[str, ...] = (COCKPIT_MOTION, COCKPIT_VISUAL,
                                     COCKPIT_REPORT)
 
-#: The owner rulings this block reads under, quoted in its heading.
-COCKPIT_RULING = "2026-09-12x/12y"
+#: The owner rulings this block reads under, quoted in its heading.  12ad
+#: is round 2's SPAN RULE: a step-family row read over more than the law's
+#: weld spacing is a SLOPE, judged by its cap, and is REPORT.
+COCKPIT_RULING = "2026-09-12x/12y/12ad"
 
 _COCKPIT_LAW_CACHE: Optional[dict] = None
 
@@ -8491,15 +8493,14 @@ def cockpit_law(*, refresh: bool = False) -> dict:
         "approach_km": float(ck.approach_km),
         "approach_m": float(ck.approach_km) * 1000.0,
         "rolled_on": frozenset(_T.rolled_on_roles(law)),
-        # §31 (1) says "between WELDED NEIGHBOURS".  The census's own
-        # contact tolerance (``emit.instrument.step_contact_tol_m``) is
-        # where that is written down — a row whose two ends are farther
-        # apart than this is a SPANNED reading of the same law, a slope
-        # rather than a discontinuity.  It does NOT change which bucket a
-        # row lands in (that is the family's cockpit class and the two
-        # thresholds); it is printed beside every critical row so the
-        # reader can see a 2.7 m difference over 30 m of taxiway for the
-        # slope it is.  See the block's own note.
+        # §31 (1) says "between WELDED NEIGHBOURS", and owner RULINGS
+        # 2026-09-12ad made that clause a BUCKET RULE: a step-family row
+        # whose two ends are farther apart than this is a SLOPE — grade,
+        # judged by its cap — and is REPORT however large.  The number is
+        # the census's own contact tolerance
+        # (``emit.instrument.step_contact_tol_m``, the emit weld spacing:
+        # "a vertex touches a foreign edge within this"), which is where
+        # "welded neighbours" is already written down in the law.
         "weld_tol_m": float(law.tables.emit.instrument.step_contact_tol_m),
         "runway_family": frozenset(law.tables.precedence.runway_family.members),
         "family_class": fam_class,
@@ -8594,19 +8595,30 @@ def cockpit_classify(family: str, row, *, law: dict,
                      geometry: Optional[dict] = None) -> Tuple[str, str]:
     """The bucket and the REASON for ONE census row — §31 (1)/(2)/(3).
 
-    * a ``step``-class family over ``motion_step_m`` with BOTH sides
-      rolled-on (runway family / taxi family / apron+stands) is CRITICAL
-      MOTION: the aircraft feels it;
+    THE SPAN RULE FIRST (owner RULINGS 2026-09-12ad, round 2): a
+    ``step``-class row whose two ends are farther apart than
+    ``weld_tol_m`` is a SLOPE, not a discontinuity — "a height difference
+    over 40-145 m of pavement" — and is GRADE, judged by its own cap, and
+    belongs in REPORT.  §31 (1) says "between WELDED neighbours" and this
+    is that clause applied: it is what separates a 2.7 m rise over 81 m of
+    taxiway (a 3.3 % ramp, reported) from a 2.7 m step at a joint (the
+    thing the aircraft hits).  Round 1 classed both as critical motion and
+    LEMD read 452; the ruling reclassified them.
+
+    * a ``step``-class family over ``motion_step_m`` BETWEEN WELDED
+      NEIGHBOURS with BOTH sides rolled-on (runway family / taxi family /
+      apron+stands) is CRITICAL MOTION: the aircraft feels it;
     * a ``grade_break``-class family (the arc / curve RATE laws) on
       rolled-on roles is CRITICAL MOTION by its own law's bound — the row
       exists only because the rate law was exceeded, so there is no second
-      threshold to apply;
-    * a ``step``-class row over ``visual_m`` that is IN VIEW is CRITICAL
-      VISUAL — a sharp cut, rise, seam or terrace the pilot sees;
-    * everything else is REPORT: every ``grade``-class slope excess, every
-      ``keepout`` presence row, everything under a threshold, and every
-      visual row beyond the boundary and the approach corridor (§31 (3):
-      landside grade laws are TARGETS, never gates).
+      threshold and no span test to apply;
+    * a WELDED ``step``-class row over ``visual_m`` that is IN VIEW is
+      CRITICAL VISUAL — a sharp cut, rise, seam or tear the pilot sees;
+    * everything else is REPORT: every SPANNED step-family reading, every
+      ``grade``-class slope excess, every ``keepout`` presence row,
+      everything under a threshold, and every visual row beyond the
+      boundary and the approach corridor (§31 (3): landside grade laws are
+      TARGETS, never gates).
     """
     cls = law["family_class"].get(family, "grade")
     mag = row_magnitude(row)
@@ -8616,9 +8628,18 @@ def cockpit_classify(family: str, row, *, law: dict,
     if cls == "grade_break" and both_rolled:
         return COCKPIT_MOTION, "grade_break"
     if cls == "step":
-        if both_rolled and mag > law["motion_step_m"]:
+        over_motion = both_rolled and mag > law["motion_step_m"]
+        over_visual = mag > law["visual_m"]
+        if float(getattr(row, "distance_m", 0.0) or 0.0) > law["weld_tol_m"]:
+            # 12ad: the row is a SLOPE.  Reported with WHICH threshold it
+            # would have crossed had it been welded, so the count the
+            # ruling moved stays visible instead of vanishing into a total.
+            return COCKPIT_REPORT, ("spanned_over_motion" if over_motion
+                                    else "spanned_over_visual" if over_visual
+                                    else "spanned")
+        if over_motion:
             return COCKPIT_MOTION, "step_on_pavement"
-        if mag > law["visual_m"]:
+        if over_visual:
             in_view, why = cockpit_in_view(
                 geometry, getattr(row, "lat", None), getattr(row, "lon", None),
                 law["approach_m"])
@@ -8763,12 +8784,14 @@ def cockpit_block_lines(c: dict) -> List[str]:
            if c.get("unlocated_rows") else ""),
         f"  CRITICAL motion: {mo['n']}"
         + (f" ({mo['welded']} between WELDED neighbours <= "
-           f"{c['weld_tol_m']:g} m apart, {mo['n'] - mo['welded']} read "
-           f"SPANNED over a longer run — a slope, not a discontinuity)"
-           f" — worst {mo['worst_m']:.3f} m over {mo['worst_over_m']:g} m  "
+           f"{c['weld_tol_m']:g} m apart"
+           + (f", {mo['n'] - mo['welded']} a forbidden grade BREAK, which "
+              f"carries no span test"
+              if mo["n"] - mo["welded"] else "")
+           + f") — worst {mo['worst_m']:.3f} m over {mo['worst_over_m']:g} m  "
            f"{mo['worst_family']} [{mo['worst_roles']}]  at "
            f"{_cockpit_where(mo)}"
-           if mo["n"] else " (none: no step over "
+           if mo["n"] else " (none: no WELDED step over "
            f"{c['motion_step_m']:g} m between two rolled-on faces, no "
            f"forbidden grade break)"),
     ]
@@ -8778,12 +8801,12 @@ def cockpit_block_lines(c: dict) -> List[str]:
                    f"at {r['lat']},{r['lon']}")
     out.append(
         f"  CRITICAL visual: {vi['n']}"
-        + (f" ({vi['welded']} welded, {vi['n'] - vi['welded']} spanned)"
+        + (f" (all welded <= {c['weld_tol_m']:g} m)"
            f" — worst {vi['worst_m']:.3f} m over {vi['worst_over_m']:g} m  "
            f"{vi['worst_family']} [{vi['worst_roles']}]  at "
            f"{_cockpit_where(vi)}"
-           if vi["n"] else f" (none: no cut, rise, seam or terrace over "
-           f"{c['visual_m']:g} m in view)"))
+           if vi["n"] else f" (none: no WELDED cut, rise, seam or tear "
+           f"over {c['visual_m']:g} m in view)"))
     for r in vi["top"][1:]:
         out.append(f"      {r['m']:8.3f} m over {r['over_m']:7.2f} m  "
                    f"{r['family']} [{r['roles']}] {r['why']}  "
@@ -8792,8 +8815,17 @@ def cockpit_block_lines(c: dict) -> List[str]:
         out.append("      in view by: "
                    + (", ".join(f"{k} {v}" for k, v
                                 in vi["reasons"].items()) or "-"))
-    out.append(f"  REPORT: {re_['n']} row(s) — centimetres and the "
-               f"invisible (§31 (4)), by family:")
+    sp = re_["reasons"]
+    n_sp_m = sp.get("spanned_over_motion", 0)
+    n_sp_v = sp.get("spanned_over_visual", 0)
+    out.append(f"  REPORT: {re_['n']} row(s) — centimetres, the invisible "
+               f"(§31 (4)) and the SLOPES: {sp.get('spanned', 0) + n_sp_m + n_sp_v}"
+               f" step-family row(s) read SPANNED over more than "
+               f"{c['weld_tol_m']:g} m, of which {n_sp_m} would be over the "
+               f"motion threshold and {n_sp_v} over the visual one if they "
+               f"were welded (owner RULINGS 2026-09-12ad: a height "
+               f"difference over a long run is a SLOPE, judged by its cap). "
+               f"By family:")
     for k, n in sorted(re_["by_family"].items(), key=lambda q: (-q[1], q[0])):
         out.append(f"      {n:6d}  {k}")
     if not re_["by_family"]:

@@ -8018,6 +8018,66 @@ def test_a_step_over_the_motion_threshold_on_apron_is_critical_motion(cg):
     assert b2 == cg.COCKPIT_REPORT
 
 
+def test_a_spanned_step_family_row_is_a_slope_and_is_report(cg):
+    """THE SPAN RULE (owner RULINGS 2026-09-12ad, round 2).  The SAME
+    height difference is a discontinuity between welded neighbours and a
+    RAMP over 81 m of taxiway — grade, judged by its cap.  Round 1 classed
+    both as critical motion and LEMD's block read 452; every one of them
+    was spanned.
+
+    The tolerance is the law's own weld spacing
+    (``emit.instrument.step_contact_tol_m``), never a number typed here."""
+    law = cg.cockpit_law(refresh=True)
+    weld = law["weld_tol_m"]
+    assert weld == 1.0
+
+    # 2.69 m on apron: WELDED it is the worst thing on the field...
+    near = _CkStep("apron", "junction", 2.69, distance_m=weld * 0.5)
+    assert cg.cockpit_classify("airside_no_step", near, law=law) == (
+        cg.COCKPIT_MOTION, "step_on_pavement")
+    # ...SPANNED over 81 m it is a 3.3 % ramp, and REPORT — named as what
+    # the rule moved, never folded into an anonymous total
+    far = _CkStep("apron", "junction", 2.69, distance_m=81.1)
+    assert cg.cockpit_classify("airside_no_step", far, law=law) == (
+        cg.COCKPIT_REPORT, "spanned_over_motion")
+    # the boundary itself: AT the weld spacing is still welded
+    at = _CkStep("apron", "junction", 2.69, distance_m=weld)
+    assert cg.cockpit_classify("airside_no_step", at, law=law)[0] == \
+        cg.COCKPIT_MOTION
+
+    # the VISUAL side reads the same way: a 8.27 m tear over 3 m of strip
+    # is spanned and reported; the same tear at a joint is critical
+    geo = _ck_geometry(cg)
+    here = {"lat": 0.001, "lon": 0.001}
+    span = _CkStep("graded_strip", "graded_strip", 8.27, distance_m=3.0,
+                   **here)
+    assert cg.cockpit_classify("strip_seam_tear", span, law=law,
+                               geometry=geo) == (cg.COCKPIT_REPORT,
+                                                 "spanned_over_visual")
+    weld_row = _CkStep("graded_strip", "graded_strip", 8.27,
+                       distance_m=weld * 0.2, **here)
+    assert cg.cockpit_classify("strip_seam_tear", weld_row, law=law,
+                               geometry=geo) == (cg.COCKPIT_VISUAL, "taxi")
+
+
+def test_a_forbidden_grade_break_carries_no_span_test(cg):
+    """§31 (1)'s second motion clause is a RATE law: the row exists only
+    because the runway/taxi curve law was exceeded, so its own bound IS
+    the threshold and 12ad's span rule does not reach it (a curve is a
+    long thing by definition — a span test would delete the family)."""
+    law = cg.cockpit_law(refresh=True)
+    for d in (0.1, 500.0):
+        assert cg.cockpit_classify(
+            "raoa", _CkStep("runway", "runway", 0.02, distance_m=d),
+            law=law) == (cg.COCKPIT_MOTION, "grade_break")
+    # ...and off rolled-on pavement it is REPORT at any distance (the
+    # graded strip's own arc rate: nothing rolls there)
+    assert cg.cockpit_classify(
+        "strip_arc", _CkStep("graded_strip", "graded_strip", 3.0,
+                             distance_m=0.1), law=law)[0] == \
+        cg.COCKPIT_REPORT
+
+
 def test_the_same_step_on_a_car_park_is_report(cg):
     """§31 (3): LANDSIDE IS VISUAL ONLY.  The aircraft does not roll on a
     car park, so its 0.06 m step is invisible-and-report, not critical."""
@@ -8089,6 +8149,10 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
     rows_by_family = {
         "vertex_to_edge_step": [_CkStep("apron", "apron", 0.06),
                                 _CkStep("apron", "apron", 0.01),
+                                # SPANNED: a 3 m rise over 90 m of apron is
+                                # a slope (12ad) and lands in REPORT
+                                _CkStep("apron", "apron", 3.0,
+                                        distance_m=90.0),
                                 _CkStep("parking_lot", "parking_lot", 0.9,
                                         lat=0.001, lon=0.001)],
         # NOT building|building: that pair holds the registered
@@ -8117,11 +8181,14 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
     assert set(c[cg.COCKPIT_REPORT]["by_family"]) == {
         "vertex_to_edge_step", "mid_edge_step", "within_shape",
         "wall_in_runway_strip"}
+    # the span rule's own count is REPORTED, never anonymous
+    assert c[cg.COCKPIT_REPORT]["reasons"]["spanned_over_motion"] == 1
     # and the lines render without a coordinate, a family or a count
     # going missing
     txt = "\n".join(cg.cockpit_block_lines(c))
     assert "CRITICAL motion: 2" in txt and "CRITICAL visual: 1" in txt
-    assert "REPORT: 4 row(s)" in txt
+    assert "REPORT: 5 row(s)" in txt
+    assert "1 would be over the motion threshold" in txt
 
 
 def test_the_cockpit_block_refuses_a_broken_partition(cg, monkeypatch):

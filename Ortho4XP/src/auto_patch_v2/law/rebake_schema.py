@@ -118,3 +118,12 @@ class Placement:
     #: terrain is constrained to a value.  0 disarms the relief target
     #: (every pad targets flat, the pre-11j law).
     relief_radius_m: float = 12.0
+
+    #: A CARRIER IS A SOLID (owner RULINGS 2026-09-11ai; spec §16 (3)).
+    #: The FOOTPRINT FILL — the area a body's PART boxes cover over the
+    #: area of its own plan box — a candidate must reach before it may
+    #: carry another body's zero.  A line segment, a grass strip and a
+    #: sign fill a few thousandths of their boxes and carry nothing.
+    #: 0 disarms the test (every footed body a carrier, the pre-11ai
+    #: reading).
+    carrier_fill_min: float = 0.2

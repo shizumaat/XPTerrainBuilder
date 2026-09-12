@@ -193,6 +193,24 @@ class Body:
     #: its own low-side foot reads every foot of its own as lawful.
     plan_box: tuple[float, float, float, float] | None = None
     feet: int = 0
+    #: §16 (2): the body's OWN GEOMETRY box — the hull of every part it
+    #: holds, elevated parts included, where ``plan_box`` is the GROUND
+    #: footprint the stands-over relation reads.  The §16 census reads
+    #: ``float = zero - ground_under_geometry`` here: the ground under a
+    #: carried roof is the roof's own ground, never its carrier's box.
+    geom_box: tuple[float, float, float, float] | None = None
+    #: §16 (3): the body's FOOTPRINT boxes (its largest part boxes, at
+    #: most :data:`FOOT_BOXES_MAX`) — the geometry the stands-over
+    #: relation is measured on by BOTH the carrier search and the census,
+    #: because a body's hull box is a crude proxy for its footprint (a
+    #: fence segment's box contains a garage roof its footprint never
+    #: touches).  Bounded because a plan carrying every part box of every
+    #: body doubles its own size.
+    foot_boxes: tuple[tuple[float, float, float, float], ...] = ()
+    #: §16 (3): the body's FOOTPRINT FILL — whether it is a SOLID that may
+    #: carry another body's zero (and therefore, for the census, whether
+    #: it is a body another body can be said to STAND OVER at all)
+    fill: float = 1.0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -203,7 +221,10 @@ class Body:
                 "elevated": self.elevated, "merged_into": self.merged_into or None,
                 "surface_z": self.surface_z, "y_zero": self.y_zero,
                 "plan_box": None if self.plan_box is None else list(self.plan_box),
-                "feet": self.feet}
+                "feet": self.feet,
+                "geom_box": None if self.geom_box is None else list(self.geom_box),
+                "foot_boxes": [list(b) for b in self.foot_boxes],
+                "fill": self.fill}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
@@ -220,7 +241,12 @@ class Body:
                    None if sz is None else _f(sz), _f(d.get("y_zero", 0.0)),
                    None if d.get("plan_box") is None
                    else tuple(_f(q) for q in d["plan_box"]),
-                   int(d.get("feet", 0)))
+                   int(d.get("feet", 0)),
+                   None if d.get("geom_box") is None
+                   else tuple(_f(q) for q in d["geom_box"]),
+                   tuple(tuple(_f(q) for q in b)
+                         for b in d.get("foot_boxes", ())),
+                   _f(d.get("fill", 1.0)))
 
 
 @_dc.dataclass(frozen=True)

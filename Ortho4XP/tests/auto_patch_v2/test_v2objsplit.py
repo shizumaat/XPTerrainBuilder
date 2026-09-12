@@ -1257,22 +1257,27 @@ def test_a_sixty_metre_tower_part_is_never_cut_into_line_segments(tmp_path):
     assert all(b.anchor.y_zero <= _ELEV for s in ss.splits for b in s.bodies)
 
 
-def test_a_footless_placement_with_no_carrier_in_its_unit_keeps_its_row(tmp_path):
-    """§14 (1) and its ONE residual: a footless placement is CARRIED —
-    but a unit holding no footed body at all offers nothing to carry it,
-    and nothing in the plan reads the ground under it.  It then keeps its
-    own authored row (which for the one-member unit this class is, IS its
-    own position, not a shared datum) and is reported by name.  §13's
-    blanket ``footless`` keep is superseded and must not reappear."""
+def test_a_footless_placement_with_no_carrier_stands_on_its_own_ground(tmp_path):
+    """§16 (3), superseding §14 (1)'s ``footless_no_carrier`` KEEP: a
+    unit holding no footed body at all offers nothing to carry a footless
+    placement — and leaving it on its authored row leaves it on the
+    pack's shared datum.  It is written at the ground under its OWN
+    footprint with its authored y kept (``footless_own_ground``), so a
+    body authored 12 m up renders 12 m over the ground it stands on."""
     path, _t = _two_boxes(tmp_path, with_anim=False)
     plan = _member_plan(path, [(0, 12.0, 0.0, 12.0), (1, 40.0, 2.0, 40.0)])
     ss = PP.build_splits(plan, _flat(100.0), write=False, **_elev_args())
-    assert ss.splits == ()                      # nothing cut, nothing re-anchored
-    assert [k.reason for k in ss.kept] == ["footless_no_carrier"]
     assert ss.counts["footless"] == 1 and ss.counts["footless_carried"] == 0
+    assert ss.counts["footless_no_carrier"] == 1
+    assert ss.counts["footless_own_ground"] == 1
     assert ss.counts["elevated_own_files"] == 0
-    assert ss.counts["files"] == 0
-    assert ss.whole[0].bodies[0].elevated is True
+    body = ss.all[0].bodies[0]
+    assert body.anchor.y_zero == 0.0            # the AUTHORED y is kept
+    assert body.anchor.offset[1] == 0.0         # nothing shifted onto the ground
+    assert body.anchor.surface_z == 100.0
+    assert PP.OWN_GROUND in body.anchor.reason
+    # ... and never the unit's datum row
+    assert (body.anchor.lat, body.anchor.lon) != plan.units[0].anchor
 
 
 def test_a_plan_that_writes_an_elevated_body_alone_fails_the_census(tmp_path):
@@ -1306,9 +1311,9 @@ def test_a_plan_that_writes_an_elevated_body_alone_fails_the_census(tmp_path):
         del SFC.print
     assert "elevated bodies as own files: 1" in bad and "VIOLATED" in bad
     assert "+69.55 m  objects/roof__b3.obj" in bad
-    assert "footless placements kept whole: 1" in bad
+    assert "footless placements with no carrier (their own ground): 1" in bad
     assert "elevated bodies as own files: 0" in good and "VIOLATED" not in good
-    assert "footless placements kept whole: 0" in good
+    assert "footless placements with no carrier (their own ground): 0" in good
 
 
 def test_the_carrier_is_the_ground_body_with_the_largest_plan_overlap():
@@ -1440,10 +1445,20 @@ def test_a_footless_roof_with_no_abutment_takes_the_nearest_footed_body(tmp_path
     def surface(lat, lon):
         return 600.0 + (lat - 40.0) * 111_000.0 * 0.02
 
-    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    ss = PP.build_splits(plan, _flat(600.0), write=False, **_elev_args())
     r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
     assert r.bodies[0].merged_into.startswith("objects/near")
     assert "nearest footed body of the unit" in r.bodies[0].anchor.reason
+    # §16 (3): ON A SLOPE THE NEAREST BODY IS REFUSED.  With the ground
+    # under the roof 0.4 m off the nearest body's zero (2 % over the 20 m
+    # between them), no candidate of the unit reads the ground the roof
+    # stands on, and the roof takes its OWN ground instead of a carrier
+    # that would put it 0.4 m wrong.
+    ss2 = PP.build_splits(plan, surface, write=False, **_elev_args())
+    r2 = [s for s in ss2.all if s.resource == "objects/roof.obj"][0]
+    assert r2.bodies[0].merged_into == ""
+    assert PP.OWN_GROUND in r2.bodies[0].anchor.reason
+    assert ss2.counts["carrier_refused_zero_off_ground"] >= 1
 
 
 def test_a_basin_resource_is_one_file_anchored_on_its_rim(tmp_path):
@@ -1801,9 +1816,13 @@ def test_the_v15_census_fails_a_carried_body_left_above_what_it_stands_on():
     genuinely different terrain lawfully differ)."""
     from auto_patch_v2.airport import placement_carrier as PC
 
-    def _b(res, box, sz, y0, feet, elevated=False):
+    def _b(res, box, sz, y0, feet, elevated=False, carrier="objects/hangar__b0.obj"):
+        # CARRIED is "its zero is its CARRIER's reading" (§16 (3)): the
+        # census reads ``merged_into``, so a body on its own ground is
+        # judged like a footed one
         return {"new_resource": res, "plan_box": list(box), "surface_z": sz,
-                "y_zero": y0, "feet": feet, "elevated": elevated}
+                "y_zero": y0, "feet": feet, "elevated": elevated,
+                "merged_into": carrier if elevated else None}
 
     walls = {"placement": {"index": 1, "lat": 40.0, "lon": -3.0},
              "bodies": [_b("objects/hangar__b0.obj",
@@ -1816,6 +1835,14 @@ def test_the_v15_census_fails_a_carried_body_left_above_what_it_stands_on():
     assert bad["bars_ok"] is False
     assert round(bad["carried_worst"][0][0], 2) == 6.11
     assert "VIOLATED" in "\n".join(PC.census_v15_lines(bad))
+
+    # §16 (3): the SAME body standing on its OWN ground (no carrier) is
+    # not in the carried class — it read the terrain itself
+    own = {"placement": {"index": 3, "lat": 40.0, "lon": -3.0},
+           "bodies": [_b("objects/tej__b1.obj", (40.0, -3.0, 40.0005, -2.9995),
+                         106.11, 0.0, 0, True, carrier=None)]}
+    mine = PC.census_v15([walls, own])
+    assert mine["carried_float_gt"] == 0 and mine["footed_float_gt"] == 1
 
     roof["bodies"][0]["surface_z"] = 100.0          # carried at the walls' zero
     good = PC.census_v15([walls, roof])

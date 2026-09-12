@@ -194,6 +194,130 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
 
 
 
+def admit_skipped(plan, pack_root: str, dsftool: str | None,
+                  elevated_base_m: float, foot_band_m: float,
+                  thickness_m: float):
+    """§16 (1) OFFLINE: put the resources the plan SKIPPED for the seat-era
+    thickness gate back into the population, so a dry run can measure the
+    switch the engine makes at LOAD.
+
+    The engine needs nothing like this — ``pack_partition._build_member``
+    admits the member when ``[rebake] placement = "agl"``, and the plan a
+    build writes already carries it.  But a plan ALREADY WRITTEN (the
+    app's ``o4_v2_rebake_<ICAO>.json``) dropped those resources before the
+    units were built, and no replay can invent what the partition never
+    read.  So the rows are read back from the pack's own DSF and each
+    resource's components become a member's parts — one part per
+    component, the plan's own frame, no contact graph (these resources
+    touch nothing: that is why the gate caught them).  The CONTACT-based
+    carrier path is therefore unavailable to them here and the plan
+    OVERLAP path, which §15 (1) ranks first, is not.
+
+    Returns ``(plan, rows admitted, resources admitted)``."""
+    import dataclasses as dcls
+    import tempfile
+
+    from auto_patch.dsf_reader import _dsftool_path
+    from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import line_object as _lo
+    from auto_patch_v2.airport import placement_carrier as PC
+    from auto_patch_v2.law import Law as _Law
+    from auto_patch_v2.model.rebake import Member, Part, Unit
+    _rb = _Law.load().tables.structures.rebake
+
+    want = {res for res, why in plan.skipped if why.startswith(PC.THICKNESS_SKIP)}
+    if not want:
+        return plan, 0, 0
+    import glob
+    dsfs = sorted(glob.glob(os.path.join(pack_root, "Earth nav data", "*", "*.dsf"))
+                  + glob.glob(os.path.join(pack_root, "Earth nav data", "*.dsf")))
+    if not dsfs:
+        raise SystemExit(f"--admit-skipped: no DSF under {pack_root}/Earth nav data")
+    work = tempfile.mkdtemp(prefix="o4_admit_")
+    text = os.path.join(work, "pristine.text")
+    _dw.dump(_dw.pristine_dsf_path(dsfs[0]), text, dsftool or _dsftool_path())
+    dump = _dsf.read_dump(text)
+    cache = obj8.ResourceCache(thickness_m)
+    units = {(round(u.anchor[0], 9), round(u.anchor[1], 9)): [ui, list(u.members)]
+             for ui, u in enumerate(plan.units)}
+    extra: dict[tuple, list] = {}
+    pid = 10_000_000
+    rows = res_n = 0
+    seen: set[tuple] = set()
+    for q in dump.placements:
+        if q.def_path not in want:
+            continue
+        rows += 1
+        key = (round(q.lat, 9), round(q.lon, 9))
+        if (key, q.def_path) in seen:
+            continue                    # one bake per resource per anchor
+        seen.add((key, q.def_path))
+        path = os.path.join(pack_root, q.def_path.replace("\\", "/"))
+        if not os.path.isfile(path):
+            continue
+        try:
+            geom = obj8.parse_obj8(path)
+            comps = cache.components(path)
+        except (OSError, ValueError):
+            continue
+        if not comps:
+            continue
+        v = geom.vertices
+        parts = []
+        for ci, comp in enumerate(comps):
+            ids = np.unique(np.asarray(comp.tris).reshape(-1))
+            xs, ys, zs = v[ids, 0], v[ids, 1], v[ids, 2]
+            lls = [PP.authored_latlon(float(x), float(z), q.lat, q.lon,
+                                      q.heading_deg) for x, z in zip(xs, zs)]
+            las = [c[0] for c in lls]
+            los = [c[1] for c in lls]
+            cla, clo = PP.authored_latlon(float(comp.cx), float(comp.cz),
+                                          q.lat, q.lon, q.heading_deg)
+            lo_y = float(ys.min())
+            # §16 (1): these resources have NO genuine solid, so they are
+            # FOOTLESS by construction — their thin panels are not ground
+            # contacts (the engine strips the same feet at load)
+            feet: tuple = ()
+            pid += 1
+            # 10bb's LINE verdict, per component — the partition runs it
+            # at load and the admission must too, or a 50 m VOR marker
+            # pole reads as a solid body with three feet 50 m down
+            try:
+                is_line = _lo.is_line_shaped(geom, comp, _rb)
+            except Exception:
+                is_line = False
+            parts.append(Part(pid=pid, comp=ci, line=is_line,
+                              lat=cla, lon=clo, base_y=lo_y,
+                              area_m2=PC.box_area_m2((min(las), min(los),
+                                                      max(las), max(los))),
+                              box=(min(las), min(los), max(las), max(los)),
+                              feet=feet))
+        if not parts:
+            continue
+        res_n += 1
+        m = Member(id=f"admit:{res_n}", resource=q.def_path, authored_path=path,
+                   live_path=path, heading_deg=q.heading_deg, parts=tuple(parts))
+        if key in units:
+            units[key][1].append(m)
+        else:
+            extra.setdefault(key, []).append(m)
+    new_units = []
+    for ui, u in enumerate(plan.units):
+        key = (round(u.anchor[0], 9), round(u.anchor[1], 9))
+        ms = units.get(key, [ui, list(u.members)])[1] if key in units else list(u.members)
+        new_units.append(dcls.replace(u, members=tuple(ms)))
+    for key, ms in sorted(extra.items()):
+        new_units.append(Unit(f"unit:{len(new_units)}", key, 0.0, tuple(ms)))
+    admitted = {r for _k, ms in list(units.values()) + list(extra.items())
+                for r in ()}                      # (kept for clarity)
+    admitted = {m.resource for u in new_units for m in u.members
+                if str(m.id).startswith("admit:")}
+    skipped = tuple((r, w) for r, w in plan.skipped if r not in admitted)
+    return dcls.replace(plan, units=tuple(new_units),
+                        skipped=skipped), rows, res_n
+
+
 def _write_pack(a, plan, ss, sampler) -> None:
     """THE WRITE HALF into a pack COPY (11e (3)) — the same order the
     engine runs (``airport/placement_write.apply_plan``), never a second
@@ -300,6 +424,11 @@ def main() -> int:
     ap.add_argument("--line-segment", type=float, default=None,
                     help="override [placement] line_segment_m (the line-object "
                          "segment station span, 11f (2); 0 disarms the cut)")
+    ap.add_argument("--admit-skipped", default="", help="a pack ROOT: put the "
+                    "resources this plan skipped for the SEAT-era thickness "
+                    "gate back into the population (§16 (1)) by reading their "
+                    "rows from the pack's own DSF — what a build's plan now "
+                    "carries by itself, for a plan written before §16")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -307,10 +436,19 @@ def main() -> int:
     from auto_patch_v2.law import Law
     _law = Law.load()
     band_m = _law.tables.structures.basin.contact_band_m
+    rb0 = _law.tables.structures.rebake
     tol_m = _law.tables.structures.placement.split_tol_m if a.split_tol is None \
         else a.split_tol
     plan, abut = PP.read_plan(a.plan)
     sampler, pads, rims = surface_from_graded(a.graded)
+    if a.admit_skipped:
+        plan, n_rows, n_res = admit_skipped(
+            plan, os.path.abspath(a.admit_skipped), a.dsftool,
+            rb0.elevated_base_m, band_m,
+            _law.tables.structures.basin.min_solid_thickness_m)
+        print(f"  §16 (1) ADMITTED {n_res} resource(s) the plan skipped for the "
+              f"thickness gate ({n_rows} DSF row(s)) — the population a build's "
+              f"own plan now carries")
     print(f"plan {plan.icao}  pack {plan.pack_name}\n"
           f"  units {len(plan.units)}  members {sum(len(u.members) for u in plan.units)}"
           f"  parts {plan.counts.get('parts')}  contacts {len(plan.contacts)}"
@@ -329,7 +467,9 @@ def main() -> int:
                          line_stations_max=rb.line_object_stations_max,
                          line_ratio=rb.line_object_ratio,
                          line_max_h=rb.line_object_max_h,
-                         foot_band_m=band_m, abutments=abut)
+                         foot_band_m=band_m, abutments=abut,
+                         carrier_fill_min=_law.tables.structures.placement
+                         .carrier_fill_min)
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -354,8 +494,8 @@ def main() -> int:
           f"made one file (§14)")
     print(f"  elevated bodies as own files: {own}"
           f"{'' if own == 0 else '   *** §13 (1) VIOLATED (bar 0) ***'}; "
-          f"footless placements kept whole: "
-          f"{c.get('footless_no_carrier', 0)}; "
+          f"footless placements on their OWN ground (§16 (3), no carrier "
+          f"the law accepts): {c.get('footless_no_carrier', 0)}; "
           f"elevated bodies carried by a ground body's file: "
           f"{c.get('bodies_elevated_carried', 0)}")
     # §14 (4): ONE implementation of the four bars, shared with
@@ -373,9 +513,25 @@ def main() -> int:
     # a body on its own low-side foot reads every foot of its own as
     # lawful, so neither bar above can see a roof standing 6 m over the
     # walls it belongs to.
-    v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh])
+    v15 = PC.census_v15([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
+                        fill_min=_law.tables.structures.placement.carrier_fill_min)
     for line in PC.census_v15_lines(v15):
         print(line)
+    # §16 (1): THE POPULATION — every OBJECT row of the pack is in the
+    # plan; the seat-era thickness skip is not applied under ``agl``.
+    for line in PC.census_population_lines(PC.census_population(plan.skipped)):
+        print(line)
+    # §16 (2): the float read on the body's OWN GEOMETRY, which is the
+    # only reading that sees a body standing over no body at all.
+    v16 = PC.census_v16([q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
+                        sampler)
+    for line in PC.census_v16_lines(v16):
+        print(line)
+    print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "
+          f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s); "
+          f"own-ground files {c.get('footless_own_ground', 0)}; carriers "
+          f"refused: " + (", ".join(f"{k[16:]} {v}" for k, v in sorted(c.items())
+                                    if k.startswith("carrier_refused_")) or "none"))
     if c.get("line_segments"):
         print(f"  line segments: {c['line_segments']} from "
               f"{c.get('line_bodies_segmented', 0)} one-line bodies (11f (2))")

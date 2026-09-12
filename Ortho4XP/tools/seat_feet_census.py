@@ -386,7 +386,7 @@ def _census_placement_plan(ap, args) -> int:
         over = [r for r in meas if abs(r["dmax"]) > 0.3]
         big = [r for r in meas if abs(r["dmax"]) > 3.0]
         print(f"   rows with a foot > 0.3 m: {len(over)}; > 3 m: {len(big)}")
-    _print_elevated(plan)
+    _print_elevated(plan, sampler)
     return 0
 
 
@@ -403,7 +403,7 @@ def _elevated_base_m(plan: dict) -> float:
     return float(Law.load().tables.structures.rebake.elevated_base_m)
 
 
-def _print_elevated(plan: dict) -> None:
+def _print_elevated(plan: dict, sampler=None) -> None:
     """§13 (3): THE TWO CLASSES THE OWNER'S 11r READ TURNS ON.
 
     ``elevated bodies as own files`` counts split bodies whose file's
@@ -434,7 +434,8 @@ def _print_elevated(plan: dict) -> None:
           + ("" if not own else "   *** VIOLATED ***"))
     for y, res in sorted(own, reverse=True)[:5]:
         print(f"      +{y:.2f} m  {res}")
-    print(f"   §13 footless placements kept whole: {footless}; "
+    print(f"   §13/§16 footless placements with no carrier "
+          f"(their own ground): {footless}; "
           f"elevated bodies carried at their authored offset: {carried}")
     # §14 (4): the four bars, from the engine's own implementation — the
     # same call ``obj8_split_report`` makes over the same plan shape.
@@ -447,9 +448,21 @@ def _print_elevated(plan: dict) -> None:
         print(line)
     # §15 (3): the stands-over float — the class neither the foot census
     # nor §14's bars can see (a carried body has no feet at all)
-    for line in PC.census_v15_lines(PC.census_v15(plan.get("splits", ()),
-                                                  plan.get("kept", ()))):
+    _pl = Law.load().tables.structures.placement
+    for line in PC.census_v15_lines(PC.census_v15(
+            plan.get("splits", ()), plan.get("kept", ()),
+            fill_min=_pl.carrier_fill_min)):
         print(line)
+    # §16 (2): the float on the body's OWN GEOMETRY — the same call
+    # ``obj8_split_report`` makes over the same plan shape, needing only
+    # a surface to read the ground with.  (§16 (1)'s population census
+    # reads the REBAKE plan's ``skipped`` and is printed there, where
+    # that plan is open.)
+    if sampler is not None:
+        for line in PC.census_v16_lines(PC.census_v16(
+                plan.get("splits", ()),
+                lambda la, lo: sampler.elevation_at_or_none(la, lo))):
+            print(line)
 
 
 def main(argv: list[str] | None = None) -> int:

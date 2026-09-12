@@ -249,7 +249,8 @@ class _LoadGeom:
 
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
-                  counts: dict[str, int], skipped: dict[str, str]):
+                  counts: dict[str, int], skipped: dict[str, str],
+                  no_solid: set[str] | None = None):
     """One placement as a :class:`Member` plus the geometry the contact
     pass places, or ``None`` when nothing about it can be seated.  ONE
     implementation: the load loop and :func:`extend_partition` build a
@@ -262,16 +263,42 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
         skipped.setdefault(o.path, "unreadable OBJ8")
         return None
     deep = set(sc.below_comps.get(o.id, ()))
-    comps = [(i, c) for i, c in enumerate(cache.components(o.resolved))
+    all_comps = list(enumerate(cache.components(o.resolved)))
+    comps = [(i, c) for i, c in all_comps
              if c.max_y - c.min_y >= cache.thickness_m and i not in deep]
     counts["below_grade_parts"] += len(deep)
     in_deck_family = o.id in sc.deck_family or o.id in deck_family_ids
     if not comps and not (in_deck_family and rb.deck_family_seats_rigid) \
             and o.id not in sc.plate_paths and o.path not in sc.plate_paths \
             and o.hard_deck is None:
-        counts["no_parts"] += 1
-        skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
-        return None
+        # NO THICKNESS GATE UNDER ``placement = agl`` (owner RULINGS
+        # 2026-09-11ai; spec §16 (1)).  The skip is the SEAT's (08-26
+        # §2.1: a resource with no genuine solid has nothing to re-seat
+        # per vertex) and the placement stage has no such question — it
+        # asks where a body's ZERO goes, and a resource of nothing but
+        # thin panels has one like any other.  Skipped, the resource
+        # never enters the plan population and stays on the pack's
+        # shared-datum row: LEMD's garage roof-top pavilions
+        # (``Terminal4_green-TEJ1``) rendered 15.8 m UNDER the slab they
+        # stand on, and 25 resources / 25 rows were outside the plan.
+        # Under ``agl`` the member is admitted with its thin components
+        # as its parts; with no ground contact at all it becomes a
+        # FOOTLESS body (§14) and is CARRIED by §15/§16's rule.
+        if rb.placement == "agl" and all_comps:
+            comps = [(i, c) for i, c in all_comps if i not in deep]
+        if not comps:
+            counts["no_parts"] += 1
+            skipped.setdefault(o.path, "no genuine solid component: nothing to seat")
+            return None
+        counts["no_solid_admitted"] = counts.get("no_solid_admitted", 0) + 1
+        # §16 (1)'s own sentence: such a resource is a FOOTLESS body.  Its
+        # thin panels are not ground contacts — read as feet they make a
+        # two-triangle VOR marker spanning a terminal apron into a footed
+        # body with three feet 50 m down, which the carrier search would
+        # then offer as ground and the census would read as something to
+        # stand over.  The feet are stripped where the parts are attached.
+        if no_solid is not None:
+            no_solid.add(o.path)
     rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
         else live_path_of(o.resolved)
     # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3)
@@ -352,6 +379,9 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts["deck_families"] = len(_deck_keys)
     counts["plate_objects"] = len(sc.plate_paths)
     skipped: dict[str, str] = {}
+    #: §16 (1): the resources admitted with no genuine solid — footless by
+    #: construction, so their parts carry no feet
+    no_solid: set[str] = set()
     _to_xy, to_ll = airport.frame.transformers()
     to_ll_batch = _batch_to_ll(airport.frame)
     apt = airport.pack.apt_dat_path
@@ -421,7 +451,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.path in members:
             continue        # the same resource at the same anchor twice: one bake
         built = _build_member(o, cache, law, sc, deck_family_ids, pack_root,
-                              counts, skipped)
+                              counts, skipped, no_solid)
         if built is None:
             continue
         member, mgeom, is_line = built
@@ -449,8 +479,11 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):
         m = units_by_key[key][path]
-        units_by_key[key][path] = _dc.replace(m, parts=tuple(parts_by_member.get(mi, ())))
-        counts["parts"] += len(parts_by_member.get(mi, ()))
+        ps = tuple(parts_by_member.get(mi, ()))
+        if path in no_solid:
+            ps = tuple(_dc.replace(p, feet=()) for p in ps)
+        units_by_key[key][path] = _dc.replace(m, parts=ps)
+        counts["parts"] += len(ps)
 
     units: list[Unit] = []
     member_object: dict[tuple[int, int], tuple[str, str]] = {}

@@ -4344,3 +4344,40 @@ neighbours meet it at its level.
    `terrace_joints_ll`, groundside rows); ONE `--engine v2` LEMD build against the
    ledger base; the other airports' pad-frontage census by dry run where the
    products exist; twins; suite.
+
+## §29 A MOUTH IS BUILT ONLY ON THE FIELD (owner RULINGS 2026-09-12r; Fable 2026-09-12t) — lane `v2mouthgate`
+
+Owner: "we should never emit anything for actual tunnels, only the tunnel mouths and
+entrance/exit ramps … This applies to both rail and highway. The one exception is …
+shallow tunnels with object based roofs that need an open trench." Scout
+`v2tunnelmouths` on the 1.0.321 LEMD products: the bore already emits NOTHING
+(`planar/structures.py:12-15`, cells cut 0); the exception is already the law twice
+(`[cutout.sunken_road]` Law B requires a roof, `[cutout.wall_corridor]` Law C
+requires headroom; `[tunnel.object]` REFUSES a roof) and never keyed on OSM. The
+violation is the MOUTH: a bore is admitted by ≥ 1 m of cover under ANY cell
+(`structures.py:238`) and then BOTH mapped ends become mouths with no containment
+test (`structure_approach.py:282-294`). LEMD's two rail bores (4.9 km each) are
+admitted by 125–162 m under the `building12` pad, their north mouths (on the field,
+under T4) are refused against that pad, and their SOUTH-WEST mouths — 2.4 km outside
+the OSM load box, 4.0 km west of every other patch feature, 95 m above the field —
+are built: ramps 960/962, rims 691/692, banks 694/695 (149 vertices) that set the
+patch's whole western bbox edge. They carry zero grade rows; the census cannot see it.
+
+1. **A MOUTH IS BUILT ONLY WHERE IT STANDS ON THE FIELD**: a `Mouth` whose point (and
+   whose ramp reach) lies outside the airport's governed region — the classified
+   cover ⊕ `[tunnel] mouth_standoff_m` (50 m) — is dropped at `mouths()`, named in
+   the structures line (`mouths off-field N`). A bore with no on-field mouth emits
+   nothing.
+2. **ADMISSION FOLLOWS THE MOUTH, NOT THE BORE**: the cover test moves from "≥ 1 m of
+   the bore under any cell" to "a mouth on the field" — a bore 5 km long admitted by
+   one cell far from its only surviving mouth is the defect generator.
+3. **DEAD KEY DELETED**: `[tunnel] bore_cut_clearance_m` (`structures.toml:12`,
+   `model.py:297`) has no reader in v2 — removed with its schema line.
+4. **BARS**: LEMD faces 960/962, rims 691/692, banks 694/695 gone; the patch bbox's
+   west edge back at the airside extent (−3.594, was −3.641); every other LEMD
+   structure byte-identical (15 highway corridors, Bridge4's cutting, the 2 decks);
+   SPJC's two mouths and OTHH's object/wall-corridor set unchanged by dry read (their
+   structures lines); ONE `--engine v2` LEMD build against the ledger base; the
+   harness census unchanged (4,408 law-true on 1.0.321 — no tunnel rows exist);
+   twins (an off-field mouth is dropped; an on-field one stays; a roofed corridor
+   is untouched); suite.

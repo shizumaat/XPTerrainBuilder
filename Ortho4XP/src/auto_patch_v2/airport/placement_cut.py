@@ -84,7 +84,8 @@ class _LineCutter:
                  foot_band_m: float, ratio: float, max_h: float,
                  lat: float, lon: float, contact_eps_m: float = 0.0,
                  contact_pairs: _t.Sequence[tuple[int, int]] = (),
-                 rigid_reach_m: float = 0.0) -> None:
+                 rigid_reach_m: float = 0.0,
+                 rigid_span_max_m: float = 0.0) -> None:
         self.m = m
         self.segment_m = segment_m
         self.stations_max = stations_max
@@ -106,6 +107,8 @@ class _LineCutter:
         #: §16c (7): SOLID components within this CHAIN into one rigid
         #: cluster (line classes excluded — §10 cuts those on purpose)
         self.rigid_reach_m = rigid_reach_m
+        #: §16c (8): a rigid cluster never grows wider than this in plan
+        self.rigid_span_max_m = rigid_span_max_m
         self._clusters: _t.Any = None
 
     @property

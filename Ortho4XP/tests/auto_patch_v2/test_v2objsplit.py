@@ -3075,6 +3075,13 @@ def test_the_carrier_is_what_the_body_rests_on():
     got = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
                            tol_m=0.3, base_y=18.05)
     assert got and got[0][0] is walls and "rests on it" in got[0][1]
+    # 12n: NEAREST IN ABSOLUTE DISTANCE, above or below.  A roof let INTO
+    # a PARAPET rests on walls whose top stands ABOVE its base — under
+    # the first wording ("nearest below") those walls ranked last and
+    # LEMD's T2 roofs went to bodies 6 m off.
+    para = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {},
+                            (roof,), tol_m=0.3, base_y=17.6)
+    assert para and para[0][0] is walls, para[0][1]
     # without the body's base plane the ranking is the old largest-overlap
     old = _PC.carriers_for(frozenset({9}), roof, [floor, walls], {}, (roof,),
                            tol_m=0.3)

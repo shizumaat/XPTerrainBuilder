@@ -28,8 +28,20 @@ import numpy as np
 #: is millimetres and cheap.
 RIGID_REACH_COMPONENTS_MAX = 64
 
+#: §16c (8): a rigid cluster never grows wider than this in PLAN.  A
+#: cluster is ONE RIGID BODY and no cut may divide it, so a chain of 2 m
+#: hops that walks a whole terminal makes a body wider than any terrain
+#: it can stand on — which is what §16b (1) exists to forbid.  Measured
+#: at OTHH: unbounded, the reach chains `OTHH_Terminal_Base_*` into
+#: clusters spanning 1,042-1,175 m over 3-15 components.  Set well above
+#: what a single authored object needs (LEMD's `Terminal4_48` is
+#: 289 x 1,168 m and its fix depends on chaining across it) and below a
+#: runaway.  Cost is NOT the reason for it: OTHH's plan stage is 64.33 s
+#: at this cap, 64.45 s at 100 m and 63.46 s with the reach disarmed.
+RIGID_CLUSTER_SPAN_MAX_M = 1200.0
+
 __all__ = ["comp_of", "comp_cluster", "comp_blocks",
-           "RIGID_REACH_COMPONENTS_MAX"]
+           "RIGID_REACH_COMPONENTS_MAX", "RIGID_CLUSTER_SPAN_MAX_M"]
 
 
 def comp_of(cut, tris) -> "list[int]":
@@ -121,9 +133,12 @@ def comp_cluster(cut) -> "list[int]":
     # continuous.  SOLID components chain at the reach; a LINE
     # object's never do — §10 cuts a fence into stations ON PURPOSE.
     eps = float(cut.contact_eps_m)
+    span_max = 0.0
     if (cut.rigid_reach_m > eps and 1 < n <= RIGID_REACH_COMPONENTS_MAX
             and not cut.is_line_object()):
         eps = float(cut.rigid_reach_m)
+        span_max = float(getattr(cut, "rigid_span_max_m", 0.0)
+                         or RIGID_CLUSTER_SPAN_MAX_M)
     if n > 1 and eps > 0.0:
         # THE PAIRS ARE FOUND BY A SWEEP, NOT BY ALL-PAIRS.  A radius
         # query over every vertex of the member returns MILLIONS of pairs
@@ -143,6 +158,9 @@ def comp_cluster(cut) -> "list[int]":
         hi = np.asarray([p.max(axis=0) if p.size else np.zeros(3)
                          for p in pts])
         order = np.argsort(lo[:, 0]).tolist()
+        # the running box of each cluster ROOT, for the span bound
+        clo = {i: lo[i].copy() for i in range(n)}
+        chi = {i: hi[i].copy() for i in range(n)}
         trees: dict[int, _t.Any] = {}
 
         def _tree(k: int):
@@ -169,6 +187,22 @@ def comp_cluster(cut) -> "list[int]":
                 # finish in 45 minutes (measured).  What the union needs
                 # is whether ONE pair exists, so the smaller cloud is
                 # queried against the larger with an upper bound.
+                # §16c (8) BOUNDED BY THE TERRAIN LAW.  A cluster is
+                # ONE RIGID BODY and no cut may divide it, so a chain of
+                # 2 m hops that walks a whole terminal makes a body
+                # wider than any terrain it can stand on — exactly what
+                # §16b (1) exists to forbid.  Measured at OTHH: the five
+                # largest clusters span 1,042-1,175 m over 3-15
+                # components (`OTHH_Terminal_Base_*`), and that chaining
+                # is also what made its plan stage unaffordable.  A
+                # union is refused when the merged cluster's plan
+                # diagonal would exceed ``span_max``.
+                if span_max > 0.0:
+                    ra, rb = _find(i0), _find(j0)
+                    m0 = np.minimum(clo[ra], clo[rb])
+                    m1 = np.maximum(chi[ra], chi[rb])
+                    if float(np.hypot(m1[0] - m0[0], m1[2] - m0[2])) > span_max:
+                        continue
                 a_pts, b_pts = pts[i0], pts[j0]
                 if a_pts.shape[0] > b_pts.shape[0]:
                     i0, j0 = j0, i0
@@ -179,7 +213,12 @@ def comp_cluster(cut) -> "list[int]":
                 d, _ix = tj.query(a_pts, k=1,
                                   distance_upper_bound=eps)
                 if np.isfinite(d).any():
+                    ra, rb = _find(i0), _find(j0)
+                    box_lo = np.minimum(clo[ra], clo[rb])
+                    box_hi = np.maximum(chi[ra], chi[rb])
                     _union(i0, j0)
+                    r = _find(i0)
+                    clo[r], chi[r] = box_lo, box_hi
     cut._clusters = [_find(i) for i in range(n)]
     return cut._clusters
 

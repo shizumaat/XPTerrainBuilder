@@ -63,6 +63,7 @@ from . import placement_carrier as _pc
 from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
+from . import placement_atom as _atom
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
 
@@ -604,7 +605,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                  u.anchor[0], u.anchor[1],
                                  contact_eps_m=contact_eps_m,
                                  contact_pairs=_pairs,
-                                 rigid_reach_m=rigid_reach_m)
+                                 rigid_reach_m=rigid_reach_m,
+                                 rigid_span_max_m=_atom
+                                 .RIGID_CLUSTER_SPAN_MAX_M)
             raw = _raw_bodies(m, u, intra.get(id_of((ui, mi)), []), surface,
                               pads, rims, counts, cutter=cutter,
                               split_tol_m=split_tol_m,

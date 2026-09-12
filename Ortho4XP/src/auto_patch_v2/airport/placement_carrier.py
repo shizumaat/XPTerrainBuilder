@@ -734,14 +734,13 @@ def carriers_for(pids: _t.AbstractSet[int],
                 ranked.append((ov, c))
         # §16c (4): THE CARRIER IS WHAT THE BODY RESTS ON.  Among the
         # candidates the body plan-overlaps, the one whose TOP lies
-        # NEAREST BELOW the body's own base plane wins; the overlap
-        # breaks ties only.  Largest-overlap alone put LEMD's T2 roofs on
+        # NEAREST the body's own base plane — in ABSOLUTE distance,
+        # above or below (12n) — wins; the overlap breaks ties only.  Largest-overlap alone put LEMD's T2 roofs on
         # ``LEMD38``'s 129,113 m2 floor pieces 17 m below them rather
         # than on the 158 m2 walls they rest on, 0.57-0.70 m low
         # (RULINGS 2026-09-12d); the one roof that happened to be bound
         # to its wall read 0.01 m.  Both y's are AUTHORED and the unit
         # shares one datum, so the difference is the rendered one.
-        rest = tol_m if tol_m > 0.0 else 0.0
         if base_y is not None and any(c.top_y is not None
                                       for _o, c in ranked):
             def _top_under(c: Candidate) -> "float | None":
@@ -757,16 +756,18 @@ def carriers_for(pids: _t.AbstractSet[int],
                 ov, c = q
                 top = _top_under(c)
                 if top is None:
-                    return (2, 0.0, -ov[0], -ov[1], c.member)
-                gap = float(base_y) - float(top)
-                # a top ABOVE the body's base by more than the tolerance
-                # is not something the body rests on
-                return ((0 if gap >= -rest else 1), round(max(gap, 0.0), 3),
+                    return (1, 0.0, -ov[0], -ov[1], c.member)
+                # §16c (4) as amended 2026-09-12n: NEAREST IN ABSOLUTE
+                # DISTANCE, above or below.  A roof let INTO a parapet
+                # rests on walls whose top stands ABOVE its base, and
+                # "nearest below" sent LEMD's T2 roofs to bodies 6 m off
+                # while the wall rings they sit in ranked last.
+                return (0, round(abs(float(base_y) - float(top)), 3),
                         -ov[0], -ov[1], c.member)
             ranked.sort(key=_rest_key)
             over = [(c, f"rests on it (its top "
                         f"{float(base_y) - float(_top_under(c) or 0.0):+.2f} m "
-                        f"under this body's base; stands over "
+                        f"from this body's base; stands over "
                         f"{overlap_m2(box, c.box):.0f} m2 in plan)"
                      if _top_under(c) is not None else
                      f"stands over {overlap_m2(box, c.box):.0f} m2 of it in plan")

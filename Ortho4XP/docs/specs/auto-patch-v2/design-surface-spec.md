@@ -4085,7 +4085,14 @@ shared edge ≥ 1.0 m) was dropped in the v2 port.
    KCLT --sources` (flips named, none built); ONE `--engine v2` LEMD build as the
    closing test (base arm 4,600 / 1,861, groundside 73, in the ledger) — harness
    census before/after, airside adjudicated rows quoted; twins; INDEX; suite.
-5. **OWNER QUESTION 12c-1, not decided here:** the 61 LEMD `service_road` faces that
-   share an apron edge (up to 828 m). The free-road ruling (2026-07-27) reads
-   "a road sharing an edge with an apron IS the apron"; 12c names the service road
-   as the lot's exemption channel. This spec flips LOTS only; roads wait.
+5. **ROADS FLIP TOO; THE EXEMPTION IS A MOUTH (owner RULINGS 2026-09-12f).** A
+   `service_road` / `service_junction` face sharing >= `airside_edge_min_m` of
+   LATERAL edge with airside pavement is `apron` (the free-road ruling, 2026-07-27).
+   A groundside shape stays groundside only when every airside contact it has is a
+   free road meeting it END-ON at the road's MOUTH — the strip's end cap, its
+   cross-section (shared edge <= the strip's width x `[lot] mouth_width_factor`
+   1.5, and transverse to the strip's axis) — never a lateral edge. Flips propagate
+   along lateral shared edges (a lot beside a road that became apron is beside
+   apron) and stop at mouths; the classifier iterates to the fixpoint. Bars add:
+   LEMD's 61 apron-edged service-road faces named with their flip; the lots whose
+   only contact is a mouth named as staying; the fixpoint's iteration count.

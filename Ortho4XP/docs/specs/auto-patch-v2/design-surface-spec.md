@@ -4825,6 +4825,14 @@ but centimeter accuracy or anything invisible to the pilot is not important."
    (a 0.3 m tolerance on a landside joint, a census family's count, a plan-stage
    second) is a REPORT. The 0.1 m pad residual of §28 is accepted under this rule.
 5. **BUILD BUDGET**: 10 minutes per tile; speed work is dispatched only past it.
+6a. **SPANNED IS A SLOPE; A CLIFF IS A CUT** (RULINGS 2026-09-12ad/12af). A
+   step-family row whose ends stand more than `emit.instrument.step_contact_tol_m`
+   (1 m, the weld spacing) apart is a slope, judged by its cap: REPORT. A grade-
+   break row carries no span test. **(7)** A spanned row whose implied grade
+   |Δz| / span exceeds `[cockpit] cliff_grade` — a law PATH to `emit.design.bank_slope`
+   (1:3, the steepest slope the design surface builds as natural ground; never a
+   second copy of the number) — is a CUT or RISE and is judged as if welded: CRITICAL
+   VISUAL in view, CRITICAL MOTION on rolled-on pavement. Exactly 1:3 is the bank.
 6. **THE INSTRUMENT** (lane `v2cockpit`): `tools/harness/census.py` and the placement
    census print a COCKPIT block from the existing families — CRITICAL motion rows
    (step families and grade breaks on rolled-on roles over 0.05 m), CRITICAL visual

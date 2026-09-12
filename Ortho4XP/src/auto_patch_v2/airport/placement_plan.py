@@ -179,6 +179,14 @@ class Body:
     #: — what says whether it is a SOLID that may carry another body's
     #: zero, and what the census must read to judge the same relation
     fill: float = 1.0
+    #: §16b (4): THE WRITTEN GEOMETRY, sampled — ``(lat, lon, lowest y)``
+    #: per :data:`placement_cut.GEOM_CELL_M` cell of the body's own
+    #: triangles, thinned to :data:`placement_cut.GEOM_PTS_MAX`.  Every
+    #: §16 / §16a number is read HERE and never on ``geom_box``: the box
+    #: of a carried body the cut left whole is its CARRIER's patch
+    #: (124 m for ``green-TEJ3``, whose written file spans 2,342 m), so
+    #: every bar read 0 while the eye read +16 m (11ap).
+    geom_pts: tuple[tuple[float, float, float], ...] = ()
 
     def to_dict(self) -> dict[str, _t.Any]:
         a = self.anchor
@@ -198,6 +206,8 @@ class Body:
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "ground_off": self.ground_off,
                 "fill": self.fill,
+                "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
+                             for q in self.geom_pts],
                 "feet": len(self.feet)}
 
 
@@ -280,10 +290,20 @@ def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
 # §10's segment cut, §16 (2)'s terrain cut and the body formation they
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
-from .placement_cut import (GROUND_CELL_M, _bodies_of,  # noqa: E402
+from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
+                            GROUND_CELL_M, _bodies_of,
                             _cut_parts_by_terrain, _LineCutter, _part_zero,
                             _plan_span_m, _Raw, _raw_bodies, _rim_of,
-                            authored_latlon, pristine_path, segment_anchor)
+                            authored_latlon, pristine_path, segment_anchor,
+                            thin_points)
+
+
+def _geom_pts(raw: _t.Sequence[_Raw], grp: _t.Sequence[int]
+              ) -> tuple[tuple[float, float, float], ...]:
+    """§16b (4): the WRITTEN GEOMETRY of a file — every raw body in it,
+    thinned once more so a file made of many pieces publishes no more
+    samples than one body does."""
+    return thin_points(tuple(p for i in grp for p in raw[i][6]), GEOM_PTS_MAX)
 
 
 def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
@@ -360,7 +380,8 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                                [b for i in grp if not raw[i][4]
                                 for b in part_boxes[i]]
                                or [b for i in grp for b in part_boxes[i]])
-                               if part_boxes else 1.0)))
+                               if part_boxes else 1.0),
+                           geom_pts=_geom_pts(raw, grp)))
     return bodies
 
 
@@ -413,7 +434,8 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 fill=(_pc.fill_of(_pc.hull_of(b for i in grp
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
-                      if part_boxes else 1.0))
+                      if part_boxes else 1.0),
+                geom_pts=_geom_pts(raw, grp))
 
 
 #: §16 (3)'s named residual: a body with no carrier the law will accept,
@@ -462,7 +484,8 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 fill=(_pc.fill_of(_pc.hull_of(b for i in grp
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
-                      if part_boxes else 1.0))
+                      if part_boxes else 1.0),
+                geom_pts=_geom_pts(raw, grp))
 
 
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
@@ -605,7 +628,8 @@ def _carrier_pieces(st: "_Staged", grp: list[int],
     out: list[tuple[list[int], _pc.Candidate, str]] = []
     for k, tris, box in pieces:
         bi = len(st.raw)
-        st.raw.append(([p for p in parts], senior[1], senior[2], (), True, tris))
+        st.raw.append(([p for p in parts], senior[1], senior[2], (), True, tris,
+                       st.cutter.geom_points(parts, tris)))
         st.boxes.append(box)
         st.part_boxes.append([box])
         out.append(([bi], over[k][0], over[k][1]))
@@ -976,7 +1000,7 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             merged_into=b.merged_into, surface_z=b.anchor.surface_z,
             y_zero=b.anchor.y_zero, plan_box=b.plan_box,
             geom_box=b.geom_box, foot_boxes=b.foot_boxes, fill=b.fill,
-            ground_off=b.ground_off,
+            ground_off=b.ground_off, geom_pts=b.geom_pts,
             feet=len(b.feet)) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)

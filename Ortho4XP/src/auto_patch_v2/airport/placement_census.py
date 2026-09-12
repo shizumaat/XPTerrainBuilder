@@ -22,10 +22,12 @@ from . import anchor_rule as _ar
 from .placement_carrier import (ground_samples, overlap, stands_over_rank)
 
 __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
-           "census_v16", "census_v16_lines", "census_population",
+           "census_v16", "census_v16_lines", "census_v16b",
+           "census_v16b_lines", "census_population",
            "census_population_lines", "STANDS_OVER_TOL_M", "FOOTLESS_KEPT",
            "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND", "THICKNESS_SKIP",
-           "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M"]
+           "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M",
+           "CARRIED_OWN_GROUND_TOL_M"]
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────
@@ -576,9 +578,18 @@ def census_v16(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             if not box or sz is None:
                 off_sheet += 1
                 continue
-            fb = tuple(tuple(float(q) for q in x)
-                       for x in b.get("foot_boxes", ()) or ())
-            zs = ground_samples(surface, fb, tuple(float(q) for q in box))
+            # §16b (4): THE WRITTEN GEOMETRY where the plan publishes it
+            # — ``geom_box`` is the hull of the PART boxes, which for a
+            # carried body the cut left whole is its CARRIER's patch.
+            pts = b.get("geom_pts") or ()
+            if pts:
+                zs = [float(z) for z in
+                      (surface(float(q[0]), float(q[1])) for q in pts)
+                      if z is not None]
+            else:
+                fb = tuple(tuple(float(q) for q in x)
+                           for x in b.get("foot_boxes", ()) or ())
+                zs = ground_samples(surface, fb, tuple(float(q) for q in box))
             if not zs:
                 off_sheet += 1
                 continue
@@ -605,6 +616,109 @@ def census_v16(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             # §16a (3): neither number is a bar — §15 (3)'s
             # ``zero - zero_beneath`` is THE bar for a carried body
             "bars_ok": True}
+
+
+#: §16b (4): how far a CARRIED piece's zero may stand from the ground
+#: under its OWN WRITTEN GEOMETRY.  The bar is 0 bodies over it: after
+#: §16b (1) the piece is no wider than one terrain group, and after
+#: §16b (2)/(3) the carrier it rides stands on that same group's ground.
+CARRIED_OWN_GROUND_TOL_M = 0.5
+
+
+def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
+                surface: _t.Callable[[float, float], "float | None"],
+                *, split_tol_m: float,
+                float_tol_m: float = CARRIED_OWN_GROUND_TOL_M) -> dict:
+    """§16b (4): THE CENSUS READS THE WRITTEN GEOMETRY.
+
+    Every §16 / §16a number was read on the plan's ``geom_box`` — for a
+    body the cut left whole that is the box of the patch its CARRIER
+    covers (124 m for ``Terminal4_green-TEJ3``, whose written file spans
+    2,342 m and reads +16.22 m over the ground at the owner's item 5).
+    These two bars are read on the body's own written triangles
+    (``geom_pts``, one sample per cell of plan, the lowest thing the file
+    puts over that patch), and both are ZERO:
+
+    ``carried piece float over its own ground``  a CARRIED body whose
+        zero stands more than ``float_tol_m`` from the ground under its
+        OWN geometry.  §16a (3) made this information only because a
+        carried body was cut by its carrier and a carrier on sloping
+        ground anchors at its low-side foot; §16b (1)'s prior terrain cut
+        and §16b (3)'s bounded fallback close that, so it is a bar again.
+
+    ``body wider than its terrain group``  ANY body whose own-geometry
+        ground spans more than ``split_tol_m`` — a rigid body wider than
+        the terrain it stands on, which is items 1 and 2's class (a sign
+        body 2,319 m long, 30 roof plates over 1.8 km).
+
+    A body publishing no ``geom_pts`` (a plan written before §16b) or
+    reading no surface under any of them is OFF-SHEET and counted apart,
+    never guessed at (§15 (5))."""
+    carried: list[tuple[float, str]] = []
+    wide: list[tuple[float, str]] = []
+    n = off_sheet = no_geom = 0
+    span_sum = 0.0
+    for s in splits:
+        for b in s.get("bodies", ()):
+            pts = b.get("geom_pts") or ()
+            sz = b.get("surface_z")
+            if not pts:
+                no_geom += 1
+                continue
+            if sz is None:
+                off_sheet += 1
+                continue
+            zs = []
+            for q in pts:
+                z = surface(float(q[0]), float(q[1]))
+                if z is not None:
+                    zs.append(float(z))
+            if not zs:
+                off_sheet += 1
+                continue
+            n += 1
+            res = str(b.get("new_resource") or s.get("placement", {})
+                      .get("resource", "?"))
+            span = max(zs) - min(zs)
+            span_sum = max(span_sum, span)
+            if span > split_tol_m:
+                wide.append((span, res))
+            zero = float(sz) - float(b.get("y_zero", 0.0))
+            g = sorted(zs)[len(zs) // 2]
+            if b.get("merged_into"):
+                d = zero - g
+                if abs(d) > float_tol_m:
+                    carried.append((d, res))
+    carried.sort(key=lambda q: -abs(q[0]))
+    wide.sort(reverse=True)
+    return {"bodies_read": n, "off_sheet": off_sheet, "no_geom_pts": no_geom,
+            "carried_own_ground_gt": len(carried),
+            "carried_own_ground_worst": carried[:10],
+            "geom_span_gt": len(wide), "geom_span_worst": wide[:10],
+            "geom_span_max_m": span_sum,
+            "float_tol_m": float_tol_m, "split_tol_m": split_tol_m,
+            "bars_ok": not carried and not wide}
+
+
+def census_v16b_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
+    """:func:`census_v16b`'s two bars as the lines both tools print."""
+    out = [f"   §16b read on the WRITTEN GEOMETRY of {c['bodies_read']} "
+           f"body(ies) ({c['off_sheet']} off-sheet, {c['no_geom_pts']} with no "
+           f"geometry published):",
+           f"   §16b carried piece float over its OWN ground > "
+           f"{c['float_tol_m']:g} m: {c['carried_own_ground_gt']} (bar 0)"
+           + ("" if not c["carried_own_ground_gt"]
+              else "   *** §16b (4) VIOLATED (bar 0) ***"),
+           f"   §16b body wider than its terrain group (own-geometry ground "
+           f"spans > {c['split_tol_m']:g} m): {c['geom_span_gt']} (bar 0; "
+           f"widest {c['geom_span_max_m']:.2f} m)"
+           + ("" if not c["geom_span_gt"]
+              else "   *** §16b (4) VIOLATED (bar 0) ***")]
+    for d, res in c.get("carried_own_ground_worst", ()):
+        out.append(f"      carried {d:+.2f} m over its own ground  {res}")
+    for d, res in c.get("geom_span_worst", ()):
+        out.append(f"      own ground spans {d:.2f} m  {res}")
+    return out
 
 
 def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:

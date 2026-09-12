@@ -27,7 +27,8 @@ from . import line_object as _lo
 from . import placement_carrier as _pc
 
 __all__ = ["authored_latlon", "segment_anchor", "pristine_path",
-           "GROUND_CELL_M", "_Raw"]
+           "GROUND_CELL_M", "GEOM_CELL_M", "GEOM_PTS_MAX", "thin_points",
+           "_Raw"]
 
 from .placement_carrier import is_elevated            # noqa: E402  (§13)
 
@@ -438,6 +439,76 @@ class _LineCutter:
         return out if len(out) > 1 else []
 
 
+    def geom_points(self, parts: _t.Sequence[Part],
+                    tris: _t.Sequence[_t.Sequence[int]] = (),
+                    cap: int = 0) -> tuple[tuple[float, float, float], ...]:
+        """§16b (4): THE BODY'S OWN WRITTEN GEOMETRY, as ``(lat, lon,
+        lowest y)`` samples — one per :data:`GEOM_CELL_M` cell of plan,
+        thinned to ``cap`` (:data:`GEOM_PTS_MAX`).
+
+        Every §16 / §16a number was read on the plan's ``geom_box`` (the
+        hull of the body's PART boxes) or on the carrier's box.  For a
+        body the cut left whole that is a box over the CARRIER — 124 m
+        for ``Terminal4_green-TEJ3`` whose written file spans 2,342 m —
+        so the census was blind to what the eye reads (11ap).  These are
+        the written triangles themselves: what the file actually covers,
+        and the lowest thing it puts over each patch of ground.
+
+        ``tris`` are the piece's own triangles when the cut made one
+        (a segment, a terrain group, a carrier piece); with none given
+        the body's whole parts are read."""
+        if not self._read():
+            return ()
+        import numpy as np
+        if tris:
+            t = np.asarray(tris, dtype=np.int64)
+        else:
+            tl = [self._comps[p.comp].tris for p in parts
+                  if 0 <= p.comp < len(self._comps)]
+            if not tl:
+                return ()
+            t = np.concatenate(tl)
+        if t.size == 0:
+            return ()
+        v = self._geom.vertices
+        xs = v[t, 0].mean(axis=1)
+        zs = v[t, 2].mean(axis=1)
+        ys = v[t, 1].min(axis=1)
+        ml, mo = _ar._m_per_deg(self.lat)
+        h = math.radians(self.m.heading_deg)
+        s, c = math.sin(h), math.cos(h)
+        e = xs * c - zs * s
+        n = -(xs * s + zs * c)
+        la = self.lat + n / ml
+        lo = self.lon + e / mo
+        # ONE POINT PER CELL, the LOWEST triangle in it: a roof of 40,000
+        # panels says nothing 40,000 times, and the reading the census
+        # makes (the ground under this patch, the thing standing lowest
+        # over it) is a per-place question.
+        kla = np.round(la * ml / GEOM_CELL_M).astype(np.int64)
+        klo = np.round(lo * mo / GEOM_CELL_M).astype(np.int64)
+        key = (kla + (1 << 20)) * (1 << 22) + (klo + (1 << 20))
+        order = np.argsort(ys, kind="stable")
+        _u, first = np.unique(key[order], return_index=True)
+        sel = order[first]
+        return thin_points(tuple((float(la[i]), float(lo[i]), float(ys[i]))
+                                 for i in sel.tolist()), cap or GEOM_PTS_MAX)
+
+
+def thin_points(pts: _t.Sequence[tuple[float, float, float]], cap: int
+                ) -> tuple[tuple[float, float, float], ...]:
+    """``pts`` thinned to ``cap`` by the farthest-point walk (the ONE
+    spreading rule, :func:`line_object.farthest_point_stations`) — the
+    EXTREMES survive, which is what a span reading needs."""
+    if cap <= 0 or len(pts) <= cap:
+        return tuple(pts)
+    import numpy as np
+    ml, mo = _ar._m_per_deg(pts[0][0])
+    plan = np.asarray([[p[0] * ml, p[1] * mo] for p in pts], dtype=float)
+    keep = _lo.farthest_point_stations(plan, cap)
+    return tuple(pts[i] for i in keep.tolist())
+
+
 def _plan_span_m(parts: _t.Sequence[Part]) -> float:
     """The plan diagonal of the parts' own boxes, in metres."""
     lo_la = min(p.box[0] for p in parts)
@@ -472,9 +543,18 @@ def segment_anchor(feet: _t.Sequence[tuple[float, float, float]],
 #: per-triangle form and 6.5 s of the stage in them.
 GROUND_CELL_M = 5.0
 
+#: §16b (4): the plan cell the WRITTEN GEOMETRY is sampled on, and how
+#: many samples a body publishes.  A sampling resolution, never a law:
+#: the census reads the ground under the body's own triangles, and the
+#: design surface's faces are metres across.  The cap bounds the plan
+#: file (LEMD writes ~1,400 bodies) and the farthest-point walk keeps
+#: the EXTREMES, which is what a span reading needs.
+GEOM_CELL_M = 10.0
+GEOM_PTS_MAX = 32
+
 #: one member's raw bodies before coarsening: ``(parts, class, anchor,
-#: feet, elevated, segment triangles)``.
-_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple]
+#: feet, elevated, segment triangles, geometry samples)``.
+_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple]
 
 
 def _part_zero(p: Part, surface: _ar.Surface) -> float | None:
@@ -577,14 +657,16 @@ def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
 # §10's segment cut and §16 (2)'s terrain cut live next door (the
 # 1,000-line law); they are re-exported here because every caller and
 # every twin reads them as this module's.
-from .placement_cut import (GROUND_CELL_M, _cut_parts_by_terrain,  # noqa: E402
+from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
+                            GROUND_CELL_M, _cut_parts_by_terrain,
                             _LineCutter, _part_zero, _plan_span_m,
-                            authored_latlon, pristine_path, segment_anchor)
+                            authored_latlon, pristine_path, segment_anchor,
+                            thin_points)
 
 
 #: one member's raw bodies before coarsening: ``(parts, class, anchor,
-#: feet, elevated, segment triangles)``.
-_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple]
+#: feet, elevated, segment triangles, geometry samples)``.
+_Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple]
 
 def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
@@ -632,7 +714,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 sa = segment_anchor(feet, surface, si, len(pieces))
                 raw.append((parts, _ar.LINE_SEGMENT, sa, feet,
                             is_elevated(min(f[2] for f in feet), sa,
-                                        elevated_base_m), tris))
+                                        elevated_base_m), tris,
+                            cutter.geom_points(parts, tris)))
             continue
         # §16 (2): EVERY BODY IS RE-CUT BY TERRAIN — the ε-contact body is
         # asked the same question §15 (2) asks a plan-overlap bond, one
@@ -649,7 +732,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
             counts["carried_bodies_uncut"] = \
                 counts.get("carried_bodies_uncut", 0) + 1
-            raw.append((list(parts), whole0[0], whole0[1], whole0[2], True, ()))
+            raw.append((list(parts), whole0[0], whole0[1], whole0[2], True,
+                        (), cutter.geom_points(parts)))
             continue
         pieces_p = ([list(parts)] if is_basin
                     else _cut_parts_by_terrain(parts, surface, split_tol_m))
@@ -745,14 +829,16 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                                            _ar.DECK))
                     raw.append((list(parts), ta.body_class, ta, tuple(tfeet),
                                 is_elevated(tlow[2], ta, elevated_base_m)
-                                or tfootless, tris))
+                                or tfootless, tris,
+                                cutter.geom_points(parts, tris)))
                 continue
             if whole is None:
                 whole = _whole_body(parts, m, u, surface, pads, rims,
                                     split_tol_m)
             cls, a, feet, footless = whole
             raw.append((list(parts), a.body_class, a, feet,
-                        is_elevated(base_min, a, elevated_base_m) or footless, ()))
+                        is_elevated(base_min, a, elevated_base_m) or footless,
+                        (), cutter.geom_points(parts)))
     return raw
 
 

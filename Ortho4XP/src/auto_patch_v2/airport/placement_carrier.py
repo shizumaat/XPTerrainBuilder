@@ -37,7 +37,8 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
            "re_cut_by_terrain", "hull_of", "stands_over_rank", "foot_boxes",
            "fill_of", "parts_overlap", "ground_at_box", "ground_under",
            "ground_samples", "box_area_m2",
-           "census_v16", "census_v16_lines", "census_population",
+           "census_v16", "census_v16_lines", "census_v16b",
+           "census_v16b_lines", "census_population",
            "census_population_lines", "census_v14", "census_v14_lines",
            "census_v15", "census_v15_lines", "STANDS_OVER_TOL_M",
            "merge_rides", "cut_order", "group_at_zero", "senior_of",
@@ -885,8 +886,9 @@ def cut_order(deps: _t.Mapping[int, _t.AbstractSet[int]]) -> list[int]:
 # ── the instruments (``placement_census``) ───────────────────────────────
 
 from .placement_census import (                          # noqa: E402
-    CARRIED_GROUND_TOL_M, FOOTLESS_KEPT, GEOM_GROUND_TOL_M, KEPT_FOOTLESS,
+    CARRIED_GROUND_TOL_M, CARRIED_OWN_GROUND_TOL_M, FOOTLESS_KEPT,
+    GEOM_GROUND_TOL_M, KEPT_FOOTLESS,
     KEPT_NO_CARRIER, LAWFUL_SKIPS, OWN_GROUND, STANDS_OVER_TOL_M,
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
-    census_v16_lines)
+    census_v16_lines, census_v16b, census_v16b_lines)

@@ -530,6 +530,14 @@ def main() -> int:
                         sampler)
     for line in PC.census_v16_lines(v16):
         print(line)
+    # §16b (4): the two bars read on the WRITTEN GEOMETRY — never on
+    # ``geom_box``, which for a carried body the cut left whole is the
+    # patch its CARRIER covers (11ap).
+    v16b = PC.census_v16b([q.to_dict() for q in _sp]
+                          + [q.to_dict() for q in _wh], sampler,
+                          split_tol_m=tol_m)
+    for line in PC.census_v16b_lines(v16b):
+        print(line)
     print(f"  §16 re-cut by terrain: {c.get('bodies_re_cut_by_terrain', 0)} "
           f"body(ies) into {c.get('terrain_body_groups', 0)} terrain group(s), "
           f"by TRIANGLE {c.get('bodies_re_cut_by_triangle', 0)} into "

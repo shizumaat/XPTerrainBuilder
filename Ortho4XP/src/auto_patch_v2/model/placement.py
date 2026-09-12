@@ -216,6 +216,12 @@ class Body:
     #: census asks it too before calling this body "the body beneath".
     #: ``None`` off-sheet, and for a body that is itself carried.
     ground_off: float | None = None
+    #: §16b (4): THE WRITTEN GEOMETRY, sampled — ``(lat, lon, lowest y)``
+    #: per cell of the body's own triangles.  Every §16 / §16a number is
+    #: read here and never on ``geom_box``: a carried body's box is its
+    #: CARRIER's patch, which is why every bar read 0 while the eye read
+    #: +16 m over the ground (11ap).
+    geom_pts: tuple[tuple[float, float, float], ...] = ()
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -229,7 +235,9 @@ class Body:
                 "feet": self.feet,
                 "geom_box": None if self.geom_box is None else list(self.geom_box),
                 "foot_boxes": [list(b) for b in self.foot_boxes],
-                "fill": self.fill, "ground_off": self.ground_off}
+                "fill": self.fill, "ground_off": self.ground_off,
+                "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
+                             for q in self.geom_pts]}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Body":
@@ -253,7 +261,9 @@ class Body:
                          for b in d.get("foot_boxes", ())),
                    _f(d.get("fill", 1.0)),
                    None if d.get("ground_off") is None
-                   else _f(d["ground_off"]))
+                   else _f(d["ground_off"]),
+                   tuple((_f(q[0]), _f(q[1]), _f(q[2]))
+                         for q in d.get("geom_pts", ()) or ()))
 
 
 @_dc.dataclass(frozen=True)

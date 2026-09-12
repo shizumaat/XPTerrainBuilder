@@ -327,6 +327,7 @@ pad_flat = 3000.0
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
   "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage
+  "structures.building_pad groundside_frontage",         # 09-12r / spec §28: the SENIOR pad's edge level IS the level of the parking / service-road face fronting it ("grade frontages only"); the junior head below stays at ``law`` so the senior wins and the junior step is reported
 ]
 # THE PAD IS ONE PLANE FITTED TO ITS FRONTAGE (owner RULINGS 2026-09-10l,
 # answering 10k-1 = (A): "Pad takes the apron edge level"; refined by 10y).
@@ -496,6 +497,8 @@ one_way_rulings = [
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
   "structures.building_pad frontage_level junior",
   "structures.structure_rim frontage_level",                # 09-10an: a structure RIM is flush with the pavement it sits in — the crest rises to the apron, it never pulls the apron down into the pit
+  "structures.building_pad groundside_frontage",           # 09-12r / spec §28 (2): the LOT / SERVICE ROAD follows the pad's edge level and never pulls a pad — airside is king, and §20's apron frontage still sets the pad
+  "structures.building_pad groundside_frontage junior",
 ]
 one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)

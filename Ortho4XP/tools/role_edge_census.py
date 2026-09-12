@@ -24,10 +24,28 @@ weld produces, never a proximity match.
 
     venv/bin/python tools/role_edge_census.py PATCH.osm [PATCH.osm ...]
         [--min-m 10] [--min-radius 1.0] [--detail] [--json OUT]
+        [--pad-frontage [--near M] [--min-step M]]
 
 `--min-m` is §27's `[lot] airside_edge_min_m`; `--min-radius` its sliver
 floor (area / perimeter, an emit artefact).  Several files are reported
 separately — that is the arm-vs-arm read a before/after starts from.
+
+`--pad-frontage` is the SECOND question, on the same geometry and the
+same joins: THE STEP a building PAD's neighbours stand at — *pad ->
+neighbour -> shared edge m -> step m* — which is what owner RULINGS
+2026-09-11ai-1 -> 2026-09-12r ("grade frontages only", spec §28) is
+accepted on.  Again no other instrument answers it: the harness census
+FORGIVES a declared terrace across a shape joint (`terrace_joints_ll`),
+so a car park standing 3 m above the terminal it fronts reports ZERO
+rows — and at LEMD the +3.03 m the owner read is not even a declared
+joint (the patch carries 4, none of them `building4`'s).  Steps are read
+across the NODE-IDENTITY join where the two shapes share nodes and, where
+they do not, across the nearest facing vertex within `--near` (default
+2.0 m): the pad-frontage relation is a PROXIMITY relation in the engine
+too (`[design] pad_frontage_m` 3.0, owner RULINGS 2026-09-10ax (1)), and
+`building4` / `pav124` share not one node while standing 0.71-1.50 m
+apart.  `--min-step` (default 0.05 m) is the floor a neighbour is listed
+at.  It prices no law and counts no defects.
 """
 from __future__ import annotations
 
@@ -137,6 +155,110 @@ def census(path: Path):
     return out
 
 
+#: The GROUNDSIDE roles §28 (1) names, in the emitted patch's own
+#: vocabulary: `check_grade._GROUNDSIDE_ROLES` is the law's partition and
+#: `parking_lot` reaches the patch as a `class` tag beside an
+#: `oracle_role` of `groundside_pavement` (`precedence.toml`), so a lot is
+#: already inside that set and the class tag is what NAMES it.
+GROUNDSIDE_FRONTAGE_ROLES = tuple(sorted(_GROUNDSIDE_ROLES - {"tunnel_ramp"}))
+
+
+def pad_frontage(path: Path, near: float = 2.0, min_step: float = 0.05):
+    """PAD -> NEIGHBOUR -> SHARED EDGE m -> STEP m (module docstring).
+
+    One row per (pad shape, neighbour shape) whose max |step| reaches
+    ``min_step``: the neighbour's role and class, the metres of edge the
+    two SHARE by node identity, the number of facing vertex pairs within
+    ``near``, and the largest and mean signed step (neighbour minus pad,
+    so a car park standing above its terminal reads POSITIVE).  Sorted by
+    pad area, then by |step|."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    shapes, xy = _shapes(path)
+    nodes, ways = _parse_osm(path)
+    zof: dict[str, float] = {}
+    for w in ways:
+        for n, e in zip(w.nids, w.elevs):
+            if e is not None:
+                zof[n] = float(e)
+
+    def seg(a, b):
+        ax, ay = xy(a)
+        bx, by = xy(b)
+        return math.hypot(ax - bx, ay - by)
+
+    def ring_area(r):
+        p = [xy(n) for n in r]
+        s = 0.0
+        for i in range(len(p)):
+            x1, y1 = p[i]
+            x2, y2 = p[(i + 1) % len(p)]
+            s += x1 * y2 - x2 * y1
+        return abs(s) / 2
+
+    edges: dict[frozenset, set] = defaultdict(set)
+    for sid, d in shapes.items():
+        for r in d["rings"]:
+            for i in range(len(r)):
+                edges[frozenset((r[i], r[(i + 1) % len(r)]))].add(sid)
+    shared: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for e, ss in edges.items():
+        if len(ss) < 2:
+            continue
+        a, b = tuple(e)
+        L = seg(a, b)
+        for s_ in ss:
+            for o in ss:
+                if s_ != o:
+                    shared[s_][o] += L
+
+    allv = sorted({n for d in shapes.values() for r in d["rings"] for n in r})
+    tree = cKDTree(np.array([xy(n) for n in allv]))
+    of_shape: dict[str, set[str]] = defaultdict(set)
+    for sid, d in shapes.items():
+        for r in d["rings"]:
+            for n in r:
+                of_shape[n].add(sid)
+
+    out = []
+    for sid, d in shapes.items():
+        if d["role"] != "building":
+            continue
+        area = sum(ring_area(r) for r in d["rings"])
+        pv = sorted({n for r in d["rings"] for n in r})
+        nb: dict[str, list[float]] = defaultdict(list)
+        for n in pv:
+            if n not in zof:
+                continue
+            for k in tree.query_ball_point(xy(n), near):
+                o = allv[k]
+                if o not in zof:
+                    continue
+                for osid in of_shape[o]:
+                    if osid == sid:
+                        continue
+                    if shapes[osid]["role"] not in GROUNDSIDE_FRONTAGE_ROLES:
+                        continue
+                    nb[osid].append(zof[o] - zof[n])
+        rows = []
+        for osid, steps in nb.items():
+            worst = max(steps, key=abs)
+            if abs(worst) < min_step:
+                continue
+            rows.append(dict(shapeID=osid, ref=shapes[osid]["ref"],
+                             role=shapes[osid]["role"], cls=shapes[osid]["cls"],
+                             shared_edge_m=round(shared[sid].get(osid, 0.0), 1),
+                             pairs=len(steps), step_m=round(worst, 2),
+                             mean_step_m=round(sum(steps) / len(steps), 2)))
+        if rows:
+            rows.sort(key=lambda r: -abs(r["step_m"]))
+            out.append(dict(shapeID=sid, ref=d["ref"], area_m2=area,
+                            neighbours=rows))
+    out.sort(key=lambda r: -r["area_m2"])
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -145,8 +267,36 @@ def main(argv=None) -> int:
     ap.add_argument("--min-radius", type=float, default=1.0)
     ap.add_argument("--detail", action="store_true")
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--pad-frontage", action="store_true",
+                    help="the §28 read: pad -> neighbour -> shared edge m -> step m")
+    ap.add_argument("--near", type=float, default=2.0,
+                    help="facing-vertex horizon for the step read (m)")
+    ap.add_argument("--min-step", type=float, default=0.05,
+                    help="a neighbour is listed at this step or worse (m)")
     a = ap.parse_args(argv)
     dump = {}
+    if a.pad_frontage:
+        for p in a.patches:
+            rows = pad_frontage(p, near=a.near, min_step=a.min_step)
+            dump[str(p)] = rows
+            worst = [abs(n["step_m"]) for r in rows for n in r["neighbours"]]
+            print(f"=== {p.name}: PAD FRONTAGE — pads with a groundside step "
+                  f">= {a.min_step:g} m: {len(rows)}; "
+                  f"neighbour rows {len(worst)}; "
+                  f"worst {max(worst) if worst else 0.0:.2f} m")
+            for r in rows:
+                print(f"  pad {r['shapeID']:>6} {str(r['ref']):<14} "
+                      f"{r['area_m2']:>10,.0f} m2")
+                for n in r["neighbours"]:
+                    print(f"      -> {n['shapeID']:>6} {str(n['ref']):<12} "
+                          f"{n['role']:<20} {str(n['cls']):<18} "
+                          f"edge={n['shared_edge_m']:>7.1f} m "
+                          f"pairs={n['pairs']:>4} "
+                          f"step={n['step_m']:+.2f} mean={n['mean_step_m']:+.2f}")
+        if a.json:
+            a.json.write_text(json.dumps(dump, indent=1))
+            print(f"[json] {a.json}")
+        return 0
     for p in a.patches:
         rows = census(p)
         dump[str(p)] = rows

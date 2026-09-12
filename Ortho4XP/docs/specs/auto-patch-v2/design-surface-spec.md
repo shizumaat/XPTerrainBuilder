@@ -4344,3 +4344,143 @@ neighbours meet it at its level.
    `terrace_joints_ll`, groundside rows); ONE `--engine v2` LEMD build against the
    ledger base; the other airports' pad-frontage census by dry run where the
    products exist; twins; suite.
+
+### §28 **MEASURED** (lane `v2frontage`, 2026-09-12, branch `claude/v2frontage`, base `c00d97dc`)
+
+**(3) THE CONSUMER CENSUS FIRST** (owner 2026-08-30l), ruled before any consumer
+was edited. §28 (3)'s list was confirmed and NOTHING was added downstream:
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| F1 | `constraints/pads._fronting` / `pad_frontage` / `pad_frontage_leaders` / `pad_frontage_level` | the pad↔pavement frontage, the pad as follower | **EDITED, and this is where §28 (2) actually bites.** `pavement_roles` is every value non-structure role, GROUNDSIDE INCLUDED, so a car park entered §20 as a JUNIOR frontage and PULLED the pad — measured on the twin fixture, a lot 3 m above its pad moved the pad 0.032 m through exactly two `pad_level` rows. `pads._airside_only` now drops the groundside roles from a pad's frontage WHEREVER SOMETHING AIRSIDE FRONTS IT TOO (§28 (2): "the apron frontage — §20's senior — still sets it"). Where nothing airside does they are KEPT, and §28 mints no row back against that pad (`pads.pad_fronts_airside`), so the pair is stated ONCE and in one direction — never a circular lag. |
+| F2 | `constraints/pads.pad_flats` / `pad_slope_ceiling` | the pad's rim pairs | UNCHANGED — the plate and the hard 1 % tilt. |
+| F3 | `pads.pad_shared` / `pad_datum_withdrawn` | shared vertices, §9b | UNCHANGED: §28's rows govern GROUNDSIDE vertices and never a pad vertex. |
+| F4 | `constraints/pad_relief.pad_relief_offsets` | rigid-face vertices only | UNAFFECTED — the relief target is the pad law's and returns pad vertices alone. Sidecar `pad_relief` 300 entries in BOTH arms; the census reads 304 pad vertices on their level plane. |
+| F5 | `constraints/groundside.groundside_ramps` | the apron ring ↔ nearest groundside vertex across the stand-off, `[terrace] groundside_ramp_max` 5 % | UNCHANGED, and REFACTORED to read the new single derivation `groundside.groundside_face_roles` instead of re-spelling the predicate. It prices the APRON↔groundside stand-off (`building` is rigid, not `apron`), never the pad's, so §28 adds no row it duplicates. It is also the residual TWO-WAY channel — see the deviation below. |
+| F6 | `constraints/no_step.pad_contacts` / `pad_only_vertices` / `pad_pavement_edges` | pad rim vertices shared with AIRSIDE pavement | UNCHANGED. "A rim vertex a groundside lot shares and no airside pavement does is the lot's (09-01g)" stands: pairing that stand-off minted 7.2 m `building|groundside_pavement` rows at SPJC. §28 REMOVES the step rather than pricing it as no_step; no new pairing. |
+| F7 | `constraints/ceiling.pavement_ceiling` | every `Diff` / symmetric `Linear` over pavement vertices | EDITED — exactly §20's C5 case again: the two new LEVEL heads join the skip set, because a cap-0 one-way row twinned two-way at 5 % is a route by which the lot could pull the pad. |
+| F8 | `solve/design` §9b per-body datum | `datum_roles` = APRON bodies only since 10v | UNAFFECTED, and the new heads are DELIBERATELY NOT in `pad_level_rulings`: a groundside face is not an apron body, so no datum mean contains the followers, and that register means "a PAD's vertices carry no DEM datum". |
+| F9 | `solve/design` one-way lag | rows carrying `follows` | EXTENDED: both heads in `one_way_rulings`, follower = the single groundside vertex. LEMD one-way rows 13,831 → **13,897**. |
+| F10 | `solve/design` row weights (`pad_flat_i`) | `pad_flat_rulings` | EDITED: the SENIOR head joins it (3,000); the junior keeps `law` (300) — §20's seniority pattern, seniority here by LARGEST CONTACT per §28 (1). No new law key, no new weight. |
+| F11 | `solve/why._FAMILIES` / `DesignReport.families` | `row.source.generator` | EDITED: `groundside_frontage` is its own family, so `why` on a car-park edge names the pad holding it and the junior miss is a reported residual. |
+| F12 | `law/design_schema.check_design` | the `[design]` registers | UNCHANGED code; the membership is twin-asserted (`test_v2frontage`), not re-spelled as a literal in the schema. |
+| F13 | `constraints/roads`, `structures.rim_level`, `foot_rows` | `frontage_contacts` / `frontage_leaders` / `rigid_roles` | UNAFFECTED — no signature changed and none reads the new relation. |
+| F14 | `planar/shapes.shape_joints` → `publication.terrace_joints_ll` → `check_grade._terrace_joints_to_m` | the emitted step across a shape joint | UNAFFECTED IN KIND. LEMD carries **4** joints in BOTH arms, the same shapes and lengths, steps 0.164/0.144/0.373/0.120 → 0.164/0.144/0.374/0.120 — and `building4` is in NONE of them: the owner's +3.03 m was never a declared terrace, which is why the census read zero rows on it. |
+| F15 | `verify/steps`, `verify/census.DEFECT_KEYS`, `harness/census.py` | the emitted rings and declared joints | UNAFFECTED — no new shape class, role, feature class or sidecar key. `vertex_to_edge_step` / `mid_edge_step` 0/0 in both arms; `terrace_joint_route` / `terrace_joint_strip` / `terrace_actual_step` 0 in both. |
+| F16 | `emit/*`, `pipeline/publication` | solved z | UNAFFECTED — no geometry added or removed. |
+| F17 | Swift `SceneryKit` | JSONL event names | UNTOUCHED. |
+
+**Implementation.** One new module, `src/auto_patch_v2/constraints/pad_frontage_gs.py`
+(`groundside_frontage` = the relation as data, `groundside_frontage_level` = the
+generator). It lives apart from `constraints/pads.py` only because that file stands at
+the 1,000-line ceiling `test_model.py` enforces — the §27 precedent — and imports every
+predicate from there, so there is ONE derivation of a pad's polygon, ONE of the frontage
+radius (`[design] pad_frontage_m` 3.0) and ONE of the groundside pavement roles (the new
+`groundside.groundside_face_roles`, which `groundside_ramps` now reads too). The rows are
+one per FRONTAGE VERTEX against the pad's nearest 8 rim vertices, inverse-distance
+weighted; the leader read carries NO minimum band, and the reason is stated at the
+constant: 10y arm B needed the band because the leader already carried the FOLLOWER's own
+pull, and here the leader is a rigid plate whose columns the one-way row strips out of the
+matrix. **No blend row is minted** — the face's own within-shape cap
+(`rulesets.<role>.longitudinal`, 8 % road / 5 % lot) IS the groundside terrace law, and a
+second statement of it would be the census-wrapper defect in miniature.
+
+**THE SITE — LEMD `building4`** (`tools/role_edge_census.py --pad-frontage`, promoted
+this round). Base arm: the `v2ramp8` ledger patch `9a4a6b38bb6b`
+(`/tmp/harness/LEMD_20260912T114310`), reused, never rebuilt.
+
+| pad → neighbour | shared edge | pairs | BASE step | AFTER step |
+|---|---|---|---|---|
+| `building4` → `pav124` #881 (`parking_lot`) | 0.0 m (a 0.71–1.50 m gap) | 8 | **+3.03** (mean +1.79) | **+0.16** (mean +0.05) |
+| `building4` → `pav124` #880 | 0.0 m | 1 | **+2.67** | **+0.09** |
+| `building4` → `route6` #882 (`service_road`) | 0.0 m | 3 | **+0.38** | **+0.05** |
+| `building4` → `route3` #74 | 0.0 m | 1 | +0.06 | +0.03 |
+| `building12` → `pav70` #888 (`parking_lot`) | 0.0 m | 7 | −0.08 | **−0.02** |
+
+Those five rows are the WHOLE LEMD population: at a 0.00 m floor the patch has exactly
+TWO pads with any groundside neighbour within the frontage radius, and one pad
+(`building4`) with a step over 0.10 m. The §25/§27 re-reading in the brief is confirmed —
+`pav137` and `pav146` are `apron` now and join at +0.05 / +0.05, under §20.
+
+**BARS (§28 (4)).**
+
+1. **MET with a residual** — `building4`'s groundside joints **+3.03 / +2.67 / +0.38 /
+   +0.06 → +0.16 / +0.09 / +0.05 / +0.03**. The bar's literal 0.00 is missed by 0.16 m at
+   the worst vertex; that residual is REPORTED as its own family, not hidden — the design
+   report's `groundside_frontage` line reads **15 rows, max miss 0.172 m** against a
+   3.03 m starting step, and the miss is the lot's own 5 % cap pulling back (bar 5).
+2. **MET** — every LEMD pad's parking/road frontage joint **≤ 0.16 m**, well inside the
+   0.30 m bar, with no junior-edge step to report (no LEMD groundside face fronts two
+   pads).
+3. **NOT MET, ATTRIBUTED** — "pad levels byte-equal". `pad_level_report.py delta`, 46 of
+   46 pads joined: **1 moved beyond 0.05 m** (`building17`, 614.096 → 613.987, −0.109 m);
+   p50 0.000, p90 0.009, max 0.109; ring SPREAD identical in both arms (p50 0.020 → 0.020,
+   max 4.540 → 4.540 — every pad is still the same plane). `building4` itself moved
+   −0.012 m. The DIRECT channel is closed by construction and twin-proved: with the two
+   PRE-EXISTING two-way rows across the stand-off held out of both arms
+   (`groundside_ramp`, and the 5 % `pavement_ceiling` it is twinned into) turning §28 on
+   leaves the pad byte-identical to 1e-9. What is left is those two rows: a lot standing
+   3 m above what it stands off was LIFTING it, §28 stops the lift, and the surface
+   settles. `building17` has NO groundside neighbour within 3 m in either arm, so its
+   0.109 m arrives through the sheet, not through a frontage. **DEVIATION REPORTED, never
+   decided by the lane** (the §23.3 (2) precedent): making `groundside_ramps` one-way — the
+   groundside follows the apron, which is 08d (4b)'s own language — is outside 09-12r's
+   text and is the owner's.
+4. **MET** — harness census, both arms, one tree, one code version:
+
+   | census | BASE `9a4a6b38bb6b` | AFTER |
+   |---|---|---|
+   | LAW-TRUE TOTAL | 4,408 (within 4,389 / cross 19 / **steps 0**) | 4,446 (4,427 / 19 / **0**) |
+   | ADJUDICATED | **1,859** — airside 1,859 / gs 0 / mixed 0 | **1,783** — airside 1,782 / gs **1** / mixed 0 |
+   | `airside_no_step` | 567 | **517** |
+   | `taxi_box` / `transverse` / `strip_longitudinal` | 248 / 90 / 23 | 221 / 82 / 16 |
+   | `within_shape` / `strip_arc` / `strip_transverse` | 3,407 / 7 / 41 | 3,527 / 13 / 45 |
+   | `vertex_to_edge_step` / `mid_edge_step` | 0 / 0 | 0 / 0 |
+   | terrace-joint families (route / strip / actual step) | 0 / 0 / 0 | 0 / 0 / 0 |
+   | sidecar `terrace_joints` / `pad_relief` | 4 / 300 | 4 / 300 |
+   | design target `pad_level` | 12 rows, max miss **1.819 m** | 9 rows, max miss **0.391 m** |
+   | design target `groundside_frontage` | — | 15 rows, max miss 0.172 m |
+   | design target `pads` / `roads` | 2,350 / 16 | 2,005 / 8 |
+
+   **ADJUDICATED 1,859 → 1,783 (−76)**, and the `pad_level` family's worst miss falls
+   1.819 → 0.391 m: dropping §20's unmeetable groundside junior rows is most of it.
+5. **The one groundside adjudicated row, named.** It is a `within_shape` pair inside
+   `pav124` #881: measured by hand on the emitted rings, the lot's worst own pair runs
+   **5.15 %** against its 5 % lot cap over 35.7 m (BASE's worst inside the same lot was
+   5.40 % over 7.2 m). That is the BANK §28 (1) grades away at, 0.15 pp over its cap — the
+   frontage is held at the pad and the lot's 100 m body still has to climb 3 m back to its
+   own ground. Groundside law-true pairs over cap 9 → 11 across the whole patch.
+6. **Other airports, dry runs** on the shipped products (no build): **OTHH** 12 pads with
+   a groundside neighbour, 55 neighbour rows, worst step **0.00 m** — nothing for §28 to
+   do; **HECA** 6 pads / 14 rows, worst **6.05 m** (`building311`→`pav132`; `building7`→
+   `pav48` −3.89 / −3.07); **CYXY** 4 pads / 5 rows, worst **3.99 m**
+   (`building10`→`dsf:pol129`, `building9`→`pav4` +3.54); **SPJC** 15 pads / 16 rows,
+   worst **3.84 m** (`building11`→`dsf:pol200`/`dsf:pol38`). Those four products predate
+   this branch and none was rebuilt (BUILD ECONOMY: one airport per round); the class §28
+   acts on is real at three of the four.
+
+**Closing test** — ONE `--engine v2` LEMD build, foreground, `--tag v2frontage28`,
+**424.4 s** wall, rc 0, `status optimal`, `body_sha 01f1d250c1d9`, artifact ledger
+**`25fc9c8bcce1`**, shared repo UNCHANGED by the build (full-surface before/after
+snapshot; 18 lock-churn operations, the allowed coordination class). Solve 57.40 s,
+13,897 one-way rows in 3 lag rounds (LAG NOT SETTLED, worst leader move 0.383 m —
+unchanged in kind), v2 verify rows 2,397.
+
+**Twins.** `tests/auto_patch_v2/test_v2frontage.py`, 11 tests: the two heads registered
+one-way with only the senior at the pad weight; the candidate class read as data and equal
+to §28 (1)'s four names; the joint at the pad's level for EACH of the four roles, with the
+face still grading away to its own ground; the frontage row unable to move a pad
+(byte-identical with the two pre-existing two-way rows held out); the measured magnitude
+and sign of the channel that IS left; the row shape (one groundside follower, every leader
+a pad rim vertex, coefficients summing to zero so the row reads in metres); the senior /
+junior split by contact length; and a face fronting no pad minting nothing.
+`tests/test_role_edge_census.py` gains three for `--pad-frontage`. Suite
+`tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py
+tests/test_mesh_sampler*.py`: **1,180 passed, 1 skipped** (1,169 / 1 on main; +11 new).
+
+**Tool.** `tools/role_edge_census.py --pad-frontage [--near M] [--min-step M]` — the
+near-fit extended, never forked (`7e90032`): same file, same parser, same node-identity
+join, one index row updated in the same commit. The step must be read across the facing
+gap and not by identity alone, because `building4` and `pav124` share NOT ONE node while
+standing 0.71–1.50 m apart — and the harness census cannot answer this question at all,
+since it forgives a declared terrace and the owner's +3.03 m was never declared.

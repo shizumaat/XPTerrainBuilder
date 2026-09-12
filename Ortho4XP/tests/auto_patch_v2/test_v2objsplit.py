@@ -2632,3 +2632,18 @@ def test_the_candidate_index_offers_the_same_carriers_as_the_full_scan():
                                 fill_min=0.2, tol_m=0.3,
                                 solid_cands=cands, index=index)
         assert [c.resource for c, _w in full] == [c.resource for c, _w in fast]
+
+
+def test_the_contiguity_reach_is_never_below_the_line_station():
+    """§16b (1) as amended (Fable): `[placement] coarsen_reach_m` is at
+    least `line_segment_m`.
+
+    §10 cuts a line object into stations THAT far apart on purpose — a
+    reach shorter than one station makes every station its own file by
+    construction, which is a file count and not a law (measured at 30 m:
+    LEMD's line-segment files 300 -> 1,755, the airport 1,371 -> 4,050).
+    What forbids a body taking its zero from one a kilometre away is the
+    TERRAIN-GROUP test beside the reach, not the reach."""
+    from auto_patch_v2.law import Law
+    pl = Law.load().tables.structures.placement
+    assert pl.coarsen_reach_m >= pl.line_segment_m > 0.0

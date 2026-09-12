@@ -1818,22 +1818,21 @@ per-piece carrier question, own-ground per GROUP),
 
   | bar | before | after |
   |---|---|---|
-  | `carried piece float over its own ground > 0.5 m` (bar 0) | 115 | **135 — MISSED** |
-  | `body wider than its terrain group` (bar 0) | 821 of 1,357 (widest 29.80 m) | **1,673 of 4,015 (widest 12.19 m) — MISSED** |
+  | `carried piece float over its own ground > 0.5 m` (bar 0) | 115 | **120 — MISSED** |
+  | `body wider than its terrain group` (bar 0) | 821 of 1,357 (widest 29.80 m) | **1,556 of 3,243 (widest 12.19 m; carried 138, footed 421, line 997) — MISSED** |
   | §15 carried `stands-over float > 0.5 m` (bar 0) | 0 | **0** |
   | §14 `footless at datum` / `on ground` / `basin split` | 0 / 0 / 0 | **0 / 0 / 0** |
   | §16 `rows on the datum outside the plan` | 0 | **0** |
-  | §14 `spread` | 50.81 m, 170 placements over | 50.78 m, 197 over |
-  | files | 1,371 | **4,050** |
-  | §7 feet / `> 3 m` / floating | 74,316 / 518 / 9,509 | 86,793 / **457** / 14,538 |
-  | round trip (write half into a pack COPY) | — | **OK**, 4,050 cut files, 4,053/4,053 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
-  | plan stage, 3 runs | 6.79 / 6.83 / 6.97 s | **11.27 / 11.50 / 11.48 s — bar <= 8 s MISSED** |
+  | §14 `spread` | 50.81 m, 170 placements over | 50.78 m, 193 over |
+  | files | 1,371 | **3,272** |
+  | round trip (write half into a pack COPY) | — | **OK**, 3,272 cut files, 3,276/3,276 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows surviving 0 |
+  | plan stage, 3 runs | 6.79 / 6.83 / 6.97 s | **10.01 / 10.20 / 10.11 s — bar <= 8 s MISSED** |
 
-  OTHH, same arms: carried own-ground float **308 -> 200**, wide
-  **141 -> 148** (32 basin bodies exempt), §15 carried float **0 -> 0**
+  OTHH, same arms: carried own-ground float **308 -> 196**, wide
+  **141 -> 143** (32 basin bodies exempt), §15 carried float **0 -> 0**
   (the spec's "stays 0" MET), `footless at datum` 0, files 1,525 ->
-  2,482, plan stage (3 runs) 48.7 / 41.3 / 41.8 -> **56.7 / 57.4 /
-  58.7 s — bar <= 45 s MISSED**.
+  1,781, plan stage (3 runs) 48.7 / 41.3 / 41.8 -> **46.4 / 51.5 /
+  53.4 s — bar <= 45 s MISSED**.
 * **THE TWO BARS' RESIDUE, ATTRIBUTED — and the reading that says why
   they cannot be 0 as written.**  A body's cut ATOM is its TRIANGLE, and
   this pack authors slabs, ramps and roof plates as four of them:
@@ -1854,12 +1853,24 @@ per-piece carrier question, own-ground per GROUP),
   the eye does not read — §10's station is already a terrain reading
   every 100 m at its own mid-foot.  Both are gone; §16b (1)'s universal
   cut runs on the CARRIED class, which is the class 11ap attributes.
-* **THE FILE COUNT, and where it comes from.**  1,371 -> 4,050 is
-  §16b (1)'s contiguity, not its cut: `coarsen_reach_m` 30 m is shorter
-  than §10's `line_segment_m` 100 m, so a fence's stations can never
-  share a file (line_segment files 300 -> 1,755) and 419 taxi signs are
-  419 files.  A `coarsen_reach_m` at or above the station length would
-  restore those joins; the number is the owner's to rule.
+* **THE FILE COUNT, and the REACH (Fable's amendment).**  The lane first
+  measured `coarsen_reach_m` at 30 m and reported the cost: shorter than
+  §10's `line_segment_m` 100 m, it makes every line STATION its own file
+  by construction — LEMD line-segment files 300 -> 1,755 and the airport
+  1,371 -> **4,050**.  RULED: the reach is never below the station
+  length, default **100 m**, and what forbids a body taking its zero
+  from one a kilometre away is the TERRAIN-GROUP test beside the reach,
+  not the reach.  At 100 m: LEMD files **3,272** (line segments back to
+  one file per terrain group), OTHH **1,781**, both bars slightly better
+  (120 / 1,556 and 196 / 143), the plan stage 11.4 -> **10.1 s** and
+  OTHH 57.6 -> **50.4 s**, every site number held (item 3 0.02 m, item 5
+  **0.04 m**, the gate-5 sign −0.15 m, `tej2__b0` −0.34 m against the T2
+  wall top, `Terminal4_48` median −0.77 m), §15 carried float **0**.
+  The signs do NOT chain back to kilometres: `Taxisigns-SENRG` is 316
+  files (was 419 at 30 m, 80 at 1.0.319) and its zero-vs-own-ground runs
+  −1.52 … +0.71 m with 24 of 316 over 0.3 m — where 1.0.319 had 38 of 80
+  over, worst −4.05 / +5.35.  A twin holds the reach at or above the
+  station length.
 * **BUILD TIME.**  LEMD plan stage 6.9 -> 11.4 s over 3 runs per arm
   (bar <= 8 s MISSED), OTHH 43.9 -> 57.6 s (bar <= 45 s MISSED).  The cost is the cut itself —
   4,056 bodies where main makes 1,374, and §16b (2) asks the carrier

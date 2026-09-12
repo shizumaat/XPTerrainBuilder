@@ -136,4 +136,12 @@ class Placement:
     #: (+4.58 m at the owner's site).  Two bodies join only when their
     #: plan boxes stand within this of each other; 0 disarms the test
     #: (the pre-11ap reading, zero agreement alone).
-    coarsen_reach_m: float = 30.0
+    #:
+    #: IT IS NEVER BELOW ``line_segment_m`` (Fable's §16b (1) amendment):
+    #: §10 cuts a line object into stations THAT far apart on purpose, so
+    #: a shorter reach makes every station its own file by construction —
+    #: measured at 30 m, LEMD's line-segment files went 300 -> 1,755 and
+    #: the airport 1,371 -> 4,050.  Chaining a body onto one a kilometre
+    #: away is forbidden by the TERRAIN-GROUP test beside this one (the
+    #: design surface under each must agree too), never by the reach.
+    coarsen_reach_m: float = 100.0

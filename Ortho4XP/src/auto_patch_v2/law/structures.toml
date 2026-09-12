@@ -480,4 +480,11 @@ carrier_fill_min    = 0.2
 # item 2).  Bodies join one file only when they are also CONTIGUOUS IN
 # PLAN: their boxes within this of each other.  A building's parts and
 # a wall's rings stand metres apart; a sign and the next sign do not.
-coarsen_reach_m     = 30.0
+# IT IS NEVER BELOW `line_segment_m` (Fable's §16b (1) amendment): §10
+# cuts a line object into stations that far apart ON PURPOSE, and a
+# shorter reach makes every station its own file by construction (at
+# 30 m LEMD's line-segment files went 300 -> 1,755, the airport 1,371 ->
+# 4,050).  What forbids a body chaining onto one a kilometre away is the
+# TERRAIN-GROUP test beside this one — the design surface under each must
+# agree as well — never the reach alone.
+coarsen_reach_m     = 100.0

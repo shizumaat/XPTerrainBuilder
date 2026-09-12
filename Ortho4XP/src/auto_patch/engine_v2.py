@@ -660,6 +660,69 @@ def object_stage_is_placement(law) -> bool:
     return str(law.tables.structures.rebake.placement) == "agl"
 
 
+def _placement_surface(mesh_sample):
+    """The placement stage's design surface over a mesh sampler
+    (RULINGS 2026-09-12g (2)).
+
+    Two things the bare closure this replaced did not do, both measured
+    on the shipped 1.0.320 LEMD frame:
+
+    * ``.many`` — ``placement_geom.surface_many`` batches only when the
+      sampler carries it, so 103,479 of the stage's 302,532 queries were
+      taking the per-point fallback and the vectorised reading §16b was
+      designed on was never taken by the app.  Here it is, backed by
+      ``MeshElevationSampler.sample_many`` through ``mesh_sample.many``
+      (and by a plain loop when the sampler offers none, so a graded or
+      synthetic sampler still satisfies the protocol).
+    * a ``(lat, lon)`` MEMO — 165,114 of those 302,532 queries were
+      unique; 45 % were exact repeats.  The memo is keyed on the float
+      pair as given, so a repeat is a repeat only when it is bit-equal,
+      and no answer can differ from the sampler's own.
+    """
+    memo: dict[tuple[float, float], float | None] = {}
+    batch = getattr(mesh_sample, "many", None)
+
+    def _surface(lat: float, lon: float):
+        key = (lat, lon)
+        if key in memo:
+            return memo[key]
+        s = mesh_sample(lat, lon)
+        z = None if s is None else float(s[0])
+        memo[key] = z
+        return z
+
+    def _surface_many(lats, lons):
+        lats = list(lats)
+        lons = list(lons)
+        answers: list[float | None] = [None] * len(lats)
+        wanted: list[int] = []
+        want_lat: list[float] = []
+        want_lon: list[float] = []
+        for index, (lat, lon) in enumerate(zip(lats, lons)):
+            key = (lat, lon)
+            if key in memo:
+                answers[index] = memo[key]
+            else:
+                wanted.append(index)
+                want_lat.append(lat)
+                want_lon.append(lon)
+        if wanted:
+            if batch is not None:
+                sampled = batch(want_lat, want_lon)
+            else:
+                sampled = [mesh_sample(a, o)
+                           for a, o in zip(want_lat, want_lon)]
+            for index, lat, lon, s in zip(wanted, want_lat, want_lon,
+                                          sampled):
+                z = None if s is None else float(s[0])
+                memo[(lat, lon)] = z
+                answers[index] = z
+        return answers
+
+    _surface.many = _surface_many
+    return _surface
+
+
 def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                    write_enabled: bool, measure_only: bool) -> dict:
     """One airport's placement write (RULINGS 2026-09-11e (3)).  Returns
@@ -685,9 +748,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         return {}
     dump = _dsf2.read_dump(dump_path)
 
-    def _surface(lat: float, lon: float):
-        s = mesh_sample(lat, lon)
-        return None if s is None else float(s[0])
+    _surface = _placement_surface(mesh_sample)
 
     # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
     # the pads and rims ``classify_body`` can never answer ``building`` or
@@ -845,6 +906,22 @@ def rebake_after_mesh(tile) -> dict:
                         return None
                     z = float(s.elevation_metres)
                     return (z, bool(s.is_water)) if math.isfinite(z) else None
+
+                def _sample_many(lats, lons, _s=sampler):
+                    """The same grid index, one call for a whole batch
+                    (RULINGS 2026-09-12g).  Point-for-point identical to
+                    ``_sample`` — the non-finite guard included."""
+                    out = []
+                    for s in _s.sample_many(lats, lons):
+                        if s is None:
+                            out.append(None)
+                            continue
+                        z = float(s.elevation_metres)
+                        out.append((z, bool(s.is_water))
+                                   if math.isfinite(z) else None)
+                    return out
+
+                _sample.many = _sample_many
 
                 if object_stage_is_placement(law):
                     # 11e (3): the PLACEMENT path — no seat is computed

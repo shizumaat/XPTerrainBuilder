@@ -4880,3 +4880,102 @@ zone1/zone2 vertex class at −12.0312738, −77.1071535), HECA 0.849 → 0.
    counts quoted, the cockpit block first (critical visual expected 1 → 0 at LEMD;
    a cliff check on the whole patch); SPJC's and HECA's zone misses by dry replay
    where the capture exists (no build); census before/after; twins; suite twice.
+
+### 32.5 **MEASURED** (lane `v2zoneclamp`, branch `claude/v2zoneclamp`)
+
+**THE CONSUMER CENSUS (§32 (2)), ruled before any consumer was edited.** The
+population is the ROWS' own — the `follows` vertex of a row whose ruling head is
+exactly `zones.adjacent_ground` — not the `adjacent_ground:` face refs, which carry
+the pavement-welded inner ring. Rulings:
+
+| consumer | reads | ruling |
+|---|---|---|
+| `zone_bands` / `zone_bounds` (`constraints/zones.py:396`, `law/tables.py:352`) | xy + law only | THE LAW the clamp enforces; one derivation site, untouched |
+| `zones.strip_transverse` (`zones.py:472`) | same generator, head `…band_max_down strip tie` | OUT by exact head match: two-way against a runway edge the runway projection just moved. A `startswith` would have swept it in — twinned |
+| a detached pad's rim (`zones.py:421-428`) | one band on the nearest rim vertex, the `Flat` carries the level | OUT by COLUMN PURITY: the far rim is ungoverned, so the column is impure. This is the KCLT/CYXY/SPLP/SPJC/OTHH hard-set infeasibility, kept out by construction — twinned |
+| a `Flat` straddling pavement (`solve/rows.py:36-44`) | one rigid column | OUT, same test — the runway projection cannot be undone |
+| `foot_rows` (`constraints/foot_rows.py:184,371`) | DEM at row time; its rows NAME zone vertices (`graded_strip` is the `"ground"` class) | AFFECTED and MEASURED: this is the clamp's price (below) |
+| `no_step` / `airside_no_step` (`constraints/no_step.py:97`) | `airside AND value`; `graded_strip` is `value=false` | NOT AFFECTED — measured identical (428 rows, worst 2.700 m, both arms) |
+| `junction_mesh` (`emit.toml:67`, roles `["junction"]`) | junction faces | NOT AFFECTED — measured identical (625 targets, worst 1.824 m) |
+| bank annulus / `bank_foot` (`emit/bank.py:558,642`) | the FINAL solved z of the coverage-boundary ring vertex | AFFECTED BY DESIGN — the bank carries the drop the clamp restores; measured below |
+| mesh INTERP_ALT (`O4_Airport_Utils.py:1575`, `O4_Mesh_Utils.py:1596`) | a triangle attribute + the emitted `alt_abs` | reaches it only through the patch; no in-process solved z |
+| `verify/steps`, `verify/within`, `check_grade` step families | `p.cap("graded_strip")` / `_role_grade_limit` is `None` | NOT AFFECTED — gated out at the cap |
+| `verify/strips` (`strip_seam_tear`, `strip_transverse`, `strip_longitudinal`, `strip_arc`, `raoa`) | `sh.z[k]` of strip shapes | THE TARGET FAMILIES — measured below |
+| terrace joints (`publication.py:282`), rebake deck datum, `seam_pins` | solved z of joint / ring / seam pairs | joints 4 both arms, max step 0.37 m; LEMD carries `seam_pins=0` |
+| emit decimation | — | DOES NOT EXIST on the v2 path (v1's 60 m chord cap is not here) |
+
+**THE MEASUREMENT.** Two LEMD `--engine v2` builds on ONE tree (`d77419b4`), the
+harness's own entry, shared corpus, `shared repo UNCHANGED` on both:
+`v2zoneclamp32_base` (`850c20b7a882`, 353.4 s) and `v2zoneclamp32`
+(`3510458499f8`, 356.7 s). The §30 ledger arm `d8267d91ef6f` is a DIFFERENT tree
+(`76dacea3…`, within_shape 392 vs 455 before this change) and its A/B is
+cross-tree, so it is not quoted as the control — the lane paid one extra build
+rather than quote a confounded delta.
+
+**THE COCKPIT BLOCK FIRST (§31 (6)), base -> clamped:**
+
+* CRITICAL motion **331 -> 331**, worst 2.700 m over 43.19 m `airside_no_step
+  [junction|junction]` at 40.4643733, −3.5372944 — the same five rows, unmoved.
+* CRITICAL visual **115 -> 114**; the WORST goes **8.250 m over 3.01 m (274 %)
+  `strip_seam_tear` -> 2.590 m over 50.93 m (5.1 %) `airside_no_step
+  [graded_strip|junction]`**. The 8 m cliff is gone; the new worst is a slope
+  12af would file as report.
+* REPORT 3165 -> 3164.
+
+**THE BARS (§32 (4)):**
+
+1. **The pit vertex is inside its band.** Node −12917 / v12940 at 40.4609867,
+   −3.5443920: **569.761 -> 577.856 m**, its band `[577.855, 577.915]` (foot
+   578.005 − `lip_max_down`·`lip_width_m`); zone miss **8.0951 -> 0.0000 m**. Its
+   neighbour v13199 570.880 -> 575.418.
+2. **The `strip_seam_tear` row is gone**: census family **1 -> 0**, engine verify
+   **1 -> 0**, and `adjacent_ground_tear` **1 -> 0** with it.
+3. **LEMD's zone misses are at their bound by construction.** Design report
+   `zone projection (12ag)`: 10,418 corridor rows over 4,850 ground vertices,
+   **4,850 columns clamped (0 impure, 0 fixed)**, 3,317 moved, max move 8.095 m,
+   0.05 s, `optimal`. Worst zone miss **8.0951 -> 1.7515 m**, **owned 0.000000** —
+   every row whose clamped column has a non-empty band is held EXACTLY. The
+   1.7515 m residual is the **48 EMPTY BANDS**: a farther pavement's floor above
+   the nearest's ceiling, where the pocket rule states no precedence. Those
+   vertices go to the interval midpoint (the value minimising the worst of the
+   two rows) and are counted, never adjudicated silently. Worst is at
+   40.4872928, −3.5633279, 3.3 km from the site. Family targets **zones 2,055
+   (max 8.095) -> 214 (max 1.752)**.
+4. **The 16-row site's `airside_no_step`** is unchanged: 428 rows, worst 2.700 m;
+   at the site the two `[graded_strip|junction]` rows read 2.590 / 2.510 m in
+   both arms.
+5. **`foot_rows` worst at the vertex — THE PRICE, REPORTED.** 337 -> **520**
+   targets over materiality, worst **3.789 -> 7.071 m**, and the airport's worst
+   is AT this site: the pit's triangles carry the feet of bare-ground bodies whose
+   fitted level is ~570, and raising the sheet 8 m raises the interpolation under
+   them by up to 5.2 m. `residual: diff 7.0713`. The shipped surface's worst HARD
+   row likewise 0.0324 -> **0.1365 m** (`structures.building_pad pad_slope_max
+   ceiling`), 20 -> 22 hard rows violated; `pavement_ceiling` 3 -> 4 targets,
+   0.025 -> 0.036 m. The runway DEFECT families (`runway_transverse`,
+   `runway_vertical_curve`) stay **ALL ZERO** and the runway projection's own
+   numbers are byte-identical (24,624 rows, worst 0.0279 -> 0.020000, max move
+   0.008 m). **DEVIATION FOR THE OWNER, not decided here:** whether an 8 m cliff
+   3 m from taxiway E is worth up to 5 m of object-foot residual on the bodies in
+   that hollow. The lane's read is yes under §31 (the cliff is on approach and
+   over the visual threshold by 16x; a buried body is also §31 (3)) — but the
+   placement census is the instrument that would price it and it is NOT run here.
+6. **Bank annulus and mesh:** 27 rings banked both arms; 4,536 boundary vertices
+   -> **1,980 -> 1,979** foot nodes; daylight **4,291 min / 242 daylighted ->
+   4,283 / 250**; bank slope p95 0.408, max 1.256 both. Mesh triangles **37,324
+   both**; emit ways 1,144 both, nodes 23,990 -> 23,989.
+7. **Census totals (same tree):** LAW-TRUE **3,611 -> 3,609**, ADJUDICATED
+   **1,034 -> 1,032**, out-of-scope 2,577 both. By family: `strip_seam_tear`
+   −1, `raoa` 3 -> 1, `within_shape` +1; every other family +0.
+8. **§32 (3), the instrument.** The census's `strip_seam_tear` row now reads at
+   **40.4610002, −3.5443920** — the midpoint of node −12917 (40.4609867) and node
+   −12474 (40.4610137). 12ad's coordinate was the ring centroid 220 m away.
+   `check_grade._check_strip_seam_tears` takes the node table and sets the pair
+   midpoint; `verify/strips.strip_seam_tear` carries `p.ll[vid]`/`p.ll[vid2]`.
+   Twinned both sides (`tests/auto_patch_v2/test_v2zoneclamp.py`).
+
+**NOT DONE, named:** SPJC's 1.565 m and HECA's 0.849 m were NOT replayed (no
+capture exists and a capture is a 200 s load per airport — the class is the same
+zone-vertex tail and the clamp is per-vertex, so it holds there by construction,
+but it is unmeasured). The placement / object census was not run, so the
+`foot_rows` price is quoted as a design residual and not as buried bodies. No
+app build, no sweep, no merge.

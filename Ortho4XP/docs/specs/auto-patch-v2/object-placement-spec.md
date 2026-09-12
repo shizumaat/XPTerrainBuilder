@@ -1359,3 +1359,34 @@ is now per UNIT in two passes) and `airport/obj8_split.py`.
    129 → 0 for carried bodies, the footed remainder listed; `duplicate rows
    surviving` 19 → 0; files ≤ 900; round trip ok; OTHH dry run: its class count
    before/after.
+
+## §16 Every row is in the population; every body is re-cut; a carrier is a solid (RULINGS 2026-09-11ai)
+
+1. **NO THICKNESS GATE.** Under `[rebake] placement = "agl"` the plan population is
+   every `OBJECT` row of the pack. The seat-era skip "no genuine solid component:
+   nothing to seat" (08-26 §2.1) is not applied: a resource with no solid component
+   is a FOOTLESS body (§14) and is carried by §15's rule. `skipped` keeps only the
+   classes the switch cannot place (ANIM, unparsable, stock-library rows that are
+   converted rather than split). Census: `rows on the datum outside the plan` = 0.
+2. **EVERY BODY IS RE-CUT BY TERRAIN.** §15 (2) applies to every body, not only to
+   bound groups: a footed or skirted body whose feet's ground spans more than
+   `split_tol_m` is cut into terrain groups over its feet; a carried/footless body
+   whose footprint's ground spans more than `split_tol_m` is cut into terrain groups
+   over the ground under its own triangles, each group carried by what IT stands
+   over. The census reads the ground under the carried GEOMETRY (the body's own
+   parts hull), never the carrier's plan box; `float = zero − ground_under_geometry`
+   is printed beside `zero − zero_beneath`.
+3. **A CARRIER IS A SOLID.** Line segments, grass, signs and any body whose footprint
+   fill (parts-hull area over plan-box area) is under `[placement] carrier_fill_min`
+   (0.2) never carry. "Stands over" is measured as parts-hull overlap, not box
+   overlap. A candidate carrier whose zero is more than `split_tol_m` from the ground
+   under the carried body is refused and the search continues; a footless body with
+   no carrier anchors at the ground under its own footprint centroid, authored y
+   kept (reason `footless_own_ground`).
+4. **Bars (lane `v2skipped`, plan replay on a pack copy):** garage pavilions `green-TEJ1`
+   on the slab (15.8 m below → within 0.3); `PKT4__b1` on the slab (−6 → 0.3);
+   `green-TEJ3` panels on `CNTRL` (+3.06 → 0.3) and on their other buildings;
+   `T4SAT_green-TEJ3` on `LEMD65` / `VRDCH` (+5.78 / +3.44 → 0.3); `rows on the datum
+   outside the plan` 25 → 0; files whose own-geometry ground departs > 3 m from the
+   row 138 → ≤ 20 (the residue named); carried bodies with carrier zero > 1 m off the
+   ground beneath 54 → 0; round trip ok; OTHH dry run before/after.

@@ -18,6 +18,7 @@ import pytest
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import obj8_split as OS
+from auto_patch_v2.airport import placement_carrier as _PC
 from auto_patch_v2.airport import placement_plan as PP
 
 
@@ -1856,3 +1857,158 @@ def test_the_v15_census_fails_a_carried_body_left_above_what_it_stands_on():
     other = PC.census_v15([walls, roof])
     assert other["stands_over"] == 0 and other["carried_float_gt"] == 0
     assert other["stands_over_other_unit_only"] == 1
+
+
+# ── §16 (owner RULINGS 2026-09-11ai; lane ``v2skipped``) ─────────────────
+
+
+def _dc_replace_part(plan, **kw):
+    """``plan`` with its single member's single part's fields replaced."""
+    import dataclasses as dc
+    u = plan.units[0]
+    m = u.members[0]
+    p = dc.replace(m.parts[0], **kw)
+    return dc.replace(plan, units=(dc.replace(
+        u, members=(dc.replace(m, parts=(p,)),)),))
+
+def _panel(path, y=9.0, x0=0.0, z0=0.0, side=8.0):
+    """A roof PANEL: one horizontal sheet at ``y``, no thickness at all —
+    the class the seat-era gate dropped ("no genuine solid component")."""
+    v = [(x0, y, z0), (x0 + side, y, z0), (x0 + side, y, z0 + side), (x0, y, z0 + side)]
+    return _write_obj(path, v, [("", [(0, 1, 2), (0, 2, 3)])])
+
+
+def test_a_roof_only_resource_enters_the_plan_and_is_carried(tmp_path):
+    """§16 (1): NO THICKNESS GATE under ``placement = agl``.  A resource
+    with no genuine solid component (LEMD's garage roof-top pavilions,
+    ``Terminal4_green-TEJ1``) was SKIPPED by the seat-era rule and never
+    entered the plan population at all — so it kept the pack's shared
+    datum row and rendered 15.8 m under the slab it stands on.  It is now
+    admitted as a FOOTLESS body, and its parts carry NO FEET: a thin panel
+    is not a ground contact."""
+    from auto_patch_v2.airport import obj8 as _o8
+    from auto_patch_v2.airport import pack_partition as PZ
+    from auto_patch_v2.law import Law
+
+    law = Law.load()
+    path = _panel(tmp_path / "tej1.obj")
+    cache = _o8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    o = _o8.PlacedObject(id="dsf:obj1", path="objects/tej1.obj", resolved=str(path),
+                         xy=(0.0, 0.0), heading_deg=0.0, agl_m=0.0, kind="OBJECT",
+                         anchor_z=0.0, below_grade=None, plan_bbox=None,
+                         solid_min_z=None, solid_min_depth_m=None, hard_deck=None,
+                         deck_top_z=None)
+    counts, skipped, no_solid = PZ.counts_zero(), {}, set()
+    built = PZ._build_member(o, cache, law, PZ.Screen(), (), str(tmp_path),
+                             counts, skipped, no_solid)
+    assert law.tables.structures.rebake.placement == "agl"
+    assert built is not None                    # the gate is not applied
+    assert skipped == {} and counts["no_parts"] == 0
+    assert o.path in no_solid                   # ... and it is FOOTLESS
+    assert counts["no_solid_admitted"] == 1
+
+
+def test_a_scattered_roof_body_is_cut_into_terrain_groups(tmp_path):
+    """§16 (2): EVERY BODY IS RE-CUT BY TERRAIN — including a body
+    authored as ONE welded component, which the part cut cannot divide.
+    LEMD's ``Terminal4_green-TEJ3`` is a roof-panel resource scattered
+    over 1 x 2 km of terminal: one body, one zero, and its own ground
+    spanning 5.02 m.  The cut is by TRIANGLE, over the ground under
+    each."""
+    ml, _mo = AR._m_per_deg(40.0)
+    span = 600.0
+    v, tris = [], []
+    n = 13                                      # ONE welded strip, 600 m long
+    for k in range(n):
+        z0 = -k * span / (n - 1)
+        v += [(0.0, 6.0, z0), (20.0, 6.0, z0)]
+    for k in range(n - 1):
+        a, b, c2, d = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
+        tris += [(a, b, d), (a, d, c2)]
+    path = _write_obj(tmp_path / "tej3.obj", v, [("", tris)])
+    plan = _member_plan(path, [(0, 6.0, 0.0, 6.0)], span_m=0.0)
+    # the ground falls 1 m per panel northwards
+    m0 = plan.units[0].members[0]
+    p0 = m0.parts[0]
+    plan = _dc_replace_part(plan, box=(40.0 - span / ml, p0.lon, 40.0, p0.lon))
+
+    def surface(lat, lon):
+        return 600.0 + (lat - 40.0) * ml * 0.005
+
+    ss = PP.build_splits(plan, surface, write=False,
+                         **_elev_args(line_stations_max=64, foot_band_m=1.0))
+    assert ss.counts.get("bodies_re_cut_by_triangle") == 1
+    assert ss.counts.get("terrain_triangle_groups", 0) >= 3
+    # every group's own ground is within the tolerance of its own anchor
+    for s in ss.all:
+        for b in s.bodies:
+            zs = _PC.ground_samples(surface, b.foot_boxes, b.geom_box)
+            if zs and b.anchor.surface_z is not None:
+                assert max(abs(z - b.anchor.surface_z) for z in zs) <= 1.0
+
+
+def test_a_fence_never_carries_and_a_carrier_off_the_ground_is_refused():
+    """§16 (3): A CARRIER IS A SOLID.  A fence segment's axis-aligned plan
+    box contains the garage roof its footprint never touches — which is
+    how LEMD's ``PKT4__b1`` came to ride ``LEMDzaun__b5`` 6 m under the
+    slab.  A LINE body never carries; nor does one filling less than
+    ``[placement] carrier_fill_min`` of its own box; and a candidate whose
+    zero stands further than the tolerance from the ground under the
+    carried body is REFUSED and the search goes on."""
+    def _cand(member, cls, box, part_boxes, z):
+        return _PC.Candidate(member, f"objects/c{member}.obj",
+                             AR.Anchor(cls, 0.5 * (box[0] + box[2]),
+                                       0.5 * (box[1] + box[3]), 0.0, "r", z),
+                             frozenset({member}), 4, box, part_boxes=part_boxes,
+                             group=0, body_class=cls,
+                             fill=_PC.fill_of(box, part_boxes))
+
+    big = (40.0, -3.0, 40.01, -2.99)            # a 1 km box
+    thin = [(40.0, -3.0, 40.01, -2.99999)]      # ... holding one thin strip
+    fence = _cand(0, AR.LINE_SEGMENT, big, [big], 100.0)
+    grass = _cand(1, AR.OTHER, big, thin, 100.0)
+    walls_box = (40.0040, -3.0010, 40.0050, -3.0000)
+    walls = _cand(2, AR.BUILDING, walls_box, [walls_box], 106.0)
+    roof_box = (40.0042, -3.0008, 40.0048, -3.0002)
+    args = dict(fill_min=0.2, tol_m=0.3)
+    c, why = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, walls], {},
+                             [roof_box], ground_under=106.0, **args)
+    assert c is walls and "stands over" in why   # not the fence, not the grass
+    # the same walls, now reading a ground 6 m from the roof's own: refused
+    refusals: dict = {}
+    c2, _w = _PC.carrier_for(frozenset({9}), roof_box, [fence, grass, walls], {},
+                             [roof_box], ground_under=112.0, refusals=refusals,
+                             **args)
+    assert c2 is None and refusals.get("zero_off_ground") == 1
+    assert refusals.get("line") == 1 and refusals.get("fill") == 1
+
+
+def test_the_16_census_reads_the_ground_under_the_bodys_own_geometry():
+    """§16 (2)'s instrument: ``float = zero - ground_under_geometry``, the
+    ground read under the body's OWN parts (``geom_box`` / ``foot_boxes``)
+    and never under its carrier's box — which is the reading that lets a
+    roof ride a fence 6 m below it and call the result lawful.  The
+    population census (§16 (1)) bars the thickness-gate class alone."""
+    def _body(res, box, sz, carrier=None):
+        return {"new_resource": res, "geom_box": list(box), "surface_z": sz,
+                "y_zero": 0.0, "foot_boxes": [list(box)],
+                "merged_into": carrier, "elevated": bool(carrier)}
+
+    box = (40.0, -3.0, 40.0002, -2.9998)
+    good = {"placement": {"index": 1}, "bodies": [_body("a.obj", box, 106.0, "w.obj")]}
+    bad = {"placement": {"index": 2}, "bodies": [_body("b.obj", box, 100.0, "f.obj")]}
+    c = _PC.census_v16([good, bad], lambda la, lo: 106.0)
+    assert c["carried_ground_gt"] == 1 and c["bars_ok"] is False
+    assert c["carried_worst"][0][1] == "b.obj"
+    assert "VIOLATED" in "\n".join(_PC.census_v16_lines(c))
+    ok = _PC.census_v16([good], lambda la, lo: 106.0)
+    assert ok["carried_ground_gt"] == 0 and ok["bars_ok"] is True
+
+    pop = _PC.census_population([
+        ("objects/roof.obj", "no genuine solid component: nothing to seat"),
+        ("objects/lib.obj", "stock library resource (shared, never baked)"),
+        ("objects/many.obj", "placed at 12 anchors — one file cannot carry "
+                             "per-placement offsets (I-4)")])
+    assert pop["datum_rows_outside_plan"] == 1 and pop["bars_ok"] is False
+    assert pop["lawful_skips"] == 1 and sum(pop["other_skips"].values()) == 1
+    assert "VIOLATED" in "\n".join(_PC.census_population_lines(pop))

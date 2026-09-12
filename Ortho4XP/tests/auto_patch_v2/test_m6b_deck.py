@@ -403,6 +403,14 @@ def test_sheet_member_joins_its_deck_family(pack, law):
                               ("shed", (700.0, 0.0), 0.0, 0.0)], way)
     fam = next(u for u in pl.units if any(m.resource == "objects/plate.obj" for m in u.members))
     assert {m.resource for m in fam.members} == {"objects/plate.obj", "objects/sheet.obj"}
-    # ...and alone it founds nothing
+    # ...and ALONE it is still in the population (§16 (1), owner RULINGS
+    # 2026-09-11ai): under ``[rebake] placement = agl`` the seat-era
+    # thickness skip is not applied — the sheet is admitted as a FOOTLESS
+    # body (its thin panels are not ground contacts) and is CARRIED.
+    # Before §16 it was skipped, kept the pack's shared-datum row and
+    # rendered wherever that datum is.
     pl2 = _planned(pack, law, [("sheet", (900.0, 0.0), 0.0, 0.0)])
-    assert pl2.units == () and pl2.counts["no_parts"] == 1
+    assert pl2.counts["no_parts"] == 0
+    assert pl2.counts["no_solid_admitted"] == 1
+    assert [m.resource for u in pl2.units for m in u.members] == ["objects/sheet.obj"]
+    assert all(not p.feet for u in pl2.units for m in u.members for p in m.parts)

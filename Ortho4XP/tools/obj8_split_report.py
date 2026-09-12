@@ -245,7 +245,7 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
     pid = 10_000_000
     rows = res_n = 0
     seen: set[tuple] = set()
-    for q in dump.placements:
+    for row_ix, q in enumerate(dump.placements):
         if q.def_path not in want:
             continue
         rows += 1
@@ -296,7 +296,11 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
         if not parts:
             continue
         res_n += 1
-        m = Member(id=f"admit:{res_n}", resource=q.def_path, authored_path=path,
+        # the member id IS the DSF ROW INDEX (``placement_plan._index_of``
+        # reads it, and the writer matches the plan's index against the
+        # dump's row): a synthetic id collides with a real placement and
+        # the DSF edit refuses
+        m = Member(id=f"dsf:obj{row_ix}", resource=q.def_path, authored_path=path,
                    live_path=path, heading_deg=q.heading_deg, parts=tuple(parts))
         if key in units:
             units[key][1].append(m)
@@ -309,10 +313,8 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
         new_units.append(dcls.replace(u, members=tuple(ms)))
     for key, ms in sorted(extra.items()):
         new_units.append(Unit(f"unit:{len(new_units)}", key, 0.0, tuple(ms)))
-    admitted = {r for _k, ms in list(units.values()) + list(extra.items())
-                for r in ()}                      # (kept for clarity)
-    admitted = {m.resource for u in new_units for m in u.members
-                if str(m.id).startswith("admit:")}
+    admitted = {r for r, _w in plan.skipped if r in want and r in
+                {m.resource for u in new_units for m in u.members}}
     skipped = tuple((r, w) for r, w in plan.skipped if r not in admitted)
     return dcls.replace(plan, units=tuple(new_units),
                         skipped=skipped), rows, res_n

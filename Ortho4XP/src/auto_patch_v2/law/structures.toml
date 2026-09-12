@@ -7,6 +7,7 @@
 bore_datum_m      = 5.1     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
 wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
+admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad
 ramp_max_grade    = 0.040   # descent grade of the ramp (common.roles.tunnel_ramp; user 2026-05-08)
 bore_cut_clearance_m = 0.6  # mapped bores preserved/roofed with this cut clearance (08-25 :967-998)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)

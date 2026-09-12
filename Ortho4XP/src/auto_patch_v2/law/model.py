@@ -289,6 +289,10 @@ class Tunnel:
     bore_datum_m: float
     wall_gap_m: float
     crest: str
+    #: spec §26: the ``tunnel`` values that seed a bore (default ``["yes"]``);
+    #: every other value — ``building_passage``, ``culvert``,
+    #: ``avalanche_protector``, ``flooded``, ``no`` — never seeds a structure.
+    admitted_values: tuple[str, ...]
     ramp_max_grade: float
     bore_cut_clearance_m: float
     ramp_cuts_runway_family: bool

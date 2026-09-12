@@ -700,7 +700,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     ob = law.tables.structures.tunnel.object
     admission = law.tables.structures.basin.admission_depth_m
     least_skirt = min(ob.skirt_min_depth_m, ob.edge_wall_min_skirt_m)
-    tunnel_ways = [w for w in airport.osm_ways if is_tunnel_way(w.tags) and len(w.points) >= 2]
+    tunnel_ways = [w for w in airport.osm_ways
+                   if is_tunnel_way(w.tags, law.tables.structures.tunnel.admitted_values)
+                   and len(w.points) >= 2]
     bore_tree = STRtree([LineString(w.points) for w in tunnel_ways]) if tunnel_ways else None
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}

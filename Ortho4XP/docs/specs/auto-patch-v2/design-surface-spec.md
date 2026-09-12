@@ -3891,3 +3891,157 @@ it lies under a classified cell (pav146). Class: 10 of LEMD's 33 covered bores a
    ≤ 13 (named), the 138 `within_shape` rows on shape 933 and the 4 + 1 mouth/deck
    rows gone; every remaining LEMD tunnel named with its OSM tag; the harness
    census before/after; the same ONE LEMD build as §25.
+
+### 25.6 / 26.4 **MEASURED** (lane `v2relations`, branch `claude/v2relations`, base `0c7716a9`)
+
+**THE READER (§25 (1)–(2)), one derivation site.** `airport/osm.read_osm_file` now
+also reads `<relation>`; a `type=multipolygon` / `type=building` relation
+(`RELATION_TYPES` — `type=route` and the rest hand nothing down) gives its
+`TAGS_OF_INTEREST` to every member way of role `outer`, the way's OWN tag winning
+key by key; open outer members are chained end-to-end into closed rings emitted as
+extra ways `<ns><relid>#<k>` carrying the relation's tags (`_stitch`); a chain that
+cannot close is DROPPED and its relation named (`RelationReport.unclosable`); inner
+members are given nothing and counted with their area. `load_feed` merges the
+per-file reports into `OsmDoc.relations`, `airport/load` into
+`LoadReport.osm_relations`, and every `explain` run prints it:
+
+    [LEMD] OSM relations (spec 25): relations 7, outer ways tagged 19,
+           stitched 0, inners dropped 2 (6,171 m2)
+
+`_osm_id`'s non-numeric fallback was `abs(hash(wid))`, which is SALTED per process
+(PYTHONHASHSEED): the stitched rings are the first ids to reach it, and the same
+extract would have named the same ring differently on every run. It folds through
+`zlib.crc32` now.
+
+**CONSUMER CENSUS (§25 (3)) — the lane's grep, against the spec's list.** The ONLY
+importer of `airport/osm` in `src/`, `tools/` and `tests/` is
+`airport/load.py:252` (`_osm.load_feed`, `_osm.FEEDS`); `terrain_edge.py:81` names
+it in prose only. Nothing else constructs an `OsmDoc` or calls `read_osm_file`.
+Every consumer the spec lists therefore reads `Airport.osm_ways` /
+`Airport.buildings`, which `load_with_report` derives from `OsmDoc.ways` — the same
+`OsmWay`/`Building` shape, now with tags on ways that already existed. The lane
+found NO consumer the spec missed, and the list needs one addition of its own:
+`airport/load._is_building` (a closed way with `building` / an aeroway building tag
+becomes a `Building`), which is HOW Terminal 2's outer −48 becomes a pad. No new
+shape class, no new region.
+
+**AT LEMD (§25 (4)).** Extract `+40-004_airports.osm.bz2`: 7 relations — Terminal 2
+(`-1`, `building=transportation` + `aeroway=terminal` + `building:levels`, outer
+`-48`, inners `-610`/`-611` = 6,171 m²) and the six aprons R-1/R-2/R-4…R-7 — 19
+outer ways tagged, 0 stitched (every LEMD outer is already a closed ring), 0
+unclosable. `explain LEMD --sources`, before vs after, 308 source polygons both
+sides, FOUR change class, none appears or disappears:
+
+| source | before | after | apron cover |
+| --- | --- | --- | --- |
+| `pav146` (the owner's shape, 92,240 m²) | `lot` | `open` | 5 % → 27 % |
+| `pav1` | `lot` | `open` | 0 % → 46 % |
+| `dsf:pol33#0` | `lot` | `open` | 0 % → 100 % |
+| `dsf:pol473#0` | `lot` | `open` | 0 % → 100 % |
+
+Cells 601 → 597; source classes lot 41 → 37, open 256 → 260, strip 11 → 11. Apron
+cover rises across the field wherever a relation drew the apron (`pav29` 0 → 59 %,
+`pav165` 0 → 77 %, `pav47` 0 → 69 %, `pav172` 0 → 39 %, `pav92` 3 → 8 %). The owner's
+node 40.4673861, −3.5681144 classifies `cell 18: role=apron side=airside kind=apron
+ref=pav92` — the pad falls out of the data through `[lot] apron_cover_fraction`
+(11af), with no new class.
+
+**THE DRY RUN ON EVERY OTHER AIRPORT WITH PRODUCTS (§25 (5)) — reported, NONE
+BUILT.** `explain ICAO --sources` in a base worktree at `0c7716a9` and in the lane,
+same corpus:
+
+| airport | relations | outer ways tagged | stitched | inners dropped | cells before → after | sources changing class |
+| --- | --- | --- | --- | --- | --- | --- |
+| LEMD | 7 | 19 | 0 | 2 (6,171 m²) | 601 → 597 | 4 (table above) |
+| OTHH | 2 (`aeroway=aerodrome`, `aeroway=apron`) | 2 | 0 | 2 (773,141 m²) | 410 → 410 | 0 |
+| HECA | 1 (`building=airport_terminal`) | 1 | 0 | 1 (619 m²) | 748 → 748 | 0 |
+| KCLT | 30 (2 aerodrome, 8 apron, 18 hangar/terminal, 1 taxiway; incl. Rowan County in the 3×3 neighbourhood) | 164 | 30 | 1 (18,189 m²) | 605 → 599 | 7 (`pav33`, `pav34`, `pav65`, `pav108`, `pav109`, `pav113`, `pav127`: `lot` → `open`) |
+| CYXY | 0 | 0 | 0 | 0 | 120 → 120 | 0 |
+| SPJC | 2 (both `aeroway=terminal`) | 72 | 2 | 0 | 205 → 241 | 0 |
+
+KCLT is where the STITCHER earns its place — 30 outer rings chained from 164 member
+ways, zero unclosable. SPJC's two terminal relations add 36 cells with no source
+reclassified: the terminal footprints are new pad geometry, not a new verdict on an
+existing source. OTHH's two dropped inners are 773,141 m² of holes — the largest
+"holes are owed" debt §25 (2) leaves, and the one to pay first.
+
+**§26.** `[tunnel] admitted_values = ["yes"]` is the new law key (`law/model.Tunnel`);
+`airport/deck_signature.is_tunnel_way(tags, admitted=DEFAULT_TUNNEL_VALUES)` is the
+one predicate, and the law's value is threaded to it at all four call sites —
+`planar/structures.py:227`, `airport/tunnel_objects.py:703`, and through
+`planar/structure_approach.is_tunnel` / `approach` (from `mouths`, which holds the
+law) and `planar/object_corridor.climb_path` (from `object_groups`). In LEMD's 0.05°
+selection box the tag census is: `tunnel=yes` on a highway 52, on a railway 6,
+`tunnel=building_passage` on a highway 22 — 80 ways seeded a structure before, 58
+after. **The RAILWAY bores are the OWNER QUESTION §26 (2) names** (6 ways in the
+box, 4 of them inside the built set): OSM ways `-26709`, `-26708`, `-22223`,
+`-15314`, `-8677`, `-518`, all `railway` + `tunnel=yes`, none with a mouth inside
+the field; they survive as `tunnel:-26708+-22223`, `tunnel:-26709+-8677` and the
+mixed chain `tunnel:-5938+-26709+-8677+-26708+-22223`. Whether a rail tunnel with
+no mouth on the field should seed a ramp at all is the owner's call, not the lane's.
+
+**THE CLOSING TEST — ONE LEMD BUILD PER ARM, THE HARNESS ENTRY, MATCHED.**
+`build_airport.py` defaults to `--engine v1`; a v2 lane's closing test MUST pass
+`--engine v2` or it measures a patch none of this code touched (this lane proved it
+the expensive way — the two `build_airport.py LEMD` runs came back BYTE-IDENTICAL,
+body_sha `bcbc08883d14`, and are not reported here). The arms below are both
+`--engine v2` on the shared corpus, DEM frame production, guard armed, shared repo
+UNCHANGED, both stored in the artifact ledger:
+
+| | BASE `0c7716a9` (`LEMD_20260911T223856`, ledger `af52d417abf3`) | LANE (`LEMD_20260911T223858`, ledger `93e48bce418e`) |
+| --- | --- | --- |
+| wall | 388.8 s | 391.0 s |
+| ways / nodes | 1,101 / 24,067 | 1,089 / 23,703 |
+| solve | optimal | optimal |
+| body_sha | `646e612e55c2` | `775a8d4f3b29` |
+| structures: bores | 91 (uncovered 62 ⇒ **covered 29**) | 68 (uncovered 47 ⇒ **covered 21**) |
+| mouths / duals merged | 57 / 11 | 41 / 7 |
+| **tunnels** | **18** | **16** |
+| decks / cells cut / refused | 1 / 3 / 129 | 0 / 2 / 119 |
+| v2 verify rows / DEFECTs | 2,691 / **0** | 2,433 / **0** |
+| `within_shape` rows on shape 933 | **69** | **0** |
+| `tunnel_mouth_canonical` / `tunnel_deck_clearance` | 7 / 1 | 3 / 0 |
+| harness census LAW-TRUE | 4,559 | 4,600 |
+| harness census ADJUDICATED | 1,995 (airside 1,877, gs 116) | **1,861** (airside 1,786, gs **73**) |
+
+The base arm reproduces the SHIPPED 1.0.319 LEMD patch's census exactly (4,559 /
+1,995) and its structures line exactly (bores 91, tunnels 18) — it is a true control.
+
+**§26 BAR — MET.** Tunnel-family faces within 30 m of 40.4661521, −3.5708203:
+**1 (`tunnel_ramp`, shape 933) → 0**. `tunnel:-17295+-7905` is gone from the built
+tunnel list; `tunnel_ramp` faces 20 → 17. The 69 `within_shape` rows on shape 933
+are 0, and the 4 mouth rows + 1 deck row §26 (3) names are gone
+(`tunnel_mouth_canonical` 7 → 3, `tunnel_deck_clearance` 1 → 0). **Every remaining
+LEMD tunnel, named with its OSM tag** — all 20 built tunnel names resolve to
+`tunnel=yes` seeds and nothing else: `-12918` service, `-15327` service, `-15327+-5980`,
+`-15347` tertiary, `-15349` tertiary, `-15349+-15347`, `-17028` service, `-17037`
+service, `-17265+-5946+-6640+-1359` (service + primary), `-5772`, `-5780+-5727`,
+`-5931`, `-5938`, `-5970`, `-5980`, `-6028`, `-9263` (all service), and the RAIL
+pair `-26708+-22223`, `-26709+-8677`, plus the mixed chain
+`-5938+-26709+-8677+-26708+-22223`. **RESIDUAL AGAINST THE BAR**: the spec expected
+covered bores 33 → 23 and tunnels 18 → ≤ 13. The instrument reads covered bores
+**29 → 21** (the same −8 the spec predicted, from a different base — 29 is what the
+harness's own structures line says, on both the shipped patch and the control) and
+tunnels **18 → 16**, not ≤ 13. Reported, not iterated (attempt cap): the remaining
+16 are all `tunnel=yes`, so no further §26 narrowing is available — the ≤ 13
+estimate counted bores, not built tunnels.
+
+**§25 BAR — MET.** At 40.4673861, −3.5681144 the containing face is `apron`
+(shapeID 84, ref `pav92`) in BOTH arms, but what stands beside it changes: in the
+base arm a `groundside_pavement` face (shape 105, `pav146`) touches the node at
+0.0 m and `pav146`'s two faces are both `groundside_pavement`; in the lane arm
+`pav146`'s three faces are all **`apron`**, no `groundside_pavement` or
+`parking_lot` face contains or touches the node, and `pav146` is ABSORBED into the
+apron body rather than jointed to it (0 shared coordinates with `pav176`/`pav92`
+faces — in the base arm the 30 + 46 shared coordinates already stepped 0.000 m, the
+11af result). Groundside faces 71 → 66, apron 56 ← 54, and the census's groundside
+adjudicated rows fall 116 → 73.
+
+**BUILD-TIME IMPACT.** 388.8 s → 391.0 s at LEMD (+0.6 %, inside the ±25 % single-run
+noise floor; the reader's extra work is one pass over the `<relation>` elements of
+three feeds — LEMD has 7). No timing claim is made from one run per side.
+
+**NOT MEASURED / NOT DONE by the lane**: the inner rings §25 (2) drops are NOT cut as
+holes (owed — OTHH's 773,141 m² is the largest debt); no other airport was BUILT
+(dry run only, per §25 (5)); the five-airport sweep is the orchestrator's; the
+owner's other 1.0.319 items (floating signs, roof planes, basin gap) are other lanes'.

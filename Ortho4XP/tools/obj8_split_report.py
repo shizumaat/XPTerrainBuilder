@@ -341,6 +341,7 @@ def _write_pack(a, plan, ss, sampler) -> None:
     from auto_patch.dsf_reader import _dsftool_path
     from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.airport import placement_carrier as PC
     from auto_patch_v2.airport import placement_write as PW
     from auto_patch_v2.law.tables import law_tables_digest
 
@@ -378,6 +379,11 @@ def _write_pack(a, plan, ss, sampler) -> None:
           f"{os.path.basename(res.dsf.backup_path)}); round trip "
           f"{'OK' if res.dsf.report.ok else 'FAILED: ' + '; '.join(res.dsf.report.findings[:3])}")
     print(f"  plan -> {res.plan_path}")
+    # §16c (5): THE BAR INSTRUMENT IS THE WRITTEN FRAME — the same
+    # census ``--torn-seams`` prints, on the pack this call just wrote.
+    for line in PC.census_torn_seams_lines(
+            PC.census_torn_seams([q.to_dict() for q in splits], root)):
+        print(line)
     # THE READ-BACK: the written DSF dumped again must carry every new
     # placement, on its own new OBJECT_DEF
     back = os.path.join(work, "readback.text")
@@ -413,7 +419,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("plan", help="<ICAO>.rebake.json (or o4_v2_rebake_<ICAO>.json)")
-    ap.add_argument("--graded", required=True, help="<ICAO>.graded.json")
+    ap.add_argument("--graded", default="", help="<ICAO>.graded.json "
+                    "(required unless --torn-seams)")
     ap.add_argument("--write-into", default="", help="write the cut files here and "
                                                      "parse each back (scratch only)")
     ap.add_argument("--json", default="", help="write the whole report here")
@@ -446,9 +453,30 @@ def main() -> int:
                     help="override [placement] coarsen_reach_m (§16b (1)'s "
                          "PLAN CONTIGUITY: two bodies of one placement join "
                          "one file only within this; 0 disarms it)")
+    ap.add_argument("--torn-seams", default="", help="a pack ROOT whose "
+                    "WRITTEN files this plan describes: print §16c (5)'s "
+                    "TORN-SEAM CENSUS over them and exit.  The plan "
+                    "argument is then the WRITTEN plan "
+                    "(o4_v2_placement_<ICAO>.json), not the rebake plan, "
+                    "and --graded is not read")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
+
+    if a.torn_seams:
+        from auto_patch_v2.airport import placement_carrier as PC
+        # §16c (5): the WRITTEN frame, read on the files themselves —
+        # no surface, no cut, no law: the pack and the plan that wrote it.
+        written = json.loads(open(a.plan, encoding="utf-8").read())
+        root = os.path.abspath(a.torn_seams)
+        c = PC.census_torn_seams(written.get("splits", ()), root)
+        print(f"torn-seam census of {written.get('icao', '?')} over {root}")
+        for line in PC.census_torn_seams_lines(c):
+            print(line)
+        if a.json:
+            with open(a.json, "w", encoding="utf-8") as fh:
+                json.dump(c, fh, indent=1)
+        return 0
 
     from auto_patch_v2.law import Law
     _law = Law.load()
@@ -456,6 +484,8 @@ def main() -> int:
     rb0 = _law.tables.structures.rebake
     tol_m = _law.tables.structures.placement.split_tol_m if a.split_tol is None \
         else a.split_tol
+    if not a.graded:
+        ap.error("--graded is required")
     plan, abut = PP.read_plan(a.plan)
     sampler, pads, rims = surface_from_graded(a.graded)
     if a.admit_skipped:

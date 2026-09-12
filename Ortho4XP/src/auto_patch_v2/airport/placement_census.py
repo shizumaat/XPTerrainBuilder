@@ -28,7 +28,8 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "census_population_lines", "STANDS_OVER_TOL_M", "FOOTLESS_KEPT",
            "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND", "THICKNESS_SKIP",
            "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M",
-           "CARRIED_OWN_GROUND_TOL_M"]
+           "CARRIED_OWN_GROUND_TOL_M", "census_torn_seams",
+           "census_torn_seams_lines", "SEAM_STEP_TOL_M"]
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────
@@ -849,3 +850,9 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     for d, res in c.get("geom_worst", ()):
         out.append(f"      own ground {d:.2f} m from the row  {res}")
     return out
+
+
+# §16c (5) lives in ``placement_seams`` (the 1,000-line law); both tools
+# read it through this module, which is the census front door.
+from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,F401
+                              census_torn_seams_lines)

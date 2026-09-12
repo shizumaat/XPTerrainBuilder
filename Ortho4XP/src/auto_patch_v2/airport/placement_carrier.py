@@ -891,4 +891,5 @@ from .placement_census import (                          # noqa: E402
     KEPT_NO_CARRIER, LAWFUL_SKIPS, OWN_GROUND, STANDS_OVER_TOL_M,
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
+    census_torn_seams, census_torn_seams_lines,
     census_v16_lines, census_v16b, census_v16b_lines)

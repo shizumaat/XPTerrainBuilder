@@ -4542,26 +4542,35 @@ refused 118`.
   nodes west of −3.60 are 0, and the bbox west edge comes back 3.5 km — lon min
   −3.64071 → −3.59918 (the westernmost feature is now one of the newly built
   on-field portals at 40.48619, −3.59878; the airside extent is −3.59384).
-* **THE 100 m STANDOFF RESTORED THREE OF THE FIVE.**  At 50 m five on-field highway
-  corridors were dropped; at 100 m three are back (40.48701,−3.55443 /
-  40.48974,−3.54980 / 40.49455,−3.55410).  TWO are still dropped
-  (40.48995,−3.55896 and 40.51063,−3.56311): the nearest surviving drops now stand
-  **105, 116, 143, 143, 144, 144, 146, 208 m** off the field, so those two mouths
-  are beyond 100 m, not at the 50–66 m the ruling sized the margin against (that
-  figure was the nearest EIGHT of 94 drops at the 50 m standoff, not the whole
-  population).  A 150 m standoff would take both; unruled, so unchanged.
-* **THE MOUTH-ONLY PORTALS ARE BUILT** (owner 12ab): 11 bores admitted on an
-  on-field mouth alone, named in the build line — `-16684, -16683, -15336, -12795,
-  -7847, -5284, -4054, -4043, -3829, -1581, -1568` — 16 new ramps, mostly 2–4 km
-  south (40.4587…40.4798, −3.570…−3.583).  `tunnels` 17 → 26, `decks` 2 → 6,
-  `mouths` 41 → 48 (83 ends dropped off-field), ramps 18 → 30.
-* **CENSUS** (harness, one tree): 4,408 → **4,512** law-true (+104) and
-  1,859 → **1,772** ADJUDICATED (−87).  Families: `within_shape` +188,
-  `strip_arc` +4, `road_cross_section` +3, `strip_transverse` +2, `raoa` +1;
-  against `airside_no_step` −45, `taxi_box` −36, `transverse` −9,
-  `strip_longitudinal` −3, `frontage_near_miss` −1.  The +329 / +51 of the
-  mouth-alone arm at 50 m is superseded: with the 100 m standoff the same ruling
-  costs +104 law-true and IMPROVES the adjudicated count.
+* **ROUND 3, THE STANDOFF AT 150 m** (`v2mouthgate_r3`, artifact `d27130a304b3`,
+  body `4d66e96d21b7`, 387 s; the 100 m arm `v2mouthgate_r2` / `4a2a66a539fc` /
+  `b758bc344c3b` is the previous step).  Of the five on-field highway corridors the
+  50 m standoff dropped, 100 m returned three (40.48701,−3.55443 / 40.48974,−3.54980
+  / 40.49455,−3.55410) and 150 m returns a FOURTH byte-identically (40.48995,−3.55896,
+  the same 16-vertex ramp, 0.3 m of centroid).  **40.51063,−3.56311 is still not
+  built**: its mouth (bore `-6028`) stands **208 m** off the field — outside 150.
+  The "natural gap" the value was chosen in (146 → 208) is exactly that corridor's
+  own drop; keeping it needs ≥ 210 m, after which the next drops are 228, 267, 277,
+  361, 383, 393, 429 m (the widest gap left is 208 → 228).  Unruled, so 150 stands
+  and the corridor is OWED a decision.
+  Line: `bores 68 (no on-field mouth 35, mouth-only built 12, replaced by objects 2)
+  mouths 55 (off-field 76)  duals merged 9  object corridors 1  tunnels 29  decks 6
+  cells cut 2  refused 118`; ramps 18 → 33.
+  Census 4,408 → **4,576** law-true (+168), adjudicated 1,859 → **1,928** (+69):
+  `within_shape` +132, `taxi_box` +65, `strip_transverse` +6; against
+  `airside_no_step` −22, `strip_longitudinal` −6, `transverse` −4,
+  `resa_transverse` −2, `frontage_near_miss` −1.  (At 100 m the same ruling read
+  +104 / −87; the extra corridors admitted between 100 and 150 m carry the +64
+  law-true and turn the adjudicated delta positive — the portals are real, so the
+  rows are their surfaces meeting the field, not the rail defect.)
+* **THE MOUTH-ONLY PORTALS ARE BUILT** (owner 12ab): at 150 m, **12** bores admitted
+  on an on-field mouth alone, named in the build line — `-16684, -16683, -15336,
+  -12795, -7847, -5284, -4054, -4043, -3829, -6339, -1581, -1568` — mostly 2–4 km
+  south (40.4587…40.4798, −3.570…−3.583).  `tunnels` 17 → 29, `decks` 2 → 6,
+  `mouths` 41 → 55 (76 ends dropped off-field).
+* **CENSUS BY STANDOFF** (harness, one tree, against the same base): 50 m with the
+  cover test deleted read 4,737 / 1,910 (+329 / +51); 100 m read 4,512 / 1,772
+  (+104 / −87); **150 m, the ruled value, reads 4,576 / 1,928 (+168 / +69)**.
 * **DEAD KEY** `bore_cut_clearance_m` deleted (toml + `model.py`; the law loader is
   strict, so a stale key refuses).
 * **DRY READ (no build).**  OTHH's tunnel set is corridor-driven — object and

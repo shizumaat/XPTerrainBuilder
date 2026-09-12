@@ -485,8 +485,8 @@ def cockpit(law: Law) -> Cockpit:
 
     ``tools/check_grade.py`` (and through it the harness census and the
     pytest fixtures) and the object stage's placement censuses all read
-    HERE.  A second copy of 0.05 / 0.5 / 5.0 anywhere is the census-wrapper
-    defect class applied to a reading rule."""
+    HERE.  A second copy of those three numbers anywhere — this docstring
+    included — is the census-wrapper defect applied to a reading rule."""
     return law.tables.emit.cockpit
 
 

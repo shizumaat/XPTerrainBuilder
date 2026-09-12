@@ -517,6 +517,17 @@ polish_rounds_max = 2      # MEASURED (lane v2cyxy round 2, three HECA builds an
 # CONSTRUCTION.  ``false`` is the DIAGNOSTIC ARM only — it measures what the
 # solve alone leaves and is never shipped off.
 runway_projection = true
+# THE ZONE BAND IS PROJECTED, LIKE THE RUNWAY (Fable 2026-09-12, RULINGS
+# 2026-09-12ag; spec §32).  Only the runway family was certified above; every
+# other family could ship its residual, and at LEMD the adjacent-ground
+# corridor shipped 8.10 m of it on one vertex 3 m from taxiway E — an 8 m
+# inverted cone, the census's worst strip_seam_tear and the cockpit block's
+# first CRITICAL VISUAL find.  The corridor row governs ONE ground vertex
+# against pavement feet the solve has already fixed, so its feasible set is a
+# closed interval and the projection onto it is a CLAMP — no LP, and none of
+# the infeasibility the refuted hard-set attempt bought (zones.py docstrings).
+# ``false`` is the DIAGNOSTIC ARM only.
+zone_projection = true
 hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the

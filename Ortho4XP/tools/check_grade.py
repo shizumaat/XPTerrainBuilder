@@ -4844,6 +4844,7 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
 def _check_strip_seam_tears(
     vertices: List[Vertex],
     ways: List[Way],
+    node_ll: Optional[Dict[str, Tuple[float, float]]] = None,
     radius_m: float = STRIP_SEAM_TEAR_RADIUS_M,
     min_step_m: float = STRIP_SEAM_TEAR_MIN_STEP_M,
     min_distance_m: float = STRIP_SEAM_TEAR_MIN_DISTANCE_M,
@@ -5055,14 +5056,29 @@ def _check_strip_seam_tears(
                     if _wall_straddles(v, u, open_ground):
                         continue  # face crosses BETWEEN the two nodes,
                         # and ungraded ground lies between them
-                    out.append(Violation(
+                    row = Violation(
                         grade_pct=grade * 100,
                         excess_pct=grade * 100,
                         distance_m=d,
                         de_m=de,
                         way_a=way_v, way_b=way_u,
                         pt_a=(v.x, v.y), pt_b=(u.x, u.y),
-                        elev_a=v.elev, elev_b=u.elev))
+                        elev_a=v.elev, elev_b=u.elev)
+                    # THE ROW CARRIES THE PAIR MIDPOINT (spec §32 (3);
+                    # RULINGS 2026-09-12ag): a seam tear is a PAIR of
+                    # nodes, so its site is the midpoint between them,
+                    # exactly as ``_check_airside_no_step`` reports its
+                    # own pair.  Without it ``run_checks`` falls back to
+                    # the offending way's RING CENTROID, which at LEMD
+                    # named a point 220 m from the 8.27 m tear and sent
+                    # the cockpit block's first find to empty ground.
+                    if node_ll is not None:
+                        a_ll = node_ll.get(v.nid)
+                        b_ll = node_ll.get(u.nid)
+                        if a_ll is not None and b_ll is not None:
+                            row.lat = 0.5 * (float(a_ll[0]) + float(b_ll[0]))
+                            row.lon = 0.5 * (float(a_ll[1]) + float(b_ll[1]))
+                    out.append(row)
     out.sort(key=lambda v: -v.de_m)
     return out
 
@@ -9371,7 +9387,7 @@ def run_checks(
     within = within + adjacent_edges
 
     strip_seam_tears = _fam("strip_seam_tear",
-                            _check_strip_seam_tears(vertices, ways))
+                            _check_strip_seam_tears(vertices, ways, nodes))
     _pv(f"ADJACENT-GROUND strip SEAM tear (cross-shape step, "
         f"> {STRIP_SEAM_TEAR_MIN_STEP_M:.1f}m at "
         f"> {STRIP_SEAM_TEAR_MIN_GRADE * 100:.0f}% within "

@@ -15,7 +15,7 @@ import numpy as np
 
 from ..model.constraints import ConstraintSet
 from .api import Residual
-from .project import ProjectionReport
+from .project import ProjectionReport, ZoneClampReport
 from .linear import DEFAULT_METHOD
 
 __all__ = ["DesignReport", "residual", "settled_flip"]
@@ -143,6 +143,10 @@ class DesignReport:
     #: THE FINAL PROJECTION (owner RULINGS 2026-09-09y): the runway family's
     #: hard rows held EXACTLY by a QP after the solve (``solve/project.py``)
     runway_projection: ProjectionReport = _dc.field(default_factory=ProjectionReport)
+    #: THE ZONE PROJECTION (RULINGS 2026-09-12ag; spec §32): every
+    #: adjacent-ground zone vertex clamped into its own corridor band
+    #: after the runway projection (``solve/project.project_zone_bands``)
+    zone_projection: ZoneClampReport = _dc.field(default_factory=ZoneClampReport)
     #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
     #: corridor and strip-tie rows whose pavement feet are LAGGED — how
     #: many, how many lag rounds the outer loop paid, whether the lag
@@ -214,6 +218,7 @@ class DesignReport:
                 "hard_max_violation_m": round(self.hard_max_violation_m, 6),
                 "hard_worst": self.hard_worst,
                 "runway_projection": self.runway_projection.as_dict(),
+                "zone_projection": self.zone_projection.as_dict(),
                 "one_way_rows": self.one_way_rows,
                 "one_way_rounds": self.one_way_rounds,
                 "one_way_settled": self.one_way_settled,
@@ -280,6 +285,7 @@ class DesignReport:
                 f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
                 f"{self.solver_wall_s:.2f} s solver; "
                 + self.runway_projection.line() + "; "
+                + self.zone_projection.line() + "; "
                 "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
                     for k, v in worst if v["missed"]))

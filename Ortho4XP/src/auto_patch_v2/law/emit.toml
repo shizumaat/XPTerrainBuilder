@@ -131,6 +131,7 @@ approach_half_width_m = 2000.0  # §31 (2) the corridor's lateral HALF-WIDTH (ow
 # first; the accessor resolves this dotted path (`tables.cliff_grade`) and
 # the loader REFUSES a path that does not name a grade in (0, 1].
 cliff_grade   = "emit.design.bank_slope"   # §31 (7): the 1:3 bank, read from where it already lives
+sentinel_drop_m = 50.0  # RULINGS 2026-09-13 (lane v2zerocrater): how far below the patch's OWN 5th-percentile emitted elevation a vertex must sit before the census reads it as a SENTINEL — a no-data marker or a homogeneous least-squares block's 0.0 — rather than geometry.  A real airport's design surface spans tens of metres (KCLT 202-226 m over 4 km), so this can never reclassify a lawful cut; the class it names is KCLT's 217 m crater
 
 [lateral_contiguity]
 # THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,

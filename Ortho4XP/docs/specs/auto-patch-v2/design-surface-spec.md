@@ -3764,6 +3764,114 @@ point), `test_v2chord` (the chord-less control now has a level, 698.58 → 695.2
 
 **DEVIATION REPORTED (§23.3 (2)):** the two-way law-row residue. Never decided by the lane.
 
+### 23.4 THE LEVEL BELT — no column reaches the solve without a level (RULINGS 2026-09-13m) — lane `v2zerocrater`
+
+**MEASURED (the defect).** KCLT, build 2026-09-12 22:15, engine 1.50.1770,
+`KCLT.graded.json`: **20 vertices at exactly z = 0.00**, all in apron face **661**
+(`ref dsf:pol31`, role `apron`, side `airside`, ring indices 21–40 of 176), inside
+lat 35.21391–35.21432, lon −80.94789–−80.94737. The built mesh carries a ~90 × 65 m pit to
+sea level with a 130 m skirt of 100–200 m values and a rim at 215 m; four object bodies were
+written at zero (`Charlotte_Airport_004_ALB__b20/b21`, `002_ALB__b8`, `001_ALB__b21`).
+
+**ATTRIBUTION — it is not a no-data leak.** The production DEM at those four corners reads
+**217.10 / 218.08 / 217.45 / 218.32 m** (`dem_production`, composed N35W081, inset
+`KCLT:USGS3DEP`, coverage 100 %) — healthy ground. The pack's polygon carries no elevation
+at all: `dsf:pol31` is `lib/airport/ground/pavement/asphalt/plain.pol` and
+`airport/load.py:320` builds its ring from `_ring(poly.windings[0], to_xy)` — 2-D, no z.
+The zero is minted by the SOLVE, in three steps:
+
+1. `solve/rows._cotangent_laplacian` **clamps an obtuse cotangent weight to zero**
+   (`if w <= 0.0: continue`, the line that keeps the operator PSD). Face 661's 20-vertex
+   region touches the rest of its own face through exactly **one** triangle,
+   `(14043, 14022, 14023)`, 186 m²; the angles opposite both of its crater-touching edges
+   are obtuse, so both weights are clamped and **no bending row couples those 20 columns to
+   anything**.
+2. `solve/design` §9 ("a sheet carrying neither a pin nor a chord nor a zone fit floats — it
+   takes its own DEM plane") judged connectivity with `_sheet_components(tris, red)`, i.e.
+   on the **triangulation**, which that sliver joins. The piece therefore read as ANCHORED
+   by the sheet's own anchors and was given no datum.
+3. What was left in the matrix is a **homogeneous block** — bending rows only, every
+   right-hand side zero — and the least-squares minimiser of a homogeneous block is exactly
+   `0`. Measured on the captured KCLT problem: the crater's columns form a connected
+   component of **20 of 21,873**, each column carrying 3–5 rows, all of them inside the
+   component.
+
+Same class as the degenerate hole of RULINGS 2026-09-10h (LEMD way −10892), whose note in
+`planar/overlay.py` already described the mechanism — "the columns reach the least-squares
+solve carrying no row at all, so their value is whatever the min-norm solution leaves
+there". That fix trimmed the one GEOMETRY that produced it; this is the general closure.
+
+**THE RULE — THE LEVEL BELT.** (1) `solve/design` §9c (`rows.apply_level_belt`): after every
+row is minted, any column whose whole connected piece carries **no level at all** — every
+row's coefficients summing to zero, which is bending, a second difference, a relative
+equality, a `Diff` — takes its own terrain plane (`_plane_targets`, at `detached_mean`); a
+piece with no DEM under it is **REFUSED BY NAME** rather than emitted at zero.
+`DesignReport.level_belt_rows` reports it (a non-zero count names geometry no law levels).
+A LEVEL is the coefficient SUM, never the right-hand side: a `Diff` bounding a difference at
+0.3 m carries a non-zero rhs and levels nothing; a bending row one of whose feet the
+reduction FIXED sums non-zero and IS levelled by that foot. The belt asks the only question
+that cannot be got wrong — *does the matrix level this column?* — so the class is unreachable
+however a future row family is wired.
+(2) SHIP-SIDE: census family **`sentinel_elevation`** (`check_grade.LAW_FAMILIES`,
+`law/families.toml`, cockpit class `sentinel`) — an emitted vertex more than
+`emit.cockpit.sentinel_drop_m` (50 m) below the patch's own 5th-percentile elevation.
+Patch-intrinsic (the census has no DEM) and read from a ROBUST floor, because the crater IS
+the minimum. Cockpit class `sentinel` is CRITICAL unconditionally: a hole in the design
+surface is not a height to price against a threshold and not a question of view.
+
+**MEASURED (the fix), solve arm.** `tools/v2_solve_replay.py`, one KCLT capture
+(22,294 vertices, 1,193 faces), both arms off it:
+
+| | before | after |
+|---|---|---|
+| vertices at z = 0.00 | **20** | **0** |
+| z min over the whole airport | **0.00** | **202.02** |
+| vertices below 150 m | 20 | **0** |
+| the 20 crater vertices | 0.00 | 217.51 … 218.04 (DEM 217.10 … 218.17, max abs z − DEM **0.67 m**) |
+| level-belt rows | — | **20** (the crater, and nothing else at KCLT) |
+| sheets / detached | 158 / 120 | 158 / 120 (**unchanged**) |
+| vertices moved at all (> 0.01 m) | — | **20** — the crater, and NOTHING ELSE in the airport |
+
+**DEVIATION REPORTED — never decided by the lane.** §9 (the per-piece DEM PLANE) still judges
+anchoring on `_sheet_components(tris, red)`, i.e. the TRIANGULATION, which overstates the
+objective's connectivity for exactly the reason above. Making it read the true coupling was
+built and measured, and it is a LAW change, not a defect fix: at KCLT it splits the map's 158
+sheets into 246 (120 → 193 detached), so 54 more pieces take a DEM plane of their own; at the
+`test_v2aprontrend` fixture it splits the sheet 2 → 5 and improves the AFFINE CONTROL arm's
+off-DEM from 0.877 to 0.180 m — i.e. it moves the very reading §8.7 exists to make. It is
+therefore NOT landed; the level, which is the defect, is closed unconditionally by the belt.
+The question for the owner: should a piece the objective holds apart take its own terrain
+plane, or only its own level?
+
+**MEASURED (the closing build).** ONE `build_airport.py KCLT --engine v2` (tag `v2zcfinal`,
+468.7 s, rc 0, `body_sha fffa7c46a824`, v2-verify rows 4,190; the artifact ledger refused the
+store — the tree's dirty flag moved between key and store time — so this run earns no ledger
+entry). Against the owner's shipped 1.0.324 products (engine 1.50.1770, 2026-09-12 22:15;
+a DIFFERENT base sha, so the totals are context, not an A/B):
+
+| | shipped | this build |
+|---|---|---|
+| graded vertices at z = 0.00 | 20 | **0** |
+| graded z min … max | **0.00** … 231.00 | **196.75** … 233.08 |
+| face 661 (`dsf:pol31`) z | **0.00** … 216.56 | **213.90 … 218.04** |
+| the 20 crater-box vertices | 0.00 | **217.51 … 218.04** (DEM 217.10 … 218.17) |
+| census `sentinel_elevation` | **20** | **0** |
+| cockpit CRITICAL visual | 22 (20 of them sentinel) | **2** (both pre-existing `strip_seam_tear` cliffs) |
+| cockpit CRITICAL motion | 16 (worst **215.220 m** at the crater rim) | **15** (worst 3.640 m, an apron cliff 500 m away) |
+| census law-true total | 12,383 | 12,353 (within 12,324, cross 26, steps 3) |
+| ADJUDICATED | 4,406 | 4,386 |
+
+THE FOUR BODIES WRITTEN AT ZERO were a CONSEQUENCE, not a second defect: all four anchor
+inside the crater (`004_ALB__b20` and `002_ALB__b8` and `001_ALB__b21` at
+35.2141301,−80.9475786; `004_ALB__b21` at 35.2141136,−80.9473902) and the senior one's
+`anchor_reason` is literally *"surface at the body's zero"* — the placement stage sampled the
+design surface and read 0.00. The surface it now reads there is **217.90** and **217.98 m**.
+The re-anchoring itself is the object stage's (lane `v2unboxed`).
+
+**MEASURED (the guard), on the SHIPPED patch** (`tools/harness/census.py`, law-true):
+CRITICAL visual **22** of which **20 `sentinel_elevation`**, worst 209.470 m below the
+floor at 35.2139084,−80.9478723 — the crater, named, at its own coordinate.
+
 ## §24 THE BASIN'S EDGE AND FLOOR (owner RULINGS 2026-09-11t) — lane `v2basinedge`
 
 Owner, LEMD 1.0.315: "still a gap between the outer edge and the apron … the apron

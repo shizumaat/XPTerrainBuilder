@@ -28,7 +28,7 @@ from ..model.planar import NO_SHAPE, PlanarMap
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
            "_one_matrix", "_sheet_components", "_role_bodies", "_plane_targets",
-           "_plane_rows"]
+           "_plane_rows", "_level_free_columns", "apply_level_belt"]
 
 
 # ── the reduction: pins fix, flats merge ────────────────────────────────
@@ -342,7 +342,18 @@ def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
                       red: _Reduction) -> dict[int, int]:
     """Column -> its CONNECTED SHEET (triangles sharing a vertex, over the
     reduced columns).  A column no triangle reaches is its own sheet: a
-    structure's ring, a lone road station."""
+    structure's ring, a lone road station.
+
+    THIS IS THE TRIANGULATION'S GRAPH, AND IT OVERSTATES THE OBJECTIVE'S
+    (RULINGS 2026-09-13, lane ``v2zerocrater``): :func:`_cotangent_laplacian`
+    CLAMPS an obtuse weight to zero, so a region joined to its sheet only
+    through sliver triangles carries NO ROW across the join — §9 of
+    ``solve/design`` reads it as anchored by the sheet's anchors while the
+    matrix holds an isolated block.  The LEVEL that costs is closed
+    unconditionally by :func:`_level_free_columns` (the belt, §9c); whether
+    §9's per-piece DEM PLANE should follow the true coupling instead is a
+    law question, reported, not decided by the lane.
+    """
     parent: dict[int, int] = {c: c for c in range(red.n_cols)}
 
     def find(v: int) -> int:
@@ -359,6 +370,112 @@ def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
         for other in cols[1:]:
             parent[find(other)] = ra
     return {c: find(c) for c in range(red.n_cols)}
+
+
+def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
+                        one: _t.Sequence[tuple[_t.Sequence[tuple[int, float]],
+                                               float, _t.Any]] = (),
+                        tol: float = 1e-9) -> dict[int, int]:
+    """The columns that reach the solve with NO LEVEL -> their component
+    root (RULINGS 2026-09-13, lane ``v2zerocrater``).
+
+    A row carries LEVEL when its coefficients OVER THE REMAINING COLUMNS
+    do not sum to zero: an absolute row (a datum, a chord, a trend, a
+    band), or a relative row one of whose feet the reduction FIXED — the
+    dropped term leaves the sum non-zero, which is the level it inherits
+    from the fixed vertex.  The right-hand side says nothing: a ``Diff``
+    bounding a difference at 0.3 m carries a non-zero rhs and no level at
+    all.  A row whose coefficients sum to zero is pure SHAPE — bending, a
+    second difference along a chain, a relative equality — and a piece built
+    only of those is a homogeneous least-squares block whose minimiser is
+    exactly ``0.0``: the sentinel that shipped as KCLT's 90 x 65 m crater
+    to sea level.  A column no row touches at all is level-free by the
+    same reading and is returned too.
+
+    ``one`` is the ONE-SIDED stack: a one-sided row couples its columns
+    and, when it is an absolute bound, levels them.  Passing it keeps the
+    belt from claiming a vertex that a band already holds.
+    """
+    parent: dict[int, int] = {c: c for c in range(red.n_cols)}
+
+    def find(v: int) -> int:
+        while parent[v] != v:
+            parent[v] = parent[parent[v]]
+            v = parent[v]
+        return v
+
+    has_level: set[int] = set()
+
+    def take(cols: _t.Sequence[int], coefs: _t.Sequence[float]) -> None:
+        if not cols:
+            return
+        r0 = find(int(cols[0]))
+        for c in cols[1:]:
+            parent[find(int(c))] = r0
+            r0 = find(r0)
+        if abs(sum(coefs)) > tol:
+            has_level.add(find(int(cols[0])))
+
+    for src in (rows, body):
+        if src is None or not src.n:
+            continue
+        per: dict[int, list[tuple[int, float]]] = {}
+        for k, c, v in zip(src.r, src.c, src.v):
+            per.setdefault(k, []).append((int(c), float(v)))
+        for _k, terms in per.items():
+            take([c for c, _ in terms], [v for _, v in terms])
+    for terms, _hi, _row in one:
+        cols: list[int] = []
+        coefs: list[float] = []
+        for vid, coef in terms:
+            col = int(red.col[vid])
+            if col >= 0:
+                cols.append(col)
+                coefs.append(float(coef))
+        take(cols, coefs)
+    # a root's level marker must survive later unions: re-reduce
+    level_roots = {find(r) for r in has_level}
+    return {c: find(c) for c in range(red.n_cols) if find(c) not in level_roots}
+
+
+def apply_level_belt(pm: PlanarMap, rows: "_Rows", body: "_Rows | None",
+                     red: _Reduction,
+                     one: _t.Sequence[tuple[_t.Sequence[tuple[int, float]],
+                                            float, _t.Any]],
+                     weight: float) -> int:
+    """THE LEVEL BELT (RULINGS 2026-09-13, lane ``v2zerocrater``; spec
+    ``design-surface-spec`` §23.4) — ``solve/design`` §9c's body.
+
+    Give every LEVEL-FREE piece (:func:`_level_free_columns`) its own
+    terrain plane at ``weight``, and REFUSE BY NAME a piece with no DEM
+    under it rather than emit it at the sentinel 0.0 m.  Returns how many
+    rows the belt added; a non-zero count names geometry no law levels.
+    """
+    free = _level_free_columns(rows, body, red, one)
+    if not free:
+        return 0
+    by_free: dict[int, list[int]] = {}
+    no_dem: list[int] = []
+    for vid in range(len(pm.vertices)):
+        col = int(red.col[vid])
+        if col < 0 or col not in free:
+            continue
+        (no_dem if pm.vertices[vid].dem_z is None
+         else by_free.setdefault(free[col], [])).append(vid)
+    if no_dem:
+        raise ValueError(
+            f"{pm.icao}: {len(no_dem)} vertex/vertices reach the design solve "
+            f"with NO LEVEL and NO DEM sample "
+            f"(e.g. {[pm.vertices[v].key for v in no_dem[:4]]}) — their "
+            "least-squares value would be the sentinel 0.0 m, a crater in the "
+            "design surface (RULINGS 2026-09-13, lane v2zerocrater).  Refused "
+            "rather than emitted.")
+    added = 0
+    for root, vs in by_free.items():
+        for vid, target in _plane_targets(pm, vs):
+            if rows.add(((vid, 1.0),), target, weight, ("level_belt", root)):
+                added += 1
+    return added
 
 
 def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction

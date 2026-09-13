@@ -60,7 +60,7 @@ def capture_has_groups(cap: dict) -> bool:
             and groups is not None and bool(getattr(groups, "groups", ())))
 
 
-def capture(icao: str, out: Path) -> None:
+def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -88,6 +88,15 @@ def capture(icao: str, out: Path) -> None:
     from auto_patch_v2.planar.group import derive as _derive_groups
     law = Law.for_airport(icao)
     inputs = default_inputs()
+    if mod_cache_root:
+        # THE LANE-LOCAL DERIVED CACHE (RULINGS 2026-09-13, lane
+        # ``v2zerocrater``): ``default_inputs`` reads no environment (the
+        # M0 §1 law ``test_model`` enforces), so the harness's
+        # copy-on-write ``Airport_mod_cache`` overlay is named HERE.  Needed
+        # to replay a pack the object stage has rewritten: v2's read frame
+        # is the ``.dsf.anchor_bak``, whose dump only the driver's
+        # ``engine_v2.fresh_pack_dump`` makes, and it must land lane-local.
+        inputs = _dc.replace(inputs, mod_cache_root=mod_cache_root)
     t = time.perf_counter()
     airport, _lrep = load_with_report(icao, inputs, law)
     # THE PACK PARTITION AND THE GROUPS (build.py:288-318, verbatim in
@@ -536,6 +545,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--capture", metavar="ICAO")
+    ap.add_argument("--mod-cache-root", metavar="DIR",
+                    help="Airport_mod_cache root for the capture (the harness's "
+                         "lane-local copy-on-write overlay); default: the engine "
+                         "tree's mount")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
@@ -574,7 +587,7 @@ def main() -> int:
     if a.capture:
         if a.out is None:
             ap.error("--capture needs --out")
-        capture(a.capture.upper(), a.out)
+        capture(a.capture.upper(), a.out, a.mod_cache_root)
         return 0
     if a.why_from:
         from auto_patch_v2.law import Law

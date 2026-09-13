@@ -5249,6 +5249,90 @@ def _check_stacked_nodes(
     return out
 
 
+# ── THE SENTINEL FLOOR — a graded vertex far below its own ground band
+# (RULINGS 2026-09-13, lane ``v2zerocrater``) ────────────────────────
+
+#: How far under the patch's OWN ground band a vertex must sit before it is
+#: read as a SENTINEL rather than as geometry — THE LAW'S OWN NUMBER
+#: (``emit.toml [cockpit] sentinel_drop_m``, resolved through
+#: :func:`sentinel_drop_m`), never a literal typed here.  The design
+#: surface's whole vertical range at a real airport is a few tens of metres
+#: (KCLT: 202-226 m over 4 km); a value this far below the patch's robust
+#: floor is not a cut, it is a no-data / homogeneous-block 0.0 leaking into
+#: the product.  The fallback applies only where the law tables cannot be
+#: imported at all (a bare-tree probe).
+_SENTINEL_DROP_FALLBACK_M: float = 50.0
+
+
+def sentinel_drop_m() -> float:
+    """``emit.toml [cockpit] sentinel_drop_m`` — the sentinel floor's drop."""
+    try:
+        from auto_patch_v2.law import tables as _T
+        return float(_T.cockpit(_T.load_default()).sentinel_drop_m)
+    except Exception:
+        return _SENTINEL_DROP_FALLBACK_M
+
+#: The robust floor the drop is measured from — the patch's 5th-percentile
+#: emitted elevation, never its MINIMUM (the crater IS the minimum, so a
+#: minimum-based floor can never see it).
+SENTINEL_FLOOR_PCTL: float = 5.0
+
+#: Below this many valued nodes a percentile is not a ground band at all
+#: (a fixture, a one-ring probe patch): the family reports nothing.
+SENTINEL_MIN_NODES: int = 20
+
+
+def _check_sentinel_elevation(ways: List[Way], nodes) -> List[Violation]:
+    """SENTINEL ELEVATION: an emitted vertex more than ``sentinel_drop_m()``
+    below the patch's own 5th-percentile elevation.
+
+    THE CLASS (RULINGS 2026-09-13m, lane ``v2zerocrater``): KCLT shipped 20
+    apron vertices at exactly z = 0.00 over 217 m ground — a 90 x 65 m mesh
+    pit to sea level with a 130 m skirt — because that piece of the design
+    sheet reached the least-squares solve carrying only homogeneous rows,
+    whose minimiser is 0.  The engine now refuses to emit such a piece
+    (``solve/design`` §9c, the level belt); this is the SHIP-SIDE net, so
+    the class can never leave the patch silently again whatever mints it.
+    Patch-intrinsic on purpose — the census has no DEM — and priced against
+    a ROBUST floor rather than the minimum.
+
+    One row per offending node, ``de_m`` = how far under the floor it sits.
+    """
+    vals: List[Tuple[str, float, int, int]] = []
+    for wi, w in enumerate(ways):
+        for k, (nid, e) in enumerate(zip(w.nids, w.elevs)):
+            if e is not None:
+                vals.append((nid, float(e), wi, k))
+    if len(vals) < SENTINEL_MIN_NODES:
+        return []
+    drop_m = sentinel_drop_m()
+    by_nid: Dict[str, Tuple[float, int]] = {}
+    for nid, e, wi, _k in vals:
+        cur = by_nid.get(nid)
+        if cur is None or e < cur[0]:
+            by_nid[nid] = (e, wi)
+    zs = sorted(e for e, _w in by_nid.values())
+    idx = max(0, min(len(zs) - 1,
+                     int(round((SENTINEL_FLOOR_PCTL / 100.0) * (len(zs) - 1)))))
+    floor = zs[idx] - drop_m
+    out: List[Violation] = []
+    for nid, (e, wi) in by_nid.items():
+        if e >= floor:
+            continue
+        ll = nodes.get(nid)
+        w = ways[wi]
+        v = Violation(
+            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+            de_m=float(zs[idx] - e), way_a=w, way_b=w,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=float(e),
+            elev_b=float(zs[idx]))
+        if ll is not None:
+            v.lat, v.lon = float(ll[0]), float(ll[1])
+        out.append(v)
+    out.sort(key=lambda r: -r.de_m)
+    return out
+
+
 # ── APRON TERRACE LAW — the validator twin (owner ruling 2026-08-04;
 # spec ``docs/specs/apron-terrace-law-spec.md`` §5) ──────────────────
 # The emitter half is
@@ -7232,6 +7316,13 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
      "within"),
+    # THE SENTINEL FLOOR (RULINGS 2026-09-13, lane ``v2zerocrater``): an
+    # emitted vertex far below the patch's own ground band is a SENTINEL —
+    # a no-data value or a homogeneous least-squares block's 0.0 — not
+    # geometry.  CRITICAL at any airport it touches, whatever mints it.
+    ("sentinel_elevation",
+     "SENTINEL ELEVATION (vertex far below the patch's own ground band)",
+     "within"),
     ("cross_shape", "CROSS-SHAPE proximity grade", "cross"),
     ("frontage_near_miss",
      "NEAR-MISS BUILDING FRONTAGE (pad ↔ soft pavement across a sliver)",
@@ -8774,6 +8865,13 @@ def cockpit_classify(family: str, row, *, law: dict,
       TARGETS, never gates).
     """
     cls = law["family_class"].get(family, "grade")
+    # THE SENTINEL IS CRITICAL UNCONDITIONALLY (RULINGS 2026-09-13, lane
+    # ``v2zerocrater``): a vertex tens of metres below the patch's own
+    # ground band is not a height difference to be priced against a
+    # threshold and not a question of view — it is a hole in the design
+    # surface, and a hole is critical at any airport it touches.
+    if cls == "sentinel":
+        return COCKPIT_VISUAL, "sentinel"
     mag = row_magnitude(row)
     roles = row_roles(row)
     rolled = law["rolled_on"]
@@ -9781,6 +9879,13 @@ def run_checks(
         "disagree — owner invariant 2026-07-19, cap 0)",
         stacked, top_n)
     within = within + stacked
+
+    sentinel = _fam("sentinel_elevation",
+                    _check_sentinel_elevation(ways, nodes))
+    _pv(f"SENTINEL ELEVATION (emitted vertex more than {sentinel_drop_m():g} m "
+        f"below the patch's own {SENTINEL_FLOOR_PCTL:g}th-percentile "
+        f"elevation — RULINGS 2026-09-13, cap 0)", sentinel, top_n)
+    within = within + sentinel
 
     cross = _fam("cross_shape", _check_cross_shape_proximity(
         vertices, ways, proximity_m, max_grade))

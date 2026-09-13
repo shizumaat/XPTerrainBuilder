@@ -6,6 +6,10 @@ set -euo pipefail
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/version.sh"
+# The SwiftUI macro plugin lives in the Xcode-beta toolchain on this machine
+# (memory swift-build-needs-xcode-beta; 2026-09-13 the 1.0.327 build failed
+# without it: "SwiftUIMacros.StateMacro could not be found").
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app}"
 # .nosync: iCloud Drive skips such folders. The repo may live under the
 # synced Documents folder, and letting the file provider chew on a half-
 # gigabyte app bundle mid-assembly causes conflict duplicates and stalls.

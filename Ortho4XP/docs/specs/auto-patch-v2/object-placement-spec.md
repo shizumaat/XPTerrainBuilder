@@ -4125,3 +4125,44 @@ per-family zero spread 0.00 for every `Bridge_NN` (today `Bridge_02_CLUTTER_007`
 4.97 m); deck tops 3.96 / 3.96 / 3.96 held; cross-bridge carriers 0 on the
 name axis; LEMD and KCLT byte-identical (LEMD's `Bridge4` is a line-station
 body — name it); ONE OTHH build; suite twice.
+
+## §16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed; Fable 2026-09-13) — lane `v2clusterpad`
+
+Owner: "We always want to keep objects covering the same footprint together
+when changing their seat. Objects separated by lateral space, e.g. separate
+buildings, can move vertically independent of other buildings. Only time we
+allow actually cutting objects apart is for things like very long connecting
+pieces like the elevated rail at HECA." This ONE rule replaces every family
+derivation tried today: §16e (3) by row, ring, footprint contact or NAME
+(all withdrawn), §16f (1)'s shared-authored-datum condition, §16f (4)'s
+partition by pad. §16f (7) (a large cluster is one unit on one pad, the
+apron flattened around it — design §30 (4)) is this law's design-surface
+side and stands.
+
+1. **THE UNIT.** Two bodies whose plan footprints (their written triangles
+   projected, `geom_box` hull refined by the actual polygon) overlap or
+   touch within 0.5 m are one unit; units chain transitively (deck ↔ piers
+   ↔ clutter ↔ …). A body touching nothing is its own unit and seats alone
+   (§16c). Derived once per plan, at the end of PASS 1 (before the carrier
+   pool), published per body as `unit_of`; the census prints each unit's
+   members, spread and datum source.
+2. **ONE ZERO PER UNIT.** Every member of a unit takes one rigid zero — no
+   per-member cut, no carrier search, no ground test between members. The
+   datum, in priority: a DECK member's abutment datum (§16e (2)/(6)); else
+   the plane of the emitted `building` pad most of the unit's contacts
+   stand on (§16f (2), the cluster pad §30 (4) for a large unit); else the
+   median ground under the unit's contacts. A member whose own contacts sit
+   more than `visual_m` off the unit plane is REPORTED, never re-seated.
+   Pavement is king (§16f (5)) only for a unit standing ENTIRELY on
+   rolled-on pavement; inside a mixed unit the datum rule wins.
+3. **THE ONLY CUT.** A body whose footprint span is ≥ 200 m AND whose two
+   ends' ground differs by ≥ `visual_m` is a CONNECTOR (the HECA elevated
+   rail class) and is cut at §10's line stations; everything else stays
+   rigid. The census names every cut connector.
+
+BARS: OTHH every `Bridge_NN` deck ↔ piers ↔ clutter one unit (per-unit spread
+0.00; today 4.97 m on `Bridge_02_CLUTTER_007`; the deck tops 3.96 held);
+KCLT's terminal one unit on its cluster pad (the passengers on the floor);
+LEMD's old terminal one unit per touching cluster (named); HECA's elevated
+rail cut at stations (dry, named); plan stage not worse than +10 %; the
+family censuses of §16f re-read under §16g; suite twice.

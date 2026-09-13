@@ -167,3 +167,108 @@ def test_the_engine_entry_dispatches_the_argv():
     entry = open(ENTRY).read()
     branch = entry.index("'--lerc-decode' in sys.argv")
     assert branch < entry.index("import O4_File_Names as FNAMES")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# WINDOWS AND LINUX (owner RULINGS 2026-09-13a (1))
+#
+# On those platforms there is no separate frozen engine: the Qt app IS
+# the engine (it answers --engine-jsonl and serves as its own build
+# worker), so ``sys.executable`` in ``lerc_worker_argv`` is the Qt
+# binary.  Everything the mac engine needs to decode LERC, that binary
+# needs too — and 1.0.325 shipped with none of it.
+# ──────────────────────────────────────────────────────────────────────
+QT_ENTRY = os.path.join(ENGINE_DIR, "Ortho4XP_Qt.py")
+QT_SPEC = os.path.join(ENGINE_DIR, "Ortho4XP_Qt.spec")
+MAC_SPEC = os.path.join(ENGINE_DIR, "Ortho4XP.spec")
+REPO_ROOT = os.path.dirname(ENGINE_DIR)
+LERC_CHECK = os.path.join(REPO_ROOT, "scripts", "check_frozen_lerc.sh")
+MAKE_ENGINE = os.path.join(REPO_ROOT, "scripts", "make_engine.sh")
+RELEASE_WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows",
+                                "release.yml")
+
+
+def test_the_QT_entry_dispatches_the_argv_AHEAD_of_Qt():
+    """Same branch as the engine entry, same place: before the PROJ
+    preflight, before ``o4_engine``, before any Qt import — a decode
+    child that loads the pipeline would load GDAL and abort."""
+    entry = open(QT_ENTRY).read()
+    branch = entry.index('"--lerc-decode" in sys.argv')
+    assert branch < entry.index("import O4_LERC_Decode")
+    assert branch < entry.index("from o4_engine import jsonl")
+    assert branch < entry.index("O4_Proj_Runtime.preflight()\n    if _proj_error")
+
+
+def test_the_QT_spec_carries_every_lazy_dependency():
+    """The freeze's static scan sees none of these: the LERC codecs are
+    reached only through the --lerc-decode branch, highspy only inside
+    the solve (1.0.298 shipped without it), auto_patch_v2 only per
+    engine selection — and its law is TOML data, not modules."""
+    spec = open(QT_SPEC).read()
+    for needed in ("collect_all('tifffile')", "collect_all('imagecodecs')",
+                   "imagecodecs._lerc", "imagecodecs._shared",
+                   "'O4_LERC_Decode'", "collect_all('highspy')",
+                   "collect_submodules('auto_patch_v2')", "v2_law_datas"):
+        assert needed in spec, needed + " missing from Ortho4XP_Qt.spec"
+    # …and each collected package actually reaches the Analysis.
+    for wired in ("tifffile_binaries", "imagecodecs_datas",
+                  "highspy_hidden", "tifffile_hidden"):
+        assert wired in spec.split("a = Analysis(")[1]
+
+
+def test_BOTH_specs_pin_the_codecs():
+    """One law, two specs: whatever the mac engine pins for LERC, the
+    Windows/Linux app pins too."""
+    mac = open(MAC_SPEC).read()
+    qt = open(QT_SPEC).read()
+    for needed in ("collect_all('tifffile')", "collect_all('imagecodecs')",
+                   "imagecodecs._lerc", "'O4_LERC_Decode'"):
+        assert needed in mac and needed in qt
+
+
+def test_ONE_fixture_check_serves_every_frozen_artifact():
+    """The 64x64 LERC fixture check is one script — the engine freeze and
+    both release jobs run THAT, never a copy of it (the census-wrapper
+    precedent: a slightly-different duplicate is a defect)."""
+    assert os.path.isfile(LERC_CHECK)
+    check = open(LERC_CHECK).read()
+    assert "--lerc-decode" in check
+    assert "compression=\"lerc\"" in check or "compression='lerc'" in check
+
+    engine = open(MAKE_ENGINE).read()
+    assert "check_frozen_lerc.sh" in engine
+    # the Qt freeze tests the Qt binary, not the engine's name
+    assert "dist/Ortho4XP_Qt/Ortho4XP_Qt" in engine
+    # and no second copy of the fixture was left behind in the script
+    assert "tifffile.imwrite" not in engine
+
+    workflow = open(RELEASE_WORKFLOW).read()
+    assert workflow.count("check_frozen_lerc.sh") == 2, (
+        "the Windows and Linux release jobs must each run the check")
+    assert "Ortho4XP_Qt.exe" in workflow
+
+
+def test_the_tags_also_land_BESIDE_the_array(tmp_path):
+    """A console-less frozen binary can run with ``sys.stdout`` None,
+    where ``print`` writes nowhere: the caller would read an empty
+    stdout, fail to parse it, and SKIP the source — the silent
+    degradation all over again.  The sidecar cannot go missing."""
+    tiff = tmp_path / "fixture.tif"
+    npy = tmp_path / "out.npy"
+    _write_lerc_tiff(tiff)
+    completed = subprocess.run(
+        [sys.executable, ENTRY, "--lerc-decode", str(tiff), str(npy)],
+        capture_output=True, text=True, timeout=300)
+    assert completed.returncode == 0, completed.stderr[-400:]
+    sidecar = str(npy) + ".tags.json"
+    assert os.path.isfile(sidecar)
+    assert json.load(open(sidecar)) == json.loads(completed.stdout)
+
+
+def test_the_fetcher_falls_back_to_the_sidecar():
+    """The reader of that sidecar is the inset fetcher, and it deletes
+    it with the array — a scratch file must not survive the fetch."""
+    source = open(os.path.join(ENGINE_DIR, "src",
+                               "O4_Airport_Elevation_Insets.py")).read()
+    assert 'npy_path + ".tags.json"' in source
+    assert source.count('npy_path + ".tags.json"') >= 2  # read AND cleanup

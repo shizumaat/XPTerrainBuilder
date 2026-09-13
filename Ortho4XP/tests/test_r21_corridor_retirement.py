@@ -11,8 +11,10 @@ RETIREMENT — which is a compatibility contract as much as a deletion:
 * the key is gone from the registry, the parser is gone from the
   detector, and NOTHING in ``src/`` reads the key any more;
 * a cfg that still carries the line — the owner's own +22+113 tile cfg
-  does — LOADS, with a loud warning, and never errors.  A user's stale
-  cfg must not take a build down.
+  does — LOADS, and the reader DELETES the line and says so once
+  (owner RULINGS 2026-09-13a (2)); a cfg that cannot be rewritten is
+  reported once and carried on with.  A user's stale cfg must not take
+  a build down, and must not nag either.
 
 This file is the converted twin of the retired
 ``tests/test_r17_corridor_declaration.py``.
@@ -20,6 +22,7 @@ This file is the converted twin of the retired
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -31,6 +34,7 @@ if str(SRC) not in sys.path:
 import O4_Cfg_Vars as CV  # noqa: E402
 import O4_Config_Utils as CFG  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
+import O4_Settings_Model as SM  # noqa: E402
 from auto_patch import flat_site as FS  # noqa: E402
 from auto_patch import flat_site_mode as FSM  # noqa: E402
 
@@ -83,109 +87,183 @@ class TestTheKeyIsGone:
         assert "declared_corridor" not in VMAP.AIRPORT_ISLAND_INSET_KINDS
 
 
-class TestAStaleCfgStillLoads:
-    """The owner's +22+113 cfg carries ``flat_site_declared_corridors=``.
-    A retirement that errors on it is a retirement that breaks builds."""
 
-    def test_the_registry_retires_it_LOUDLY(self):
+class TestAStaleCfgIsCLEANEDUP:
+    """The owner's +22+113 cfg carries ``flat_site_declared_corridors=``
+    and KCLT's carries two more.  Until 2026-09-13 every read warned
+    about them, forever, three times a build.  The owner ruled: find a
+    retired key, DELETE it and say so once (RULINGS 2026-09-13a (2)).
+    A retirement that errors on a stale line is still a retirement that
+    breaks builds — so a cfg that cannot be rewritten carries on."""
+
+    SECOND = "flat_site_declared_elevation_m"
+
+    @staticmethod
+    def _reset():
+        CV._retired_cfg_reported.clear()
+
+    def _cfg(self, tmp_path, text):
+        """A tile build dir carrying *text* as its cfg; returns the path."""
+        build = tmp_path / "zOrtho4XP_+22+113"
+        build.mkdir()
+        path = build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
+        path.write_text(text)
+        return path
+
+    def _tile(self, tmp_path, text):
+        path = self._cfg(tmp_path, text)
+        return CFG.Tile(22, 113, str(path.parent)), path
+
+    # ── the registry ────────────────────────────────────────────────
+    def test_the_registry_still_records_WHY_it_went(self):
+        """The line is deleted, but the registry keeps the sentence: it
+        is what the docs and this twin read to say what replaced it."""
+        self._reset()
         assert KEY in CV.retired_cfg_keys
-        assert CV.retired_cfg_key_warning(KEY)
         assert "RETIRED" in CV.retired_cfg_key_warning(KEY)
-        # …and the value is quoted, so a user who wrote a corridor is
-        # told exactly which declaration stopped being read.
         assert OWNER_DECL in CV.retired_cfg_key_warning(KEY, OWNER_DECL)
-
-    def test_a_silently_retired_key_stays_silent(self):
-        """Not every retirement is loud: a superseded knob nobody needs
-        to know about keeps its silent skip."""
+        # a merely-superseded key carries no sentence…
         assert CV.retired_cfg_key_warning(
             "airport_elevation_inset_resolution_m") is None
-
-    def test_a_live_key_is_not_a_retirement(self):
+        # …and a live key is not a retirement at all.
         assert CV.retired_cfg_key_warning("modify_custom_airports") is None
 
     def test_the_config_reader_knows_the_retirement(self):
         assert KEY in CFG.RETIRED_CFG_KEYS
 
-    def _tile_with_cfg(self, tmp_path, text):
-        build = tmp_path / "zOrtho4XP_+22+113"
-        build.mkdir()
-        (build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
-         ).write_text(text)
-        return CFG.Tile(22, 113, str(build))
-
-    def test_the_owners_EMPTY_line_loads_and_warns(self, tmp_path, capsys):
-        tile = self._tile_with_cfg(
-            tmp_path, "auto_patch=ICAO\n" + KEY + "=\nmesh_zl=19\n")
+    # ── ONE read removes the lines ──────────────────────────────────
+    def test_one_read_REMOVES_both_retired_keys_and_backs_them_up(
+            self, tmp_path, capsys):
+        self._reset()
+        text = (KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n"
+                + self.SECOND + "=123.0\nmesh_zl=19\n")
+        tile, path = self._tile(tmp_path, text)
         assert tile.read_from_config() == 1
-        assert "RETIRED" in capsys.readouterr().out
-        # the live keys around it still land…
+
+        # the file has neither retired key…
+        after = path.read_text()
+        assert KEY not in after
+        assert self.SECOND not in after
+        # …the live keys around them survived…
+        assert "auto_patch=ICAO" in after
+        assert "mesh_zl=19" in after
         assert tile.auto_patch == "ICAO"
         assert tile.mesh_zl == 19
-        # …and the retired one lands nowhere.
+        # …the retired ones landed nowhere…
         assert not hasattr(tile, KEY)
+        assert not hasattr(tile, self.SECOND)
+        # …and the .bak the existing writer makes still carries both.
+        backup = Path(str(path) + ".bak")
+        assert backup.is_file()
+        assert KEY in backup.read_text()
+        assert self.SECOND in backup.read_text()
 
-    def test_a_cfg_STILL_DECLARING_a_corridor_loads_and_warns(
-            self, tmp_path, capsys):
-        tile = self._tile_with_cfg(
-            tmp_path, KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n")
-        assert tile.read_from_config() == 1
         output = capsys.readouterr().out
-        assert "RETIRED" in output
-        assert OWNER_DECL in output
-        assert not hasattr(tile, KEY)
-        assert tile.auto_patch == "ICAO"
-
-    def test_the_warning_is_not_an_invalid_line_report(self, tmp_path,
-                                                       capsys):
-        """Before the registry knew it, an unknown key fell into the tile
-        reader's generic handler and vanished at verbosity 2.  A setting
-        that stopped being read must be VISIBLE."""
-        tile = self._tile_with_cfg(tmp_path, KEY + "=" + OWNER_DECL + "\n")
-        tile.read_from_config()
-        output = capsys.readouterr().out
+        assert len(re.findall("removed retired key " + KEY, output)) == 1
+        assert len(re.findall("removed retired key " + self.SECOND,
+                              output)) == 1
+        assert "WARNING" not in output
         assert "invalid line" not in output.lower()
-        assert len(re.findall("RETIRED", output)) == 1
 
-    # ── ONCE PER KEY PER FILE PER PROCESS (owner RULINGS 2026-09-12as (1))
-    def test_the_same_cfg_read_again_warns_ONCE(self, tmp_path, capsys):
-        """KCLT's ``Ortho4XP_+35-081.cfg`` carries two retired keys and is
-        read three times in a build (the overlay layers, plus a read
-        outside any tile context): the owner saw six WARNING lines for
-        two stale lines.  A retirement is news once."""
-        text = KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n"
-        build = tmp_path / "zOrtho4XP_+22+113"
-        build.mkdir()
-        (build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
-         ).write_text(text)
+    def test_the_same_cfg_read_again_says_NOTHING(self, tmp_path, capsys):
+        """KCLT's cfg is read three times per build.  The first read
+        deletes the lines; the next two have nothing to find."""
+        self._reset()
+        _, path = self._tile(
+            tmp_path, KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n")
         for _ in range(3):
-            CFG.Tile(22, 113, str(build)).read_from_config()
+            CFG.Tile(22, 113, str(path.parent)).read_from_config()
         output = capsys.readouterr().out
-        assert len(re.findall("RETIRED", output)) == 1
-        # …and the "delete the line" instruction is in that one line
-        assert "delete the line" in output
+        assert len(re.findall("removed retired key " + KEY, output)) == 1
+        assert "WARNING" not in output
+        assert KEY not in path.read_text()
 
-    def test_ANOTHER_cfg_carrying_it_is_its_own_news(self, tmp_path,
-                                                     capsys):
-        """The register is per FILE: a second tile whose cfg carries the
-        same stale line still tells its user."""
+    def test_ANOTHER_cfg_carrying_it_is_its_own_cleanup(self, tmp_path,
+                                                        capsys):
+        self._reset()
+        paths = []
         for lat, lon in ((22, 113), (23, 113)):
             build = tmp_path / ("zOrtho4XP_" + FNAMES.short_latlon(lat, lon))
             build.mkdir()
-            (build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg")
-             ).write_text(KEY + "=" + OWNER_DECL + "\n")
+            path = build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon)
+                            + ".cfg")
+            path.write_text(KEY + "=" + OWNER_DECL + "\n")
+            paths.append(path)
             CFG.Tile(lat, lon, str(build)).read_from_config()
-        assert len(re.findall("RETIRED", capsys.readouterr().out)) == 2
+        output = capsys.readouterr().out
+        assert len(re.findall("removed retired key " + KEY, output)) == 2
+        for path in paths:
+            assert KEY not in path.read_text()
 
-    def test_the_registers_key_is_the_pair(self):
-        """The unit under the two reads: same file + same key = silence,
-        a new key or a new file = news."""
-        CV._retired_cfg_warned.clear()
-        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/a.cfg")
-        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/a.cfg") is None
-        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/b.cfg")
-        assert CV.retired_cfg_key_warning_once("flat_site_declared", "", "/a.cfg")
-        # a silent retirement stays silent and is never registered
-        assert CV.retired_cfg_key_warning_once(
-            "airport_elevation_inset_resolution_m", "1", "/a.cfg") is None
-        assert (None, "x") not in CV._retired_cfg_warned
+    # ── a clean cfg is not touched ──────────────────────────────────
+    def test_a_cfg_with_no_retired_key_is_untouched_BYTE_FOR_BYTE(
+            self, tmp_path, capsys):
+        """No retired key, no rewrite: no reordering, no lost comments,
+        no .bak churn on every read of every tile cfg in a build."""
+        self._reset()
+        text = "# a comment\nauto_patch=ICAO\n\nmesh_zl=19\n"
+        tile, path = self._tile(tmp_path, text)
+        assert tile.read_from_config() == 1
+        assert path.read_text() == text
+        assert not Path(str(path) + ".bak").exists()
+        assert "removed retired key" not in capsys.readouterr().out
+
+    # ── a cfg that cannot be rewritten still builds ─────────────────
+    def test_a_READ_ONLY_cfg_reports_once_and_carries_on(self, tmp_path,
+                                                         capsys):
+        self._reset()
+        text = KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n"
+        tile, path = self._tile(tmp_path, text)
+        directory = path.parent
+        os.chmod(directory, 0o500)          # no new files: no atomic write
+        try:
+            assert tile.read_from_config() == 1
+            assert tile.auto_patch == "ICAO"      # the build carries on
+            # read again: the stale line is still there, and still silent
+            CFG.Tile(22, 113, str(directory)).read_from_config()
+            output = capsys.readouterr().out
+            assert len(re.findall("IGNORED", output)) == 1
+            assert "INFO" in output
+            assert "WARNING" not in output
+            assert path.read_text() == text     # untouched
+            assert not Path(str(path) + ".bak").exists()
+        finally:
+            os.chmod(directory, 0o700)
+
+    # ── the GLOBAL cfg: the writer drops it too ─────────────────────
+    def test_write_global_DROPS_retired_keys(self, tmp_path):
+        """``write_global`` preserves unknown keys — that pass-through is
+        what would have kept a retired key in the global cfg forever."""
+        self._reset()
+        path = tmp_path / "Ortho4XP.cfg"
+        path.write_text(KEY + "=" + OWNER_DECL + "\n"
+                        + self.SECOND + "=123.0\nmesh_zl=19\n"
+                        "some_unknown_key=keep me\n")
+        SM.write_global({"mesh_zl": "18"}, str(path))
+        after = path.read_text()
+        assert KEY not in after
+        assert self.SECOND not in after
+        assert "mesh_zl=18" in after
+        assert "some_unknown_key=keep me" in after   # unknown ≠ retired
+
+    def test_the_global_READER_cleans_the_global_cfg(self, tmp_path,
+                                                     capsys):
+        """The tile and global readers share ONE cleanup, so pointing the
+        cleanup at a global cfg does to it exactly what a tile read does
+        (the module-level global read runs at import and cannot be
+        re-triggered headlessly)."""
+        self._reset()
+        path = tmp_path / "Ortho4XP.cfg"
+        path.write_text(KEY + "=" + OWNER_DECL + "\nmesh_zl=19\n")
+        lines = CV.cleanup_retired_cfg_keys(str(path))
+        assert lines == ["removed retired key " + KEY + " from "
+                         + os.path.abspath(str(path))]
+        assert path.read_text() == "mesh_zl=19\n"
+        assert KEY in Path(str(path) + ".bak").read_text()
+
+    def test_the_cleanup_never_raises(self, tmp_path):
+        """A cleanup that throws is a cleanup that breaks builds."""
+        self._reset()
+        assert CV.cleanup_retired_cfg_keys(None) == []
+        assert CV.cleanup_retired_cfg_keys(str(tmp_path / "nope.cfg")) == []
+        assert CV.cleanup_retired_cfg_keys(str(tmp_path)) == []

@@ -128,6 +128,16 @@ jobs:
           PROJ_DATA: C:\nonexistent\proj
         run: dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --proj-selfcheck
 
+      # On Windows this app IS the engine, so it must decode LERC elevation
+      # assets itself (owner RULINGS 2026-09-13a (1)) — the same 64x64
+      # fixture check the mac engine freeze runs, one implementation.  A
+      # bundle missing tifffile / imagecodecs._lerc does not crash: it skips
+      # the source and silently degrades New Zealand's 1 m lidar, so it fails
+      # HERE.  tifffile and imagecodecs come from requirements.txt above (the
+      # filter drops only the dev/test tail, gdal and scikit-fmm).
+      - name: LERC self-check (frozen app)
+        run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe python
+
       - name: Version
         id: ver
         run: |
@@ -197,6 +207,16 @@ jobs:
           PROJ_LIB: /nonexistent/proj
           PROJ_DATA: /nonexistent/proj
         run: dist/Ortho4XP_Qt/Ortho4XP_Qt --proj-selfcheck
+
+      # On Linux this app IS the engine, so it must decode LERC elevation
+      # assets itself (owner RULINGS 2026-09-13a (1)) — the same 64x64
+      # fixture check the mac engine freeze runs, one implementation.  A
+      # bundle missing tifffile / imagecodecs._lerc does not crash: it skips
+      # the source and silently degrades New Zealand's 1 m lidar, so it fails
+      # HERE.  tifffile and imagecodecs come from requirements.txt above (the
+      # filter drops only the dev/test tail and gdal).
+      - name: LERC self-check (frozen app)
+        run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt python
 
       - name: Version
         id: ver

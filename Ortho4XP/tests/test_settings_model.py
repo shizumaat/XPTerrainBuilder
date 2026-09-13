@@ -86,12 +86,53 @@ def test_curated_tile_settings_include_airport_elevation_level():
 
 
 def test_retired_cfg_key_is_registered():
-    # The retired key is skipped silently by the global-config reader (its
+    # The retired key is skipped by the global-config reader, which then
+    # DELETES it from the file (owner RULINGS 2026-09-13a (2)); its
     # import-time read cannot be re-triggered headlessly without side
-    # effects, so this pins the registration the reader consults).
+    # effects, so this pins the registration the reader consults.
     import O4_Config_Utils as CFG
 
     assert "airport_elevation_inset_resolution_m" in CFG.RETIRED_CFG_KEYS
+
+
+def test_write_global_drops_retired_keys(tmp_path):
+    """The pass-through that preserves unknown keys must NOT preserve a
+    retired one: that is what would have kept a stale global key alive
+    through every save (owner RULINGS 2026-09-13a (2))."""
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text(
+        "airport_elevation_inset_resolution_m=3.0\n"
+        "flat_site_declared_elevation_m=123.0\n"
+        "mesh_zl=19\n"
+        "some_unknown_key=keep me\n"
+    )
+    SM.write_global({"mesh_zl": "18"}, str(cfg))
+    after = cfg.read_text()
+    assert "airport_elevation_inset_resolution_m" not in after
+    assert "flat_site_declared_elevation_m" not in after
+    assert "mesh_zl=18" in after
+    assert "some_unknown_key=keep me" in after    # unknown is not retired
+
+
+def test_the_cleanup_uses_THE_writer_and_keeps_the_backup(tmp_path):
+    """One writer: the reader's cleanup rewrites through
+    ``_write_atomic_with_backup``, so the stale lines survive in the
+    ``.bak`` exactly as every other cfg save leaves them."""
+    import O4_Cfg_Vars as CV
+
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text("airport_elevation_inset_resolution_m=3.0\nmesh_zl=19\n")
+    CV._retired_cfg_reported.clear()
+    lines = CV.cleanup_retired_cfg_keys(str(cfg))
+    assert lines == [
+        "removed retired key airport_elevation_inset_resolution_m from "
+        + os.path.abspath(str(cfg))
+    ]
+    assert cfg.read_text() == "mesh_zl=19\n"
+    assert "airport_elevation_inset_resolution_m" in (
+        tmp_path / "Ortho4XP.cfg.bak").read_text()
+    # a second read of the same file has nothing left to say
+    assert CV.cleanup_retired_cfg_keys(str(cfg)) == []
 
 
 def test_get_setting_unknown_raises():
@@ -496,3 +537,26 @@ def test_update_legacy_tile_settings_rewrites_canonical_in_place(tmp_path):
     assert SM.update_legacy_tile_settings(legacy, build) == canonical
     assert SM.read_tile_raw(45, 5, build) == {"default_zl": "16"}
     assert os.path.isfile(canonical + ".bak")   # the original, kept
+
+
+def test_the_backup_never_makes_the_cfg_VANISH(tmp_path, monkeypatch):
+    """The cleanup made every cfg READ a potential writer, and parallel
+    tile-build workers open the global cfg at the same moment.  If the
+    backup were a rename, the cfg would not exist for an instant — and a
+    reader that finds no global cfg RECREATES it from defaults, throwing
+    the user's settings away.  The file must exist at every step."""
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text("mesh_zl=19\n")
+    seen = []
+    real_replace = os.replace
+
+    def watched(src, dst):
+        seen.append(cfg.is_file())
+        real_replace(src, dst)
+        seen.append(cfg.is_file())
+
+    monkeypatch.setattr(os, "replace", watched)
+    SM.write_global({"mesh_zl": "18"}, str(cfg))
+    assert seen and all(seen), "the cfg vanished during the backup"
+    assert cfg.read_text() == "mesh_zl=18\n"
+    assert (tmp_path / "Ortho4XP.cfg.bak").read_text() == "mesh_zl=19\n"

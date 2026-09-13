@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
 from dataclasses import dataclass
 
 import O4_Cfg_Vars
@@ -301,10 +302,19 @@ def _default_global_cfg() -> str:
 def _write_atomic_with_backup(path: str, data: dict) -> None:
     """Write ``key=value`` lines to *path* atomically, backing up any prior file.
 
-    Parent directories are created as needed.  An existing file at *path* is
-    moved to ``path + ".bak"`` (via :func:`os.replace`) only after the new
-    content is fully staged in a temporary file, which is then moved into
-    place with :func:`os.replace`.
+    Parent directories are created as needed.  The new content is fully
+    staged in a temporary file, an existing file at *path* is COPIED to
+    ``path + ".bak"``, and only then is the staged file moved into place
+    with :func:`os.replace`.
+
+    THE BACKUP IS A COPY, NOT A RENAME (2026-09-13a): renaming the cfg
+    away first leaves *path* ABSENT for an instant, and a concurrent
+    reader that finds no global cfg does not wait — ``O4_Config_Utils``
+    RECREATES it from registry defaults, silently discarding the user's
+    settings.  Since the retired-key cleanup made every cfg READ a
+    potential writer, parallel tile-build workers open this file at the
+    same moment by construction.  Copy-then-replace leaves no instant
+    where the cfg does not exist.
     """
     directory = os.path.dirname(path)
     if directory and not os.path.isdir(directory):
@@ -314,7 +324,7 @@ def _write_atomic_with_backup(path: str, data: dict) -> None:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
     if os.path.isfile(path):
-        os.replace(path, path + ".bak")
+        shutil.copy2(path, path + ".bak")
     os.replace(tmp, path)
 
 
@@ -336,8 +346,11 @@ def write_global(values: dict, cfg_file: str | None = None) -> None:
     """Merge *values* into the global config file and write it back.
 
     Existing keys keep their order and any unknown keys are preserved
-    (pass-through); new keys are appended in *values* iteration order.  The
-    prior file is backed up to ``cfg_file + ".bak"``.
+    (pass-through) — with ONE exception: a RETIRED key is dropped, never
+    written back (owner RULINGS 2026-09-13a (2); preserving it is what
+    made a stale global key nag forever).  New keys are appended in
+    *values* iteration order.  The prior file is backed up to
+    ``cfg_file + ".bak"``.
 
     :raises ValueError: if any key in *values* is a known preference
         (scope ``"pref"``), which does not belong in the global config file.
@@ -352,6 +365,8 @@ def write_global(values: dict, cfg_file: str | None = None) -> None:
                 "config file" % (key,)
             )
     data = _parse_cfg(cfg_file)
+    for key in [k for k in data if k in O4_Cfg_Vars.retired_cfg_keys]:
+        del data[key]
     for key, value in values.items():
         data[key] = str(value)
     _write_atomic_with_backup(cfg_file, data)

@@ -107,7 +107,19 @@ def decode_blobs(blob_directory: str, npy_directory: str) -> int:
 
 def main(argv) -> int:
     """``[--lerc-decode] IN OUT`` — the file / directory kind of ``IN``
-    picks the decode; the GeoTIFF decode prints its tags as JSON."""
+    picks the decode; the GeoTIFF decode reports its tags as JSON, on
+    stdout AND beside the array as ``OUT.tags.json``.
+
+    Two channels because the frozen WINDOWED binary (the Qt app on
+    Windows and Linux is console-less, and on those platforms it is also
+    the engine — owner RULINGS 2026-09-13a (1)) can be started with
+    ``sys.stdout`` set to ``None``, where ``print`` writes nowhere at
+    all.  A lost tag line is not an error, it is an empty stdout the
+    caller cannot parse — and the caller's handler for that is to SKIP
+    the source, which is the silent 1 m-lidar degradation all over
+    again.  The sidecar is the channel that cannot go missing; the
+    caller deletes it with the array.
+    """
     args = [a for a in argv if a != "--lerc-decode"]
     if len(args) != 2:
         print("usage: --lerc-decode IN OUT", file=sys.stderr)
@@ -116,7 +128,11 @@ def main(argv) -> int:
     if os.path.isdir(source):
         decode_blobs(source, destination)
     else:
-        print(json.dumps(decode_tiff(source, destination)))
+        payload = json.dumps(decode_tiff(source, destination))
+        with open(destination + ".tags.json", "w") as handle:
+            handle.write(payload)
+        if sys.stdout is not None:
+            print(payload)
     return 0
 
 

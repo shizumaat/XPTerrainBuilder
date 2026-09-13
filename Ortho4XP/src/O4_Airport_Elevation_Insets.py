@@ -2591,7 +2591,15 @@ class StaticStacCatalogStrategy:
                     raise RuntimeError(
                         completed.stderr.strip()[-200:] or "decode failed"
                     )
-                tags = json.loads(completed.stdout)
+                payload = (completed.stdout or "").strip()
+                if not payload:
+                    # A console-less frozen binary (the Windows/Linux Qt
+                    # app, which is also the engine) can run with no
+                    # stdout at all: the worker writes the same JSON
+                    # beside the array (RULINGS 2026-09-13a (1)).
+                    with open(npy_path + ".tags.json") as handle:
+                        payload = handle.read()
+                tags = json.loads(payload)
                 scale = tags["scale"]
                 tiepoint = tags["tiepoint"]
                 values = numpy.load(npy_path)
@@ -2605,7 +2613,8 @@ class StaticStacCatalogStrategy:
                 )
                 continue
             finally:
-                for scratch in (tiff_path, npy_path):
+                for scratch in (tiff_path, npy_path,
+                                npy_path + ".tags.json"):
                     try:
                         os.remove(scratch)
                     except OSError:

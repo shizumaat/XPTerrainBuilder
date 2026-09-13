@@ -34,7 +34,7 @@ from O4_Cfg_Vars import (
     list_mesh_vars,
     list_tile_vars,
     list_vector_vars,
-    retired_cfg_key_warning_once,
+    cleanup_retired_cfg_keys,
     retired_cfg_keys,
 )
 
@@ -118,15 +118,10 @@ try:
         try:
             (var, value) = line.split("=", 1)
             if var in RETIRED_CFG_KEYS:
-                # A key from an older version: skipped (the next config
-                # write drops it), never reported as an invalid line.
-                # A LOUDLY retired key says so — a user whose setting
-                # stopped being read must be told, not silently ignored.
-                # ONCE per key per file per process (2026-09-12as (1))
-                retirement = retired_cfg_key_warning_once(
-                    var, value, global_cfg_file)
-                if retirement:
-                    UI.lvprint(0, "   WARNING:", retirement)
+                # A key from an older version: skipped here and DELETED
+                # from the file after the read (the cleanup below,
+                # owner RULINGS 2026-09-13a (2)) — never reported as an
+                # invalid line, never a warning.
                 continue
             value = config_compatibility(value)
             # Set all tile and app config variables
@@ -138,6 +133,11 @@ try:
             UI.lvprint(1, "Global config file contains an invalid line:", line)
             pass
     f.close()
+    # THE CLEANUP (owner RULINGS 2026-09-13a (2)): the global reader and
+    # the tile reader share it — a retired key is removed from the file
+    # it was read from and reported once, never warned about forever.
+    for _info in cleanup_retired_cfg_keys(global_cfg_file):
+        UI.lvprint(0, "   INFO:", _info)
 except FileNotFoundError:
     # Create a new global config file using default values
     os.makedirs(os.path.dirname(global_cfg_file), exist_ok=True)
@@ -256,9 +256,10 @@ class Tile:
 
     def _apply_config_file(self, config_file):
         """Overlay ONE ``key=value`` file onto this tile: only the keys the
-        file carries change.  Retired keys are skipped (loudly when their
-        retirement is loud), legacy quoting and foreign-fork values are
-        normalised, unknown keys are ignored at verbosity 2.
+        file carries change.  Retired keys are skipped and then DELETED
+        from the file (owner RULINGS 2026-09-13a (2)), legacy quoting and
+        foreign-fork values are normalised, unknown keys are ignored at
+        verbosity 2.
 
         :returns: 1 on success, 0 when the file could not be read
         """
@@ -273,16 +274,12 @@ class Tile:
                 try:
                     (var, value) = line.split("=", 1)
                     if var in retired_cfg_keys:
-                        # RETIRED: a tile cfg carrying it loads, with a
-                        # loud line when the retirement is loud.  The
-                        # generic handler below would have swallowed it
-                        # as an unknown key at verbosity 2 — a setting
-                        # that stopped being read must be visible.
-                        # ONCE per key per file per process (12as (1))
-                        retirement = retired_cfg_key_warning_once(
-                            var, value, config_file)
-                        if retirement:
-                            UI.lvprint(0, "   WARNING:", retirement)
+                        # RETIRED: a tile cfg carrying it loads, and the
+                        # cleanup after the read DELETES the line (owner
+                        # RULINGS 2026-09-13a (2)).  The generic handler
+                        # below would have swallowed it as an unknown key
+                        # at verbosity 2 — a setting that stopped being
+                        # read must be visible, once.
                         continue
                     # compatibility with config files from version <= 1.20
                     value = config_compatibility(value)
@@ -320,6 +317,11 @@ class Tile:
                         UI.vprint(2, e)
                         pass
             f.close()
+            # THE CLEANUP (owner RULINGS 2026-09-13a (2)), the same one
+            # the global reader runs: a retired key is deleted from the
+            # cfg it was read from and reported once as INFO.
+            for info in cleanup_retired_cfg_keys(config_file):
+                UI.lvprint(0, "   INFO:", info)
             return 1
         except:
             UI.lvprint(

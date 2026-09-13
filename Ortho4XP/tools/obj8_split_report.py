@@ -75,7 +75,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 import numpy as np                                             # noqa: E402
 
+from auto_patch_v2.airport import anchor_rule as _ar           # noqa: E402
 from auto_patch_v2.airport import obj8                         # noqa: E402
+from auto_patch_v2.airport import placement_boxes as PB        # noqa: E402
 from auto_patch_v2.airport import placement_plan as PP         # noqa: E402
 
 
@@ -103,6 +105,18 @@ def surface_from_graded(path: str):
         return [None if not np.isfinite(q) else float(q) for q in z]
 
     sampler.many = many                       # type: ignore[attr-defined]
+
+    # §17 (owner RULINGS 2026-09-12am (2)): THE FACE ROLE UNDER A POINT,
+    # off the SAME parsed document — the sampler answers how HIGH the
+    # design surface is there and this answers WHAT IT IS, which is what
+    # says whether a foot standing on it is judged at the motion
+    # threshold or the visual one.  Carried on the sampler beside
+    # ``many`` so no caller's tuple changes.
+    from auto_patch_v2.law import tables as _T
+    _law = _T.load_default()
+    sampler.roles = PB.graded_roles_from_doc(          # type: ignore[attr-defined]
+        d, rank=lambda r: _T.authority_rank(_law, r))
+    sampler.rolled_on = frozenset(_T.rolled_on_roles(_law))   # type: ignore[attr-defined]
 
     # ONE derivation site for pads/rims (lane v2planfix): the shipped
     # engine path calls the same function, so the tool and the build
@@ -626,8 +640,30 @@ def _main() -> int:
     _plan_rows = [q.to_dict() for q in _sp] + [q.to_dict() for q in _wh]
     v15 = PC.census_v15(_plan_rows, ground_tol_m=tol_m)
     v16b = PC.census_v16b(_plan_rows, sampler, split_tol_m=tol_m)
+    # §17's MOTION reading (owner RULINGS 2026-09-12am (2)): every
+    # WRITTEN body's ground-contact feet, the graded face ROLE under each
+    # of them, and §7's own float there — read on the SplitSet, which is
+    # where the feet are (the plan publishes their COUNT, not their
+    # points).  The projection is the record's own fields; the reading is
+    # the library's.
+    # the MOTION reading is ``placement_census``'s own (the census front
+    # door); ``PC`` above is the carrier module's re-export surface, which
+    # this lane does not extend.
+    from auto_patch_v2.airport import placement_census as PCM
+    motion = PCM.census_motion(
+        [{"res": b.new_resource or s.resource, "cls": b.body_class,
+          "anchor_lat": b.anchor.lat, "anchor_lon": b.anchor.lon,
+          "anchor_z": b.anchor.surface_z, "y_zero": b.anchor.y_zero,
+          "reason": b.anchor.reason, "feet": b.feet}
+         for s in ss.all for b in s.bodies],
+        sampler, sampler.roles, rolled_on=sampler.rolled_on,
+        motion_step_m=_law.tables.emit.cockpit.motion_step_m,
+        visual_m=_law.tables.emit.cockpit.visual_m,
+        band_m=band_m, exempt_classes=frozenset({_ar.BASIN}))
     for line in PC.cockpit_block_lines(PC.cockpit_block(
-            splits=_plan_rows, v15=v15, v16b=v16b)):
+            splits=_plan_rows, v15=v15, v16b=v16b, motion=motion)):
+        print(line)
+    for line in PCM.census_motion_lines(motion):
         print(line)
     for line in PC.census_v14_lines(v14, elevated_base_m=rb.elevated_base_m,
                                     split_tol_m=tol_m):

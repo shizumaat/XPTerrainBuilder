@@ -23,7 +23,8 @@ __all__ = ["hull_of", "box_of", "overlap", "overlap_m2", "box_area_m2",
            "ground_at_box", "ground_samples", "ground_under", "contact_ground",
            "foot_box_index", "CONTACT_PTS_MAX",
            "anchor_ground_off", "stands_over_rank", "FOOT_BOXES_MAX",
-           "GROUND_OFF_FEET_MAX"]
+           "GROUND_OFF_FEET_MAX",
+           "GradedRoles", "graded_roles_from_doc"]
 
 
 # ── plan boxes ───────────────────────────────────────────────────────────
@@ -358,3 +359,160 @@ def contact_ground(surface: _t.Callable[[float, float], "float | None"],
         if zs:
             return float(zs[len(zs) // 2])
     return ground_under(surface, foot_boxes(gboxes), box)
+
+
+# ── §17: THE FACE ROLE UNDER A POINT (owner RULINGS 2026-09-12am (2)) ────
+#
+# The object stage could not read MOTION because it could not answer one
+# question: WHAT IS THE GRADED FACE UNDER THIS FOOT?  ``surface(lat, lon)``
+# gives the height and nothing else, and §31 (1)'s motion threshold is
+# owed only where the aircraft ROLLS — an apron, a taxiway, a runway.
+# This is that reading, and it is a SIBLING of the surface sampler, not a
+# second parser: both are built from the ONE parsed ``<ICAO>.graded.json``
+# document the caller already holds (``placement_plan.pads_rims_from_
+# graded_doc`` reads its ``building`` faces out of the same dict), and
+# nothing here opens a file.
+
+#: A ring is stored as its ``(lat, lon)`` vertices, closed implicitly.
+_Ring = _t.Tuple[_t.Tuple[float, float], ...]
+
+
+class GradedRoles:
+    """The graded surface's FACE ROLE at a point, senior face first.
+
+    Faces OVERLAP — LEMD's T4S pad ``building12`` sits inside apron
+    ``pav12``, and a point in both is owned by the SENIOR of the two
+    (``precedence.toml``'s authority order, the same answer 12ak's
+    ``row_roles`` gives a shared vertex).  The seniority is injected as
+    ``rank(role) -> int`` (``law.tables.authority_rank``) so no order is
+    written here.
+
+    The index is the faces' bounding boxes as numpy arrays: a query
+    batch is masked against all of them at once and the ray cast then
+    runs only over the points a face's box admits.  Not a quadtree — at
+    airport scale (LEMD 1,015 faces) the box mask is one vector op and
+    the cast is what costs, and the cast cannot be avoided."""
+
+    def __init__(self, faces: _t.Sequence[tuple], rank=None) -> None:
+        import numpy as _np
+        self._np = _np
+        self.faces = tuple(faces)
+        self.rank = rank
+        self._ranks = _np.asarray(
+            [0 if rank is None else int(rank(f[0])) for f in self.faces],
+            dtype=_np.int32)
+        if self.faces:
+            self._box = _np.asarray(
+                [[min(p[0] for p in f[2]), min(p[1] for p in f[2]),
+                  max(p[0] for p in f[2]), max(p[1] for p in f[2])]
+                 for f in self.faces], dtype=float)
+        else:
+            self._box = _np.zeros((0, 4), dtype=float)
+        # THE GRID (55 m cells over the faces' own extent): a body asks
+        # for the role under its handful of feet, and without it every
+        # such call walks the 1,015 faces whose BOX might contain them —
+        # a runway's box is 4 km long and diagonal, so half the airport
+        # is "near" everything.  Cells hold face ids by BOX, which is
+        # still a filter and not an answer; the ray cast decides.
+        self._cell = 5e-4
+        self._grid: dict[tuple[int, int], list[int]] = {}
+        for k, b in enumerate(self._box):
+            for ci in range(int(b[0] // self._cell), int(b[2] // self._cell) + 1):
+                for cj in range(int(b[1] // self._cell),
+                                int(b[3] // self._cell) + 1):
+                    self._grid.setdefault((ci, cj), []).append(k)
+
+    def _near(self, lat, lon):
+        """The face ids whose box may hold any point of this batch."""
+        np = self._np
+        c = self._cell
+        i0, i1 = int(lat.min() // c), int(lat.max() // c)
+        j0, j1 = int(lon.min() // c), int(lon.max() // c)
+        if (i1 - i0 + 1) * (j1 - j0 + 1) > 4096:      # a batch spanning the
+            bx = self._box                            # whole field: the box
+            return np.nonzero((bx[:, 0] <= lat.max())  # filter is cheaper
+                              & (bx[:, 2] >= lat.min())
+                              & (bx[:, 1] <= lon.max())
+                              & (bx[:, 3] >= lon.min()))[0]
+        out: set[int] = set()
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                out.update(self._grid.get((i, j), ()))
+        return sorted(out)
+
+    # the ray cast, over MANY points at once
+    def _inside(self, ring: _Ring, lat, lon):
+        np = self._np
+        r = np.asarray(ring, dtype=float)
+        a_la, a_lo = r[:, 0], r[:, 1]
+        b_la, b_lo = np.roll(a_la, 1), np.roll(a_lo, 1)
+        keep = a_la != b_la
+        a_la, a_lo = a_la[keep], a_lo[keep]
+        b_la, b_lo = b_la[keep], b_lo[keep]
+        inside = np.zeros(lat.shape, dtype=bool)
+        # chunked so an edge-by-point matrix never grows without bound
+        step = max(1, int(4_000_000 // max(1, a_la.size)))
+        for i in range(0, lat.size, step):
+            la = lat[i:i + step][None, :]
+            lo = lon[i:i + step][None, :]
+            cross = (a_la[:, None] > la) != (b_la[:, None] > la)
+            x = (a_lo[:, None] + (la - a_la[:, None])
+                 * ((b_lo - a_lo) / (b_la - a_la))[:, None])
+            inside[i:i + step] = (cross & (lo < x)).sum(axis=0) % 2 == 1
+        return inside
+
+    def roles_many(self, las: _t.Sequence[float], los: _t.Sequence[float]
+                   ) -> list["str | None"]:
+        """The senior face role under each point; ``None`` on no face."""
+        np = self._np
+        lat = np.asarray(las, dtype=float)
+        lon = np.asarray(los, dtype=float)
+        out: list[str | None] = [None] * lat.size
+        if not self.faces or lat.size == 0:
+            return out
+        best = np.full(lat.size, 1 << 30, dtype=np.int64)
+        # THE INDEX, both ways round: the QUERY's own box cuts the face
+        # list before the loop runs at all.  A body's feet are a handful
+        # of points inside one apron, and the anchor rule asks this once
+        # per body (LEMD 11k bodies) — walking 1,015 faces per call was
+        # 33 s of the plan stage; walking the two the box admits is 50 us.
+        bx = self._box
+        near = self._near(lat, lon)
+        for k in near:
+            role, _ref, ring, holes = self.faces[int(k)]
+            rk = int(self._ranks[k])
+            b = bx[k]
+            cand = np.nonzero((lat >= b[0]) & (lat <= b[2]) & (lon >= b[1])
+                              & (lon <= b[3]) & (best > rk))[0]
+            if cand.size == 0:
+                continue
+            hit = self._inside(ring, lat[cand], lon[cand])
+            for h in holes:
+                if hit.any():
+                    hit &= ~self._inside(h, lat[cand], lon[cand])
+            for i in cand[hit]:
+                best[i] = rk
+                out[int(i)] = role
+        return out
+
+    def role(self, lat: float, lon: float) -> "str | None":
+        return self.roles_many([lat], [lon])[0]
+
+
+def graded_roles_from_doc(d: _t.Mapping[str, _t.Any], rank=None) -> GradedRoles:
+    """:class:`GradedRoles` from a parsed ``<ICAO>.graded.json`` document.
+
+    The SAME document ``pads_rims_from_graded_doc`` reads: the caller
+    parses once and builds both.  A ring shorter than 3 kept vertices is
+    not a ring and is dropped, exactly as there."""
+    by_id = {v[0]: (v[1], v[2]) for v in d["vertices"]}
+    faces = []
+    for f in d.get("faces", ()):
+        ring = tuple(by_id[i] for i in f["ring"] if i in by_id)
+        if len(ring) < 3:
+            continue
+        holes = tuple(h for h in (tuple(by_id[i] for i in hh if i in by_id)
+                                  for hh in f.get("holes", ()) or ())
+                      if len(h) >= 3)
+        faces.append((str(f["role"]), str(f.get("ref", "")), ring, holes))
+    return GradedRoles(faces, rank)

@@ -208,9 +208,38 @@ class BodyGeometry:
     origin_lon: float
 
 
+def _all_on_rolled(cands: _t.Sequence[tuple[float, float, float, float]],
+                   surface: Surface, roles, rolled_on) -> bool:
+    """§17: does EVERY ground contact of this body stand on a face the
+    aircraft ROLLS on?
+
+    ``roles`` answers ``roles_many(lats, lons)`` with the senior graded
+    face role under each point (:class:`placement_boxes.GradedRoles`) and
+    ``rolled_on`` is ``law.tables.rolled_on_roles`` — both CARRIED ON THE
+    SURFACE SAMPLER (``surface.roles`` / ``surface.rolled_on``, beside
+    ``surface.many``) so that no caller between here and the one place
+    that builds the sampler has to grow an argument.  A caller with no
+    roles reads FALSE and the low-side rule stands: no reading is no
+    evidence.
+
+    Asked ONLY in the low-side branch (LEMD: 782 of 11,133 bodies), which
+    is what keeps it off the plan stage's critical path."""
+    if roles is None:
+        roles = getattr(surface, "roles", None)
+    if roles is None:
+        return False
+    if rolled_on is None:
+        rolled_on = getattr(surface, "rolled_on", None)
+    if not rolled_on or not cands:
+        return False
+    got = roles.roles_many([c[0] for c in cands], [c[1] for c in cands])
+    return all(r in rolled_on for r in got)
+
+
 def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
-               *, merged_into: str = "", tol_m: float = 0.0) -> Anchor:
+               *, merged_into: str = "", tol_m: float = 0.0,
+               roles=None, rolled_on=None) -> Anchor:
     """THE GENERIC RULE (module doc; 11e (2)) for one body.
 
     ``geom.parts`` are its ground-contact components
@@ -276,6 +305,23 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     z_best = best[3] - best[2]
     residual = max(abs(z - y - z_best) for _la, _lo, y, z in cands)
     if tol_m > 0.0 and residual > tol_m:
+        # §17 / owner RULINGS 2026-09-12am (2): A BODY WHOSE EVERY FOOT
+        # STANDS ON ROLLED-ON PAVEMENT KEEPS THE MEDIAN.  The low-side
+        # foot buys ZERO FLOAT at the low corner and pays the body's whole
+        # relief as float at the high one; where the aircraft rolls, the
+        # bar is 0.05 m and the pavement is graded flat to 1.5 %, so the
+        # relief is small and SHARED: 5 cm of burial one side and 5 cm of
+        # float the other reads better than 10 cm of float on the high
+        # side.  Measured on the 1.0.320 LEMD frame before adopting
+        # (§17 MEASURED): over the 309 bodies whose feet all stand on
+        # pavement, the worst foot per body summed 168.8 -> 123.7 m.
+        # Off pavement the low-side rule stands unchanged — 11e (2)'s
+        # reading, where the eye and not the wheel is the judge.
+        if _all_on_rolled(cands, surface, roles, rolled_on):
+            return Anchor(body_class, best[0], best[1], best[2],
+                          f"median foot: every foot on rolled-on pavement "
+                          f"(§17, motion; authored relief {residual:.2f} m)",
+                          best[3])
         # 11e (2): authored relief beyond the body's skirt — no point on
         # the footprint stands where the surface equals the zero
         low = min(cands, key=lambda c: (c[3], c[2], c[0], c[1]))

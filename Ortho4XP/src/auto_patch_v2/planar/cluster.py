@@ -30,6 +30,13 @@ of the plan instead.  One law, two readers; a second derivation of "what
 is one terminal" is the census-wrapper defect in geometry
 (RULINGS 2026-08-30l).
 
+**WHAT THIS MODULE OWNS.**  The DERIVATION only.  The pad faces the
+union stands on, the union polygon and the apron reach are
+``constraints/pads.py``'s: ``constraints`` may not import ``planar``
+(the layering twin), so the clusters travel the way the pack partition
+and the groups already do — computed once at load and carried on
+``Airport.clusters``, read from there by every consumer.
+
 **THE PAD IS THE PADS.**  §30 (4) says "one ``building`` pad over the
 family's footprint union".  What this module returns is the set of
 emitted rigid FACES the union stands on, and
@@ -47,15 +54,11 @@ from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Polygon, box as _box
-
 from ..airport.placement_family import PlanCluster, plan_clusters
 from ..law import Law
 from ..model.airport import Airport
-from ..model.planar import PlanarMap
 
-__all__ = ["cluster_min_m2", "clusters", "cluster_pad_faces",
-           "cluster_polys", "PlanCluster"]
+__all__ = ["cluster_min_m2", "clusters", "PlanCluster"]
 
 #: The derivation is O(bodies^2) inside a unit and the constraint pass
 #: asks for it once per generator.  A tiny memo keyed on the airport
@@ -71,15 +74,20 @@ def cluster_min_m2(law: Law) -> float:
     return float(law.tables.structures.placement.cluster_pad_min_m2)
 
 
-def _contact_eps_m(law: Law) -> float:
-    return float(law.tables.structures.placement.contact_eps_m)
+def _touch_m(law: Law) -> float:
+    """§16g (1) (owner RULINGS 2026-09-13bo): ``[placement]
+    footprint_touch_m`` — THE CLUSTER IS THE FOOTPRINT UNIT, so the
+    design surface groups by the same 0.5 m touch the object stage
+    binds by.  Until 13bo this read ``contact_eps_m`` (2 mm) and the two
+    sides would have grouped differently."""
+    return float(law.tables.structures.placement.footprint_touch_m)
 
 
 def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     """§16f (7)'s clusters of this airport's pack, or ``()`` where the
     law is disarmed or no pack was read."""
     min_m2 = cluster_min_m2(law)
-    eps = _contact_eps_m(law)
+    eps = _touch_m(law)
     part = getattr(airport, "partition", None)
     if min_m2 <= 0.0 or eps <= 0.0 or part is None or not getattr(part, "units", ()):
         return ()
@@ -90,57 +98,4 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     got = tuple(plan_clusters(part, eps, min_m2))
     _MEMO.append((key, airport, min_m2, eps, got))
     del _MEMO[:-_MEMO_MAX]
-    return got
-
-
-def cluster_polys(airport: Airport, law: Law) -> list[tuple[PlanCluster, Polygon]]:
-    """Each cluster with its footprint union as ONE plan polygon in the
-    PLANAR FRAME's metres — the union of its part boxes, which is exactly
-    what :func:`airport.placement_family.union_area_m2` measures the area
-    of.  The reach and the face selection both read it."""
-    out: list[tuple[PlanCluster, Polygon]] = []
-    to_xy, _to_ll = airport.frame.transformers()
-    for c in clusters(airport, law):
-        rects = []
-        for la0, lo0, la1, lo1 in c.boxes:
-            x0, y0 = to_xy(lo0, la0)
-            x1, y1 = to_xy(lo1, la1)
-            if x1 > x0 and y1 > y0:
-                rects.append(_box(x0, y0, x1, y1))
-        if not rects:
-            continue
-        from shapely.ops import unary_union
-        u = unary_union(rects)
-        if u.is_empty:
-            continue
-        out.append((c, u))
-    return out
-
-
-def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport
-                      ) -> dict[str, list[int]]:
-    """``cluster id -> the rigid FACE ids its footprint union stands on``,
-    in face-id order.  A cluster holding fewer than two faces still counts
-    (its one pad is already one plane) and is kept, so every reader —
-    the plane, the apron reach, the publication — sees the same set.
-
-    The test is INTERSECTION with the union itself, never with its hull:
-    a terminal's hull spans the apron between its concourses and would
-    swallow every stand's own structure (measured at KCLT: the hull is
-    864,000 m2 against a 379,000 m2 union)."""
-    got: dict[str, list[int]] = {}
-    pairs = cluster_polys(airport, law)
-    if not pairs:
-        return got
-    from ..constraints.pads import _pad_polys          # ONE derivation
-    polys = _pad_polys(planar, law)
-    if not polys:
-        return got
-    from shapely.strtree import STRtree
-    tree = STRtree([p[3] for p in polys])
-    for c, u in pairs:
-        hit = sorted({int(polys[int(i)][0])
-                      for i in tree.query(u, predicate="intersects")})
-        if hit:
-            got[c.id] = hit
     return got

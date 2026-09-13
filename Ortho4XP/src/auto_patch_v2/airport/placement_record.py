@@ -13,6 +13,7 @@ import dataclasses as _dc
 import typing as _t
 
 from . import anchor_rule as _ar
+from . import footprint_unit as _fu
 from . import obj8_split as _split
 from ..model.rebake import Member
 
@@ -111,6 +112,14 @@ class Body:
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "ground_off": self.ground_off,
                 "family_of": a.family,
+                # §16g (1) (owner RULINGS 2026-09-13bo): the FOOTPRINT
+                # UNIT this body belongs to.  The same value as
+                # ``family_of`` — one relation with two names while the
+                # readers of §16f's are still on the tree — published
+                # apart so a census can tell which law seated the body.
+                "unit_of": (a.family
+                            if str(a.reason).startswith(_fu.UNIT_REASON)
+                            else ""),
                 "fill": self.fill,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts],

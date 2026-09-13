@@ -316,7 +316,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _bank = float(law.tables.emit.design.bank_slope)
     _groups = _derive_groups(_part, _span_max(law), _bank,
                              dem_at=_dem_at, bank_slope=_bank)
-    airport = _dc.replace(airport, partition=_part, groups=_groups)
+    # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
+    # item 1, 13bo): the FOOTPRINT UNITS whose union passes
+    # ``[placement] cluster_pad_min_m2``, derived from the same partition
+    # so the design surface's pad and the object stage's unit are one
+    # relation.  Carried on the airport because ``constraints`` may not
+    # import ``planar``.
+    from ..planar.cluster import clusters as _derive_clusters
+    _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
+    airport = _dc.replace(airport, partition=_part, groups=_groups,
+                          clusters=_clusters)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "

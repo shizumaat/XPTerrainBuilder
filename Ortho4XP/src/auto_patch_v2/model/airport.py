@@ -294,3 +294,11 @@ class Airport:
     #: ``GroupSet``, owner RULINGS 2026-09-11i) — the ONE derivation, read
     #: by the pad law and by the placement plan.  Same ``None`` rule.
     groups: _t.Any = None
+    #: §16g / §30 (4) THE FOOTPRINT UNITS large enough to be TERMINAL
+    #: CLUSTERS (``planar/cluster.py`` ``PlanCluster``, owner RULINGS
+    #: 2026-09-13bj item 1 / 13bo), derived from the partition at load
+    #: beside the groups — the design surface gives each ONE pad and
+    #: flattens the apron within ``[design] cluster_apron_reach_m`` of it.
+    #: ``constraints`` may not import ``planar``, so the relation travels
+    #: here.  Same ``None`` / empty rule as ``groups``.
+    clusters: _t.Any = None

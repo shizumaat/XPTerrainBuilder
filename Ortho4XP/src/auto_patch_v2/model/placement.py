@@ -239,6 +239,8 @@ class Body:
     #: one zero (``airport/placement_family``), else ``""``.  A carried
     #: body takes its carrier's anchor and so publishes its family.
     family_of: str = ""
+    #: §16g (1) (owner RULINGS 2026-09-13bo): the FOOTPRINT UNIT
+    unit_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -255,6 +257,7 @@ class Body:
                 "fill": self.fill, "ground_off": self.ground_off,
                 "datum": self.datum, "bridge_of": self.bridge_of or None,
                 "family_of": self.family_of or None,
+                "unit_of": self.unit_of or None,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts]}
 
@@ -285,7 +288,8 @@ class Body:
                          for q in d.get("geom_pts", ()) or ()),
                    bool(d.get("datum", False)),
                    str(d.get("bridge_of") or ""),
-                   str(d.get("family_of") or ""))
+                   str(d.get("family_of") or ""),
+                   str(d.get("unit_of") or ""))
 
 
 @_dc.dataclass(frozen=True)

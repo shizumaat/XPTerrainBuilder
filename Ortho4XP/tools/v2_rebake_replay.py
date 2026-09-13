@@ -404,6 +404,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # dropper so a src predating the key still replays
         cluster_min_m2=getattr(law.tables.structures.placement,
                                "cluster_pad_min_m2", None),
+        touch_m=getattr(law.tables.structures.placement,
+                        "footprint_touch_m", None),
+        connector_span_m=getattr(law.tables.structures.placement,
+                                 "connector_span_m", None),
         # §16e (6): the deck end line's LANDWARD WALK, through the same
         # dropper — a src predating the rule takes neither key
         abutment_step_m=getattr(law.tables.structures.bridge,

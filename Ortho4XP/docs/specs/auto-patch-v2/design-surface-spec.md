@@ -8313,3 +8313,45 @@ BARS: SPJC underpasses 19 → taxiway-only (named); tunnels at the owner's four
 points 0; the four jetway `bridge_deck:` faces gone; −641/−2525 south mouths
 built at −12.0202431, −77.129278; LEMD −6028's mouth by the same rule (dry);
 LEMD F-6 and KCLT taxiway U unchanged; ONE SPJC build; suite twice.
+
+**WHAT LANDED.**  `planar/cluster.py` (NEW) derives the clusters from the
+pack partition at LOAD, beside the groups (`pipeline/build.py`), and they
+travel on `Airport.clusters` because `constraints` may not import `planar`
+(the layering twin).  `constraints/cluster_pad.py` (NEW, beside
+`pad_frontage_gs.py` and for the same 1,000-line reason) holds both rows:
+`plane_groups` — the groups a pad PLANE is priced over, a cluster's faces
+as ONE entry, read by `pads._pad_rows` (`pad_flats` + the hard 1 % ceiling)
+and by `pads.pad_frontage_level` — and `cluster_apron_level`, the reach.
+The derivation itself is `airport.placement_family.plan_clusters`, the same
+`_clusters` law §16g binds the objects with, at the same
+`[placement] footprint_touch_m`.
+
+**THE FRAME.**  ONE KCLT build through the harness, tag
+`v2clusterpadKCLT2`, rc 0, **477.2 s**, status feasible, `body_sha
+9f056cce3dc3`, `[harness] shared repo UNCHANGED`.  It earned NO ledger
+entry: the code tree moved between key time and store time (the §16g (4)
+edit), so the artifact ledger refused the store — correctly.  The "before"
+column is the registered `v2familyKCLTframe` graded document (base
+`864e7577`), which is NOT a matched arm: the base moved a full day of main
+between them.  **A matched design base arm was NOT built** and every design
+number below carries that confound.
+
+| bar | before (`v2familyKCLTframe` graded) | after (`v2clusterpadKCLT2`) |
+|---|---|---|
+| the cluster, named | — | `unit:31#0`, 19 members (`paredes_*`, `techos_*`, `suelos_interiores_charlotte`, `vidrios_*`), footprint union **378,982 m²**, on `building80` + `building91`; and `unit:30#0`, 17 members, 15,334 m² |
+| the CLUSTER PAD's plane | `building80` 221.15 … 222.32 (spread 1.17), `building91` **217.89** — 4.43 m below it | `building80` 221.68 … 223.14, `building91` **222.27 … 222.28**; union spread **4.43 → 1.46 m** — MET in kind: the pad inside the terminal no longer sits 3.6 m under the terminal |
+| `building80`'s own flatness | spread 1.17 m | **1.46 m** — WORSE by 0.29 m, and named: the plate now carries `building91`'s frontage and the reach beside its own |
+| the apron within `cluster_apron_reach_m` (60 m) | 70 vertices, median \|apron − pad\| **0.26 m**, max 1.16, **0** within 0.05 m | 90 vertices, median **0.16 m**, max 1.77, **38 of 90 within 0.05 m** — the bar (≤ 0.05 m inside the reach) is MET for 38 and NOT for the rest; the residue is the feasibility clause and the taxi-catchment exclusion |
+| the taxiway family | — | NOT measurable without a matched base build; what IS exact is that no taxi- or runway-family vertex is ever a FOLLOWER of a reach row, and no apron vertex nearer such a face than the pad is in the population at all (both twinned) |
+| solve | — | feasible, 593 active-set rounds, 93/238,729 hard rows violated (max 0.0877 m), `pad_flat` verify rows 47, total 420.13 s |
+
+**THE TAXI-CATCHMENT CLAUSE, AND WHAT MEASURED IT.**  On the twin fixture
+the reach lifted an apron and the taxiway welded to it followed by **2.20 m**
+through the apron's own no-step law — the reach's rows never touched a taxi
+vertex.  Striking the band's own vertices is therefore not enough, and an
+apron vertex nearer a taxi- or runway-family face than the cluster pad is
+now excluded outright.  On the fixture that arm read **3.51 m** instead of
+2.20 — WORSE — but the fixture's taxi face carries no datum of its own and
+swings metres between arms, so it measures the fixture and not the law.  The
+clause is KEPT because it can only ever SHRINK what the reach touches, and
+it is named here as UNMEASURED at an airport.

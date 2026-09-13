@@ -14,7 +14,8 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
-from . import (apron, ceiling, eat, flat_site, foot_rows, groundside,
+from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
+               groundside,
                junction_mesh,
                no_step, pad_frontage_gs, pads,
                proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
@@ -75,7 +76,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # TERMINAL CLUSTER's pad takes the pad's plane as its target, at the
     # law's own weight — the caps and the taxi family still win, and the
     # reach never touches a taxiway band's own vertices.
-    ("cluster_apron_level", pads.cluster_apron_level),
+    ("cluster_apron_level", cluster_pad.cluster_apron_level),
     ("frontage_near_miss", pads.frontage_near_miss),
     # §28 THE GROUNDSIDE FRONTAGE TAKES THE PAD'S EDGE LEVEL (owner RULINGS
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage

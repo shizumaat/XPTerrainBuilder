@@ -61,7 +61,7 @@ from . import placement_boxes as _pb
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "bind_families",
            "census_families", "census_families_lines",
-           "union_area_m2", "PlanCluster", "plan_clusters",
+           "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
            "cluster_plane"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
@@ -120,7 +120,8 @@ class Family:
                 f"{len(self.apart)} member(s) cut apart")
 
 
-def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
+def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
+              min_members: int = FAMILY_MIN_MEMBERS
               ) -> "tuple[list[list[int]], dict[int, set[int]]]":
     """§16f (1)(b): the unit's footed bodies grouped into CONNECTED PLAN
     CLUSTERS — two bodies are in contact where any pair of their PART
@@ -146,7 +147,7 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
             if c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
             and (c.part_boxes or c.box)]
     adj: dict[int, set[int]] = {}
-    if len(live) < FAMILY_MIN_MEMBERS:
+    if len(live) < 2:
         return [], adj
     boxes = {i: (list(cands[i].part_boxes) or [cands[i].box]) for i in live}
     hull = {i: _pb.hull_of(boxes[i]) for i in live}
@@ -163,8 +164,14 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
     # ordered by the hull's south edge so the sweep stops (§14 (3)'s own
     # shape; OTHH's clutter members are thousands of boxes each)
     order = sorted(live, key=lambda i: hull[i][0])
+    # THE SWEEP CARRIES THE TOLERANCE.  At §16f's millimetres the slack
+    # rounds away; at §16g's ``footprint_touch_m`` (0.5 m) it does not,
+    # and without it the sweep BREAKS on the very pair the law binds — a
+    # pier 0.3 m north of its deck starts past the deck's north edge
+    # (measured, the §16g twin).
+    _slack = eps_m / 111_132.0
     for ai, a in enumerate(order):
-        north = hull[a][2]
+        north = hull[a][2] + _slack
         for b in order[ai + 1:]:
             if hull[b][0] > north:
                 break
@@ -185,8 +192,44 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
     # one member's own bodies are already one object to §14 (3) / §16c
     return ([sorted(v) for _k, v in sorted(out.items(),
                                            key=lambda kv: min(kv[1]))
-             if len({cands[i].member for i in v}) >= FAMILY_MIN_MEMBERS], adj)
+             if (len(v) >= 2 if min_members <= 1
+                 else len({cands[i].member for i in v}) >= min_members)], adj)
 
+
+
+def bodies_of_plan(plan: _t.Any
+                   ) -> "tuple[dict[tuple[int, int, int], tuple[int, ...]], dict[int, tuple[int, int, int]]]":
+    """``(body -> its part ids, part id -> its body)`` over a whole plan,
+    from ``placement_plan._bodies_of`` — §9's own body law, the
+    intra-placement ε-contact component, with a LINE part binding
+    nothing.  ONE derivation: the split writer, ``planar/group.py`` (which
+    re-exports this) and §16g's footprint unit cut the same bodies or they
+    are not talking about the same object.
+
+    It lives in ``airport`` because §16g needs it at LOAD time and
+    ``airport`` may not import ``planar``."""
+    from .placement_plan import _bodies_of
+
+    member_of_pid: dict[int, tuple[int, int]] = {}
+    for ui, u in enumerate(plan.units):
+        for mi, m in enumerate(u.members):
+            for p in m.parts:
+                member_of_pid[p.pid] = (ui, mi)
+    intra: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for a, b in plan.contacts:
+        ka, kb = member_of_pid.get(a), member_of_pid.get(b)
+        if ka is not None and ka == kb:
+            intra.setdefault(ka, []).append((a, b))
+    bodies: dict[tuple[int, int, int], tuple[int, ...]] = {}
+    of_pid: dict[int, tuple[int, int, int]] = {}
+    for ui, u in enumerate(plan.units):
+        for mi, m in enumerate(u.members):
+            for gi, g in enumerate(_bodies_of(m, intra.get((ui, mi), []))):
+                key = (ui, mi, gi)
+                bodies[key] = tuple(g)
+                for q in g:
+                    of_pid[q] = key
+    return bodies, of_pid
 
 
 def union_area_m2(boxes: _t.Iterable[tuple[float, float, float, float]]
@@ -285,7 +328,6 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
     is the ONE body derivation and is imported, never re-implemented."""
     if contact_eps_m <= 0.0 or min_m2 <= 0.0 or not getattr(plan, "units", ()):
         return []
-    from ..planar.group import bodies_of_plan
     bodies, _of_pid = bodies_of_plan(plan)
     out: list[PlanCluster] = []
     for ui, u in enumerate(plan.units):
@@ -807,8 +849,8 @@ def census_families(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             d["resources"].add(res)
             if not d["pad"]:
                 why = str(b.get("anchor_reason", ""))
-                if (("§16f family" in why or "§16f (7) cluster" in why)
-                        and " on pad " in why):
+                if (("§16f family" in why or "§16f (7) cluster" in why
+                     or "§16g unit" in why) and " on pad " in why):
                     d["pad"] = why.split(" on pad ", 1)[1].split(" at ")[0]
             if z is not None and y is not None:
                 d["zeros"].append(float(z) - float(y))

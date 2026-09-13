@@ -260,32 +260,16 @@ class GroupSet:
 def bodies_of_plan(plan: "RebakePlan | _t.Any"
                    ) -> tuple[dict[BODY_KEY, tuple[int, ...]], dict[int, BODY_KEY]]:
     """``(body -> its part ids, part id -> its body)`` over the whole
-    plan, from ``placement_plan._bodies_of`` — §9's own body law, the
-    intra-placement ε-contact component, with a LINE part binding
-    nothing.  ONE derivation: the split writer and this module cut the
-    same bodies or they are not talking about the same object."""
-    from ..airport.placement_plan import _bodies_of
+    plan — §9's own body law, the intra-placement ε-contact component.
 
-    member_of_pid: dict[int, tuple[int, int]] = {}
-    for ui, u in enumerate(plan.units):
-        for mi, m in enumerate(u.members):
-            for p in m.parts:
-                member_of_pid[p.pid] = (ui, mi)
-    intra: dict[tuple[int, int], list[tuple[int, int]]] = {}
-    for a, b in plan.contacts:
-        ka, kb = member_of_pid.get(a), member_of_pid.get(b)
-        if ka is not None and ka == kb:
-            intra.setdefault(ka, []).append((a, b))
-    bodies: dict[BODY_KEY, tuple[int, ...]] = {}
-    of_pid: dict[int, BODY_KEY] = {}
-    for ui, u in enumerate(plan.units):
-        for mi, m in enumerate(u.members):
-            for gi, g in enumerate(_bodies_of(m, intra.get((ui, mi), []))):
-                key = (ui, mi, gi)
-                bodies[key] = tuple(g)
-                for q in g:
-                    of_pid[q] = key
-    return bodies, of_pid
+    THE DERIVATION MOVED to ``airport.placement_family`` (2026-09-13,
+    lane ``v2clusterpad``): §16g's footprint unit needs the same bodies
+    at LOAD time, and ``airport`` may not import ``planar`` (the
+    layering twin).  Re-exported here because every caller and every
+    twin reads it where it always was — one derivation, two names.
+    """
+    from ..airport.placement_family import bodies_of_plan as _b
+    return _b(plan)
 
 
 # ── the derivation ───────────────────────────────────────────────────────

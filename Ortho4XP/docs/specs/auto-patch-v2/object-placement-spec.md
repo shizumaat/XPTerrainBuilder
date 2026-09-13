@@ -3257,6 +3257,103 @@ a wall carried by GLAZING; a 20-vertex z = 0.00 crater in apron face 661 (`dsf:p
    existing solid test (report, do not name-match); the LEMD sites held; seams 0;
    §16b carried-own-ground bar at KCLT 32 → quoted; files; plan stage; suite.
 
+### §16d (4)–(6) MEASURED (lane `v2unboxed`, 2026-09-13; branch `claude/v2unboxed`)
+
+Implemented in `airport/placement_body.py` (§16d (4): `_atom_targets`, one carried
+target per ATOM, and `CARRIED_ATOMS_MAX`), `airport/placement_plan.py` (the split
+before §15's search, carrying the SOURCE group so §16c (7)'s cluster membership
+survives it), `airport/placement_atom.py` (§16d (5): the `member != top.member`
+clause deleted) and `airport/anchor_rule.py` (§16d (6): `pad_majority`, and the
+`pads` argument WIRED at last).  `placement_geom.py` took `written_components` /
+`part_tris` / `plan_box_of_tris` for the 1,000-line law.
+
+* **THE ATOM, NOT THE BARE COMPONENT.**  §16d (4) says "each connected component";
+  the division here is by §16c (1)'s ATOM (`_comp_blocks`) — the component, or the
+  CLUSTER §16c (6)/(7) bound it into.  Dividing a rigid cluster would undo that law,
+  and the two readings are the same wherever no cluster exists.  **Reported as a
+  deviation from the sentence, held to be its intent.**
+
+* **BARS (KCLT 1.0.324 frame, matched dry arms; the write half into an APFS clone,
+  guard armed, `shared repo UNCHANGED` on every run).**
+
+  | bar | before (this branch after §16d (1)–(3)) | after |
+  |---|---|---|
+  | `005_ALB__b9` vs its `building` pad | **−5.04** (12ap's frame) / −5.85 here (zero 210.46, pad 216.31) | **+0.02** (zero 215.51, pad `building26` 215.49–215.51) |
+  | widest RETAINED cluster zero-plane span | 5.69 m | **0.64 m** |
+  | binds refused for ground | 14 | **22** |
+  | carried bodies divided by ATOM | 0 | **473** |
+  | footed bodies anchored ON their pad (§16d (6)) | 0 | **61** |
+  | §15 carried body floating over its carrier | 0 | **0** (bar 0) |
+  | §16d written geometry outside its own box | — | **0** (bar 0) |
+  | §16c torn seams outside line/arc pieces | 0 | **1**, step **+0.16 m**, `paredes_9_charlotte` b1↔b6, ONE shared vertex — under the 0.3 m census tolerance and under `visual_m`; NAMED, bar missed |
+  | files | 473 | **477** |
+  | DSF round trip / defs read back | — | **OK, 477/477** |
+  | plan stage (dry, 3 runs) | 8.65 s | **8.3–8.5 s** |
+
+  The `001_ALB` roof bodies the owner's read names are now cut per atom and each
+  rides the wall body IT stands over (`b5` → `006_ALB__b0` 219.56 vs 219.94 ground,
+  `b6` → `008_ALB__b1` 221.39 vs pad `building59` 221.38–221.41, `b11` →
+  `004_ALB__b0` 217.51 vs pad 217.59, `b29` → `004_ALB__b25` 216.93 vs pad
+  216.93–216.96) where before they were ONE carried body per resource at one zero
+  (217.51 under 223.75 m of ground, 208.81 under 221.89).  §15's own carried bar —
+  `zero − zero_beneath`, which IS "within 0.5 m of the wall beneath" — is **0 on
+  both arms**.
+
+* **THE TERMINAL, REPORTED NOT CLOSED.**  Over `building80` (1.19 m of relief,
+  865-node ring) the ON-PAD set's zero spread is **1.03 m** on both arms — the pad's
+  own relief, as §16d (6) predicts.  The count of bodies whose anchor lands OFF the
+  pad moves only 71 → 65 (footed 26 → 24) in this frame, NOT 133 → 0: the 133 was
+  read on the app's 1.0.324 WRITTEN frame, and the residue here is bodies whose
+  ground contacts are MOSTLY off the pad (the rule's own majority test declines
+  them) plus carried bodies, which take their carrier's anchor by §15 and not their
+  own.  Named, not closed.
+
+* **A DEFECT §16d (4) EXPOSED AND FIXED.**  A target group holding BOTH a cut piece
+  (its own `tris`) and a raw the cut never touched (its parts' whole components) was
+  read for its `tris` alone, so the rest of the group's triangles were claimed by no
+  body and `obj8_split` handed them to the nearest one: measured at KCLT, 9
+  placements left 990–3,280 triangles unclaimed and `001_ALB__b32`'s file reached
+  207 m outside its own box.  The audit (every placement's solid triangles against
+  the union of its bodies' `tris` and `cut_components`) reads **0 of 103** after.
+
+* **THE COST — OVER BUDGET, AND NAMED.**  Plan stage, dry, this machine: LEMD
+  13.6 (main) → 17.8 (§16d (1)–(3)) → **25.0 / 28.6 / 46.0 s** over three runs;
+  OTHH ≈83 → 86.1 → **136.5 s**; KCLT 8.65 → **8.3–8.5 s**.  The LEMD run-to-run
+  swing is the standing ±25 % and worse; the OTHH figure is one run.  §16d (4) asks
+  a carrier search PER ATOM, and OTHH's clutter members publish thousands of them.
+  Three narrowings are already in: a body narrower than `coarsen_reach_m` is not
+  divided (§16a (1) already cuts those against the carriers the search returns),
+  `CARRIED_ATOMS_MAX` 64 bounds a body's pieces, each piece carries only ITS OWN
+  parts (so §15's contact fallback reads its own neighbours, not the whole body's),
+  and that fallback now counts by set intersection instead of scanning the unit's
+  neighbour list once per candidate.  **This takes an airport that was already over
+  the 60 s per-airport budget further over it: it needs the owner's approval and a
+  Fable-5 whole-pipeline optimisation review before it ships** (`Ortho4XP/CLAUDE.md`
+  HARD LAW).  No further reduction was attempted in this lane.
+
+* **THE LEMD SITES HELD** on the same 1.0.325 frame, written arm: the four shadow
+  plates still −5.00 on their own ground; `Cargo-TEJ1` on `NEWCO__b9` at 604.95;
+  §16d outside-box 0; seams 0; §15 carried float 0; round trip OK 2,435/2,435;
+  every named site's base range identical to §16d (1)–(3)'s except
+  `Terminal4_green-TEJ1` (spread 4.01 → **1.28**) and `T2NBG` (4.44 → **4.28**).
+  §16b's carried-piece own-ground count rises again with the population it reads
+  (LEMD 151 → 154, KCLT 41 → 41), already over its bar 0 on every arm.
+
+* **SUITE**: **1,237 passed, 1 skipped**.  Twins:
+  `test_16d_4_each_atom_of_a_carried_body_finds_its_own_carrier`,
+  `test_16d_5_the_ground_bound_holds_inside_one_member_too`,
+  `test_16d_6_a_body_anchors_on_the_pad_it_stands_on`.  Four existing twins were
+  re-read against the new law and are marked with the ruling that changed them: the
+  two §16a (1) roof twins now assert the OUTCOME and the atom count, §14 (1)'s
+  footless twin reads two atoms as two own-ground bodies, and 12ap's bind twin
+  asserts the refusal INSIDE one member.
+
+* **NOT DONE.** The KCLT z = 0 crater in apron face 661 (`dsf:pol31`) is lane
+  `v2zerocrater`'s and no bar here excludes or names its bodies — the terminal
+  figures above are quoted whole.  The glazing carrier is not separately attributed.
+  No airport was built.
+
+
 ## §16e THE DECK TOP AND THE CREST PLATE ARE DATUMS (owner RULINGS 2026-09-13k; Fable 2026-09-13n) — lane `v2othhdatums`
 
 Owner: "With single layer bridges over water we should be seating the top deck to

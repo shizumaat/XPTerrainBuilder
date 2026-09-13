@@ -254,14 +254,23 @@ OUTSIDE_TOL_M = 1.0
 
 def _written_latlon(path: str, offset: _t.Sequence[float],
                     lat: float, lon: float, heading_deg: float
-                    ) -> "list[tuple[float, float]]":
+                    ) -> "list[tuple[float, float]] | None":
     """Every ``VT`` row of one written body file as ``(lat, lon)``.
 
     The writer SUBTRACTED ``authored_offset`` from each vertex, so adding
     it back gives the AUTHORED ``(x, y, z)`` the pack's own frame is in,
     and ``placement_cut.authored_latlon`` maps that to the placement's
     ground — the same two lines ``placement_plan.authored_offset``
-    inverts, and the same key ``_authored_vertices`` welds on."""
+    inverts, and the same key ``_authored_vertices`` welds on.
+
+    ``None`` where the file carries an ANIM BLOCK.  ``obj8_split`` does
+    NOT subtract the offset from a vertex emitted inside one — the block
+    is compensated by its own ``ANIM_trans`` instead (rule 4) — so such a
+    file's vertex table mixes two frames and no single map reads it.  The
+    census counts those bodies apart and NAMES them rather than quoting a
+    number it cannot take (KCLT's `-vidrios_paredes_5_charlotte_lit__b0`
+    read 604 m of "outside the box" that was the double-counted offset).
+    """
     from .placement_cut import authored_latlon
     out: list[tuple[float, float]] = []
     try:
@@ -270,6 +279,8 @@ def _written_latlon(path: str, offset: _t.Sequence[float],
         return out
     with fh:
         for line in fh:
+            if line.startswith("ANIM_begin"):
+                return None
             if not line.startswith("VT"):
                 continue
             t = line.split()
@@ -326,6 +337,7 @@ def census_outside_box(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     rows: list[tuple[float, str, str, str]] = []
     files = 0
     missing = 0
+    anim = 0
     for s in splits:
         p = s.get("placement") or {}
         lat, lon = p.get("lat"), p.get("lon")
@@ -341,10 +353,13 @@ def census_outside_box(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             if not _os.path.isfile(path):
                 missing += 1
                 continue
-            files += 1
             pts = _written_latlon(path, b.get("authored_offset")
                                   or (0.0, 0.0, 0.0),
                                   float(lat), float(lon), head)
+            if pts is None:
+                anim += 1
+                continue
+            files += 1
             d = _outside_m(box, pts)
             if d > 0.01:
                 rows.append((d, str(res), str(b.get("class") or "?"),
@@ -359,6 +374,7 @@ def census_outside_box(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         hist[k] = hist.get(k, 0) + 1
         by_class[cls] = by_class.get(cls, 0) + 1
     return {"files_read": files, "files_missing": missing,
+            "files_with_anim": anim,
             "tol_m": tol_m,
             "bodies_outside_box": len(over),
             "bodies_outside_any": len(rows),
@@ -375,6 +391,9 @@ def census_outside_box_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     out = [f"   §16d (1) WRITTEN GEOMETRY OUTSIDE ITS OWN BOX "
            f"({c['files_read']} written file(s)"
            + (f", {c['files_missing']} not written" if c["files_missing"] else "")
+           + (f", {c['files_with_anim']} with an ANIM block NOT READ "
+              "(two vertex frames in one table)" if c.get("files_with_anim")
+              else "")
            + "):",
            f"   §16d bodies with written geometry > {c['tol_m']:g} m outside "
            f"their geom_box: {n} (bar 0; {c.get('bodies_outside_any', 0)} over "

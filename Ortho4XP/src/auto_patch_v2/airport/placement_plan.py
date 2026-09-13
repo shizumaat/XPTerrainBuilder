@@ -160,8 +160,8 @@ def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
 from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
-                            GROUND_CELL_M, _bodies_of, _carrier_pieces,
-                            _footless_targets,
+                            GROUND_CELL_M, _atom_targets, _bodies_of,
+                            _carrier_pieces, _footless_targets,
                             _cut_parts_by_terrain, _LineCutter, _part_zero,
                             _plan_span_m, _Raw, _raw_bodies, _rim_of,
                             _geom_ground, authored_latlon, pristine_path,
@@ -753,12 +753,36 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             _gz_memo: dict = {}
+            # §16d (4) (owner RULINGS 2026-09-13m): A CARRIED BODY'S
+            # COMPONENTS GROUP BY CARRIER.  Each ATOM of a carried body
+            # asks its own carrier question — a roof resource of twelve
+            # plates over twelve buildings is twelve pieces, not one body
+            # at one zero.  The division happens BEFORE the search, so
+            # §16a (1)'s cut and §16b (3)'s ground test read the piece
+            # that actually stands there.
+            _atoms = []
             for grp, gboxes in targets:
+                for sub in _atom_targets(st, grp, coarsen_reach_m):
+                    if sub is grp:
+                        _atoms.append((grp, gboxes, grp))
+                    else:
+                        # the SOURCE group is kept beside the piece: §16c
+                        # (7)'s cluster membership is keyed by raw index,
+                        # and a piece the atom cut made has none of its
+                        # own — dropping it put the owner's footbridge
+                        # back on its own ground instead of on the
+                        # terminal it is bound to.
+                        _atoms.append((sub, [b for i in sub
+                                             for b in st.part_boxes[i]], grp))
+                        counts["carried_bodies_cut_by_atom"] = \
+                            counts.get("carried_bodies_cut_by_atom", 0) + 1
+            targets = _atoms
+            for grp, gboxes, src in targets:
                 bx = _pc.hull_of(gboxes)
                 _pids = frozenset(p.pid for i in grp for p in st.raw[i][0])
                 # §16c (7): IS THIS BODY PART OF A RIGID CLUSTER?  Then
                 # its zero is the cluster's and no search is asked.
-                _f = sorted({forced[(st.mi, i)] for i in grp
+                _f = sorted({forced[(st.mi, i)] for i in src
                              if (st.mi, i) in forced})
                 if _f:
                     counts["bodies_bound_to_cluster_by_contact"] = \

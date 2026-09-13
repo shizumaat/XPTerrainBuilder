@@ -820,12 +820,21 @@ def carriers_for(pids: _t.AbstractSet[int],
     # the body's neighbours, walked ONCE: a unit's candidate list is
     # long (LEMD's unit:25 offers 111 footed bodies) and re-walking the
     # adjacency per candidate costs more than the whole carrier rule
-    neigh: list[int] = [q for p in pids for q in adj.get(p, ())]
+    # ...and counted by INTERSECTION, not by scanning the neighbour list
+    # once per candidate: §16d (4) asks this per ATOM, and the product of
+    # a unit's neighbours by its candidates was 7.4 M steps and 8 s of
+    # the LEMD plan stage.  The number is the same — the multiplicity of
+    # each neighbour pid, summed over the candidate's own pids.
+    neigh: dict[int, int] = {}
+    for p in pids:
+        for q in adj.get(p, ()):
+            neigh[q] = neigh.get(q, 0) + 1
+    _nk = neigh.keys()
     touch = []
     for c in solid:
-        n = sum(1 for q in neigh if q in c.pids)
-        if n:
-            touch.append((n, c))
+        hit = _nk & c.pids
+        if hit:
+            touch.append((sum(neigh[q] for q in hit), c))
     touch.sort(key=lambda q: (q[0], -q[1].member), reverse=True)
     for n, c in touch:
         if _ok(c) and _near_carried(c):

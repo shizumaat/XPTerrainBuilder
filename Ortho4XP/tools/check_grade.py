@@ -1065,6 +1065,27 @@ def _lateral_cap_tag(way: "Way") -> Optional[float]:
         return None
 
 
+#: §37 (1) (owner RULINGS 2026-09-13q KCLT item 5, spec
+#: ``auto-patch-v2/design-surface-spec.md`` §37): the tag v2 stamps for the
+#: LATERAL-CONTIGUITY cap.  It binds the road's CROSS-SECTION pairs only —
+#: the road keeps its own longitudinal law — which is why it is a tag of
+#: its own and not ``o4_grade_law_cap`` (that one binds a way's whole
+#: within-shape reading, and v1's meaning of it is untouched).
+LATERAL_CAP_T_TAG = "o4_grade_law_cap_t"
+
+
+def _lateral_cap_t_tag(way: "Way") -> Optional[float]:
+    """The TRANSVERSE lateral-contiguity cap the build stamped on this way
+    (:data:`LATERAL_CAP_T_TAG`, §37 (1)), or ``None``."""
+    raw = way.tags.get(LATERAL_CAP_T_TAG)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _ring_width_m(pts: List[Tuple[float, float]]) -> float:
     """The ring's WIDTH: the short side of its minimum rotated rectangle
     (the same reading as ``auto_patch_v2.constraints.apron.face_width``)."""
@@ -2163,6 +2184,14 @@ def iter_shape_grade_constraints(
             same envelope every other family gets, no more and no less.
             """
             cap = _road_xsection_cap(cap_l)
+            # §37 (1): LATERAL CONTIGUITY BINDS THE TRANSVERSE CAP ONLY.
+            # The stricter contiguous class's cap reaches the census HERE
+            # (``o4_grade_law_cap_t``) and nowhere else, so a road bound
+            # to an apron beside it must not TEAR across its section while
+            # its longitudinal profile stays the road's own 8 %.
+            _lt = _lateral_cap_t_tag(w)
+            if _lt is not None:
+                cap = min(cap, _lt)
             return cap, cap * d + _pair_quant_noise_m(w)
 
         if role0 in _SOFT_ROLES and _pair_cap_map:

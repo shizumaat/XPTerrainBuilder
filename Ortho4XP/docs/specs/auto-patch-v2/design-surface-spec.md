@@ -3944,6 +3944,109 @@ stage, which needs the app's mesh) and a matched defect-gate control (the
 1.0.315 products are a four-airport TILE build; a single-airport arm is a
 different population, and a control build is a second build).
 
+**MEASURED (lane `v2basinfoot`, 2026-09-13; branch `claude/v2basinfoot`, base
+main `e5e04660`).** Before = the owner's 1.0.325 products (the four-airport TILE
+build in the data repo: `Patches/+40-010/+40-004/LEMD.graded.json` +
+`o4_v2_rebake_LEMD.json` + the copied patch); after = `LEMD --engine v2`
+(`v2basinfoot3`, rc 0, 408 s, ledger `1c11f6fad3a2`, `body_sha 58a9ce7d3170`).
+
+**(6) THE CONSUMER CENSUS, before any edit** — every pass that reads the basin
+region / rim / floor, and what §24 (4)–(5) does to it:
+
+| consumer | reads | ruling |
+|---|---|---|
+| `planar/basins.build_basins` | the region, the rim, the floors, the cut knife, the keep-outs | THE SINGLE DERIVATION SITE — both laws land here and nowhere else |
+| `airport/obj8._witness` | the component's below-DEM clip (`FloorWitness.below`) | KEPT as rule 1's ADMISSION evidence; `outer` added beside it for the region |
+| `constraints/structures.basins` | `faces_by_ref[floor_ref]` vertices, `wall_path`, `floor_below_rim_m` | EDITED: a floor vertex under a ramp corridor takes `deck − floor_clearance_m` (a senior pin); every other vertex keeps the 10ba relative row unchanged |
+| `constraints/structures._rim_rows` / `rim_level` | the rim ring's vertices | UNCHANGED in form; the ring is a different (larger) ring, `rim_level` 11 design-target rows before and after |
+| `planar/structures.py` `contact_band_m` reader (l. 352) | the LAW KNOB only, for tunnel-object wall bands | NO INTERACTION — it never reads the basin region |
+| the pad cut (`cuts_pads`) | the knife vs `building` cells | UNCHANGED in form, and this is where the `building15` notch goes: the pad is now cut there (see below) |
+| `building_pad.in_basin_sits_at_floor` | — | DEAD KNOB: declared in `law/structures.toml` + `law/model.py`, read by NO code (grepped). The pad is CUT, not lowered. Left alone, reported |
+| `pipeline/build._plate_seats` | `Basin.ring` (the largest PLATE floor face) + `plate_y_m` | UNCHANGED: the ramp is a SEPARATE floor face (`basin_floor:0#1`), `ring` stays the plate's, so the witness's seat stations do not move onto the ramp |
+| `pipeline/build._basin_polygon` | `b.region` (deck-signature evidence) | follows the larger region; LEMD deck families 0 before and after |
+| `pipeline/publication.basin_facilities` | the record | EDITED: publishes `ramp_corridors` / `ramp_rings_ll` / `ramp_faces_ll` |
+| `verify/structures.basin_floor_at_declaration` | the published depth vs every floor vertex | EDITED: under a corridor it expects `deck − clearance` (the SAME call, `model.structures.deck_z_on_faces`). Without this the law's own 42 pinned vertices report as violations — measured: 53 rows on the first arm |
+| `verify/structures.basin_floor_declaration` / `structure_rim_gap` / `wall_in_runway_strip` | `solid_minimum_y_m` vs `body_depth_m`; rim-to-floor spacing; the strip | NO CHANGE: 0 / 0 / 0 before and after (the ramp floor is trimmed by the same `rim_standoff`) |
+| `airport/basin_ring.py` (§14a arcs) | the EMITTED `basin_wall:0@k` ring from the graded doc | FOLLOWS AUTOMATICALLY, no edit: 6 arcs → 7, ring bar 0.19 → 0.18 m |
+| `airport/placement_census` basin exemption | the plan's basin bodies | unchanged in form: basin carriers 24 → 25, exempt 20 → 20 |
+| `tools/pad_level_report.py` | pads / refs in a solved pickle | no basin geometry of its own; reads whatever the pads became |
+| harness `terrace_joints_ll` / `pad_relief` / `basin_floor_declaration` | the sidecar keys | `terrace_joints` 4 before and after, `basin_facilities` 1, `basin_floor_declaration` 0 |
+
+**(4) THE RING IS THE SHELL'S OUTER FOOTPRINT.** Cause, reproduced on the
+1.0.325 frame: `below` is `_clip_component` at ONE plane per component — the DEM
+under the component's CENTROID, 593.00 for `Ground-FSX-LEMD85`, while the real
+ground over the ramp runs 594.6 … 599.2. The road ramp is never above the DEM at
+all (it lies 1.5 … 6.6 m under it its whole length); it leaves the REGION where it
+climbs through 593.00, at **40.492259, −3.569411** — the exact closing point of
+the below-clip, ~50 m short of the ramp's top.
+
+| bar | before (1.0.325) | after |
+|---|---|---|
+| LEMD `basin:0` region | 27,557 m² | **28,345 m²** (+788: the notch) |
+| rim ring | 59 nodes | **58 nodes**, Hausdorff **11.57 m** from the old ring |
+| the notch at 40.4922455, −3.5695503 | `building/building15` z 598.36 … 598.48 | **`tunnel_trench/basin_floor:0` z 589.83 … 595.94** — the pad is cut, the ramp corridor is trench floor |
+| §14a ring bar (`obj8_split_report --no-cut`, matched arms) | 0.19 m, 0 of 59 over 0.30 | **0.18 m, 0 of 58 over** |
+| ring nodes the pit has NO WALL on (same instrument) | 3 (worst 1.11 m) | **3** (worst 1.31 m) |
+| T4S tower cluster | `LEMDzaun`/`SWbaume` basin bodies on the rim, own-ground 7.59/7.57/7.55 m | **unchanged in kind** (7.71 m worst; the cluster stays on the rim) |
+| OTHH, planar dry run, all 10 basins | — | **10 admitted, 41 refusals, rims moved (Hausdorff) 0.00 / 0.12 / 0.14 / 0.32 / 0.32 / 0.35 / 0.45 / 0.47 / 0.48 m — sub-grid, none over 0.48**; floor areas identical bar −15/−22 m² on the two Dewatering pits (rim re-snap) |
+
+**(5) THE FLOOR FOLLOWS A RAMP.** The corridor is read off the shell's own
+witness components: up-facing faces (`floor_plate_normal_y_min`) between the
+floor and `R_est + contact_band_m`, joined in plan, admitted when the part SPANS
+the pit (its own vertices reach within the band of both floor and rim) **and its
+surface grade is drivable** — the area-weighted mean face slope, new law
+`[basin] ramp_max_grade = 0.15`.
+
+The grade test is not decoration: spanning alone admitted **three of OTHH
+Drainage_01's banks (2,118 m², the pit's floor area 735 → 2,853 m²)**, because a
+bowl's ring of banks climbs floor-to-rim like a ramp. Rise-over-plan-run does not
+separate them either (that bank reads 3.61 m over 133.5 m = 0.03, a bowl
+diameter apart); the SURFACE grade does: LEMD's ramp **0.09**, every OTHH bank
+**0.20 … 0.29**. At 0.15 the LEMD ramp is the only deck either pack admits.
+
+| bar | before | after |
+|---|---|---|
+| ramp corridors at LEMD `basin:0` | — | **1** (932 m² of floor, 36 deck faces; candidates refused: 2 m² × 2 "does not span", 101 m² "does not span", 2,043 m² `LEMD36` slab "does not span") |
+| floor vertices on the ramp's profile | 0 | **42** (`basins.floor_ramp_vertices`) |
+| emitted floor z vs `deck − floor_clearance_m` at every corridor vertex | — | **43 of 43 within 0.005 m** |
+| the ramp deck vs the design surface under it | **−2.92 m worst over ~51 m (buried)** | **+0.50 m at every corridor floor vertex**; median +0.48 m over a 1 m grid inside the corridor |
+| `basin_floor_at_declaration` | **5** | **4** |
+| OTHH ramp corridors | — | **0 on all 10 basins** |
+
+**Harness census (before = the 1.0.325 four-airport tile patch, after =
+`v2basinfoot3`).** COCKPIT first: CRITICAL motion **2 → 3** (all three grade
+BREAKS, worst 0.670 → 0.600 m, the same `strip_arc` site at 40.4625636,
+−3.5525152 — nowhere near the basin), CRITICAL visual **0 → 0**. LAW-TRUE total
+3,573 → 3,621; ADJUDICATED 1,143 → 1,172 (airside-for-acceptance 1,128 → 1,151);
+`basin_floor_declaration` 0 → 0, `wall_in_runway_strip` 0 → 0.
+
+**That census delta is NOT attributable to this change, and the lane says so.**
+Two arms of THIS tree differing only in which deck faces the corridor publishes
+(48 vs 42 pinned vertices) censused **1,089** and **1,172** adjudicated rows —
+the LP's active set (`feasible`/"SET NOT SETTLED" vs `optimal`) moves more than
+the basin does. The 1.0.325 arm is also a four-airport TILE build, a different
+population from a single-airport arm (the same caveat §24 (1) recorded).
+
+**NOT MET, with its cause named.** `_rim_open` read **57 of 69** open stations
+before and **58 of 69** after (bar ≤ 5). The diagnostic's reference is
+`at_grade_geometry`, whose linework is the shell clipped at ONE plane per
+component — the very defect §24 (4) removed from the region. With LEMD's ground
+running 593 … 599 across the pit and the plane at 592.00, the "at-grade line" is
+a contour in the middle of the plate, not the wall top, so no ring can be close
+to it. Fixing the rim diagnostic is a separate item and is OWED, not done here.
+
+**NOT MEASURED by the lane.** The scout's `probe2.py` reading (11 of 59 ring
+nodes 6.1–15.0 m from the nearest WRITTEN basin piece) needs
+`o4_v2_placement_LEMD.json`, which only the app's write half produces; the
+harness build entry stops at the patch, the graded doc and the rebake plan. The
+engine's own §14a instrument (above, matched arms through `obj8_split_report`)
+is what the lane could run, and it reads 3 → 3. A pack-geometry probe over the
+nine basin resources' WALL faces reads the ring on the wall everywhere except
+the new ramp stretch (nodes 15–20, 4.3 … 9.3 m), where the pack models a bare
+deck and the mesh makes the trench's sides — which is the cut the owner asked
+for. Also not measured: `> 3 m` seat feet against a matched control, and any
+OTHH build (dry run only, as §24 (6) requires).
+
 ## §25 OSM RELATIONS ARE EVIDENCE — a multipolygon's outer ways carry its tags (Fable, 2026-09-11; RULINGS 2026-09-11aq item B) — lane `v2relations`
 
 Owner (11ao): the large shape with a node at 40.4673861, −3.5681144 "is classified as
@@ -5811,105 +5914,233 @@ under 0.5 m, max 2.4 m, none over 5 m).
    `--engine v2` KCLT build with the cockpit block first (critical motion 16 → quoted,
    the three item-5 cliffs gone); census; twins; suite. The census's 215 m apron
    step at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), excluded.
-**MEASURED (lane `v2basinfoot`, 2026-09-13; branch `claude/v2basinfoot`, base
-main `e5e04660`).** Before = the owner's 1.0.325 products (the four-airport TILE
-build in the data repo: `Patches/+40-010/+40-004/LEMD.graded.json` +
-`o4_v2_rebake_LEMD.json` + the copied patch); after = `LEMD --engine v2`
-(`v2basinfoot3`, rc 0, 408 s, ledger `1c11f6fad3a2`, `body_sha 58a9ce7d3170`).
+### §37.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2roadcap`
 
-**(6) THE CONSUMER CENSUS, before any edit** — every pass that reads the basin
-region / rim / floor, and what §24 (4)–(5) does to it:
+**A. THE LATERAL-CONTIGUITY CAP** (`constraints/roads.road_law_caps`; §37 (1)).
 
-| consumer | reads | ruling |
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| L1 | `constraints/roads.road_within_shape` | `road_law_caps` | **EDITED**: `cap_l` is the ROLE'S OWN longitudinal (`service_road` 8 %); `cap_t = min(role transverse, contiguity cap)`. |
+| L2 | `constraints/taxi.triangle_planes` (`plane_gradient`) | `road_law_caps` | **EDITED — the contiguity min is DROPPED.** `|∇z| ≤ cap` is ISOTROPIC: a plane row has no transverse component to bind on its own, so it prices at the face's own longitudinal cap. Before §37 this branch flattened a road triangle in every direction. |
+| L3 | `pipeline/publication.face_tags` | `road_law_caps` | **EDITED**: stamps `o4_grade_law_cap_t`, never the bare `o4_grade_law_cap` (which binds a way's WHOLE within-shape reading in the v1 census). |
+| L4 | `pipeline/publication.publication` `station_caps` | `road_station_caps` | UNCHANGED. The per-station vector is the WALK, not a cap assignment; v1's fourth reader still reads it and, with it present, mints no row BY CONSTRUCTION (`_built = min(eff, published) ≤ _law_here`). |
+| L5 | `constraints/contiguity.{station_caps,road_station_caps,cap_at,face_station_cap}` | the probe walk | UNCHANGED — the walk is the same; only what the cap BINDS changed. |
+| L6 | `verify/contiguity.lateral_contiguity` | `p.cap(sh)` + published stations | **EDITED**: prices `p.cap_t(sh)` — the transverse binding — against the re-walked cross-section's strictest longitudinal law. |
+| L7 | `verify/frame.Patch.cap` / `Shape.law_cap` | `law_caps` mapping | **EDITED**: `cap()` is now the role's longitudinal alone; new `cap_t()` folds the binding in. `Shape.law_cap` MEANS the transverse binding; every `census(surf, law, pub, road_law_caps(...))` call site is unchanged. |
+| L8 | `verify/within.within_shape` / `road_cross_section` | `p.cap`, `rc.transverse` | **EDITED**: `cap_t = p.cap_t(sh)`; the longitudinal cap is the role's. |
+| L9 | `verify/within.plane_gradient` | `p.cap` | follows L7 — the role's own longitudinal. Mirrors L2, so generator and reader move together. |
+| L10 | `check_grade._role_grade_limit` / `_lateral_cap_tag` (`o4_grade_law_cap`) | the way tag | UNCHANGED IN MEANING. v2 no longer stamps it for contiguity, so a v2 road reads its role cap; **every v1 patch reads exactly as before** (08-02 clause 2 is untouched in `auto_patch/`). |
+| L11 | `check_grade._xsec_allowance` (the `road_cross_section` family) | `cap_l` | **EDITED**: `min(road_cross_section_cap(cap_l), o4_grade_law_cap_t)` — the ONE site at which the contiguity cap reaches the v1 census. |
+| L12 | `check_grade._check_lateral_contiguity` (the fourth reader) | published `station_caps` | UNCHANGED — vacuous by construction on a v2 sidecar (L4). |
+| L13 | `emit/osm_adapter` oracle alias (`extra["o4_grade_law_cap"]` `prior`) | the face tags | UNCHANGED CODE. `prior` is now absent for road-family aliases, which is the intent: an alias's LONGITUDINAL cap must not be tightened by a transverse law. |
+| L14 | §28 GROUNDSIDE FRONTAGES (`constraints/pad_frontage_gs.py`, `verify/frontage`) | pad ↔ frontage rows | UNAFFECTED — neither imports `road_law_caps`; a frontage row's cap is the pad law's. |
+| L15 | §20 PAD LEVELS (`constraints/pads`, `[design] pad_level_rulings`) | pad rim / pavement edge | UNAFFECTED — same; and the relaxation FREES the road, it never pulls a pad (the one-way rulings). |
+| L16 | `solve/why.family_of` (`road_within_shape` / `road_cross_section`) | the row's source | UNAFFECTED — labels unchanged. |
+| L17 | `auto_patch/` v1 (`lateral_contiguity.py`, `grade_graph._body_cap`, `layout.py:3120`) | v1's own stamping | UNTOUCHED — §37 is v2 law. |
+
+**B. `airside_edge_flip`'s callers** (§37 (2)).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `classify/roles.classify` | the ONE call | UNCHANGED signature and return; the share test lives inside the one derivation site (§27 (2)). |
+| B2 | every downstream consumer of `role` | `law.tables.role_side` | UNAFFECTED BY CONSTRUCTION — `side` stays a pure function of `role`. |
+| B3 | `tools/role_edge_census.py` | the emitted patch | UNAFFECTED — it reads the product, and reports the share it now measures against. |
+
+**C. THE BANK's readers** (§37 (3)). A foot ring may now be one OPEN chain per load-bearing run.
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| C1 | `emit/osm_adapter` bank branch | `closed = vertices[0] == vertices[-1]`, `len ≥ 3` | UNCHANGED — it ALREADY emits an open chain (the tile-piece case, §9.4 deviation 2). Runs are padded so no chain is under 3 nodes. |
+| C2 | `emit/osm_adapter.write_tile_pieces` | breakline runs | UNCHANGED — a chain splits at a seam exactly as a ring did. |
+| C3 | `O4_Vector_Map.include_patches` | every CLOSED way | An OPEN `bank_foot` way is a constrained LINE carrying altitudes: it seeds no INTERP_ALT face and blocks no water flood. CORRECT — where no foot is emitted there is no bank to seed. |
+| C4 | `O4_Mesh_Utils._bank_rings_from_patches` / `bank_annulus_polygon` | CLOSED `bank_foot` ways only | **EDITED**: an open chain is closed into its RIBBON — the chain and its own nearest-point projection onto the design coverage — and REFUSED when the swept area is implausible for a bank of that length. Without this, one immaterial station would have taken the whole ring's annulus out of the linear blend. A refusal leaves those vertices to the harmonic extension, which is this module's standing rule. |
+| C5 | `O4_Mesh_Utils.bank_annulus_blend_values` / `_bank_foot_along_normal` / `BANK_BLEND_STATS` | the annulus + the feet | UNCHANGED via C4. Where a run carries no foot, `interpolate_free_interior_altitudes`' harmonic extension carries the sub-materiality difference — §37 (3)'s own words. |
+| C6 | `O4_Mesh_Utils.bank_annulus_region_areas` (Triangle's region sizing) | `bank_annulus_polygon` | follows C4. |
+| C7 | `check_grade._parse_osm` / `ROLE_LESS_FEATURE_CLASSES` | `o4_feature=bank_foot` | UNCHANGED — routed to `feature_out` open or closed; it mints no row (§9 A10/A11). |
+| C8 | `verify/frame.Patch.of` | `runway_profile` / `structure_rim` kinds | UNAFFECTED (§9 A8). |
+| C9 | `emit/surface.GradedSurface.to_json` / `SCHEMA` | breaklines as vertex tuples | UNAFFECTED. |
+| C10 | `emit/rebake.deck_datum_from_surface`, `airport/rebake_plan` | the PRE-bank surface | UNAFFECTED (§9 A7). |
+| C11 | `emit/terrain_edge.no_bank_region` | the banked region cut | UNCHANGED — the region is cut before any station is emitted. |
+
+### §37 **MEASURED** (lane `v2roadcap`, 2026-09-13, branch `claude/v2roadcap`, base `ec8723e9`)
+
+**THE CLOSING TEST MOVED FROM KCLT TO LEMD — KCLT CANNOT BE BUILT ON THIS
+CORPUS, AND THE LANE DID NOT MAKE IT BUILDABLE.**  `build_airport.py KCLT
+--engine v2` refuses at the loader, before classify:
+
+> `KCLT: the pack DSF …/+35-081.dsf.anchor_bak is newer than every cached
+> text dump under …/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 …`
+
+The refusal is `airport/load.py:289` and it is CORRECT.  The PRISTINE read
+frame (RULINGS 2026-09-11m) reads `+35-081.dsf.anchor_bak`, and
+`dsf.find_text_dump` keys the candidate dumps on *that* basename: the
+shared mod cache holds `+35-081.dsf.{1334c2dd,7bf41307,b698274b}.text` —
+dumps of the WRITTEN DSF — and **no `+35-081.dsf.anchor_bak.*.text` at
+all** (LEMD, OTHH, NZQN and NZVL each have one; KCLT has never had one).
+The cure is `--refresh-data airport_mod_cache`, which this lane's brief
+forbids and which changes every lane's corpus stamp.  **It is the
+orchestrator's call, not the lane's.**  The same guard is what refused the
+scout's `explain KCLT` (13q).  Consequences, stated rather than papered
+over: every KCLT bar of §37 (4) — `dsf:pol51`, shapeID 791, the ribbon
+aprons, the cockpit block, the KCLT census — is **NOT MEASURED**.  What is
+measured below is LEMD (the closing build) and CYXY (the control), both
+`--engine v2`, both against a `--base-arm` at the same base `ec8723e9`,
+plus the KCLT BASE numbers read offline from the 1.0.324 products.
+
+#### KCLT, BASE ONLY (the 1.0.324 products, read with the emitter's own instruments)
+
+Reproduced exactly, so the sites are not in doubt — only the fix is
+unmeasured:
+
+| site | 1.0.324 |
+|---|---|
+| `dsf:pol51` shapeID 946 | `o4_grade_law_cap=0.015`, worst **+14.22 m** at 35.2074982, −80.9296586, east end +8.09 |
+| `dsf:pol51` shapeID 945 | `o4_grade_law_cap=0.015`, worst +14.07 m, east end +8.02 |
+| `service_road` (whole airport) | 864 vertices, **max +14.22 / −4.14 m** off the DEM |
+| shapeID 791 (`dsf:pol82`) | role **`apron`**, 81 vertices, **+12.33 m** at 35.2209280, −80.9275739 |
+| bank | 49 closed rings, **1,855 stations**, 34,212 m, **451 chords over 30 m**, max chord 130.1 m |
+| bank materiality (§37 (3), read with `_inner`'s own rule) | **526 of 1,855 stations (28.4 %) load-bearing** at 1.65 m; 57.8 % carry over 0.5 m, 7.1 % over 5 m |
+| ribbon aprons (< 12 m min-rect width, emitted apron ways) | **43 / 5,010 m²** — NOT the spec's 60 / 108,744 m², a different instrument; quoted here on the one used for both arms |
+
+#### LEMD — the closing build
+
+ONE `--engine v2 --patch-only` build per arm, one tree, one corpus
+(`e512b4ea8cca`), both at base `ec8723e9`, both rc 0, shared repo
+UNCHANGED:
+
+* BASE — tag `v2roadcapLEMDbase`, 523.6 s engine, artifact ledger
+  **`11c63567bce3`**;
+* §37 — tag `v2roadcapLEMD2`, 510.5 s engine, artifact ledger
+  **`648c9198fba3`** (the first §37 arm, `v2roadcapLEMD`, 400.0 s, is the
+  same patch outside the bank: it carried the padded-run overlap the
+  twin now forbids).
+
+**§37 (2) — LEMD's flips STAND, PROVEN BY IDENTITY.**  The two arms'
+patches carry **1,075 role-carrying faces with byte-identical roles: 0
+changed**.  `tools/role_edge_census.py` reads the same figure on both:
+124 groundside shapes, 28 sharing ≥ 10 m with airside pavement, **0
+substantive (all 28 slivers, 789 m²), 0 LOT-class**.  A lane that runs
+828 m ALONGSIDE its apron is a share, not a graze; none came back.
+
+**§37 (3) — the bank.**
+
+| | BASE | §37 |
 |---|---|---|
-| `planar/basins.build_basins` | the region, the rim, the floors, the cut knife, the keep-outs | THE SINGLE DERIVATION SITE — both laws land here and nowhere else |
-| `airport/obj8._witness` | the component's below-DEM clip (`FloorWitness.below`) | KEPT as rule 1's ADMISSION evidence; `outer` added beside it for the region |
-| `constraints/structures.basins` | `faces_by_ref[floor_ref]` vertices, `wall_path`, `floor_below_rim_m` | EDITED: a floor vertex under a ramp corridor takes `deck − floor_clearance_m` (a senior pin); every other vertex keeps the 10ba relative row unchanged |
-| `constraints/structures._rim_rows` / `rim_level` | the rim ring's vertices | UNCHANGED in form; the ring is a different (larger) ring, `rim_level` 11 design-target rows before and after |
-| `planar/structures.py` `contact_band_m` reader (l. 352) | the LAW KNOB only, for tunnel-object wall bands | NO INTERACTION — it never reads the basin region |
-| the pad cut (`cuts_pads`) | the knife vs `building` cells | UNCHANGED in form, and this is where the `building15` notch goes: the pad is now cut there (see below) |
-| `building_pad.in_basin_sits_at_floor` | — | DEAD KNOB: declared in `law/structures.toml` + `law/model.py`, read by NO code (grepped). The pad is CUT, not lowered. Left alone, reported |
-| `pipeline/build._plate_seats` | `Basin.ring` (the largest PLATE floor face) + `plate_y_m` | UNCHANGED: the ramp is a SEPARATE floor face (`basin_floor:0#1`), `ring` stays the plate's, so the witness's seat stations do not move onto the ramp |
-| `pipeline/build._basin_polygon` | `b.region` (deck-signature evidence) | follows the larger region; LEMD deck families 0 before and after |
-| `pipeline/publication.basin_facilities` | the record | EDITED: publishes `ramp_corridors` / `ramp_rings_ll` / `ramp_faces_ll` |
-| `verify/structures.basin_floor_at_declaration` | the published depth vs every floor vertex | EDITED: under a corridor it expects `deck − clearance` (the SAME call, `model.structures.deck_z_on_faces`). Without this the law's own 42 pinned vertices report as violations — measured: 53 rows on the first arm |
-| `verify/structures.basin_floor_declaration` / `structure_rim_gap` / `wall_in_runway_strip` | `solid_minimum_y_m` vs `body_depth_m`; rim-to-floor spacing; the strip | NO CHANGE: 0 / 0 / 0 before and after (the ramp floor is trimmed by the same `rim_standoff`) |
-| `airport/basin_ring.py` (§14a arcs) | the EMITTED `basin_wall:0@k` ring from the graded doc | FOLLOWS AUTOMATICALLY, no edit: 6 arcs → 7, ring bar 0.19 → 0.18 m |
-| `airport/placement_census` basin exemption | the plan's basin bodies | unchanged in form: basin carriers 24 → 25, exempt 20 → 20 |
-| `tools/pad_level_report.py` | pads / refs in a solved pickle | no basin geometry of its own; reads whatever the pads became |
-| harness `terrace_joints_ll` / `pad_relief` / `basin_floor_declaration` | the sidecar keys | `terrace_joints` 4 before and after, `basin_facilities` 1, `basin_floor_declaration` 0 |
+| foot nodes | **2,594** in 48 closed rings | **836** in 78 chains, 76 open |
+| foot length | 60,986 m | **11,544 m** |
+| chords over 30 m | **820** (max 131.7 m) | **0** (max 30.0 m) |
+| duplicate foot coordinates | **5** (pre-existing) | **0** |
+| load-bearing stations | — | **489 of 2,596** (2,107 under the 1.65 m floor; 11 rings carry no bank at all); 153 split stations |
+| bank slope p95 / max |  0.433 / 1.255 | **0.580** / 1.260 |
 
-**(4) THE RING IS THE SHELL'S OUTER FOOTPRINT.** Cause, reproduced on the
-1.0.325 frame: `below` is `_clip_component` at ONE plane per component — the DEM
-under the component's CENTROID, 593.00 for `Ground-FSX-LEMD85`, while the real
-ground over the ramp runs 594.6 … 599.2. The road ramp is never above the DEM at
-all (it lies 1.5 … 6.6 m under it its whole length); it leaves the REGION where it
-climbs through 593.00, at **40.492259, −3.569411** — the exact closing point of
-the below-clip, ~50 m short of the ramp's top.
+The slope p95 rises because it is the pre-existing `slope to the nearest
+DESIGN vertex` statistic now read over LOAD-BEARING stations only — the
+minimum-width feet that held it down are exactly the ones §37 (3)
+removes.  It is the §9.5 residual, reported and not fixed.
 
-| bar | before (1.0.325) | after |
+**§37 (1) — THE CENSUS MOVED THE WRONG WAY AT LEMD, AND THE LANE DOES NOT
+PAPER OVER IT.**
+
+| harness census | BASE | §37 |
 |---|---|---|
-| LEMD `basin:0` region | 27,557 m² | **28,345 m²** (+788: the notch) |
-| rim ring | 59 nodes | **58 nodes**, Hausdorff **11.57 m** from the old ring |
-| the notch at 40.4922455, −3.5695503 | `building/building15` z 598.36 … 598.48 | **`tunnel_trench/basin_floor:0` z 589.83 … 595.94** — the pad is cut, the ramp corridor is trench floor |
-| §14a ring bar (`obj8_split_report --no-cut`, matched arms) | 0.19 m, 0 of 59 over 0.30 | **0.18 m, 0 of 58 over** |
-| ring nodes the pit has NO WALL on (same instrument) | 3 (worst 1.11 m) | **3** (worst 1.31 m) |
-| T4S tower cluster | `LEMDzaun`/`SWbaume` basin bodies on the rim, own-ground 7.59/7.57/7.55 m | **unchanged in kind** (7.71 m worst; the cluster stays on the rim) |
-| OTHH, planar dry run, all 10 basins | — | **10 admitted, 41 refusals, rims moved (Hausdorff) 0.00 / 0.12 / 0.14 / 0.32 / 0.32 / 0.35 / 0.45 / 0.47 / 0.48 m — sub-grid, none over 0.48**; floor areas identical bar −15/−22 m² on the two Dewatering pits (rim re-snap) |
+| LAW-TRUE | 3,573 (within 3,570 / cross 3 / steps 0) | 3,798 (3,795 / 3 / 0) |
+| **ADJUDICATED** | **1,143** — airside 1,127 / gs 15 / mixed 1 | **1,379** — airside **1,345** / gs 33 / mixed 1 |
+| `within_shape` | 2,792 | 2,821 |
+| `taxi_box` | 204 | **326** |
+| `airside_no_step` | 419 | **481** |
+| `road_cross_section` | 0 | 2 |
+| `strip_transverse` / `strip_longitudinal` | 43 / 15 | 49 / 20 |
 
-**(5) THE FLOOR FOLLOWS A RAMP.** The corridor is read off the shell's own
-witness components: up-facing faces (`floor_plate_normal_y_min`) between the
-floor and `R_est + contact_band_m`, joined in plan, admitted when the part SPANS
-the pit (its own vertices reach within the band of both floor and rim) **and its
-surface grade is drivable** — the area-weighted mean face slope, new law
-`[basin] ramp_max_grade = 0.15`.
+**+236 adjudicated, +218 of it airside — and the roads are groundside.**
+Attribution, in the order the rulings require:
 
-The grade test is not decoration: spanning alone admitted **three of OTHH
-Drainage_01's banks (2,118 m², the pit's floor area 735 → 2,853 m²)**, because a
-bowl's ring of banks climbs floor-to-rim like a ramp. Rise-over-plan-run does not
-separate them either (that bank reads 3.61 m over 133.5 m = 0.03, a bowl
-diameter apart); the SURFACE grade does: LEMD's ramp **0.09**, every OTHH bank
-**0.20 … 0.29**. At 0.15 the LEMD ramp is the only deck either pack admits.
+1. **It is not §37 (2)**: the classification is byte-identical (above).
+2. **It is not §37 (3)**: the bank is built AFTER the solve and is
+   census-skipped; the pre-fix and post-fix §37 arms — which differ ONLY
+   in the bank — census **identically** (3,798 / 1,379, family for
+   family).  The same holds at CYXY (1,049 / 345 in both).
+3. **§37 (1) is a STRICT RELAXATION of the road family, proven by
+   construction.**  The transverse cap is arithmetically unchanged —
+   `min(rc.transverse, cap_l)` with `cap_l = min(long, law_cap)` equals
+   `min(rc.transverse, long, law_cap)` — and the longitudinal cap only
+   ever rises (0.015 → 0.080 on a contiguous road).  The generator row
+   COUNTS are identical in both arms, line for line, all 62 of them.  So
+   no row was tightened and none was added.
+4. **What is left is the LP landing on a different optimum of an
+   UNSETTLED system.**  Both arms report `HARD SET NOT SETTLED` (2 and
+   25 of 126,696 rows violated) and `LAG NOT SETTLED`; the assembled
+   design system moves 64,902 → 66,830 rows (the one-sided split, not
+   the generators); and the same mechanism at CYXY moves the census the
+   OTHER WAY, −61 adjudicated / −75 airside.  Non-monotone across two
+   airports from one strictly-relaxing change is the signature RULINGS
+   2026-09-12i named for §27's tunnel ramp: an LP re-solve of a free
+   interior, not a mechanism.  **The census is not the objective.**
+5. **What this lane did NOT do**: it did not tune the objective, gate the
+   change, or iterate a third time.  The regression is REPORTED with its
+   site numbers for the owner's adjudication.  Nothing here says the
+   +218 rows are lawful — only that they are not a groundside pull the
+   code can be shown to make.
 
-| bar | before | after |
+#### CYXY — the control, both arms at `ec8723e9`, one tree, one corpus
+
+| | BASE (`163c4e7f50dc`) | §37 (`cc9c86490555`) |
 |---|---|---|
-| ramp corridors at LEMD `basin:0` | — | **1** (932 m² of floor, 36 deck faces; candidates refused: 2 m² × 2 "does not span", 101 m² "does not span", 2,043 m² `LEMD36` slab "does not span") |
-| floor vertices on the ramp's profile | 0 | **42** (`basins.floor_ramp_vertices`) |
-| emitted floor z vs `deck − floor_clearance_m` at every corridor vertex | — | **43 of 43 within 0.005 m** |
-| the ramp deck vs the design surface under it | **−2.92 m worst over ~51 m (buried)** | **+0.50 m at every corridor floor vertex**; median +0.48 m over a 1 m grid inside the corridor |
-| `basin_floor_at_declaration` | **5** | **4** |
-| OTHH ramp corridors | — | **0 on all 10 basins** |
+| harness census LAW-TRUE | 1,047 | 1,049 |
+| harness census **ADJUDICATED** | **406** (airside 381 / gs 25) | **345** (airside **306** / gs 39) |
+| `within_shape` | 915 | 968 — the whole rise is `withdrawn_law_05aa` taxi chords, 625 → 688, never adjudicated |
+| `road_cross_section` | 12 | 17 |
+| `taxi_box` | 34 | **17** |
+| `airside_no_step` | 74 | **40** |
+| `plane_gradient` | 1 | **0** — §37 (1)'s L2: the isotropic plane row is no longer bound to a contiguous class |
+| `transverse` | 9 | 5 |
+| bank foot nodes | **649** in 20 closed rings | **153** in 19 chains, all open |
+| bank foot length | 14,835 m | **2,346 m** |
+| bank chords over 30 m | **218** (max 82.3 m) | **0** (max 29.8 m) |
+| bank load-bearing stations | — | **79 of 648** |
+| duplicate foot coordinates | 0 | 0 |
+| groundside shapes ≥ 10 m airside edge, substantive | 3 (10,295 m²) | 4 (11,546 m²) — one road came back, exactly §37 (2) |
+| `service_road` off-DEM > 0.5 m | 83 / 292 (max 2.99 m) | 93 / 314 (max 3.14 m) |
 
-**Harness census (before = the 1.0.325 four-airport tile patch, after =
-`v2basinfoot3`).** COCKPIT first: CRITICAL motion **2 → 3** (all three grade
-BREAKS, worst 0.670 → 0.600 m, the same `strip_arc` site at 40.4625636,
-−3.5525152 — nowhere near the basin), CRITICAL visual **0 → 0**. LAW-TRUE total
-3,573 → 3,621; ADJUDICATED 1,143 → 1,172 (airside-for-acceptance 1,128 → 1,151);
-`basin_floor_declaration` 0 → 0, `wall_in_runway_strip` 0 → 0.
+**−61 adjudicated at CYXY, −75 of them airside**, the gain in
+`airside_no_step` (74 → 40) and `taxi_box` (34 → 17).
 
-**That census delta is NOT attributable to this change, and the lane says so.**
-Two arms of THIS tree differing only in which deck faces the corridor publishes
-(48 vs 42 pinned vertices) censused **1,089** and **1,172** adjudicated rows —
-the LP's active set (`feasible`/"SET NOT SETTLED" vs `optimal`) moves more than
-the basin does. The 1.0.325 arm is also a four-airport TILE build, a different
-population from a single-airport arm (the same caveat §24 (1) recorded).
+**CYXY's ring does NOT vanish.**  §37 (3) predicted 649 → 0 from the
+scout's headline ("max 2.4 m").  Read with the emitter's OWN inner-end
+rule — the nearest point of the coverage with its z interpolated ALONG
+the boundary edge, which is `emit/bank.py::_inner`, not the nearest
+design VERTEX — CYXY carries 115 stations over 1.65 m and 27 over 5 m.
+The measured answer to the owner's question "do we need it at all" is
+therefore: **yes, but only for a sixth of it** — 79 load-bearing
+stations, 2,346 m of foot instead of 14,835 m, 84 % of the ring gone.
+At LEMD the same reading leaves 489 of 2,596 and 81 % of the foot gone;
+the KCLT products read 526 of 1,855 (28.4 %).
 
-**NOT MET, with its cause named.** `_rim_open` read **57 of 69** open stations
-before and **58 of 69** after (bar ≤ 5). The diagnostic's reference is
-`at_grade_geometry`, whose linework is the shell clipped at ONE plane per
-component — the very defect §24 (4) removed from the region. With LEMD's ground
-running 593 … 599 across the pit and the plane at 592.00, the "at-grade line" is
-a contour in the middle of the plate, not the wall top, so no ring can be close
-to it. Fixing the rim diagnostic is a separate item and is OWED, not done here.
+#### A DEFECT §37 (3) INTRODUCED AND THE TWIN NOW FORBIDS
 
-**NOT MEASURED by the lane.** The scout's `probe2.py` reading (11 of 59 ring
-nodes 6.1–15.0 m from the nearest WRITTEN basin piece) needs
-`o4_v2_placement_LEMD.json`, which only the app's write half produces; the
-harness build entry stops at the patch, the graded doc and the rebake plan. The
-engine's own §14a instrument (above, matched arms through `obj8_split_report`)
-is what the lane could run, and it reads 3 → 3. A pack-geometry probe over the
-nine basin resources' WALL faces reads the ring on the wall everywhere except
-the new ramp stretch (nodes 15–20, 4.3 … 9.3 m), where the pack models a bare
-deck and the mesh makes the trench's sides — which is the cut the owner asked
-for. Also not measured: `> 3 m` seat feet against a matched control, and any
-OTHH build (dry run only, as §24 (6) requires).
+Padding each load-bearing run separately makes two runs one station
+apart OVERLAP, and two chains over the same ground re-emit the same edge
+on two sets of nodes — the duplicate constrained segments RULINGS
+2026-09-09t measured Triangle's recovery spinning on.  Measured on the
+first arms: **3 duplicate foot coordinates at CYXY, 14 at LEMD**.  The
+padding is now part of the MEMBERSHIP (`keep[i] = flags[i-1] or flags[i]
+or flags[i+1]`, then maximal cyclic runs of `keep`), twinned, and both
+arms read 0 — the LEMD base's own 5 duplicates are gone with them.
+
+#### Build-time impact statement
+
+Bank pass: CYXY 0.14 s both arms, LEMD 0.54 → 0.51 s.  §37 (1) removes a
+`min`; §37 (2) adds one comparison per candidate; §37 (3) reads `_inner`
+for every region station instead of only for emitted ones and re-reads it
+for the kept ones, which the bank pass absorbs.  Whole-build wall is a
+re-solve of a changed system on a machine running four lanes
+concurrently, so no A/B is quoted (standing law: never one run per side).
+Nothing here is within 1 % of either budget.
+
+#### What this lane did NOT do
+
+KCLT (blocked — the pristine-DSF dump, above); the five-airport sweep
+(the orchestrator's, once per merged batch); any `--refresh-data`; any
+new tool (nothing here needed one — the bank's own census is
+`BankReport.line()`, the share census is `tools/role_edge_census.py`,
+the defect counts are `tools/harness/census.py`), so no `tools/INDEX.md`
+row; any merge.

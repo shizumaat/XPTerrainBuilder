@@ -88,6 +88,7 @@ class Lot:
     apron_cover_fraction: float
     airside_edge_min_m: float
     mouth_width_factor: float
+    road_airside_edge_frac: float
 
 
 @_dc.dataclass(frozen=True)

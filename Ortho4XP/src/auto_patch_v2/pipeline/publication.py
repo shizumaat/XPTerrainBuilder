@@ -96,12 +96,19 @@ __all__ = ["publication", "face_tags"]
 
 def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
               ) -> dict[int, dict[str, str]]:
-    """Extra way tags: ``o4_grade_law_cap`` on roads bound to a stricter
+    """Extra way tags: ``o4_grade_law_cap_t`` on roads bound to a stricter
     contiguous class (the census's way-level lateral-contiguity read), and
     ``o4_edge`` on an adjacent-ground face whose region was ENDED at a
-    terrain edge (owner RULINGS 2026-09-10b/10c; spec §19.3 C12)."""
+    terrain edge (owner RULINGS 2026-09-10b/10c; spec §19.3 C12).
+
+    §37 (1) (RULINGS 2026-09-13q item 5): the contiguity cap is stamped
+    under ``o4_grade_law_cap_t``, NOT ``o4_grade_law_cap``.  The bare tag
+    binds a way's whole within-shape reading in both census readers, and
+    lateral contiguity binds the TRANSVERSE cap only — a road keeps its
+    own longitudinal law.  ``o4_grade_law_cap`` is left to the oracle
+    alias (``emit/osm_adapter``) and to v1, whose meaning is unchanged."""
     out: dict[int, dict[str, str]] = {
-        fid: {"o4_grade_law_cap": f"{cap:g}"}
+        fid: {"o4_grade_law_cap_t": f"{cap:g}"}
         for fid, cap in road_law_caps(planar, law, airport).items()}
     kinds = getattr(planar, "edge_kind_of_ref", None) or {}
     for fid, f in planar.faces.items():

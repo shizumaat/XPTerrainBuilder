@@ -395,6 +395,32 @@ pad_level_rulings = [
 # precedent, ``frontage_near_miss_m`` 1.0).  0 disables the proximity
 # clause and leaves the identity read alone.
 pad_frontage_m = 3.0
+# §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
+# refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
+# the median over the face's frontage vertices of ``dem_z`` minus the pad
+# footprint's OWN median ``dem_z`` — exceeds this mints NO
+# ``groundside_frontage`` row: the face keeps its own ground and the step is
+# a lawful terrace.  PER PAIR, never per vertex (a per-vertex bound
+# saw-tooths a 16-vertex frontage).  0 disables the bound.
+#
+# THE QUANTITY IS DEM-VS-DEM because a constraint generator has no SOLVED
+# pad level — the level is what §20's rows produce, three lag rounds later.
+# MEASURED on that quantity at the 3.0 m frontage radius (lane
+# `v2frontagestep`, medians per pair): CYXY `building10` -> `dsf:pol129`
+# +4.72 and `building9` -> `pav4` +4.54 — the owner's two hillside lots
+# (13l item 1), which §28 (1) had graded down into a 3.4 m excavation
+# `dsf:pol129` cannot climb out of at its 8 % cap — DISARM; LEMD
+# `building4` -> `pav124` +3.00 (the case 12r ordered graded), HECA
+# `building7` -> `pav48` +3.40, OTHH +2.76 and SPJC +1.50 STAY ARMED.
+# 4.0 is the centre of the 3.40-4.54 gap that population leaves.
+#
+# DEVIATION REPORTED, never decided here: 13o set 2.8 on the step against
+# the pad's SOLVED level (CYXY +4.08 / +3.02 against LEMD +2.66).  On the
+# quantity a generator can actually read, the same pairs measure +4.72 /
+# +4.54 against +3.00 — the pads stand 0.32 m (LEMD) to 1.51 m (CYXY) above
+# their own terrain once solved — so 2.8 here would disarm `building4`.
+# The arming decisions 13o ruled are what this value preserves.
+frontage_step_max_m = 4.0
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m

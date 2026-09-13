@@ -8061,3 +8061,31 @@ BARS (round 3; attribution of the 462 rows FIRST, `--why-at`): v2 verify
 once its selection reads `road_route_frame`; `dsf:pol51` follow ≥ 0.85 and
 section ≤ 2 % at every station; `dsf:pol82` ≤ 0.5 m; cockpit motion ≤ 7;
 LEMD / CYXY dry as before; ONE KCLT build against `ctlkclt70646dc8`.
+
+### §37 (6) AMENDED (the ramp's floor is the core clamp), §37 (9) THE COVERAGE-EDGE JOIN (Fable 2026-09-13; RULINGS 2026-09-13be) — lane `v2roadramp` round 3
+
+Scout `roadlevel`: the core's `include_roads` levelling runs for every
+airport-area way and is then REMOVED inside the patch coverage + 6 m
+(`O4_Vector_Map.py:1749-1757`); inside the coverage the patch is the sole
+road authority and v2 computes the core's clamp itself
+(`airport/road_profile.py` → `cap_lipschitz_profile`). At KCLT's east road
+the mesh shows the patch (214.24) over the core (203.48) and the DEM
+(200.31); at the coverage edge the patch's kerb meets the core ribbon with a
+2.36 m drop over 7.9 m.
+
+- **§37 (6) amended — THE FLOOR IS THE CLAMP.** The ramp target is
+  `max(clamp(s), z_contact − cap × s)` along the route, `clamp(s)` the
+  in-process `cap_lipschitz_profile` value (`preferred_road_z`'s own
+  profile): the road descends at the cap to the core's answer and follows
+  it. Where the DEM is within the cap the two coincide; where it is not,
+  the road takes the lift/cut the core would have given it.
+9. **THE COVERAGE-EDGE JOIN.** A road-family face whose way leaves the
+   coverage takes, at its last station inside, the core ribbon's altitude
+   at the first station outside (the clamp value) as an EQUALITY; census
+   family `road_coverage_join` prices the step (twin: a road exiting the
+   coverage, step 0). Bar at KCLT way 10826 station 0: 2.36 m → ≤ 0.05 m in
+   the patch.
+
+BARS (round 3, with §37 (8)'s): as 13bb, plus `road_coverage_join` 0 on the
+lane arm and > 0 on the control; the mesh confirmation of the join is the
+app build's tile.

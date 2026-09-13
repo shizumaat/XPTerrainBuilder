@@ -264,7 +264,13 @@ def test_anchor_tunnel_object_lands_on_its_floor_ring():
 def test_anchor_with_no_point_at_its_zero_takes_the_low_side_foot():
     """11e (2): authored relief beyond the body's skirt — every foot reads
     a different zero plane, so none of them IS the body's; the anchor is
-    the low-side foot and the reason carries the residual."""
+    the low-side foot and the reason carries the residual.
+
+    AND IT IS NAMED FOR WHAT IT IS ((E), owner RULINGS 2026-09-12ap):
+    every foot of this body is authored at y = 0 — dead flat, no authored
+    relief anywhere in it — and the 5.56 m is entirely the TERRAIN's fall
+    under it.  Printing that as the model's own relief is what sent
+    12ao's attribution table the wrong way."""
     def surface(lat, lon):
         return 100.0 + (lat - 40.0) * 111_132.0      # 1 m per 9 µdeg
 
@@ -273,7 +279,8 @@ def test_anchor_with_no_point_at_its_zero_takes_the_low_side_foot():
                (40.00010, -3.0, 0.0, ((40.00010, -3.0, 0.0),))])
     a = AR.anchor_for(AR.SKIRTED, g, surface, tol_m=0.3)
     assert a.reason.startswith("low-side foot (no point within 0.3 m")
-    assert "authored relief 5.56 m" in a.reason
+    assert "terrain spread 5.56 m" in a.reason
+    assert "authored relief" not in a.reason
     assert a.lat == pytest.approx(40.00000)          # the LOW side
     assert a.surface_z == pytest.approx(100.0)
 

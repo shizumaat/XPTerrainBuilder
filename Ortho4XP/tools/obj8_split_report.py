@@ -81,7 +81,7 @@ from auto_patch_v2.airport import placement_boxes as PB        # noqa: E402
 from auto_patch_v2.airport import placement_plan as PP         # noqa: E402
 
 
-def surface_from_graded(path: str):
+def surface_from_graded(path: str, split_tol_m: float = 0.3):
     """``(sampler, pads, rims)`` from an emitted ``<ICAO>.graded.json``."""
     d = json.loads(open(path, encoding="utf-8").read())
     vs = d["vertices"]
@@ -90,8 +90,108 @@ def surface_from_graded(path: str):
     from scipy.interpolate import LinearNDInterpolator
     interp = LinearNDInterpolator(pts, zs)
 
+    # §17 (owner RULINGS 2026-09-12am (2)): THE FACE ROLE UNDER A POINT,
+    # off the SAME parsed document — the sampler answers how HIGH the
+    # design surface is there and this answers WHAT IT IS, which is what
+    # says whether a foot standing on it is judged at the motion
+    # threshold or the visual one.  Carried on the sampler beside
+    # ``many`` so no caller's tuple changes.
+    from auto_patch_v2.law import tables as _T
+    _law = _T.load_default()
+    roles = PB.graded_roles_from_doc(
+        d, rank=lambda r: _T.authority_rank(_law, r))
+
+    # (E), owner RULINGS 2026-09-12ap: THE SAMPLER HONOURS GRADED HOLES.
+    # The design surface is a set of FACES, and a face with a HOLE is
+    # saying, in the document itself, that the ground inside that ring is
+    # not its own.  LEMD's apron ``pav16`` is cut by such a ring standing
+    # at 597.7-599.5 with the ``tunnel_trench`` floor (590.8-594.5)
+    # inside it.  A Delaunay over the emitted VERTICES knows none of
+    # that: it spans the ring with triangles reaching from an apron
+    # vertex to a trench vertex, and the design surface then reads
+    # **592.22 m at a point whose ROLE is apron** — 6.4 m of cliff served
+    # as a ramp, six metres OUTSIDE the hole, which is where 12ap's two
+    # worst pavement feet came from (`LEMDblast__b1`'s own anchor sat in
+    # one of those triangles).
+    #
+    # A SIMPLEX THAT CROSSES A HOLE RING IS THEREFORE STRUCK, and the
+    # points inside it read OFF-SHEET (§15 (5)) — never a height nothing
+    # published.  Crossing is read on the VERTICES (one inside the ring,
+    # one outside), because that is what "interpolated across the hole"
+    # means; a triangle wholly inside the trench, or wholly out on the
+    # apron, is untouched.
+    #
+    # TWO NARROWINGS THE MEASUREMENT FORCED, both on this frame:
+    #   * "centroid on NO FACE" instead of the ring test struck 8,689 of
+    #     LEMD's 47,287 simplices and took the pack from 2,107 written
+    #     files to 1,686 with 435 bodies off-sheet — the emitted faces do
+    #     not TILE the field (a graded strip stops where the next begins
+    #     and the mesh carries the join), so "on no face" is not "no
+    #     ground";
+    #   * a crossing whose z-span is within ``[placement] split_tol_m``
+    #     is a hole ring and its filler drawn at the SAME height with a
+    #     seam of triangles between them (451 of LEMD's first 1,085):
+    #     no cliff to invent, and no reading worth losing.
+    # The shipped plan samples the MESH, which has the wall in it; this
+    # is the replay instrument's own repair.
+    _tri = getattr(interp, "tri", None)
+    _bad = None
+    _holes = [h for f in d.get("faces", ()) or ()
+              for h in (f.get("holes", ()) or ())]
+    if _tri is not None and _holes and len(getattr(_tri, "simplices", ())):
+        _by = {v[0]: (v[1], v[2]) for v in vs}
+        _hr = [(str(k), "", r, ()) for k, r in enumerate(
+            tuple(_by[i] for i in hh if i in _by) for hh in _holes)
+            if len(r) >= 3]
+        _in = PB.GradedRoles(_hr).roles_many(
+            pts[:, 0].tolist(), pts[:, 1].tolist())
+        _hid = np.asarray([-1 if q is None else int(q) for q in _in],
+                          dtype=np.int64)
+        _sim = np.asarray(_tri.simplices)
+        _h3 = _hid[_sim]
+        _cross = (_h3.max(axis=1) != _h3.min(axis=1))
+        _span = (zs[_sim].max(axis=1) - zs[_sim].min(axis=1)
+                 > float(split_tol_m))
+        _bad = _cross & _span
+        if not _bad.any():
+            _bad = None
+        else:
+            _hrx = PB.GradedRoles(_hr)
+
+    def _mask(las, los, z):
+        """``z``, with every reading taken ACROSS a hole ring replaced.
+
+        A point in a struck simplex is not interpolated at all: it reads
+        the nearest of that simplex's vertices standing on ITS OWN SIDE
+        of the ring — the trench floor for a point in the trench, the
+        apron for a point on the apron — and OFF-SHEET when the simplex
+        has no vertex on its side.  Nothing is invented: every value is a
+        vertex the surface published."""
+        if _bad is None:
+            return z
+        la = np.asarray(las, dtype=float)
+        lo = np.asarray(los, dtype=float)
+        s = _tri.find_simplex(np.column_stack((la, lo)))
+        out = np.asarray(z, dtype=float).copy()
+        hit = np.nonzero((s >= 0) & _bad[np.maximum(s, 0)])[0]
+        if not hit.size:
+            return out
+        vi = np.asarray(_tri.simplices)[s[hit]]                   # (n, 3)
+        q = np.column_stack((la[hit], lo[hit]))
+        side = np.asarray(
+            [-1 if r is None else int(r) for r in
+             _hrx.roles_many(q[:, 0].tolist(), q[:, 1].tolist())],
+            dtype=np.int64)
+        same = _hid[vi] == side[:, None]
+        dv = np.hypot(*( (pts[vi] - q[:, None, :]).T ))           # (3, n)
+        dv = np.where(same.T, dv, np.inf).T
+        j = dv.argmin(axis=1)
+        ok = np.isfinite(dv[np.arange(hit.size), j])
+        out[hit] = np.where(ok, zs[vi[np.arange(hit.size), j]], np.nan)
+        return out
+
     def sampler(lat: float, lon: float):
-        z = interp(lat, lon)
+        z = _mask([lat], [lon], np.asarray(interp(lat, lon)).reshape(-1))
         z = float(np.asarray(z).reshape(-1)[0])
         return None if not np.isfinite(z) else z
 
@@ -102,21 +202,14 @@ def surface_from_graded(path: str):
         interpolation — one call per body instead of one per point."""
         z = np.asarray(interp(np.asarray(las, dtype=float),
                               np.asarray(los, dtype=float))).reshape(-1)
+        z = _mask(las, los, z)
         return [None if not np.isfinite(q) else float(q) for q in z]
 
     sampler.many = many                       # type: ignore[attr-defined]
-
-    # §17 (owner RULINGS 2026-09-12am (2)): THE FACE ROLE UNDER A POINT,
-    # off the SAME parsed document — the sampler answers how HIGH the
-    # design surface is there and this answers WHAT IT IS, which is what
-    # says whether a foot standing on it is judged at the motion
-    # threshold or the visual one.  Carried on the sampler beside
-    # ``many`` so no caller's tuple changes.
-    from auto_patch_v2.law import tables as _T
-    _law = _T.load_default()
-    sampler.roles = PB.graded_roles_from_doc(          # type: ignore[attr-defined]
-        d, rank=lambda r: _T.authority_rank(_law, r))
+    sampler.roles = roles                     # type: ignore[attr-defined]
     sampler.rolled_on = frozenset(_T.rolled_on_roles(_law))   # type: ignore[attr-defined]
+    sampler.holes_struck = (0 if _bad is None      # type: ignore[attr-defined]
+                            else int(_bad.sum()))
 
     # ONE derivation site for pads/rims (lane v2planfix): the shipped
     # engine path calls the same function, so the tool and the build
@@ -524,6 +617,12 @@ def _main() -> int:
                     help="override [placement] rigid_reach_m (§16c (7): "
                          "SOLID components of one resource within this chain "
                          "into ONE rigid cluster; 0 disarms the reach)")
+    ap.add_argument("--motion-rows", default="", help="write §17's per-body "
+                    "projection here as JSON ((E), RULINGS 2026-09-12ap): one "
+                    "row per WRITTEN body with its anchor, class, anchor "
+                    "reason and every ground-contact foot (lat/lon/authored "
+                    "y/surface z/face role/on-pavement/float) — the rows "
+                    "``census_motion`` itself reads, never a second census")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -555,7 +654,7 @@ def _main() -> int:
     if not a.graded:
         ap.error("--graded is required")
     plan, abut = PP.read_plan(a.plan)
-    sampler, pads, rims = surface_from_graded(a.graded)
+    sampler, pads, rims = surface_from_graded(a.graded, tol_m)
     if a.admit_skipped:
         plan, n_rows, n_res = admit_skipped(
             plan, os.path.abspath(a.admit_skipped), a.dsftool,
@@ -659,7 +758,23 @@ def _main() -> int:
         sampler, sampler.roles, rolled_on=sampler.rolled_on,
         motion_step_m=_law.tables.emit.cockpit.motion_step_m,
         visual_m=_law.tables.emit.cockpit.visual_m,
-        band_m=band_m, exempt_classes=frozenset({_ar.BASIN}))
+        band_m=band_m, contact_tol_m=tol_m,
+        want_rows=bool(a.motion_rows),
+        exempt_classes=frozenset({_ar.BASIN}))
+    # (E)/12ap: the per-body projection of §17's population, promoted out
+    # of the scout's scratchpad on its SECOND use (CLAUDE.md tool
+    # discipline).  ONE reading — the rows come out of ``census_motion``
+    # itself, so the projection and the printed census cannot be two
+    # populations.
+    if a.motion_rows:
+        with open(a.motion_rows, "w", encoding="utf-8") as fh:
+            json.dump({"ruling": "2026-09-12ap", "icao": plan.icao,
+                       "band_m": motion["band_m"],
+                       "contact_tol_m": motion["contact_tol_m"],
+                       "rolled_on": list(motion["rolled_on"]),
+                       "rows": list(motion["rows"])}, fh)
+        print(f"   §17 motion rows -> {a.motion_rows} "
+              f"({len(motion['rows'])} body(ies))")
     for line in PC.cockpit_block_lines(PC.cockpit_block(
             splits=_plan_rows, v15=v15, v16b=v16b, motion=motion)):
         print(line)

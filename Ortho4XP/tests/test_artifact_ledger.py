@@ -223,45 +223,16 @@ def test_a_synthetic_dem_world_is_a_miss_against_the_real_one(AL, tmp_path,
     assert record is None and "variant" in why
 
 
-def test_the_two_solve_models_never_serve_for_each_other(AL, tmp_path, store):
-    """THE MODE SEPARATION (docs/specs/constructive-solve-spec.md, "Mode
-    plumbing": "two models = two artifacts, never served for each other").
-
-    The whole round is an A/B between the models at ONE tree and ONE
-    corpus, so every other key part is identical by construction: if the
-    variant did not carry the mode, the constructive arm would be served
-    the iterative arm's patch and the comparison would report no
-    difference at all.  Both directions, because a serve is a serve
-    whichever arm ran first.
-    """
-    _corpus_tree(tmp_path)
-    arts = _artifacts(tmp_path)
-    iterative = _parts(AL, tmp_path,
-                       variant=AL.build_variant(solve_model="iterative"))
-    constructive = _parts(AL, tmp_path,
-                          variant=AL.build_variant(solve_model="constructive"))
-    assert _key(AL, iterative) != _key(AL, constructive)
-
-    AL.store_build(_key(AL, iterative), iterative, arts, {"tag": "it"},
-                   store=store)
-    record, why = AL.lookup(_key(AL, constructive), constructive, store=store)
-    assert record is None and "variant" in why
-
-    AL.store_build(_key(AL, constructive), constructive, arts, {"tag": "co"},
-                   store=store)
-    for parts in (iterative, constructive):
-        record, _ = AL.lookup(_key(AL, parts), parts, store=store)
-        assert record is not None
-        assert record["key_parts"]["variant"]["solve_model"] == \
-            parts["variant"]["solve_model"]
-
-
-def test_the_solve_model_is_in_the_variant_and_defaults_to_none(AL):
-    """Present as its own key, so a reader of a stored entry can see which
-    model produced it without re-deriving anything."""
-    assert AL.build_variant()["solve_model"] is None
-    assert AL.build_variant(solve_model="constructive")["solve_model"] == \
-        "constructive"
+def test_the_solve_model_is_a_constant_component_of_every_variant(AL):
+    """THE SOLVE MODEL IS RETIRED (owner RULINGS 2026-09-13bh): v1's solver
+    switch, which nothing in v2 reads.  The variant KEEPS the component,
+    pinned to the one spelling every arm was ever stored with, so no
+    control in the machine-wide store is re-keyed and rebuilt (BUILD
+    ECONOMY, CLAUDE.md) — and ``build_variant`` no longer takes it."""
+    import inspect
+    assert AL.SOLVE_MODEL == "iterative"
+    assert AL.build_variant()["solve_model"] == "iterative"
+    assert "solve_model" not in inspect.signature(AL.build_variant).parameters
 
 
 def test_a_changed_corpus_is_a_miss_and_says_so(AL, tmp_path, store):

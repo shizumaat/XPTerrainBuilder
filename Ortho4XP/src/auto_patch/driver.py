@@ -1616,20 +1616,14 @@ def generate_auto_patches(tile, cifp_path: str,
     # MAIN process does all logging + the verify-log concatenation so nothing
     # races or interleaves.  Serial path (default) is behaviourally identical to
     # the old inline loop.
-    # THE SOLVE MODEL'S PER-TILE SCOPE (docs/specs/constructive-solve-
-    # spec.md, "Mode plumbing": the cfg key is global + per-tile).
-    # ``Tile.read_from_config`` puts the per-tile value on the Tile
-    # INSTANCE only, and the solve dispatch is many frames below here with
-    # no tile in hand — and, with O4_PARALLEL_AIRPORTS, in another PROCESS.
-    # ``tile_scope`` publishes the tile's resolved model on the
-    # environment for exactly the span in which airports build, so the
-    # workers inherit it; it never overrides an ``O4_SOLVE_MODEL`` the
-    # caller already set (an A/B arm's pin outranks a tile's cfg).
-    import O4_Solve_Model as _SM
+    # THE SOLVE MODEL IS RETIRED (owner RULINGS 2026-09-13bh): the
+    # ``solve_model`` cfg key, ``O4_Solve_Model`` and its per-tile
+    # ``tile_scope`` publication are gone.  This is v1 code and v1 only
+    # ever built with the ITERATIVE core, which is what the constant at
+    # the solve dispatch (``route_profile/solve.py``) now reads.
     try:
-        with _SM.tile_scope(tile) as _scope:
-            UI.vprint(1, "   Auto-patch: solve model", _scope.model)
-            _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
+        UI.vprint(1, "   Auto-patch: solve model", "iterative")
+        _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
     finally:
         # ``_run_build_tasks`` now RAISES on a failed airport (H1); the
         # caller's verbosity must be restored on that path too.

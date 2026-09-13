@@ -389,7 +389,7 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
             x, y = xy[k]
             # THE NEAREST POINT of the nearest end edge (§35 (1)): ``t``
             # clamped, the bound taken over the true plan distance to it
-            best: tuple[float, int, int, float] | None = None
+            cands: list[tuple[float, int, int, float]] = []
             for a, b, end in end_edges:
                 if not point_in_rect_ring(x, y, g.rings[end]):
                     continue
@@ -401,18 +401,21 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
                 t = ((x - ax) * ex + (y - ay) * ey) / l2
                 t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
                 dx, dy = x - (ax + t * ex), y - (ay + t * ey)
-                d = math.hypot(dx, dy)
-                if best is None or d < best[0]:
-                    best = (d, a, b, t)
-            if best is None:
-                continue
-            d, a, b, t = best
-            key = (min(v, a), max(v, a))
-            if d < 1.0 or key in seen:
-                continue
-            seen.add(key)
-            rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
-                               -cap * d - q, cap * d + q, src))
+                cands.append((math.hypot(dx, dy), a, b, t))
+            # the NEAREST edge states the law; a nearer edge whose (vertex,
+            # foot) pair is ALREADY stated yields to the next one rather
+            # than dropping the vertex — the pre-§35 loop walked the edges
+            # in ring order for exactly this reason, and taking only the
+            # nearest cost LEMD 1,234 rows (measured 2026-09-13, arms
+            # b27faf5ce243 / ce7299094661: verify 1,354 -> 1,596)
+            for d, a, b, t in sorted(cands):
+                key = (min(v, a), max(v, a))
+                if d < 1.0 or key in seen:
+                    continue
+                seen.add(key)
+                rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
+                                   -cap * d - q, cap * d + q, src))
+                break
     return rows
 
 

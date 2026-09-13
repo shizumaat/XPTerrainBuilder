@@ -234,6 +234,11 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
     assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "water_pin_row_withdrawn",
                                        "structure_datum_withdrawn", "pavement_ceiling",
+                                       # §38 (1) (owner RULINGS 2026-09-13ah): the seam
+                                       # is a ``Pin``, so it yields to a SENIOR pin
+                                       # (a CIFP threshold) by a counted withdrawal
+                                       # instead of by the reduction's row order
+                                       "seam_pin_withdrawn_senior",
                                        "eat_pin_withdrawn_senior"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]

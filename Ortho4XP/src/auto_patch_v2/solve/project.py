@@ -407,7 +407,25 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     np.add.at(cnt, cols.astype(np.int64), 1.0)
     w = np.maximum(cnt[free], 1.0)
 
-    coupled = n_free < n_all
+    # A ROW FOOTED ON A FIXED VERTEX IS COUPLED TOO (§38 (2); owner RULINGS
+    # 2026-09-13ah).  ``n_all`` counts the row's nonzeros in the REDUCED
+    # matrix, and a vertex the reduction eliminated — a CIFP threshold, a
+    # water datum, a TILE-SEAM PIN — carries no column at all, so a row
+    # tying one free runway vertex to two fixed seam pins read
+    # ``n_free == n_all`` and was judged self-contained.  It is not: its
+    # other feet are fixed, which is exactly the condition the elastic arm
+    # below was written for ("solvable in the design solve, where both feet
+    # move, unsolvable here").  Measured at SPLP with the seam as a pin: the
+    # QP is infeasible, the relaxation LP has NO elastic row to give slack
+    # to and is infeasible too, and the projection returns the design
+    # surface with its runway rows uncertified.  The coupling test therefore
+    # reads the ROW'S OWN TERMS, where a fixed foot is still visible.
+    hard_sel = hard[sel]
+    fixed_foot = np.fromiter(
+        (any(int(red.col[v]) < 0 for v, _c in one[int(k)][0]) for k in hard_sel),
+        dtype=bool, count=int(hard_sel.size))
+    coupled = (n_free < n_all) | fixed_foot
+    rep.coupled_rows = int(np.count_nonzero(coupled))
     # THE ACTIVE NEIGHBOURHOOD (a cutting plane, exact on termination).  Of
     # the 17,062 rows HECA's runway family carries, all but a few hundred sit
     # metres inside their bound and no minimum-change projection can bring

@@ -210,6 +210,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
+                   seam_band_rings=tuple(tuple(b.exterior.coords)
+                                         for b in arr.seam_bands),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"})
     validate(pm)

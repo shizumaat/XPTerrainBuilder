@@ -71,7 +71,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 from ..law import Law
 from ..law.tables import is_rigid_role, pavement_roles
@@ -79,7 +79,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
-from ..model.structures import Basin, Tunnel
+from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel
 from .precedence import view
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
@@ -222,6 +222,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                          f"{ob.mouth_depth!r} / ramp_end {ob.ramp_end!r}: only 'ground' / "
                          f"'floor_slab' / 'wall_end' are generated")
     rows: list[Row] = []
+    #: spec §34 (6) as amended: the design solve's own HELD residual, which
+    #: a row targeted AT its cap emits over.
+    hard_tol = float(law.tables.emit.design.hard_tol_m)
+    #: spec §33 (4) as amended: a deck end's equality window, and the
+    #: identity step that groups the vertices standing AT that end.
+    tol_m = float(law.tables.structures.placement.split_tol_m)
+    grid_m = float(law.tables.emit.identity.min_distinct_spacing_m)
     pins: dict[int, Pin] = {}
     co = law.tables.structures.cutout
     from ..model.structures import profile_z
@@ -260,6 +267,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_mouth = Source(GEN, "tunnel.bore_datum_m (2026-09-03b)", inputs)
         src_flat = Source(GEN, "tunnel_ramp laterally flat (road_cross_section 0 %)", inputs)
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
+        src_mono = Source(GEN, "tunnel.ramp monotone profile (spec 34 (3); 2026-09-13i)",
+                          inputs)
         src_wall = Source(GEN, "tunnel.crest = dem: the rim at the DEM by station "
                           "(2026-09-03b L1; 2026-09-06b no band)", inputs)
         # the descent law's cap: a door ramp's own (09-08b/c Law A), else the tunnel's
@@ -317,7 +326,32 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if path is not None:
             wall_vs = sorted({v for f in walls.get(tn.id, ())
                               for v in planar.ring_vertices(f.ring) if not on_floor(v)})
-            groups = _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
+            # THE PORTAL RIM UNDER A DECK TAKES THE TAXI CELL'S SOLVED
+            # SURFACE (spec §34 (5) as amended; RULINGS 2026-09-13ai).  The
+            # DEM carries no bridge, so ``DEM(mouth)`` is the ROAD down in
+            # the cutting: at LEMD F-6 that pinned the abutment at 570.0
+            # against a taxi surface solving ~576, and the cockpit read a
+            # 3.5–5.3 m cliff (measured round 1 and round 2, ledgers
+            # f4cf494dab92 / 1498afa25daa).  An underpass rim vertex
+            # standing INSIDE a governed pavement cell is therefore not
+            # pinned at the DEM at all: it takes an EQUALITY (offset 0) to
+            # that cell's own nearest vertex — the ``frontage_level``
+            # mechanism, two-sided here because the rim IS the deck's
+            # surface, not a crest that merely rises to it.
+            up_ref = next((n[len(UNDERPASS_NOTE):] for n in tn.notes
+                           if n.startswith(UNDERPASS_NOTE)), None)
+            on_deck: dict[int, int] = {}
+            if up_ref is not None:
+                for v in wall_vs:
+                    gv = _deck_cell_vertex(planar, vw, v, structure_roles)
+                    if gv is not None:
+                        on_deck[v] = gv
+                for v, gv in on_deck.items():
+                    rows.append(Offset(v, gv, 0.0, src_wall))
+                    rows.append(Offset(gv, v, 0.0, src_wall))
+            shared = (shared_with_ground if not on_deck
+                      else (lambda v: v in on_deck or shared_with_ground(v)))
+            groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall)
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -369,6 +403,18 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # distance — a curved corridor's chord across the bend is
             # shorter than its axis; measured OTHH -8342: 5.1 m over a
             # 74 m chord of a 144 m axis, 6.9 %)
+            # ...AND IT SITS UNDER THE CAP (spec §34 (6) as amended,
+            # RULINGS 2026-09-13ai).  The design solve HOLDS a hard row at
+            # ``[design] hard_tol_m`` (0.02 m), so a row TARGETED at the cap
+            # emits AT the cap plus that residual and the census reads it
+            # over: measured LEMD round 1, the monotone profile pressed the
+            # ramps onto 8 % and minted 847 ``within_shape`` rows at
+            # 8.02–8.03 % against the 8.00 % cap.  Each pair is therefore
+            # priced ``cap − hard_tol_m / d`` — the same |dz| bound one
+            # ``hard_tol_m`` tighter — so the held residual lands the
+            # emitted row AT the cap, not over it.  ``ramp_top`` leaves a
+            # whole station of slack (0.96 m at 8 % over 12 m) so the
+            # tightening never makes a ramp that fit stop fitting.
             ids = [v for _s, vs in groups_climb for v in vs]
             for i in range(len(ids)):
                 (xa, ya) = planar.vertices[ids[i]].xy
@@ -376,7 +422,31 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     (xb, yb) = planar.vertices[ids[j]].xy
                     d = math.hypot(xa - xb, ya - yb)
                     if d > 1e-6:
-                        rows.append(Diff(ids[i], ids[j], ramp_cap, d, src_ramp))
+                        cap_d = max(0.0, ramp_cap - hard_tol / d)
+                        rows.append(Diff(ids[i], ids[j], cap_d, d, src_ramp))
+            # A RAMP CLIMBS MONOTONICALLY (spec §34 (3); Fable 2026-09-13i,
+            # RULINGS 2026-09-13i item 7b): the cap above is SYMMETRIC, so a
+            # ramp whose stations each sat inside it could still saw-tooth
+            # between them (measured LEMD -5980: 6.6 % of alternating sign
+            # on a road a driver reads as one descent).  One ONE-WAY row per
+            # consecutive STATION toward the top — ``Offset(a, b, 0)`` is
+            # ``z[a] − z[b] >= 0`` — makes the design profile monotone; the
+            # Flat above ties each station's width, so one representative
+            # vertex carries it.  The SENSE follows the ramp's own ends: a
+            # mouth on a ridge of the smoothed DEM tops BELOW its datum
+            # (``ramp_top``'s descend-to case) and is monotone downward, so
+            # the row never contradicts the pins the generator already set.
+            st = [(s, vs[0]) for s, vs in groups_climb if vs]
+            if len(st) > 1:
+                za = _dem_at(airport, *tn.axis[-1])
+                down = not math.isnan(za) and za < tn.mouth_z - 1e-9
+                for (_s0, a), (_s1, b) in zip(st, st[1:]):
+                    # ``Offset(hi, lo, 0)`` is ``z[hi] − z[lo] >= 0``: the
+                    # station FURTHER from the mouth is the higher one
+                    # (``a`` is nearer, ``b`` further), reversed where the
+                    # ramp tops below its datum
+                    hi, lo = (a, b) if down else (b, a)
+                    rows.append(Offset(hi, lo, 0.0, src_mono))
             # the datum: the mouth, every covered stretch, and the resume
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)
@@ -475,44 +545,75 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               "(RULINGS 2026-09-13d item 9, 2026-09-13i)",
                               (*inputs, f"osm:{d.way}", *(r for r in d.end_ref if r)))
             deck_sorted = sorted(set(deck_vs))
-            # THE ROAD SHAPE: the deck runs from one end's ground to the
-            # other's (owner item 9 "a road shape connecting directly to the
-            # apron on the east end and the road on the west side"), never
-            # below the trench floor + clearance.  Interpolated per vertex
-            # over the mapped way's own chord — a single flat datum at the
-            # HIGHER end would stand 3.5 m over the apron at the other
-            # (measured LEMD -6288: ends 609.99 west / 606.10 east).
-            # REFUTED (lane v2wallplate, round 2, MEASURED, one build): making
-            # the profile span the DECK FACE's own extent instead of the way's
-            # — so the face's edges carry the end values — moved the east edge
-            # the WRONG way (608.26 -> 608.81 against an apron at 606.60), cost
-            # 149 verify rows (1372 -> 1521, road_cross_section 22 -> 72) and
-            # dropped the solve from optimal to feasible.  The face's own edges
-            # do not reach the end values because the deck ring's vertices ARE
-            # the corridor RIM's (they are the same nodes), so the deck cannot
-            # move without the rim; do not retry it without ruling that
-            # coupling first.
-            if len(d.end_z) == 2 and len(d.end_xy) == 2 \
-                    and not any(math.isnan(z) for z in d.end_z):
+            # A DECK END IS AN EQUALITY (spec §33 (4) as amended, RULINGS
+            # 2026-09-13ai; owner 2026-09-13d item 9 "a road shape connecting
+            # directly to the apron on the east end and the road on the west
+            # side").  The deck's END GROUP — the vertices standing at each
+            # extreme of the face along the mapped way — takes the level of
+            # what that end CONNECTS TO, within ``split_tol_m``, as a
+            # TWO-SIDED relation; the deck's own profile runs between the two
+            # under the road cap (it is a ``service_road`` face).  A LOWER
+            # BOUND alone was measured not to move it: LEMD -6288's east edge
+            # stood 608.26 against an apron at 606.60 (1.66 m) because the
+            # bound was one-way and nothing pulled the deck down (round 1,
+            # ledger e87162aa889b).
+            #
+            # WHAT AN END CONNECTS TO: the governed cell ``deck_ends`` found
+            # (its own SOLVED value — the apron pav92 solves 606.60 where the
+            # DEM under the way's end reads 606.10), else the DEM profile the
+            # way's own chord carries at that edge (the west end runs onto an
+            # unclassified road; 609.99 at the node, 609.29 at the face edge).
+            # Never below the trench floor + ``clearance_m``.
+            #
+            # THE RIM/DECK COUPLING, ruled (RULINGS 2026-09-13ai, and measured
+            # here): six of -6288's ten vertices carry the corridor RIM too,
+            # but a deck face is ``service_road`` — a governed role — so
+            # ``shared_with_ground`` already holds there and the rim's DEM pin
+            # is NOT applied. The DECK's law governs the shared node; the
+            # coupling is not what held the deck up.
+            ends_t: list[float] = []
+            if len(d.end_xy) == 2:
                 (ax, ay), (bx, by) = d.end_xy
                 span2 = (bx - ax) ** 2 + (by - ay) ** 2
                 for dv in deck_sorted:
                     vx, vy = planar.vertices[dv].xy
-                    t = 0.0 if span2 <= 1e-9 else \
-                        min(1.0, max(0.0, ((vx - ax) * (bx - ax) + (vy - ay) * (by - ay)) / span2))
-                    lo = max(floor_lo, d.end_z[0] + t * (d.end_z[1] - d.end_z[0]))
-                    if lo > floor_lo + 1e-9:
-                        rows.append(Band(dv, lo, None, src_ends))
-            # ...and where an end stands IN a governed cell, the deck meets
-            # THAT SURFACE'S OWN SOLVED VALUE, not the DEM under it (the
-            # apron pav92 solves to 606.6 where the DEM at the way's end
-            # reads 606.1): a relational bound on the cell's nearest vertex.
-            for ref in d.end_ref:
-                gv = _nearest_vertex(planar, faces_by_ref.get(ref, ()), dpoly)
-                if gv is None:
-                    continue
-                for dv in deck_sorted:
-                    rows.append(Offset(dv, gv, 0.0, src_ends))
+                    ends_t.append(0.0 if span2 <= 1e-9 else
+                                  min(1.0, max(0.0, ((vx - ax) * (bx - ax)
+                                                     + (vy - ay) * (by - ay)) / span2)))
+            if ends_t and len(d.end_z) == 2 and not any(math.isnan(z) for z in d.end_z):
+                t0, t1 = min(ends_t), max(ends_t)
+                # every deck vertex keeps its FLOOR; only the two end groups
+                # are tied, so the middle is the road cap's own profile
+                for dv, t in zip(deck_sorted, ends_t):
+                    if floor_lo > -1e30:
+                        rows.append(Band(dv, floor_lo, None, src_ends))
+                near = grid_m
+                for k, t_end in ((0, t0), (1, t1)):
+                    grp = [dv for dv, t in zip(deck_sorted, ends_t)
+                           if abs(t - t_end) * math.sqrt(max(span2, 1e-9)) <= near]
+                    if not grp:
+                        continue
+                    ref = d.end_ref[k] if k < len(d.end_ref) else ""
+                    # ...measured from the WAY'S OWN END, not from the deck
+                    # POLYGON: the face is the corridor crossing and stops
+                    # short of the end, so the nearest apron vertex to the
+                    # POLYGON stood 33.8 m away on a 470-node apron at 607.4
+                    # where the vertex the end actually meets is 13.4 m away
+                    # at 606.6 (measured LEMD -6288, round 2 replay)
+                    gv = _nearest_vertex(planar, faces_by_ref.get(ref, ()),
+                                         Point(d.end_xy[k])) if ref else None
+                    if gv is not None and gv not in set(deck_sorted):
+                        # RELATIONAL EQUALITY: |z[deck] - z[pavement]| <= tol
+                        for dv in grp:
+                            rows.append(Offset(dv, gv, -tol_m, src_ends))
+                            rows.append(Offset(gv, dv, -tol_m, src_ends))
+                        continue
+                    # no governed cell at this end: the way's own DEM chord
+                    z_end = d.end_z[0] + t_end * (d.end_z[1] - d.end_z[0])
+                    lo, hi = max(floor_lo, z_end - tol_m), z_end + tol_m
+                    if hi >= lo:
+                        for dv in grp:
+                            rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     return rows
 
@@ -527,6 +628,31 @@ def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
             d = near.distance(Point(planar.vertices[v].xy))
             if best is None or d < best[0]:
                 best = (d, v)
+    return None if best is None else best[1]
+
+
+def _deck_cell_vertex(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
+    """THE DECK CELL A PORTAL RIM VERTEX STANDS IN (spec §34 (5) as
+    amended): the governed pavement face whose ring CONTAINS the vertex's
+    plan point, and that face's nearest OTHER vertex — the value the rim
+    takes.  ``None`` where the vertex stands on no such face (an ordinary
+    rim, which keeps 09-03b L1's DEM pin)."""
+    pt = Point(planar.vertices[v].xy)
+    best = None
+    for fid, cap in vw.caps.items():
+        f = planar.faces[fid]
+        if cap is None or f.role in structure_roles or f.role == "graded_strip":
+            continue
+        ring = list(vw.rings[fid])
+        if v in ring:
+            continue
+        poly = Polygon([planar.vertices[u].xy for u in ring])
+        if not poly.is_valid or not poly.contains(pt):
+            continue
+        for u in ring:
+            d = pt.distance(Point(planar.vertices[u].xy))
+            if best is None or d < best[0]:
+                best = (d, u)
     return None if best is None else best[1]
 
 

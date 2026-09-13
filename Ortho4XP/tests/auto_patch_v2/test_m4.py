@@ -186,8 +186,19 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     pins = [r for r in rows if isinstance(r, Pin)]
     diffs = [r for r in rows if isinstance(r, Diff)]
     offs = [r for r in rows if isinstance(r, Offset)]
-    assert all(d.cap == tn.ramp_max_grade for d in diffs) and diffs
-    assert offs and all(o.min_delta == law.tables.structures.bridge.clearance_m for o in offs)
+    # spec 34 (3): the ramp's MONOTONE rows are Offsets too (min_delta 0);
+    # the deck clearance is the rest
+    mono = [o for o in offs if "monotone" in o.source.ruling]
+    decks = [o for o in offs if o not in mono]
+    # spec §34 (6) as amended (RULINGS 2026-09-13ai): a ramp pair is priced
+    # ``cap - hard_tol_m / d`` so the design solve's own held residual lands
+    # the emitted row AT the cap, never over it
+    _ht = law.tables.emit.design.hard_tol_m
+    assert diffs and all(
+        d.cap == pytest.approx(max(0.0, tn.ramp_max_grade - _ht / d.d)) for d in diffs)
+    assert decks and all(o.min_delta == law.tables.structures.bridge.clearance_m
+                         for o in decks)
+    assert mono and all(o.min_delta == 0.0 for o in mono)
     # one pin per vertex; every wall vertex either pinned at the DEM of
     # its band or carried by the governed ground it shares (in a band
     # Flat with its station partner)

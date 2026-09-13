@@ -136,6 +136,35 @@ ruling    = "2026-09-13j item 2 / 13q item 2"
 solver    = "pin"
 cockpit   = "keepout"
 
+[seam_residual]
+measures  = "a tile-seam band-edge vertex standing off its own tile's baked DEM sample (the value the solve PINNED, published per pin in the sidecar `seam_pins`)"
+parameter = "emit.seam.half_width_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-13ah; 2026-09-13am"
+solver    = "pin"
+# THE COCKPIT CLASS is "step" — a HEIGHT DISCONTINUITY between the patch
+# and the DEM the neighbouring tile's mesh drapes in the band.  That gives
+# the spec's own reading for free: CRITICAL MOTION on the rolled-on roles
+# (the runway and taxi families, aprons and stands) and VISUAL elsewhere,
+# from the ONE cockpit rule, with no second threshold written here.  The
+# SPLP class it names: pavement -> down 0.6 m -> 10 m of DEM -> up 0.6 m
+# -> pavement, a ~12 % dip and rise across the runway width.
+cockpit   = "step"
+
+[bank_across_seam]
+measures  = "a `bank_foot` node inside a tile-seam band — the bank is never derived at a seam (the coverage edge there is a pin line already at the DEM)"
+parameter = "emit.seam.half_width_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-13ah; 2026-09-13an"
+solver    = "construction"
+# "keepout": the family measures a thing's PRESENCE in a region, not a
+# height — one node inside the band IS the defect, whatever its elevation
+# (13an: a chain 0.0237 m off the meridian, split 16,298 times by
+# Triangle4XP against the unsplittable tile border).
+cockpit   = "keepout"
+
 [adjacent_ground_tear]
 measures  = "graded-strip vertex outside the zone corridor (wall straddle exempt)"
 parameter = "zones.adjacent_ground.lip_width_m"
@@ -143,6 +172,15 @@ roles     = ["graded_strip"]
 pairs     = "within"
 ruling    = "2026-08-01"
 solver    = "band"
+cockpit   = "step"
+
+[adjacent_ground_step]
+measures  = "a WELDED step INSIDE one adjacent_ground face (spec §34 (4)): consecutive ring neighbours of the SAME v2 adjacent-ground way whose altitudes differ by more than the cockpit's visual threshold. graded_strip carries no within-shape cap, adjacent_ground_tear fires only under a 1 m edge and strip_seam_tear is the CROSS-shape twin, so a band holding its designed level over a mapped road's own ground (LEMD zone2#2, 1.73 m over 1.5 m at road -6289) was priced by nothing"
+parameter = "emit.cockpit.visual_m"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "2026-09-13i item 8 (spec §34 (4))"
+solver    = "construction"
 cockpit   = "step"
 
 [strip_seam_tear]

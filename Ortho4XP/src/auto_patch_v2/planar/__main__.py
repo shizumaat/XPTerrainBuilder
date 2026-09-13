@@ -357,6 +357,8 @@ def structure_records(airport, cl, law) -> dict:
                         if not isinstance(v, list)},
         "plate_mouths": list(sstats.plate_mouths),
         "crest_from_approach": list(sstats.crest_from_approach),
+        # spec §34 (5): the crossings an aeroway bridge stated
+        "underpasses": list(sstats.underpasses),
         "tunnel_object_stats": {k: v for k, v in _dc.asdict(tstats).items()
                                 if not isinstance(v, list)},
         "tunnels": [{"id": t.id, "source": t.source, "mouth_z": t.mouth_z,

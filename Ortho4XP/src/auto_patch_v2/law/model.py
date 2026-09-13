@@ -242,6 +242,14 @@ class Tunnel:
     ramp_pavement_max_offset_m: float
     dual_carriageway_max_separation_m: float
     max_ramp_length_m: float
+    #: spec §34 (2): the largest turn the approach walk may take at a
+    #: node it HOPS across (a way's own nodes are never a hop).
+    approach_turn_max_deg: float
+    #: spec §34 (5): an ``aeroway`` ``bridge=yes`` way at or above this
+    #: ``layer`` states a crossing; a road under its deck ribbon for at
+    #: least ``underpass_min_span_m`` is bored.
+    underpass_min_layer: int
+    underpass_min_span_m: float
     object: TunnelObject
 
 
@@ -251,6 +259,10 @@ class Bridge:
 
     clearance_m: float
     clearance_minimum_m: float
+    #: spec §34 (6): how far past a terrain deck's mapped end the governed
+    #: cell that end MEETS may stand (OSM stops a service road at the
+    #: apron's edge, not on it).
+    deck_end_reach_m: float
     deck_datum: str
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool
@@ -736,6 +748,25 @@ def _check_cross_refs(t: LawTables) -> None:
         if ct.default is not None:
             ks.append(float(ct.default))
     _check_design(t.emit.design, LawError, max(ks) if ks else None)
+    # §38 (3)/13an (e) THE SLIT IS NOT CLOSED BY A COINCIDENCE (owner
+    # RULINGS 2026-09-13an).  Until 13an the 2 x ``seam.half_width_m`` gap
+    # between two tile pieces was closed only because ``design.
+    # bank_min_width_m`` (5.0) happened to EQUAL ``seam.half_width_m``
+    # (5.0) — two independently typed constants — and the two collars'
+    # 1.6 mm miss was the SPLP texture tear.  ``emit/bank.py`` now unions
+    # the band into the coverage EXPLICITLY, so the closure no longer
+    # depends on this; the relation is asserted anyway, by name, so a
+    # future edit that would put the collar back in charge is refused at
+    # law load instead of being discovered in a mesh.
+    if t.emit.seam.half_width_m > 0.0 and (
+            t.emit.design.bank_min_width_m < t.emit.seam.half_width_m):
+        raise LawError(
+            f"emit.design.bank_min_width_m {t.emit.design.bank_min_width_m} < "
+            f"emit.seam.half_width_m {t.emit.seam.half_width_m}: the bank's "
+            "minimum-width collar must at least reach the tile-seam band's "
+            "half width (RULINGS 2026-09-13an; the band is unioned into the "
+            "coverage at emit/bank.py, and this keeps the two readings of "
+            "the seam from drifting apart)")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

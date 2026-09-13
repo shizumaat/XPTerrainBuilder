@@ -211,10 +211,24 @@ def chains(ways: list[OsmWay]) -> list[Bore]:
 # ── the approach ─────────────────────────────────────────────────────────
 
 def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
-             admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> list[XY]:
+             admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES,
+             turn_max_deg: float = 180.0) -> list[XY]:
     """The centreline OUTWARD from the mouth: non-tunnel ways joined at
     the mouth node, followed up to ``reach_m``; a straight extension of
-    the bore's own end direction where no way continues."""
+    the bore's own end direction where no way continues.
+
+    THE APPROACH WALK KEEPS ITS HEADING (spec §34 (2); Fable
+    2026-09-13i, RULINGS 2026-09-13i item 7a).  At every node the walk
+    takes the continuation with the SMALLEST TURN from the heading it
+    arrived on, and refuses a turn over ``turn_max_deg``
+    (``[tunnel] approach_turn_max_deg``, 60°) — an unrelated road
+    meeting the approach at a junction is not the road the ramp is on.
+    The route stays on the way it entered until that way ENDS (a way is
+    walked whole, so a hairpin's own nodes — which turn gradually — are
+    never a hop and are never refused).  Before this the walk tested
+    direction on the FIRST hop only and then took the first candidate in
+    load order at each node: LEMD −5980's ramp left its hairpin onto
+    −15331 (33.3°) with −15328 (2.3°) beside it."""
     idx: dict[tuple[int, int], list[tuple[int, bool]]] = {}
     for i, w in enumerate(ways):
         if is_tunnel(w, admitted) or ("highway" not in w.tags
@@ -226,18 +240,19 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
     cur = mouth
     length = 0.0
     seen: set[int] = set()
+    heading: XY = (-inward[0], -inward[1])     # OUTWARD from the bore
+    cos_max = math.cos(math.radians(max(0.0, min(180.0, turn_max_deg))))
     for _hop in range(MAX_HOPS):
         best = None
+        best_cos = cos_max - 1e-12
         for i, forward in idx.get(_key(cur), ()):
             if i in seen:
                 continue
             pts = list(ways[i].points) if forward else list(reversed(ways[i].points))
-            # outward: the way must leave the mouth AWAY from the bore
-            dx, dy = pts[min(1, len(pts) - 1)][0] - cur[0], pts[min(1, len(pts) - 1)][1] - cur[1]
-            if dx * inward[0] + dy * inward[1] > 0.0 and len(path) == 1:
-                continue
-            best = (i, pts)
-            break
+            d = unit(cur, pts[min(1, len(pts) - 1)])
+            c = d[0] * heading[0] + d[1] * heading[1]
+            if c > best_cos:                   # the smallest turn, inside the cap
+                best_cos, best = c, (i, pts)
         if best is None:
             break
         i, pts = best
@@ -245,6 +260,8 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
         for p in pts[1:]:
             length += math.hypot(p[0] - cur[0], p[1] - cur[1])
             path.append(p)
+            if p != cur:
+                heading = unit(cur, p)
             cur = p
             if length >= reach_m:
                 return path
@@ -455,7 +472,8 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
             inward = unit(end, nxt)
             path = approach(end, inward, osm, reach_m,
-                            law.tables.structures.tunnel.admitted_values)
+                            law.tables.structures.tunnel.admitted_values,
+                            law.tables.structures.tunnel.approach_turn_max_deg)
             if on_field is not None:
                 pt = Point(end)
                 reach = LineString(path) if len(path) >= 2 else pt
@@ -668,54 +686,59 @@ def object_deck_intervals(axis_ln: LineString, half_outer: float,
 #    v2wallplate: that file stands at its 1,000-line budget and §33 grows
 #    it; no behaviour moved with it) ─────────────────────────────────────
 def ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
-              spacing: float, half: float, s_min: float = 0.0, grade: float | None = None,
-              max_len: float | None = None, straight: bool = False
-              ) -> tuple[float | None, list[float]]:
+              spacing: float, s_min: float = 0.0, grade: float | None = None,
+              max_len: float | None = None) -> tuple[float | None, list[float]]:
     """``(s_top, station s values)`` — the first station at or beyond
     ``s_min`` where the ``ramp_max_grade`` climb from ``mouth_z``
-    (starting at ``climb_from``) is at or above the DEM AND the DIRECT
-    distance from the mouth line reaches the climb at the cap (the
-    within-shape law prices ring pairs over the chord, so a curved
-    corridor needs more axis than a straight one), plus one station of
-    slack; ``None`` when the DEM is not reached within
-    ``max_ramp_length_m``.  ``s_min`` is an object corridor's wall
-    length: INSIDE the walls the DEM is not the ground (2026-09-06f:
-    LEMD's Bridge4 stands in a cutting the SPAIN5M DEM carries, its axis
-    sample 8 m under the walls' ground) — the ramp there is the design.
-    ``grade`` / ``max_len`` are a group's own law (a door ramp: 09-08b/c
-    ``cutout.door``), else the tunnel's; a ``straight`` axis needs no
-    curved-corridor chord allowance (its corner-to-corner distance is
-    never shorter than its axis distance)."""
+    (starting at ``climb_from``) reaches the DEM ALONG THE ROUTE, plus
+    one station of slack; ``None`` when the DEM is not reached within
+    ``max_ramp_length_m``.
+
+    A RAMP IS PRICED ALONG ITS ROUTE (spec §34 (1); Fable 2026-09-13i,
+    RULINGS 2026-09-13i item 7a).  The reach is the AXIS LENGTH WALKED
+    — ``s − climb_from`` — never the straight chord from the mouth
+    line.  The retired chord term (``chord × grade ≥ rise``, an
+    allowance for the within-shape law pricing ring pairs over the
+    chord) made a ramp whose DEM condition was met at 271 m of route
+    run 420 m of axis whenever the mapped road curved: 12 of LEMD's 59
+    ramps carried axis/chord > 1.3, the worst 3.85, and −15327's ramp
+    overran its road by 156 m.  A curved road is still a road; the
+    grade a driver feels is the one along it.
+
+    ``s_min`` is an object corridor's wall length: INSIDE the walls the
+    DEM is not the ground (2026-09-06f: LEMD's Bridge4 stands in a
+    cutting the SPAIN5M DEM carries, its axis sample 8 m under the
+    walls' ground) — the ramp there is the design.  ``grade`` /
+    ``max_len`` are a group's own law (a door ramp: 09-08b/c
+    ``cutout.door``), else the tunnel's."""
     tn = law.tables.structures.tunnel
     g = tn.ramp_max_grade if grade is None else grade
     bound = tn.max_ramp_length_m if max_len is None else max_len
     ss = [0.0]
     s = 0.0
-    m = axis_fn(climb_from)          # the chord is measured from where the climb starts
     while s < bound:
         s += spacing
         ss.append(s)
         if s <= climb_from or s < s_min - 1e-9:
             continue
         # the ramp meets the DEM where the DEM enters the ±ramp_max_grade
-        # CONE from the datum: rising ground is climbed, ground that has
-        # fallen below the bore floor (a mouth on a ridge of the smoothed
-        # DEM — measured LEMD -15327+-5980: the DEM 8.4 m under the datum
-        # 24 m out) is descended to, never stepped down to
+        # CONE from the datum, measured along the route: rising ground is
+        # climbed, ground that has fallen below the bore floor (a mouth on
+        # a ridge of the smoothed DEM — measured LEMD -15327+-5980: the
+        # DEM 8.4 m under the datum 24 m out) is descended to, never
+        # stepped down to
         reach = g * (s - climb_from)
-        p = axis_fn(s)
-        d = _dem(airport, p)
+        d = _dem(airport, axis_fn(s))
         if math.isnan(d):
             return None, ss
-        chord = math.hypot(p[0] - m[0], p[1] - m[1]) - (0.0 if straight else 2.0 * half)
-        if abs(d - mouth_z) <= reach and chord * g >= abs(d - mouth_z):
+        if abs(d - mouth_z) <= reach:
             ss.append(s + spacing)
             return s + spacing, ss
     return None, ss
 
 
 # ── §33 (3)/(4): the approach's ground, and a terrain deck's two ends ──
-def deck_ends(airport: Airport, w, cells, polys, cell_tree
+def deck_ends(airport: Airport, w, cells, polys, cell_tree, law: Law | None = None
               ) -> tuple[tuple[float, ...], tuple[str, ...], tuple[XY, ...]]:
     """THE GROUND AT A TERRAIN DECK'S TWO ENDS (spec §33 (4); owner
     RULINGS 2026-09-13d item 9 "it needs to smoothly connect the road on
@@ -728,6 +751,7 @@ def deck_ends(airport: Airport, w, cells, polys, cell_tree
     zs: list[float] = []
     refs: list[str] = []
     pts: list[XY] = [tuple(w.points[0]), tuple(w.points[-1])]
+    reach = float(law.tables.structures.bridge.deck_end_reach_m) if law is not None else 0.0
     for e in (w.points[0], w.points[-1]):
         z = _dem(airport, e)
         zs.append(float(z) if not math.isnan(z) else float("nan"))
@@ -739,6 +763,29 @@ def deck_ends(airport: Airport, w, cells, polys, cell_tree
                 if c.kind != "structure" and polys[int(j)].contains(pt):
                     ref = c.ref
                     break
+            if not ref and reach > 0.0:
+                # THE END'S GROUND IS READ ALONG THE ROAD (spec §34 (6);
+                # RULINGS 2026-09-13r, owed to lane v2rampwalk): the mapped
+                # way STOPS at the surface it runs onto — OSM does not trace
+                # a service road across an apron — so the governed cell the
+                # end meets stands a few metres beyond the last node, not
+                # under it.  Measured LEMD way -6288: its east end reads the
+                # DEM 606.10 with no cell under it while the apron pav92
+                # (solved 606.60) starts 13.3 m away, and the deck was tied
+                # to neither.  The nearest governed cell within
+                # ``bridge.deck_end_reach_m`` IS that end's ground; the
+                # constraint generator then takes its own SOLVED value
+                # (§33 (4)), never the DEM under it.
+                best = None
+                for j in cell_tree.query(pt.buffer(reach), predicate="intersects"):
+                    c = cells[int(j)]
+                    if c.kind == "structure":
+                        continue
+                    d = polys[int(j)].distance(pt)
+                    if d <= reach and (best is None or d < best[0]):
+                        best = (d, c.ref)
+                if best is not None:
+                    ref = best[1]
         refs.append(ref)
     return tuple(zs), tuple(refs), tuple(pts)
 
@@ -840,7 +887,8 @@ def _approach_beyond(end: XY, inward: XY, path: _t.Sequence[XY], plan: Polygon,
                 keep = [q for q in cs
                         if math.hypot(q[0] - end[0], q[1] - end[1]) > NODE_TOL]
     if not keep:
-        return approach(end, inward, osm, reach_m, admitted)
+        return approach(end, inward, osm, reach_m, admitted,
+                        law.tables.structures.tunnel.approach_turn_max_deg)
     out = [end] + keep
     ln = LineString(out)
     if ln.length < reach_m:

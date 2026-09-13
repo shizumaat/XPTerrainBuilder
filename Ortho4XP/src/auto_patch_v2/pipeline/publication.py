@@ -48,9 +48,13 @@ vertices' canonical lat/lon identity so the census joins exactly.
   patch (the emit quantum and the crown-lifted reading) — the prune
   cannot mirror the reader, so it does not try (HECA: 237k pairs,
   ~10 MB of sidecar beside the 87k the prune kept);
-* ``seam_pins``: ``[lat, lon]`` per tile-seam DEM pin the solve honoured
-  (``constraints.seams``) — the census skips pin↔pin pairs and prices
-  pin↔free pairs at the body cap (user 2026-07-04);
+* ``seam_pins``: ``[lat, lon, dem_z]`` per tile-seam DEM pin — EVERY
+  one (§38 (1), owner RULINGS 2026-09-13ah: a pin holds exactly, so there
+  is no "honoured" subset).  The census skips pin↔pin pairs, prices
+  pin↔free pairs at the body cap (user 2026-07-04) and prices the
+  EMITTED value against ``dem_z`` as the ``seam_residual`` family;
+* ``seam_half_width_m``: the band's own half width, so ``bank_across_seam``
+  reads "inside the band" from the law the build ran under;
 * ``station_caps``: ``[lat, lon, cap]`` per road station
   (``constraints.contiguity``) — the lateral-contiguity fourth reader
   (2026-08-28 Amendment 2);
@@ -157,10 +161,13 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     drops = [[ll[v][0], ll[v][1], d] for v, d in
              sorted(crown_drops(planar, law, airport, z).items())]
     tol = law.tables.emit.materiality.elevation_m
+    # §38 (1) (owner RULINGS 2026-09-13ah/13am): EVERY seam pin is
+    # published — 150 at SPLP, not the 27 the M3a preference happened to
+    # honour.  A pin holds exactly, so there is no "honoured" subset to
+    # filter by, and the census's ``seam_residual`` family reads exactly
+    # this list against the DEM value published beside it.
     seam_all = seam_vertices_pinned(seam_pins(planar, law, airport))
     pins = sorted(seam_all)
-    if z is not None:
-        pins = [v for v in pins if abs(z[v] - planar.vertices[v].dem_z) <= tol]
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices
     # exactly the published list
@@ -214,7 +221,21 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "face_holes": face_holes_ll(planar),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
-            "seam_pins": [ll[v] for v in pins],
+            # §38 (1)/(5): ``[lat, lon, the vertex's OWN tile's baked DEM
+            # sample]``.  The third element is LAW INPUT for the census's
+            # ``seam_residual`` family — the pin's value, published where
+            # the pin is, so the reader prices the emitted surface against
+            # the value the solve held rather than re-sampling a DEM no
+            # patch carries.  A patch predating §38 carries 2-element
+            # entries and every reader still reads its first two.
+            "seam_pins": [[ll[v][0], ll[v][1],
+                           round(float(planar.vertices[v].dem_z), 4)]
+                          if planar.vertices[v].dem_z is not None else ll[v]
+                          for v in pins],
+            # the band's own half width, so the census can read "inside the
+            # seam band" (``bank_across_seam``) from the law the build ran
+            # under and never from a constant of its own
+            "seam_half_width_m": float(law.tables.emit.seam.half_width_m),
             "station_caps": stations,
             "basin_facilities": basin_facilities(planar, law, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec

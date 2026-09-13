@@ -32,6 +32,7 @@ byte-identical to a build without this law.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 
 import numpy as np
 import shapely
@@ -39,10 +40,12 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..law import Law
 from ..law.tables import snap_margin_m
 
-__all__ = ["EdgeClip", "EdgeReport", "road_lines", "clip_to_terrain_edge"]
+__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_half_width_m",
+           "clip_to_terrain_edge"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -77,18 +80,36 @@ class EdgeReport:
 
 
 def road_lines(osm_ways=()) -> tuple[LineString, ...]:
-    """The OSM road centrelines in the frame: every way carrying a
-    ``highway`` tag from the road feeds (``airport/osm.load_feed``'s
+    """The AT-GRADE OSM road centrelines in the frame: every way carrying
+    a ``highway`` tag from the road feeds (``airport/osm.load_feed``'s
     ``airport_small_roads`` / ``big_roads``, already loaded into
-    ``Airport.osm_ways``)."""
+    ``Airport.osm_ways``) that is neither a BORE nor a BRIDGE.
+
+    ONE derivation for both consumers (§19 rule 2's rim road and §34 (4)'s
+    band subtraction).  A ``tunnel`` or ``bridge`` way's centreline is not
+    the surface: a bored road under the band neither ends the adjacent
+    ground nor takes a ribbon out of it, and a viaduct over it is the
+    deck's own law (the structure passes carry both, ``planar/structures``).
+    """
     out: list[LineString] = []
     for w in osm_ways or ():
-        if not (getattr(w, "tags", None) or {}).get("highway"):
+        tags = getattr(w, "tags", None) or {}
+        if not tags.get("highway"):
+            continue
+        if is_tunnel_way(tags) or is_bridge_way(tags):
             continue
         pts = [(float(p[0]), float(p[1])) for p in getattr(w, "points", ())]
         if len(pts) >= 2:
             out.append(LineString(pts))
     return tuple(out)
+
+
+def road_half_width_m(law: Law) -> float:
+    """A mapped road's RIBBON half-width: the lane width plus the
+    ``groundside_cutback_m`` every road already receives.  ONE reading
+    for §19 rule 2's outer-edge barrier and §34 (4)'s band subtraction."""
+    return (float(law.tables.emit.road_profile.lane_width_m)
+            + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
 
 
 def _segments(geom) -> list[LineString]:
@@ -181,8 +202,7 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
     g = float(d.edge_grid_m)
     snap = float(d.edge_road_snap_m)
     run_min = float(d.edge_road_run_m)
-    half = (float(law.tables.emit.road_profile.lane_width_m)
-            + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
+    half = road_half_width_m(law)
     reach = part.buffer(half + g, **_MITRE)
     out: list = []
     relief: list = []
@@ -239,7 +259,8 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
     """One region geometry clipped by the terrain edge (module docstring).
     ``seed`` is the region's PAVEMENT SIDE (the pavement union for zone 1,
     its lip offset for zone 2): what the kept part must stay connected to,
-    and the reference the outward direction is measured from."""
+    and the reference the outward direction is measured from.
+    """
     rep = report if report is not None else EdgeReport()
     if dem is None or geom is None or geom.is_empty or seed is None or seed.is_empty:
         return EdgeClip(geom)
@@ -291,6 +312,30 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
         kinds.add(kind)
         rep.trimmed_road += int(kind == "road")
         rep.trimmed_crest += int(kind == "crest")
+        # DENSIFYING THE TRIMMED BOUNDARY IS REFUTED (spec §34 (4) as
+        # amended, RULINGS 2026-09-13ai; MEASURED by lane ``v2rampwalk``
+        # round 2, one LEMD build, ledger 1498afa25daa).  The ruled remedy
+        # was to space the trim's stations so no ring edge carries more
+        # than ``visual_m`` of DEM change.  Built (``_densify_new_boundary``
+        # below, kept for the record) it inserted 402 stations and turned
+        # the ONE 8.50 m ``adjacent_ground_step`` row into 704
+        # ``within_shape`` pairs on ``graded_strip|graded_strip`` at up to
+        # 67.9 % — the base arm has ZERO.  CORRECTED by the arm that
+        # DELETED it: 671 of those 704 stand WITHOUT the densifier, so the
+        # cost is the TRIM's, not the densification's (+33); and the 8.49 m
+        # row it was ruled to remove SURVIVED both arms unchanged, because
+        # the edge carrying it lies on the region's ORIGINAL outer ring —
+        # the trim only removed the material beside it — where the
+        # densifier deliberately does not insert (those vertices are welded
+        # to the neighbouring regions).  The reason is geometric: the
+        # region's OWN outer ring runs ALONG the contour (it parallels the
+        # pavement, which is why its 155 nodes over an 11.4 m DEM range
+        # carry no row at all), while the ribbon trim's chord runs ACROSS
+        # it — every station added to a cross-contour chord is another
+        # priced pair on the same slope.  Densifying moves the reading, not
+        # the surface.  A trim that follows the contour is the open
+        # question; not this lane's to rule (the builder is DELETED, not
+        # kept gated: the measurement above and git are its record).
         new = kept.boundary.difference(part.boundary.buffer(tol))
         for ln in getattr(new, "geoms", [new]):
             if ln.geom_type == "LineString" and ln.length > tol:

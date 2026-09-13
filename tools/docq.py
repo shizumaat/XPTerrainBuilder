@@ -150,10 +150,17 @@ def index_short() -> str:
 
 
 def index_full(sub: str) -> str:
-    hits = [f"| `{p}` | {d} |" for p, d in index_rows() if sub in p or sub in d]
+    """The FULL row(s) for a tool.  PATH matches win: if any row's path
+    contains `sub`, only those rows are returned (a description-wide
+    substring match on `build_airport` returned 30 rows / 83 KB — every row
+    that mentions the harness); description matches are the fallback."""
+    rows = index_rows()
+    hits = [(p, d) for p, d in rows if sub in p]
+    if not hits:
+        hits = [(p, d) for p, d in rows if sub in d]
     if not hits:
         raise SystemExit(f"docq: no tools/INDEX.md row matches {sub!r}")
-    return "\n\n".join(hits)
+    return "\n\n".join(f"| `{p}` | {d} |" for p, d in hits)
 
 
 def main(argv=None) -> int:

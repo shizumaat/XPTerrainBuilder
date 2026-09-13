@@ -410,6 +410,48 @@ def _with_knots(chords: dict[str, "_Chord"], crossings: list[Crossing]
     return out
 
 
+def _with_seam_knots(chords: dict[str, "_Chord"], pm: PlanarMap, law: Law
+                     ) -> dict[str, "_Chord"]:
+    """THE TILE SEAM IS A KNOT (§38 (2); owner RULINGS 2026-09-13ah,
+    attributed 13am (7)).
+
+    A seam vertex is a ``Pin`` at its own tile's DEM sample, held exactly
+    — the same object as a CIFP threshold — so the runway's TARGET must
+    pass through it, exactly as it passes through a runway x runway
+    crossing node (:func:`_with_knots`).  Until 13ah ``_Chord.knots`` took
+    only crossing pins and a seam vertex was never a control point, so the
+    chord aimed BESIDE the value the pin holds and the end-zone chain paid
+    the difference (the SPLP class: a 53-hop ``runway_end_zone`` chain
+    down 02/20's 20-end, and the pin off its DEM by up to 3.430 m).
+
+    The knots are this runway's own RIDGE vertices that are seam pins,
+    valued at their DEM sample, strictly inside ``(s0, s1)``; a seam pin
+    at or beyond a threshold mints none (the threshold's own pin IS the
+    value there).  A runway that crosses no seam is untouched, so every
+    single-tile airport reads byte for byte as before.
+    """
+    if not pm.seam_vertices or not chords:
+        return chords
+    vw = view(pm, law)
+    chains = ridge_chains(vw)
+    out = dict(chords)
+    for r, c in chords.items():
+        ks: list[tuple[float, float]] = []
+        for ch in chains.get(r, []):
+            for v in ch:
+                if v not in pm.seam_vertices:
+                    continue
+                dz = pm.vertices[v].dem_z
+                if dz is None:
+                    continue
+                s = c.station(*vw.xy[v])
+                if c.s0 < s < c.s1:
+                    ks.append((s, float(dz)))
+        if ks:
+            out[r] = _dc.replace(c, knots=tuple(sorted(set(c.knots) | set(ks))))
+    return out
+
+
 def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """THE CROSSING NODE IS AN ANCHOR (owner RULINGS 2026-09-09z (1)): one
     hard ``Pin`` per (crossing, non-governing runway), on that runway's
@@ -424,7 +466,8 @@ def runway_crossing_pins(pm: PlanarMap, law: Law, airport: Airport) -> list[Row]
     chords, _ = _chords(pm, law, airport)
     crossings = runway_crossings(pm, law, airport, chords)
     pins = _crossing_pin_map(pm, law, airport, vw, chains,
-                             _with_knots(chords, crossings), crossings)
+                             _with_seam_knots(_with_knots(chords, crossings),
+                                              pm, law), crossings)
     return [Pin(v, float(z), Source(
         PIN_GEN, "RULINGS 2026-09-09z (1) nearest-threshold crossing anchor",
         (f"xing:{x.pair}", f"governs:{x.governing}", f"grades:{x.other}")))
@@ -480,7 +523,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     # governing runway's chord is UNCHANGED across the crossing; every other
     # runway's is RE-FIT piecewise through the node.
     crossings = runway_crossings(pm, law, airport, straight)
-    chords = _with_knots(straight, crossings)
+    # §38 (2): the crossing nodes AND the tile-seam pins are control points
+    chords = _with_seam_knots(_with_knots(straight, crossings), pm, law)
     if report is not None:
         kinds = [c.kind for c in chords.values()]
         report["window_m"] = round(float(

@@ -20,6 +20,7 @@ the sliver between them never becomes a face.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 
 import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
@@ -302,12 +303,44 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
     return [f for f in keep if f is not None], merged
 
 
+def _degree_offset(to_xy, lon: float, lat: float, along_lon: bool,
+                   metres: float) -> float:
+    """Degrees of ``lon`` (or ``lat``) that measure ``metres`` in the frame
+    at ``(lat, lon)`` — the local scale, read from the frame's OWN forward
+    transformer so the band is offset in the same map the patch is emitted
+    in.  ``1.0`` degrees where the scale cannot be read (a degenerate
+    frame): the caller then buffers as before."""
+    eps = 1.0e-4
+    x0, y0 = to_xy(lon, lat)
+    x1, y1 = (to_xy(lon + eps, lat) if along_lon else to_xy(lon, lat + eps))
+    d = math.hypot(x1 - x0, y1 - y0)
+    return metres * eps / d if d > 1.0e-12 else 1.0
+
+
 def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
                ) -> list[Polygon]:
     """One band per integer latitude / longitude line crossing the
     regions' extent: the graticule line sampled every 25 m in the frame
-    (a tmerc image of a parallel is not straight), buffered
-    ``half_width_m`` with flat caps."""
+    (a tmerc image of a parallel is not straight).
+
+    THE BAND IS SYMMETRIC ABOUT THE GRATICULE LINE IN THE EMITTED FRAME
+    (§38 (3)/13an (b); owner RULINGS 2026-09-13an).  Until 13an the band
+    was ``LineString(pts).buffer(half_width_m)`` — a buffer of the tmerc
+    IMAGE of the line, offset by ``half_width_m`` of frame metre.  Measured
+    at SPLP that band's edges came back at **+5.0228 / −4.9754 m** of
+    emitted longitude (centre 0.0237 m east, growing to 0.0287 m over
+    1.1 km of latitude): the ``pyproj`` round trip is not the identity on
+    the line itself.  The two 5.0 m bank collars then met at +0.0229 and
+    +0.0245 m and left a ~1.6 mm HAIRLINE CRACK, the bank foot followed
+    it, and Triangle4XP split that segment 16,298 times against the
+    unsplittable tile border — the SPLP texture tear.
+
+    So each edge is built as its OWN polyline, at the graticule value
+    ± the DEGREES that measure ``half_width_m`` there
+    (:func:`_degree_offset`), and the band is the polygon between them:
+    the round trip carries both edges equally, so the emitted band is
+    symmetric to the frame's own scale error rather than to none of it.
+    """
     if not regions or half_width_m <= 0.0:
         return []
     to_xy, to_ll = airport.frame.transformers()
@@ -318,12 +351,42 @@ def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
     lat_lo, lat_hi = min(c[0] for c in corners), max(c[0] for c in corners)
     lon_lo, lon_hi = min(c[1] for c in corners), max(c[1] for c in corners)
     out: list[Polygon] = []
-    import math
     n = max(2, int((max(xmax - xmin, ymax - ymin)) / 25.0) + 1)
+
+    def _xy_at(lon: float, lat: float) -> tuple[float, float]:
+        """The frame point that COMES BACK as ``(lat, lon)``.
+
+        ``to_ll(to_xy(...))`` is not the identity — measured at SPLP the
+        meridian round-trips 0.0237 m east, growing to 0.0287 m over 1.1 km
+        of latitude (13an).  The band's edges are a statement about the
+        EMITTED frame (the mesh's tile border sits at the exact graticule
+        value), so they are specified there: one Newton step against the
+        round trip, which the smoothness of the bias closes to well under a
+        millimetre.
+        """
+        x, y = to_xy(lon, lat)
+        la2, lo2 = to_ll(x, y)
+        return to_xy(lon - (lo2 - lon), lat - (la2 - lat))
+
+    def _band(pairs: list[tuple[float, float]], along_lon: bool) -> Polygon:
+        """``pairs`` are the (lon, lat) samples ON the graticule line."""
+        lo_side, hi_side = [], []
+        for lon, lat in pairs:
+            d = _degree_offset(to_xy, lon, lat, along_lon, half_width_m)
+            if along_lon:
+                lo_side.append(_xy_at(lon, lat - d))
+                hi_side.append(_xy_at(lon, lat + d))
+            else:
+                lo_side.append(_xy_at(lon - d, lat))
+                hi_side.append(_xy_at(lon + d, lat))
+        return Polygon(lo_side + hi_side[::-1]).buffer(0)
+
     for L in range(math.ceil(lat_lo), math.floor(lat_hi) + 1):
-        pts = [to_xy(lon_lo + (lon_hi - lon_lo) * k / (n - 1), float(L)) for k in range(n)]
-        out.append(LineString(pts).buffer(half_width_m, cap_style=2))
+        # a PARALLEL: the offset is in latitude
+        out.append(_band([(lon_lo + (lon_hi - lon_lo) * k / (n - 1), float(L))
+                          for k in range(n)], True))
     for L in range(math.ceil(lon_lo), math.floor(lon_hi) + 1):
-        pts = [to_xy(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1)) for k in range(n)]
-        out.append(LineString(pts).buffer(half_width_m, cap_style=2))
-    return out
+        # a MERIDIAN: the offset is in longitude
+        out.append(_band([(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1))
+                          for k in range(n)], False))
+    return [b for b in out if not b.is_empty and b.geom_type == "Polygon"]

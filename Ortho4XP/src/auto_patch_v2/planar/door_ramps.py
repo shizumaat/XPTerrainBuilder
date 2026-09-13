@@ -131,8 +131,7 @@ def door_groups(wells: _t.Sequence, law: Law) -> list[Group]:
         out.append(Group([], p0, (-n[0], -n[1]), w.sill_width_m, path, c, w.id, hull_s, True,
                          True, False, half_fn, rim_fn, standoff, None, dl.ramp_grade,
                          kind="door", max_grade=dl.ramp_grade, max_length_m=dl.max_length_m,
-                         spacing_m=dl.station_m, climb_from_s=hull_s, stop_at_pavement=True,
-                         straight=True))
+                         spacing_m=dl.station_m, climb_from_s=hull_s, stop_at_pavement=True))
     return out
 
 

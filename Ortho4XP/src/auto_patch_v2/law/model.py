@@ -242,6 +242,14 @@ class Tunnel:
     ramp_pavement_max_offset_m: float
     dual_carriageway_max_separation_m: float
     max_ramp_length_m: float
+    #: spec §34 (2): the largest turn the approach walk may take at a
+    #: node it HOPS across (a way's own nodes are never a hop).
+    approach_turn_max_deg: float
+    #: spec §34 (5): an ``aeroway`` ``bridge=yes`` way at or above this
+    #: ``layer`` states a crossing; a road under its deck ribbon for at
+    #: least ``underpass_min_span_m`` is bored.
+    underpass_min_layer: int
+    underpass_min_span_m: float
     object: TunnelObject
 
 
@@ -251,6 +259,10 @@ class Bridge:
 
     clearance_m: float
     clearance_minimum_m: float
+    #: spec §34 (6): how far past a terrain deck's mapped end the governed
+    #: cell that end MEETS may stand (OSM stops a service road at the
+    #: apron's edge, not on it).
+    deck_end_reach_m: float
     deck_datum: str
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool

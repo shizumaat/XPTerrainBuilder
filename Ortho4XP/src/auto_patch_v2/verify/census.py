@@ -21,7 +21,8 @@ from .pads import pad_flat
 from .runway import (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE, runway_crown,
                      runway_end_skirt, runway_transverse, runway_vertical_curve)
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
-from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_tear, raoa,
+from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
+                     adjacent_ground_tear, raoa,
                      resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
                      strip_transverse)
 from .contiguity import lateral_contiguity
@@ -44,6 +45,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     FAMILY_TAXI_BOX: taxi_box,
     "runway_end_skirt": runway_end_skirt,
     "adjacent_ground_tear": adjacent_ground_tear,
+    # spec §34 (4): the WITHIN-FACE welded step (lane v2rampwalk)
+    "adjacent_ground_step": adjacent_ground_step,
     "strip_seam_tear": strip_seam_tear,
     "transverse": transverse,
     "airside_no_step": lambda p: no_step_direct(p) + no_step_rate(p),

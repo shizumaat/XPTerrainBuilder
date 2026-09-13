@@ -22,6 +22,31 @@ ramp_width_source = ["pavement", "lanes"]   # in order: a pavement cell containi
 ramp_pavement_max_offset_m = 2.0            # the axis stands this close to the pavement's across-axis centre at the station (the pack traced THIS road; a pavement the axis merely crosses or skirts is not the ramp)
 dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
 max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
+# THE APPROACH WALK KEEPS ITS HEADING (spec §34 (2); Fable 2026-09-13i,
+# RULINGS 2026-09-13i item 7a).  At a node where the mapped way it entered
+# ENDS the walk takes the continuation with the SMALLEST turn from its
+# arrival heading, and refuses one over this — an unrelated road meeting the
+# approach at a junction is not the road the ramp is on.  A way's OWN nodes
+# are never a hop (a mapped hairpin turns gradually and is walked whole), so
+# this never shortens a mapped route.  60 deg: the measured LEMD population
+# of real continuations sits under 34 deg (7b's -15328 at 2.3, its refused
+# neighbour -15331 at 33.3), and a genuine road bend at a way boundary
+# (a T on a service loop) stays under 60.
+approach_turn_max_deg = 60.0
+# A BRIDGE STATES THE CROSSING (spec §34 (5); Fable 2026-09-13i, RULINGS
+# 2026-09-13i item 1 / 2026-09-13q item 3).  An `aeroway=*` way tagged
+# `bridge=yes` at this layer or above is a taxiway ON A STRUCTURE: the road
+# under its deck ribbon is in a CUTTING whether or not OSM tags it
+# `tunnel` — neither measured case does (LEMD taxiway F-6 way -1230 over
+# service roads -5820/-5821; KCLT taxiway U way -1560 over untagged
+# tertiary roads) — and is bored, with mouths and ramps where it leaves the
+# footprint.  layer >= 1 is OSM's own statement that the aeroway is above
+# what it crosses; layer 0 (or absent) is a bridge over water or a gap and
+# states no road crossing.  The span floor keeps a road merely CLIPPING a
+# deck corner from minting a bore: 6 m is under one carriageway width
+# (lane_width_m x default_lanes = 7.0), so any real crossing clears it.
+underpass_min_layer   = 1
+underpass_min_span_m  = 6.0
 
 [tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
 source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before
@@ -218,6 +243,16 @@ seat               = "none"         # the family is NEVER re-seated by its trenc
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
 clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful
+# THE END'S GROUND IS READ ALONG THE ROAD (spec §34 (6); Fable 2026-09-13i,
+# RULINGS 2026-09-13r's owed refinement).  A mapped way STOPS at the surface
+# it runs onto — OSM does not trace a service road across an apron — so the
+# governed cell a terrain deck's end MEETS stands a few metres past the last
+# node.  A cell within this of the end (no cell under it) is that end's
+# ground, and §33 (4)'s relational row then takes its SOLVED value, not the
+# DEM under it.  25 m: measured LEMD way -6288's east end stands 13.3 m from
+# apron pav92 (solved 606.60 against a DEM of 606.10 at the node); the next
+# governed cell at any LEMD deck end is 72 m away, so 25 sits in the gap.
+deck_end_reach_m    = 25.0
 deck_datum          = "deck_top"   # object seating datum = deck TOP (memory othh-bridge-deck-datum-r12)
 mapped_deck_cuttable = false       # a mapped road bridge over emitted below-grade is a deck, not cuttable (08-28 :1908)
 terrain_deck_without_object = true # no object => terrain deck at road level cutting the ramp (08-28 :1920)

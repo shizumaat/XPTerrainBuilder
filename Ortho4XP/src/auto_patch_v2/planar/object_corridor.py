@@ -94,9 +94,6 @@ class Group:
     #: A sunken road's floor profile ``((s, z), ...)`` — the plate's own y
     #: per station, pinned by the generator; empty for every other group.
     profile: tuple[tuple[float, float], ...] = ()
-    #: The axis is a straight line by construction (a door's outward
-    #: normal): the climb's chord test needs no curved-corridor allowance.
-    straight: bool = False
     # ── LAW C (RULINGS 2026-09-08m/08n; ``planar/wall_corridor_ramps.py``) ──
     #: Which cells STOP the climb beyond the walls (``stop_at_pavement``):
     #: ``None`` = every governed cell beyond the host (a door); ``"airside"``
@@ -116,6 +113,7 @@ class Group:
 
 
 def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float,
+               turn_max_deg: float,
                admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES) -> list[XY]:
     """The centreline BEYOND a ground end: the mapped (non-tunnel) way
     whose node stands nearest the end within the corridor's width and
@@ -131,7 +129,8 @@ def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: flo
             if d <= width and (best is None or d < best[0]):
                 best = (d, e, unit(e, nxt))
     if best is not None:
-        path = approach(best[1], (-out_dir[0], -out_dir[1]), osm, reach, admitted)
+        path = approach(best[1], (-out_dir[0], -out_dir[1]), osm, reach, admitted,
+                        turn_max_deg)
         dx, dy = end[0] - path[0][0], end[1] - path[0][1]
         path = [end] + [(p[0] + dx, p[1] + dy) for p in path[1:]]
         d0 = unit(path[0], path[1])
@@ -199,7 +198,8 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
             return standoff(tl), standoff(tr)
 
         path = (axis if c.flat else axis + climb_path(
-            axis[-1], u_end, c.width_m, osm, reach, tn.admitted_values)[1:])
+            axis[-1], u_end, c.width_m, osm, reach, tn.approach_turn_max_deg,
+            tn.admitted_values)[1:])
         needed = c.depth_m / max(L, 1e-9)
         out.append(Group([], axis[0], inward, c.width_m, path, c, c.id, L, not c.flat,
                          c.mouth_closed, c.far_closed, half_fn, rim_fn,

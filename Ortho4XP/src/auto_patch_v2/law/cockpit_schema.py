@@ -115,6 +115,17 @@ class Cockpit:
     #: The ``sentinel_elevation`` family's parameter; patch-intrinsic
     #: because the census has no DEM, and measured from a ROBUST floor
     #: because the crater IS the minimum.
+    #: §29 (7) THE RUNWAY LATERAL BAND's half-width, in METRES (Fable
+    #: 2026-09-13; owner RULINGS 2026-09-13bm (ii)).  The approach
+    #: corridor runs BEYOND each threshold and never BESIDE the runway,
+    #: so a portal 192 m abeam runway 16R/34L at mid-length — in a
+    #: landing pilot's plain view — stood outside every region the mouth
+    #: gate had.  The third term is each runway's AXIS grown by this,
+    #: built by the SAME ``law/approach_corridor.py`` derivation and read
+    #: by the SAME two consumers.  Design: 250 m, the width a pilot on
+    #: the runway reads.
+    runway_view_half_width_m: float = 250.0
+
     sentinel_drop_m: float = 50.0
 
 
@@ -154,6 +165,20 @@ def check_cockpit(cockpit: Cockpit, families, error: type,
             f"{cockpit.approach_km} (§31 (2): the corridor is what a pilot "
             f"sees AHEAD — a half-width at or over its length is the disc "
             f"the ruling retired, wearing a corridor's name)")
+    if cockpit.runway_view_half_width_m <= 0.0:
+        raise error(
+            f"emit.cockpit: runway_view_half_width_m "
+            f"{cockpit.runway_view_half_width_m} must be > 0 (§29 (7): the "
+            f"runway lateral band has a width — a zero half-width is a "
+            f"line no mouth can stand in)")
+    if cockpit.runway_view_half_width_m >= cockpit.approach_half_width_m:
+        raise error(
+            f"emit.cockpit: runway_view_half_width_m "
+            f"{cockpit.runway_view_half_width_m} is not under "
+            f"approach_half_width_m {cockpit.approach_half_width_m} "
+            f"(§29 (7): the band is what a pilot reads BESIDE the runway, "
+            f"a narrower thing than the corridor ahead of it — a band at "
+            f"or over the corridor's half-width is the retired disc again)")
     cliff_grade = value_at(tables, cockpit.cliff_grade)
     if not isinstance(cliff_grade, (int, float)):
         raise error(

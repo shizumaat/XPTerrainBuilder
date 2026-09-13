@@ -43,6 +43,9 @@ class StructureStats:
     mouths_on_approach: int = 0
     mouths_on_approach_named: list[str] = _dc.field(default_factory=list)
     approach_corridors: int = 0
+    #: §29 (7) (RULINGS 2026-09-13bm (ii)): how many RUNWAY LATERAL BANDS
+    #: the field region carries — one per runway axis.
+    runway_bands: int = 0
     duals_merged: int = 0
     tunnels: int = 0
     decks: int = 0

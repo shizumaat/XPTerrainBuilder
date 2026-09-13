@@ -51,8 +51,18 @@ __all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge",
 UNDERPASS_NOTE = _UNDERPASS_NOTE
 
 
+#: §34 (5) NARROWED (Fable 2026-09-13; RULINGS 2026-09-13bm (i)): the only
+#: aeroways a TAXIING AIRCRAFT uses.  A ``jet_bridge`` is a passenger
+#: walkway on stilts and a ``parking_position`` is a painted point; neither
+#: is a structure an aircraft crosses, and neither states a cutting under
+#: what it spans.
+TAXIED_AEROWAYS: frozenset[str] = frozenset(("taxiway", "runway", "apron"))
+
+
 def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:
-    """An ``aeroway=*`` way tagged ``bridge`` (not ``no``).
+    """AN AEROWAY A TAXIING AIRCRAFT USES, tagged ``bridge`` (not ``no``)
+    — spec §34 (5) as NARROWED (Fable 2026-09-13; RULINGS 2026-09-13bm
+    item 1).
 
     ``airport/deck_signature.is_bridge_way`` — the predicate every deck
     pass uses — requires ``highway`` or ``railway``, so an AEROWAY bridge
@@ -64,9 +74,24 @@ def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:
     corridor, where the taxi surface over an underpass is the pavement
     cell's own (``pavement_deck_intervals``, 2026-09-06f) under taxi
     law — which is what "level across the cutting under taxi law" means.
+
+    THE NARROWING, measured at SPJC (owner 1.0.327, 13bi): the first
+    reading was ANY ``aeroway=*`` with ``bridge``, and SPJC's OSM carries
+    63 ways ``{aeroway=jet_bridge, bridge=yes, highway=footway,
+    layer=1}`` — the passenger jetways — each of which passed
+    ``underpass_min_layer`` and bored every apron service road beneath it:
+    19 underpasses, 86 roads bored, 11 of 18 tunnel records.  A jetway
+    states nothing about the ground: the apron under it is apron.  So the
+    aeroway must be one an aircraft ROLLS ON (``TAXIED_AEROWAYS``), and a
+    way tagged ``highway=footway`` is refused whatever its aeroway says —
+    a footway is not a crossing an aircraft makes.
     """
     b = tags.get("bridge")
-    return bool(tags.get("aeroway")) and bool(b) and b != "no"
+    if not b or b == "no":
+        return False
+    if str(tags.get("highway", "")).strip() == "footway":
+        return False
+    return str(tags.get("aeroway", "")).strip() in TAXIED_AEROWAYS
 
 #: The tag a synthesised UNDERPASS bore carries, so the reports and the
 #: approach walk can tell it from a mapped ``tunnel=yes`` way.
@@ -132,7 +157,11 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         ss = [min(s, ln.length) for s in _frange(0.0, ln.length, step)]
         axis_fn = (lambda s, _ln=ln: (_ln.interpolate(min(s, _ln.length)).x,
                                       _ln.interpolate(min(s, _ln.length)).y))
-        half = max(half, _deck_half_width(axis_fn, ss, cells, polys, half))
+        # §34 (5) NARROWED (RULINGS 2026-09-13bm (i)): the cell may only
+        # widen the deck up to DECK_CELL_MAX_RATIO × the carriageway.
+        cell_half, n_read, n_refused = _deck_half_width(
+            axis_fn, ss, cells, polys, half, DECK_CELL_MAX_RATIO * half)
+        half = max(half, cell_half)
         # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
         # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
         # half-width LESS the rim stand-off and one identity step, so the
@@ -157,7 +186,9 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                 parents[id(sw)] = LineString(r.points)
                 n += 1
         notes.append(f"underpass {w.tags.get('aeroway')} {w.id} (layer {w.tags.get('layer')}, "
-                     f"deck half-width {half:.1f} m, clip {half_clip:.1f} m): "
+                     f"deck half-width {half:.1f} m, clip {half_clip:.1f} m, "
+                     f"cell {n_read} read / {n_refused} refused over "
+                     f"{DECK_CELL_MAX_RATIO:g}x carriageway): "
                      f"{n} road(s) bored")
     return out, parents, notes
 
@@ -224,10 +255,25 @@ def _stations(parent: LineString, s0: float, fwd: bool) -> list[float]:
            [s for s in reversed(ss) if s < s0 - 1e-6]
 
 
-def _deck_half_width(axis_fn, ss, cells, polys, half_default: float) -> float:
+#: §34 (5) NARROWED (RULINGS 2026-09-13bm (i)): a pavement cell may state
+#: the deck only while it is plausibly the way's own pavement.  A cell
+#: WIDER than this multiple of the way's carriageway is a BLOB the axis
+#: merely stands in — SPJC's 738,901 m² ``pav40`` apron read 49–127 m of
+#: "deck" off a 4 m jetway — and is refused; the carriageway is then the
+#: deck, which is what the way itself says.
+DECK_CELL_MAX_RATIO = 4.0
+
+
+def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
+                     max_half: float | None = None) -> tuple[float, int, int]:
     """THE DECK'S HALF-WIDTH ACROSS THE ROAD (spec §34 (5)): the MEDIAN
     half-width of the governed pavement cell the aeroway's axis stands in,
     measured perpendicular to the axis at each station.
+
+    Returns ``(half, stations read, stations REFUSED)`` — a station whose
+    cell half-width exceeds ``max_half`` (§34 (5) as narrowed: 4× the
+    way's own carriageway) is refused and the fallback ``half_default``,
+    the carriageway, governs where every station is refused.
 
     A taxiway bridge way carries no ``width`` tag, so the carriageway
     fallback reads 2 lanes × 3.5 m = 7 m — a third of a real taxiway, and
@@ -239,10 +285,11 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float) -> float:
     road, and a junction blob's across-axis centre is metres off the
     taxiway centreline it contains."""
     if not polys:
-        return half_default
+        return half_default, 0, 0
     tree = STRtree(polys)
     reach = 200.0
     vals: list[float] = []
+    refused = 0
     for i, s in enumerate(ss):
         p = axis_fn(s)
         a = axis_fn(max(0.0, s - 1.0))
@@ -273,9 +320,15 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float) -> float:
                 h = (hs[0] + hs[1]) / 2.0
                 if best is None or h < best:
                     best = h
-        if best is not None:
-            vals.append(best)
+        if best is None:
+            continue
+        # §34 (5) NARROWED: the cell the axis stands in states the deck
+        # only while it is plausibly the way's own pavement.
+        if max_half is not None and best > max_half:
+            refused += 1
+            continue
+        vals.append(best)
     if not vals:
-        return half_default
+        return half_default, 0, refused
     vals.sort()
-    return vals[len(vals) // 2]
+    return vals[len(vals) // 2], len(vals), refused

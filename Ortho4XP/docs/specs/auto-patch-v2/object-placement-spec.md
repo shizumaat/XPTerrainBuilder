@@ -3279,3 +3279,47 @@ and the LEMD 1.0.325 frame the same way.
   tests/test_role_edge_census.py tests/test_mesh_sampler*.py
   tests/test_post_mesh.py tests/test_object_rebake.py` — **1,237 passed, 1
   skipped**, twice. Six new twins in `tests/auto_patch_v2/test_v2objsplit.py`.
+
+### §16e (3) AMENDED, (5)–(6) ADDED (Fable 2026-09-13; RULINGS 2026-09-13v) — lane `v2bridgecontact`
+
+The lane's two attempts are the attribution: the ROW does not name a bridge
+(OTHH unit:6 puts three bridges 250 m apart on one row at one AGL; LEMD's
+shared-datum row would call 171 resources one family) and the RING does not
+either (it is a bbox; `Bridge_02_CLUTTER_000` stands inside Bridge_06's ring).
+
+3. **A BRIDGE IS NAMED BY CONTACT WITH THE DECK'S OWN MODEL FOOTPRINT.** The
+   deck member's mesh projected to plan is the deck's FOOTPRINT POLYGON (the
+   ring is its bbox and is too coarse where decks overlap in plan). A pier or
+   clutter body BELONGS to the deck whose footprint polygon contains its plan
+   centroid, or lies within 0.5 m of it; where two decks' footprints both
+   contain it, the deck whose underside is nearest ABOVE the body's top wins
+   (absolute vertical distance — §16c (4)). A body no deck footprint contains
+   has NO bridge family: it takes the ordinary §16c rest-on ground, is never
+   filtered and never carried by a deck. `family_key` is untouched for every
+   other class; the bridge family is a derived relation computed once per
+   plan and published per body (`bridge_of`). The bodies of one bridge ride
+   the deck's datum as ONE rigid cluster (per-placement zero spread ≤ 0.3 m);
+   within that cluster a body may rest only on its own deck or its own piers.
+5. **A PARTLESS DECK MEMBER IS A BODY.** A deck member whose partition found no
+   genuine solid (`parts 0`: Bridge_04, Bridge_05) is admitted in
+   `placement_body._raw_bodies` as one body whose footprint is the model's
+   declared bounds and whose deck top is its plate — the §16 (1) population
+   class, not a skip. It anchors under (2) like any other deck.
+6. **THE DECK'S END-LINE DATUM IS THE GRADED FACE THE DECK CONNECTS TO, NOT
+   THE BANK UNDER THE END LINE.** Bridge_01's end lines stand on the canal
+   bank (mesh 2.52 / 3.60) and the deck seated to 3.23, 0.73 m below the road
+   at 3.96 that drives onto it — a step at the abutment an aircraft or vehicle
+   would feel. The datum walks LANDWARD from the end line (R12's walk, armed
+   regardless of sample count) until it meets a graded pavement/road face or
+   the design surface's graded ground; bank and water samples are excluded.
+   The owner's rule ("seat the top deck to align with the ground and let the
+   feet land where they may") is judged there: |deck top − datum| ≤ 0.5 m
+   (§31 visual) at EACH abutment; feet unconstrained and reported.
+
+BARS (OTHH 1.0.326 frame, `v2_rebake_replay.py plan --sampler mesh`, matched
+arms): Bridge_01/04/05 deck tops within 0.5 m of the graded road at each
+abutment (today 3.23 / 6.43 / 6.43 vs 3.96); `Bridge_02_CLUTTER_007` pier
+spread 4.97 → ≤ 0.3; per-placement zero spread ≤ 0.3 for every bridge;
+cross-bridge carriers 2 → 0; `bridge_of` published for all 30 members;
+walls (§16e (1)) and the 8 drainage basins byte-identical; LEMD 1.0.325
+byte-identical; plan stage not worse than 80 s (`--runs 3`); suite twice.

@@ -3214,3 +3214,96 @@ cap), `airport/placement_cockpit.py` (§16d (3)) and `airport/placement_seams.py
   `test_16d_3_the_cockpit_coordinate_is_the_bodys_not_the_row`.
   `coarsen_reach_m <= 0` DISARMS the reach (the convention every other
   plan-contiguity key takes): the component then joins the nearest body.
+
+
+### §16d (4)–(6) Carried components group by carrier; the ground bound is member-agnostic; a body anchors on the pad it stands on (Fable 2026-09-13; RULINGS 2026-09-13m)
+
+Scout `v2kclt1o` on KCLT (Nimbus, native XP12: master models per material — `paredes_N`
+walls, `techos_N` roofs, `vidrios` glazing — each on ONE placement row; 34 rows carry 71
+split placements, bodies up to 1,628 m from their row): (a) hangar wall `005_ALB__b9`
+5.04 m into its pad — a SAME-MEMBER §16c (7)/(8) bind to a body 500 m away on the
+apron; 12ap's 0.5 m ground bound tests only `member != top.member`, so it was skipped
+(the cluster spans 714 m at one zero; the airport's worst §17 row +5.96 m); (b) roof
+plates `001_ALB__b5/b6/b11/b18/b28/b29` float +2.5 … +7.4 m — elevated bodies of 3–12
+components spanning 154–1,774 m carried at ONE zero (`carried_bodies_uncut` 5,295 vs
+3 cut by carrier), the walls under them correctly seated; (c) the terminal: one pad
+`building80` (1.19 m of relief); 213 bodies overlap it, zeros 210.5–223.7 — the 80
+whose ANCHOR POINT lands on the pad agree with it to 1.13 m, the 133 whose anchor
+point lands on apron/adjacent ground (213.8–224.6) do not; clusters by contact are 272
+separate things at one zero each; 12 rest-on carriers with authored gaps to −9.9 m;
+a wall carried by GLAZING; a 20-vertex z = 0.00 crater in apron face 661 (`dsf:pol31`)
+— design surface, not object law (RULINGS 13m, lane `v2zerocrater`).
+
+4. **A CARRIED BODY'S COMPONENTS GROUP BY CARRIER.** Each connected component of a
+   carried (elevated / footless) body finds the footed body IT stands over (§15's
+   overlap at the component); components over different carriers are different
+   pieces, each at its carrier's zero; a component over none anchors on its own
+   ground (§16 (3)). §16a (1)'s "cut where the carrier is cut" and (1)'s reach are
+   read per component. A roof resource of twelve plates over twelve buildings is
+   twelve pieces.
+5. **THE GROUND BOUND IS MEMBER-AGNOSTIC**: §16c (7)'s bind holds only while the
+   bound body's own-ground zero is within `visual_m` 0.5 of the senior's, same
+   member or not (12ap (A) applied everywhere); a cluster's zero-plane span obeys it.
+6. **A BODY ANCHORS ON THE PAD IT STANDS ON.** Where a footed body's written
+   geometry lies mostly on a `building` pad, its anchor point is chosen on that pad
+   (the low-side foot that lies on the pad, else the pad's level under the body's
+   centroid) — never on the apron or ground it happens to spill onto. The pad's own
+   relief (§20: 1.19 m over 900 m at KCLT's terminal) is a §20/§28 reading, reported.
+7. **BARS (KCLT 1.0.324 frame + LEMD 1.0.325 frame, matched arms)**: `005_ALB__b9` on
+   its pad (−5.04 → within 0.5); the six `001_ALB` roof bodies on their walls (each
+   piece within 0.5 m of the wall top beneath it); terminal bodies anchoring off
+   every pad 133 → 0, the complex's zero spread 13.2 m → the pad's relief; the
+   glazing carrier named and, if glazing is footless by authoring, excluded by the
+   existing solid test (report, do not name-match); the LEMD sites held; seams 0;
+   §16b carried-own-ground bar at KCLT 32 → quoted; files; plan stage; suite.
+
+## §16e THE DECK TOP AND THE CREST PLATE ARE DATUMS (owner RULINGS 2026-09-13k; Fable 2026-09-13n) — lane `v2othhdatums`
+
+Owner: "With single layer bridges over water we should be seating the top deck to
+align with the ground and let the feet land where they may. The tunnel walls are now
+seating above ground, where before, and as they should, be creating the tunnel ramp
+walls, with their tops flush with terrain." Scout `v2othh1o` on OTHH 1.0.326: no bridge
+is torn (1 seam airport-wide, not a bridge); the bridges come apart because (a) half
+of a bridge stands over the canal (water is a datum at 0.00) and half on land (3.96),
+so pieces anchored at their own feet sit 2.8 m apart (Bridge_01: 12 bodies at 1.946,
+one at 4.763); (b) piers of one solid get per-pier zeros (`Bridge_02_CLUTTER_007`: six
+piers, 3.2 m spread); (c) §16c (4)'s rest-on ranking inside a unit of four bridges
+picks carriers on OTHER bridges 250 m away. The seat era had NOT seated these at all
+(no seat: "anchor on water and no site datum") — rigid at authored y was what "not
+coming apart" looked like; R12's `deck_top` lived in v1's post-mesh seat. The tunnel
+walls: §14 (2)'s rim anchor sets `y_zero = 0` (its docstring assumes the floor plate
+authored −depth and the parapet +2.99 — LEMD's pits, OTHH's 8 drainage basins with
+`plate_y` < 0) — OTHH's nine `tunnels/*` walls carry `plate_y` **+5.00 / +9.55 / +10.00**
+(the CREST plate), so their crests stand +5 … +10 m over the rim; `tunnel middle -
+west` classifies as no basin and takes a low-side foot: +20 m. §5's MSL→AGL
+conversion removed the author's sink (−3 … −8 m) that the seat used to correct.
+`Member.deck_datum_z`, `deck_ends`, `plate_stations`, `plate_y` are stamped by the plan
+and READ BY NOTHING in the placement path; `reseat_expect_m` (05n-4) is computed and
+published with no executor. §8's byte-identity proof was taken at LEMD, where no
+tunnel wall object is admitted — OTHH is the only corpus airport with them.
+
+1. **THE CREST PLATE IS THE DATUM.** A body whose member carries `plate_y` anchors at a
+   wall-band station (`plate_stations`) with `y_zero = plate_y`: the crest plate at
+   the ground there. For `plate_y ≤ 0` (a floor-plate basin) this is byte-identical
+   to §14 (2); for `plate_y > 0` (a crest-plate wall) it restores `DATUM_PLATE`. The
+   rule keys on `plate_y`, never on the basin classification. `reseat_expect_m` is
+   the residual the census prints.
+2. **THE DECK TOP IS THE DATUM OF A SINGLE-LAYER SPAN OVER WATER.** A deck member
+   whose ring stands over no graded face (`deck_datum_z` None) and whose components
+   reach no ground within the ring anchors so that `zero = ground at its END LINES −
+   deck_top_y` (R12's abutment reading; `deck_ends` derived for flag decks from the
+   ring's ends on land); the feet land where they may. A flyover with land under its
+   ring (`deck_datum_z` set, `deck_top_y` 8–10 m) is untouched.
+3. **A BRIDGE IS ONE RIGID ASSEMBLY.** The bodies of one deck member (deck, piers,
+   clutter of that `Bridge_NN` family) ride the deck's datum as one cluster — never
+   per-pier zeros, never a carrier on another bridge: within a unit, a body of a deck
+   family may rest only on its own family. The feet are reported, not seated.
+4. **BARS (OTHH 1.0.326 frame, matched arms; no build)**: the nine walls' crests
+   within 0.3 m of the corridor rim (today +5 … +20 m; `worst feet` 15.00/10.00 rows
+   gone; the 8 drainage basins byte-identical); Bridge_01/04/05 deck tops at the land
+   (3.96 ± 0.3; today 5.52 / 6.43 / 6.43), Bridge_02/06 unchanged; per-placement zero
+   spread for every bridge ≤ 0.3 (`Bridge_02_CLUTTER_007` 3.2 → 0); cross-bridge
+   carriers 0; §14 footless-at-datum 4 → ≤ 1; seams unchanged (1, not a bridge);
+   the LEMD sites held; plan stage; suite. Instrument: `seat_feet_census.py
+   --placement-plan --mesh` passes its bbox as (lat, lon) to a sampler that takes
+   (lon, lat) — broken since the switch; fixed with a twin.

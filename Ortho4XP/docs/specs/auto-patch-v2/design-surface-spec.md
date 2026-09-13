@@ -5208,3 +5208,209 @@ nearest rim vertex (`constraints/structures.py:588`), never a ramp profile.
    build. Bars: SE corner wall base within 0.3 m of the ring at every walled node
    and unwalled nodes 11 → 0; the ramp visible (bar in (5)); harness census; ONE
    `--engine v2` LEMD build against the 1.0.325 base; twins; suite.
+
+## §33 THE PACK'S WALL OBJECTS GOVERN THE MOUTH (owner RULINGS 2026-09-13d item 5; Fable 2026-09-13i) — lane `v2wallplate`
+
+Owner: "remember to use object based wall objects provided by the scenery package
+when present as a guide for where the tunnel mouth is and what size it is." Scout
+`v2lemd325t`: LEMD's pack models its bridges and tunnel walls as THIN PLATES —
+`Bridges/Bridge3.obj` 354 × 25 m spanning the whole `-5931` bore, solids 1.03 m tall;
+`Bridge2.obj` 168 × 90 m over the two `-6291/-6288` decks, 1.31 m; `Bridge1.obj`
+1.50 m — and `[tunnel.object]`'s pre-screen refuses anything under `least_skirt` =
+min(`skirt_min_depth_m` 3.0, `edge_wall_min_skirt_m` 1.5) (`tunnel_objects.py:702,
+737-742`) and then SUPPRESSES the refusal from every report (`:772-776`, four
+prefixes). So the OSM corridor stood alone: item 5's mouth 7.0 m wide (`lanes × 3.5`)
+against the object's 25.1 m, 1.08 m off its centre, 83 m inside the object's end;
+item 6's mouth floor set from the DEM over the overbridge EMBANKMENT (610.5 vs 605.8
+twelve metres away) — a 5.0–5.8 m rim wall and a ramp that descends; item 9's decks
+at trench floor + `clearance_m` 5.10 = 603.85 while the apron they must meet is at
+606.5 and the road at 605.7+ — nothing ties a terrain deck to its ends.
+
+1. **EVERY REFUSED RESOURCE IS NAMED.** The four suppressed prefixes are gone; the
+   structures line and the inventory KML carry every screened resource and its
+   verdict.
+2. **THE THIN-PLATE WALL CLASS.** A pack object whose plan footprint lies over a
+   mapped bore (`tunnel=yes`) or deck (`bridge=yes`) and whose solids span at least
+   `[tunnel.object] thin_plate_min_m` (1.0 m) is an AUTHORED CORRIDOR: its plan ring
+   gives the corridor's axis, width and portal positions (the object's ends); the
+   depth stays `bore_datum_m` for a bore and, for a deck, the deck's top is the
+   object's authored top. `source_precedence = ["object", "osm"]` then does what it
+   says. Item 5's mouth: 25.1 m wide at the object's north end; item 6's: at its
+   south end.
+3. **THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S.** `crest = "dem"`
+   samples the DEM at the mouth node; where that sample stands on an overbridge
+   embankment (the DEM within `bore_datum_m` of the mouth rises more than
+   `split_tol_m` above the DEM along the approach's first stations), the mouth crest
+   reads the approach's ground; the top cap follows the ground per corner.
+4. **A TERRAIN DECK IS TIED TO ITS ENDS.** Its datum is the higher of (trench floor +
+   `clearance_m`) and the graded surface at its two ends (the apron on one side,
+   the road on the other), the ramp beneath yielding downward; an object deck (2)
+   hands its authored top directly.
+5. **BARS**: item 5's mouth at the object's end, 25.1 m, axis on the object's centre
+   (≤ 0.3 m); item 6's mouth wall ≤ `split_tol_m` above the road's ground, the ramp
+   climbing monotonically to the DEM; item 9's decks meeting the apron (606.5) and
+   the road within 0.3 m at their ends; every refused resource named (182 screened
+   → N named); the other 15 LEMD corridors quoted before/after; OTHH's 9 object
+   corridors and 43 wall corridors byte-identical (dry planar replay); consumer
+   census of the corridor readers first (08-30l); ONE `--engine v2` LEMD build;
+   harness census with the cockpit block; twins; suite.
+
+## §34 RAMPS FOLLOW THEIR ROUTE; ZONES YIELD TO ROADS; A BRIDGE STATES THE CROSSING (Fable 2026-09-13i) — lane `v2rampwalk`, after `v2wallplate`
+
+Scout `v2lemd325t`, items 1, 7, 8: (7a) `_ramp_top` prices a curved approach by the
+straight CHORD from the mouth (`planar/structures.py:225-226`), so a ramp whose DEM
+condition is met at 271 m runs 420 m of axis (12 of 59 LEMD ramps have axis/chord >
+1.3; worst 3.85); and `approach()` tests direction only on the first hop and then
+takes the first candidate way at each node (`structure_approach.py:225-233`) — 7a's
+second hop turned 90° onto an unrelated road. (7b) the mapped 180° hairpin `-5958`
+exists; the ramp stops at 36 m because the DEM there is only 1.9 m above the floor,
+then sawtooths (`constraints/structures.py:10-16` bounds consecutive stations by a
+`Diff` only). (8) `planar/zones.py:74-78` subtracts CELLS from the zone band; an OSM
+road with no cell is never subtracted, and §19's road rule is gated on a crest
+(`terrain_edge.py:180-181`) — a 1.73 m step over 1.5 m inside `zone2#2` that no family
+prices (`graded_strip` cap None; `adjacent_ground_tear` empty on v2). (1) no bore: the
+roads under taxiway bridge F-6 (`aeroway=taxiway bridge=yes layer=1`, OSM −1230) carry
+no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtubs
+2.66 m at 5.3 % across it.
+
+1. **A RAMP IS PRICED ALONG ITS ROUTE.** `_ramp_top`'s reach and climb tests read the
+   axis length walked, never the chord; the ramp ends at the first station where
+   the DEM condition holds ALONG the route.
+2. **THE APPROACH WALK KEEPS ITS HEADING.** After the first hop, the walk prefers the
+   continuation with the smallest turn and refuses a turn over `[tunnel]
+   approach_turn_max_deg` (60) unless the mapped way itself turns (a hairpin's own
+   nodes turn gradually); the route stays on the way it entered until that way ends.
+3. **A RAMP CLIMBS MONOTONICALLY** from the mouth to its top: the design profile is
+   monotone (a one-way `Diff` ≥ 0 per station toward the top) at ≤ the cap.
+4. **ZONES YIELD TO ROADS.** The zone band subtracts mapped road ribbons (OSM highway
+   ways ⊕ `groundside_cutback_m`) at the single zone derivation site whether or not
+   a cell exists; §19's rule 2 runs without a crest. `adjacent_ground:*` faces get a
+   within-face step reading in the cockpit block (a welded step > 0.5 m is critical
+   visual).
+5. **A BRIDGE STATES THE CROSSING.** A road passing under an `aeroway=*` way tagged
+   `bridge=yes` (`layer ≥ 1`) seeds an UNDERPASS: the aeroway is a terrain deck at the
+   taxi surface (level across the cutting under taxi law), the road a bore with
+   mouths and ramps where it leaves the deck's footprint (§29's gate applies).
+6. **BARS**: 7a ends at 40.4947925, −3.5817713 ± 15 m at the DEM; 7b runs the hairpin
+   and ends near 40.4938154, −3.5817946 at the DEM; item 8's zone face ends at the
+   road ribbon (the 1.73 m step gone); item 1's taxiway level across F-6 (the 2.66 m
+   bathtub gone) with mouths and ramps either side; axis/chord > 1.3 ramps 12 → 0;
+   the other ramps quoted; ONE `--engine v2` LEMD build; census; twins; suite.
+
+### §28 (6) A hillside terrace is not a frontage (Fable 2026-09-13; RULINGS 2026-09-13o) — lane `v2frontagestep`
+
+Owner (13l item 1): at CYXY the groundside lots beside two buildings cut into a hill
+used to sit a storey above them and are now graded flat. Scout `v2cyxy1t`: §28 (1)'s
+`groundside_frontage` row (3,000-weight `pad_flat`) lands at the owner's exact
+vertices and outprices the face's own DEM datum (`body_datum` 300) ten to one; the
+frontage vertex set (`pad_frontage_gs.py:167-169`) carries NO DEM term. The DEM at the
+frontage stands +4.08 / +3.02 m (median per pair) above the pads `building10` /
+`building9` — one-plane pads at the downhill apron level over ground that spans 5.5 m
+under each ring (2-D DSF facade footprints; no authored split level). BEFORE (the
+pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0.01, and
+`dsf:pol129` (35 m long, 8 % cap) is a 3.4 m excavation it can never climb out of.
+
+6. **THE BOUND IS PER PAIR.** A pad–frontage pair whose median |DEM(frontage) − pad
+   level| exceeds `[lot] frontage_step_max_m` (2.8 m) mints no `groundside_frontage`
+   row: the face keeps its own ground and the step is a lawful hillside terrace. Per
+   pair, never per vertex (a per-vertex bound saw-tooths S2's 16-vertex frontage).
+   Measured medians decide the number: CYXY +4.08 / +3.02 and SPJC's five (+3.20 …
+   +4.01) disarm; LEMD's `building4` (+2.66, the case the owner ordered graded in
+   11ai/12r), KCLT (+1.95), HECA (+1.02), OTHH (−1.03) stay armed. A 2.0 m bound would
+   re-open `building4`. Bars: CYXY's two faces back on the DEM (frontage z − DEM
+   within 0.3, +3.4 above the pads); `building4`'s joints unchanged (0.16 m); SPJC's
+   five pairs named; the `groundside_frontage` family count before/after; ONE
+   `--engine v2` CYXY build (28 s) against the ledger base; twin; suite.
+
+## §35 THE RUNWAY-END CORNER (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT item 1) — lane `v2rwycorner`
+
+Scout `v2kclt1t`: at 36C's end (18C/36C cut 6.44 m into the hill) two graded-strip
+nodes 2.8–3.0 m outside the runway's half-width and 14 m beyond its end carry NO law
+row — `constraints/zones.py:207-221` `abeam` binds a strip vertex only within the
+runway's own extent (s ∈ [0, L]) and `constraints/strips.py:381-382` `_end_foot_rows`
+binds only t ∈ [0, 1] along the end edge, whose docstring says such a vertex "keeps
+the transverse rows" that `abeam` has just removed. They hold only §23's datum (the
+DEM, 3.0) against a runway 6.4 m below: 4.98 m over 4.62 m and 5.07 m over 3.91 m,
+the cockpit block's two CRITICAL VISUAL cliffs. Every runway end has four such
+corners; §32's clamp cannot reach a vertex with no band.
+
+1. **THE CORNER IS BOUND TO THE NEAREST POINT OF THE END EDGE.** A strip vertex
+   beyond a runway end and lateral of its width takes `_end_foot_rows`' chord form
+   against the nearest point of the end edge (t clamped to [0, 1]) over its true
+   plan distance, under `end_skirt.max_down_grade`; equivalently the end corridor's
+   rect is widened laterally by the zone-2 half-width so `abeam` and the chord tile
+   the plane with no gap. One derivation, both gates.
+2. **BARS**: the two 36C cliffs gone (steps ≤ `end_skirt.max_down_grade` × d); every
+   corner of KCLT's 3 runways quoted (12 corners: worst step before/after); LEMD's,
+   HECA's, CYXY's, SPJC's, OTHH's corners by dry replay of their frames (no build);
+   `strip_seam_tear` 2 → 0 at KCLT; ONE `--engine v2` KCLT build; twin; suite.
+
+## §36 THE EAT LAW, PORTED (owner RULINGS 2026-09-13j item 2; Fable 2026-09-13q) — lane `v2eat`
+
+Owner: "The EAT here should be lower than the runway by law right?" — YES. v1's law
+(`src/auto_patch/grade_law.py:2352 eat_pavement_ceiling`: ceiling(D) = max(0, D −
+setback) · slope − tail_height, FAA 40:1 slope 0.025 from the departure end, tail
+height by code letter (E 20.1 m), the hard ANCHOR RECT of `eat-anchor-rect-spec.md`,
+recognition ≥ 300 m) was never ported: `auto_patch_v2` has no EAT law (zero matches
+in `constraints/`, `planar/`, `law/*.toml`). KCLT's 18C end-around crossing at
+D 372–416 m stands at runway end +0.9 m where the law puts it at −8.6 … −10.6 m —
+the "pre-law, FLAT at end +0.9 m" state the v1 spec named as the thing to fix.
+
+1. **THE EAT ANCHOR RECT IS A HARD PIN FAMILY IN v2**: recognition (a taxiway
+   crossing the extended centreline beyond a departure end at ≥ `eat.min_crossing_m`
+   300 m, routed wrap), value `end_z + max(0, D − setback) · slope − tail_height`,
+   cut-only, ramps at the taxi caps to the pavement either side; the constants in
+   `law/rulesets.toml [faa.eat]` / `[icao.eat]` (v1's `config.py:5828/5985-6015/5922`
+   values, one copy, v1 asserted equal by a law-tables twin like the ramp cap's).
+2. **BARS**: KCLT's crossing at 216.3–217.4 m (today 226.6–226.9); the ramps within the
+   taxi caps; the other five airports' EAT recognition quoted (which have one; none
+   moves that has none); ONE `--engine v2` KCLT build; census; twins; suite.
+
+## §37 A ROAD KEEPS ITS OWN LONGITUDINAL LAW; A ROAD FLIPS BY SHARE; THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT items 5, 7, 8; CYXY item 2) — lane `v2roadcap`
+
+Scout `v2kclt1t`: (5) the service road down to KCLT's east access road falls 1.4 %
+where its DEM falls 9 % and ends +14.22 m in the air — `constraints/roads.py:38-70`
+`road_law_caps` gives a road the STRICTEST longitudinal cap of any governed face it
+touches (lateral contiguity, 2026-08-02 cl. 2) — 0.015 on 42 of KCLT's 121 groundside
+faces; the 1:3 bank then walks 34 m to daylight it (lawful on that ray; airport-wide
+17.6 % of foot stations are steeper than 1:3, max 1:0.4). (7) shapeID 791 (`dsf:pol82`,
+8.4 m wide, 1,203 m perimeter, 575 m of road centreline inside, no taxi centreline —
+a STRIP by evidence) was flipped to `apron` by §27 on 15.3 + 10.5 m of lateral apron
+contact (2 % of its perimeter) and, under the apron's 1.5 %, climbs +12.3 m off its
+ground; 60 ribbon aprons (< 12 m wide) carry 108,744 m². (8) the `bank_foot` ring is
+the 1:3 transition from the patch COVERAGE (the union of every planar face — not an
+aerodrome boundary; KCLT has none in OSM) to the DEM, emitted at every station: KCLT
+34.2 km (42 % of stations carry < 0.5 m; 5.8 % over 5 m, max 19.2 m, stand-off to
+89 m; 451 chords over 30 m up to 5.6 m off the DEM mid-chord), CYXY 14.8 km (51 %
+under 0.5 m, max 2.4 m, none over 5 m).
+
+1. **LATERAL CONTIGUITY BINDS THE TRANSVERSE CAP ONLY.** A road-family face takes
+   the strictest cap of its contiguous faces for its TRANSVERSE law (it must not
+   tear against the surface beside it); its LONGITUDINAL cap stays its own
+   (`service_road` 8 %). Consumer census first (§28 frontages, §20 pad levels,
+   `road_cross_section`, the lateral-contiguity family). KCLT's east road descends
+   to its DEM.
+2. **A ROAD FLIPS BY SHARE, A LOT BY EDGE.** §27's lateral test stays as ruled for
+   lot-class faces (≥ 10 m); a STRIP-class face (a road by evidence) flips only when
+   its lateral airside contact is at least `[lot] road_airside_edge_frac` (0.2) of
+   its perimeter — LEMD's 61 apron-side lanes (edges to 828 m) stay apron; a
+   through-road touching an apron for 2 % of its length stays a road (owner 13j
+   item 7). Consumer: `airside_edge_flip` only.
+3. **THE BANK IS EMITTED WHERE IT IS LOAD-BEARING.** A foot station is emitted only
+   where |z_ring − DEM(foot)| exceeds `[design] bank_materiality_m` = `bank_min_width_m
+   × bank_slope` (1.65 m); elsewhere the ring carries no foot and the mesh's own
+   interpolation blends the sub-metre difference. Long foot chords are split at
+   `bank_chord_max_m` (30 m) so no chord stands more than `split_tol_m` off the DEM
+   mid-chord. The bank's own law is unchanged: it still daylights at 1:3 where it is
+   emitted; the real reduction comes from (1) and (2), which remove the fill the
+   bank was covering. The owner's question ("do we need it at all?") is answered
+   with the numbers: CYXY's ring vanishes; KCLT's shrinks to its load-bearing
+   stations, re-quoted after (1)/(2).
+4. **BARS**: KCLT `dsf:pol51` within 2 m of its DEM at its east end (today +14.22),
+   `service_road` off-DEM max 14.2 → < 3 m; shapeID 791 a `service_road` (its fill
+   +12.3 → on its ground); ribbon aprons 60 → quoted; LEMD's §27 flips unchanged (dry
+   replay); bank foot stations KCLT 1,855 → N (load-bearing only), CYXY 649 → 0 (dry
+   replay), stations steeper than 1:3 quoted; chords over 30 m 451 → 0; ONE
+   `--engine v2` KCLT build with the cockpit block first (critical motion 16 → quoted,
+   the three item-5 cliffs gone); census; twins; suite. The census's 215 m apron
+   step at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), excluded.

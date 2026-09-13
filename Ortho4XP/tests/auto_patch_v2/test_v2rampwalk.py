@@ -38,7 +38,7 @@ from auto_patch_v2.model.airport import (Airport, OsmWay, Runway, RunwayEnd,
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar import structure_approach as _sa
 from auto_patch_v2.planar import structure_underpass as _su
-from auto_patch_v2.planar.terrain_edge import road_lines, road_ribbons
+from auto_patch_v2.planar.terrain_edge import road_lines
 from auto_patch_v2.planar.zones import zone_regions
 
 
@@ -242,32 +242,38 @@ def test_the_underpass_ramp_follows_the_parent_road(law):
 
 # ── (4) zones yield to roads ─────────────────────────────────────────────
 
-def test_a_mapped_road_with_no_cell_is_subtracted_from_the_band(law):
-    """§34 (4): the band used to subtract CELLS only, so a mapped road the
-    classifier gave no cell (LEMD −6289) ran straight through
-    ``adjacent_ground:...:zone2#2``.  The ribbon is now a barrier at the
-    single zone derivation site, and the band does not resume beyond it."""
+def test_the_band_yields_to_a_tunnel_corridor_and_stands_off_it(law):
+    """§34 (4) as NARROWED (RULINGS 2026-09-13ar): a zone band yields ONLY
+    to a TUNNEL CORRIDOR — the mouth, ramp, trench and underpass corridor
+    the structure pass publishes as ``Classification.keepouts`` — and it
+    stands off that corridor by the same ``groundside_cutback_m`` a
+    groundside cell gets, so the band never shares a vertex with the
+    corridor's rim and the gap terraces against the ramp walls.
+
+    Round 2's general "yields to every mapped road" trim is WITHDRAWN: it
+    exposed a region's OWN outer ring (LEMD ``zone2#24``, 8.49 m over
+    12.03 m) and cost 671 ``graded_strip|graded_strip`` rows against zero
+    in the base.  A road elsewhere in adjacent ground grades WITH the
+    zone."""
+    from auto_patch_v2.law.tables import snap_margin_m
     taxi = Cell(1, "junction", "pav1", _rect(-200.0, -12.0, 200.0, 12.0), (),
                 None, "D", "airside", "pavement", {})
-    # zone 2 reaches 18.5 m off a code-D junction edge (y = 12), so the road
-    # at y = 24 runs THROUGH the band, exactly as LEMD -6289 does
+    # a corridor crossing the band at x = 0, 8 m wide
+    corridor = _rect(-4.0, 12.0, 4.0, 40.0)
     road = OsmWay(-20, "big_roads", ((-300.0, 24.0), (300.0, 24.0)), False, TAGS_R)
     roads = road_lines([road])
-    assert roads, "the at-grade centreline must be read"
-    without = zone_regions((taxi,), law, (), None, ())
-    withr = zone_regions((taxi,), law, (), None, roads)
-    a_out = sum(r.polygon.area for r in without)
-    a_in = sum(r.polygon.area for r in withr)
-    assert a_in < a_out, "the ribbon must take area out of the band"
-    ribbon = road_ribbons(roads, law)
-    for r in withr:
-        assert r.polygon.intersection(ribbon).area < 1.0, r.ref
-        # ...and nothing survives on the FAR side of the road
-        assert r.polygon.bounds[3] <= 24.0
-
-    # a BORED road is not at grade and takes nothing
-    bored = OsmWay(-21, "big_roads", ((-300.0, 24.0), (300.0, 24.0)), False, TAGS_T)
-    assert road_lines([bored]) == ()
+    plain = zone_regions((taxi,), law, (), None, roads)
+    withc = zone_regions((taxi,), law, (corridor,), None, roads)
+    # THE ROAD ALONE TAKES NOTHING (the withdrawal)
+    assert sum(r.polygon.area for r in plain) == pytest.approx(
+        sum(r.polygon.area for r in zone_regions((taxi,), law, (), None, ())), rel=1e-9)
+    # THE CORRIDOR DOES, with the stand-off
+    cut = law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law)
+    keep = Polygon(corridor)
+    assert sum(r.polygon.area for r in withc) < sum(r.polygon.area for r in plain)
+    for r in withc:
+        assert r.polygon.intersection(keep).area < 1.0, r.ref
+        assert r.polygon.distance(keep) >= cut - 0.05, (r.ref, r.polygon.distance(keep))
 
 
 def test_the_census_prices_a_within_face_step(law):

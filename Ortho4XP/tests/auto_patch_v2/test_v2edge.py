@@ -120,9 +120,12 @@ def test_plateau_ends_at_the_crest(law):
 
 def test_rim_road_ends_the_region_at_its_outer_edge(law):
     """The same plateau with a road at ``x = 92 − 50 = 42`` running along
-    the crest: the region ends FLUSH at the road's OUTER edge (the lane
-    half-width plus the groundside cut-back every road receives), NOT at
-    the crest — the road keeps its own profile beyond it (§19.2 (2))."""
+    the crest: the region ends AT THE ROAD, NOT at the crest — the road
+    keeps its own profile beyond it (§19.2 (2)).
+
+    (The round-2 INNER-edge amendment is WITHDRAWN with the road trim it
+    belonged to — RULINGS 2026-09-13ar narrowed §34 (4) to the tunnel
+    corridor, and a rim road governs here exactly as §19.2 (2) ruled.)"""
     half = (law.tables.emit.road_profile.lane_width_m
             + law.tables.zones.adjacent_ground.groundside_cutback_m)
     road = LineString([(42.0, -600.0), (42.0, 600.0)])

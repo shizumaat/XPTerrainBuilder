@@ -72,10 +72,24 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # same construction as the pad set-back, so the band never enters the
     # gap a pad's knife opened in a lot
     cut = ag.groundside_cutback_m + snap_margin_m(law)
+    # A ZONE BAND YIELDS ONLY TO A TUNNEL CORRIDOR (spec §34 (4) as
+    # NARROWED, RULINGS 2026-09-13ar; owner item 8 = a road AT A TUNNEL).
+    # The ``keepouts`` are the structure corridors' outer rings (mouth,
+    # ramp, trench, underpass — ``planar/structures``), and they are
+    # subtracted with the SAME stand-off a groundside cell gets, so the
+    # band never shares a vertex with the corridor's rim: the gap terraces
+    # against the ramp walls, which is what the corridor already is.
+    # Round 2's general "yields to every mapped road" trim is WITHDRAWN —
+    # measured, it exposed ``zone2#24``'s own outer ring (an 8.49 m edge
+    # over 12.03 m at 40.5331907, −3.5748496, terrain the band used to
+    # spread across its interior) and cost 671
+    # ``graded_strip|graded_strip`` ``within_shape`` rows against zero in
+    # the base.  A road elsewhere inside adjacent ground grades WITH the
+    # zone (the standing law).
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
-        + [Polygon(k) for k in keepouts]) if cells else Polygon()
+        + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     for c in cells:

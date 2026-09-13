@@ -279,7 +279,10 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     rows = structure_rows(pm, law, airport)
     dl = law.tables.structures.cutout.door
     diffs = [r for r in rows if type(r).__name__ == "Diff"]
-    assert diffs and all(r.cap == pytest.approx(dl.ramp_grade) for r in diffs)
+    # spec §34 (6) as amended: priced ``cap - hard_tol_m / d`` (see test_m4)
+    _ht = law.tables.emit.design.hard_tol_m
+    assert diffs and all(
+        r.cap == pytest.approx(max(0.0, dl.ramp_grade - _ht / r.d)) for r in diffs)
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - t[0].mouth_z) < 1e-6 for r in pins)      # the sill
     cs, _counts, _w = generate(pm, law, airport)

@@ -452,7 +452,12 @@ def test_generator_rows_solve_and_emit(objs, law):
     ts = [x for x in pm.structures if x.source == KIND]
     assert len(ts) == 2, stats.structures.refused
     rows = structure_rows(pm, law, airport)
-    diffs = [r for r in rows if type(r).__name__ == "Diff" and r.cap == pytest.approx(wc.max_ramp_grade)]
+    # spec §34 (6) as amended (RULINGS 2026-09-13ai): a ramp pair is priced
+    # ``cap - [design] hard_tol_m / d`` so the solve's own held residual
+    # lands the emitted row AT the cap, never over it
+    _ht = law.tables.emit.design.hard_tol_m
+    diffs = [r for r in rows if type(r).__name__ == "Diff"
+             and r.cap == pytest.approx(max(0.0, wc.max_ramp_grade - _ht / r.d))]
     assert diffs
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - ts[0].mouth_z) < 1e-6 for r in pins)

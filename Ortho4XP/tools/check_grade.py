@@ -2623,6 +2623,78 @@ def _check_adjacent_ground_edges(ways: List[Way],
     return out
 
 
+# ── THE ADJACENT-GROUND WITHIN-FACE STEP (spec §34 (4)) ───────────
+#: The family key of the within-face welded step on a v2 adjacent-ground
+#: face (``planar/zones.py``'s ``adjacent_ground:*`` refs).
+ADJACENT_GROUND_STEP_FAMILY = "adjacent_ground_step"
+
+
+def _check_adjacent_ground_steps(ways: List[Way],
+                                 nodes: Dict[str, Tuple[float, float]],
+                                 ll_to_m, min_step_m: float,
+                                 cliff_grade: float) -> List[Violation]:
+    """ZONES YIELD TO ROADS (spec §34 (4); Fable 2026-09-13i, RULINGS
+    2026-09-13i item 8): the WELDED step INSIDE one ``adjacent_ground:*``
+    face.
+
+    The gap this closes, measured on LEMD 1.0.325: node −8236 of
+    ``adjacent_ground:...:zone2#2`` stands at 615.89 against 613.54 on its
+    own welded neighbour 1.5 m away — a 1.73 m step over 1.5 m where a
+    mapped road (OSM −6289) the classifier gave no cell runs through the
+    band.  NO family priced it: ``graded_strip`` carries no within-shape
+    cap (it traces a lawful bound, it is not a value surface),
+    ``adjacent_ground_tear`` fires only under a 1.0 m edge, and
+    ``strip_seam_tear`` is the CROSS-shape twin — the two nodes are the
+    SAME way's.  So the band could hold its designed level over a road's
+    own ground and the census read zero.
+
+    The reading is the cockpit's own, in ONE step: a consecutive welded
+    pair of an adjacent-ground ring is a row when its |Δalt| exceeds
+    ``min_step_m`` (``[cockpit] visual_m``, 0.5) AND its implied grade
+    exceeds ``cliff_grade`` (§31 (7), resolved from the design surface's
+    bank slope) — a CUT or a RISE, not ground.  The cliff term is not
+    optional tidying: an adjacent-ground band lawfully drapes a hillside,
+    and reading every half-metre welded step without it counts the drape
+    (measured CYXY: 296 rows, of which the cliff keeps the real ones).
+    §31 (7) would classify the rest REPORT anyway; a family whose count
+    is mostly REPORT is the instrument this repo keeps paying for.
+
+    Keyed on the v2 ref prefix, so a v1 patch (whose strips are
+    ``adjacent_ground`` exactly) reads nothing."""
+    out: List[Violation] = []
+    for w in ways:
+        if not str(w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX):
+            continue
+        ring = w.nids
+        for i in range(len(ring) - 1):
+            nid_a, nid_b = ring[i], ring[i + 1]
+            if nid_a not in nodes or nid_b not in nodes or nid_a == nid_b:
+                continue
+            ea = w.elevs[i] if i < len(w.elevs) else None
+            eb = w.elevs[i + 1] if i + 1 < len(w.elevs) else None
+            if ea is None or eb is None:
+                continue
+            de = abs(float(ea) - float(eb))
+            if de <= min_step_m:
+                continue
+            xa, ya = ll_to_m(*nodes[nid_a])
+            xb, yb = ll_to_m(*nodes[nid_b])
+            dist = math.hypot(xb - xa, yb - ya)
+            grade = de / dist if dist > 1e-9 else float("inf")
+            if grade <= cliff_grade:
+                continue
+            out.append(Violation(
+                grade_pct=grade * 100,
+                excess_pct=grade * 100,
+                distance_m=dist,
+                de_m=de,
+                way_a=w, way_b=w,
+                pt_a=(xa, ya), pt_b=(xb, yb),
+                elev_a=float(ea), elev_b=float(eb)))
+    out.sort(key=lambda v: -v.de_m)
+    return out
+
+
 # ── THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)) ─────────────
 #: The key of the geometric runway-edge tie family — the SAME key the v2
 #: verify reports under (``auto_patch_v2.verify.strips.FAMILY_STRIP_
@@ -7530,6 +7602,10 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
      "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
+    # spec §34 (4): the WITHIN-FACE welded step on a v2 adjacent-ground
+    # face — the reading no family had (``_check_adjacent_ground_steps``).
+    (ADJACENT_GROUND_STEP_FAMILY,
+     "ADJACENT-GROUND within-face welded STEP", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
     # THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)): every vertex of
     # any role abeam a runway edge within the strip's zone-2 half width,
@@ -9938,6 +10014,19 @@ def run_checks(
     _pv("ADJACENT-GROUND graded-strip TEAR (sub-metre near-vertical edge)",
         adjacent_edges, top_n)
     within = within + adjacent_edges
+
+    # spec §34 (4): the step floor IS the cockpit's own visual threshold —
+    # one number, read from the law tables, never typed here
+    _ck = cockpit_law()
+    ag_step_min, ag_cliff = float(_ck["visual_m"]), float(_ck["cliff_grade"])
+    ag_steps = _fam(ADJACENT_GROUND_STEP_FAMILY,
+                    _check_adjacent_ground_steps(ways, nodes, ll_to_m,
+                                                 ag_step_min, ag_cliff))
+    _pv(f"ADJACENT-GROUND within-face welded STEP (> {ag_step_min:.2f} m at "
+        f"> {ag_cliff * 100:.0f} % between welded neighbours of ONE "
+        f"adjacent_ground face; spec §34 (4))",
+        ag_steps, top_n)
+    within = within + ag_steps
 
     strip_seam_tears = _fam("strip_seam_tear",
                             _check_strip_seam_tears(vertices, ways, nodes))

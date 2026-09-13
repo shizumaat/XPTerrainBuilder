@@ -100,8 +100,7 @@ def wall_corridor_groups(records: _t.Sequence, law: Law) -> list[Group]:
                          max_grade=wc.ramp_grade, spacing_m=wc.station_m, climb_from_s=L,
                          stop_at_pavement=not garage, profile=tuple(r.profile),
                          stop_side="airside", mouth_strip=False,
-                         sibling=r.sibling, ramp_role=GARAGE_ROLE if garage else RAMP_ROLE,
-                         straight=True))
+                         sibling=r.sibling, ramp_role=GARAGE_ROLE if garage else RAMP_ROLE))
     return out
 
 

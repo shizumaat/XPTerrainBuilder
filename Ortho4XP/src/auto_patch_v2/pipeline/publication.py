@@ -396,6 +396,16 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "wall_ref": b.wall_ref,
             "floor_plates": len(planar_faces_of_ref(planar, b.floor_ref)),
             "shell_count": len(b.objects),
+            # THE RAMP CORRIDORS (spec §24 (5), owner RULINGS 2026-09-13g),
+            # in LONGITUDE / LATITUDE — the coordinate system the patch and
+            # the sidecar share (the planar frame's metres are NOT the
+            # patch's), so ``verify`` re-derives the expectation from the
+            # object's own authored deck instead of reading it back.
+            "ramp_corridors": len(b.ramp_rings),
+            "ramp_rings_ll": [[[round(x, 9), round(y, 9)] for x, y in r]
+                              for r in b.ramp_rings_ll],
+            "ramp_faces_ll": [[[round(q[0], 9), round(q[1], 9), round(q[2], 3)] for q in t]
+                              for t in b.ramp_faces_ll],
         })
     return out
 

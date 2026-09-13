@@ -42,12 +42,19 @@ from __future__ import annotations
 
 import typing as _t
 
+import math
+
+import numpy as np
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
+
 from . import deck_signature, obj8
+from .obj8 import is_stock_library_resource, placement_affine
 
 if _t.TYPE_CHECKING:                                   # pragma: no cover
     from ..law import Law
 
-__all__ = ["read_objects", "basin_member_ids"]
+__all__ = ["read_objects", "basin_member_ids", "ramp_decks"]
 
 
 def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None
@@ -107,3 +114,120 @@ def basin_member_ids(airport, law: "Law",
         return frozenset()
     objs, _rep = read_objects(airport, law, cache)
     return frozenset(o.id for o in objs if o.witnesses)
+
+
+def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
+               comp_indices: _t.Sequence[int],
+               floor_z: float, rim_z: float, band_m: float, normal_y_min: float,
+               rise_m: float, max_grade: float) -> list[dict]:
+    """THE RAMP CORRIDORS of one basin member (spec §24 (5), owner
+    RULINGS 2026-09-13g): one record per candidate deck —
+    ``{"ring", "faces", "rise_m", "run_m", "grade", "area_m2",
+    "admitted", "reason"}``, the shell's own near-horizontal DECK faces
+    climbing from the pit's floor to its rim, in the frame.  EVERY
+    candidate comes back, admitted or not, so the basin's notes print
+    what was refused and why.
+
+    The candidate faces are the shell components' (``comp_indices``, the
+    components that witnessed the floor — the pit's own shell, never a
+    slab STANDING in it) up-facing solids (``|n_y| >= normal_y_min``,
+    ``[basin] floor_plate_normal_y_min``: the same face test the floor
+    plate is read with) whose rendered mid-height stands more than
+    ``rise_m`` above the floor and no higher than ``rim_z + band_m``.
+    They are joined in plan, and a connected part is a RAMP only when it
+    spans the pit: its top comes within ``band_m`` of the rim and its
+    foot within ``band_m`` of the floor.
+
+    That climb test is what separates the modelled road ramp from
+    everything else raised inside a pit.  MEASURED at LEMD's T4S basin
+    (floor 588.95, R_est 596.02, band 1.0): two parts — the road ramp
+    (1,271 m2, 589.53 … 596.78 over a 95 m run: a ramp) and a 2,045 m2
+    slab of ``Ground-FSX-LEMD36`` topping out at 594.02, two metres short
+    of the rim (not a ramp, and its terrain keeps the one depth)."""
+    if o.resolved is None or is_stock_library_resource(o.path):
+        return []
+    g = cache.geometry(o.resolved)
+    if g is None:
+        return []
+    v = g.vertices
+    base = o.anchor_z + o.agl_m
+    a, b, d, e, xoff, yoff = placement_affine(o.xy, o.heading_deg)
+    comps = cache.components(o.resolved)
+    faces: list[tuple] = []
+    for ci in comp_indices:
+        if ci < 0 or ci >= len(comps):
+            continue
+        t = comps[ci].tris
+        if not t.shape[0]:
+            continue
+        p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
+        n = np.cross(p1 - p0, p2 - p0)
+        ln = np.linalg.norm(n, axis=1)
+        ny = np.zeros(t.shape[0])
+        ok = ln > 1e-12
+        ny[ok] = np.abs(n[ok, 1] / ln[ok])
+        zmid = base + (p0[:, 1] + p1[:, 1] + p2[:, 1]) / 3.0
+        keep = (ny >= normal_y_min) & (zmid > floor_z + rise_m) & (zmid <= rim_z + band_m)
+        for k in np.nonzero(keep)[0].tolist():
+            tri = []
+            for i in t[k].tolist():
+                px, py, pz = float(v[i][0]), float(v[i][1]), float(v[i][2])
+                tri.append((a * px + b * pz + xoff, d * px + e * pz + yoff, base + py))
+            area = 0.5 * abs((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1])
+                             - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]))
+            nyk = float(ny[k])
+            faces.append((tuple(tri), min(q[2] for q in tri), max(q[2] for q in tri),
+                          math.sqrt(max(0.0, 1.0 - nyk * nyk)) / max(nyk, 1e-6), area))
+    if not faces:
+        return []
+    polys = []
+    for tri, _lo, _hi, _sl, _ar in faces:
+        try:
+            p = Polygon([(q[0], q[1]) for q in tri])
+        except (ValueError, TypeError):
+            continue
+        if p.is_valid and p.area > 1e-9:
+            polys.append(p)
+    if not polys:
+        return []
+    u = unary_union(polys)
+    out: list[dict] = []
+    for part in ([u] if u.geom_type == "Polygon" else list(u.geoms)):
+        if part.geom_type != "Polygon" or part.area <= 1e-6:
+            continue
+        mine = [f for f in faces
+                if part.intersects(Point(sum(q[0] for q in f[0]) / 3.0,
+                                         sum(q[1] for q in f[0]) / 3.0))]
+        if not mine:
+            continue
+        # THE CLIMB TEST is taken on the faces' own VERTICES, never their
+        # mid-heights: a deck tessellated coarsely (a fixture's two
+        # triangles over a 40 m ramp) has no face whose MIDDLE reaches
+        # either end of the climb, and would read as no ramp at all.
+        hi = max(mine, key=lambda f: f[2])
+        lo = min(mine, key=lambda f: f[1])
+        spans = hi[2] >= rim_z - band_m and lo[1] <= floor_z + band_m
+        a = min(hi[0], key=lambda q: -q[2])
+        b = min(lo[0], key=lambda q: q[2])
+        rise = hi[2] - lo[1]
+        run = math.hypot(a[0] - b[0], a[1] - b[1])
+        # THE GRADE IS THE SURFACE'S OWN, area-weighted over the part's
+        # faces (``sqrt(1 - n_y^2) / n_y``, the slope each triangle
+        # actually has) — never rise over the part's plan span, which
+        # reads a DRAINAGE BOWL's ring of banks as a 3 % ramp because its
+        # lowest and highest faces lie a bowl-diameter apart (measured at
+        # OTHH Drainage_01: 3.61 m over 133.5 m = 0.03, banks of 0.78).
+        wa = sum(f[4] for f in mine)
+        grade = (sum(f[3] * f[4] for f in mine) / wa) if wa > 1e-9 else math.inf
+        # A RAMP IS DRIVABLE, A BANK IS NOT.  Spanning the pit is not
+        # enough: a drainage BOWL's sloping sides climb from its floor to
+        # its rim too, and under ``floor_plate_normal_y_min`` (0.7, up to
+        # 45 deg) they read as near-horizontal.
+        out.append({"ring": Polygon(part.exterior.coords), "faces": [f[0] for f in mine],
+                    "rise_m": rise, "run_m": run, "grade": grade,
+                    "area_m2": float(part.area),
+                    "admitted": bool(spans and grade <= max_grade),
+                    "reason": ("" if spans and grade <= max_grade
+                               else "does not span the pit" if not spans
+                               else f"grade {grade:.2f} over max_grade {max_grade:g}")})
+    return out

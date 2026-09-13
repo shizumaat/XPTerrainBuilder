@@ -363,9 +363,15 @@ def structure_records(airport, cl, law) -> dict:
         "tunnel_refused": list(sstats.refused),
         "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
                             if not isinstance(v, list)},
+        # THE RIM RING ITSELF (lane v2basinfoot, spec §24 (4)): the dry run
+        # has to answer "how far did each basin's rim MOVE", which needs the
+        # ring, not just its area — one row per basin, in lat/lon.
         "basins": [{"id": b.id, "objects": list(b.objects), "floor_z": b.floor_z,
                     "rim_estimate_m": b.rim_estimate_m, "area_m2": b.area_m2, "kind": b.kind,
                     "covered_fraction": b.covered_fraction, "site_ll": list(b.anchor_ll),
+                    "rim_ll": [list(ll(p)) for p in b.wall_path],
+                    "region_ll": [list(ll(p)) for p in b.region],
+                    "ramp_rings_ll": [[list(ll(p)) for p in r] for r in b.ramp_rings],
                     "notes": list(b.notes)} for b in basins],
         "basin_refused": list(bstats.refused),
         "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},

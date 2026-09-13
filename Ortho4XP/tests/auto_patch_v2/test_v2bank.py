@@ -622,3 +622,89 @@ def test_a_dem_with_no_water_witness_banks_exactly_as_before(apron_map, law):  #
     banked, _surf, rep = _bank(airport, pm, law, 6.0)
     assert rep.at_water == 0
     assert rep.foot_vertices > 0 and rep.rings >= 1
+
+
+# ── §38 (3) NO BANK ALONG A TILE SEAM (owner RULINGS 2026-09-13ah /
+# 13an; spec design-surface-spec §38 (3)) ───────────────────────────────
+# 13am measured that the 2 x ``seam.half_width_m`` slit between two tile
+# pieces was closed ONLY because ``emit.design.bank_min_width_m`` (5.0,
+# emit.toml:445) happened to EQUAL ``emit.seam.half_width_m`` (5.0,
+# emit.toml:86) — two independently typed constants.  13an measured what
+# the near-miss costs: the two collars met 1.6 mm apart, a bank foot chain
+# followed the crack 0.0237 m off the meridian, and Triangle4XP split that
+# one 5.32 m segment 16,298 times against the unsplittable tile border.
+# The band is now unioned into the coverage EXPLICITLY and the derived
+# bank pieces are cut by it, so neither the closure nor the keep-out
+# depends on the two constants agreeing.
+
+def _with_seam_band(pm, y0: float, y1: float, x0: float, x1: float):
+    """``pm`` with one declared seam band — the rectangle
+    ``[x0, x1] x [y0, y1]`` in frame metres (``PlanarMap.seam_band_rings``
+    is what ``planar/build`` writes from ``planar/overlay.seam_bands``)."""
+    import dataclasses as _dc
+    ring = ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0))
+    return _dc.replace(pm, seam_band_rings=(ring,))
+
+
+def _law_with(law, *, half_width_m=None, bank_min_width_m=None):  # noqa: F811
+    """``law`` with one emit constant changed, IN MEMORY (the loader's own
+    refusal is the twin below; this one reads the EMITTER)."""
+    import dataclasses as _dc
+    emit = law.tables.emit
+    if half_width_m is not None:
+        emit = _dc.replace(emit, seam=_dc.replace(emit.seam,
+                                                  half_width_m=half_width_m))
+    if bank_min_width_m is not None:
+        emit = _dc.replace(emit, design=_dc.replace(
+            emit.design, bank_min_width_m=bank_min_width_m))
+    return _dc.replace(law, tables=_dc.replace(law.tables, emit=emit))
+
+
+@pytest.mark.parametrize("half_m", [5.0, 3.0, 1.0])
+def test_the_seam_slit_needs_no_constant_coincidence(apron_map, law, half_m):  # noqa: F811
+    """The band is cut out of the coverage and closed again by the LAW, at
+    three different ``seam.half_width_m`` values against one unchanged
+    ``bank_min_width_m`` of 5.0: no bank foot node lands inside the band at
+    any of them.  With the closure left to the collar, a half width the
+    collar does not reach re-opens the slit and a 1:3 foot ring appears
+    down the middle of the runway (13am (2))."""
+    airport, pm, _r = apron_map
+    l2 = _law_with(law, half_width_m=half_m)
+    x0, y0, x1, y1 = coverage_polygon(pm).bounds
+    yc = 0.5 * (y0 + y1)                       # a band THROUGH the coverage
+    pm2 = _with_seam_band(pm, yc - half_m, yc + half_m,
+                          x0 - 500.0, x1 + 500.0)
+    from auto_patch_v2.solve.api import Solution, Status
+    z = {v: 706.0 for v in pm2.vertices}
+    sol = Solution(z, Status.OPTIMAL, None, 0, 0.0, "fixture")
+    surf = graded_surface(pm2, l2, sol, airport.frame.origin,
+                          airport.frame.crs, {})
+    rep = BankReport()
+    banked = with_bank(surf, pm2, l2, airport, rep)
+    assert rep.seam_bands == 1, (
+        "the emitter did not see the declared seam band — the cut and the "
+        "coverage union are both no-ops and the twin proves nothing")
+    to_xy = airport.frame.transformers()[0]
+    xy = {v.id: to_xy(v.ll[1], v.ll[0]) for v in banked.vertices}
+    # inside the band AND over the coverage's own span — the band's stubs
+    # BEYOND the airport are where the patch boundary legitimately turns
+    # the corner, and the ring the ruling forbids is the one down the
+    # MIDDLE of the runway
+    inside = [v for b in banked.breaklines if b.kind == BANK_KIND
+              for v in b.vertices
+              if abs(xy[v][1] - yc) <= half_m and x0 < xy[v][0] < x1]
+    assert not inside, (
+        f"{len(inside)} bank foot node(s) inside a {half_m} m half-width "
+        f"seam band while bank_min_width_m stayed "
+        f"{law.tables.emit.design.bank_min_width_m} — the slit closure is "
+        f"still riding on the two constants agreeing (RULINGS 13am (2))")
+
+
+def test_the_law_refuses_a_collar_that_cannot_reach_the_band(law):  # noqa: F811
+    """§38 (3)/13an (e): the relation between the two constants is asserted
+    at LAW LOAD, by name, instead of being a silent coincidence — a collar
+    narrower than the band's half width is refused before any build."""
+    from auto_patch_v2.law.model import LawError, _check_cross_refs
+    bad = _law_with(law, half_width_m=9.0, bank_min_width_m=5.0)
+    with pytest.raises(LawError, match="bank_min_width_m"):
+        _check_cross_refs(bad.tables)

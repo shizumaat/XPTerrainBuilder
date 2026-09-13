@@ -7152,6 +7152,149 @@ replays byte-identical (no seam vertices); suite twice. The mesh-side
 cluster (16,298 border nodes in 1.92 m at lat −12.1609306 on tile −13−077)
 is scout `v2splpmesh`'s, not this lane's.
 
+### §38 MEASURED (lane `v2seampin`, base b78f8f32, SPLP `--engine v2`)
+
+**THE CONSUMER CENSUS FIRST** (owner 2026-08-30l). Every reader of the
+seam region, ruled in one table before any consumer was edited:
+
+| Reader | file:site | what it read | ruling |
+|---|---|---|---|
+| the band's DERIVATION | `planar/overlay.py:305 seam_bands` | buffers the sampled graticule line by `half_width_m` of FRAME metre | **CHANGED (13an b)**: each edge is its own polyline at the graticule value ± the DEGREES that measure `half_width_m` there; the band is the polygon between them. The single derivation site. |
+| the band's faces | `planar/overlay.py:153/171` | faces inside a band are dropped (`dropped_seam_faces 34`) | unchanged |
+| the band's VERTICES | `planar/build.py:314 _seam_vertices` | the band boundary's noded vertices → `PlanarMap.seam_vertices` | unchanged (150 → 149 under the symmetric band) |
+| the band's GEOMETRY downstream | — | nothing carried it; `emit/bank.py` could not see it | **NEW**: `PlanarMap.seam_band_rings`, written by `planar/build.py` from `arr.seam_bands` — the record, so no consumer re-derives the graticule |
+| the seam ROW | `constraints/seams.py seam_pins` | `Linear.soft` preference, one group per vertex | **CHANGED (1)**: `Pin` — column eliminated, held exactly |
+| the pair exemption | `constraints/__init__.py seam_exempt` | dropped rows whose every vertex was an honoured seam pin; took a `honoured` set | **CHANGED**: no honoured set; adds the SENIOR-pin withdrawal (a CIFP threshold outranks the seam: 1 vertex at SPLP) and the (2) zone-band yield |
+| the seam PASS | `pipeline/build.py:598-660`, `pipeline/why.py:90-101` | re-solved up to 6× to a fixed point of the honoured set | **DELETED** (oscillated 45 → 28 → 27 → 28 …; 12.0 s of a 24.0 s build) |
+| `Config.seam_passes_max` | `pipeline/build.py:53` | the pass's cap | **DELETED** |
+| the generator plumbing | `constraints.generate`, `pipeline/shapes.shape_constraints` | `seam_honoured` parameter | **DELETED**; replaced by `yielded_out` (the rows the seam made yield, for the report) |
+| the SIDECAR | `pipeline/publication.py:160` | `seam_pins` = the HONOURED subset, `[lat, lon]` | **CHANGED (1)**: every pin, `[lat, lon, dem_z]`; new key `seam_half_width_m` |
+| the sidecar KEY register | `emit/osm_adapter.py:77 SIDECAR_KEYS` | — | **NEW** `seam_half_width_m` |
+| the census's seam read | `check_grade.py:723 _seam_nids_from_pins` | unpacked `(lat, lon)` | **CHANGED**: reads by position, so 2- and 3-element pins both work (a pre-§38 patch is unchanged) |
+| the runway CHORD | `constraints/runway_chord.py:393-408 _Chord.knots` | crossing pins only; a seam vertex was never a control point | **CHANGED (2)**: `_with_seam_knots` adds this runway's own ridge seam pins as knots, at both chord sites |
+| the graded-strip ZONE BAND | `constraints/zones.py:396 zone_bands` (one-way, `follows=v`) | with `v` pinned it survived as a two-way PULL on the pavement | **CHANGED (2)**: yields (the `water_exempt` clause) — 67 rows at SPLP |
+| the design solve's law pricing | `solve/design.py:370-390` | a row footed on a fixed vertex is priced one-sided | unchanged |
+| the ZONE PROJECTION | `solve/project.py:683 project_zone_bands` | clamps a governed vertex into its band | unchanged and now a no-op on seam pins: a pinned vertex carries no column, so it is never a "pure" column |
+| the RUNWAY PROJECTION | `solve/project.py:412 coupled` | `n_free < n_all` over the REDUCED matrix — a fixed foot carries no column, so a row footed on two seam pins read self-contained | **CHANGED**: the coupling test reads the ROW'S OWN TERMS. Without it the QP and its relaxation LP are both **Infeasible** and the runway rows ship uncertified. |
+| the BANK | `emit/bank.py:792` | closed the 10 m slit with `cov.buffer(bank_min_width_m)` — the 5.0 == 5.0 coincidence | **CHANGED (3)**: the derived pieces are cut by the band and the band is unioned into the coverage before the collar (`emit/seam_band.py`) |
+| the bank's LAW constants | `emit.toml:445` / `:86` | independently typed, silently equal | **CHANGED (13an e)**: `law/model.py` refuses `bank_min_width_m < seam.half_width_m` by name at law load |
+| `write_tile_pieces` | `emit/osm_adapter.py:317-358` | split breaklines by `floor(lon)` with no seam test | **CHANGED (13an c)**: refuses any breakline vertex inside the band |
+| the CENSUS | `check_grade.LAW_FAMILIES` | no patch-edge-vs-DEM family; `strip_seam_tear` read 0 over a 3 m berm | **NEW**: `seam_residual` (cockpit `step`) and `bank_across_seam` (cockpit `keepout`) |
+
+**THE ARMS** (each piece measured alone on SPLP before combining; base
+served from the artifact ledger, `v2splpseam2` at 864e7577, body_sha
+`f2e8a8226b18`).
+
+| arm | seam on DEM | verify rows | hard set | runway projection | bank foot ≤ 5 m of the meridian |
+|---|---|---|---|---|---|
+| base b78f8f32 | 27/150, max 3.430 m | 239 | SETTLED 0/12498, max 0.0163 | held by the solve (0.0104) | **2** (closest 1.79 m) |
+| (1) pins, pass deleted | **150/150, 0** | 320 | NOT SETTLED 2/12312, max 0.0358 | **Infeasible / relaxation LP Infeasible** | 2 |
+| (2) + knots + zone yield | 150/150, 0 | 298 | NOT SETTLED 1/12312, max 0.0394 | optimal (elastic), family 0.0200 | 2 |
+| (2) + the coupling fix | 150/150, 0 | **230** | NOT SETTLED 1/12312, max 0.0366 | optimal (elastic), family 0.0193 | 2 |
+| (3) bank cut + union | 149/149, 0 | 226 | NOT SETTLED 1/12310, max 0.0363 | optimal (elastic), family 0.0154 | **0** (closest 12.09 m) |
+
+Two attributions the arms bought:
+
+* **the seam KNOTS are worth 68 census rows and half the lag.** With them
+  off (diagnostic arm, everything else on): verify 298 vs 230,
+  `airside_no_step` 81 vs 48, `within_shape` 144 vs 109, worst leader move
+  0.190 vs 0.072 m (base 0.082). They cost fit to the CHANGED target:
+  `target RMS` 0.304 → 0.366 m, because the target now passes through the
+  seam pins and the K law will not follow a kink exactly. `|z − DEM|` mean
+  improves 0.541 → 0.471 m.
+* **`bank_min_width_m == seam.half_width_m` was load-bearing and is not
+  now.** Unioning the WHOLE band into the coverage (the literal reading)
+  extended the coverage a kilometre down the meridian and the collar
+  followed it: foot distance mean 5.6 → 302.9 m, max 1042 m, 116 → 326
+  foot nodes. The band is therefore clipped to the SLIT — intersected
+  with the coverage grown by its own `half_width_m` — and the cut lands on
+  the derived PIECES, never on the final banked region (differencing the
+  band out after the collar re-opens the slit it exists to close).
+
+**BARS.**
+
+| bar | base | lane |
+|---|---|---|
+| `seam: N/N vertices on the DEM` | 27/150, 123 residual, max 3.430 m | **149/149, 0 residual** |
+| runway band-edge vertices z − DEM | +0.51 … +0.63 m (vids 82/357/81/358) | **0.000** (a `Pin` holds exactly; `residual: pin 0.0000`) |
+| vertex 1408 (−12.1664934, −76.9999539) | 51.07 vs DEM 54.50 | **at 54.50** (`seam_residual` 0) |
+| bank foot within `half_width_m` | 2 (chain −10045/−10172, closest 1.79 m) | **0** (closest 12.09 m) |
+| `seam_residual` | **106 rows, max 3.433 m** | **0** |
+| `bank_across_seam` | **2 rows** | **0** |
+| cockpit CRITICAL motion | **32** (31 of them `seam_residual [runway\|runway]`, worst 0.629 m at −12.1637725,−76.9999539) | **0** |
+| cockpit CRITICAL visual | 0 | 0 |
+| `HARD SET` | `SETTLED 0/12498 max 0.0163` | `NOT SETTLED 1/12310 max 0.0363` (the runway projection certifies the family at 0.0154 ≤ `hard_tol_m` 0.02) |
+| `LAG` | `NOT SETTLED 0.082` | `NOT SETTLED 0.158` |
+| runway 02/20 | `target RMS 0.0412 m, max 0.1506 m; bow −1.44 m` | `target RMS 0.367 m, max 0.794 m; bow −2.00 m` |
+| build wall | 23.95 s (7 solve passes) | **9.31 s** |
+
+The two arms' cockpit read is measured on the SAME instrument: the base
+geometry priced against the published pins (`v2seampin-baseprobe`), since
+the base build's own sidecar predates the key and declares no seam.
+
+**§38 (2) NAMED, NOT SILENT.** 67 zone-band rows yield to a seam pin; 46
+are still unmet at the solved surface, worst 3.609 m —
+`zones.adjacent_ground` at pin 1408 (−12.1664934, −76.9999539): demanded
++2.502 m, allowed −2.183 … −1.107 m. That is §38 (2)'s "a family that
+cannot be met between two pins is NAMED": the corridor between the runway
+edge and the seam-pinned strip cannot be met with the pin held, so the
+BAND yields and the report says by how much, per pin, every build.
+
+**DEVIATIONS AND RESIDUALS, reported not decided.**
+
+1. **§38 (2) says the zone band yields "as a soft escalation group".** The
+   design solve has no slack machinery for a non-hard row — `soft` is read
+   only for a row whose ruling head is in `[design] hard_rulings`
+   (`solve/design.py:382`), and `zones.adjacent_ground` is not one. A
+   `soft` group on that row is a NO-OP. What is implemented is the
+   WITHDRAWAL the one-way law already implies (a row that governs a fixed
+   vertex can only pull the pavement it was written to follow), reported
+   per row with demanded-vs-allowed. Needs the spec author's ruling.
+2. **13an (b)'s bar `coverage edges at ±5.000 ± 0.01 m` is not reached.**
+   The tmerc round trip is REFUTED as the cause: a Newton correction
+   against `to_ll(to_xy(·))` changed the emitted patch by nothing at all
+   (`v2seampin-p3b` and `-p3c` are identical). What remains is the
+   arrangement's own snap: `unary_union(..., grid_size=emit.identity.
+   min_distinct_spacing_m = 0.5 m)` quantises every noded coordinate, so
+   band-edge placement is quantised at 0.5 m and ±0.01 m is unreachable at
+   this grid. Measured: base east edge +1.79 m (that node is the BANK FOOT
+   in the crack), lane +5.016 / −4.973 m. The crack the bar exists to
+   close is closed by the explicit coverage union instead.
+3. **13an (d) — `seam_residual` comparing the two pieces' border
+   POLYLINES — is NOT what landed.** A census reads a patch, and in the
+   patch the two band edges are 10 m apart with draped DEM between: the
+   west-edge-to-east-edge gap is real terrain and can never read zero. The
+   family implemented is the spec's own §38 (5) wording — every band-edge
+   vertex against its OWN published DEM sample — which is the same defect
+   read where a patch can see it, and it zeroes. The polyline-vs-polyline
+   read belongs to the mesh/DSF stage.
+4. `LAG` worsens 0.082 → 0.158 m and the hard set stops settling (1 row of
+   12,310 at 0.0363 m, certified back to 0.0154 m by the runway
+   projection). 150 new hard equalities on the map's boundary is the
+   cause; the residual is under the census's rounding envelope and mints
+   no defect row.
+
+**THE 13an ADDENDUM BARS.**
+
+| bar (13an) | base | lane |
+|---|---|---|
+| (a) bank chain in the collar crack | chain −10172/−10045, closest node 1.79 m east of the meridian | none — closest bank foot 12.09 m; the band is unioned into the coverage and the pieces are cut by it |
+| (b) coverage edges ±5.000 ± 0.01 m | +5.0228 / −4.9754 m | +5.016 / −4.973 m — **BAR MISSED**, attributed: the round trip is refuted (a Newton correction changed nothing), the residue is the arrangement's own 0.5 m snap grid (`emit.identity.min_distinct_spacing_m`) |
+| (c) a breakline vertex inside the band in a tile piece | the chain, written verbatim into −13−077 | refused by `write_tile_pieces` |
+| (d) the two edges' polylines, interpolated (patch side) | 72 stations, 39 gaps > 0.10 m, max 2.878 m, worst rolled-on 0.727 m | 70 stations, 25 > 0.10 m, **max 0.360 m**, worst rolled-on **0.251 m** — the residue is the DEM's OWN change across the 10 m draped band, which is why this reading is not the census family (see deviation 3) |
+| (e) the two constants | silently equal | `law/model.py` refuses `bank_min_width_m < seam.half_width_m` by name; twin `test_v2bank.py::test_the_law_refuses_a_collar_that_cannot_reach_the_band` |
+| the MESH, tile −13−077 (interventional) | 18,638 border nodes within 1 m of lon −77; 16,298 of them inside 1.92 m at lat −12.1609306 | **2,282** border nodes (bar ≤ 2,500); densest 1.92 m latitude window **3** |
+
+The tile arm ran `build_airport.py SPLP --tile -13 -77 --engine v2` and the
+harness REFUSED to report it: the engine's DEM prep tried to rewrite
+`Elevation_data/-20-080/S13W077_airport_insets/index.json` and the
+shared-repo guard blocked it (no `--refresh-data` was given and none was
+wanted). The mesh it wrote is therefore a DEGRADED-frame reading and is
+quoted as one. It is still decisive for this class: the 16,298-node fan
+was a Triangle4XP segment-splitting degeneracy against a constrained
+segment 2.37 cm from the unsplittable border, and the segment is gone —
+no DEM frame puts it back.
+
 ### §34 (4) NARROWED — A ZONE BAND YIELDS ONLY TO A TUNNEL CORRIDOR (Fable 2026-09-13; RULINGS 2026-09-13ar) — lane `v2rampwalk` round 3
 
 Round 2 (8e101597): the general "zones yield to roads" trim exposed

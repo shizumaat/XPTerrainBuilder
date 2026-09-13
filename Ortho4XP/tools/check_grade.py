@@ -730,7 +730,10 @@ def _seam_nids_from_pins(nodes: Dict[str, Tuple[float, float]],
     out: set = set()
     for nid, (lat, lon) in nodes.items():
         mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat)))
-        for (pla, plo) in seam_pins_ll:
+        for pin in seam_pins_ll:
+            # §38 (1): a pin is ``[lat, lon]`` (pre-13ah) or
+            # ``[lat, lon, dem_z]`` — both read here by position
+            pla, plo = float(pin[0]), float(pin[1])
             d_lat = abs(lat - pla) * _M_PER_DEG_LAT
             if d_lat > SHARED_VERTEX_TOL_M:
                 continue
@@ -5680,6 +5683,136 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     return out
 
 
+# ── §38 THE TILE SEAM IS A PIN, VALIDATOR HALF (owner RULINGS
+# 2026-09-13ah / 13am / 13an; spec design-surface-spec §38 (5)) ─────
+# TWO families, both sidecar-declared like ``eat_ceiling`` above: the
+# solve publishes WHERE the seam pins are and WHAT VALUE each holds
+# (``seam_pins`` = ``[lat, lon, dem_z]``) and how wide the band is
+# (``seam_half_width_m``), so the census and the solve read ONE
+# declaration of the seam instead of two derivations of the graticule.
+# A patch with no key (v1's own output, or a v2 patch predating §38)
+# reports nothing, exactly as before.
+
+def _check_seam_residual(seam_pins_ll, nodes, ways) -> List[Violation]:
+    """§38 (5) SEAM RESIDUAL: a seam band-edge vertex OFF its own DEM.
+
+    The seam is an ANCHOR "like CIFP thresholds that everything else
+    grades to" (owner 13ah), and a ``Pin`` holds exactly, so a row here
+    means the EMITTED surface left the value the solve pinned — the only
+    way this family can speak.  Until §38 the census had NO patch-edge-vs-
+    DEM family at all and could not see the SPLP berm: 123 of 150 seam
+    vertices off their DEM, worst 3.430 m, a 3 m ridge 10 m wide along the
+    seam through the runway strip, with ``strip_seam_tear`` reading 0.
+
+    The join is the canonical 11-dp lat/lon identity (memory
+    ``canonical-identity-join``), never a proximity match.  A pin the
+    patch does not carry is silently absent — a tile PIECE carries only
+    its own side's vertices, and each side's pins are the ones it holds.
+    A pre-§38 sidecar publishes 2-element pins with no value to price
+    against, and this reports nothing for them.
+    """
+    if not seam_pins_ll:
+        return []
+    by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
+    for w in ways:
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            by_ll.setdefault((round(lat, 7), round(lon, 7)), (float(z), w))
+    out: List[Violation] = []
+    for pin in seam_pins_ll:
+        if len(pin) < 3 or pin[2] is None:
+            continue                      # a pre-§38 pin: no value published
+        try:
+            lat, lon, dem = float(pin[0]), float(pin[1]), float(pin[2])
+        except (TypeError, ValueError):
+            continue
+        got = by_ll.get((round(lat, 7), round(lon, 7)))
+        if got is None:
+            continue
+        z, way = got
+        if abs(z - dem) <= _SEAM_RESIDUAL_TOL_M:
+            continue
+        v = Violation(
+            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+            de_m=abs(z - dem), way_a=way, way_b=way,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=z, elev_b=dem)
+        v.lat, v.lon = lat, lon
+        out.append(v)
+    return out
+
+
+#: The materiality the seam is read at: the same elevation quantum the
+#: emitted surface carries (``emit.materiality.elevation_m``), so a row
+#: here is surface, never rounding.
+_SEAM_RESIDUAL_TOL_M = 0.01
+
+
+def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
+                            bank_ways) -> List[Violation]:
+    """§38 (3) NO BANK ALONG A SEAM: a ``bank_foot`` node inside the band.
+
+    "The coverage edge at a tile seam is a pin line already at the DEM, so
+    the transition there is zero by construction, and any bank chain
+    crossing the seam is a defect" (owner 13ah).  The measured class is
+    13an's: bank chain ``bank:2`` followed a ~1.6 mm crack 0.0237 m east of
+    the meridian, ``write_tile_pieces`` wrote it into the east piece, and
+    Triangle4XP split that one 5.32 m segment 16,298 times against the
+    unsplittable tile border — the SPLP texture tear.  One node inside the
+    band is the whole defect, so the family prices NODES, not chains.
+
+    The band is the LAW's (``seam_half_width_m``, published by the solve);
+    the lines are the integer graticule values the airport actually
+    CROSSES — read from the seam pins where the sidecar carries them
+    (13am: the pins ARE the band edges) and from the patch's own extent
+    otherwise, exactly as :func:`_seam_lines` already does.  A patch with
+    no ``seam_half_width_m`` key reports nothing.
+
+    ``bank_ways`` is the ``bank_foot`` channel of ``_parse_osm``'s
+    ``feature_out``: a bank foot is ROLE-LESS (it IS the terrain and
+    carries no grade law of its own), so it never enters ``ways`` and a
+    reader that walked ``ways`` would price nothing at all.
+    """
+    if not seam_half_width_m or float(seam_half_width_m) <= 0.0:
+        return []
+    half = float(seam_half_width_m)
+    lats, lons = _seam_lines(nodes)
+    for pin in (seam_pins_ll or []):
+        try:
+            pla, plo = float(pin[0]), float(pin[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        # the pin sits ONE half width off its line: round to the line
+        if abs(pla - round(pla)) * _M_PER_DEG_LAT <= half * 1.5:
+            lats.add(round(pla))
+        mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(pla)))
+        if abs(plo - round(plo)) * mlon <= half * 1.5:
+            lons.add(round(plo))
+    if not lats and not lons:
+        return []
+    out: List[Violation] = []
+    for w in bank_ways:
+        for nid, z in zip(w.nids, w.elevs):
+            if nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat)))
+            d = min([abs(lat - L) * _M_PER_DEG_LAT for L in lats]
+                    + [abs(lon - L) * mlon for L in lons])
+            if d > half:
+                continue
+            v = Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=d,
+                de_m=half - d, way_a=w, way_b=w,
+                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                elev_a=0.0 if z is None else float(z),
+                elev_b=0.0 if z is None else float(z))
+            v.lat, v.lon = lat, lon
+            out.append(v)
+    return out
+
+
 # ── THE END-AROUND TAXIWAY CEILING, VALIDATOR HALF (owner RULINGS
 # 2026-09-13j item 2, ruled 13q item 2; spec design-surface-spec §36) ──
 # THE ONE READER: the accepted RECTS arrive through the ``eat_rects``
@@ -7384,6 +7517,18 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("eat_ceiling",
      "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
      "within"),
+    # §38 THE TILE SEAM IS A PIN (owner RULINGS 2026-09-13ah / 13am /
+    # 13an; spec §38 (5)).  Sidecar-declared like ``eat_ceiling`` above:
+    # ``seam_pins`` = ``[lat, lon, the vertex's own tile's DEM sample]``
+    # and ``seam_half_width_m`` = the band.  Before them the census had NO
+    # patch-edge-vs-DEM family and could not see SPLP's 3.430 m seam berm
+    # or the bank chain in the 1.6 mm crack that made the texture tear.
+    ("seam_residual",
+     "TILE-SEAM vertex OFF its own DEM sample (the pin the solve held)",
+     "within"),
+    ("bank_across_seam",
+     "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
+     "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
     # THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)): every vertex of
@@ -7968,6 +8113,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "routes_exact": "routes_ll",
     "anchor": "anchor",
     "seam_pins": "seam_pins_ll",
+    # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
+    # reads "inside the band" from the law the BUILD ran under
+    "seam_half_width_m": "seam_half_width_m",
     "mesh_edges": "mesh_edges_ll",
     # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
@@ -8341,6 +8489,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     anchor = data.get("anchor") or None
     ctx["anchor"] = tuple(anchor) if anchor else None
     ctx["seam_pins_ll"] = data.get("seam_pins")
+    ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
@@ -9365,6 +9514,7 @@ def run_checks(
     quiet: bool = False,
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
+    seam_half_width_m: Optional[float] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
@@ -9761,6 +9911,27 @@ def run_checks(
         "tail, read back off the emitted surface — owner RULINGS "
         "2026-09-13j item 2, spec §36)", eat_rows, top_n)
     within = within + eat_rows
+
+    seam_resid = _fam("seam_residual",
+                      _check_seam_residual(seam_pins_ll, nodes, ways))
+    _pv("TILE-SEAM vertex OFF its own DEM sample (the value the solve "
+        "PINNED, published per pin — owner RULINGS 2026-09-13ah, spec "
+        "§38 (1)/(5): the seam is an anchor everything else grades to)",
+        seam_resid, top_n)
+    within = within + seam_resid
+
+    # the bank foot is a ROLE-LESS FEATURE way: it never enters ``ways``
+    # (``ROLE_LESS_FEATURE_CLASSES`` — it IS the terrain and carries no
+    # grade law), so this family reads it from the feature channel
+    bank_seam = _fam("bank_across_seam",
+                     _check_bank_across_seam(
+                         seam_half_width_m, seam_pins_ll, nodes,
+                         open_features.get("bank_foot", [])))
+    _pv("BANK FOOT node INSIDE a tile-seam band (owner RULINGS "
+        "2026-09-13ah §38 (3): the coverage edge at a seam is a pin line "
+        "already at the DEM — 13an, the chain Triangle4XP split 16,298 "
+        "times against the tile border)", bank_seam, top_n)
+    within = within + bank_seam
 
     adjacent_edges = _fam("adjacent_ground_tear",
                           _check_adjacent_ground_edges(ways, nodes, ll_to_m))

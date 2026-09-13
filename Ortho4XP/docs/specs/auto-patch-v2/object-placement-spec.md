@@ -3088,3 +3088,129 @@ unit` fallback (`placement_carrier.py:833-843`) has no distance cap (35 binds, 1
    plan stage LEMD ≤ 10.3 s; OTHH the same under the guard; the cockpit block's
    worst coordinates verified against the bodies' geometry (twin); suite. No build;
    the app after.
+
+### §16d (1)–(3) MEASURED (lane `v2unboxed`, 2026-09-13; branch `claude/v2unboxed`)
+
+Implemented in `airport/placement_orphan.py` (NEW: §16d (1)'s whole law — the
+components the plan's bodies do not own, placed), `airport/placement_cut.py`
+(`_LineCutter.written_components` / `plan_box_of_tris` / `_draped_components`),
+`airport/placement_plan.py` (the pass between §15's candidates and §15's search;
+`_geom_hull`, `Staged.geom_boxes`), `airport/placement_carrier.py` (§16d (2)'s
+cap), `airport/placement_cockpit.py` (§16d (3)) and `airport/placement_seams.py`
+(`census_outside_box`, §16d (1)'s bar instrument, printed by `--write-pack` and
+`--torn-seams`).  Two files moved for the 1,000-line law: `_footless_targets` /
+`_carrier_pieces` into `placement_body.py`, `group_at_zero` into
+`placement_boxes.py`; both re-exported where every caller reads them.
+
+* **ATTRIBUTION FIRST — the dry arm is NOT the app's arm.**  `obj8_split_report`
+  on the 1.0.325 rebake plan does not reproduce the app's written carriers, and
+  the cause is THE SURFACE, not the population: the app hands `build_splits`
+  the built MESH sampler (`engine_v2._placement_surface(mesh_sample)`) while the
+  tool hands it a `LinearNDInterpolator` over `LEMD.graded.json`'s emitted
+  vertices (`surface_from_graded`).  Everything else matches — identical
+  `bodies_uncoarsened` 11,135 and `line_segments` 849, identical law keys, the
+  same `--admit-skipped` population — while the SURFACE-driven readings do not:
+  `anchor_off_surface` 0 (app) vs 6 (dry), `carrier_refused_zero_off_ground`
+  105 vs 221, `carrier_refused_far_from_carried_ground` 179 vs 274,
+  `unit_clusters` 206 vs 202.  Those refusals are exactly what pushes a search
+  down to the fallback rules, which is where `Terminal4-LEMD01__b0` sits
+  (`elect__b0 (838 m)` written, `SENRG__b233 (512 m)` dry).  **Every bar below
+  is therefore read on MATCHED DRY ARMS** — main `59790e5f` into pack copy A,
+  this branch into pack copy B, the same rebake plan, the same graded surface,
+  APFS clones of the live pack, the guard armed (both runs print `shared repo
+  UNCHANGED`).  The app's own figures are quoted beside them where they exist.
+
+* **THE INSTRUMENT (§16d (1)'s bar).** `census_outside_box` opens the WRITTEN
+  files and asks whether every `VT` row lies inside the `geom_box` the plan
+  published for that body.  On the app's live 1.0.325 pack it reads **378** of
+  2,109 bodies over 1 m (the scout's 397 under its own fixed metres-per-degree;
+  same population, same 8 over a kilometre, worst `Munoza-LEMD80__b0` 3,682 m).
+
+  | bar (matched dry arms) | A (main) | B (branch) |
+  |---|---|---|
+  | §16d bodies with geometry > 1 m outside their box | 390 | **0** (0 even over 1 cm) |
+  | nearest-footed fallback binds / over 100 m | 49 / 29 | **21 / 0** |
+  | §16c torn seams outside line/arc pieces | 0 | **0** |
+  | §16c single-component resources in ≥ 2 files | 0 | **0** |
+  | §15 carried body floating over its carrier | 0 | **0** |
+  | duplicate rows of a split placement surviving | 0 | **0** |
+  | DSF round trip / new `OBJECT_DEF`s read back | OK 2,141 | **OK 2,279** |
+  | files | 2,141 | **2,279** |
+
+* **THE FOUR PLATES (§16d (4)).**  Each is now its own footless body on its own
+  ground with its authored y kept, so it renders 5 m UNDER the ground the pack
+  put it over — buried, as authored:
+
+  | plate | A: render − ground | B |
+  |---|---|---|
+  | `Terminal4_green-T4BJO` | **+15.94** | −5.00 (ground 595.81) |
+  | `Terminal4_yellow-LEMD16` | **+15.73** | −5.00 |
+  | `Cargo-LEMD63` | **+5.77** | −5.00 |
+  | `OldTerminal_FSX-LEMD43` | **+1.72** | −5.00 (ground 595.82) |
+
+  (the app's own frame read +16.37 / +15.90 / +7.13 / +2.22 — the same four
+  plates, the surface difference above.)
+
+* **THE CARGO ROOFS.**  `Cargo-TEJ1`'s roof plates are no longer one carried
+  body riding a zero chosen elsewhere: each component finds the hangar it stands
+  over.  The piece over `NEWCO__b9` has its roof base at **604.95** — 0.09 m
+  from the hangar's authored roof top 605.04, inside the 0.3 m bar; the piece
+  over `NEWCO__b10` reads 604.72 on its own hangar.  `Cargo-TEJ3` likewise
+  (ten pieces on `CNTRL`, `FBRIK__b0/b1`, `NEWCO__b0/b3/b5/b8/b11/b12`, `TNT__b3`).
+
+* **THE NAMED SITES HELD** (11at/12h/12o/12z/12aq/12ar; base planes per
+  resource, arm A → arm B): `Terminal4_green-TEJ3` 610.41–617.17 → identical;
+  `Terminal4SAT_green-TEJ3` 589.47–597.26 → identical; `HANG3` 605.73–606.06 →
+  identical; `LEMD47` one body 603.53 → identical; `Bridge2` 598.73–607.03 →
+  identical; `TABOX` spread 0.01 → identical; `T2NBG` 602.81–607.24 → identical;
+  `green-PKT4` and `Terminal4_green-TEJ1` identical; `Terminal4_48` one body,
+  spread 0.00 → identical.  `green-STRT4` gains 5 files (19 → 24) at the SAME
+  base range 597.54–617.71: the orphan components now have files of their own
+  inside the range, not outside it.
+
+* **A LATENT WRITER DEFECT FOUND AND FIXED.**  `obj8_split` named a body's file
+  by its index in the LIVE list (`body_resource_name(rel, k)`) while the plan
+  spells it `body_resource_name(resource, body_id)` and the DSF row is written
+  on the plan's name.  A body the cut leaves with NO triangle (its geometry
+  inside an ANIM block another body owns) therefore shifted every later body's
+  file one name down — the row carried the NEXT body's geometry at this body's
+  zero.  Measured at LEMD: `OldTerminal_FSX-DCNEUN`'s `__b0` row held `b1`'s
+  object, 254 m from `b0`'s own box.  The file is now named by its body, and a
+  body with no file is dropped from the plan's rows (`bodies_without_a_file`) so
+  no `OBJECT_DEF` points at a file nothing wrote.
+
+* **THE COST, REPORTED NOT HIDDEN.**  LEMD plan stage **13.6 → 17.8 s** (wall
+  16.81 → 21.08 s, medians of 3 foreground runs each; the branch's own
+  `plan stage` line is new and reads 17.6–18.2 s, the baseline's inferred from
+  the same fixed 3.2 s of tool overhead).  §16d (4)'s `LEMD ≤ 10.3 s` is
+  **MISSED on BOTH arms in this frame** — the 10.3 s figure was read without
+  `--admit-skipped`, which this replay needs.  OTHH plan stage **≈ 83 → 86.1 s**
+  (wall 86.99 → 89.89, +3 %), the ≤ 60 s bar missed on both arms as it was at
+  12ap.  The cost is the POPULATION: LEMD now places 27,737 components the plan
+  never saw (19,905 joined to a body within the reach, 7,832 their own bodies),
+  OTHH 143,950 (98,776 / 45,174), and 7,786 more carrier searches run at LEMD.
+  Three optimisations already took most of it back and are part of the change:
+  `written_components` hands back numpy arrays and the caller builds Python
+  triples only for what it places; the joined components of one group are ONE
+  append, not one per component; `group_at_zero` memoises each group's zero and
+  ground range on its length (29.6 M inner steps, 9 s of the profiled stage).
+  A further reduction is a new question, not this lane's.
+
+* **MOVING THE WRONG WAY, NAMED.**  §16b's two counts rise because the
+  population they read grew: `carried piece float over its OWN ground > 0.5 m`
+  120 → 151 and `body wider than its terrain group` 1,037 → 1,116 (both already
+  over their bar 0 on main).  The rise is the components that previously stood
+  in some other body's file where NO instrument read them; they are now bodies
+  with their own ground reading.  `§16 CARRIED bodies whose carrier's zero is
+  over 1 m from the ground under their own geometry` 62 → 81 (information only),
+  and COCKPIT CRITICAL visual 459 → 494 for the same reason.
+
+* **SUITE** `tests/auto_patch_v2 tests/test_harness.py
+  tests/test_role_edge_census.py tests/test_mesh_sampler*.py
+  tests/test_post_mesh.py tests/test_object_rebake.py`: **1,234 passed, 1
+  skipped**, twice.  Twins: `test_16d_1_a_component_beyond_the_reach_is_its_own_body`,
+  `test_16d_1_every_written_triangle_lies_inside_its_body_box` (the bar as a
+  property), `test_16d_2_the_nearest_footed_fallback_is_capped`,
+  `test_16d_3_the_cockpit_coordinate_is_the_bodys_not_the_row`.
+  `coarsen_reach_m <= 0` DISARMS the reach (the convention every other
+  plan-contiguity key takes): the component then joins the nearest body.

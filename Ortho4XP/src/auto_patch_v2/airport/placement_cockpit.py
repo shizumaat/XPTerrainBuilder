@@ -39,24 +39,55 @@ def _cockpit_law() -> dict:
             "approach_km": float(ck.approach_km)}
 
 
-def _cockpit_coords(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> dict:
-    """resource name -> (lat, lon), off the plan's own placement rows.
+def _centre(box: _t.Any) -> "tuple | None":
+    """The centre of a plan box ``(lat0, lon0, lat1, lon1)``, or ``None``."""
+    if not box or len(box) < 4:
+        return None
+    try:
+        return (0.5 * (float(box[0]) + float(box[2])),
+                0.5 * (float(box[1]) + float(box[3])))
+    except (TypeError, ValueError):
+        return None
 
-    Both spellings a census names a body by: the placement's own resource
-    and each body's ``new_resource``.  §31 (6) wants the worst of each
-    bucket NAMED BY COORDINATE, and the plan already carries one per
-    placement — nothing is measured here."""
+
+def _cockpit_coords(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> dict:
+    """resource name -> (lat, lon): THE BODY'S OWN, never the row's.
+
+    §16d (3) (owner RULINGS 2026-09-13h): the worst row's coordinate is
+    the centre of the body's WRITTEN GEOMETRY — ``geom_box``, which §16d
+    (1) makes the hull of what the file will contain — else its own feet,
+    and only then the placement row.  Aerosoft LEMD is a SHARED-DATUM
+    pack: 2,035 of its 2,109 bodies sit on two placement rows 18 m apart,
+    so the row named 96.5 % of the airport's bodies at one of two points
+    and sent the owner to the wrong place (12ak's "LEMD03__b33 at
+    40.4928202" was exactly that artefact).
+
+    Both spellings a census names a body by are carried: the placement's
+    own resource — whose coordinate is the hull of its bodies' geometry,
+    the one reading that still means "this placement" — and each body's
+    ``new_resource``.  Nothing is MEASURED here: every box comes out of
+    the plan's own rows."""
     out: dict[str, tuple] = {}
     for s in splits:
         p = s.get("placement", {}) or {}
-        ll = (p.get("lat"), p.get("lon"))
-        if ll[0] is None:
-            continue
-        if p.get("resource"):
-            out.setdefault(str(p["resource"]), ll)
+        row = (p.get("lat"), p.get("lon"))
+        hull: list[float] | None = None
         for b in s.get("bodies", ()) or ():
+            box = b.get("geom_box") or b.get("plan_box")
+            if not box:
+                fb = b.get("foot_boxes") or ()
+                if fb:
+                    box = (min(q[0] for q in fb), min(q[1] for q in fb),
+                           max(q[2] for q in fb), max(q[3] for q in fb))
+            c = _centre(box)
             if b.get("new_resource"):
-                out[str(b["new_resource"])] = ll
+                out[str(b["new_resource"])] = c if c else row
+            if box and len(box) >= 4:
+                hull = (list(box[:4]) if hull is None else
+                        [min(hull[0], box[0]), min(hull[1], box[1]),
+                         max(hull[2], box[2]), max(hull[3], box[3])])
+        if p.get("resource"):
+            out.setdefault(str(p["resource"]), _centre(hull) or row)
     return out
 
 

@@ -641,6 +641,108 @@ class _LineCutter:
         return tuple(tuple(int(q) for q in row)
                      for row in np.concatenate(tl).tolist())
 
+    def written_components(self) -> "list[tuple[int, tuple, tuple]]":
+        """§16d (1): EVERY connected component the WRITER will emit, as
+        ``(solid_index, triangles, plan box)``.
+
+        ``solid_index`` is the index into ``obj8.solid_components`` — the
+        number a ``Part.comp`` names — or ``-1`` for a DRAPED component,
+        which no part can ever name because ``parse_obj8`` keeps the
+        draped triangles out of ``geom.solid`` altogether.  Both are
+        written into some body's file by ``obj8_split``, so both are
+        this law's population: a component is a body's only when it lies
+        within reach of that body's parts (§16d (1)).
+
+        The plan box is ``(lat0, lon0, lat1, lon1)`` in the placement's
+        own frame, the spelling every other plan box carries.  The
+        triangles come back as the NUMPY array the components hold: a
+        clutter object publishes thousands of components over tens of
+        thousands of triangles, and building a Python triple for every
+        one of them costs more than the pass — the caller converts only
+        the components it actually places (owner RULINGS 2026-09-13h)."""
+        if not self._read():
+            return []
+        import numpy as np
+        _box = self.plan_box_of_tris
+        out: list[tuple[int, _t.Any, tuple]] = []
+        for ci, comp in enumerate(self._comps):
+            if not len(comp.tris):
+                continue
+            out.append((ci, comp.tris, _box(comp.tris)))
+        drp = getattr(self._geom, "draped", None)
+        if drp is not None and getattr(drp, "shape", (0,))[0]:
+            # A DRAPED triangle whose sorted vertex triple is ALSO a solid
+            # triangle's is the SAME FACE authored twice — a double-sided
+            # panel, one copy draped.  ``obj8_split`` keys a body's own
+            # triangles on that triple, so admitting the draped copy as an
+            # orphan would make it SENIOR over the solid component's owner
+            # and steal the face: LEMD's `OldTerminal_FSX-DCNEUN` lost
+            # every triangle of its 18 components that way and its file
+            # was never written.  A duplicate face belongs with the solid
+            # it duplicates, which is where the component path puts it.
+            sol = (np.concatenate([c.tris for c in self._comps if len(c.tris)])
+                   if any(len(c.tris) for c in self._comps)
+                   else np.zeros((0, 3), dtype=np.int64))
+            base = np.int64(int(self._geom.vertices.shape[0]) + 1)
+
+            def _keys(t):
+                q = np.sort(np.asarray(t, dtype=np.int64).reshape(-1, 3), axis=1)
+                return (q[:, 0] * base + q[:, 1]) * base + q[:, 2]
+
+            solk = np.unique(_keys(sol)) if sol.shape[0] else \
+                np.zeros(0, dtype=np.int64)
+            for t in self._draped_components(drp):
+                if solk.shape[0]:
+                    t = t[~np.isin(_keys(t), solk)]
+                if t.shape[0] == 0:
+                    continue
+                out.append((-1, t, _box(t)))
+        return out
+
+    def plan_box_of_tris(self, tris) -> "tuple | None":
+        """§16d (1): the PLAN BOX of a set of authored triangles.
+
+        A raw body the cut made carries its triangles, and its ``box`` is
+        its FEET's (11f (2): a segment covers its own station span).
+        That is the right PLAN footprint and the wrong GEOM box — the
+        writer puts the triangles in the file, and 115 of LEMD's line
+        segments reached beyond a box drawn round their feet."""
+        if not self._read() or tris is None or len(tris) == 0:
+            return None
+        import numpy as np
+        v = self._geom.vertices
+        p = v[np.asarray(tris, dtype=np.int64).reshape(-1)]
+        ml, mo = _ar._m_per_deg(self.lat)
+        h = math.radians(self.m.heading_deg)
+        s, c = math.sin(h), math.cos(h)
+        e = p[:, 0] * c - p[:, 2] * s
+        n = -(p[:, 0] * s + p[:, 2] * c)
+        la = self.lat + n / ml
+        lo = self.lon + e / mo
+        return (float(la.min()), float(lo.min()),
+                float(la.max()), float(lo.max()))
+
+    def _draped_components(self, drp) -> "list":
+        """The DRAPED triangles' own connected components, welded on the
+        same millimetre key ``obj8.solid_components`` uses.  An exporter's
+        ground paint is not one body because it is one ``TRIS`` range."""
+        import numpy as np
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+        keyed = np.round(self._geom.vertices, 3)
+        _u, canon = np.unique(keyed, axis=0, return_inverse=True)
+        canon = np.asarray(canon).reshape(-1)
+        nk = int(canon.max()) + 1 if canon.size else 1
+        t = canon[drp]
+        g = coo_matrix((np.ones(t.shape[0] * 2, dtype=np.int8),
+                        (np.concatenate([t[:, 0], t[:, 1]]),
+                         np.concatenate([t[:, 1], t[:, 2]]))), shape=(nk, nk))
+        _n, label = connected_components(g, directed=False)
+        lab = label[t[:, 0]]
+        order = np.argsort(lab, kind="stable")
+        cuts = np.flatnonzero(lab[order][1:] != lab[order][:-1]) + 1
+        return [drp[idx] for idx in np.split(order, cuts) if idx.size]
+
     def geom_points(self, parts: _t.Sequence[Part],
                     tris: _t.Sequence[_t.Sequence[int]] = (),
                     cap: int = 0) -> tuple[tuple[float, float, float], ...]:
@@ -879,4 +981,6 @@ def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
 # §14/§14a/§16/§16a/§16b's BODY FORMATION lives next door (the 1,000-line
 # law); it is re-exported here because every caller and every twin reads
 # these names as this module's.
-from .placement_body import _Raw, _raw_bodies, _whole_body  # noqa: E402,F401
+from .placement_body import (_carrier_pieces,  # noqa: E402,F401
+                             _footless_targets, _Raw, _raw_bodies,
+                             _whole_body)

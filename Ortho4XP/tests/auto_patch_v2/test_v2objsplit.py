@@ -3770,3 +3770,120 @@ def test_the_anchor_rule_reads_the_roles_off_the_sampler():
     surface.rolled_on = frozenset({"runway"})
     assert "median foot" in AR.anchor_for(AR.OTHER, geom, surface,
                                           tol_m=0.3).reason
+
+
+# ── §16d THE PLAN BOXES WHAT THE WRITER WRITES (RULINGS 2026-09-13h) ─────
+
+def _plate_object(tmp_path, name="plate.obj"):
+    """A building at the origin PLUS the FS2XPlane origin plate: a
+    one-sided zero-thickness 10 x 10 m quad at y = -5, which the plan's
+    thickness gate never admits as a part and the writer emits anyway."""
+    v = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 6.0, 0.0), (0.0, 6.0, 0.0),
+         (0.0, 0.0, 8.0), (8.0, 0.0, 8.0), (8.0, 6.0, 8.0), (0.0, 6.0, 8.0)]
+    t = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7),
+         (0, 1, 5), (0, 5, 4), (3, 2, 6), (3, 6, 7)]
+    # the plate, 500 m away in z and 5 m down — its own component
+    base = len(v)
+    v += [(-5.0, -5.0, 500.0), (5.0, -5.0, 500.0),
+          (5.0, -5.0, 510.0), (-5.0, -5.0, 510.0)]
+    t += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
+    return _write_obj(tmp_path / name, v, [("", t)])
+
+
+def _building_comp(path):
+    """The index of the BUILDING's component (the one with thickness) —
+    ``solid_components`` orders by welded-vertex label, not by authoring
+    order, so the test asks rather than assumes."""
+    g = obj8.parse_obj8(str(path))
+    cs = obj8.solid_components(g)
+    return max(range(len(cs)), key=lambda i: cs[i].max_y - cs[i].min_y)
+
+
+def test_16d_1_a_component_beyond_the_reach_is_its_own_body(tmp_path):
+    """§16d (1): the plate is 500 m from the building's parts, so it is
+    NOT the building's — it becomes its own footless body, and every
+    body's ``geom_box`` contains its own written triangles."""
+    path = _plate_object(tmp_path)
+    plan = _member_plan(path, [(_building_comp(path), 0.0, 0.0, 0.0)],
+                        span_m=8.0)
+    ss = PP.build_splits(plan, _flat(100.0), write=True,
+                         coarsen_reach_m=100.0, **_elev_args())
+    assert ss.counts["orphan_components_own_body"] >= 1
+    bodies = [b for s in ss.splits for b in s.bodies] or \
+             [b for s in ss.whole for b in s.bodies]
+    assert len(bodies) >= 2
+    plate = [b for b in bodies if PP.OWN_GROUND in (b.anchor.reason or "")]
+    assert plate, [b.anchor.reason for b in bodies]
+    # its authored y is KEPT: the plate renders 5 m under its own ground
+    assert abs(plate[0].anchor.y_zero) < 1e-6
+
+
+def test_16d_1_every_written_triangle_lies_inside_its_body_box(tmp_path):
+    """§16d (1)'s BAR, as a twin: the triangles ``obj8_split`` puts in a
+    body's file all lie inside the ``geom_box`` the plan published for
+    it.  This is the property ``placement_seams.census_outside_box``
+    reads on a written pack (LEMD 390 bodies -> 0)."""
+    path = _plate_object(tmp_path, "plate2.obj")
+    plan = _member_plan(path, [(_building_comp(path), 0.0, 0.0, 0.0)],
+                        span_m=8.0)
+    ss = PP.build_splits(plan, _flat(100.0), write=True,
+                         coarsen_reach_m=100.0, **_elev_args())
+    geom = obj8.parse_obj8(str(path))
+    v = geom.vertices
+    for s in ss.splits:
+        for b in s.bodies:
+            box = b.geom_box
+            assert box, b.new_resource
+            tris = list(b.tris)
+            for ci in b.cut_components:
+                tris.extend(tuple(int(q) for q in row)
+                            for row in obj8.solid_components(geom)[ci]
+                            .tris.tolist())
+            for tri in tris:
+                for i in tri:
+                    la, lo = _CUT.authored_latlon(
+                        float(v[i, 0]), float(v[i, 2]),
+                        s.lat, s.lon, s.heading)
+                    assert box[0] - 1e-7 <= la <= box[2] + 1e-7, b.new_resource
+                    assert box[1] - 1e-7 <= lo <= box[3] + 1e-7, b.new_resource
+
+
+def test_16d_2_the_nearest_footed_fallback_is_capped(tmp_path):
+    """§16d (2): a footed body a kilometre away is not this body's
+    ground.  Uncapped the search took it (35 binds at LEMD, 19 over
+    100 m, one 3,323 m); capped at ``coarsen_reach_m`` the body takes its
+    own ground instead."""
+    cands = [_PC.Candidate(0, "far.obj",
+                           AR.Anchor(AR.OTHER, 41.0, -3.0, 0.0, "far", 100.0),
+                           frozenset({99}), 4,
+                           (41.0, -3.0, 41.0001, -2.9999), ground_off=0.0)]
+    box = (40.0, -3.0, 40.0001, -2.9999)
+    far = _PC.carriers_for(frozenset({1}), box, cands, {}, (),
+                           tol_m=0.3, solid_cands=cands)
+    assert far and "nearest footed body" in far[0][1]
+    capped = _PC.carriers_for(frozenset({1}), box, cands, {}, (),
+                              tol_m=0.3, solid_cands=cands, reach_m=100.0)
+    assert capped == []
+
+
+def test_16d_3_the_cockpit_coordinate_is_the_bodys_not_the_row(tmp_path):
+    """§16d (3): at a SHARED-DATUM pack every body sits on one of two
+    placement rows, so naming the worst row by its row sent the owner to
+    the wrong place.  The coordinate is the centre of the body's own
+    written geometry."""
+    from auto_patch_v2.airport import placement_cockpit as PCK
+    splits = [{"placement": {"resource": "objects/src.obj",
+                             "lat": 40.4928202, "lon": -3.5647927},
+               "bodies": [{"new_resource": "objects/src__b0.obj",
+                           "geom_box": (40.40, -3.60, 40.41, -3.59)},
+                          {"new_resource": "objects/src__b1.obj",
+                           "geom_box": (40.50, -3.50, 40.51, -3.49)}]}]
+    at = PCK._cockpit_coords(splits)
+    la, lo = at["objects/src__b0.obj"]
+    assert abs(la - 40.405) < 1e-9 and abs(lo + 3.595) < 1e-9
+    la, lo = at["objects/src__b1.obj"]
+    assert abs(la - 40.505) < 1e-9 and abs(lo + 3.495) < 1e-9
+    # the PLACEMENT's own row is the hull of its bodies' geometry, never
+    # the shared datum
+    la, lo = at["objects/src.obj"]
+    assert abs(la - 40.455) < 1e-9

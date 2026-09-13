@@ -210,5 +210,12 @@ class Staged:
     #: and not a body since §16b (2): the carrier question is asked per
     #: terrain group, so the answer "nobody" is given per group too.
     own_ground: list[list[int]] = _dc.field(default_factory=list)
+    #: §16d (1): one per ``raw`` entry — the PLAN HULL OF ITS OWN
+    #: TRIANGLES where a cut gave it any, else ``None``.  A raw body the
+    #: cut made carries its ``box`` from its FEET (11f (2): a segment
+    #: covers its own station span), which is the right plan footprint
+    #: and the wrong GEOM box: the writer puts the TRIANGLES in the file,
+    #: so ``geom_box`` is hulled over these as well as the part boxes.
+    geom_boxes: list[tuple | None] = _dc.field(default_factory=list)
 
 

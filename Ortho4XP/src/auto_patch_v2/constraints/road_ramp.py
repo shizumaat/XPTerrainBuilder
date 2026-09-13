@@ -16,10 +16,11 @@ from __future__ import annotations
 
 from ..law import Law
 from ..model.airport import Airport
-from ..model.constraints import Band, Linear, Row, Source
+from ..model.constraints import Band, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["GEN", "RULING", "RULING_CEILING", "road_ramp_rows"]
+__all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
+           "road_ramp_rows", "road_join_rows"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -31,6 +32,12 @@ RULING = ("roads.groundside_road ramp to the DEM "
 #: not one more weight in the contest the objective already won (13aj).
 RULING_CEILING = ("roads.groundside_road ramp ceiling "
                   "(owner 2026-09-13j item 5; spec §37 (6))")
+#: §37 (9) THE COVERAGE-EDGE JOIN's ruling head (owner RULINGS
+#: 2026-09-13be): the patch's road takes the CORE ribbon's altitude where
+#: its way leaves the coverage — an EQUALITY, because the two surfaces are
+#: one road and the pilot drives across the join.
+JOIN_RULING = ("roads.coverage_edge join "
+               "(owner 2026-09-13be; spec §37 (9))")
 
 
 def road_ramp_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -57,4 +64,19 @@ def road_ramp_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         rows.append(Linear(((v, 1.0),), t, t, src))
         rows.append(Band(v, None, t + vis,
                          Source(GEN, RULING_CEILING, (f"vertex:{v}", ref))))
+    return rows
+
+
+def road_join_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """§37 (9): one ``Pin`` per road vertex at a coverage exit, at the core
+    ribbon's own altitude just outside (``PlanarMap.road_coverage_join``,
+    derived in ``emit/road_join.py``).  A map without the channel mints
+    nothing — the derivation has one site."""
+    joins = getattr(planar, "road_coverage_join", None) or {}
+    rows: list[Row] = []
+    for v in sorted(joins):
+        ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
+                    if planar.faces[f].ref), "")
+        rows.append(Pin(v, float(joins[v]),
+                        Source(GEN, JOIN_RULING, (f"vertex:{v}", ref))))
     return rows

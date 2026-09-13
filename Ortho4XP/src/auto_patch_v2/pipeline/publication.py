@@ -250,6 +250,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                   round(float(st), 4), round(float(t), 4)]
                                  for v, (r, st, t)
                                  in sorted(planar.road_route_frame.items())],
+            # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):
+            # ``[lat, lon, the CORE ribbon's altitude just outside]`` per
+            # pinned road vertex.  LAW INPUT — the census's
+            # ``road_coverage_join`` family prices the emitted surface
+            # against exactly the value the solve pinned, and the mesh
+            # reads the same ribbon.
+            "road_coverage_join": [[ll[v][0], ll[v][1], round(float(z), 4)]
+                                   for v, z in sorted(
+                                       planar.road_coverage_join.items())],
             "basin_facilities": basin_facilities(planar, law, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],

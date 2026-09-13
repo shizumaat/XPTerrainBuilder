@@ -77,6 +77,7 @@ __all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
 SIDECAR_KEYS: tuple[str, ...] = (
     "ruleset", "axes", "routes", "runway_end_skirt", "crown_drops",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
+    "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",

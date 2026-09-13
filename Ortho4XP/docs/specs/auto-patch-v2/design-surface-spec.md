@@ -8089,3 +8089,107 @@ the mesh shows the patch (214.24) over the core (203.48) and the DEM
 BARS (round 3, with §37 (8)'s): as 13bb, plus `road_coverage_join` 0 on the
 lane arm and > 0 on the control; the mesh confirmation of the join is the
 app build's tile.
+
+### §37 (8)/(9) + §37 (6) amended **MEASURED — ROUND 3** (lane `v2roadramp`, 2026-09-13, branch `claude/v2roadramp`, base `661cb2e7`)
+
+ONE KCLT build, tag **`v2roadramp3`**, 326.6 s, rc 0, `status feasible`,
+`body_sha 5f3a70d28599`, artifact ledger **`91ab5a7c8e15`**, `[guard]
+shared repo UNCHANGED`.  The control is round 2's same-corpus
+`ctlkclt70646dc8` (ledger `1f83c7a053d9`) at main `70646dc8`; main has
+since taken `661cb2e7` (v2rampwalk's bridges and adjacent-ground steps,
+the v1 retirement — `build_airport.py` no longer has `--engine`), so the
+NON-ROAD families below carry that movement too and are marked.
+
+#### THE ATTRIBUTION FIRST — why 462 `road_cross_section` rows survived §37 (7)
+
+Measured on the KCLT capture, over the 2,155 pairs §37 (7) calls a
+CROSS-SECTION, by comparing each pair's own §37 (6) TARGETS against its
+2 % bound (`cap_t·|Δt| + cap_l·|Δs|`):
+
+| the target's reading | pairs whose TARGETS already break their own 2 % bound | worst |
+|---|---|---|
+| per VERTEX, floor = the raw DEM along the route (round 2) | **145** of 2,155 | 3.51 m against a 0.60 m bound, Δs 5.8 m, `dsf:pol51` |
+| per VERTEX, floor = the core clamp | **129** | 3.67 m against 0.19 m, Δs **1.2 m** |
+| per (ROUTE, STATION), floor = the core clamp (this round) | **0** | — |
+
+The suspicion in the brief is confirmed and made precise: the target was
+read PER VERTEX — its own nearest-way answer for the floor and its own
+graph distance for the descent — so two kerbs of ONE station could take
+values 3.67 m apart over 1.2 m of station, and the hard ramp ceiling then
+held that tilt against the 2 % cross-section.  The raw DEM made it worse
+(it is not cap-Lipschitz), which is why (2) and (8) are one fix:
+
+* the FLOOR is the core's clamp on THE ROUTE THE FRAME NAMES
+  (`cap_lipschitz_profile`, already carried by `RoadProfiles`), and
+* the target is `max(clamp_r(s), envelope_r(s))` — the descent lifted onto
+  the route as a cap-Lipschitz upper envelope — so it is a function of
+  (route, station) alone.
+
+Both terms are cap-Lipschitz, so a section's two kerbs differ by at most
+`cap_l·|Δs|`, always inside the pair bound: **the ceiling cannot tilt a
+section, by construction**.
+
+#### THE THREE RULES AS BUILT
+
+* §37 (8): `road_cross_section (2026-08-25g)` is in `[design]
+  hard_rulings` — the 2 % is a CONSTRAINT of the active set on every
+  road-family face.
+* §37 (6) amended: `airport/road_ramp._floor_along_route` reads the clamp
+  (`_dem_twin` keeps the terrain reading for the report only).
+* §37 (9): `emit/road_join.py` (the coverage is `emit/bank.coverage_polygon`,
+  one implementation) walks each route's stations against the coverage and
+  pins the last station inside at the CORE ribbon's altitude at the first
+  station outside; published as `PlanarMap.road_coverage_join` and sidecar
+  `road_coverage_join`, minted as `Pin` rows by
+  `constraints/road_ramp.road_join_rows`, priced by the new census family
+  **`road_coverage_join`** (`check_grade.LAW_FAMILIES` + `families.toml`
+  `cockpit = "step"`, `solver = "pin"`, four twins in `test_harness.py`).
+
+#### PER BAR
+
+| bar | control `1f83c7a053d9` | round 2 `5dcfccc142b9` | **round 3 `91ab5a7c8e15`** |
+|---|---|---|---|
+| v2 verify `road_cross_section` ≤ 20 | 781 | 462 | **7** ✅ |
+| v1 census `road_cross_section` ≤ 330 | 330 | 642 | **300** ✅ |
+| `dsf:pol51` follow ≥ 0.85 | 0.286 | 1.007 | **1.017** ✅ |
+| `dsf:pol82` ≤ 0.5 m | 6.17 | 0.68 | **0.68** ❌ (0.18 m over) |
+| `road_coverage_join` 0 on the arm, > 0 on the control | — | — | **0 rows**; the same 22 coordinates on the control stand up to **7.93 m** off the ribbon (`dsf:pol70`), 5.17 / 5.15 m at the owner's site 35.2077280 / 35.2077325, −80.929 → **arm 0.004 m max** ✅ |
+| cockpit CRITICAL motion ≤ 7 | 7 | 12 | **9** ❌ (visual 0 → **1**, an `adjacent_ground_step [apron\|graded_strip]` cliff 0.820 m over 2.01 m at 35.2267703,−80.9552263 — `adjacent_ground_step` is `661cb2e7`'s new family, not this lane's) |
+| all-road \|z−DEM\| | median 0.708 / p95 3.348 | 0.171 / 1.674 | **0.198 / 2.206**, worst 4.40 m |
+| adjudicated | 3,813 | 5,684 | 5,864 (airside 4,228 / gs 1,636) — the airside rise is `661cb2e7`'s |
+
+THE 7 SURVIVORS (the v2 verify's own count; the build prints counts, so
+they are named through the v1 census's reading of the same law on the same
+patch — 300 rows, p50 0.34 m, p95 1.40 m, max 2.01 m): they concentrate on
+**`dsf:pol53` way −10858** (55 rows, every one of the worst eight, at
+35.21603,−80.92880–80.92890, pairs 36–48 m apart on a page 170 vertices
+long) and on `−10862` (40), `−10879` (39), `−10507` (23).  These are the
+WIDE pages whose section spans tens of metres: at Δt ≈ 40 m the 2 % bound
+is 0.8 m and the built section carries up to 2.01 m.  They are a bench the
+solve did not fully cut, not a tilt the law admits.
+
+Other readings: `road_ramp` 1,955 targets from **244** contacts (137 on
+the ramp, up to 1.80 m over 596 m of route), clamp over the DEM up to
+3.67 m, core fit withdrawn on 1,760; `road_within_shape` 76,393 rows
+(routed 24,871 / chord 51,522 / not-a-pair 47,988 / ring-edge 580);
+`road_coverage_join` 22 rows from 42 exits on 26 routes; hard rows
+28/238,729 violated (max 0.0883 m), `SET NOT SETTLED` 645 flips worst
+0.024 m — KCLT's standing 13y (B) condition.  `bridge_deck:-14469`
+(`661cb2e7`'s new deck) reads +11.10 m off the DEM and is OUTSIDE the ramp
+population by §37 (6) as amended.
+
+LEMD / CYXY dry, on their captures: LEMD 6 governed vertices (13 decks
+excluded), targets within 0.01 m of the core clamp, 0 apron-face targets
+of 159; CYXY 314 targets, 10 on the ramp, clamp over the DEM up to 1.08 m,
+targets within 0.22 m of the clamp.  Suite **1,332 / 0 twice**.
+
+#### What round 3 did NOT do
+
+A second KCLT build or a new control at `661cb2e7` (the bar named
+`ctlkclt70646dc8`); the `check_grade` SELECTION re-point (the bar's ≤ 330
+was met by the law itself — the census's selection still reads
+`grade_graph.shape_constraints`, and its 300 rows are the same population
+the verify reads 7 of, the difference being v1's allowance envelope);
+chasing the `strip_arc` rows (13ba: the unsettled lag's, and this build's
+cockpit block carries one of them at 0.090 m); `dsf:pol82`'s last 0.18 m;
+any merge, RULINGS entry, or new tool.

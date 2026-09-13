@@ -12,12 +12,21 @@ welded by the bending term to the airside fill beside it (``graded_strip``
 where the road meets an apron, pad or lot; that level is the airside's,
 airside is king — the road's target along ROUTE distance ``s`` is
 
-    target(s) = max(DEM(s), z_contact - road_cap * s)
+    target(s) = max(clamp(s), z_contact - road_cap * s)
 
-It descends at the road's own longitudinal cap until it meets the DEM and
-follows the DEM from there (and climbs at the cap where the DEM rises
-above the contact); between two contacts the two ramps meet at their
-HIGHER envelope; a road with NO airside contact targets the DEM.  The
+It descends at the road's own longitudinal cap until it meets the FLOOR and
+follows it from there (and climbs at the cap where the floor rises above
+the contact); between two contacts the two ramps meet at their HIGHER
+envelope; a road with NO airside contact targets the floor alone.
+
+THE FLOOR IS THE CORE'S CLAMP, NOT THE RAW DEM (§37 (6) amended, owner
+RULINGS 2026-09-13be): ``clamp(s)`` is ``cap_lipschitz_profile``'s
+mid-envelope — the value the core's own ``include_roads`` would have given
+the road, which it does NOT give inside the patch coverage because the
+core removes its levelling there.  Where the terrain is cap-lawful the two
+coincide.  THE TARGET IS A FUNCTION OF (ROUTE, STATION) ALONE (§37 (8),
+RULINGS 2026-09-13bb), so it cannot tilt a section: see
+:func:`road_ramp_targets`.  The
 target is a DESIGN TARGET at the design-target weight (``[design] law``,
 the weight every law row is priced at) and SUPERSEDES ``preferred_road_z``
 — the core's clamped soft fit at ``[design] road`` (3) — for the vertices
@@ -166,23 +175,35 @@ def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
     return adj
 
 
-def _dem_along_route(pm: PlanarMap, law: Law, airport: Airport,
-                     profiles=None):
-    """``vertex -> the DEM ALONG THE ROAD'S OWN CENTRELINE`` at that
-    vertex's projection, and the vertices no way answers.
+def _floor_along_route(pm: PlanarMap, law: Law, airport: Airport,
+                       profiles=None):
+    """``(profiles, per-face answer index)`` for THE RAMP'S FLOOR, read
+    ALONG THE ROAD'S OWN CENTRELINE.
 
-    THE DEM IS READ ALONG THE ROUTE, NEVER UNDER THE KERB.  A road page on
-    a side slope spans the hill transversely — KCLT's ``dsf:pol51`` carries
-    DEM samples from 199.91 to 216.55 m across 48 m of one page — and the
-    road cross-section law (2 %) forbids a ribbon that tilts with it.  A
-    per-vertex DEM target is therefore transversely INFEASIBLE and the
-    solve answers it with a cut: the first arm of this rule measured
-    ``dsf:pol51`` fill +10.90 -> +0.50 m and cut 2.40 -> **7.43 m**.  §37
-    (6)'s ``DEM(s)`` is the terrain at ROUTE STATION s, and every vertex of
-    the section takes it — the core's own lateral levelling
-    (``airport/road_profile.py``), read here off the SAME ways, the SAME
-    projection and the SAME answer rule, with the clamped profile ``z``
-    swapped for the terrain ``dem`` the clamp was built from.
+    THE FLOOR IS THE CORE'S CLAMP, NOT THE RAW DEM (§37 (6) amended, owner
+    RULINGS 2026-09-13be).  Scout ``roadlevel``: the core's
+    ``include_roads`` levelling is REMOVED inside the patch coverage + 6 m
+    (``O4_Vector_Map.py:1749-1757``), so inside the coverage v2 is the sole
+    road authority and it must give the road what the core would have —
+    ``cap_lipschitz_profile``'s mid-envelope, which ``RoadProfiles`` already
+    carries as each way's ``z``.  Where the terrain is cap-lawful the two
+    coincide; where it is not, the road takes the lift or cut the core
+    would have given it instead of the terrain's own step.
+
+    IT IS ALSO WHAT KEEPS THE SECTION LEVEL (§37 (8)).  The clamp is
+    cap-LIPSCHITZ along the route by construction and the descent envelope
+    is too, so their max moves at most ``cap_l x |Δs|`` between two
+    stations of ONE route — never more than the §37 (7) pair bound
+    ``cap_l·|Δs| + cap_t·|Δt|``.  The RAW DEM is not: measured on the KCLT
+    capture, 145 of 2,155 cross-section pairs carried targets already over
+    their own 2 % bound (worst 3.51 m against 0.60 m over a 5.8 m station
+    difference on ``dsf:pol51``), which is the tilt the surviving
+    ``road_cross_section`` rows read.
+
+    THE DEM IS STILL READ ALONG THE ROUTE, never under the kerb, for the
+    REPORT (a road page on a side slope spans the hill transversely — KCLT
+    ``dsf:pol51`` carries DEM samples from 199.91 to 216.55 m across 48 m
+    of one page).
     """
     from .road_profile import RoadProfiles, core_profiles
     if profiles is None:
@@ -191,6 +212,14 @@ def _dem_along_route(pm: PlanarMap, law: Law, airport: Airport,
         # the SAME profiles ``preferred_road_z`` built for this map (it
         # carries its own ``per_face`` answer index): read, never rebuilt
         prof, per_face = profiles, profiles.per_face
+    return prof, per_face
+
+
+def _dem_twin(prof, per_face):
+    """The same ways with the clamped ``z`` swapped for the terrain
+    ``dem`` — the REPORT's reading of how far the clamp stands off the
+    ground under the road."""
+    from .road_profile import RoadProfiles
     twin = {id(w): _dc.replace(w, z=w.dem) for w in prof.all_ways}
     dem_prof = RoadProfiles(prof.cap, prof.station_m, prof.lane_width_m,
                             prof.radius_m,
@@ -199,7 +228,6 @@ def _dem_along_route(pm: PlanarMap, law: Law, airport: Airport,
     per_face_dem = {fid: [(twin[id(w)], r) for w, r in lst]
                     for fid, lst in per_face.items()}
     return dem_prof, per_face_dem
-
 
 
 def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
@@ -225,6 +253,8 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
     from .road_profile import core_profiles
     if profiles is None:
         prof, per_face = core_profiles(airport, pm, law)
+    elif isinstance(profiles, tuple):
+        prof, per_face = profiles           # already unpacked by the caller
     else:
         prof, per_face = profiles, profiles.per_face
     roads = _road_roles(law)
@@ -259,13 +289,40 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
                     continue
                 out[v] = (rid.get(id(a.way), -1), float(a.s), float(a.t))
     rep = {"vertices": len(seen), "framed": len(out),
-           "no_route": len(seen) - len(out), "routes": len(prof.all_ways)}
+           "no_route": len(seen) - len(out), "routes": len(prof.all_ways),
+           # the ways BY ROUTE ID, so a caller reads the clamp on the route
+           # THIS frame names (§37 (8)) instead of asking for a second
+           # nearest-way answer that can pick another way for the kerb
+           "_ways": dict(enumerate(prof.all_ways))}
     return out, rep
 
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                       profiles=None) -> RampTargets:
-    """§37 (6)'s target for every groundside-road vertex (module docstring).
+    """§37 (6)'s target for every groundside-road vertex, AS A FUNCTION OF
+    (ROUTE, STATION) ALONE — §37 (8)'s "the ramp target is the road's
+    CENTRELINE profile per station" (owner RULINGS 2026-09-13bb).
+
+    ``target(r, s) = max(clamp_r(s), envelope_r(s))``
+
+    * ``clamp_r(s)`` — the core's own cap-Lipschitz profile at that station
+      of THE ROUTE THE FRAME NAMES (§37 (6) amended, RULINGS 2026-09-13be),
+      never a second nearest-way answer;
+    * ``envelope_r(s)`` — the mouths' descent over the road's own graph,
+      LIFTED ONTO THE ROUTE as the cap-Lipschitz upper envelope of the
+      stations it reached.
+
+    Both terms are cap-Lipschitz in ``s``, so two vertices of one section
+    differ by at most ``cap_l × |Δs|`` — inside §37 (7)'s pair bound
+    ``cap_l·|Δs| + cap_t·|Δt|`` — and the hard ceiling can no longer TILT a
+    section.  MEASURED on the KCLT capture: of 2,155 cross-section pairs,
+    145 carried targets over their own 2 % bound when the target was a
+    per-VERTEX reading of the raw DEM (worst 3.51 m against 0.60 m), 129
+    still did with the clamp read per vertex (worst 3.67 m over a 1.2 m
+    station difference — the descent envelope and the floor were each read
+    per vertex, and two kerbs of one station can sit on different graph
+    distances and different nearest ways); per (route, station) it is 0 by
+    construction.
 
     ONE derivation, called ONCE per build from :func:`with_road_ramp`,
     which publishes it as ``PlanarMap.road_ramp_z``; the generator
@@ -284,10 +341,12 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                               "cap": cap, "targets": 0, "on_dem": 0,
                               "on_ramp": 0, "no_contact": 0, "no_route": 0,
                               "max_above_dem_m": 0.0, "max_reach_m": 0.0,
-                              "max_route_off_vertex_dem_m": 0.0}
+                              "max_route_off_vertex_dem_m": 0.0,
+                              "max_clamp_over_dem_m": 0.0}
     if not owned or cap is None:
         return RampTargets({}, rep)
-    dem_prof, per_face_dem = _dem_along_route(pm, law, airport, profiles)
+    prof_f, per_face_f = _floor_along_route(pm, law, airport, profiles)
+    dem_prof, per_face_dem = _dem_twin(prof_f, per_face_f)
     adj = _graph(pm, set(owned) | set(mouths))
     # THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)): ``g`` is the highest
     # level any mouth can still be at after descending at the cap along
@@ -311,31 +370,56 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                 g[w] = zw
                 reach[w] = reach.get(u, 0.0) + d
                 heapq.heappush(pq, (-zw, w))
+    # ONTO THE ROUTE (§37 (8)): per route, the cap-Lipschitz UPPER envelope
+    # of the descent values at the stations that carry one — so the ramp is
+    # ONE VALUE PER STATION and not one per vertex.
+    frame, frep = road_route_frame(pm, law, airport, (prof_f, per_face_f))
+    ways = frep.pop("_ways")
+    rep["no_route"] = frep["no_route"]
+    by_route: dict[int, list[tuple[float, int]]] = {}
+    for v in set(owned) | set(mouths):
+        f_ = frame.get(v)
+        if f_ is not None:
+            by_route.setdefault(f_[0], []).append((f_[1], v))
+    env: dict[int, dict[float, float]] = {}
+    for r, items in by_route.items():
+        items.sort()
+        ss = [s_ for s_, _v in items]
+        vals = [g.get(v, -math.inf) for _s, v in items]
+        for i in range(1, len(vals)):                       # forward
+            vals[i] = max(vals[i], vals[i - 1] - cap * (ss[i] - ss[i - 1]))
+        for i in range(len(vals) - 2, -1, -1):              # backward
+            vals[i] = max(vals[i], vals[i + 1] - cap * (ss[i + 1] - ss[i]))
+        env[r] = {s_: z_ for (s_, _v), z_ in zip(items, vals)}
     targets: dict[int, float] = {}
     for v in sorted(owned):
         vx = pm.vertices[v]
-        if vx.dem_z is None:
+        f_ = frame.get(v)
+        if f_ is None or vx.dem_z is None:
             continue
-        through: list = []
-        for fid in vx.incident_faces:
-            through.extend(per_face_dem.get(fid, ()))
-        a = dem_prof.answer(vx.xy, float(vx.dem_z), through)
-        dem = float(a.z)
-        if a.kind is None:
-            rep["no_route"] += 1
-        else:
-            rep["max_route_off_vertex_dem_m"] = max(
-                rep["max_route_off_vertex_dem_m"], abs(dem - float(vx.dem_z)))
-        ramp = g.get(v)
-        if ramp is None:
-            rep["no_contact"] += 1
-            targets[v] = dem
+        r, st, _lat = f_
+        w_ = ways.get(r)
+        if w_ is None:
             continue
-        t = max(dem, ramp)
+        floor = float(w_.at(st))              # the core's clamp AT THAT STATION
+        ramp = env.get(r, {}).get(st, -math.inf)
+        t = max(floor, ramp)
         targets[v] = t
-        if t > dem + 1e-9:
+        # the REPORT reads the terrain under the same station
+        through_d: list = []
+        for fid in vx.incident_faces:
+            through_d.extend(per_face_dem.get(fid, ()))
+        a_d = dem_prof.answer(vx.xy, float(vx.dem_z), through_d)
+        dem_route = float(a_d.z)
+        rep["max_route_off_vertex_dem_m"] = max(
+            rep["max_route_off_vertex_dem_m"], abs(dem_route - float(vx.dem_z)))
+        rep["max_clamp_over_dem_m"] = max(rep["max_clamp_over_dem_m"],
+                                          abs(floor - dem_route))
+        if v not in g:
+            rep["no_contact"] += 1
+        if ramp > floor + 1e-9:
             rep["on_ramp"] += 1
-            rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem)
+            rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))
         else:
             rep["on_dem"] += 1
@@ -343,6 +427,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["max_above_dem_m"] = round(rep["max_above_dem_m"], 3)
     rep["max_reach_m"] = round(rep["max_reach_m"], 1)
     rep["max_route_off_vertex_dem_m"] = round(rep["max_route_off_vertex_dem_m"], 3)
+    rep["max_clamp_over_dem_m"] = round(rep.get("max_clamp_over_dem_m", 0.0), 3)
     return RampTargets(targets, rep)
 
 
@@ -361,6 +446,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     """
     tg = road_ramp_targets(pm, law, airport, profiles)
     frame, frep = road_route_frame(pm, law, airport, profiles)
+    frep.pop("_ways", None)            # the Way objects are not a report
     if report is not None:
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})

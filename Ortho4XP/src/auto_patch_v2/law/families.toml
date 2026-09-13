@@ -136,6 +136,22 @@ ruling    = "2026-09-13j item 2 / 13q item 2"
 solver    = "pin"
 cockpit   = "keepout"
 
+[road_coverage_join]
+measures  = "a road vertex where the patch's road meets the CORE's levelled ribbon standing off the ribbon's own altitude there (published per pinned vertex in the sidecar `road_coverage_join`)"
+parameter = "emit.road_profile.station_m"
+roles     = ["service_road", "service_junction"]
+pairs     = "within"
+ruling    = "2026-09-13be"
+solver    = "pin"
+cockpit   = "step"
+# The core's `include_roads` levelling is REMOVED inside the patch coverage
+# + 6 m (`O4_Vector_Map.py:1749-1757`): inside, the patch is the sole road
+# authority; outside, the core's clamped ribbon is.  Nothing made the two
+# agree until §37 (9) — measured at KCLT way 10826 station 0, the patch's
+# kerb 2.36 m over the ribbon across 7.9 m.  THE COCKPIT CLASS is "step":
+# a height discontinuity across a join the driver crosses, VISUAL off the
+# rolled-on roles by the one cockpit rule.
+
 [seam_residual]
 measures  = "a tile-seam band-edge vertex standing off its own tile's baked DEM sample (the value the solve PINNED, published per pin in the sidecar `seam_pins`)"
 parameter = "emit.seam.half_width_m"

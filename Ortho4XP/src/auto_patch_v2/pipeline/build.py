@@ -17,6 +17,7 @@ from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..airport.road_ramp import with_road_ramp
+from ..emit.road_join import with_road_coverage_join
 from ..classify import classify, load_rules
 from .shapes import joint_steps, shape_constraints, shape_stage
 from .seam_report import seam_yield_block
@@ -586,6 +587,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # superseding site.  The rows are ``constraints/road_ramp.py``'s.
     ramp_rep: dict = {}
     pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles)
+    # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
+    # levels the road OUTSIDE the coverage and not inside it, so where a
+    # way leaves, the patch takes the ribbon's own altitude there.
+    join_rep: dict = {}
+    pm = with_road_coverage_join(pm, law, road_profiles, join_rep)
+    ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
     lrep.road_ramp = dict(ramp_rep)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
@@ -604,7 +611,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"up to {ramp_rep.get('max_above_dem_m', 0.0):.2f} m above it over "
          f"{ramp_rep.get('max_reach_m', 0.0):.0f} m of route, "
          f"{ramp_rep.get('no_contact', 0)} with no contact); core fit withdrawn on "
-         f"{ramp_rep.get('preferred_withdrawn', 0)}", out)
+         f"{ramp_rep.get('preferred_withdrawn', 0)}; clamp over the DEM up to "
+         f"{ramp_rep.get('max_clamp_over_dem_m', 0.0):.2f} m; coverage-edge joins "
+         f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
+         f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
+         f"pinned vertices", out)
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()

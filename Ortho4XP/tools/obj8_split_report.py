@@ -825,6 +825,14 @@ def _main() -> int:
     # walls it belongs to.
     for line in PC.census_v15_lines(v15):
         print(line)
+    # §16f (3): THE OBJECT FAMILY (RULINGS 2026-09-13af) — the derived
+    # relation the plan publishes per body (``family_of``), its one zero
+    # plane, its spread and the members cut apart.  The same call
+    # ``seat_feet_census`` makes over the same plan shape.
+    for line in PC.census_families_lines(PC.census_families(
+            [q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
+            sampler)):
+        print(line)
     # §16 (1): THE POPULATION — every OBJECT row of the pack is in the
     # plan; the seat-era thickness skip is not applied under ``agl``.
     for line in PC.census_population_lines(PC.census_population(plan.skipped)):

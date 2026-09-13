@@ -3766,3 +3766,145 @@ refusals of the family 27 → 0; the family seated at the terminal pad's level
 the pad (§31 visual); LEMD 1.0.325 and OTHH 1.0.326 frames byte-identical or
 every changed placement named with its reason; plan stage not worse than
 +10 % (`--runs 3`); suite twice.
+
+### §16f MEASURED (lane `v2family`, 2026-09-13; branch `claude/v2family`)
+
+Implemented in a new `airport/placement_family.py` (mirroring
+`bridge_family.py`): `_clusters` (the connected plan cluster over the unit's
+footed bodies' PART boxes), `bind_families` (the one zero plane and the
+re-anchor), `census_families` / `census_families_lines`.  Wired in
+`placement_plan.build_splits` AFTER `_atom.bind_unit`, published as
+`Anchor.family` → `placement_record.Body.to_dict()["family_of"]` and
+`model/placement.Body.family_of`, re-exported through `placement_census` /
+`placement_carrier`, printed by `obj8_split_report.py` and
+`seat_feet_census.py`.  One consumer edit: `placement_carrier.carriers_for`'s
+`_ok`.
+
+**THE FRAME.**  A KCLT build on the merged tree (`864e7577` + this branch's
+WIP), harness tag `v2familyKCLTframe`, rc 0, 389.3 s, `body_sha bb022a77f067`
+— taken because RULINGS 2026-09-13ak turned the PAD GROUP LAW back on and
+every KCLT capture older than `db5b99ca` is a different frame.  The base arm
+is `git archive 864e7577 Ortho4XP/src Ortho4XP/tools`.  LEMD 1.0.325 and OTHH
+1.0.326 are the frames the previous lanes used (`v2lemd325o`, `v2othh1o`);
+both arms read the same graded document, so the identity reading holds.
+**That frame build is CONTAMINATED**: it added one path to the shared repo,
+`Airport_mod_cache/Nimbus Simulation - KCLT V1.4 - Charlotte XP12/
++35-081.dsf.anchor_bak.7bf41307.text` (a DSF text dump the mod-cache root
+resolved past `O4_AIRPORT_MOD_CACHE_DIR`), so the run was not ledgered.
+Every subsequent run in this lane printed `[guard] shared repo UNCHANGED`.
+
+**THE CONSUMER CENSUS (owner RULINGS 2026-08-30l), taken before the edit.**
+
+| pass / reader | what it reads | ruling |
+|---|---|---|
+| `planar/basins.py` rule 5b (`obj8.ObjReport.datum_relief`) | the basin refusal | UNTOUCHED — a planar-stage product; see "the 27" below |
+| `anchor_rule.anchor_for` (`pad_majority`, §16d (6)) | one BODY's contacts vs one pad | UNTOUCHED; §16f re-reads the same function over the FAMILY's contacts and overrides the anchor after it |
+| `placement_atom.bind_unit` (§16c (7)) | the unit's ε-contact clusters, re-anchors footed candidates | UNTOUCHED and runs FIRST; §16f is the last word on a footed zero |
+| `placement_carrier.carriers_for._ok` (§16a (2) ground test) | `Candidate.ground_off` | **EDITED** — a family-bound body is exempt, as a BASIN is (11al).  Not exempting it sent every KCLT terminal roof past the walls it stands on (files 477 → 609) |
+| `placement_carrier.carriers_for` rest-on / fallback ranking | `Candidate.anchor`, boxes | reads the new zero, unchanged code |
+| `placement_carrier.group_at_zero` / `merge_rides` / `coarsen` | the zero plane | read the new zero; run BEFORE (coarsen) or AFTER (rides) — no edit |
+| `placement_body._raw_bodies` / `is_elevated` | the anchor at body formation | runs BEFORE the family exists — untouched |
+| `bridge_family.assign_bodies` / `Body.bridge_of` (§16e (3)) | the deck footprint relation | UNTOUCHED and read-only here; §16f REFUSES any unit carrying a deck member (below) |
+| `placement_cut` / `obj8_split` (the writer) | `Anchor.lat/lon/y_zero/offset` | unchanged: a family anchor is an ordinary anchor point with a computed `y_zero`, the shape §16e's `_datum_anchor` already takes |
+| `placement_seams`, `census_outside_box`, `census_v15/v16/v16b`, `cockpit_block` | the written bodies | read the new zeros; all re-measured below |
+| `placement_write.build_plan` / `engine_v2` | `SplitSet` | additive field `families` only |
+
+**THE LAW AS BUILT, and the two readings that were REFUTED on the way.**
+
+1. `(1)(b)` is read at the BODY footprint, not at the whole member.  A
+   member-level cluster joins a member on ONE touching box and drags every
+   body of it: KCLT's `Charlotte_Airport_002_ALB__b7` stands 500 m out on the
+   apron and came out **−216.89 m**, files 477 → **708**.  DELETED.
+2. §16f (3)'s feasibility is a SHARE of the unit (`FAMILY_SHARE_MIN` 0.5): a
+   cluster holding half or less of its unit's eligible footed bodies is a
+   PARTIAL family, reported and not bound.  Without it KCLT's `unit:3` — eight
+   separate hangars — made 26 families of 2–7 bodies and took the airport's
+   worst §17 motion row 2.52 → **3.73 m**.
+3. **A UNIT CARRYING A DECK MEMBER FORMS NO FAMILY.**  §16f (3) names OTHH's
+   bridge clutter as the case; a plan-CONTACT family binds it by another
+   route than §16e (3)'s withdrawn footprint family — measured, OTHH `unit:6`
+   came out 29 members at one zero with a member **8.20 m** off its own
+   ground, and Bridge_01's §16e (6) datum bodies moved.  The test is
+   `deck_ring or deck_kind in ("flag", "signature")`; reading `deck_kind`
+   at all (the value is `candidate` on 31 KCLT / 39 LEMD / 342 OTHH members)
+   disqualified both terminals and is NOT the test.
+
+**BARS — KCLT (`v2familyKCLTframe`, matched dry arms).**
+
+| bar | base `864e7577` | §16f |
+|---|---|---|
+| terminal family per-body zero spread | `unit:31#0` **9.87 m**, `unit:30#0` 0.62 m | **0.00 / 0.00 m** — MET (bar 0.3) |
+| the complex (both rows together) | 9.87 m (213.83 … 223.70) | **0.47 m** (221.31 / 221.78) |
+| the pad and its level | — | `unit:30#0` on **`building80` at 221.78**; `unit:31#0` on its MEDIAN GROUND at **221.31** — only 43 of its 129 anchors land on `building80`, so §16d (6)'s MAJORITY declines and §16f (2)'s fallback rules.  The two planes lie 0.47 m apart, inside `building80`'s own 1.19 m of relief (§20) |
+| no member floating/sunken > 0.5 m against the pad | — | `unit:30#0` worst **+0.38 m** — MET; `unit:31#0` worst **+4.26 m** — NOT MET, and it is the law working: the north-west wing's feet stand 4 m under the family's plane |
+| worst §17 motion row | +1.66 m | **+2.99 m** `paredes_10_charlotte__b35` on apron — WORSE, the same residual read at a foot |
+| COCKPIT CRITICAL visual rows | 155 | **140** |
+| §15 carried over a REFUSED carrier | 12 | **4** |
+| §16b carried piece float > 0.5 m | 45 | **26** |
+| §16b body wider than its terrain group | 232 | **228** |
+| files / bodies | 487 / 581 | **497 / 615** |
+| low-side anchors with a residual | 150 | **128** |
+| plan stage, `--runs 3`, graded sampler, foreground | mean **10.80 s** (12.72 / 8.38 / 11.30) | mean **10.36 s** (11.92 / 11.52 / 7.63); `_surface` calls 80,354 → 84,810 — MET (bar +10 %) |
+
+**THE CLOSING RUN** — the write half into an APFS clone of the pack, guard
+armed: **497 cut files written, DSF round trip OK, 497/497 new `OBJECT_DEF`s
+read back, 0 rows carrying an elevation**; §16d written geometry outside its
+own box **0 (bar 0)**; §16c torn seams outside line/arc **1 (bar 0)** —
+`paredes_9_charlotte` b8↔b12, ONE shared vertex, step **+0.00 m** (§16d
+(4)–(6) MEASURED recorded this same seam at **+0.16 m**: the family plane
+closed the step, the topological count stands).  `[guard] shared repo
+UNCHANGED`.
+
+**LEMD 1.0.325 IS NOT BYTE-IDENTICAL, AND EVERY CHANGE IS ONE FAMILY.**  The
+Aerosoft old terminal is ONE plan cluster of **80 members / 209 bodies** and
+takes one zero **602.86** (median ground; no pad holds a majority), worst
+member **+8.40 m** off its own ground; 25 members' bodies stand apart and keep
+their own ground.  **249 of 2,435 bodies change**; files 2,435 → 2,417.  The
+airport's bars are flat: COCKPIT visual 498 → **495**, motion 6,258 feet on
+368 bodies → 6,455 on 378, §16b carried float 154 → 156, §16b wider 1,122 →
+1,118, §15 carried float **0 → 0**.  This is §16f applied literally to the
+pack the ruling named as the trap — and the trap it named (two rows) is NOT
+what fires: the PLAN CLUSTER does.  **An owner/Fable ruling is asked for**
+(below).
+
+**OTHH 1.0.326: the bridges are out, the rest binds.**  63 families / 652
+bodies, per-family spread **0.00** everywhere; `unit:6` (Bridge_01/02/03/06)
+forms none.  Bars all better or equal: files 1,831 → **1,757**, COCKPIT motion
+3,159 feet on 86 bodies → **2,227 on 98**, visual 309 → **290**, §16b carried
+float 159 → **138**.  With the deck exclusion *broadened* to any `deck_kind`
+the airport is byte-identical but for **4 bodies** — the `unit:63`
+fire-station family, whose zero is unchanged to 1e-15 (3.9599999999999995 →
+3.96) — which is what that arm measured; the shipped test is the narrow one.
+
+**THE 27 BASIN REFUSALS ARE NOT AN OBJECT-STAGE NUMBER.**  Rule 5b's refusals
+are minted in `planar/basins.py` at the `obj8` witness (`ObjReport.datum_relief`)
+and appear in a tile build's basin stats; the rebake plan does not carry them
+and the placement path never reads them (`basin_member` comes from the
+ADMITTED rings only).  Admitting the terminal's slab AS A BASIN would cut a
+4–9 m pit under KCLT's terminal, which is the opposite of the owner's read.
+The bar "27 → 0" is therefore **not measurable here and was not moved**: what
+§16f (2)'s "a family's slab is the family's floor and is admitted with it"
+buys is the family's ZERO PLANE, and the defect the refusals signalled — every
+piece seated to the ground under itself — is closed (spread 9.87 → 0.00).
+
+**SUITE**: **1,250 passed, 1 skipped**, twice.  Twins:
+`test_16f_1_a_family_is_a_connected_plan_cluster_of_two_members`,
+`test_16f_1_two_placement_rows_do_not_make_a_family`,
+`test_16f_2_the_family_takes_one_zero_plane_on_its_pad`,
+`test_16f_3_a_partial_cluster_is_reported_and_not_bound`.
+
+**INTENT QUESTIONS (measured, for the owner).**
+
+1. **LEMD's old terminal.**  Should §16f bind an 80-member complex whose
+   members' own grounds span 8.4 m?  Measured both ways above.  The law as
+   written says yes; nobody has read the result in the sim.
+2. **`unit:31#0` did not seat on `building80`.**  §16f (2) reuses §16d (6)'s
+   MAJORITY and 43 of 129 anchors is not one.  A PLURALITY read (largest pad
+   wins) would put both KCLT rows on `building80` and close the 0.47 m
+   between them.  Not implemented: it is a different rule from the one the
+   spec cites.
+3. **A family holds a member 4.26 m (KCLT) / 8.40 m (LEMD) off its own
+   ground**, and at KCLT that is a wall standing +2.99 m over the apron the
+   aircraft rolls on (§17 motion, worst row).  "Keep families together" and
+   "0.05 m at a rolled-on foot" are in direct conflict at that wall; which
+   yields is the owner's.

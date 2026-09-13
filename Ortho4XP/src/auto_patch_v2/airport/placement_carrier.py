@@ -46,7 +46,8 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
            "merge_rides", "cut_order", "group_at_zero", "senior_of",
            "FOOTLESS_KEPT", "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND",
            "THICKNESS_SKIP", "LAWFUL_SKIPS", "_v15_rows",
-           "census_bridges", "census_bridges_lines"]   # §16e (3)
+           "census_bridges", "census_bridges_lines",   # §16e (3)
+           "census_families", "census_families_lines"]   # §16f
 
 # THE INSTRUMENTS LIVE NEXT DOOR (``placement_census``) and are re-exported
 # here: every caller — both tools and the twins — reads them as this
@@ -704,8 +705,12 @@ def carriers_for(pids: _t.AbstractSet[int],
         basin law working (13 of LEMD's 21 refused carriers, the worst
         6.17 m).  Nothing can close them: the basin cut is exempt for
         §14 (2)'s own reason.  A basin may carry — the T4S tower cluster
-        rides its rim."""
-        if c.body_class == _ar.BASIN:
+        rides its rim.  A FAMILY-BOUND body is EXEMPT for the same
+        reason (§16f (2)): its zero is the family's floor and a member
+        on real relief is off its OWN ground by construction — refusing
+        them sent KCLT's terminal roofs past the walls they stand on
+        (measured: files 477 -> 609)."""
+        if c.body_class == _ar.BASIN or c.anchor.family:
             return True
         if c.ground_off is None or tol_m <= 0.0:
             return True
@@ -987,7 +992,7 @@ from .placement_census import (                          # noqa: E402
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
     census_torn_seams, census_torn_seams_lines, census_bridges,
-    census_bridges_lines,
+    census_bridges_lines, census_families, census_families_lines,
     OUTSIDE_TOL_M, census_outside_box, census_outside_box_lines,
     census_v16_lines, census_v16b, census_v16b_lines,
     # §17 THE COCKPIT FRAME, object stage (RULINGS 2026-09-12x/12y)

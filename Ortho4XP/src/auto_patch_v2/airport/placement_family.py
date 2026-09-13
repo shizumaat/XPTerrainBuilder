@@ -58,7 +58,8 @@ import typing as _t
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 
-__all__ = ["Family", "FAMILY_MIN_MEMBERS", "bind_families"]
+__all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
+           "bind_families", "census_families", "census_families_lines"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
 #: member — a FAMILY is a cluster of at least this many members of one
@@ -72,6 +73,19 @@ FAMILY_MIN_MEMBERS = 2
 #: changes no verdict a metre wide and keeps the pass off the plan
 #: stage's critical path.
 FAMILY_CONTACTS_MAX = 4000
+
+#: §16f (3): FEASIBILITY.  A cluster is the unit's family only where it
+#: holds more than this share of the unit's family-eligible footed
+#: bodies.  A UNIT is a shared-datum row set, and a pack that authored a
+#: whole complex on one plane puts nearly all of it in one cluster —
+#: KCLT's terminal rows 122 of 139 and 25 of 28.  A row set whose bodies
+#: fall into many small clusters is a row, NOT a complex: KCLT's unit:3
+#: is eight separate hangars and its largest cluster is 7 bodies of
+#: ~200.  Binding those made the airport's worst §17 motion row 2.52 ->
+#: 3.73 m — a PARTIAL family bound is worse than none (§16e (3)
+#: WITHDRAWN, RULINGS 2026-09-13ae), so the fragments are REPORTED per
+#: body and left on their own ground.
+FAMILY_SHARE_MIN = 0.5
 
 
 @_dc.dataclass(frozen=True)
@@ -188,7 +202,8 @@ def _median(xs: _t.Sequence[float]) -> float:
 def bind_families(cands: list, staged: _t.Sequence[_t.Any],
                   surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                   counts: dict, *, unit_id: str = "",
-                  contact_eps_m: float = 0.0) -> list[Family]:
+                  contact_eps_m: float = 0.0,
+                  has_deck: bool = False) -> list[Family]:
     """§16f APPLIED TO ONE UNIT.  ``cands`` and each ``staged`` member's
     ``raw`` / ``ground_off`` are mutated in place, exactly as
     :func:`placement_atom.bind_unit` mutates them — this runs AFTER it,
@@ -197,15 +212,42 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
     are untouched: each rides a footed carrier by §15 and follows it onto
     the plane.
 
+    A unit carrying a DECK member forms NO family (§16f (3), naming the
+    case): OTHH's bridges put three decks 250 m apart on one row with
+    their piers and clutter BESIDE the plate, §16e (3) is WITHDRAWN
+    exactly because a footprint family there is PARTIAL, and a
+    plan-contact family binds the same clutter by another route —
+    measured, unit:6 came out 29 members at one zero with a member
+    8.20 m off its own ground.  The deck is the only datum body of a
+    bridge (§16e (2)) and its clutter rests on its own ground.
+
     Returns the families derived, for the census."""
     if contact_eps_m <= 0.0 or not cands:
+        return []
+    if has_deck:
+        counts["family_units_with_a_deck"] = \
+            counts.get("family_units_with_a_deck", 0) + 1
         return []
     from . import placement_carrier as _pc
     by_mi = {st.mi: st for st in staged}
     families: list[Family] = []
     clusters = _clusters(cands, contact_eps_m)
+    # §16f (3): the unit's family-eligible population, and the partial
+    # clusters that are NOT a family — reported, never bound
+    eligible = sum(1 for c in cands
+                   if c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
+                   and (c.part_boxes or c.box))
+    partial = [cl for cl in clusters
+               if len(cl) <= FAMILY_SHARE_MIN * max(1, eligible)]
+    if partial:
+        counts["family_partial_clusters"] = \
+            counts.get("family_partial_clusters", 0) + len(partial)
+        counts["family_bodies_partial"] = \
+            counts.get("family_bodies_partial", 0) + sum(len(c) for c in partial)
     bound_ci: set[int] = set()
     for cl in clusters:
+        if len(cl) <= FAMILY_SHARE_MIN * max(1, eligible):
+            continue
         # every contact of the family, and the zero each body reads today
         per: list[tuple[int, list]] = []
         contacts: list[tuple[float, float, float, float]] = []
@@ -295,3 +337,101 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
             counts["family_bodies_apart"] = \
                 counts.get("family_bodies_apart", 0) + len(names)
     return families
+
+
+# ── §16f (3): THE CENSUS ─────────────────────────────────────────────────
+
+def census_families(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
+                    surface=None) -> dict:
+    """§16f (3)'s CENSUS over a written placement plan's own rows — the
+    same shape and code path every other census in ``placement_census``
+    reads (``plan["splits"]``), so the tool and the engine print one
+    number.
+
+    Per family (``family_of``): members, bodies, the one zero plane, its
+    per-body zero SPREAD (the bar: <= 0.3 m), and — where a surface is
+    handed in — the worst |zero - ground| over the family's own written
+    geometry, which is what "no member floating or sunken more than
+    0.5 m against the pad" reads.  Plus the bodies of a family's own
+    members that were CUT APART (no ``family_of``: they stood beyond
+    ``contact_eps_m`` from every other footprint) and the placements a
+    family spans."""
+    fam: dict[str, dict] = {}
+    apart: dict[str, int] = {}
+    for s in splits:
+        res = s.get("placement", {}).get("resource", "")
+        for b in s.get("bodies", ()):
+            key = b.get("family_of") or ""
+            z = b.get("surface_z")
+            y = b.get("y_zero")
+            if not key:
+                if res:
+                    apart[res] = apart.get(res, 0) + 1
+                continue
+            d = fam.setdefault(key, {"bodies": 0, "resources": set(),
+                                     "zeros": [], "off": [], "pad": ""})
+            d["bodies"] += 1
+            d["resources"].add(res)
+            if not d["pad"]:
+                why = str(b.get("anchor_reason", ""))
+                if "§16f family" in why and " on pad " in why:
+                    d["pad"] = why.split(" on pad ", 1)[1].split(" at ")[0]
+            if z is not None and y is not None:
+                d["zeros"].append(float(z) - float(y))
+            # THE FLOAT AGAINST THE PAD is the body's OWN-FEET reading
+            # (``ground_off``, §16a (2): zero - median(surface(foot) -
+            # y_foot)) and never the whole written geometry's: a roof
+            # plate's lowest written vertex is authored +27 m and reading
+            # it called the family 27.51 m off its ground.  A carried
+            # body has no feet and publishes none.
+            if b.get("ground_off") is not None:
+                d["off"].append(float(b["ground_off"]))
+    out = {}
+    for k, d in fam.items():
+        zs = d["zeros"]
+        out[k] = {"bodies": d["bodies"], "pad": d["pad"],
+                  "resources": sorted(d["resources"]),
+                  "zero": (sum(zs) / len(zs)) if zs else None,
+                  "spread": (max(zs) - min(zs)) if zs else 0.0,
+                  "worst_off": (max(d["off"], key=abs) if d["off"] else None)}
+    return {"families": out,
+            "apart": {r: n for r, n in sorted(apart.items())
+                      if any(r in f["resources"] for f in out.values())}}
+
+
+def census_families_lines(c: _t.Mapping[str, _t.Any],
+                          spread_m: float = 0.3,
+                          visual_m: float = 0.5) -> list[str]:
+    """The block the report prints (``obj8_split_report`` /
+    ``seat_feet_census``)."""
+    fams = c.get("families", {})
+    out = ["§16f THE OBJECT FAMILY (spec §16f, RULINGS 2026-09-13af)"]
+    if not fams:
+        out.append("  no family: no unit's footed bodies form one plan "
+                   "cluster of two or more members (§16f (1)(b))")
+        return out
+    worst = max((f["spread"] for f in fams.values()), default=0.0)
+    out.append(f"  {len(fams)} family(ies), "
+               f"{sum(f['bodies'] for f in fams.values())} body(ies); worst "
+               f"per-body zero spread {worst:.2f} m "
+               f"({'PASS' if worst <= spread_m else 'OVER'} {spread_m:g} m)")
+    for k in sorted(fams, key=lambda k: -fams[k]["bodies"]):
+        f = fams[k]
+        off = f["worst_off"]
+        bar = ("" if off is None else
+               f", worst |zero - the ground under its OWN FEET| {off:+.2f} m "
+               f"({'PASS' if abs(off) <= visual_m else 'OVER'} {visual_m:g} m "
+               f"- a member standing on real relief is held UP by the "
+               f"family, §16f (2))")
+        out.append(f"  {k}: {len(f['resources'])} member(s), {f['bodies']} "
+                   f"body(ies) on "
+                   + (f"pad {f['pad']}" if f["pad"] else "its median ground")
+                   + ", one zero "
+                   + ("-" if f["zero"] is None else "%.2f" % f["zero"])
+                   + f", "
+                   f"spread {f['spread']:.2f} m{bar}")
+    if c.get("apart"):
+        out.append("  members cut apart (§16f (2), on their own ground): "
+                   + ", ".join(f"{r.rsplit('/', 1)[-1]} x{n}"
+                               for r, n in sorted(c["apart"].items())))
+    return out

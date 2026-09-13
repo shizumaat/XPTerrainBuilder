@@ -6920,3 +6920,220 @@ off-DEM changes by > 0.5 m NAMED with its contact; CYXY control byte-identical
 or named; solve settled lines quoted; suite twice.
 
 
+
+#### §37 (6) CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2roadramp`
+
+**A. EVERY READER OF `preferred_road_z` / `PlanarMap.preferred_z`.**
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| P1 | `pipeline/build.py:499` (the only production caller) | `preferred_road_z` | **EDITED**: `with_road_ramp` runs LAST of the target channels (after the runway chord, the taxi trend, the apron trend), because a MOUTH's level is read from the airside's own published target where it carries one. It is the ONE superseding site. |
+| P2 | `solve/design.py:295` — `road_fit` rows at `[design] road` (3) | `pm.preferred_z` | UNCHANGED CODE. A ramp-governed vertex is simply ABSENT, so it carries one target, not two in a weight contest (KCLT: `road_fit_vertices` 2,314 → 825). |
+| P3 | `solve/why.py:362` — the "what holds this vertex" narrative | `pm.preferred_z.get(v)` | UNCHANGED. The ramp is ROWS (`Linear` + `Band`), so `why` names them as binding rows under the `road_ramp` generator instead of the "its design target" prose branch. |
+| P4 | `constraints/taxi_trend.py:303` | `preferred_z` at a chain's RUNWAY pins | UNAFFECTED — only runway-contact vertices, never a road vertex; and it runs BEFORE the withdrawal. |
+| P5 | `constraints/runway_chord.py:567-575` (merges the chord into `preferred_z`) | the mapping | UNAFFECTED — runway vertices are never road-owned, and it runs BEFORE the withdrawal. |
+| P6 | `verify/roads.road_profile_agreement` ("roads vs core profile") | `pm.preferred_z` | **CHANGED IN MEANING, a report figure**: it now measures the roads the ramp does NOT govern (KCLT arm: 1,336 vertices, mean 0.310 m, max 3.940 m). The agreement with the core clamp is no longer the road's contract where §37 (6) supersedes it. |
+| P7 | `model/planar.PlanarMap` | the target channels | **ADDED** `road_ramp_z`, beside `taxi_trend_z` / `apron_trend_z` (own channel, own weight). A capture pickled before it cannot be replayed — re-capture (the 12u rule). |
+| P8 | `tools/v2_solve_replay.py::_targets` | the build's channel order | **EDITED** — publishes the ramp last, so a replay arm solves the build's problem. |
+| P9 | `airport/road_profile.core_profiles` | the ways + the answer index | **EDITED, additive**: `RoadProfiles.per_face` now carries `core_profiles`' second return, so §37 (6) reads the SAME profiles `preferred_road_z` built (one construction per build, not two). |
+| P10 | `tests/test_m3c_roads.py`, `test_v2smooth.py`, `test_v2padceiling.py` | `preferred_z` | UNAFFECTED — they do not run the publisher; all green. |
+
+**B. THE ROAD ENVELOPE / THE CORE CLAMP, `road_law_caps`, THE MOUTH, THE BANK, THE INSTRUMENT.**
+
+| # | consumer | RULE |
+|---|---|---|
+| C1 | the core clamp (`clamp_profile` = `O4_Vector_Utils.cap_lipschitz_profile`) | UNCHANGED. §37 (6) reads the ways' `dem`, not their clamped `z`: the RAMP is the profile, and the clamp stays the core's own answer for every road the ramp does not govern (P6) and for the core-levelled roads outside the patch. |
+| C2 | `constraints/roads.road_law_caps` and every one of §37.1 A's L1–L17 | UNAFFECTED — §37 (6) neither reads nor writes the contiguity cap; §37 (1)'s longitudinal cap and the cross-section still shape the face. |
+| C3 | §27 `airside_edge_flip` / `classify/roles` (THE MOUTH) | UNAFFECTED — the ramp reads its contacts from the planar weld (`roles_at`, an airside `role_side`), never from the flip. A face the flip makes an apron leaves the road population by role; `dsf:pol82`, which §37 (5) returned to `service_road`, is governed (fill +6.17 → +0.80 m). MEASURED: 0 apron-face vertices carry a ramp target at KCLT (78 apron faces), LEMD (159) or CYXY (16). |
+| C4 | `emit/bank.py` `_inner` / `material_runs` (the load-bearing test) | UNCHANGED CODE — the bank is derived from the SOLVED surface, so it shrinks with the fill it daylighted (measured below). |
+| C5 | `tools/road_terrain_conformance.py` (`--by-ref`, `--site`) | UNAFFECTED — it reads the emitted patch. It is the instrument both arms are read with. |
+| C6 | `solve/design.is_hard` / `[design] hard_rulings` / `solve/project.py` | **EDITED, additive**: the ceiling's ruling head `roads.groundside_road ramp ceiling` is registered, so the ceiling is a CONSTRAINT of the active set (KCLT: hard rows 133,148 → 134,953 on the replay = +1,805, one per governed vertex). The runway and zone projections are untouched (they select their own families). |
+| C7 | `planar/structures.py` decks (`bridge_deck:<way>`, role `service_road`) | **EXCLUDED FROM THE POPULATION** (`airport/road_ramp.deck_refs`, read off `pm.structures`, never off the ref string). A deck's level is STATED by the structure (§33 (4): tied to its two mapped ends, over the ramp's clearance). Without the exclusion the ramp pulled LEMD's decks to the terrain under the crossing: `bridge_deck:-3923` −4.72 m, `-3731` −4.20 m, KCLT `-3595` −2.84 m from their own profile — a hard ceiling against a structure's own datum. MEASURED after: every LEMD deck moves ≤ 0.02 m. **This scoping is not in §37 (6)'s text: it is the census's finding and wants Fable's ruling.** |
+
+### §37 (6) **MEASURED** (lane `v2roadramp`, 2026-09-13, branch `claude/v2roadramp`, base `864e7577`)
+
+ONE `--engine v2 --patch-only` KCLT build, tag **`v2roadramp`**, 426.5 s,
+rc 0, `status feasible`, `body_sha 589f23c23ba1`, artifact ledger
+**`497728ff051c`**, `[guard] shared repo UNCHANGED`.  The BASE is the
+SHARED control `ctl-KCLT` (lane `v2seampinctl`, tree `c29238cd3fa8` =
+main `864e7577`, ledger **`8e6288563291`**, `body_sha bb022a77f067`),
+SERVED from the artifact ledger — no control was rebuilt.  Same corpus
+`99f8ad879c83` on both arms.  Synthetic-first: two solve replays off one
+KCLT capture (89 s) before the build, plus LEMD and CYXY replay pairs.
+
+#### THE OWNER'S SITE — item 5, `dsf:pol51` (`road_terrain_conformance --site`, radius 60 m)
+
+| | BASE `8e6288563291` | §37 (6) `497728ff051c` |
+|---|---|---|
+| chain span / DEM relief | 179.3 m / 12.15 m | (same chain) |
+| emitted relief | 3.57 m | **10.41 m** |
+| **FOLLOW RATIO** | **0.294** | **0.857** (bar ≥ 0.8 **MET**) |
+| highest FILL | **+13.31 m** at 35.2074982,−80.9296586 | **+1.62 m** |
+| deepest CUT | 0.86 m | **5.58 m** |
+| \|emitted−DEM\| median / p95 | 0.43 / 10.54 m | 2.33 / 4.11 m |
+
+The road no longer flies: the owner's coordinate reads **+13.31 → +1.62 m**
+of fill and the chain rides the hill.  "Within 2 m of the DEM over its
+chain" is **NOT met** — the residual is a CUT, attributed below.
+
+#### AIRPORT-WIDE ROADS (`--by-ref`, both arms, same options)
+
+| ref | BASE fill / cut | §37 (6) fill / cut |
+|---|---|---|
+| `dsf:pol51` | **+13.31** / 1.64 | +1.62 / **6.78** |
+| `dsf:pol70` | +8.17 / −1.24 | +0.51 / 3.88 |
+| `dsf:pol50` | +6.53 / 1.32 | +0.62 / 6.07 |
+| `dsf:pol82` (item 7) | +6.17 / 1.41 | **+0.80** / 3.66 |
+| `dsf:pol63` | +3.84 / 0.09 | under 2 m |
+| `dsf:pol39` | +3.64 / 3.36 | +0.96 / 3.26 |
+| `dsf:pol86` / `route19` / `route18` / `dsf:pol62` | +3.46 / +3.46 / +3.16 / +3.25 | all under 2 m |
+| `bridge_deck:-3595` (EXCLUDED, C7) | +4.09 / 0.26 | +4.11 / 0.19 |
+
+Whole population, 2,533 road vertices: \|emitted−DEM\| median **0.708 →
+0.352 m**, p95 3.348 → 3.510, worst 4.17 → 6.78.  **Refs over 3 m of FILL:
+9 → 1, and the one is the bridge deck the law excludes.**  Refs over 3 m
+of CUT: 3 → 8.  The bar as written ("no service road > 3 m off the DEM";
+base "5 refs, worst +13.29") is **NOT met on the |off-DEM| reading**: the
+worst halves (13.31 → 6.78) and the FILL class is gone, the CUT class
+grows.  `dsf:pol82` **+6.13/+6.17 → +0.80 m: MET.**
+
+#### THE COCKPIT BLOCK (harness census, both patches)
+
+| | BASE | §37 (6) |
+|---|---|---|
+| CRITICAL **motion** | **12** — worst 0.920 m over 59.87 m `strip_arc [runway|runway]` at 35.2239471,−80.9530979 | **8** — worst 0.620 m over 0.90 m `mid_edge_step [apron|apron]` at 35.2082082,−80.9412547 |
+| CRITICAL **visual** | 0 | **0** |
+| new row on the east road | — | **none** (every critical row is an apron/runway row, none within 500 m of the east access road) |
+
+Motion 12 → 8 with the worst row 0.920 → 0.620 m; the bar (≤ 5) is NOT
+met, and no critical row is a road row in either arm.
+
+#### THE BANK (§37 (3)) — it shrinks with the fill
+
+Arm build's `BankReport.line()`: 69 rings, 7,764 boundary vertices → **665
+foot nodes**, LOAD-BEARING **342 / 2,430** stations (2,088 under the 1.65 m
+floor; 27 rings carry no bank at all), 63 open chains, longest chord 30.0 m.
+Read on the two PATCHES (the same geometry count on both arms): bank_foot
+ways 72 → 69, foot nodes **776 → 671**; **within 300 m of the owner's
+bank_foot coordinate 35.2077804,−80.928713: 89 → 61 nodes** (−31 %), now
+in 12 short chains instead of 5 long ones.
+
+#### THE CENSUS MOVED THE WRONG WAY, AND THE MECHANISM IS §37 (1)'s CHORD
+
+| harness census | BASE | §37 (6) |
+|---|---|---|
+| LAW-TRUE | 11,809 | 17,030 |
+| **ADJUDICATED** | **3,900** (airside 3,496 / gs 404) | **7,622** (airside 5,517 / gs 2,105) |
+| `within_shape` | 8,934 | 11,540 |
+| `road_cross_section` | 310 | **1,691** |
+| `airside_no_step` | 718 | 1,374 |
+| `transverse` | 114 | 470 |
+| v2 verify `road_cross_section` | 763 | **5,263** |
+
+ATTRIBUTION, measured on the capture before the build and not inferred:
+**§37 (1) prices a road ring's pairs by their PLAN CHORD, and a road page
+is not a plan chord.**  For every face carrying vertices over 3 m from
+their ramp target, the face's own worst pair is one the within-shape /
+cross-section law forbids the target to reach — and **7 of the 10 worst
+are followable ALONG THE ROUTE at the road's own 8 % cap**:
+
+| face | ref | worst pair | \|Δtarget\| | plan chord (cap) | ROUTE distance (8 % bound) |
+|---|---|---|---|---|---|
+| 827 | `dsf:pol51` | v16797–v16836 | 13.55 m | 45.6 m (long. 3.65 m) | **279.9 m (22.39 m) — followable** |
+| 777 | `dsf:pol50` | v15699–v15740 | 10.07 m | 161.4 m (transv. 3.23 m) | **440.4 m (35.23 m) — followable** |
+| 792 | `dsf:pol70` | v15484–v15955 | 7.66 m | 64.0 m (transv. 1.28 m) | **263.4 m — followable** |
+| 764 | `dsf:pol53` | v15415–v15474 | 3.40 m | 22.3 m (transv. 0.45 m) | **575.8 m — followable** |
+| 828 | `dsf:pol51` | v16797–v16791 | 13.30 m | 77.6 m (6.21 m) | 87.0 m (6.96 m) — steeper than the cap along the route too |
+
+`dsf:pol51` is a HAIRPIN: two branches of one page 45 m apart in plan and
+280 m apart along the road, with 13.6 m of terrain between them.  Before
+§37 (6) both branches floated together on the airside fill and every pair
+was satisfied; with the lower branch on its ground (a HARD ceiling) the
+pair rows drag the upper branch down — `--why-at 35.2073045,−80.9301802`
+on a pressure solve of the same LP names exactly two families holding it:
+`road_within_shape` (4 rows, cap 8 % × 45.6 m = 3.65 m, chain terminal
+v16797 at the §37 (6) ceiling) and `road_cross_section` (9 rows, cap 2 % ×
+44.2 m).  **This is the withdrawn-chord law (owner 2026-09-05aa) stated
+for the taxi family and NOT for the road family**, and it is why the cut
+class grows and why `road_cross_section` reports 5,263 rows.  §37 (6)'s
+brief says §37 (1) and the cross-section STAND, so this lane did not touch
+them: it is the intent question below, with its numbers.
+
+#### LEMD — dry read + a replay pair on one capture (239 s), base tree `864e7577` vs this branch
+
+* **The 61 apron-side lanes are UNTOUCHED**: 0 of 159 apron faces carry a
+  ramp target (the population is road-family faces by role; §27's flip is
+  read, never re-derived — C3).
+* LEMD's road faces are almost entirely BRIDGE DECKS: 13 decks, and after
+  C7's exclusion only **6 groundside-road vertices** are governed, each
+  within **0.02 m** of the DEM and of its core fit.
+* Solved arms (`--solved-out`, same capture, base tree vs branch): whole
+  surface max |arm − base| **1.231 m**, 44 vertices over 0.5 m; **no
+  groundside road's worst off-DEM moves by more than 0.5 m** — the two that
+  move at all are `route3` (worst 1.67 → 1.47 m, move 0.23 m) and `route6`
+  (1.63 → 1.41, 0.22 m), both toward the DEM, both contacting the T4
+  apron; every `bridge_deck:*` moves ≤ 0.02 m.  `service_road` max off-DEM
+  9.31 m in BOTH arms (a deck).  The solve went `feasible` → `optimal`.
+
+#### CYXY — the control, NOT byte-identical, named
+
+Dry: 314 governed vertices, 34 mouths, and the target is within **0.01 m**
+of the core clamp everywhere (one vertex, `route6`).  Replay pair on one
+capture: whole surface max |arm − base| **1.378 m**, 63 vertices over
+0.5 m; `service_road` max off-DEM **2.43 → 2.06 m** and vertices over
+0.5 m **65 → 30**; apron 4.09 → 3.99; `graded_strip` 5.11 both.  Every
+road ref moves TOWARD its ground: `dsf:pol120` 1.38 → 0.52, `pav29` 1.30 →
+0.29, `pav0` 1.36 → 0.38, `pav30` 1.01 → 0.34, `dsf:pol121` 1.90 → 1.30,
+`route13` 1.81 → 1.10.  The solve went `feasible` → `optimal`.
+
+#### THE SOLVE'S SETTLED LINES
+
+| | BASE (replay) | §37 (6) (replay) | §37 (6) (the build) |
+|---|---|---|---|
+| status | optimal | feasible | feasible |
+| hard rows violated | 1 / 133,148 (max 0.0215 m) | **0 / 134,953 (max 0.0200 m, HARD SET SETTLED)** | 7 / 243,511 (max 0.0458 m, NOT SETTLED) |
+| lag | NOT SETTLED, worst leader move 0.365 m | NOT SETTLED, 0.359 m | NOT SETTLED, 0.649 m |
+| active-set | 717 rounds, settled | 567 rounds, SET NOT SETTLED (229 flips, worst 0.467 m) | 495 rounds, SET NOT SETTLED (403 flips, worst 0.048 m) |
+| road ramp targets | — | — | 1,876 of 3,910 unmet, max 6.648 m |
+
+The build's unsettled counters are KCLT's own standing instance of
+RULINGS 2026-09-13y (B) / 13ab; the ramp adds 1,955 hard ceilings to it.
+
+#### Build-time impact statement
+
+The derivation is one Dijkstra over the road vertices plus one answer per
+governed vertex, reading the road profiles `preferred_road_z` ALREADY
+built (P9, so no second `core_profiles`): **1.4 s measured standalone at
+KCLT including a cold `core_profiles`, and the profiles are shared in the
+build**.  The solve carries 1,955 extra targets and 1,955 hard ceilings
+(rows 62,804 → 73,115 on the replay, wall 85 → 68 s there; the build's
+solve is 104.6 s).  Whole-build wall 426.5 s against the control's 463.3 s,
+measured on a machine running other lanes — no A/B is claimed (standing
+law: never one run per side).
+
+#### The intent question (measured, for the owner / Fable)
+
+**A ROAD PAGE IS PRICED BY ITS PLAN CHORD; A ROAD IS WALKED.**  Owner
+2026-09-05aa withdrew the chord reading for the TAXI family ("the route
+graph follows every curve; never a chord across open pavement"); the road
+family still prices ALL PAIRS of a ring by plan distance, and the
+cross-section cap (2 %) by plan DIRECTION against the ring's long axis.
+On a hairpin or a page that follows a hillside, that forbids the road to
+stand on the ground §37 (6) sends it to: 7 of the 10 worst pairs are
+followable along the route at the road's own 8 % cap (table above), and
+the price of holding them is `dsf:pol51` cut 6.78 m into its hill and
+`road_cross_section` 763 → 5,263 verify rows.  Does the withdrawn-chord
+law extend to the road family (a road pair priced over the ROUTE between
+its stations, as §37 (6) prices the target), or does the road page keep
+its plan-chord law and §37 (6) yield where the two disagree?
+
+#### What this lane did NOT do
+
+The five-airport sweep (the orchestrator's); any `--refresh-data`; any
+merge into main; any RULINGS entry; any change to §37 (1)'s caps, the
+cross-section, `road_law_caps`, the bank, §27's flip or anything in
+`solve/`, `constraints/eat.py`, `planar/structures*.py`, `planar/zones.py`
+or `constraints/structures.py` (the parallel lanes' files); a second KCLT
+build (the attempt cap: two replay arms, then one build); a LEMD or CYXY
+BUILD (both were read as replay pairs on one capture each, which is the
+dry frame the brief asked for); a new tool, so no `tools/INDEX.md` row.

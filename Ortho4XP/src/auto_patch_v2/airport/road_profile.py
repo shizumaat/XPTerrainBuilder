@@ -262,6 +262,11 @@ class RoadProfiles:
     radius_m: float
     ways: tuple[Way, ...]
     axes: dict[int, Way] = _dc.field(default_factory=dict)
+    #: face id -> the ways that ANSWER that face's vertices, with the
+    #: face's own answer radius (:func:`core_profiles`' second return,
+    #: carried on the object so a second reader of the SAME profiles does
+    #: not rebuild them — ``airport/road_ramp.py``, §37 (6))
+    per_face: dict[int, list[tuple[Way, float]]] = _dc.field(default_factory=dict)
     _tree: STRtree | None = _dc.field(default=None, repr=False)
     _lines: list[LineString] = _dc.field(default_factory=list, repr=False)
 
@@ -472,6 +477,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         if aw:
             prof.axes[fid] = aw[0]
             per_face[fid] = [(aw[0], radius)]
+    prof.per_face = per_face
     return prof, per_face
 
 

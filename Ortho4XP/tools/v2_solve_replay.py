@@ -504,10 +504,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         is asked for, never assumed, so an OLD capture and an OLD tree still
         replay."""
         m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
-        for mod, fn in (("taxi_trend", "with_taxi_trend"),
-                        ("apron_trend", "with_apron_trend")):
+        for mod, fn in (("constraints.taxi_trend", "with_taxi_trend"),
+                        ("constraints.apron_trend", "with_apron_trend"),
+                        # §37 (6) LAST: the ramp reads the airside's own
+                        # published target at the mouth and supersedes the
+                        # core's road fit for the vertices it governs
+                        ("airport.road_ramp", "with_road_ramp")):
             try:
-                pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
+                pub = getattr(__import__(f"auto_patch_v2.{mod}",
                                          fromlist=[fn]), fn)
             except (ImportError, AttributeError):
                 continue

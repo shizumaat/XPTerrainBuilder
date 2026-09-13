@@ -221,6 +221,14 @@ class PlanarMap:
     #: them and is absent here.  Its own channel, priced weak
     #: (``[design] apron_trend``), like ``taxi_trend_z``.
     apron_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE GROUNDSIDE ROAD'S RAMP TARGET (owner RULINGS 2026-09-13j item 5,
+    #: ruled 13aj; spec §37 (6), ``constraints/road_ramp.py``): vertex id ->
+    #: ``max(DEM(s), z_contact - road_cap * s)`` along the road's own route
+    #: from its airside contacts.  Its own channel, priced at the DESIGN-
+    #: TARGET weight (``[design] law``) with a HARD ceiling a visual
+    #: threshold above it, and it SUPERSEDES ``preferred_z`` for the
+    #: vertices it governs (which are therefore absent from that mapping).
+    road_ramp_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

@@ -400,6 +400,12 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # this entry still times a src that predates the key
         bind_ground_m=getattr(getattr(law.tables.emit, "cockpit", None),
                               "visual_m", None),
+        # §16e (6): the deck end line's LANDWARD WALK, through the same
+        # dropper — a src predating the rule takes neither key
+        abutment_step_m=getattr(law.tables.structures.bridge,
+                                "abutment_sample_step_m", None),
+        abutment_walk_max_m=getattr(law.tables.structures.bridge,
+                                    "abutment_walk_max_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
         write_cuts=False)
     import inspect

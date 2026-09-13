@@ -58,7 +58,7 @@ from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 
 from ..law import Law
 from ..law.design_schema import BEND_CLASSES
-from ..law.tables import (design as design_law, is_structure_role, is_value_role,
+from ..law.tables import (design as design_law, is_value_role,
                           pavement_roles as _pavement_roles,
                           role_side, zone2_half_width_m, zone_class)
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset,
@@ -70,7 +70,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import DesignReport, foot_row_diagnostic, residual, settled_flip
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
-                   _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
+                   apply_level_belt, _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _violation, _zone_weights)
 
@@ -173,18 +173,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         for ring in (planar.faces[fid].ring, *planar.faces[fid].holes):
             pav.update(planar.ring_vertices(ring))
 
-    # 2. the zone ramp and what lies beyond it (the DEM, fixed).  A road's
-    #    or a structure's vertex is never fixed: it carries its own law far
-    #    from any pavement (08t answers 7 and 8)
-    # the role sets straight from the LAW tables (M0 §1: ``solve`` imports
-    # ``law`` and ``model`` only — never ``constraints``)
-    road_roles = set(law.tables.families["road_cross_section"].roles)
+    # 2. the zone ramp.  NOTHING beyond the ring is fixed (09-09b (3)); a
+    #    road's or a structure's vertex was never fixed either — it carries
+    #    its own law far from any pavement (08t answers 7 and 8).  The
+    #    "free" set that computed and DELETED that answer is gone with it
+    #    (RULINGS 2026-09-13: a refuted mechanism is deleted, not kept).
+    #    The role set is the LAW's own (M0 §1: ``solve`` imports ``law``
+    #    and ``model`` only — never ``constraints``).
     rwy_roles = set(law.tables.precedence.runway_family.members)
-    free_roles = road_roles | {
-        r for r in law.tables.precedence.roles if is_structure_role(law, r)}
-    free = {v for v, vx in planar.vertices.items()
-            if any(planar.faces[f].role in free_roles for f in vx.incident_faces)}
-    del free                       # 09-09b (3): nothing beyond the ring is fixed
     ramp = _zone_weights(planar, law, pav)
     rwy_v = {v for v, vx in planar.vertices.items()
              if any(planar.faces[f].role in rwy_roles for f in vx.incident_faces)}
@@ -445,6 +441,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    this sets the body's level without undulating it), at
     #    ``detached_mean``.  A sheet a pin, a chord or the zone already
     #    anchors keeps its design level untouched.
+    #    (This graph OVERSTATES the objective's — ``rows._sheet_components``.)
     comp = _sheet_components(tris, red)
     rep.components = len(set(comp.values()))
     anchored: set[int] = set()
@@ -616,6 +613,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             if added:
                 meta.append(_BodyDatum(kind=kind, vertices=tuple(vs_b),
                                        dem_mean=mean_dem, rows=added))
+    # 9c. THE LEVEL BELT (RULINGS 2026-09-13, ``v2zerocrater``; spec §23.4):
+    #     a column with no LEVEL solves to the sentinel 0 — KCLT's crater.
+    rep.level_belt_rows = apply_level_belt(planar, rows, body, red, one, d.detached_mean)
     rep.taxi_trend_rows = trend_v
     rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n

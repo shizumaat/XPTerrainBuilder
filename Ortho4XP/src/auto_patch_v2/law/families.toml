@@ -262,6 +262,15 @@ ruling    = "canonical identity (memory canonical-identity-join)"
 solver    = "construction"
 cockpit   = "step"
 
+[sentinel_elevation]
+measures  = "an emitted vertex far below the patch's own ground band"
+parameter = "emit.cockpit.sentinel_drop_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "RULINGS 2026-09-13 (lane v2zerocrater): a sentinel / homogeneous-block 0.0 in the design surface"
+solver    = "construction"
+cockpit   = "sentinel"
+
 [cross_shape]
 measures  = "proximity pairs across shapes vs the stricter cap"
 parameter = "emit.identity.min_distinct_spacing_m"

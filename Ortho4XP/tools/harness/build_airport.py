@@ -218,6 +218,7 @@ and ``arm.py``, ``scratchpad/reltiles/run_release_tile.py`` and
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -2031,12 +2032,31 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     from auto_patch_v2.planar.__main__ import default_inputs   # noqa: E402
     from auto_patch_v2.pipeline.build import Config, build     # noqa: E402
     from auto_patch_v2.law import Law                          # noqa: E402
+    # THE PRISTINE PACK DUMP (RULINGS 2026-09-13, lane ``v2zerocrater``).
+    # v2's read frame is the ``.dsf.anchor_bak`` the object stage moved
+    # aside, and v2 never runs DSFTool itself — ``find_text_dump`` REFUSES
+    # a dump that is not named for that exact file.  The APP's driver
+    # re-dumps it (``auto_patch.engine_v2.fresh_pack_dump``); without the
+    # same call here every harness ``--engine v2`` build of a pack the
+    # object stage has written refuses, which is how KCLT became
+    # unbuildable through the harness on 09-12 while the app built it.
+    # ONE implementation, called from both entries (RULINGS ``7e90032``);
+    # the dump lands in the LANE-LOCAL mod-cache overlay armed above.
+    from auto_patch.engine_v2 import fresh_pack_dump            # noqa: E402
     law_tables = v2_law_tables_digest(root)
     prog.note(f"engine v2: law tables {law_tables['sha256'][:12] if law_tables['sha256'] else None} "
               f"({len(law_tables['files'])} files under {law_tables['dir']})")
     inputs = default_inputs(dem_frame="production",
                             allow_degraded_dem=allow_degraded)
     law = Law.for_airport(icao)
+    # ``dataclasses.is_dataclass``: the v2 twin in ``tests/test_harness.py``
+    # stubs ``default_inputs`` with a dict — there is no pack to dump then.
+    tile = resolve_tile_for(icao, root) if dataclasses.is_dataclass(inputs) else None
+    if tile is not None:
+        dump = fresh_pack_dump(inputs.xplane_root, icao, *tile)
+        if dump:
+            inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
+            prog.note(f"pack DSF dump (pristine read frame): {dump}")
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()

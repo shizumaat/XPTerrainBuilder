@@ -10,6 +10,11 @@ promoted on its second use by lane ``v2chord``).
     venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy]
 
+``--drop-generator`` also takes the pseudo-generator ``eat_ramp_reach``:
+the EAT's §36 (5) trend WITHDRAWAL is a channel edit made before the
+solve, not a row, so it is dropped by name here rather than by row
+filter (``eat_anchor_rect`` drops the pins and their reach together).
+
 ``--capture`` runs load → PACK PARTITION + GROUPS (owner RULINGS
 2026-09-11j; folded in 2026-09-12u after a replay off a capture without
 them silently solved a different problem — no foot rows, no pad relief)
@@ -389,7 +394,17 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         replay."""
         m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
         for mod, fn in (("taxi_trend", "with_taxi_trend"),
-                        ("apron_trend", "with_apron_trend")):
+                        ("apron_trend", "with_apron_trend"),
+                        ("eat", "withdraw_trend_over_reach")):
+            # THE EAT RAMP REACH IS A CHANNEL EDIT, NOT A ROW (spec
+            # §36 (5)): it WITHDRAWS trend targets before the solve, so
+            # ``--drop-generator`` cannot reach it the way it reaches a
+            # generator's rows.  ``eat_anchor_rect`` drops the whole law
+            # (the pins AND their reach — a reach without its pin is not
+            # a state the build can be in); ``eat_ramp_reach`` drops the
+            # withdrawal ALONE, which is the §36 (5) before-arm.
+            if mod == "eat" and ({"eat_anchor_rect", "eat_ramp_reach"} & set(drop)):
+                continue
             try:
                 pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
                                          fromlist=[fn]), fn)

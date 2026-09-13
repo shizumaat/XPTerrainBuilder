@@ -79,6 +79,12 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # apron vertex held by its trend reads "held by bending alone" and the
     # objective table cannot name the ``apron_trend`` term at all.
     pm = with_apron_trend(pm, law, airport)
+    # THE EAT RAMP'S REACH (spec §36 (5)): the pipeline WITHDRAWS both
+    # trend channels over the derived ramp reach before it solves, so
+    # ``why`` must too — otherwise a ramp vertex reads as held by a
+    # ``taxi_trend`` row the build does not have.
+    from ..constraints.eat import withdraw_trend_over_reach
+    pm = withdraw_trend_over_reach(pm, law, airport)
     stage = _dc.replace(stage, pm=pm)
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)

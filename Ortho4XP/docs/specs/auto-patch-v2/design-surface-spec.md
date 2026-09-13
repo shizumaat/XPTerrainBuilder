@@ -6411,6 +6411,162 @@ claiming the fix clears them); cockpit CRITICAL motion ≤ 16 with the two
 grade breaks v2eat introduced named and placed; `eat_ceiling` 0; the five
 other frames unchanged (no rect recognised); suite twice.
 
+
+### §36 (5) **MEASURED** (lane `v2eatramp`, 2026-09-13, branch `claude/v2eatramp`, base `2002c7dc`)
+
+**THE RAMP CAME DOWN BUT DID NOT REACH THE CAP: 3.87 % → 2.13 % worst ramp
+edge, 2.44 % → 1.90 % along the loop's own centreline, against 1.5 %.  The
+loop is 10 % TOO SHORT and the law's own report now says so.**  Every
+offline arm is the SAME capture replayed three ways under this branch —
+`--drop-generator eat_anchor_rect` (no EAT), `--drop-generator
+eat_ramp_reach` (the EAT pins, no reach — today), and the default.
+
+**THE CONSUMER CENSUS** (owner RULINGS 2026-08-30l), ruled before any
+consumer was edited.  The region is "the ground-trend TARGET on the EAT
+loop's vertices" (`PlanarMap.taxi_trend_z` / `apron_trend_z`) and the EAT
+rect that derives the reach:
+
+| # | consumer | what it reads | RULING |
+|---|---|---|---|
+| 1 | `solve/design` §5c (`for vid, target in planar.taxi_trend_z`) | the channel, one row per vertex at `[design] taxi_trend` 30 | **THE ROW THAT YIELDS.**  Withdrawn by ABSENCE from the channel, never by weight: `solve` imports `law` and `model` only (M0 §1), so the derivation cannot live at the row site, and a re-weighting would still TRADE — the trade is what §31 forbids. |
+| 2 | `constraints/apron_trend.taxi_trend_targets` (`taxi_held = set(pm.taxi_trend_z)`) | claims every vertex the taxi trend does NOT hold | **AFFECTED — it yields on the same terms.**  Withdrawing one channel alone hands the same DEM pull straight back at `[design] apron_trend`.  ONE withdrawal, BOTH channels, and it runs AFTER both are published (`pipeline/build`), so neither claim is re-opened by the other's absence.  KCLT: taxi 3,005 → 2,851, apron 7,122 → 7,103. |
+| 3 | `constraints/taxi_trend._face_extension` (the face→chain ownership) | which chain speaks for a face | **SHARED, NOT COPIED.**  Lifted verbatim into `taxi_chains` / `chain_of_face`; the reach reads the loop's centreline in the SAME station frame the trend was fitted along.  Two derivations of "the loop's centreline" would withdraw on one frame and price on another. |
+| 4 | `constraints/eat.eat_pins` | the rect, the pins | UNCHANGED.  The reach is derived from the pins the generator would mint on this very map, so pin and withdrawal cannot disagree; 0.04 s, run twice per build. |
+| 5 | `constraints/eat.withdraw_against_senior` | an EAT pin junior to another authority | REPORTED, not fixed: a pin later withdrawn as junior leaves its reach withdrawn — those vertices are FREE rather than trend-pulled, the conservative direction (nothing is pulled to a ground the senior authority already overruled).  KCLT withdraws 0. |
+| 6 | `constraints/taxi_trend.taxi_trend_block` / `design_report.taxi_trend_rows` | the residual per chain, read from the channel the rows were priced from | CORRECT BY CONSTRUCTION — it reads the FINAL channel, so a withdrawn vertex is neither priced nor reported. |
+| 7 | `pipeline/why` | its own LP | **EDITED** — it publishes the withdrawal in the pipeline's position; without it a ramp vertex reads as held by a `taxi_trend` row the build does not have. |
+| 8 | `tools/v2_solve_replay._targets` | the build's target channels | **EDITED** — third entry, plus the `eat_ramp_reach` pseudo-generator: the withdrawal is a CHANNEL edit made before the solve, so `--drop-generator` cannot reach it by row filter and it is named instead.  That is the before-arm below. |
+| 9 | `[design] hard_rulings` | which heads are hard | **UNTOUCHED**, as §36 (5) requires.  A `Pin` never enters `one`/`eqs`; the taxi cap stays a soft law row at `law` 300. |
+| 10 | the transverse / `no_step` / `taxi_box` rows on the loop's shoulders | pairs whose feet include a withdrawn vertex | UNCHANGED — and they are exactly what carries the shoulders down with the spine (§36 (5)'s own sentence).  The withdrawal covers the chain's own vertices AND every vertex of the faces that chain owns. |
+| 11 | `verify/eat.eat_ceiling`, `emit/osm_adapter` `eat_rects` | the census family | UNAFFECTED — the pins are unchanged; `eat_ceiling` reads 0 in every arm. |
+| 12 | the five other frames | no rect recognised (§36 MEASURED) | UNAFFECTED BY CONSTRUCTION — `withdraw_trend_over_reach` returns the map OBJECT-IDENTICAL when the generator mints no pin; twinned. |
+
+**THE REACH, DERIVED** (`report.load.eat_reach`, KCLT).  All four pinned
+feet sit on ONE loop — breakline chain 4, the 18C end-around, 1,310 m long:
+
+| foot | station on the loop | drop vs the loop's own trend | cap | reach = drop / cap | loop available back / fwd | verdict |
+|---|---|---|---|---|---|---|
+| 2578 | 625.9 m | 10.53 m | 0.015 | **702.1 m** | 625.9 / 683.8 | SHORT — forced 1.54 % |
+| 2579 | 646.5 m | 10.79 m | 0.015 | **719.4 m** | 646.5 / 663.3 | SHORT — forced 1.63 % |
+| 2658 | 626.5 m | 10.54 m | 0.015 | **702.6 m** | 626.5 / 683.3 | SHORT — forced 1.54 % |
+| 3804 | 627.4 m | 10.55 m | 0.015 | **703.4 m** | 627.4 / 682.4 | SHORT — forced 1.55 % |
+
+177 vertices fall inside the reach; 173 of them carried a trend target and
+lost it (154 taxi + 19 apron).  **The whole 32-vertex chain is inside the
+reach** — the loop is saturated, so there is no reach knob left to turn:
+the residual is the loop's own length.
+
+**BAR 1 — every edge on the EAT loop ≤ 1.5 %: MISSED, 2.13 %** (was
+3.87 %).  The six ring edges carrying one pinned foot:
+
+| edge | span | BEFORE | AFTER |
+|---|---|---|---|
+| 3803–3804 | 49.1 m | 3.05 % | **2.13 %** |
+| 2577–2578 | 48.6 m | 2.44 % | **1.90 %** |
+| 2658–2659 | 59.1 m | 2.57 % | **1.84 %** |
+| 2579–2580 | 28.6 m | 3.87 % | **1.58 %** |
+| 3804–3805 | 49.1 m | 2.98 % | **1.58 %** |
+| 2657–2658 | 58.6 m | 2.37 % | **1.13 %** |
+
+Along the loop's OWN centreline the profile is now a clean ramp: the
+forward leg reads a uniform **1.60–1.66 %** over 660 m (before 1.68–3.87 %
+concentrated in the first 100 m and FLAT beyond), the back leg 1.0–1.90 %.
+1.60–1.66 % is the forced grade the table above predicts to within
+0.03 pp, which is the measurement saying the mechanism is the loop's
+length and nothing else.  The 0.4–0.6 pp above that on the ring edges is
+the bending term shaping the last 50 m into the pin; closing it would take
+the taxi cap into `hard_rulings`, which §36 (5) forbids.
+
+**BAR 2 — the crossing 217.26 ± 0.05: MET.**  217.26 m at vertices 2578 /
+2579 / 2658 / 3804 in both arms; the pin holds exactly and `eat_ceiling`
+reads 0 rows on every emitted arm.
+
+**BAR 3 — the hard set SETTLED: MISSED, AND THE BASE IS NOT SETTLED
+EITHER.**  §36's premise ("BEFORE: 0/229,114, HARD SET SETTLED") was
+measured at `ec8723e9`; at this base the NO-EAT arm is already unsettled:
+
+| arm | hard rows violated | max | head |
+|---|---|---|---|
+| no EAT | **6** / 229,114 | 0.0298 m | `structures.building_pad pad_slope_max ceiling` |
+| EAT, no reach (today) | **10** | 0.0376 m | `rulesets.common.pavement_max_grade ceiling` |
+| EAT + reach | **6** | **0.0527 m** | `rulesets.common.pavement_max_grade ceiling` |
+
+**THE `pavement_max_grade ceiling` ROWS, NAMED — AND THEY ARE NOT THE
+RAMP'S NEIGHBOURS.**  Before, 7: (35.211137, −80.943320) 0.0376 ·
+(35.203331, −80.944435) 0.0320 · (35.200779, −80.929775) 0.0305 ·
+(35.199878, −80.932049) 0.0215 · (35.203610, −80.944303) 0.0213 ·
+(35.203236, −80.944084) 0.0201 · (35.216423, −80.941529) 0.0201.  After,
+4: (35.203813, −80.944457) 0.0527 · (35.220723, −80.951458) 0.0365 ·
+(35.203854, −80.944205) 0.0241 · (35.200747, −80.929858) 0.0207.  **Not
+one touches an EAT pin; not one lies inside the reach**; the nearest is
+1.2 km from the crossing (35.2313, −80.9536) and the rest 2–3 km, on the
+terminal aprons.  So the reach did not clear them and did not cause them:
+the count returns to the no-EAT arm's 6 and the worst row rises 0.0376 →
+0.0527 m at a site the EAT never touches.  Reported, not claimed.
+
+**BAR 4 — the census** (`tools/harness/census.py`, all three arms
+replay-emitted from the one capture):
+
+| | no EAT | EAT, no reach | EAT + reach |
+|---|---|---|---|
+| LAW-TRUE TOTAL | 12,217 | 12,887 | **12,196** |
+| ADJUDICATED | 4,314 (airside 4,171) | 4,550 (airside 4,405) | **4,351** (airside 4,208) |
+| `within_shape` | — | 9,728 | **9,158** |
+| `airside_no_step` | — | 777 | **681** |
+| `taxi_box` | — | 341 | **325** |
+| `transverse` | — | 83 | **78** |
+| `eat_ceiling` | 0 | 0 | **0** |
+| worst `within_shape` grade | — | 2.49 % | **1.99 %** |
+
+The reach gives back 691 law-true rows and 199 adjudicated of the 670 /
+236 the EAT cost — the +828 §36 booked at `ec8723e9` is now +670, and
+after the reach the LAW-TRUE total is 21 rows BELOW the no-EAT arm.  The
+worst ten within-shape rows are the loop's own `cross_connector` pairs,
+2.10–2.49 % before, 1.69–1.99 % after.
+
+**BAR 5 — cockpit CRITICAL motion ≤ 16: MISSED, 18** (no EAT 14, EAT
+without the reach 17).  CRITICAL visual 0 in all three.  Every one of the
+four added rows is the SAME family and the same reason: `strip_arc`
+grade BREAKs (the graded strip's longitudinal grade-CHANGE rate) — 2 → 5
+→ 6, `step_on_pavement` 7 and `cliff` 5 unmoved in all three arms.  The
+row the reach adds is `strip_arc [stub|stub]` **1.170 m over 42.99 m at
+35.2176625, −80.9517824**, at the loop's far end where the ramp now runs
+out; the three v2eat added sit on the same strip.  The strip beside the
+EAT loop follows the ramp and its arc rate is read where the ramp starts
+and stops.  **Named and placed, not fixed**: the strip's arc law is §23's
+and the ramp is now the smoothest it can be on this loop.
+
+**THE FIVE OTHER FRAMES: UNCHANGED, BY CONSTRUCTION.**  The withdrawal is
+gated on `eat_pins` minting a row; §36 MEASURED recognised no rect at
+CYXY, HECA, SPJC, OTHH or LEMD and that code is untouched, so
+`withdraw_trend_over_reach` returns the same PlanarMap OBJECT there
+(twinned: `test_an_airport_with_no_eat_is_returned_unchanged`).
+
+**Suite**: 1,192 passed / 1 skipped, twice.
+
+#### The instrument, and what it cost this lane
+
+`v2_solve_replay --capture KCLT` RUNS on this base (the harness's own
+engine-cache redirect handed to `default_inputs`, lane `v2eat`'s driver),
+but the capture it writes is then **REFUSED BY ITS OWN FRESHNESS
+PREDICATE** — and correctly, given what the predicate says.  At this base
+`planar/group.derive` returns **0 groups** for KCLT where `ec8723e9`
+returned 7,007, off an IDENTICAL partition (bodies 7,163, abutment pairs
+5,054, units 60).  Attributed: **all 106 of KCLT's pack members now carry
+a non-`None` `Member.plate_y`** (0 did at `ec8723e9`), and
+`planar/group._eligible` reads `plate_y is not None` as "another law
+already governs this body" — so every body is refused ineligible, and with
+it the whole group pad law (1,261 relief bodies, 1,032 infeasible verdicts
+→ 0).  `capture_has_groups` requires a NON-EMPTY group set, so the
+capture is refused as if it were stale.  **This lane did not touch either**
+— the predicate's twin (`test_v2padceiling.py`, `_B`) asserts the empty
+case is refused, which is another lane's ruled law, and the `plate_y`
+change is §16d/§16e's ground.  It is reported as an owner item.  The arms
+above therefore replay lane `v2eat`'s capture (`ec8723e9`'s planar map)
+under THIS branch's code: all three arms are one capture, one tree, one
+code version, so the intervention is single-frame; the absolute figures
+carry that map's provenance and the closing build carries this base's.
+
 ### §37 (5) THE SECOND MECHANISM UNDER THE EAST ROAD (Fable 2026-09-13; RULINGS 2026-09-13ab) — lane `v2roadcap2`
 
 Scout `v2roadcapkclt` on main 064e244e: §37 (1) moved `dsf:pol51` 0.94 m

@@ -7317,3 +7317,28 @@ no row at 40.5331907, −3.5748496 and none at F-6 (40.4609964 …
 2: 671); item 8's 1.63 m row absent; item 9's deck end ≤ 0.3 (round 2:
 0.18); `optimal`; 7a / 7b ramp bars hold; KCLT item 3 by replay unchanged;
 suite twice.
+
+### §37 (6) AMENDED (decks out), §37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (Fable 2026-09-13; RULINGS 2026-09-13av) — lane `v2roadramp` round 2
+
+Lane v2roadramp (4172e698): the ramp works (KCLT `dsf:pol51` follow 0.29 →
+0.86) but the census regressed 3,900 → 7,622: `road_within_shape` (8 % × a
+45.6 m PLAN chord) and `road_cross_section` (2 % × 44.2 m) hold a hairpin's
+upper branch to the lower branch's ceiling — the two branches are 280 m apart
+along the road.
+
+- **§37 (6) amended:** a `bridge_deck:*` face is OUT of the ramp population —
+  its datum is §33 (4) (the deck end equals the pavement it connects to).
+7. **A ROAD PAIR IS PRICED ALONG THE ROUTE.** The road's longitudinal rows
+   (the 8 % cap, `road_within_shape`) pair vertices by ROUTE distance along
+   the road's own centreline, never by plan chord (09-05aa's withdrawn chord;
+   §34 (1)'s route-priced ramp). A cross-section pair is a pair ACROSS the
+   road's width at ONE station; `road_cross_section` prices only those. Two
+   branches of one road within a road width in plan (a switchback) are not a
+   pair; the ground between them is adjacent ground (§19 / §31, terraced,
+   visual only).
+
+BARS (round 2, ONE KCLT build against the shared control `ctl-KCLT`):
+`road_cross_section` 1,691 → ≤ 310; adjudicated ≤ 3,900; the ten worst pairs
+named route-followable or transverse; `dsf:pol51` follow ≥ 0.85 holds;
+`dsf:pol82` ≤ 0.5 m (today 0.80); cockpit CRITICAL motion ≤ 8, no road row;
+LEMD / CYXY dry re-read; suite twice.

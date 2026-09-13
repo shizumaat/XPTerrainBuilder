@@ -127,6 +127,15 @@ ruling    = "2026-08-01"
 solver    = "band"
 cockpit   = "step"
 
+[adjacent_ground_step]
+measures  = "a WELDED step INSIDE one adjacent_ground face (spec §34 (4)): consecutive ring neighbours of the SAME v2 adjacent-ground way whose altitudes differ by more than the cockpit's visual threshold. graded_strip carries no within-shape cap, adjacent_ground_tear fires only under a 1 m edge and strip_seam_tear is the CROSS-shape twin, so a band holding its designed level over a mapped road's own ground (LEMD zone2#2, 1.73 m over 1.5 m at road -6289) was priced by nothing"
+parameter = "emit.cockpit.visual_m"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "2026-09-13i item 8 (spec §34 (4))"
+solver    = "construction"
+cockpit   = "step"
+
 [strip_seam_tear]
 measures  = "an adjacent-ground strip seam tear (wall straddle exempt)"
 parameter = "zones.adjacent_ground.lip_width_m"

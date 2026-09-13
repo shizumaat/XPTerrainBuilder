@@ -394,6 +394,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"not screened, thin plates {ts.plates}, merged {ts.merged}, "
              f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
              f"crest from approach {len(ss.crest_from_approach)}  "
+             f"underpasses {len(ss.underpasses)}  "
              f"door ramps {ss.door_ramps}  sunken roads "
              f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
              f"decks {ss.decks}  "
@@ -407,9 +408,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  f"{', '.join(ss.mouth_only_bores)}", out)
         for r in ss.plate_mouths:
             _say(f"    {r}", out)
-        for r in ss.crest_from_approach:
-            _say(f"    {r}", out)
-        for r in ss.plate_mouths:
+        for r in ss.underpasses:
             _say(f"    {r}", out)
         for r in ss.crest_from_approach:
             _say(f"    {r}", out)

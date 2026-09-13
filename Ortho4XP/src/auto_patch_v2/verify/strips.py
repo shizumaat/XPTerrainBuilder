@@ -375,6 +375,43 @@ def adjacent_ground_tear(p: Patch) -> list[Row]:
     return out
 
 
+def adjacent_ground_step(p: Patch) -> list[Row]:
+    """THE WITHIN-FACE WELDED STEP (spec §34 (4); lane ``v2rampwalk``) —
+    the lockstep twin of ``check_grade._check_adjacent_ground_steps``: a
+    consecutive pair of ONE adjacent-ground ring over the cockpit's
+    visual threshold AND over its cliff grade (a cut, never a drape)."""
+    ck = _cockpit(p)
+    if ck is None:
+        return []
+    step_m, cliff = ck
+    out: list[Row] = []
+    for sh in _strips(p):
+        n = len(sh.ids)
+        for i in range(n):
+            j = (i + 1) % n
+            (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
+            d = math.hypot(xb - xa, yb - ya)
+            de = abs(sh.z[i] - sh.z[j])
+            if de <= step_m:
+                continue
+            g = de / d if d > 1e-9 else float("inf")
+            if g <= cliff:
+                continue
+            out.append(row("adjacent_ground_step", ("graded_strip",) * 2,
+                           p.side("graded_strip"), de, 100 * g, None, d,
+                           sh.xy[i], sh.xy[j], sh.key, sh.key))
+    return out
+
+
+def _cockpit(p: Patch):
+    """``(visual_m, cliff_grade)`` from the patch's own law tables."""
+    law = getattr(p, "law", None)
+    if law is None:
+        return None
+    from ..law import tables as _T
+    return float(_T.cockpit(law).visual_m), float(_T.cliff_grade(law))
+
+
 def strip_seam_tear(p: Patch) -> list[Row]:
     strips = _strips(p)
     pts: list[tuple[float, float, float, int, int]] = []

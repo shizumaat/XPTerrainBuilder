@@ -33,6 +33,20 @@ max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade
 # neighbour -15331 at 33.3), and a genuine road bend at a way boundary
 # (a T on a service loop) stays under 60.
 approach_turn_max_deg = 60.0
+# A BRIDGE STATES THE CROSSING (spec §34 (5); Fable 2026-09-13i, RULINGS
+# 2026-09-13i item 1 / 2026-09-13q item 3).  An `aeroway=*` way tagged
+# `bridge=yes` at this layer or above is a taxiway ON A STRUCTURE: the road
+# under its deck ribbon is in a CUTTING whether or not OSM tags it
+# `tunnel` — neither measured case does (LEMD taxiway F-6 way -1230 over
+# service roads -5820/-5821; KCLT taxiway U way -1560 over untagged
+# tertiary roads) — and is bored, with mouths and ramps where it leaves the
+# footprint.  layer >= 1 is OSM's own statement that the aeroway is above
+# what it crosses; layer 0 (or absent) is a bridge over water or a gap and
+# states no road crossing.  The span floor keeps a road merely CLIPPING a
+# deck corner from minting a bore: 6 m is under one carriageway width
+# (lane_width_m x default_lanes = 7.0), so any real crossing clears it.
+underpass_min_layer   = 1
+underpass_min_span_m  = 6.0
 
 [tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
 source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before

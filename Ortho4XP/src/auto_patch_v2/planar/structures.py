@@ -105,6 +105,8 @@ from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
+from .structure_underpass import underpass_bores as _underpass_bores, approach_along
+from .structure_stats import StructureStats
 from .structure_geometry import (beyond_strip, corner_distance, geometry,
                                  pad_hit as _pad_hit)
 
@@ -118,65 +120,6 @@ NODE_TOL = 0.05
 MAX_HOPS = 6
 #: Two directions within 30° are parallel (31h's dual test; the approach kink test).
 PARALLEL_COS = math.cos(math.radians(30))
-
-
-@_dc.dataclass
-class StructureStats:
-    """What the structure pass found, made and refused."""
-
-    bores: int = 0
-    #: spec §29 (2): bores with NO mouth on the field — nothing is built for
-    #: them (the old ``bores_uncovered``, whose test was the bore's cover).
-    bores_no_mouth: int = 0
-    #: spec §29 (2) (owner 2026-09-12ab, "Build them"): bores BUILT on an
-    #: on-field mouth alone — they pass under no classified cell, so the
-    #: retired cover test refused them.  Counted and named so the
-    #: population the owner ruled in stays visible without a rebuild.
-    bores_mouth_only: int = 0
-    mouth_only_bores: list[str] = _dc.field(default_factory=list)
-    mouths: int = 0
-    #: spec §29 (1): mapped ends DROPPED for standing off the field —
-    #: neither the mouth point nor its ramp reach inside the classified
-    #: cover (with the roofed corridors) ⊕ ``[tunnel] mouth_standoff_m``.
-    mouths_off_field: int = 0
-    #: the NEAREST of those, reported under the structures line so a drop
-    #: at the margin is visible without a rebuild.
-    mouths_off_field_nearest: list[str] = _dc.field(default_factory=list)
-    #: §29 (1) / §31 (2) (RULINGS 2026-09-12al): mouths held by THE
-    #: APPROACH CORRIDOR alone — off the cover, in view on a runway end's
-    #: extended centreline — counted apart from the on-field ones, and
-    #: the corridor count the gate ran with (2 per runway, 0 = none).
-    mouths_on_approach: int = 0
-    mouths_on_approach_named: list[str] = _dc.field(default_factory=list)
-    approach_corridors: int = 0
-    duals_merged: int = 0
-    tunnels: int = 0
-    decks: int = 0
-    object_decks: int = 0
-    #: RULINGS 2026-09-06f: pavement cells (``bridge.pavement_deck_families``)
-    #: spanning an object corridor, kept as decks over the ramp.
-    pavement_decks: int = 0
-    refused: list[str] = _dc.field(default_factory=list)
-    cells_cut: int = 0
-    #: RULINGS 2026-09-05k-1 / 05n-3: object corridors built, the OSM bores
-    #: replaced (both mouths inside an object), the mouths taken, and the
-    #: per-bore precedence record.
-    object_corridors: int = 0
-    bores_replaced_by_object: int = 0
-    mouths_replaced_by_object: int = 0
-    bore_precedence: list[str] = _dc.field(default_factory=list)
-    #: RULINGS 2026-09-08b/c: door ramps and sunken roads built through
-    #: the same machinery (``planar/door_ramps.py`` groups).
-    door_ramps: int = 0
-    sunken_roads: int = 0
-    #: RULINGS 2026-09-08m/08n Law C: kerb-wall corridors built
-    wall_corridors: int = 0
-    #: spec §33 (2): the mouths a THIN-PLATE wall object took, one line each
-    #: (``airport/thin_plates``; ``planar/structure_approach.apply_plates``).
-    plate_mouths: list[str] = _dc.field(default_factory=list)
-    #: spec §33 (3): mouths whose crest was capped at the approach's ground
-    #: (the DEM sample stood on an overbridge embankment).
-    crest_from_approach: list[str] = _dc.field(default_factory=list)
 
 
 def _dem(airport: Airport, p: XY) -> float:
@@ -224,10 +167,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups = list(extra_groups)
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
-    if (not tunnel_ways and not corridors and not extra_groups) or not classification.cells:
-        return classification, (), stats
     cells = list(classification.cells)
     polys = [Polygon(c.ring, c.holes) for c in cells]
+    # A BRIDGE STATES THE CROSSING (spec §34 (5)): an aeroway bridge over a
+    # road seeds a bore the OSM data never tagged (``underpass_bores``).
+    up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
+    tunnel_ways += up_ways
+    if (not tunnel_ways and not corridors and not extra_groups) or not classification.cells:
+        return classification, (), stats
     cell_tree = STRtree(polys) if polys else None
     bores = chains(tunnel_ways) if tunnel_ways else []
     stats.bores = len(bores)
@@ -249,6 +196,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.approach_corridors = len(on_field.corridor or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
+    for m in mouth_list if up_parents else ():
+        par = next((up_parents[id(w)] for w in m.bore.ways if id(w) in up_parents), None)
+        if par is not None:                  # §34 (5): the ramp follows the road
+            m.approach = approach_along(par, m.xy, m.inward, reach)
     # THE PACK'S WALL OBJECTS GOVERN THE MOUTH (spec §33 (2)): a mouth
     # inside a thin plate spanning its bore moves to the object's end and
     # takes the object's width, before anything is reported or built.

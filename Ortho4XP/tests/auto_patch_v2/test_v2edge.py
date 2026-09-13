@@ -120,16 +120,27 @@ def test_plateau_ends_at_the_crest(law):
 
 def test_rim_road_ends_the_region_at_its_outer_edge(law):
     """The same plateau with a road at ``x = 92 − 50 = 42`` running along
-    the crest: the region ends FLUSH at the road's OUTER edge (the lane
-    half-width plus the groundside cut-back every road receives), NOT at
-    the crest — the road keeps its own profile beyond it (§19.2 (2))."""
+    the crest: the region ends AT THE ROAD, NOT at the crest — the road
+    keeps its own profile beyond it (§19.2 (2)).
+
+    AMENDED by spec §34 (4) (Fable 2026-09-13i, lane ``v2rampwalk``): the
+    road's own RIBBON is now subtracted at the zone derivation site
+    WHETHER OR NOT the classifier gave it a cell, so the region ends at
+    the road's INNER edge (its half-width plus the groundside cut-back
+    the band already stands off every road) rather than its outer one.
+    §19.2 (2)'s "flush at the OUTER edge" was written for a road that has
+    a CELL — in that case the cell ⊕ cut-back is subtracted anyway and the
+    outer edge only says "nothing beyond".  A cell-less road (LEMD −6289)
+    read literally left the band holding its designed level right over the
+    road's own ground: 1.73 m over 1.5 m, priced by no family.  Both
+    barriers still stand, so nothing survives beyond the road either."""
     half = (law.tables.emit.road_profile.lane_width_m
             + law.tables.zones.adjacent_ground.groundside_cutback_m)
     road = LineString([(42.0, -600.0), (42.0, 600.0)])
     rep = EdgeReport()
     over = _regions(law, _Dem(drop=20.0), (road,), rep)
     assert rep.roads_governing >= 1 and rep.trimmed_road >= 1
-    assert _outer(over) == pytest.approx(42.0 + half, abs=law.tables.emit
+    assert _outer(over) == pytest.approx(42.0 - half, abs=law.tables.emit
                                          .road_profile.lane_width_m)
     cut = [r for r in over if r.edge_kind != "none"]
     assert cut and all(r.edge_kind == "road" for r in cut)

@@ -285,6 +285,11 @@ class Tunnel:
     #: spec §34 (2): the largest turn the approach walk may take at a
     #: node it HOPS across (a way's own nodes are never a hop).
     approach_turn_max_deg: float
+    #: spec §34 (5): an ``aeroway`` ``bridge=yes`` way at or above this
+    #: ``layer`` states a crossing; a road under its deck ribbon for at
+    #: least ``underpass_min_span_m`` is bored.
+    underpass_min_layer: int
+    underpass_min_span_m: float
     object: TunnelObject
 
 

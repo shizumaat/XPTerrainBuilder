@@ -315,15 +315,7 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
         rep.roads_governing += n_runs
         if relief:
             # the road REPLACES the crest it runs along (rule 2)
-            rel = unary_union(relief)
-            crest = crest.difference(rel)
-            # ...and a GOVERNING run keeps §19.2 (2)'s reading over §34 (4)'s:
-            # the band ends FLUSH at that road's OUTER edge, so its ribbon is
-            # not also a barrier at the inner edge (which would cut the band
-            # one carriageway short of the ruled line).  §34 (4)'s ribbon
-            # governs every OTHER mapped road — the ones that cross the band
-            # or run too short to be a rim road.
-            ribs = ribs.difference(rel)
+            crest = crest.difference(unary_union(relief))
         barrier = unary_union([crest, *rings, ribs])
         if barrier.is_empty:
             kept_parts.append(part)

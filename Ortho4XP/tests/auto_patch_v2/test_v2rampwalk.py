@@ -166,7 +166,9 @@ def test_a_ways_own_nodes_are_never_a_hop(law):
 # ── (5) a bridge states the crossing ─────────────────────────────────────
 
 def _underpass_ways(layer="1", aeroway="taxiway"):
-    tags = {"aeroway": aeroway, "bridge": "yes"}
+    # a REAL taxiway bridge's width: the lanes fallback (2 x 3.5) is a third
+    # of one and, less the rim stand-off, clips to nothing
+    tags = {"aeroway": aeroway, "bridge": "yes", "width": "23"}
     if layer is not None:
         tags["layer"] = layer
     deck = OsmWay(-10, "airport", ((-40.0, 0.0), (40.0, 0.0)), False, tags)
@@ -186,8 +188,16 @@ def test_an_aeroway_bridge_over_a_road_seeds_a_bore(law):
     sw = ways[0]
     assert sw.id == -11 and sw.tags["tunnel"] == "yes"
     assert sw.tags[_su.UNDERPASS_TAG] == "-10"
+    # the clip is the deck's half-width LESS the rim stand-off and one
+    # identity step (spec §34 (5) as amended, RULINGS 2026-09-13ai): the
+    # mouth stands INSIDE the taxi cell so the corridor's end cap — the rim
+    # — lands on the deck and takes its solved surface, never DEM(mouth)
+    tn = law.tables.structures.tunnel
     half = _sa.carriageway_width_m(deck.tags, law) / 2.0
-    assert LineString(sw.points).length == pytest.approx(2.0 * half, abs=0.2)
+    grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+    half_clip = max(grid, half - (tn.wall_gap_m + tn.wall_band_width_m) - grid)
+    assert LineString(sw.points).length == pytest.approx(2.0 * half_clip, abs=0.2)
+    assert half_clip < half
     assert notes and "underpass taxiway -10" in notes[0]
     # the PARENT line is the whole road: the ramp follows it, not a
     # straight extension from a node that does not exist
@@ -208,8 +218,10 @@ def test_layer_zero_and_a_clip_state_no_crossing(law):
     # a road grazing the ribbon's very end: under the span floor
     deck, _r = _underpass_ways()
     half = _sa.carriageway_width_m(deck.tags, law) / 2.0
+    grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+    hc = max(grid, half - (tn.wall_gap_m + tn.wall_band_width_m) - grid)
     graze = OsmWay(-12, "big_roads",
-                   ((40.0 + half - 1.0, -50.0), (40.0 + half - 1.0, 50.0)),
+                   ((40.0 + hc - 1.0, -50.0), (40.0 + hc - 1.0, 50.0)),
                    False, TAGS_R)
     a2 = _airport(law, ways=[deck, graze])
     got = _su.underpass_bores(a2, law, [], [])[0]

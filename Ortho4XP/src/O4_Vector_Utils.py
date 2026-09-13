@@ -1,4 +1,5 @@
 import ctypes
+import os
 from math import ceil, sqrt, atan2
 import numpy
 from shapely import geometry, affinity
@@ -194,6 +195,30 @@ class Vector_Map:
         self.ebbox.insert(edge_id, self.bbox_from_node_ids(nodeid0, nodeid1))
         return
 
+    #: §39 (i) (owner RULINGS 2026-09-13bu): the metric radius the edge
+    #: split test and the post-snap weld both run at.  Defaults to the
+    #: DEGENERATE floor, not to ``emit.identity.min_distinct_spacing_m``
+    #: (0.5 m): welding every constrained node pair half a metre apart
+    #: would fuse ordinary OSM geometry (KCLT carries 2,245 constrained
+    #: segments under 0.5 m and only 28 under 10 mm).  An assumption, and
+    #: a DEVIATION from the ruling's letter, recorded as one.
+    weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.010"))
+
+    def _near_endpoint(self, c_x, c_y, ids):
+        """The nearest of ``ids`` to ``(c_x, c_y)`` within
+        :attr:`weld_spacing_m`, or ``None``.  Metres, at the tile's own
+        latitude scale — the whole point of §39 (i) is that the old test
+        was dimensionless."""
+        m_lat = GEO.lat_to_m
+        m_lon = GEO.lon_to_m(self.nodes_dico[ids[0]][1] + 0.5)
+        best = None
+        for nid in ids:
+            x, y = self.nodes_dico[nid]
+            d = sqrt(((x - c_x) * m_lon) ** 2 + ((y - c_y) * m_lat) ** 2)
+            if d <= self.weld_spacing_m and (best is None or d < best[0]):
+                best = (d, nid)
+        return None if best is None else best[1]
+
     def insert_edge(self, id0, id1, marker, check=True):
         if not check:
             self.create_edge(id0, id1, marker)
@@ -242,13 +267,40 @@ class Vector_Map:
                 continue
             if len(coeffs) == 2:  # transverse encroachment
                 (alpha, beta) = coeffs
-                if beta not in (0, 1):
-                    c_x = (1 - alpha) * self.nodes_dico[id0][
-                        0
-                    ] + alpha * self.nodes_dico[id1][0]
-                    c_y = (1 - alpha) * self.nodes_dico[id0][
-                        1
-                    ] + alpha * self.nodes_dico[id1][1]
+                c_x = (1 - alpha) * self.nodes_dico[id0][0] \
+                    + alpha * self.nodes_dico[id1][0]
+                c_y = (1 - alpha) * self.nodes_dico[id0][1] \
+                    + alpha * self.nodes_dico[id1][1]
+                # §39 (i) THE SPLIT TEST IS METRIC (owner RULINGS
+                # 2026-09-13bu).  ``are_encroached``'s ``eps`` is
+                # DIMENSIONLESS (1e-8), so a crossing 1 micrometre from a
+                # 20 m edge's endpoint reads as "interior" and this minted a
+                # node there — KCLT: the tile's water edge crossed patch node
+                # n11592 2.7913 mm away, was split, and the 2.7913 mm
+                # constrained WATER segment that left carried 481,602
+                # triangles under 0.1 m^2.  A crossing within
+                # ``weld_spacing_m`` of ANY of the four endpoints IS that
+                # endpoint: no node is minted and no sub-spacing segment can
+                # be born.
+                near = self._near_endpoint(c_x, c_y, (id0, id1, id2, id3))
+                if near in (id2, id3):
+                    # the crossing IS one of the old edge's own endpoints:
+                    # nothing to split, nothing to mint
+                    c_id = near
+                elif near is not None:
+                    # the crossing is at one of the NEW edge's endpoints —
+                    # split the old edge THERE and share that node, so the
+                    # arrangement stays planar and no sub-spacing segment is
+                    # born (this is KCLT's cure)
+                    c_id = near
+                    del self.dico_edges[(id2, id3)]
+                    del self.edges_dico[edge_id]
+                    del self.data_edges[edge_id]
+                    self.ebbox.delete(edge_id,
+                                      self.bbox_from_node_ids(id2, id3))
+                    self.create_edge(id2, c_id, c_marker)
+                    self.create_edge(c_id, id3, c_marker)
+                elif beta not in (0, 1):
                     # ! important to rely on the old id2 id3 for the z value !
                     c_z = (1 - beta) * self.data_nodes[
                         id2
@@ -592,6 +644,111 @@ class Vector_Map:
                 if UI.red_flag:
                     return 0
         return 1
+
+    #: §39 (i) THE VECTOR MAP IS THE LAST SITE (owner RULINGS 2026-09-13bu).
+    #: Marker bits that make a node SENIOR: it is a datum other geometry
+    #: welds ONTO, never away from ("water is a datum", 09m).
+    _WELD_SENIOR_BITS = (2 | 4 | 1)          # SEA | SEA_EQUIV | WATER
+
+    def weld_hairlines(self, radius_m, lat, *, report=None):
+        """§39 (i) (owner RULINGS 2026-09-13bu): WELD every constrained node
+        pair inside ``radius_m`` onto the SENIOR node and drop the degenerate
+        segment.  Run AFTER :meth:`snap_to_grid`, which is a 1e-9 deg = 0.11
+        mm grid — finer than the mismatch it has to remove.
+
+        WHY HERE.  KCLT: patch node −23317 of ``bank:51`` entered as n11592,
+        the tile's OSM WATER edge passed 2.7913 mm away, :meth:`insert_edge`
+        split that edge and minted n849288 — a 2.7913 mm constrained WATER
+        segment, and 481,602 triangles under 0.1 m² off it (723,015 at the
+        second site, 0.2401 mm).  Whatever pass laid the two nodes that
+        close, they are ONE node as far as any mesher is concerned, and this
+        is the one place every pass's output has already arrived.
+
+        THE SENIOR NODE keeps its coordinate: a node on the tile's OUTER
+        boundary first (Triangle4XP's ``-Y`` may not move it at all), then
+        one carrying a water bit, then the lower id — so a bank foot welds
+        onto the shore and never the shore onto the bank.
+
+        Returns the number of nodes welded away.  ``radius_m`` is a
+        REPORTING/repair threshold and an assumption, never a law.
+        """
+        from scipy.spatial import cKDTree
+        m_lat = GEO.lat_to_m
+        m_lon = GEO.lon_to_m(lat + 0.5)
+        ids = sorted(self.nodes_dico)
+        if len(ids) < 2:
+            return 0
+        pts = numpy.array([(self.nodes_dico[i][0] * m_lon,
+                            self.nodes_dico[i][1] * m_lat) for i in ids])
+        pairs = cKDTree(pts).query_pairs(radius_m, output_type="ndarray")
+        if len(pairs) == 0:
+            return 0
+        bits = {}
+        for (n0, n1), edge_id in self.dico_edges.items():
+            mk = self.data_edges[edge_id]
+            bits[n0] = bits.get(n0, 0) | mk
+            bits[n1] = bits.get(n1, 0) | mk
+
+        def rank(nid):
+            x, y = self.nodes_dico[nid]
+            on_border = (min(abs(x), abs(x - 1.0)) < 1.0e-9
+                         or min(abs(y), abs(y - 1.0)) < 1.0e-9)
+            return (0 if on_border else 1,
+                    0 if bits.get(nid, 0) & self._WELD_SENIOR_BITS else 1,
+                    nid)
+
+        parent = {}
+
+        def find(x):
+            while parent.get(x, x) != x:
+                parent[x] = parent.get(parent[x], parent[x])
+                x = parent[x]
+            return x
+
+        for i, j in pairs:
+            a, b = find(ids[int(i)]), find(ids[int(j)])
+            if a == b:
+                continue
+            keep, drop = (a, b) if rank(a) <= rank(b) else (b, a)
+            parent[drop] = keep
+        remap = {nid: find(nid) for nid in ids}
+        welded = sum(1 for nid, tgt in remap.items() if tgt != nid)
+        if not welded:
+            return 0
+        for nid, tgt in remap.items():
+            if tgt != nid:
+                key = self.nodes_dico[nid]
+                if self.dico_nodes.get(key) == nid:
+                    del self.dico_nodes[key]
+                del self.nodes_dico[nid]
+                del self.data_nodes[nid]
+        dico_edges, edges_dico, data_edges = {}, {}, {}
+        next_edge_id = 1
+        dropped = 0
+        for (n0, n1), edge_id in self.dico_edges.items():
+            a, b = remap[n0], remap[n1]
+            if a == b:
+                dropped += 1
+                continue
+            marker = self.data_edges[edge_id]
+            if (a, b) in dico_edges:
+                data_edges[dico_edges[(a, b)]] |= marker
+            elif (b, a) in dico_edges:
+                data_edges[dico_edges[(b, a)]] |= marker
+            else:
+                dico_edges[(a, b)] = next_edge_id
+                edges_dico[next_edge_id] = (a, b)
+                data_edges[next_edge_id] = marker
+                next_edge_id += 1
+        self.dico_edges, self.edges_dico, self.data_edges = (
+            dico_edges, edges_dico, data_edges)
+        if report is not None:
+            report.update({"welded": welded, "degenerate_edges": dropped,
+                           "radius_m": radius_m})
+        UI.vprint(1, f"   Hairline weld (§39 (i)): {welded} constrained "
+                     f"node(s) inside {radius_m * 1000:g} mm welded onto the "
+                     f"senior node, {dropped} degenerate segment(s) dropped.")
+        return welded
 
     def snap_to_grid(self, digits):
         next_node_id = 1

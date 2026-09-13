@@ -75,28 +75,77 @@ class _Tile:
 
 
 def test_the_lemd_hairline_is_unmeshable(tmp_path):
+    """LEMD 13bk: a patch ring segment 0.0595 mm from a 74.6 m water edge.
+    THE SUBJECT IS THE VERTEX (13bt (1')): the reading is ``vertex_edges``."""
     prefix = _lemd_pair(tmp_path, "lemd", 0.0000595)
-    rows = MESH.hairline_pairs(prefix + ".poly", TILE_LAT)
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["gap_m"] == pytest.approx(0.0000595, rel=0.05)
-    assert row["angle_deg"] < 1.0e-6
-    assert row["slenderness"] > 1.0e5
-    assert MESH.hairline_refusals(rows) == rows
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    rows = f["vertex_edges"]
+    assert rows and rows[0]["gap_m"] == pytest.approx(0.0000595, rel=0.05)
+    assert rows[0]["slenderness"] > 1.0e5
+    assert MESH.hairline_refusals(f)
 
 
 def test_an_ordinary_neighbouring_ring_is_reported_not_refused(tmp_path):
     """LEMD's own patch carries 367 pairs 0.12-0.50 m apart between
     neighbouring rings.  They are the layout, not a hairline."""
     prefix = _lemd_pair(tmp_path, "ordinary", 0.30)
-    rows = MESH.hairline_pairs(prefix + ".poly", TILE_LAT)
-    assert len(rows) == 1 and rows[0]["gap_m"] == pytest.approx(0.30, rel=0.05)
-    assert MESH.hairline_refusals(rows) == []
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    assert f["vertex_edges"], "the pair must still be REPORTED"
+    assert f["vertex_edges"][0]["gap_m"] == pytest.approx(0.30, rel=0.05)
+    assert MESH.hairline_refusals(f) == []
 
 
 def test_a_pair_beyond_the_spacing_is_not_a_pair_at_all(tmp_path):
     prefix = _lemd_pair(tmp_path, "clear", 1.20)
-    assert MESH.hairline_pairs(prefix + ".poly", TILE_LAT) == []
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    assert all(v == [] for v in f.values())
+
+
+def test_the_vmmc_bent_chord_is_unmeshable(tmp_path):
+    """VMMC 13bt: the bank legs a->m->b SHARE BOTH ENDPOINTS with the OSM
+    sea chord a->b, so every non-adjacent pair test and every parallel
+    test is blind to them.  m stands 0.0124-0.0497 mm off a 22.2 m chord."""
+    off = 0.0000497
+    ax, ay = 0.4543258, 0.4764778
+    bx, by = ax + _dlon(22.2), ay
+    mx, my = ax + _dlon(11.1), ay + _dlat(off)
+    prefix = _write(tmp_path, "vmmc", [(ax, ay), (bx, by), (mx, my)],
+                    [(1, 2, 2), (1, 3, 0), (3, 2, 0)])
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    bent = f["bent_chords"]
+    assert bent, "the degenerate triple must be found"
+    assert bent[0]["gap_m"] == pytest.approx(off, rel=0.05)
+    assert bent[0]["chord_m"] == pytest.approx(22.2, rel=0.02)
+    assert any(r["kind"] == "bent_chords" for r in MESH.hairline_refusals(f))
+
+
+def test_the_kclt_short_water_segment_is_unmeshable(tmp_path):
+    """KCLT 13bu: a bank node 2.7913 mm from a water edge made
+    ``insert_edge`` split it and mint a node — a 2.7913 mm constrained
+    WATER segment, 481,602 slivers.  The pair stands at 29 deg, so a
+    parallel gate misses it; the segment's own LENGTH is the predicate."""
+    ax, ay = 0.0692, 0.2181530
+    prefix = _write(tmp_path, "kclt",
+                    [(ax, ay), (ax + _dlon(0.0027913), ay),
+                     (ax + _dlon(20.0), ay + _dlat(10.0))],
+                    [(1, 2, 1), (2, 3, 1)])
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    short = f["short_segments"]
+    assert short and short[0]["gap_m"] == pytest.approx(0.0027913, rel=0.05)
+    assert any(r["kind"] == "short_segments" for r in MESH.hairline_refusals(f))
+
+
+def test_two_constrained_nodes_inside_the_spacing_are_a_finding(tmp_path):
+    """13bu (a): angle-free, and no segment between them needed."""
+    ax, ay = 0.4543258, 0.4764778
+    prefix = _write(tmp_path, "nodes",
+                    [(ax, ay), (ax + _dlon(20.0), ay),
+                     (ax + _dlon(0.003), ay + _dlat(0.003)),
+                     (ax + _dlon(0.003), ay + _dlat(20.0))],
+                    [(1, 2, 1), (3, 4, 15)])
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    assert f["node_pairs"] and f["node_pairs"][0]["gap_m"] < 0.01
+    assert any(r["kind"] == "node_pairs" for r in MESH.hairline_refusals(f))
 
 
 def test_the_splp_border_pair_is_unmeshable_however_short(tmp_path):
@@ -108,10 +157,10 @@ def test_the_splp_border_pair_is_unmeshable_however_short(tmp_path):
     nodes = [(0.0, 0.20), (0.0, 0.20 + _dlat(5.32)),
              (dx, 0.20), (dx, 0.20 + _dlat(5.32))]
     prefix = _write(tmp_path, "splp", nodes, [(1, 2, 0), (3, 4, 15)])
-    rows = MESH.hairline_pairs(prefix + ".poly", TILE_LAT)
-    assert len(rows) == 1 and rows[0]["on_boundary"]
-    assert rows[0]["slenderness"] < 1.0e4        # the slenderness bar misses it
-    assert MESH.hairline_refusals(rows) == rows  # the boundary clause does not
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    rows = [r for r in f["vertex_edges"] if r.get("on_boundary")]
+    assert rows and rows[0]["slenderness"] < 1.0e4
+    assert any(r["kind"] == "vertex_edges" for r in MESH.hairline_refusals(f))
 
 
 def test_a_land_segment_half_a_metre_off_the_border_is_not_refused(tmp_path):
@@ -121,19 +170,21 @@ def test_a_land_segment_half_a_metre_off_the_border_is_not_refused(tmp_path):
     nodes = [(0.0, 0.20), (0.0, 0.20 + _dlat(54.36)),
              (dx, 0.20), (dx, 0.20 + _dlat(53.91))]
     prefix = _write(tmp_path, "land", nodes, [(1, 2, 0), (3, 4, 0)])
-    rows = MESH.hairline_pairs(prefix + ".poly", TILE_LAT)
-    assert len(rows) == 1 and rows[0]["on_boundary"]
-    assert MESH.hairline_refusals(rows) == []
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    assert any(r.get("on_boundary") for r in f["vertex_edges"])
+    assert MESH.hairline_refusals(f) == []
 
 
-def test_a_chain_is_not_a_pair(tmp_path):
-    """Two segments sharing a vertex are one chain — the 11-dp identity
-    join is exactly what "shares that edge's vertices" means."""
+def test_a_chain_is_a_chain_not_a_node_pair(tmp_path):
+    """Two segments sharing a vertex are one chain: it is not a
+    ``node_pair``.  A LONG chain is nothing at all."""
     nodes = [(0.4543258, 0.4764778),
              (0.4543258 + _dlon(30.0), 0.4764778),
              (0.4543258 + _dlon(60.0), 0.4764778 + _dlat(0.0001))]
     prefix = _write(tmp_path, "chain", nodes, [(1, 2, 15), (2, 3, 15)])
-    assert MESH.hairline_pairs(prefix + ".poly", TILE_LAT) == []
+    f = MESH.hairline_findings(prefix + ".poly", TILE_LAT)
+    assert f["node_pairs"] == [] and f["short_segments"] == []
+    assert MESH.hairline_refusals(f) == []
 
 
 def test_the_preflight_refuses_and_names_the_pair(tmp_path, capsys, monkeypatch):
@@ -171,8 +222,8 @@ def test_the_tool_runs_the_engines_own_reader(tmp_path, capsys):
                    "--tile", str(TILE_LAT), str(TILE_LON)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "pairs within 0.5 m and 5.0 deg of parallel: 1" in out
-    assert "UNMESHABLE" in out and "mk 1/15" in out
+    assert "ANGLE-FREE" in out and "vertex_edges" in out
+    assert "UNMESHABLE" in out
 
 
 def test_the_tool_refuses_without_a_prefix(capsys):

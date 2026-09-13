@@ -1190,7 +1190,14 @@ def build_poly_file(tile):
             vector_map.seeds["SEA"] = [numpy.array([1000, 1000])]
         else:
             vector_map.seeds["SEA"] = [numpy.array([0.5, 0.5])]
-    vector_map.snap_to_grid(9) 
+    vector_map.snap_to_grid(9)
+    # §39 (i) THE HAIRLINE WELD (owner RULINGS 2026-09-13bu), at the LAST
+    # site every pass's output has arrived: two constrained nodes closer
+    # than the weld radius are ONE node to any mesher, and the degenerate
+    # segment between them is what Triangle4XP cascades off (KCLT:
+    # 481,602 + 723,015 triangles under 0.1 m2 off a 2.7913 mm and a
+    # 0.2401 mm constrained WATER segment).
+    vector_map.weld_hairlines(vector_map.weld_spacing_m, tile.lat)
     # THE BANK ANNULUS IS A TRIANGLE REGION WITH A MAXIMUM AREA (owner
     # RULINGS 2026-09-09x).  The blend law
     # (``O4_Mesh_Utils.bank_annulus_blend_values``) is exact but has

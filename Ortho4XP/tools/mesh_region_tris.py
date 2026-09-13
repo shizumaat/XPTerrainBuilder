@@ -745,24 +745,24 @@ def _patch_bbox(path, margin=0.002):
             min(lons) - margin, max(lons) + margin)
 
 
-def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, parallel_deg,
-                   slenderness, boundary_gap_m=0.1):
-    """§39 (3) THE HAIRLINE AUDIT of a build's Triangle input.
+def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, slenderness,
+                   boundary_gap_m=0.1, degenerate_m=0.010):
+    """§39 (3) THE HAIRLINE AUDIT of a build's Triangle input, ANGLE-FREE
+    (owner RULINGS 2026-09-13bk / 13bt / 13bu).
 
-    THE ONE IMPLEMENTATION is the engine's — ``O4_Mesh_Utils.hairline_pairs``
+    THE ONE IMPLEMENTATION is the engine's — ``O4_Mesh_Utils.hairline_findings``
     / ``hairline_refusals``, which is what the MESH PRE-FLIGHT itself runs
     before every Triangle4XP call.  This is the instrument half of the same
-    reading, promoted from the scouts' ``nearpar.py`` on its second use
-    (13an's SPLP read, then 13bk's LEMD read): a second spelling of the pair
-    test here would be the census-wrapper defect one artefact over.
+    reading, promoted from the scouts' ``nearpar.py`` and ``bentchord.py``
+    on their second use: a second spelling of the predicate here would be
+    the census-wrapper defect one artefact over.
 
-    Reports every non-adjacent constrained pair of the ``.poly`` within
-    ``spacing_m`` and ``parallel_deg`` of parallel, and marks the UNMESHABLE
-    subset the pre-flight refuses on — a pair against the OUTER boundary
-    (Triangle4XP's ``-Y`` forbids Steiner points there, so the wedge can
-    only be relieved by splitting the other segment: 16,298 splits at SPLP)
-    or one whose Steiner cascade would run to ``slenderness`` splits
-    (LEMD's worst pair reads 24.88 m / 0.0595 mm = 417,901).
+    Four readings, each the topology one of the four sightings hid in:
+    ``node_pairs`` (two distinct constrained nodes inside the spacing),
+    ``short_segments`` (a constrained segment shorter than it — KCLT's
+    2.7913 mm water sliver), ``bent_chords`` (VMMC's ``a -> m -> b`` beside
+    ``a -> b``) and ``vertex_edges`` (LEMD's node beside a water edge, and
+    SPLP's beside the tile border).
     """
     import sys as _sys
     from pathlib import Path as _Path
@@ -770,33 +770,34 @@ def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, parallel_deg,
     if src not in _sys.path:
         _sys.path.insert(0, src)
     import O4_Mesh_Utils as MESH
-    rows = MESH.hairline_pairs(prefix + ".poly", tile_lat,
-                               spacing_m=spacing_m, parallel_deg=parallel_deg)
-    bad = MESH.hairline_refusals(rows, slenderness=slenderness,
-                                 boundary_gap_m=boundary_gap_m)
-    by_marker = {}
-    for r in rows:
-        key = "/".join(str(x) for x in sorted((r["marker_a"], r["marker_b"])))
-        by_marker[key] = by_marker.get(key, 0) + 1
-    print(f"hairline audit — {prefix}.poly, tile {tile_lat:+03d}{tile_lon:+04d}")
-    print(f"  pairs within {spacing_m} m and {parallel_deg} deg of parallel: "
-          f"{len(rows)}")
-    print("  by marker pair: " + ", ".join(
-        f"{k} {v}" for k, v in sorted(by_marker.items(), key=lambda kv: -kv[1])))
-    print(f"  UNMESHABLE (outer boundary, or slenderness >= {slenderness:g}): "
-          f"{len(bad)}")
-    for r in (bad or rows)[:20]:
-        print("   gap {:9.4f} mm  ang {:6.3f}  len {:8.2f}/{:8.2f} m  "
-              "mk {}/{}  {:<22} at {:.7f},{:.7f}".format(
-                  r["gap_m"] * 1000.0, r["angle_deg"], r["len_a_m"],
-                  r["len_b_m"], r["marker_a"], r["marker_b"],
-                  "OUTER BOUNDARY (-Y)" if r["on_boundary"]
-                  else "slenderness {:.0f}".format(r["slenderness"]),
-                  tile_lat + r["lat"], tile_lon + r["lon"]))
-    return {"pairs": len(rows), "unmeshable": len(bad),
-            "by_marker": by_marker, "spacing_m": spacing_m,
-            "parallel_deg": parallel_deg, "slenderness": slenderness,
-            "rows": rows[:500], "refused": bad[:500]}
+    findings = MESH.hairline_findings(prefix + ".poly", tile_lat,
+                                      spacing_m=spacing_m)
+    bad = MESH.hairline_refusals(findings, slenderness=slenderness,
+                                 boundary_gap_m=boundary_gap_m,
+                                 degenerate_m=degenerate_m)
+    print(f"hairline audit — {prefix}.poly, tile {tile_lat:+03d}{tile_lon:+04d}"
+          f"  (spacing {spacing_m} m, ANGLE-FREE)")
+    for kind, rows in findings.items():
+        worst = f"{rows[0]['gap_m'] * 1000.0:.4f} mm" if rows else "-"
+        print(f"  {kind:<15s} {len(rows):>7,}   worst {worst}")
+    by_kind = {}
+    for r in bad:
+        by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + 1
+    print(f"  UNMESHABLE (under {degenerate_m * 1000:g} mm, or slenderness "
+          f">= {slenderness:g}, or beside the OUTER boundary under "
+          f"{boundary_gap_m} m): {len(bad)}"
+          + ("  [" + ", ".join(f"{k} {v}" for k, v in sorted(by_kind.items()))
+             + "]" if by_kind else ""))
+    for r in bad[:25]:
+        print("   {:<15s} gap {:10.4f} mm  mk {}/{}  slenderness {:>12.0f}  "
+              "at {:.9f},{:.9f}".format(
+                  r["kind"], r["gap_m"] * 1000.0, r["marker_a"], r["marker_b"],
+                  r["slenderness"], tile_lat + r["lat"], tile_lon + r["lon"]))
+    return {"counts": {k: len(v) for k, v in findings.items()},
+            "unmeshable": len(bad), "by_kind": by_kind,
+            "spacing_m": spacing_m, "slenderness": slenderness,
+            "degenerate_m": degenerate_m, "boundary_gap_m": boundary_gap_m,
+            "refused": bad[:500]}
 
 
 def main(argv=None):
@@ -807,10 +808,11 @@ def main(argv=None):
                     help="path to a .mesh file (not needed for "
                          "--hairline-audit, which reads the .poly)")
     ap.add_argument("--hairline-audit", action="store_true",
-                    help="§39 (3): report every NON-ADJACENT constrained "
-                         "pair of the build's .poly laid within the identity "
-                         "spacing of, and near parallel to, another — the "
-                         "hairline Triangle4XP fills with a Steiner cascade "
+                    help="§39 (3), ANGLE-FREE: report every constrained "
+                         "NODE PAIR, SHORT SEGMENT, BENT CHORD and "
+                         "NODE-BESIDE-EDGE of the build's .poly inside the "
+                         "identity spacing — the hairline Triangle4XP fills "
+                         "with a Steiner cascade "
                          "(LEMD 13bk: 2.30 M sliver triangles; SPLP 13an: "
                          "16,298 splits of one 5.32 m segment).  Runs the "
                          "ENGINE's own pre-flight reader, so the instrument "
@@ -818,9 +820,12 @@ def main(argv=None):
     ap.add_argument("--hairline-spacing", type=float, default=0.5, metavar="M",
                     help="the identity spacing the pair test runs at "
                          "(default 0.5 = emit.identity.min_distinct_spacing_m)")
-    ap.add_argument("--hairline-parallel", type=float, default=5.0,
-                    metavar="DEG", help="how near parallel a pair must be "
-                                        "(default 5)")
+    ap.add_argument("--hairline-degenerate", type=float, default=0.010,
+                    metavar="M",
+                    help="a node pair / segment / bent chord closer than this "
+                         "is unmeshable whatever its neighbourhood (default "
+                         "0.010 = KCLT 13bu's own bar).  An assumption and a "
+                         "REPORTING threshold, never a law.")
     ap.add_argument("--hairline-boundary-gap", type=float, default=0.1,
                     metavar="M",
                     help="a pair against the OUTER boundary under this gap is "
@@ -986,9 +991,10 @@ def main(argv=None):
         (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
                                 else _tile_origin(prefix + ".poly"))
         payload = hairline_audit(prefix, tile_lat, tile_lon,
-                                 args.hairline_spacing, args.hairline_parallel,
+                                 args.hairline_spacing,
                                  args.hairline_slenderness,
-                                 args.hairline_boundary_gap)
+                                 args.hairline_boundary_gap,
+                                 args.hairline_degenerate)
         payload.update({"inputs": prefix, "tile": [tile_lat, tile_lon]})
         if args.json:
             import json

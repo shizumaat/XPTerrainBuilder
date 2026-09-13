@@ -6048,18 +6048,14 @@ def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
     return out
 
 
-#: §39 (2) THE HAIRLINE LAW: two constrained edges count as PARALLEL when
-#: their directions differ by no more than this (owner RULINGS 2026-09-13bk).
-HAIRLINE_PARALLEL_DEG = 5.0
-
-
 def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
         Tuple[float, float], Tuple[float, float], Way]]:
     """Every EMITTED constrained edge of the patch, with the way it came
     from: the pavement rings AND the role-less feature ways (a bank foot,
     a rim, a hole ring, a crown spine) — the mesh constrains all of them
     alike, so a census that walked ``ways`` alone would have missed the
-    LEMD bank foot that made the defect."""
+    LEMD bank foot that made the defect and the VMMC one that made the
+    two "cliffs"."""
     out = []
     for w in list(ways) + list(feature_ways):
         pts = [nodes[n] for n in w.nids if n in nodes]
@@ -6071,28 +6067,40 @@ def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
 
 def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
                          spacing_m: float) -> List[Violation]:
-    """§39 (2) NO EDGE BESIDE ANOTHER — the ``hairline_pair`` family.
+    """§39 (2) NO EDGE BESIDE ANOTHER — the ``hairline_pair`` family,
+    ANGLE-FREE and VERTEX-SUBJECT (owner RULINGS 2026-09-13bk, amended
+    13bt (1') and 13bu (i)).
 
-    Every EMITTED ring edge is priced against every FOREIGN constrained
-    edge of the tile's vector map within ``spacing_m``
-    (``emit.identity.min_distinct_spacing_m``) and within
-    :data:`HAIRLINE_PARALLEL_DEG` of parallel.  Two edges that SHARE an
-    endpoint at the identity precision are one chain, not a pair, and are
-    skipped (the 11-dp identity join is what "shares its vertices exactly"
-    means).
+    THE SUBJECT IS THE VERTEX.  Three readings, one family:
+
+    * ``shore`` / ``ring`` — an emitted vertex within ``spacing_m`` of a
+      FOREIGN constrained edge it does not lie ON (an endpoint at the 11-dp
+      identity join).  This is LEMD's class (a ring vertex 0.0594 mm from
+      the water edge) AND VMMC's (13bt): the bank legs ``a -> m -> b``
+      share BOTH endpoints with the OSM sea chord ``a -> b``, so every
+      edge-pair reading skipped them — the MID VERTEX is what is beside
+      the chord, and this reads it.
+    * ``short`` — an emitted segment shorter than ``spacing_m``.  KCLT
+      (13bu): the two constrained water slivers that carried 481,602 and
+      723,015 triangles stood at 29.08 and 89.20 degrees, so the withdrawn
+      5-degree parallel gate could never have seen them; their own LENGTH
+      is the predicate.
+    * ``node`` — an emitted vertex within ``spacing_m`` of a foreign
+      VERTEX without being it.  Water is a datum and already carries the
+      vertex: standing 0.011-0.063 mm off it (VMMC: 26 of 48 foot nodes)
+      misses the identity join by 10-60x and mints a duplicate.
 
     THE FOREIGN POPULATION is the WATER, published by the emitter as the
     ``shore_edges`` sidecar key — the same witness the shore weld ran
     against, so the instrument and the law never read two waters (the
-    census-wrapper lesson).  A patch with no key prices only ring-vs-ring.
+    census-wrapper lesson) — plus every OTHER emitted way.  A patch with
+    no key prices only against the patch's own ways.
 
     WHY IT IS CRITICAL UNCONDITIONALLY: it is a LOAD-TIME and a TEXTURE
-    defect, not a height.  Triangle4XP must recover both segments and
-    fills the wedge between them with a Steiner cascade — at LEMD
-    (13bk) 2,301,676 triangles under 0.1 m², 73 % of the tile, from
-    twenty-five 0.06–0.26 mm pairs; at SPLP (13an) 16,298 splits of one
-    5.32 m segment.  No metres of height are wrong: the tile will not
-    load.
+    defect, not a height.  Triangle4XP must recover both features and
+    fills the wedge between them with a Steiner cascade — LEMD 2,301,676
+    triangles under 0.1 m^2 (73 % of the tile, X-Plane stalled), KCLT
+    1,232,247, VMMC 376,041, SPLP 23,994.  No metres of height are wrong.
     """
     spacing = float(spacing_m)
     if spacing <= 0.0:
@@ -6107,7 +6115,8 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
     def xy(p):
         return (p[1] * mlon, p[0] * mlat)
 
-    foreign: List[Tuple[Tuple[float, float], Tuple[float, float], Optional[Way]]] = []
+    foreign: List[Tuple[Tuple[float, float], Tuple[float, float],
+                        Optional[Way]]] = []
     for e in (shore_edges_ll or []):
         try:
             a, b = (float(e[0]), float(e[1])), (float(e[2]), float(e[3]))
@@ -6115,10 +6124,9 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
             continue
         if a != b:
             foreign.append((a, b, None))
-    # ring-vs-ring is foreign too: another FACE's ring is not this one's
-    foreign.extend(segs)
+    foreign.extend(segs)          # another way's ring is foreign to this one
 
-    cell = max(8.0, 4.0 * spacing)
+    cell = max(8.0, 16.0 * spacing)
     grid: Dict[Tuple[int, int], List[int]] = {}
     fxy = []
     for i, (a, b, _w) in enumerate(foreign):
@@ -6134,42 +6142,49 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
         t = 0.0 if L <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L))
         return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
 
+    def _row(way_a, way_b, lat, lon, gap, reading) -> Violation:
+        v = Violation(
+            grade_pct=0.0, excess_pct=0.0, distance_m=gap,
+            de_m=spacing - gap, way_a=way_a, way_b=way_b,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+        v.lat, v.lon = lat, lon
+        v.reading = reading
+        return v
+
     out: List[Violation] = []
-    seen: set = set()
+    # (1)/(2) THE VERTEX against every foreign edge, and against its own
+    # endpoints — one pass, worst foreign feature per vertex
+    vertex_of: Dict[Tuple[float, float], Way] = {}
+    for a, b, w in segs:
+        vertex_of.setdefault(a, w)
+        vertex_of.setdefault(b, w)
+    for p, w in vertex_of.items():
+        q = xy(p)
+        cx, cy = int(q[0] // cell), int(q[1] // cell)
+        best = None
+        for ax in (cx - 1, cx, cx + 1):
+            for ay in (cy - 1, cy, cy + 1):
+                for i in grid.get((ax, ay), ()):
+                    fa, fb, fw = foreign[i]
+                    if fw is w or p == fa or p == fb:
+                        continue          # its OWN way, or it IS the vertex
+                    pa, pb = fxy[i]
+                    gap = d_pt_seg(q, pa, pb)
+                    if gap > spacing:
+                        continue
+                    if best is None or gap < best[0]:
+                        best = (gap, fw)
+        if best is None:
+            continue
+        out.append(_row(w, best[1] if best[1] is not None else w,
+                        p[0], p[1], best[0],
+                        "shore" if best[1] is None else "ring"))
+    # (3) AN EMITTED SEGMENT SHORTER THAN THE SPACING (13bu)
     for a, b, w in segs:
         pa, pb = xy(a), xy(b)
-        cand: set = set()
-        for cx in range(int(min(pa[0], pb[0]) // cell) - 1, int(max(pa[0], pb[0]) // cell) + 2):
-            for cy in range(int(min(pa[1], pb[1]) // cell) - 1, int(max(pa[1], pb[1]) // cell) + 2):
-                cand.update(grid.get((cx, cy), ()))
-        for i in cand:
-            fa, fb, fw = foreign[i]
-            if fw is w:
-                continue
-            if {a, b} & {fa, fb}:
-                continue                       # one chain, not a pair
-            qa, qb = fxy[i]
-            d = min(d_pt_seg(pa, qa, qb), d_pt_seg(pb, qa, qb),
-                    d_pt_seg(qa, pa, pb), d_pt_seg(qb, pa, pb))
-            if d > spacing:
-                continue
-            ang = abs(math.degrees(
-                math.atan2(pb[1] - pa[1], pb[0] - pa[0])
-                - math.atan2(qb[1] - qa[1], qb[0] - qa[0]))) % 180.0
-            ang = min(ang, 180.0 - ang)
-            if ang > HAIRLINE_PARALLEL_DEG:
-                continue
-            key = tuple(sorted([a, b, fa, fb]))
-            if key in seen:
-                continue
-            seen.add(key)
-            v = Violation(
-                grade_pct=0.0, excess_pct=0.0, distance_m=d,
-                de_m=spacing - d, way_a=w, way_b=(fw if fw is not None else w),
-                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
-            v.lat, v.lon = a[0], a[1]
-            v.reading = "shore" if fw is None else "ring"
-            out.append(v)
+        length = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+        if length < spacing:
+            out.append(_row(w, w, a[0], a[1], length, "short"))
     out.sort(key=lambda r: r.distance_m)
     return out
 
@@ -10361,10 +10376,11 @@ def run_checks(
                         shore_edges_ll, nodes, ways,
                         [w for v in open_features.values() for w in v],
                         proximity_m))
-    _pv("EMITTED EDGE laid BESIDE a foreign constrained edge, within "
-        f"{HAIRLINE_PARALLEL_DEG:g} deg of parallel (owner RULINGS "
-        "2026-09-13bk §39: LEMD's bank foot 0.06 mm from the water line "
-        "— 2.30 M sliver triangles and a tile X-Plane would not load)",
+    _pv("EMITTED VERTEX laid BESIDE a foreign constrained edge or vertex, "
+        "or an emitted SEGMENT under the identity spacing (owner RULINGS "
+        "2026-09-13bk/13bt/13bu §39, ANGLE-FREE: LEMD's bank foot 0.06 mm "
+        "from the water line, VMMC's bent chord, KCLT's 2.79 mm water "
+        "sliver — 2.30 M / 0.38 M / 1.23 M sliver triangles)",
         hairline, top_n)
     within = within + hairline
 

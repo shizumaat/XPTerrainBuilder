@@ -405,22 +405,30 @@ pad_frontage_m = 3.0
 #
 # THE QUANTITY IS DEM-VS-DEM because a constraint generator has no SOLVED
 # pad level — the level is what §20's rows produce, three lag rounds later.
-# MEASURED on that quantity at the 3.0 m frontage radius (lane
-# `v2frontagestep`, medians per pair): CYXY `building10` -> `dsf:pol129`
-# +4.72 and `building9` -> `pav4` +4.54 — the owner's two hillside lots
-# (13l item 1), which §28 (1) had graded down into a 3.4 m excavation
-# `dsf:pol129` cannot climb out of at its 8 % cap — DISARM; LEMD
-# `building4` -> `pav124` +3.00 (the case 12r ordered graded), HECA
-# `building7` -> `pav48` +3.40, OTHH +2.76 and SPJC +1.50 STAY ARMED.
-# 4.0 is the centre of the 3.40-4.54 gap that population leaves.
+# MEASURED IN THE ENGINE'S OWN FRAME (lane `v2frontagestep`, the production
+# DEM on the captured planar maps, `v2_solve_replay --capture`), the whole
+# population of pad-face pairs:
+#   CYXY  building9  -> pav4         +3.76   DISARM (the owner's 13l item 1:
+#   CYXY  building10 -> dsf:pol129   +3.43   DISARM   cut into the hillside,
+#                                                     the lot a storey up)
+#   LEMD  building4  -> pav124       +3.00   ARMED  (the case 12r ordered
+#   LEMD  building4  -> pav124       +2.39   ARMED   graded; +0.16 m joints)
+#   LEMD  building4  -> route3/6     +2.03 / +2.00   ARMED
+#   LEMD  building12 -> pav70        +0.00   ARMED
+#   CYXY  building1  -> pav29(#1)    +0.05 / +0.02   ARMED
+# 3.2 is the centre of the 3.00-3.43 gap that population leaves.  It is a
+# NARROW gap and it is the one the data has: an emitted-patch read of the
+# same pairs gives +4.5 / +4.7 at CYXY because the production DEM is
+# SMOOTHED (CYXY inset HRDEM 1 m, smoothing radius 1 px) — quote the frame
+# with the number.
 #
 # DEVIATION REPORTED, never decided here: 13o set 2.8 on the step against
 # the pad's SOLVED level (CYXY +4.08 / +3.02 against LEMD +2.66).  On the
-# quantity a generator can actually read, the same pairs measure +4.72 /
-# +4.54 against +3.00 — the pads stand 0.32 m (LEMD) to 1.51 m (CYXY) above
-# their own terrain once solved — so 2.8 here would disarm `building4`.
-# The arming decisions 13o ruled are what this value preserves.
-frontage_step_max_m = 4.0
+# quantity a generator can actually read, the same pairs measure +3.76 /
+# +3.43 against +3.00 — a pad stands above its own terrain once solved — so
+# 2.8 here would disarm `building4`.  The arming decisions 13o ruled are
+# what this value preserves.
+frontage_step_max_m = 3.2
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m

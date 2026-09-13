@@ -5321,3 +5321,105 @@ pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0
    within 0.3, +3.4 above the pads); `building4`'s joints unchanged (0.16 m); SPJC's
    five pairs named; the `groundside_frontage` family count before/after; ONE
    `--engine v2` CYXY build (28 s) against the ledger base; twin; suite.
+
+### §28 (6) **MEASURED** (lane `v2frontagestep`, 2026-09-13, branch `claude/v2frontagestep`, base `1be04630`)
+
+**THE QUANTITY CHANGED, AND THAT IS THE DEVIATION** (reported, never decided by
+the lane — the §23.3 (2) precedent). 13o's bound is the median DEM step against the
+pad's **SOLVED LEVEL**. A constraint generator cannot read it: the pad's level is what
+§20's rows PRODUCE, three lag rounds later (LEMD's `building4` sits 0.32 m above its own
+terrain once solved, CYXY's `building10` 0.61 m and `building9` 1.51 m). The quantity
+implemented is **DEM vs DEM** — the median over the face's frontage vertices of
+`dem_z` minus the pad footprint's OWN median `dem_z`, both from `Vertex.dem_z` (the
+production DEM taken once at map build; never a second reader). Measured in the
+engine's own frame on captured planar maps (`v2_solve_replay --capture`), that is the
+WHOLE population of pad–face pairs at the two airports that carry the class:
+
+| airport | pair | DEM-vs-DEM step | 13o's solved-level step | verdict at 3.2 |
+|---|---|---|---|---|
+| CYXY | `building9` → `pav4` (16 v) | **+3.76** | +3.02 | **DISARM** |
+| CYXY | `building10` → `dsf:pol129` (8 v) | **+3.43** | +4.08 | **DISARM** |
+| CYXY | `building1` → `pav29` / `pav29#1` | +0.05 / +0.02 | +0.28 / +0.23 | armed |
+| LEMD | `building4` → `pav124` (3 v) | **+3.00** | +2.68 | **armed** |
+| LEMD | `building4` → `pav124` (12 v) | +2.39 | +1.68 | armed |
+| LEMD | `building4` → `route3` / `route6` | +2.03 / +2.00 | +1.69 / +1.68 | armed |
+| LEMD | `building12` → `pav70` | +0.00 | −0.33 | armed |
+
+`[design] frontage_step_max_m` **3.2** is the centre of the 3.00–3.43 gap that
+population leaves — 2.8 on THIS quantity would disarm `building4`, the case 12r ordered
+graded. It is a narrow gap and it is the one the data has; 13o's own margins on the
+solved-level quantity (0.12 / 0.22 m) are narrower. The key lives in `emit.toml
+[design]` beside `pad_frontage_m`, the radius of the same relation, and NOT in
+`classify/rules.toml [lot]` as the brief placed it: `constraints` may not import
+`classify` (`test_model.py::test_dependency_direction` enforces the layering by name).
+
+**FRAME WARNING.** An EMITTED-patch read of the same pairs against the raw inset
+raster gives +4.72 / +4.54 at CYXY and +3.00 at LEMD — the production DEM is SMOOTHED
+(CYXY inset HRDEM 1 m, smoothing radius 1 px) and the planar map carries welded vertices
+the patch does not. Quote the frame with the number; the law is written on the engine's.
+
+**BARS.**
+
+1. **MET** — `dsf:pol129` is back on the DEM over its WHOLE extent: z − DEM (engine
+   frame, all 23 vertices) median **−3.49 → −0.00** (min −4.16 → −1.27, max −1.43 →
+   +1.62); `pav4` (56 vertices) median **−1.35 → +0.05**, vertices off the DEM by more
+   than 0.3 m **44 → 15** and **23 → 10**. The 3.4 m excavation an 8 % cap could never
+   climb out of is gone.
+2. **MET** — the two faces stand back above the pads: `building10` → `dsf:pol129`
+   **+0.21 → +3.62** (mean +0.08 → +3.03) and `building9` → `pav4` **+0.21 → +3.35**
+   (mean −0.01 → +3.05), read by `role_edge_census.py --pad-frontage --near 3.0`. The
+   bar's +3.4 m is met at `dsf:pol129` and missed by 0.05 m at `pav4`, whose own DEM
+   step is 3.02.
+3. **MET** — no pad moved: `building10` 696.140 and `building9` 695.519 in BOTH arms,
+   z − DEM per pad identical (`building10` +0.18 / `building9` +1.07 → +1.06);
+   `building1` 704.920 → 704.900.
+4. **MET** — `groundside_frontage` rows **58 → 10**, `pairs_held_as_terrace` **0 → 2**
+   (the count is published beside the generator's own row count, `constraints.build`).
+   Design target `groundside_frontage` **27 rows / max miss 0.214 m → 5 / 0.195 m**.
+5. **MET** — harness census, ONE tree, ONE code version, the arms differing only in the
+   law value (the BASE arm is the same build with the bound inert):
+
+   | census | BASE `v2frontagestep28` | AFTER `v2frontagestep28b` |
+   |---|---|---|
+   | LAW-TRUE TOTAL | 1,047 (within 1,047 / cross 0 / steps 0) | **1,014** (1,014 / 0 / 0) |
+   | ADJUDICATED | 406 — airside 381 / gs **25** | **374** — airside 368 / gs **6** |
+   | `within_shape` / `road_cross_section` / `taxi_box` | 915 / 12 / 34 | 906 / **3** / 31 |
+   | `transverse` / `airside_no_step` | 9 / 74 | **5** / **66** |
+   | terrace-joint families (route / strip / actual step) | 0 / 0 / 0 | 0 / 0 / 0 |
+   | sidecar `terrace_joints` | 1 | 1 |
+   | design target `pads` / `roads` / `pad_level` | 55 / 84 / 10 | 8 / 38 / 8 |
+
+   `groundside_ramps` is unchanged in kind — no groundside ramp row appears in either
+   census and the joint count is the same 1 (apron/service_road, 0.45 m).
+
+**Closing test** — ONE `--engine v2` CYXY build, foreground, `--tag v2frontagestep28b`,
+**13.9 s** wall, rc 0, `status optimal`, `body_sha ea11413f8e5c`, artifact ledger
+**`613cc27fedb2`**, shared repo UNCHANGED (full-surface before/after snapshot; 18
+lock-churn operations, the allowed coordination class). v2 verify rows 312 → **279**.
+
+**SPJC AND THE 13p CLUE — THE CLUE FAILS, the per-pair bound stands (13o).** The
+clue 13p proposes is the PAD RING's own DEM span. Measured: CYXY's two rings span
+**5.45 / 4.78 m** (emitted frame) and **4.90 / 4.46 m** (engine frame) — but LEMD's
+`building4` ring spans **9.74 m** and `building12`'s **11.96 m**, and SPJC's east
+terminal `building102` spans **7.68 m**. Every candidate ring at every airport spans
+more than the bound, CYXY's included, so "ring span > bound" adds no discrimination
+and would NOT keep SPJC's lot armed. 13p's own fallback applies: "If SPJC's terminal
+ring spans a storey too, the clue fails and the per-pair bound stands as ruled".
+SPJC's five pairs could NOT be named in the engine's frame: `v2_solve_replay --capture
+SPJC` refuses on the pack-dump freshness guard (`--refresh-data airport_mod_cache`,
+which a lane may not run — the same guard RULINGS 13q chipped), and the only SPJC
+product on disk is a **v1 patch of 2026-07-25**. On it, 13o's own quantity gives no
+pair anywhere near +3.20…+4.01: the largest are `building102` −2.71 (ring span 7.68)
+and `building14` +2.00 (ring span 1.69), every one of them ARMED under 3.2 — which is
+the outcome the owner wants for the east lot. **13o's SPJC numbers do not reproduce on
+any frame available to this lane**, and SPJC needs its own build before that half of
+the ruling can be measured.
+
+**Twins.** `tests/auto_patch_v2/test_v2frontagestep.py`, 5 tests: a pair over the bound
+mints no row and is COUNTED; a pair under it still takes the pad's level; the bound is
+PER PAIR and never per vertex (one frontage vertex 10 m over the bound costs no vertex
+its row while the pair's median is under it — the same followers in both arms); the
+quantity is the planar map's own `dem_z`, frontage median minus pad-footprint median,
+and a pair with no DEM never disarms; and the value is the law's, read through the
+`[design]` schema. Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,116 passed,
+

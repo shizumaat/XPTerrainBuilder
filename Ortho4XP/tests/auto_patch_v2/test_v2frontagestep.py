@@ -129,4 +129,4 @@ def test_the_bound_is_the_laws_and_not_a_literal(law):
     (``test_model.test_dependency_direction``)."""
     from auto_patch_v2.law.tables import design as design_law
     assert frontage_step_max_m(law) == design_law(law).frontage_step_max_m
-    assert frontage_step_max_m(law) == pytest.approx(4.0)
+    assert frontage_step_max_m(law) == pytest.approx(3.2)

@@ -124,10 +124,11 @@ def pair_dem_step_m(planar: PlanarMap, front: _t.Iterable[int],
     +4.08 / +3.02, LEMD ``building4`` +2.66) are against the pad's SOLVED
     level, which no generator can read — the level is what §20's rows
     produce, three lag rounds later.  The pad's own ground is the nearest
-    thing the derivation has; measured, the two frames differ by the
-    metres the solve lifts a pad off its terrain (LEMD +0.32, CYXY +0.61 /
-    +1.51), which is why the bound is 4.0 here and not 2.8 (see the law
-    comment for the whole measured population)."""
+    thing the derivation has; measured in the engine's own frame, the
+    same pairs read +3.76 / +3.43 (CYXY) against +3.00 (LEMD
+    ``building4``) where 13o's solved-level frame reads +4.08 / +3.02
+    against +2.66 — which is why the bound is 3.2 here and not 2.8 (see
+    the law comment for the whole measured population)."""
     fd = [planar.vertices[v].dem_z for v in front]
     pd = [planar.vertices[v].dem_z for v in pad_rim]
     fd = [float(z) for z in fd if z is not None]

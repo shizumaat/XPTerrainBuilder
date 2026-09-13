@@ -3038,3 +3038,53 @@ against branch `claude/v2pavefeet`).
   not capped — the ruling's test is cross-member and capping inside a member
   would be a cut inside a solid; §16b's two counts move the wrong way at both
   airports and are named; OTHH's plan-stage bar stays missed on both arms.
+
+## §16d THE PLAN BOXES WHAT THE WRITER WRITES (Fable 2026-09-13; RULINGS 2026-09-13h) — lane `v2unboxed`
+
+Owner (13d items 3, 4): a dark plate ~15 m over the T4 apron; roofs still floating at
+the cargo hangars. Scout `v2lemd325o` on the 1.0.325 written frame: the DSF has no
+polygon with an elevation (every one of its 1,609 `.pol`/`.lin` is draped) — the
+plate is an OBJECT: the FS2XPlane 10 × 10 m shadow quad every source object carries
+at its origin, y = −5, normal down (`North_FSX-LEMD80.obj` is nothing else). Aerosoft
+LEMD is a shared-datum pack — 2,035 of 2,109 bodies sit on two placement rows 18 m
+from the owner's point — so seven such quads stack at that spot, and four ride zeros
+chosen kilometres away: `Terminal4_green-T4BJO__b0` +16.37 m, `Terminal4_yellow-
+LEMD16__b0` +15.90 (its box is the T4 terminal 2.27 km west), `Cargo-LEMD63__b6`
++7.13, `OldTerminal_FSX-LEMD43__b0` +2.22. At the cargo hangars `Cargo-TEJ1__b0`'s
+roof plate stands +3.71 m over `NEWCO__b9`'s roof (76 of its 105 vertices lie 694 m
+outside its own `geom_box`; on `NEWCO__b9`'s zero it lands 0.03 m from the roof top);
+`Cargo-TEJ3__b1` the same. THE MECHANISM: `geom_box` is the hull of the ADMITTED
+parts (`placement_plan.py:230`, `:298`) while the writer emits the source object's
+triangles regardless — a zero-thickness one-sided quad is not admitted (`no_solid_
+admitted 25`), a roof plate over another hangar was never boxed — so the geometry
+rides a zero the body chose elsewhere and NO instrument reads it (§15, §16a, §16b
+read the box; §7 reads feet; the quad has neither). Class: 397 of 2,109 bodies carry
+geometry > 1 m outside their own box (202 > 10 m, 65 > 100 m, 8 > 1 km; 91 of them
+carried/bound). Two instrument defects beside it: the cockpit block's worst
+coordinate for §15/§16a/§16b rows is the PLACEMENT ROW (`placement_cockpit.py:42-60`)
+— at a shared-datum pack that is one of two points for 96.5 % of bodies (12ak's
+"LEMD03__b33 at 40.4928202" was that artefact); and the `nearest footed body of the
+unit` fallback (`placement_carrier.py:833-843`) has no distance cap (35 binds, 19 over
+100 m, one 3,323 m).
+
+1. **EVERY WRITTEN TRIANGLE BELONGS TO A BODY WHOSE BOX CONTAINS IT.** At the split,
+   a connected component — admitted as a part or not — whose plan distance from
+   the body's part hull exceeds `coarsen_reach_m` (100 m) is not that body's: it is
+   its own body, footless, anchored on its own ground at its authored offset
+   (§16 (3)). The FS2XPlane origin plate (a one-sided, zero-thickness quad at the
+   object origin below y = 0) is such a body: written on its own ground at −5 m, it
+   is buried as the pack authored it. `geom_box` is the hull of what the file will
+   contain, and §16b's span bar reads it.
+2. **THE NEAREST-FOOTED FALLBACK IS CAPPED** at `coarsen_reach_m`; beyond it a
+   footless body takes its own ground (§16 (3)).
+3. **THE COCKPIT COORDINATE IS THE BODY'S**: the worst row's coordinate is the
+   centre of the body's written geometry (or its worst foot), never the placement
+   row.
+4. **BARS (1.0.325 written frame, matched arms)**: the four plates gone from the sky
+   (each on its own ground at −5 m); `Cargo-TEJ1__b0` on `NEWCO__b9` (roof base within
+   0.3 m of 605.04); `TEJ3__b1` likewise; bodies with geometry > 1 m outside their
+   box 397 → 0 (twin); the nearest-footed fallback beyond 100 m 19 → 0; the 11at/12h/
+   12o/12z/12aq/12ar sites held; torn seams 0; §15 carried float 0; files quoted;
+   plan stage LEMD ≤ 10.3 s; OTHH the same under the guard; the cockpit block's
+   worst coordinates verified against the bodies' geometry (twin); suite. No build;
+   the app after.

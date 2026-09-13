@@ -882,12 +882,15 @@ list_cfg_vars = list_tile_vars + list_global_tile_vars + list_app_vars
 # ──────────────────────────────────────────────────────────────────────
 # RETIRED KEYS
 # ──────────────────────────────────────────────────────────────────────
-#: Keys that WERE settings and are not any more.  Mapping a key to
-#: ``None`` retires it SILENTLY (a superseded knob nobody needs to know
-#: about); mapping it to a sentence retires it LOUDLY — the reader warns
-#: with that sentence and carries on, because a stale line in a user's
-#: cfg must never take a build down (the owner's own +22+113 tile cfg
-#: still carries ``flat_site_declared_corridors=``).
+#: Keys that WERE settings and are not any more.  Every one of them is
+#: DELETED from a cfg file the moment a reader meets it
+#: (:func:`cleanup_retired_cfg_keys`, owner RULINGS 2026-09-13a (2)) and
+#: reported once as INFO — a stale line in a user's cfg must never take a
+#: build down, and must never nag either (the owner's own +22+113 tile
+#: cfg still carries ``flat_site_declared_corridors=``).  The value is
+#: the registry's record of the retirement: ``None`` where the key was
+#: merely superseded, a sentence where a user's setting stopped being
+#: honoured and the docs/tests need to say what replaced it.
 #:
 #: The registry lives HERE, beside the live keys, so a reader never has
 #: to look in two places to answer "is this key known".
@@ -918,43 +921,80 @@ retired_cfg_keys = {
 }
 
 
-#: THE ONCE REGISTER (owner RULINGS 2026-09-12as (1)): ``(source, var)``
-#: pairs already warned about IN THIS PROCESS.  KCLT's tile cfg carries
-#: two retired keys and is read three times per build (the tile overlay
+#: THE REPORT REGISTER (owner RULINGS 2026-09-13a (2)): what this
+#: process has already said about a cfg file.  Entries are
+#: ``(abspath, var)`` for a removed key and ``(abspath, None)`` for a
+#: file whose cleanup could not be written.  KCLT's tile cfg carries two
+#: retired keys and is read three times per build (the tile overlay
 #: layers plus a read outside any tile context), so the owner saw six
-#: WARNING lines for two stale cfg lines.  A retirement is NEWS ONCE per
-#: key per file per process; the cfg SAVE then drops the line for good
-#: (``O4_Settings_Model.write_tile`` emits ``list_tile_vars`` only).
-_retired_cfg_warned = set()
+#: WARNING lines for two stale cfg lines.  Now the FIRST read deletes the
+#: lines and says so once; the reads after it find nothing to say.
+_retired_cfg_reported = set()
 
 
-def retired_cfg_key_warning_once(var, value=None, source=None):
-    """:func:`retired_cfg_key_warning`, but ``None`` after the first time
-    this process saw ``var`` in the file ``source``.
+def cleanup_retired_cfg_keys(source):
+    """REMOVE every retired key from the cfg file *source*.
 
-    ``source`` is the cfg file the line came from, normalised to an
-    absolute path; ``None`` is its own bucket (a caller with no file).
-    Every cfg READER goes through this — the global read and the tile
-    overlay read are the same news to the same user.
+    The owner's ruling (2026-09-13a (2)): a retired key found on READ is
+    not warned about for the rest of time — it is deleted from the file,
+    reported ONCE as INFO, and never seen again.  The rewrite goes
+    through :func:`O4_Settings_Model._write_atomic_with_backup` — THE cfg
+    writer, so the prior file is kept as ``<cfg>.bak`` and no second
+    writer exists to disagree with it.  (Imported lazily:
+    ``O4_Settings_Model`` imports this module at module level.)
+
+    A file that cannot be rewritten (a read-only cfg, a read-only
+    directory) is NOT an error: the caller is told once, per file, and
+    the build carries on — a stale cfg line must never take a build
+    down.  Comments and blank lines do not survive a rewrite; a file
+    carrying NO retired key is never rewritten, so a clean cfg keeps
+    every byte (and mints no ``.bak``).
+
+    :param source: path to the cfg file just read.
+    :returns: the INFO lines the caller should print (possibly empty).
+        Never raises.
     """
-    key = (os.path.abspath(source) if source else None, var)
-    if key in _retired_cfg_warned:
-        return None
-    text = retired_cfg_key_warning(var, value)
-    if text is None:
-        return None
-    _retired_cfg_warned.add(key)
-    return text
+    try:
+        path = os.path.abspath(source) if source else None
+        if not path or not os.path.isfile(path):
+            return []
+        import O4_Settings_Model as SETTINGS
+
+        data = SETTINGS._parse_cfg(path, strip_quotes=False)
+        stale = [var for var in data if var in retired_cfg_keys]
+        if not stale:
+            return []
+        try:
+            SETTINGS._write_atomic_with_backup(
+                path, {k: v for k, v in data.items() if k not in stale})
+        except Exception as error:
+            if (path, None) in _retired_cfg_reported:
+                return []
+            _retired_cfg_reported.add((path, None))
+            return ["retired key" + ("s" if len(stale) > 1 else "") + " "
+                    + ", ".join(stale) + " in " + path + " " +
+                    ("are" if len(stale) > 1 else "is") +
+                    " IGNORED; the file could not be rewritten (" +
+                    str(error) + ")"]
+        lines = []
+        for var in stale:
+            if (path, var) in _retired_cfg_reported:
+                continue
+            _retired_cfg_reported.add((path, var))
+            lines.append("removed retired key " + var + " from " + path)
+        return lines
+    except Exception:
+        # A cleanup that raises is a cleanup that breaks builds.
+        return []
 
 
 def retired_cfg_key_warning(var, value=None):
-    """The warning line for a retired cfg key, or ``None``.
+    """The sentence explaining a key's retirement, or ``None``.
 
-    ``None`` for a live key and for a silently-retired one.  A LOUD key
-    warns whether or not it carries a value: an empty declaration is
-    still a line claiming a setting exists.  A value is quoted when
-    there is one, because a user who wrote a corridor deserves to be
-    told exactly which declaration stopped being read.
+    ``None`` for a live key and for a silently-retired one.  The READERS
+    no longer print this — since 2026-09-13a they delete the line and say
+    so (:func:`cleanup_retired_cfg_keys`); the sentence remains the
+    registry's own record of WHY a key went, and what replaced it.
     """
     if var not in retired_cfg_keys:
         return None

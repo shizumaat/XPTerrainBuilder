@@ -6,7 +6,7 @@
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
 
 # PROJ data: each bundled libproj gets the proj.db it shipped with
@@ -48,6 +48,47 @@ gdal_proj_datas = (
     if gdal_proj_dir else []
 )
 
+# ---------------------------------------------------------------------------
+# THE WINDOWS / LINUX RELEASE APP IS ALSO THE ENGINE (owner RULINGS
+# 2026-09-13a (1)).  There is no second frozen binary on those platforms:
+# this executable answers ``--engine-jsonl``, serves as its own build
+# worker, and re-execs ITSELF as ``--lerc-decode IN OUT``.  So everything
+# Ortho4XP.spec pins for the mac engine must be pinned here too — each of
+# these is a LAZY or DYNAMIC import the static scan cannot see, and each
+# has already shipped missing once:
+#
+#   * auto_patch_v2 + its TOML law tables — the tile driver imports the
+#     package per engine selection, and the law is DATA read through
+#     ``Path(__file__).parent`` (RULINGS 2026-09-03e);
+#   * highspy — the HiGHS QP behind the runway family's final projection,
+#     imported inside the solve (1.0.298 froze without it and every v2
+#     airport died at "No module named 'highspy'");
+#   * tifffile / imagecodecs (+ the compiled ``_lerc`` codec) — reached
+#     only through the ``--lerc-decode`` branch; without them the app
+#     SKIPS every LERC source and New Zealand's 1 m lidar silently
+#     degrades to the base tier, which is how 1.0.324 shipped.
+# ---------------------------------------------------------------------------
+import glob as _glob
+v2_law_datas = (
+    [(f, os.path.join("auto_patch_v2", "law"))
+     for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "law", "*.toml")))]
+    + [(f, os.path.join("auto_patch_v2", "classify"))
+       for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
+)
+if len(v2_law_datas) < 9:
+    raise SystemExit(
+        f"ERROR: expected the eight auto_patch_v2 law tables (incl. airports.toml, "
+        f"RULINGS 2026-09-10ap) + classify/rules.toml under src/auto_patch_v2, "
+        f"found {len(v2_law_datas)} — refusing to freeze "
+        f"an application whose v2 cannot load its law.")
+
+highspy_datas, highspy_binaries, highspy_hidden = collect_all('highspy')
+tifffile_datas, tifffile_binaries, tifffile_hidden = collect_all('tifffile')
+imagecodecs_datas, imagecodecs_binaries, imagecodecs_hidden = collect_all('imagecodecs')
+for _codec in ('imagecodecs._lerc', 'imagecodecs._shared'):
+    if _codec not in imagecodecs_hidden:
+        imagecodecs_hidden.append(_codec)
+
 # Single source of truth for the app version: src/O4_Version.py
 # (parsed textually — spec files should not import project modules).
 with open(os.path.join("src", "O4_Version.py"), encoding="utf-8") as f:
@@ -56,7 +97,7 @@ with open(os.path.join("src", "O4_Version.py"), encoding="utf-8") as f:
 a = Analysis(
     ['Ortho4XP_Qt.py'],
     pathex=['src'],
-    binaries=[],
+    binaries=highspy_binaries + tifffile_binaries + imagecodecs_binaries,
     datas=[
         ('./Utils',               './Ortho4XP_Data/Utils'),
         ('./Extents',             './Ortho4XP_Data/Extents'),
@@ -67,8 +108,12 @@ a = Analysis(
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
-    ] + gdal_proj_datas,
-    hiddenimports=collect_submodules('PIL') + [
+    ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
+      + imagecodecs_datas,
+    hiddenimports=(collect_submodules('PIL')
+                   + collect_submodules('auto_patch_v2')
+                   + highspy_hidden + tifffile_hidden + imagecodecs_hidden
+                   + ['O4_LERC_Decode']) + [
         # keyring picks its backend through entry points, which PyInstaller
         # does not follow — name every platform backend explicitly so the
         # frozen app can reach the secret store (O4_Authenticated_Sessions).

@@ -2047,7 +2047,10 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # build then reads and derives its DSF text dumps in the same
     # lane-local overlay every other derived cache lands in.
     _mod = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
-    if _mod and "airport_mod_cache" not in (
+    # (``_dc.is_dataclass``: production's ``Inputs`` is a frozen dataclass;
+    # a twin that stubs ``default_inputs`` hands back its own object and
+    # keeps its own root, which is what that twin is asserting)
+    if _mod and _dc.is_dataclass(inputs) and "airport_mod_cache" not in (
             (redirects or {}).get("left_shared_for_refresh") or ()):
         inputs = _dc.replace(inputs, mod_cache_root=_mod)
         prog.note(f"engine v2 inputs: mod cache {_mod} (the lane-local overlay)")

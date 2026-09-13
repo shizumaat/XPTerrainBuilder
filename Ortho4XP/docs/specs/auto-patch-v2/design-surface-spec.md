@@ -5366,6 +5366,130 @@ the "pre-law, FLAT at end +0.9 m" state the v1 spec named as the thing to fix.
    taxi caps; the other five airports' EAT recognition quoted (which have one; none
    moves that has none); ONE `--engine v2` KCLT build; census; twins; suite.
 
+### §36 **MEASURED** (lane `v2eat`, 2026-09-13, branch `claude/v2eat`, base `ec8723e9`, sha `0d995474`)
+
+**BELOW BAR ON TWO OF FOUR — the owner's sign-off is owed, the residual is
+quoted.**  The site lands; the ramps do not fit the taxi cap, and the hard set
+no longer settles.
+
+**THE SITE REPRODUCED FIRST, OFFLINE.**  On scout `v2kclt1t`'s copy of the
+shipped KCLT patch the 18C crown-spine end stands at 227.25 m and the crossing
+pavement — `cross_connector pav11` (shapeID 104) / `junction pav118` (shapeID
+69) — at 226.58–226.91 m, D 367–410 m beyond it: the runway end **+0.9 m**, the
+"pre-law, FLAT" state.  The FAA ceiling there (code E tail 20.1 m, slope 0.025,
+setback 0) is 216.6–217.1 m, i.e. **−10.1 … −10.7 m** below the end.  Every
+offline arm below is ONE `v2_solve_replay` capture of KCLT (82 s; 22,294
+vertices, 1,193 faces), one tree, one code version.
+
+**THE CONSUMER CENSUS** (owner ruling RULINGS 2026-08-30l — ruled before any
+consumer was edited; the region is "a hard `Pin` on taxi-family / apron
+pavement vertices"):
+
+| consumer | what it reads of the region | ruling |
+|---|---|---|
+| `solve/rows._reduce` | every `Pin` FIXES its vertex; two pins on one vertex resolve by generator ORDER, silently | **AFFECTED — the rect YIELDS**: `eat.withdraw_against_senior` (a post-pass in `constraints/__init__.generate`, counted as `eat_pin_withdrawn_senior`) drops an EAT pin on any vertex another generator pins or a rigid `Flat` group carries.  v1's own rule, stated rather than left to order.  KCLT: 0 withdrawn |
+| `constraints/__init__.water_exempt` | withdraws every non-water row governing a water-pinned vertex | already total — an EAT pin on a water vertex is withdrawn there too |
+| `constraints/__init__.seam_exempt` | pin↔pin pair exemption, SEAM pins only | unaffected: an EAT pin is not a seam pin, and a pair with ONE EAT foot stays — that pair IS the ramp |
+| `structures.reconcile_datums` | tunnel / basin datum seniority | unaffected: no structure role is an EAT role |
+| `constraints/ceiling.pavement_ceiling` | one HARD 5 % twin per pavement DIFFERENCE row | **AFFECTED and MEASURED** — the ramp's hard bound, and the bar the port misses (below) |
+| `constraints/no_step`, `taxi.taxi_chain` / `taxi_centerlines` / `taxi_box`, `transverse`, `apron_within_shape` | the taxi / apron caps on rows whose feet include the rect | **the RAMP.**  The EAT mints no ramp row of its own — v1's lesson: one-sided pavement↔pavement interval edges blew the reach envelope up (KCLT killed at 15 min / 20.3 GB) |
+| `constraints/taxi_trend` (`PlanarMap.taxi_trend_z`) | a DEM-trend target for every taxi-chain vertex; its own "pins" are RUNWAY CONTACTS, not `Pin` rows | **AFFECTED, priced**: a pinned vertex's neighbours keep a trend target pulling them back to the ground, charged at `[design] taxi_trend` 30 against `law` 300 — the measured ramp lands at 2.4–3.9 %, between the taxi cap and the trend |
+| `solve/project.project_runway` | runway-family vertices only, everything else FIXED at the design value | unaffected: an EAT pin is outside the family and is one of the fixed feet moved to the right-hand side |
+| `solve/project.project_zone_bands` | ground zone vertices | unaffected: every EAT role is pavement |
+| `solve/design` §9b / `design_report.residual` | `cs.pins` for the ANCHORED-sheet test and the pin residual | correct as-is — the rect IS an anchor, which is the encoding the law asks for (`residual: pin 0.0000` on the build) |
+| `verify/census.READERS` | one reader per family | **NEW** `verify/eat.eat_ceiling` |
+| `check_grade.LAW_FAMILIES` / `run_checks` | the census register (the harness must price the EAT) | **NEW** family `eat_ceiling`, sidecar-declared, in the emission position after `basin_floor_declaration` |
+| `emit/osm_adapter.SIDECAR_KEYS`, `pipeline/publication` | what the census may read | **NEW** key `eat_rects`, read off the FINAL constraint set (`publication(..., cs)`) so a withdrawn vertex is never reported |
+
+**RECOGNITION, ALL SIX FRAMES** (the generator run DRY on each frame's own
+capture — no solve; "none moves that has none"):
+
+| frame | ruleset | ends | candidate rects | accepted | pins | verdict |
+|---|---|---|---|---|---|---|
+| **KCLT** | faa (0.025 / 0 m) | 6 | 1 | **1** — 18C, D 426.7–469.8, mid 448.3 | **4** | the owner's site |
+| CYXY | icao (0.02 / 60 m) | 4 (one runway below code 3) | 0 | 0 | 0 | no EAT — nothing moves |
+| HECA | icao | 6 | 0 | 0 | 0 | no EAT |
+| SPJC | icao | 4 | 0 | 0 | 0 | no EAT |
+| OTHH | icao | 4 | 3 | 0 | 0 | all three refused: **no routed wrap** (9/9/20 taxi-route crossings at the end, none in the rect's window) |
+| LEMD | icao | 8 | 24 | 0 | 0 | every one refused BY NAME — 17 run ALONG the corridor, 4 beyond `max_crossing_m` 600 m, 3 no routed wrap.  The owner's "LEMD has no EATs", and v1's 149 false pins stay dead |
+
+**THE SITE, BEFORE AND AFTER** (the same capture, arms `--drop-generator
+eat_anchor_rect` vs default; z at the four pinned vertices):
+
+| vertex | lat, lon | DEM | BEFORE | AFTER | the regulation |
+|---|---|---|---|---|---|
+| 2578 | 35.2314666, −80.9536558 | 228.33 | 226.58 | **217.26** | 217.26 |
+| 2579 | 35.2314802, −80.9534306 | 228.36 | 226.91 | **217.26** | 217.26 |
+| 2658 | 35.2316604, −80.9536668 | 228.44 | 226.69 | **217.26** | 217.26 |
+| 3804 | 35.2312728, −80.9536229 | 228.29 | 226.88 | **217.26** | 217.26 |
+
+**BAR 1 — the crossing at 216.3–217.4 m: MET.**  217.264 m, the FAA value at
+D_mid = 448.3 m off an anchor of 226.158 m (18C/36C carries NO CIFP threshold on
+either end, so the anchor is the runway's DEM-fitted profile at the end — v1's
+anchor was the solved runway ring, which IS that profile).  The pin holds
+EXACTLY: the census's new `eat_ceiling` family reads **0** rows on the built
+patch, and the design report's pin residual is 0.0000 m.
+
+**BAR 2 — the ramps within the taxi caps: MISSED, 2.37–3.87 %.**  Six ring edges
+carry one pinned foot; their grades after are 3.87 / 3.05 / 2.97 / 2.57 / 2.44 /
+2.37 % (before: 1.55–1.75 %), over 28.6–59.1 m.  None exceeds the hard 5 %
+pavement ceiling, and the surface is smooth — 2,393 vertices move, max 9.64 m —
+but the taxi cap is 1.5 %.  The mechanism is the consumer census's
+`taxi_trend` row: the ramp's free neighbours carry a DEM-trend target (weight
+30) against the taxi cap (300), so the solve trades ~1 % of grade for the
+trend rather than running the ramp out along the loop.  **This is v1's own
+outcome in v1's own words** — "a loop too short to ramp lawfully surfaces in the
+both-hard step report … never a silent grade break" — and it is an INTENT
+question for the owner, not a mechanism: is the EAT's ramp allowed to overrun
+the taxi cap, or must the trend yield to it inside the rect's reach?
+
+**BAR 3 — `HARD SET SETTLED` still: MISSED, by 0.028 m of surface.**  BEFORE:
+`0/229114 hard rows violated`, max 0.0200 m, **HARD SET SETTLED**.  AFTER:
+`13/229114`, max **0.0479 m**, HARD SET NOT SETTLED, `hard_worst =
+rulesets.common.pavement_max_grade ceiling`.  The 9.65 m cut cannot be absorbed
+under the 5 % ceiling to within `hard_tol_m` 0.02 m on 13 rows.  Identical in
+the offline arm and in the closing build, so it is the law and not the run.
+
+**BAR 4 — census before/after** (both arms replay-emitted from the same capture,
+`tools/harness/census.py`):
+
+| family | BEFORE | AFTER |
+|---|---|---|
+| LAW-TRUE TOTAL | 12,346 | **13,174** (+828) |
+| `within_shape` | 9,343 | 9,980 (+637) |
+| `airside_no_step` | 671 | 817 (+146) |
+| `taxi_box` | 314 | 338 (+24) |
+| `strip_transverse` | 13 | 18 |
+| **`eat_ceiling` (NEW)** | **0** | **0** |
+
+The +828 rows ARE bar 2 seen by the census: the ramp's pairs priced at the taxi
+cap.  The COCKPIT block moves `CRITICAL motion` 16 → 18 (both new rows a
+forbidden grade BREAK, neither at the EAT site — the site's own rows read as
+SLOPES and are REPORT) and `CRITICAL visual` 2 → 2.  The 214 m `apron|apron` row
+at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), present in
+both arms.
+
+**THE CLOSING BUILD.**  ONE `build_airport.py KCLT --engine v2`, wall **448.1 s**
+(tag `KCLT_20260913T093620`, rc 0, `status=feasible`, `body_sha a33903eb3d1e`,
+1,304 ways / 24,147 nodes, v2-verify 4,631 rows, shared repo UNCHANGED).
+Generator counts: `eat_anchor_rect 4` rows in 0.037 s (ends 6, rects_accepted 1,
+pins 4, every refusal counter 0), `eat_pin_withdrawn_senior 0`.  The artifact
+ledger REFUSED the store (`CONTAMINATED-KEY`: the tree was committed between key
+time and store time) — the build itself is unaffected; there is simply no
+ledger artifact for it.
+
+**THE INSTRUMENT HAD TO BE REPAIRED FIRST** (RULINGS 2026-09-13q named it a
+chip).  `planar.__main__.default_inputs` resolves the mod cache to the ENGINE
+TREE and reads no environment by design, so the pack-dump FRESHNESS guard
+(`airport/load.py:289`) judged the SHARED root and refused **every** KCLT and
+HECA v2 build, `explain` and `v2_solve_replay --capture` — no dump keyed to the
+pristine `.dsf.anchor_bak` has ever existed for those packs.
+`tools/harness/build_airport.py` now hands its own lane-local redirect to v2's
+loader (`inputs.mod_cache_root`), which is where the env read belongs; the
+build then derives its DSF text dumps in the same lane-local overlay as every
+other derived cache.  `explain` and the replay tool still refuse — the same
+line in `default_inputs` — and that half is left to the chip.
+
 ## §37 A ROAD KEEPS ITS OWN LONGITUDINAL LAW; A ROAD FLIPS BY SHARE; THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT items 5, 7, 8; CYXY item 2) — lane `v2roadcap`
 
 Scout `v2kclt1t`: (5) the service road down to KCLT's east access road falls 1.4 %

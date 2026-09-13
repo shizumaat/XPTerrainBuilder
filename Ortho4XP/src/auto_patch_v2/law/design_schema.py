@@ -154,6 +154,13 @@ class Design:
     #: bank_max_width_m]``.  ``bank_toe_break_m`` is the jump in raw daylight
     #: distance between neighbours that CUTS the toe's plan smoothing: the
     #: toe may jump where the ground does.
+    #: §37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner
+    #: RULINGS 2026-09-13q item 8): the longest chord of an emitted foot
+    #: chain, and the mid-chord stand-off that splits one further.  The
+    #: materiality floor itself is DERIVED (``bank_materiality_m``,
+    #: ``emit/bank.py``), never typed.
+    bank_chord_max_m: float
+    bank_split_tol_m: float
     bank_sample_m: float
     bank_daylight_tol_m: float
     bank_max_width_m: float
@@ -296,6 +303,13 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.pad_level_rulings {missing}: every level "
                   f"ruling must also be in one_way_rulings — the pad FOLLOWS "
                   f"the pavement and never pulls it (RULINGS 2026-09-10l)")
+    if d.bank_chord_max_m <= d.bank_min_width_m:
+        raise err(f"emit.design.bank_chord_max_m {d.bank_chord_max_m}: the "
+                  "foot chord limit must exceed bank_min_width_m (the split "
+                  "floor)")
+    if d.bank_split_tol_m <= 0.0:
+        raise err(f"emit.design.bank_split_tol_m {d.bank_split_tol_m}: a "
+                  "positive mid-chord stand-off")
     if not 0.0 < d.bank_slope <= 1.0:
         raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
     if not d.bank_min_width_m > 0.0:

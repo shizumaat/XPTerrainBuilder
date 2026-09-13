@@ -41,10 +41,20 @@ def road_law_caps(planar: PlanarMap, law: Law, airport: Airport | None = None
     laterally-contiguous cross-sections (``contiguity.station_caps``,
     the census's own walk), where stricter than its own (LATERAL
     CONTIGUITY, owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
-    2026-08-28 Amendment 2): the value the emitter stamps as
-    ``o4_grade_law_cap`` and the cap the road's own pairs are bound at.
-    Without ``airport`` the strip keep-out (clause 5) is not applied —
-    stricter, never looser."""
+    2026-08-28 Amendment 2).  Without ``airport`` the strip keep-out
+    (clause 5) is not applied — stricter, never looser.
+
+    §37 (1) (RULINGS 2026-09-13q KCLT item 5): THIS IS THE TRANSVERSE
+    CAP AND ONLY THE TRANSVERSE CAP.  Lateral contiguity exists so a
+    road does not TEAR against the surface beside it — a lateral
+    relation, priced across the road's section.  Binding the road's
+    LONGITUDINAL law to it as well made KCLT's east access road
+    (``dsf:pol51``, shapeIDs 945/946) descend at 1.4 % where its DEM
+    falls 9 %, ending +14.22 m in the air at 35.2074982, -80.9296586 —
+    0.015 on 42 of KCLT's 121 groundside faces, the 1:3 bank then
+    walking 34 m to daylight the fill.  A road's longitudinal cap stays
+    its own (``service_road`` 8 %); the value here is stamped as
+    ``o4_grade_law_cap_t`` and bounds the CROSS-SECTION pairs only."""
     vw = view(planar, law)
     roads = road_family_roles(law)
     out: dict[int, float] = {}
@@ -73,10 +83,11 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                       ) -> list[Row]:
     """All pairs of every road-family / groundside ring, cross-section
     pairs at the transverse cap; a road laterally contiguous with a
-    stricter class carries that class's cap (``road_law_caps``)."""
+    stricter class carries that class's cap as its TRANSVERSE cap and
+    keeps its own longitudinal one (``road_law_caps``, §37 (1))."""
     vw = view(planar, law)
     roads = road_family_roles(law)
-    law_caps = road_law_caps(planar, law, airport)
+    law_caps = road_law_caps(planar, law, airport)   # §37 (1): TRANSVERSE only
     min_deg = law.tables.common.road_transverse_axis_min_deg
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
@@ -87,8 +98,11 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
         cap = role_cap(law, f.role)
         if cap is None:
             continue
-        cap_l = min(cap.longitudinal, law_caps.get(f.id, cap.longitudinal))
-        cap_t = min(cap.transverse, cap_l)
+        # §37 (1): the longitudinal cap is the ROLE'S OWN; lateral
+        # contiguity binds the transverse cap only
+        cap_l = cap.longitudinal
+        cap_t = min(cap.transverse, cap_l,
+                    law_caps.get(f.id, cap.transverse))
         ring = vw.rings[f.id]
         axis = None
         if f.role in roads:

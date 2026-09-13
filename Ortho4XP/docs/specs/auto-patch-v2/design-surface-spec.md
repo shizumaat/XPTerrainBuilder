@@ -5414,3 +5414,165 @@ under 0.5 m, max 2.4 m, none over 5 m).
    `--engine v2` KCLT build with the cockpit block first (critical motion 16 → quoted,
    the three item-5 cliffs gone); census; twins; suite. The census's 215 m apron
    step at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), excluded.
+
+### §37.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2roadcap`
+
+**A. THE LATERAL-CONTIGUITY CAP** (`constraints/roads.road_law_caps`; §37 (1)).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| L1 | `constraints/roads.road_within_shape` | `road_law_caps` | **EDITED**: `cap_l` is the ROLE'S OWN longitudinal (`service_road` 8 %); `cap_t = min(role transverse, contiguity cap)`. |
+| L2 | `constraints/taxi.triangle_planes` (`plane_gradient`) | `road_law_caps` | **EDITED — the contiguity min is DROPPED.** `|∇z| ≤ cap` is ISOTROPIC: a plane row has no transverse component to bind on its own, so it prices at the face's own longitudinal cap. Before §37 this branch flattened a road triangle in every direction. |
+| L3 | `pipeline/publication.face_tags` | `road_law_caps` | **EDITED**: stamps `o4_grade_law_cap_t`, never the bare `o4_grade_law_cap` (which binds a way's WHOLE within-shape reading in the v1 census). |
+| L4 | `pipeline/publication.publication` `station_caps` | `road_station_caps` | UNCHANGED. The per-station vector is the WALK, not a cap assignment; v1's fourth reader still reads it and, with it present, mints no row BY CONSTRUCTION (`_built = min(eff, published) ≤ _law_here`). |
+| L5 | `constraints/contiguity.{station_caps,road_station_caps,cap_at,face_station_cap}` | the probe walk | UNCHANGED — the walk is the same; only what the cap BINDS changed. |
+| L6 | `verify/contiguity.lateral_contiguity` | `p.cap(sh)` + published stations | **EDITED**: prices `p.cap_t(sh)` — the transverse binding — against the re-walked cross-section's strictest longitudinal law. |
+| L7 | `verify/frame.Patch.cap` / `Shape.law_cap` | `law_caps` mapping | **EDITED**: `cap()` is now the role's longitudinal alone; new `cap_t()` folds the binding in. `Shape.law_cap` MEANS the transverse binding; every `census(surf, law, pub, road_law_caps(...))` call site is unchanged. |
+| L8 | `verify/within.within_shape` / `road_cross_section` | `p.cap`, `rc.transverse` | **EDITED**: `cap_t = p.cap_t(sh)`; the longitudinal cap is the role's. |
+| L9 | `verify/within.plane_gradient` | `p.cap` | follows L7 — the role's own longitudinal. Mirrors L2, so generator and reader move together. |
+| L10 | `check_grade._role_grade_limit` / `_lateral_cap_tag` (`o4_grade_law_cap`) | the way tag | UNCHANGED IN MEANING. v2 no longer stamps it for contiguity, so a v2 road reads its role cap; **every v1 patch reads exactly as before** (08-02 clause 2 is untouched in `auto_patch/`). |
+| L11 | `check_grade._xsec_allowance` (the `road_cross_section` family) | `cap_l` | **EDITED**: `min(road_cross_section_cap(cap_l), o4_grade_law_cap_t)` — the ONE site at which the contiguity cap reaches the v1 census. |
+| L12 | `check_grade._check_lateral_contiguity` (the fourth reader) | published `station_caps` | UNCHANGED — vacuous by construction on a v2 sidecar (L4). |
+| L13 | `emit/osm_adapter` oracle alias (`extra["o4_grade_law_cap"]` `prior`) | the face tags | UNCHANGED CODE. `prior` is now absent for road-family aliases, which is the intent: an alias's LONGITUDINAL cap must not be tightened by a transverse law. |
+| L14 | §28 GROUNDSIDE FRONTAGES (`constraints/pad_frontage_gs.py`, `verify/frontage`) | pad ↔ frontage rows | UNAFFECTED — neither imports `road_law_caps`; a frontage row's cap is the pad law's. |
+| L15 | §20 PAD LEVELS (`constraints/pads`, `[design] pad_level_rulings`) | pad rim / pavement edge | UNAFFECTED — same; and the relaxation FREES the road, it never pulls a pad (the one-way rulings). |
+| L16 | `solve/why.family_of` (`road_within_shape` / `road_cross_section`) | the row's source | UNAFFECTED — labels unchanged. |
+| L17 | `auto_patch/` v1 (`lateral_contiguity.py`, `grade_graph._body_cap`, `layout.py:3120`) | v1's own stamping | UNTOUCHED — §37 is v2 law. |
+
+**B. `airside_edge_flip`'s callers** (§37 (2)).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `classify/roles.classify` | the ONE call | UNCHANGED signature and return; the share test lives inside the one derivation site (§27 (2)). |
+| B2 | every downstream consumer of `role` | `law.tables.role_side` | UNAFFECTED BY CONSTRUCTION — `side` stays a pure function of `role`. |
+| B3 | `tools/role_edge_census.py` | the emitted patch | UNAFFECTED — it reads the product, and reports the share it now measures against. |
+
+**C. THE BANK's readers** (§37 (3)). A foot ring may now be one OPEN chain per load-bearing run.
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| C1 | `emit/osm_adapter` bank branch | `closed = vertices[0] == vertices[-1]`, `len ≥ 3` | UNCHANGED — it ALREADY emits an open chain (the tile-piece case, §9.4 deviation 2). Runs are padded so no chain is under 3 nodes. |
+| C2 | `emit/osm_adapter.write_tile_pieces` | breakline runs | UNCHANGED — a chain splits at a seam exactly as a ring did. |
+| C3 | `O4_Vector_Map.include_patches` | every CLOSED way | An OPEN `bank_foot` way is a constrained LINE carrying altitudes: it seeds no INTERP_ALT face and blocks no water flood. CORRECT — where no foot is emitted there is no bank to seed. |
+| C4 | `O4_Mesh_Utils._bank_rings_from_patches` / `bank_annulus_polygon` | CLOSED `bank_foot` ways only | **EDITED**: an open chain is closed into its RIBBON — the chain and its own nearest-point projection onto the design coverage — and REFUSED when the swept area is implausible for a bank of that length. Without this, one immaterial station would have taken the whole ring's annulus out of the linear blend. A refusal leaves those vertices to the harmonic extension, which is this module's standing rule. |
+| C5 | `O4_Mesh_Utils.bank_annulus_blend_values` / `_bank_foot_along_normal` / `BANK_BLEND_STATS` | the annulus + the feet | UNCHANGED via C4. Where a run carries no foot, `interpolate_free_interior_altitudes`' harmonic extension carries the sub-materiality difference — §37 (3)'s own words. |
+| C6 | `O4_Mesh_Utils.bank_annulus_region_areas` (Triangle's region sizing) | `bank_annulus_polygon` | follows C4. |
+| C7 | `check_grade._parse_osm` / `ROLE_LESS_FEATURE_CLASSES` | `o4_feature=bank_foot` | UNCHANGED — routed to `feature_out` open or closed; it mints no row (§9 A10/A11). |
+| C8 | `verify/frame.Patch.of` | `runway_profile` / `structure_rim` kinds | UNAFFECTED (§9 A8). |
+| C9 | `emit/surface.GradedSurface.to_json` / `SCHEMA` | breaklines as vertex tuples | UNAFFECTED. |
+| C10 | `emit/rebake.deck_datum_from_surface`, `airport/rebake_plan` | the PRE-bank surface | UNAFFECTED (§9 A7). |
+| C11 | `emit/terrain_edge.no_bank_region` | the banked region cut | UNCHANGED — the region is cut before any station is emitted. |
+
+### §37 **MEASURED** (lane `v2roadcap`, 2026-09-13, branch `claude/v2roadcap`, base `ec8723e9`)
+
+**THE CLOSING TEST MOVED FROM KCLT TO LEMD — KCLT CANNOT BE BUILT ON THIS
+CORPUS, AND THE LANE DID NOT MAKE IT BUILDABLE.**  `build_airport.py KCLT
+--engine v2` refuses at the loader, before classify:
+
+> `KCLT: the pack DSF …/+35-081.dsf.anchor_bak is newer than every cached
+> text dump under …/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 …`
+
+The refusal is `airport/load.py:289` and it is CORRECT.  The PRISTINE read
+frame (RULINGS 2026-09-11m) reads `+35-081.dsf.anchor_bak`, and
+`dsf.find_text_dump` keys the candidate dumps on *that* basename: the
+shared mod cache holds `+35-081.dsf.{1334c2dd,7bf41307,b698274b}.text` —
+dumps of the WRITTEN DSF — and **no `+35-081.dsf.anchor_bak.*.text` at
+all** (LEMD, OTHH, NZQN and NZVL each have one; KCLT has never had one).
+The cure is `--refresh-data airport_mod_cache`, which this lane's brief
+forbids and which changes every lane's corpus stamp.  **It is the
+orchestrator's call, not the lane's.**  The same guard is what refused the
+scout's `explain KCLT` (13q).  Consequences, stated rather than papered
+over: every KCLT bar of §37 (4) — `dsf:pol51`, shapeID 791, the ribbon
+aprons, the cockpit block, the KCLT census — is **NOT MEASURED**.  What is
+measured below is LEMD (the closing build) and CYXY (the control), both
+`--engine v2`, both against a `--base-arm` at the same base `ec8723e9`,
+plus the KCLT BASE numbers read offline from the 1.0.324 products.
+
+#### KCLT, BASE ONLY (the 1.0.324 products, read with the emitter's own instruments)
+
+Reproduced exactly, so the sites are not in doubt — only the fix is
+unmeasured:
+
+| site | 1.0.324 |
+|---|---|
+| `dsf:pol51` shapeID 946 | `o4_grade_law_cap=0.015`, worst **+14.22 m** at 35.2074982, −80.9296586, east end +8.09 |
+| `dsf:pol51` shapeID 945 | `o4_grade_law_cap=0.015`, worst +14.07 m, east end +8.02 |
+| `service_road` (whole airport) | 864 vertices, **max +14.22 / −4.14 m** off the DEM |
+| shapeID 791 (`dsf:pol82`) | role **`apron`**, 81 vertices, **+12.33 m** at 35.2209280, −80.9275739 |
+| bank | 49 closed rings, **1,855 stations**, 34,212 m, **451 chords over 30 m**, max chord 130.1 m |
+| bank materiality (§37 (3), read with `_inner`'s own rule) | **526 of 1,855 stations (28.4 %) load-bearing** at 1.65 m; 57.8 % carry over 0.5 m, 7.1 % over 5 m |
+| ribbon aprons (< 12 m min-rect width, emitted apron ways) | **43 / 5,010 m²** — NOT the spec's 60 / 108,744 m², a different instrument; quoted here on the one used for both arms |
+
+#### LEMD — the closing build
+
+ONE `--engine v2 --patch-only` build, tag `v2roadcapLEMD`, **399.96 s**
+engine / 417.2 s wall, rc 0, artifact ledger **`648c9198fba3`**, shared
+repo UNCHANGED, corpus `e512b4ea8cca`.
+
+* **§37 (2) — LEMD's flips STAND.**  `tools/role_edge_census.py` on the
+  emitted patch: 124 groundside shapes, 28 sharing ≥ 10 m with airside
+  pavement, **0 substantive (all 28 slivers, 789 m²), 0 LOT-class** —
+  byte-for-byte the shape of §27 round 2's own bar.  No apron-side lane
+  came back: a lane that runs 828 m ALONGSIDE its apron is a share, not a
+  graze.
+* **§37 (3) — the bank.**  5,163 design-boundary vertices → **846 foot
+  nodes** in 106 chains, **104 of them open**; **489 of 2,596** region
+  stations load-bearing (2,107 under the 1.65 m floor, not emitted), 11
+  rings carry no bank at all, 149 split stations, **chords over 30 m: 0**
+  (longest emitted chord **30.0 m**), 11,245 m of foot.  Bank slope p95
+  **0.576** / max 1.260 against the law's 0.33 — steeper than 1:3 at the
+  stations that remain, which is the pre-existing `slope-to-nearest-design-
+  vertex` statistic now read over load-bearing stations ONLY (the
+  minimum-width feet that used to hold the p95 down are exactly the ones
+  §37 (3) removes).  Reported, not fixed: it is the §9.5 residual, not a
+  §37 mechanism.
+* `service_road` off the DEM: 71 of 128 vertices over 0.5 m, max 6.93 m.
+
+#### CYXY — the control, both arms at `ec8723e9`, one tree, one corpus
+
+| | BASE (`163c4e7f50dc`) | §37 (`ca3838bfca39`) |
+|---|---|---|
+| harness census LAW-TRUE | 1,047 | 1,049 |
+| harness census **ADJUDICATED** | **406** (airside 381 / gs 25) | **345** (airside **306** / gs 39) |
+| `within_shape` (law-true) | 915 | 968 — the whole rise is `withdrawn_law_05aa` taxi chords, 625 → 688, never adjudicated |
+| `road_cross_section` | 12 | 17 |
+| `taxi_box` | 34 | **17** |
+| `airside_no_step` | 74 | **40** |
+| `plane_gradient` | 1 | **0** |
+| `transverse` | 9 | 5 |
+| bank foot nodes | **649** in 20 closed rings | **156** in 22 chains, all open |
+| bank foot length | 14,835 m | **2,353 m** |
+| bank chords over 30 m | **218** (max 82.3 m) | **0** (max 29.8 m) |
+| bank load-bearing stations | — | **79 of 648** |
+| groundside shapes ≥ 10 m airside edge, substantive | 3 (10,295 m²) | 4 (11,546 m²) — one road came back, exactly §37 (2) |
+| `service_road` off-DEM > 0.5 m | 83 / 292 (max 2.99 m) | 93 / 314 (max 3.14 m) |
+| v2 verify rows | 312 | 316 |
+
+**−61 adjudicated rows at CYXY, −75 of them airside.**  The airside gain
+is `airside_no_step` (74 → 40) and `taxi_box` (34 → 17): a road that no
+longer drags its 1.5 % cap along its whole length stops pulling the
+pavement it fronts.  Groundside rises 25 → 39, which is the road taking
+its own 8 % and being read at it.
+
+**CYXY's ring does NOT vanish.**  §37 (3) predicted 649 → 0 from the
+scout's headline ("max 2.4 m").  Read with the emitter's OWN inner-end
+rule — the nearest point of the coverage with its z interpolated ALONG the
+boundary edge, which is `emit/bank.py::_inner`, not the nearest design
+VERTEX — CYXY carries 115 stations over 1.65 m and 27 over 5 m.  The
+measured answer to the owner's question "do we need it at all" is
+therefore: **yes, but only for a sixth of it** — 79 load-bearing stations,
+2,353 m of foot instead of 14,835 m, and 84 % of the ring gone.
+
+#### Build-time impact statement
+
+Bank pass CYXY 0.14 s → 0.15 s, LEMD 0.54 s (it now reads `_inner` for
+every region station instead of only for emitted ones, and re-reads it for
+the kept ones).  §37 (1) removes a `min`; §37 (2) adds one comparison per
+candidate.  Whole-build wall is a re-solve of a changed system on a machine
+running four lanes, so no A/B is quoted (standing law: never one run per
+side).  Nothing here is within 1 % of either budget.
+
+#### What this lane did NOT do
+
+KCLT (blocked, above); the five-airport sweep (orchestrator); any
+`--refresh-data`; any merge.

@@ -648,6 +648,46 @@ BANK_FOOT_FEATURE = "bank_foot"
 #: more than a few times that.
 BANK_RING_MATCH_TOLERANCE = 1.0e-6
 
+#: §37 (3) (owner RULINGS 2026-09-13q item 8): a ``bank_foot`` way may now
+#: be an OPEN chain — the bank is emitted only where it is load-bearing,
+#: so one boundary ring becomes one chain per load-bearing run.  An open
+#: chain is closed here into its RIBBON (the chain and its own projection
+#: onto the design coverage), which is the strip of ground the bank
+#: occupies.  The ribbon is accepted only when its area is plausible for a
+#: bank of that length — at most this many ``bank_max_width_m`` — so any
+#: failure of the closure leaves those vertices to the harmonic extension
+#: instead of writing a wrong field, which is this module's standing rule.
+BANK_OPEN_CHAIN_AREA_WIDTHS = 1.0
+#: ``emit.design.bank_max_width_m``, in metres (converted per call: the
+#: degree scale constant is defined further down this module).
+BANK_MAX_WIDTH_M = 200.0
+
+
+def _close_open_foot(chain, design_cov):
+    """§37 (3): the RIBBON of an open ``bank_foot`` chain — the polygon
+    between the chain and its nearest-point projection onto the design
+    coverage.  ``None`` when it cannot be built or its area is not
+    plausible for a bank of that length."""
+    from shapely import geometry, ops
+
+    if design_cov.is_empty or len(chain) < 2:
+        return None
+    try:
+        line = geometry.LineString(chain)
+        proj = [ops.nearest_points(design_cov, geometry.Point(c))[0]
+                for c in chain]
+        poly = geometry.Polygon(list(chain) + [(q.x, q.y) for q in reversed(proj)])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty or poly.geom_type not in ("Polygon", "MultiPolygon"):
+            return None
+        max_w = BANK_MAX_WIDTH_M / BANK_METRES_PER_DEGREE
+        if poly.area > (BANK_OPEN_CHAIN_AREA_WIDTHS * max_w * line.length):
+            return None
+        return poly
+    except Exception:
+        return None
+
 
 def _bank_rings_from_patches(tile):
     """The tile's patch rings, split into FOOT rings and DESIGN rings.
@@ -658,7 +698,7 @@ def _bank_rings_from_patches(tile):
     patch, and ``foot_polygons`` is empty for a v1 or manual patch — the
     caller then does nothing at all.
     """
-    from shapely import geometry
+    from shapely import geometry, ops
 
     import O4_Vector_Map as VMAP          # late: no cycle, see the note
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
@@ -681,6 +721,7 @@ def _bank_rings_from_patches(tile):
         files.append(name)
     scalx = cos((tile.lat + 0.5) * pi / 180)
     feet, design = [], []
+    open_feet = []                         # §37 (3): load-bearing runs
     for name in files:
         layer = OSM.OSM_layer()
         try:
@@ -691,23 +732,40 @@ def _bank_rings_from_patches(tile):
         nodes = layer.dicosmn
         for wayid in layer.dicosmfirst["w"]:
             way = layer.dicosmw.get(wayid)
-            if not way or len(way) < 4 or way[0] != way[-1]:
-                continue                      # not a closed ring
+            if not way or len(way) < 4:
+                continue
+            tags = layer.dicosmtags["w"].get(wayid, {})
+            closed = way[0] == way[-1]
+            if not closed:
+                # §37 (3): an OPEN ``bank_foot`` chain is a load-bearing
+                # RUN of one boundary ring; anything else open is not a
+                # ring and never was read here.
+                if tags.get("o4_feature") != BANK_FOOT_FEATURE:
+                    continue
             try:
                 ring = [((float(nodes[n][0]) - tile.lon) * scalx,
-                         float(nodes[n][1]) - tile.lat) for n in way[:-1]]
+                         float(nodes[n][1]) - tile.lat)
+                        for n in (way[:-1] if closed else way)]
             except Exception:
+                continue
+            if not closed:
+                open_feet.append(ring)
                 continue
             polygon = geometry.Polygon(ring)
             if not polygon.is_valid:
                 polygon = polygon.buffer(0)
             if polygon.is_empty or not polygon.area:
                 continue
-            tags = layer.dicosmtags["w"].get(wayid, {})
             if tags.get("o4_feature") == BANK_FOOT_FEATURE:
                 feet.append(polygon)
             else:
                 design.append(polygon)
+    if open_feet:
+        design_cov = ops.unary_union(design) if design else geometry.Polygon()
+        for chain in open_feet:
+            ribbon = _close_open_foot(chain, design_cov)
+            if ribbon is not None:
+                feet.append(ribbon)
     return (feet, design)
 
 

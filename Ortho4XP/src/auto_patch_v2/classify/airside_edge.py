@@ -199,7 +199,10 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     A `parking_lot` / `service_road` / `service_junction` face whose
     boundary runs at least ``rules.lot.airside_edge_min_m`` LATERALLY
     along airside pavement (`side = airside` in `precedence.toml`, less
-    `building`) becomes `apron`.  What keeps a shape groundside is no
+    `building`) becomes `apron` — and a STRIP-CLASS face (one born
+    `service_road` / `service_junction`) needs that contact to be at
+    least ``rules.lot.road_airside_edge_frac`` OF ITS PERIMETER as well
+    (§37 (2), owner RULINGS 2026-09-13q item 7).  What keeps a shape groundside is no
     longer the NEIGHBOUR'S ROLE but the SHAPE OF THE CONTACT: a free road
     meeting it END-ON at the road's mouth (``_is_mouth``).  Slivers never
     flip.  Flips PROPAGATE — a lot beside a road that became apron is
@@ -214,6 +217,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     unconditionally ever since.
     """
     min_m = float(rules.lot.airside_edge_min_m)
+    frac = float(rules.lot.road_airside_edge_frac)
     factor = float(rules.lot.mouth_width_factor)
     weld_m = float(law.tables.emit.identity.weld_spacing_m)
     #: a face OFFERS A MOUTH by the role it was BORN with: a road that
@@ -243,6 +247,21 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
                                         factor, cache)
             if shared < min_m:
+                continue
+            # §37 (2) A ROAD FLIPS BY SHARE, A LOT BY EDGE (owner RULINGS
+            # 2026-09-13q KCLT item 7, over 13j item 7).  A STRIP-class
+            # face — one born a road, a road BY EVIDENCE — is a LINE
+            # through the airport, and a line that grazes an apron for a
+            # few metres of a kilometre-long perimeter has not become
+            # apron; the owner's 12c sentence is about a shape that SITS
+            # against airside pavement.  So a road needs a SHARE of its
+            # perimeter, not merely an edge.  Measured at KCLT: shapeID
+            # 791 (`dsf:pol82`, 8.4 m wide, 575 m of road centreline, no
+            # taxi centreline) flipped on 25.8 m of 1,203 m — 2.1 % — and
+            # then stood +12.33 m off its ground under the apron's 1.5 %.
+            # LEMD's 61 apron-side lanes run ALONGSIDE their apron (edges
+            # to 828 m) and keep their flip.  A LOT is unchanged.
+            if was_road[i] and shared < frac * per:
                 continue
             final[i] = ["apron", ref, face, None,
                         dict(evid, kind="apron", airside_edge_m=shared,

@@ -291,8 +291,6 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
     """``|∇z| ≤ cap`` on every governed three-vertex face (the census's
     ``plane_gradient`` family reads triangles only)."""
     vw = view(planar, law)
-    from .roads import road_law_caps
-    law_caps = road_law_caps(planar, law, airport)
     rows: list[Row] = []
     for fid, ring in vw.rings.items():
         if len(ring) != 3 or vw.holes[fid]:
@@ -300,7 +298,12 @@ def triangle_planes(planar: PlanarMap, law: Law, airport: Airport
         cap = vw.caps[fid]
         if cap is None:
             continue
-        cap = (min(cap[0], law_caps.get(fid, cap[0])), cap[1])
+        # §37 (1) (RULINGS 2026-09-13q item 5): the lateral-contiguity cap
+        # is the TRANSVERSE cap, and ``|grad z| <= cap`` is isotropic —
+        # a plane's gradient has no transverse component to bind on its
+        # own — so the plane row prices at the face's OWN longitudinal
+        # cap.  Before §37 this branch pulled the contiguous class's cap
+        # in and flattened a road triangle in every direction.
         f = planar.faces[fid]
         src = Source(GEN, "plane_gradient (user 2026-07-05)",
                      (f"face:{fid}", f.ref))

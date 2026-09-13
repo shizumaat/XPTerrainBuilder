@@ -39,7 +39,9 @@ class Shape:
     code_letter: str | None = None
     code_number: int | None = None
     single_poly: bool = False
-    law_cap: float | None = None  # o4_grade_law_cap (lateral contiguity)
+    #: §37 (1): the TRANSVERSE binding of lateral contiguity
+    #: (``o4_grade_law_cap_t``) — never the longitudinal cap
+    law_cap: float | None = None
     #: a hole feature's host face id (``key`` of the shape it is cut from)
     host: int | None = None
     #: a ``structure_rim`` feature: a closed ring (True) or an open chain
@@ -71,11 +73,20 @@ class Patch:
                 math.radians(lat - self.lat0) * R_EARTH)
 
     def cap(self, sh: Shape) -> float | None:
-        """The within-shape longitudinal cap the census judges at."""
+        """The within-shape LONGITUDINAL cap the census judges at — the
+        role's own.  §37 (1) (RULINGS 2026-09-13q item 5): the
+        lateral-contiguity cap no longer enters here; it binds the
+        TRANSVERSE cap only (:meth:`cap_t`)."""
+        rc = role_cap(self.law, sh.role, sh.code_number, sh.code_letter)
+        return None if rc is None else rc.longitudinal
+
+    def cap_t(self, sh: Shape) -> float | None:
+        """The TRANSVERSE cap: the role's, tightened by the shape's
+        lateral-contiguity binding (§37 (1))."""
         rc = role_cap(self.law, sh.role, sh.code_number, sh.code_letter)
         if rc is None:
             return None
-        c = rc.longitudinal
+        c = min(rc.transverse, rc.longitudinal)
         if sh.law_cap is not None:
             c = min(c, sh.law_cap)
         return c

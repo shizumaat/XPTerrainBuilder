@@ -6434,3 +6434,44 @@ ground; the 1:3 bank at the east edge shrinks with the fill it daylighted;
 cockpit CRITICAL motion ≤ 9 (13ab's block) with no new row on the east road;
 LEMD role census byte-identical (§37 (2) holds: the 61 apron-side lanes stay
 apron); suite twice.
+
+### §32 (4) PURITY OF A POST-SOLVE PROJECTION; §20a THE LAG IS A CONVERGENCE CONDITION; §30 (3) THE PAD PLANE IS PROJECTED (Fable 2026-09-13; RULINGS 2026-09-13ac) — lane `v2settle`
+
+Scout `v2unsettled2`: LEMD's hard set was never settled on merged main (12ac
+read the lane tip); the merge's §28 rows (42 one-way rows in the pad columns)
+leave a 2–3 cm shortfall of a coupled fixed point under a lag capped at three
+rounds (`LAG NOT SETTLED` on every arm, 0.30–0.68 m leader motion) and a
+polish that does not converge; and main's worst row (0.129 m at v8276/v8273,
+`building` + `graded_strip`) is minted AFTER the solve by `project_zone_bands`
+clamping a pad-rim vertex independently of its pad. Three laws, in order:
+
+**§32 (4) PURITY.** A post-solve projection may clamp only a column that
+carries NO hard row it does not own. `project_zone_bands` refuses a zone
+vertex that also carries a pad-ceiling, pavement-ceiling or runway row and
+leaves it to the solve (measured alone: main 0.1292 → 0.0271 m). The same
+test guards every projection that follows.
+
+**§20a THE LAG.** The one-way leader/follower fixed point iterates to
+`one_way_tol_m` (0.01 m) or REPORTS the named failure — which rows, which
+leader, its last move — BEFORE the augmented-Lagrangian polish;
+`one_way_max_rounds` becomes a safety ceiling (≥ 20) whose hit is a named
+failure, never a silent stop. Raising `polish_rounds_max` / `hard_weight`
+is refuted (12u, 13ac: 8 rounds → 2 rows, still unsettled).
+
+**§30 (3) THE PAD PLANE.** If (4) and §20a leave the pad ceiling unsettled,
+each pad's rigid plane takes the runway's and the zone band's treatment: a
+post-solve per-body QP on its free columns onto its own 1 % ceiling
+(`project_runway` / `project_zone_bands` discipline), run after purity so no
+two projections share a column; `HARD SET SETTLED` is then a re-read after
+every projection, and the design report states it for MERGED MAIN.
+
+Instrument: `v2_solve_replay.py --why-hard` (promoted from the scout's
+`hardrows.py`: every violated hard row with its vertices, coordinates,
+demanded vs allowed metres).
+
+BARS: LEMD on a fresh main capture `HARD SET SETTLED` and `LAG SETTLED`
+(today 5 rows / 0.129 m; lag 0.678 m), v8276/v8273 and v9295/v9696 at ≤
+0.02 m; KCLT's three counters re-read on its capture (13ab: 644 rounds, 21
+rows / 0.4144 m, lag 0.332 m) SETTLED or the failure named; solve wall not
+worse than +10 % (`--runs 3`); runway and zone projections unchanged on pure
+columns; suite twice; ONE LEMD build.

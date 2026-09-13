@@ -4035,3 +4035,49 @@ added to force it: §16f binds 16 real pad groups there and the airport's own
 bars improve.  §16f (6)'s "name the rule-5b-refused members" is served by the
 census printing every family's members and every member cut apart; the plan
 still carries no basin-refusal record and none was added.
+
+### §16f (7) A LARGE TERMINAL CLUSTER IS ONE UNIT ON ONE PAD (owner RULINGS 2026-09-13bj; Fable 2026-09-13) — lane `v2clusterpad`
+
+Owner (KCLT 1.0.327): "Terminal object families still settling at different
+elevations resulting in passengers and seat objects … sitting on the ground
+under the building instead of on the floor inside the building. Roof
+elevations sank in some places as well. These large complex structures have
+to be seated as a unit. As long as it remains feasible with grade laws and
+taxiways, etc. it's acceptable to flatten large apron areas around big
+terminals if needed to accommodate a large terminal cluster." 13aq's
+partition by pad (4) put the cluster on several planes; the interior
+furniture (passengers, seats — members with no pad of their own, cut to
+their own ground under (4)) fell through the floor.
+
+7. **ONE UNIT, ONE PLANE, ONE PAD.** A family (§16f (1): shared authored
+   datum plane AND one connected plan cluster) whose footprint union exceeds
+   `[placement] cluster_pad_min_m2` (design: 5,000 m²) is a CLUSTER: every
+   member — walls, roofs, floors, interior furniture, canopies, the pieces
+   standing on the apron — takes ONE zero plane, the cluster's datum, with
+   no per-member cut to its own ground and no pad partition. The datum is
+   the level of the CLUSTER PAD the design surface emits for it (§30 (4)
+   below): the family's footprint union, one plane. A member whose own
+   contacts sit more than `visual_m` off that plane is REPORTED (the census
+   prints it), never re-seated. §16f (5) (pavement is king) yields inside
+   the cluster: a wall standing on apron takes the cluster plane, and the
+   apron under it is the design surface's business (§30 (4)).
+
+Design-surface counterpart (written into `design-surface-spec.md` §30 (4)):
+the cluster pad is one `building` pad over the family's footprint union;
+the apron faces within `cluster_apron_reach_m` (design: 60 m) of it take
+the pad's plane as their target where the apron and taxiway grade laws
+allow (the pad's 1 % and the apron's caps stand; the taxiway family is
+never moved by it — the reach stops at a taxiway's own band), so the
+terminal's stands are FLAT at the terminal's level; beyond the reach the
+apron grades away under its own law.
+
+BARS (KCLT, the registered frame + ONE build; LEMD / OTHH re-read): every
+member of KCLT's terminal cluster on ONE plane (zero spread 0.00; today two
+pads → two planes and interior members on their own ground); the passengers
+/ seats at 35.2191877, −80.9426007 on the floor (their zero = the cluster
+plane, not the ground); roof members on their walls (no roof below its
+wall top); the stands within the reach flat at the cluster level (apron
+z − pad z ≤ 0.05 m inside the reach); taxiway family unmoved (byte-identical
+runway/taxi rows); §17 motion rows on the apron around the terminal not
+worse than today's; LEMD's old terminal and OTHH's clusters re-read under
+the same law (named, not necessarily byte-identical); suite twice.

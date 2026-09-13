@@ -8193,3 +8193,21 @@ the verify reads 7 of, the difference being v1's allowance envelope);
 chasing the `strip_arc` rows (13ba: the unsettled lag's, and this build's
 cockpit block carries one of them at 0.090 m); `dsf:pol82`'s last 0.18 m;
 any merge, RULINGS entry, or new tool.
+
+### §30 (4) THE CLUSTER PAD (owner RULINGS 2026-09-13bj; Fable 2026-09-13) — lane `v2clusterpad`
+
+Owner: "it's acceptable to flatten large apron areas around big terminals if
+needed to accommodate a large terminal cluster", as long as the grade laws
+and the taxiways stay feasible.
+
+4. **ONE PAD UNDER A TERMINAL CLUSTER.** Where the object stage's family
+   census names a cluster (object spec §16f (7): footprint union over
+   `cluster_pad_min_m2`), the design surface emits ONE `building` pad over
+   the footprint union — one plane (the pad law, 1 %) — and the apron faces
+   within `cluster_apron_reach_m` of it take that plane as their target
+   where the apron caps allow; the reach stops at any taxiway family band
+   (never moved). The pad's level is the pad law's (the median ground under
+   the union, then the plane), published in the sidecar (`cluster_pads`) so
+   the object stage seats the cluster on it. Feasibility is the solve's:
+   where the reach cannot be met under the caps the report names the apron
+   faces that stayed graded.

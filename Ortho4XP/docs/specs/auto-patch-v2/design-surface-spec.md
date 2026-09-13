@@ -6475,3 +6475,43 @@ BARS: LEMD on a fresh main capture `HARD SET SETTLED` and `LAG SETTLED`
 rows / 0.4144 m, lag 0.332 m) SETTLED or the failure named; solve wall not
 worse than +10 % (`--runs 3`); runway and zone projections unchanged on pure
 columns; suite twice; ONE LEMD build.
+
+## §38 THE TILE SEAM IS A PIN (owner 2026-07-04 / 2026-07-24 / 2026-07-26 / RULINGS 2026-09-13ah; Fable 2026-09-13) — lane `v2seampin`
+
+Owner (13ah): seam boundaries "must be kept at DEM and treated as an anchor
+like CIFP thresholds that everything else grades to." `constraints/seams.py`
+(M3a) minted the seam as a PREFERENCE (`Linear.soft`) after the SPLP class of
+2026-09-04 (runway edge 55.51 m and strip vertex 57.00 m on one seam line);
+a deviating vertex was reported as a "seam residual" and not published as a
+pin. Overruled.
+
+1. **A SEAM VERTEX IS A `Pin`** — the same object as a CIFP threshold: its
+   value is its own tile's baked DEM sample (the value the neighbouring
+   tile's mesh meets), its column is eliminated (`solve/rows._reduce`), it
+   holds exactly, it is published in the sidecar as `seam_pins` and the
+   census prices pin↔free pairs at the body cap. Every seam-band vertex of
+   every role, the runway included.
+2. **EVERYTHING GRADES TO THE SEAM.** Between two seam pins the pin↔pin
+   row is exempt (terrain against terrain, `constraints.seam_exempt`); the
+   free vertices between them take the hard family re-fitted between the
+   pins — the runway chord between a threshold and a seam pin, or between
+   two seam pins, exactly as §21.2 re-fits between thresholds. A family
+   that cannot be met between two pins is NAMED in the design report (the
+   two pins, the family, demanded vs allowed metres) — never a moved pin,
+   never a silent residual, never a preference.
+3. **NO BANK ALONG A SEAM.** The coverage edge at a tile seam is a pin line
+   already at the DEM; §37 (3)'s bank is not derived there, and a bank
+   chain crossing a seam line is a defect the census names
+   (`bank_across_seam`).
+4. **ONE AIRPORT, ONE SOLVE.** A seam-straddling airport is solved once on
+   the whole map and written as per-tile pieces (§9.2 A5/C3); the two pieces
+   share every seam vertex by identity (the 11-dp lat/lon join carries the
+   node id), so the runway meets itself across the seam at the pin.
+
+BARS (SPLP, both tiles, after scout `v2splpseam`'s attribution): every seam
+vertex at its DEM sample (0 seam residuals); runway z on either side of the
+seam identical at every shared vertex; no `bank_foot` chain within
+`half_width_m` of the meridian; the texture tear at −12.1610968, −77.0000457
+attributed (mesh side or patch side) and, if patch side, gone; cockpit block
+on both pieces with no CRITICAL row on the seam; LEMD/KCLT/CYXY (single-tile)
+byte-identical; the design report's settled lines; suite twice.

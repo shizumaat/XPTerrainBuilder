@@ -29,7 +29,9 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND", "THICKNESS_SKIP",
            "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M",
            "CARRIED_OWN_GROUND_TOL_M", "census_torn_seams",
-           "census_torn_seams_lines", "SEAM_STEP_TOL_M"]
+           "census_torn_seams_lines", "SEAM_STEP_TOL_M",
+           "census_motion", "census_motion_lines", "feet_in_band",
+           "foot_float"]
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────
@@ -886,6 +888,13 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
 # read it through this module, which is the census front door.
 from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,F401
                               census_torn_seams_lines)
+
+
+# §17's MOTION reading (owner RULINGS 2026-09-12am (2)) lives in
+# ``placement_motion`` for the same 1,000-line law; the cockpit block
+# classifies what it returns.
+from .placement_motion import (census_motion,  # noqa: E402,F401
+                               census_motion_lines, feet_in_band, foot_float)
 
 
 # §17 THE COCKPIT FRAME, object stage, lives in ``placement_cockpit`` (the

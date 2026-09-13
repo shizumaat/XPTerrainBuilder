@@ -575,13 +575,32 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # deriving them from the same file, classified both.  ONE derivation,
     # ``placement_plan.pads_rims_from_graded``, two callers.
     from auto_patch_v2.airport import placement_plan as _pp
+    from auto_patch_v2.airport import placement_boxes as _pb
     pads, rims = (), ()
     graded = graded_surface_path(patch_dir, plan_.icao)
     if os.path.isfile(graded):
         try:
-            pads, rims = _pp.pads_rims_from_graded(graded)
+            import json as _json
+            with open(graded, encoding="utf-8") as _fh:
+                _gd = _json.loads(_fh.read())
+            pads, rims = _pp.pads_rims_from_graded_doc(_gd)
+            # §17 (owner RULINGS 2026-09-12am (2)): the FACE ROLE under a
+            # point, off the SAME parsed document — what says whether a
+            # foot stands where the aircraft ROLLS.  §9's anchor reads it
+            # through the sampler (``surface.roles`` beside
+            # ``surface.many``): a body every foot of which stands on
+            # rolled-on pavement keeps the MEDIAN of its feet instead of
+            # its low-side one.  Without this the shipped path would take
+            # the low-side rule everywhere while the dry-run tool took the
+            # median — the v2planfix defect over again.
+            from auto_patch_v2.law import tables as _T
+            _surface.roles = _pb.graded_roles_from_doc(
+                _gd, rank=lambda r: _T.authority_rank(law, r))
+            _surface.rolled_on = frozenset(_T.rolled_on_roles(law))
             UI.vprint(1, f"  [v2 placement] {plan_.icao}: design surface "
-                         f"{len(pads)} object pad(s), {len(rims)} structure rim(s)")
+                         f"{len(pads)} object pad(s), {len(rims)} structure "
+                         f"rim(s), {len(_surface.roles.faces)} graded face(s) "
+                         f"for the §17 motion rule")
         except Exception as exc:                   # a malformed surface
             UI.vprint(1, f"  [v2 placement] {plan_.icao}: {os.path.basename(graded)} "
                          f"unreadable ({exc}) — pads/rims unavailable")

@@ -3378,3 +3378,186 @@ def test_the_rest_on_carrier_is_not_refused_for_its_own_ground():
     out2 = PC.carriers_for(frozenset([9]), box, [_cand(1, 14.0, 0.42), far],
                            {}, (box,), tol_m=0.3, base_y=10.2)
     assert out2 and out2[0][0].member == 2
+
+
+# ── §17 CRITICAL MOTION, the object stage's pavement reading ─────────────
+# (owner RULINGS 2026-09-12am (2); spec §17, design-surface-spec §31 (1))
+
+def _roles_doc(role="apron", ring=((40.0, -3.0), (40.0, -2.998),
+                                    (40.002, -2.998), (40.002, -3.0)),
+                z=600.0, extra=()):
+    """A minimal ``<ICAO>.graded.json`` document: one face per entry."""
+    verts, faces = [], []
+    for k, (rl, rg) in enumerate(((role, ring),) + tuple(extra)):
+        ids = []
+        for la, lo in rg:
+            ids.append(len(verts))
+            verts.append([len(verts), la, lo, z])
+        faces.append({"id": k, "ref": f"f{k}", "role": rl, "ring": ids,
+                      "holes": [], "side": "airside"})
+    return {"vertices": verts, "faces": faces, "breaklines": []}
+
+
+def test_the_graded_face_role_under_a_point_is_the_senior_one():
+    """§17: the roles index answers WHAT the surface is under a foot, and
+    where two faces overlap the SENIOR one owns the point (12ak's own
+    rule for a shared vertex, ``precedence.toml``'s authority order)."""
+    from auto_patch_v2.airport import placement_boxes as PB
+    pad = ((40.0005, -2.9995), (40.0005, -2.9990), (40.0010, -2.9990),
+           (40.0010, -2.9995))
+    d = _roles_doc(extra=(("building", pad),))
+    rank = {"runway": 0, "apron": 8, "building": 9}
+    gr = PB.graded_roles_from_doc(d, rank=lambda r: rank.get(r, 99))
+    assert gr.role(40.001, -2.999) == "apron"        # apron only
+    assert gr.role(40.0007, -2.9993) == "apron"      # BOTH: apron is senior
+    assert gr.role(41.0, -3.0) is None               # on no face at all
+    # the batch and the scalar path are the same reading
+    pts = [(40.001, -2.999), (40.0007, -2.9993), (41.0, -3.0)]
+    assert gr.roles_many([p[0] for p in pts], [p[1] for p in pts]) == \
+        [gr.role(*p) for p in pts]
+
+
+def test_the_roles_index_and_the_pads_read_ONE_parsed_document():
+    """§17 is a SIBLING of ``pads_rims_from_graded_doc``, not a second
+    parser: both are built from the one dict the caller already holds."""
+    from auto_patch_v2.airport import placement_boxes as PB
+    d = _roles_doc(extra=(("building", ((40.003, -3.0), (40.003, -2.999),
+                                         (40.004, -2.999))),))
+    pads, _rims = PP.pads_rims_from_graded_doc(d)
+    gr = PB.graded_roles_from_doc(d)
+    assert [p.ref for p in pads] == ["f1"]
+    assert {f[0] for f in gr.faces} == {"apron", "building"}
+
+
+def _motion_surface(z=600.0):
+    def s(la, lo):
+        return z
+    return s
+
+
+def test_census_motion_judges_only_the_feet_on_rolled_on_pavement():
+    """§17: a body with a foot on an apron face is ON PAVEMENT and its
+    float there is priced at ``motion_step_m``; a foot on grass, on a pad
+    or on no face is not this census's (it is §7's and §31 (3)'s)."""
+    from auto_patch_v2.airport import placement_census as PC
+
+    class _Roles:
+        def roles_many(self, las, los):
+            return ["apron" if la < 40.001 else "graded_strip" for la in las]
+
+    bodies = [{"res": "sign.obj", "cls": "other", "anchor_z": 600.0,
+               "y_zero": 0.0,
+               "feet": ((40.0000, -3.0, 0.0),      # on apron, dead on
+                        (40.0005, -3.0, 0.4),      # on apron, 0.4 m float
+                        (40.0020, -3.0, 3.0))}]    # on grass: not motion
+    c = PC.census_motion(bodies, _motion_surface(), _Roles(),
+                         rolled_on={"apron"}, motion_step_m=0.05,
+                         band_m=100.0)
+    assert c["bodies_on_pavement"] == 1 and c["feet_on_pavement"] == 2
+    assert c["motion_feet_gt"] == 1 and c["motion_bodies_gt"] == 1
+    assert c["worst"][0][1] == pytest.approx(-0.4)     # FLOATING, signed
+    assert c["motion_floating"] == 1 and c["motion_buried"] == 0
+    assert c["by_role"] == (("apron", 1),)
+
+
+def test_the_motion_float_is_section_7s_own_expression():
+    """ONE reading: ``foot_float`` is what §17 and §7 both call, so the
+    two instruments cannot drift (CLAUDE.md's census-wrapper defect)."""
+    from auto_patch_v2.airport import placement_census as PC
+    # surface(foot) - (surface(anchor) + y_foot - y_zero)
+    assert PC.foot_float(601.0, 600.0, 0.5, 0.0) == pytest.approx(0.5)
+    assert PC.foot_float(599.0, 600.0, 0.5, 0.5) == pytest.approx(-1.0)
+    assert PC.feet_in_band(((0, 0, 0.0), (0, 0, 0.2), (0, 0, 9.0)), 0.5) == \
+        [(0, 0, 0.0), (0, 0, 0.2)]
+
+
+def test_a_basin_bodys_floor_feet_are_not_motion():
+    """§14 (2) / RULINGS 2026-09-11al: a pit's zero is its RIM and its
+    floor feet are authored the depth below it BY CONSTRUCTION.  Read as
+    motion they were LEMD's worst ten (+7.69 m 'on the apron')."""
+    from auto_patch_v2.airport import placement_census as PC
+
+    class _Roles:
+        def roles_many(self, las, los):
+            return ["apron"] * len(list(las))
+
+    bodies = [{"res": "pit.obj", "cls": AR.BASIN, "anchor_z": 600.0,
+               "y_zero": 0.0, "feet": ((40.0, -3.0, 7.0),)}]
+    c = PC.census_motion(bodies, _motion_surface(), _Roles(),
+                         rolled_on={"apron"}, motion_step_m=0.05,
+                         band_m=100.0, exempt_classes={AR.BASIN})
+    assert c["motion_feet_gt"] == 0
+    assert c["exempt_feet_gt"] == 1 and c["exempt_bodies_gt"] == 1
+
+
+def test_the_cockpit_block_prints_motion_when_it_is_read_and_says_so_when_not():
+    """§17 in the block: handed a motion census it prints CRITICAL
+    motion; handed none it names the instrument limit rather than
+    printing a zero (12ad/12ak's own wording, now conditional)."""
+    from auto_patch_v2.airport import placement_carrier as PC
+    silent = PC.cockpit_block()
+    assert silent["motion_read"] is False and silent["critical_motion_n"] == 0
+    assert "NOT TAKEN" in "\n".join(PC.cockpit_block_lines(silent))
+    m = {"motion_step_m": 0.05, "bodies_read": 9, "bodies_on_pavement": 3,
+         "feet_on_pavement": 12, "motion_feet_gt": 2, "motion_bodies_gt": 1,
+         "motion_buried": 1, "motion_floating": 1,
+         "worst": ((0.44, -0.44, "sign.obj", 40.0, -3.0, "apron", "other"),)}
+    c = PC.cockpit_block(motion=m)
+    assert c["motion_read"] and c["critical_motion_n"] == 2
+    txt = "\n".join(PC.cockpit_block_lines(c))
+    assert "CRITICAL motion: 2 foot(feet) on 1 body(ies)" in txt
+    assert "sign.obj" in txt and "40.0000000,-3.0000000" in txt and "apron" in txt
+
+
+def test_a_body_all_of_whose_feet_stand_on_pavement_keeps_the_median():
+    """§17 / 12am (2): 11e (2)'s low-side foot pays the body's whole
+    relief as float at its high corner.  Where the aircraft ROLLS the bar
+    is 0.05 m, so the relief is SHARED — the median foot — and the
+    low-side rule stands everywhere else."""
+    ring = [(40.0000, -3.0000, 0.0, ((40.0000, -3.0000, 0.0),)),
+            (40.0010, -3.0000, 0.0, ((40.0010, -3.0000, 0.0),)),
+            (40.0020, -3.0000, 0.0, ((40.0020, -3.0000, 0.0),))]
+    geom = AR.BodyGeometry(tuple(ring), 40.001, -3.0)
+
+    def surface(la, lo):                 # 1 m of fall across the body
+        return 600.0 + (la - 40.0) * 500.0
+
+    class _Roles:
+        def __init__(self, role):
+            self.role = role
+
+        def roles_many(self, las, los):
+            return [self.role] * len(list(las))
+
+    on = AR.anchor_for(AR.OTHER, geom, surface, tol_m=0.3,
+                       roles=_Roles("apron"), rolled_on={"apron"})
+    assert "median foot" in on.reason and on.lat == pytest.approx(40.0010)
+    off = AR.anchor_for(AR.OTHER, geom, surface, tol_m=0.3,
+                        roles=_Roles("graded_strip"), rolled_on={"apron"})
+    assert "low-side foot" in off.reason and off.lat == pytest.approx(40.0000)
+    # and with NO roles at all the low-side rule stands: no reading is no
+    # evidence (a caller with no graded surface)
+    bare = AR.anchor_for(AR.OTHER, geom, surface, tol_m=0.3)
+    assert "low-side foot" in bare.reason
+
+
+def test_the_anchor_rule_reads_the_roles_off_the_sampler():
+    """The sampler CARRIES the roles (``surface.roles`` beside
+    ``surface.many``), so no caller between ``build_splits`` and the one
+    place that builds it has to grow an argument — and the shipped engine
+    path and the dry-run tool attach the same pair."""
+    geom = AR.BodyGeometry(
+        ((40.0000, -3.0, 0.0, ((40.0000, -3.0, 0.0),)),
+         (40.0020, -3.0, 0.0, ((40.0020, -3.0, 0.0),))), 40.001, -3.0)
+
+    def surface(la, lo):
+        return 600.0 + (la - 40.0) * 500.0
+
+    class _Roles:
+        def roles_many(self, las, los):
+            return ["runway"] * len(list(las))
+
+    surface.roles = _Roles()
+    surface.rolled_on = frozenset({"runway"})
+    assert "median foot" in AR.anchor_for(AR.OTHER, geom, surface,
+                                          tol_m=0.3).reason

@@ -222,7 +222,12 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if surface_source not in sys.path:
         sys.path.insert(0, surface_source)
 
-    from auto_patch_v2.emit import rebake as _rb
+    # the PLAN record lives in ``model.rebake``; ``emit.rebake`` kept
+    # only the deck datum when the seat was deleted (12s), so this
+    # import had been dead since — the ``plan`` subcommand raised
+    # AttributeError on every run (found by lane v2objmotion while
+    # timing the plan stage).
+    from auto_patch_v2.model import rebake as _rb
     from auto_patch_v2.airport import placement_write as _pw
     from auto_patch_v2.airport import placement_plan as _pp
     from auto_patch_v2.airport import dsf as _dsf2
@@ -245,7 +250,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
         print("no DSF text dump (and none in the mod cache) — pass --dsf-dump")
         return 2
     dump = _dsf2.read_dump(dump_path)
-    pads, rims = _pp.pads_rims_from_graded(args.graded)
+    import json as _json
+    with open(args.graded, encoding="utf-8") as _gf:
+        _gdoc = _json.loads(_gf.read())
+    pads, rims = _pp.pads_rims_from_graded_doc(_gdoc)
+    # §17 (RULINGS 2026-09-12am (2)): the face ROLES ride the sampler, as
+    # they do on the shipped path — otherwise this instrument times a
+    # plan the app does not build.
+    from auto_patch_v2.airport import placement_boxes as _pb
+    from auto_patch_v2.law import tables as _T
+    _roles = _pb.graded_roles_from_doc(_gdoc,
+                                       rank=lambda r: _T.authority_rank(law, r))
+    _rolled = frozenset(_T.rolled_on_roles(law))
     print("%s: units %d, bounds %s, pads %d, rims %d, src %s"
           % (plan_.icao, len(plan_.units), plan_.bounds(), len(pads),
              len(rims), surface_source))
@@ -332,14 +348,25 @@ def cmd_plan(args: argparse.Namespace) -> int:
         line_ratio=law.tables.structures.rebake.line_object_ratio,
         line_max_h=law.tables.structures.rebake.line_object_max_h,
         foot_band_m=law.tables.structures.basin.contact_band_m,
-        carrier_fill_min=law.tables.structures.placement.carrier_fill_min,
+        # every §16c key through ``getattr``: the dropper below removes
+        # what THIS src's ``build_plan`` does not take, but reading a key
+        # the LAW no longer has raises before it runs (``carrier_fill_min``
+        # was deleted by §16c (7) and this line killed the whole
+        # subcommand — found by lane v2objmotion)
+        carrier_fill_min=getattr(law.tables.structures.placement,
+                                 "carrier_fill_min", None),
         coarsen_reach_m=getattr(law.tables.structures.placement,
                                 "coarsen_reach_m", 0.0),
+        contact_eps_m=getattr(law.tables.structures.placement,
+                              "contact_eps_m", 0.0),
+        rigid_reach_m=getattr(law.tables.structures.placement,
+                              "rigid_reach_m", 0.0),
         pads=pads, rims=rims, engine_version="", law_digest="",
         write_cuts=False)
     import inspect
     accepted = set(inspect.signature(_pw.build_plan).parameters)
-    for key in [k for k in keywords if k not in accepted]:
+    for key in [k for k in keywords
+                if k not in accepted or keywords[k] is None]:
         print("  SIG DIFF: this src's build_plan takes no %r — dropped" % key)
         keywords.pop(key)
 
@@ -360,6 +387,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         else:
             surface = make(sample)
         watched = _watch_surface(surface, counters)
+        watched.roles = _roles           # §17, as the shipped path attaches
+        watched.rolled_on = _rolled
         started = time.perf_counter()
         out_plan, files, _ = _pw.build_plan(plan_, dump, watched, **keywords)
         elapsed = time.perf_counter() - started

@@ -23,10 +23,12 @@ from .placement_census import CARRIED_OWN_GROUND_TOL_M, STANDS_OVER_TOL_M
 __all__ = ["cockpit_block", "cockpit_block_lines", "COCKPIT_RULING"]
 
 #: The owner rulings this block reads under, quoted in its heading.
+#: 12am (2) wired the MOTION reading (``placement_motion``), which this
+#: block used to name as an instrument limit.
 #: 12ad is round 2's span rule — it changes nothing at this stage (see
 #: :func:`cockpit_block_lines`) and is cited so the two stages' headings
 #: name the same law.
-COCKPIT_RULING = "2026-09-12x/12y/12ad"
+COCKPIT_RULING = "2026-09-12x/12y/12ad/12am"
 
 
 def _cockpit_law() -> dict:
@@ -62,6 +64,7 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
                   v15: _t.Mapping[str, _t.Any] | None = None,
                   v16b: _t.Mapping[str, _t.Any] | None = None,
                   torn: _t.Mapping[str, _t.Any] | None = None,
+                  motion: _t.Mapping[str, _t.Any] | None = None,
                   law: _t.Mapping[str, float] | None = None) -> dict:
     """§17: the placement stage's rows in the COCKPIT frame.
 
@@ -71,11 +74,13 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
     count, worst value and worst coordinate), the CRITICAL MOTION reading,
     and the REPORT items.
 
-    CRITICAL MOTION is not readable at this stage and says so: §17 prices
-    an object that STANDS ON the pavement (a sign, a light, a marker) at
-    ``motion_step_m``, and the placement plan carries no pavement role per
-    body — the roles live in the terrain patch, which the plan does not
-    join to.  An instrument limit, named rather than printed as a zero.
+    ``motion`` is what :func:`placement_motion.census_motion` returned —
+    §17's MOTION reading, wired by owner RULINGS 2026-09-12am (2): the
+    ROLE of the graded face under each foot, and the §7 float at every
+    foot that stands on one the aircraft ROLLS on, judged at
+    ``motion_step_m``.  Where it is not handed in (a caller with no
+    graded surface, so no roles) the block says the reading was not TAKEN
+    — an instrument limit named, never printed as a zero.
     """
     law = dict(law or _cockpit_law())
     vis = float(law["visual_m"])
@@ -155,8 +160,39 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
               f"a seam of {torn.get('rigid_seams', 0)} rigid torn seam(s); "
               f"the §16c bar itself is 0 seams at any step",
               threshold=vis)
+    # §17's MOTION bucket — its own list, never mixed into the visual
+    # one: the two are priced at different thresholds and a pilot feels
+    # the first and sees the second.
+    crit_motion: list[dict] = []
+    if motion is not None:
+        w = motion.get("worst", ())
+        crit_motion.append({
+            "kind": "§17 body standing ON rolled-on pavement, off its "
+                    "ground at a foot",
+            "n": int(motion.get("motion_feet_gt", 0)),
+            "bodies": int(motion.get("motion_bodies_gt", 0)),
+            "threshold_m": float(motion.get("motion_step_m",
+                                            law["motion_step_m"])),
+            "note": (f"{motion.get('bodies_on_pavement', 0)} of "
+                     f"{motion.get('bodies_read', 0)} written body(ies) stand "
+                     f"on pavement ({motion.get('feet_on_pavement', 0)} "
+                     f"foot(feet)); buried "
+                     f"{motion.get('motion_buried', 0)} / floating "
+                     f"{motion.get('motion_floating', 0)}"),
+            "worst_m": (round(float(w[0][1]), 3) if w else None),
+            "worst_name": (str(w[0][2]) if w else None),
+            "worst_at": (f"{w[0][3]:.7f},{w[0][4]:.7f}" if w else None),
+            "worst_role": (str(w[0][5]) if w else None),
+            "worst_list": [{"m": round(float(q[1]), 3), "name": str(q[2]),
+                            "at": f"{q[3]:.7f},{q[4]:.7f}", "role": str(q[5])}
+                           for q in w],
+        })
     return {
         "ruling": COCKPIT_RULING,
+        "motion_read": motion is not None,
+        "critical_motion": crit_motion,
+        "critical_motion_n": sum(q["n"] for q in crit_motion),
+        "critical_motion_bodies": sum(q["bodies"] for q in crit_motion),
         "motion_step_m": law["motion_step_m"],
         "visual_m": vis,
         "approach_km": law["approach_km"],
@@ -166,10 +202,14 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
         "report": report,
         "report_n": sum(q["n"] for q in report),
         "motion_note": (
-            "not readable at this stage — §17 prices an object STANDING ON "
-            "the pavement at the motion threshold, and the placement plan "
-            "carries no pavement role per body (an instrument limit, not a "
-            "zero)"),
+            (f"{motion.get('bodies_on_pavement', 0)} body(ies) stand on "
+             f"rolled-on pavement; {motion.get('motion_feet_gt', 0)} "
+             f"foot(feet) on {motion.get('motion_bodies_gt', 0)} of them are "
+             f"over {law['motion_step_m']:g} m")
+            if motion is not None else
+            "NOT TAKEN in this run — §17's motion reading needs the face "
+            "ROLE under each foot, which comes from the graded surface; "
+            "this caller handed none in (an instrument limit, not a zero)"),
     }
 
 
@@ -185,7 +225,23 @@ def cockpit_block_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            f"every row below is welded by construction)"
            + ("" if c["torn_seams_read"] else "; torn seams NOT read in "
               "this run") + " ---",
-           f"   COCKPIT motion: {c['motion_note']}",
+           (f"   COCKPIT CRITICAL motion: {c['critical_motion_n']} foot(feet) "
+            f"on {c['critical_motion_bodies']} body(ies) over "
+            f"{c['motion_step_m']:g} m where the aircraft ROLLS"
+            + ("" if c["critical_motion_n"] else " — none")
+            if c.get("motion_read") else
+            f"   COCKPIT motion: {c['motion_note']}")]
+    for q in c.get("critical_motion", ()):
+        out.append(f"      {q['n']:5d}  {q['kind']} — worst "
+                   f"{q['worst_m']:+.2f} m {q['worst_name'] or ''} at "
+                   f"{q['worst_at']} on {q['worst_role']}"
+                   if q["worst_m"] is not None else
+                   f"      {q['n']:5d}  {q['kind']}")
+        out.append(f"             {q['note']}")
+        for w in q.get("worst_list", ())[1:]:
+            out.append(f"             {w['m']:+.2f} m  {w['name']} at "
+                       f"{w['at']} on {w['role']}")
+    out += [
            f"   COCKPIT CRITICAL visual: {c['critical_visual_n']} body/seam "
            f"row(s) over {c['visual_m']:g} m"
            + ("" if c["critical_visual_n"] else " — none")]

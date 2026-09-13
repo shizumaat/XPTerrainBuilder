@@ -2693,3 +2693,83 @@ motion threshold 0.05 m. The torn-seam census, the §15/§16 floats and the refu
 are printed in that frame first (lane `v2cockpit`): CRITICAL by count and worst
 coordinate, then REPORT. `split_tol_m` 0.3 stays the CUT tolerance (a partition
 choice), not an acceptance.
+
+### §17 (2) THE MOTION READING, and the median foot on pavement (owner RULINGS 2026-09-12am (2); lane `v2objmotion`)
+
+12ad/12ak said the object stage "cannot read motion — no pavement role per body".
+That was one missing reading, and it is now taken.
+
+1. **THE ROLE UNDER A FOOT.** The design surface answers `surface(lat, lon)`; a
+   SIBLING of it, built from the SAME parsed `<ICAO>.graded.json`, answers what the
+   face there IS — `airport/placement_boxes.GradedRoles` /
+   `graded_roles_from_doc`, the senior face at the point by `precedence.toml`'s
+   authority order (12ak's own answer for a value two faces share), over a 55 m grid
+   of the faces' boxes. Never a second parser: `pads_rims_from_graded_doc` reads the
+   same dict, and the caller parses once. It rides the SAMPLER
+   (`surface.roles` / `surface.rolled_on`, beside `surface.many`), so the shipped
+   engine path (`engine_v2._place_objects`), the dry run
+   (`tools/obj8_split_report.py`) and the timing replay all attach the same pair and
+   no pass between them grows an argument.
+2. **CRITICAL MOTION.** For every WRITTEN body, over its ground-contact feet in the
+   foot band (§7's own scope): a body with at least one foot on a ROLLED-ON face
+   (`law.tables.rolled_on_roles`) is ON PAVEMENT, and at each such foot
+   `surface(foot) − (surface(anchor) + y_foot − y_zero)` — §7's own expression,
+   `placement_motion.foot_float`, ONE implementation for both instruments — over
+   `[cockpit] motion_step_m` 0.05 m is CRITICAL MOTION, named with resource, foot
+   coordinate, face role and SIGN. The count of bodies on pavement is printed with
+   it. A BASIN body is EXEMPT and counted apart (§14 (2) / 11al: its zero is the rim
+   and its floor feet are authored below it by construction — read as motion they
+   were LEMD's entire worst ten, +7.69 m "on the apron").
+3. **A BODY WHOSE EVERY FOOT STANDS ON ROLLED-ON PAVEMENT KEEPS THE MEDIAN.** 11e
+   (2)'s low-side foot buys zero float at the low corner and pays the body's whole
+   relief as float at the high one. Where the aircraft rolls the bar is 0.05 m and
+   the pavement is graded flat to 1.5 %, so the relief is small and is SHARED. Off
+   pavement 11e (2) stands unchanged, and a body with no roles reading takes the low
+   side (no reading is no evidence). §10's line-object stations keep their own
+   mid-foot anchor.
+
+**MEASURED** (the 1.0.320 LEMD frame — rebake plan + `LEMD.graded.json`,
+`--admit-skipped` on the live pack read-only, write half into an APFS clone, the
+shared-repo guard armed and `shared repo UNCHANGED` on every run; OTHH the same).
+
+*The cockpit block, LEMD, before the anchor rule*: 493 of 2,153 written bodies stand
+on rolled-on pavement (11,540 of 65,460 feet); CRITICAL MOTION **7,124 feet on 399
+bodies** (4,265 buried / 2,859 floating; by size 1,792 in 0.05–0.1, 2,620 in 0.1–0.3,
+2,347 in 0.3–1, **365 over 1 m**; by role apron 6,009, cross_connector 622, junction
+246, secondary_parallel 131, stub 91, primary_parallel 25; what the EYE reads at those
+feet, over 0.5 m: floating 613, buried 1,318). ATTRIBUTION of the mass, in one table:
+**4,454 feet** on bodies anchored at the LOW-SIDE foot, 1,478 on §16c-bound bodies,
+1,127 on bodies already at the generic median (`split_tol_m` 0.3 admits six times the
+motion threshold), 66 on §10 line-object stations. The worst ten before the basin
+exemption were ten pit bodies (`Ground-FSX-LEMD85/LEMD03`, +7.69 … +6.71 m) — the law,
+not the defect; after it they are `Terminal4sBlue-LEMDblast__b1` (a blast-fence
+segment, +7.18 / +7.14), `Terminal4sBlue-STRT4__b1` (+5.08), `OldTerminal_FSX-LEMD54__b0`
+(+2.41), `Terminal4SAT_green-STRT4__b1` (a line station, −2.01).
+
+*After §17 (3)*, matched arms on that frame: CRITICAL MOTION **7,124 → 6,635 feet**
+(399 → 407 bodies: the median spreads a body's excursion, so more feet cross 0.05 while
+the peak halves), **over 1 m 365 → 264**, over 0.5 m FLOATING 613 → 561 and BURIED
+1,318 → 1,067 — both signs improve, so the rule does not buy a motion count with a
+visible hovering object. §7's whole-pack histogram: `< 0.3 m` 44,926 → 45,176,
+`0.3–1` 16,592 → 16,365, `1–3` 3,329 → 3,231, `> 3` 577 → 575. Low-side anchors 700 →
+547. **Bars**: torn seams outside line/arc pieces **0**, single-component resources in
+≥ 2 files **0**, §15 carried float **0**, round trip OK, files 2,148 → **2,142**, plan
+stage (graded, 3 runs) 9.75 / 9.82 / 9.75 → 10.24 / 10.26 / 10.31 s, mean **10.27 s**
+(bar ≤ 10.3). The named sites HOLD: `green-TEJ3` (all five placements), `green-STRT4`
+(the deck, all 19 bodies), `HANG3` (b0 +1.29, b1 +1.45, low-side kept — its feet are
+not all on pavement) byte-identical between the arms; `Terminal4_48` same three bodies
+on the same carriers, b0's zero 616.46 → 616.48; the gate-5 `Taxisigns-SENRG` bodies
+unchanged in worst foot. MISSED and reported: §16b's carried-piece own-ground float
+**117 → 123** (a carrier's zero moved under six carried pieces) — a bar already red on
+this frame (117 on main), moved 5 % the wrong way.
+
+*OTHH*, same instrument under the guard: 188 of 1,671 bodies on pavement; CRITICAL
+MOTION **6,234 → 3,877 feet** on **113 → 103** bodies (buried 1,279 → 1,512, floating
+4,955 → 2,365; over 1 m 24 → 26); §15 carried float 0, §16b own-ground 163 unchanged,
+files 1,337 → 1,341, `shared repo UNCHANGED`.
+
+*Refuted here, deleted*: nothing — the one mechanism this round tested (the median
+foot) is adopted on the numbers above. Two INSTRUMENT defects found and fixed in
+passing: `tools/v2_rebake_replay.py plan` had been dead since 12j/12s (it imported
+`RebakePlan` from `emit.rebake` and read the deleted `carrier_fill_min` before its own
+signature dropper ran), so no lane could have timed the plan stage with it.

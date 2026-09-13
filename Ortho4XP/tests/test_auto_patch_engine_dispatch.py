@@ -1,12 +1,14 @@
-"""auto_patch_engine = v1 | v2 — the tile build's engine dispatch (RULINGS
-2026-09-03d: v2 beside v1; 2026-09-04 lane v2app: the owner sim-reads v2
-patches from the app).
+"""The tile build's auto-patch engine (RULINGS 2026-09-03d: v2 beside v1;
+2026-09-04 lane v2app: the owner sim-reads v2 patches from the app;
+2026-09-13au: v1 RETIRED — v2 is the only engine, the cfg key and the
+selector are gone).
 
 Twins:
 
-1. the settings key round-trips: registry entry → a per-tile cfg line →
-   ``Tile.read_from_config`` → ``resolved_auto_patch_engine``; a typo
-   REFUSES rather than building v1 quietly;
+1. the SETTING IS RETIRED: ``auto_patch_engine`` is not a registered key,
+   a cfg file still carrying it loads clean (the line DELETED, no
+   warning, RULINGS 2026-09-13a (2)) and the resolver answers ``v2``
+   whatever the tile says;
 2. with ``engine: v2`` on the task, ``_run_build_tasks`` (the real driver
    loop, the real ``_build_write_verify_one``) places the v2 patch and
    sidecar at ``auto_patch_file``, prints the ``[provenance] … engine=v2
@@ -190,44 +192,61 @@ def _run(tasks, tmp_path):
     return DRIVER._run_build_tasks(tasks, _Tile(), [], str(tmp_path / "verify.log"))
 
 
-# ── 1. the settings key ─────────────────────────────────────────────────
+# ── 1. the setting is RETIRED (RULINGS 2026-09-13au, stage A) ───────────
 
 
-def test_the_key_is_registered_with_the_tile_scope_and_two_values():
+def test_the_key_is_retired_and_silently_cleaned():
     import O4_Cfg_Vars as CV
-    spec = CV.cfg_tile_vars["auto_patch_engine"]
-    assert spec["type"] is str and spec["default"] == "v1"
-    assert tuple(spec["values"]) == ("v1", "v2") == E2.ENGINES
-    assert set(spec["value_labels"]) == {"v1", "v2"}
-    assert "auto_patch_engine" in CV.list_tile_vars, \
-        "not in list_tile_vars: the per-tile cfg writer would drop it"
-    assert "auto_patch_engine" in CV.cfg_vars
+    assert "auto_patch_engine" not in CV.cfg_vars
+    assert "auto_patch_engine" not in CV.cfg_tile_vars
+    assert "auto_patch_engine" not in CV.list_cfg_vars
+    assert "auto_patch_engine" not in CV.list_vector_vars
+    assert "auto_patch_engine" in CV.retired_cfg_keys
+    # SILENT (RULINGS 2026-09-13a (2) + 13au): the readers delete the line
+    # and never warn.  A user who never chose an engine is told nothing.
+    assert CV.retired_cfg_key_warning("auto_patch_engine", "v1") is None
 
 
-def test_the_key_round_trips_through_a_per_tile_cfg(tmp_path):
+def test_a_tile_cfg_still_carrying_the_key_loads_clean_and_builds_v2(
+        tmp_path, monkeypatch):
+    """The owner's own tile cfgs carry ``auto_patch_engine=v1``.  Loading
+    one DELETES the line (never a warning), leaves every live key intact,
+    sets no attribute from it, and the engine is v2 regardless."""
+    import O4_Cfg_Vars as CV
     import O4_Config_Utils as CFG
+    monkeypatch.setattr(CV, "_retired_cfg_reported", set())
+    said = []
+    monkeypatch.setattr(CFG.UI, "lvprint",
+                        lambda level, *a: said.append(" ".join(map(str, a))))
     build_dir = tmp_path / "zOrtho4XP_+30+031"
     build_dir.mkdir()
-    (build_dir / "Ortho4XP_+30+031.cfg").write_text(
-        "auto_patch=ICAO\nauto_patch_engine=v2\n")
+    cfg = build_dir / "Ortho4XP_+30+031.cfg"
+    cfg.write_text("auto_patch=ICAO\nauto_patch_engine=v1\n")
     tile = CFG.Tile(30, 31, str(build_dir))
     assert tile.read_from_config() == 1
-    assert tile.auto_patch_engine == "v2"
+    assert tile.auto_patch == "ICAO"
+    assert not hasattr(tile, "auto_patch_engine")
+    assert "auto_patch_engine" not in cfg.read_text()
+    assert "auto_patch=ICAO" in cfg.read_text()
+    assert not any("WARNING" in ln or "IGNORED" in ln for ln in said), said
+    assert any("removed retired key auto_patch_engine" in ln
+               for ln in said), said
     assert E2.resolved_auto_patch_engine(tile) == "v2"
 
 
-def test_the_resolver_defaults_to_v1_and_refuses_a_typo():
-    assert E2.resolved_auto_patch_engine(_Tile()) == "v1"
+def test_the_resolver_answers_v2_whatever_the_tile_says():
+    """There is no selector left: a stale attribute, a typo, no attribute
+    at all — the answer is v2 (RULINGS 2026-09-13au)."""
+    assert E2.resolved_auto_patch_engine(_Tile()) == E2.ENGINE_V2 == "v2"
 
-    class _T:
-        auto_patch_engine = " V2 "
-    assert E2.resolved_auto_patch_engine(_T()) == "v2"
+    class _Stale:
+        auto_patch_engine = "v1"
+    assert E2.resolved_auto_patch_engine(_Stale()) == "v2"
 
     class _Bad:
         auto_patch_engine = "v3"
-    with pytest.raises(ValueError) as exc:
-        E2.resolved_auto_patch_engine(_Bad())
-    assert "auto_patch_engine='v3'" in str(exc.value)
+    assert E2.resolved_auto_patch_engine(_Bad()) == "v2"
+    assert not hasattr(E2, "ENGINES") and not hasattr(E2, "ENGINE_V1")
 
 
 # ── 2. the dispatch places the patch, the provenance line, the verify log ──
@@ -369,8 +388,9 @@ def test_the_driver_stamps_the_engine_into_every_task_and_freshness_block():
         and '"apt_dat_path": apt_dat_selected' in src
     assert "resolved_auto_patch_engine(tile)" in inspect.getsource(
         DRIVER._freshness_stamps_now)
-    assert 'task.get("engine") == _engine_v2.ENGINE_V2' in inspect.getsource(
-        DRIVER._build_write_verify_one)
+    assert "return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)" \
+        in inspect.getsource(DRIVER._build_write_verify_one), \
+        "v2 is the ONE per-airport step — no selector (RULINGS 2026-09-13au)"
 
 
 # ── 7. the freeze bundles the law ──────────────────────────────────────
@@ -404,3 +424,44 @@ def test_the_real_law_digest_names_every_table_and_is_none_when_absent(tmp_path)
     one = law_tables_digest(tmp_path)["sha256"]
     (tmp_path / "a.toml").write_text("x = 2\n")
     assert law_tables_digest(tmp_path)["sha256"] != one
+
+
+# ── 8. the SETTING is gone from every UI (RULINGS 2026-09-13au) ────────
+
+
+def test_no_ui_offers_an_engine_setting():
+    """STAGE A of the retirement removed the Swift Settings row, the
+    bundled schema snapshot's entry and the Qt control.  A grep twin,
+    because a stranded row would offer the user a key the engine deletes
+    on read — the SettingsLayout / snapshot pair drifted silently once
+    before (the o4_schema_snapshot chip)."""
+    repo = ENGINE_ROOT.parent
+    offenders = []
+    for base in (repo / "Sources", ENGINE_ROOT / "src"):
+        for path in base.rglob("*"):
+            if not path.is_file() or path.suffix not in {
+                    ".swift", ".json", ".py"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if "auto_patch_engine" not in line:
+                    continue
+                # the retired-key registry, the one resolver that answers
+                # "v2", and prose about either, are the ONLY survivors.
+                if (line.strip() == '"auto_patch_engine": None,'
+                        or "retired" in line
+                        or "resolved_auto_patch_engine" in line
+                        or line.lstrip().startswith(("#", "//", "*"))
+                        or "``" in line):
+                    continue
+                offenders.append(f"{path.relative_to(repo)}:{n}: {line.strip()}")
+    assert not offenders, offenders
+
+
+def test_the_qt_app_offers_no_engine_control():
+    qt = ENGINE_ROOT / "Ortho4XP_Qt.py"
+    if qt.is_file():
+        assert "auto_patch_engine" not in qt.read_text(errors="ignore")

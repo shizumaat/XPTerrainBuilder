@@ -222,8 +222,8 @@ class Tile:
         never "keep whatever this instance happened to carry".  The
         pre-2026-09-04 reader opened EITHER the tile file OR the global
         one, so a tile cfg written before a setting existed (the owner's
-        −13-077 / −13-078 tiles, cfgs from July, no ``auto_patch_engine``
-        line) resolved that setting to the registry default while a tile
+        −13-077 / −13-078 tiles, cfgs from July, carrying no line for a
+        setting added after they were written) resolved that setting to the registry default while a tile
         with no cfg at all resolved it from the global — two tiles in one
         build, one global setting, two engines.  One reader now serves the
         engine CLI (``Ortho4XP.py lat lon``), the JSONL session and the

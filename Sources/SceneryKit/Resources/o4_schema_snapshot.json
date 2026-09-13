@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1726",
+ "engineVersion": "1.50.1772",
  "groups": {
   "app": [
    "verbosity",
@@ -82,7 +82,6 @@
   "vector": [
    "auto_patch",
    "solve_model",
-   "auto_patch_engine",
    "modify_custom_airports",
    "elevation_level",
    "elevation_coastline_band_km",
@@ -204,20 +203,6 @@
     "None",
     "ICAO",
     "All"
-   ]
-  },
-  "auto_patch_engine": {
-   "default": "v1",
-   "hint": "Which engine generates the airport auto-patches. \"v1\" (the default) is the engine every release has shipped with. \"v2\" is the ground-up rewrite that solves the whole airport surface against the aerodrome grade law tables in one linear program: fewer mesh edges, faster, and every patch is verified against the law before it is written \u2014 a patch the law cannot satisfy fails the tile build loudly instead of shipping. Set per tile to A/B the two engines on the same airport; changing the value rebuilds that tile's auto-patches with the chosen engine.",
-   "name": "auto_patch_engine",
-   "type": "str",
-   "valueLabels": {
-    "v1": "v1 \u2014 the shipping engine",
-    "v2": "v2 \u2014 law-compliant rewrite (preview)"
-   },
-   "values": [
-    "v1",
-    "v2"
    ]
   },
   "base_elevation_source": {
@@ -554,20 +539,6 @@
     "None",
     "ICAO",
     "All"
-   ]
-  },
-  "global_auto_patch_engine": {
-   "default": "v1",
-   "hint": "Which engine generates the airport auto-patches. \"v1\" (the default) is the engine every release has shipped with. \"v2\" is the ground-up rewrite that solves the whole airport surface against the aerodrome grade law tables in one linear program: fewer mesh edges, faster, and every patch is verified against the law before it is written \u2014 a patch the law cannot satisfy fails the tile build loudly instead of shipping. Set per tile to A/B the two engines on the same airport; changing the value rebuilds that tile's auto-patches with the chosen engine.",
-   "name": "global_auto_patch_engine",
-   "type": "str",
-   "valueLabels": {
-    "v1": "v1 \u2014 the shipping engine",
-    "v2": "v2 \u2014 law-compliant rewrite (preview)"
-   },
-   "values": [
-    "v1",
-    "v2"
    ]
   },
   "global_bathymetry_airport_radius_km": {

@@ -1,30 +1,29 @@
-"""The auto-patch-v2 engine INSIDE the v1 tile build (RULINGS 2026-09-03d:
-v2 ships beside v1; 2026-09-04g OWED: "the app's engine selection").
+"""The auto-patch-v2 engine INSIDE the tile build (RULINGS 2026-09-03d: v2
+beside v1; 2026-09-13au: v1 RETIRED — v2 is the only engine, there is no
+``auto_patch_engine`` key and no selector any more).
 
 ``auto_patch.driver`` owns the tile: CIFP discovery, the manual-patch and
 apt.dat gates, the freshness gate, the per-airport worker pool, the
 results loop, the manifest verification and the JSONL failure events.
 None of that is v2's to re-implement.  What v2 replaces is ONE step —
-the per-airport "build + write + verify" — and this module is that step
-for ``auto_patch_engine = v2``: it runs ``auto_patch_v2.pipeline.build``
+the per-airport "build + write + verify" — and this module is that step:
+it runs ``auto_patch_v2.pipeline.build``
 on the tile build's OWN production DEM (``tile.dem``, handed to the
-worker exactly as v1's worker receives it — reused, never re-composed),
+worker exactly as the driver's own worker receives it — reused, never
+re-composed),
 places the current tile's patch and sidecar where ``include_patches``
 reads them (``Patches/<block>/<tile>/<ICAO>_auto.patch.osm``), writes the
 v2 verify census into the same per-airport log part the driver
 concatenates into ``auto_patch_verify_debug.log``, and returns the SAME
 result record ``_build_write_verify_one`` returns — so the driver's
-results loop, manifest check and ``AutoPatchFailed`` events are one
-path for both engines.
+results loop, manifest check and ``AutoPatchFailed`` events are one path.
 
 A v2 solve that is not optimal/feasible, or a v2 refusal (a cold DEM
 frame, a law-table error, a loader refusal), is a per-airport build
 FAILURE with the IIS / refusal text in the verify debug log — never a
 silent skip and never a stale patch left for the mesh to drape.
 
-No environment is read here or in anything under ``auto_patch_v2``: the
-engine choice arrives on the task record, resolved once per tile from
-the cfg key by :func:`resolved_auto_patch_engine`.
+No environment is read here or in anything under ``auto_patch_v2``.
 """
 from __future__ import annotations
 
@@ -36,9 +35,11 @@ import traceback
 import typing as _t
 import urllib.parse
 
-ENGINE_V1 = "v1"
+#: THE engine name.  v1 is retired (owner RULINGS 2026-09-13au): there is
+#: no second value, no cfg key and no selector — this constant is the one
+#: spelling the freshness stamp, the provenance line and the harness frame
+#: all read.
 ENGINE_V2 = "v2"
-ENGINES = (ENGINE_V1, ENGINE_V2)
 
 #: The v2 pipeline's stages as the progress window's phases (the driver's
 #: ``BuildProgress`` banner + bar), with rough time shares (OTHH 2026-09-04:
@@ -58,55 +59,19 @@ _STAGE_DONE_TO_NEXT_PHASE = ("load", "planar", "constraints", "solve")
 
 
 def resolved_auto_patch_engine(tile) -> str:
-    """``tile.auto_patch_engine`` normalised to ``"v1"`` / ``"v2"``.
+    """``"v2"``.  Always.
 
-    The cfg key is registered in ``O4_Cfg_Vars.cfg_tile_vars`` (global +
-    per-tile scope; ``Tile.read_from_config`` puts the per-tile value on
-    the instance).  An unregistered value REFUSES rather than falling back
-    to v1: a tile the owner set to ``v2`` with a typo must not quietly
-    build with the engine they were trying to compare against.
+    THE V1 ENGINE IS RETIRED (owner RULINGS 2026-09-13au, stage A): v2 is
+    the only engine, so there is nothing left to select.  The cfg key
+    ``auto_patch_engine`` is gone from ``O4_Cfg_Vars`` and lives on only in
+    ``retired_cfg_keys``, where the readers DELETE it from any cfg file
+    still carrying it (RULINGS 2026-09-13a (2)) — a stale ``= v1`` line is
+    never honoured and never warned about.  The function itself stays as
+    the ONE place the engine name is spelled, so the freshness stamp
+    (``o4_ap_engine``), the ``[provenance]`` line and the harness frame
+    keep reading it from a single source; *tile* is ignored.
     """
-    raw = getattr(tile, "auto_patch_engine", ENGINE_V1)
-    value = str(raw if raw is not None else ENGINE_V1).strip().lower() or ENGINE_V1
-    if value not in ENGINES:
-        raise ValueError(
-            f"auto_patch_engine={raw!r} is not one of {ENGINES} — set the "
-            f"tile's (or the global) Ortho4XP config to 'v1' or 'v2'.")
-    # THE ENGINE IS A GLOBAL FACT (owner sim read 2026-09-10, RULINGS
-    # 2026-09-10c): the owner's −13-077 / −13-078 tile cfgs carried a
-    # stale ``auto_patch_engine=v1`` line (stamped when the key's default
-    # was v1) and out-ranked the global ``v2`` — SPJC and SPLP shipped on
-    # the retired engine in app 1.0.300 while every other tile ran v2, and
-    # nothing said so but one ``[provenance]`` line.  A per-tile value that
-    # disagrees with the global config file is IGNORED, loudly.
-    global_value = _global_cfg_engine()
-    if global_value is not None and global_value != value:
-        from O4_UI_Utils import lvprint as _lvprint
-        _lvprint(0, f"   Auto-patch: engine {value!r} in the tile's own cfg is "
-                    f"IGNORED — the global Ortho4XP.cfg says {global_value!r} "
-                    f"and the engine is a global setting (RULINGS 2026-09-10c). "
-                    f"Delete the tile cfg's auto_patch_engine line to silence this.")
-        return global_value
-    return value
-
-
-def _global_cfg_engine() -> str | None:
-    """``auto_patch_engine`` as the GLOBAL ``Ortho4XP.cfg`` file spells it
-    (``O4_Config_Utils.global_cfg_file``), or ``None`` when the file or the
-    key is absent / unregistered.  Read from the file, not the module
-    globals: the globals already carry the tile layer once a tile has been
-    read."""
-    try:
-        import O4_Config_Utils as _CFG
-        path = _CFG.global_cfg_file
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("auto_patch_engine="):
-                    v = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
-                    return v if v in ENGINES else None
-    except (OSError, AttributeError, ImportError):
-        return None
-    return None
+    return ENGINE_V2
 
 
 def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | None:

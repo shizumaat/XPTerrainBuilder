@@ -7161,56 +7161,59 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §12 THE V2 ENGINE THROUGH THE SAME ENTRY (--engine v2, 2026-09-04)
+# §12 THE V2 ENGINE THROUGH THE SAME ENTRY (2026-09-04; v1 RETIRED
+# 2026-09-13au, so ``--engine`` is gone and v2 is the only path)
 # ══════════════════════════════════════════════════════════════════════
-# RULINGS 2026-09-03d: v2 is built beside v1.  It builds and measures
-# through THIS entry, not a second one (tool discipline 7e90032): same
+# RULINGS 2026-09-03d: v2 is built beside v1.  RULINGS 2026-09-13au: v1 is
+# retired — the setting, the selector and the harness flag go, v2 builds
+# and measures through THIS entry (tool discipline 7e90032): same
 # refusals, same guard, same ledger, same frame — plus the engine and the
-# law-table digest recorded and keyed.
+# law-table digest recorded and keyed, at their pre-retirement spellings.
 
-def test_the_build_entry_refuses_v1_only_flags_under_engine_v2(build_mod):
-    """A v1-only flag that quietly did nothing on the v2 path is how a lane
-    comes to believe it measured something it did not (the --solve-capture
-    / --tile precedent).  Each refuses BY NAME, before the cwd check and
-    before the ledger re-exec."""
+def test_the_build_entry_has_no_engine_flag(build_mod, monkeypatch, tmp_path):
+    """STAGE A of the v1 retirement (RULINGS 2026-09-13au): there is no
+    engine to select, so ``--engine`` is not an argument any more — argparse
+    refuses it (exit 2) rather than a lane believing it chose something."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.main(["CYXY", "--engine", "v2", "--no-ledger"])
+    assert exc.value.code == 2
+
+
+def test_the_build_entry_refuses_the_flags_v2_does_not_wire(build_mod):
+    """A flag that quietly did nothing on the v2 path is how a lane comes
+    to believe it measured something it did not (the --solve-capture /
+    --tile precedent).  ``--dem``, ``--geometry-only`` and
+    ``--solve-capture`` were wired for v1 only; each refuses BY NAME,
+    before the cwd check and before the ledger re-exec."""
     for extra in (["--dem", "-500"],
                   ["--geometry-only"], ["--solve-capture", "/tmp/cap"]):
         with pytest.raises(SystemExit) as exc:
-            build_mod.main(["CYXY", "--engine", "v2", *extra])
-        assert f"--engine v2 with {extra[0]}" in str(exc.value), extra
+            build_mod.main(["CYXY", *extra])
+        assert f"REFUSING: {extra[0]} is not wired" in str(exc.value), extra
 
 
-def test_the_build_entry_admits_tile_under_engine_v2(build_mod, monkeypatch,
-                                                     tmp_path):
-    """``--tile --engine v2`` is WIRED (2026-09-04, lane v2app): the tile
-    driver dispatches on ``auto_patch_engine`` and ``build_tile`` sets it
-    on the tile from the flag.  The by-name refusal must not fire; the
-    run then proceeds to the cwd check like any tile run (which refuses
-    HERE, from a non-engine cwd, with ITS message — proof the v2 gate was
-    passed, not that a tile was built)."""
+def test_the_build_entry_admits_a_tile_run(build_mod, monkeypatch, tmp_path):
+    """``--tile`` is WIRED (2026-09-04, lane v2app; the engine is v2 by
+    retirement since 2026-09-13au).  The by-name refusals must not fire;
+    the run proceeds to the cwd check like any tile run (which refuses
+    HERE, from a non-engine cwd, with ITS message — proof the gate above
+    was passed, not that a tile was built)."""
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exc:
-        build_mod.main(["OTHH", "--tile", "25", "51", "--engine", "v2",
-                        "--no-ledger"])
-    assert "--engine v2 with --tile" not in str(exc.value)
+        build_mod.main(["OTHH", "--tile", "25", "51", "--no-ledger"])
+    assert "is not wired" not in str(exc.value)
     assert "REFUSING" in str(exc.value)
 
 
-def test_apply_engine_override_sets_the_tile_attribute_and_records_it(
-        build_mod):
-    """The flag lands where a per-tile cfg line would (the Tile INSTANCE,
-    read by ``auto_patch.driver.resolved_auto_patch_engine``), records
-    the cfg's own value beside the effective one, and rewrites no file."""
-    class _Tile:
-        auto_patch_engine = "v1"
-    t = _Tile()
-    assert build_mod.apply_engine_override(t, None) is None
-    assert t.auto_patch_engine == "v1"
-    rec = build_mod.apply_engine_override(t, "v2")
-    assert t.auto_patch_engine == "v2"
-    assert rec == {"cfg_value": "v1", "effective": "v2", "overridden": True}
-    t2 = _Tile()
-    assert build_mod.apply_engine_override(t2, "v1")["overridden"] is False
+def test_the_engine_constant_keys_every_build_as_v2(build_mod):
+    """The frame field and the artifact-ledger variant part keep the
+    spelling ``--engine v2`` wrote (RULINGS 2026-09-13au): a frame or a
+    stored arm from before the retirement still reads and still keys the
+    same artifact."""
+    assert build_mod.ENGINE == "v2"
+    assert not hasattr(build_mod, "apply_engine_override"), \
+        "the --engine override went with the flag"
 
 
 def test_the_engine_is_keyed_into_the_artifact_ledger_only_for_v2(build_mod):
@@ -7375,16 +7378,17 @@ def test_build_patch_v2_refuses_an_infeasible_solve_and_a_missing_sidecar(
 
 
 def test_main_dispatches_the_v2_engine_through_the_same_frame_and_ledger_path():
-    """Source-level: ``main`` calls ``build_patch_v2`` on the v2 path,
-    keys the engine and the law digest into the artifact-ledger variant,
-    and stamps both into ``frame.json`` — no second frame, no second
-    store."""
+    """Source-level: ``main`` calls ``build_patch_v2`` on the ONE airport
+    path (v1 retired, RULINGS 2026-09-13au), keys the engine constant and
+    the law digest into the artifact-ledger variant, and stamps both into
+    ``frame.json`` — no second frame, no second store, and no selector."""
     src = (HARNESS / "build_airport.py").read_text()
-    assert 'elif args.engine == "v2":' in src and "build_patch_v2(" in src
-    assert 'frame["engine"] = args.engine' in src
+    assert "result = build_patch_v2(" in src
+    assert "args.engine" not in src, "the --engine selector is retired"
+    assert 'frame["engine"] = ENGINE' in src
     assert 'frame["law_tables"]' in src
-    assert "engine=args.engine" in src and "law_tables_sha256=" in src
-    assert src.count("AL.store_build(") == 1, "one store, both engines"
+    assert "engine=ENGINE," in src and "law_tables_sha256=" in src
+    assert src.count("AL.store_build(") == 1, "one store, one engine"
 
 
 # ── CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2) ─────────────────────

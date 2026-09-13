@@ -212,9 +212,9 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),
-        # WHICH auto-patch engine (v1 | v2, RULINGS 2026-09-03d): a patch
-        # one engine wrote is never "current" for the other, so flipping
-        # the cfg key rebuilds — the owner's A/B is a key flip + rebuild.
+        # WHICH auto-patch engine wrote the patch (RULINGS 2026-09-03d).
+        # v1 is retired (2026-09-13au) so this is now the constant "v2",
+        # and a patch a v1 build left behind never reads as current.
         "o4_ap_engine": _engine_v2.resolved_auto_patch_engine(tile),
     }
 
@@ -714,20 +714,20 @@ def _build_write_verify_one(task: dict) -> dict:
     from collections import Counter as _Counter
     icao = task["icao"]
     t_apt = _time.time()
-    # THE ENGINE DISPATCH (RULINGS 2026-09-03d: v2 beside v1).  The task
-    # carries the tile's resolved ``auto_patch_engine``; v2 replaces this
-    # one step (build + write + verify) and returns the SAME record, so
-    # everything below the worker — results loop, manifest check,
-    # AutoPatchFailed events — is one path for both engines.  A v2 import
-    # or refusal is contained the same way a v1 build error is: a named
-    # ``build``-stage failure, never a silent skip.
-    if task.get("engine") == _engine_v2.ENGINE_V2:
-        try:
-            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
-        except Exception as _e:
-            return {"icao": icao, "ok": False, "stage": "build",
-                    "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
-                    "traceback": _tb.format_exc()}
+    # THE ENGINE IS V2 (RULINGS 2026-09-03d: v2 beside v1; 2026-09-13au:
+    # v1 RETIRED — there is no selector and no second branch).  v2 replaces
+    # this ONE step (build + write + verify) and returns the SAME record,
+    # so everything below the worker — results loop, manifest check,
+    # AutoPatchFailed events — is one path.  A v2 import or refusal is
+    # contained the same way any build error is: a named ``build``-stage
+    # failure, never a silent skip.  (The code below this return is the
+    # retired v1 step, unreachable until the stage-B deletion.)
+    try:
+        return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+    except Exception as _e:
+        return {"icao": icao, "ok": False, "stage": "build",
+                "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
+                "traceback": _tb.format_exc()}
     # Catch BROADLY (Exception, not just _DRIVER_EXC): one airport's build must
     # never abort the whole tile (serial: an uncaught error propagates out of the
     # caller's list-comp and aborts every remaining airport) nor vanish as an
@@ -1312,14 +1312,13 @@ def generate_auto_patches(tile, cifp_path: str,
     _saved_verbosity = UI.verbosity
     UI.verbosity = _cfg.LOG_VERBOSITY
 
-    # THE ENGINE, resolved ONCE per tile from the cfg key (global +
-    # per-tile, ``O4_Cfg_Vars`` ``auto_patch_engine``) and carried on every
-    # task record — the workers may be spawned processes, and the only
-    # channels into one are the task and the pool initializer.  An
-    # unregistered value refuses here, before any airport is queued.
+    # THE ENGINE — v2, the only one (owner RULINGS 2026-09-13au retired
+    # v1 and its cfg key).  Still carried on every task record: the
+    # workers may be spawned processes, and the only channels into one are
+    # the task and the pool initializer.
     engine = _engine_v2.resolved_auto_patch_engine(tile)
     UI.lvprint(0, "   Auto-patch: engine", engine,
-               "(auto_patch_engine; v1 = shipping, v2 = law-compliant rewrite)")
+               "(the law-compliant solver; v1 retired 2026-09-13)")
 
     # Per-tile verify DEBUG log: the non-user-actionable verify findings
     # (overlap / off-source / within-shape grade — our geometry/solver bugs,
@@ -1565,7 +1564,7 @@ def generate_auto_patches(tile, cifp_path: str,
             "auto_patch_file": auto_patch_file,
             "verify_log_path": _verify_debug_path + "." + icao + ".part",
             "freshness": freshness_stamps,
-            # v2 (``engine_v2``) reads these three; v1 ignores them.
+            # read by ``engine_v2``, the one per-airport build step.
             "engine": engine,
             "cifp_path": cifp_path,
             "apt_dat_path": apt_dat_selected,

@@ -34,7 +34,8 @@ STANDING = """\
   `git merge main` FIRST if main has moved past the base sha.
 - `Ortho4XP/venv/bin/python tools/blast.py <file>` before editing each source
   file; files under 1,000 lines.
-- `--engine v2` on every harness build; ONE closing build; base arms cut with
+- ONE closing build through the harness (v2 is the only engine, RULINGS
+  2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.
 - NEVER write `/Users/noah/XPTerrainBuilderData` or `/Users/noah/X-Plane 12/Custom Scenery/`;
   no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`;

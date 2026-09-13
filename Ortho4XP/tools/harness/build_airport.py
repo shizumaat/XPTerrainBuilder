@@ -5,7 +5,7 @@
         [--allow-degraded-dem] [--allow-no-sidecar] [--no-ledger]
         [--refresh-data SCOPE[,SCOPE...]] [--break-stale-lock]
         [--allow-private-data] [--base-arm | --from-ledger]
-        [--no-artifact-ledger] [--engine v1|v2]
+        [--no-artifact-ledger]
 
 Run it from ``Ortho4XP/`` (or a lane worktree set up with
 ``tools/harness/lane_worktree.sh``).  Every lane builds through THIS entry;
@@ -229,6 +229,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+#: THE AUTO-PATCH ENGINE — a CONSTANT since the owner retired v1 (RULINGS
+#: 2026-09-13au).  It keeps the spelling ``--engine v2`` recorded, so a
+#: frame.json or an artifact-ledger variant key written before the
+#: retirement still reads and still keys the same arm.
+ENGINE = "v2"
 
 # THE SHARED-REPO WRITE LAW lives in ONE module beside this one
 # (``shared_repo_guard.py``, owner ruling e9daef5): the write guard, its
@@ -2213,36 +2219,13 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
     return timings, skipped
 
 
-def apply_engine_override(tile, engine: str | None, prog=None) -> dict | None:
-    """``--engine`` on a ``--tile`` run: the auto-patch engine the tile
-    builds with, set on the Tile INSTANCE exactly where a per-tile cfg
-    line would put it (``Tile.read_from_config`` → ``tile.auto_patch_engine``,
-    read once by ``auto_patch.driver.resolved_auto_patch_engine``) — the
-    provisioned cfg file itself is never rewritten (owner ruling
-    2026-08-12b: an existing lane cfg is left untouched, and a flag that
-    silently rewrote it would be a second, unrecorded frame change).
-    Returns the record for ``frame.json`` (what the cfg said, what this
-    run built with), or ``None`` when no override was asked for."""
-    if engine is None:
-        return None
-    was = getattr(tile, "auto_patch_engine", None)
-    tile.auto_patch_engine = engine
-    rec = {"cfg_value": was, "effective": engine,
-           "overridden": (was or "v1") != engine}
-    if prog is not None:
-        prog.note(f"auto-patch engine for this tile run: {engine} "
-                  f"(per-tile/global cfg said {was!r}; the cfg file is not "
-                  f"rewritten — the value is set on the tile instance)")
-    return rec
-
-
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
-               skip_steps=None, engine: str | None = None,
-               requested=None) -> dict:
+               skip_steps=None, requested=None) -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``).
-    ``engine`` (``--engine``): the auto-patch engine the tile's patches
-    build with, see :func:`apply_engine_override`.  ``requested``: the
+    The tile's patches build with the ONE auto-patch engine, v2 (owner
+    RULINGS 2026-09-13au retired v1 and its ``auto_patch_engine`` key —
+    there is nothing to select and no ``--engine`` flag).  ``requested``: the
     authorised ``--refresh-data`` scopes, for the admission checks that
     need the resolved tile frame (:func:`bathymetry_band_admission`)."""
     sys.path.append(str(ROOT / "src"))
@@ -2269,11 +2252,9 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     # ``tools/run_tile_mesh_only.py`` (RULINGS 2026-08-31d).
     tile, cfg_provenance, imagery = resolve_tile_frame(
         lat, lon, build_dir, prog)
-    engine_rec = apply_engine_override(tile, engine, prog)
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
-              f"auto_patch={tile.auto_patch} "
-              f"auto_patch_engine={getattr(tile, 'auto_patch_engine', 'v1')} "
+              f"auto_patch={tile.auto_patch} engine=v2 "
               f"modify_custom_airports={tile.modify_custom_airports}")
     if not imagery["ok"]:
         # RULINGS 2026-08-31d: A TILE ENTRY DOES NOT REFUSE FOR A MISSING
@@ -2321,7 +2302,7 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
             "xplane_paths": paths,
             "imagery": imagery,
             "tile_cfg_provenance": cfg_provenance,
-            "tile_engine": engine_rec}
+            "tile_engine": None}
 
 
 def resolve_tile_for(icao: str, root: Path):
@@ -2448,15 +2429,6 @@ def main(argv=None) -> int:
                          "documented mode) for VISUAL INSPECTION — never "
                          "a measurement, never censused; the artifact-"
                          "ledger variant key records it")
-    ap.add_argument("--engine", choices=("v1", "v2"), default="v1",
-                    help="which auto-patch engine builds the patch: v1 "
-                         "(src/auto_patch, the default) or v2 "
-                         "(src/auto_patch_v2.pipeline.build, RULINGS "
-                         "2026-09-03d).  Same refusals, guard, DEM-frame "
-                         "checks, ledger and provenance either way; "
-                         "frame.json records the engine and, for v2, the "
-                         "law-table digest; the artifact-ledger key carries "
-                         "both (a v2 patch is never served for a v1 arm)")
     ap.add_argument("--solve-capture", type=Path, default=None,
                     metavar="DIR",
                     help="also write a SOLVE-STAGE CAPTURE per airport into "
@@ -2465,25 +2437,23 @@ def main(argv=None) -> int:
                          "tools/solve_cut.py --replay without rebuilding "
                          "phases 1-4.  The build itself is unchanged")
     args = ap.parse_args(argv)
-    if args.engine == "v2":
-        # A v1-only flag that quietly did nothing on the v2 path is how a
-        # lane comes to believe it measured something it did not (the
-        # --solve-capture precedent below).  Each is refused by name.
-        # ``--tile`` is WIRED (2026-09-04, lane v2app): the tile driver
-        # itself dispatches on ``auto_patch_engine`` (``auto_patch.
-        # engine_v2``), and ``build_tile`` sets it on the tile from this
-        # flag — the app's own path, under the harness's guard and frame.
-        for flag, on in (("--dem", args.dem is not None),
-                         ("--geometry-only", bool(args.geometry_only)),
-                         ("--solve-capture", args.solve_capture is not None)):
-            if on:
-                raise SystemExit(
-                    f"REFUSING: --engine v2 with {flag} is not wired — v2 "
-                    f"builds the airport patch on the production DEM frame "
-                    f"only (no constant-DEM oracle world, no geometry-only "
-                    f"emit, no v1 solve-stage capture).  Build "
-                    f"the patch: build_airport.py {args.icao} --engine v2, "
-                    f"or the tile: --tile LAT LON --engine v2.")
+    # THE ENGINE IS V2, THE ONLY ONE (owner RULINGS 2026-09-13au: v1
+    # retired, the setting and the selector gone with it).  These three
+    # flags were wired for v1 and are NOT wired for v2; a flag that
+    # quietly does nothing is how a lane comes to believe it measured
+    # something it did not, so each is refused by name.
+    for flag, on in (("--dem", args.dem is not None),
+                     ("--geometry-only", bool(args.geometry_only)),
+                     ("--solve-capture", args.solve_capture is not None)):
+        if on:
+            raise SystemExit(
+                f"REFUSING: {flag} is not wired for the v2 engine, which "
+                f"is the only engine since v1 was retired (RULINGS "
+                f"2026-09-13au) — v2 builds the airport patch on the "
+                f"production DEM frame only (no constant-DEM oracle "
+                f"world, no geometry-only emit, no solve-stage capture).  "
+                f"Build the patch: build_airport.py {args.icao}, or the "
+                f"tile: --tile LAT LON.")
     if args.geometry_only and args.tile:
         raise SystemExit(
             "REFUSING: --geometry-only with --tile is not wired — "
@@ -2645,15 +2615,17 @@ def main(argv=None) -> int:
     prog.note(f"solve model: {solve['solve_model']} (from {solve['source']}; "
               f"env={solve['env']} global_cfg={solve['global_cfg']})")
 
-    # ── THE ENGINE (RULINGS 2026-09-03d: v2 beside v1) ───────────────
+    # ── THE ENGINE (RULINGS 2026-09-03d: v2 beside v1; 2026-09-13au:
+    # v1 RETIRED, so this is a CONSTANT) ──────────────────────────────
     # Recorded in the frame and keyed into the artifact ledger BEFORE any
     # engine code runs, like every other key part: the v2 law tables are
     # in the tree (the tree hash moves with them) and are named here so a
-    # frame reader can say WHICH tables without a checkout.
-    frame["engine"] = args.engine
-    frame["law_tables"] = (v2_law_tables_digest(root) if args.engine == "v2"
-                           else None)
-    prog.note(f"engine: {args.engine}"
+    # frame reader can say WHICH tables without a checkout.  The key part
+    # keeps the same spelling it had under ``--engine v2`` — a frame or a
+    # ledger entry from before the retirement still reads.
+    frame["engine"] = ENGINE
+    frame["law_tables"] = v2_law_tables_digest(root)
+    prog.note(f"engine: {ENGINE}"
               + (f" (law tables {frame['law_tables']['sha256'][:12]})"
                  if frame["law_tables"] and frame["law_tables"]["sha256"] else ""))
 
@@ -2682,7 +2654,7 @@ def main(argv=None) -> int:
                 allow_no_sidecar=args.allow_no_sidecar,
                 geometry_only=args.geometry_only,
                 solve_model=solve["solve_model"],
-                engine=args.engine,
+                engine=ENGINE,
                 law_tables_sha256=(frame["law_tables"] or {}).get("sha256"))}
         ledger_key = AL.artifact_key(
             ledger_parts["tree"], args.icao, ledger_parts["env"],
@@ -2790,22 +2762,17 @@ def main(argv=None) -> int:
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
-                    engine=args.engine, requested=requested)
+                    requested=requested)
             result["engine_cache_redirects"] = redirects
-            result["engine"] = args.engine
-        elif args.engine == "v2":
+            result["engine"] = ENGINE
+        else:
+            # THE ONE AIRPORT PATH (v1 retired, RULINGS 2026-09-13au):
+            # ``build_patch`` — the v1 twin — is unreachable from here
+            # until the stage-B deletion.
             result = build_patch_v2(args.icao, root, out_dir, tag, prog,
                                     allow_no_sidecar=args.allow_no_sidecar,
                                     write_guard=guard,
                                     allow_degraded=args.allow_degraded_dem)
-        else:
-            result = build_patch(args.icao, root, out_dir, tag, prog,
-                                 const_dem=args.dem,
-                                 allow_no_sidecar=args.allow_no_sidecar,
-                                 write_guard=guard,
-                                 allow_degraded=args.allow_degraded_dem,
-                                 solve_capture=args.solve_capture,
-                                 geometry_only=args.geometry_only)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died
@@ -2936,7 +2903,7 @@ def main(argv=None) -> int:
                      "env": str(out_dir / f"{tag}.env.json"),
                      "result": str(out_dir / f"{tag}.result.json")},
                     {"tag": tag, "lane": str(root), "icao": args.icao,
-                     "argv": sys.argv[1:], "engine": args.engine,
+                     "argv": sys.argv[1:], "engine": ENGINE,
                      "build_seconds": result.get("build_seconds"),
                      "wall_seconds": result.get("wall_seconds"),
                      "body_sha256": result.get("body_sha256"),

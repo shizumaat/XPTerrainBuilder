@@ -8541,3 +8541,204 @@ def test_the_cliff_escape_reaches_every_family(cg):
             "airside_no_step", _row(("apron", "apron"), de, span),
             law=law, geometry=geo) == (cg.COCKPIT_REPORT,
                                        "spanned_over_motion")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE PRISTINE PACK DUMP LANDS WHERE IT IS HANDED, AND A SHARED-CACHE
+# DUMP REFUSES (RULINGS 2026-09-13ao, lane ``dumpguard``)
+# ══════════════════════════════════════════════════════════════════════
+# THE MEASURED WRITE: 2026-09-13 11:31:51, ``Airport_mod_cache/Nimbus
+# Simulation - KCLT V1.4 - Charlotte XP12/+35-081.dsf.anchor_bak.
+# 7bf41307.text`` appeared in the SHARED repo.  Both harness builds whose
+# windows covered that minute (``v2eatramp`` 11:28–11:34,
+# ``v2familyKCLTframe`` 11:29–11:35) had dumped into their own lane-local
+# overlays — their progress files name the overlay path — and were
+# CONTAMINATED by cross-attribution.  The writer was a scratch script in
+# a third session (``rw/p7.py``, run from the ``v2rampwalk`` worktree with
+# no ``O4_AIRPORT_MOD_CACHE_DIR``) whose log reads "pristine dump:
+# …/v2rampwalk/Ortho4XP/Airport_mod_cache/…" — the worktree's
+# ``Airport_mod_cache`` being the ritual's SYMLINK into the shared repo.
+# Two defects, one per twin below: the dump's root was a second resolution
+# at call time (the engine's implicit root) instead of the root the loader
+# is handed; and DSFTool, a subprocess, wrote where no Python-level guard
+# could see, so the write could only be audited afterwards.
+
+def _fake_pack_for_dump(tmp_path, monkeypatch):
+    """A pack with a pristine ``.anchor_bak`` beside its tile DSF, a
+    ``select_pack`` that finds it, and a DSFTool that writes the text
+    dump it is asked for.  Returns ``(xplane_root, expected dump
+    basename)`` — the basename the engine's content-keyed cache names the
+    dump of the PRISTINE file (``<tile>.dsf.anchor_bak.<sha256[:8]>.text``,
+    RULINGS 2026-09-11m), i.e. exactly the file that reached the corpus."""
+    from auto_patch import dsf_reader
+    from auto_patch_v2.airport import pack as _pack
+    from auto_patch_v2.airport import dsf as _dsf2
+
+    xp = tmp_path / "xp"
+    pack_root = xp / "Custom Scenery" / "Fake Pack - KFAK"
+    dsf = Path(_dsf2.dsf_path_in_pack(str(pack_root), 35, -81))
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"DSF written by the object stage")
+    bak = Path(str(dsf) + ".anchor_bak")
+    bak.write_bytes(b"DSF as installed (pristine)")
+    tool = tmp_path / "fake_dsftool.sh"
+    tool.write_text('#!/bin/sh\nprintf "DUMP of %s\\n" "$2" > "$3"\n')
+    tool.chmod(0o755)
+    monkeypatch.setattr(dsf_reader, "_dsftool_path", lambda: str(tool))
+    monkeypatch.setattr(
+        _pack, "select_pack",
+        lambda xplane_root, icao: types.SimpleNamespace(
+            name=pack_root.name, root=str(pack_root)))
+    # every temp file the writer makes lands here, so "cleaned up" is a
+    # fact the twin can read, not a claim
+    import tempfile
+    scratch = tmp_path / "systmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    expected = f"+35-081.dsf.anchor_bak.{dsf_reader.dsf_content_tag(str(bak))}.text"
+    return str(xp), expected, scratch, dsf
+
+
+def test_the_pristine_pack_dump_lands_in_the_root_it_is_HANDED(
+        tmp_path, monkeypatch):
+    """ONE resolution: the root ``fresh_pack_dump`` is handed is where the
+    dump lands — not the environment's, not the engine's implicit root,
+    not beside the DSF.  The decoy ``O4_AIRPORT_MOD_CACHE_DIR`` is what a
+    second resolution at call time would have chosen."""
+    from auto_patch.engine_v2 import fresh_pack_dump
+    xp, expected, scratch, dsf = _fake_pack_for_dump(tmp_path, monkeypatch)
+    handed = tmp_path / "handed_overlay"
+    decoy = tmp_path / "decoy_env_root"
+    handed.mkdir(); decoy.mkdir()
+    monkeypatch.setenv("O4_AIRPORT_MOD_CACHE_DIR", str(decoy))
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    got = fresh_pack_dump(xp, "KFAK", 35, -81, mod_cache_root=str(handed))
+
+    assert got == str(handed / "Fake Pack - KFAK" / expected)
+    assert Path(got).read_text().startswith("DUMP of ") and \
+        Path(got).read_text().rstrip().endswith(".anchor_bak"), (
+        "the dump is of the PRISTINE file (the read frame, 11m)")
+    assert list(decoy.rglob("*")) == [], (
+        "the environment's root is NOT consulted when a root is handed")
+    assert not list(dsf.parent.glob("*.text")), "never beside the DSF"
+    assert list(scratch.iterdir()) == [], (
+        "the temp dump is MOVED into place, not copied and left behind")
+    # and a second call is a cache hit: the same path, no re-dump
+    dsf_mtime = Path(got).stat().st_mtime_ns
+    assert fresh_pack_dump(xp, "KFAK", 35, -81, mod_cache_root=str(handed)) == got
+    assert Path(got).stat().st_mtime_ns == dsf_mtime
+
+
+def test_an_UNREDIRECTED_pack_dump_under_the_refuse_guard_RAISES_naming_the_path(
+        build_mod, tmp_path, monkeypatch):
+    """The write the harness could only AUDIT on 09-13 now REFUSES at the
+    call: DSFTool dumps to a temp file and the MOVE into the shared cache
+    goes through the primitives the guard wraps.  The refusal names the
+    path; nothing lands; the temp file is cleaned up; the lock allowance
+    is untouched (``.text`` is neither the lock suffix nor the library-
+    index name); and ``fresh_pack_dump`` does NOT swallow the refusal
+    into its "dump refresh skipped" warning."""
+    from auto_patch.engine_v2 import fresh_pack_dump
+    xp, expected, scratch, _dsf = _fake_pack_for_dump(tmp_path, monkeypatch)
+    repo, lane = _index_repo(tmp_path)
+    shared_cache = repo / "Airport_mod_cache"
+    # the pack's cache dir already exists in the corpus, as KCLT's did —
+    # so the refusal names the DUMP, not a parent directory
+    (shared_cache / "Fake Pack - KFAK").mkdir()
+    rel = f"Airport_mod_cache/Fake Pack - KFAK/{expected}"
+
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+            fresh_pack_dump(xp, "KFAK", 35, -81,
+                            mod_cache_root=str(shared_cache))
+    assert rel in str(exc.value), "the refusal names the dump by path"
+    assert "airport_mod_cache" in str(exc.value), "and its refresh scope"
+    assert [b["path"] for b in guard.blocked] == [rel]
+    assert guard.lock_churn == [] and guard.library_index_churn == []
+    assert not (shared_cache / "Fake Pack - KFAK" / expected).exists(), (
+        "the guard must prevent, not just report")
+    assert list((shared_cache / "Fake Pack - KFAK").iterdir()) == []
+    assert list(scratch.iterdir()) == [], (
+        "a refused dump leaves no temp file behind")
+    # the same pack dir, a REDIRECTED root: the identical call succeeds
+    overlay = tmp_path / "overlay"
+    (overlay / "Fake Pack - KFAK").mkdir(parents=True)
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as ok:
+        got = fresh_pack_dump(xp, "KFAK", 35, -81, mod_cache_root=str(overlay))
+    assert got == str(overlay / "Fake Pack - KFAK" / expected)
+    assert Path(got).is_file() and ok.blocked == []
+
+
+def test_build_patch_v2_hands_the_dump_the_LOADERS_root_inside_the_guard(
+        build_mod, monkeypatch, tmp_path):
+    """The build entry: the dump is written with ``inputs.mod_cache_root``
+    — the one root v2's loader reads it back from — and INSIDE the armed
+    guard, so a refusal fails the build before any patch is written."""
+    import dataclasses as _dc
+    import auto_patch.engine_v2 as _ev2
+    _stub_v2_pipeline(monkeypatch)
+
+    @_dc.dataclass(frozen=True)
+    class _Inputs:
+        xplane_root: str = "/xp"
+        mod_cache_root: str = "/the/loaders/root"
+        dsf_dump_path: str | None = None
+
+    sys.modules["auto_patch_v2.planar.__main__"].default_inputs = \
+        lambda **kw: _Inputs()
+    monkeypatch.setattr(build_mod, "resolve_tile_for", lambda icao, root: (60, -135))
+    seen: dict = {}
+    real_open = open
+
+    def fake_dump(xplane_root, icao, lat, lon, mod_cache_root=None):
+        seen["root"] = mod_cache_root
+        seen["tile"] = (lat, lon)
+        # the guard is ARMED at the moment of the dump: builtins.open is
+        # the guard's wrapper, not the interpreter's
+        seen["armed"] = open is not real_open
+        return "/the/loaders/root/pack/+60-135.dsf.anchor_bak.deadbeef.text"
+    monkeypatch.setattr(_ev2, "fresh_pack_dump", fake_dump)
+    real_build = sys.modules["auto_patch_v2.pipeline.build"].build
+
+    def build(icao, inputs, out_dir, config=None, law=None, out=print):
+        seen["dump_in_inputs"] = inputs.dsf_dump_path
+        seen["loaders_root"] = inputs.mod_cache_root
+        return real_build(icao, inputs, out_dir, config, law, out)
+    sys.modules["auto_patch_v2.pipeline.build"].build = build
+
+    result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
+    # the entry redirects the mod cache to the lane-local overlay and hands
+    # v2's loader THAT root (13q); the dump was written under the same one
+    assert seen["root"] == seen["loaders_root"] != "/the/loaders/root", (
+        "the dump root IS the loader's root — one resolution")
+    assert seen["root"].endswith("Airport_mod_cache") and \
+        seen["root"] == result["engine_cache_redirects"]["airport_mod_cache"]
+    assert seen["tile"] == (60, -135) and seen["armed"] is True
+    assert seen["dump_in_inputs"] == fake_dump("/xp", "CYXY", 60, -135)
+    assert (out / "twin.osm").is_file(), "the placed patch"
+
+    # a refused dump: the build FAILS by the guard's name, before any patch
+    def refused_dump(*a, **kw):
+        raise build_mod.SharedRepoWriteBlocked(
+            "BLOCKED: this build tried to os.rename "
+            "'Airport_mod_cache/pack/+60-135.dsf.anchor_bak.deadbeef.text'")
+    monkeypatch.setattr(_ev2, "fresh_pack_dump", refused_dump)
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        _run_build_patch_v2(build_mod, monkeypatch, tmp_path / "refused")
+    assert "+60-135.dsf.anchor_bak.deadbeef.text" in str(exc.value)
+    assert not list((tmp_path / "refused").rglob("*.osm")), (
+        "no patch is written after a refused dump")
+
+
+def test_the_replay_capture_hands_the_dump_the_SAME_root_under_the_guard():
+    """Source-level, the replay's ``--capture`` (the other caller of
+    ``fresh_pack_dump``): the dump root is ``inputs.mod_cache_root`` and
+    the call runs under the refuse-mode guard, its refusal not swallowed."""
+    src = (ROOT / "tools" / "v2_solve_replay.py").read_text()
+    call = src[src.index("_fresh_dump(inputs.xplane_root"):]
+    assert "mod_cache_root=inputs.mod_cache_root" in call[:200]
+    before = src[:src.index("_fresh_dump(inputs.xplane_root")]
+    assert "with _Guard(set(), ROOT):" in before[-300:]
+    assert "except RuntimeError:" in src[src.index("with _Guard(set(), ROOT):"):][:600]

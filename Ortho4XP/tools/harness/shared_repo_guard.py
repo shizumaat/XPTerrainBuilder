@@ -520,7 +520,20 @@ class SharedRepoWriteGuard:
     ``numpy.memmap``) does not pass through these, which is exactly why the
     before/after snapshot audit STAYS: prevent what can be prevented,
     detect the remainder.  Defence in depth, not one mechanism claimed to
-    be complete.
+    be complete.  The DSFTool text dump used to be in the remainder — a
+    subprocess writing ``Airport_mod_cache/<pack>/<tile>.dsf.<tag>.text``
+    straight into the cache (KCLT 2026-08-11; again 2026-09-13 11:31,
+    ``+35-081.dsf.anchor_bak.7bf41307.text``, an unredirected
+    ``fresh_pack_dump`` whose write two guarded builds could only audit
+    and were cross-attributed).  Since RULINGS 2026-09-13ao it is not:
+    ``auto_patch.dsf_reader.ensure_dsf_text_path`` dumps to a temp file
+    OUTSIDE the cache and MOVES it into place (``shutil.move`` —
+    ``os.rename``, or an ``open(dst, "wb")`` copy across devices), so the
+    write reaches this guard through the primitives it wraps and a dump
+    aimed at the shared cache REFUSES at the call, naming the path.  No
+    allowance covers it: ``.text`` is neither the lock suffix nor the
+    library-index name (twin ``test_harness.py::
+    test_an_UNREDIRECTED_pack_dump_under_the_refuse_guard_RAISES_naming_the_path``).
 
     THE PATH IT JUDGES IS THE RESOLVED ONE (2026-08-12).  A write is a
     shared-repo write when it REACHES the shared repo, whatever the string

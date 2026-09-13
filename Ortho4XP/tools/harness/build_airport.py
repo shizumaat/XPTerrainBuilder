@@ -2070,15 +2070,26 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # ``dataclasses.is_dataclass``: the v2 twin in ``tests/test_harness.py``
     # stubs ``default_inputs`` with a dict — there is no pack to dump then.
     tile = resolve_tile_for(icao, root) if dataclasses.is_dataclass(inputs) else None
-    if tile is not None:
-        dump = fresh_pack_dump(inputs.xplane_root, icao, *tile)
-        if dump:
-            inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
-            prog.note(f"pack DSF dump (pristine read frame): {dump}")
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()
     with guard:
+        # THE DUMP IS WRITTEN INSIDE THE GUARD, INTO THE LOADER'S OWN ROOT
+        # (RULINGS 2026-09-13ao, lane ``dumpguard``).  ONE resolution:
+        # ``inputs.mod_cache_root`` is where v2 will look the dump up, so
+        # it is where the dump is written — never a second resolution
+        # through the engine's implicit root at call time.  And the write
+        # is guard-visible now (``dsf_reader.ensure_dsf_text_path`` dumps
+        # to a temp file and MOVES it into place), so a dump aimed at the
+        # SHARED cache refuses HERE, by name, before any patch is written
+        # — where the 09-13 11:31 write could only be audited afterwards
+        # and cross-attributed to two guarded builds.
+        if tile is not None:
+            dump = fresh_pack_dump(inputs.xplane_root, icao, *tile,
+                                   mod_cache_root=inputs.mod_cache_root)
+            if dump:
+                inputs = dataclasses.replace(inputs, dsf_dump_path=dump)
+                prog.note(f"pack DSF dump (pristine read frame): {dump}")
         res = build(icao, inputs, v2_dir, Config(), law, out=lines.append)
     dt = time.time() - t0
     for ln in lines:

@@ -116,20 +116,30 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     # v2 never runs DSFTool itself, so without this a capture of an
     # airport whose pack the object stage has written refuses at
     # ``airport/load.py:289`` — KCLT has never had such a dump (13y).  The
-    # dump lands in whatever root was just resolved, which is lane-local
-    # whenever an overlay is armed.
+    # dump lands in ``inputs.mod_cache_root`` — ONE resolution, the root
+    # the loader reads it back from (RULINGS 2026-09-13ao) — and the write
+    # runs under the refuse-mode shared-repo guard: a capture run from a
+    # lane whose ``Airport_mod_cache`` mount IS the shared repo, with no
+    # redirect, refuses by name instead of writing everyone's corpus (the
+    # 09-13 11:31 ``+35-081.dsf.anchor_bak.7bf41307.text``).  The guard's
+    # refusal is a ``RuntimeError`` and is NOT swallowed here.
+    _harness = str(ROOT / "tools" / "harness")
+    if _harness not in sys.path:
+        sys.path.insert(0, _harness)
+    from build_airport import resolve_tile_for as _resolve_tile
+    from shared_repo_guard import SharedRepoWriteGuard as _Guard
     try:
         from auto_patch.engine_v2 import fresh_pack_dump as _fresh_dump
-        _harness = str(ROOT / "tools" / "harness")
-        if _harness not in sys.path:
-            sys.path.insert(0, _harness)
-        from build_airport import resolve_tile_for as _resolve_tile
         _tile = _resolve_tile(icao, ROOT)
         if _tile is not None:
-            _dump = _fresh_dump(inputs.xplane_root, icao, *_tile)
+            with _Guard(set(), ROOT):
+                _dump = _fresh_dump(inputs.xplane_root, icao, *_tile,
+                                    mod_cache_root=inputs.mod_cache_root)
             if _dump:
                 inputs = _dc.replace(inputs, dsf_dump_path=_dump)
                 print(f"  pack DSF dump (pristine read frame): {_dump}")
+    except RuntimeError:                    # the guard's refusal: by name
+        raise
     except Exception as exc:                # the load stage refuses loudly
         print(f"  pack dump refresh skipped for {icao}: {exc}")
     t = time.perf_counter()

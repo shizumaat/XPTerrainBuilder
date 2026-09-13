@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -482,7 +483,6 @@ def ensure_dsf_text_path(dsf_path: str,
                         and os.path.getmtime(text_path) >= mtime)
                     if (os.path.getmtime(in_pack_text) >= mtime
                             and not migrated_is_fresh):
-                        import shutil
                         os.makedirs(cache_dir, exist_ok=True)
                         if os.path.isfile(text_path):
                             os.remove(text_path)
@@ -513,29 +513,55 @@ def ensure_dsf_text_path(dsf_path: str,
     needs_convert = (not os.path.isfile(text_path)
                      or (os.path.getmtime(text_path) < mtime))
     if needs_convert:
+        # THE DUMP IS WRITTEN TO A TEMP FILE FIRST AND MOVED INTO PLACE
+        # (RULINGS 2026-09-13ao, lane ``dumpguard``).  DSFTool is a
+        # SUBPROCESS: a dump it wrote straight into the cache was a write
+        # no Python-level guard could see, and the one measured on
+        # 2026-09-13 11:31 (a scratch script calling ``fresh_pack_dump``
+        # from a lane whose ``Airport_mod_cache`` mount IS the shared
+        # repo) landed ``+35-081.dsf.anchor_bak.7bf41307.text`` in
+        # everyone's corpus with the harness able only to AUDIT it
+        # afterwards — and to cross-attribute it to two guarded builds
+        # whose windows covered the minute.  The move below is
+        # ``shutil.move``: ``os.rename`` on one device, an ``open(dst,
+        # "wb")`` copy across two — both go through the primitives the
+        # shared-repo write guard wraps, so a dump aimed at the shared
+        # cache now REFUSES at the call, by name, before a byte lands.
+        # The temp file lives in the system temp dir, never beside the
+        # target: a temp file inside the cache dir would be the same
+        # unguarded subprocess write under another name.  Second win: an
+        # interrupted DSFTool used to leave a PARTIAL ``.text`` whose
+        # mtime read as fresh on the next call; now nothing is in place
+        # until the whole dump is.
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".dsf.text")
+        os.close(tmp_fd)
+        keep_tmp = False
         try:
-            os.makedirs(cache_dir, exist_ok=True)
-            # Some platforms don't allow writing into Custom Scenery;
-            # fall back to a temp file in /tmp if the cache write fails.
             try:
                 subprocess.run(
-                    [tool, "--dsf2text", dsf_path, text_path],
+                    [tool, "--dsf2text", dsf_path, tmp_path],
                     check=True, capture_output=True, timeout=120,
                 )
-            except (PermissionError, subprocess.CalledProcessError):
-                fallback = tempfile.NamedTemporaryFile(
-                    suffix=".dsf.text", delete=False)
-                text_path = fallback.name
-                fallback.close()
-                subprocess.run(
-                    [tool, "--dsf2text", dsf_path, text_path],
-                    check=True, capture_output=True, timeout=120,
-                )
-        except (OSError, subprocess.SubprocessError) as exc:
-            UI.vprint(1,
-                f"  [dsf-reader] WARN: DSFTool failed on "
-                f"{os.path.basename(dsf_path)}: {exc}")
-            return None
+            except (OSError, subprocess.SubprocessError) as exc:
+                UI.vprint(1,
+                    f"  [dsf-reader] WARN: DSFTool failed on "
+                    f"{os.path.basename(dsf_path)}: {exc}")
+                return None
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                shutil.move(tmp_path, text_path)
+            except PermissionError:
+                # Some platforms don't allow writing into Custom Scenery
+                # (the no-pack legacy case caches beside the DSF): the
+                # temp dump is the answer then, as it always was.
+                keep_tmp = True
+                return tmp_path
+        finally:
+            if not keep_tmp and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
     return text_path
 
 

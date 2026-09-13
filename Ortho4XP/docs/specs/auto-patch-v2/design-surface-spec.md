@@ -6515,3 +6515,32 @@ seam identical at every shared vertex; no `bank_foot` chain within
 attributed (mesh side or patch side) and, if patch side, gone; cockpit block
 on both pieces with no CRITICAL row on the seam; LEMD/KCLT/CYXY (single-tile)
 byte-identical; the design report's settled lines; suite twice.
+
+### §33 (4) TWO-SIDED, §34 (4)–(6) AMENDED, §19.2 (2) AMENDED (Fable 2026-09-13; RULINGS 2026-09-13ai) — lane `v2rampwalk` round 2
+
+- **§33 (4) A DECK END IS AN EQUALITY.** The deck end takes the level of the
+  pavement it connects to (`deck_ends`'s face — LEMD `bridge_deck:-6288` →
+  `pav92` east, the road west) within `split_tol_m` as an EQUALITY, not a
+  lower bound; the deck's own profile runs between its two end levels under
+  the road cap. Bar: item 9's deck within 0.3 m of the apron at its east end
+  (today 1.66 m) and of the road at its west end.
+- **§34 (4) A TRIMMED BOUNDARY IS DENSIFIED ON A SLOPE.** Where the ribbon
+  trim's boundary runs across DEM relief, its stations are spaced so that no
+  ring edge carries more than `visual_m` of DEM change (below the chord cap).
+  Bar: the 8.50 m edge at 40.5331907, −3.5748496 (`zone2#23`, 18R/36L north)
+  → ≤ 0.5 m; cockpit CRITICAL visual worst back under round 1's 1.63 m.
+- **§34 (5) THE PORTAL RIM UNDER A DECK TAKES THE TAXI CELL'S SOLVED SURFACE.**
+  The DEM carries no bridge, so `DEM(mouth)` is the road in the cutting; the
+  abutment rim vertex takes an equality row to the deck cell's surface at the
+  same plan point (offset 0 — the `frontage_level` Linear's mechanism) and the
+  mouth's ramp floor descends from that rim. `structure_underpass.py` is
+  ARMED. Bar: LEMD F-6 (40.4610903 / 40.4612284, −3.54467): mouths and ramps
+  both sides, CRITICAL visual at the site 0 (armed today: 3 → 10),
+  `strip_seam_tear` 0; KCLT item 3 (35.2022266, −80.9404106 /
+  35.2013838, −80.9404162) mouths and ramps both sides.
+- **§34 (6) THE RAMP PROFILE SITS UNDER THE CAP.** The monotone profile
+  targets `ramp_max_grade − hard_tol_m / L` per edge so the emitted rows read
+  under the cap after 2-dp rounding. Bar: the +847 `within_shape` rows at
+  8.02 % → 0 (round 1: 2,769 → 3,616).
+- **§19.2 (2)** "flush at the road's OUTER edge" reads INNER edge for a
+  cell-less road (§34 (4) subtracts the ribbon whether or not a cell exists).

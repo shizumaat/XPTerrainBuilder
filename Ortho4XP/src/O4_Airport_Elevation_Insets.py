@@ -2567,7 +2567,6 @@ class StaticStacCatalogStrategy:
         temporary paths (caller deletes).
         """
         import subprocess
-        import sys
 
         import requests
 
@@ -3276,7 +3275,6 @@ class ArcgisLercTileStrategy:
     ):
         import shutil
         import subprocess
-        import sys
 
         import requests
 

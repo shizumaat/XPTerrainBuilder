@@ -3573,3 +3573,46 @@ unbound one (cross-bridge carriers 2 → 9 on both arms).
    surface's graded ground there; the bank is exactly where the line is not
    level. Measured: Bridge_01 / 04 / 05 deck tops 3.96 / 3.96 / 3.96 against
    the land at 3.96.
+
+## §16f AN OBJECT FAMILY STAYS TOGETHER (owner RULINGS 2026-09-13af; Fable 2026-09-13) — lane `v2family`
+
+Owner (KCLT 13j item 9): "Many parts of the main terminal building complex are
+seated at different heights creating floating or sunken elements by a few
+meters"; on the proposal (13ab): "approved, whenever feasible, keep object
+families together". Scout `v2roadcapkclt`: KCLT's 27 basin refusals are ALL the
+`paredes_*_charlotte` / `techos_*` / `suelos_interiores_charlotte` /
+`Charlotte_Airport_00{5,8}_ALB` members, each refused under 09ag rule 5b ("a
+slab sitting on datum relief, not a sunken solid"), 4.25–9.54 m under the
+local ground and ~0 under their own render datum — the pack authored the whole
+complex on one flat datum plane over real relief, and the placement stage seats
+each piece to the ground under itself.
+
+1. **A FAMILY** is the pack's set of members that (a) share one authored datum
+   plane — the same placement row set at one authored y (the §16c (6)/(7) unit
+   is the unit of contact) — AND (b) form ONE connected plan cluster: footprints
+   in contact within `[placement] contact_eps_m` or overlapping. Two placement
+   rows do not make a family (LEMD's shared-datum pack puts 2,035 of 2,109
+   bodies on two rows); the plan cluster does. A family is derived once per
+   plan and published per body as `family_of`.
+2. **ONE ZERO PLANE.** A family's bodies take one zero: the datum of the
+   emitted `building` pad their footprints mostly stand on (§16d (6)'s pad
+   majority read over the family's contacts), else the median ground under the
+   family's own contacts. Every member anchors on that plane; a member whose
+   footprint stands apart from the pad (beyond `contact_eps_m` from every other
+   member's footprint) is NOT in the family and is cut to its own ground (§16c).
+   Rule 5b's refusal stays for a genuine slab-on-relief SINGLE member; a
+   family's slab is the family's floor and is admitted with it.
+3. **FEASIBILITY IS MEASURED, NEVER ASSUMED.** A family is held together only
+   where (1)(b) holds for ALL its members; a partial cluster (OTHH's bridge
+   clutter beside the deck plate, §16e (3) withdrawn) is reported per body and
+   not bound. The census prints per family: members, zero spread, members cut
+   apart, the pad or ground it seated on.
+
+BARS (KCLT frame, `v2_rebake_replay.py plan --sampler mesh`, matched arms;
+then ONE KCLT tile-side object run): the terminal family's per-body zero
+spread ≤ 0.3 m (today 4.25–9.54 m under local ground across members); basin
+refusals of the family 27 → 0; the family seated at the terminal pad's level
+(name the pad and its level); no member floating or sunken > 0.5 m against
+the pad (§31 visual); LEMD 1.0.325 and OTHH 1.0.326 frames byte-identical or
+every changed placement named with its reason; plan stage not worse than
++10 % (`--runs 3`); suite twice.

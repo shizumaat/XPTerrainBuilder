@@ -8038,3 +8038,26 @@ LEMD 157 road vertices all framed, 486 routed pairs / 184 not-a-pair, the
 6 governed vertices within 0.02 m of the DEM; CYXY 348 framed, 3,347
 routed / 2,902 not-a-pair, targets within 0.01 m of the core clamp); a
 new tool (no `tools/INDEX.md` row).
+
+### §37 (8) THE CROSS-SECTION IS LAW ON A GROUNDSIDE ROAD; THE RAMP BINDS THE CENTRELINE (owner 2026-09-13; RULINGS 2026-09-13bb) — lane `v2roadramp` round 3
+
+Owner: "The base engine should be correcting road banking, confirm that is
+running before we try to grade it or test it." Confirmed: the rows run
+(`road_cross_section`, 2 %, weight 300, not hard) and lose — KCLT verify 781
+violated pairs on the control, 462 with the ramp. A hillside road keeps its
+crossfall on a BENCH, not by tilting.
+
+8. **LAW, NOT TARGET.** The 2 % cross-section is law on every road-family
+   face, groundside included; `road_cross_section (2026-08-25g)` joins
+   `[design] hard_rulings` and the polish certifies it. The ramp target
+   (§37 (6)) is the road's CENTRELINE profile per station; the kerbs follow
+   the centreline through the cross-section rows, so the hard ramp ceiling
+   binds one value per station and never a kerb against another station;
+   the adjacent ground takes the bench (§19; §37 (3)'s bank where
+   load-bearing).
+
+BARS (round 3; attribution of the 462 rows FIRST, `--why-at`): v2 verify
+`road_cross_section` 462 → ≤ 20, survivors named; v1 census 642 → ≤ 330
+once its selection reads `road_route_frame`; `dsf:pol51` follow ≥ 0.85 and
+section ≤ 2 % at every station; `dsf:pol82` ≤ 0.5 m; cockpit motion ≤ 7;
+LEMD / CYXY dry as before; ONE KCLT build against `ctlkclt70646dc8`.

@@ -138,6 +138,12 @@ class Design:
     #: shared vertex or not.  ``constraints.pads.frontage_radius_m`` is
     #: the one derivation site; 0 leaves the identity-only read of 10l.
     pad_frontage_m: float
+    #: §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS
+    #: 2026-09-13o/13p): the PER-PAIR median DEM step above which a pad's
+    #: groundside neighbour keeps its own ground and mints no frontage
+    #: row.  ``constraints.pad_frontage_gs.frontage_step_max_m`` is the one
+    #: derivation site; 0 disables the bound.
+    frontage_step_max_m: float
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -274,6 +280,10 @@ def check_design(d: Design, err: type[Exception],
     if not d.pad_flat_rulings:
         raise err("emit.design.pad_flat_rulings: at least one ruling "
                   "(RULINGS 2026-09-09c: the pad's flatness is a target)")
+    if d.frontage_step_max_m < 0.0:
+        raise err(f"emit.design.frontage_step_max_m {d.frontage_step_max_m}: "
+                  "a DEM step in metres, never negative (owner RULINGS "
+                  "2026-09-13o/13p)")
     if d.pad_frontage_m < 0.0:
         raise err(f"emit.design.pad_frontage_m {d.pad_frontage_m}: a plan "
                   "distance in metres, never negative (owner RULINGS "

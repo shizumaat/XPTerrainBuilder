@@ -7151,3 +7151,26 @@ the seam; solve settled lines quoted both arms; LEMD / KCLT / CYXY dry
 replays byte-identical (no seam vertices); suite twice. The mesh-side
 cluster (16,298 border nodes in 1.92 m at lat −12.1609306 on tile −13−077)
 is scout `v2splpmesh`'s, not this lane's.
+
+### §34 (4) NARROWED — A ZONE BAND YIELDS ONLY TO A TUNNEL CORRIDOR (Fable 2026-09-13; RULINGS 2026-09-13ar) — lane `v2rampwalk` round 3
+
+Round 2 (8e101597): the general "zones yield to roads" trim exposed
+`zone2#24`'s original outer ring (8.49 m over 12.03 m at 40.5331907,
+−3.5748496 — the band used to spread that terrain across its interior) and
+cost 671 `graded_strip|graded_strip` rows; the densifier cannot insert into a
+region's own welded edges (refuted). At F-6 the zone-1 band followed the
+underpass trench down (5.29 m rows).
+
+4. **THE CORRIDOR, NOT THE ROAD.** A zone band yields only to a TUNNEL
+   CORRIDOR — the mouth, the ramp, the trench and the underpass corridor as
+   §34 (1)–(3) and (5) price them — which is SUBTRACTED from the band; the
+   band's boundary there is the corridor's own edge (terraced by the ramp
+   walls). A road elsewhere inside adjacent ground grades WITH the zone (the
+   standing law). Owner item 8 (a road at a tunnel) is the corridor case.
+
+BARS (round 3, ONE LEMD build with `--base-arm`): CRITICAL visual ≤ 3 with
+no row at 40.5331907, −3.5748496 and none at F-6 (40.4609964 …
+40.4610048); `graded_strip|graded_strip` `within_shape` ≤ base + 20 (round
+2: 671); item 8's 1.63 m row absent; item 9's deck end ≤ 0.3 (round 2:
+0.18); `optimal`; 7a / 7b ramp bars hold; KCLT item 3 by replay unchanged;
+suite twice.

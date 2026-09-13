@@ -7221,18 +7221,18 @@ def test_the_engine_is_keyed_into_the_artifact_ledger_only_for_v2(build_mod):
     be served for each other — and every v1 key ever stored must stay a
     HIT (a control that exists is never rebuilt, BUILD ECONOMY)."""
     AL = build_mod.AL
-    v1 = AL.build_variant(solve_model="iterative")
+    v1 = AL.build_variant()
     assert "engine" not in v1
-    assert AL.build_variant(solve_model="iterative", engine="v1",
+    assert AL.build_variant(engine="v1",
                             law_tables_sha256="deadbeef") == v1, \
         "a v1 arm keys exactly as before --engine existed"
-    v2 = AL.build_variant(solve_model="iterative", engine="v2",
+    v2 = AL.build_variant(engine="v2",
                           law_tables_sha256="deadbeef")
     assert v2["engine"] == "v2" and v2["law_tables_sha256"] == "deadbeef"
     corpus = {"sha256": "c0ffee"}
     assert AL.artifact_key("tree", "CYXY", {}, corpus, v1) != \
         AL.artifact_key("tree", "CYXY", {}, corpus, v2)
-    v2b = AL.build_variant(solve_model="iterative", engine="v2",
+    v2b = AL.build_variant(engine="v2",
                            law_tables_sha256="0badf00d")
     assert AL.artifact_key("tree", "CYXY", {}, corpus, v2) != \
         AL.artifact_key("tree", "CYXY", {}, corpus, v2b), \

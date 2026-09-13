@@ -205,25 +205,17 @@ cfg_tile_vars = {
         },
         "hint": 'Controls Ortho4XP auto-generation of runway slope patches from CIFP/AIRAC data. Auto-patches provide accurate threshold-anchored elevation profiles and are overridden by any manual patches. "ICAO" (default) only patches airports with a 4-letter ICAO code, "All" patches every airport found in CIFP, "None" disables auto-patching entirely.',
     },
-    # ── THE SOLVE MODEL (docs/specs/constructive-solve-spec.md, section
-    # "Mode plumbing") ────────────────────────────────────────────────
-    # Two elevation solves ship side by side and the owner's in-sim A/B
-    # picks the default; until it rules, this key defaults to the
-    # ITERATIVE model, so an existing config builds exactly what it built
-    # before.  Registered in ``cfg_tile_vars`` — that, and nothing else,
-    # is what gives it the global + per-tile scopes every tile var has.
-    # The resolver (env override, precedence, provenance) is
-    # ``src/O4_Solve_Model.py``; nothing reads this key directly.
-    "solve_model": {
-        "type": str,
-        "default": "iterative",
-        "values": ("iterative", "constructive"),
-        "value_labels": {
-            "iterative": "Iterative — best fit to the terrain (slower)",
-            "constructive": "Constructive — lawful by construction (faster)",
-        },
-        "hint": 'Which solve computes airport elevations. "Iterative" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules — the most faithful result, and the slower one. "Constructive" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.',
-    },
+    # ── THE SOLVE MODEL: RETIRED (owner RULINGS 2026-09-13bh) ─────────
+    # ``solve_model`` ("Airport elevation solve", Iterative /
+    # Constructive) was v1's solver switch: the two elevation solves that
+    # shipped side by side under ``docs/specs/constructive-solve-spec.md``.
+    # NOTHING IN V2 READS IT — v2 solves the whole airport surface in one
+    # linear program and there is no second solve to select.  Removed
+    # exactly as ``auto_patch_engine`` was in stage A (RULINGS
+    # 2026-09-13az): the key lives on only in ``retired_cfg_keys`` below,
+    # where the readers DELETE it from any cfg still carrying it (RULINGS
+    # 2026-09-13a (2)) — a stale ``solve_model=constructive`` line is
+    # never honoured and never warned about.
     # ── THE AUTO-PATCH ENGINE: RETIRED (owner RULINGS 2026-09-13au,
     # stage A).  Two engines shipped side by side from 2026-09-03d; v2
     # won.  There is no setting any more — ``auto_patch.engine_v2.
@@ -755,7 +747,6 @@ gui_app_vars_long = list_app_vars[-4:]
 
 list_vector_vars = [
     "auto_patch",
-    "solve_model",
     "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",
@@ -888,6 +879,11 @@ retired_cfg_keys = {
     # (value ``None``) — the owner's own tile cfgs carry the line, and a
     # user who never chose an engine must not be told one went away.
     "auto_patch_engine": None,
+    # RULINGS 2026-09-13bh: v1's solver switch; v2 has ONE solve and
+    # nothing reads this key.  Silent (value ``None``) — as with
+    # ``auto_patch_engine``, a user who never chose a solve must not be
+    # told one went away.
+    "solve_model": None,
     # RULINGS 2026-09-05k-2: the declared register is the v2 law table.
     "flat_site_declared": (
         "flat_site_declared is RETIRED and IGNORED: an airport is declared "

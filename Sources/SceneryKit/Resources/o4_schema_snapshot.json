@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1772",
+ "engineVersion": "1.50.1773",
  "groups": {
   "app": [
    "verbosity",
@@ -81,7 +81,6 @@
   ],
   "vector": [
    "auto_patch",
-   "solve_model",
    "modify_custom_airports",
    "elevation_level",
    "elevation_coastline_band_km",
@@ -948,20 +947,6 @@
    "name": "global_sea_texture_blur",
    "type": "float"
   },
-  "global_solve_model": {
-   "default": "iterative",
-   "hint": "Which solve computes airport elevations. \"Iterative\" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules \u2014 the most faithful result, and the slower one. \"Constructive\" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.",
-   "name": "global_solve_model",
-   "type": "str",
-   "valueLabels": {
-    "constructive": "Constructive \u2014 lawful by construction (faster)",
-    "iterative": "Iterative \u2014 best fit to the terrain (slower)"
-   },
-   "values": [
-    "iterative",
-    "constructive"
-   ]
-  },
   "global_terrain_casts_shadows": {
    "default": true,
    "hint": "If unset, the terrain itself will not cast (but still receive!) shadows. This option is only meaningful if scenery shadows are opted for in the X-Plane graphics settings.",
@@ -1414,20 +1399,6 @@
    "module": "TILE",
    "name": "skip_downloads",
    "type": "bool"
-  },
-  "solve_model": {
-   "default": "iterative",
-   "hint": "Which solve computes airport elevations. \"Iterative\" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules \u2014 the most faithful result, and the slower one. \"Constructive\" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.",
-   "name": "solve_model",
-   "type": "str",
-   "valueLabels": {
-    "constructive": "Constructive \u2014 lawful by construction (faster)",
-    "iterative": "Iterative \u2014 best fit to the terrain (slower)"
-   },
-   "values": [
-    "iterative",
-    "constructive"
-   ]
   },
   "terrain_casts_shadows": {
    "default": true,

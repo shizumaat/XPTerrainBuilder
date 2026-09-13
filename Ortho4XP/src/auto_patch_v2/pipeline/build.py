@@ -705,7 +705,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name})
-        pub = publication(pm, law, airport, sol.z)
+        pub = publication(pm, law, airport, sol.z, cs)
         # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
         # residual per family (``design``, replacing ``law_tiers``) and the
         # rows the surface missed (``design_target``), which the census

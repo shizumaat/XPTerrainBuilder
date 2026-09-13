@@ -1065,6 +1065,27 @@ def _lateral_cap_tag(way: "Way") -> Optional[float]:
         return None
 
 
+#: §37 (1) (owner RULINGS 2026-09-13q KCLT item 5, spec
+#: ``auto-patch-v2/design-surface-spec.md`` §37): the tag v2 stamps for the
+#: LATERAL-CONTIGUITY cap.  It binds the road's CROSS-SECTION pairs only —
+#: the road keeps its own longitudinal law — which is why it is a tag of
+#: its own and not ``o4_grade_law_cap`` (that one binds a way's whole
+#: within-shape reading, and v1's meaning of it is untouched).
+LATERAL_CAP_T_TAG = "o4_grade_law_cap_t"
+
+
+def _lateral_cap_t_tag(way: "Way") -> Optional[float]:
+    """The TRANSVERSE lateral-contiguity cap the build stamped on this way
+    (:data:`LATERAL_CAP_T_TAG`, §37 (1)), or ``None``."""
+    raw = way.tags.get(LATERAL_CAP_T_TAG)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _ring_width_m(pts: List[Tuple[float, float]]) -> float:
     """The ring's WIDTH: the short side of its minimum rotated rectangle
     (the same reading as ``auto_patch_v2.constraints.apron.face_width``)."""
@@ -2163,6 +2184,14 @@ def iter_shape_grade_constraints(
             same envelope every other family gets, no more and no less.
             """
             cap = _road_xsection_cap(cap_l)
+            # §37 (1): LATERAL CONTIGUITY BINDS THE TRANSVERSE CAP ONLY.
+            # The stricter contiguous class's cap reaches the census HERE
+            # (``o4_grade_law_cap_t``) and nowhere else, so a road bound
+            # to an apron beside it must not TEAR across its section while
+            # its longitudinal profile stays the road's own 8 %.
+            _lt = _lateral_cap_t_tag(w)
+            if _lt is not None:
+                cap = min(cap, _lt)
             return cap, cap * d + _pair_quant_noise_m(w)
 
         if role0 in _SOFT_ROLES and _pair_cap_map:
@@ -5321,6 +5350,90 @@ def _check_stacked_nodes(
     return out
 
 
+# ── THE SENTINEL FLOOR — a graded vertex far below its own ground band
+# (RULINGS 2026-09-13, lane ``v2zerocrater``) ────────────────────────
+
+#: How far under the patch's OWN ground band a vertex must sit before it is
+#: read as a SENTINEL rather than as geometry — THE LAW'S OWN NUMBER
+#: (``emit.toml [cockpit] sentinel_drop_m``, resolved through
+#: :func:`sentinel_drop_m`), never a literal typed here.  The design
+#: surface's whole vertical range at a real airport is a few tens of metres
+#: (KCLT: 202-226 m over 4 km); a value this far below the patch's robust
+#: floor is not a cut, it is a no-data / homogeneous-block 0.0 leaking into
+#: the product.  The fallback applies only where the law tables cannot be
+#: imported at all (a bare-tree probe).
+_SENTINEL_DROP_FALLBACK_M: float = 50.0
+
+
+def sentinel_drop_m() -> float:
+    """``emit.toml [cockpit] sentinel_drop_m`` — the sentinel floor's drop."""
+    try:
+        from auto_patch_v2.law import tables as _T
+        return float(_T.cockpit(_T.load_default()).sentinel_drop_m)
+    except Exception:
+        return _SENTINEL_DROP_FALLBACK_M
+
+#: The robust floor the drop is measured from — the patch's 5th-percentile
+#: emitted elevation, never its MINIMUM (the crater IS the minimum, so a
+#: minimum-based floor can never see it).
+SENTINEL_FLOOR_PCTL: float = 5.0
+
+#: Below this many valued nodes a percentile is not a ground band at all
+#: (a fixture, a one-ring probe patch): the family reports nothing.
+SENTINEL_MIN_NODES: int = 20
+
+
+def _check_sentinel_elevation(ways: List[Way], nodes) -> List[Violation]:
+    """SENTINEL ELEVATION: an emitted vertex more than ``sentinel_drop_m()``
+    below the patch's own 5th-percentile elevation.
+
+    THE CLASS (RULINGS 2026-09-13m, lane ``v2zerocrater``): KCLT shipped 20
+    apron vertices at exactly z = 0.00 over 217 m ground — a 90 x 65 m mesh
+    pit to sea level with a 130 m skirt — because that piece of the design
+    sheet reached the least-squares solve carrying only homogeneous rows,
+    whose minimiser is 0.  The engine now refuses to emit such a piece
+    (``solve/design`` §9c, the level belt); this is the SHIP-SIDE net, so
+    the class can never leave the patch silently again whatever mints it.
+    Patch-intrinsic on purpose — the census has no DEM — and priced against
+    a ROBUST floor rather than the minimum.
+
+    One row per offending node, ``de_m`` = how far under the floor it sits.
+    """
+    vals: List[Tuple[str, float, int, int]] = []
+    for wi, w in enumerate(ways):
+        for k, (nid, e) in enumerate(zip(w.nids, w.elevs)):
+            if e is not None:
+                vals.append((nid, float(e), wi, k))
+    if len(vals) < SENTINEL_MIN_NODES:
+        return []
+    drop_m = sentinel_drop_m()
+    by_nid: Dict[str, Tuple[float, int]] = {}
+    for nid, e, wi, _k in vals:
+        cur = by_nid.get(nid)
+        if cur is None or e < cur[0]:
+            by_nid[nid] = (e, wi)
+    zs = sorted(e for e, _w in by_nid.values())
+    idx = max(0, min(len(zs) - 1,
+                     int(round((SENTINEL_FLOOR_PCTL / 100.0) * (len(zs) - 1)))))
+    floor = zs[idx] - drop_m
+    out: List[Violation] = []
+    for nid, (e, wi) in by_nid.items():
+        if e >= floor:
+            continue
+        ll = nodes.get(nid)
+        w = ways[wi]
+        v = Violation(
+            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+            de_m=float(zs[idx] - e), way_a=w, way_b=w,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=float(e),
+            elev_b=float(zs[idx]))
+        if ll is not None:
+            v.lat, v.lon = float(ll[0]), float(ll[1])
+        out.append(v)
+    out.sort(key=lambda r: -r.de_m)
+    return out
+
+
 # ── APRON TERRACE LAW — the validator twin (owner ruling 2026-08-04;
 # spec ``docs/specs/apron-terrace-law-spec.md`` §5) ──────────────────
 # The emitter half is
@@ -5637,6 +5750,76 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
         v.lat, v.lon = lat, lon
         out.append(v)
     return out
+
+
+# ── THE END-AROUND TAXIWAY CEILING, VALIDATOR HALF (owner RULINGS
+# 2026-09-13j item 2, ruled 13q item 2; spec design-surface-spec §36) ──
+# THE ONE READER: the accepted RECTS arrive through the ``eat_rects``
+# sidecar key exactly as the joints arrive through ``terrace_joints`` and
+# the basins through ``basin_facilities`` — so the solve and the census
+# read ONE declaration of where an end-around taxiway is and what the
+# regulation put it at.  Recognition is NOT re-derived here: it needs the
+# apt.dat route network and the runway ends, which no patch carries, and
+# a second spelling of it would be the census-wrapper defect.  A patch
+# with no key (v1's own output, or a v2 patch predating §36) reads
+# ``None`` and this family reports nothing, exactly as before.
+
+def _check_eat_ceiling(eat_rects, nodes, ways) -> List[Violation]:
+    """EAT pavement standing ABOVE its departure-surface ceiling.
+
+    Each published rect carries its regulation ``value_m`` and the
+    ``[lat, lon]`` of every vertex it governs; the row is that vertex
+    standing above the value by more than the elevation materiality.  The
+    pin holds EXACTLY in the design solve (a pinned vertex is eliminated
+    from the unknowns), so a row here means the EMITTED surface left the
+    value the solve pinned — the only way this family can speak.
+
+    The join is the canonical 11-dp lat/lon identity (memory
+    ``canonical-identity-join``), never a proximity match; a rect vertex
+    the patch does not carry is silently absent, which is what a vertex
+    the rect law withdrew looks like.
+    """
+    if not eat_rects:
+        return []
+    by_ll: Dict[Tuple[float, float], float] = {}
+    for w in ways:
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            by_ll.setdefault((round(lat, 7), round(lon, 7)), float(z))
+    out: List[Violation] = []
+    for rec in (eat_rects or []):
+        try:
+            value = float(rec["value_m"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ref = f"{rec.get('runway', '')}/{rec.get('end', '')}".strip("/")
+        for ll in (rec.get("vertices") or []):
+            try:
+                lat, lon = float(ll[0]), float(ll[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            z = by_ll.get((round(lat, 7), round(lon, 7)))
+            if z is None or z - value <= _EAT_CEILING_TOL_M:
+                continue
+            way = Way(f"eat_rect:{rec.get('rect')}", "junction",
+                      ref or "eat_rect", "taxiway", [], [],
+                      {"role": "junction", "ref": ref or "eat_rect"})
+            v = Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                de_m=z - value, way_a=way, way_b=way,
+                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                elev_a=z, elev_b=value)
+            v.lat, v.lon = lat, lon
+            out.append(v)
+    return out
+
+
+#: The materiality the ceiling is read at: the same elevation quantum the
+#: emitted surface carries (``emit.materiality.elevation_m``), so a row
+#: here is surface, never rounding.
+_EAT_CEILING_TOL_M = 0.01
 
 
 # ── THE FAN-RAMP LAW, VALIDATOR HALF (owner RULINGS 21f0980) ────────
@@ -7265,6 +7448,14 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("basin_floor_declaration",
      "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
+    # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
+    # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
+    # above it: the accepted rects arrive as ``eat_rects`` and this prices
+    # the pavement they govern against the regulation value the solve
+    # pinned.  A patch with no key reports nothing.
+    ("eat_ceiling",
+     "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
+     "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     # spec §34 (4): the WITHIN-FACE welded step on a v2 adjacent-ground
     # face — the reading no family had (``_check_adjacent_ground_steps``).
@@ -7307,6 +7498,13 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("runway_crown", "RUNWAY CROWN below its DECLARED drop", "within"),
     ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
+     "within"),
+    # THE SENTINEL FLOOR (RULINGS 2026-09-13, lane ``v2zerocrater``): an
+    # emitted vertex far below the patch's own ground band is a SENTINEL —
+    # a no-data value or a homogeneous least-squares block's 0.0 — not
+    # geometry.  CRITICAL at any airport it touches, whatever mints it.
+    ("sentinel_elevation",
+     "SENTINEL ELEVATION (vertex far below the patch's own ground band)",
      "within"),
     ("cross_shape", "CROSS-SHAPE proximity grade", "cross"),
     ("frontage_near_miss",
@@ -7914,6 +8112,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # family — so a census without this key would judge a law the build
     # never ran under, in both directions.
     "basin_facilities": "basin_facilities",
+    # THE ACCEPTED END-AROUND TAXIWAY RECTS (spec §36; owner RULINGS
+    # 2026-09-13j item 2).  LAW INPUT: recognition needs the apt.dat route
+    # network and the runway ends, which no patch carries, so the rects the
+    # solve accepted — with the regulation value each was pinned at — are
+    # declared here and the ``eat_ceiling`` family prices exactly them.  A
+    # patch with no key (v1's own output, or a v2 patch predating §36)
+    # reports nothing in that family, as it did before.
+    "eat_rects": "eat_rects",
     "ruleset": "ruleset",
     # THE TIERED APRON LAW the build priced (owner RULINGS 2026-09-06w):
     # ``{preferred, max, fan}`` as fractions, published by v2
@@ -8233,6 +8439,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
+    ctx["eat_rects"] = data.get("eat_rects") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
     ctx["yielded_rows"] = data.get("yielded_rows") or None
@@ -8261,6 +8468,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["disconnected_rings_ll"] else "")
               + (f", {len(ctx['basin_facilities'])} declared basin "
                  f"facility(ies)" if ctx["basin_facilities"] else "")
+              + (f", {len(ctx['eat_rects'])} end-around-taxiway rect(s)"
+                 if ctx["eat_rects"] else "")
               + f", ruleset={ctx['ruleset']!r}"
               + (f", {len(ctx['relaxed_rows'])} relaxed row(s) [04t(1)]"
                  if ctx["relaxed_rows"] else "")
@@ -8850,6 +9059,13 @@ def cockpit_classify(family: str, row, *, law: dict,
       TARGETS, never gates).
     """
     cls = law["family_class"].get(family, "grade")
+    # THE SENTINEL IS CRITICAL UNCONDITIONALLY (RULINGS 2026-09-13, lane
+    # ``v2zerocrater``): a vertex tens of metres below the patch's own
+    # ground band is not a height difference to be priced against a
+    # threshold and not a question of view — it is a hole in the design
+    # surface, and a hole is critical at any airport it touches.
+    if cls == "sentinel":
+        return COCKPIT_VISUAL, "sentinel"
     mag = row_magnitude(row)
     roles = row_roles(row)
     rolled = law["rolled_on"]
@@ -9239,6 +9455,7 @@ def run_checks(
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
+    eat_rects: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
     stretches_ll: Optional[list] = None,
@@ -9614,6 +9831,13 @@ def run_checks(
         basin_declaration, top_n)
     within = within + basin_declaration
 
+    eat_rows = _fam("eat_ceiling", _check_eat_ceiling(eat_rects, nodes, ways))
+    _pv("END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling "
+        "(the rect the solve PINNED at end_z + max(0, D - setback)*slope - "
+        "tail, read back off the emitted surface — owner RULINGS "
+        "2026-09-13j item 2, spec §36)", eat_rows, top_n)
+    within = within + eat_rows
+
     adjacent_edges = _fam("adjacent_ground_tear",
                           _check_adjacent_ground_edges(ways, nodes, ll_to_m))
     _pv("ADJACENT-GROUND graded-strip TEAR (sub-metre near-vertical edge)",
@@ -9870,6 +10094,13 @@ def run_checks(
         "disagree — owner invariant 2026-07-19, cap 0)",
         stacked, top_n)
     within = within + stacked
+
+    sentinel = _fam("sentinel_elevation",
+                    _check_sentinel_elevation(ways, nodes))
+    _pv(f"SENTINEL ELEVATION (emitted vertex more than {sentinel_drop_m():g} m "
+        f"below the patch's own {SENTINEL_FLOOR_PCTL:g}th-percentile "
+        f"elevation — RULINGS 2026-09-13, cap 0)", sentinel, top_n)
+    within = within + sentinel
 
     cross = _fam("cross_shape", _check_cross_shape_proximity(
         vertices, ways, proximity_m, max_grade))

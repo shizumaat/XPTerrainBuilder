@@ -78,6 +78,7 @@ from __future__ import annotations
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
+from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
@@ -96,12 +97,19 @@ __all__ = ["publication", "face_tags"]
 
 def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
               ) -> dict[int, dict[str, str]]:
-    """Extra way tags: ``o4_grade_law_cap`` on roads bound to a stricter
+    """Extra way tags: ``o4_grade_law_cap_t`` on roads bound to a stricter
     contiguous class (the census's way-level lateral-contiguity read), and
     ``o4_edge`` on an adjacent-ground face whose region was ENDED at a
-    terrain edge (owner RULINGS 2026-09-10b/10c; spec §19.3 C12)."""
+    terrain edge (owner RULINGS 2026-09-10b/10c; spec §19.3 C12).
+
+    §37 (1) (RULINGS 2026-09-13q item 5): the contiguity cap is stamped
+    under ``o4_grade_law_cap_t``, NOT ``o4_grade_law_cap``.  The bare tag
+    binds a way's whole within-shape reading in both census readers, and
+    lateral contiguity binds the TRANSVERSE cap only — a road keeps its
+    own longitudinal law.  ``o4_grade_law_cap`` is left to the oracle
+    alias (``emit/osm_adapter``) and to v1, whose meaning is unchanged."""
     out: dict[int, dict[str, str]] = {
-        fid: {"o4_grade_law_cap": f"{cap:g}"}
+        fid: {"o4_grade_law_cap_t": f"{cap:g}"}
         for fid, cap in road_law_caps(planar, law, airport).items()}
     kinds = getattr(planar, "edge_kind_of_ref", None) or {}
     for fid, f in planar.faces.items():
@@ -131,7 +139,8 @@ def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
     return out
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
-                z: _t.Sequence[float] | None = None) -> dict[str, _t.Any]:
+                z: _t.Sequence[float] | None = None,
+                cs: _t.Any = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  The shape joints (owner RULINGS
     2026-09-08k, ``planar.shape_joints``) are declared, and every published
@@ -220,6 +229,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "pad_relief": [[ll[v][0], ll[v][1], round(o, 4)]
                            for v, o in sorted(pad_relief_offsets(planar, law,
                                                                  airport).items())],
+            # THE END-AROUND TAXIWAY RECTS (spec §36): one record per
+            # ACCEPTED rect — its end, its runway, its regulation value and
+            # the vertices it pinned, read off the FINAL constraint set so
+            # the census prices exactly what the solve pinned.  Empty where
+            # the airport has no EAT by recognition, and absent (never
+            # invented) when the caller hands no constraint set.
+            "eat_rects": ([] if cs is None
+                          else _eat_rects(planar, cs)),
             "tunnel_objects": tunnel_objects(planar, airport)}
 
 
@@ -396,6 +413,16 @@ def basin_facilities(planar: PlanarMap, law: Law,
             "wall_ref": b.wall_ref,
             "floor_plates": len(planar_faces_of_ref(planar, b.floor_ref)),
             "shell_count": len(b.objects),
+            # THE RAMP CORRIDORS (spec §24 (5), owner RULINGS 2026-09-13g),
+            # in LONGITUDE / LATITUDE — the coordinate system the patch and
+            # the sidecar share (the planar frame's metres are NOT the
+            # patch's), so ``verify`` re-derives the expectation from the
+            # object's own authored deck instead of reading it back.
+            "ramp_corridors": len(b.ramp_rings),
+            "ramp_rings_ll": [[[round(x, 9), round(y, 9)] for x, y in r]
+                              for r in b.ramp_rings_ll],
+            "ramp_faces_ll": [[[round(q[0], 9), round(q[1], 9), round(q[2], 3)] for q in t]
+                              for t in b.ramp_faces_ll],
         })
     return out
 

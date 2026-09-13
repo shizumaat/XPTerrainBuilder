@@ -24,7 +24,100 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["Deck", "Tunnel", "Basin", "profile_z"]
+__all__ = ["Deck", "Tunnel", "Basin", "profile_z", "deck_z_on_faces"]
+
+
+#: A point this far outside a corridor ring (METRES, the planar frame's
+#: default) still reads as under it — ``emit.weld_spacing_m``'s own
+#: identity spacing.  A ramp floor face's
+#: OWN ring vertices sit exactly on the outline, and the identity grid
+#: moves them by up to half a grid step: judged by bare ray casting they
+#: would fall arbitrarily one side or the other and take the basin's one
+#: depth instead of the deck — a cliff along the ramp's own edge.
+_RING_TOL_M = 1.0
+
+
+def deck_z_on_faces(faces, rings, x: float, y: float,
+                    ring_tol: float = _RING_TOL_M) -> "float | None":
+    """THE ONE READING of a basin ramp corridor's authored deck elevation
+    over a plan point (spec §24 (5), owner RULINGS 2026-09-13g).
+
+    ``faces`` are ``((x, y, z), (x, y, z), (x, y, z))`` deck triangles and
+    ``rings`` the corridors' plan outlines, in ONE coordinate system (the
+    airport frame in the planar map, longitude/latitude in the published
+    sidecar — barycentric weights are affine-invariant, so the same call
+    answers in both).  The triangle covering the point is interpolated at
+    it; a point inside a corridor ring but off every triangle (the identity
+    grid moved a floor vertex off the deck's edge) takes the nearest face's
+    plane; a point under no ramp returns ``None`` and the basin's one depth
+    stands.
+
+    ``constraints/structures.basins`` states the floor row with this and
+    ``verify/structures.basin_floor_at_declaration`` judges the emitted
+    floor with it: two copies of this arithmetic is how a stated row and a
+    published expectation drift apart, so there is one, here."""
+    if not faces:
+        return None
+    top = None                                    # the highest covering face
+    best = None                                   # (distance2, z) off every face
+    for tri in faces:
+        (x0, y0, z0), (x1, y1, z1), (x2, y2, z2) = tri
+        d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(d) < 1e-15:
+            continue
+        a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / d
+        b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / d
+        c = 1.0 - a - b
+        if a >= -1e-9 and b >= -1e-9 and c >= -1e-9:
+            # THE DECK IS THE TOP of what covers the point: the corridor's
+            # faces are read with |n_y| (the codebase's near-horizontal
+            # test), so a slab's SOFFIT is in the set beside its deck and
+            # the lower of the two must never be the one answered with.
+            z = a * z0 + b * z1 + c * z2
+            top = z if top is None else max(top, z)
+            continue
+        cx, cy = (x0 + x1 + x2) / 3.0, (y0 + y1 + y2) / 3.0
+        d2 = (cx - x) ** 2 + (cy - y) ** 2
+        if best is None or d2 < best[0]:
+            best = (d2, (z0 + z1 + z2) / 3.0)
+    if top is not None:
+        return top
+    if best is None or not _in_any_ring(rings, x, y, ring_tol):
+        return None
+    return best[1]
+
+
+def _in_any_ring(rings, x: float, y: float, tol: float = 1.0) -> bool:
+    """Point in (or within ``tol`` of) any of the plan rings — ray casting,
+    no shapely (this module is data only).  ``tol`` is in the rings' OWN
+    units: metres in the planar frame, DEGREES against the published
+    lon/lat corridor (``verify`` passes the conversion)."""
+    for ring in rings or ():
+        n = len(ring)
+        if n < 3:
+            continue
+        inside = False
+        for i in range(n):
+            ax, ay = ring[i][0], ring[i][1]
+            bx, by = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
+            if (ay > y) != (by > y):
+                t = (y - ay) / (by - ay)
+                if x < ax + t * (bx - ax):
+                    inside = not inside
+            if not inside and _seg_dist2(ax, ay, bx, by, x, y) <= tol * tol:
+                return True
+        if inside:
+            return True
+    return False
+
+
+def _seg_dist2(ax: float, ay: float, bx: float, by: float,
+               x: float, y: float) -> float:
+    dx, dy = bx - ax, by - ay
+    d2 = dx * dx + dy * dy
+    t = 0.0 if d2 <= 0.0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / d2))
+    ex, ey = ax + t * dx - x, ay + t * dy - y
+    return ex * ex + ey * ey
 
 
 def profile_z(profile: "tuple[tuple[float, float], ...]", s: float) -> float:
@@ -246,6 +339,32 @@ class Basin:
     anchor_inside_floor: bool = False
     seat_expect_m: float = 0.0
     agl_m: float = 0.0
+    #: THE RAMP CORRIDORS (spec §24 (5), owner RULINGS 2026-09-13g): the
+    #: basin resource's own DECK geometry climbing from the floor plate to
+    #: the rim — one plan ring per corridor (``ramp_rings``) and the deck
+    #: faces themselves as ``((x, y, z), (x, y, z), (x, y, z))`` triangles
+    #: in the frame (``ramp_faces``).  The floor UNDER a corridor follows
+    #: the deck per station (:meth:`deck_z_at`) instead of taking the one
+    #: depth: a modelled road ramp is only visible if the terrain under it
+    #: climbs with it.  Empty for a basin with no ramp — every OTHH pit.
+    ramp_rings: tuple[tuple[XY, ...], ...] = ()
+    ramp_faces: tuple[tuple[tuple[float, float, float], ...], ...] = ()
+    #: The same two in LONGITUDE / LATITUDE — what the SIDECAR publishes.
+    #: The patch's own metres are not the planar frame's (``verify`` builds
+    #: its ``xy`` from the sidecar's own origin: measured at LEMD, the T4S
+    #: ramp published at frame (−799, 2227) while the floor vertices over
+    #: it read (−148, 889)), so the published corridor is carried in the
+    #: one coordinate system both sides agree on.
+    ramp_rings_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
+    ramp_faces_ll: tuple[tuple[tuple[float, float, float], ...], ...] = ()
+
+    def deck_z_at(self, x: float, y: float) -> float | None:
+        """This basin's ramp deck elevation over ``(x, y)``, or ``None``
+        where no ramp stands (:func:`deck_z_on_faces`, the ONE reading —
+        ``constraints/structures.basins`` states the floor row with it and
+        ``verify/structures`` judges the emitted floor against the same
+        call on the published faces)."""
+        return deck_z_on_faces(self.ramp_faces, self.ramp_rings, x, y)
 
     def floor_below_rim_m(self, clearance_m: float = 0.0) -> float:
         """THE ONE DERIVATION of how far the trench floor stands under its

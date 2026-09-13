@@ -104,6 +104,13 @@ class Member:
     #: ``(lat, lon)`` — where the seat reads the ground (R12: deck top at
     #: the abutment grade; the landward walk starts here).
     deck_ends: tuple[tuple[LL, LL], tuple[LL, LL]] | None = None
+    #: §16e (2): the deck END LINES sampled at ``[bridge]
+    #: abutment_sample_step_m`` — the STATIONS whose ground the deck top
+    #: is the datum of, in ``(lat, lon)``, the same shape
+    #: ``plate_stations`` carries.  Stamped for a FLAG deck standing over
+    #: no graded face (``deck_datum_z`` None); empty for every other
+    #: member, and empty in every plan written before §16e.
+    deck_end_stations: tuple[LL, ...] = ()
     #: ...and its deck-top PROFILE ``(s, y)``: ``s`` metres from the
     #: start end's midpoint along the axis, ``y`` the authored top there
     #: (what the mid-span clearance test reads).
@@ -266,6 +273,7 @@ class RebakePlan:
                     "deck_profile": [[s, y] for s, y in m.deck_profile],
                     "deck_evidence": list(m.deck_evidence),
                     "deck_stations": [list(st) for st in m.deck_stations],
+                    "deck_end_stations": [[a, b] for a, b in m.deck_end_stations],
                     "plate_y": m.plate_y,
                     "plate_clearance_m": m.plate_clearance_m,
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
@@ -318,6 +326,8 @@ class RebakePlan:
                 deck_evidence=tuple(str(x) for x in m.get("deck_evidence", ())),
                 deck_stations=tuple((float(a), float(b), float(c))
                                     for a, b, c in m.get("deck_stations", ())),
+                deck_end_stations=tuple((float(a), float(b)) for a, b
+                                        in m.get("deck_end_stations", ())),
                 plate_y=None if m.get("plate_y") is None else float(m["plate_y"]),
                 plate_stations=tuple((float(a), float(b)) for a, b in m.get("plate_stations", ())),
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),

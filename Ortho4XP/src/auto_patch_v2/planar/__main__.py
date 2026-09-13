@@ -7,7 +7,11 @@ engine tree's mounted data dirs (``Elevation_data``, ``OSM_data``,
 ``Airport_mod_cache`` — the shared corpus the lane ritual mounts) and
 the X-Plane install named by ``custom_scenery_dir`` in the engine's
 ``Ortho4XP.cfg`` (a convenience of THIS entry point only; the library
-takes explicit paths).  No environment reads.
+takes explicit paths).  No environment reads, with ONE exception: the
+implicit ``Airport_mod_cache`` root resolves through the engine's own
+accessor (:func:`implicit_mod_cache_root`), so the lane redirect
+``O4_AIRPORT_MOD_CACHE_DIR`` applies here as it does to every other
+reader of the per-pack sidecar caches.
 """
 from __future__ import annotations
 
@@ -38,6 +42,29 @@ def _cfg_value(key: str) -> str:
     return ""
 
 
+def implicit_mod_cache_root() -> str:
+    """THE ``Airport_mod_cache`` root when no ``--data-root`` names one.
+
+    ``O4_File_Names.airport_mod_cache_root()`` — the accessor v1's
+    ``dsf_reader.airport_mod_cache_dir`` and every other reader of the
+    per-pack sidecar caches resolve through — so the lane redirect
+    ``O4_AIRPORT_MOD_CACHE_DIR`` (the harness's copy-on-write overlay
+    and the pytest suite's, CLAUDE.md "Traps the harness now makes
+    impossible") and an explicitly chosen data root
+    (``ORTHO4XP_DATA_ROOT`` / ``set_data_root``) apply to the v2 CLIs
+    exactly as they do to the engine.  THE DEFECT (2026-09-13): this
+    module joined ``ENGINE_DIR / "Airport_mod_cache"`` itself, so
+    ``explain KCLT`` under an exported lane redirect still read — and
+    named in its freshness refusal — the SHARED repo's cache, the one
+    root every lane is forbidden to warm.  Resolved AT CALL TIME (the
+    accessor's own contract): with no override it follows the current
+    working directory, which every sanctioned entry sets to the engine
+    tree first (``main`` chdirs, ``build_airport.py`` refuses a wrong
+    cwd, pytest's rootdir is the engine)."""
+    import O4_File_Names as FNAMES
+    return FNAMES.airport_mod_cache_root()
+
+
 def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
                    data_root: str | None = None, feather_m: float = 60.0,
                    dem_frame: str = "production", allow_degraded_dem: bool = False
@@ -61,7 +88,11 @@ def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
     return Inputs(xplane_root=xplane_root, cifp_dir=cifp_dir,
                   osm_root=str(root / "OSM_data"),
                   elevation_root=str(root / "Elevation_data"),
-                  mod_cache_root=str(root / "Airport_mod_cache"),
+                  # an explicit --data-root is the more specific instruction
+                  # (the accessor's own rule for ORTHO4XP_DATA_ROOT); only
+                  # the IMPLICIT root follows the lane redirect
+                  mod_cache_root=(str(root / "Airport_mod_cache") if data_root
+                                  else implicit_mod_cache_root()),
                   feather_m=feather_m, dem_frame=dem_frame,
                   allow_degraded_dem=allow_degraded_dem,
                   # the core's road clamp knobs, as the tile build reads them
@@ -385,9 +416,15 @@ def structure_records(airport, cl, law) -> dict:
         "tunnel_refused": list(sstats.refused),
         "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
                             if not isinstance(v, list)},
+        # THE RIM RING ITSELF (lane v2basinfoot, spec §24 (4)): the dry run
+        # has to answer "how far did each basin's rim MOVE", which needs the
+        # ring, not just its area — one row per basin, in lat/lon.
         "basins": [{"id": b.id, "objects": list(b.objects), "floor_z": b.floor_z,
                     "rim_estimate_m": b.rim_estimate_m, "area_m2": b.area_m2, "kind": b.kind,
                     "covered_fraction": b.covered_fraction, "site_ll": list(b.anchor_ll),
+                    "rim_ll": [list(ll(p)) for p in b.wall_path],
+                    "region_ll": [list(ll(p)) for p in b.region],
+                    "ramp_rings_ll": [[list(ll(p)) for p in r] for r in b.ramp_rings],
                     "notes": list(b.notes)} for b in basins],
         "basin_refused": list(bstats.refused),
         "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},

@@ -32,6 +32,8 @@ polygon, ONE of the frontage radius, and ONE of the groundside pavement roles
 from __future__ import annotations
 
 import math
+import statistics
+import typing as _t
 
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
@@ -42,12 +44,18 @@ from ..model.airport import Airport
 from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 from .groundside import groundside_face_roles
-from .pads import (_pad_polys, _two_sided, frontage_radius_m,
+from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
                    pad_fronts_airside, rigid_roles)
 from .precedence import view
 
 __all__ = ["GEN_GS", "GS_LEVEL_RULING", "GS_LEVEL_JUNIOR_RULING",
+           "STATS", "frontage_step_max_m", "pair_dem_step_m",
            "groundside_frontage", "groundside_frontage_level"]
+
+#: THE GENERATOR'S OWN STATISTICS, published beside its row count by
+#: ``constraints.build`` as ``groundside_frontage_level.<key>`` — the
+#: design report's "frontage pairs held as terraces" line (§28 (6)).
+STATS: dict[str, dict[str, int]] = {}
 
 #: THE §28 FAMILY.  Its own generator name, so ``DesignReport.families`` and
 #: ``solve/why`` name the PAD holding a lot's edge rather than the pad
@@ -78,6 +86,56 @@ GS_LEVEL_JUNIOR_RULING = "structures.building_pad groundside_frontage junior"
 #: trade the pad's EDGE level, which is what the ruling names, for its level
 #: ten metres inboard.
 _GS_LEADER_K = 8
+
+
+def frontage_step_max_m(law: Law) -> float:
+    """``[design] frontage_step_max_m`` — §28 (6)'s PER-PAIR DEM-step
+    bound (owner RULINGS 2026-09-13o/13p).  ONE derivation site; a law
+    value, never a literal here — the sibling of ``pad_frontage_m``, the
+    radius of the same relation, and read the same way.
+
+    IT IS A LAW KEY AND NOT A ``classify/rules.toml [lot]`` ONE (the
+    brief's placement), because ``constraints`` MAY NOT IMPORT
+    ``classify``: the layering is law <- model <- solve <- emit with
+    ``constraints`` reading ``geom`` / ``law`` / ``model`` alone, and
+    ``tests/auto_patch_v2/test_model.py::test_dependency_direction``
+    enforces it by name.  §27's ``[lot] airside_edge_min_m`` is a
+    classify key because CLASSIFY reads it; this one is read by a
+    generator."""
+    return float(design_law(law).frontage_step_max_m)
+
+
+def pair_dem_step_m(planar: PlanarMap, front: _t.Iterable[int],
+                    pad_rim: _t.Iterable[int]) -> float | None:
+    """§28 (6)'s QUANTITY for one pad-face pair: the median over the
+    face's frontage vertices of ``dem_z(vertex)`` minus the PAD
+    FOOTPRINT's own median ``dem_z``.  ``None`` where either side has no
+    DEM sample (planar invariant I7 says it always does; a missing one
+    NEVER disarms — a pair is graded unless it is MEASURED to be a
+    hillside).
+
+    THE DEM IS THE PLANAR MAP'S OWN SAMPLE (``Vertex.dem_z``, the
+    production DEM + insets taken once at map build), never a second
+    reader: ``airport.dem.z`` would resample the same raster at the same
+    points and a lane-private path is the census-wrapper defect.
+
+    THE PAD'S SIDE IS ITS GROUND, NOT ITS LEVEL, and this is a DEVIATION
+    from 13o's text, reported not decided here.  13o's medians (CYXY
+    +4.08 / +3.02, LEMD ``building4`` +2.66) are against the pad's SOLVED
+    level, which no generator can read — the level is what §20's rows
+    produce, three lag rounds later.  The pad's own ground is the nearest
+    thing the derivation has; measured in the engine's own frame, the
+    same pairs read +3.76 / +3.43 (CYXY) against +3.00 (LEMD
+    ``building4``) where 13o's solved-level frame reads +4.08 / +3.02
+    against +2.66 — which is why the bound is 3.2 here and not 2.8 (see
+    the law comment for the whole measured population)."""
+    fd = [planar.vertices[v].dem_z for v in front]
+    pd = [planar.vertices[v].dem_z for v in pad_rim]
+    fd = [float(z) for z in fd if z is not None]
+    pd = [float(z) for z in pd if z is not None]
+    if not fd or not pd:
+        return None
+    return statistics.median(fd) - statistics.median(pd)
 
 
 def _groundside_geoms(planar: PlanarMap, law: Law
@@ -147,16 +205,29 @@ def groundside_frontage(planar: PlanarMap, law: Law
     output so the two directions cannot disagree.
 
     A groundside face fronting no such pad is absent here and keeps every
-    level it has today."""
+    level it has today.
+
+    A HILLSIDE TERRACE IS NOT A FRONTAGE (§28 (6), owner RULINGS
+    2026-09-13o/13p).  A pair whose :func:`pair_dem_step_m` exceeds
+    ``[lot] frontage_step_max_m`` is DROPPED here — the face keeps its own
+    ground and the step is a lawful terrace.  The owner's reading (13l
+    item 1): CYXY's ``building10`` / ``building9`` are cut into a hill
+    with the lots arriving at the second storey, and grading those lots to
+    the pads made ``dsf:pol129`` a 3.4 m excavation it can never climb out
+    of at its 8 % cap.  The count of pairs held is published as
+    ``groundside_frontage_level.pairs_held_as_terrace``."""
     pads = [p for p in _pad_polys(planar, law)
             if p[0] in pad_fronts_airside(planar, law)]
     if not pads:
+        STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": 0}
         return {}
     vw = view(planar, law)
     r = frontage_radius_m(law)
     tree = STRtree([p[3] for p in pads])
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     airside = _airside_pavement_vertices(planar, law)
+    bound = frontage_step_max_m(law)
+    held = 0
     out: dict[int, list[tuple[int, str, float, list[int], list[int]]]] = {}
     for gid, _role, _ref, gvs, gpoly in _groundside_geoms(planar, law):
         cand = (tree.query(gpoly, predicate="dwithin", distance=r) if r > 0.0
@@ -168,6 +239,16 @@ def groundside_frontage(planar: PlanarMap, law: Law
                      if ppoly.distance(Point(*xy[v])) <= r}
             if not front:
                 continue
+            # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS
+            # 2026-09-13o, refined 13p).  The bound is PER PAIR and it is
+            # read HERE, in the ONE derivation of the relation, so every
+            # consumer of `groundside_frontage` (the generator, and any
+            # reader of the relation as data) sees the same population —
+            # a per-consumer veto is the defect 08-30l names.
+            step = pair_dem_step_m(planar, front, pgroup)
+            if step is not None and abs(step) > bound:
+                held += 1
+                continue
             length = 0.0
             for cyc in [vw.rings[gid], *vw.holes[gid]]:
                 for a, b in zip(cyc, cyc[1:] + cyc[:1]):
@@ -178,6 +259,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
         if got:
             got.sort(key=lambda t: (-t[2], t[0]))
             out[gid] = got
+    STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": held}
     return out
 
 

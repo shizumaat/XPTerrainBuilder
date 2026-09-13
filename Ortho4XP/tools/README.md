@@ -46,7 +46,7 @@ module-level work — they are libraries and are safe to import.
 
 | Tool | One line |
 |---|---|
-| `check_grade.py` | The grade validator. Within-shape grade, cross-shape proximity and edge-step checks on a patch OSM's per-vertex elevations. Reads the `.axes.json` sidecar when present |
+| `check_grade.py` | The grade validator. Within-shape grade, cross-shape proximity and edge-step checks on a patch OSM's per-vertex elevations. Reads the `.axes.json` sidecar when present. Also the SENTINEL FLOOR (`sentinel_elevation`, RULINGS 2026-09-13): an emitted vertex more than `emit.cockpit.sentinel_drop_m` below the patch's own 5th-percentile elevation is a no-data / homogeneous-block `0.0`, not geometry — cockpit class `sentinel`, CRITICAL unconditionally |
 | `check_build_time.py` | Makes the build-time HARD LAW executable: ≤ 60 s per airport, ≤ 300 s per tile, both cold and download-excluded; a ≥ 1 %-of-budget regression fails unless a committed approval matches |
 | `chain_divergence_audit.py` | Distance from a conforming planar partition — T-vertices, divergent shared chains. Exactly the classes that exploded CYXY from 26 k to 1.55 M airport triangles |
 | `crossing_zone_conformance.py` | Phase-1 of the crossing-terrain-ownership spec: nothing outside the crossing assembly may intersect the published influence zone |

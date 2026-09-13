@@ -11,3 +11,6 @@ citations and exact numbers; never load `Ortho4XP/STATUS.md` whole (top
 dated block only). Do not build anything; if a claim needs a build, say so
 and name the harness entry that would produce it. Report every source you
 could not verify.
+Never poll with an unbounded `while`/`until … sleep` loop: bound it with
+`timeout N` or a `$SECONDS` deadline sized to what you wait for (the bash
+guard refuses the unbounded form).

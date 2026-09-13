@@ -108,6 +108,12 @@ class DesignReport:
     #: ``graded_strip`` family minus the pavement vertices and minus the
     #: interior pockets enclosed by pavement (09g (1))
     ground_datum_rows: int = 0
+    #: THE LEVEL BELT (RULINGS 2026-09-13, lane ``v2zerocrater``; spec §23.4):
+    #: how many vertices reached the solve in a piece with NO LEVEL AT ALL —
+    #: bending and relative rows only, whose least-squares minimiser is the
+    #: sentinel 0.0 m — and took their own terrain plane instead.  A non-zero
+    #: count is worth reading: it names geometry no law levels.
+    level_belt_rows: int = 0
     #: THE FOOT ROWS (owner RULINGS 2026-09-11q, repriced 11ab; spec
     #: §11b (2)): the per-foot placement targets of every bare-ground
     #: body, priced at ``pad_flat`` (``constraints/foot_rows.py``)
@@ -205,6 +211,7 @@ class DesignReport:
                 "fixed": self.fixed, "rows": self.rows,
                 "triangles": self.triangles, "components": self.components,
                 "detached": self.detached,
+                "level_belt_rows": self.level_belt_rows,
                 "body_datum_rows": self.body_datum_rows,
                 "body_datum_bodies": self.body_datum_bodies,
                 "body_datums": self.body_datums,
@@ -268,7 +275,10 @@ class DesignReport:
                 f"{'' if self.converged else f' (SET NOT SETTLED: {self.set_flips} rows flipped, worst {self.set_flip_max_m:.3f} m)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "
-                f"({self.detached} detached), {self.body_datum_bodies} apron bodies on "
+                f"({self.detached} detached"
+                + (f", {self.level_belt_rows} LEVEL-BELT vertices"
+                   if self.level_belt_rows else "")
+                + f"), {self.body_datum_bodies} apron bodies on "
                 f"their own DEM PLANE ({self.body_datum_rows} rows)"
                 + self._body_plane_line()
                 + f", {self.taxi_trend_rows} taxi trend rows"

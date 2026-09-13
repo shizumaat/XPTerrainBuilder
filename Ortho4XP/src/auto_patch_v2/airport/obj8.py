@@ -49,7 +49,7 @@ import numpy as np
 import shapely
 from shapely import affinity as _affinity
 from shapely.errors import GEOSException
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
@@ -419,6 +419,20 @@ class FloorWitness:
     #: whole component's, a kerb under the plate included).
     plate_y_min: float = 0.0
     plate_y_max: float = 0.0
+    #: THE SHELL'S OUTER PLAN FOOTPRINT (spec §24 (4), owner RULINGS
+    #: 2026-09-13g): the WHOLE component in plan — the outer wall face at
+    #: the TOP of its walls — not ``below``'s clip at the component's own
+    #: ground plane.  ``below`` is clipped at ONE plane (the DEM at the
+    #: component's centroid), so every part of the shell that stands above
+    #: that plane is missing from it: at LEMD's T4S pit the clip drops the
+    #: modelled road ramp as it climbs and leaves 11 of the rim ring's 59
+    #: nodes standing 6–15 m from any wall.  The region is built from this.
+    #: ``None`` only on a record made before §24 (4) (a fixture): readers
+    #: fall back to ``below``.
+    outer: object = None                # Polygon | MultiPolygon | None
+    #: Which component of the resource witnessed — the ramp reader
+    #: (:func:`ramp_decks`) needs the shell's own faces, not the object's.
+    comp_index: int = -1
 
 
 @_dc.dataclass(frozen=True)
@@ -647,7 +661,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     if smin_z is None or z_min < smin_z:
                         smin_z, smin_d = z_min, depth
                     w = _witness(g.vertices, comp, base, local, plane_below,
-                                 floor_plate_normal_y_min, mat)
+                                 floor_plate_normal_y_min, mat, ci)
                     if w is None:
                         if deep_no_floor is None or depth < deep_no_floor[0]:
                             deep_no_floor = (depth, z_min)
@@ -742,8 +756,16 @@ def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float
     return float(out.sum() / total)
 
 
+def _plan_footprint(v: np.ndarray, comp: Component):
+    """THE COMPONENT'S WHOLE PLAN FOOTPRINT in authored coordinates (spec
+    §24 (4)): every triangle of the shell, unclipped — what the object
+    covers on the ground, wall tops and ramp decks included."""
+    return _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
+                         for tri in comp.tris.tolist()])
+
+
 def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,
-             normal_y_min: float, mat: list[float]) -> FloorWitness | None:
+             normal_y_min: float, mat: list[float], comp_index: int = -1) -> FloorWitness | None:
     """The component's floor witness, or ``None`` when it carries no floor
     plate under the admission plane (a skirt: walls, no floor)."""
     t = comp.tris
@@ -768,9 +790,12 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     tf = _affinity.affine_transform
     plate_f = tf(plate, mat)
     y_min = np.minimum(np.minimum(p0[:, 1], p1[:, 1]), p2[:, 1])
+    whole = _plan_footprint(v, comp)
     return FloorWitness(tf(below, mat), plate_f, base + comp.min_y, base + comp.max_y, local,
                         float(plate_f.area), plate_y_min=float(y_min[deep].min()),
-                        plate_y_max=float(y_max[deep].max()))
+                        plate_y_max=float(y_max[deep].max()),
+                        outer=None if whole is None else tf(whole, mat),
+                        comp_index=comp_index)
 
 
 def _authored_bbox(xy: XY, heading_deg: float, within) -> tuple[float, float, float, float]:

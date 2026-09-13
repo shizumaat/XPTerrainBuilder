@@ -118,6 +118,24 @@ ruling    = "2026-08-26"
 solver    = "pin"
 cockpit   = "step"
 
+# THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2, ruled
+# 13q item 2; spec §36).  The rect the solve PINNED at
+# `end_z + max(0, D - setback) * slope - tail_height`, read back off the
+# emitted surface: the pin is eliminated from the unknowns, so a row here
+# means the emitted surface left the value the law stamped.  COCKPIT:
+# `keepout` — the family measures a PRESENCE (pavement penetrating the
+# departure surface a tail height above it), not a step between neighbours
+# and not a slope; §31 reads it as REPORT, and the crossing's own steps and
+# grades are still read by their own families.
+[eat_ceiling]
+measures  = "end-around-taxiway pavement standing above its departure-surface ceiling (the pinned rect, sidecar `eat_rects`)"
+parameter = "ruleset.eat.slope"
+roles     = ["taxi_family", "apron"]
+pairs     = "within"
+ruling    = "2026-09-13j item 2 / 13q item 2"
+solver    = "pin"
+cockpit   = "keepout"
+
 [adjacent_ground_tear]
 measures  = "graded-strip vertex outside the zone corridor (wall straddle exempt)"
 parameter = "zones.adjacent_ground.lip_width_m"
@@ -270,6 +288,15 @@ pairs     = "within"
 ruling    = "canonical identity (memory canonical-identity-join)"
 solver    = "construction"
 cockpit   = "step"
+
+[sentinel_elevation]
+measures  = "an emitted vertex far below the patch's own ground band"
+parameter = "emit.cockpit.sentinel_drop_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "RULINGS 2026-09-13 (lane v2zerocrater): a sentinel / homogeneous-block 0.0 in the design surface"
+solver    = "construction"
+cockpit   = "sentinel"
 
 [cross_shape]
 measures  = "proximity pairs across shapes vs the stricter cap"

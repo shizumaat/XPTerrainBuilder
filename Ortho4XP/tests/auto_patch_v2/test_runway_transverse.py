@@ -236,7 +236,12 @@ def test_with_the_generator_the_edge_holds_within_the_cap(shared_edge, law):
     # inside the census's rounding envelope), not to the LP's exact bound
     tol_h = law.tables.emit.design.hard_tol_m
     falls = _built_falls(pm, law, airport, sol.z)
-    assert all(abs(f) <= b + tol_h for f, b in falls.values()), \
+    # ... and the comparison itself carries a FLOAT epsilon: §35's runway-end
+    # corner chord (RULINGS 2026-09-13q item 1) moved this fixture's worst
+    # edge to EXACTLY ``hard_tol_m``, and it read 0.020000000000072793
+    # against 0.02 — a 7e-14 arithmetic tail, not a violation of the
+    # tolerance (measured 2026-09-13, lane v2rwycorner)
+    assert all(abs(f) <= b + tol_h + 1e-9 for f, b in falls.values()), \
         max((abs(f) - b, u) for u, (f, b) in falls.items())
     # the profile flexed to the pinned edge: the ridge foot moved with it
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)

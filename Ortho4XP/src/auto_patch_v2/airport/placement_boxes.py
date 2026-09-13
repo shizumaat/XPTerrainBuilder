@@ -22,7 +22,7 @@ __all__ = ["hull_of", "box_of", "overlap", "overlap_m2", "box_area_m2",
            "box_gap_m", "fill_of", "foot_boxes", "parts_overlap",
            "ground_at_box", "ground_samples", "ground_under", "contact_ground",
            "foot_box_index", "CONTACT_PTS_MAX",
-           "anchor_ground_off", "stands_over_rank", "FOOT_BOXES_MAX",
+           "anchor_ground_off", "stands_over_rank", "FOOT_BOXES_MAX", "group_at_zero",
            "GROUND_OFF_FEET_MAX",
            "GradedRoles", "graded_roles_from_doc"]
 
@@ -516,3 +516,58 @@ def graded_roles_from_doc(d: _t.Mapping[str, _t.Any], rank=None) -> GradedRoles:
                       if len(h) >= 3)
         faces.append((str(f["role"]), str(f.get("ref", "")), ring, holes))
     return GradedRoles(faces, rank)
+
+
+# ── §9 STILL RULES THE FILE (moved from ``placement_carrier`` for the
+# 1,000-line law; re-exported there, so every caller and twin reads it
+# as that module's) ─────────────────────────────────────────────────────
+
+def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
+                  raw: _t.Sequence[_t.Any], zero: float | None, tol_m: float,
+                  senior_of: _t.Callable[[_t.Any, _t.Sequence[int]], int],
+                  ground: float | None = None,
+                  memo: dict | None = None) -> int:
+    """The index of the member's own group standing at ``zero`` (within
+    ``tol_m``), or ``-1``.
+
+    §15 (1) says which terrain reading an elevated body takes; §9 still
+    says which FILE it is written in, and two zeros that agree within the
+    coarsening tolerance are one file by that rule.  So a roof whose
+    carrier is another resource, but whose carrier's zero is the zero one
+    of its own placement's groups already stands at, rides its own file:
+    the same height, one file fewer, and no reading changed."""
+    if zero is None or tol_m <= 0.0:
+        return -1
+    best, best_d = -1, tol_m
+    for gi, g in enumerate(groups):
+        # THE GROUP'S OWN READING, MEMOISED on its length: this is asked
+        # once per carried piece over every group of the member, and
+        # §16d (1) multiplies both (LEMD 29.6 M inner steps, 9 s of the
+        # plan stage).  A group only ever GROWS, so its length is a
+        # sufficient key, and the two readings below are the only ones
+        # the loop takes.
+        key = (gi, len(g))
+        hit = None if memo is None else memo.get(key)
+        if hit is None:
+            a = raw[senior_of(raw, g)][2]
+            zs = (None if a.surface_z is None
+                  else float(a.surface_z) - float(a.y_zero))
+            gs = [float(raw[i][7]) for i in g
+                  if len(raw[i]) > 7 and raw[i][7] is not None]
+            hit = (zs, min(gs) if gs else None, max(gs) if gs else None)
+            if memo is not None:
+                memo[key] = hit
+        zs, gmin, gmax = hit
+        if zs is None:
+            continue
+        # §16b (1): and only WITHIN one terrain group — a piece cut off
+        # because the ground under it differs never rejoins a group
+        # standing on the other ground
+        if ground is not None and gmin is not None and (
+                abs(gmin - float(ground)) > tol_m
+                or abs(gmax - float(ground)) > tol_m):
+            continue
+        d = abs(zs - zero)
+        if d <= best_d:
+            best, best_d = gi, d
+    return best

@@ -131,6 +131,7 @@ approach_half_width_m = 2000.0  # §31 (2) the corridor's lateral HALF-WIDTH (ow
 # first; the accessor resolves this dotted path (`tables.cliff_grade`) and
 # the loader REFUSES a path that does not name a grade in (0, 1].
 cliff_grade   = "emit.design.bank_slope"   # §31 (7): the 1:3 bank, read from where it already lives
+sentinel_drop_m = 50.0  # RULINGS 2026-09-13 (lane v2zerocrater): how far below the patch's OWN 5th-percentile emitted elevation a vertex must sit before the census reads it as a SENTINEL — a no-data marker or a homogeneous least-squares block's 0.0 — rather than geometry.  A real airport's design surface spans tens of metres (KCLT 202-226 m over 4 km), so this can never reclassify a lawful cut; the class it names is KCLT's 217 m crater
 
 [lateral_contiguity]
 # THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
@@ -395,6 +396,40 @@ pad_level_rulings = [
 # precedent, ``frontage_near_miss_m`` 1.0).  0 disables the proximity
 # clause and leaves the identity read alone.
 pad_frontage_m = 3.0
+# §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
+# refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
+# the median over the face's frontage vertices of ``dem_z`` minus the pad
+# footprint's OWN median ``dem_z`` — exceeds this mints NO
+# ``groundside_frontage`` row: the face keeps its own ground and the step is
+# a lawful terrace.  PER PAIR, never per vertex (a per-vertex bound
+# saw-tooths a 16-vertex frontage).  0 disables the bound.
+#
+# THE QUANTITY IS DEM-VS-DEM because a constraint generator has no SOLVED
+# pad level — the level is what §20's rows produce, three lag rounds later.
+# MEASURED IN THE ENGINE'S OWN FRAME (lane `v2frontagestep`, the production
+# DEM on the captured planar maps, `v2_solve_replay --capture`), the whole
+# population of pad-face pairs:
+#   CYXY  building9  -> pav4         +3.76   DISARM (the owner's 13l item 1:
+#   CYXY  building10 -> dsf:pol129   +3.43   DISARM   cut into the hillside,
+#                                                     the lot a storey up)
+#   LEMD  building4  -> pav124       +3.00   ARMED  (the case 12r ordered
+#   LEMD  building4  -> pav124       +2.39   ARMED   graded; +0.16 m joints)
+#   LEMD  building4  -> route3/6     +2.03 / +2.00   ARMED
+#   LEMD  building12 -> pav70        +0.00   ARMED
+#   CYXY  building1  -> pav29(#1)    +0.05 / +0.02   ARMED
+# 3.2 is the centre of the 3.00-3.43 gap that population leaves.  It is a
+# NARROW gap and it is the one the data has: an emitted-patch read of the
+# same pairs gives +4.5 / +4.7 at CYXY because the production DEM is
+# SMOOTHED (CYXY inset HRDEM 1 m, smoothing radius 1 px) — quote the frame
+# with the number.
+#
+# DEVIATION REPORTED, never decided here: 13o set 2.8 on the step against
+# the pad's SOLVED level (CYXY +4.08 / +3.02 against LEMD +2.66).  On the
+# quantity a generator can actually read, the same pairs measure +3.76 /
+# +3.43 against +3.00 — a pad stands above its own terrain once solved — so
+# 2.8 here would disarm `building4`.  The arming decisions 13o ruled are
+# what this value preserves.
+frontage_step_max_m = 3.2
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m
@@ -435,6 +470,25 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # the minimum.  The toe smoothing (09f) is CUT wherever the raw daylight
 # distance jumps by more than ``bank_toe_break_m`` between neighbours: the
 # toe may jump where the ground does.
+# §37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner RULINGS
+# 2026-09-13q KCLT item 8; Fable 2026-09-13).  Measured on the 1.0.324
+# KCLT products: the foot ring is emitted at EVERY station of the banked
+# region's boundary — 1,855 stations over 34.2 km — and 71.6 % of them
+# carry |z_ring - DEM(foot)| under 1.65 m, i.e. no earthwork at all, while
+# 451 chords run over 30 m and stand up to 5.6 m off the DEM mid-chord.
+# So a station is emitted only where the transition is LOAD-BEARING:
+# |z_ring - DEM(foot)| over ``bank_materiality_m``, which is DERIVED, not
+# typed — ``bank_min_width_m * bank_slope`` (1.65 m) is exactly the drop a
+# minimum-width bank carries, so below it the ring and the DEM meet inside
+# the narrowest bank the law knows and the mesh's own interpolation
+# carries the difference.  Each surviving RUN is emitted as its own chain
+# (padded by one station each side so the bank fades out on the ground
+# rather than ending mid-slope); inside a run no chord is longer than
+# ``bank_chord_max_m``, and a chord whose mid-point stands more than
+# ``bank_split_tol_m`` off the DEM is split further, never below
+# ``bank_min_width_m``.
+bank_chord_max_m    = 30.0
+bank_split_tol_m    = 1.0
 bank_sample_m       = 2.0
 bank_daylight_tol_m = 0.3
 bank_max_width_m    = 200.0

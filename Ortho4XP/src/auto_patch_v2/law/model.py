@@ -30,7 +30,10 @@ from .basin_schema import Basin  # noqa: F401
 from .tunnel_object_schema import TunnelObject  # noqa: F401
 # the unit-sanity register (grades are fractions; RULINGS 2026-09-08n bound)
 from .units import sane as _sane  # noqa: F401
+from .model_types import CodeTable, Rate, RoleCap  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
+# the END-AROUND TAXIWAY schema (spec §36) likewise beside this module
+from .eat_schema import EatRecognition, EatSurface  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 from .design_schema import Design, check_design as _check_design  # noqa: F401
 from .cockpit_schema import COCKPIT_CLASSES, Cockpit, check_cockpit as _check_cockpit  # noqa: E501,F401  the [cockpit] frame, 12x/12y
@@ -39,7 +42,8 @@ from .airports_schema import (Affordances, NO_AFFORDANCES, Resolution,  # noqa: 
                               load_airports as _load_airports, resolve_ruleset)
 
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
-    "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "Ruleset", "CommonLaw", "Resolution",
+    "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "EatSurface", "EatRecognition",
+    "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
     "Structures", "ReliefFloor",
@@ -62,54 +66,7 @@ class LawError(ValueError):
     the rule violated; nothing is ever defaulted around it."""
 
 
-# ── leaf value types ─────────────────────────────────────────────────────
-
-@_dc.dataclass(frozen=True)
-class CodeTable:
-    """A value keyed by aerodrome reference code NUMBER (1-4) or code
-    LETTER (A-F).  Exactly one of ``by_code`` / ``by_letter`` is set.  A
-    class absent from the table means the authority states no number
-    (``value()`` returns ``None`` there only when ``default`` is None)."""
-
-    by_code: _t.Mapping[int, float] | None = None
-    by_letter: _t.Mapping[str, float] | None = None
-    default: float | None = None
-
-    def value(self, code_number: int | None = None,
-              code_letter: str | None = None) -> float | None:
-        """The class' value, or ``default`` when the class is unkeyed."""
-        if self.by_code is not None:
-            if code_number is None:
-                return self.default
-            return self.by_code.get(int(code_number), self.default)
-        if self.by_letter is not None:
-            if not code_letter:
-                return self.default
-            return self.by_letter.get(str(code_letter).upper(), self.default)
-        return self.default
-
-
-@_dc.dataclass(frozen=True)
-class Rate:
-    """A grade-change rate: ``grade`` per ``per_m`` metres."""
-
-    grade: float
-    per_m: float
-
-    @property
-    def per_metre(self) -> float:
-        """The rate as grade change per metre."""
-        return self.grade / self.per_m
-
-
-@_dc.dataclass(frozen=True)
-class RoleCap:
-    """A role's HARD caps; ``preferred`` its two-tier preference (2026-09-06w)."""
-
-    longitudinal: float
-    transverse: float
-    preferred: "RoleCap | None" = None
-
+# ── leaf value types (``model_types``, under the 1,000-line file law) ───
 
 # ── rulesets.toml ────────────────────────────────────────────────────────
 
@@ -199,6 +156,7 @@ class Ruleset:
     resa: ResaLaw
     drainage: DrainageLaw
     raoa: RaoaLaw | None = None
+    eat: EatSurface | None = None
     key: str = ""
 
 
@@ -216,6 +174,8 @@ class CommonLaw:
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float
     vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
+    #: THE END-AROUND TAXIWAY's recognition constants (spec §36)
+    eat: EatRecognition
 
 
 @_dc.dataclass(frozen=True)

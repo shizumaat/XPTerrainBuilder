@@ -140,9 +140,17 @@ def test_chain_trace_reaches_the_runway_pin_through_the_taxi_families(prepared):
     # sheet's bending, its chord, its body's datum).  The trace therefore ends
     # FREE far more often, and the chain need not pass through the runway.
     assert touched, (tr.terminal_kind, tr.terminal_note, touched)
-    assert tr.terminal_kind in ("PIN", "FREE"), tr.terminal_kind
+    # §35 (RULINGS 2026-09-13q item 1) added the runway-end CORNER chord, so
+    # on this fixture the walk now ends on a BAND — a holder like a pin, not
+    # a free vertex (measured 2026-09-13, lane v2rwycorner: reached
+    # {'FREE': 16, 'BAND': 1}).  The twin holds what it always held: the
+    # chain passes through the taxi families and ends somewhere that HOLDS
+    # the vertex, named.
+    assert tr.terminal_kind in ("PIN", "BAND", "FREE"), tr.terminal_kind
     if tr.terminal_kind == "PIN":
         assert "CIFP" in tr.terminal_note
+    elif tr.terminal_kind == "BAND":
+        assert tr.terminal_note                        # the band's own ruling
     else:
         assert "held by" in tr.terminal_note           # 08t: held by the OBJECTIVE
     fams = {s.family for s in tr.steps}

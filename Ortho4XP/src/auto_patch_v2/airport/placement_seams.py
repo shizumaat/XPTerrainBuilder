@@ -1,23 +1,34 @@
-"""§16c (5): THE TORN-SEAM CENSUS (spec ``object-placement-spec.md``
-§16c; owner RULINGS 2026-09-12b/12d).
+"""THE CENSUSES THAT OPEN THE WRITTEN FILES (spec
+``object-placement-spec.md`` §16c / §16d; owner RULINGS 2026-09-12b/12d,
+2026-09-13h).
 
-The instrument the §16c bar is read on, and the only census that opens
-the WRITTEN files rather than the plan's own rows: two sibling files of
-one placement that share an AUTHORED VERTEX are two halves of one
-connected solid, written at two zeros.  It lives apart from
-``placement_census`` for the 1,000-line law only; both tools import it
-through that module, which re-exports it.
+Every other placement census reads the plan's own rows.  These two read
+the OBJ8s the writer actually wrote, which is the only frame in which
+the plan can be caught disagreeing with the writer:
 
-NO LAW CONSTANT LIVES HERE except the seam step tolerance the report
-prints its histogram against.
+* §16c (5) THE TORN-SEAM CENSUS — two sibling files of one placement that
+  share an AUTHORED VERTEX are two halves of one connected solid written
+  at two zeros;
+* §16d (1) THE OUTSIDE-BOX CENSUS — a body whose WRITTEN triangles reach
+  beyond its own ``geom_box``.  The box is what every instrument reads
+  (§15, §16a, §16b); geometry outside it rides a zero the body chose
+  somewhere else and NO instrument sees it.
+
+They live apart from ``placement_census`` for the 1,000-line law only;
+both tools import them through that module, which re-exports them.
+
+NO LAW CONSTANT LIVES HERE except the two tolerances the reports print
+their histograms against.
 """
 from __future__ import annotations
 
+import math as _math
 import typing as _t
 
 from . import anchor_rule as _ar
 
-__all__ = ["census_torn_seams", "census_torn_seams_lines", "SEAM_STEP_TOL_M"]
+__all__ = ["census_torn_seams", "census_torn_seams_lines", "SEAM_STEP_TOL_M",
+           "census_outside_box", "census_outside_box_lines", "OUTSIDE_TOL_M"]
 
 
 #: §16c (5): a seam whose base step exceeds this is counted apart — the
@@ -228,4 +239,172 @@ def census_torn_seams_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
                         in sorted(c["station_hist"].items())) or "-")]
     for st, res, a, b, sh in c.get("worst", ()):
         out.append(f"      {st:+8.2f} m  {a}<->{b} ({sh} shared)  {res}")
+    return out
+
+
+# ── §16d (1): the written triangles against the body's own box ───────────
+
+#: §16d (1): how far outside its own ``geom_box``, in PLAN METRES, a
+#: body's written geometry may reach before the box is not a description
+#: of the file.  A reporting tolerance, not a law: the box is the hull of
+#: the body's own parts to the emitted precision, so a few centimetres of
+#: rounding is not a finding and a metre is.
+OUTSIDE_TOL_M = 1.0
+
+
+def _written_latlon(path: str, offset: _t.Sequence[float],
+                    lat: float, lon: float, heading_deg: float
+                    ) -> "list[tuple[float, float]] | None":
+    """Every ``VT`` row of one written body file as ``(lat, lon)``.
+
+    The writer SUBTRACTED ``authored_offset`` from each vertex, so adding
+    it back gives the AUTHORED ``(x, y, z)`` the pack's own frame is in,
+    and ``placement_cut.authored_latlon`` maps that to the placement's
+    ground — the same two lines ``placement_plan.authored_offset``
+    inverts, and the same key ``_authored_vertices`` welds on.
+
+    ``None`` where the file carries an ANIM BLOCK.  ``obj8_split`` does
+    NOT subtract the offset from a vertex emitted inside one — the block
+    is compensated by its own ``ANIM_trans`` instead (rule 4) — so such a
+    file's vertex table mixes two frames and no single map reads it.  The
+    census counts those bodies apart and NAMES them rather than quoting a
+    number it cannot take (KCLT's `-vidrios_paredes_5_charlotte_lit__b0`
+    read 604 m of "outside the box" that was the double-counted offset).
+    """
+    from .placement_cut import authored_latlon
+    out: list[tuple[float, float]] = []
+    try:
+        fh = open(path, encoding="latin-1", errors="replace")
+    except OSError:
+        return out
+    with fh:
+        for line in fh:
+            if line.startswith("ANIM_begin"):
+                return None
+            if not line.startswith("VT"):
+                continue
+            t = line.split()
+            if len(t) < 4:
+                continue
+            try:
+                x = float(t[1]) + offset[0]
+                z = float(t[3]) + offset[2]
+            except (ValueError, IndexError):
+                continue
+            out.append(authored_latlon(x, z, lat, lon, heading_deg))
+    return out
+
+
+def _outside_m(box: _t.Sequence[float], pts: _t.Sequence[tuple[float, float]],
+               ) -> float:
+    """The farthest any of ``pts`` lies OUTSIDE ``box``, in plan metres
+    (0 where every point is inside).  ``box`` is ``(lat0, lon0, lat1,
+    lon1)``, the spelling every plan box carries."""
+    if not pts or not box or len(box) < 4:
+        return 0.0
+    ml, mo = _ar._m_per_deg(0.5 * (float(box[0]) + float(box[2])))
+    worst = 0.0
+    for la, lo in pts:
+        dla = max(float(box[0]) - la, la - float(box[2]), 0.0) * ml
+        dlo = max(float(box[1]) - lo, lo - float(box[3]), 0.0) * mo
+        d = _math.hypot(dla, dlo)
+        if d > worst:
+            worst = d
+    return worst
+
+
+def census_outside_box(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
+                       pack_root: str, *, tol_m: float = OUTSIDE_TOL_M,
+                       worst: int = 12) -> dict:
+    """§16d (1): THE WRITTEN GEOMETRY AGAINST THE BODY'S OWN BOX.
+
+    ``geom_box`` was the hull of the ADMITTED PARTS while the writer
+    emitted the source object's triangles regardless (RULINGS
+    2026-09-13h): a zero-thickness one-sided quad is not admitted, a roof
+    plate over another hangar was never boxed, and the geometry then
+    rides a zero the body chose somewhere else while §15, §16a and §16b —
+    all of which read the BOX — see nothing at all.  At LEMD 1.0.325, 397
+    of 2,109 bodies carried geometry more than a metre outside their own
+    box, 8 of them over a kilometre.
+
+    This opens the written files and asks the one question that catches
+    it: is every written vertex inside the box the plan published for
+    this body?  Bar 0 at ``tol_m``.
+
+    Returns the counts, the distance histogram and the worst bodies;
+    ``census_outside_box_lines`` prints them."""
+    import os as _os
+    rows: list[tuple[float, str, str, str]] = []
+    files = 0
+    missing = 0
+    anim = 0
+    for s in splits:
+        p = s.get("placement") or {}
+        lat, lon = p.get("lat"), p.get("lon")
+        if lat is None or lon is None:
+            continue
+        head = float(p.get("heading") or 0.0)
+        for b in s.get("bodies", ()) or ():
+            res = b.get("new_resource")
+            box = b.get("geom_box")
+            if not res or not box:
+                continue
+            path = _os.path.join(pack_root, res)
+            if not _os.path.isfile(path):
+                missing += 1
+                continue
+            pts = _written_latlon(path, b.get("authored_offset")
+                                  or (0.0, 0.0, 0.0),
+                                  float(lat), float(lon), head)
+            if pts is None:
+                anim += 1
+                continue
+            files += 1
+            d = _outside_m(box, pts)
+            if d > 0.01:
+                rows.append((d, str(res), str(b.get("class") or "?"),
+                             str(b.get("anchor_reason") or "")))
+    rows.sort(reverse=True)
+    over = [r for r in rows if r[0] > tol_m]
+    hist: dict[str, int] = {}
+    by_class: dict[str, int] = {}
+    for d, _res, cls, _why in over:
+        k = ("1-10" if d < 10.0 else "10-100" if d < 100.0
+             else "100-1000" if d < 1000.0 else ">1000")
+        hist[k] = hist.get(k, 0) + 1
+        by_class[cls] = by_class.get(cls, 0) + 1
+    return {"files_read": files, "files_missing": missing,
+            "files_with_anim": anim,
+            "tol_m": tol_m,
+            "bodies_outside_box": len(over),
+            "bodies_outside_any": len(rows),
+            "worst_m": (round(rows[0][0], 3) if rows else 0.0),
+            "worst_name": (rows[0][1] if rows else None),
+            "hist": hist, "by_class": by_class,
+            "worst": [(round(d, 2), res, cls, why[:70])
+                      for d, res, cls, why in rows[:worst]]}
+
+
+def census_outside_box_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
+    """:func:`census_outside_box`'s bar as the lines both tools print."""
+    n = int(c.get("bodies_outside_box", 0))
+    out = [f"   §16d (1) WRITTEN GEOMETRY OUTSIDE ITS OWN BOX "
+           f"({c['files_read']} written file(s)"
+           + (f", {c['files_missing']} not written" if c["files_missing"] else "")
+           + (f", {c['files_with_anim']} with an ANIM block NOT READ "
+              "(two vertex frames in one table)" if c.get("files_with_anim")
+              else "")
+           + "):",
+           f"   §16d bodies with written geometry > {c['tol_m']:g} m outside "
+           f"their geom_box: {n} (bar 0; {c.get('bodies_outside_any', 0)} over "
+           f"1 cm; worst {c.get('worst_m', 0.0):.2f} m "
+           f"{c.get('worst_name') or '-'})"
+           + ("" if not n else "   *** §16d (1) VIOLATED (bar 0) ***"),
+           "      distance histogram (m): "
+           + (", ".join(f"{k} {v}" for k, v in sorted(c["hist"].items())) or "-")
+           + "; by class: "
+           + (", ".join(f"{k} {v}" for k, v in sorted(c["by_class"].items()))
+              or "-")]
+    for d, res, cls, why in c.get("worst", ()):
+        out.append(f"      {d:9.2f} m  [{cls}] {res}  {why}")
     return out

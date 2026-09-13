@@ -3,7 +3,7 @@
 road-family ring is re-walked with the SAME station walk the generator
 used (``constraints.contiguity._cross_section`` over the emitted
 polygons), and a station is a row when the cap the ring was BUILT to —
-the role cap, the way-level ``o4_grade_law_cap``, and the PUBLISHED
+the role's TRANSVERSE cap, the way-level ``o4_grade_law_cap_t``, and the PUBLISHED
 ``station_caps`` value at that station, whichever is strictest — is
 looser than the re-walked law cap.  Unlike the oracle (which trusts a
 published cap as the law there), this reader prices the publication
@@ -55,7 +55,11 @@ def lateral_contiguity(p: Patch) -> list[Row]:
     for k, sh in enumerate(shapes):
         if sh.role not in roads:
             continue
-        built = p.cap(sh)
+        # §37 (1) (RULINGS 2026-09-13q item 5): lateral contiguity binds
+        # the TRANSVERSE cap, so THAT is the cap this reader prices
+        # against the cross-section's strictest longitudinal law.  The
+        # road's own longitudinal cap is no longer the subject here.
+        built = p.cap_t(sh)
         if built is None:
             continue
         axis = long_axis(list(sh.xy))

@@ -3764,6 +3764,114 @@ point), `test_v2chord` (the chord-less control now has a level, 698.58 → 695.2
 
 **DEVIATION REPORTED (§23.3 (2)):** the two-way law-row residue. Never decided by the lane.
 
+### 23.4 THE LEVEL BELT — no column reaches the solve without a level (RULINGS 2026-09-13m) — lane `v2zerocrater`
+
+**MEASURED (the defect).** KCLT, build 2026-09-12 22:15, engine 1.50.1770,
+`KCLT.graded.json`: **20 vertices at exactly z = 0.00**, all in apron face **661**
+(`ref dsf:pol31`, role `apron`, side `airside`, ring indices 21–40 of 176), inside
+lat 35.21391–35.21432, lon −80.94789–−80.94737. The built mesh carries a ~90 × 65 m pit to
+sea level with a 130 m skirt of 100–200 m values and a rim at 215 m; four object bodies were
+written at zero (`Charlotte_Airport_004_ALB__b20/b21`, `002_ALB__b8`, `001_ALB__b21`).
+
+**ATTRIBUTION — it is not a no-data leak.** The production DEM at those four corners reads
+**217.10 / 218.08 / 217.45 / 218.32 m** (`dem_production`, composed N35W081, inset
+`KCLT:USGS3DEP`, coverage 100 %) — healthy ground. The pack's polygon carries no elevation
+at all: `dsf:pol31` is `lib/airport/ground/pavement/asphalt/plain.pol` and
+`airport/load.py:320` builds its ring from `_ring(poly.windings[0], to_xy)` — 2-D, no z.
+The zero is minted by the SOLVE, in three steps:
+
+1. `solve/rows._cotangent_laplacian` **clamps an obtuse cotangent weight to zero**
+   (`if w <= 0.0: continue`, the line that keeps the operator PSD). Face 661's 20-vertex
+   region touches the rest of its own face through exactly **one** triangle,
+   `(14043, 14022, 14023)`, 186 m²; the angles opposite both of its crater-touching edges
+   are obtuse, so both weights are clamped and **no bending row couples those 20 columns to
+   anything**.
+2. `solve/design` §9 ("a sheet carrying neither a pin nor a chord nor a zone fit floats — it
+   takes its own DEM plane") judged connectivity with `_sheet_components(tris, red)`, i.e.
+   on the **triangulation**, which that sliver joins. The piece therefore read as ANCHORED
+   by the sheet's own anchors and was given no datum.
+3. What was left in the matrix is a **homogeneous block** — bending rows only, every
+   right-hand side zero — and the least-squares minimiser of a homogeneous block is exactly
+   `0`. Measured on the captured KCLT problem: the crater's columns form a connected
+   component of **20 of 21,873**, each column carrying 3–5 rows, all of them inside the
+   component.
+
+Same class as the degenerate hole of RULINGS 2026-09-10h (LEMD way −10892), whose note in
+`planar/overlay.py` already described the mechanism — "the columns reach the least-squares
+solve carrying no row at all, so their value is whatever the min-norm solution leaves
+there". That fix trimmed the one GEOMETRY that produced it; this is the general closure.
+
+**THE RULE — THE LEVEL BELT.** (1) `solve/design` §9c (`rows.apply_level_belt`): after every
+row is minted, any column whose whole connected piece carries **no level at all** — every
+row's coefficients summing to zero, which is bending, a second difference, a relative
+equality, a `Diff` — takes its own terrain plane (`_plane_targets`, at `detached_mean`); a
+piece with no DEM under it is **REFUSED BY NAME** rather than emitted at zero.
+`DesignReport.level_belt_rows` reports it (a non-zero count names geometry no law levels).
+A LEVEL is the coefficient SUM, never the right-hand side: a `Diff` bounding a difference at
+0.3 m carries a non-zero rhs and levels nothing; a bending row one of whose feet the
+reduction FIXED sums non-zero and IS levelled by that foot. The belt asks the only question
+that cannot be got wrong — *does the matrix level this column?* — so the class is unreachable
+however a future row family is wired.
+(2) SHIP-SIDE: census family **`sentinel_elevation`** (`check_grade.LAW_FAMILIES`,
+`law/families.toml`, cockpit class `sentinel`) — an emitted vertex more than
+`emit.cockpit.sentinel_drop_m` (50 m) below the patch's own 5th-percentile elevation.
+Patch-intrinsic (the census has no DEM) and read from a ROBUST floor, because the crater IS
+the minimum. Cockpit class `sentinel` is CRITICAL unconditionally: a hole in the design
+surface is not a height to price against a threshold and not a question of view.
+
+**MEASURED (the fix), solve arm.** `tools/v2_solve_replay.py`, one KCLT capture
+(22,294 vertices, 1,193 faces), both arms off it:
+
+| | before | after |
+|---|---|---|
+| vertices at z = 0.00 | **20** | **0** |
+| z min over the whole airport | **0.00** | **202.02** |
+| vertices below 150 m | 20 | **0** |
+| the 20 crater vertices | 0.00 | 217.51 … 218.04 (DEM 217.10 … 218.17, max abs z − DEM **0.67 m**) |
+| level-belt rows | — | **20** (the crater, and nothing else at KCLT) |
+| sheets / detached | 158 / 120 | 158 / 120 (**unchanged**) |
+| vertices moved at all (> 0.01 m) | — | **20** — the crater, and NOTHING ELSE in the airport |
+
+**DEVIATION REPORTED — never decided by the lane.** §9 (the per-piece DEM PLANE) still judges
+anchoring on `_sheet_components(tris, red)`, i.e. the TRIANGULATION, which overstates the
+objective's connectivity for exactly the reason above. Making it read the true coupling was
+built and measured, and it is a LAW change, not a defect fix: at KCLT it splits the map's 158
+sheets into 246 (120 → 193 detached), so 54 more pieces take a DEM plane of their own; at the
+`test_v2aprontrend` fixture it splits the sheet 2 → 5 and improves the AFFINE CONTROL arm's
+off-DEM from 0.877 to 0.180 m — i.e. it moves the very reading §8.7 exists to make. It is
+therefore NOT landed; the level, which is the defect, is closed unconditionally by the belt.
+The question for the owner: should a piece the objective holds apart take its own terrain
+plane, or only its own level?
+
+**MEASURED (the closing build).** ONE `build_airport.py KCLT --engine v2` (tag `v2zcfinal`,
+468.7 s, rc 0, `body_sha fffa7c46a824`, v2-verify rows 4,190; the artifact ledger refused the
+store — the tree's dirty flag moved between key and store time — so this run earns no ledger
+entry). Against the owner's shipped 1.0.324 products (engine 1.50.1770, 2026-09-12 22:15;
+a DIFFERENT base sha, so the totals are context, not an A/B):
+
+| | shipped | this build |
+|---|---|---|
+| graded vertices at z = 0.00 | 20 | **0** |
+| graded z min … max | **0.00** … 231.00 | **196.75** … 233.08 |
+| face 661 (`dsf:pol31`) z | **0.00** … 216.56 | **213.90 … 218.04** |
+| the 20 crater-box vertices | 0.00 | **217.51 … 218.04** (DEM 217.10 … 218.17) |
+| census `sentinel_elevation` | **20** | **0** |
+| cockpit CRITICAL visual | 22 (20 of them sentinel) | **2** (both pre-existing `strip_seam_tear` cliffs) |
+| cockpit CRITICAL motion | 16 (worst **215.220 m** at the crater rim) | **15** (worst 3.640 m, an apron cliff 500 m away) |
+| census law-true total | 12,383 | 12,353 (within 12,324, cross 26, steps 3) |
+| ADJUDICATED | 4,406 | 4,386 |
+
+THE FOUR BODIES WRITTEN AT ZERO were a CONSEQUENCE, not a second defect: all four anchor
+inside the crater (`004_ALB__b20` and `002_ALB__b8` and `001_ALB__b21` at
+35.2141301,−80.9475786; `004_ALB__b21` at 35.2141136,−80.9473902) and the senior one's
+`anchor_reason` is literally *"surface at the body's zero"* — the placement stage sampled the
+design surface and read 0.00. The surface it now reads there is **217.90** and **217.98 m**.
+The re-anchoring itself is the object stage's (lane `v2unboxed`).
+
+**MEASURED (the guard), on the SHIPPED patch** (`tools/harness/census.py`, law-true):
+CRITICAL visual **22** of which **20 `sentinel_elevation`**, worst 209.470 m below the
+floor at 35.2139084,−80.9478723 — the crater, named, at its own coordinate.
+
 ## §24 THE BASIN'S EDGE AND FLOOR (owner RULINGS 2026-09-11t) — lane `v2basinedge`
 
 Owner, LEMD 1.0.315: "still a gap between the outer edge and the apron … the apron
@@ -3835,6 +3943,109 @@ clearance ABOVE the plate. The alternative is the shelf (1) exists to remove.
 stage, which needs the app's mesh) and a matched defect-gate control (the
 1.0.315 products are a four-airport TILE build; a single-airport arm is a
 different population, and a control build is a second build).
+
+**MEASURED (lane `v2basinfoot`, 2026-09-13; branch `claude/v2basinfoot`, base
+main `e5e04660`).** Before = the owner's 1.0.325 products (the four-airport TILE
+build in the data repo: `Patches/+40-010/+40-004/LEMD.graded.json` +
+`o4_v2_rebake_LEMD.json` + the copied patch); after = `LEMD --engine v2`
+(`v2basinfoot3`, rc 0, 408 s, ledger `1c11f6fad3a2`, `body_sha 58a9ce7d3170`).
+
+**(6) THE CONSUMER CENSUS, before any edit** — every pass that reads the basin
+region / rim / floor, and what §24 (4)–(5) does to it:
+
+| consumer | reads | ruling |
+|---|---|---|
+| `planar/basins.build_basins` | the region, the rim, the floors, the cut knife, the keep-outs | THE SINGLE DERIVATION SITE — both laws land here and nowhere else |
+| `airport/obj8._witness` | the component's below-DEM clip (`FloorWitness.below`) | KEPT as rule 1's ADMISSION evidence; `outer` added beside it for the region |
+| `constraints/structures.basins` | `faces_by_ref[floor_ref]` vertices, `wall_path`, `floor_below_rim_m` | EDITED: a floor vertex under a ramp corridor takes `deck − floor_clearance_m` (a senior pin); every other vertex keeps the 10ba relative row unchanged |
+| `constraints/structures._rim_rows` / `rim_level` | the rim ring's vertices | UNCHANGED in form; the ring is a different (larger) ring, `rim_level` 11 design-target rows before and after |
+| `planar/structures.py` `contact_band_m` reader (l. 352) | the LAW KNOB only, for tunnel-object wall bands | NO INTERACTION — it never reads the basin region |
+| the pad cut (`cuts_pads`) | the knife vs `building` cells | UNCHANGED in form, and this is where the `building15` notch goes: the pad is now cut there (see below) |
+| `building_pad.in_basin_sits_at_floor` | — | DEAD KNOB: declared in `law/structures.toml` + `law/model.py`, read by NO code (grepped). The pad is CUT, not lowered. Left alone, reported |
+| `pipeline/build._plate_seats` | `Basin.ring` (the largest PLATE floor face) + `plate_y_m` | UNCHANGED: the ramp is a SEPARATE floor face (`basin_floor:0#1`), `ring` stays the plate's, so the witness's seat stations do not move onto the ramp |
+| `pipeline/build._basin_polygon` | `b.region` (deck-signature evidence) | follows the larger region; LEMD deck families 0 before and after |
+| `pipeline/publication.basin_facilities` | the record | EDITED: publishes `ramp_corridors` / `ramp_rings_ll` / `ramp_faces_ll` |
+| `verify/structures.basin_floor_at_declaration` | the published depth vs every floor vertex | EDITED: under a corridor it expects `deck − clearance` (the SAME call, `model.structures.deck_z_on_faces`). Without this the law's own 42 pinned vertices report as violations — measured: 53 rows on the first arm |
+| `verify/structures.basin_floor_declaration` / `structure_rim_gap` / `wall_in_runway_strip` | `solid_minimum_y_m` vs `body_depth_m`; rim-to-floor spacing; the strip | NO CHANGE: 0 / 0 / 0 before and after (the ramp floor is trimmed by the same `rim_standoff`) |
+| `airport/basin_ring.py` (§14a arcs) | the EMITTED `basin_wall:0@k` ring from the graded doc | FOLLOWS AUTOMATICALLY, no edit: 6 arcs → 7, ring bar 0.19 → 0.18 m |
+| `airport/placement_census` basin exemption | the plan's basin bodies | unchanged in form: basin carriers 24 → 25, exempt 20 → 20 |
+| `tools/pad_level_report.py` | pads / refs in a solved pickle | no basin geometry of its own; reads whatever the pads became |
+| harness `terrace_joints_ll` / `pad_relief` / `basin_floor_declaration` | the sidecar keys | `terrace_joints` 4 before and after, `basin_facilities` 1, `basin_floor_declaration` 0 |
+
+**(4) THE RING IS THE SHELL'S OUTER FOOTPRINT.** Cause, reproduced on the
+1.0.325 frame: `below` is `_clip_component` at ONE plane per component — the DEM
+under the component's CENTROID, 593.00 for `Ground-FSX-LEMD85`, while the real
+ground over the ramp runs 594.6 … 599.2. The road ramp is never above the DEM at
+all (it lies 1.5 … 6.6 m under it its whole length); it leaves the REGION where it
+climbs through 593.00, at **40.492259, −3.569411** — the exact closing point of
+the below-clip, ~50 m short of the ramp's top.
+
+| bar | before (1.0.325) | after |
+|---|---|---|
+| LEMD `basin:0` region | 27,557 m² | **28,345 m²** (+788: the notch) |
+| rim ring | 59 nodes | **58 nodes**, Hausdorff **11.57 m** from the old ring |
+| the notch at 40.4922455, −3.5695503 | `building/building15` z 598.36 … 598.48 | **`tunnel_trench/basin_floor:0` z 589.83 … 595.94** — the pad is cut, the ramp corridor is trench floor |
+| §14a ring bar (`obj8_split_report --no-cut`, matched arms) | 0.19 m, 0 of 59 over 0.30 | **0.18 m, 0 of 58 over** |
+| ring nodes the pit has NO WALL on (same instrument) | 3 (worst 1.11 m) | **3** (worst 1.31 m) |
+| T4S tower cluster | `LEMDzaun`/`SWbaume` basin bodies on the rim, own-ground 7.59/7.57/7.55 m | **unchanged in kind** (7.71 m worst; the cluster stays on the rim) |
+| OTHH, planar dry run, all 10 basins | — | **10 admitted, 41 refusals, rims moved (Hausdorff) 0.00 / 0.12 / 0.14 / 0.32 / 0.32 / 0.35 / 0.45 / 0.47 / 0.48 m — sub-grid, none over 0.48**; floor areas identical bar −15/−22 m² on the two Dewatering pits (rim re-snap) |
+
+**(5) THE FLOOR FOLLOWS A RAMP.** The corridor is read off the shell's own
+witness components: up-facing faces (`floor_plate_normal_y_min`) between the
+floor and `R_est + contact_band_m`, joined in plan, admitted when the part SPANS
+the pit (its own vertices reach within the band of both floor and rim) **and its
+surface grade is drivable** — the area-weighted mean face slope, new law
+`[basin] ramp_max_grade = 0.15`.
+
+The grade test is not decoration: spanning alone admitted **three of OTHH
+Drainage_01's banks (2,118 m², the pit's floor area 735 → 2,853 m²)**, because a
+bowl's ring of banks climbs floor-to-rim like a ramp. Rise-over-plan-run does not
+separate them either (that bank reads 3.61 m over 133.5 m = 0.03, a bowl
+diameter apart); the SURFACE grade does: LEMD's ramp **0.09**, every OTHH bank
+**0.20 … 0.29**. At 0.15 the LEMD ramp is the only deck either pack admits.
+
+| bar | before | after |
+|---|---|---|
+| ramp corridors at LEMD `basin:0` | — | **1** (932 m² of floor, 36 deck faces; candidates refused: 2 m² × 2 "does not span", 101 m² "does not span", 2,043 m² `LEMD36` slab "does not span") |
+| floor vertices on the ramp's profile | 0 | **42** (`basins.floor_ramp_vertices`) |
+| emitted floor z vs `deck − floor_clearance_m` at every corridor vertex | — | **43 of 43 within 0.005 m** |
+| the ramp deck vs the design surface under it | **−2.92 m worst over ~51 m (buried)** | **+0.50 m at every corridor floor vertex**; median +0.48 m over a 1 m grid inside the corridor |
+| `basin_floor_at_declaration` | **5** | **4** |
+| OTHH ramp corridors | — | **0 on all 10 basins** |
+
+**Harness census (before = the 1.0.325 four-airport tile patch, after =
+`v2basinfoot3`).** COCKPIT first: CRITICAL motion **2 → 3** (all three grade
+BREAKS, worst 0.670 → 0.600 m, the same `strip_arc` site at 40.4625636,
+−3.5525152 — nowhere near the basin), CRITICAL visual **0 → 0**. LAW-TRUE total
+3,573 → 3,621; ADJUDICATED 1,143 → 1,172 (airside-for-acceptance 1,128 → 1,151);
+`basin_floor_declaration` 0 → 0, `wall_in_runway_strip` 0 → 0.
+
+**That census delta is NOT attributable to this change, and the lane says so.**
+Two arms of THIS tree differing only in which deck faces the corridor publishes
+(48 vs 42 pinned vertices) censused **1,089** and **1,172** adjudicated rows —
+the LP's active set (`feasible`/"SET NOT SETTLED" vs `optimal`) moves more than
+the basin does. The 1.0.325 arm is also a four-airport TILE build, a different
+population from a single-airport arm (the same caveat §24 (1) recorded).
+
+**NOT MET, with its cause named.** `_rim_open` read **57 of 69** open stations
+before and **58 of 69** after (bar ≤ 5). The diagnostic's reference is
+`at_grade_geometry`, whose linework is the shell clipped at ONE plane per
+component — the very defect §24 (4) removed from the region. With LEMD's ground
+running 593 … 599 across the pit and the plane at 592.00, the "at-grade line" is
+a contour in the middle of the plate, not the wall top, so no ring can be close
+to it. Fixing the rim diagnostic is a separate item and is OWED, not done here.
+
+**NOT MEASURED by the lane.** The scout's `probe2.py` reading (11 of 59 ring
+nodes 6.1–15.0 m from the nearest WRITTEN basin piece) needs
+`o4_v2_placement_LEMD.json`, which only the app's write half produces; the
+harness build entry stops at the patch, the graded doc and the rebake plan. The
+engine's own §14a instrument (above, matched arms through `obj8_split_report`)
+is what the lane could run, and it reads 3 → 3. A pack-geometry probe over the
+nine basin resources' WALL faces reads the ring on the wall everywhere except
+the new ramp stretch (nodes 15–20, 4.3 … 9.3 m), where the pack models a bare
+deck and the mesh makes the trench's sides — which is the cut the owner asked
+for. Also not measured: `> 3 m` seat feet against a matched control, and any
+OTHH build (dry run only, as §24 (6) requires).
 
 ## §25 OSM RELATIONS ARE EVIDENCE — a multipolygon's outer ways carry its tags (Fable, 2026-09-11; RULINGS 2026-09-11aq item B) — lane `v2relations`
 
@@ -5668,6 +5879,107 @@ pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0
    five pairs named; the `groundside_frontage` family count before/after; ONE
    `--engine v2` CYXY build (28 s) against the ledger base; twin; suite.
 
+### §28 (6) **MEASURED** (lane `v2frontagestep`, 2026-09-13, branch `claude/v2frontagestep`, base `1be04630`)
+
+**THE QUANTITY CHANGED, AND THAT IS THE DEVIATION** (reported, never decided by
+the lane — the §23.3 (2) precedent). 13o's bound is the median DEM step against the
+pad's **SOLVED LEVEL**. A constraint generator cannot read it: the pad's level is what
+§20's rows PRODUCE, three lag rounds later (LEMD's `building4` sits 0.32 m above its own
+terrain once solved, CYXY's `building10` 0.61 m and `building9` 1.51 m). The quantity
+implemented is **DEM vs DEM** — the median over the face's frontage vertices of
+`dem_z` minus the pad footprint's OWN median `dem_z`, both from `Vertex.dem_z` (the
+production DEM taken once at map build; never a second reader). Measured in the
+engine's own frame on captured planar maps (`v2_solve_replay --capture`), that is the
+WHOLE population of pad–face pairs at the two airports that carry the class:
+
+| airport | pair | DEM-vs-DEM step | 13o's solved-level step | verdict at 3.2 |
+|---|---|---|---|---|
+| CYXY | `building9` → `pav4` (16 v) | **+3.76** | +3.02 | **DISARM** |
+| CYXY | `building10` → `dsf:pol129` (8 v) | **+3.43** | +4.08 | **DISARM** |
+| CYXY | `building1` → `pav29` / `pav29#1` | +0.05 / +0.02 | +0.28 / +0.23 | armed |
+| LEMD | `building4` → `pav124` (3 v) | **+3.00** | +2.68 | **armed** |
+| LEMD | `building4` → `pav124` (12 v) | +2.39 | +1.68 | armed |
+| LEMD | `building4` → `route3` / `route6` | +2.03 / +2.00 | +1.69 / +1.68 | armed |
+| LEMD | `building12` → `pav70` | +0.00 | −0.33 | armed |
+
+`[design] frontage_step_max_m` **3.2** is the centre of the 3.00–3.43 gap that
+population leaves — 2.8 on THIS quantity would disarm `building4`, the case 12r ordered
+graded. It is a narrow gap and it is the one the data has; 13o's own margins on the
+solved-level quantity (0.12 / 0.22 m) are narrower. The key lives in `emit.toml
+[design]` beside `pad_frontage_m`, the radius of the same relation, and NOT in
+`classify/rules.toml [lot]` as the brief placed it: `constraints` may not import
+`classify` (`test_model.py::test_dependency_direction` enforces the layering by name).
+
+**FRAME WARNING.** An EMITTED-patch read of the same pairs against the raw inset
+raster gives +4.72 / +4.54 at CYXY and +3.00 at LEMD — the production DEM is SMOOTHED
+(CYXY inset HRDEM 1 m, smoothing radius 1 px) and the planar map carries welded vertices
+the patch does not. Quote the frame with the number; the law is written on the engine's.
+
+**BARS.**
+
+1. **MET** — `dsf:pol129` is back on the DEM over its WHOLE extent: z − DEM (engine
+   frame, all 23 vertices) median **−3.49 → −0.00** (min −4.16 → −1.27, max −1.43 →
+   +1.62); `pav4` (56 vertices) median **−1.35 → +0.05**, vertices off the DEM by more
+   than 0.3 m **44 → 15** and **23 → 10**. The 3.4 m excavation an 8 % cap could never
+   climb out of is gone.
+2. **MET** — the two faces stand back above the pads: `building10` → `dsf:pol129`
+   **+0.21 → +3.62** (mean +0.08 → +3.03) and `building9` → `pav4` **+0.21 → +3.35**
+   (mean −0.01 → +3.05), read by `role_edge_census.py --pad-frontage --near 3.0`. The
+   bar's +3.4 m is met at `dsf:pol129` and missed by 0.05 m at `pav4`, whose own DEM
+   step is 3.02.
+3. **MET** — no pad moved: `building10` 696.140 and `building9` 695.519 in BOTH arms,
+   z − DEM per pad identical (`building10` +0.18 / `building9` +1.07 → +1.06);
+   `building1` 704.920 → 704.900.
+4. **MET** — `groundside_frontage` rows **58 → 10**, `pairs_held_as_terrace` **0 → 2**
+   (the count is published beside the generator's own row count, `constraints.build`).
+   Design target `groundside_frontage` **27 rows / max miss 0.214 m → 5 / 0.195 m**.
+5. **MET** — harness census, ONE tree, ONE code version, the arms differing only in the
+   law value (the BASE arm is the same build with the bound inert):
+
+   | census | BASE `v2frontagestep28` | AFTER `v2frontagestep28b` |
+   |---|---|---|
+   | LAW-TRUE TOTAL | 1,047 (within 1,047 / cross 0 / steps 0) | **1,014** (1,014 / 0 / 0) |
+   | ADJUDICATED | 406 — airside 381 / gs **25** | **374** — airside 368 / gs **6** |
+   | `within_shape` / `road_cross_section` / `taxi_box` | 915 / 12 / 34 | 906 / **3** / 31 |
+   | `transverse` / `airside_no_step` | 9 / 74 | **5** / **66** |
+   | terrace-joint families (route / strip / actual step) | 0 / 0 / 0 | 0 / 0 / 0 |
+   | sidecar `terrace_joints` | 1 | 1 |
+   | design target `pads` / `roads` / `pad_level` | 55 / 84 / 10 | 8 / 38 / 8 |
+
+   `groundside_ramps` is unchanged in kind — no groundside ramp row appears in either
+   census and the joint count is the same 1 (apron/service_road, 0.45 m).
+
+**Closing test** — ONE `--engine v2` CYXY build, foreground, `--tag v2frontagestep28b`,
+**13.9 s** wall, rc 0, `status optimal`, `body_sha ea11413f8e5c`, artifact ledger
+**`613cc27fedb2`**, shared repo UNCHANGED (full-surface before/after snapshot; 18
+lock-churn operations, the allowed coordination class). v2 verify rows 312 → **279**.
+
+**SPJC AND THE 13p CLUE — THE CLUE FAILS, the per-pair bound stands (13o).** The
+clue 13p proposes is the PAD RING's own DEM span. Measured: CYXY's two rings span
+**5.45 / 4.78 m** (emitted frame) and **4.90 / 4.46 m** (engine frame) — but LEMD's
+`building4` ring spans **9.74 m** and `building12`'s **11.96 m**, and SPJC's east
+terminal `building102` spans **7.68 m**. Every candidate ring at every airport spans
+more than the bound, CYXY's included, so "ring span > bound" adds no discrimination
+and would NOT keep SPJC's lot armed. 13p's own fallback applies: "If SPJC's terminal
+ring spans a storey too, the clue fails and the per-pair bound stands as ruled".
+SPJC's five pairs could NOT be named in the engine's frame: `v2_solve_replay --capture
+SPJC` refuses on the pack-dump freshness guard (`--refresh-data airport_mod_cache`,
+which a lane may not run — the same guard RULINGS 13q chipped), and the only SPJC
+product on disk is a **v1 patch of 2026-07-25**. On it, 13o's own quantity gives no
+pair anywhere near +3.20…+4.01: the largest are `building102` −2.71 (ring span 7.68)
+and `building14` +2.00 (ring span 1.69), every one of them ARMED under 3.2 — which is
+the outcome the owner wants for the east lot. **13o's SPJC numbers do not reproduce on
+any frame available to this lane**, and SPJC needs its own build before that half of
+the ruling can be measured.
+
+**Twins.** `tests/auto_patch_v2/test_v2frontagestep.py`, 5 tests: a pair over the bound
+mints no row and is COUNTED; a pair under it still takes the pad's level; the bound is
+PER PAIR and never per vertex (one frontage vertex 10 m over the bound costs no vertex
+its row while the pair's median is under it — the same followers in both arms); the
+quantity is the planar map's own `dem_z`, frontage median minus pad-footprint median,
+and a pair with no DEM never disarms; and the value is the law's, read through the
+`[design]` schema. Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,116 passed,
+
 ## §35 THE RUNWAY-END CORNER (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT item 1) — lane `v2rwycorner`
 
 Scout `v2kclt1t`: at 36C's end (18C/36C cut 6.44 m into the hill) two graded-strip
@@ -5691,6 +6003,120 @@ corners; §32's clamp cannot reach a vertex with no band.
    HECA's, CYXY's, SPJC's, OTHH's corners by dry replay of their frames (no build);
    `strip_seam_tear` 2 → 0 at KCLT; ONE `--engine v2` KCLT build; twin; suite.
 
+### §35 **MEASURED** (lane `v2rwycorner`, 2026-09-13, branch `claude/v2rwycorner`, base `ec8723e9`)
+
+**THE SITE REPRODUCED, on the owner's 1.0.324 KCLT products.** Node **−4762**
+(35.1994462, −80.9510241) reads **209.27** m, 4.62 m from runway ring node −4685
+at **204.29**; its mirror **−4763** (35.1994823, −80.9504531) reads **209.36**,
+3.91 m from −3567 at **204.29** — the census's two `strip_seam_tear` rows,
+**4.98 m over 4.62 m** and **5.07 m over 3.91 m**. Both carry
+`adjacent_ground:runway:4:zone1#23` and `…:zone2#42` and no runway band: 18C/36C's
+half-width fits at 23.6 m and both sit ~2.5 m outside it, 14 m beyond the end.
+
+**THE DERIVATION CHOSEN, and why (§35 (1) gave two).** The CHORD, not a wider
+rect: `runway_groups` ALREADY builds the end corridor at
+`end_half = max(width, strip_half)` (`strips.py:121-133`), i.e. laterally the
+zone-2 half-width (KCLT/FAA 76.2 m, LEMD/ICAO code 4 75 m) — so the corner
+vertex is INSIDE `g.rings[end]` already and widening the rect a second time
+changes nothing. The whole gap was `_end_foot_rows`' `if t < 0.0 or t > 1.0:
+continue`. It now CLAMPS `t` and takes the bound over the TRUE PLAN DISTANCE to
+that nearest point; for an abeam vertex the clamp is the identity and the plan
+distance is the along-axis distance the old code used. `zones.abeam` is
+UNTOUCHED — the lateral law stays the lateral law, and the two tile with no gap
+because a vertex farther than the zone-2 half-width from every runway edge has
+no band to lose. Twinned shut (`test_the_lateral_law_still_refuses_the_corner`).
+
+**THE AMENDMENT, measured rather than reasoned.** Taking only the nearest end
+edge DROPPED every vertex whose nearest (vertex, foot) pair was already in
+`seen`, where the pre-§35 loop walked the edges in ring order and stated the
+next one: LEMD went **64,902 → 63,668** design rows, a net LOSS of 1,234, and
+its verify census **1,354 → 1,596** rows. With the fallback (the nearest edge
+states the law; a nearer edge whose pair is already stated yields to the next)
+the same arm states **66,660** rows, **+1,758** over base — the corner law added
+and nothing lost.
+
+**THE CLOSING TEST DID NOT RUN AT KCLT — REPORTED, NOT WORKED AROUND.**
+`build_airport.py KCLT --engine v2` refuses in `airport/load.py:289`:
+
+> KCLT: the pack DSF …/+35-081.dsf.anchor_bak is newer than every cached text
+> dump under …/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 - Charlotte XP12
+> — the pack's objects would be read from a stale dump… Refresh it explicitly:
+> build_airport.py --refresh-data airport_mod_cache
+
+The message's premise is FALSE and the true condition is worth the chip's while:
+the anchor_bak is dated **Jul 27 16:35**, OLDER than all three cached dumps, and
+the dump of ITS OWN BYTES exists — `text_dump_tag(…anchor_bak)` = **7bf41307**
+and `+35-081.dsf.7bf41307.text` (Sep 12 22:10) is in the cache. It is unreachable
+only because `find_text_dump` keys the candidate set by the file's BASENAME
+prefix (`+35-081.dsf.anchor_bak.`, RULINGS 2026-09-11m) while the dump was
+written before the object stage renamed the file. The dump is CONTENT-keyed, so
+the prefix is redundant for correctness. Lane-local vs shared root is NOT the
+cause here (both cache roots hold identical files); the ruling's `chip` is real
+but this is a second, distinct condition. No refresh was run.
+
+**THE SUBSTITUTE ARMS, and their bars.** Two airports, each a true A/B on ONE
+tree (base = `ec8723e9`'s `strips.py` in this worktree, `e9f02ed210a9`; arm =
+`46c95984a692`), the harness's own entry, shared corpus, `shared repo UNCHANGED`
+on every run. Instrument: `tools/runway_end_ground.py --corners ICAO`, promoted
+out of this lane's scratchpad on its second use (INDEX row + twin in the same
+commit), which reproduces the KCLT site numbers exactly.
+
+1. **CYXY** (13–15 s per arm, `v2rwycorner_cyxy_base` `4a900e21a4df` →
+   `v2rwycorner_cyxy2` `55e8e9898359`): the worst corner **0.99 m over 4.46 m
+   (excess +0.63) → 0.37 m (excess +0.01)** at 14L/32R end2R; 8 corners, 25
+   corner vertices, total over bound **1 → 1** (the same vertex, now AT its
+   bound). Solve **optimal** both arms, **HARD SET SETTLED** both, 12,733 rows,
+   engine verify **312 → 311**.
+2. **LEMD** (`v2rwycorner_lemd_base2` `b27faf5ce243`, 546 s → `v2rwycorner_lemd2`
+   `2c73ddc9dcd5`, 488 s): 16 corners, 72 corner vertices. **Worst corner excess
+   2.19 m → 0.04 m**; by corner, 18R/36L end1L **6.24 → 4.07 m** (bound 4.05),
+   end1R **6.25 → 4.10 m** (bound 4.06), 14R/32L end1L **4.70 → 4.08 m** (bound
+   4.06). Total over bound 3 → 3, every residual **0.02–0.04 m** — the end-skirt
+   rows are design TARGETS, so this is held-at-its-bound, reported as
+   PASS-with-residual and not iterated.
+
+**THE PRICE AT LEMD — A DEVIATION FOR THE OWNER, not decided here.** Census
+(`tools/harness/census.py`, both arms this tree): **LAW-TRUE 3,573 → 3,593
+(+20)**, **ADJUDICATED 1,143 → 1,199 (+56)**, verdict FAIL both. By family:
+`airside_no_step` 419 → 437 (worst 2.670 → 2.700), `taxi_box` 204 → 216,
+`strip_arc` 8 → 10, `strip_longitudinal` 15 → 16, `raoa` 1 → 3 (worst **0.020 →
+0.680 m**), `cross_shape` 0 → 1, `resa_transverse` 1 → 1 (worst 1.830 → 1.920);
+AGAINST it `within_shape` 2,792 → 2,782, `transverse` 87 → 83, `strip_transverse`
+43 → 41. `strip_seam_tear`, `runway_end_skirt`, `adjacent_ground_tear`,
+`drainage_minimum` and every other family: unchanged. The solve reports
+**optimal → feasible**, hard rows violated **2 → 25** of 126,696 (max violation
+0.1563 → 0.1288 m). The runway projection is unmoved (24,644 rows, worst hard row
+0.020000 both). The lane's read is that a 6.25 m corner cliff on approach is worth
+0.02–0.68 m of apron/taxi target residual 3 km away — but `raoa` worst 0.02 →
+0.68 m is a RUNWAY-family reading and the owner should price it.
+
+**Twins.** `tests/auto_patch_v2/test_v2rwycorner.py` (7 cases, **3 red on base**):
+the corner quadrant exists; every corner vertex carries a row; the row's feet are
+the end edge's two ends with weights summing to 1 and its bound is exactly
+`cap·d + q`; the 3√2 m diagonal vertex; the falling DEM breaks the new rows (the
+fix bites); `abeam` still refuses the corner; the rect is already zone-2 wide; an
+abeam vertex is unchanged. `tests/test_runway_end_corners.py` (4 cases) twins the
+instrument. TWO EXISTING TWINS MOVED, both named in place:
+`test_runway_transverse.py` — §35 moved that fixture's worst edge to EXACTLY
+`hard_tol_m` and it read 0.020000000000072793 against 0.02, so the comparison
+carries a 1e-9 float epsilon (the tolerance itself is unchanged);
+`test_why.py` — the chain trace now ends on a **BAND** rather than FREE
+(`reached={'FREE': 16, 'BAND': 1}`), a holder like a pin, so BAND joins the
+accepted terminal kinds with its own note asserted. Suite
+(`tests/auto_patch_v2 tests/test_harness.py`) **1,114 passed, 1 skipped**, twice.
+
+**NOT DONE, named.** No KCLT build and therefore **no after-numbers for the two
+36C cliffs, no KCLT census, no `strip_seam_tear` 2 → 0** — the refusal above.
+KCLT's 12 corners are quoted BEFORE only (7 vertices over their bound; worst
+5.07 m over 3.91 m against a 0.34 m bound at 18C/36C end2R, then 4.98/4.62,
+0.98/4.61, 0.83/4.25, 0.60/4.25). HECA's, SPJC's and OTHH's corners were NOT dry
+-replayed: no v2 frame of them exists on this machine (the `dist/` and worktree
+`Patches/` copies are v1 — their sidecars carry no `design` key — and the class
+is read off the SOLVED surface, so a v1 patch would answer a different question).
+An older HECA v2 patch of unknown provenance reads 3 corners over cap (worst
+6.27 m over 78.4 m at 05C/23C end2R) and is quoted only as evidence the class is
+not KCLT-only. No app build, no five-airport sweep, no merge.
+
 ## §36 THE EAT LAW, PORTED (owner RULINGS 2026-09-13j item 2; Fable 2026-09-13q) — lane `v2eat`
 
 Owner: "The EAT here should be lower than the runway by law right?" — YES. v1's law
@@ -5711,6 +6137,130 @@ the "pre-law, FLAT at end +0.9 m" state the v1 spec named as the thing to fix.
 2. **BARS**: KCLT's crossing at 216.3–217.4 m (today 226.6–226.9); the ramps within the
    taxi caps; the other five airports' EAT recognition quoted (which have one; none
    moves that has none); ONE `--engine v2` KCLT build; census; twins; suite.
+
+### §36 **MEASURED** (lane `v2eat`, 2026-09-13, branch `claude/v2eat`, base `ec8723e9`, sha `0d995474`)
+
+**BELOW BAR ON TWO OF FOUR — the owner's sign-off is owed, the residual is
+quoted.**  The site lands; the ramps do not fit the taxi cap, and the hard set
+no longer settles.
+
+**THE SITE REPRODUCED FIRST, OFFLINE.**  On scout `v2kclt1t`'s copy of the
+shipped KCLT patch the 18C crown-spine end stands at 227.25 m and the crossing
+pavement — `cross_connector pav11` (shapeID 104) / `junction pav118` (shapeID
+69) — at 226.58–226.91 m, D 367–410 m beyond it: the runway end **+0.9 m**, the
+"pre-law, FLAT" state.  The FAA ceiling there (code E tail 20.1 m, slope 0.025,
+setback 0) is 216.6–217.1 m, i.e. **−10.1 … −10.7 m** below the end.  Every
+offline arm below is ONE `v2_solve_replay` capture of KCLT (82 s; 22,294
+vertices, 1,193 faces), one tree, one code version.
+
+**THE CONSUMER CENSUS** (owner ruling RULINGS 2026-08-30l — ruled before any
+consumer was edited; the region is "a hard `Pin` on taxi-family / apron
+pavement vertices"):
+
+| consumer | what it reads of the region | ruling |
+|---|---|---|
+| `solve/rows._reduce` | every `Pin` FIXES its vertex; two pins on one vertex resolve by generator ORDER, silently | **AFFECTED — the rect YIELDS**: `eat.withdraw_against_senior` (a post-pass in `constraints/__init__.generate`, counted as `eat_pin_withdrawn_senior`) drops an EAT pin on any vertex another generator pins or a rigid `Flat` group carries.  v1's own rule, stated rather than left to order.  KCLT: 0 withdrawn |
+| `constraints/__init__.water_exempt` | withdraws every non-water row governing a water-pinned vertex | already total — an EAT pin on a water vertex is withdrawn there too |
+| `constraints/__init__.seam_exempt` | pin↔pin pair exemption, SEAM pins only | unaffected: an EAT pin is not a seam pin, and a pair with ONE EAT foot stays — that pair IS the ramp |
+| `structures.reconcile_datums` | tunnel / basin datum seniority | unaffected: no structure role is an EAT role |
+| `constraints/ceiling.pavement_ceiling` | one HARD 5 % twin per pavement DIFFERENCE row | **AFFECTED and MEASURED** — the ramp's hard bound, and the bar the port misses (below) |
+| `constraints/no_step`, `taxi.taxi_chain` / `taxi_centerlines` / `taxi_box`, `transverse`, `apron_within_shape` | the taxi / apron caps on rows whose feet include the rect | **the RAMP.**  The EAT mints no ramp row of its own — v1's lesson: one-sided pavement↔pavement interval edges blew the reach envelope up (KCLT killed at 15 min / 20.3 GB) |
+| `constraints/taxi_trend` (`PlanarMap.taxi_trend_z`) | a DEM-trend target for every taxi-chain vertex; its own "pins" are RUNWAY CONTACTS, not `Pin` rows | **AFFECTED, priced**: a pinned vertex's neighbours keep a trend target pulling them back to the ground, charged at `[design] taxi_trend` 30 against `law` 300 — the measured ramp lands at 2.4–3.9 %, between the taxi cap and the trend |
+| `solve/project.project_runway` | runway-family vertices only, everything else FIXED at the design value | unaffected: an EAT pin is outside the family and is one of the fixed feet moved to the right-hand side |
+| `solve/project.project_zone_bands` | ground zone vertices | unaffected: every EAT role is pavement |
+| `solve/design` §9b / `design_report.residual` | `cs.pins` for the ANCHORED-sheet test and the pin residual | correct as-is — the rect IS an anchor, which is the encoding the law asks for (`residual: pin 0.0000` on the build) |
+| `verify/census.READERS` | one reader per family | **NEW** `verify/eat.eat_ceiling` |
+| `check_grade.LAW_FAMILIES` / `run_checks` | the census register (the harness must price the EAT) | **NEW** family `eat_ceiling`, sidecar-declared, in the emission position after `basin_floor_declaration` |
+| `emit/osm_adapter.SIDECAR_KEYS`, `pipeline/publication` | what the census may read | **NEW** key `eat_rects`, read off the FINAL constraint set (`publication(..., cs)`) so a withdrawn vertex is never reported |
+
+**RECOGNITION, ALL SIX FRAMES** (the generator run DRY on each frame's own
+capture — no solve; "none moves that has none"):
+
+| frame | ruleset | ends | candidate rects | accepted | pins | verdict |
+|---|---|---|---|---|---|---|
+| **KCLT** | faa (0.025 / 0 m) | 6 | 1 | **1** — 18C, D 426.7–469.8, mid 448.3 | **4** | the owner's site |
+| CYXY | icao (0.02 / 60 m) | 4 (one runway below code 3) | 0 | 0 | 0 | no EAT — nothing moves |
+| HECA | icao | 6 | 0 | 0 | 0 | no EAT |
+| SPJC | icao | 4 | 0 | 0 | 0 | no EAT |
+| OTHH | icao | 4 | 3 | 0 | 0 | all three refused: **no routed wrap** (9/9/20 taxi-route crossings at the end, none in the rect's window) |
+| LEMD | icao | 8 | 24 | 0 | 0 | every one refused BY NAME — 17 run ALONG the corridor, 4 beyond `max_crossing_m` 600 m, 3 no routed wrap.  The owner's "LEMD has no EATs", and v1's 149 false pins stay dead |
+
+**THE SITE, BEFORE AND AFTER** (the same capture, arms `--drop-generator
+eat_anchor_rect` vs default; z at the four pinned vertices):
+
+| vertex | lat, lon | DEM | BEFORE | AFTER | the regulation |
+|---|---|---|---|---|---|
+| 2578 | 35.2314666, −80.9536558 | 228.33 | 226.58 | **217.26** | 217.26 |
+| 2579 | 35.2314802, −80.9534306 | 228.36 | 226.91 | **217.26** | 217.26 |
+| 2658 | 35.2316604, −80.9536668 | 228.44 | 226.69 | **217.26** | 217.26 |
+| 3804 | 35.2312728, −80.9536229 | 228.29 | 226.88 | **217.26** | 217.26 |
+
+**BAR 1 — the crossing at 216.3–217.4 m: MET.**  217.264 m, the FAA value at
+D_mid = 448.3 m off an anchor of 226.158 m (18C/36C carries NO CIFP threshold on
+either end, so the anchor is the runway's DEM-fitted profile at the end — v1's
+anchor was the solved runway ring, which IS that profile).  The pin holds
+EXACTLY: the census's new `eat_ceiling` family reads **0** rows on the built
+patch, and the design report's pin residual is 0.0000 m.
+
+**BAR 2 — the ramps within the taxi caps: MISSED, 2.37–3.87 %.**  Six ring edges
+carry one pinned foot; their grades after are 3.87 / 3.05 / 2.97 / 2.57 / 2.44 /
+2.37 % (before: 1.55–1.75 %), over 28.6–59.1 m.  None exceeds the hard 5 %
+pavement ceiling, and the surface is smooth — 2,393 vertices move, max 9.64 m —
+but the taxi cap is 1.5 %.  The mechanism is the consumer census's
+`taxi_trend` row: the ramp's free neighbours carry a DEM-trend target (weight
+30) against the taxi cap (300), so the solve trades ~1 % of grade for the
+trend rather than running the ramp out along the loop.  **This is v1's own
+outcome in v1's own words** — "a loop too short to ramp lawfully surfaces in the
+both-hard step report … never a silent grade break" — and it is an INTENT
+question for the owner, not a mechanism: is the EAT's ramp allowed to overrun
+the taxi cap, or must the trend yield to it inside the rect's reach?
+
+**BAR 3 — `HARD SET SETTLED` still: MISSED, by 0.028 m of surface.**  BEFORE:
+`0/229114 hard rows violated`, max 0.0200 m, **HARD SET SETTLED**.  AFTER:
+`13/229114`, max **0.0479 m**, HARD SET NOT SETTLED, `hard_worst =
+rulesets.common.pavement_max_grade ceiling`.  The 9.65 m cut cannot be absorbed
+under the 5 % ceiling to within `hard_tol_m` 0.02 m on 13 rows.  Identical in
+the offline arm and in the closing build, so it is the law and not the run.
+
+**BAR 4 — census before/after** (both arms replay-emitted from the same capture,
+`tools/harness/census.py`):
+
+| family | BEFORE | AFTER |
+|---|---|---|
+| LAW-TRUE TOTAL | 12,346 | **13,174** (+828) |
+| `within_shape` | 9,343 | 9,980 (+637) |
+| `airside_no_step` | 671 | 817 (+146) |
+| `taxi_box` | 314 | 338 (+24) |
+| `strip_transverse` | 13 | 18 |
+| **`eat_ceiling` (NEW)** | **0** | **0** |
+
+The +828 rows ARE bar 2 seen by the census: the ramp's pairs priced at the taxi
+cap.  The COCKPIT block moves `CRITICAL motion` 16 → 18 (both new rows a
+forbidden grade BREAK, neither at the EAT site — the site's own rows read as
+SLOPES and are REPORT) and `CRITICAL visual` 2 → 2.  The 214 m `apron|apron` row
+at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), present in
+both arms.
+
+**THE CLOSING BUILD.**  ONE `build_airport.py KCLT --engine v2`, wall **448.1 s**
+(tag `KCLT_20260913T093620`, rc 0, `status=feasible`, `body_sha a33903eb3d1e`,
+1,304 ways / 24,147 nodes, v2-verify 4,631 rows, shared repo UNCHANGED).
+Generator counts: `eat_anchor_rect 4` rows in 0.037 s (ends 6, rects_accepted 1,
+pins 4, every refusal counter 0), `eat_pin_withdrawn_senior 0`.  The artifact
+ledger REFUSED the store (`CONTAMINATED-KEY`: the tree was committed between key
+time and store time) — the build itself is unaffected; there is simply no
+ledger artifact for it.
+
+**THE INSTRUMENT HAD TO BE REPAIRED FIRST** (RULINGS 2026-09-13q named it a
+chip).  `planar.__main__.default_inputs` resolves the mod cache to the ENGINE
+TREE and reads no environment by design, so the pack-dump FRESHNESS guard
+(`airport/load.py:289`) judged the SHARED root and refused **every** KCLT and
+HECA v2 build, `explain` and `v2_solve_replay --capture` — no dump keyed to the
+pristine `.dsf.anchor_bak` has ever existed for those packs.
+`tools/harness/build_airport.py` now hands its own lane-local redirect to v2's
+loader (`inputs.mod_cache_root`), which is where the env read belongs; the
+build then derives its DSF text dumps in the same lane-local overlay as every
+other derived cache.  `explain` and the replay tool still refuse — the same
+line in `default_inputs` — and that half is left to the chip.
 
 ## §37 A ROAD KEEPS ITS OWN LONGITUDINAL LAW; A ROAD FLIPS BY SHARE; THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT items 5, 7, 8; CYXY item 2) — lane `v2roadcap`
 
@@ -5760,3 +6310,395 @@ under 0.5 m, max 2.4 m, none over 5 m).
    `--engine v2` KCLT build with the cockpit block first (critical motion 16 → quoted,
    the three item-5 cliffs gone); census; twins; suite. The census's 215 m apron
    step at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), excluded.
+### §37.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2roadcap`
+
+**A. THE LATERAL-CONTIGUITY CAP** (`constraints/roads.road_law_caps`; §37 (1)).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| L1 | `constraints/roads.road_within_shape` | `road_law_caps` | **EDITED**: `cap_l` is the ROLE'S OWN longitudinal (`service_road` 8 %); `cap_t = min(role transverse, contiguity cap)`. |
+| L2 | `constraints/taxi.triangle_planes` (`plane_gradient`) | `road_law_caps` | **EDITED — the contiguity min is DROPPED.** `|∇z| ≤ cap` is ISOTROPIC: a plane row has no transverse component to bind on its own, so it prices at the face's own longitudinal cap. Before §37 this branch flattened a road triangle in every direction. |
+| L3 | `pipeline/publication.face_tags` | `road_law_caps` | **EDITED**: stamps `o4_grade_law_cap_t`, never the bare `o4_grade_law_cap` (which binds a way's WHOLE within-shape reading in the v1 census). |
+| L4 | `pipeline/publication.publication` `station_caps` | `road_station_caps` | UNCHANGED. The per-station vector is the WALK, not a cap assignment; v1's fourth reader still reads it and, with it present, mints no row BY CONSTRUCTION (`_built = min(eff, published) ≤ _law_here`). |
+| L5 | `constraints/contiguity.{station_caps,road_station_caps,cap_at,face_station_cap}` | the probe walk | UNCHANGED — the walk is the same; only what the cap BINDS changed. |
+| L6 | `verify/contiguity.lateral_contiguity` | `p.cap(sh)` + published stations | **EDITED**: prices `p.cap_t(sh)` — the transverse binding — against the re-walked cross-section's strictest longitudinal law. |
+| L7 | `verify/frame.Patch.cap` / `Shape.law_cap` | `law_caps` mapping | **EDITED**: `cap()` is now the role's longitudinal alone; new `cap_t()` folds the binding in. `Shape.law_cap` MEANS the transverse binding; every `census(surf, law, pub, road_law_caps(...))` call site is unchanged. |
+| L8 | `verify/within.within_shape` / `road_cross_section` | `p.cap`, `rc.transverse` | **EDITED**: `cap_t = p.cap_t(sh)`; the longitudinal cap is the role's. |
+| L9 | `verify/within.plane_gradient` | `p.cap` | follows L7 — the role's own longitudinal. Mirrors L2, so generator and reader move together. |
+| L10 | `check_grade._role_grade_limit` / `_lateral_cap_tag` (`o4_grade_law_cap`) | the way tag | UNCHANGED IN MEANING. v2 no longer stamps it for contiguity, so a v2 road reads its role cap; **every v1 patch reads exactly as before** (08-02 clause 2 is untouched in `auto_patch/`). |
+| L11 | `check_grade._xsec_allowance` (the `road_cross_section` family) | `cap_l` | **EDITED**: `min(road_cross_section_cap(cap_l), o4_grade_law_cap_t)` — the ONE site at which the contiguity cap reaches the v1 census. |
+| L12 | `check_grade._check_lateral_contiguity` (the fourth reader) | published `station_caps` | UNCHANGED — vacuous by construction on a v2 sidecar (L4). |
+| L13 | `emit/osm_adapter` oracle alias (`extra["o4_grade_law_cap"]` `prior`) | the face tags | UNCHANGED CODE. `prior` is now absent for road-family aliases, which is the intent: an alias's LONGITUDINAL cap must not be tightened by a transverse law. |
+| L14 | §28 GROUNDSIDE FRONTAGES (`constraints/pad_frontage_gs.py`, `verify/frontage`) | pad ↔ frontage rows | UNAFFECTED — neither imports `road_law_caps`; a frontage row's cap is the pad law's. |
+| L15 | §20 PAD LEVELS (`constraints/pads`, `[design] pad_level_rulings`) | pad rim / pavement edge | UNAFFECTED — same; and the relaxation FREES the road, it never pulls a pad (the one-way rulings). |
+| L16 | `solve/why.family_of` (`road_within_shape` / `road_cross_section`) | the row's source | UNAFFECTED — labels unchanged. |
+| L17 | `auto_patch/` v1 (`lateral_contiguity.py`, `grade_graph._body_cap`, `layout.py:3120`) | v1's own stamping | UNTOUCHED — §37 is v2 law. |
+
+**B. `airside_edge_flip`'s callers** (§37 (2)).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `classify/roles.classify` | the ONE call | UNCHANGED signature and return; the share test lives inside the one derivation site (§27 (2)). |
+| B2 | every downstream consumer of `role` | `law.tables.role_side` | UNAFFECTED BY CONSTRUCTION — `side` stays a pure function of `role`. |
+| B3 | `tools/role_edge_census.py` | the emitted patch | UNAFFECTED — it reads the product, and reports the share it now measures against. |
+
+**C. THE BANK's readers** (§37 (3)). A foot ring may now be one OPEN chain per load-bearing run.
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| C1 | `emit/osm_adapter` bank branch | `closed = vertices[0] == vertices[-1]`, `len ≥ 3` | UNCHANGED — it ALREADY emits an open chain (the tile-piece case, §9.4 deviation 2). Runs are padded so no chain is under 3 nodes. |
+| C2 | `emit/osm_adapter.write_tile_pieces` | breakline runs | UNCHANGED — a chain splits at a seam exactly as a ring did. |
+| C3 | `O4_Vector_Map.include_patches` | every CLOSED way | An OPEN `bank_foot` way is a constrained LINE carrying altitudes: it seeds no INTERP_ALT face and blocks no water flood. CORRECT — where no foot is emitted there is no bank to seed. |
+| C4 | `O4_Mesh_Utils._bank_rings_from_patches` / `bank_annulus_polygon` | CLOSED `bank_foot` ways only | **EDITED**: an open chain is closed into its RIBBON — the chain and its own nearest-point projection onto the design coverage — and REFUSED when the swept area is implausible for a bank of that length. Without this, one immaterial station would have taken the whole ring's annulus out of the linear blend. A refusal leaves those vertices to the harmonic extension, which is this module's standing rule. |
+| C5 | `O4_Mesh_Utils.bank_annulus_blend_values` / `_bank_foot_along_normal` / `BANK_BLEND_STATS` | the annulus + the feet | UNCHANGED via C4. Where a run carries no foot, `interpolate_free_interior_altitudes`' harmonic extension carries the sub-materiality difference — §37 (3)'s own words. |
+| C6 | `O4_Mesh_Utils.bank_annulus_region_areas` (Triangle's region sizing) | `bank_annulus_polygon` | follows C4. |
+| C7 | `check_grade._parse_osm` / `ROLE_LESS_FEATURE_CLASSES` | `o4_feature=bank_foot` | UNCHANGED — routed to `feature_out` open or closed; it mints no row (§9 A10/A11). |
+| C8 | `verify/frame.Patch.of` | `runway_profile` / `structure_rim` kinds | UNAFFECTED (§9 A8). |
+| C9 | `emit/surface.GradedSurface.to_json` / `SCHEMA` | breaklines as vertex tuples | UNAFFECTED. |
+| C10 | `emit/rebake.deck_datum_from_surface`, `airport/rebake_plan` | the PRE-bank surface | UNAFFECTED (§9 A7). |
+| C11 | `emit/terrain_edge.no_bank_region` | the banked region cut | UNCHANGED — the region is cut before any station is emitted. |
+
+### §37 **MEASURED** (lane `v2roadcap`, 2026-09-13, branch `claude/v2roadcap`, base `ec8723e9`)
+
+**THE CLOSING TEST MOVED FROM KCLT TO LEMD — KCLT CANNOT BE BUILT ON THIS
+CORPUS, AND THE LANE DID NOT MAKE IT BUILDABLE.**  `build_airport.py KCLT
+--engine v2` refuses at the loader, before classify:
+
+> `KCLT: the pack DSF …/+35-081.dsf.anchor_bak is newer than every cached
+> text dump under …/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 …`
+
+The refusal is `airport/load.py:289` and it is CORRECT.  The PRISTINE read
+frame (RULINGS 2026-09-11m) reads `+35-081.dsf.anchor_bak`, and
+`dsf.find_text_dump` keys the candidate dumps on *that* basename: the
+shared mod cache holds `+35-081.dsf.{1334c2dd,7bf41307,b698274b}.text` —
+dumps of the WRITTEN DSF — and **no `+35-081.dsf.anchor_bak.*.text` at
+all** (LEMD, OTHH, NZQN and NZVL each have one; KCLT has never had one).
+The cure is `--refresh-data airport_mod_cache`, which this lane's brief
+forbids and which changes every lane's corpus stamp.  **It is the
+orchestrator's call, not the lane's.**  The same guard is what refused the
+scout's `explain KCLT` (13q).  Consequences, stated rather than papered
+over: every KCLT bar of §37 (4) — `dsf:pol51`, shapeID 791, the ribbon
+aprons, the cockpit block, the KCLT census — is **NOT MEASURED**.  What is
+measured below is LEMD (the closing build) and CYXY (the control), both
+`--engine v2`, both against a `--base-arm` at the same base `ec8723e9`,
+plus the KCLT BASE numbers read offline from the 1.0.324 products.
+
+#### KCLT, BASE ONLY (the 1.0.324 products, read with the emitter's own instruments)
+
+Reproduced exactly, so the sites are not in doubt — only the fix is
+unmeasured:
+
+| site | 1.0.324 |
+|---|---|
+| `dsf:pol51` shapeID 946 | `o4_grade_law_cap=0.015`, worst **+14.22 m** at 35.2074982, −80.9296586, east end +8.09 |
+| `dsf:pol51` shapeID 945 | `o4_grade_law_cap=0.015`, worst +14.07 m, east end +8.02 |
+| `service_road` (whole airport) | 864 vertices, **max +14.22 / −4.14 m** off the DEM |
+| shapeID 791 (`dsf:pol82`) | role **`apron`**, 81 vertices, **+12.33 m** at 35.2209280, −80.9275739 |
+| bank | 49 closed rings, **1,855 stations**, 34,212 m, **451 chords over 30 m**, max chord 130.1 m |
+| bank materiality (§37 (3), read with `_inner`'s own rule) | **526 of 1,855 stations (28.4 %) load-bearing** at 1.65 m; 57.8 % carry over 0.5 m, 7.1 % over 5 m |
+| ribbon aprons (< 12 m min-rect width, emitted apron ways) | **43 / 5,010 m²** — NOT the spec's 60 / 108,744 m², a different instrument; quoted here on the one used for both arms |
+
+#### LEMD — the closing build
+
+ONE `--engine v2 --patch-only` build per arm, one tree, one corpus
+(`e512b4ea8cca`), both at base `ec8723e9`, both rc 0, shared repo
+UNCHANGED:
+
+* BASE — tag `v2roadcapLEMDbase`, 523.6 s engine, artifact ledger
+  **`11c63567bce3`**;
+* §37 — tag `v2roadcapLEMD2`, 510.5 s engine, artifact ledger
+  **`648c9198fba3`** (the first §37 arm, `v2roadcapLEMD`, 400.0 s, is the
+  same patch outside the bank: it carried the padded-run overlap the
+  twin now forbids).
+
+**§37 (2) — LEMD's flips STAND, PROVEN BY IDENTITY.**  The two arms'
+patches carry **1,075 role-carrying faces with byte-identical roles: 0
+changed**.  `tools/role_edge_census.py` reads the same figure on both:
+124 groundside shapes, 28 sharing ≥ 10 m with airside pavement, **0
+substantive (all 28 slivers, 789 m²), 0 LOT-class**.  A lane that runs
+828 m ALONGSIDE its apron is a share, not a graze; none came back.
+
+**§37 (3) — the bank.**
+
+| | BASE | §37 |
+|---|---|---|
+| foot nodes | **2,594** in 48 closed rings | **836** in 78 chains, 76 open |
+| foot length | 60,986 m | **11,544 m** |
+| chords over 30 m | **820** (max 131.7 m) | **0** (max 30.0 m) |
+| duplicate foot coordinates | **5** (pre-existing) | **0** |
+| load-bearing stations | — | **489 of 2,596** (2,107 under the 1.65 m floor; 11 rings carry no bank at all); 153 split stations |
+| bank slope p95 / max |  0.433 / 1.255 | **0.580** / 1.260 |
+
+The slope p95 rises because it is the pre-existing `slope to the nearest
+DESIGN vertex` statistic now read over LOAD-BEARING stations only — the
+minimum-width feet that held it down are exactly the ones §37 (3)
+removes.  It is the §9.5 residual, reported and not fixed.
+
+**§37 (1) — THE CENSUS MOVED THE WRONG WAY AT LEMD, AND THE LANE DOES NOT
+PAPER OVER IT.**
+
+| harness census | BASE | §37 |
+|---|---|---|
+| LAW-TRUE | 3,573 (within 3,570 / cross 3 / steps 0) | 3,798 (3,795 / 3 / 0) |
+| **ADJUDICATED** | **1,143** — airside 1,127 / gs 15 / mixed 1 | **1,379** — airside **1,345** / gs 33 / mixed 1 |
+| `within_shape` | 2,792 | 2,821 |
+| `taxi_box` | 204 | **326** |
+| `airside_no_step` | 419 | **481** |
+| `road_cross_section` | 0 | 2 |
+| `strip_transverse` / `strip_longitudinal` | 43 / 15 | 49 / 20 |
+
+**+236 adjudicated, +218 of it airside — and the roads are groundside.**
+Attribution, in the order the rulings require:
+
+1. **It is not §37 (2)**: the classification is byte-identical (above).
+2. **It is not §37 (3)**: the bank is built AFTER the solve and is
+   census-skipped; the pre-fix and post-fix §37 arms — which differ ONLY
+   in the bank — census **identically** (3,798 / 1,379, family for
+   family).  The same holds at CYXY (1,049 / 345 in both).
+3. **§37 (1) is a STRICT RELAXATION of the road family, proven by
+   construction.**  The transverse cap is arithmetically unchanged —
+   `min(rc.transverse, cap_l)` with `cap_l = min(long, law_cap)` equals
+   `min(rc.transverse, long, law_cap)` — and the longitudinal cap only
+   ever rises (0.015 → 0.080 on a contiguous road).  The generator row
+   COUNTS are identical in both arms, line for line, all 62 of them.  So
+   no row was tightened and none was added.
+4. **What is left is the LP landing on a different optimum of an
+   UNSETTLED system.**  Both arms report `HARD SET NOT SETTLED` (2 and
+   25 of 126,696 rows violated) and `LAG NOT SETTLED`; the assembled
+   design system moves 64,902 → 66,830 rows (the one-sided split, not
+   the generators); and the same mechanism at CYXY moves the census the
+   OTHER WAY, −61 adjudicated / −75 airside.  Non-monotone across two
+   airports from one strictly-relaxing change is the signature RULINGS
+   2026-09-12i named for §27's tunnel ramp: an LP re-solve of a free
+   interior, not a mechanism.  **The census is not the objective.**
+5. **What this lane did NOT do**: it did not tune the objective, gate the
+   change, or iterate a third time.  The regression is REPORTED with its
+   site numbers for the owner's adjudication.  Nothing here says the
+   +218 rows are lawful — only that they are not a groundside pull the
+   code can be shown to make.
+
+#### CYXY — the control, both arms at `ec8723e9`, one tree, one corpus
+
+| | BASE (`163c4e7f50dc`) | §37 (`cc9c86490555`) |
+|---|---|---|
+| harness census LAW-TRUE | 1,047 | 1,049 |
+| harness census **ADJUDICATED** | **406** (airside 381 / gs 25) | **345** (airside **306** / gs 39) |
+| `within_shape` | 915 | 968 — the whole rise is `withdrawn_law_05aa` taxi chords, 625 → 688, never adjudicated |
+| `road_cross_section` | 12 | 17 |
+| `taxi_box` | 34 | **17** |
+| `airside_no_step` | 74 | **40** |
+| `plane_gradient` | 1 | **0** — §37 (1)'s L2: the isotropic plane row is no longer bound to a contiguous class |
+| `transverse` | 9 | 5 |
+| bank foot nodes | **649** in 20 closed rings | **153** in 19 chains, all open |
+| bank foot length | 14,835 m | **2,346 m** |
+| bank chords over 30 m | **218** (max 82.3 m) | **0** (max 29.8 m) |
+| bank load-bearing stations | — | **79 of 648** |
+| duplicate foot coordinates | 0 | 0 |
+| groundside shapes ≥ 10 m airside edge, substantive | 3 (10,295 m²) | 4 (11,546 m²) — one road came back, exactly §37 (2) |
+| `service_road` off-DEM > 0.5 m | 83 / 292 (max 2.99 m) | 93 / 314 (max 3.14 m) |
+
+**−61 adjudicated at CYXY, −75 of them airside**, the gain in
+`airside_no_step` (74 → 40) and `taxi_box` (34 → 17).
+
+**CYXY's ring does NOT vanish.**  §37 (3) predicted 649 → 0 from the
+scout's headline ("max 2.4 m").  Read with the emitter's OWN inner-end
+rule — the nearest point of the coverage with its z interpolated ALONG
+the boundary edge, which is `emit/bank.py::_inner`, not the nearest
+design VERTEX — CYXY carries 115 stations over 1.65 m and 27 over 5 m.
+The measured answer to the owner's question "do we need it at all" is
+therefore: **yes, but only for a sixth of it** — 79 load-bearing
+stations, 2,346 m of foot instead of 14,835 m, 84 % of the ring gone.
+At LEMD the same reading leaves 489 of 2,596 and 81 % of the foot gone;
+the KCLT products read 526 of 1,855 (28.4 %).
+
+#### A DEFECT §37 (3) INTRODUCED AND THE TWIN NOW FORBIDS
+
+Padding each load-bearing run separately makes two runs one station
+apart OVERLAP, and two chains over the same ground re-emit the same edge
+on two sets of nodes — the duplicate constrained segments RULINGS
+2026-09-09t measured Triangle's recovery spinning on.  Measured on the
+first arms: **3 duplicate foot coordinates at CYXY, 14 at LEMD**.  The
+padding is now part of the MEMBERSHIP (`keep[i] = flags[i-1] or flags[i]
+or flags[i+1]`, then maximal cyclic runs of `keep`), twinned, and both
+arms read 0 — the LEMD base's own 5 duplicates are gone with them.
+
+#### Build-time impact statement
+
+Bank pass: CYXY 0.14 s both arms, LEMD 0.54 → 0.51 s.  §37 (1) removes a
+`min`; §37 (2) adds one comparison per candidate; §37 (3) reads `_inner`
+for every region station instead of only for emitted ones and re-reads it
+for the kept ones, which the bank pass absorbs.  Whole-build wall is a
+re-solve of a changed system on a machine running four lanes
+concurrently, so no A/B is quoted (standing law: never one run per side).
+Nothing here is within 1 % of either budget.
+
+#### What this lane did NOT do
+
+KCLT (blocked — the pristine-DSF dump, above); the five-airport sweep
+(the orchestrator's, once per merged batch); any `--refresh-data`; any
+new tool (nothing here needed one — the bank's own census is
+`BankReport.line()`, the share census is `tools/role_edge_census.py`,
+the defect counts are `tools/harness/census.py`), so no `tools/INDEX.md`
+row; any merge.
+
+### §36 (5) THE RAMP REACH IS DERIVED; THE TREND YIELDS (Fable 2026-09-13; RULINGS 2026-09-13aa) — lane `v2eatramp`
+
+Lane `v2eat` measured the six ramp edges off the pinned feet at 2.37–3.87 %
+over 28.6–59.1 m against the 1.5 % taxi cap: the ramp's free neighbours keep
+a `taxi_trend` DEM target (weight 30) against the cap (300) — v1's "loop too
+short to ramp lawfully" outcome. The taxi cap is law (§31: a 3.9 % taxiway is
+a slope a pilot feels; the DEM target is the unreliable witness).
+
+5. **THE RAMP RUNS BACK ALONG THE LOOP UNTIL THE CAP IS MET.** From each
+   pinned foot the ramp follows the EAT loop's own centreline (the routed
+   wrap the rect was recognised on) until the loop's DEM-fitted profile is
+   reached at ≤ the taxi longitudinal cap: reach = drop / cap (KCLT: ~9 m /
+   0.015 ≈ 600 m per side, which the end-around loop affords). Over that
+   reach `taxi_trend` is WITHDRAWN for the loop's vertices (not outweighed)
+   and the loop's transverse rows carry its shoulders with it. Where the loop
+   is too short to ramp lawfully, the crossing KEEPS the regulation value and
+   the report names the overrun as a forbidden grade under the taxi family —
+   never a silent 3.9 %. The `[design] hard_rulings` register is untouched
+   (a Pin holds exactly; §36 MEASURED).
+
+BARS (KCLT, same capture both arms, then ONE build): every edge on the EAT
+loop ≤ 1.5 % (today six at 2.37–3.87 %); the crossing 217.26 ± 0.05 at all
+four vertices; the hard set SETTLED (today 13 `pavement_max_grade ceiling`
+rows, max 0.0479 m — name them and show they are the ramp's neighbours before
+claiming the fix clears them); cockpit CRITICAL motion ≤ 16 with the two
+grade breaks v2eat introduced named and placed; `eat_ceiling` 0; the five
+other frames unchanged (no rect recognised); suite twice.
+
+### §37 (5) THE SECOND MECHANISM UNDER THE EAST ROAD (Fable 2026-09-13; RULINGS 2026-09-13ab) — lane `v2roadcap2`
+
+Scout `v2roadcapkclt` on main 064e244e: §37 (1) moved `dsf:pol51` 0.94 m
+(+14.22 → +13.28 m) — the DEM grade along its chain is 6.8 %, under the 8 %
+road cap, so the longitudinal cap was never what held it (follow ratio
+0.287 over 179 m). `dsf:pol82` (owner's shapeID 791) is STILL `apron` at
++11.52 m though §37 (2)'s share rule should have left a face with 2 % of its
+perimeter on airside a road. Both attributions were incomplete. The lane
+first makes `explain KCLT` run (the `planar.__main__.default_inputs` half of
+the 13q chip: honour `O4_AIRPORT_MOD_CACHE_DIR` / the harness redirect as
+`build_airport.py` now does — one resolution, not two), then NAMES the rows
+holding `dsf:pol51` up (transverse rows to an apron edge? a bank or zone
+band? a pad frontage? the `taxi_trend` of a neighbour?) and the PASS that
+classes `dsf:pol82` apron (scorer role before §27, or a share read on the
+wrong perimeter), and fixes what it names.
+
+BARS (KCLT, ONE build): `dsf:pol51` within 2 m of the DEM over its chain
+(follow ratio ≥ 0.8), no service road over 3 m off the DEM airport-wide
+(today max +13.28 / −4.25); `dsf:pol82` classed `service_road` on its own
+ground; the 1:3 bank at the east edge shrinks with the fill it daylighted;
+cockpit CRITICAL motion ≤ 9 (13ab's block) with no new row on the east road;
+LEMD role census byte-identical (§37 (2) holds: the 61 apron-side lanes stay
+apron); suite twice.
+
+### §32 (4) PURITY OF A POST-SOLVE PROJECTION; §20a THE LAG IS A CONVERGENCE CONDITION; §30 (3) THE PAD PLANE IS PROJECTED (Fable 2026-09-13; RULINGS 2026-09-13ac) — lane `v2settle`
+
+Scout `v2unsettled2`: LEMD's hard set was never settled on merged main (12ac
+read the lane tip); the merge's §28 rows (42 one-way rows in the pad columns)
+leave a 2–3 cm shortfall of a coupled fixed point under a lag capped at three
+rounds (`LAG NOT SETTLED` on every arm, 0.30–0.68 m leader motion) and a
+polish that does not converge; and main's worst row (0.129 m at v8276/v8273,
+`building` + `graded_strip`) is minted AFTER the solve by `project_zone_bands`
+clamping a pad-rim vertex independently of its pad. Three laws, in order:
+
+**§32 (4) PURITY.** A post-solve projection may clamp only a column that
+carries NO hard row it does not own. `project_zone_bands` refuses a zone
+vertex that also carries a pad-ceiling, pavement-ceiling or runway row and
+leaves it to the solve (measured alone: main 0.1292 → 0.0271 m). The same
+test guards every projection that follows.
+
+**§20a THE LAG.** The one-way leader/follower fixed point iterates to
+`one_way_tol_m` (0.01 m) or REPORTS the named failure — which rows, which
+leader, its last move — BEFORE the augmented-Lagrangian polish;
+`one_way_max_rounds` becomes a safety ceiling (≥ 20) whose hit is a named
+failure, never a silent stop. Raising `polish_rounds_max` / `hard_weight`
+is refuted (12u, 13ac: 8 rounds → 2 rows, still unsettled).
+
+**§30 (3) THE PAD PLANE.** If (4) and §20a leave the pad ceiling unsettled,
+each pad's rigid plane takes the runway's and the zone band's treatment: a
+post-solve per-body QP on its free columns onto its own 1 % ceiling
+(`project_runway` / `project_zone_bands` discipline), run after purity so no
+two projections share a column; `HARD SET SETTLED` is then a re-read after
+every projection, and the design report states it for MERGED MAIN.
+
+Instrument: `v2_solve_replay.py --why-hard` (promoted from the scout's
+`hardrows.py`: every violated hard row with its vertices, coordinates,
+demanded vs allowed metres).
+
+BARS: LEMD on a fresh main capture `HARD SET SETTLED` and `LAG SETTLED`
+(today 5 rows / 0.129 m; lag 0.678 m), v8276/v8273 and v9295/v9696 at ≤
+0.02 m; KCLT's three counters re-read on its capture (13ab: 644 rounds, 21
+rows / 0.4144 m, lag 0.332 m) SETTLED or the failure named; solve wall not
+worse than +10 % (`--runs 3`); runway and zone projections unchanged on pure
+columns; suite twice; ONE LEMD build.
+
+## §38 THE TILE SEAM IS A PIN (owner 2026-07-04 / 2026-07-24 / 2026-07-26 / RULINGS 2026-09-13ah; Fable 2026-09-13) — lane `v2seampin`
+
+Owner (13ah): seam boundaries "must be kept at DEM and treated as an anchor
+like CIFP thresholds that everything else grades to." `constraints/seams.py`
+(M3a) minted the seam as a PREFERENCE (`Linear.soft`) after the SPLP class of
+2026-09-04 (runway edge 55.51 m and strip vertex 57.00 m on one seam line);
+a deviating vertex was reported as a "seam residual" and not published as a
+pin. Overruled.
+
+1. **A SEAM VERTEX IS A `Pin`** — the same object as a CIFP threshold: its
+   value is its own tile's baked DEM sample (the value the neighbouring
+   tile's mesh meets), its column is eliminated (`solve/rows._reduce`), it
+   holds exactly, it is published in the sidecar as `seam_pins` and the
+   census prices pin↔free pairs at the body cap. Every seam-band vertex of
+   every role, the runway included.
+2. **EVERYTHING GRADES TO THE SEAM.** Between two seam pins the pin↔pin
+   row is exempt (terrain against terrain, `constraints.seam_exempt`); the
+   free vertices between them take the hard family re-fitted between the
+   pins — the runway chord between a threshold and a seam pin, or between
+   two seam pins, exactly as §21.2 re-fits between thresholds. A family
+   that cannot be met between two pins is NAMED in the design report (the
+   two pins, the family, demanded vs allowed metres) — never a moved pin,
+   never a silent residual, never a preference.
+3. **NO BANK ALONG A SEAM.** The coverage edge at a tile seam is a pin line
+   already at the DEM; §37 (3)'s bank is not derived there, and a bank
+   chain crossing a seam line is a defect the census names
+   (`bank_across_seam`).
+4. **ONE AIRPORT, ONE SOLVE.** A seam-straddling airport is solved once on
+   the whole map and written as per-tile pieces (§9.2 A5/C3); the two pieces
+   share every seam vertex by identity (the 11-dp lat/lon join carries the
+   node id), so the runway meets itself across the seam at the pin.
+
+BARS (SPLP, both tiles, after scout `v2splpseam`'s attribution): every seam
+vertex at its DEM sample (0 seam residuals); runway z on either side of the
+seam identical at every shared vertex; no `bank_foot` chain within
+`half_width_m` of the meridian; the texture tear at −12.1610968, −77.0000457
+attributed (mesh side or patch side) and, if patch side, gone; cockpit block
+on both pieces with no CRITICAL row on the seam; LEMD/KCLT/CYXY (single-tile)
+byte-identical; the design report's settled lines; suite twice.
+
+### §33 (4) TWO-SIDED, §34 (4)–(6) AMENDED, §19.2 (2) AMENDED (Fable 2026-09-13; RULINGS 2026-09-13ai) — lane `v2rampwalk` round 2
+
+- **§33 (4) A DECK END IS AN EQUALITY.** The deck end takes the level of the
+  pavement it connects to (`deck_ends`'s face — LEMD `bridge_deck:-6288` →
+  `pav92` east, the road west) within `split_tol_m` as an EQUALITY, not a
+  lower bound; the deck's own profile runs between its two end levels under
+  the road cap. Bar: item 9's deck within 0.3 m of the apron at its east end
+  (today 1.66 m) and of the road at its west end.
+- **§34 (4) A TRIMMED BOUNDARY IS DENSIFIED ON A SLOPE.** Where the ribbon
+  trim's boundary runs across DEM relief, its stations are spaced so that no
+  ring edge carries more than `visual_m` of DEM change (below the chord cap).
+  Bar: the 8.50 m edge at 40.5331907, −3.5748496 (`zone2#23`, 18R/36L north)
+  → ≤ 0.5 m; cockpit CRITICAL visual worst back under round 1's 1.63 m.
+- **§34 (5) THE PORTAL RIM UNDER A DECK TAKES THE TAXI CELL'S SOLVED SURFACE.**
+  The DEM carries no bridge, so `DEM(mouth)` is the road in the cutting; the
+  abutment rim vertex takes an equality row to the deck cell's surface at the
+  same plan point (offset 0 — the `frontage_level` Linear's mechanism) and the
+  mouth's ramp floor descends from that rim. `structure_underpass.py` is
+  ARMED. Bar: LEMD F-6 (40.4610903 / 40.4612284, −3.54467): mouths and ramps
+  both sides, CRITICAL visual at the site 0 (armed today: 3 → 10),
+  `strip_seam_tear` 0; KCLT item 3 (35.2022266, −80.9404106 /
+  35.2013838, −80.9404162) mouths and ramps both sides.
+- **§34 (6) THE RAMP PROFILE SITS UNDER THE CAP.** The monotone profile
+  targets `ramp_max_grade − hard_tol_m / L` per edge so the emitted rows read
+  under the cap after 2-dp rounding. Bar: the +847 `within_shape` rows at
+  8.02 % → 0 (round 1: 2,769 → 3,616).
+- **§19.2 (2)** "flush at the road's OUTER edge" reads INNER edge for a
+  cell-less road (§34 (4) subtracts the ribbon whether or not a cell exists).

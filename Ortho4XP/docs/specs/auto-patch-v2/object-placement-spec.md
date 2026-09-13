@@ -3089,6 +3089,133 @@ unit` fallback (`placement_carrier.py:833-843`) has no distance cap (35 binds, 1
    worst coordinates verified against the bodies' geometry (twin); suite. No build;
    the app after.
 
+### §16d (1)–(3) MEASURED (lane `v2unboxed`, 2026-09-13; branch `claude/v2unboxed`)
+
+Implemented in `airport/placement_orphan.py` (NEW: §16d (1)'s whole law — the
+components the plan's bodies do not own, placed), `airport/placement_cut.py`
+(`_LineCutter.written_components` / `plan_box_of_tris` / `_draped_components`),
+`airport/placement_plan.py` (the pass between §15's candidates and §15's search;
+`_geom_hull`, `Staged.geom_boxes`), `airport/placement_carrier.py` (§16d (2)'s
+cap), `airport/placement_cockpit.py` (§16d (3)) and `airport/placement_seams.py`
+(`census_outside_box`, §16d (1)'s bar instrument, printed by `--write-pack` and
+`--torn-seams`).  Two files moved for the 1,000-line law: `_footless_targets` /
+`_carrier_pieces` into `placement_body.py`, `group_at_zero` into
+`placement_boxes.py`; both re-exported where every caller reads them.
+
+* **ATTRIBUTION FIRST — the dry arm is NOT the app's arm.**  `obj8_split_report`
+  on the 1.0.325 rebake plan does not reproduce the app's written carriers, and
+  the cause is THE SURFACE, not the population: the app hands `build_splits`
+  the built MESH sampler (`engine_v2._placement_surface(mesh_sample)`) while the
+  tool hands it a `LinearNDInterpolator` over `LEMD.graded.json`'s emitted
+  vertices (`surface_from_graded`).  Everything else matches — identical
+  `bodies_uncoarsened` 11,135 and `line_segments` 849, identical law keys, the
+  same `--admit-skipped` population — while the SURFACE-driven readings do not:
+  `anchor_off_surface` 0 (app) vs 6 (dry), `carrier_refused_zero_off_ground`
+  105 vs 221, `carrier_refused_far_from_carried_ground` 179 vs 274,
+  `unit_clusters` 206 vs 202.  Those refusals are exactly what pushes a search
+  down to the fallback rules, which is where `Terminal4-LEMD01__b0` sits
+  (`elect__b0 (838 m)` written, `SENRG__b233 (512 m)` dry).  **Every bar below
+  is therefore read on MATCHED DRY ARMS** — main `59790e5f` into pack copy A,
+  this branch into pack copy B, the same rebake plan, the same graded surface,
+  APFS clones of the live pack, the guard armed (both runs print `shared repo
+  UNCHANGED`).  The app's own figures are quoted beside them where they exist.
+
+* **THE INSTRUMENT (§16d (1)'s bar).** `census_outside_box` opens the WRITTEN
+  files and asks whether every `VT` row lies inside the `geom_box` the plan
+  published for that body.  On the app's live 1.0.325 pack it reads **378** of
+  2,109 bodies over 1 m (the scout's 397 under its own fixed metres-per-degree;
+  same population, same 8 over a kilometre, worst `Munoza-LEMD80__b0` 3,682 m).
+
+  | bar (matched dry arms) | A (main) | B (branch) |
+  |---|---|---|
+  | §16d bodies with geometry > 1 m outside their box | 390 | **0** (0 even over 1 cm) |
+  | nearest-footed fallback binds / over 100 m | 49 / 29 | **21 / 0** |
+  | §16c torn seams outside line/arc pieces | 0 | **0** |
+  | §16c single-component resources in ≥ 2 files | 0 | **0** |
+  | §15 carried body floating over its carrier | 0 | **0** |
+  | duplicate rows of a split placement surviving | 0 | **0** |
+  | DSF round trip / new `OBJECT_DEF`s read back | OK 2,141 | **OK 2,279** |
+  | files | 2,141 | **2,279** |
+
+* **THE FOUR PLATES (§16d (4)).**  Each is now its own footless body on its own
+  ground with its authored y kept, so it renders 5 m UNDER the ground the pack
+  put it over — buried, as authored:
+
+  | plate | A: render − ground | B |
+  |---|---|---|
+  | `Terminal4_green-T4BJO` | **+15.94** | −5.00 (ground 595.81) |
+  | `Terminal4_yellow-LEMD16` | **+15.73** | −5.00 |
+  | `Cargo-LEMD63` | **+5.77** | −5.00 |
+  | `OldTerminal_FSX-LEMD43` | **+1.72** | −5.00 (ground 595.82) |
+
+  (the app's own frame read +16.37 / +15.90 / +7.13 / +2.22 — the same four
+  plates, the surface difference above.)
+
+* **THE CARGO ROOFS.**  `Cargo-TEJ1`'s roof plates are no longer one carried
+  body riding a zero chosen elsewhere: each component finds the hangar it stands
+  over.  The piece over `NEWCO__b9` has its roof base at **604.95** — 0.09 m
+  from the hangar's authored roof top 605.04, inside the 0.3 m bar; the piece
+  over `NEWCO__b10` reads 604.72 on its own hangar.  `Cargo-TEJ3` likewise
+  (ten pieces on `CNTRL`, `FBRIK__b0/b1`, `NEWCO__b0/b3/b5/b8/b11/b12`, `TNT__b3`).
+
+* **THE NAMED SITES HELD** (11at/12h/12o/12z/12aq/12ar; base planes per
+  resource, arm A → arm B): `Terminal4_green-TEJ3` 610.41–617.17 → identical;
+  `Terminal4SAT_green-TEJ3` 589.47–597.26 → identical; `HANG3` 605.73–606.06 →
+  identical; `LEMD47` one body 603.53 → identical; `Bridge2` 598.73–607.03 →
+  identical; `TABOX` spread 0.01 → identical; `T2NBG` 602.81–607.24 → identical;
+  `green-PKT4` and `Terminal4_green-TEJ1` identical; `Terminal4_48` one body,
+  spread 0.00 → identical.  `green-STRT4` gains 5 files (19 → 24) at the SAME
+  base range 597.54–617.71: the orphan components now have files of their own
+  inside the range, not outside it.
+
+* **A LATENT WRITER DEFECT FOUND AND FIXED.**  `obj8_split` named a body's file
+  by its index in the LIVE list (`body_resource_name(rel, k)`) while the plan
+  spells it `body_resource_name(resource, body_id)` and the DSF row is written
+  on the plan's name.  A body the cut leaves with NO triangle (its geometry
+  inside an ANIM block another body owns) therefore shifted every later body's
+  file one name down — the row carried the NEXT body's geometry at this body's
+  zero.  Measured at LEMD: `OldTerminal_FSX-DCNEUN`'s `__b0` row held `b1`'s
+  object, 254 m from `b0`'s own box.  The file is now named by its body, and a
+  body with no file is dropped from the plan's rows (`bodies_without_a_file`) so
+  no `OBJECT_DEF` points at a file nothing wrote.
+
+* **THE COST, REPORTED NOT HIDDEN.**  LEMD plan stage **13.6 → 17.8 s** (wall
+  16.81 → 21.08 s, medians of 3 foreground runs each; the branch's own
+  `plan stage` line is new and reads 17.6–18.2 s, the baseline's inferred from
+  the same fixed 3.2 s of tool overhead).  §16d (4)'s `LEMD ≤ 10.3 s` is
+  **MISSED on BOTH arms in this frame** — the 10.3 s figure was read without
+  `--admit-skipped`, which this replay needs.  OTHH plan stage **≈ 83 → 86.1 s**
+  (wall 86.99 → 89.89, +3 %), the ≤ 60 s bar missed on both arms as it was at
+  12ap.  The cost is the POPULATION: LEMD now places 27,737 components the plan
+  never saw (19,905 joined to a body within the reach, 7,832 their own bodies),
+  OTHH 143,950 (98,776 / 45,174), and 7,786 more carrier searches run at LEMD.
+  Three optimisations already took most of it back and are part of the change:
+  `written_components` hands back numpy arrays and the caller builds Python
+  triples only for what it places; the joined components of one group are ONE
+  append, not one per component; `group_at_zero` memoises each group's zero and
+  ground range on its length (29.6 M inner steps, 9 s of the profiled stage).
+  A further reduction is a new question, not this lane's.
+
+* **MOVING THE WRONG WAY, NAMED.**  §16b's two counts rise because the
+  population they read grew: `carried piece float over its OWN ground > 0.5 m`
+  120 → 151 and `body wider than its terrain group` 1,037 → 1,116 (both already
+  over their bar 0 on main).  The rise is the components that previously stood
+  in some other body's file where NO instrument read them; they are now bodies
+  with their own ground reading.  `§16 CARRIED bodies whose carrier's zero is
+  over 1 m from the ground under their own geometry` 62 → 81 (information only),
+  and COCKPIT CRITICAL visual 459 → 494 for the same reason.
+
+* **SUITE** `tests/auto_patch_v2 tests/test_harness.py
+  tests/test_role_edge_census.py tests/test_mesh_sampler*.py
+  tests/test_post_mesh.py tests/test_object_rebake.py`: **1,234 passed, 1
+  skipped**, twice.  Twins: `test_16d_1_a_component_beyond_the_reach_is_its_own_body`,
+  `test_16d_1_every_written_triangle_lies_inside_its_body_box` (the bar as a
+  property), `test_16d_2_the_nearest_footed_fallback_is_capped`,
+  `test_16d_3_the_cockpit_coordinate_is_the_bodys_not_the_row`.
+  `coarsen_reach_m <= 0` DISARMS the reach (the convention every other
+  plan-contiguity key takes): the component then joins the nearest body.
+
+
 ### §16d (4)–(6) Carried components group by carrier; the ground bound is member-agnostic; a body anchors on the pad it stands on (Fable 2026-09-13; RULINGS 2026-09-13m)
 
 Scout `v2kclt1o` on KCLT (Nimbus, native XP12: master models per material — `paredes_N`
@@ -3129,6 +3256,103 @@ a wall carried by GLAZING; a 20-vertex z = 0.00 crater in apron face 661 (`dsf:p
    glazing carrier named and, if glazing is footless by authoring, excluded by the
    existing solid test (report, do not name-match); the LEMD sites held; seams 0;
    §16b carried-own-ground bar at KCLT 32 → quoted; files; plan stage; suite.
+
+### §16d (4)–(6) MEASURED (lane `v2unboxed`, 2026-09-13; branch `claude/v2unboxed`)
+
+Implemented in `airport/placement_body.py` (§16d (4): `_atom_targets`, one carried
+target per ATOM, and `CARRIED_ATOMS_MAX`), `airport/placement_plan.py` (the split
+before §15's search, carrying the SOURCE group so §16c (7)'s cluster membership
+survives it), `airport/placement_atom.py` (§16d (5): the `member != top.member`
+clause deleted) and `airport/anchor_rule.py` (§16d (6): `pad_majority`, and the
+`pads` argument WIRED at last).  `placement_geom.py` took `written_components` /
+`part_tris` / `plan_box_of_tris` for the 1,000-line law.
+
+* **THE ATOM, NOT THE BARE COMPONENT.**  §16d (4) says "each connected component";
+  the division here is by §16c (1)'s ATOM (`_comp_blocks`) — the component, or the
+  CLUSTER §16c (6)/(7) bound it into.  Dividing a rigid cluster would undo that law,
+  and the two readings are the same wherever no cluster exists.  **Reported as a
+  deviation from the sentence, held to be its intent.**
+
+* **BARS (KCLT 1.0.324 frame, matched dry arms; the write half into an APFS clone,
+  guard armed, `shared repo UNCHANGED` on every run).**
+
+  | bar | before (this branch after §16d (1)–(3)) | after |
+  |---|---|---|
+  | `005_ALB__b9` vs its `building` pad | **−5.04** (12ap's frame) / −5.85 here (zero 210.46, pad 216.31) | **+0.02** (zero 215.51, pad `building26` 215.49–215.51) |
+  | widest RETAINED cluster zero-plane span | 5.69 m | **0.64 m** |
+  | binds refused for ground | 14 | **22** |
+  | carried bodies divided by ATOM | 0 | **473** |
+  | footed bodies anchored ON their pad (§16d (6)) | 0 | **61** |
+  | §15 carried body floating over its carrier | 0 | **0** (bar 0) |
+  | §16d written geometry outside its own box | — | **0** (bar 0) |
+  | §16c torn seams outside line/arc pieces | 0 | **1**, step **+0.16 m**, `paredes_9_charlotte` b1↔b6, ONE shared vertex — under the 0.3 m census tolerance and under `visual_m`; NAMED, bar missed |
+  | files | 473 | **477** |
+  | DSF round trip / defs read back | — | **OK, 477/477** |
+  | plan stage (dry, 3 runs) | 8.65 s | **8.3–8.5 s** |
+
+  The `001_ALB` roof bodies the owner's read names are now cut per atom and each
+  rides the wall body IT stands over (`b5` → `006_ALB__b0` 219.56 vs 219.94 ground,
+  `b6` → `008_ALB__b1` 221.39 vs pad `building59` 221.38–221.41, `b11` →
+  `004_ALB__b0` 217.51 vs pad 217.59, `b29` → `004_ALB__b25` 216.93 vs pad
+  216.93–216.96) where before they were ONE carried body per resource at one zero
+  (217.51 under 223.75 m of ground, 208.81 under 221.89).  §15's own carried bar —
+  `zero − zero_beneath`, which IS "within 0.5 m of the wall beneath" — is **0 on
+  both arms**.
+
+* **THE TERMINAL, REPORTED NOT CLOSED.**  Over `building80` (1.19 m of relief,
+  865-node ring) the ON-PAD set's zero spread is **1.03 m** on both arms — the pad's
+  own relief, as §16d (6) predicts.  The count of bodies whose anchor lands OFF the
+  pad moves only 71 → 65 (footed 26 → 24) in this frame, NOT 133 → 0: the 133 was
+  read on the app's 1.0.324 WRITTEN frame, and the residue here is bodies whose
+  ground contacts are MOSTLY off the pad (the rule's own majority test declines
+  them) plus carried bodies, which take their carrier's anchor by §15 and not their
+  own.  Named, not closed.
+
+* **A DEFECT §16d (4) EXPOSED AND FIXED.**  A target group holding BOTH a cut piece
+  (its own `tris`) and a raw the cut never touched (its parts' whole components) was
+  read for its `tris` alone, so the rest of the group's triangles were claimed by no
+  body and `obj8_split` handed them to the nearest one: measured at KCLT, 9
+  placements left 990–3,280 triangles unclaimed and `001_ALB__b32`'s file reached
+  207 m outside its own box.  The audit (every placement's solid triangles against
+  the union of its bodies' `tris` and `cut_components`) reads **0 of 103** after.
+
+* **THE COST — OVER BUDGET, AND NAMED.**  Plan stage, dry, this machine: LEMD
+  13.6 (main) → 17.8 (§16d (1)–(3)) → **25.0 / 28.6 / 46.0 s** over three runs;
+  OTHH ≈83 → 86.1 → **136.5 s**; KCLT 8.65 → **8.3–8.5 s**.  The LEMD run-to-run
+  swing is the standing ±25 % and worse; the OTHH figure is one run.  §16d (4) asks
+  a carrier search PER ATOM, and OTHH's clutter members publish thousands of them.
+  Three narrowings are already in: a body narrower than `coarsen_reach_m` is not
+  divided (§16a (1) already cuts those against the carriers the search returns),
+  `CARRIED_ATOMS_MAX` 64 bounds a body's pieces, each piece carries only ITS OWN
+  parts (so §15's contact fallback reads its own neighbours, not the whole body's),
+  and that fallback now counts by set intersection instead of scanning the unit's
+  neighbour list once per candidate.  **This takes an airport that was already over
+  the 60 s per-airport budget further over it: it needs the owner's approval and a
+  Fable-5 whole-pipeline optimisation review before it ships** (`Ortho4XP/CLAUDE.md`
+  HARD LAW).  No further reduction was attempted in this lane.
+
+* **THE LEMD SITES HELD** on the same 1.0.325 frame, written arm: the four shadow
+  plates still −5.00 on their own ground; `Cargo-TEJ1` on `NEWCO__b9` at 604.95;
+  §16d outside-box 0; seams 0; §15 carried float 0; round trip OK 2,435/2,435;
+  every named site's base range identical to §16d (1)–(3)'s except
+  `Terminal4_green-TEJ1` (spread 4.01 → **1.28**) and `T2NBG` (4.44 → **4.28**).
+  §16b's carried-piece own-ground count rises again with the population it reads
+  (LEMD 151 → 154, KCLT 41 → 41), already over its bar 0 on every arm.
+
+* **SUITE**: **1,237 passed, 1 skipped**.  Twins:
+  `test_16d_4_each_atom_of_a_carried_body_finds_its_own_carrier`,
+  `test_16d_5_the_ground_bound_holds_inside_one_member_too`,
+  `test_16d_6_a_body_anchors_on_the_pad_it_stands_on`.  Four existing twins were
+  re-read against the new law and are marked with the ruling that changed them: the
+  two §16a (1) roof twins now assert the OUTCOME and the atom count, §14 (1)'s
+  footless twin reads two atoms as two own-ground bodies, and 12ap's bind twin
+  asserts the refusal INSIDE one member.
+
+* **NOT DONE.** The KCLT z = 0 crater in apron face 661 (`dsf:pol31`) is lane
+  `v2zerocrater`'s and no bar here excludes or names its bodies — the terminal
+  figures above are quoted whole.  The glazing carrier is not separately attributed.
+  No airport was built.
+
 
 ## §16e THE DECK TOP AND THE CREST PLATE ARE DATUMS (owner RULINGS 2026-09-13k; Fable 2026-09-13n) — lane `v2othhdatums`
 
@@ -3180,3 +3404,215 @@ tunnel wall object is admitted — OTHH is the only corpus airport with them.
    the LEMD sites held; plan stage; suite. Instrument: `seat_feet_census.py
    --placement-plan --mesh` passes its bbox as (lat, lon) to a sampler that takes
    (lon, lat) — broken since the switch; fixed with a twin.
+
+**MEASURED (lane `v2othhdatums`, 2026-09-13).** Implemented in
+`airport/anchor_rule.py` (`Datum`, `datum_of`, `_datum_anchor`, `keep_off_row`,
+`Anchor.datum`), `airport/rebake_plan.py` (`ring_ends` / `end_line_stations`,
+stamped into the new `Member.deck_end_stations`), `model/rebake.py` +
+`model/placement.py` (the two published fields), `airport/placement_body.py`
+(the two `anchor_for` call sites pass `datum=`), `airport/placement_carrier.py`
+(`is_elevated`), `airport/placement_plan.py` (the keep test), and
+`auto_patch/engine_v2.py` (`surface.water`). Matched arms on the app's 1.0.326
+OTHH frame (`o4_v2_rebake_OTHH.json` + `OTHH.graded.json` + the built
+`Data+25+051.mesh`) replayed through `v2_rebake_replay.py plan --sampler mesh`,
+and the LEMD 1.0.325 frame the same way.
+
+* **WHY THE MESH AND NOT THE GRADED SAMPLER.** `obj8_split_report`'s graded
+  sampler reads the canal as OFF-SHEET, and the whole of §16e (2) turns on
+  water being a DATUM AT 0.00 — which only the mesh states. `v2_rebake_replay
+  plan --sampler mesh` is also the sampler the APP calls (12g) and the entry the
+  plan-stage time is read on, so one instrument gives both. No `--mesh` option
+  was added to `obj8_split_report`: a second sampler in a second entry is the
+  census-wrapper defect.
+* **§16e (1), THE NINE WALLS (bar: crest within 0.3 m of the corridor rim).**
+  Before / after, crest − ground at the wall band: `tunnel middle - west`
+  **+19.54 → 0.00**, `tunnel1` (two placements) **+10.78 / +9.13 → +0.02 /
+  +0.21**, `tunnel south west 2` **+10.30 → 0.00**, `tunnel_sw` **+5.29 →
+  0.00**, `tunnel west 1` **+5.01 → 0.00**, `tunnel west 3` **+4.47 → 0.00**,
+  `tunnel west 2` **+3.98 → +0.02**, `tunnel middle - east` **+6.02 → 0.00**.
+  **Walls over 0.3 m from the band: 9 → 0.** Four of the nine were KEPT on
+  their authored row before (the crest then stands `plate_y` over the ground by
+  construction) and are WRITTEN now: the keep test asked whether the row and
+  the anchor read the same SURFACE, which for a datum body says nothing
+  (`anchor_rule.keep_off_row`).
+* **The 8 drainage basins (`plate_y` ≤ 0) are BYTE-IDENTICAL** — every anchor
+  point, `y_zero`, surface and reason unchanged, all still `basin rim (...)` at
+  zero 3.959/3.960. **LEMD IS BYTE-IDENTICAL WHOLE**: 2,109 body rows and 4
+  keeps, ZERO changed, including the T4S pit and every named site
+  (green-TEJ3 20 rows, T4 47, HANG3 2, LEMD47 1, TABOX 2, Bridge4 2 — all 0).
+* **§16e (2), THE DECK TOP.** `Bridge_01`'s deck takes the datum: deck top
+  **5.52 → 3.23 m** against land at 3.96 — the bar (3.96 ± 0.3) is **MISSED by
+  0.43 m**, and the mechanism is measured, not guessed: its end lines stand on
+  the CANAL BANK, which the mesh reads 2.52 (start end median) and 3.60 (far
+  end) with one station on water; 3.96 is the graded road further landward.
+  R12's landward walk is not armed here — it walks on too few LAND samples and
+  this end line has eleven. Reported, not iterated (materiality/attempt cap).
+* **NOT DONE — `Bridge_04` / `Bridge_05` deck tops (6.43 / 6.43, bar 3.96).**
+  Their deck members carry NO PART AT ALL in the plan (`parts 0`: the partition
+  found no genuine solid in them), so the placement path forms no body for them
+  and there is nothing to anchor; both stay KEPT on their row. Giving a
+  partless datum member a body is a BODY-FORMATION change in
+  `placement_body._raw_bodies` (every downstream reader indexes the body's
+  parts) and belongs with §16 (1)'s population rule — reported for ruling.
+* **NOT DONE — §16e (3), and the two attempts are the attribution.** The rule
+  needs "the Bridge_NN family", and the pack states no such thing: OTHH's
+  unit:6 puts Bridge_02, Bridge_03 and Bridge_06 — three bridges 250 m apart —
+  on ONE row at ONE AGL, so `deck_signature.family_key` (the anchor spelling)
+  calls all thirty members one family, and at LEMD a shared-datum row would
+  call 171 resources one. The lane tried the DECK'S RING as the family (a body
+  standing inside `deck_ring` is that bridge's: the placement bound rigid, its
+  cuts exempt, and the rest-on candidate set — `placement_carrier.carriers_for`,
+  the `ranked` list built under `if box is not None` — cut to its own family).
+  Read on the member's LOWEST part the cross-bridge carries went **2 → 3**;
+  read on ALL its parts (attempt 2) **2 → 5**, and Bridge_02's per-placement
+  spreads went the wrong way too. Both attempts moved the section's own bar
+  backwards and the code is DELETED, not kept: the ring does not partition the
+  clutter (OTHH's `Bridge_02_CLUTTER_000` stands inside Bridge_06's ring) and a
+  family-less body is not filtered at all. What §16e (3) needs ruled is what
+  names a bridge when the row does not and the ring does not either.
+  `Bridge_02_CLUTTER_007`'s six piers therefore still span **4.97 m**, the
+  per-placement spreads are unchanged, and cross-bridge carriers stay **2**.
+* **The rest of OTHH** (matched arms, mesh census): feet histogram IDENTICAL
+  (437 / 164 / 44 / 3; rows with a foot > 0.3 m 211, > 3 m 3); files 1,334 →
+  **1,338** (the four written walls); §13 `elevated bodies as own files` **0**
+  with the 10 datum bodies counted apart; §14 `footless at datum` **3 → 3**
+  (§16e (4) asked 4 → ≤ 1; on the MESH frame the baseline is 3, and the datum
+  law does not touch that class — the graded frame's 4 is a sampler
+  difference); §14 basin-RING spread 0.00 → **0.20 m** (bar 0.3: the walls now
+  anchor on a band station rather than on the rim ring, and the bar reads them
+  there); §15 stands-over float 72 → 74 with CARRIED **7 → 7**; §16b carried
+  float 118 → **117**, wide 170 → **170**; cockpit CRITICAL visual 281 → 289.
+  Torn seams were not re-read (the written-pack census; no pack was written).
+* **Plan stage** (`--runs 3`, mesh sampler, foreground): **72.23 → 79.64 s**
+  mean (min 70.71 → 74.45). The ≤ 60 s bar is MISSED ON BOTH ARMS — it was
+  already missed on main — and the +7.4 s is the datum's own stations plus the
+  four newly-written walls; `surface` calls 568,468 → 569,216 (+748, 0.13 %),
+  so the wall time is not the datum reading and the two arms are within the
+  ±25 % single-run swing the law names. Reported, not optimised.
+* **THE INSTRUMENT (§16e (4)), fixed and twinned.** `seat_feet_census.py
+  --placement-plan --mesh` passed `(min lat, min lon, max lat, max lon)` to a
+  sampler taking `(min_lon, min_lat, max_lon, max_lat)`: at OTHH it raised
+  `no mesh triangles inside (25.24, 51.59, 25.28, 51.62) — wrong tile?` and the
+  mode had never run. `plan_bounds()` is the one place the two orders meet.
+* **THE REPLAY NOW ARMS THE SHARED-REPO GUARD** (`v2_rebake_replay.py`, the
+  same `harness/shared_repo_guard` implementation): `plan` calls
+  `ensure_dsf_text_path`, which generates a DSF dump into a mod cache the lane
+  worktree MOUNTS at the shared repo. Every run of this lane printed
+  `[guard] shared repo UNCHANGED`.
+* **Suite**: `tests/auto_patch_v2 tests/test_harness.py
+  tests/test_role_edge_census.py tests/test_mesh_sampler*.py
+  tests/test_post_mesh.py tests/test_object_rebake.py` — **1,237 passed, 1
+  skipped**, twice. Six new twins in `tests/auto_patch_v2/test_v2objsplit.py`.
+
+### §16e (3) AMENDED, (5)–(6) ADDED (Fable 2026-09-13; RULINGS 2026-09-13v) — lane `v2bridgecontact`
+
+The lane's two attempts are the attribution: the ROW does not name a bridge
+(OTHH unit:6 puts three bridges 250 m apart on one row at one AGL; LEMD's
+shared-datum row would call 171 resources one family) and the RING does not
+either (it is a bbox; `Bridge_02_CLUTTER_000` stands inside Bridge_06's ring).
+
+3. **A BRIDGE IS NAMED BY CONTACT WITH THE DECK'S OWN MODEL FOOTPRINT.** The
+   deck member's mesh projected to plan is the deck's FOOTPRINT POLYGON (the
+   ring is its bbox and is too coarse where decks overlap in plan). A pier or
+   clutter body BELONGS to the deck whose footprint polygon contains its plan
+   centroid, or lies within 0.5 m of it; where two decks' footprints both
+   contain it, the deck whose underside is nearest ABOVE the body's top wins
+   (absolute vertical distance — §16c (4)). A body no deck footprint contains
+   has NO bridge family: it takes the ordinary §16c rest-on ground, is never
+   filtered and never carried by a deck. `family_key` is untouched for every
+   other class; the bridge family is a derived relation computed once per
+   plan and published per body (`bridge_of`). The bodies of one bridge ride
+   the deck's datum as ONE rigid cluster (per-placement zero spread ≤ 0.3 m);
+   within that cluster a body may rest only on its own deck or its own piers.
+5. **A PARTLESS DECK MEMBER IS A BODY.** A deck member whose partition found no
+   genuine solid (`parts 0`: Bridge_04, Bridge_05) is admitted in
+   `placement_body._raw_bodies` as one body whose footprint is the model's
+   declared bounds and whose deck top is its plate — the §16 (1) population
+   class, not a skip. It anchors under (2) like any other deck.
+6. **THE DECK'S END-LINE DATUM IS THE GRADED FACE THE DECK CONNECTS TO, NOT
+   THE BANK UNDER THE END LINE.** Bridge_01's end lines stand on the canal
+   bank (mesh 2.52 / 3.60) and the deck seated to 3.23, 0.73 m below the road
+   at 3.96 that drives onto it — a step at the abutment an aircraft or vehicle
+   would feel. The datum walks LANDWARD from the end line (R12's walk, armed
+   regardless of sample count) until it meets a graded pavement/road face or
+   the design surface's graded ground; bank and water samples are excluded.
+   The owner's rule ("seat the top deck to align with the ground and let the
+   feet land where they may") is judged there: |deck top − datum| ≤ 0.5 m
+   (§31 visual) at EACH abutment; feet unconstrained and reported.
+
+BARS (OTHH 1.0.326 frame, `v2_rebake_replay.py plan --sampler mesh`, matched
+arms): Bridge_01/04/05 deck tops within 0.5 m of the graded road at each
+abutment (today 3.23 / 6.43 / 6.43 vs 3.96); `Bridge_02_CLUTTER_007` pier
+spread 4.97 → ≤ 0.3; per-placement zero spread ≤ 0.3 for every bridge;
+cross-bridge carriers 2 → 0; `bridge_of` published for all 30 members;
+walls (§16e (1)) and the 8 drainage basins byte-identical; LEMD 1.0.325
+byte-identical; plan stage not worse than 80 s (`--runs 3`); suite twice.
+
+### §16e (3) WITHDRAWN; (6) AMENDED (Fable 2026-09-13; RULINGS 2026-09-13ae)
+
+Lane `v2bridgecontact` refuted (3) a third way (its MEASURED block above):
+OTHH's bridge clutter runs BESIDE the deck plate (only 51–71 of ~80–102
+bridge bodies inside a deck footprint or within 0.5 m; the rest 0.6 … 45 m
+outside) and Bridge_02/03/06 are an interchange whose decks overlap in plan.
+A footprint family is partial, and a partly-bound bridge is worse than an
+unbound one (cross-bridge carriers 2 → 9 on both arms).
+
+3. **WITHDRAWN.** The deck is the only datum body of a bridge. Its separate
+   clutter and piers rest on their own ground under §16c and are REPORTED
+   per body: `Body.bridge_of` (the deck whose model footprint contains the
+   body, or ""), the per-placement zero spread and the cross-bridge carrier
+   count are census lines, not bars. No bind and no carrier filter reads
+   `bridge_of`. The owner's read of OTHH in app 1.0.327 decides whether any
+   further bridge law is wanted.
+6. **AMENDED — the walk stops at the first dry, level line.** The first
+   limb (a graded pavement/road face) is unreadable where the mesh carries
+   no roles (no graded face within 140 m landward of either Bridge_01
+   abutment). The end-line datum walks landward from the end line in 5 m
+   steps and stops at the first line that is DRY (no water sample) and
+   LEVEL within `split_tol_m` across its span — that line is the design
+   surface's graded ground there; the bank is exactly where the line is not
+   level. Measured: Bridge_01 / 04 / 05 deck tops 3.96 / 3.96 / 3.96 against
+   the land at 3.96.
+
+## §16f AN OBJECT FAMILY STAYS TOGETHER (owner RULINGS 2026-09-13af; Fable 2026-09-13) — lane `v2family`
+
+Owner (KCLT 13j item 9): "Many parts of the main terminal building complex are
+seated at different heights creating floating or sunken elements by a few
+meters"; on the proposal (13ab): "approved, whenever feasible, keep object
+families together". Scout `v2roadcapkclt`: KCLT's 27 basin refusals are ALL the
+`paredes_*_charlotte` / `techos_*` / `suelos_interiores_charlotte` /
+`Charlotte_Airport_00{5,8}_ALB` members, each refused under 09ag rule 5b ("a
+slab sitting on datum relief, not a sunken solid"), 4.25–9.54 m under the
+local ground and ~0 under their own render datum — the pack authored the whole
+complex on one flat datum plane over real relief, and the placement stage seats
+each piece to the ground under itself.
+
+1. **A FAMILY** is the pack's set of members that (a) share one authored datum
+   plane — the same placement row set at one authored y (the §16c (6)/(7) unit
+   is the unit of contact) — AND (b) form ONE connected plan cluster: footprints
+   in contact within `[placement] contact_eps_m` or overlapping. Two placement
+   rows do not make a family (LEMD's shared-datum pack puts 2,035 of 2,109
+   bodies on two rows); the plan cluster does. A family is derived once per
+   plan and published per body as `family_of`.
+2. **ONE ZERO PLANE.** A family's bodies take one zero: the datum of the
+   emitted `building` pad their footprints mostly stand on (§16d (6)'s pad
+   majority read over the family's contacts), else the median ground under the
+   family's own contacts. Every member anchors on that plane; a member whose
+   footprint stands apart from the pad (beyond `contact_eps_m` from every other
+   member's footprint) is NOT in the family and is cut to its own ground (§16c).
+   Rule 5b's refusal stays for a genuine slab-on-relief SINGLE member; a
+   family's slab is the family's floor and is admitted with it.
+3. **FEASIBILITY IS MEASURED, NEVER ASSUMED.** A family is held together only
+   where (1)(b) holds for ALL its members; a partial cluster (OTHH's bridge
+   clutter beside the deck plate, §16e (3) withdrawn) is reported per body and
+   not bound. The census prints per family: members, zero spread, members cut
+   apart, the pad or ground it seated on.
+
+BARS (KCLT frame, `v2_rebake_replay.py plan --sampler mesh`, matched arms;
+then ONE KCLT tile-side object run): the terminal family's per-body zero
+spread ≤ 0.3 m (today 4.25–9.54 m under local ground across members); basin
+refusals of the family 27 → 0; the family seated at the terminal pad's level
+(name the pad and its level); no member floating or sunken > 0.5 m against
+the pad (§31 visual); LEMD 1.0.325 and OTHH 1.0.326 frames byte-identical or
+every changed placement named with its reason; plan stage not worse than
++10 % (`--runs 3`); suite twice.

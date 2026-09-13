@@ -635,7 +635,7 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     faces_by_ref: dict[str, list[Face]] = {}
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
-    relative = fallback = 0
+    relative = fallback = ramp_vs = 0
     for b in planar.basins:
         inputs = (b.id, *(f"obj:{o}" for o in b.objects[:8]))
         src_floor = Source(GEN, "basin.floor = deepest_solid: the rendered floor plate "
@@ -644,6 +644,11 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_wall = Source(GEN, "basin.rim = ground: the rim at the DEM where bare (2026-09-03b "
                           "L1; 2026-09-04d), the apron's value where shared (2026-08-28c "
                           "item 3)", inputs)
+        # §24 (5) (owner RULINGS 2026-09-13g): the ramp corridor's own row
+        src_ramp = Source(GEN, "basin ramp corridor: the trench floor takes the shell's "
+                          f"authored DECK elevation - floor_clearance_m {clearance:.2f} per "
+                          "station (spec §24 (5), 2026-09-13g) — a modelled ramp is only "
+                          "visible if the terrain under it climbs with it", inputs)
         floor_vs = {v for f in faces_by_ref.get(b.floor_ref, ())
                     for v in planar.ring_vertices(f.ring)}
         rim_vs = sorted({v for f in faces_by_ref.get(b.wall_ref, ())
@@ -663,6 +668,18 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                              "floor plate, 2026-09-11t §24 (2))", inputs)
             for v in sorted(floor_vs):
                 vx, vy = planar.vertices[v].xy
+                # ── §24 (5): THE FLOOR FOLLOWS A RAMP (13g) ───────────
+                # Under a ramp corridor the trench is not one depth under
+                # the rim: it is the DECK's own authored elevation minus
+                # the clearance, per station, so the modelled ramp rises
+                # out of the pit with terrain under it all the way.  The
+                # pin is senior — the ramp's profile is the object's, not
+                # a law the rim can pull.
+                deck = b.deck_z_at(vx, vy)
+                if deck is not None:
+                    pin(v, deck - clearance, src_ramp, senior=True)
+                    ramp_vs += 1
+                    continue
                 r = min(rim_vs, key=lambda u: (planar.vertices[u].xy[0] - vx) ** 2
                         + (planar.vertices[u].xy[1] - vy) ** 2)
                 # ONE EQUALITY ROW (``lo == hi``): ``Diff`` caps a difference
@@ -693,7 +710,8 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             path = LineString(list(b.wall_path) + [b.wall_path[0]])
             _rim_rows(planar, airport, path, rim_vs, shared_with_ground, pin, src_wall)
     rows.extend(pins.values())
-    STATS["basins"] = {"floor_relative": relative, "floor_absolute_fallback": fallback}
+    STATS["basins"] = {"floor_relative": relative, "floor_absolute_fallback": fallback,
+                       "floor_ramp_vertices": ramp_vs}
     return rows
 
 

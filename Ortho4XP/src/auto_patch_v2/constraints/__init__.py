@@ -14,7 +14,8 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
-from . import (apron, ceiling, flat_site, foot_rows, groundside, junction_mesh,
+from . import (apron, ceiling, eat, flat_site, foot_rows, groundside,
+               junction_mesh,
                no_step, pad_frontage_gs, pads,
                proximity, roads, routes, runway_chord, runway_profile, seams, strips,
                structures,
@@ -64,6 +65,13 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage
     # rule read the other way — the lot / service road follows the pad.
     ("groundside_frontage_level", pad_frontage_gs.groundside_frontage_level),
+    # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
+    # ruled 13q item 2; spec §36): the rect beyond a departure end is PINNED
+    # a tail height below the departure surface, and the taxi rows either
+    # side ARE the ramp.  Runs after the taxi / apron families whose
+    # pavement it governs and before the senior datums it yields to
+    # (:func:`eat.withdraw_against_senior`, the post-pass below).
+    ("eat_anchor_rect", eat.eat_pins),
     ("water_pins", water.water_pins),
     ("seam_pins", seams.seam_pins),
     ("flat_datum", flat_site.flat_datum),
@@ -122,6 +130,12 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
     rows, n_junior = structures.reconcile_datums(rows, law)
     counts["structure_datum_withdrawn"] = n_junior
     walls["structure_datum_withdrawn"] = 0.0
+    # A NODE THAT IS ALREADY HARD IS NEVER OVERRIDDEN (spec §36; v1's own
+    # rule): the EAT rect yields to every other pin family and to a rigid
+    # group, rather than winning by generator order in the reduction.
+    rows, n_eat = eat.withdraw_against_senior(rows)
+    counts["eat_pin_withdrawn_senior"] = n_eat
+    walls["eat_pin_withdrawn_senior"] = 0.0
     # THE 5 % CEILING (owner RULINGS 2026-09-09b (4)): a POST-PASS over the
     # law set — one hard twin at the ceiling per pavement DIFFERENCE row
     # (``constraints/ceiling.py``), never a second reading of the geometry.

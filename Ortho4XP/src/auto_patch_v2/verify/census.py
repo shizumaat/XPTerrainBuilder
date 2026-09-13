@@ -26,6 +26,7 @@ from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
                      resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
                      strip_transverse)
 from .contiguity import lateral_contiguity
+from .eat import eat_ceiling
 from .frontage import frontage_near_miss
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
@@ -65,6 +66,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "frontage_near_miss": frontage_near_miss,
     "wall_in_runway_strip": wall_in_runway_strip,
     "basin_floor_declaration": basin_floor_declaration,
+    # spec §36: the pinned end-around-taxiway rect, read back
+    "eat_ceiling": eat_ceiling,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or
@@ -168,6 +171,11 @@ def census(surface: GradedSurface, law: Law,
            law_caps: _t.Mapping[int, float] | None = None
            ) -> dict[str, list[Row]]:
     """Rows per family over the emitted product; rows on relaxed vertices
-    carry :data:`RELAXED_KEY` (:func:`mark_relaxed`)."""
+    carry :data:`RELAXED_KEY` (:func:`mark_relaxed`).
+
+    ``law_caps`` is ``constraints.roads.road_law_caps`` — since §37 (1)
+    (RULINGS 2026-09-13q item 5) the TRANSVERSE binding of lateral
+    contiguity, read through ``Patch.cap_t``; a road's longitudinal cap is
+    its role's own."""
     p = Patch.of(surface, law, publication, law_caps)
     return mark_yielded(p, mark_relaxed(p, census_patch(p)))

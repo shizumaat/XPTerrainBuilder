@@ -22,6 +22,7 @@ from __future__ import annotations
 
 
 import dataclasses as _dc
+import math as _math
 import typing as _t
 
 from ..law import Law
@@ -33,12 +34,88 @@ from . import obj8 as _obj8
 from .pack_partition import (PackPartition, Screen, extend_partition,
                              partition_pack)
 
-__all__ = ["plan", "screen_of", "DeckDatum"]
+__all__ = ["plan", "screen_of", "DeckDatum", "ring_ends", "end_line_stations"]
 
 #: ``deck_datum(ring_xy) -> z | None``: the SOLVED surface's value at a
 #: deck ring (``emit.rebake.deck_datum_from_surface`` bound to the emitted
 #: surface by the pipeline); ``None`` = read the mesh at the ring instead.
 DeckDatum = _t.Callable[[_t.Sequence[XY]], "float | None"]
+
+
+# ── §16e (2): THE DECK'S END LINES (owner RULINGS 2026-09-13k) ───────────
+
+def ring_ends(ring: _t.Sequence[tuple[float, float]]
+              ) -> "tuple[tuple[tuple[float, float], tuple[float, float]], tuple[tuple[float, float], tuple[float, float]]] | None":
+    """A deck ring's two END LINES — ``((a, b), (c, d))`` in ``(lat, lon)``,
+    the shape ``Member.deck_ends`` already carries for a SIGNATURE deck.
+
+    R12 read the deck top at the abutments and a SIGNATURE deck's plate
+    hands its ends over (``deck_plate.ends``).  A FLAG deck — an
+    ``ATTR_hard_deck`` ring, which is every bridge OTHH's pack authors —
+    has no plate and stamped ``deck_ends = None``, so §16e (2)'s datum
+    had nothing to read: the ends are derived HERE, from the ring.
+
+    The ring's PRINCIPAL AXIS is the span (a bridge is long); the ends
+    are its two extreme cross-sections.  Every point within a BAND of
+    each extreme (5 % of the span, at least a metre — an end is a
+    chamfered edge, not one vertex) is taken, and the end line joins the
+    two of them furthest apart ACROSS the axis: the deck's own width
+    there.  Plan geometry only — no surface is read, and "on land" is
+    the DATUM's reading, not this one (:func:`anchor_rule._datum_anchor`
+    discards a station on water).
+
+    ``None`` for a ring of fewer than three points or one with no
+    extent."""
+    if len(ring) < 3:
+        return None
+    lat0 = sum(p[0] for p in ring) / len(ring)
+    lon0 = sum(p[1] for p in ring) / len(ring)
+    m_lat, m_lon = _mpd(lat0)
+    pts = [((p[0] - lat0) * m_lat, (p[1] - lon0) * m_lon) for p in ring]
+    n = float(len(pts))
+    mx = sum(q[0] for q in pts) / n
+    my = sum(q[1] for q in pts) / n
+    a = sum((q[0] - mx) ** 2 for q in pts) / n
+    b = sum((q[0] - mx) * (q[1] - my) for q in pts) / n
+    c = sum((q[1] - my) ** 2 for q in pts) / n
+    th = 0.5 * _math.atan2(2.0 * b, a - c)
+    ux, uy = _math.cos(th), _math.sin(th)
+    proj = [((q[0] - mx) * ux + (q[1] - my) * uy,
+             -(q[0] - mx) * uy + (q[1] - my) * ux) for q in pts]
+    lo_s = min(q[0] for q in proj)
+    hi_s = max(q[0] for q in proj)
+    span = hi_s - lo_s
+    if span <= 0.0:
+        return None
+    band = max(1.0, 0.05 * span)
+    out = []
+    for keep in (lambda s: s <= lo_s + band, lambda s: s >= hi_s - band):
+        ix = [i for i, q in enumerate(proj) if keep(q[0])]
+        i1 = min(ix, key=lambda i: (proj[i][1], i))
+        i2 = max(ix, key=lambda i: (proj[i][1], -i))
+        out.append((tuple(ring[i1]), tuple(ring[i2])))
+    return (out[0], out[1])
+
+
+def end_line_stations(ends, step_m: float) -> tuple[tuple[float, float], ...]:
+    """Both end lines sampled every ``step_m`` (``[bridge]
+    abutment_sample_step_m``, the step R12's own abutment reading used),
+    endpoints included — the STATIONS §16e (2)'s datum reads the ground
+    at."""
+    out: list[tuple[float, float]] = []
+    for a, b in (ends or ()):
+        m_lat, m_lon = _mpd(0.5 * (a[0] + b[0]))
+        length = _math.hypot((b[0] - a[0]) * m_lat, (b[1] - a[1]) * m_lon)
+        k = max(2, int(_math.ceil(length / step_m))) if step_m > 0.0 else 2
+        out.extend((a[0] + (b[0] - a[0]) * i / k,
+                    a[1] + (b[1] - a[1]) * i / k) for i in range(k + 1))
+    return tuple(out)
+
+
+def _mpd(lat: float) -> tuple[float, float]:
+    r = _math.radians(lat)
+    return (111_132.954 - 559.822 * _math.cos(2 * r) + 1.175 * _math.cos(4 * r),
+            111_412.84 * _math.cos(r) - 93.5 * _math.cos(3 * r))
 
 
 def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -157,7 +234,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             oid, _opath = part.member_object.get((ui, mi), (m.id, m.resource))
             o = by_id.get(oid)
             members.append(m if o is None
-                           else _with_deck(m, o, to_ll, deck_datum, plates, counts))
+                           else _with_deck(m, o, to_ll, deck_datum, plates, counts,
+                                           law))
         units.append(_dc.replace(u, id=f"unit:{ui}", members=tuple(members)))
     flat = _flat_datum(airport, to_ll)
     if flat is not None:
@@ -167,13 +245,14 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
 
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
-               counts: dict[str, int]) -> Member:
+               counts: dict[str, int], law: Law | None = None) -> Member:
     """``m`` with the PLANAR and SOLVED fields attached: the hard-deck
     ring and its datum (or the signature plate's ends / profile /
     stations) and the tunnel-wall plate's height and band stations.
     These are the only member fields the load-time partition cannot
     carry — every one of them reads a planar product or the solve."""
     deck_ring = deck_top_y = deck_datum_z = deck_ends = None
+    deck_end_stations: tuple[tuple[float, float], ...] = ()
     deck_profile: tuple[tuple[float, float], ...] = ()
     deck_stations: tuple[tuple[float, float, float], ...] = ()
     if o.hard_deck is not None and o.deck_top_z is not None:
@@ -195,6 +274,20 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
             deck_stations = tuple((*to_ll(sx, sy), float(y)) for (sx, sy), y in pl.stations)
         else:
             deck_datum_z = deck_datum(ring_xy) if deck_datum is not None else None
+            if deck_datum_z is None and law is not None:
+                # §16e (2): A FLAG DECK OVER NO GRADED FACE GETS ITS END
+                # LINES FROM ITS RING.  R12's abutment reading needs the
+                # deck's ends and only a SIGNATURE deck's plate hands
+                # them over; OTHH's bridges are all flag decks, and three
+                # of them (Bridge_01/04/05) stand over the canal, where
+                # the solved surface has no face at all and the datum the
+                # seat era read is exactly this one.
+                deck_ends = ring_ends(deck_ring)
+                deck_end_stations = end_line_stations(
+                    deck_ends,
+                    law.tables.structures.bridge.abutment_sample_step_m)
+                if deck_end_stations:
+                    counts["deck_end_lines"] = counts.get("deck_end_lines", 0) + 1
         counts["deck_members"] += 1
     plate_y = None
     plate_clearance = 0.0
@@ -209,7 +302,8 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_datum_z=deck_datum_z, deck_kind=o.deck_kind,
                        deck_ends=deck_ends, deck_profile=deck_profile,
                        deck_evidence=tuple(o.deck_evidence),
-                       deck_stations=deck_stations, plate_y=plate_y,
+                       deck_stations=deck_stations,
+                       deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
                        plate_clearance_m=plate_clearance)
 

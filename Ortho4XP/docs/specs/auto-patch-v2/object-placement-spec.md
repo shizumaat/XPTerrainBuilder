@@ -2687,9 +2687,11 @@ body).  Matched arms on the 1.0.320 rebake plan + `LEMD.graded.json`,
 
 A body's float, burial, seam or step is CRITICAL when it exceeds 0.5 m (`[cockpit]
 visual_m`) and stands where a pilot looks — inside the boundary at taxi scale, or in
-the approach corridor; under 0.5 m it is a REPORT. On surfaces the aircraft rolls on,
-an object that stands on the pavement (a sign, a light, a marker) is judged at the
-motion threshold 0.05 m. The torn-seam census, the §15/§16 floats and the refusal set
+the approach corridor; under 0.5 m it is a REPORT. An object never moves the aircraft
+(RULINGS 2026-09-12ao): a body standing ON rolled-on pavement is judged at the VISUAL
+threshold 0.5 m at its feet — a pilot taxis past it at metres — and its 0.05 m
+reading is a REPORT (the first wording put it at the motion threshold; measured on
+the 1.0.320 frame that priced 7,124 feet, 6× `split_tol_m`'s own admission). The torn-seam census, the §15/§16 floats and the refusal set
 are printed in that frame first (lane `v2cockpit`): CRITICAL by count and worst
 coordinate, then REPORT. `split_tol_m` 0.3 stays the CUT tolerance (a partition
 choice), not an acceptance.

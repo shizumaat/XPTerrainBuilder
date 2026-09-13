@@ -160,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(rec['tunnels'])}  basins {len(rec['basins'])}  corridor refusals "
               f"{len(rec['corridor_refused'])}  tunnel refusals {len(rec['tunnel_refused'])}  "
               f"basin refusals {len(rec['basin_refused'])}  -> {out / 'structures.json'}")
+        gr = rec["grade_read"]
+        print(f"{airport.icao} at-grade read: {gr['seconds']:.2f} s, {gr['calls']} placements, "
+              f"{gr['unions']} clip+union, {gr['vertices']} vertices")
         for c in rec["corridors"]:
             print(f"  corridor {c['id']}: edge_wall {c['edge_wall']}  mouth {c['mouth_kind']}  "
                   f"ends {c['ends']}  length {c['length_m']:.1f} m  width {c['width_m']:.1f} m  "
@@ -427,6 +430,10 @@ def structure_records(airport, cl, law) -> dict:
                     "ramp_rings_ll": [[list(ll(p)) for p in r] for r in b.ramp_rings],
                     "notes": list(b.notes)} for b in basins],
         "basin_refused": list(bstats.refused),
+        # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii))
+        "grade_read": {"seconds": round(bstats.grade_geometry_s, 2),
+                       "calls": bstats.grade_calls, "unions": bstats.grade_unions,
+                       "vertices": bstats.grade_vertices},
         "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},
     }
 

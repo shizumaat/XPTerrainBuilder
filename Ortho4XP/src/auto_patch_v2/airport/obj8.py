@@ -43,6 +43,7 @@ import hashlib
 import math
 import os
 import pickle
+import time
 import typing as _t
 
 import numpy as np
@@ -58,7 +59,7 @@ __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjRepor
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
-           "area_fraction_above",
+           "area_fraction_above", "GradeStats",
            "HARD", "HARD_DECK"]
 
 STOCK_LIBRARY_PREFIX = "lib/"
@@ -309,12 +310,26 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
 
 from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
                         _bulk_polys, _clip_component, _clip_both)
+from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
+from .obj8_grade import memo_union as _memo_union          # noqa: E402
+from .obj8_grade import planes as _planes                  # noqa: E402
 
 class ResourceCache:
     """Parse each resource ONCE; components once."""
 
     def __init__(self, thickness_m: float) -> None:
         self.thickness_m = thickness_m
+        #: RULINGS 2026-09-13bp (i)/(ii): the at-grade / above-grade clip
+        #: and union depend only on ``(resource, the components' planes)``,
+        #: never on where the placement stands — memoised HERE, per
+        #: RESOURCE, in the object's own frame, with the placement affine
+        #: applied afterwards.  The placement-keyed caches that used to
+        #: hold one ~25 MB transformed geometry per placement are gone.
+        self.grade_memo: dict = {}
+        self.cover_memo: dict = {}
+        #: the second level: one COMPONENT's clip at one plane
+        self.clip_memo: dict = {}
+        self.grade = GradeStats()
         self._geom: dict[str, ObjGeometry | None] = {}
         self._comps: dict[str, list[Component]] = {}
         self._range: dict[str, tuple[float, float, float, float, float, float]] = {}
@@ -830,10 +845,13 @@ def _windowed(v: np.ndarray, comp: Component, box: tuple[float, float, float, fl
 
 
 def _components_near(cache: "ResourceCache", o: "PlacedObject", within
-                     ) -> tuple[list[Component], tuple[float, float, float, float] | None]:
-    """The components whose plan bounds overlap the window, and the
-    window's authored bbox (all of them, ``None``, without a window)."""
-    comps = cache.components(o.resolved)
+                     ) -> tuple[list[tuple[int, Component]],
+                                tuple[float, float, float, float] | None]:
+    """The components whose plan bounds overlap the window WITH THEIR
+    INDEX in the resource's component list (the index is half the memo
+    key of RULINGS 2026-09-13bp (i)), and the window's authored bbox (all
+    of them, ``None``, without a window)."""
+    comps = list(enumerate(cache.components(o.resolved)))
     if within is None:
         return comps, None
     box = _authored_bbox(o.xy, o.heading_deg, within)
@@ -863,9 +881,15 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
     if g is None:
         return None
     base = o.anchor_z + o.agl_m
-    rings = []
+    mat = placement_affine(o.xy, o.heading_deg)
     comps, box = _components_near(cache, o, within)
-    for comp in comps:
+    if within is None:
+        # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
+        keyed = _planes(o, comps, dem_z, base, contact_band_m, True, _to_frame)
+        return _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed,
+                                  above_clip), mat)
+    rings = []
+    for _ci, comp in comps:
         cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
         local = float(dem_z(cx, cy))
         if math.isnan(local):
@@ -878,7 +902,7 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
             u = _clip_component(g.vertices, comp, plane_above, False)
             if u is not None:
                 rings.append(u)
-    return _transformed(rings, placement_affine(o.xy, o.heading_deg))
+    return _transformed(rings, mat)
 
 
 def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
@@ -903,7 +927,16 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     mat = placement_affine(o.xy, o.heading_deg)
     lines, polys = [], []
     comps, box = _components_near(cache, o, within)
-    for comp in comps:
+    if select is None and within is None:
+        # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
+        keyed = _planes(o, comps, dem_z, base, contact_band_m, False, _to_frame)
+        both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip)
+        if both is None:
+            return None, None
+        lu, pu = both
+        tf = _affinity.affine_transform
+        return (None if lu is None else tf(lu, mat)), _place(pu, mat)
+    for _ci, comp in comps:
         if select is not None and not select(comp):
             continue
         cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
@@ -925,13 +958,22 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     return (None if lu is None or lu.is_empty else lu), _transformed(polys, mat)
 
 
-def _transformed(parts: list, mat: list[float]):
-    if not parts:
-        return None
-    u = unary_union(parts)
-    if u.is_empty:
+def _place(u, mat: list[float]):
+    """One LOCAL-frame union taken to the placement's frame (the second
+    half of RULINGS 2026-09-13bp (i)): the rigid placement affine commutes
+    with the union, so the union is done once per resource and only this
+    is paid per placement."""
+    if u is None:
         return None
     u = _affinity.affine_transform(u, mat)
     if not u.is_valid:
         u = u.buffer(0)
     return None if u.is_empty else u
+
+
+def _transformed(parts: list, mat: list[float]):
+    if not parts:
+        return None
+    u = unary_union(parts)
+    return None if u.is_empty else _place(u, mat)
+

@@ -127,6 +127,7 @@ import dataclasses as _dc
 import math
 import os
 import typing as _t
+from collections import OrderedDict as _od
 
 import shapely
 from shapely.geometry import LineString, Point, Polygon
@@ -159,6 +160,16 @@ class BasinStats:
 
     objects: obj8.ObjReport | None = None
     object_read_s: float = 0.0
+    #: THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii)).  The
+    #: rim and cover clips were UNTIMED beside a 6.8e-06 s
+    #: ``object_read_s``, so VHHH's 2,626 s planar stage read as a hang.
+    #: ``grade_calls`` is the placements asked, ``grade_unions`` the
+    #: clip+union actually run (one per distinct ``(resource, planes)``),
+    #: ``grade_vertices`` what they consumed.
+    grade_geometry_s: float = 0.0
+    grade_calls: int = 0
+    grade_unions: int = 0
+    grade_vertices: int = 0
     regions: int = 0
     basins: int = 0
     refused: list[str] = _dc.field(default_factory=list)
@@ -363,6 +374,54 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
     return out
 
 
+#: How many PLACEMENT-frame at-grade geometries the region loop keeps
+#: alive at once (owner RULINGS 2026-09-13bp (ii)).  A ring asks each of
+#: its members two or three times in one iteration and rings are disjoint
+#: regions, so a window this wide is all the reuse there is — and it
+#: bounds the retention that took VHHH's worker to 34.9 GB.  The
+#: RESOURCE-level clip and union behind it are memoised for the whole
+#: pass on the shared ``ResourceCache``; this only re-applies an affine.
+_GRADE_WINDOW = 16
+
+
+class _LRU:
+    """A tiny bounded most-recently-used map (``None`` = miss)."""
+
+    def __init__(self, cap: int) -> None:
+        self._cap = cap
+        self._d: "_od[str, object]" = _od()
+
+    def get(self, k: str):
+        v = self._d.get(k)
+        if v is not None:
+            self._d.move_to_end(k)
+        return v
+
+    def put(self, k: str, v) -> None:
+        self._d[k] = v
+        self._d.move_to_end(k)
+        while len(self._d) > self._cap:
+            self._d.popitem(last=False)
+
+
+def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
+    """The at-grade read's timer into the report, and the vertex-budget
+    REFUSAL naming the pack (owner RULINGS 2026-09-13bp (iii)) — instead
+    of 44 silent minutes."""
+    st = cache.grade
+    stats.grade_geometry_s = st.seconds
+    stats.grade_calls = st.calls
+    stats.grade_unions = st.unions
+    stats.grade_vertices = st.vertices
+    if st.over_budget:
+        stats.refused.append(
+            f"at-grade read REFUSED over the vertex budget: pack {st.pack()} — "
+            f"{st.calls} custom objects over {len(st.resources)} resources, "
+            f"{st.vertices} vertices, {st.seconds:.1f} s past "
+            f"rim_read_vertex_budget = {int(bl.rim_read_vertex_budget)}; the rim and "
+            f"cover diagnostics of the regions read after it are EMPTY")
+
+
 def build_basins(airport: Airport, classification: Classification, law: Law,
                  tunnels: _t.Sequence[Tunnel], objects: _t.Sequence[obj8.PlacedObject],
                  cache: obj8.ResourceCache | None = None,
@@ -401,8 +460,31 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
     boxed = [o for o in objects if o.plan_bbox is not None]
     box_tree = STRtree([o.plan_bbox for o in boxed]) if boxed else None
-    cover_cache: dict[str, object] = {}
-    grade_cache: dict[str, tuple] = {}
+    # ── THE AT-GRADE READ (owner RULINGS 2026-09-13bp (i)/(ii)) ──────────
+    # The clip + union is memoised per RESOURCE on the shared cache; what
+    # is left here is the placement affine, which is cheap.  These two are
+    # a small BOUNDED window over the ring's own members (a ring asks for
+    # the same placement three times) — never one ~25 MB geometry per
+    # placement retained to the end of the pass (VHHH: 2.2 -> 10.0 GB in
+    # 7 minutes, the app's worker 34.9 GB).
+    cache.grade.vertex_budget = int(bl.rim_read_vertex_budget)
+    grade_cache: _LRU = _LRU(_GRADE_WINDOW)
+    cover_cache: _LRU = _LRU(_GRADE_WINDOW)
+
+    def grade_of(o) -> tuple:
+        v = grade_cache.get(o.id)
+        if v is None:
+            v = obj8.at_grade_geometry(o, cache, airport.dem.z, bl.contact_band_m)
+            grade_cache.put(o.id, v)
+        return v
+
+    def cover_of(o):
+        v = cover_cache.get(o.id)
+        if v is None:
+            v = (obj8.above_grade_footprint(o, cache, airport.dem.z, bl.contact_band_m),)
+            cover_cache.put(o.id, v)
+        return v[0]
+
     grid = law.tables.emit.identity.min_distinct_spacing_m
     basins: list[Basin] = []
     new_cells: list[tuple[str, str, Polygon, tuple[tuple[XY, ...], ...]]] = []
@@ -414,12 +496,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         wits = [w for o in members for w in o.witnesses if _outer(w).intersects(ring)]
         member_ids = {o.id for o in members}
         plate = unary_union([w.plate for w in wits]).intersection(ring).area
-        for o in members:
-            if o.id not in grade_cache:
-                grade_cache[o.id] = obj8.at_grade_geometry(o, cache, airport.dem.z,
-                                                           bl.contact_band_m)
         # ── rule 3: the rim diagnostic (reported, never a refusal) ────
-        lines = [grade_cache[o.id][0] for o in members if grade_cache[o.id][0] is not None]
+        lines = [g0 for g0 in (grade_of(o)[0] for o in members) if g0 is not None]
         rim_geom = unary_union(lines) if lines else None
         open_n, n, first = _rim_open(ring, rim_geom, bl.rim_sample_step_m, bl.footprint_close_m)
         rim_note = (f"rim stations beyond {bl.footprint_close_m} m of the shells' at-grade "
@@ -432,14 +510,12 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             covering = []
             for i in box_tree.query(ring, predicate="intersects"):
                 o = boxed[int(i)]
-                if o.id not in cover_cache:
-                    cover_cache[o.id] = obj8.above_grade_footprint(
-                        o, cache, airport.dem.z, bl.contact_band_m)
-                if cover_cache[o.id] is not None:
-                    covering.append(cover_cache[o.id])
+                cv = cover_of(o)
+                if cv is not None:
+                    covering.append(cv)
             if covering:
                 cov = unary_union(covering).intersection(ring).area / ring.area
-        owning = [grade_cache[o.id][1] for o in members if grade_cache[o.id][1] is not None]
+        owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
         own = unary_union(owning) if owning else None
         if own is not None:
             cov_own = own.intersection(ring).area / ring.area
@@ -630,6 +706,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
                                   for t in ramp_faces)))
     stats.basins = len(basins)
+    _record_grade(stats, cache, bl)
     if not basins:
         return classification, (), stats
     knife = unary_union(knives)

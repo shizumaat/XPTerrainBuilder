@@ -466,6 +466,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"{lrep.objects_restored_for_read} restored-for-read (.anchor_bak)", out)
         for up in o.unresolved_paths[:10]:
             _say(f"    unresolved {up}", out)
+    # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii)): it was
+    # untimed beside object_read_s and burned VHHH's 2,626 s planar stage
+    _say(f"[{icao}] at-grade read: {bs.grade_geometry_s:.2f} s, {bs.grade_calls} placements, "
+         f"{bs.grade_unions} clip+union (one per distinct resource/plane), "
+         f"{bs.grade_vertices} vertices", out)
     if bs.regions or bs.refused:
         _say(f"[{icao}] basins: regions {bs.regions}  basins {bs.basins}  cells cut {bs.cells_cut}  "
              f"refused {len(bs.refused)}  under min area {len(bs.small_regions)}", out)

@@ -411,6 +411,17 @@ cuts_runway_family  = false        # a region reaching the runway family is refu
 # the floor down.  Measured at LEMD's T4S pit on 1.0.315: floor_z 588.952 ==
 # solid_min_z 588.952, a clearance of exactly 0.000 m.
 floor_clearance_m   = 0.5
+# THE RIM / COVER READ'S VERTEX BUDGET (owner RULINGS 2026-09-13bp (iii)).
+# Rules 3 and 4 clip and union every member object's shell.  The clip is
+# memoised per (resource, plane) — VHHH's 5,078 custom placements over 785
+# resources collapse to the distinct pairs — but a pack can still be big
+# enough that the read is not worth its wall time, and 44 SILENT minutes is
+# the failure this budget replaces: past this many clipped triangle vertices
+# the read REFUSES, names the pack and leaves the remaining regions' rim and
+# cover diagnostics empty (both are reported diagnostics, never refusals, so
+# no basin is admitted or refused differently).  Measured 2026-09-13: VHHH's
+# whole read is well under it; 0 = unbounded.
+rim_read_vertex_budget = 40000000
 
 [retaining_wall]
 allowed_outside_carves = false     # walls only at tunnel/bridge carves; everything else feathers (08-07 :887-917)

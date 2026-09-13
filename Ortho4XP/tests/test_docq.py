@@ -47,8 +47,11 @@ def test_spec_sub_block_is_exact():
     text = docq.spec_section(docq.SPEC_DESIGN, "§37 (6)")
     lines = text.split("\n")
     assert lines[0].startswith("### §37 (6) ")
-    assert sum(1 for ln in lines if re.match(r"^#{2,3} §", ln)) == 1
-    assert len(text) < 20_000
+    # every block returned is a §37 (6) block — the original and any later
+    # "§37 (6) AMENDED …" heading — and nothing else
+    heads = [ln for ln in lines if re.match(r"^#{2,3} §", ln)]
+    assert heads and all(h.split(" ", 1)[1].startswith("§37 (6)") for h in heads), heads
+    assert len(text) < 30_000
 
 
 def test_object_spec_is_addressable():

@@ -4081,3 +4081,21 @@ z − pad z ≤ 0.05 m inside the reach); taxiway family unmoved (byte-identical
 runway/taxi rows); §17 motion rows on the apron around the terminal not
 worse than today's; LEMD's old terminal and OTHH's clusters re-read under
 the same law (named, not necessarily byte-identical); suite twice.
+
+### §16f (8) A RAMP STAYS IN ITS FAMILY (Fable 2026-09-13; RULINGS 2026-09-13bm item 3) — lane `v2spjc`
+
+SPJC's departures viaduct (`SPJC_LIMANUEVA_xp11_007__b0`) was expelled from
+the terminal family by the `bind_ground_m` test reading its own authored
+descent as a ground disagreement, then seated by the low-side foot at its
+deepest authored point: +7.81 m above the terminal.
+
+8. The family ground test reads a member's disagreement NET OF ITS AUTHORED
+   RELIEF — the HIGH end's `surface − y` (where it meets the building)
+   against the family plane, not the median over all contacts. A member
+   whose geometry descends is not expelled for descending; its low end may
+   sink below grade to the DEM (owner: "stay locked to the building and sink
+   into the ground so its ramp meets DEM").
+
+BAR: `…_007__b0` on `building6`'s plane (19.56) with its low end ≤ DEM; §15
+float 7.85 → ≤ 0.5 m; `ground_off` 7.05 → ≤ 0.5; KCLT / LEMD / OTHH families
+re-read (named).

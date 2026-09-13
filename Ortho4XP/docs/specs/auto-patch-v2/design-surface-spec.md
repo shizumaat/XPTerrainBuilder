@@ -8253,3 +8253,27 @@ sub-0.1 m² triangles 2,301,676 → low hundreds, aspect p50 7,549 → < 5, DSF
 and > 0 on the LEMD control; the pre-flight refuses a synthetic hairline
 `.poly` and passes the four tiles; F-6, the basin, the ramps byte-identical
 where they are not the cause; suite twice.
+
+### §34 (5) NARROWED — NO UNDERPASS UNDER A JETWAY; §29 (7) THE RUNWAY LATERAL BAND (Fable 2026-09-13; RULINGS 2026-09-13bm) — lane `v2spjc`
+
+SPJC (owner 1.0.327, 13bi): `is_aeroway_bridge` admitted 63 `aeroway=jet_bridge`
+footways and bored 86 apron roads under 49–127 m "decks" read off the apron
+cell; the −641/−2525 trunk tunnel's south mouths were dropped 168 / 191 m off
+the field while 192 m beside runway 16R/34L at mid-length.
+
+- **§34 (5):** an underpass is bored only under an aeroway a taxiing aircraft
+  uses (`aeroway in {taxiway, runway}`, `apron` where mapped as a bridge);
+  never `jet_bridge` / `parking_position`, never `highway=footway`.
+  `_deck_half_width` refuses a cell wider than 4× the way's carriageway and
+  falls back to the carriageway; `is_bridge_way` excludes `jet_bridge` so no
+  jetway mints a terrain deck.
+7. **THE RUNWAY LATERAL BAND (§29).** The field region is the cover ⊕
+   `mouth_standoff_m` ∪ the approach corridors ∪ each runway's axis ⊕
+   `runway_view_half_width_m` (design: 250 m) — one derivation shared with
+   the cockpit block. A bore with one mouth built has its sibling admitted
+   under the same test. `mouth_standoff_m` stays 150.
+
+BARS: SPJC underpasses 19 → taxiway-only (named); tunnels at the owner's four
+points 0; the four jetway `bridge_deck:` faces gone; −641/−2525 south mouths
+built at −12.0202431, −77.129278; LEMD −6028's mouth by the same rule (dry);
+LEMD F-6 and KCLT taxiway U unchanged; ONE SPJC build; suite twice.

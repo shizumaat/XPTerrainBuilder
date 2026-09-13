@@ -5362,6 +5362,87 @@ corridors 1 / tunnels 50 / decks 13 / cells cut 2 / bores replaced 2 / mouths re
 move are `-5931@0`, `-5931@1` (clause 2) and `-15327+-5980@0`, `-6028@1` (clause 3).
 
 
+**OTHH, DRY PLANAR REPLAY (no build).**  `corridors 9  wall corridors 73  tunnels
+37  object corridors 9  bores replaced by object 8  mouths replaced 16  decks 0
+object decks 1`, and **`plate mouths 0`, `crest from approach 0`** — the two code
+paths that can move OTHH geometry never fire there.  Its only plates are two 78.7 ×
+18.7 m bridge decks (`OTHH_Bridge_04/05_LOD0_004.obj`, 1.06 m), both DRAPED, so they
+state no datum and change nothing; `not_screened` counts 1,103 library resources the
+06f gate skips before reading.  `read_corridors` builds the same corridor list it
+always did (only its refusal REPORTING changed) and `read_wall_corridors` is
+untouched, so the 9 object corridors and the wall-corridor set are unchanged by
+construction and by measurement alike.
+
+**THE CLOSING TEST — ONE `--engine v2` LEMD BUILD** (`LEMD_20260913T085100`, artifact
+ledger `024bfdf4297b`, body `4e2c8b856dbe`, **355 s, status optimal**, ways 1,229 /
+nodes 25,776, v2-verify rows 1,372; shared repo UNCHANGED).  Base = the owner's
+1.0.325 products.  Harness census, cockpit block first:
+
+* **CRITICAL motion 2 → 1** (the survivor a forbidden grade break, `strip_arc` 0.610 m
+  over 58 m at 40.4625636,−3.5525152); **CRITICAL visual 0 → 0**.
+* law-true **3,573 → 3,588** (+15), adjudicated **1,143 → 1,178** (+35, verdict FAIL
+  both sides).  The rise is groundside: `groundside 15 → 34`.
+* structures line: `... object corridors 1 (signatures 28 of 182 resources screened,
+  213 not screened, thin plates 3, merged 0)  plate mouths 2  crest from approach 2
+  ... tunnels 50  decks 13  cells cut 2  refused 201`.
+
+**BARS (5).**
+
+* **item 5 — MET.**  The mouth stands at the object's north end
+  **40.4987906,−3.5849926** (moved **83.9 m**), **25.1 m** wide, axis on the object's
+  own box centre (**0.0 m**, against the OSM mouth's 1.08 m).  Emitted: ramp way
+  −10962 (39 nodes) at 599.19 under a rim at 604.28 — exactly `bore_datum_m` 5.10.
+  Nothing is emitted within 19 m of the owner's coordinate any more: the portal moved
+  to where the object says it is.
+* **item 6 — MET.**  `tunnel:-5931@1`: mouth ground **610.23 → 607.01**, floor
+  **605.13 → 601.91**, ramp **36 → 144 m**.  The emitted ramp climbs MONOTONICALLY
+  601.05 → 609.76 and reaches the DEM at its top (z − DEM −0.99 … +0.01 over the last
+  three stations) instead of being clipped into a cliff; the mouth rim stands 603.91
+  against the DEM 604.15 at the mouth — **0.24 m ≤ `split_tol_m` 0.3**.
+* **item 9 — MISSED, and the residual is quoted.**  The decks are no longer too low:
+  `bridge_deck:-6291` **603.81 → 608.74** and `bridge_deck:-6288` **603.83 → 608.63**
+  against the apron `pav92` at **606.60** — from **2.77 m BELOW** the apron to
+  **2.03–2.14 m ABOVE** it.  The WEST end is met (the decks reach 609.28 / 609.31
+  against the emitted ground 608.16 there, 1.1 m); the EAST end is not.
+  **ATTRIBUTED**: (a) the deck FACE is clipped to the corridor, so its east edge
+  stands **19.2 m short** of the mapped way's east end, where the profile between the
+  ends still reads 608.3; (b) the end value is the **DEM at the way's end** (606.10),
+  and the apron's own SOLVED value is 606.60 — the `end_ref` cell lookup finds no
+  governed cell AT the end point (the nearest apron node is 13.4 m away), so the
+  relational tie never arms.  **ROUND 2 REFUTED** (a second LEMD build,
+  `LEMD_20260913T090145`, ledger `66cd3ef96192`): making the profile span the deck
+  FACE's extent moved the east edge the WRONG way (608.26 → **608.81**), cost 149
+  verify rows (1,372 → 1,521, `road_cross_section` 22 → 72) and dropped the solve from
+  **optimal to feasible** — the deck ring's vertices ARE the corridor RIM's (one node
+  carries both ways), so the deck cannot move without the rim.  Reverted and recorded
+  beside the law.  **OWED**: the rim/deck vertex coupling, and whether the end's
+  ground should be read by walking the mapped road to the first governed cell
+  (§34 (1)'s route reading) rather than at the way's own end.
+* **every refused resource named — MET.**  182 screened → **184** named object
+  refusals plus 1 named plate refusal; 213 never-screened resources counted.
+* **the other LEMD corridors — MET.**  46 of 50 tunnels byte-identical; the 4 that
+  move are the two the owner named and the two the crest cap corrects.
+* **OTHH byte-identical — MET** (dry read above).
+* Twins `tests/auto_patch_v2/test_v2wallplate.py` (9, one per clause plus the class's
+  two gates).  Suite `tests/auto_patch_v2 tests/test_harness.py` **1,116 passed / 1
+  skipped**, run TWICE.  Targeted v1 tunnel / bridge / portal / object set: 1,333
+  passed, 11 skipped, **3 pre-existing reds** (`test_tunnel_portal_fidelity::
+  TestClearanceAnnulus` — 12p's standing red — plus `test_object_anchor::
+  test_kclt_eight_bake_pool_end_to_end` and `test_tunnel_ramp_run_merge::
+  TestItIsNotAPostPass`; this lane touches no v1 file).
+
+**OWED / NOT DONE.**  (i) `Bridge2.obj` and `LEMD50.obj` are DECK plates over the
+item-9 bridge ways, and §33 (2)'s deck clause ("the deck's top is the object's
+authored top") could not be applied: both are plain `OBJECT` placements DRAPED on the
+solved surface, so their authored top (Bridge2: +1.310 m over an `anchor_z` of 608.36,
+the DEM at the placement) is an OFFSET, not a datum — an absolute top exists only for
+an `OBJECT_MSL` placement or a hard deck.  They are read, recorded and named with that
+verdict, and the owner OWES a reading of whether a draped plate should instead be
+RE-SEATED onto the deck the ends give it.  (ii) §33 (3) is implemented as a CAP rather
+than the clause's literal trigger — flagged above for Fable review.  (iii) item 9's
+bar is missed; the two candidate refinements are named above and neither was attempted
+a third time (the attempt cap).
+
 ## §34 RAMPS FOLLOW THEIR ROUTE; ZONES YIELD TO ROADS; A BRIDGE STATES THE CROSSING (Fable 2026-09-13i) — lane `v2rampwalk`, after `v2wallplate`
 
 Scout `v2lemd325t`, items 1, 7, 8: (7a) `_ramp_top` prices a curved approach by the

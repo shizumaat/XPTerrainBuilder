@@ -218,6 +218,7 @@ and ``arm.py``, ``scratchpad/reltiles/run_release_tile.py`` and
 from __future__ import annotations
 
 import argparse
+import dataclasses as _dc
 import hashlib
 import json
 import os
@@ -2036,6 +2037,20 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
               f"({len(law_tables['files'])} files under {law_tables['dir']})")
     inputs = default_inputs(dem_frame="production",
                             allow_degraded_dem=allow_degraded)
+    # THE REDIRECT MUST REACH v2's LOADER (RULINGS 2026-09-13q, "chip":
+    # ``explain KCLT`` — and this build entry — refused on the pack-dump
+    # freshness guard because ``planar.__main__.default_inputs`` resolves
+    # the mod cache to the ENGINE TREE and reads no environment (a stated
+    # property of that convenience entry point), so the LANE-LOCAL overlay
+    # this harness just armed was ignored and the guard judged the SHARED
+    # root.  The env read belongs HERE, in the harness that set it: the
+    # build then reads and derives its DSF text dumps in the same
+    # lane-local overlay every other derived cache lands in.
+    _mod = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+    if _mod and "airport_mod_cache" not in (
+            (redirects or {}).get("left_shared_for_refresh") or ()):
+        inputs = _dc.replace(inputs, mod_cache_root=_mod)
+        prog.note(f"engine v2 inputs: mod cache {_mod} (the lane-local overlay)")
     law = Law.for_airport(icao)
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []

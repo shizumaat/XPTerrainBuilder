@@ -25,6 +25,7 @@ from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_tear, raoa,
                      resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
                      strip_transverse)
 from .contiguity import lateral_contiguity
+from .eat import eat_ceiling
 from .frontage import frontage_near_miss
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
@@ -62,6 +63,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "frontage_near_miss": frontage_near_miss,
     "wall_in_runway_strip": wall_in_runway_strip,
     "basin_floor_declaration": basin_floor_declaration,
+    # spec §36: the pinned end-around-taxiway rect, read back
+    "eat_ceiling": eat_ceiling,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or

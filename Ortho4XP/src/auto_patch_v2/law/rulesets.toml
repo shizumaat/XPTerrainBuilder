@@ -49,6 +49,30 @@ runway_crown_transverse = 0.010     # declared crown drop each side of the runwa
 pavement_max_grade = 0.05           # every pavement class: airside, groundside pavement, pads, lots, apron, junction, taxi (runway already stricter)
 road_max_grade     = 0.08           # a FREE road only (road-family faces alone): the service-road standard already carried by SERVICE_ROAD_MAX_GRADE (owner 2026-08-03); a road welded into a pavement IS that pavement (free-road ruling) and takes the 5 %
 vertical_curve_k_grade_unit = 0.01  # the UNIT of every ruleset's vertical_curve_k_m: K is metres per THIS much grade change (one per cent, Annex 14 §3.1.16 / AC 150/5300-13 §3.16); a spacing s admits a change of s / K × this (2026-09-06b law 1)
+# ── THE END-AROUND TAXIWAY (spec §36; owner RULINGS 2026-09-13j item 2) ──
+# An end-around taxiway loops BEYOND a runway end and crosses the extended
+# centreline, so the aircraft on it stands directly under the departure /
+# take-off-climb surface — and it is the TAIL, not the wingtip, that
+# penetrates.  The ceiling is therefore
+#
+#     ceiling(D) = end_z + max(0, D − setback) · slope − tail_height
+#
+# which is NORMALLY BELOW the runway end (KATL taxiway Victor ≈ −9 m).  The
+# AUTHORITY states only `slope` / `setback_m` (the `[faa.eat]` / `[icao.eat]`
+# tables below, v1 `config.eat_surface_slope_and_setback`); everything here is
+# a fact about the FEATURE and the AIRCRAFT, so it is stated ONCE.  These are
+# v1's own values, asserted equal by `tests/auto_patch_v2/test_law_tables.py`.
+[common.eat]
+# maximum aircraft TAIL height (m) by code letter — FAA AC 150/5300-13B
+# Table 1-1 ADG by tail height (20 ft = 6.1, 30 = 9.1, 45 = 13.7, 60 = 18.3,
+# 66 = 20.1, 80 = 24.4 m), keyed by the ICAO letter (A<->I ... F<->VI), v1
+# `config.py:5828 TAIL_HEIGHT_BY_CODE_LETTER`
+tail_height_m = { by_letter = { "A" = 6.1, "B" = 9.1, "C" = 13.7, "D" = 18.3, "E" = 20.1, "F" = 24.4 } }
+min_crossing_m = 300.0            # v1 EAT_MIN_CROSSING_DIST_M: closer than this the pavement is an ordinary runway-end connector (at 60 m the code-E ceiling is −18.6 m), not an end-around taxiway
+max_crossing_m = 600.0            # v1 EAT_MAX_CROSSING_DIST_M (owner 2026-08-25d): real EATs cross at 439-482 m; a wrap a kilometre out is the taxi network crossing a projected line
+segment_gap_m = 75.0              # v1 EAT_RECT_SEGMENT_GAP_M: governed vertices closer than this along `s` are ONE crossing
+rect_max_along_m = 150.0          # v1 EAT_RECT_MAX_ALONG_M: "the rect is short along the direction of EAT travel" (KCLT spans 43 m); pavement running ALONG the corridor is another facility
+min_runway_code_number = 3        # v1 EAT_MIN_RUNWAY_CODE_NUMBER: end-around taxiways exist at transport-category runways only (CYXY 02/20 aimed its corridor across the GA apron)
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────
 [icao]
@@ -89,6 +113,13 @@ transverse_max = 0.05                                     # end corridor, symmet
 length_m         = 300.0                                  # radio-altimeter operating area (Annex 14 Att A §4)
 half_width_m     = 60.0
 max_grade_change = { grade = 0.02, per_m = 30.0 }
+
+[icao.eat]
+# EASA CS-ADR-DSN H.435 / Table J-2 + J.480(e) take-off climb surface, code
+# 3/4: 2 % from an inner edge 60 m beyond the runway end (v1
+# `config.py:5909-5913 EAT_EASA_TAKEOFF_CLIMB_SLOPE / EAT_EASA_SETBACK_M`).
+slope     = 0.02
+setback_m = 60.0
 
 [icao.drainage]
 # ICAO states no apron drainage minimum: the family is a no-op (08-13b/14).
@@ -133,6 +164,13 @@ rate_provisional     = false
 transverse_near_min = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # Table 3-6 S-3
 transverse_near_max = { by_letter = { "A" = 0.05, "B" = 0.05, "C" = 0.03, "D" = 0.03, "E" = 0.03, "F" = 0.03 }, default = 0.03 }
 transverse_max      = 0.05                                # beyond the near zone
+
+[faa.eat]
+# FAA AC 150/5300-13B §4.12 / Order 8260.3 TERPS departure surface: 40:1
+# from the departure end, no setback (v1 `config.py:5985-6015
+# EAT_FAA_DEPARTURE_SLOPE / EAT_FAA_SETBACK_M`).
+slope     = 0.025
+setback_m = 0.0
 
 [faa.drainage]
 apron_min_grade       = 0.005                             # surface flatter than this fails drainage (08-13b/14: runways only crown)
